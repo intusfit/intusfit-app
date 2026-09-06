@@ -2,19 +2,13 @@
 /**
  * Backup de imagens no Google Drive — PLUGÁVEL.
  *
- * Fica INATIVO até você colocar a chave da conta de serviço em:
- *     /app/config/gdrive.json
- *
- * Formato esperado do gdrive.json (a chave JSON da conta de serviço do Google,
- * com um campo extra "folder_id" apontando para a sua pasta do Drive):
- * {
- *   "type": "service_account",
- *   "client_email": "...@....iam.gserviceaccount.com",
- *   "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
- *   "folder_id": "ID_DA_SUA_PASTA_NO_DRIVE"
- * }
- *
- * Lembre de COMPARTILHAR a pasta do Drive com o client_email (permissão Editor).
+ * A credencial mora no BANCO DE DADOS (tabela intus_secrets), não em arquivo.
+ * Motivo: em 06/09/2026 o arquivo app/config/gdrive.json (onde a chave ficava
+ * antes) desapareceu do servidor sozinho, sem log, causa não confirmada
+ * (suspeita: o próprio deploy via Git limpando arquivo fora do repositório,
+ * ou um scanner de segurança da hospedagem reagindo a uma chave privada
+ * dentro da pasta pública do site). Banco de dados não é tocado por nenhum
+ * dos dois. Quem preenche a chave: admin/gdrive-key.php (área logada).
  *
  * gdriveDisponivel(): bool         — há configuração válida?
  * gdriveBackup($bin,$nome,$mime): ?string  — sobe e devolve o link, ou null se falhar/inativo.
@@ -22,13 +16,50 @@
  * Tudo é best-effort: qualquer falha retorna null e NUNCA quebra o salvamento.
  */
 
-function _gdriveConfigPath() { return __DIR__ . '/../config/gdrive.json'; }
+function _gdriveConn() {
+    static $pdo = 'unset';
+    if ($pdo !== 'unset') return $pdo;
+    try {
+        if (defined('DB_HOST')) {
+            $pdo = new PDO('mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4', DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        } else {
+            $cfg = @include __DIR__ . '/../config/db.php';
+            $pdo = (is_array($cfg) && isset($cfg['host']))
+                ? new PDO('mysql:host=' . $cfg['host'] . ';dbname=' . $cfg['database'] . ';charset=utf8mb4', $cfg['username'], $cfg['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION])
+                : null;
+        }
+    } catch (Throwable $e) { $pdo = null; }
+    return $pdo;
+}
+
+function _gdriveEnsureTable(PDO $pdo) {
+    static $done = false;
+    if ($done) return;
+    $pdo->exec("CREATE TABLE IF NOT EXISTS intus_secrets (
+        chave VARCHAR(80) PRIMARY KEY,
+        valor LONGTEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $done = true;
+}
+
+function _gdriveKey() {
+    $pdo = _gdriveConn();
+    if (!$pdo) return null;
+    try {
+        _gdriveEnsureTable($pdo);
+        $st = $pdo->prepare("SELECT valor FROM intus_secrets WHERE chave = 'gdrive_config' LIMIT 1");
+        $st->execute();
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $k = json_decode($row['valor'], true);
+        return is_array($k) ? $k : null;
+    } catch (Throwable $e) { return null; }
+}
 
 function gdriveDisponivel() {
     if (!function_exists('curl_init') || !function_exists('openssl_sign')) return false;
-    $p = _gdriveConfigPath();
-    if (!is_file($p)) return false;
-    $k = json_decode(@file_get_contents($p), true);
+    $k = _gdriveKey();
     return is_array($k) && !empty($k['client_email']) && !empty($k['private_key']) && !empty($k['folder_id']);
 }
 
@@ -68,8 +99,8 @@ function _gdriveToken($key) {
 
 function gdriveBackup($bin, $nome, $mime = 'image/jpeg') {
     try {
-        if (!gdriveDisponivel()) return null;
-        $key = json_decode(@file_get_contents(_gdriveConfigPath()), true);
+        $key = _gdriveKey();
+        if (!is_array($key) || empty($key['client_email']) || empty($key['private_key']) || empty($key['folder_id'])) return null;
         $token = _gdriveToken($key);
         if (!$token) return null;
 
