@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Início — Intus</title>
+  <script src="_mock.js?v=20260520d"></script>
+  <script src="api.js?v=20260520d"></script>
+  <style>
+    .checklist-card { padding: 16px; }
+    .checklist-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .checklist-header h3 { font-size: 14px; font-weight: 800; color: var(--text); margin: 0; }
+    .checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border, #2a2a2a); }
+    .checklist-item:last-child { border-bottom: none; }
+    .checklist-item input[type="checkbox"] { accent-color: #7FFF00; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
+    .checklist-item .cl-text { flex: 1; font-size: 13px; color: var(--text); cursor: pointer; }
+    .checklist-item.done .cl-text { text-decoration: line-through; opacity: .5; }
+    .checklist-item .cl-date { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+    .checklist-item .cl-remove { background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer; padding: 2px 4px; opacity: .5; }
+    .checklist-item .cl-remove:hover { opacity: 1; color: #f87171; }
+    .cl-add-row { display: flex; gap: 8px; margin-top: 10px; }
+    .cl-add-row input { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border, #333); background: var(--bg, #111); color: var(--text); font-size: 12px; font-family: inherit; }
+    .cl-add-row input:focus { border-color: #7FFF00; outline: none; }
+    .cl-add-row button { padding: 8px 14px; border-radius: 8px; border: none; background: #7FFF00; color: #000; font-size: 12px; font-weight: 700; cursor: pointer; }
+
+    .hide-values-btn { background: none; border: 1px solid var(--border, #333); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all .15s; }
+    .hide-values-btn:hover { border-color: var(--brand); color: var(--text); }
+    .hide-values-btn.active { border-color: var(--brand); background: rgba(127,255,0,.08); color: var(--brand); }
+    .valor-hidden { filter: blur(6px); user-select: none; pointer-events: none; transition: filter .2s; }
+
+    .notes-block { padding: 16px; }
+    .notes-block h3 { font-size: 14px; font-weight: 800; color: var(--text); margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+    .notes-block textarea { width: 100%; min-height: 100px; resize: vertical; border: 1px solid var(--border, #333); border-radius: 10px; padding: 12px 14px; font-size: 13px; font-family: inherit; background: var(--bg, #111); color: var(--text); line-height: 1.6; }
+    .notes-block textarea:focus { border-color: #7FFF00; outline: none; }
+    .notes-block .notes-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+    .notes-block .notes-saved { font-size: 11px; color: var(--text-muted); }
+
+    .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .overview-tile { background: var(--bg2, #1a1a1a); border: 1px solid var(--border, #2a2a2a); border-radius: 10px; padding: 14px; text-align: center; }
+    .overview-tile .ov-icon { font-size: 20px; margin-bottom: 6px; }
+    .overview-tile .ov-value { font-size: 22px; font-weight: 900; color: var(--text); font-variant-numeric: tabular-nums; }
+    .overview-tile .ov-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 700; margin-top: 4px; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Início');
+
+// One-shot: na primeira carga após login REAL no backend, empurra dados
+// locais (atletas + mensalidades) para o servidor. Idempotente — só roda
+// uma vez por dispositivo (flag `intus-migrado-v1` no localStorage).
+(async () => {
+  try {
+    if (typeof API !== 'undefined' && API.migrarLocalParaBackend) {
+      const r = await API.migrarLocalParaBackend();
+      if (r && (r.atletas?.criados || r.mensalidades?.criados)) {
+        console.log('[Intus] Migração inicial:', r);
+      }
+    }
+    if (typeof API !== 'undefined' && API.syncExerciseCatalog) {
+      await API.syncExerciseCatalog();
+    }
+    // Healthcheck diário (1x por dia por dispositivo)
+    const hcFlag = 'intus-healthcheck-' + new Date().toISOString().slice(0,10);
+    if (!localStorage.getItem(hcFlag) && typeof API_BASE !== 'undefined') {
+      localStorage.setItem(hcFlag, '1');
+      fetch(API_BASE + '/healthcheck.php').catch(() => {});
+    }
+  } catch (e) { /* silencioso, não bloqueia o painel */ }
+})();
+
+const main = document.getElementById('main-content');
+let _hideValues = localStorage.getItem('intus-hide-values') === '1';
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d){ return d ? new Date(d+'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+function diasAte(d){
+  if(!d) return null;
+  const a = new Date(d+'T00:00:00'); const h = new Date(); h.setHours(0,0,0,0);
+  return Math.round((a - h)/86400000);
+}
+function brl(v){ return 'R$ ' + (parseFloat(v||0)).toFixed(2).replace('.', ','); }
+function brlV(v) {
+  const txt = brl(v);
+  return _hideValues ? '<span class="valor-hidden">' + txt + '</span>' : txt;
+}
+
+function toggleHideValues() {
+  _hideValues = !_hideValues;
+  localStorage.setItem('intus-hide-values', _hideValues ? '1' : '0');
+  render();
+}
+
+// ── NOTAS ────────────────────────────────────────────────────────────────
+function _notesKey() {
+  const uid = (Sessao.atual()?.idusuario) || 0;
+  return 'intus-notes-' + uid;
+}
+function getNotes() { return localStorage.getItem(_notesKey()) || ''; }
+function saveNotes(text) {
+  localStorage.setItem(_notesKey(), text);
+  const el = document.getElementById('notes-saved-indicator');
+  if (el) { el.textContent = 'Salvo'; setTimeout(() => { if (el) el.textContent = ''; }, 2000); }
+}
+let _notesSaveTimer = null;
+function onNotesInput(textarea) {
+  if (_notesSaveTimer) clearTimeout(_notesSaveTimer);
+  _notesSaveTimer = setTimeout(() => saveNotes(textarea.value), 800);
+}
+
+const JANELA_VENCER = 7; // próximos 7 dias já aparecem como "a vencer"
+
+function carregarDados() {
+  let atletas      = JSON.parse(localStorage.getItem('intus-atletas')      || '[]');
+  let mensalidades = JSON.parse(localStorage.getItem('intus-mensalidades') || '[]');
+  const fichas       = JSON.parse(localStorage.getItem('intus-fichas')       || '[]');
+
+  // Professor só vê dados dos seus clientes
+  atletas = API.filtrarMeusAtletas(atletas);
+  if (!Sessao.atual()?.admin) {
+    const _ids = new Set(atletas.map(a => Number(a.idatleta)));
+    mensalidades = mensalidades.filter(m => _ids.has(Number(m.idatleta)));
+  }
+
+  // === MATRÍCULAS (Mensalidades)
+  const mensVencidas = [];
+  const mensAVencer  = [];
+  mensalidades.forEach(m => {
+    if (m.stpgto === 'S') return; // já pago, ignora
+    const d = diasAte(m.dtvencimento);
+    if (d === null) return;
+    if (d < 0)                        mensVencidas.push({ ...m, dias: Math.abs(d) });
+    else if (d <= JANELA_VENCER)      mensAVencer.push({ ...m, dias: d });
+  });
+  mensVencidas.sort((a,b)=> b.dias - a.dias);   // mais atrasadas primeiro
+  mensAVencer.sort((a,b)=> a.dias - b.dias);    // mais próximas primeiro
+
+  // === TREINOS (fichas — dtfim determina validade; se não tiver, considera 90 dias após dtinicio)
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const treVencidos = [];
+  const treAVencer  = [];
+  fichas.forEach(f => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    if (!atleta) return;
+    // calcula data de fim
+    let fim = f.dtfim;
+    if (!fim && f.dtinicio) {
+      const base = new Date(f.dtinicio + 'T00:00:00');
+      base.setDate(base.getDate() + 90);
+      fim = base.toISOString().slice(0,10);
+    }
+    if (!fim) return;
+    const d = diasAte(fim);
+    if (d === null) return;
+    const item = {
+      idficha:  f.idficha,
+      idatleta: f.idatleta,
+      nome:     atleta.nome,
+      dtfim:    fim,
+      dias:     Math.abs(d),
+    };
+    if (d < 0)                        treVencidos.push(item);
+    else if (d <= JANELA_VENCER)      treAVencer.push(item);
+  });
+  treVencidos.sort((a,b)=> b.dias - a.dias);
+  treAVencer.sort((a,b)=> a.dias - b.dias);
+
+  // === Resumo financeiro (só se admin visualizar)
+  const receberVencidas = mensVencidas.reduce((s,m)=> s + parseFloat(m.vlpagar||0), 0);
+  const receberAVencer  = mensAVencer.reduce((s,m)=> s + parseFloat(m.vlpagar||0), 0);
+  const pagasNoMes = mensalidades.filter(m => {
+    if (m.stpgto !== 'S') return false;
+    const d = m.dtpagamento || m.dtpgto;
+    if (!d) return false;
+    const dd = new Date(d+'T00:00:00');
+    return dd.getMonth() === hoje.getMonth() && dd.getFullYear() === hoje.getFullYear();
+  });
+  const recebidoMes = pagasNoMes.reduce((s,m)=> s + parseFloat(m.vlpagar||0), 0);
+
+  // Previsão de faturamento (pendentes a vencer em 30 dias)
+  const previsao30d = mensalidades.filter(m => {
+    if (m.stpgto === 'S') return false;
+    const dd = diasAte(m.dtvencimento);
+    return dd !== null && dd >= 0 && dd <= 30;
+  }).reduce((s,m) => s + parseFloat(m.vlpagar||0), 0);
+
+  // Overview metrics
+  const totalAlunos = atletas.length;
+  const alunosAtivos = atletas.filter(a => {
+    return mensalidades.some(m => {
+      if (Number(m.idatleta) !== Number(a.idatleta)) return false;
+      const d = diasAte(m.dtvencimento);
+      return m.stpgto === 'S' || (d !== null && d >= 0);
+    });
+  }).length;
+  const treinosAtivos = fichas.filter(f => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    if (!atleta) return false;
+    let fim = f.dtfim;
+    if (!fim && f.dtinicio) {
+      const base = new Date(f.dtinicio + 'T00:00:00');
+      base.setDate(base.getDate() + 90);
+      fim = base.toISOString().slice(0,10);
+    }
+    if (!fim) return false;
+    return diasAte(fim) >= 0;
+  }).length;
+  const msgNaoLidas = (JSON.parse(localStorage.getItem('intus-mensagens') || '[]'))
+    .filter(m => m.stlido === 'N' && m.remetente === 'aluno').length;
+
+  return { atletas, mensVencidas, mensAVencer, treVencidos, treAVencer,
+           receberVencidas, receberAVencer, recebidoMes, previsao30d,
+           totalAlunos, alunosAtivos, treinosAtivos, msgNaoLidas };
+}
+
+// ── CHECKLIST ─────────────────────────────────────────────────────────────
+function _clKey() {
+  const uid = (Sessao.atual()?.idusuario) || 0;
+  return 'intus-checklist-' + uid;
+}
+function getChecklist() {
+  try { return JSON.parse(localStorage.getItem(_clKey()) || '[]'); } catch { return []; }
+}
+function saveChecklist(items) {
+  localStorage.setItem(_clKey(), JSON.stringify(items));
+}
+
+function getChecklistProgress() {
+  const items = getChecklist();
+  if (items.length === 0) return '';
+  const done = items.filter(i => i.done).length;
+  return `${done}/${items.length} concluídas`;
+}
+
+function renderChecklistItems() {
+  const items = getChecklist();
+  if (items.length === 0) {
+    return `<div style="padding:12px 0;text-align:center;color:var(--text-muted);font-size:12px;">
+      Nenhuma tarefa. Adicione feedbacks, reavaliações, trocas de treino...
+    </div>`;
+  }
+  return items.map((item, i) => `
+    <div class="checklist-item ${item.done ? 'done' : ''}">
+      <input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleChecklistItem(${i})"/>
+      <span class="cl-text" onclick="toggleChecklistItem(${i})">${esc(item.text)}</span>
+      ${item.date ? `<span class="cl-date">${item.date}</span>` : ''}
+      <button class="cl-remove" onclick="removeChecklistItem(${i})" title="Remover">✕</button>
+    </div>
+  `).join('');
+}
+
+function addChecklistItem() {
+  const inp = document.getElementById('cl-new-input');
+  const text = (inp?.value || '').trim();
+  if (!text) return;
+  const items = getChecklist();
+  items.push({ text, done: false, date: new Date().toLocaleDateString('pt-BR') });
+  saveChecklist(items);
+  inp.value = '';
+  refreshChecklist();
+}
+
+function toggleChecklistItem(idx) {
+  const items = getChecklist();
+  if (items[idx]) items[idx].done = !items[idx].done;
+  saveChecklist(items);
+  refreshChecklist();
+}
+
+function removeChecklistItem(idx) {
+  const items = getChecklist();
+  items.splice(idx, 1);
+  saveChecklist(items);
+  refreshChecklist();
+}
+
+function refreshChecklist() {
+  const container = document.getElementById('checklist-items');
+  if (container) container.innerHTML = renderChecklistItems();
+  const progress = document.querySelector('.checklist-header span:last-child');
+  if (progress) progress.textContent = getChecklistProgress();
+}
+
+// Adiciona tarefas automáticas baseadas em dados dos alunos
+function gerarSugestoesChecklist() {
+  const items = getChecklist();
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  let atletas = API.filtrarMeusAtletas(JSON.parse(localStorage.getItem('intus-atletas') || '[]'));
+  const fichas = JSON.parse(localStorage.getItem('intus-fichas') || '[]');
+
+  // Sugestão: treinos que vencem em 7 dias → "Trocar treino de [aluno]"
+  fichas.forEach(f => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    if (!atleta) return;
+    let fim = f.dtfim;
+    if (!fim && f.dtinicio) {
+      const base = new Date(f.dtinicio + 'T00:00:00');
+      base.setDate(base.getDate() + 90);
+      fim = base.toISOString().slice(0,10);
+    }
+    if (!fim) return;
+    const d = diasAte(fim);
+    if (d !== null && d >= 0 && d <= 7) {
+      const texto = `Trocar treino de ${atleta.nome.split(' ')[0]} (vence em ${d}d)`;
+      if (!items.find(i => i.text === texto)) {
+        items.push({ text: texto, done: false, date: hoje, auto: true });
+      }
+    }
+  });
+  saveChecklist(items);
+}
+
+function render() {
+  const d = carregarDados();
+  const admin = isAdmin();
+
+  const nome = (Sessao.atual()?.nome || 'Professor').split(' ')[0];
+  const saudacao = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Bom dia';
+    if (h < 18) return 'Boa tarde';
+    return 'Boa noite';
+  })();
+
+  const eyeIcon = _hideValues ? '🙈' : '👁️';
+  const eyeLabel = _hideValues ? 'Mostrar valores' : 'Esconder valores';
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- BOAS VINDAS + HIDE VALUES -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h1 style="font-size:24px;font-weight:800;color:var(--text);margin:0;">${saudacao}, ${esc(nome)} 👋</h1>
+          <p style="font-size:13px;color:var(--text-muted);margin:4px 0 0;">
+            Aqui está um resumo do que precisa da sua atenção hoje.
+          </p>
+        </div>
+        <button class="hide-values-btn ${_hideValues ? 'active' : ''}" onclick="toggleHideValues()">
+          ${eyeIcon} ${eyeLabel}
+        </button>
+      </div>
+
+      <!-- VISÃO GERAL -->
+      <div class="overview-grid">
+        ${overviewTile('👥', d.totalAlunos, 'Total Alunos')}
+        ${overviewTile('✅', d.alunosAtivos, 'Ativos')}
+        ${overviewTile('🏋️', d.treinosAtivos, 'Treinos Ativos')}
+        ${overviewTile('💬', d.msgNaoLidas, 'Msg não lidas')}
+        ${overviewTile('⚠️', d.mensVencidas.length, 'Matr. Vencidas')}
+        ${overviewTile('⏳', d.mensAVencer.length, 'Matr. a Vencer')}
+      </div>
+
+      <!-- KPI CARDS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+        ${kpi('Matrículas vencidas', d.mensVencidas.length, 'red',    '⚠️')}
+        ${kpi('Matrículas a vencer', d.mensAVencer.length,  'yellow', '⏳')}
+        ${kpi('Treinos vencidos',    d.treVencidos.length,  'red',    '🏋️')}
+        ${kpi('Treinos a vencer',    d.treAVencer.length,   'yellow', '📅')}
+      </div>
+
+      <!-- GRID: CHECKLIST + NOTAS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
+        <!-- CHECKLIST DO PROFESSOR -->
+        <div class="card checklist-card">
+          <div class="checklist-header">
+            <h3>📋 Checklist do Dia</h3>
+            <span style="font-size:11px;color:var(--text-muted);">${getChecklistProgress()}</span>
+          </div>
+          <div id="checklist-items">${renderChecklistItems()}</div>
+          <div class="cl-add-row">
+            <input id="cl-new-input" placeholder="Nova tarefa..." onkeydown="if(event.key==='Enter')addChecklistItem()"/>
+            <button onclick="addChecklistItem()">+ Adicionar</button>
+          </div>
+        </div>
+
+        <!-- BLOCO DE ANOTAÇÕES -->
+        <div class="card notes-block">
+          <h3>📝 Anotações</h3>
+          <textarea placeholder="Anote lembretes, observações, ideias..." oninput="onNotesInput(this)">${esc(getNotes())}</textarea>
+          <div class="notes-footer">
+            <span id="notes-saved-indicator" class="notes-saved"></span>
+            <span style="font-size:10px;color:var(--text-muted);">Salva automaticamente</span>
+          </div>
+        </div>
+      </div>
+
+      ${admin ? `
+        <!-- RESUMO FINANCEIRO (somente admin) -->
+        <div class="card" style="padding:18px;background:linear-gradient(135deg, rgba(127,255,0,0.06), rgba(127,255,0,0.01));border:1px solid rgba(127,255,0,0.25);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:20px;">💰</span>
+              <span style="font-size:13px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:1px;">Resumo Financeiro — mês atual</span>
+            </div>
+            <a href="financeiro.html" class="btn btn-primary btn-sm" style="text-decoration:none;">Abrir Financeiro →</a>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
+            ${finTile('Recebido no mês',   brlV(d.recebidoMes),     '#7FFF00')}
+            ${finTile('A receber (7 dias)', brlV(d.receberAVencer), '#facc15')}
+            ${finTile('Previsão 30 dias',  brlV(d.previsao30d),    '#60a5fa')}
+            ${finTile('Em atraso',         brlV(d.receberVencidas), '#f87171')}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- GRID 2 COLUNAS: listas -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
+
+        ${listaCard('Matrículas vencidas', d.mensVencidas, 'red', 'mensalidades.html',
+          m => '<td class="td-name">' + esc(m.nmathleta || m.nome || '\u2014') + '</td>' +
+               '<td class="td-date">' + fmtDate(m.dtvencimento) + '</td>' +
+               '<td><span class="pill pill-red">' + m.dias + 'd atrasado</span></td>' +
+               '<td style="text-align:right;">' + brlV(m.vlpagar) + '</td>')}
+
+        ${listaCard('Matrículas a vencer (7 dias)', d.mensAVencer, 'yellow', 'mensalidades.html',
+          m => '<td class="td-name">' + esc(m.nmathleta || m.nome || '\u2014') + '</td>' +
+               '<td class="td-date">' + fmtDate(m.dtvencimento) + '</td>' +
+               '<td><span class="pill pill-yellow">' + (m.dias === 0 ? 'hoje' : 'em ' + m.dias + 'd') + '</span></td>' +
+               '<td style="text-align:right;">' + brlV(m.vlpagar) + '</td>')}
+
+        ${listaCard('Treinos vencidos', d.treVencidos, 'red', 'treinos.html',
+          t => '<td class="td-name">' + esc(t.nome) + '</td>' +
+               '<td class="td-date">' + fmtDate(t.dtfim) + '</td>' +
+               '<td><span class="pill pill-red">' + t.dias + 'd atrasado</span></td>' +
+               '<td style="text-align:right;"><a href="treinos.html" style="color:var(--brand);font-weight:700;font-size:12px;">Revisar</a></td>')}
+
+        ${listaCard('Treinos a vencer (7 dias)', d.treAVencer, 'yellow', 'treinos.html',
+          t => '<td class="td-name">' + esc(t.nome) + '</td>' +
+               '<td class="td-date">' + fmtDate(t.dtfim) + '</td>' +
+               '<td><span class="pill pill-yellow">' + (t.dias === 0 ? 'hoje' : 'em ' + t.dias + 'd') + '</span></td>' +
+               '<td style="text-align:right;"><a href="treinos.html" style="color:var(--brand);font-weight:700;font-size:12px;">Revisar</a></td>')}
+
+      </div>
+
+    </div>
+  `;
+}
+
+// helpers de render ----------------------------------------------------
+function kpi(titulo, valor, cor, icon) {
+  const light = document.body.classList.contains('theme-light');
+  const bg = cor === 'red'    ? (light ? '#fef2f2' : '#2a1111')
+           : cor === 'yellow' ? (light ? '#fffbeb' : '#2a2511')
+           :                    (light ? '#f0fdf4' : '#152010');
+  const bd = cor === 'red'    ? (light ? '#fecaca' : '#4a1d1d')
+           : cor === 'yellow' ? (light ? '#fde68a' : '#4a3a1d')
+           :                    (light ? '#bbf7d0' : '#2a4a10');
+  const fg = cor === 'red'    ? (light ? '#dc2626' : '#f87171')
+           : cor === 'yellow' ? (light ? '#d97706' : '#facc15')
+           :                    (light ? '#16a34a' : '#7FFF00');
+  return `
+    <div class="card" style="padding:16px;background:${bg};border-color:${bd};">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:16px;">${icon}</span>
+        <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;">${titulo}</span>
+      </div>
+      <div style="font-size:28px;font-weight:900;color:${fg};">${valor}</div>
+    </div>
+  `;
+}
+
+function overviewTile(icon, valor, label) {
+  return `
+    <div class="overview-tile">
+      <div class="ov-icon">${icon}</div>
+      <div class="ov-value">${valor}</div>
+      <div class="ov-label">${label}</div>
+    </div>
+  `;
+}
+
+function finTile(titulo, valor, cor) {
+  const light = document.body.classList.contains('theme-light');
+  const bg = light ? 'rgba(0,0,0,.04)' : 'rgba(0,0,0,.25)';
+  const bd = light ? '#e5e7eb' : '#2a2a2a';
+  const fgMap = { '#7FFF00':'#16a34a', '#facc15':'#d97706', '#60a5fa':'#2563eb', '#f87171':'#dc2626' };
+  const fg = light ? (fgMap[cor] || cor) : cor;
+  return `
+    <div style="background:${bg};border:1px solid ${bd};border-radius:10px;padding:12px 14px;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:4px;">${titulo}</div>
+      <div style="font-size:18px;font-weight:900;color:${fg};font-variant-numeric:tabular-nums;">${valor}</div>
+    </div>
+  `;
+}
+
+function listaCard(titulo, lista, cor, link, rowFn) {
+  const badge = cor === 'red' ? 'badge-red' : cor === 'yellow' ? 'badge-yellow' : 'badge-green';
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">${titulo}</span>
+        <span class="card-badge ${badge}">${lista.length}</span>
+      </div>
+      ${lista.length === 0
+        ? `<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">Nada por aqui — tudo em dia! 🎉</div>`
+        : `<table class="data-table">
+            <tbody>
+              ${lista.slice(0, 6).map(item => `<tr>${rowFn(item)}</tr>`).join('')}
+            </tbody>
+           </table>
+           ${lista.length > 6 ? `<div style="padding:10px 14px;text-align:right;"><a href="${link}" style="color:var(--brand);font-size:12px;font-weight:700;">Ver todos (${lista.length}) →</a></div>` : ''}
+        `}
+    </div>
+  `;
+}
+
+// Sincroniza se outra aba alterar qualquer coisa (debounced)
+let _renderTimer = null;
+function _debouncedRender() {
+  if (_renderTimer) clearTimeout(_renderTimer);
+  _renderTimer = setTimeout(render, 300);
+}
+['intus-atletas','intus-mensalidades','intus-fichas','intus-treinos'].forEach(k => {
+  window.addEventListener('storage', ev => { if (ev.key === k) _debouncedRender(); });
+});
+['intus-atletas-change','intus-mensalidades-change','intus-fichas-change','intus-treinos-change'].forEach(ev => {
+  window.addEventListener(ev, _debouncedRender);
+});
+
+// Pre-fetch backend (espelha em Store via API.*) antes de renderizar — assim
+// o dashboard mostra dados frescos cross-device, mesmo que carregarDados()
+// leia do localStorage no caminho rapido.
+async function preFetchBackend() {
+  try {
+    if (typeof API === 'undefined') return;
+    const [atl, fic, tre, mens] = await Promise.all([
+      API.listarAtletas('', true).catch(()=>null),
+      typeof API.listarFichas === 'function'         ? API.listarFichas().catch(()=>null)         : null,
+      typeof API.listarTodosTreinos === 'function'   ? API.listarTodosTreinos().catch(()=>null)   : null,
+      typeof API.listarMensalidades === 'function'   ? API.listarMensalidades().catch(()=>null)   : null,
+    ]);
+    // Espelha no Store (listarFichas e listarTodosTreinos ja espelham; mensalidades nao)
+    if (Array.isArray(atl))  Store.set('atletas',      atl);
+    if (Array.isArray(mens)) Store.set('mensalidades', mens);
+  } catch (e) { /* silencioso */ }
+}
+
+(async () => {
+  render();
+  gerarSugestoesChecklist();
+  await preFetchBackend();
+  gerarSugestoesChecklist();
+  render();
+})();
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) return;
+  await preFetchBackend();
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Planos — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    .planos-wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px; }
+    .planos-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+    .planos-header h1 { font-size: 22px; font-weight: 900; color: var(--text, #fff); }
+    .planos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .plano-card {
+      background: var(--bg2, #1a1a1a); border: 1px solid var(--border, #2a2a2a);
+      border-radius: 14px; padding: 20px; transition: border-color .15s;
+    }
+    .plano-card:hover { border-color: rgba(127,255,0,.3); }
+    .plano-card h3 { font-size: 16px; font-weight: 800; color: var(--text, #fff); margin-bottom: 12px; }
+    .plano-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border, #1e1e1e); }
+    .plano-row:last-child { border-bottom: none; }
+    .plano-row .periodo { font-size: 12px; color: var(--text-muted, #888); font-weight: 600; }
+    .plano-row input {
+      width: 110px; text-align: right; font-size: 14px; font-weight: 700;
+      padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border, #333);
+      background: var(--bg, #111); color: var(--text, #f0f0f0); font-family: inherit;
+    }
+    .plano-row input:focus { border-color: #7FFF00; outline: none; box-shadow: 0 0 0 2px rgba(127,255,0,.1); }
+    .section-title { font-size: 13px; font-weight: 700; color: var(--text-muted, #888); text-transform: uppercase; letter-spacing: .8px; margin: 24px 0 12px; }
+    .toggle-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg2, #1a1a1a); border: 1px solid var(--border, #2a2a2a); border-radius: 10px; margin-bottom: 10px; }
+    .toggle-row label { flex: 1; font-size: 14px; font-weight: 600; color: var(--text, #f0f0f0); }
+    .toggle-row input[type="number"] { width: 60px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; text-align: center; }
+    .toggle-switch { position: relative; width: 44px; height: 24px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-switch .slider {
+      position: absolute; inset: 0; background: #333; border-radius: 24px; cursor: pointer; transition: background .2s;
+    }
+    .toggle-switch .slider::before {
+      content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
+      background: #fff; border-radius: 50%; transition: transform .2s;
+    }
+    .toggle-switch input:checked + .slider { background: #7FFF00; }
+    .toggle-switch input:checked + .slider::before { transform: translateX(20px); }
+    .link-section { margin-top: 16px; }
+    .link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .link-row .link-label { font-size: 12px; color: var(--text-muted); min-width: 100px; font-weight: 600; }
+    .link-row input {
+      flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border, #333);
+      background: var(--bg, #111); color: var(--text); font-size: 13px; font-family: inherit;
+    }
+    .link-row input:focus { border-color: #7FFF00; outline: none; }
+    .prof-section { margin-top: 32px; }
+    .prof-card { background: var(--bg2, #1a1a1a); border: 1px solid var(--border, #2a2a2a); border-radius: 10px; padding: 14px 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
+    .prof-card .name { font-size: 14px; font-weight: 700; color: var(--text); flex: 1; }
+    .prof-card .link-copy { font-size: 11px; color: #7FFF00; cursor: pointer; font-weight: 600; }
+    .prof-card .link-copy:hover { text-decoration: underline; }
+    .btn-save { padding: 12px 24px; border-radius: 10px; border: none; background: #7FFF00; color: #000; font-size: 14px; font-weight: 800; cursor: pointer; font-family: inherit; }
+    .btn-save:hover { opacity: .9; }
+    @media (max-width: 600px) {
+      .planos-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Planos');
+
+const main = document.getElementById('main-content');
+
+if (!isAdmin()) {
+  // Professor: vê apenas seu próprio link personalizado
+  const _curUser = Sessao.atual() || {};
+  const _base = location.origin + location.pathname.replace('premium.html', 'login.html');
+  const _meuLink = `${_base}?ref=${_curUser.idusuario || 0}`;
+  main.innerHTML = `
+    <div style="max-width:700px;margin:0 auto;padding:24px 20px;">
+      <h1 style="font-size:22px;font-weight:900;color:var(--text);margin-bottom:8px;">Meu Link de Cadastro</h1>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;">
+        Envie este link para seus alunos. Quem se cadastrar por ele será automaticamente vinculado a você como professor responsável.
+      </p>
+      <div class="card" style="padding:20px;">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Seu link personalizado</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input id="meu-link-input" class="input" readonly value="${_meuLink}" style="flex:1;min-width:200px;font-size:13px;"/>
+          <button class="btn btn-primary" onclick="copiarMeuLink()">Copiar</button>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:10px;">
+          💡 Dica: salve esse link nos seus favoritos ou compartilhe via WhatsApp com novos alunos.
+        </p>
+      </div>
+    </div>
+  `;
+} else {
+  main.innerHTML = `
+  <div class="planos-wrap">
+    <div class="planos-header">
+      <h1>Gestão de Planos</h1>
+      <button class="btn-save" onclick="salvarPlanos()">Salvar alterações</button>
+    </div>
+
+    <div class="section-title">Teste Grátis</div>
+    <div class="toggle-row">
+      <label>Ativar teste grátis</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="teste-ativo" checked/>
+        <span class="slider"></span>
+      </label>
+      <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">Duração:</span>
+      <input type="number" id="teste-dias" value="7" min="1" max="30"/> <span style="font-size:12px;color:var(--text-muted);">dias</span>
+    </div>
+
+    <div class="section-title">Valores por Plano</div>
+    <div class="planos-grid">
+      <div class="plano-card">
+        <h3>Treino</h3>
+        <div class="plano-row"><span class="periodo">Trimestral</span><input id="v-treino-tri" type="number" value="897"/></div>
+        <div class="plano-row"><span class="periodo">Semestral</span><input id="v-treino-sem" type="number" value="1678"/></div>
+        <div class="plano-row"><span class="periodo">Anual</span><input id="v-treino-anual" type="number" value="2987"/></div>
+      </div>
+      <div class="plano-card">
+        <h3>Dieta</h3>
+        <div class="plano-row"><span class="periodo">Trimestral</span><input id="v-dieta-tri" type="number" value="997"/></div>
+        <div class="plano-row"><span class="periodo">Semestral</span><input id="v-dieta-sem" type="number" value="1689"/></div>
+        <div class="plano-row"><span class="periodo">Anual</span><input id="v-dieta-anual" type="number" value="2997"/></div>
+      </div>
+      <div class="plano-card">
+        <h3>Treino + Dieta</h3>
+        <div class="plano-row"><span class="periodo">Trimestral</span><input id="v-combo-tri" type="number" value="1497"/></div>
+        <div class="plano-row"><span class="periodo">Semestral</span><input id="v-combo-sem" type="number" value="2597"/></div>
+        <div class="plano-row"><span class="periodo">Anual</span><input id="v-combo-anual" type="number" value="4597"/></div>
+      </div>
+    </div>
+
+    <div class="section-title">Planos Detectados (Auto)</div>
+    <p style="font-size:12px;color:var(--text-muted,#888);margin-bottom:12px;">Planos com 2+ matrículas iguais são ativados como pré-definidos. Configure valor e duração padrão (só afeta novas inclusões).</p>
+    <div id="auto-planos-container" style="margin-bottom:20px;"></div>
+
+    <div class="section-title">Links de Pagamento</div>
+    <p style="font-size:12px;color:var(--text-muted,#888);margin-bottom:12px;">Configure os links de pagamento (Stripe, Pix, etc.) para cada plano/período.</p>
+    <div class="link-section" id="links-container">
+      <div class="link-row"><span class="link-label">Treino Tri</span><input id="lk-treino-tri" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Treino Sem</span><input id="lk-treino-sem" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Treino Anual</span><input id="lk-treino-anual" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Dieta Tri</span><input id="lk-dieta-tri" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Dieta Sem</span><input id="lk-dieta-sem" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Dieta Anual</span><input id="lk-dieta-anual" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Combo Tri</span><input id="lk-combo-tri" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Combo Sem</span><input id="lk-combo-sem" placeholder="https://..." value=""/></div>
+      <div class="link-row"><span class="link-label">Combo Anual</span><input id="lk-combo-anual" placeholder="https://..." value=""/></div>
+    </div>
+
+    <div class="prof-section">
+      <div class="section-title">Links Personalizados por Professor</div>
+      <p style="font-size:12px;color:var(--text-muted,#888);margin-bottom:12px;">Cada professor tem um link de cadastro único para enviar aos alunos. O aluno cadastrado por esse link é automaticamente vinculado ao professor.</p>
+      <div id="prof-links-list"></div>
+    </div>
+  </div>
+  `;
+  carregarPlanos();
+  renderProfLinks();
+}
+
+async function carregarPlanos() {
+  try {
+    const saved = await API.getPlanosConfig();
+    if (saved.teste_ativo !== undefined) document.getElementById('teste-ativo').checked = saved.teste_ativo;
+    if (saved.teste_dias) document.getElementById('teste-dias').value = saved.teste_dias;
+    const campos = ['v-treino-tri','v-treino-sem','v-treino-anual','v-dieta-tri','v-dieta-sem','v-dieta-anual','v-combo-tri','v-combo-sem','v-combo-anual'];
+    campos.forEach(id => { if (saved[id]) document.getElementById(id).value = saved[id]; });
+    const links = ['lk-treino-tri','lk-treino-sem','lk-treino-anual','lk-dieta-tri','lk-dieta-sem','lk-dieta-anual','lk-combo-tri','lk-combo-sem','lk-combo-anual'];
+    links.forEach(id => { if (saved[id]) document.getElementById(id).value = saved[id]; });
+    renderAutoPlanos(saved);
+  } catch (e) {}
+}
+
+async function renderAutoPlanos(saved) {
+  saved = saved || {};
+  try {
+    const mensalidades = await API.listarMensalidades('');
+    const descCounts = {};
+    (Array.isArray(mensalidades) ? mensalidades : []).forEach(m => {
+      const desc = (m.dshistorico || '').trim();
+      if (!desc) return;
+      if (!descCounts[desc]) descCounts[desc] = { count: 0, valor: 0, meses: 0 };
+      descCounts[desc].count++;
+      descCounts[desc].valor = Math.max(descCounts[desc].valor, parseFloat(m.vlpagar) || 0);
+      if (m.dtinicio && m.dtvencimento) {
+        const d1 = new Date(m.dtinicio), d2 = new Date(m.dtvencimento);
+        const diffM = Math.round((d2 - d1) / (30.4 * 24 * 60 * 60 * 1000));
+        if (diffM > 0) descCounts[desc].meses = diffM;
+      }
+    });
+    const container = document.getElementById('auto-planos-container');
+    const autoPlanos = Object.entries(descCounts).filter(([k, v]) => v.count >= 2);
+    if (autoPlanos.length === 0) {
+      container.innerHTML = '<p style="font-size:12px;color:var(--text-dim);">Nenhum plano detectado automaticamente ainda. (Precisa de 2+ matrículas com mesmo nome.)</p>';
+      return;
+    }
+    container.innerHTML = autoPlanos.map(([desc, info]) => {
+      const key = 'auto-' + desc.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const savedValor = saved[key + '-valor'] || info.valor || '';
+      const savedMeses = saved[key + '-meses'] || info.meses || '';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="flex:1;font-size:13px;font-weight:600;">${desc} <span style="font-size:10px;color:var(--text-muted);">(${info.count}×)</span></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <label style="font-size:10px;color:var(--text-muted);">R$</label>
+          <input type="number" class="input auto-plano-valor" data-key="${key}-valor" value="${savedValor}" style="width:80px;padding:6px;font-size:12px;"/>
+          <label style="font-size:10px;color:var(--text-muted);">Meses</label>
+          <input type="number" class="input auto-plano-meses" data-key="${key}-meses" value="${savedMeses}" style="width:50px;padding:6px;font-size:12px;"/>
+        </div>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+async function salvarPlanos() {
+  const data = {
+    teste_ativo: document.getElementById('teste-ativo').checked,
+    teste_dias: parseInt(document.getElementById('teste-dias').value) || 7,
+  };
+  const campos = ['v-treino-tri','v-treino-sem','v-treino-anual','v-dieta-tri','v-dieta-sem','v-dieta-anual','v-combo-tri','v-combo-sem','v-combo-anual'];
+  campos.forEach(id => { data[id] = document.getElementById(id).value; });
+  const links = ['lk-treino-tri','lk-treino-sem','lk-treino-anual','lk-dieta-tri','lk-dieta-sem','lk-dieta-anual','lk-combo-tri','lk-combo-sem','lk-combo-anual'];
+  links.forEach(id => { data[id] = document.getElementById(id).value; });
+  // Save auto-detected plan configurations
+  document.querySelectorAll('.auto-plano-valor, .auto-plano-meses').forEach(el => {
+    const key = el.dataset.key;
+    if (key && el.value) data[key] = el.value;
+  });
+  try {
+    await API.savePlanosConfig(data);
+    showToast('Planos salvos com sucesso!');
+  } catch (e) {
+    showToast('Erro ao salvar: ' + (e.message || 'tente novamente'), 'error');
+  }
+}
+
+async function renderProfLinks() {
+  try {
+    const profs = await API.usuarios.listar();
+    const lista = (profs || []).filter(u => u.ativo !== false);
+    const base = location.origin + location.pathname.replace('premium.html', 'login.html');
+    const container = document.getElementById('prof-links-list');
+    if (!lista.length) {
+      container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Nenhum professor cadastrado.</p>';
+      return;
+    }
+    container.innerHTML = lista.map(p => {
+      const link = `${base}?ref=${p.idusuario}`;
+      const badge = p.admin ? '<span style="font-size:10px;font-weight:700;color:#7FFF00;margin-left:6px;">ADMIN</span>' : '';
+      return `<div class="prof-card"><div class="name">${p.nome || p.email}${badge}</div><span class="link-copy" onclick="copiarLink('${link}')">Copiar link</span></div>`;
+    }).join('');
+  } catch {}
+}
+
+function copiarLink(link) {
+  navigator.clipboard.writeText(link).then(() => showToast('Link copiado!')).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = link; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('Link copiado!');
+  });
+}
+
+function copiarMeuLink() {
+  const inp = document.getElementById('meu-link-input');
+  if (!inp) return;
+  copiarLink(inp.value);
+}
+</script>
+</body>
+</html>

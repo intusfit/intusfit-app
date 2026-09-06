@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Gestão — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Gestão');
+
+const main = document.getElementById('main-content');
+
+// ── QUEM ENTRA AQUI ─────────────────────────────────────────────────────────
+// Ser administrador NAO basta, de proposito. O caixa da empresa inteira e uma
+// informacao diferente de "ver o financeiro dos meus alunos": quando outros
+// professores tiverem acesso, cada um vera os numeros dos clientes dele, e essa
+// separacao precisa existir desde agora. A chave e concedida uma a uma em
+// Usuarios e nao vem junto com o pacote de admin.
+if (!podeVerGestao()) {
+  main.innerHTML = `
+    <div class="card" style="padding:40px;text-align:center;color:var(--text-muted);">
+      <div style="font-size:40px;margin-bottom:8px;">🔒</div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px;">Acesso restrito</div>
+      <div style="font-size:13px;max-width:430px;margin:0 auto;line-height:1.6;">
+        Esta tela mostra o caixa da empresa inteira. O acesso é concedido individualmente
+        em <b>Usuários</b>, na permissão "Ver o caixa da empresa" — não vem junto com o
+        perfil de administrador.
+      </div>
+    </div>`;
+  throw new Error('sem permissao');
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d) { return d ? new Date(String(d).slice(0,10) + 'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+function brl(v) { return 'R$ ' + (parseFloat(v || 0)).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d)(?=,))/g, '.'); }
+function num(v) { return parseFloat(v || 0) || 0; }
+function hojeISO() { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,10); }
+function diasAte(d) { if (!d) return null; return Math.round((new Date(String(d).slice(0,10) + 'T00:00:00') - new Date(hojeISO() + 'T00:00:00')) / 86400000); }
+
+let _hide = localStorage.getItem('intus-hide-values') === '1';
+function brlV(v) { return _hide ? '<span class="valor-hidden">' + brl(v) + '</span>' : brl(v); }
+function toggleHide() { _hide = !_hide; localStorage.setItem('intus-hide-values', _hide ? '1' : '0'); render(); }
+
+// ── PERIODO: o mes atual e o padrao ─────────────────────────────────────────
+let periodo = 'mes';
+let customDe = hojeISO().slice(0,8) + '01';
+let customAte = hojeISO();
+
+function limitesPeriodo() {
+  const h = new Date(hojeISO() + 'T00:00:00');
+  const iso = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,10);
+  if (periodo === 'custom') return { de: customDe, ate: customAte, rotulo: fmtDate(customDe) + ' a ' + fmtDate(customAte) };
+  if (periodo === 'mes_ant') {
+    const de = new Date(h.getFullYear(), h.getMonth() - 1, 1);
+    const ate = new Date(h.getFullYear(), h.getMonth(), 0);
+    return { de: iso(de), ate: iso(ate), rotulo: de.toLocaleDateString('pt-BR', { month:'long', year:'numeric' }) };
+  }
+  if (periodo === 'trimestre') {
+    const de = new Date(h.getFullYear(), h.getMonth() - 2, 1);
+    return { de: iso(de), ate: iso(h), rotulo: 'últimos 3 meses' };
+  }
+  if (periodo === 'ano') return { de: h.getFullYear() + '-01-01', ate: iso(h), rotulo: 'ano de ' + h.getFullYear() };
+  const de = new Date(h.getFullYear(), h.getMonth(), 1);
+  return { de: iso(de), ate: iso(h), rotulo: de.toLocaleDateString('pt-BR', { month:'long', year:'numeric' }) };
+}
+
+// ── FONTES ──────────────────────────────────────────────────────────────────
+function lerJSON(chave, vazio) {
+  try { return JSON.parse(localStorage.getItem(chave) || vazio); }
+  catch (e) { console.warn('[gestao] ' + chave + ' ilegivel:', e); return JSON.parse(vazio); }
+}
+const mensalidades  = () => lerJSON('intus-mensalidades', '[]');
+const caixaManual   = () => lerJSON('intus-caixa', '[]');
+const liquidacoes   = () => lerJSON('intus-eduzz-liquidacao', '{}');
+const vendasAvulsas = () => lerJSON('intus-vendas-gateway', '[]');
+
+function ehEduzz(m) { return String(m.forma_pgto || '').toLowerCase() === 'eduzz'; }
+function valorPago(m) { const v = (m.vlpagamento != null && m.vlpagamento !== '') ? m.vlpagamento : m.vlpagar; return num(v); }
+
+// Toda venda pelo gateway — matricula paga por Eduzz ou venda avulsa — com a
+// mesma forma, para o resto da tela nao precisar saber a origem.
+function vendasGateway() {
+  const liqs = liquidacoes();
+  const daMatricula = mensalidades()
+    .filter(m => String(m.stpgto).toUpperCase() === 'S' && ehEduzz(m) && m.dtpagamento)
+    .map(m => ({ id: 'mn-' + m.idmensalidade, quem: m.nmathleta || 'Cliente',
+      produto: m.dshistorico || 'Plano', bruto: valorPago(m),
+      data: String(m.dtpagamento).slice(0,10), liq: liqs[m.idmensalidade] || {} }));
+  const avulsas = vendasAvulsas().map(v => ({ id: 'av-' + v.id, quem: v.comprador || '—',
+    produto: v.produto || 'Venda avulsa', bruto: num(v.valorBruto),
+    data: String(v.dataVenda || '').slice(0,10), liq: v }));
+  return [...daMatricula, ...avulsas].filter(v => v.data).map(v => {
+    const cfg = { valorBruto: v.bruto, taxaPct: v.liq.taxaPct, taxaFixo: v.liq.taxaFixo,
+      prazoDias: v.liq.prazoDias, antecipado: v.liq.antecipado, dataAntecip: v.liq.dataAntecip,
+      taxaAntecipValor: v.liq.taxaAntecipValor, sacado: v.liq.sacado, dataVenda: v.data };
+    return { ...v, liquido: API.eduzzLiquido(cfg), liberacao: API.eduzzLiberacao(cfg), estado: API.eduzzStatus(cfg) };
+  });
+}
+
+// ── O CAIXA DA EMPRESA ──────────────────────────────────────────────────────
+// Tres potes, que e como voce descreveu:
+//   na conta   dinheiro que ja esta com voce
+//   liberado   vendido pela Eduzz, prazo cumprido, esperando o saque
+//   retido     vendido pela Eduzz, ainda dentro do prazo
+// O retido JA foi contado como venda no mes em que o aluno pagou. Quando ele
+// liberar, muda de pote aqui dentro — nao vira faturamento de novo no mes da
+// liberacao. E isso que impede o mesmo dinheiro de aparecer em dois meses.
+function caixaEmpresa() {
+  const hoje = hojeISO();
+  const matNaoEduzz = mensalidades()
+    .filter(m => String(m.stpgto).toUpperCase() === 'S' && !ehEduzz(m) && m.dtpagamento && String(m.dtpagamento).slice(0,10) <= hoje)
+    .reduce((s, m) => s + valorPago(m), 0);
+  const manual = caixaManual().filter(c => String(c.data || '').slice(0,10) <= hoje)
+    .reduce((s, c) => s + (c.tipo === 'saida' ? -num(c.valor) : num(c.valor)), 0);
+  const vendas = vendasGateway();
+  const liberado = vendas.filter(v => v.estado === 'disponivel').reduce((s, v) => s + v.liquido, 0);
+  const retido   = vendas.filter(v => v.estado === 'retido').reduce((s, v) => s + v.liquido, 0);
+  return { conta: matNaoEduzz + manual, liberado, retido,
+    total: matNaoEduzz + manual + liberado + retido,
+    aLiberar: vendas.filter(v => v.estado === 'retido').sort((a,b) => a.liberacao.localeCompare(b.liberacao)) };
+}
+
+// ── VENDAS DO PERIODO (competencia) ─────────────────────────────────────────
+// Conta pela data em que o ALUNO PAGOU, nao pela data em que o dinheiro ficou
+// disponivel. E este numero que serve para meta e projecao: ele mede o que a
+// operacao vendeu naquele mes, e nao o que o gateway resolveu liberar.
+function vendasDoPeriodo(de, ate) {
+  const dentro = (d) => d && d >= de && d <= ate;
+  const direto = mensalidades()
+    .filter(m => String(m.stpgto).toUpperCase() === 'S' && !ehEduzz(m) && dentro(String(m.dtpagamento || '').slice(0,10)))
+    .map(m => ({ quem: m.nmathleta || 'Cliente', produto: m.dshistorico || 'Plano',
+      bruto: valorPago(m), liquido: valorPago(m), estado: 'conta', data: String(m.dtpagamento).slice(0,10) }));
+  return [...direto, ...vendasGateway().filter(v => dentro(v.data))];
+}
+
+// ── INDICADORES ─────────────────────────────────────────────────────────────
+function indicadores(de, ate) {
+  const ms = mensalidades();
+  const vendas = vendasDoPeriodo(de, ate);
+  const bruto = vendas.reduce((s, v) => s + v.bruto, 0);
+  const liquido = vendas.reduce((s, v) => s + v.liquido, 0);
+  const ticket = vendas.length ? bruto / vendas.length : 0;
+
+  // Quem esta com o plano em pe: a MESMA pergunta que as outras telas fazem.
+  // Antes cada tela decidia sozinha e os numeros nao batiam entre si.
+  const ativoAgora = m => ['paga','paga_no_anterior','pendente','programada']
+    .includes(API.situacaoCobranca(m, ms).estado);
+
+  // Receita recorrente: cada matricula viva vale o seu valor DIVIDIDO pelos
+  // meses do ciclo. Um semestral de R$900 e R$150 por mes, nao R$900.
+  const vivas = new Map();
+  ms.forEach(m => {
+    if (!ativoAgora(m)) return;
+    const chave = API.chaveMatricula(m, ms);
+    const meses = API.mesesDoPlano(m) || 1;
+    const fim = String(m.dtvencimento || '').slice(0,10);
+    const atual = vivas.get(chave);
+    if (!atual || fim > atual.fim) vivas.set(chave, { mensal: num(m.vlpagar) / meses, fim: fim });
+  });
+  const mrr = [...vivas.values()].reduce((s, v) => s + v.mensal, 0);
+
+  const ativos = new Set();
+  ms.forEach(m => { if (ativoAgora(m)) ativos.add(Number(m.idatleta)); });
+
+  // Permanencia media, em meses: da primeira a ultima cobertura de cada aluno.
+  const porAluno = new Map();
+  ms.forEach(m => {
+    const id = Number(m.idatleta);
+    const ini = String(m.dtinicio || m.dtpagamento || '').slice(0,10);
+    const fim = String(m.dtvencimento || '').slice(0,10);
+    if (!ini || !fim) return;
+    const at = porAluno.get(id) || { ini, fim, pago: 0 };
+    if (ini < at.ini) at.ini = ini;
+    if (fim > at.fim) at.fim = fim;
+    if (String(m.stpgto).toUpperCase() === 'S') at.pago += valorPago(m);
+    porAluno.set(id, at);
+  });
+  const duracoes = [...porAluno.values()].map(a =>
+    Math.max(1, Math.round((new Date(a.fim + 'T00:00:00') - new Date(a.ini + 'T00:00:00')) / 86400000 / 30.44)));
+  const permanencia = duracoes.length ? duracoes.reduce((s,d) => s+d, 0) / duracoes.length : 0;
+
+  const pagos = [...porAluno.values()].filter(a => a.pago > 0);
+  const ltv = pagos.length ? pagos.reduce((s,a) => s + a.pago, 0) / pagos.length : 0;
+
+  // Churn do periodo: quem tinha cobertura no inicio e nao tem mais no fim.
+  const inicio = new Set(), fim2 = new Set();
+  ms.forEach(m => {
+    if (m.stmatricula === 'cancelada') return;
+    const i = String(m.dtinicio || '').slice(0,10), f = String(m.dtvencimento || '').slice(0,10);
+    if (!i || !f) return;
+    if (i <= de && f >= de) inicio.add(Number(m.idatleta));
+    if (i <= ate && f >= ate) fim2.add(Number(m.idatleta));
+  });
+  const perdidos = [...inicio].filter(id => !fim2.has(id)).length;
+  const churn = inicio.size ? (perdidos / inicio.size) * 100 : 0;
+
+  return { bruto, liquido, ticket, nVendas: vendas.length, mrr, ativos: ativos.size,
+    permanencia, ltv, churn, retencao: 100 - churn, perdidos, baseInicio: inicio.size };
+}
+
+function serieMensal(nMeses) {
+  const h = new Date(hojeISO() + 'T00:00:00');
+  const iso = (x) => new Date(x.getTime() - x.getTimezoneOffset() * 60000).toISOString().slice(0,10);
+  const meses = [];
+  for (let i = nMeses - 1; i >= 0; i--) {
+    const d = new Date(h.getFullYear(), h.getMonth() - i, 1);
+    const fim = new Date(h.getFullYear(), h.getMonth() - i + 1, 0);
+    const vs = vendasDoPeriodo(iso(d), iso(fim));
+    meses.push({ rotulo: d.toLocaleDateString('pt-BR', { month:'short' }).replace('.', ''),
+      mesAno: d.toLocaleDateString('pt-BR', { month:'long', year:'numeric' }),
+      disponivel: vs.filter(v => v.estado !== 'retido').reduce((s,v) => s + v.liquido, 0),
+      retido: vs.filter(v => v.estado === 'retido').reduce((s,v) => s + v.liquido, 0) });
+  }
+  return meses;
+}
+
+// ── PECAS DE TELA ───────────────────────────────────────────────────────────
+let _abertas = new Set(lerJSON('intus-gestao-explica', '[]'));
+function toggleExplica(id) {
+  if (_abertas.has(id)) _abertas.delete(id); else _abertas.add(id);
+  localStorage.setItem('intus-gestao-explica', JSON.stringify([..._abertas]));
+  render();
+}
+function explica(id, titulo, corpo) {
+  const aberta = _abertas.has(id);
+  return `
+    <div style="margin-top:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+      <button onclick="toggleExplica('${id}')" style="width:100%;display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--bg3);border:none;cursor:pointer;font-family:inherit;text-align:left;">
+        <span style="font-size:13px;color:var(--text-muted);">${aberta ? '▾' : '▸'}</span>
+        <span style="font-size:12px;font-weight:700;color:var(--text-muted);">${esc(titulo)}</span>
+      </button>
+      ${aberta ? `<div style="padding:12px 14px;font-size:12.5px;line-height:1.65;color:var(--text-muted);background:var(--bg2);">${corpo}</div>` : ''}
+    </div>`;
+}
+function tile(rotulo, valor, cor, nota) {
+  return `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;">${esc(rotulo)}</div>
+      <div style="font-size:22px;font-weight:900;color:${cor};margin-top:6px;line-height:1.1;">${valor}</div>
+      ${nota ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:5px;line-height:1.4;">${nota}</div>` : ''}
+    </div>`;
+}
+
+// ── GRAFICO: vendas por mes, empilhado ──────────────────────────────────────
+// Duas fatias do MESMO dinheiro (o que ja esta disponivel e o que ainda esta
+// retido): a barra empilhada e a forma certa, com a altura total sendo a venda
+// do mes. Nao existe segundo eixo.
+//
+// Cores medidas, nao escolhidas no olho: rodadas no validador contra o fundo
+// real de cada tema. O primeiro par que tentei (verde da marca + azul)
+// reprovou na faixa de luminosidade do tema escuro, e o segundo separava mal
+// para tritanopia — verde e azul e justamente o eixo que ela confunde.
+// Verde x roxo passou com folga nos dois: deutan 23,5 e tritan 20,1.
+const COR_DISP = { escuro: '#4faa00', claro: '#3a8f00' };
+const COR_RET  = { escuro: '#a855b8', claro: '#8b3f9e' };
+function _temaClaro() { return document.body.classList.contains('theme-light'); }
+function _corDisp() { return _temaClaro() ? COR_DISP.claro : COR_DISP.escuro; }
+function _corRet()  { return _temaClaro() ? COR_RET.claro  : COR_RET.escuro; }
+
+function grafico(dados) {
+  const cDisp = _corDisp(), cRet = _corRet();
+  const maxi = Math.max(1, ...dados.map(d => d.disponivel + d.retido));
+  const L = 62, R = 12, T = 14, B = 26, H = 190;
+  const larg = Math.max(340, dados.length * 62);
+  const passo = (larg - L - R) / dados.length;
+  const bw = Math.min(34, passo * 0.55);
+  const y = (v) => T + (H - T - B) * (1 - v / maxi);
+
+  const barras = dados.map((d, i) => {
+    const x = L + passo * i + (passo - bw) / 2;
+    const total = d.disponivel + d.retido;
+    const yTopo = y(total), yMeio = y(d.retido), yBase = y(0);
+    const hRet = Math.max(0, yBase - yMeio);
+    // 2px de folga entre as fatias: sem isso elas se tocam e viram um bloco so.
+    const hDisp = Math.max(0, yMeio - yTopo - (d.retido > 0 && d.disponivel > 0 ? 2 : 0));
+    return `<g class="g-barra" data-i="${i}" style="cursor:default;">
+        <rect x="${x - 6}" y="${T}" width="${bw + 12}" height="${H - T - B + 6}" fill="transparent"/>
+        ${d.retido > 0 ? `<rect x="${x}" y="${yMeio}" width="${bw}" height="${hRet}" fill="${cRet}"/>` : ''}
+        ${d.disponivel > 0 ? `<rect x="${x}" y="${yTopo}" width="${bw}" height="${hDisp}" rx="4" fill="${cDisp}"/>` : ''}
+      </g>`;
+  }).join('');
+
+  const rotulos = dados.map((d, i) =>
+    `<text x="${L + passo*i + passo/2}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${esc(d.rotulo)}</text>`).join('');
+  const linhas = [0, 0.5, 1].map(fr => {
+    const v = maxi * fr;
+    return `<line x1="${L}" y1="${y(v)}" x2="${larg - R}" y2="${y(v)}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${L - 8}" y="${y(v)+3}" text-anchor="end" font-size="9.5" fill="var(--text-muted)">${v >= 1000 ? (v/1000).toFixed(1).replace('.',',') + 'k' : Math.round(v)}</text>`;
+  }).join('');
+  const tabela = dados.map(d => `<tr><td style="padding:3px 0;">${esc(d.mesAno)}</td><td style="text-align:right;">${brl(d.disponivel)}</td><td style="text-align:right;">${brl(d.retido)}</td><td style="text-align:right;font-weight:700;">${brl(d.disponivel + d.retido)}</td></tr>`).join('');
+
+  return `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:6px;">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);"><span style="width:10px;height:10px;border-radius:3px;background:${cDisp};"></span> Já disponível</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);"><span style="width:10px;height:10px;border-radius:3px;background:${cRet};"></span> Ainda retido na Eduzz</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <svg viewBox="0 0 ${larg} ${H}" width="100%" height="${H}" style="min-width:${larg}px;display:block;" role="img" aria-label="Vendas por mês, separadas entre já disponível e ainda retido">${linhas}${barras}${rotulos}</svg>
+    </div>
+    <div id="g-tooltip" style="display:none;position:fixed;z-index:60;background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-size:12px;color:var(--text);pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35);"></div>
+    ${explica('tabela-grafico', 'Ver os números do gráfico em tabela', `
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="color:var(--text);"><th style="text-align:left;padding:4px 0;">Mês</th><th style="text-align:right;">Disponível</th><th style="text-align:right;">Retido</th><th style="text-align:right;">Total</th></tr></thead>
+        <tbody>${tabela}</tbody></table>`)}`;
+}
+
+function setPeriodo(p) { periodo = p; render(); }
+function setCustom(qual, valor) { if (qual === 'de') customDe = valor; else customAte = valor; periodo = 'custom'; render(); }
+
+function render() {
+  const { de, ate, rotulo } = limitesPeriodo();
+  const cx = caixaEmpresa();
+  const ind = indicadores(de, ate);
+  const vendas = vendasDoPeriodo(de, ate);
+  const dispP = vendas.filter(v => v.estado !== 'retido').reduce((s,v) => s + v.liquido, 0);
+  const retP  = vendas.filter(v => v.estado === 'retido').reduce((s,v) => s + v.liquido, 0);
+  const serie = serieMensal(12);
+  const btn = (p, txt) => `<button onclick="setPeriodo('${p}')" class="btn ${periodo === p ? 'btn-primary' : 'btn-secondary'} btn-sm">${txt}</button>`;
+  const ticketMensal = (ind.mrr && ind.ativos) ? ind.mrr / ind.ativos : 0;
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
+      <div>
+        <h1 style="font-size:22px;font-weight:900;color:var(--text);margin:0;">Gestão</h1>
+        <p style="font-size:13px;color:var(--text-muted);margin:4px 0 0;">O caixa da empresa e os números do período — ${esc(rotulo)}.</p>
+      </div>
+      <button class="hide-values-btn ${_hide ? 'active' : ''}" onclick="toggleHide()">${_hide ? '🙈 Mostrar' : '👁️ Esconder'} valores</button>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:20px;">
+      ${btn('mes','Mês atual')} ${btn('mes_ant','Mês anterior')} ${btn('trimestre','3 meses')} ${btn('ano','Este ano')}
+      <span style="width:1px;height:20px;background:var(--border);margin:0 4px;"></span>
+      <input type="date" value="${customDe}" onchange="setCustom('de', this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:12px;font-family:inherit;"/>
+      <span style="font-size:12px;color:var(--text-muted);">até</span>
+      <input type="date" value="${customAte}" onchange="setCustom('ate', this.value)" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:12px;font-family:inherit;"/>
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <span class="card-title">💰 Caixa da empresa</span>
+        <span style="font-size:11.5px;color:var(--text-muted);">saldo de hoje — não muda com o filtro de período</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
+        ${tile('Na conta', brlV(cx.conta), 'var(--green)', 'dinheiro que já está com você')}
+        ${tile('Liberado na Eduzz', brlV(cx.liberado), _corDisp(), 'prazo cumprido, dá para sacar')}
+        ${tile('Retido na Eduzz', brlV(cx.retido), _corRet(), cx.aLiberar.length + ' venda(s) esperando o prazo')}
+        ${tile('Total da empresa', brlV(cx.total), 'var(--text)', 'os três potes somados')}
+      </div>
+      ${explica('caixa', 'Por que o total da empresa não é o mesmo que o dinheiro disponível', `
+        São três potes com o mesmo dinheiro em estágios diferentes. <b>Na conta</b> é o que já entrou.
+        <b>Liberado</b> é o que a Eduzz já soltou e está lá esperando o saque. <b>Retido</b> é o que o
+        aluno já pagou mas ainda está dentro do prazo de ${API.EDUZZ_PRAZO_DIAS} dias.<br><br>
+        O ponto que importa: <b>o retido já foi contado como venda no mês em que o aluno pagou</b>.
+        Quando ele liberar, muda de pote aqui dentro — não vira faturamento de novo no mês da
+        liberação. É isso que impede o mesmo valor de aparecer em dois meses seguidos.`)}
+    </div>
+
+    ${cx.aLiberar.length ? `
+    <div class="card" style="margin-bottom:18px;">
+      <span class="card-title">📅 Próximas liberações</span>
+      <div style="margin-top:10px;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">
+            <th style="text-align:left;padding:6px 0;">Libera em</th><th style="text-align:left;">Quem</th>
+            <th style="text-align:left;">Produto</th><th style="text-align:right;">Líquido</th></tr></thead>
+          <tbody>${cx.aLiberar.slice(0,12).map(v => `<tr style="border-top:1px solid var(--border);">
+            <td style="padding:8px 0;white-space:nowrap;">${fmtDate(v.liberacao)}
+              <span class="pill" style="background:rgba(168,85,184,.16);color:${_corRet()};font-size:10px;margin-left:6px;">${diasAte(v.liberacao)}d</span></td>
+            <td>${esc(v.quem)}</td><td style="color:var(--text-muted);">${esc(v.produto)}</td>
+            <td style="text-align:right;font-weight:700;">${brlV(v.liquido)}</td></tr>`).join('')}</tbody>
+        </table>
+        ${cx.aLiberar.length > 12 ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">e mais ${cx.aLiberar.length - 12} venda(s).</div>` : ''}
+      </div>
+    </div>` : ''}
+
+    <div class="card" style="margin-bottom:18px;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <span class="card-title">📈 Vendas de ${esc(rotulo)}</span>
+        <span style="font-size:11.5px;color:var(--text-muted);">${ind.nVendas} venda(s) no período</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
+        ${tile('Vendido no período', brlV(ind.bruto), 'var(--green)', 'valor cheio, é a base das metas')}
+        ${tile('Líquido esperado', brlV(ind.liquido), 'var(--text)', 'já sem as taxas da Eduzz')}
+        ${tile('Deste período, já disponível', brlV(dispP), _corDisp(), '')}
+        ${tile('Deste período, ainda retido', brlV(retP), _corRet(), '')}
+      </div>
+      ${explica('vendas', 'A diferença entre "vendido" e "disponível", e por que ela importa', `
+        <b>Vendido</b> conta pela data em que o aluno pagou, não pela data em que o dinheiro caiu na
+        conta. É o número que mede o que a operação vendeu naquele mês, e por isso é ele que serve
+        para meta e projeção. Se você usar o dinheiro disponível como faturamento, um mês bom de
+        vendas parece fraco só porque a Eduzz ainda não liberou.<br><br>
+        <b>Líquido esperado</b> desconta a taxa da plataforma: é o que de fato vai chegar.<br><br>
+        As duas últimas caixas quebram o vendido deste período entre o que já está na mão e o que
+        ainda está retido — a ponte entre esta seção e o caixa lá em cima.`)}
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <span class="card-title">Vendas dos últimos 12 meses</span>
+      <div style="font-size:12px;color:var(--text-muted);margin:4px 0 12px;">A altura da barra é o que foi vendido no mês. A divisão mostra quanto disso você já pode usar.</div>
+      ${grafico(serie)}
+    </div>
+
+    <div class="card">
+      <span class="card-title">📊 Indicadores do negócio</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px;">
+        ${tile('Receita recorrente (MRR)', brlV(ind.mrr), 'var(--green)', 'por mês, com os planos de hoje')}
+        ${tile('Ticket médio', brlV(ind.ticket), 'var(--text)', 'no período selecionado')}
+        ${tile('LTV medido', brlV(ind.ltv), 'var(--text)', 'média já paga por aluno')}
+        ${tile('Alunos ativos', String(ind.ativos), 'var(--green)', 'com plano em pé hoje')}
+        ${tile('Permanência média', ind.permanencia.toFixed(1).replace('.', ',') + ' meses', 'var(--text)', 'do primeiro ao último ciclo')}
+        ${tile('Retenção do período', ind.retencao.toFixed(0) + '%', ind.retencao >= 90 ? 'var(--green)' : '#facc15',
+               ind.baseInicio ? ind.perdidos + ' de ' + ind.baseInicio + ' saíram' : 'sem base no início do período')}
+      </div>
+
+      ${explica('mrr', 'O que é MRR (receita recorrente) e por que não é a soma das mensalidades', `
+        MRR é quanto a operação recebe <b>por mês</b> se ninguém entrar nem sair. Cada matrícula viva
+        entra pelo valor dividido pelos meses do ciclo: um semestral de R$ 900 vale R$ 150 no MRR,
+        não R$ 900. Somar o valor cheio de planos de durações diferentes infla o número e faz um
+        semestral parecer seis vezes melhor do que é.<br><br>
+        Serve para responder "quanto preciso vender este mês para crescer": se o MRR é
+        ${brl(ind.mrr)}, essa é a linha que você já tem antes de vender qualquer coisa nova.`)}
+
+      ${explica('ticket', 'Ticket médio', `
+        O vendido no período dividido pelo número de vendas: ${brl(ind.bruto)} ÷ ${ind.nVendas} =
+        <b>${brl(ind.ticket)}</b>.<br><br>
+        Ele sobe de dois jeitos — vendendo planos mais caros ou planos mais longos. Um mês com muitos
+        trimestrais tem ticket alto sem que nada tenha mudado no preço, então compare sempre com o
+        mesmo tipo de mês.`)}
+
+      ${explica('ltv', 'LTV: o que este número é, e o que ele ainda não é', `
+        LTV é quanto um aluno deixa na empresa ao longo de toda a relação. Aqui ele é <b>medido</b>,
+        não estimado: é a média do que os alunos já pagaram de verdade (${brl(ind.ltv)}).<br><br>
+        <b>A limitação, para você não decidir errado com ele:</b> com uma base jovem esse número
+        subestima o valor real, porque a maioria dos alunos ainda está no meio da jornada e o que
+        eles ainda vão pagar não está contado. Ele tende a subir sozinho com o tempo, mesmo sem nada
+        melhorar. Para estimar o futuro, a conta usual é ticket mensal × permanência média:
+        ${brl(ticketMensal)} × ${ind.permanencia.toFixed(1).replace('.', ',')} meses ≈
+        <b>${brl(ticketMensal * ind.permanencia)}</b>.`)}
+
+      ${explica('retencao', 'Retenção e churn', `
+        Dos ${ind.baseInicio} alunos que tinham plano em pé no começo do período, ${ind.perdidos} não
+        tinham mais no fim. Isso dá ${ind.churn.toFixed(0)}% de churn e ${ind.retencao.toFixed(0)}%
+        de retenção.<br><br>
+        Cuidado com períodos curtos: num mês com poucos vencimentos, um único aluno mexe muito no
+        percentual. Para ler tendência, use "3 meses" ou "este ano".`)}
+    </div>`;
+
+  const tip = document.getElementById('g-tooltip');
+  main.querySelectorAll('.g-barra').forEach(g => {
+    g.addEventListener('mousemove', (ev) => {
+      const d = serie[Number(g.dataset.i)];
+      tip.innerHTML = '<b>' + esc(d.mesAno) + '</b><br>Disponível: ' + brl(d.disponivel) +
+        '<br>Retido: ' + brl(d.retido) +
+        '<br><span style="color:var(--text-muted);">Total: ' + brl(d.disponivel + d.retido) + '</span>';
+      tip.style.display = 'block';
+      tip.style.left = Math.min(window.innerWidth - 190, ev.clientX + 14) + 'px';
+      tip.style.top = (ev.clientY - 10) + 'px';
+    });
+    g.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  });
+}
+
+if (!document.getElementById('hide-val-style')) {
+  const _s = document.createElement('style');
+  _s.id = 'hide-val-style';
+  _s.textContent = '.hide-values-btn{background:none;border:1px solid var(--border,#333);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px;font-family:inherit;}.hide-values-btn.active{border-color:var(--green);background:rgba(127,255,0,.08);color:var(--green);}.valor-hidden{filter:blur(6px);user-select:none;pointer-events:none;}';
+  document.head.appendChild(_s);
+}
+
+render();
+window.addEventListener('storage', (ev) => {
+  if (['intus-mensalidades','intus-caixa','intus-eduzz-liquidacao','intus-vendas-gateway'].includes(ev.key)) render();
+});
+</script>
+</body>
+</html>

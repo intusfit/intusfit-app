@@ -1,0 +1,38 @@
+RewriteEngine On
+
+# Force HTTPS
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+# Security headers
+<IfModule mod_headers.c>
+Header always set X-Content-Type-Options "nosniff"
+Header always set X-Frame-Options "SAMEORIGIN"
+Header always set X-XSS-Protection "1; mode=block"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>
+
+# Block directory listing
+Options -Indexes
+
+# ── ARQUIVOS QUE NAO DEVEM SER SERVIDOS ─────────────────────────────────────
+# A regra anterior casava so NOMES TERMINADOS nessas strings. Um diretorio
+# .git/ exposto nao era protegido: a requisicao real e por "/.git/config", cujo
+# nome de arquivo e "config". E nao cobria .json, .sql, .bak, .zip nem .old.
+<FilesMatch "(\.env|\.htpasswd|\.log|\.sql|\.bak|\.old|\.orig|\.save|\.swp|~)$">
+    Require all denied
+</FilesMatch>
+
+# Pastas de controle de versao e dependencias, com o caminho inteiro.
+RedirectMatch 404 /\.git(/|$)
+RedirectMatch 404 /\.svn(/|$)
+RedirectMatch 404 /\.hg(/|$)
+RedirectMatch 404 /node_modules(/|$)
+RedirectMatch 404 /vendor(/|$)
+
+# Diagnostico do PHP: revela versao, extensoes, caminho do site e ambiente.
+<FilesMatch "^(phpinfo|info|test|teste)[-_a-z0-9]*\.php$">
+    Require all denied
+</FilesMatch>

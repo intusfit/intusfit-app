@@ -1,0 +1,2141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Matrículas — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    /* ── MODAL EXTRA WIDTH ── */
+    .modal-box.wide { max-width: 560px; }
+
+    /* ── LISTA DE ALUNOS (radio-style) ── */
+    .aluno-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+    .aluno-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg3);
+      cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    }
+    .aluno-item:hover { background: var(--bg2); border-color: var(--text-dim); }
+    .aluno-item.selected { border-color: var(--green); background: var(--green-dim); }
+    .aluno-item input[type="radio"] { accent-color: var(--green); width: 14px; height: 14px; flex-shrink: 0; }
+    .aluno-item-name { font-size: 13px; font-weight: 500; color: var(--text); }
+
+    /* ── RESUMO FINANCEIRO ── */
+    .fin-summary {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 12px;
+      margin-bottom: 20px;
+    }
+    .fin-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .fin-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+    .fin-value { font-size: 20px; font-weight: 700; color: var(--text); }
+    .fin-value.green { color: var(--green); }
+    .fin-value.red   { color: #f87171; }
+    .fin-value.yellow { color: #fde047; }
+    body.theme-light .fin-value.yellow { color: #ca8a04; }
+
+    /* ── FILTROS ── */
+    .filtros-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--bg3);
+    }
+    .filtros-bar select.input { width: auto; min-width: 140px; }
+    .filtros-bar .btn { white-space: nowrap; }
+
+    /* ── FORM GRID ── */
+    .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── SEPARADOR ── */
+    .modal-section-title {
+      font-size: 10px; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      padding: 4px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+    }
+
+    .empty-state {
+      text-align: center; padding: 48px 20px; color: var(--text-dim); font-size: 13px;
+    }
+
+    /* ── PLANO SELECTOR ── */
+    .plano-selector { margin-bottom: 12px; }
+    .plano-selector select {
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--border, #333); background: var(--bg, #111);
+      color: var(--text, #f0f0f0); font-size: 13px; font-family: inherit; font-weight: 600;
+    }
+    .plano-selector select:focus { border-color: var(--green); outline: none; }
+    .plano-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Matrículas');
+
+// ── Estado ────────────────────────────────────────────────────────────────
+let mensalidades = [];
+let atletas = [];
+let planosConfig = {};
+let planosAdmin = [];
+let filtroStatus = 'todos';
+let filtroPeriodo = 'tudo';
+let filtroBusca = '';
+let filtroProfessor = new Set(); // vazio = todos
+let ordenacao = 'vencimento_desc';
+let customDe  = '2026-04-15';
+let customAte = new Date().toISOString().slice(0,10);
+let loading = true;
+let erro = null;
+
+let _hideValues = localStorage.getItem('intus-hide-values') === '1';
+function fmtMoedaV(v) {
+  const txt = fmtMoeda(v);
+  return _hideValues ? '<span class="valor-hidden">' + txt + '</span>' : txt;
+}
+function toggleHideValues() {
+  _hideValues = !_hideValues;
+  localStorage.setItem('intus-hide-values', _hideValues ? '1' : '0');
+  render();
+}
+if (!document.getElementById('hide-val-style')) {
+  const _s = document.createElement('style');
+  _s.id = 'hide-val-style';
+  _s.textContent = '.hide-values-btn{background:none;border:1px solid var(--border,#333);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;font-family:inherit;}.hide-values-btn:hover{border-color:var(--green);color:var(--text);}.hide-values-btn.active{border-color:var(--green);background:rgba(127,255,0,.08);color:var(--green);}.valor-hidden{filter:blur(6px);user-select:none;pointer-events:none;transition:filter .2s;}';
+  document.head.appendChild(_s);
+}
+
+// ── Debounce + guard para evitar reloading constante ─────────────────────
+let _carregando = false;
+let _debounceTimer = null;
+function _debouncedCarregar() {
+  if (_debounceTimer) clearTimeout(_debounceTimer);
+  _debounceTimer = setTimeout(() => { if (!_carregando) carregar(); }, 400);
+}
+
+// ── Init: carrega mensalidades + atletas + planos em paralelo ─────────────
+async function carregar() {
+  if (_carregando) return;
+  _carregando = true;
+  loading = true; erro = null;
+  render();
+  try {
+    const [listaM, listaA, planos, listaPA] = await Promise.all([
+      API.listarMensalidades(''),
+      API.listarAtletas(''),
+      API.getPlanosConfig().catch(() => ({})),
+      API.getPlanosAdmin().catch(() => []),
+    ]);
+    mensalidades = Array.isArray(listaM) ? listaM : [];
+    atletas = Array.isArray(listaA) ? listaA : [];
+    planosConfig = planos || {};
+    planosAdmin = Array.isArray(listaPA) ? listaPA : [];
+    // Professor só vê dados dos seus clientes
+    atletas = API.filtrarMeusAtletas(atletas);
+    if (!Sessao.atual()?.admin) {
+      const _ids = new Set(atletas.map(a => Number(a.idatleta)));
+      mensalidades = mensalidades.filter(m => _ids.has(Number(m.idatleta)));
+    }
+    // Quem e raiz de qual matricula: precisa estar pronto ANTES de qualquer
+    // _matKey, senao o ciclo raiz e os filhos dele caem em grupos diferentes.
+    _indexarMatriculas(mensalidades);
+    // Sincroniza cache local com o que o backend retornou
+    if (mensalidades.length === 0) {
+      localStorage.removeItem('intus-mensalidades');
+    }
+  } catch (e) {
+    erro = e.message || 'Erro ao carregar mensalidades';
+    console.error(e);
+  } finally {
+    loading = false;
+    _carregando = false;
+    render();
+    // A QUARTA rotina automatica saiu daqui em 21/08/2026: autoInativarVencidas.
+    // Ela inativava sozinha, sem avisar, toda matricula com mais de 30 dias de
+    // atraso — assim que a tela abria. Mudar o cadastro de um cliente e uma
+    // decisao comercial, nao um efeito colateral de abrir uma tela. Agora a
+    // tela apenas SUGERE, num aviso no topo, e voce decide (ver _bannerInativar).
+    // As tres rotinas automaticas que rodavam aqui foram removidas em 18/08/2026.
+    // Elas reescreviam mensalidades sozinhas a cada carregamento da tela:
+    //   autoCorrigirPagos      — remarcava como paga qualquer linha que tivesse
+    //                            data de pagamento. Era ela que desfazia, no
+    //                            recarregar seguinte, a linha que voce colocava
+    //                            manualmente "em aberto".
+    //   autoAjustarRenovacoes  — puxava o vencimento de volta para a data de
+    //                            inicio. E a origem direta das matriculas com
+    //                            inicio igual ao vencimento e status Vencida,
+    //                            mesmo pagas (Juliana, Leonardo, Samantha).
+    //   autoRenovarMatriculas  — criava a proxima cobranca por antecedencia,
+    //                            uma para CADA ciclo pago, gerando as sobras.
+    // O ciclo agora nasce de um lugar so e num momento so: quando voce da
+    // baixa no pagamento. Nada mais mexe em mensalidade sem voce mandar.
+  }
+}
+
+// ── Render principal ──────────────────────────────────────────────────────
+function render() {
+  const main = document.getElementById('main-content');
+  const podeVerValores = hasPerm('mt_editar');
+
+  if (loading) {
+    main.innerHTML = `<div class="empty-state">Carregando matrículas…</div>`;
+    return;
+  }
+  if (erro) {
+    main.innerHTML = `<div class="empty-state" style="color:#f87171;">${erro}</div>
+                      <div style="text-align:center;margin-top:8px;">
+                        <button class="btn btn-secondary btn-sm" onclick="carregar()">Tentar novamente</button>
+                      </div>`;
+    return;
+  }
+
+  const hoje = new Date();
+  const hojeStr = hoje.toISOString().slice(0,10);
+  const isPago  = m => m.stpgto === 'S';
+  // Vencida só APÓS o dia do vencimento (no próprio dia ainda conta como ativa/pendente)
+  // Ciclo ainda programado nao conta como cobranca: nao esta vencido e nao
+  // esta pendente, ele so ainda nao comecou. Entra na previsao de renovacoes.
+  const isProg  = m => statusEfetivo(m) === 'programada';
+  // Estas quatro linhas mandam nos cartoes do topo e nos filtros clicaveis.
+  // Ficaram na regra antiga quando o selo de cada linha ja tinha mudado: a
+  // mesma tela contava duas historias, o selo dizia Pendente e o cartao
+  // "Vencidas" nao via, ou a data ficava vermelha com o selo amarelo ao lado.
+  const isVenc  = m => !isPago(m) && !isProg(m) && _diasAtraso(m) != null && _diasAtraso(m) > TOLERANCIA_COBRANCA_DIAS;
+  const isPend  = m => !isPago(m) && !isProg(m) && !isVenc(m);
+  // Matrícula ativa = vencimento hoje ou no futuro (paga ou pendente); aluno pode ter mais de uma
+  const isAtiva = m => (m.dtvencimento||'').slice(0,10) >= hojeStr && !isVenc(m);
+  // Encerrada = paga e período finalizado (histórico)
+  // Encerrada = marcada pelo professor (aluno concluiu e nao continua) OU
+  // ciclo pago que ja venceu (fim natural do periodo).
+  const isEncerrada = m => m.stmatricula === 'encerrada' || (isPago(m) && (m.dtvencimento||'').slice(0,10) < hojeStr);
+
+  // Filtro por período
+  function dentroPeriodo(m) {
+    const dataRef = m.stpgto === 'S' ? (m.dtpagamento || m.dtvencimento) : m.dtvencimento;
+    if (!dataRef) return true;
+    const ds = String(dataRef).slice(0,10);
+    if (filtroPeriodo === 'tudo') return true;
+    if (filtroPeriodo === 'custom') return ds >= customDe && ds <= customAte;
+    const d = new Date(ds + 'T00:00:00');
+    const h = new Date(); h.setHours(0,0,0,0);
+    if (filtroPeriodo === 'mes') return d.getMonth() === h.getMonth() && d.getFullYear() === h.getFullYear();
+    if (filtroPeriodo === 'mes_ant') {
+      const ref = new Date(h.getFullYear(), h.getMonth()-1, 1);
+      return d.getMonth() === ref.getMonth() && d.getFullYear() === ref.getFullYear();
+    }
+    if (filtroPeriodo === 'ano') return d.getFullYear() === h.getFullYear();
+    return true;
+  }
+
+  const periodoMens = mensalidades.filter(dentroPeriodo);
+  const pagos     = periodoMens.filter(isPago);
+  const vencidas  = periodoMens.filter(isVenc);
+  const pendentes = periodoMens.filter(isPend);
+  const programadas = periodoMens.filter(isProg);
+
+  const num = v => parseFloat(v||0);
+  // A Receber = pendentes + vencidas (ainda não pagas) + previsão de renovações (pagas com vencimento em até 30d)
+  const naoPagei = periodoMens.filter(m => !isPago(m) && !isProg(m));
+  const renovPrevistas = periodoMens.filter(m => {
+    if (!isPago(m) || !m.dtvencimento) return false;
+    // Renovacao PREVISTA e uma aposta: este ciclo vai vencer e o aluno deve
+    // renovar. Se o ciclo seguinte ja existe, a aposta virou registro — quem
+    // representa esse dinheiro e o ciclo novo, nao este. Sem esta linha, o
+    // valor entrava duas vezes em "A receber" na semana da virada.
+    if (_foiRenovado(m)) return false;
+    const venc = new Date((m.dtvencimento||'').slice(0,10) + 'T00:00:00');
+    const diff = Math.floor((venc - hoje) / (1000*60*60*24));
+    return diff >= -7 && diff <= 30 && num(m.vlpagar) > 0;
+  });
+  const totalReceber  = naoPagei.reduce((s,m) => s + num(m.vlpagar), 0) + renovPrevistas.reduce((s,m) => s + num(m.vlpagar), 0);
+  const totalRecebido = pagos.reduce((s,m) => s + num(m.vlpagamento || m.vlpagar), 0);
+
+  let itens = periodoMens;
+  if (filtroStatus === 'pago')      itens = itens.filter(isPago);
+  if (filtroStatus === 'programada') itens = itens.filter(isProg);
+  if (filtroStatus === 'vencida')   itens = itens.filter(isVenc);
+  if (filtroStatus === 'pendente')  itens = itens.filter(isPend);
+  if (filtroStatus === 'ativa')     itens = itens.filter(isAtiva);
+  if (filtroStatus === 'encerrada') itens = itens.filter(isEncerrada);
+  if (filtroStatus === 'trancada')  itens = itens.filter(m => statusEfetivo(m) === 'trancada');
+  if (filtroStatus === 'inativa')   itens = itens.filter(m => statusEfetivo(m) === 'inativa');
+  if (filtroStatus === 'cancelada') itens = itens.filter(m => statusEfetivo(m) === 'cancelada');
+
+  // Filtro por professor (admin)
+  const _usr = Sessao.atual();
+  const isAdmin = _usr && _usr.admin;
+  // Pega nomes dos professores das mensalidades + dos usuários cadastrados
+  const _profFromMens = mensalidades.map(m => m.professor || '').filter(Boolean);
+  const _usuarios = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+  const _profFromUsers = _usuarios.filter(u => u.ativo !== false).map(u => u.nome || '').filter(Boolean);
+  const professoresUnicos = [...new Set([..._profFromMens, ..._profFromUsers])].sort((a,b) => a.localeCompare(b,'pt-BR'));
+  if (isAdmin && filtroProfessor.size > 0) {
+    // Cruza via atletas vinculados (professores_responsaveis)
+    const _allAtletas = JSON.parse(localStorage.getItem('intus-atletas') || '[]');
+    const _selectedIds = new Set();
+    let _incluiGeral = filtroProfessor.has('_geral');
+    filtroProfessor.forEach(nome => {
+      if (nome === '_geral') return;
+      const u = _usuarios.find(x => x.nome === nome);
+      if (u) _selectedIds.add(Number(u.idusuario));
+    });
+    const _atletasVinculados = new Set();
+    const _atletasSemProf = new Set();
+    _allAtletas.forEach(a => {
+      const profs = a.professores_responsaveis || [];
+      if (!profs.length) { _atletasSemProf.add(Number(a.idatleta)); }
+      else if (profs.some(pid => _selectedIds.has(Number(pid)))) { _atletasVinculados.add(Number(a.idatleta)); }
+    });
+    itens = itens.filter(m => {
+      const idA = Number(m.idatleta);
+      if (_atletasVinculados.has(idA)) return true;
+      if (_incluiGeral && _atletasSemProf.has(idA)) return true;
+      return false;
+    });
+  }
+
+  // Busca
+  if (filtroBusca) {
+    const q = filtroBusca.toLowerCase();
+    itens = itens.filter(m => (m.nmathleta||'').toLowerCase().includes(q) || (m.dshistorico||'').toLowerCase().includes(q));
+  }
+
+  // Ordenação
+  itens = [...itens];
+  if (ordenacao === 'vencimento_desc')   itens.sort((a,b) => (b.dtvencimento||'').localeCompare(a.dtvencimento||''));
+  else if (ordenacao === 'vencimento_asc') itens.sort((a,b) => (a.dtvencimento||'').localeCompare(b.dtvencimento||''));
+  else if (ordenacao === 'nome_asc')     itens.sort((a,b) => (a.nmathleta||'').localeCompare(b.nmathleta||'','pt-BR'));
+  else if (ordenacao === 'nome_desc')    itens.sort((a,b) => (b.nmathleta||'').localeCompare(a.nmathleta||'','pt-BR'));
+  else if (ordenacao === 'valor_desc')   itens.sort((a,b) => num(b.vlpagar) - num(a.vlpagar));
+  else if (ordenacao === 'valor_asc')    itens.sort((a,b) => num(a.vlpagar) - num(b.vlpagar));
+  else if (ordenacao === 'inicio_asc')   itens.sort((a,b) => (a.dtinicio||'').localeCompare(b.dtinicio||''));
+  else if (ordenacao === 'inicio_desc')  itens.sort((a,b) => (b.dtinicio||'').localeCompare(a.dtinicio||''));
+  else if (ordenacao === 'pagamento_asc')  itens.sort((a,b) => (a.dtpagamento||'').localeCompare(b.dtpagamento||''));
+  else if (ordenacao === 'pagamento' || ordenacao === 'pagamento_desc') itens.sort((a,b) => (b.dtpagamento||'').localeCompare(a.dtpagamento||''));
+  else if (ordenacao === 'status_asc')   itens.sort((a,b) => _rankStatus(a) - _rankStatus(b));
+  else if (ordenacao === 'status_desc')  itens.sort((a,b) => _rankStatus(b) - _rankStatus(a));
+
+  // Agrupa em matrículas (1 linha por aluno+plano; ciclos = pagamentos)
+  const matriculas = agruparMatriculas(itens);
+  ordenarMatriculas(matriculas, ordenacao);
+
+  // ── Varredura de sobras em toda a base ────────────────────────────────────
+  // O ⚠ sobra marca a linha, mas so quem abre a matricula ve. Esta faixa junta
+  // todas as sobras do sistema num lugar so, para conferir a base inteira sem
+  // ter que abrir aluno por aluno.
+  const _sobras = [];
+  agruparMatriculas(mensalidades).forEach(mat => {
+    mat.cycles.forEach(c => {
+      if (_cobrancaSuperada(c, mat.cycles)) {
+        _sobras.push({ nome: c.nmathleta || ('#' + c.idatleta), id: c.idmensalidade,
+                       venc: String(c.dtvencimento || '').slice(0, 10), valor: c.vlpagar });
+      }
+    });
+  });
+  const faixaSobras = (_sobras.length && hasPerm('mt_excluir')) ? `
+    <div style="margin:0 0 14px;padding:12px 14px;border-radius:10px;background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.3);">
+      <b style="font-size:13px;color:var(--text);">⚠ ${_sobras.length} cobrança(s) em aberto de período já pago</b>
+      <div style="font-size:11.5px;color:var(--text-muted);margin:6px 0 8px;line-height:1.5;">
+        Sobraram das renovações automáticas antigas. Não são dívida e já não contam em nenhum total — dá para excluir com segurança.
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${_sobras.map(x => `<button onclick="excluirMensalidade(${x.id})" title="Excluir esta sobra" style="border:1px solid var(--border);background:transparent;color:var(--text);border-radius:999px;padding:4px 11px;font-size:11.5px;cursor:pointer;font-family:inherit;">${esc(x.nome)} <span style="color:var(--text-muted);">· venc ${fmtData(x.venc)} · ✕</span></button>`).join('')}
+      </div>
+    </div>` : '';
+
+  main.innerHTML = `
+    ${faixaSobras}
+    ${_bannerInativar()}
+    <!-- Resumo financeiro -->
+    ${podeVerValores ? (() => {
+      const matAtivas = mensalidades.filter(isAtiva);
+      const alunosAtivos = new Set(matAtivas.map(m => Number(m.idatleta))).size;
+      return `<div class="fin-summary" style="grid-template-columns:repeat(4,1fr);">
+      <div class="fin-card">
+        <div class="fin-label">Matrículas Ativas</div>
+        <div class="fin-value green">${matAtivas.length}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${alunosAtivos} aluno${alunosAtivos!==1?'s':''} com matrícula ativa</div>
+      </div>
+      <div class="fin-card">
+        <div class="fin-label">A Receber / Previsão</div>
+        <div class="fin-value yellow">${fmtMoedaV(totalReceber)}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${naoPagei.length} pendente${naoPagei.length!==1?'s':''} + ${renovPrevistas.length} renovaç${renovPrevistas.length!==1?'ões':'ão'}${programadas.length ? ` · ${programadas.length} programada${programadas.length!==1?'s':''} fora da conta` : ''}</div>
+      </div>
+      <div class="fin-card">
+        <div class="fin-label">Recebido</div>
+        <div class="fin-value green">${fmtMoedaV(totalRecebido)}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">fluxo de caixa pela data de pagamento</div>
+      </div>
+      <div class="fin-card">
+        <div class="fin-label">Vencidas</div>
+        <div class="fin-value red">${vencidas.length} cobrança${vencidas.length!==1?'s':''}</div>
+      </div>
+    </div>`; })() : ''}
+
+    <!-- Card principal -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Matrículas / Mensalidades</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="hide-values-btn ${_hideValues ? 'active' : ''}" onclick="toggleHideValues()">${_hideValues ? '🙈' : '👁️'} ${_hideValues ? 'Mostrar' : 'Esconder'}</button>
+          ${podeVerValores ? `<button class="btn btn-danger btn-sm" onclick="limparDadosAntigos()" title="Excluir tudo (backend + cache)">🗑 Limpar Tudo</button>
+          <button class="btn btn-secondary btn-sm" onclick="forcarLimpezaCache()" title="Limpar apenas cache local">🧹 Limpar Cache</button>
+          ${hasPerm('mt_excluir') ? `<button class="btn btn-secondary btn-sm" onclick="consolidarDuplicadas()" title="Remover cobranças duplicadas e geradas automaticamente (mantém pagamentos)">🧩 Consolidar</button>` : ''}
+          <button class="btn btn-primary btn-sm" onclick="abrirModalMatricula()">+ Nova Matrícula</button>
+          ${isAdmin ? `<button class="btn btn-secondary btn-sm" onclick="abrirGerenciarPlanosAdmin()" title="Gerenciar planos de personal, promoções e condições">📋 Planos</button>` : ''}` : ''}
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filtros-bar">
+        <input class="input" id="inp-busca-mat" placeholder="Buscar cliente ou plano..." value="${esc(filtroBusca)}" style="flex:1;min-width:160px;max-width:240px;" oninput="filtroBusca=this.value;render();setTimeout(()=>{const e=document.getElementById('inp-busca-mat');if(e){e.focus();e.setSelectionRange(filtroBusca.length,filtroBusca.length);}},0);"/>
+        <select class="input" id="sel-filtro" onchange="mudarFiltro(this.value)">
+          <option value="todos"     ${filtroStatus==='todos'?'selected':''}>Todos os status</option>
+          <option value="ativa"     ${filtroStatus==='ativa'?'selected':''}>Ativas</option>
+          <option value="pendente"  ${filtroStatus==='pendente'?'selected':''}>Pendentes</option>
+          <option value="vencida"   ${filtroStatus==='vencida'?'selected':''}>Vencidas</option>
+          <option value="pago"      ${filtroStatus==='pago'?'selected':''}>Pagas</option>
+          <option value="programada" ${filtroStatus==='programada'?'selected':''}>Programadas (a cobrar mais tarde)</option>
+          <option value="encerrada" ${filtroStatus==='encerrada'?'selected':''}>Encerradas (histórico)</option>
+          <option value="trancada"  ${filtroStatus==='trancada'?'selected':''}>Trancadas</option>
+          <option value="inativa"   ${filtroStatus==='inativa'?'selected':''}>Inativas</option>
+          <option value="cancelada" ${filtroStatus==='cancelada'?'selected':''}>Canceladas</option>
+        </select>
+        ${isAdmin ? `
+        <div style="position:relative;display:inline-block;" id="prof-filter-wrap">
+          <button class="input" onclick="toggleProfFilter()" style="cursor:pointer;min-width:120px;text-align:left;display:flex;align-items:center;gap:4px;">
+            <span>${filtroProfessor.size === 0 ? 'Todos prof.' : filtroProfessor.size + ' selecionado' + (filtroProfessor.size > 1 ? 's' : '')}</span>
+            <span style="margin-left:auto;font-size:10px;">▼</span>
+          </button>
+          <div id="prof-filter-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:999;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px;min-width:200px;max-height:240px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.3);">
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:8px;">
+              <input type="checkbox" ${filtroProfessor.size===0?'checked':''} onchange="toggleProfTodos(this.checked)" style="width:16px;height:16px;accent-color:var(--green);"/> <b>Todos</b>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:13px;color:var(--text);">
+              <input type="checkbox" value="_geral" ${filtroProfessor.has('_geral')?'checked':''} onchange="toggleProfItem('_geral',this.checked)" style="width:16px;height:16px;accent-color:var(--green);"/> Geral (sem prof.)
+            </label>
+            ${professoresUnicos.map(p => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:13px;color:var(--text);">
+              <input type="checkbox" value="${esc(p)}" ${filtroProfessor.has(p)?'checked':''} onchange="toggleProfItem('${esc(p)}',this.checked)" style="width:16px;height:16px;accent-color:var(--green);"/> ${esc(p)}
+            </label>`).join('')}
+          </div>
+        </div>
+        ` : ''}
+        <select class="input" id="sel-periodo" onchange="mudarPeriodo(this.value)">
+          <option value="tudo"    ${filtroPeriodo==='tudo'?'selected':''}>Tudo</option>
+          <option value="mes"     ${filtroPeriodo==='mes'?'selected':''}>Este mês</option>
+          <option value="mes_ant" ${filtroPeriodo==='mes_ant'?'selected':''}>Mês anterior</option>
+          <option value="ano"     ${filtroPeriodo==='ano'?'selected':''}>Ano atual</option>
+          <option value="custom"  ${filtroPeriodo==='custom'?'selected':''}>Personalizado</option>
+        </select>
+        ${filtroPeriodo === 'custom' ? `
+          <input type="date" class="input" id="inp-de" value="${customDe}" style="width:auto;font-size:12px;" onchange="customDe=this.value;render();"/>
+          <span style="color:var(--text-muted);font-size:12px;">até</span>
+          <input type="date" class="input" id="inp-ate" value="${customAte}" style="width:auto;font-size:12px;" onchange="customAte=this.value;render();"/>
+        ` : ''}
+        <select class="input" id="sel-ordem" onchange="mudarOrdem(this.value)" style="width:auto;">
+          <option value="vencimento_desc" ${ordenacao==='vencimento_desc'?'selected':''}>Vencimento ↓</option>
+          <option value="vencimento_asc"  ${ordenacao==='vencimento_asc'?'selected':''}>Vencimento ↑</option>
+          <option value="nome_asc"        ${ordenacao==='nome_asc'?'selected':''}>Nome A-Z</option>
+          <option value="nome_desc"       ${ordenacao==='nome_desc'?'selected':''}>Nome Z-A</option>
+          ${podeVerValores ? `<option value="valor_desc"      ${ordenacao==='valor_desc'?'selected':''}>Valor ↓</option>
+          <option value="valor_asc"       ${ordenacao==='valor_asc'?'selected':''}>Valor ↑</option>` : ''}
+          <option value="pagamento"       ${ordenacao==='pagamento'?'selected':''}>Pagamento</option>
+        </select>
+        <span style="font-size:12px;color:var(--text-muted);margin-left:auto;">${matriculas.length} matrícula${matriculas.length!==1?'s':''}${itens.length!==matriculas.length ? ` · ${itens.length} ciclos` : ''}</span>
+      </div>
+
+      <!-- Tabela -->
+      <table class="data-table">
+        <thead><tr>
+          <th style="cursor:pointer;white-space:nowrap;" onclick="mtSort('nome')">Cliente ${mtSortIcon('nome')}</th>
+          <th>Descrição</th>
+          ${podeVerValores ? `<th style="text-align:right;cursor:pointer;white-space:nowrap;" onclick="mtSort('valor')">Valor ${mtSortIcon('valor')}</th>` : ''}
+          <th style="cursor:pointer;white-space:nowrap;" onclick="mtSort('inicio')">Início ${mtSortIcon('inicio')}</th>
+          <th style="cursor:pointer;white-space:nowrap;" onclick="mtSort('vencimento')">Vencimento ${mtSortIcon('vencimento')}</th>
+          <th style="cursor:pointer;white-space:nowrap;" onclick="mtSort('pagamento')">Pagamento ${mtSortIcon('pagamento')}</th>
+          <th style="cursor:pointer;white-space:nowrap;" onclick="mtSort('status')">Status ${mtSortIcon('status')}</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${matriculas.map(mat => renderMatricula(mat, podeVerValores, isAdmin)).join('')}
+          ${matriculas.length === 0
+            ? `<tr><td colspan="${podeVerValores ? 8 : 7}" style="text-align:center;padding:32px;color:var(--text-dim);">Nenhuma matrícula neste filtro.</td></tr>`
+            : ''}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function mudarFiltro(v) {
+  filtroStatus = v;
+  render();
+}
+
+function mudarPeriodo(v) {
+  filtroPeriodo = v;
+  render();
+}
+
+function mudarOrdem(v) {
+  ordenacao = v;
+  render();
+}
+
+// Ordenação por clique no cabeçalho (alterna asc/desc)
+function _rankStatus(m) {
+  const s = statusEfetivo(m);
+  const ord = { vencida: 0, aguardando: 1, pendente: 2, ativa_paga: 3, programada: 4, renovada: 5, trancada: 6, inativa: 7, encerrada: 8, cancelada: 9 };
+  return ord[s] != null ? ord[s] : 9;
+}
+function mtSort(col) {
+  const asc = col + '_asc', desc = col + '_desc';
+  ordenacao = (ordenacao === asc) ? desc : asc;
+  render();
+}
+function mtSortIcon(col) {
+  if (ordenacao === col + '_asc') return '▲';
+  if (ordenacao === col + '_desc' || (col === 'pagamento' && ordenacao === 'pagamento')) return '▼';
+  return '<span style="opacity:.35;">⇅</span>';
+}
+
+// ══════════════════════════════════════════════════════════
+// AGRUPAMENTO EM MATRÍCULAS — 1 linha por aluno+plano; os ciclos são os pagamentos.
+// ══════════════════════════════════════════════════════════
+let _matExpandido = new Set();
+// Helpers globais (as versões dentro de render() são locais e não alcançam estas funções top-level)
+function _num(v) { return parseFloat(v || 0); }
+function _pago(m) { return !!m && m.stpgto === 'S'; }
+// Pinta de vermelho a data da linha. Tem que concordar com o selo ao lado:
+// antes ela tinha conta propria e a linha saia vermelha com o selo amarelo.
+function _venc(m) { return statusEfetivo(m) === 'vencida' || statusEfetivo(m) === 'inativa'; }
+function _normPlano(s) {
+  return String(s || '').toLowerCase()
+    .replace(/\b(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/g, ' ')
+    .replace(/\bde\b/g, ' ').replace(/\b20\d{2}\b/g, ' ').replace(/[—–-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// ── O QUE AGRUPA OS CICLOS DE UMA MATRICULA ─────────────────────────────────
+// Antes a chave era aluno + nome do plano. Bastava renomear o plano para a
+// matricula se partir em duas: foi o que aconteceu com o Diogo, que virou
+// "Consultoria Recorrente Mensal Especial" depois de ter sido "Consultoria
+// Recorrente Treino". O ciclo antigo perdeu de vista o novo e ficou preso em
+// "Aguardando renovacao" para sempre, enquanto o botao de renovar, que checa
+// se ja existe ciclo em aberto, teria gerado um ciclo duplicado sem reclamar.
+//
+// O registro ja sabia a resposta: idmatricula_origem aponta para o ciclo que
+// abriu a matricula. Quando essa ligacao existe ela manda, e o nome do plano
+// pode mudar a vontade. Registro antigo, de antes do campo, continua caindo no
+// nome do plano — que e o que sempre teve.
+// ── O QUE AGRUPA OS CICLOS DE UMA MATRICULA ─────────────────────────────────
+// Antes a chave era aluno + nome do plano. Bastava renomear o plano para a
+// matricula se partir em duas: foi o caso do Diogo, que virou "Consultoria
+// Recorrente Mensal Especial" depois de ter sido "Consultoria Recorrente
+// Treino". O ciclo antigo perdeu de vista o novo e ficou preso em "Aguardando
+// renovacao" para sempre, e o botao de renovar teria gerado um ciclo duplicado.
+//
+// A primeira correcao trocou o nome do plano pela ligacao idmatricula_origem.
+// Isso resolvia o Diogo e CRIAVA um defeito pior: matriculas antigas, de antes
+// desse campo, misturadas com ciclos novos que ja o tinham, passavam a cair em
+// grupos diferentes — a matricula se partia de novo, agora pelo outro lado.
+//
+// Entao a chave nao escolhe entre os dois criterios: ela COSTURA os dois. Quem
+// estava junto pelo nome continua junto; quem tem a ligacao explicita entra no
+// mesmo grupo mesmo com nome diferente. So pode juntar, nunca separar — e por
+// isso nenhuma matricula que hoje aparece inteira pode se quebrar amanha.
+let _mapaMat = null;
+let _mapaDe = null;
+function _construirMapaMat(lista) {
+  const pai = new Map();
+  const acha = (a) => { while (pai.get(a) !== a) { pai.set(a, pai.get(pai.get(a))); a = pai.get(a); } return a; };
+  const une = (a, b) => { a = acha(a); b = acha(b); if (a !== b) pai.set(a, b); };
+  (lista || []).forEach(m => pai.set(Number(m.idmensalidade), Number(m.idmensalidade)));
+  // 1) mesmo aluno + mesmo plano seguem juntos, como sempre estiveram
+  const porPlano = new Map();
+  (lista || []).forEach(m => {
+    const k = Number(m.idatleta) + '|' + _normPlano(m.dshistorico);
+    if (porPlano.has(k)) une(Number(m.idmensalidade), porPlano.get(k));
+    else porPlano.set(k, Number(m.idmensalidade));
+  });
+  // 2) e a ligacao explicita costura o que o nome separou
+  (lista || []).forEach(m => {
+    const raiz = Number(m.idmatricula_origem || 0);
+    if (raiz && pai.has(raiz) && Number(m.idatleta) === Number((lista.find(x => Number(x.idmensalidade) === raiz) || {}).idatleta)) {
+      une(Number(m.idmensalidade), raiz);
+    }
+  });
+  const mapa = new Map();
+  (lista || []).forEach(m => mapa.set(Number(m.idmensalidade), 'm' + acha(Number(m.idmensalidade))));
+  return mapa;
+}
+function _indexarMatriculas(lista) { _mapaMat = _construirMapaMat(lista); _mapaDe = lista; }
+function _matKey(m) {
+  // A chave mora no api.js desde 29/08/2026, para esta tela e a tela inicial
+  // nao terem duas nocoes de "mesma matricula" — foi ter duas que fez o Diogo
+  // aparecer pedindo renovacao no Inicio e nao no painel.
+  if (typeof API !== 'undefined' && API.chaveMatricula) return API.chaveMatricula(m, mensalidades);
+  if (_mapaDe !== mensalidades) _indexarMatriculas(mensalidades);
+  return (_mapaMat && _mapaMat.get(Number(m.idmensalidade)))
+      || (Number(m.idatleta) + '|' + _normPlano(m.dshistorico));
+}
+
+// ── COBRANCA SUPERADA ───────────────────────────────────────────────────────
+// Uma cobranca em aberto cujo vencimento e ANTERIOR ao vencimento de um ciclo
+// ja PAGO da mesma matricula. Quer dizer: o periodo que ela cobra ja foi pago
+// depois, por outro registro. Ela e sobra, nao divida.
+// Foi o que aconteceu com o Marcelo — pagou dia 13/08, o ciclo pago passou a
+// vencer 14/09, e ficou para tras uma cobranca de 14/08 que ninguem deve. Como
+// o cabecalho da matricula mostra a cobranca em aberto MAIS ANTIGA, a linha
+// inteira aparecia em vermelho, "Vencida", de um aluno em dia. A mesma sobra
+// existe na Wendy, em tres meses.
+// A regra compara vencimento com vencimento, dentro da MESMA matricula e com
+// o MESMO valor. Ate 18/08/2026 ela exigia pagamento com vencimento
+// estritamente POSTERIOR, para nao confundir com uma renovacao recem-criada —
+// que, na rotina antiga, nascia com o mesmo vencimento do ciclo pago. So que
+// as SOBRAS daquela rotina nasciam exatamente assim tambem, com o vencimento
+// igual. Resultado: a sobra passava despercebida e continuava mandando no
+// cabecalho da matricula. Foi o caso da Juliana, vencida com tudo pago,
+// enquanto o Leonardo — mesma matricula, mesmos pagamentos — aparecia ativo
+// so porque a sobra dele ja tinha sido excluida na mao.
+// Agora vale tambem o vencimento IGUAL. Isso e seguro porque a renovacao
+// deixou de nascer assim: no modelo novo o ciclo seguinte sempre vence um
+// periodo depois do que o gerou.
+// (Existe uma copia identica desta funcao no index.html — as duas telas
+// precisam contar a mesma historia sobre a mesma matricula.)
+function _cobrancaSuperada(c, ciclos) {
+  if (!c || c.stpgto === 'S') return false;
+  // Ciclo cujo dinheiro entrou na linha de cima NAO e sobra: ele e o ciclo em
+  // curso, e a etiqueta verde ja explica onde a baixa foi parar. Chamar de
+  // sobra convidava a apagar justamente o ciclo recem-criado.
+  if (typeof API !== 'undefined' && API.cicloJaPago && API.cicloJaPago(c, mensalidades)) return false;
+  if (c.stmatricula === 'cancelada' || c.stmatricula === 'encerrada') return false;
+  const v = String(c.dtvencimento || '').slice(0, 10);
+  if (!v) return false;
+  // A checagem de matricula estava so no comentario acima, nunca no codigo:
+  // enquanto os chamadores passam a lista ja agrupada nao da problema, mas
+  // bastava alguem passar a lista inteira para uma divida real sumir por causa
+  // do pagamento de OUTRO aluno com o mesmo valor. Agora esta escrita.
+  const chave = _matKey(c);
+  return (ciclos || []).some(x =>
+    Number(x.idmensalidade) !== Number(c.idmensalidade) &&
+    _matKey(x) === chave &&
+    x.stpgto === 'S' &&
+    Number(x.vlpagar) === Number(c.vlpagar) &&
+    String(x.dtvencimento || '').slice(0, 10) >= v);
+}
+function agruparMatriculas(rows) {
+  const map = new Map();
+  for (const m of rows) {
+    const k = _matKey(m);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(m);
+  }
+  const out = [];
+  for (const [k, cycles] of map) {
+    const ord = cycles.slice().sort((a, b) => (b.dtvencimento || '').localeCompare(a.dtvencimento || '') || (Number(b.idmensalidade) - Number(a.idmensalidade)));
+    // Ciclo "atual" = o que precisa de ação (cobrança em aberto mais antiga); se tudo pago, o último pago.
+    // Sobras nao definem o estado da matricula: quem esta em dia nao pode
+    // aparecer como vencido por causa de um registro que ninguem deve.
+    const abertos = ord.filter(c => c.stpgto !== 'S' && c.stmatricula !== 'cancelada' && !_cobrancaSuperada(c, ord))
+      .sort((a, b) => (a.dtvencimento || '').localeCompare(b.dtvencimento || ''));
+    const atual = abertos[0] || ord[0];
+    const inicio = cycles.map(c => String(c.dtinicio || '').slice(0, 10)).filter(Boolean).sort()[0] || atual.dtinicio;
+    out.push({ key: k, cycles: ord, atual, inicio });
+  }
+  return out;
+}
+function ordenarMatriculas(arr, ord) {
+  const vc = (a, b) => (a.atual.dtvencimento || '').localeCompare(b.atual.dtvencimento || '');
+  const nm = (a, b) => (a.atual.nmathleta || '').localeCompare(b.atual.nmathleta || '', 'pt-BR');
+  const vl = (a, b) => _num(a.atual.vlpagar) - _num(b.atual.vlpagar);
+  const ini = (a, b) => (a.inicio || '').localeCompare(b.inicio || '');
+  const pg = (a, b) => (a.atual.dtpagamento || '').localeCompare(b.atual.dtpagamento || '');
+  const st = (a, b) => _rankStatus(a.atual) - _rankStatus(b.atual);
+  const fns = {
+    vencimento_desc: (a, b) => -vc(a, b), vencimento_asc: vc,
+    nome_asc: nm, nome_desc: (a, b) => -nm(a, b),
+    valor_desc: (a, b) => -vl(a, b), valor_asc: vl,
+    inicio_asc: ini, inicio_desc: (a, b) => -ini(a, b),
+    pagamento_asc: pg, pagamento: (a, b) => -pg(a, b), pagamento_desc: (a, b) => -pg(a, b),
+    status_asc: st, status_desc: (a, b) => -st(a, b),
+  };
+  arr.sort(fns[ord] || ((a, b) => -vc(a, b)));
+}
+function toggleMatExp(key) {
+  if (_matExpandido.has(key)) _matExpandido.delete(key); else _matExpandido.add(key);
+  render();
+}
+function _statusPill(m) {
+  const _st = statusEfetivo(m);
+  const map = {
+    trancada: ['', 'Trancada', 'background:rgba(99,102,241,.15);color:#818cf8;'],
+    inativa: ['', 'Inativa', 'background:rgba(148,163,184,.18);color:#94a3b8;'],
+    cancelada: ['', 'Cancelada', 'background:rgba(148,163,184,.12);color:#94a3b8;'],
+    ativa_paga: ['pill-green', 'Ativa · Paga', ''],
+    aguardando: ['', 'Aguardando renovação', 'background:rgba(56,189,248,.14);color:#38bdf8;'],
+    renovada:   ['', 'Ciclo concluído', 'background:rgba(148,163,184,.16);color:#94a3b8;'],
+    programada: ['', 'Ativa · a cobrar', 'background:rgba(56,189,248,.12);color:#38bdf8;'],
+    encerrada: ['', 'Encerrada', 'background:rgba(148,163,184,.15);color:#94a3b8;'],
+    vencida: ['pill-red', 'Vencida', ''],
+    pendente: ['pill-yellow', 'Ativa · Pendente', ''],
+  };
+  const [cls, lbl, stl] = map[_st] || ['pill-yellow', 'Ativa · Pendente', ''];
+  // O periodo esta em curso e o aluno esta em dia; o que ainda nao chegou e a
+  // data de cobranca. Sumir da conta de "a receber" sem dizer quando volta seria
+  // pior do que aparecer cedo demais, entao a etiqueta carrega a data.
+  if (_st === 'programada' || _st === 'pendente') {
+    // A data e a da COBRANCA (o inicio do ciclo), nao o fim da cobertura. Era
+    // aqui que a Vanessa aparecia como "a cobrar 30/09" tendo pago em 30/07.
+    const v = _dtCobranca(m);
+    const dm = v ? (v.slice(8,10) + '/' + v.slice(5,7)) : '';
+    const t = v ? ('Cobrança em ' + v.slice(8,10) + '/' + v.slice(5,7) + '/' + v.slice(0,4) +
+                   (_st === 'programada'
+                     ? '. Entra na lista de cobranças ' + _antecedenciaDias(m) + ' dias antes.'
+                     : '. Fica vencida ' + TOLERANCIA_COBRANCA_DIAS + ' dias depois.')) : '';
+    return `<span class="pill ${cls}" style="${stl}" title="${t}">${lbl}${dm ? ' ' + dm : ''}</span>`;
+  }
+  return `<span class="pill ${cls}" style="${stl}">${lbl}</span>`;
+}
+// ── DUAS BAIXAS PARA O MESMO PERIODO ────────────────────────────────────────
+// Caso da Maud: ela tem os ciclos 22/07–22/08 pago em 22/07 E 22/07–22/08 pago
+// em 23/08 — o mesmo periodo, duas vezes — enquanto o ciclo 22/08–22/09 fica
+// em aberto e vermelho. O dinheiro de agosto entrou (23/08), mas a baixa foi
+// dada num ciclo que ja estava pago, em vez do ciclo de agosto. Do ponto de
+// vista dos registros ela deve; do ponto de vista do caixa ela pagou.
+//
+// NAO corrijo isso sozinho: mover pagamento entre ciclos e mexer no historico
+// financeiro, e o mesmo padrao pode ser um aluno que simplesmente pagou
+// atrasado. O sistema aponta o que viu e voce decide.
+
+// Este ciclo esta pago, mas a data do pagamento cai DENTRO do periodo de outro
+// ciclo desta mesma matricula. Sinal de baixa dada na linha errada.
+
+// Resumo para o cabecalho da matricula: ha sinal de baixa no ciclo errado?
+
+function renderMatricula(mat, podeVerValores, isAdmin) {
+  const m = mat.atual;
+  const nCiclos = mat.cycles.length;
+  const exp = _matExpandido.has(mat.key);
+  const _atl = atletas.find(a => Number(a.idatleta) === Number(m.idatleta));
+  const _adminEhProf = _atl && Array.isArray(_atl.professores_responsaveis) && _atl.professores_responsaveis.map(Number).some(id => id === 1 || id === 2);
+  const _bloqueado = m._somente_leitura || (!isAdmin && _adminEhProf);
+  const vencida = _venc(m);
+  const rec = (m.recorrencia && String(m.recorrencia).toLowerCase() !== 'avulso') ? String(m.recorrencia) : '';
+  // Cobranca paga, vencendo em ate 30 dias (ou ja vencida), sem periodicidade
+  // que o sistema saiba ler. Foi o caso do Diogo: "Consultoria Recorrente
+  // Treino" nao casa com mensal/trimestral/semestral/anual, entao a renovacao
+  // automatica nunca gera o proximo ciclo — e sem ciclo em aberto nao existe
+  // botao de dar baixa. Antes isso ficava invisivel: a matricula parecia em dia
+  // ate o dia em que sumia. Agora ela se anuncia.
+  let _semPeriodo = false;
+  try {
+    const _ehTeste = (typeof API !== 'undefined' && API.ehTestePlano) ? API.ehTestePlano(m) : false;
+    if (!_ehTeste && _pago(m) && !rec && !_recDoPlano(m) && m.stmatricula !== 'encerrada' && m.stmatricula !== 'cancelada') {
+      const _v = String(m.dtvencimento || '').slice(0, 10);
+      if (_v) {
+        const _d = Math.round((new Date(_v + 'T00:00:00') - new Date(_hojeStr() + 'T00:00:00')) / 86400000);
+        _semPeriodo = (_d <= 30);
+      }
+    }
+  } catch (e) {}
+  // Mesma ideia da etiqueta acima: o que o sistema nao entende, ele mostra.
+  let _incoerente = null;
+  try { _incoerente = _cicloIncoerente(m); } catch (e) {}
+  const pillCicloTorto = _incoerente
+    ? ` <span class="pill" onclick="event.stopPropagation();abrirModalEditar(${m.idmensalidade})" title="Este ciclo cobre ${_incoerente.dias} dias, mas o plano e ${_incoerente.rec}. Ou o periodo esta errado, ou a periodicidade esta errada. Enquanto as duas discordarem, a proxima cobranca nasce na data errada. Clique para corrigir." style="background:rgba(250,204,21,.15);color:#facc15;font-size:9px;padding:1px 6px;cursor:pointer;">\u26A0 ${_incoerente.mesesReais > 1 ? _incoerente.mesesReais + ' meses' : _incoerente.dias + ' dias'} num plano ${_incoerente.rec}</span>`
+    : '';
+  const pillSemPeriodo = _semPeriodo
+    ? ` <span class="pill" onclick="event.stopPropagation();abrirModalEditar(${m.idmensalidade})" title="O sistema nao sabe de quanto em quanto tempo este plano se repete, entao nao gera a proxima cobranca sozinho. Clique para definir a periodicidade." style="background:rgba(250,204,21,.15);color:#facc15;font-size:9px;padding:1px 6px;cursor:pointer;">\u26A0 definir periodicidade</span>`
+    : '';
+  const keyEsc = mat.key.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const chev = nCiclos > 1
+    ? `<span onclick="event.stopPropagation();toggleMatExp('${keyEsc}')" style="cursor:pointer;user-select:none;color:var(--text-muted);width:14px;display:inline-block;text-align:center;">${exp ? '▾' : '▸'}</span>`
+    : '<span style="display:inline-block;width:14px;"></span>';
+  const acoes = _bloqueado ? '' : `
+    ${!_pago(m) && hasPerm('mt_editar') ? `<button class="btn btn-success btn-sm" onclick="marcarPago(${m.idmensalidade})">✓ Pago</button>` : ''}
+    ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="renovarCiclo(${m.idmensalidade})" title="Registrar o próximo ciclo (novo pagamento desta matrícula)">↻</button>` : ''}
+    ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="abrirModalEditar(${m.idmensalidade})">Editar</button>` : ''}
+    ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="trancarMatricula(${m.idmensalidade})" title="${m.stmatricula === 'trancada' ? 'Reativar' : 'Trancar'}">${m.stmatricula === 'trancada' ? '▶' : '⏸'}</button>` : ''}
+    ${hasPerm('mt_editar') && !_pago(m) ? `<button class="btn btn-secondary btn-sm" onclick="alterarVencimento(${m.idmensalidade})" title="Alterar vencimento">📅</button>` : ''}
+    ${hasPerm('mt_editar') && m.stmatricula !== 'encerrada' && m.stmatricula !== 'cancelada' ? `<button class="btn btn-secondary btn-sm" onclick="encerrarMatricula(${m.idmensalidade})" title="Encerrar matrícula (aluno concluiu e não continua)">🏁</button>` : ''}
+    ${hasPerm('mt_editar') && m.stmatricula !== 'cancelada' && m.stmatricula !== 'encerrada' ? `<button class="btn btn-secondary btn-sm" onclick="cancelarMatricula(${m.idmensalidade})" title="Cancelar matrícula">⊘</button>` : ''}
+    ${hasPerm('mt_excluir') ? `<button class="btn btn-danger btn-sm" onclick="excluirMensalidade(${m.idmensalidade})" title="Excluir este ciclo">✕</button>` : ''}`;
+  let html = `<tr>
+    <td class="td-name"><div style="display:flex;align-items:center;gap:8px;">${chev}${avatarHtml(m.idatleta, m.nmathleta, 24)}<span ${nCiclos > 1 ? `onclick="toggleMatExp('${keyEsc}')" style="cursor:pointer;" title="Ver ciclos/pagamentos"` : ''}>${esc(m.nmathleta || '—')}</span></div></td>
+    <td style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || '')}${m.tipo_plano ? ` <span class="pill" style="background:rgba(127,255,0,.1);color:#7FFF00;font-size:9px;padding:1px 6px;">${esc(m.tipo_plano)}</span>` : ''}${rec ? ` <span class="pill" style="background:rgba(56,189,248,.12);color:#38bdf8;font-size:9px;padding:1px 6px;${nCiclos > 1 ? 'cursor:pointer;' : ''}" ${nCiclos > 1 ? `onclick="toggleMatExp('${keyEsc}')" title="Ver ciclos/pagamentos"` : ''}>🔁 ${esc(rec.charAt(0).toUpperCase() + rec.slice(1))}</span>` : ''}${nCiclos > 1 ? ` <span class="pill" style="background:rgba(148,163,184,.12);color:var(--text-muted);font-size:9px;padding:1px 6px;cursor:pointer;" onclick="toggleMatExp('${keyEsc}')">${nCiclos} ciclos</span>` : ''}${pillSemPeriodo}${pillCicloTorto}</td>
+    ${podeVerValores ? `<td style="text-align:right;font-weight:700;color:var(--text);">${fmtMoedaV(m.vlpagar)}</td>` : ''}
+    <td class="td-date">${mat.inicio ? fmtData(mat.inicio) : '—'}</td>
+    <td class="${vencida ? '' : 'td-date'}" style="${vencida ? 'color:#f87171;font-size:12px;font-weight:600;' : ''}">${fmtData(m.dtvencimento)}</td>
+    <td class="td-date">${(() => {
+      if (m.dtpagamento) return fmtData(m.dtpagamento);
+      // Ciclo pago na linha de cima: a data existe, so esta noutro registro.
+      // Deixar "—" ao lado de um selo "Paga" fazia a linha se contradizer.
+      const _bx = (typeof API !== 'undefined' && API.baixaQuePagou) ? API.baixaQuePagou(m, mensalidades) : null;
+      return _bx && _bx.dtpagamento
+        ? `<span title="Baixa lançada no ciclo anterior, em ${fmtData(_bx.dtpagamento)}." style="opacity:.75;">${fmtData(_bx.dtpagamento)} <span style="font-size:9px;">↑</span></span>`
+        : '—';
+    })()}</td>
+    <td>${_statusPill(m)}</td>
+    <td style="text-align:right;white-space:nowrap;gap:6px;display:flex;justify-content:flex-end;padding:8px 20px;">${acoes}</td>
+  </tr>`;
+  if (exp && nCiclos > 1) {
+    html += mat.cycles.map(c => `<tr style="background:${_cobrancaSuperada(c, mat.cycles) ? 'rgba(250,204,21,.07)' : 'rgba(255,255,255,.02)'};">
+      <td style="padding-left:44px;font-size:11px;color:var(--text-muted);">↳ pagamento${(typeof API !== 'undefined' && API.cicloJaPago && API.cicloJaPago(c, mensalidades)) ? ` <span class="pill" title="A baixa deste ciclo foi lançada na linha do ciclo anterior, cujo vencimento é o dia em que este começa. O dinheiro entrou — está no lugar errado, não em falta. Para arrumar o histórico, mova a data de pagamento pelo ✎ Editar." style="background:rgba(52,211,153,.15);color:#34d399;font-size:9px;padding:1px 6px;">\u2713 pago na linha anterior</span>` : ''}${_cobrancaSuperada(c, mat.cycles) ? ` <span class="pill" title="Cobrança em aberto de um período que já foi pago depois, por outro ciclo. Não é dívida — é sobra. Pode excluir com o ✕." style="background:rgba(250,204,21,.15);color:#facc15;font-size:9px;padding:1px 6px;">⚠ sobra</span>` : ''}${(typeof API !== 'undefined' && API.pagamentoDoProximoCiclo && API.pagamentoDoProximoCiclo(c)) ? ` <span class="pill" title="Esta baixa tem data de ${c.dtpagamento ? fmtData(c.dtpagamento) : '—'}, que é quando o ciclo seguinte começa. Pela regra da Intus o aluno paga no início do ciclo, então este dinheiro é do ciclo de baixo — foi lançado aqui. Não precisa mexer: o sistema já entendeu. Se quiser arrumar o histórico, mova a data pelo ✎ Editar." style="background:rgba(148,163,184,.18);color:#94a3b8;font-size:9px;padding:1px 6px;">↓ baixa do ciclo seguinte</span>` : ''}</td>
+      <td style="font-size:11px;color:var(--text-muted);">${esc(c.dshistorico || '')}</td>
+      ${podeVerValores ? `<td style="text-align:right;font-size:11px;color:var(--text-muted);">${fmtMoedaV(c.vlpagar)}</td>` : ''}
+      <td class="td-date" style="font-size:11px;">${c.dtinicio ? fmtData(c.dtinicio) : '—'}</td>
+      <td class="td-date" style="font-size:11px;">${fmtData(c.dtvencimento)}</td>
+      <td class="td-date" style="font-size:11px;">${c.dtpagamento ? fmtData(c.dtpagamento) : '—'}</td>
+      <td>${_statusPill(c)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${!_pago(c) && hasPerm('mt_editar') ? `<button class="btn btn-success btn-sm" style="font-size:10px;padding:2px 6px;" onclick="marcarPago(${c.idmensalidade})" title="Marcar pago">✓</button>` : ''}
+        ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="abrirModalEditar(${c.idmensalidade})" title="Editar">✎</button>` : ''}
+        ${hasPerm('mt_excluir') ? `<button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 6px;opacity:.6;" onclick="excluirMensalidade(${c.idmensalidade})" title="Excluir ciclo">✕</button>` : ''}
+      </td>
+    </tr>`).join('');
+  }
+  return html;
+}
+
+// Renovar = registrar o próximo ciclo (novo pagamento) da MESMA matrícula
+async function renovarCiclo(idmens) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(idmens));
+  if (!m) return;
+  const prox = _proxCicloDe(m);
+  if (!prox) return showToast('Defina a periodicidade desta matrícula no Editar para gerar o próximo ciclo.', 'error');
+  if (_temCicloAberto(m, m.idmensalidade)) return showToast('Esta matrícula já tem um ciclo em aberto.', 'error');
+  const root = m.idmatricula_origem || m.idmensalidade;
+  if (!confirm('Gerar o próximo ciclo de ' + (m.nmathleta || 'aluno') + '?\n\nPeríodo: ' + fmtData(prox.dtinicio) + ' a ' + fmtData(prox.dtvencimento) + '\nValor: R$ ' + _num(m.vlpagar).toFixed(2))) return;
+  try {
+    await API.criarMensalidade({
+      idatleta: m.idatleta, nmathleta: m.nmathleta || '',
+      dshistorico: m.dshistorico || 'Mensalidade', tipo_plano: m.tipo_plano || null,
+      dtinicio: prox.dtinicio, dtvencimento: prox.dtvencimento,
+      vlpagar: m.vlpagar, vldesconto: 0, vljuro: 0,
+      stpgto: 'N', professor: m.professor || null, recorrencia: prox.rec,
+      idmatricula_origem: root,
+    });
+    showToast('Próximo ciclo gerado: ' + fmtData(prox.dtinicio) + ' a ' + fmtData(prox.dtvencimento) + '.');
+    await carregar();
+  } catch (e) { showToast(e.message || 'Erro ao renovar', 'error'); }
+}
+
+// Consolidar: remove cobranças duplicadas e as futuras geradas automaticamente (mantém os pagamentos legítimos)
+async function consolidarDuplicadas() {
+  if (!hasPerm('mt_excluir')) return showToast('Sem permissão para consolidar.', 'error');
+  const remover = new Set();
+  // 1) duplicatas exatas (mesmo aluno, plano, vencimento, valor e status)
+  const vistos = new Map();
+  for (const m of mensalidades) {
+    const sig = Number(m.idatleta) + '|' + String(m.dshistorico || '') + '|' + String(m.dtvencimento || '').slice(0, 10) + '|' + _num(m.vlpagar) + '|' + m.stpgto;
+    if (vistos.has(sig)) remover.add(m.idmensalidade);
+    else vistos.set(sig, m);
+  }
+  // 2) ciclos futuros criados pela auto-renovação (pendente, recorrente, com um irmão PAGO cujo vencimento = o início deste)
+  for (const m of mensalidades) {
+    if (m.stpgto === 'S' || remover.has(m.idmensalidade)) continue;
+    if (!String(m.recorrencia || '')) continue;
+    const ini = String(m.dtinicio || '').slice(0, 10);
+    const irmaoPago = mensalidades.some(x => Number(x.idmensalidade) !== Number(m.idmensalidade) &&
+      Number(x.idatleta) === Number(m.idatleta) && _num(x.vlpagar) === _num(m.vlpagar) &&
+      x.stpgto === 'S' && String(x.dtvencimento || '').slice(0, 10) === ini);
+    if (irmaoPago) remover.add(m.idmensalidade);
+  }
+  const uniq = [...remover];
+  if (!uniq.length) return showToast('Nenhuma duplicada encontrada — já está limpo.');
+  if (!confirm('Consolidar matrículas?\n\nSerão removidas ' + uniq.length + ' cobrança(s) duplicada(s) ou geradas automaticamente. Os pagamentos legítimos e o histórico são mantidos.\n\nEsta ação não pode ser desfeita.')) return;
+  let ok = 0;
+  for (const id of uniq) { try { await API.excluirMensalidade(id); ok++; } catch (e) {} }
+  showToast(ok + ' cobrança(s) removida(s). Matrículas consolidadas.');
+  _autoInativarFeito = false;
+  await carregar();
+}
+
+function toggleProfFilter() {
+  const dd = document.getElementById('prof-filter-dropdown');
+  if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+function toggleProfTodos(checked) {
+  if (checked) { filtroProfessor = new Set(); }
+  render();
+}
+function toggleProfItem(val, checked) {
+  if (checked) { filtroProfessor.add(val); }
+  else { filtroProfessor.delete(val); }
+  render();
+}
+document.addEventListener('click', function(e) {
+  const wrap = document.getElementById('prof-filter-wrap');
+  const dd = document.getElementById('prof-filter-dropdown');
+  if (wrap && dd && !wrap.contains(e.target)) dd.style.display = 'none';
+});
+
+// ── Marcar como pago (chama API) ──────────────────────────────────────────
+function marcarPago(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  const _atr = _diasAtraso(m);
+  const venc = _atr != null && _atr > 0;
+  const baseReceber = +((parseFloat(m.vlpagar || 0)) - (parseFloat(m.vldesconto || 0))).toFixed(2);
+  const formaAtual = String(m.forma_pgto || 'pix').toLowerCase();
+  const opt = (v, l) => `<option value="${v}" ${formaAtual === v ? 'selected' : ''}>${l}</option>`;
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Registrar pagamento</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">
+        <b style="color:var(--text);">${esc(m.nmathleta || 'Cliente')}</b> — ${esc(m.dshistorico || 'Mensalidade')}<br>
+        Valor a receber: <b style="color:var(--text);">R$ ${baseReceber.toFixed(2)}</b>${parseFloat(m.vldesconto || 0) > 0 ? ` <span style="font-size:11px;">(desconto R$ ${parseFloat(m.vldesconto).toFixed(2)})</span>` : ''}
+      </div>
+      <div class="form-group">
+        <label class="label">Forma de pagamento</label>
+        <select id="pg-forma" class="input" onchange="_onFormaPgto()">
+          ${opt('pix', 'Pix')}
+          ${opt('dinheiro', 'Dinheiro')}
+          ${opt('cartao', 'Cartão (crédito/débito)')}
+          ${opt('eduzz', 'Eduzz')}
+        </select>
+      </div>
+      <div id="pg-eduzz-nota" style="display:none;background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);margin-bottom:12px;">
+        Via <b>Eduzz</b>: o valor fica retido ~30 dias e entra no Caixa (líquido) só no saque. Acompanhe em <b>Financeiro › Eduzz</b>.
+      </div>
+      ${venc ? `<div class="form-group">
+        <label class="label">Multa/juros (R$) — vencida há ${_atr} dia(s)</label>
+        <input id="pg-juros" class="input" type="number" min="0" step="0.01" value="0" placeholder="0,00"/>
+      </div>` : ''}
+      <div class="form-group">
+        <label class="label">Data do pagamento</label>
+        <input id="pg-data" class="input" type="date" value="${new Date().toISOString().slice(0,10)}"/>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarPagamento(${id})">Confirmar pagamento</button>
+    </div>
+  `);
+  _onFormaPgto();
+}
+
+function _onFormaPgto() {
+  const f = document.getElementById('pg-forma')?.value;
+  const nota = document.getElementById('pg-eduzz-nota');
+  if (nota) nota.style.display = (f === 'eduzz') ? 'block' : 'none';
+}
+
+async function confirmarPagamento(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  const forma = document.getElementById('pg-forma')?.value || null;
+  const data  = document.getElementById('pg-data')?.value || new Date().toISOString().slice(0,10);
+  let juros = parseFloat(String(document.getElementById('pg-juros')?.value || '0').replace(',', '.')) || 0;
+  if (juros < 0) juros = 0;
+  const totalReceber = +((parseFloat(m.vlpagar || 0)) + juros - (parseFloat(m.vldesconto || 0))).toFixed(2);
+  closeModal();
+  try {
+    if (juros > 0) m.vljuro = juros;
+    await API.pagarMensalidade(m, data, totalReceber);
+    if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); m.forma_pgto = forma; } catch (e) {} }
+    showToast('Pagamento registrado!' + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : '') + (juros > 0 ? ' (+ R$ ' + juros.toFixed(2) + ' de juros)' : ''));
+    // ── Nasce aqui o proximo ciclo ─────────────────────────────────────────
+    // Antes o codigo empurrava o vencimento da PROPRIA linha paga um periodo
+    // para a frente. O registro do pagamento de agosto virava um registro de
+    // setembro, e o historico do mes que passou desaparecia — foi o que
+    // aconteceu com a Maud. Agora a linha paga fica como esta, para sempre, e
+    // o periodo seguinte e uma linha nova.
+    const _prox = _proxCicloDe(m);
+    const _encerrada = (m.stmatricula === 'encerrada' || m.stmatricula === 'cancelada');
+    if (_prox && !_encerrada && !_temCicloAberto(m, m.idmensalidade)) {
+      try {
+        await API.criarMensalidade({
+          idatleta: m.idatleta,
+          nmathleta: m.nmathleta || '',
+          dshistorico: m.dshistorico || 'Mensalidade',
+          tipo_plano: m.tipo_plano || null,
+          dtinicio: _prox.dtinicio,
+          dtvencimento: _prox.dtvencimento,
+          vlpagar: m.vlpagar,
+          vldesconto: 0, vljuro: 0, stpgto: 'N',
+          professor: m.professor || null,
+          recorrencia: _prox.rec,
+          idmatricula_origem: m.idmatricula_origem || m.idmensalidade,
+        });
+        showToast('Próximo ciclo gerado: ' + fmtData(_prox.dtinicio) + ' a ' + fmtData(_prox.dtvencimento) + '.');
+      } catch (e) { showToast('Pagamento salvo, mas o próximo ciclo não foi gerado: ' + e.message, 'error'); }
+    } else if (!_prox && !_encerrada) {
+      showToast('Pagamento salvo. Defina a periodicidade no Editar para o próximo ciclo nascer sozinho.');
+    }
+
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao marcar como paga: ' + e.message, 'error');
+  }
+}
+
+// ── Excluir ───────────────────────────────────────────────────────────────
+async function excluirMensalidade(id) {
+  if (!hasPerm('mt_excluir')) return showToast('Sem permissão para excluir mensalidades.', 'error');
+  if (!confirm('Excluir esta mensalidade? Essa ação não pode ser desfeita.')) return;
+  try {
+    await API.excluirMensalidade(id);
+    showToast('Mensalidade excluída.');
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao excluir: ' + e.message, 'error');
+  }
+}
+
+// ── Status efetivo da matrícula (Fase 1: trancada / inativa / etc.) ───────
+function _hojeStr() { return new Date().toISOString().slice(0,10); }
+function _diasAtraso(m) { // >0 = dias vencido; null se nao da para saber
+  const cob = _dtCobranca(m);
+  if (!cob) return null;
+  const a = new Date(cob + 'T00:00:00');
+  const h = new Date(); h.setHours(0,0,0,0);
+  return Math.round((h - a) / 86400000);
+}
+// ── QUANDO A PROXIMA COBRANCA APARECE ──────────────────────────────────────
+// O ciclo seguinte nasce no ato da baixa, e isso continua certo: e uma escrita
+// so, disparada por voce, sem rotina automatica mexendo em nada.
+// O problema era outro: ele JA APARECIA como cobranca em aberto no mesmo
+// instante. Num plano mensal ninguem nota, porque o vencimento dele cai trinta
+// dias depois. Num trimestral, a cobranca da Fernanda, gerada em 25/08 e so
+// devida em 22/11, entrou na lista em agosto, contou em "A receber" e deixou a
+// matricula com cara de pendente por quase tres meses.
+//
+// A regra e de EXIBICAO, nao de gravacao: a cobranca nasce PROGRAMADA e so vira
+// cobranca em aberto quando falta pouco para o vencimento, que no seu modelo e
+// a data em que o dinheiro entra. Nenhum registro e criado nem alterado nessa
+// virada, e por isso ela nao precisa de rotina nenhuma: e so uma comparacao de
+// datas, refeita a cada vez que a tela abre.
+//
+// A ANTECEDENCIA DEPENDE DO TAMANHO DO CICLO. Trinta dias de aviso num plano
+// mensal seria o ciclo inteiro: a cobranca apareceria no dia seguinte ao
+// pagamento anterior e nunca sairia da lista. Ja num semestral, quinze dias e
+// aviso curto demais para uma quantia grande. Entao:
+//     ciclo de ate 100 dias (mensal, bimestral, trimestral) .... 15 dias
+//     ciclo acima disso (semestral, anual) ...................... 30 dias
+// O corte em 100 dias e proposital: um trimestre tem 90 ou 92 dias conforme os
+// meses, e a folga evita que um trimestral de fevereiro caia do lado errado.
+const ANTECEDENCIA_CICLO_CURTO = 15;   // ate trimestral
+const ANTECEDENCIA_CICLO_LONGO = 30;   // semestral em diante
+const CORTE_CICLO_LONGO_DIAS   = 100;
+
+// ── QUANDO A COBRANCA VENCE ─────────────────────────────────────────────────
+// O aluno paga o periodo que VAI usar, nao o que ja usou: a Vanessa pagou em
+// 30/07 o ciclo 30/07–30/08, e o Diogo pagou em 17/08 o ciclo 17/08–17/09.
+// Entao a cobranca vence no INICIO do ciclo. A coluna Vencimento e o fim da
+// cobertura — a data em que o proximo ciclo comeca a valer.
+//
+// Ate 29/08/2026 o sistema lia o Vencimento como data de cobranca. Como o ciclo
+// seguinte comeca onde o anterior termina, a cobranca escorregava um periodo
+// inteiro: a Vanessa pagou em 30/07 e a proxima cobranca era anunciada para
+// 30/09. Agosto ficava sem pagamento nenhum num plano mensal. Nao era erro de
+// conta — era o sistema chamando de "vencimento" duas coisas diferentes.
+//
+// Registro antigo sem data de inicio cai no vencimento, que e o unico que tem.
+function _dtCobranca(m) {
+  // A regra mora no api.js e todas as telas leem de la. Este atalho existe so
+  // para nao reescrever as dezenas de chamadas desta tela. Se o api.js nao
+  // tiver carregado, a copia local mantem a tela de pe (sem periodicidade
+  // conhecida a resposta e a mesma nos dois caminhos).
+  if (typeof API !== 'undefined' && typeof API.dtCobranca === 'function') return API.dtCobranca(m, mensalidades);
+  if (!m) return '';
+  return String(m.dtinicio || '').slice(0, 10) || String(m.dtvencimento || '').slice(0, 10);
+}
+
+// A cobranca so fica vermelha alguns dias depois de vencer. Sem isso a lista
+// amanhecia inteira em vermelho todo dia de vencimento, antes de voce ter
+// sentado para dar as baixas. E a mesma carencia de 5 dias que o app usa.
+const TOLERANCIA_COBRANCA_DIAS = 5;
+
+// Duracao do ciclo em dias. Sem data de inicio nao da para medir, e ai o mais
+// seguro e tratar como ciclo longo: avisar cedo demais incomoda, avisar tarde
+// demais faz voce perder a cobranca.
+function _duracaoCiclo(m) {
+  const ini  = String(m.dtinicio || '').slice(0, 10);
+  const venc = String(m.dtvencimento || '').slice(0, 10);
+  if (!ini || !venc) return null;
+  const d = Math.round((new Date(venc + 'T00:00:00') - new Date(ini + 'T00:00:00')) / 86400000);
+  return d > 0 ? d : null;
+}
+
+// ── O CICLO DIZ UMA COISA E O PLANO DIZ OUTRA ───────────────────────────────
+// O Diogo tem um plano "Mensal" com periodo de 17/04 a 17/08: quatro meses.
+// Isso nao e detalhe de tela. A antecedencia sai do TAMANHO do ciclo, entao um
+// mensal esticado passa a ser tratado como plano longo (aviso de 30 dias) e a
+// cobranca do mes certo nunca aparece na hora certa. E a renovacao gerada a
+// partir dele herda o periodo errado, propagando a distorcao para a frente.
+// Nao mexo na data sozinho: e dinheiro, e so voce sabe o que foi combinado com
+// o aluno. A matricula se anuncia e voce decide.
+function _cicloIncoerente(m) {
+  const rec = _recDoPlano(m);
+  const meses = (typeof API !== 'undefined' && API.mesesDoPlano) ? API.mesesDoPlano(m)
+              : (rec ? _RECMESES_MT[rec] : null);
+  const dur = _duracaoCiclo(m);
+  if (!meses || dur === null) return null;
+  const esperado = meses * 30.44;             // media do mes, para nao brigar com fevereiro
+  // Folga larga de proposito (40%): datas quebradas, meses de 28 e de 31 dias e
+  // o aluno que comecou no dia 31 nao podem virar alarme falso.
+  if (dur > esperado * 1.4 || dur < esperado * 0.6) {
+    return { dias: dur, meses: meses, rec: rec, mesesReais: Math.round(dur / 30.44) };
+  }
+  return null;
+}
+
+function _antecedenciaDias(m) {
+  const dur = _duracaoCiclo(m);
+  if (dur === null) return ANTECEDENCIA_CICLO_LONGO;
+  return dur <= CORTE_CICLO_LONGO_DIAS ? ANTECEDENCIA_CICLO_CURTO : ANTECEDENCIA_CICLO_LONGO;
+}
+
+function _cicloProgramado(m) {
+  if (!m || m.stpgto === 'S') return false;
+  if (m.stmatricula === 'cancelada' || m.stmatricula === 'encerrada') return false;
+  const cob = _dtCobranca(m);
+  if (!cob) return false;                      // sem data nao da para julgar
+  const limite = new Date(cob + 'T00:00:00');
+  limite.setDate(limite.getDate() - _antecedenciaDias(m));
+  const h = new Date(); h.setHours(0, 0, 0, 0);
+  return h < limite;
+}
+
+// Este ciclo ja foi sucedido por outro da mesma matricula? Se foi, ele nao
+// esta "aguardando renovacao": ele FOI renovado. O comentario abaixo dizia
+// "e sem ciclo seguinte", mas a verificacao nunca existiu — e por isso o ciclo
+// de maio a agosto da Fernanda continuava pedindo renovacao depois de ela ter
+// renovado e pago em 25/08.
+function _foiRenovado(m) {
+  if (!m || m.stpgto !== 'S') return false;
+  const venc = String(m.dtvencimento || '').slice(0, 10);
+  if (!venc) return false;
+  const chave = _matKey(m);
+  return (mensalidades || []).some(x =>
+    Number(x.idmensalidade) !== Number(m.idmensalidade) &&
+    _matKey(x) === chave &&
+    x.stmatricula !== 'cancelada' && x.stmatricula !== 'encerrada' &&
+    String(x.dtinicio || '').slice(0, 10) >= venc);
+}
+
+function statusEfetivo(m) {
+  // A decisao mora no api.js e TODAS as telas leem de la. Antes cada uma
+  // decidia sozinha e decidia diferente: era por isso que a mesma aluna saia do
+  // vermelho aqui e continuava em atraso no Financeiro.
+  // Este mapa so traduz o estado para os nomes que esta tela ja usava nos selos.
+  if (typeof API !== 'undefined' && API.situacaoCobranca) {
+    const st = API.situacaoCobranca(m, mensalidades).estado;
+    if (st === 'paga' || st === 'paga_no_anterior') return 'ativa_paga';
+    if (st === 'renovar') return 'aguardando';
+    return st;   // renovada | programada | pendente | vencida | inativa | encerrada | cancelada | trancada
+  }
+  // Sem o api.js a tela nao inventa situacao: assume o minimo e nao acusa
+  // ninguem de dever. Reimplementar a regra aqui foi o que criou o problema.
+  return m.stpgto === 'S' ? 'ativa_paga' : 'pendente';
+}
+
+// ── Trancamento (pausa) — empurra o vencimento ao reativar ────────────────
+async function trancarMatricula(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  if (m.stmatricula === 'trancada') return destrancarMatricula(id);
+  const resp = prompt(
+    'Trancar matrícula de ' + (m.nmathleta || 'cliente') + '.\n\n' +
+    'Data de retorno (AAAA-MM-DD) para trancar por período,\n' +
+    'ou deixe VAZIO para trancamento indeterminado.\n\n' +
+    'Ao reativar, o vencimento é empurrado pelos dias parados.', '');
+  if (resp === null) return;
+  const fim = resp.trim() ? resp.trim().slice(0,10) : null;
+  const motivo = _escolherMotivo('Motivo do trancamento:', MOTIVOS_TRANCAMENTO) || null;
+  try {
+    await API.editarMensalidade(id, { stmatricula: 'trancada', dt_tranca_inicio: _hojeStr(), dt_tranca_fim: fim, motivo_encerramento: motivo });
+    showToast('Matrícula trancada' + (fim ? ' até ' + fim : ' (indeterminado)') + (motivo ? ' — ' + motivo : '') + '.');
+    await carregar();
+  } catch (e) { showToast('Erro ao trancar: ' + e.message, 'error'); }
+}
+async function destrancarMatricula(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  const ini = m.dt_tranca_inicio ? new Date(String(m.dt_tranca_inicio).slice(0,10) + 'T00:00:00') : null;
+  const h = new Date(); h.setHours(0,0,0,0);
+  const dias = ini ? Math.max(0, Math.round((h - ini) / 86400000)) : 0;
+  if (!confirm('Reativar matrícula de ' + (m.nmathleta || 'cliente') + '?\n\n' +
+    'Ficou trancada por ' + dias + ' dia(s). O vencimento será empurrado ' + dias + ' dia(s).')) return;
+  let novoVenc = m.dtvencimento;
+  if (m.dtvencimento && dias > 0) {
+    const d = new Date(String(m.dtvencimento).slice(0,10) + 'T00:00:00');
+    d.setDate(d.getDate() + dias);
+    novoVenc = d.toISOString().slice(0,10);
+  }
+  const acum = (parseInt(m.dias_trancado || 0) || 0) + dias;
+  try {
+    await API.editarMensalidade(id, { stmatricula: 'ativa', dt_tranca_inicio: null, dt_tranca_fim: null, dias_trancado: acum, dtvencimento: novoVenc });
+    showToast('Reativada. Vencimento empurrado ' + dias + ' dia(s)' + (novoVenc ? ' → ' + fmtData(novoVenc) : '') + '.');
+    await carregar();
+  } catch (e) { showToast('Erro ao reativar: ' + e.message, 'error'); }
+}
+
+// ── Motivos (inspirado no SCA) ─────────────────────────────────────────────
+// A Intus e uma empresa de acompanhamento online de treino e alimentacao — nao
+// uma academia. "Mudou de academia" nunca foi motivo de saida aqui: o cliente
+// pode trocar de academia e continuar com a gente. O que faz ele sair e trocar
+// de acompanhamento, ou passar a treinar por conta propria.
+const MOTIVOS_CANCELAMENTO = ['Trocou de acompanhamento','Vai treinar por conta própria','Problemas financeiros','Alteração de plano','Falta de motivação','Falta de tempo','Problemas de saúde','Insatisfação','Inadimplência','Inativação','Outro'];
+const MOTIVOS_TRANCAMENTO  = ['Atestado médico','Férias ou viagem','Problemas de saúde','Falta de tempo','Financeiro','Outro'];
+const MOTIVOS_ENCERRAMENTO = ['Concluiu o plano e não renovou','Atingiu o objetivo','Trocou de acompanhamento','Vai treinar por conta própria','Motivos financeiros','Problemas de saúde','Falta de tempo','Outro'];
+function _escolherMotivo(titulo, lista) {
+  const txt = titulo + '\n\n' + lista.map((m,i)=>(i+1)+'. '+m).join('\n') + '\n\nDigite o número (ou o texto do motivo):';
+  const r = (prompt(txt) || '').trim();
+  if (!r) return null;
+  const n = parseInt(r);
+  if (!isNaN(n) && n >= 1 && n <= lista.length) return lista[n-1];
+  return r;
+}
+
+// ── Cancelar matrícula (mantém o registro; marca cancelada + motivo) ───────
+async function cancelarMatricula(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  const motivo = _escolherMotivo('Cancelar matrícula de ' + (m.nmathleta || 'cliente') + '.', MOTIVOS_CANCELAMENTO);
+  if (motivo === null) return;
+  try {
+    await API.editarMensalidade(id, { stmatricula: 'cancelada', motivo_encerramento: motivo });
+    showToast('Matrícula cancelada (' + motivo + ').');
+    await carregar();
+  } catch (e) { showToast('Erro ao cancelar: ' + e.message, 'error'); }
+}
+
+// ── Encerrar matrícula (plano cumprido, aluno não continua) ────────────────
+// Diferente de CANCELAR: cancelar é saída antes do fim do período contratado.
+// Encerrar é o fim natural — o aluno cumpriu o plano e não vai renovar. O
+// registro é preservado no histórico e a renovação automática para de gerar
+// cobrança para este aluno.
+async function encerrarMatricula(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  const quem = m.nmathleta || 'cliente';
+  if (!confirm('Encerrar a matrícula de ' + quem + '?\n\nO histórico é preservado e nenhuma nova cobrança será gerada automaticamente.')) return;
+  const motivo = _escolherMotivo('Motivo do encerramento de ' + quem + '.', MOTIVOS_ENCERRAMENTO);
+  if (motivo === null) return;
+  try {
+    await API.editarMensalidade(id, { stmatricula: 'encerrada', motivo_encerramento: motivo });
+    // Encerrar nao pode deixar cobranca viva para tras. O aluno nao continua —
+    // entao o que estava em aberto nesta matricula tambem encerra, e para de
+    // aparecer como divida no Financeiro e no Inicio.
+    const _chave = _matKey(m);
+    let _fechados = 0;
+    for (const x of mensalidades) {
+      if (Number(x.idmensalidade) === Number(id)) continue;
+      if (_matKey(x) !== _chave) continue;
+      if (x.stpgto === 'S' || x.stmatricula === 'cancelada' || x.stmatricula === 'encerrada') continue;
+      try { await API.editarMensalidade(x.idmensalidade, { stmatricula: 'encerrada', motivo_encerramento: motivo }); _fechados++; } catch (e) {}
+    }
+    showToast('Matrícula encerrada (' + motivo + ')' + (_fechados ? ' — ' + _fechados + ' cobrança(s) em aberto também encerrada(s).' : '.'));
+    await carregar();
+  } catch (e) { showToast('Erro ao encerrar: ' + e.message, 'error'); }
+}
+
+// ── Alterar vencimento (mover cobrança) ────────────────────────────────────
+async function alterarVencimento(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  const atual = m.dtvencimento ? String(m.dtvencimento).slice(0,10) : '';
+  const nova = (prompt('Novo vencimento (AAAA-MM-DD) para ' + (m.nmathleta || 'cliente') + ':', atual) || '').trim();
+  if (!nova) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(nova)) return showToast('Data inválida. Use AAAA-MM-DD.', 'error');
+  try {
+    await API.editarMensalidade(id, { dtvencimento: nova });
+    showToast('Vencimento alterado para ' + fmtData(nova) + '.');
+    await carregar();
+  } catch (e) { showToast('Erro ao alterar vencimento: ' + e.message, 'error'); }
+}
+
+// ── Sugestão de inativação: 30 dias sem pagar ─────────────────────────────
+// Antes isto rodava sozinho ao abrir a tela e inativava clientes em silêncio,
+// com o catch vazio escondendo até as falhas. Hoje só calcula e mostra.
+function _candidatosInativar() {
+  return (mensalidades || []).filter(m =>
+    m.stpgto !== 'S' &&
+    m.stmatricula !== 'trancada' && m.stmatricula !== 'cancelada' && m.stmatricula !== 'inativa' &&
+    (_diasAtraso(m) != null && _diasAtraso(m) > 30));
+}
+
+function _bannerInativar() {
+  const alvo = _candidatosInativar();
+  if (!alvo.length || !hasPerm('mt_editar')) return '';
+  const nomes = alvo.slice(0, 6).map(m => {
+    const a = (atletas || []).find(x => Number(x.idatleta) === Number(m.idatleta));
+    return esc((a && a.nome) || ('#' + m.idatleta)) + ' (' + _diasAtraso(m) + 'd)';
+  }).join(', ');
+  return `<div style="border:1px solid rgba(235,104,52,.45);background:rgba(235,104,52,.10);border-radius:11px;padding:12px 14px;margin-bottom:14px;">
+    <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:4px;">
+      ${alvo.length} matrícula${alvo.length>1?'s':''} com mais de 30 dias em atraso
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">
+      ${nomes}${alvo.length > 6 ? ` e mais ${alvo.length - 6}` : ''}
+    </div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.5;">
+      O sistema não muda nada sozinho. Inativar bloqueia o acesso do cliente ao app.
+    </div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="inativarAtrasadas()">Inativar ${alvo.length === 1 ? 'esta' : 'estas ' + alvo.length}</button>
+  </div>`;
+}
+
+async function inativarAtrasadas() {
+  if (!hasPerm('mt_editar')) return;
+  const alvo = _candidatosInativar();
+  if (!alvo.length) return;
+  if (!confirm(`Inativar ${alvo.length} matrícula(s) com mais de 30 dias de atraso?\n\nOs clientes perdem o acesso ao app até a próxima baixa de pagamento.`)) return;
+  let ok = 0; const falhas = [];
+  for (const m of alvo) {
+    try { await API.editarMensalidade(m.idmensalidade, { stmatricula: 'inativa' }); m.stmatricula = 'inativa'; ok++; }
+    catch (e) { falhas.push(m.idmensalidade); }
+  }
+  if (falhas.length) showToast(`${ok} inativada(s); ${falhas.length} falhou/falharam no servidor.`, 'error');
+  else showToast(`${ok} matrícula(s) inativada(s).`);
+  await carregar();
+}
+
+// Periodos suportados, em meses. Base do calculo do proximo ciclo.
+const _RECMESES_MT = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
+
+// A configuracao de "antecedencia da renovacao automatica" vivia aqui, com um
+// botao "⚙ Renovacao" no topo da tela. Nao existe mais antecedencia: o proximo
+// ciclo nasce no ato da baixa, nem antes nem depois. Deixar o botao no lugar
+// seria prometer um comportamento que o sistema nao tem mais.
+
+function _recDoPlano(m) {
+  // Le do api.js para o painel, a tela inicial e o app concordarem sobre o que
+  // e um plano mensal e o que e um teste gratis (que nao tem periodicidade).
+  if (typeof API !== 'undefined' && typeof API.mesesDoPlano === 'function') {
+    const meses = API.mesesDoPlano(m);
+    if (!meses) return null;
+    return Object.keys(_RECMESES_MT).find(k => _RECMESES_MT[k] === meses) || null;
+  }
+  const rec = String(m.recorrencia || '').toLowerCase();
+  if (rec === 'avulso') return null;
+  if (_RECMESES_MT[rec]) return rec;
+  return null;
+}
+// ── O PROXIMO CICLO ─────────────────────────────────────────────────────────
+// Regra do Luiz, 18/08/2026: se a matricula mensal vence em 15/08, e nesse dia
+// que o aluno paga o proximo ciclo. Ao dar baixa, nasce uma nova mensalidade
+// comecando em 15/08 e vencendo em 15/09. O ciclo pago fica intacto no
+// historico, com as datas que sempre teve — nunca mais e reescrito.
+function _proxCicloDe(m) {
+  const rec = _recDoPlano(m);
+  if (!rec) return null;                       // sem periodicidade: so o botao ↻
+  const meses = _RECMESES_MT[rec];
+  if (!meses) return null;
+  const venc = String(m.dtvencimento || '').slice(0, 10);
+  if (!venc) return null;
+  return { rec: rec, dtinicio: venc, dtvencimento: _proxVencMT(venc, meses) };
+}
+
+// Ja existe ciclo em aberto nesta matricula? Entao nao se gera outro.
+function _temCicloAberto(m, excluirId) {
+  const chave = _matKey(m);
+  return mensalidades.some(x =>
+    Number(x.idmensalidade) !== Number(excluirId) &&
+    _matKey(x) === chave &&
+    x.stpgto !== 'S' &&
+    x.stmatricula !== 'cancelada' && x.stmatricula !== 'encerrada');
+}
+
+// Toda baixa de uma matrícula recorrente precisa produzir seu sucessor. Esta
+// rotina é reutilizada pelos caminhos que registram a baixa fora do botão ✓.
+async function _gerarProximoCicloAutomatico(m) {
+  const prox = _proxCicloDe(m);
+  const encerrada = m.stmatricula === 'encerrada' || m.stmatricula === 'cancelada';
+  if (!prox || encerrada || _temCicloAberto(m, m.idmensalidade)) return null;
+  const res = await API.criarMensalidade({
+    idatleta: m.idatleta,
+    nmathleta: m.nmathleta || '',
+    dshistorico: m.dshistorico || 'Mensalidade',
+    tipo_plano: m.tipo_plano || null,
+    dtinicio: prox.dtinicio,
+    dtvencimento: prox.dtvencimento,
+    vlpagar: m.vlpagar,
+    vldesconto: 0,
+    vljuro: 0,
+    stpgto: 'N',
+    professor: m.professor || null,
+    recorrencia: prox.rec,
+    idmatricula_origem: m.idmatricula_origem || m.idmensalidade,
+  });
+  if (!res || !Number(res.idmensalidade)) throw new Error('O servidor não confirmou o próximo ciclo.');
+  return { ...prox, idmensalidade: Number(res.idmensalidade) };
+}
+
+function _proxVencMT(vencStr, meses) {
+  const b = new Date(vencStr + 'T00:00:00');
+  const diaVenc = b.getDate();
+  const y = b.getFullYear(), mo = b.getMonth() + meses;
+  const ld = new Date(y, mo + 1, 0).getDate();
+  return new Date(y, mo, Math.min(diaVenc, ld)).toISOString().slice(0, 10);
+}
+
+// As funcoes autoCorrigirPagos, autoAjustarRenovacoes e autoRenovarMatriculas
+// viviam aqui. Foram removidas junto com a chamada no carregamento — ver o
+// comentario la em cima. O que elas tentavam resolver agora e resolvido na
+// origem: a proxima cobranca e gerada no ato da baixa, em confirmarPagamento().
+
+// ── Monta opções de planos a partir de planosConfig + auto-detecção ───────
+// ── Tipos de plano (semeados pelas categorias; editáveis) — usados p/ separar renovações por plano ──
+const TIPOS_PLANO_KEY = 'intus-tipos-plano';
+const TIPOS_PLANO_DEFAULT = ['Treino','Nutrição','Personal','Consultoria','Avaliação','Combo (Treino + Dieta)','Outro'];
+function getTiposPlano() {
+  try { const s = JSON.parse(localStorage.getItem(TIPOS_PLANO_KEY) || 'null'); if (Array.isArray(s) && s.length) return s; } catch (e) {}
+  return TIPOS_PLANO_DEFAULT.slice();
+}
+function addTipoPlano(sel) {
+  const novo = (prompt('Novo tipo de plano (ex.: Pilates, Crossfit):') || '').trim();
+  if (!novo) { if (sel) sel.value = ''; return; }
+  const lista = getTiposPlano();
+  if (!lista.some(t => t.toLowerCase() === novo.toLowerCase())) {
+    lista.push(novo);
+    localStorage.setItem(TIPOS_PLANO_KEY, JSON.stringify(lista));
+  }
+  if (sel) {
+    const addOpt = sel.querySelector('option[value="__add__"]');
+    const opt = document.createElement('option');
+    opt.value = novo; opt.textContent = novo;
+    if (addOpt) sel.insertBefore(opt, addOpt); else sel.appendChild(opt);
+    sel.value = novo;
+  }
+}
+
+const PERSONAL_PRESETS_KEY = 'intus-planos-pessoais';
+
+function getPersonalPresets() {
+  try {
+    const user = Sessao.atual();
+    if (!user || !user.idusuario) return [];
+    const all = JSON.parse(localStorage.getItem(PERSONAL_PRESETS_KEY) || '{}');
+    return all[user.idusuario] || [];
+  } catch { return []; }
+}
+
+function savePersonalPresets(presets) {
+  const user = Sessao.atual();
+  if (!user || !user.idusuario) return;
+  const all = JSON.parse(localStorage.getItem(PERSONAL_PRESETS_KEY) || '{}');
+  all[user.idusuario] = presets;
+  localStorage.setItem(PERSONAL_PRESETS_KEY, JSON.stringify(all));
+}
+
+function buildPlanoOptions() {
+  const opts = [];
+  const labels = {
+    'v-treino-tri': 'Treino — Trimestral',
+    'v-treino-sem': 'Treino — Semestral',
+    'v-treino-anual': 'Treino — Anual',
+    'v-dieta-tri': 'Dieta — Trimestral',
+    'v-dieta-sem': 'Dieta — Semestral',
+    'v-dieta-anual': 'Dieta — Anual',
+    'v-combo-tri': 'Treino + Dieta — Trimestral',
+    'v-combo-sem': 'Treino + Dieta — Semestral',
+    'v-combo-anual': 'Treino + Dieta — Anual',
+  };
+  const periodos = { tri: 3, sem: 6, anual: 12 };
+  Object.keys(labels).forEach(key => {
+    const valor = parseFloat(planosConfig[key]);
+    if (valor > 0) {
+      const periodoKey = key.split('-').pop();
+      opts.push({ key, label: labels[key], valor, meses: periodos[periodoKey] || 1, oficial: true });
+    }
+  });
+
+  const descCounts = {};
+  mensalidades.forEach(m => {
+    const desc = (m.dshistorico || '').trim();
+    if (!desc) return;
+    if (!descCounts[desc]) descCounts[desc] = { count: 0, valor: 0, meses: 0 };
+    descCounts[desc].count++;
+    descCounts[desc].valor = Math.max(descCounts[desc].valor, parseFloat(m.vlpagar) || 0);
+    if (m.dtinicio && m.dtvencimento) {
+      const d1 = new Date(m.dtinicio), d2 = new Date(m.dtvencimento);
+      const diffM = Math.round((d2 - d1) / (30.4 * 24 * 60 * 60 * 1000));
+      if (diffM > 0) descCounts[desc].meses = diffM;
+    }
+  });
+  const existingKeys = new Set(opts.map(o => o.label));
+  Object.entries(descCounts).forEach(([desc, info]) => {
+    if (info.count >= 2 && !existingKeys.has(desc)) {
+      const customKey = 'auto-' + desc.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const customValor = parseFloat(planosConfig[customKey + '-valor']);
+      const customMeses = parseInt(planosConfig[customKey + '-meses']);
+      opts.push({
+        key: customKey,
+        label: desc,
+        valor: customValor > 0 ? customValor : info.valor,
+        meses: customMeses > 0 ? customMeses : (info.meses || 1),
+        autoDetected: true,
+        oficial: true,
+      });
+    }
+  });
+
+  planosAdmin.filter(p => p.ativo !== 'N').forEach(p => {
+    opts.push({ key: 'admin-' + p.idplano, label: p.nome, valor: parseFloat(p.valor), meses: parseInt(p.meses) || 1, tipo: p.tipo, descricao: p.descricao || '', adminPlano: true });
+  });
+
+  const pessoais = getPersonalPresets();
+  pessoais.forEach(p => {
+    opts.push({ key: 'pessoal-' + p.id, label: p.label, valor: p.valor, meses: p.meses, oficial: false, pessoal: true });
+  });
+
+  return opts;
+}
+
+function aplicarPlano(selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  const opts = buildPlanoOptions();
+  const opt = opts.find(o => o.key === val);
+  if (!opt) return;
+  document.getElementById('mat-valor').value = opt.valor.toFixed(2);
+  document.getElementById('mat-hist').value = opt.label;
+  const hoje = new Date();
+  document.getElementById('mat-dtinicio').value = hoje.toISOString().slice(0,10);
+  const venc = new Date(hoje);
+  venc.setMonth(venc.getMonth() + (opt.meses || 1));
+  document.getElementById('mat-dtvenc').value = venc.toISOString().slice(0,10);
+}
+
+function getAutoDetectedPlanos() {
+  return buildPlanoOptions().filter(o => o.autoDetected);
+}
+
+function abrirGerenciarPresets() {
+  const presets = getPersonalPresets();
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Meus Planos Personalizados</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:60vh;overflow-y:auto;">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">Crie pré-definições de planos que só você pode ver. Planos oficiais com links válidos são gerenciados apenas pelo admin na seção de Planos.</p>
+      ${presets.length > 0 ? `
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+        ${presets.map((p, i) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text);">${esc(p.label)}</div>
+              <div style="font-size:11px;color:var(--text-muted);">R$ ${p.valor.toFixed(2)} · ${p.meses} ${p.meses === 1 ? 'mês' : 'meses'}</div>
+            </div>
+            <button class="btn btn-danger btn-sm" style="font-size:10px;padding:3px 8px;" onclick="removerPreset(${i})">✕</button>
+          </div>
+        `).join('')}
+      </div>` : '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">Nenhum plano pessoal criado ainda.</div>'}
+      <div style="border-top:1px solid var(--border);padding-top:12px;">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Adicionar novo plano</div>
+        <div class="form-2col" style="grid-template-columns:2fr 1fr 1fr;">
+          <div class="form-group"><label class="label">Nome</label><input id="pp-label" class="input" placeholder="Ex.: Mensal básico"/></div>
+          <div class="form-group"><label class="label">Valor (R$)</label><input id="pp-valor" class="input" type="number" min="0" step="0.01" placeholder="100.00"/></div>
+          <div class="form-group"><label class="label">Meses</label><input id="pp-meses" class="input" type="number" min="1" max="24" placeholder="1"/></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="adicionarPreset()">+ Adicionar</button>
+    </div>
+  `);
+}
+
+function adicionarPreset() {
+  const label = (document.getElementById('pp-label')?.value || '').trim();
+  const valor = parseFloat(document.getElementById('pp-valor')?.value || 0);
+  const meses = parseInt(document.getElementById('pp-meses')?.value || 1);
+  if (!label) return showToast('Informe o nome do plano.', 'error');
+  if (valor <= 0) return showToast('Informe um valor válido.', 'error');
+  const presets = getPersonalPresets();
+  presets.push({ id: Date.now(), label, valor, meses: meses || 1 });
+  savePersonalPresets(presets);
+  showToast('Plano pessoal adicionado!');
+  abrirGerenciarPresets();
+}
+
+function removerPreset(idx) {
+  const presets = getPersonalPresets();
+  presets.splice(idx, 1);
+  savePersonalPresets(presets);
+  showToast('Plano removido.');
+  abrirGerenciarPresets();
+}
+
+// ── Modal: Gerenciar Planos Admin (personal, promoções, condições especiais) ──
+const TIPO_LABELS = { personal: 'Personal Trainer', promocao: 'Promoção', especial: 'Condição Especial' };
+
+function abrirGerenciarPlanosAdmin() {
+  const tipos = ['personal', 'promocao', 'especial'];
+  let html = `
+    <div class="modal-header">
+      <span class="modal-title">Planos & Condições Especiais</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:65vh;overflow-y:auto;">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;">
+        Cadastre planos de personal trainer, promoções exclusivas e condições especiais.
+        Esses planos ficam disponíveis para todos os professores ao criar matrículas.
+      </p>`;
+
+  tipos.forEach(tipo => {
+    const items = planosAdmin.filter(p => p.tipo === tipo);
+    html += `<div style="margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">${TIPO_LABELS[tipo]}</div>`;
+    if (items.length > 0) {
+      html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
+      items.forEach(p => {
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;${p.ativo==='N'?'opacity:.5;':''}">
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">${esc(p.nome)}${p.ativo==='N'?' <span style="font-size:10px;color:var(--text-muted);">(inativo)</span>':''}</div>
+            <div style="font-size:11px;color:var(--text-muted);">R$ ${parseFloat(p.valor).toFixed(2)} · ${p.meses} ${p.meses==1?'mês':'meses'}${p.descricao?' · '+esc(p.descricao):''}</div>
+          </div>
+          <div style="display:flex;gap:4px;">
+            <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 8px;" onclick="editarPlanoAdmin(${p.idplano})"">✏️</button>
+            <button class="btn btn-danger btn-sm" style="font-size:10px;padding:3px 8px;" onclick="excluirPlanoAdmin(${p.idplano})">✕</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    } else {
+      html += `<div style="padding:10px;text-align:center;color:var(--text-muted);font-size:11px;border:1px dashed var(--border);border-radius:8px;">Nenhum plano cadastrado</div>`;
+    }
+    html += `</div>`;
+  });
+
+  html += `
+      <div style="border-top:1px solid var(--border);padding-top:14px;">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Adicionar novo</div>
+        <div class="form-2col" style="grid-template-columns:2fr 1fr;">
+          <div class="form-group"><label class="label">Nome do plano</label><input id="pa-nome" class="input" placeholder="Ex.: Personal 2x/semana"/></div>
+          <div class="form-group"><label class="label">Tipo</label>
+            <select id="pa-tipo" class="input">
+              <option value="personal">Personal Trainer</option>
+              <option value="promocao">Promoção</option>
+              <option value="especial">Condição Especial</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-2col" style="grid-template-columns:1fr 1fr 2fr;">
+          <div class="form-group"><label class="label">Valor (R$)</label><input id="pa-valor" class="input" type="number" min="0" step="0.01" placeholder="250.00"/></div>
+          <div class="form-group"><label class="label">Meses</label><input id="pa-meses" class="input" type="number" min="1" max="24" value="1"/></div>
+          <div class="form-group"><label class="label">Descrição (opcional)</label><input id="pa-desc" class="input" placeholder="Ex.: Promo inverno 2026" maxlength="200"/></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="salvarPlanoAdmin()">+ Adicionar Plano</button>
+    </div>`;
+  openModal(html);
+}
+
+async function salvarPlanoAdmin() {
+  const nome = (document.getElementById('pa-nome')?.value || '').trim();
+  const tipo = document.getElementById('pa-tipo')?.value || 'personal';
+  const valor = parseFloat(document.getElementById('pa-valor')?.value || 0);
+  const meses = parseInt(document.getElementById('pa-meses')?.value || 1);
+  const descricao = (document.getElementById('pa-desc')?.value || '').trim();
+  if (!nome) return showToast('Informe o nome do plano.', 'error');
+  if (valor <= 0) return showToast('Informe um valor válido.', 'error');
+  try {
+    await API.criarPlanoAdmin({ nome, tipo, valor, meses: meses || 1, descricao });
+    planosAdmin = await API.getPlanosAdmin();
+    showToast('Plano cadastrado!');
+    abrirGerenciarPlanosAdmin();
+  } catch (e) {
+    showToast(e.message || 'Erro ao salvar', 'error');
+  }
+}
+
+async function excluirPlanoAdmin(id) {
+  if (!confirm('Excluir este plano?')) return;
+  try {
+    await API.excluirPlanoAdmin(id);
+    planosAdmin = await API.getPlanosAdmin();
+    showToast('Plano excluído.');
+    abrirGerenciarPlanosAdmin();
+  } catch (e) {
+    showToast(e.message || 'Erro ao excluir', 'error');
+  }
+}
+
+async function editarPlanoAdmin(id) {
+  const plano = planosAdmin.find(p => Number(p.idplano) === Number(id));
+  if (!plano) return;
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Editar Plano</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-2col" style="grid-template-columns:2fr 1fr;">
+        <div class="form-group"><label class="label">Nome</label><input id="pe-nome" class="input" value="${esc(plano.nome)}"/></div>
+        <div class="form-group"><label class="label">Tipo</label>
+          <select id="pe-tipo" class="input">
+            <option value="personal" ${plano.tipo==='personal'?'selected':''}>Personal Trainer</option>
+            <option value="promocao" ${plano.tipo==='promocao'?'selected':''}>Promoção</option>
+            <option value="especial" ${plano.tipo==='especial'?'selected':''}>Condição Especial</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-2col" style="grid-template-columns:1fr 1fr 2fr;">
+        <div class="form-group"><label class="label">Valor (R$)</label><input id="pe-valor" class="input" type="number" min="0" step="0.01" value="${parseFloat(plano.valor).toFixed(2)}"/></div>
+        <div class="form-group"><label class="label">Meses</label><input id="pe-meses" class="input" type="number" min="1" max="24" value="${plano.meses}"/></div>
+        <div class="form-group"><label class="label">Descrição</label><input id="pe-desc" class="input" value="${esc(plano.descricao||'')}" maxlength="200"/></div>
+      </div>
+      <div class="form-group" style="margin-top:8px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);cursor:pointer;">
+          <input type="checkbox" id="pe-ativo" ${plano.ativo!=='N'?'checked':''}/> Plano ativo (visível na seleção)
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="abrirGerenciarPlanosAdmin()">← Voltar</button>
+      <button class="btn btn-primary" onclick="salvarEdicaoPlanoAdmin(${id})">Salvar</button>
+    </div>
+  `);
+}
+
+async function salvarEdicaoPlanoAdmin(id) {
+  const nome = (document.getElementById('pe-nome')?.value || '').trim();
+  const tipo = document.getElementById('pe-tipo')?.value || 'personal';
+  const valor = parseFloat(document.getElementById('pe-valor')?.value || 0);
+  const meses = parseInt(document.getElementById('pe-meses')?.value || 1);
+  const descricao = (document.getElementById('pe-desc')?.value || '').trim();
+  const ativo = document.getElementById('pe-ativo')?.checked ? 'S' : 'N';
+  if (!nome) return showToast('Informe o nome.', 'error');
+  if (valor <= 0) return showToast('Informe um valor válido.', 'error');
+  try {
+    await API.editarPlanoAdmin(id, { nome, tipo, valor, meses: meses || 1, descricao, ativo });
+    planosAdmin = await API.getPlanosAdmin();
+    showToast('Plano atualizado!');
+    abrirGerenciarPlanosAdmin();
+  } catch (e) {
+    showToast(e.message || 'Erro ao salvar', 'error');
+  }
+}
+
+// ── Modal: Nova / Editar Matrícula ────────────────────────────────────────
+function abrirModalMatricula(editId) {
+  const isEdit = !!editId;
+  const dados = isEdit ? mensalidades.find(m => Number(m.idmensalidade) === Number(editId)) : null;
+  const _usr = Sessao.atual();
+
+  const atletaPresel = isEdit
+    ? (dados?.idatleta || (atletas[0] && atletas[0].idatleta))
+    : (atletas[0] && atletas[0].idatleta);
+
+  const alunosHTML = atletas.length === 0
+    ? `<div style="padding:12px;color:var(--text-dim);font-size:12px;">Nenhum aluno cadastrado.</div>`
+    : atletas.map(a => `
+        <label class="aluno-item ${Number(a.idatleta)===Number(atletaPresel)?'selected':''}" id="aitem-${a.idatleta}" onclick="selecionarAluno(${a.idatleta})">
+          <input type="radio" name="aluno-radio" value="${a.idatleta}" ${Number(a.idatleta)===Number(atletaPresel)?'checked':''}>
+          <span class="aluno-item-name">${esc(a.nome)}</span>
+        </label>`).join('');
+
+  const hoje   = new Date().toISOString().slice(0,10);
+  const venc30 = new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10);
+
+  // Build plan preset dropdown
+  const planoOpts = buildPlanoOptions();
+  const _oficiais = planoOpts.filter(o => o.oficial);
+  const _adminPlanos = planoOpts.filter(o => o.adminPlano);
+  const _pessoais = planoOpts.filter(o => o.pessoal);
+  const _canPresets = _usr && (_usr.admin || _usr.assinante);
+  const _isAdm = _usr && _usr.admin;
+  const planoSelectHTML = planoOpts.length > 0 || _canPresets
+    ? `<div class="plano-selector">
+         <div class="modal-section-title">Plano Pré-definido</div>
+         <select id="sel-plano-preset" onchange="aplicarPlano(this)">
+           <option value="">— Personalizado —</option>
+           ${_adminPlanos.length ? `<optgroup label="Personal / Promoções">${_adminPlanos.map(o => `<option value="${o.key}">${esc(o.label)} — R$ ${o.valor.toFixed(2)}${o.descricao ? ' (' + esc(o.descricao).slice(0,30) + ')' : ''}</option>`).join('')}</optgroup>` : ''}
+           ${_oficiais.length ? `<optgroup label="Planos padrão (app)">${_oficiais.map(o => `<option value="${o.key}">${esc(o.label)} — R$ ${o.valor.toFixed(2)}</option>`).join('')}</optgroup>` : ''}
+           ${_pessoais.length ? `<optgroup label="Meus planos">${_pessoais.map(o => `<option value="${o.key}">${esc(o.label)} — R$ ${o.valor.toFixed(2)}</option>`).join('')}</optgroup>` : ''}
+         </select>
+         <div class="plano-hint" style="display:flex;align-items:center;justify-content:space-between;">
+           <span>Selecione um plano para preencher automaticamente ou customize abaixo.</span>
+           <span style="display:flex;gap:6px;">
+             ${_isAdm ? `<button type="button" class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="abrirGerenciarPlanosAdmin()">⚙ Planos Admin</button>` : ''}
+             ${_canPresets ? `<button type="button" class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="abrirGerenciarPresets()">⚙ Meus planos</button>` : ''}
+           </span>
+         </div>
+       </div>`
+    : '';
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">${isEdit ? 'Editar Matrícula' : 'Nova Matrícula'}</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+
+      <!-- Aluno -->
+      <div>
+        <div class="modal-section-title">Aluno</div>
+        <div class="aluno-list" style="margin-top:8px;">${alunosHTML}</div>
+      </div>
+
+      <!-- Plano pré-definido (só para nova) -->
+      ${!isEdit ? planoSelectHTML : ''}
+
+      <!-- Descrição -->
+      <div class="form-group">
+        <label class="label">Descrição</label>
+        <input class="input" type="text" id="mat-hist" maxlength="80"
+               placeholder="Ex.: Treino — Trimestral"
+               value="${isEdit ? esc(dados?.dshistorico || '') : ''}">
+      </div>
+
+      <!-- Tipo de plano (separa renovações por plano: Treino x Nutrição etc.) -->
+      <div class="form-group">
+        <label class="label">Tipo de plano</label>
+        <select class="input" id="mat-tipoplano" onchange="if(this.value==='__add__') addTipoPlano(this);">
+          <option value="">— Sem tipo —</option>
+          ${getTiposPlano().map(t => `<option value="${esc(t)}" ${isEdit && (dados?.tipo_plano||'')===t ? 'selected':''}>${esc(t)}</option>`).join('')}
+          <option value="__add__">＋ Adicionar tipo…</option>
+        </select>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Renovação/pendência é contada por plano — ex.: Treino e Nutrição do mesmo aluno de forma independente.</div>
+      </div>
+
+      <!-- Recorrência: planos recorrentes geram a próxima cobrança automaticamente ao receber -->
+      <div class="form-group">
+        <label class="label">Recorrência</label>
+        <select class="input" id="mat-recorrencia">
+          ${(() => { const _r = isEdit ? String(dados?.recorrencia||'') : 'mensal';
+            const _op = (v,l) => `<option value="${v}" ${_r===v?'selected':''}>${l}</option>`;
+            return _op('', '— Avulso (não renova) —') + _op('mensal','Mensal') + _op('trimestral','Trimestral') + _op('semestral','Semestral') + _op('anual','Anual'); })()}
+        </select>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Plano recorrente gera a próxima cobrança (em aberto) automaticamente quando você recebe o pagamento.</div>
+      </div>
+
+      <!-- Datas e valores -->
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Data Início</label>
+          <input class="input" type="date" id="mat-dtinicio" value="${isEdit ? (dados?.dtinicio || hoje).slice(0,10) : hoje}">
+        </div>
+        <div class="form-group">
+          <label class="label">Data Vencimento</label>
+          <input class="input" type="date" id="mat-dtvenc" value="${isEdit ? (dados?.dtvencimento || venc30).slice(0,10) : venc30}">
+        </div>
+      </div>
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Valor (R$)</label>
+          <input class="input" type="number" id="mat-valor" min="0" step="0.01" placeholder="0.00"
+                 value="${isEdit ? parseFloat(dados?.vlpagar||0).toFixed(2) : ''}">
+        </div>
+        <div class="form-group">
+          <label class="label">Desconto (R$)</label>
+          <input class="input" type="number" id="mat-desc" min="0" step="0.01" placeholder="0.00"
+                 value="${isEdit ? parseFloat(dados?.vldesconto||0).toFixed(2) : '0.00'}">
+        </div>
+      </div>
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Juros (R$)</label>
+          <input class="input" type="number" id="mat-juros" min="0" step="0.01" placeholder="0.00"
+                 value="${isEdit ? parseFloat(dados?.vljuro||0).toFixed(2) : '0.00'}">
+        </div>
+        <div class="form-group">
+          <label class="label">Status</label>
+          <select class="input" id="mat-status">
+            <option value="N" ${!isEdit || dados?.stpgto!=='S' ? 'selected':''}>Aberta</option>
+            <option value="S" ${isEdit && dados?.stpgto==='S' ? 'selected':''}>Paga</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Data Pagamento <span style="color:var(--text-dim);font-weight:400;">(opcional)</span></label>
+          <input class="input" type="date" id="mat-dtpgto" value="${isEdit && dados?.dtpagamento ? String(dados.dtpagamento).slice(0,10) : ''}">
+        </div>
+        <div class="form-group"></div>
+      </div>
+
+      ${!isEdit ? `
+      <!-- Parcelamento (só na criação): gera N cobranças mensais dividindo o valor -->
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Parcelas</label>
+          <select class="input" id="mat-parcelas">
+            ${Array.from({length:12},(_,i)=>i+1).map(n=>`<option value="${n}">${n}x</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="label">Forma de recebimento</label>
+          <select class="input" id="mat-forma">
+            <option value="">—</option>
+            <option value="cartao">Cartão</option>
+            <option value="pix">PIX</option>
+            <option value="dinheiro">Dinheiro</option>
+            <option value="eduzz">Eduzz</option>
+          </select>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:-2px;">Parcelas &gt; 1 gera N cobranças mensais dividindo o valor (cartão/PIX, até 12x).</div>
+      ` : `
+      <div class="form-group">
+        <label class="label">Forma de recebimento</label>
+        <select class="input" id="mat-forma">
+          <option value="" ${!dados?.forma_pgto?'selected':''}>—</option>
+          <option value="cartao" ${dados?.forma_pgto==='cartao'?'selected':''}>Cartão</option>
+          <option value="pix" ${dados?.forma_pgto==='pix'?'selected':''}>PIX</option>
+          <option value="dinheiro" ${dados?.forma_pgto==='dinheiro'?'selected':''}>Dinheiro</option>
+          <option value="eduzz" ${dados?.forma_pgto==='eduzz'?'selected':''}>Eduzz</option>
+        </select>
+      </div>
+      `}
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="${isEdit ? `salvarEdicao(${editId})` : 'salvarMatricula()'}">Salvar</button>
+    </div>
+  `);
+
+}
+
+// Seleção visual de aluno
+function selecionarAluno(id) {
+  atletas.forEach(a => {
+    const el = document.getElementById(`aitem-${a.idatleta}`);
+    if (el) el.classList.toggle('selected', Number(a.idatleta) === Number(id));
+  });
+  const radio = document.querySelector(`input[name="aluno-radio"][value="${id}"]`);
+  if (radio) radio.checked = true;
+}
+
+// Monta payload a partir do formulário
+function lerFormulario() {
+  const alunoRadio = document.querySelector('input[name="aluno-radio"]:checked');
+  const dtinicio = document.getElementById('mat-dtinicio').value;
+  const dtvenc  = document.getElementById('mat-dtvenc').value;
+  const valor   = document.getElementById('mat-valor').value;
+  const desc    = document.getElementById('mat-desc').value || '0';
+  const juros   = document.getElementById('mat-juros').value || '0';
+  const dtpgto  = document.getElementById('mat-dtpgto').value;
+  const status  = document.getElementById('mat-status').value;
+  const hist    = document.getElementById('mat-hist').value.trim();
+  const tpEl    = document.getElementById('mat-tipoplano');
+  const tipoPlano = tpEl ? (tpEl.value || '') : '';
+  const formaEl = document.getElementById('mat-forma');
+  const formaPgto = formaEl ? (formaEl.value || '') : '';
+  const recEl   = document.getElementById('mat-recorrencia');
+  const recorrencia = recEl ? (recEl.value || '') : '';
+
+  if (!alunoRadio) { showToast('Selecione um aluno.', 'error'); return null; }
+  if (!dtvenc)     { showToast('Informe a data de vencimento.', 'error'); return null; }
+  if (!valor)      { showToast('Informe o valor.', 'error'); return null; }
+
+  const payload = {
+    idatleta:     parseInt(alunoRadio.value),
+    dshistorico:  hist || 'Mensalidade',
+    tipo_plano:   (tipoPlano && tipoPlano !== '__add__') ? tipoPlano : null,
+    dtinicio:     dtinicio || null,
+    dtvencimento: dtvenc,
+    vlpagar:      parseFloat(valor),
+    vldesconto:   parseFloat(desc),
+    vljuro:       parseFloat(juros),
+    stpgto:       status,
+    forma_pgto:   formaPgto || null,
+    recorrencia:  recorrencia || null,
+  };
+
+  // Voltar uma linha para "em aberto" tem que APAGAR o pagamento dela. Antes a
+  // data de pagamento continuava gravada na linha, e a rotina automatica a
+  // remarcava como paga no proximo carregamento — a edicao parecia nao pegar,
+  // ou pegava e voltava sozinha.
+  if (status !== 'S') {
+    payload.dtpagamento = null;
+    payload.vlpagamento = null;
+    payload.dspagamento = null;
+  }
+
+  // Se marcou como pago e informou dtpgto, inclui dados de pagamento
+  if (status === 'S') {
+    payload.dtpagamento = dtpgto || new Date().toISOString().slice(0,10);
+    payload.vlpagamento = parseFloat(valor);
+    payload.dspagamento = 'Pagamento registrado';
+  }
+
+  return payload;
+}
+
+// ── Criar ─────────────────────────────────────────────────────────────────
+async function salvarMatricula() {
+  const payload = lerFormulario();
+  if (!payload) return;
+
+  // Parcelamento: gera N cobranças mensais dividindo o valor (até 12x, cartão/PIX)
+  const nParc = parseInt(document.getElementById('mat-parcelas')?.value || '1') || 1;
+  if (nParc > 1) {
+    try {
+      const total = payload.vlpagar;
+      const base = Math.floor((total / nParc) * 100) / 100;
+      const dtBase = new Date(String(payload.dtvencimento).slice(0,10) + 'T00:00:00');
+      const diaVenc = dtBase.getDate();
+      for (let i = 0; i < nParc; i++) {
+        const val = (i === nParc - 1) ? +(total - base * (nParc - 1)).toFixed(2) : base;
+        const dv = new Date(dtBase.getFullYear(), dtBase.getMonth() + i, diaVenc);
+        const lastDay = new Date(dv.getFullYear(), dv.getMonth() + 1, 0).getDate();
+        dv.setDate(Math.min(diaVenc, lastDay));
+        await API.criarMensalidade({
+          ...payload,
+          stpgto: 'N',
+          recorrencia: null,
+          dshistorico: (payload.dshistorico || 'Mensalidade') + ' (' + (i + 1) + '/' + nParc + ')',
+          dtvencimento: dv.toISOString().slice(0, 10),
+          vlpagar: val,
+          parcela_num: i + 1,
+          parcela_total: nParc,
+        });
+      }
+      closeModal();
+      showToast(nParc + ' parcelas criadas!');
+      await carregar();
+    } catch (e) {
+      showToast('Erro ao criar parcelas: ' + e.message, 'error');
+    }
+    return;
+  }
+
+  try {
+    // POST cria somente a mensalidade (sem pagamento).
+    // Se foi marcada como paga, criamos com stpgto='N' e depois fazemos PUT
+    // para disparar o INSERT em `pagamento` no backend.
+    const wantPaga = payload.stpgto === 'S';
+    const postPayload = { ...payload, stpgto: 'N' };
+    delete postPayload.dtpagamento; delete postPayload.vlpagamento; delete postPayload.dspagamento;
+
+    const res = await API.criarMensalidade(postPayload);
+    const novoId = res?.idmensalidade;
+
+    let proximo = null;
+    let erroProximo = null;
+    if (wantPaga && novoId) {
+      await API.editarMensalidade(novoId, {
+        dshistorico:  payload.dshistorico,
+        dtvencimento: payload.dtvencimento,
+        vlpagar:      payload.vlpagar,
+        stpgto:       'S',
+        vldesconto:   payload.vldesconto,
+        vljuro:       payload.vljuro,
+        dtpagamento:  payload.dtpagamento,
+        vlpagamento:  payload.vlpagamento,
+        dspagamento:  payload.dspagamento,
+      });
+      try {
+        proximo = await _gerarProximoCicloAutomatico({ ...payload, idmensalidade: novoId, stpgto: 'S' });
+      } catch (e) { erroProximo = e; }
+    }
+
+    closeModal();
+    showToast('Matrícula criada com sucesso!' + (proximo ? ' Próximo ciclo gerado.' : ''));
+    if (erroProximo) showToast('Pagamento salvo, mas o próximo ciclo não foi gerado: ' + (erroProximo.message || erroProximo), 'error');
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao criar matrícula: ' + e.message, 'error');
+  }
+}
+
+// ── Editar ────────────────────────────────────────────────────────────────
+function abrirModalEditar(id) {
+  if (!hasPerm('mt_editar')) return showToast('Sem permissão para editar mensalidades.', 'error');
+  abrirModalMatricula(id);
+}
+
+async function salvarEdicao(id) {
+  const payload = lerFormulario();
+  if (!payload) return;
+  // Para editar, o backend aceita: dshistorico, dtvencimento, vlpagar, stpgto, vldesconto, vljuro
+  // (+ dtpagamento/vlpagamento/dspagamento se stpgto='S')
+  const anterior = mensalidades.find(m => Number(m.idmensalidade) === Number(id));
+  try {
+    await API.editarMensalidade(id, payload);
+    let proximo = null;
+    let erroProximo = null;
+    const virouPago = payload.stpgto === 'S' && String(anterior?.stpgto || '').toUpperCase() !== 'S';
+    if (virouPago) {
+      try {
+        proximo = await _gerarProximoCicloAutomatico({ ...anterior, ...payload, idmensalidade: id, stpgto: 'S' });
+      } catch (e) { erroProximo = e; }
+    }
+    closeModal();
+    showToast('Matrícula atualizada!' + (proximo ? ' Próximo ciclo gerado.' : ''));
+    if (erroProximo) showToast('Pagamento salvo, mas o próximo ciclo não foi gerado: ' + (erroProximo.message || erroProximo), 'error');
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao atualizar: ' + e.message, 'error');
+  }
+}
+
+// ── Limpar dados antigos (admin only) ─────────────────────────────────────
+async function limparDadosAntigos() {
+  if (!isAdmin()) return;
+  if (!confirm('Isso excluirá TODAS as matrículas/mensalidades do sistema (backend + cache local). Os dados contarão apenas daqui para frente.\n\nConfirmar exclusão?')) return;
+  // A versao antiga contava count++ FORA do try: uma exclusao que falhava no
+  // servidor entrava na conta como se tivesse dado certo. Em seguida o cache
+  // local era zerado de qualquer jeito. Resultado: a tela dizia "N excluidas",
+  // ficava vazia, e no proximo carregamento as cobrancas voltavam do servidor.
+  // Agora conta so o que o servidor confirmou, o cache so e limpo se tudo saiu,
+  // e o que sobrou e recarregado do servidor em vez de escondido.
+  try {
+    const lista = [...mensalidades];
+    let ok = 0;
+    const falhas = [];
+    for (const m of lista) {
+      try { await API.excluirMensalidade(m.idmensalidade); ok++; }
+      catch (e) { falhas.push({ id: m.idmensalidade, erro: (e && e.message) || 'falha' }); }
+    }
+
+    if (!falhas.length) {
+      localStorage.removeItem('intus-mensalidades');
+      Store.set('mensalidades', []);
+      mensalidades = [];
+      showToast(`${ok} matrícula(s) excluída(s).`);
+      render();
+      return;
+    }
+
+    // Nao limpa o cache: recarrega a verdade do servidor.
+    showToast(`${ok} excluída(s), ${falhas.length} não foi/foram excluída(s) no servidor.`, 'error');
+    console.warn('[mensalidades] falhas ao excluir:', falhas);
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao limpar: ' + e.message, 'error');
+  }
+}
+
+// ── Forçar limpeza do cache local (admin) ────────────────────────────────
+async function forcarLimpezaCache() {
+  if (!isAdmin()) return;
+  localStorage.removeItem('intus-mensalidades');
+  Store.set('mensalidades', []);
+  mensalidades = [];
+  showToast('Cache local de matrículas limpo.');
+  render();
+}
+
+// ── Init + sync ───────────────────────────────────────────────────────────
+carregar();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) _debouncedCarregar(); });
+window.addEventListener('storage', ev => {
+  if (ev.key === 'intus-mensalidades' || ev.key === 'intus-atletas') _debouncedCarregar();
+});
+</script>
+</body>
+</html>

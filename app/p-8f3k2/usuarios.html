@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Usuários — Intus</title>
+  <script src="_mock.js?v=20260520d"></script>
+  <script src="api.js?v=20260520d"></script>
+  <style>
+    .perm-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px 16px;
+    }
+    .perm-grupo {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px;
+    }
+    .perm-grupo h4 {
+      font-size: 11px; font-weight: 800; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 8px;
+    }
+    .perm-check {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0; font-size: 12px; color: var(--text); cursor: pointer;
+    }
+    .perm-check input { accent-color: var(--green); width: 14px; height: 14px; }
+
+    .switch {
+      position: relative; display: inline-block; width: 38px; height: 22px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; cursor: pointer; background: #555;
+      border-radius: 22px; transition: .18s;
+    }
+    .slider::before {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #fff; transition: .18s;
+    }
+    .switch input:checked + .slider { background: var(--green); }
+    .switch input:checked + .slider::before { transform: translateX(16px); }
+
+    .badge-admin {
+      background: linear-gradient(135deg, rgba(127,255,0,.25), rgba(127,255,0,.1));
+      color: var(--green); border: 1px solid rgba(127,255,0,.35);
+      padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 800;
+      letter-spacing: .5px; text-transform: uppercase;
+    }
+    .badge-inativo {
+      background: rgba(220,38,38,.15); color: #f87171;
+      border: 1px solid rgba(220,38,38,.3);
+      padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 800;
+      letter-spacing: .5px; text-transform: uppercase;
+    }
+    .badge-prof {
+      background: rgba(59,130,246,.18); color: #93c5fd;
+      border: 1px solid rgba(59,130,246,.3);
+      padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 800;
+      letter-spacing: .5px; text-transform: uppercase;
+    }
+    .perm-count {
+      font-size: 11px; color: var(--text-muted);
+    }
+    .modal-box { max-width: 720px; }
+
+    /* Wrapper para campo de senha com botão de mostrar/ocultar */
+    .pwd-input-wrap { position: relative; }
+    .pwd-input-wrap .input { padding-right: 42px; font-family: 'Inter', monospace; letter-spacing: .3px; }
+    .pwd-eye {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      border: none; background: transparent; color: var(--text-muted);
+      border-radius: 6px; cursor: pointer; padding: 0;
+      transition: background .15s, color .15s;
+    }
+    .pwd-eye:hover { background: var(--bg3); color: var(--text); }
+    .pwd-eye svg { width: 18px; height: 18px; pointer-events: none; }
+    .pwd-hint-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-top: 4px;
+    }
+    .pwd-hint-row .copy-btn {
+      background: none; border: none; color: var(--green);
+      font-size: 11px; font-weight: 600; cursor: pointer; padding: 2px 0;
+      font-family: inherit;
+    }
+    .pwd-hint-row .copy-btn:hover { text-decoration: underline; }
+
+    .no-access {
+      padding: 60px 20px; text-align: center; color: var(--text-muted);
+    }
+    .no-access h2 { color: var(--text); font-size: 20px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Usuários');
+
+const main = document.getElementById('main-content');
+
+// --------- Gate: só admin acessa ----------
+if (!isAdmin()) {
+  main.innerHTML = `
+    <div class="card no-access">
+      <div style="font-size:40px;margin-bottom:12px;">🔒</div>
+      <h2>Acesso Restrito</h2>
+      <p>Apenas administradores podem gerenciar usuários do sistema.</p>
+      <p style="margin-top:16px;"><a href="index.html" class="btn btn-secondary btn-sm">Voltar ao início</a></p>
+    </div>
+  `;
+} else {
+  renderLista();
+  // Reagir a alterações feitas em outras abas (debounced)
+  let _usrDebounce = null;
+  function _debouncedRender() {
+    if (_usrDebounce) clearTimeout(_usrDebounce);
+    _usrDebounce = setTimeout(renderLista, 400);
+  }
+  window.addEventListener('storage', ev => {
+    if (ev.key === 'intus-usuarios') _debouncedRender();
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) _debouncedRender(); });
+}
+
+// --------- Helpers locais ---------
+let usrBusca = '';
+let usrFiltroRole = '';
+let usrFiltroStatus = '';
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function contPerms(u) {
+  if (u.admin) return PERM_KEYS.length;
+  return PERM_KEYS.filter(p => u.permissoes && u.permissoes[p.key]).length;
+}
+
+// --------- Listagem ---------
+async function renderLista() {
+  // Tenta backend primeiro, com fallback no store local
+  let lista;
+  try {
+    if (typeof API !== 'undefined' && API.usuarios && API.usuarios.listar) {
+      lista = await API.usuarios.listar();
+    } else {
+      lista = Usuarios.listar();
+    }
+  } catch (e) {
+    lista = Usuarios.listar();
+  }
+  const atualId = (Sessao.atual()||{}).idusuario;
+
+  // Filtros
+  let filtrada = lista;
+  if (usrBusca) {
+    const q = usrBusca.toLowerCase();
+    filtrada = filtrada.filter(u => (u.nome||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q));
+  }
+  if (usrFiltroRole === 'admin') filtrada = filtrada.filter(u => u.admin);
+  else if (usrFiltroRole === 'prof') filtrada = filtrada.filter(u => !u.admin);
+  if (usrFiltroStatus === 'ativo') filtrada = filtrada.filter(u => u.ativo !== false);
+  else if (usrFiltroStatus === 'inativo') filtrada = filtrada.filter(u => u.ativo === false);
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:18px;">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h1 style="font-size:22px;font-weight:800;color:var(--text);margin:0;">Usuários do Sistema</h1>
+          <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">
+            Professores e administradores com acesso ao painel Intus.
+            As permissões controlam quais ações cada profissional pode executar.
+          </p>
+        </div>
+        <button class="btn btn-primary" onclick="abrirModalNovo()">+ Novo Usuário</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Contas cadastradas</span>
+          <span class="card-badge badge-green">${filtrada.length}</span>
+        </div>
+        <div style="padding:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--border);">
+          <input class="input" id="inp-busca-usr" placeholder="Buscar nome ou e-mail..."
+            value="${esc(usrBusca)}" style="flex:1;min-width:180px;max-width:280px;"/>
+          <select class="input" id="sel-role-usr" style="width:auto;">
+            <option value="" ${!usrFiltroRole?'selected':''}>Todos os perfis</option>
+            <option value="admin" ${usrFiltroRole==='admin'?'selected':''}>Admin</option>
+            <option value="prof" ${usrFiltroRole==='prof'?'selected':''}>Professor</option>
+          </select>
+          <select class="input" id="sel-status-usr" style="width:auto;">
+            <option value="" ${!usrFiltroStatus?'selected':''}>Todos os status</option>
+            <option value="ativo" ${usrFiltroStatus==='ativo'?'selected':''}>Ativos</option>
+            <option value="inativo" ${usrFiltroStatus==='inativo'?'selected':''}>Inativos</option>
+          </select>
+        </div>
+        <table class="data-table">
+          <thead><tr>
+            <th style="width:56px;">#</th>
+            <th>Nome</th>
+            <th>E-mail</th>
+            <th>Perfil</th>
+            <th>Permissões</th>
+            <th>Status</th>
+            <th style="width:200px;"></th>
+          </tr></thead>
+          <tbody>
+            ${filtrada.map(u => {
+              const isEu = Number(u.idusuario) === Number(atualId);
+              return `
+              <tr>
+                <td class="td-date">${u.idusuario}</td>
+                <td class="td-name" style="display:flex;align-items:center;gap:8px;">
+                  ${userAvatarHtml(u.idusuario, u.nome, 28)}
+                  <span>${esc(u.nome)} ${isEu ? '<span style="font-size:10px;color:var(--text-muted);">(você)</span>' : ''}</span>
+                </td>
+                <td style="color:var(--text-muted);font-size:13px;">${esc(u.email||'')}</td>
+                <td>${u.admin
+                  ? '<span class="badge-admin">Admin</span>'
+                  : '<span class="badge-prof">Professor</span>'}</td>
+                <td class="perm-count">${u.admin ? 'Todas' : (contPerms(u)+' / '+PERM_KEYS.length)}</td>
+                <td>${u.ativo
+                  ? '<span class="pill pill-green">Ativo</span>'
+                  : '<span class="badge-inativo">Inativo</span>'}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                  <button class="btn btn-secondary btn-sm" onclick="copiarLinkProf(${u.idusuario})" title="Copiar link de cadastro">🔗</button>
+                  <button class="btn btn-secondary btn-sm" onclick="abrirModalEditar(${u.idusuario})">Editar</button>
+                  ${Number(u.idusuario) !== 1
+                    ? `<button class="btn btn-danger btn-sm" onclick="excluir(${u.idusuario})" title="Excluir">✕</button>`
+                    : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="padding:18px;background:rgba(127,255,0,.05);border-color:rgba(127,255,0,.2);">
+        <div style="font-size:12px;font-weight:800;color:var(--text);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">
+          💡 Como funciona
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 6px;line-height:1.6;">
+          • A conta <b>mestra</b> (Luiz Nunes Admin) nunca pode ser excluída nem desativada — ela sempre terá acesso total.<br/>
+          • Professores só veem os botões das ações que têm permissão. As restrições se aplicam a exercícios, alongamentos, treinos, clientes, matrículas e avaliações.<br/>
+          • O campo <b>Senha atual</b> mostra a senha registrada para login. Use o ícone do olho para revelá-la ou o botão "Copiar".<br/>
+          • Para trocar a senha, preencha o campo <b>Nova senha</b>. A alteração entra em vigor imediatamente — o professor já pode logar com a nova credencial.<br/>
+          • Mudanças feitas aqui são aplicadas em tempo real em todas as abas abertas do painel.
+        </p>
+      </div>
+
+    </div>
+  `;
+
+  // Event listeners dos filtros
+  const inpBusca = document.getElementById('inp-busca-usr');
+  if (inpBusca) inpBusca.addEventListener('input', e => {
+    usrBusca = e.target.value; renderLista();
+    setTimeout(() => { const el = document.getElementById('inp-busca-usr'); if(el){el.focus();el.setSelectionRange(usrBusca.length,usrBusca.length);} }, 0);
+  });
+  document.getElementById('sel-role-usr')?.addEventListener('change', e => { usrFiltroRole = e.target.value; renderLista(); });
+  document.getElementById('sel-status-usr')?.addEventListener('change', e => { usrFiltroStatus = e.target.value; renderLista(); });
+}
+
+// --------- Modal NOVO / EDITAR ---------
+function abrirModalNovo() {
+  abrirModal({
+    titulo: 'Novo Usuário',
+    usuario: {
+      idusuario: null,
+      nome: '', email: '', senha: 'intus2026',
+      admin: false, ativo: true,
+      permissoes: _permsAllFalse(),
+    },
+  });
+}
+
+async function abrirModalEditar(id) {
+  let u = null;
+  try {
+    if (typeof API !== 'undefined' && API.usuarios && API.usuarios.get) {
+      u = await API.usuarios.get(id);
+    }
+  } catch {}
+  if (!u) u = Usuarios.get(id);
+  if (!u) { showToast('Usuário não encontrado', 'error'); return; }
+  // Backend não devolve senha — busca no cache local p/ o campo "Senha atual"
+  if (!u.senha) {
+    const local = Usuarios.get(id);
+    if (local && local.senha) u.senha = local.senha;
+  }
+  abrirModal({ titulo: 'Editar Usuário', usuario: JSON.parse(JSON.stringify(u)) });
+}
+
+const PERM_PRESETS = {
+  nutricionista: {
+    label: 'Nutricionista',
+    perms: { at_ver: true, nt_ver: true, nt_incluir: true, nt_editar: true, nt_excluir: true, av_ver: true, tr_ver: true, mt_ver: true }
+  },
+  professor: {
+    label: 'Professor',
+    perms: { at_ver: true, at_incluir: true, at_editar: true, tr_ver: true, tr_incluir: true, tr_editar: true, tr_excluir: true, ex_ver: true, ex_incluir: true, ex_editar: true, al_ver: true, al_incluir: true, al_editar: true, av_ver: true, av_incluir: true, av_editar: true, mt_ver: true, mt_incluir: true, mt_editar: true }
+  },
+  recepcionista: {
+    label: 'Recepcionista',
+    perms: { at_ver: true, at_incluir: true, at_editar: true, mt_ver: true, mt_incluir: true, mt_editar: true, pg_ver: true }
+  }
+};
+
+function abrirModal({ titulo, usuario }) {
+  const isEdit = !!usuario.idusuario;
+  const isMestre = usuario.idusuario === 1;
+  _usrAvatarChanged = false;
+  _usrAvatarData = null;
+
+  // Agrupa permissões
+  const grupos = {};
+  PERM_KEYS.forEach(p => {
+    (grupos[p.grupo] = grupos[p.grupo] || []).push(p);
+  });
+
+  const permsHTML = Object.entries(grupos).map(([gr, perms]) => `
+    <div class="perm-grupo">
+      <h4>${gr}</h4>
+      ${perms.map(p => `
+        <label class="perm-check">
+          <input type="checkbox" data-perm="${p.key}"
+            ${usuario.permissoes?.[p.key] ? 'checked' : ''}
+            ${usuario.admin ? 'disabled' : ''}/>
+          <span>${p.label}</span>
+        </label>
+      `).join('')}
+    </div>
+  `).join('');
+
+  openModal(`
+      <div class="modal-header">
+        <div class="modal-title">${titulo}</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body" style="max-height:72vh;overflow-y:auto;">
+
+        <div style="text-align:center;margin-bottom:16px;">
+          <div id="usr-avatar-preview" style="width:72px;height:72px;border-radius:50%;margin:0 auto 8px;overflow:hidden;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;background:var(--bg2);cursor:pointer;" onclick="document.getElementById('usr-avatar-input').click();">
+            ${(() => {
+              const uAvMap = JSON.parse(localStorage.getItem('intus-user-avatars') || '{}');
+              const avSrc = usuario.idusuario ? (uAvMap[usuario.idusuario] || uAvMap[String(usuario.idusuario)]) : null;
+              if (avSrc) return '<img src="' + avSrc + '" style="width:100%;height:100%;object-fit:cover;"/>';
+              const ini = (usuario.nome || '?').split(' ').filter(Boolean).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+              return '<div style="font-size:24px;font-weight:700;color:var(--brand);">' + ini + '</div>';
+            })()}
+          </div>
+          <input type="file" id="usr-avatar-input" accept="image/*" style="display:none;" onchange="processarFotoUsuario(this)"/>
+          <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 12px;" onclick="document.getElementById('usr-avatar-input').click();">📷 ${isEdit ? 'Alterar foto' : 'Adicionar foto'}</button>
+          ${isEdit ? '<button type="button" id="usr-avatar-remove" style="font-size:11px;padding:4px 10px;margin-left:6px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;" onclick="removerFotoUsuario()">✕ Remover</button>' : ''}
+        </div>
+
+        <div class="form-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="label">Nome *</label>
+            <input id="usr-nome" class="input" placeholder="Nome completo"
+                   value="${esc(usuario.nome)}" ${isMestre ? '' : ''}/>
+          </div>
+          <div class="form-group">
+            <label class="label">E-mail *</label>
+            <input id="usr-email" class="input" type="email" placeholder="email@intus.com.br"
+                   value="${esc(usuario.email)}"/>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:4px;">
+          <label class="label">Cargo / Função</label>
+          <select id="usr-cargo" class="input" style="width:100%;">
+            <option value="" ${!(usuario.cargo)?'selected':''}>— Selecione —</option>
+            <option value="Professor" ${usuario.cargo==='Professor'?'selected':''}>Professor</option>
+            <option value="Nutricionista" ${usuario.cargo==='Nutricionista'?'selected':''}>Nutricionista</option>
+            <option value="Fisioterapeuta" ${usuario.cargo==='Fisioterapeuta'?'selected':''}>Fisioterapeuta</option>
+            <option value="Coordenador" ${usuario.cargo==='Coordenador'?'selected':''}>Coordenador</option>
+            <option value="Administrador" ${usuario.cargo==='Administrador'?'selected':''}>Administrador</option>
+            <option value="Estagiário" ${usuario.cargo==='Estagiário'?'selected':''}>Estagiário</option>
+          </select>
+          <p style="font-size:10px;color:var(--text-muted);margin-top:3px;">Aparece para o aluno como "Seu Professor" ou "Sua Nutricionista", etc.</p>
+        </div>
+
+        <div class="form-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;">
+          <div class="form-group">
+            <label class="label">Instagram</label>
+            <input id="usr-instagram" class="input" placeholder="@usuario" value="${esc(usuario.instagram || '')}"/>
+            <p style="font-size:10px;color:var(--text-muted);margin-top:3px;">Visível para o aluno no perfil do profissional.</p>
+          </div>
+          <div class="form-group">
+            <label class="label">Apresentação profissional</label>
+            <textarea id="usr-bio" class="input" rows="3" placeholder="Ex: Personal Trainer especializado em hipertrofia e emagrecimento. CREF 012345-G/SP" style="resize:vertical;min-height:60px;">${esc(usuario.bio || '')}</textarea>
+          </div>
+        </div>
+
+        ${isEdit ? `
+        <div class="form-group">
+          <label class="label">Senha atual</label>
+          <div class="pwd-input-wrap">
+            <input id="usr-senha-atual" class="input" type="password"
+                   value="${esc(usuario.senha || '')}" readonly
+                   autocomplete="off"/>
+            <button type="button" class="pwd-eye" data-target="usr-senha-atual" aria-label="Mostrar senha"></button>
+          </div>
+          <div class="pwd-hint-row">
+            <span style="font-size:11px;color:var(--text-muted);">Senha registrada usada no login.</span>
+            <button type="button" class="copy-btn" id="usr-copy-senha">Copiar</button>
+          </div>
+        </div>
+        ` : ''}
+
+        <div class="form-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="label">${isEdit ? 'Nova senha (opcional)' : 'Senha *'}</label>
+            <div class="pwd-input-wrap">
+              <input id="usr-senha" class="input" type="password"
+                     placeholder="${isEdit ? 'Deixe em branco para manter' : 'Mínimo 6 caracteres'}"
+                     autocomplete="new-password"/>
+              <button type="button" class="pwd-eye" data-target="usr-senha" aria-label="Mostrar senha"></button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="label">Status</label>
+            <div style="display:flex;align-items:center;gap:10px;padding-top:8px;">
+              <label class="switch">
+                <input id="usr-ativo" type="checkbox" ${usuario.ativo ? 'checked' : ''} ${isMestre ? 'disabled' : ''}/>
+                <span class="slider"></span>
+              </label>
+              <span style="font-size:12px;color:var(--text-muted);" id="usr-ativo-label">${usuario.ativo ? 'Ativo' : 'Inativo'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:8px;">
+          <label class="perm-check" style="font-size:13px;font-weight:600;">
+            <input id="usr-admin" type="checkbox" ${usuario.admin ? 'checked' : ''} ${isMestre ? 'disabled' : ''}/>
+            <span>Conta administradora (acesso total)</span>
+          </label>
+          <p style="font-size:11px;color:var(--text-muted);margin:4px 0 0 22px;">
+            Quando marcado, todas as permissões são concedidas automaticamente.
+          </p>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:10px;">
+            <div class="modal-section-title" style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;margin:0;">
+              Permissões
+            </div>
+            <select id="perm-preset-sel" class="input" style="width:auto;font-size:11px;padding:4px 8px;" onchange="aplicarPerfilPermissoes(this.value)">
+              <option value="">— Aplicar perfil —</option>
+              ${Object.entries(PERM_PRESETS).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="perm-grid" id="perm-grid">${permsHTML}</div>
+        </div>
+
+        ${isMestre ? `
+          <p style="font-size:11px;color:#fde047;margin-top:8px;">
+            ⚠️ Esta é a conta mestra — nome, permissões e status não podem ser alterados.
+          </p>
+        ` : ''}
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvar(${usuario.idusuario || 'null'})">
+          ${isEdit ? 'Salvar alterações' : 'Criar usuário'}
+        </button>
+      </div>
+  `);
+
+  // Interações: admin toggle trava/destrava permissões
+  setTimeout(() => {
+    const admChk = document.getElementById('usr-admin');
+    const ativoChk = document.getElementById('usr-ativo');
+    const ativoLbl = document.getElementById('usr-ativo-label');
+
+    function aplicarAdmin() {
+      const adm = admChk.checked;
+      document.querySelectorAll('#perm-grid input[data-perm]').forEach(el => {
+        if (adm) { el.checked = true; el.disabled = true; }
+        else     { el.disabled = false; }
+      });
+    }
+    if (admChk) admChk.addEventListener('change', aplicarAdmin);
+    if (ativoChk) ativoChk.addEventListener('change', () => {
+      ativoLbl.textContent = ativoChk.checked ? 'Ativo' : 'Inativo';
+    });
+    // estado inicial
+    aplicarAdmin();
+
+    // Toggle olho mostrar/ocultar senha em todos os campos pwd-eye
+    const ICON_EYE_ON  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const ICON_EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    document.querySelectorAll('.pwd-eye').forEach(btn => {
+      btn.innerHTML = ICON_EYE_ON;
+      btn.addEventListener('click', () => {
+        const inp = document.getElementById(btn.dataset.target);
+        if (!inp) return;
+        const showing = inp.type === 'text';
+        inp.type = showing ? 'password' : 'text';
+        btn.innerHTML = showing ? ICON_EYE_ON : ICON_EYE_OFF;
+        btn.setAttribute('aria-label', showing ? 'Mostrar senha' : 'Esconder senha');
+      });
+    });
+
+    // Copiar senha atual
+    const copyBtn = document.getElementById('usr-copy-senha');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const inp = document.getElementById('usr-senha-atual');
+        if (!inp) return;
+        const wasType = inp.type;
+        inp.type = 'text';
+        inp.select();
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(inp.value);
+          } else {
+            document.execCommand('copy');
+          }
+          showToast('Senha copiada para a área de transferência');
+        } catch {
+          showToast('Não foi possível copiar', 'error');
+        }
+        inp.type = wasType;
+      });
+    }
+  }, 50);
+}
+
+function aplicarPerfilPermissoes(preset) {
+  if (!preset || !PERM_PRESETS[preset]) return;
+  const perms = PERM_PRESETS[preset].perms;
+  document.querySelectorAll('#perm-grid input[type="checkbox"]').forEach(cb => {
+    const key = cb.getAttribute('data-perm');
+    cb.checked = !!perms[key];
+  });
+  document.getElementById('perm-preset-sel').value = '';
+}
+
+// --------- Salvar ---------
+async function salvar(id) {
+  const nome   = document.getElementById('usr-nome').value.trim();
+  const email  = document.getElementById('usr-email').value.trim();
+  const senha  = document.getElementById('usr-senha').value.trim();
+  const admin  = document.getElementById('usr-admin').checked;
+  const ativo  = document.getElementById('usr-ativo').checked;
+  const cargo  = document.getElementById('usr-cargo').value;
+  const instagram = (document.getElementById('usr-instagram')?.value || '').trim();
+  const bio    = (document.getElementById('usr-bio')?.value || '').trim();
+
+  if (!nome)  { showToast('Informe o nome.', 'error'); return; }
+  if (!email) { showToast('Informe o e-mail.', 'error'); return; }
+
+  const permissoes = {};
+  document.querySelectorAll('#perm-grid input[data-perm]').forEach(el => {
+    permissoes[el.dataset.perm] = el.checked;
+  });
+
+  const payload = { nome, email, admin, ativo, permissoes };
+  if (senha) payload.senha = senha;
+
+  // Botão muda para "Salvando..." enquanto sincroniza com backend
+  const btnSalvar = document.querySelector('.modal-overlay .modal-footer .btn-primary');
+  const btnLabel  = btnSalvar ? btnSalvar.textContent : '';
+  if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.textContent = 'Salvando...'; }
+
+  try {
+    if (id) {
+      const novo = (typeof API !== 'undefined' && API.usuarios && API.usuarios.editar)
+        ? await API.usuarios.editar(id, payload)
+        : Usuarios.editar(id, payload);
+      const mudouSenha = !!senha;
+      showToast(mudouSenha
+        ? `Usuário atualizado. ${novo.nome} já pode entrar com a nova senha.`
+        : 'Usuário atualizado com sucesso!');
+    } else {
+      if (!senha) { showToast('Informe a senha inicial.', 'error'); return; }
+      let novoUser = null;
+      if (typeof API !== 'undefined' && API.usuarios && API.usuarios.criar) {
+        novoUser = await API.usuarios.criar(payload);
+      } else {
+        novoUser = Usuarios.criar(payload);
+      }
+      showToast('Usuário criado com sucesso!');
+      if (_usrAvatarChanged && novoUser && novoUser.idusuario) {
+        try { await API.saveUserAvatar(novoUser.idusuario, _usrAvatarData); } catch {}
+      }
+      if (novoUser && novoUser.idusuario) {
+        try { await API.saveUserMeta(novoUser.idusuario, { cargo, instagram, bio }); } catch {}
+      }
+    }
+    if (_usrAvatarChanged && id) {
+      try { await API.saveUserAvatar(id, _usrAvatarData); } catch {}
+    }
+    if (id) {
+      try { await API.saveUserMeta(id, { cargo, instagram, bio }); } catch {}
+    }
+    _usrAvatarChanged = false;
+    _usrAvatarData = null;
+    closeModal();
+    renderLista();
+  } catch (e) {
+    showToast(e.message || 'Erro ao salvar', 'error');
+    if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = btnLabel; }
+  }
+}
+
+// --------- Foto de perfil do usuário ---------
+let _usrAvatarData = null;
+let _usrAvatarChanged = false;
+
+function processarFotoUsuario(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.beginPath(); ctx.arc(128, 128, 128, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, 256, 256);
+      _usrAvatarData = canvas.toDataURL('image/jpeg', 0.85);
+      _usrAvatarChanged = true;
+      const preview = document.getElementById('usr-avatar-preview');
+      if (preview) preview.innerHTML = '<img src="' + _usrAvatarData + '" style="width:100%;height:100%;object-fit:cover;"/>';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removerFotoUsuario() {
+  _usrAvatarData = null;
+  _usrAvatarChanged = true;
+  const preview = document.getElementById('usr-avatar-preview');
+  if (preview) preview.innerHTML = '<div style="font-size:24px;color:var(--text-muted);">👤</div>';
+}
+
+// --------- Copiar Link ---------
+function copiarLinkProf(id) {
+  const base = location.origin + location.pathname.replace('usuarios.html', 'login.html');
+  const link = `${base}?ref=${id}`;
+  navigator.clipboard.writeText(link).then(() => showToast('Link copiado!')).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = link; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('Link copiado!');
+  });
+}
+
+// --------- Excluir ---------
+async function excluir(id) {
+  let u = null;
+  try {
+    if (typeof API !== 'undefined' && API.usuarios && API.usuarios.get) {
+      u = await API.usuarios.get(id);
+    }
+  } catch {}
+  if (!u) u = Usuarios.get(id);
+  if (!u) return;
+  if (!confirm(`Excluir o usuário "${u.nome}"? Essa ação não pode ser desfeita.`)) return;
+  try {
+    if (typeof API !== 'undefined' && API.usuarios && API.usuarios.excluir) {
+      await API.usuarios.excluir(id);
+    } else {
+      Usuarios.excluir(id);
+    }
+    showToast('Usuário excluído.');
+    renderLista();
+  } catch (e) {
+    showToast(e.message || 'Erro ao excluir', 'error');
+  }
+}
+</script>
+</body>
+</html>

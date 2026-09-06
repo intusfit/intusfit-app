@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Frequência e Ranking — Intus</title>
+  <script src="_mock.js?v=20260901a"></script>
+  <script src="api.js?v=20260901a"></script>
+  <style>
+    .freq-toolbar {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      margin-bottom: 20px;
+    }
+    .freq-toolbar select, .freq-toolbar input {
+      background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: inherit;
+    }
+    .freq-toolbar select:focus, .freq-toolbar input:focus { outline: none; border-color: var(--green); }
+    .freq-view-toggle {
+      display: flex; gap: 0; margin-left: auto;
+    }
+    .freq-view-toggle button {
+      background: var(--bg2); border: 1px solid var(--border); color: var(--text-muted);
+      padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+    }
+    .freq-view-toggle button:first-child { border-radius: 8px 0 0 8px; }
+    .freq-view-toggle button:last-child { border-radius: 0 8px 8px 0; }
+    .freq-view-toggle button.active { background: var(--green); color: #fff; border-color: var(--green); }
+
+    .freq-summary {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;
+      margin-bottom: 24px;
+    }
+    .freq-stat {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .freq-stat-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+    .freq-stat-value { font-size: 22px; font-weight: 700; color: var(--text); }
+    .freq-stat-value.green { color: var(--green); }
+
+    .freq-list-table { width: 100%; border-collapse: collapse; }
+    .freq-list-table th {
+      text-align: left; font-size: 10px; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .freq-list-table td { padding: 10px 12px; font-size: 13px; color: var(--text); border-bottom: 1px solid var(--border); }
+    .freq-list-table tr:hover td { background: var(--bg2); }
+    .freq-athlete-name { font-weight: 600; }
+    .freq-badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+    .freq-badge.high { background: rgba(34,197,94,.15); color: #22c55e; }
+    .freq-badge.medium { background: rgba(250,204,21,.15); color: #facc15; }
+    .freq-badge.low { background: rgba(239,68,68,.15); color: #ef4444; }
+    body.theme-light .freq-badge.high { background: rgba(34,197,94,.1); color: #16a34a; }
+    body.theme-light .freq-badge.medium { background: rgba(202,138,4,.1); color: #ca8a04; }
+    body.theme-light .freq-badge.low { background: rgba(220,38,38,.1); color: #dc2626; }
+
+    .freq-calendar-wrap { margin-top: 8px; }
+    .freq-cal-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .freq-cal-nav button {
+      background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; width: 32px; height: 32px; font-size: 16px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .freq-cal-nav button:hover { background: var(--bg3); }
+    .freq-cal-nav .cal-month-label { font-size: 15px; font-weight: 700; color: var(--text); }
+    .freq-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .freq-cal-header { text-align: center; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; padding: 6px 0; }
+    .freq-cal-day {
+      aspect-ratio: 1; border-radius: 8px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; font-size: 12px; color: var(--text-muted);
+      background: var(--bg2); border: 1px solid transparent; position: relative;
+      min-height: 44px; cursor: pointer; transition: all .12s;
+    }
+    .freq-cal-day.empty { background: transparent; cursor: default; }
+    .freq-cal-day.today { border-color: var(--green); }
+    .freq-cal-day:not(.empty):hover { border-color: var(--brand); transform: scale(1.05); }
+    .freq-cal-day .cal-day-num { font-weight: 600; font-size: 12px; }
+    .freq-cal-day .cal-day-count { font-size: 9px; font-weight: 700; margin-top: 2px; border-radius: 4px; padding: 1px 5px; }
+    .freq-cal-day.has-sessions { background: rgba(34,197,94,.08); border-color: rgba(34,197,94,.3); }
+    .freq-cal-day.has-sessions .cal-day-count { background: var(--green); color: #fff; }
+
+    .freq-athlete-bars { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 16px; }
+    .freq-athlete-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .freq-athlete-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .freq-athlete-card-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .freq-athlete-card-count { font-size: 12px; color: var(--text-muted); }
+    .freq-bar-track { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+    .freq-bar-fill { height: 100%; border-radius: 3px; background: var(--green); transition: width .3s; }
+    .freq-bar-fill.medium { background: #facc15; }
+    .freq-bar-fill.low { background: #ef4444; }
+
+    .freq-admin-filters {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;
+      padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    }
+    .freq-admin-filters label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; display: flex; align-items: center; gap: 6px; }
+    .freq-admin-filters select { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 12px; font-family: inherit; }
+    .freq-empty { text-align: center; padding: 48px 20px; color: var(--text-muted); font-size: 14px; }
+
+    /* RANKING VIEW */
+    .ranking-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .ranking-period-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .12s; }
+    .ranking-period-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+    .ranking-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; margin-bottom: 6px; transition: background .12s; }
+    .ranking-row:hover { background: var(--bg2); }
+    .ranking-pos { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+    .ranking-pos.gold { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #000; }
+    .ranking-pos.silver { background: linear-gradient(135deg, #d1d5db, #9ca3af); color: #000; }
+    .ranking-pos.bronze { background: linear-gradient(135deg, #f97316, #ea580c); color: #fff; }
+    .ranking-pos.normal { background: var(--bg2); border: 1px solid var(--border); color: var(--text-muted); }
+    .ranking-name { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); }
+    .ranking-bar-wrap { flex: 2; display: flex; align-items: center; gap: 10px; }
+    .ranking-bar { height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--green), #22c55e); transition: width .4s ease; }
+    .ranking-count { font-size: 12px; font-weight: 700; color: var(--green); min-width: 60px; text-align: right; }
+    .ranking-custom-range { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .ranking-custom-range input { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); font-size: 12px; }
+    .ranking-custom-range input:focus { border-color: var(--green); outline: none; }
+
+    /* DAY DETAIL MODAL */
+    .freq-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; }
+    .freq-modal {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+      width: 90%; max-width: 520px; max-height: 85vh; overflow-y: auto; z-index: 1001; padding: 20px;
+    }
+    .freq-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .freq-modal-header h3 { font-size: 16px; font-weight: 700; color: var(--text); }
+    .freq-modal-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; text-align: center; }
+    .freq-modal-stats div { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 8px; }
+    .freq-modal-stats strong { font-size: 18px; color: var(--text); display: block; }
+    .freq-modal-stats span { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+    .freq-modal-list { display: flex; flex-direction: column; gap: 10px; }
+    .freq-modal-session { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .freq-modal-exercicios { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+    .freq-modal-ex { display: flex; justify-content: space-between; align-items: center; font-size: 11px; }
+    .freq-ex-name { color: var(--text); font-weight: 500; }
+    .freq-ex-series { color: var(--text-muted); font-size: 10px; }
+
+    @media (max-width: 640px) {
+      .freq-toolbar { flex-direction: column; align-items: stretch; }
+      .freq-view-toggle { margin-left: 0; justify-content: stretch; }
+      .freq-view-toggle button { flex: 1; }
+      .freq-summary { grid-template-columns: repeat(2, 1fr); }
+      .freq-list-table { font-size: 12px; }
+      .freq-list-table th, .freq-list-table td { padding: 8px 8px; }
+      .freq-cal-day { min-height: 36px; }
+      .ranking-bar-wrap { display: none; }
+    }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Frequência e Ranking');
+
+const main = document.getElementById('main-content');
+let atletas = [], sessoes = [], usuarios = [], desafios = [];
+let view = 'ranking';
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let filtroProf = '', filtroPeriodo = '30', filtroBusca = '';
+let rankingPeriodo = 'semana_atual';
+let rankingCustomDe = '', rankingCustomAte = '';
+let filtroDesafio = '';
+let rankingCat = 'geral'; // 'geral' | 'musculacao' | 'cardio'
+let loading = true;
+
+const _user = Sessao.atual();
+const _isAdminUser = _user && _user.admin;
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ═══════════════ PONTUAÇÃO DO RANKING ═══════════════
+// Esta tela tinha uma CÓPIA da fórmula do app do aluno. Duas cópias da mesma
+// regra é o mesmo que duas regras: bastava ajustar uma para o professor e o
+// aluno verem pontos diferentes da mesma semana. A fórmula agora mora só no
+// api.js e esta tela apenas pergunta.
+const _rankReg = new Proxy({}, {
+  get: (_t, k) => API.regrasRanking()[k],
+  has: (_t, k) => k in API.regrasRanking(),
+  ownKeys: () => Reflect.ownKeys(API.regrasRanking()),
+  getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+});
+function _rankCorte(){ return new Date(API.regrasRanking().vigorApartirDe + 'T00:00:00'); }
+function _dtSes(s){ return API.dtRank(s); }
+function _semKey(dt){ return API.semanaRank(dt); }
+function _pontosCardioPolitica(raw){ return API.pontosCardioRank(raw); }
+// `lista` é obrigatória: sem ela não dá para saber se o treino foi o 1º ou o
+// 2º do dia, e a função assume o 1º.
+function pontosSessaoRank(s, lista){ return API.pontosSessaoRank(s, lista); }
+function _agregarPontosPorAtleta(lista){ return API.agregarPontosRank(lista); }
+
+async function carregar() {
+  loading = true; render();
+  try {
+    const [listaA, listaSessoes, listaU, listaDesafios] = await Promise.all([
+      API.listarAtletas('', true),
+      API.listarTodasSessoes(),
+      _isAdminUser ? (API.usuarios && API.usuarios.listar ? API.usuarios.listar().catch(() => []) : Promise.resolve([])) : Promise.resolve([]),
+      API.listarDesafios().catch(() => []),
+    ]);
+    let allAtletas = Array.isArray(listaA) ? listaA : [];
+    if (!_isAdminUser && _user && _user.idusuario) {
+      allAtletas = allAtletas.filter(a => {
+        const profs = a.professores_responsaveis;
+        return profs && Array.isArray(profs) && profs.includes(Number(_user.idusuario));
+      });
+    }
+    atletas = allAtletas.filter(a => !a.email?.endsWith('@intusfit.local'));
+    sessoes = Array.isArray(listaSessoes) ? listaSessoes : [];
+    usuarios = Array.isArray(listaU) ? listaU : [];
+    desafios = Array.isArray(listaDesafios) ? listaDesafios : [];
+    // Regras de pontuação: uma chamada só. O api.js guarda o resultado e todas
+    // as telas passam a enxergar os mesmos pesos.
+    try { await API.getRankingRegras(); } catch (e) {}
+  } catch(e) { atletas = []; sessoes = []; }
+  loading = false; render();
+}
+
+const EXCLUIDAS_KEY = 'intus-freq-excluidas';
+function getExcluidas() { try { return JSON.parse(localStorage.getItem(EXCLUIDAS_KEY) || '[]'); } catch { return []; } }
+function toggleExcluir(idsessao) {
+  let list = getExcluidas();
+  if (list.includes(Number(idsessao))) list = list.filter(x => x !== Number(idsessao));
+  else list.push(Number(idsessao));
+  localStorage.setItem(EXCLUIDAS_KEY, JSON.stringify(list));
+  render();
+}
+
+function getSessoesFiltradas() {
+  const excluidas = new Set(getExcluidas());
+  let filtered = sessoes.filter(s => !excluidas.has(Number(s.idsessao)) && !s.nao_contar);
+  const atletaIds = new Set(atletas.map(a => Number(a.idatleta)));
+  filtered = filtered.filter(s => atletaIds.has(Number(s.idatleta)));
+  if (filtroProf && _isAdminUser) {
+    const profAtletas = new Set(atletas.filter(a => (a.professores_responsaveis||[]).includes(Number(filtroProf))).map(a => Number(a.idatleta)));
+    filtered = filtered.filter(s => profAtletas.has(Number(s.idatleta)));
+  }
+  if (filtroPeriodo !== 'all') {
+    const dias = parseInt(filtroPeriodo) || 30;
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - dias);
+    const cutStr = cutoff.toISOString().slice(0, 10);
+    filtered = filtered.filter(s => (s.dtsessao || '') >= cutStr);
+  }
+  if (filtroBusca) {
+    const q = filtroBusca.toLowerCase();
+    const matchIds = new Set(atletas.filter(a => (a.nome||'').toLowerCase().includes(q)).map(a => Number(a.idatleta)));
+    filtered = filtered.filter(s => matchIds.has(Number(s.idatleta)));
+  }
+  return filtered;
+}
+
+function getAtletasFiltrados() {
+  let list = [...atletas];
+  if (filtroProf && _isAdminUser) list = list.filter(a => (a.professores_responsaveis||[]).includes(Number(filtroProf)));
+  if (filtroBusca) { const q = filtroBusca.toLowerCase(); list = list.filter(a => (a.nome||'').toLowerCase().includes(q)); }
+  return list;
+}
+
+function getFrequenciaBadge(count, dias) {
+  const d = parseInt(dias) || 30;
+  const semanas = d / 7;
+  const perWeek = count / semanas;
+  if (perWeek >= 3) return { cls: 'high', label: perWeek.toFixed(1) + 'x/sem' };
+  if (perWeek >= 1.5) return { cls: 'medium', label: perWeek.toFixed(1) + 'x/sem' };
+  return { cls: 'low', label: perWeek.toFixed(1) + 'x/sem' };
+}
+
+function render() {
+  if (loading) { main.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Carregando...</div>'; return; }
+  const sessFiltradas = getSessoesFiltradas();
+  const atletasFiltrados = getAtletasFiltrados();
+  const totalSessoes = sessFiltradas.length;
+  const atletasAtivos = new Set(sessFiltradas.map(s => Number(s.idatleta))).size;
+  const dias = parseInt(filtroPeriodo) || 30;
+  const mediaPorAluno = atletasAtivos > 0 ? (totalSessoes / atletasAtivos).toFixed(1) : '0';
+
+  const atletaMap = {};
+  sessFiltradas.forEach(s => { const id = Number(s.idatleta); if (!atletaMap[id]) atletaMap[id] = { count: 0, lastDate: '' }; atletaMap[id].count++; if ((s.dtsessao||'') > atletaMap[id].lastDate) atletaMap[id].lastDate = s.dtsessao; });
+
+  const profOptions = _isAdminUser ? usuarios.filter(u => u.ativo !== false).map(u =>
+    `<option value="${u.idusuario}" ${filtroProf == u.idusuario ? 'selected' : ''}>${esc((u.nome||'').split(' ').slice(0,2).join(' '))}</option>`
+  ).join('') : '';
+
+  main.innerHTML = `
+    ${_isAdminUser ? `<div class="freq-admin-filters">
+      <label>Professor: <select onchange="filtroProf=this.value;render()"><option value="">Todos</option>${profOptions}</select></label>
+      <label>Período: <select onchange="filtroPeriodo=this.value;render()">
+        <option value="7" ${filtroPeriodo==='7'?'selected':''}>7 dias</option>
+        <option value="14" ${filtroPeriodo==='14'?'selected':''}>14 dias</option>
+        <option value="30" ${filtroPeriodo==='30'?'selected':''}>30 dias</option>
+        <option value="60" ${filtroPeriodo==='60'?'selected':''}>60 dias</option>
+        <option value="90" ${filtroPeriodo==='90'?'selected':''}>90 dias</option>
+        <option value="all" ${filtroPeriodo==='all'?'selected':''}>Todo período</option>
+      </select></label>
+    </div>` : ''}
+
+    <div class="freq-toolbar">
+      <input type="text" placeholder="Buscar aluno..." value="${esc(filtroBusca)}" oninput="filtroBusca=this.value;render()" style="min-width:180px"/>
+      ${!_isAdminUser ? `<select onchange="filtroPeriodo=this.value;render()">
+        <option value="7" ${filtroPeriodo==='7'?'selected':''}>7 dias</option>
+        <option value="14" ${filtroPeriodo==='14'?'selected':''}>14 dias</option>
+        <option value="30" ${filtroPeriodo==='30'?'selected':''}>30 dias</option>
+        <option value="60" ${filtroPeriodo==='60'?'selected':''}>60 dias</option>
+        <option value="90" ${filtroPeriodo==='90'?'selected':''}>90 dias</option>
+        <option value="all" ${filtroPeriodo==='all'?'selected':''}>Todo período</option>
+      </select>` : ''}
+      <div class="freq-view-toggle">
+        <button class="${view==='ranking'?'active':''}" onclick="view='ranking';render()">🏆 Ranking</button>
+        <button class="${view==='list'?'active':''}" onclick="view='list';render()">Lista</button>
+        <button class="${view==='calendar'?'active':''}" onclick="view='calendar';render()">📅 Calendário</button>
+      </div>
+    </div>
+
+    <div class="freq-summary">
+      <div class="freq-stat"><div class="freq-stat-label">Sessões no período</div><div class="freq-stat-value green">${totalSessoes}</div></div>
+      <div class="freq-stat"><div class="freq-stat-label">Alunos ativos</div><div class="freq-stat-value">${atletasAtivos}</div></div>
+      <div class="freq-stat"><div class="freq-stat-label">Média por aluno</div><div class="freq-stat-value">${mediaPorAluno} treinos</div></div>
+      <div class="freq-stat"><div class="freq-stat-label">Total carteira</div><div class="freq-stat-value">${atletasFiltrados.length}</div></div>
+    </div>
+
+    ${view === 'ranking' ? renderRankingView(atletasFiltrados) : view === 'list' ? renderListView(atletasFiltrados, atletaMap, dias) : renderCalendarView(sessFiltradas, atletasFiltrados)}
+    ${view === 'list' ? renderAlertaSessoes() : ''}
+  `;
+}
+
+// ═══════════════ RANKING VIEW ═══════════════
+function getRankingCutoff() {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  if (rankingPeriodo === 'desafio' && filtroDesafio) {
+    const d = desafios.find(x => x.iddesafio == filtroDesafio);
+    return d ? d.dtinicio : hoje.toISOString().slice(0,10);
+  }
+  if (rankingPeriodo === 'dia') return hoje.toISOString().slice(0,10);
+  // Semana atual desde domingo
+  if (rankingPeriodo === 'semana_atual') { const d = new Date(hoje); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0,10); }
+  // Mantém 'semana' legado como alias
+  if (rankingPeriodo === 'semana') { const d = new Date(hoje); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0,10); }
+  if (rankingPeriodo === '30dias') { const d = new Date(hoje); d.setDate(d.getDate() - 30); return d.toISOString().slice(0,10); }
+  if (rankingPeriodo === 'mes_atual') return hoje.toISOString().slice(0,8) + '01';
+  if (rankingPeriodo === 'mes') return hoje.toISOString().slice(0,8) + '01';
+  if (rankingPeriodo === 'trimestre') { const d = new Date(hoje); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0,10); }
+  if (rankingPeriodo === 'semestre') { const d = new Date(hoje); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0,10); }
+  if (rankingPeriodo === 'ano') { const d = new Date(hoje); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0,10); }
+  if (rankingPeriodo === 'custom' && rankingCustomDe) return rankingCustomDe;
+  return hoje.toISOString().slice(0,8) + '01';
+}
+
+function getSemanaAtualLabel() {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const dom = new Date(hoje); dom.setDate(dom.getDate() - dom.getDay());
+  const sab = new Date(dom); sab.setDate(dom.getDate() + 6);
+  const fmt = d => d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+  return 'Semana (' + fmt(dom) + '–' + fmt(sab) + ')';
+}
+
+function getRankingEnd() {
+  if (rankingPeriodo === 'desafio' && filtroDesafio) {
+    const d = desafios.find(x => x.iddesafio == filtroDesafio);
+    return d ? d.dtfim : new Date().toISOString().slice(0,10);
+  }
+  if (rankingPeriodo === 'custom' && rankingCustomAte) return rankingCustomAte;
+  return new Date().toISOString().slice(0,10);
+}
+
+let _desafioDetalheCache = {};
+async function carregarDesafioDetalhe(id) {
+  if (_desafioDetalheCache[id]) return _desafioDetalheCache[id];
+  try {
+    const d = await API.obterDesafio(id);
+    _desafioDetalheCache[id] = d;
+    return d;
+  } catch { return null; }
+}
+
+async function renderComDesafio() {
+  if (rankingPeriodo === 'desafio' && filtroDesafio && !_desafioDetalheCache[filtroDesafio]) {
+    await carregarDesafioDetalhe(filtroDesafio);
+    render();
+  }
+}
+
+function renderRankingView(atletasFiltrados) {
+  const cutoff = getRankingCutoff();
+  const end = getRankingEnd();
+  const excluidas = new Set(getExcluidas());
+
+  // Filtro por desafio
+  if (rankingPeriodo === 'desafio' && filtroDesafio) {
+    const detalhe = _desafioDetalheCache[filtroDesafio];
+    if (!detalhe) {
+      renderComDesafio();
+      return '<div style="text-align:center;padding:40px;color:var(--text-muted);">Carregando desafio...</div>';
+    }
+    const partIds = new Set((detalhe.participantes || []).map(p => Number(p.idatleta || p)));
+    atletasFiltrados = atletasFiltrados.filter(a => partIds.has(Number(a.idatleta)));
+  }
+
+  const atletaIds = new Set(atletasFiltrados.map(a => Number(a.idatleta)));
+
+  let rankingSessoes = sessoes.filter(s =>
+    !excluidas.has(Number(s.idsessao)) &&
+    !s.nao_contar &&
+    (s.duracao_seg == null || Number(s.duracao_seg) >= 300) && // mesmo filtro do ranking do app
+    atletaIds.has(Number(s.idatleta)) &&
+    (s.dtsessao || '') >= cutoff &&
+    (s.dtsessao || '') <= end
+  ).map(s => ({
+    ...s,
+    tipo: s.tipo || (s.cardio_tipo ? 'cardio' : 'musculacao'),
+    // pontos permanece RAW (cardio); a fórmula central converte com fator + teto.
+    pontos: parseFloat(s.pontos) || 0,
+  }));
+
+  // Filtro por categoria
+  if (rankingCat === 'musculacao') rankingSessoes = rankingSessoes.filter(s => s.tipo === 'musculacao');
+  else if (rankingCat === 'cardio') rankingSessoes = rankingSessoes.filter(s => s.tipo === 'cardio');
+
+  // Agregar pontos por atleta pela fórmula central (mesmos valores do app, com bônus semanal)
+  const agRank = _agregarPontosPorAtleta(rankingSessoes);
+  const countMap = {};
+  const duracaoMap = {};
+  rankingSessoes.forEach(s => {
+    const id = Number(s.idatleta);
+    countMap[id] = (countMap[id] || 0) + 1;
+    duracaoMap[id] = (duracaoMap[id] || 0) + (s.duracao_seg || 0);
+  });
+
+  const ranked = atletasFiltrados
+    .map(a => { const g = agRank[Number(a.idatleta)] || { base:0, bonus:0, total:0 }; return { ...a, pts: g.total, base: g.base, bonus: g.bonus, count: countMap[a.idatleta] || 0, duracao: duracaoMap[a.idatleta] || 0 }; })
+    .filter(a => a.pts > 0)
+    .sort((a, b) => b.pts - a.pts || b.count - a.count);
+
+  const maxPts = ranked.length > 0 ? ranked[0].pts : 1;
+
+  const desafioNome = filtroDesafio ? (desafios.find(d => d.iddesafio == filtroDesafio)?.nome || 'Desafio') : '';
+  const periodoLabels = { dia: 'Hoje', semana_atual: getSemanaAtualLabel(), semana: getSemanaAtualLabel(), '30dias': '30 dias', mes_atual: 'Mês atual', mes: 'Mês atual', trimestre: 'Trimestre', semestre: 'Semestre', ano: 'Ano', custom: 'Personalizado', desafio: desafioNome };
+
+  const desafiosAtivos = desafios.filter(d => d.ativo && d.dtfim >= new Date().toISOString().slice(0,10));
+  const isSemana = rankingPeriodo === 'semana_atual' || rankingPeriodo === 'semana';
+  const isMes = rankingPeriodo === 'mes_atual' || rankingPeriodo === 'mes';
+
+  // Sub-abas de categoria
+  const catColors = { geral: 'var(--green)', musculacao: 'var(--green)', cardio: '#22d3ee' };
+  let html = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:12px;">
+    ${[['geral','🏅 Geral'],['musculacao','💪 Musculação'],['cardio','🏃 Cardio']].map(([c,label]) =>
+      `<button onclick="rankingCat='${c}';render();" style="padding:9px 4px;border-radius:10px;border:2px solid ${rankingCat===c?catColors[c]:'var(--border)'};background:${rankingCat===c?'rgba(127,255,0,.07)':'transparent'};color:${rankingCat===c?catColors[c]:'var(--text-muted)'};font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">${label}</button>`
+    ).join('')}
+  </div>`;
+
+  html += `
+    <div class="ranking-header" style="flex-wrap:wrap;">
+      <button class="ranking-period-btn ${rankingPeriodo==='dia'?'active':''}" onclick="rankingPeriodo='dia';filtroDesafio='';render()">Hoje</button>
+      <button class="ranking-period-btn ${isSemana?'active':''}" onclick="rankingPeriodo='semana_atual';filtroDesafio='';render()">${getSemanaAtualLabel()}</button>
+      <button class="ranking-period-btn ${rankingPeriodo==='30dias'?'active':''}" onclick="rankingPeriodo='30dias';filtroDesafio='';render()">30 dias</button>
+      <button class="ranking-period-btn ${isMes?'active':''}" onclick="rankingPeriodo='mes_atual';filtroDesafio='';render()">Mês atual</button>
+      <button class="ranking-period-btn ${rankingPeriodo==='trimestre'?'active':''}" onclick="rankingPeriodo='trimestre';filtroDesafio='';render()">Trimestre</button>
+      <button class="ranking-period-btn ${rankingPeriodo==='semestre'?'active':''}" onclick="rankingPeriodo='semestre';filtroDesafio='';render()">Semestre</button>
+      <button class="ranking-period-btn ${rankingPeriodo==='ano'?'active':''}" onclick="rankingPeriodo='ano';filtroDesafio='';render()">Ano</button>
+      <button class="ranking-period-btn ${rankingPeriodo==='custom'?'active':''}" onclick="rankingPeriodo='custom';filtroDesafio='';render()">Personalizado</button>
+      ${desafiosAtivos.length > 0 ? desafiosAtivos.map(d => `
+        <button class="ranking-period-btn ${filtroDesafio==d.iddesafio?'active':''}" style="${filtroDesafio==d.iddesafio?'':'border-color:rgba(127,255,0,.4);color:var(--brand);'}" onclick="filtroDesafio=${d.iddesafio};rankingPeriodo='desafio';render()">🏆 ${esc(d.nome)}</button>
+      `).join('') : ''}
+    </div>
+    ${rankingPeriodo === 'custom' ? `<div class="ranking-custom-range">
+      <label style="font-size:11px;color:var(--text-muted);">De:</label>
+      <input type="date" value="${rankingCustomDe}" onchange="rankingCustomDe=this.value;render()"/>
+      <label style="font-size:11px;color:var(--text-muted);">Até:</label>
+      <input type="date" value="${rankingCustomAte}" onchange="rankingCustomAte=this.value;render()"/>
+    </div>` : ''}
+  `;
+
+  if (ranked.length === 0) {
+    html += '<div class="freq-empty">Nenhuma atividade registrada no período para esta categoria.</div>';
+    // Campeões das semanas/meses anteriores aparecem mesmo sem atividade no período atual.
+    html += renderCampeoes(atletasFiltrados);
+    return html;
+  }
+
+  const catLabel = rankingCat === 'cardio' ? 'cardio' : rankingCat === 'musculacao' ? 'musculação' : 'geral';
+  const totalPts = ranked.reduce((s, x) => s + x.pts, 0);
+  const totalBonus = ranked.reduce((s, x) => s + (x.bonus || 0), 0);
+  html += `<div style="margin-bottom:10px;font-size:12px;color:var(--text-muted);">🏆 <b>${periodoLabels[rankingPeriodo]}</b> · ${catLabel} · ${rankingSessoes.length} atividade${rankingSessoes.length!==1?'s':''} · ${totalPts.toFixed(0)} pts total${totalBonus>0?` (inclui 🔥 ${totalBonus} de bônus)`:''}</div>`;
+
+  ranked.forEach((a, i) => {
+    const posClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : 'normal';
+    const pct = Math.round((a.pts / maxPts) * 100);
+    const durMin = Math.round(a.duracao / 60);
+    const barColor = rankingCat === 'cardio' ? 'linear-gradient(90deg,#06b6d4,#22d3ee)' : i === 0 ? 'linear-gradient(90deg,#fbbf24,#22c55e)' : 'linear-gradient(90deg,var(--green),#22c55e)';
+    const ptsColor = rankingCat === 'cardio' ? '#22d3ee' : 'var(--green)';
+
+    html += `<div class="ranking-row" style="cursor:pointer;" onclick="abrirDetalheAluno(${a.idatleta})">
+      <div class="ranking-pos ${posClass}">${i + 1}</div>
+      ${avatarHtml(a.idatleta, a.nome, 30)}
+      <div class="ranking-name">${esc(a.nome)}</div>
+      <div class="ranking-bar-wrap">
+        <div class="ranking-bar" style="width:${pct}%;background:${barColor};"></div>
+      </div>
+      <div class="ranking-count" style="color:${ptsColor};">${a.pts.toFixed(0)} pts${a.bonus>0?` <span title="Bônus de frequência" style="color:#f59e0b;">🔥</span>`:''} · ${a.count} atv.</div>
+    </div>`;
+  });
+
+  // Inativos
+  const inativos = atletasFiltrados.filter(a => !(agRank[Number(a.idatleta)] && agRank[Number(a.idatleta)].total > 0));
+  if (inativos.length > 0) {
+    html += `<div style="margin-top:20px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;">😴 Sem atividades no período (${inativos.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${inativos.map(a => `<span style="font-size:11px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);">${esc(a.nome.split(' ')[0])}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Campeões das semanas e meses anteriores (Top 5 / Top 10)
+  html += renderCampeoes(atletasFiltrados);
+
+  // Legenda pontuação (mesma fórmula do app)
+  html += `<div style="margin-top:16px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;font-size:11px;color:var(--text-muted);line-height:1.8;">
+    💪 <b>Musculação</b> = ${_rankReg.musBase} pts pelo treino do dia (treino curto, &lt;${_rankReg.musCurtaMin}min = ${_rankReg.musMeia}) &nbsp;·&nbsp;
+    🔁 <b>2º treino no mesmo dia</b> = ${_rankReg.musSegundo} pts (do 3º em diante, ${_rankReg.musTerceiro}) &nbsp;·&nbsp;
+    🏃 <b>Cardio</b> = complemento com fator ${_rankReg.cardioFator}× e teto ${_rankReg.cardioTeto} pts &nbsp;·&nbsp;
+    🔥 <b>Bônus</b> = +${_rankReg.bonusPts} pts ao treinar musculação em ${_rankReg.bonusDias} DIAS da semana.
+    <br>Mesma pontuação que o aluno vê no app.
+  </div>`;
+
+  return html;
+}
+
+// ═══════════════ CAMPEÕES DAS SEMANAS / MESES ANTERIORES ═══════════════
+function renderCampeoes(atletasFiltrados) {
+  const idsSet = new Set(atletasFiltrados.map(a => Number(a.idatleta)));
+  const nomeDe = (id) => { const a = atletasFiltrados.find(x => Number(x.idatleta) === Number(id)); return a ? a.nome : ('Aluno #' + id); };
+  const excluidas = new Set(getExcluidas());
+  let base = sessoes.filter(s => !excluidas.has(Number(s.idsessao)) && !s.nao_contar && (s.duracao_seg == null || Number(s.duracao_seg) >= 300) && idsSet.has(Number(s.idatleta)));
+  if (rankingCat === 'musculacao') base = base.filter(s => (s.tipo || 'musculacao') === 'musculacao');
+  else if (rankingCat === 'cardio') base = base.filter(s => (s.tipo || (s.cardio_tipo ? 'cardio' : 'musculacao')) === 'cardio');
+
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const INICIO = new Date('2026-05-17T00:00:00');
+  const fmt = d => d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+
+  // ── Semanas anteriores (Top 5), da mais recente concluída pra trás ──
+  const domAtual = new Date(hoje); domAtual.setDate(domAtual.getDate() - domAtual.getDay());
+  const semanas = [];
+  let cur = new Date(domAtual); cur.setDate(cur.getDate() - 7);
+  while (cur >= INICIO && semanas.length < 12) {
+    const dom = new Date(cur), sab = new Date(cur); sab.setDate(sab.getDate() + 6);
+    const domS = dom.toISOString().slice(0,10), sabS = sab.toISOString().slice(0,10);
+    const sess = base.filter(s => { const d = (s.dtsessao || '').slice(0,10); return d >= domS && d <= sabS; });
+    const ag = _agregarPontosPorAtleta(sess);
+    const top = Object.values(ag).map(a => ({ id:a.id, pts:a.total })).sort((x,y) => y.pts - x.pts).filter(x => x.pts > 0).slice(0,5);
+    if (top.length) semanas.push({ dom, sab, top });
+    cur.setDate(cur.getDate() - 7);
+  }
+
+  // ── Meses anteriores (Top 10) ──
+  const meses = [];
+  let ano = 2026, mes = 4; // maio = índice 4
+  const anoAtual = hoje.getFullYear(), mesAtual = hoje.getMonth();
+  while ((ano < anoAtual || (ano === anoAtual && mes < mesAtual))) {
+    const di = new Date(ano, mes, 1), df = new Date(ano, mes + 1, 0);
+    const diS = di.toISOString().slice(0,10), dfS = df.toISOString().slice(0,10);
+    const sess = base.filter(s => { const d = (s.dtsessao || '').slice(0,10); return d >= diS && d <= dfS; });
+    const ag = _agregarPontosPorAtleta(sess);
+    const top = Object.values(ag).map(a => ({ id:a.id, pts:a.total })).sort((x,y) => y.pts - x.pts).filter(x => x.pts > 0).slice(0,10);
+    if (top.length) meses.unshift({ di, top });
+    mes++; if (mes > 11) { mes = 0; ano++; }
+  }
+
+  if (!semanas.length && !meses.length) return '';
+
+  const linha = (r, i) => {
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'º';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+      <span style="width:26px;text-align:center;font-size:${i<3?'15px':'12px'};font-weight:800;color:var(--text-muted);flex-shrink:0;">${medal}</span>
+      <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(nomeDe(r.id))}</span>
+      <span style="font-size:12px;font-weight:800;color:var(--green);flex-shrink:0;">${r.pts.toFixed(0)} pts</span>
+    </div>`;
+  };
+
+  let out = `<div style="margin-top:22px;">`;
+
+  if (semanas.length) {
+    out += `<details open style="margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+      <summary style="padding:12px 16px;cursor:pointer;font-size:13px;font-weight:800;color:var(--text);list-style:none;">🏆 Campeões das semanas anteriores <span style="font-weight:600;color:var(--text-muted);font-size:11px;">· Top 5 por semana</span></summary>
+      <div style="padding:0 16px 14px;">
+        ${semanas.map((w, wi) => `<div style="margin-top:12px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:4px;">Semana ${fmt(w.dom)}–${fmt(w.sab)}</div>
+          ${w.top.map((r,i) => linha(r,i)).join('')}
+        </div>`).join('')}
+      </div>
+    </details>`;
+  }
+
+  if (meses.length) {
+    out += `<details style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+      <summary style="padding:12px 16px;cursor:pointer;font-size:13px;font-weight:800;color:var(--text);list-style:none;">📆 Campeões dos meses anteriores <span style="font-weight:600;color:var(--text-muted);font-size:11px;">· Top 10 por mês</span></summary>
+      <div style="padding:0 16px 14px;">
+        ${meses.map(m => { const nm = m.di.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return `<div style="margin-top:12px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:4px;text-transform:capitalize;">${nm}</div>
+          ${m.top.map((r,i) => linha(r,i)).join('')}
+        </div>`; }).join('')}
+      </div>
+    </details>`;
+  }
+
+  out += `</div>`;
+  return out;
+}
+
+// ═══════════════ LIST VIEW ═══════════════
+function renderListView(atletasFiltrados, atletaMap, dias) {
+  if (atletasFiltrados.length === 0) return '<div class="freq-empty">Nenhum aluno encontrado.</div>';
+  const sorted = [...atletasFiltrados].sort((a,b) => ((atletaMap[b.idatleta]||{}).count||0) - ((atletaMap[a.idatleta]||{}).count||0));
+  const maxCount = Math.max(...sorted.map(a => (atletaMap[a.idatleta]||{}).count||0), 1);
+
+  let html = '<div class="freq-athlete-bars">';
+  sorted.forEach(a => {
+    const info = atletaMap[a.idatleta] || { count: 0, lastDate: '' };
+    const badge = getFrequenciaBadge(info.count, dias);
+    const pct = Math.round((info.count / maxCount) * 100);
+    const barCls = badge.cls === 'high' ? '' : badge.cls === 'medium' ? ' medium' : ' low';
+    const lastStr = info.lastDate ? new Date(info.lastDate+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    html += `<div class="freq-athlete-card" style="cursor:pointer;" onclick="abrirDetalheAluno(${a.idatleta})">
+      <div class="freq-athlete-card-header"><span class="freq-athlete-card-name">${esc(a.nome)}</span><span class="freq-badge ${badge.cls}">${badge.label}</span></div>
+      <div class="freq-bar-track"><div class="freq-bar-fill${barCls}" style="width:${pct}%"></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--text-muted);">
+        <span>${info.count} sessão${info.count!==1?'ões':''}</span><span>Último: ${lastStr}</span>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+
+  html += `<div style="margin-top:24px;overflow-x:auto;"><table class="freq-list-table"><thead><tr>
+    <th>Aluno</th><th>Sessões</th><th>Freq./semana</th><th>Último treino</th>
+    ${_isAdminUser ? '<th>Professor</th>' : ''}
+  </tr></thead><tbody>`;
+  sorted.forEach(a => {
+    const info = atletaMap[a.idatleta] || { count: 0, lastDate: '' };
+    const badge = getFrequenciaBadge(info.count, dias);
+    const lastStr = info.lastDate ? new Date(info.lastDate+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    const profNomes = _isAdminUser ? (a.professores_responsaveis||[]).map(id => { const u = usuarios.find(x => Number(x.idusuario) === Number(id)); return u ? (u.nome||'').split(' ')[0] : ''; }).filter(Boolean).join(', ') : '';
+    html += `<tr style="cursor:pointer;" onclick="abrirDetalheAluno(${a.idatleta})">
+      <td class="freq-athlete-name">${esc(a.nome)}</td><td>${info.count}</td>
+      <td><span class="freq-badge ${badge.cls}">${badge.label}</span></td><td>${lastStr}</td>
+      ${_isAdminUser ? `<td style="font-size:12px;color:var(--text-muted)">${esc(profNomes)}</td>` : ''}
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// ═══════════════ CALENDAR VIEW ═══════════════
+function renderCalendarView(sessFiltradas, atletasFiltrados) {
+  const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const dayNames = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const firstDay = new Date(calYear, calMonth, 1);
+  const lastDay = new Date(calYear, calMonth + 1, 0);
+  const startDow = firstDay.getDay();
+  const daysInMonth = lastDay.getDate();
+  const monthStr = String(calYear) + '-' + String(calMonth + 1).padStart(2, '0');
+
+  const atletaIds = new Set(atletasFiltrados.map(a => Number(a.idatleta)));
+  const allSessoesMonth = sessoes.filter(s => atletaIds.has(Number(s.idatleta)) && (s.dtsessao||'').startsWith(monthStr));
+  const dayCountsAll = {};
+  allSessoesMonth.forEach(s => { const day = parseInt((s.dtsessao||'').slice(8,10)); dayCountsAll[day] = (dayCountsAll[day]||0) + 1; });
+
+  const today = new Date();
+  const isThisMonth = today.getFullYear() === calYear && today.getMonth() === calMonth;
+
+  let calHtml = `<div class="freq-calendar-wrap">
+    <div class="freq-cal-nav">
+      <button onclick="calMonth--;if(calMonth<0){calMonth=11;calYear--;}render()">‹</button>
+      <span class="cal-month-label">${monthNames[calMonth]} ${calYear}</span>
+      <button onclick="calMonth++;if(calMonth>11){calMonth=0;calYear++;}render()">›</button>
+    </div>
+    <div class="freq-cal-grid">`;
+
+  dayNames.forEach(d => { calHtml += `<div class="freq-cal-header">${d}</div>`; });
+  for (let i = 0; i < startDow; i++) calHtml += '<div class="freq-cal-day empty"></div>';
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const count = dayCountsAll[d] || 0;
+    const isToday = isThisMonth && today.getDate() === d;
+    const cls = ['freq-cal-day'];
+    if (count > 0) cls.push('has-sessions');
+    if (isToday) cls.push('today');
+    const dateStr = monthStr + '-' + String(d).padStart(2, '0');
+    calHtml += `<div class="${cls.join(' ')}" onclick="abrirDetalheDia('${dateStr}')">
+      <span class="cal-day-num">${d}</span>
+      ${count > 0 ? `<span class="cal-day-count">${count}</span>` : ''}
+    </div>`;
+  }
+
+  calHtml += '</div></div>';
+
+  // Monthly summary below calendar
+  const atletaMonthMap = {};
+  allSessoesMonth.forEach(s => { const id = Number(s.idatleta); atletaMonthMap[id] = (atletaMonthMap[id]||0) + 1; });
+  const atletasComSessao = atletasFiltrados.filter(a => atletaMonthMap[a.idatleta]).sort((a,b) => (atletaMonthMap[b.idatleta]||0) - (atletaMonthMap[a.idatleta]||0));
+  const atletasSemSessao = atletasFiltrados.filter(a => !atletaMonthMap[a.idatleta]);
+
+  if (atletasComSessao.length > 0) {
+    const maxM = Math.max(...atletasComSessao.map(a => atletaMonthMap[a.idatleta]||0), 1);
+    calHtml += `<h3 style="margin-top:24px;font-size:14px;color:var(--text);font-weight:700;">Treinaram em ${monthNames[calMonth]} (${atletasComSessao.length})</h3>`;
+    calHtml += '<div class="freq-athlete-bars" style="margin-top:12px">';
+    atletasComSessao.forEach(a => {
+      const count = atletaMonthMap[a.idatleta] || 0;
+      const pct = Math.round((count / maxM) * 100);
+      calHtml += `<div class="freq-athlete-card" style="cursor:pointer;" onclick="abrirDetalheAluno(${a.idatleta})">
+        <div class="freq-athlete-card-header"><span class="freq-athlete-card-name">${esc(a.nome)}</span><span class="freq-athlete-card-count">${count} sessão${count!==1?'ões':''}</span></div>
+        <div class="freq-bar-track"><div class="freq-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    });
+    calHtml += '</div>';
+  }
+  if (atletasSemSessao.length > 0) {
+    calHtml += `<h3 style="margin-top:20px;font-size:14px;color:var(--text-muted);font-weight:600;">Sem treinos em ${monthNames[calMonth]} (${atletasSemSessao.length})</h3>`;
+    calHtml += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">';
+    atletasSemSessao.forEach(a => { calHtml += `<span style="font-size:12px;padding:4px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text-muted)">${esc(a.nome)}</span>`; });
+    calHtml += '</div>';
+  }
+  return calHtml;
+}
+
+// ═══════════════ DAY DETAIL MODAL ═══════════════
+function abrirDetalheDia(dateStr) {
+  const atletaIds = new Set(atletas.map(a => Number(a.idatleta)));
+  const sessDia = sessoes.filter(s => atletaIds.has(Number(s.idatleta)) && s.dtsessao === dateStr);
+  if (sessDia.length === 0) { showToast('Nenhum treino neste dia.'); return; }
+
+  const dataFmt = new Date(dateStr+'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+  const atletasUnicos = [...new Set(sessDia.map(s => Number(s.idatleta)))];
+
+  let html = `<div class="freq-modal-backdrop" onclick="fecharDetalhe()"></div>
+    <div class="freq-modal">
+      <div class="freq-modal-header">
+        <h3>📅 ${dataFmt}</h3>
+        <button onclick="fecharDetalhe()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;padding:4px 8px;">×</button>
+      </div>
+      <div class="freq-modal-stats">
+        <div><strong>${sessDia.length}</strong><br><span>Sessões</span></div>
+        <div><strong>${atletasUnicos.length}</strong><br><span>Alunos</span></div>
+        <div><strong>${Math.round(sessDia.reduce((s,x) => s + (x.duracao_seg||0),0)/60)}</strong><br><span>Min. total</span></div>
+      </div>
+      <div class="freq-modal-list">`;
+
+  sessDia.forEach(s => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(s.idatleta));
+    const nome = atleta ? atleta.nome : 'Aluno #' + s.idatleta;
+    const durMin = Math.floor((s.duracao_seg||0)/60);
+    html += `<div class="freq-modal-session">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-weight:600;font-size:13px;color:var(--text);">${esc(nome)}</span>
+        <span style="font-size:11px;color:var(--text-muted);">${(s.tipo==='cardio'||s.cardio_tipo)?'🏃 '+esc(s.cardio_tipo||'Cardio')+(s.cardio_intensidade?' · '+esc(s.cardio_intensidade):''):'Div. '+esc(s.divisao||'?')} • ${durMin}min${s.hora_conclusao ? ' • ' + s.hora_conclusao : ''}</span>
+      </div>
+      ${s.comentario ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-style:italic;">💬 "${esc(s.comentario)}"</div>` : ''}
+    </div>`;
+  });
+
+  html += '</div></div>';
+  let container = document.getElementById('freq-detail-modal');
+  if (!container) { container = document.createElement('div'); container.id = 'freq-detail-modal'; document.body.appendChild(container); }
+  container.innerHTML = html;
+  container.style.display = 'block';
+}
+
+// ═══════════════ ATHLETE DETAIL MODAL ═══════════════
+function abrirDetalheAluno(idatleta) {
+  const atleta = atletas.find(a => Number(a.idatleta) === Number(idatleta));
+  if (!atleta) return;
+  const sessoesAtleta = sessoes.filter(s => Number(s.idatleta) === Number(idatleta)).sort((a,b) => (b.dtsessao||'').localeCompare(a.dtsessao||''));
+
+  // Resumo de pontos da semana atual (atividades + bônus de frequência) — mesma conta do app.
+  const _hojeD = new Date(); _hojeD.setHours(0,0,0,0);
+  const _domD = new Date(_hojeD); _domD.setDate(_domD.getDate() - _domD.getDay());
+  const _domS = _domD.toISOString().slice(0,10);
+  const semSessAt = sessoesAtleta.filter(s => !s.nao_contar && (s.dtsessao || '').slice(0,10) >= _domS);
+  // A lista completa do atleta vai para a fórmula: a ordem do treino no dia se
+  // decide entre todas as sessões daquele dia, não só as da semana exibida.
+  const _baseSem = Math.round(semSessAt.reduce((a,s) => a + pontosSessaoRank(s, sessoesAtleta), 0) * 10) / 10;
+  const _musSem = API.diasComMusculacaoRank(semSessAt).length;
+  const _bonusSem = (_musSem >= _rankReg.bonusDias) ? _rankReg.bonusPts : 0;
+  const _totalSem = Math.round((_baseSem + _bonusSem) * 10) / 10;
+
+  let html = `<div class="freq-modal-backdrop" onclick="fecharDetalhe()"></div>
+    <div class="freq-modal">
+      <div class="freq-modal-header">
+        <h3>${esc(atleta.nome)}</h3>
+        <button onclick="fecharDetalhe()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;padding:4px 8px;">×</button>
+      </div>
+      <div class="freq-modal-stats">
+        <div><strong>${sessoesAtleta.length}</strong><br><span>Sessões</span></div>
+        <div><strong>${Math.round(sessoesAtleta.reduce((s,x)=>s+(x.duracao_seg||0),0)/60)}</strong><br><span>Min. total</span></div>
+        <div><strong>${sessoesAtleta.length > 0 ? Math.round(sessoesAtleta.reduce((s,x)=>s+(x.duracao_seg||0),0)/sessoesAtleta.length/60) : 0}</strong><br><span>Min./treino</span></div>
+      </div>
+      <div style="margin:0 0 12px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:12px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.4px;">🏆 Pontos na semana</span>
+          <span style="font-size:19px;font-weight:900;color:var(--green);line-height:1;">${_totalSem.toFixed(0)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:5px;line-height:1.6;">
+          💪🏃 ${_baseSem.toFixed(0)} pts de atividades${_bonusSem > 0 ? ` · 🔥 +${_bonusSem} pts de bônus (${_musSem} treinos de musculação — meta de ${_rankReg.bonusDias} batida)` : (_musSem > 0 ? ` · faltam ${Math.max(0,_rankReg.bonusDias-_musSem)} treino(s) de musculação pro bônus` : '')}
+        </div>
+      </div>
+      <div class="freq-modal-list">`;
+
+  if (sessoesAtleta.length === 0) {
+    html += '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">Nenhum treino registrado.</div>';
+  } else {
+    sessoesAtleta.slice(0, 30).forEach(s => {
+      const data = s.dtsessao ? new Date(s.dtsessao+'T00:00:00').toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'short' }) : '—';
+      const durMin = Math.floor((s.duracao_seg||0)/60);
+      let totalKg = 0, seriesP = 0;
+      (s.itens||[]).forEach(item => { (item.series||[]).forEach(sr => { const p = parseFloat(sr.peso), r = parseInt(sr.reps); if (p > 0 && r > 0) { totalKg += p*r; seriesP++; } }); });
+      const fp = (seriesP > 0 && s.duracao_seg >= 60) ? Math.round((totalKg / (s.duracao_seg / 60)) * 10) / 10 : null;
+      const ehCardioS = (s.tipo === 'cardio' || !!s.cardio_tipo);
+      const pAt = Math.round(pontosSessaoRank(s, sessoesAtleta));
+
+      html += `<div class="freq-modal-session">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <span style="font-weight:600;font-size:12px;color:var(--text);">${ehCardioS?'🏃 '+esc(s.cardio_tipo||'Cardio')+(s.cardio_rpe?' · esforço '+s.cardio_rpe+'/10':(s.cardio_intensidade?' · '+esc(s.cardio_intensidade):'')):'Div. '+esc(s.divisao||'?')} ${s.marcado_como_feito ? '☑️' : '✅'}</span>
+          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+            <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${data}${s.hora_conclusao ? ' às '+s.hora_conclusao : ''}</span>
+            ${_isAdminUser ? `<button onclick="excluirSessaoReal(${s.idsessao},${idatleta})" title="Excluir esta sessão do ranking (permanente)" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4);color:#f87171;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;line-height:1;">🗑</button>` : ''}
+          </span>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+          ⏱️ ${durMin}min${fp ? ' • ⚡ '+fp+' kg/min' : ''}${s.marcado_como_feito ? ' • Marcado como feito' : ' • '+seriesP+' séries'}${(!s.nao_contar && pAt > 0) ? ' • <b style="color:'+(ehCardioS?'#22d3ee':'var(--green)')+';">+'+pAt+' pts</b>' : ''}
+        </div>`;
+      if (s.itens && s.itens.length > 0 && !s.marcado_como_feito) {
+        html += '<div class="freq-modal-exercicios">';
+        s.itens.forEach(item => { const str = (item.series||[]).filter(sr => sr.peso || sr.reps).map(sr => `${sr.peso||0}kg×${sr.reps||0}`).join(', '); if (str) html += `<div class="freq-modal-ex"><span class="freq-ex-name">${esc(item.nmexercicio||'Exercício')}</span><span class="freq-ex-series">${str}</span></div>`; });
+        html += '</div>';
+      }
+      if (s.comentario) html += `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-style:italic;">💬 "${esc(s.comentario)}"</div>`;
+      if (Number(s.tem_foto) === 1) html += `<div style="margin-top:6px;"><button onclick="verCardioFoto(${s.idsessao})" style="background:rgba(6,182,212,.12);border:1px solid rgba(6,182,212,.4);color:#0891b2;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📷 Ver foto do aluno</button></div>`;
+      html += '</div>';
+    });
+  }
+  html += '</div></div>';
+  let container = document.getElementById('freq-detail-modal');
+  if (!container) { container = document.createElement('div'); container.id = 'freq-detail-modal'; document.body.appendChild(container); }
+  container.innerHTML = html;
+  container.style.display = 'block';
+}
+
+function fecharDetalhe() { const c = document.getElementById('freq-detail-modal'); if (c) c.style.display = 'none'; }
+
+// Conferência: carrega e exibe a foto que o aluno anexou ao cardio
+async function verCardioFoto(idsessao) {
+  let ov = document.getElementById('cardio-foto-modal');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'cardio-foto-modal'; document.body.appendChild(ov); }
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;padding:20px;';
+  ov.onclick = function(e){ if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div style="color:#fff;font-size:13px;">Carregando foto…</div>';
+  try {
+    const token = (window.Auth && Auth.getToken) ? Auth.getToken() : (localStorage.getItem('mx-token') || '');
+    const r = await fetch(API_BASE + '/treinos.php?action=cardio&foto=' + idsessao, { headers: { 'Authorization': 'Bearer ' + token }, cache: 'no-store' });
+    const j = await r.json();
+    if (j && j.foto) {
+      ov.innerHTML = '<div style="max-width:520px;width:100%;text-align:center;">' +
+        '<img src="' + j.foto + '" style="max-width:100%;max-height:80vh;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);"/>' +
+        '<div style="margin-top:12px;"><button onclick="document.getElementById(\'cardio-foto-modal\').remove()" style="padding:10px 20px;border-radius:10px;border:none;background:#06b6d4;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button></div>' +
+      '</div>';
+    } else {
+      ov.innerHTML = '<div style="color:#fff;text-align:center;">Sem foto para esta sessão.<br><br><button onclick="document.getElementById(\'cardio-foto-modal\').remove()" style="padding:8px 18px;border-radius:8px;border:none;background:#333;color:#fff;cursor:pointer;">Fechar</button></div>';
+    }
+  } catch (e) {
+    ov.innerHTML = '<div style="color:#fff;text-align:center;">Erro ao carregar a foto.<br><br><button onclick="document.getElementById(\'cardio-foto-modal\').remove()" style="padding:8px 18px;border-radius:8px;border:none;background:#333;color:#fff;cursor:pointer;">Fechar</button></div>';
+  }
+}
+
+// Exclusão real (só admin, pelo sistema): apaga a sessão no backend e remove do ranking/frequência.
+async function excluirSessaoReal(idsessao, idatleta) {
+  if (!_isAdminUser) return;
+  if (!confirm('Excluir permanentemente esta sessão (treino/cardio) do ranking e da frequência?\n\nEssa ação não pode ser desfeita.')) return;
+  try {
+    await API.excluirSessao(idsessao);
+    sessoes = sessoes.filter(s => Number(s.idsessao) !== Number(idsessao));
+    render();
+    if (idatleta) abrirDetalheAluno(Number(idatleta)); else fecharDetalhe();
+  } catch (e) {
+    alert('Erro ao excluir a sessão: ' + (e.message || 'falha de conexão'));
+  }
+}
+
+function renderAlertaSessoes() {
+  const alertas = sessoes.filter(s => new Set(atletas.map(a=>Number(a.idatleta))).has(Number(s.idatleta)) && s.alerta_duracao);
+  if (alertas.length === 0) return '';
+  const excluidas = new Set(getExcluidas());
+  let html = `<div style="margin-top:28px;padding:16px;background:var(--bg2);border:1px solid rgba(245,158,11,.3);border-radius:10px;">
+    <h3 style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:12px;">⚠️ Sessões com duração atípica</h3>
+    <div style="display:flex;flex-direction:column;gap:8px;">`;
+  alertas.sort((a,b) => (b.dtsessao||'').localeCompare(a.dtsessao||'')).slice(0, 20).forEach(s => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(s.idatleta));
+    const nome = atleta ? atleta.nome : 'Aluno #' + s.idatleta;
+    const data = s.dtsessao ? new Date(s.dtsessao+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    const durMin = Math.floor((s.duracao_seg||0)/60);
+    const tipo = s.alerta_duracao === 'longo' ? '+3h ('+durMin+'min)' : '-5min ('+durMin+'min)';
+    const isExcluida = excluidas.has(Number(s.idsessao));
+    html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);">
+      <div style="flex:1;"><div style="font-size:12px;font-weight:600;color:var(--text);">${esc(nome)}</div><div style="font-size:11px;color:var(--text-muted);">${data} • ${tipo}</div></div>
+      <button onclick="toggleExcluir(${s.idsessao})" style="background:${isExcluida?'var(--green)':'rgba(245,158,11,.15)'};border:1px solid ${isExcluida?'var(--green)':'rgba(245,158,11,.4)'};color:${isExcluida?'#fff':'#f59e0b'};padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;">${isExcluida?'✓ Excluída':'Excluir'}</button>
+    </div>`;
+  });
+  html += '</div></div>';
+  return html;
+}
+
+carregar();
+</script>
+</body>
+</html>

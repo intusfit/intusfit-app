@@ -1,0 +1,2015 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Clientes — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    .th-sort { cursor: pointer; user-select: none; white-space: nowrap; transition: color .15s; }
+    .th-sort:hover { color: var(--green, #7FFF00); }
+    .th-sort .sort-arrow { font-size: 10px; margin-left: 3px; opacity: .4; }
+    .th-sort.active .sort-arrow { opacity: 1; color: var(--green, #7FFF00); }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Clientes');
+
+const main = document.getElementById('main-content');
+
+let atletas = [];
+let mensalidades = [];
+let busca = '';
+let filtro = 'ativos';
+let ordenacao = 'alfabetica';
+let filtroGenero = '';
+let filtroProf = '';
+let loading = true;
+let erro = null;
+
+let _carregando = false;
+let _debounceTimer = null;
+function _debouncedCarregar() {
+  if (_debounceTimer) clearTimeout(_debounceTimer);
+  _debounceTimer = setTimeout(() => { if (!_carregando) carregar(); }, 300);
+}
+window.addEventListener('storage', ev => { if (ev.key === 'intus-atletas' || ev.key === 'intus-mensalidades') _debouncedCarregar(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) _debouncedCarregar(); });
+
+async function carregar() {
+  if (_carregando) return;
+  _carregando = true;
+  loading = true; erro = null; render();
+  try {
+    const [listaA, listaM] = await Promise.all([
+      API.listarAtletas('', true),
+      API.listarMensalidades ? API.listarMensalidades().catch(() => []) : Promise.resolve([])
+    ]);
+    const todosAtletas = Array.isArray(listaA) ? listaA : [];
+    const usr = Sessao.atual();
+    const uid = Number(usr?.idusuario || 0);
+    if (usr && usr.admin) {
+      atletas = todosAtletas;
+    } else {
+      atletas = API.filtrarMeusAtletas(todosAtletas);
+    }
+    mensalidades = Array.isArray(listaM) ? listaM : [];
+  } catch(e) {
+    erro = e.message || 'Erro ao carregar clientes';
+    atletas = [];
+  }
+  loading = false;
+  _carregando = false;
+  render();
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function isAniversariante(a) {
+  if (!a.dtnascimento) return false;
+  const hoje = new Date();
+  const nasc = new Date(a.dtnascimento + 'T00:00:00');
+  return nasc.getMonth() === hoje.getMonth() && nasc.getDate() === hoje.getDate();
+}
+
+function isAniversarianteMes(a) {
+  if (!a.dtnascimento) return false;
+  const hoje = new Date();
+  const nasc = new Date(a.dtnascimento + 'T00:00:00');
+  return nasc.getMonth() === hoje.getMonth();
+}
+
+function isNovoCadastro(a) {
+  if (!a.dtcadastro) return false;
+  const diff = Date.now() - new Date(a.dtcadastro).getTime();
+  return diff < 7 * 24 * 60 * 60 * 1000;
+}
+
+// Classificação Lead x Cliente:
+// Lead = veio do /app (autocadastro) ou de página de captura. Cliente = veio do link de um professor.
+// Sem origem definida (cadastros antigos): sem professor responsável e sem matrícula = lead.
+function isLead(a) {
+  const o = String(a.origem || '').toLowerCase();
+  if (o === 'app' || o === 'captura' || o === 'lead') return true;
+  if (o === 'professor' || o === 'cliente') return false;
+  // Modelos do sistema nunca são leads
+  if (a.email === 'modelo.masculino@intusfit.local' || a.email === 'modelo.feminino@intusfit.local') return false;
+  // Legado (sem origem): quem veio do link de um professor (?ref) tem professor responsável = Cliente.
+  // Sem professor = veio do /app (autocadastro / teste grátis) = Lead. A matrícula de teste não muda isso.
+  const temProf = Array.isArray(a.professores_responsaveis) && a.professores_responsaveis.length > 0;
+  return !temProf;
+}
+function origemLabel(a) {
+  const o = String(a.origem || '').toLowerCase();
+  if (o === 'app') return 'App · teste grátis';
+  if (o === 'captura') return 'Página de captura';
+  if (o === 'professor') return 'Link do professor';
+  return isLead(a) ? 'Autocadastro' : 'Cadastro do professor';
+}
+// Leads novos = leads recentes ainda não marcados como vistos pelo admin
+function _leadsVistos() { try { return JSON.parse(localStorage.getItem('intus-leads-vistos') || '[]').map(Number); } catch (e) { return []; } }
+function isLeadNovo(a) {
+  if (!isLead(a)) return false;
+  if (_leadsVistos().includes(Number(a.idatleta))) return false;
+  if (!a.dtcadastro) return true;
+  return (Date.now() - new Date(a.dtcadastro).getTime()) < 30 * 24 * 60 * 60 * 1000;
+}
+function leadsNovos() { return atletas.filter(isLeadNovo); }
+function marcarLeadsVistos() {
+  const ids = new Set(_leadsVistos());
+  leadsNovos().forEach(a => ids.add(Number(a.idatleta)));
+  localStorage.setItem('intus-leads-vistos', JSON.stringify([...ids]));
+  render();
+}
+
+function getMensalidadesAtleta(id) {
+  return mensalidades.filter(m => Number(m.idatleta) === Number(id));
+}
+
+function getPlanoAtleta(id) {
+  const mens = getMensalidadesAtleta(id);
+  if (mens.length === 0) return null;
+  const ativa = mens.find(m => m.stpgto !== 'S' && new Date(m.dtvencimento) >= new Date()) ||
+                mens.sort((a, b) => (b.dtinicio || '').localeCompare(a.dtinicio || ''))[0];
+  return ativa;
+}
+
+// Situacao do plano de um aluno — delega para a regra unica do api.js, que e a
+// mesma usada pelo app do aluno. Aqui so passamos as mensalidades ja carregadas.
+function situacaoDoAluno(a) {
+  if (typeof API !== 'undefined' && typeof API.situacaoPlano === 'function') return API.situacaoPlano(a, mensalidades);
+  // O fallback antigo reimplementava a regra inteira aqui, e com carencia de 30
+  // dias enquanto o api.js usava 5: dois numeros diferentes para a mesma coisa,
+  // na mesma tela, dependendo de o api.js ter carregado. Reimplementar regra de
+  // negocio em fallback e como manter duas contabilidades. Sem o api.js esta
+  // tela agora assume o minimo seguro e nao inventa situacao.
+  return { estado: 'ativo', ativo: true, inativo: false,
+           bloqueado: a && a.stbloqueio === 'S', motivo: '', lead: isLead(a) };
+}
+function estaBloqueado(a) { return situacaoDoAluno(a).bloqueado; }
+function estaInativo(a)   { return situacaoDoAluno(a).inativo; }
+// ATIVO = plano vigente ou vencido ha ate 30 dias, e NAO e lead.
+// Inativos e bloqueados ficam de fora; leads contam so no bloco de leads.
+function estaAtivo(a) { return situacaoDoAluno(a).ativo && !isLead(a); }
+
+function filtrados() {
+  const q = (busca || '').toLowerCase().trim();
+  let lista = atletas;
+
+  if (filtro === 'ativos')        lista = lista.filter(estaAtivo);
+  else if (filtro === 'bloqueados') lista = lista.filter(estaBloqueado);
+  else if (filtro === 'inativos')   lista = lista.filter(estaInativo);
+  else if (filtro === 'novos')    lista = lista.filter(a => isNovoCadastro(a));
+  else if (filtro === 'leads')    lista = lista.filter(a => isLead(a));
+  else if (filtro === 'aniver')   lista = lista.filter(a => isAniversarianteMes(a));
+  else if (filtro === 'mat_vencida') lista = lista.filter(a => {
+    // Vencida = tem cobrança em atraso E nenhuma matrícula ativa (se já renovou, sai desta lista)
+    const ms = getMensalidadesAtleta(a.idatleta);
+    const hj = new Date().toISOString().slice(0,10);
+    const _sit = m => (typeof API !== 'undefined' && API.situacaoCobranca)
+                       ? API.situacaoCobranca(m, mensalidades).estado : 'pendente';
+    const temAtiva   = ms.some(m => ['paga','paga_no_anterior','pendente','programada'].includes(_sit(m)));
+    const temVencida = ms.some(m => ['vencida','inativa'].includes(_sit(m)));
+    return temVencida && !temAtiva;
+  });
+  else if (filtro === 'mat_ativa') lista = lista.filter(a => {
+    // Ativa = qualquer matrícula com vencimento hoje ou no futuro (aluno pode ter mais de uma)
+    const hj = new Date().toISOString().slice(0,10);
+    return getMensalidadesAtleta(a.idatleta).some(m => ['paga','paga_no_anterior','pendente','programada']
+      .includes((typeof API !== 'undefined' && API.situacaoCobranca) ? API.situacaoCobranca(m, mensalidades).estado : 'pendente'));
+  });
+  else if (filtro === 'sem_mat') lista = lista.filter(a => getMensalidadesAtleta(a.idatleta).length === 0);
+
+  if (q) {
+    lista = lista.filter(a =>
+      (a.nome     || '').toLowerCase().includes(q) ||
+      (a.email    || '').toLowerCase().includes(q) ||
+      (a.telefone || '').toLowerCase().includes(q) ||
+      (a.codacesso|| '').toLowerCase().includes(q) ||
+      (a.cpf      || '').toLowerCase().includes(q) ||
+      (a.observacao||'').toLowerCase().includes(q)
+    );
+  }
+
+  // Filtro por gênero
+  if (filtroGenero) lista = lista.filter(a => (a.genero||'').toUpperCase() === filtroGenero);
+
+  // Filtro por professor
+  if (filtroProf) {
+    lista = lista.filter(a => {
+      const profs = (a.professores_responsaveis || []).map(Number);
+      return profs.includes(Number(filtroProf));
+    });
+  }
+
+  lista = [...lista];
+  if (ordenacao === 'alfabetica') {
+    lista.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  } else if (ordenacao === 'status') {
+    lista.sort((a, b) => {
+      const sa = a.stbloqueio === 'S' ? 1 : 0;
+      const sb = b.stbloqueio === 'S' ? 1 : 0;
+      return sa - sb || (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+    });
+  } else if (ordenacao === 'vencimento') {
+    lista.sort((a, b) => {
+      const ma = getMensalidadesAtleta(a.idatleta);
+      const mb = getMensalidadesAtleta(b.idatleta);
+      const va = ma.length ? ma.reduce((min, m) => m.dtvencimento < min ? m.dtvencimento : min, '9999') : '9999';
+      const vb = mb.length ? mb.reduce((min, m) => m.dtvencimento < min ? m.dtvencimento : min, '9999') : '9999';
+      return va.localeCompare(vb);
+    });
+  } else if (ordenacao === 'aniversario') {
+    lista.sort((a, b) => {
+      const da = a.dtnascimento ? (new Date(a.dtnascimento + 'T00:00:00').getMonth() * 31 + new Date(a.dtnascimento + 'T00:00:00').getDate()) : 999;
+      const db = b.dtnascimento ? (new Date(b.dtnascimento + 'T00:00:00').getMonth() * 31 + new Date(b.dtnascimento + 'T00:00:00').getDate()) : 999;
+      return da - db;
+    });
+  } else if (ordenacao === 'professor' || ordenacao === 'professor_desc') {
+    const _uProfs = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+    const profNome = (a) => {
+      const ids = (a.professores_responsaveis || []).map(Number);
+      if (!ids.length) return 'zzz';
+      const p = _uProfs.find(u => Number(u.idusuario) === ids[0]);
+      return p ? (p.nome || '').toLowerCase() : 'zzz';
+    };
+    lista.sort((a, b) => ordenacao === 'professor_desc' ? profNome(b).localeCompare(profNome(a), 'pt-BR') : profNome(a).localeCompare(profNome(b), 'pt-BR'));
+  } else if (ordenacao === 'plano' || ordenacao === 'plano_desc') {
+    lista.sort((a, b) => {
+      const pa = getPlanoAtleta(a.idatleta);
+      const pb = getPlanoAtleta(b.idatleta);
+      const na = pa ? (pa.dshistorico || pa.nmficha || 'A') : 'zzz';
+      const nb = pb ? (pb.dshistorico || pb.nmficha || 'A') : 'zzz';
+      return ordenacao === 'plano_desc' ? nb.localeCompare(na, 'pt-BR') : na.localeCompare(nb, 'pt-BR');
+    });
+  } else if (ordenacao === 'vencimento_desc') {
+    lista.sort((a, b) => {
+      const ma = getMensalidadesAtleta(a.idatleta);
+      const mb = getMensalidadesAtleta(b.idatleta);
+      const va = ma.length ? ma.reduce((min, m) => m.dtvencimento < min ? m.dtvencimento : min, '9999') : '0000';
+      const vb = mb.length ? mb.reduce((min, m) => m.dtvencimento < min ? m.dtvencimento : min, '9999') : '0000';
+      return vb.localeCompare(va);
+    });
+  } else if (ordenacao === 'status_desc') {
+    lista.sort((a, b) => {
+      const sa = a.stbloqueio === 'S' ? 1 : 0;
+      const sb = b.stbloqueio === 'S' ? 1 : 0;
+      return sb - sa || (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+    });
+  } else if (ordenacao === 'cadastro') {
+    lista.sort((a, b) => (b.dtcadastro || '0000').localeCompare(a.dtcadastro || '0000'));
+  } else if (ordenacao === 'cadastro_asc') {
+    lista.sort((a, b) => (a.dtcadastro || '9999').localeCompare(b.dtcadastro || '9999'));
+  } else if (ordenacao === 'alfabetica_desc') {
+    lista.sort((a, b) => (b.nome || '').localeCompare(a.nome || '', 'pt-BR'));
+  }
+  return lista;
+}
+
+function render() {
+  const lista = filtrados();
+  const podeIncluir = hasPerm('at_incluir');
+  const podeEditar  = hasPerm('at_editar');
+
+  const totalAtivos = atletas.filter(estaAtivo).length;
+  const totalBloq = atletas.filter(estaBloqueado).length;
+  const totalInativos = atletas.filter(estaInativo).length;
+  const totalNovos = atletas.filter(a => isNovoCadastro(a)).length;
+  const totalLeads = atletas.filter(a => isLead(a)).length;
+  const totalAniver = atletas.filter(a => isAniversarianteMes(a)).length;
+  const aniverHoje = atletas.filter(a => isAniversariante(a));
+  const lnovos = leadsNovos();
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- CABEÇALHO -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h1 style="font-size:22px;font-weight:800;color:var(--text);margin:0;">Clientes</h1>
+          <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">
+            Gestão completa — cadastro, matrículas, treinos e acompanhamento.
+          </p>
+        </div>
+        ${podeIncluir ? `<button class="btn btn-primary" onclick="abrirModalNovo()">+ Novo Cliente</button>` : ''}
+      </div>
+
+      <!-- DASHBOARD CARDS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
+        <div class="card" style="padding:14px;cursor:pointer;${filtro==='ativos'?'border-color:var(--green);':''};" onclick="setFiltro('ativos')">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Ativos</div>
+          <div style="font-size:26px;font-weight:900;color:var(--green);margin-top:4px;">${totalAtivos}</div>
+        </div>
+        <div class="card" style="padding:14px;cursor:pointer;position:relative;${filtro==='leads'?'border-color:var(--green);':''};" onclick="setFiltro('leads')">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Leads</div>
+          <div style="font-size:26px;font-weight:900;color:#fbbf24;margin-top:4px;">${totalLeads}</div>
+          <div style="font-size:10px;color:var(--text-muted);">teste grátis / captura</div>
+          ${lnovos.length ? `<span style="position:absolute;top:10px;right:10px;background:#f87171;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;">${lnovos.length} novo${lnovos.length>1?'s':''}</span>` : ''}
+        </div>
+        <div class="card" style="padding:14px;cursor:pointer;${filtro==='inativos'?'border-color:var(--green);':''};" onclick="setFiltro('inativos')">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Inativos</div>
+          <div style="font-size:26px;font-weight:900;color:#94a3b8;margin-top:4px;">${totalInativos}</div>
+          <div style="font-size:10px;color:var(--text-muted);">+30 dias sem plano</div>
+        </div>
+        <div class="card" style="padding:14px;cursor:pointer;${filtro==='novos'?'border-color:var(--green);':''};" onclick="setFiltro('novos')">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Novos (7d)</div>
+          <div style="font-size:26px;font-weight:900;color:#60a5fa;margin-top:4px;">${totalNovos}</div>
+        </div>
+        <div class="card" style="padding:14px;cursor:pointer;${filtro==='aniver'?'border-color:var(--green);':''};" onclick="setFiltro('aniver')">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">🎂 Aniversário</div>
+          <div style="font-size:26px;font-weight:900;color:#f472b6;margin-top:4px;">${totalAniver}</div>
+          <div style="font-size:10px;color:var(--text-muted);">este mês</div>
+        </div>
+        <div class="card" style="padding:14px;cursor:pointer;${filtro==='bloqueados'?'border-color:var(--green);':''};" onclick="setFiltro('bloqueados')">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Bloqueados</div>
+          <div style="font-size:26px;font-weight:900;color:#f87171;margin-top:4px;">${totalBloq}</div>
+        </div>
+      </div>
+
+      ${lnovos.length ? `
+      <div class="card" style="padding:14px;background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.03));border:1px solid rgba(251,191,36,.4);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:22px;">🔔</span>
+            <div>
+              <div style="font-size:14px;font-weight:800;color:#d97706;">${lnovos.length} lead${lnovos.length>1?'s':''} novo${lnovos.length>1?'s':''} para atender</div>
+              <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">Vieram do app / captura (teste grátis): ${lnovos.slice(0,4).map(a => esc((a.nome||'').split(' ')[0])).join(', ')}${lnovos.length>4?' e mais…':''}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" onclick="setFiltro('leads')">Ver leads</button>
+            <button class="btn btn-secondary btn-sm" onclick="marcarLeadsVistos()">Marcar como vistos</button>
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${aniverHoje.length ? `
+      <div class="card" style="padding:12px;background:linear-gradient(135deg,rgba(244,114,182,.08),rgba(244,114,182,.02));border:1px solid rgba(244,114,182,.3);">
+        <span style="font-size:13px;">🎉 <b style="color:#f472b6;">Aniversariante(s) hoje:</b> ${aniverHoje.map(a => esc(a.nome.split(' ')[0])).join(', ')}</span>
+      </div>` : ''}
+
+      <!-- BARRA DE FILTROS -->
+      <div class="card" style="padding:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input id="inp-busca" class="input" style="flex:1;min-width:200px;max-width:380px;"
+               placeholder="Buscar por nome, e-mail, telefone, obs..."
+               value="${busca.replace(/"/g,'&quot;')}"/>
+        <select class="input" id="sel-filtro" style="width:auto;min-width:130px;">
+          <option value="ativos"     ${filtro==='ativos'    ?'selected':''}>Ativos</option>
+          <option value="novos"      ${filtro==='novos'     ?'selected':''}>Novos (7 dias)</option>
+          <option value="leads"      ${filtro==='leads'     ?'selected':''}>Leads (app / captura)</option>
+        <option value="inativos"   ${filtro==='inativos'  ?'selected':''}>Inativos (+30 dias sem plano)</option>
+          <option value="mat_vencida" ${filtro==='mat_vencida'?'selected':''}>Matrícula vencida</option>
+          <option value="mat_ativa"  ${filtro==='mat_ativa' ?'selected':''}>Matrícula ativa</option>
+          <option value="sem_mat"    ${filtro==='sem_mat'   ?'selected':''}>Sem matrícula</option>
+          <option value="aniver"     ${filtro==='aniver'    ?'selected':''}>Aniversariantes</option>
+          <option value="bloqueados" ${filtro==='bloqueados'?'selected':''}>Bloqueados</option>
+          <option value="todos"      ${filtro==='todos'     ?'selected':''}>Todos</option>
+        </select>
+        <select class="input" id="sel-genero" style="width:auto;">
+          <option value="" ${!filtroGenero?'selected':''}>Gênero: todos</option>
+          <option value="M" ${filtroGenero==='M'?'selected':''}>Homem</option>
+          <option value="F" ${filtroGenero==='F'?'selected':''}>Mulher</option>
+        </select>
+        ${isAdmin() ? `<select class="input" id="sel-prof" style="width:auto;">
+          <option value="" ${!filtroProf?'selected':''}>Professor: todos</option>
+          ${(()=>{const u=JSON.parse(localStorage.getItem('intus-usuarios')||'[]');return u.filter(x=>x.ativo!==false).map(p=>`<option value="${p.idusuario}" ${String(filtroProf)===String(p.idusuario)?'selected':''}>${esc((p.nome||'').split(' ')[0])}</option>`).join('');})()}
+        </select>` : ''}
+        <select class="input" id="sel-ordem" style="width:auto;min-width:140px;">
+          <option value="alfabetica"      ${ordenacao==='alfabetica'     ?'selected':''}>A-Z (nome)</option>
+          <option value="alfabetica_desc" ${ordenacao==='alfabetica_desc'?'selected':''}>Z-A (nome)</option>
+          <option value="cadastro"        ${ordenacao==='cadastro'       ?'selected':''}>Mais recentes</option>
+          <option value="cadastro_asc"    ${ordenacao==='cadastro_asc'   ?'selected':''}>Mais antigos</option>
+          <option value="professor"       ${ordenacao==='professor'      ?'selected':''}>Professor</option>
+          <option value="plano"           ${ordenacao==='plano'          ?'selected':''}>Plano</option>
+          <option value="aniversario"     ${ordenacao==='aniversario'    ?'selected':''}>Aniversário</option>
+          <option value="vencimento"      ${ordenacao==='vencimento'     ?'selected':''}>Vencimento</option>
+          <option value="status"          ${ordenacao==='status'         ?'selected':''}>Status</option>
+        </select>
+        <span style="font-size:12px;color:var(--text-muted);margin-left:auto;">${lista.length} resultado${lista.length!==1?'s':''}</span>
+        <span title="Versão do api.js carregada agora. Se não mudar depois de um upload, o arquivo novo não entrou." style="font-size:10px;color:var(--text-dim,#777);margin-left:10px;border:1px solid var(--border);border-radius:5px;padding:1px 6px;">build ${(typeof API !== 'undefined' && API.BUILD) ? API.BUILD : '—'}</span>
+        ${filtro === 'bloqueados' && isAdmin() && totalBloq > 0 ? `<button class="btn btn-danger btn-sm" style="margin-left:8px;" onclick="excluirTodosBloqueados()">Excluir todos bloqueados (${totalBloq})</button>` : ''}
+      </div>
+
+      ${API.listaDesatualizada ? `
+      <div style="margin:0 0 14px;padding:12px 14px;border-radius:10px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);color:var(--text);font-size:13px;line-height:1.5;">
+        <b>⚠️ Lista possivelmente desatualizada.</b> Não consegui falar com o servidor agora, então estou mostrando a última cópia salva neste navegador. Clientes cadastrados recentemente podem não aparecer.
+        <button class="btn btn-sm" style="margin-left:10px;" onclick="carregar()">Tentar de novo</button>
+      </div>` : ''}
+
+      <!-- LISTA -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Clientes cadastrados</span>
+          <span class="card-badge badge-green">${totalAtivos} ativos</span>
+        </div>
+
+        ${loading
+          ? `<div style="padding:40px;text-align:center;color:var(--text-muted);">Carregando...</div>`
+          : erro
+          ? `<div style="padding:40px;text-align:center;color:#ff6b6b;">${erro}</div>`
+          : lista.length === 0
+          ? `<div style="padding:40px;text-align:center;color:var(--text-muted);">
+               ${busca ? 'Nenhum cliente encontrado.'
+                       : (podeIncluir ? 'Nenhum cliente cadastrado ainda. Clique em <b>+ Novo Cliente</b> para começar.'
+                                       : 'Nenhum cliente cadastrado ainda.')}
+             </div>`
+          : `<table class="data-table">
+              <thead><tr>
+                <th style="width:44px;">#</th>
+                <th class="${sortCls('nome')}" onclick="toggleSort('nome')">Nome <span class="sort-arrow">${sortIcon('nome')}</span></th>
+                ${(ordenacao === 'aniversario' || filtro === 'aniver') ? '<th style="width:110px;">Aniversário</th><th style="width:60px;">Idade</th>' : '<th style="width:110px;">Telefone</th>'}
+                <th class="${sortCls('professor')}" onclick="toggleSort('professor')" style="width:120px;">Professor <span class="sort-arrow">${sortIcon('professor')}</span></th>
+                <th class="${sortCls('plano')}" onclick="toggleSort('plano')" style="width:130px;">Plano <span class="sort-arrow">${sortIcon('plano')}</span></th>
+                <th class="${sortCls('vencimento')}" onclick="toggleSort('vencimento')" style="width:150px;">Vencimento <span class="sort-arrow">${sortIcon('vencimento')}</span></th>
+                <th class="${sortCls('status')}" onclick="toggleSort('status')" style="width:80px;">Ativo <span class="sort-arrow">${sortIcon('status')}</span></th>
+                <th style="width:150px;text-align:right;"></th>
+              </tr></thead>
+              <tbody>
+                ${lista.map(a => {
+                  const plano = getPlanoAtleta(a.idatleta);
+                  const isAniv = isAniversariante(a);
+                  const dtIni = plano?.dtinicio ? new Date(plano.dtinicio+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+                  const dtVenc = plano?.dtvencimento ? new Date(plano.dtvencimento+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+                  const _allProfs = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+                  const _profNomes = (a.professores_responsaveis || []).map(id => { const p = _allProfs.find(u => Number(u.idusuario) === Number(id)); return p ? (p.nome || '').split(' ')[0] : ''; }).filter(Boolean);
+                  const _idade = a.dtnascimento ? Math.floor((Date.now() - new Date(a.dtnascimento + 'T00:00:00').getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
+                  const _dtNascFmt = a.dtnascimento ? new Date(a.dtnascimento + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+                  return `
+                  <tr>
+                    <td class="td-date">${a.idatleta}</td>
+                    <td class="td-name"><div style="display:flex;align-items:center;gap:8px;">${avatarHtml(a.idatleta, a.nome, 28)}${isAniv ? '🎂 ' : ''}${esc(a.nome)}${(a.email === 'modelo.masculino@intusfit.local' || a.email === 'modelo.feminino@intusfit.local') ? ' <span style="font-size:9px;font-weight:800;background:rgba(255,165,0,.15);color:#ffa500;padding:1px 6px;border-radius:4px;border:1px solid rgba(255,165,0,.3);">MODELO</span>' : ''}${a.aluno_intus==='S' && isAdmin() ? ' <span style="font-size:9px;font-weight:800;background:rgba(127,255,0,.1);color:#7fff00;padding:1px 6px;border-radius:4px;border:1px solid rgba(127,255,0,.3);">INTUS</span>' : ''}${isLead(a) ? ` <span title="Origem: ${esc(origemLabel(a))}" style="font-size:9px;font-weight:800;background:rgba(251,191,36,.15);color:#d97706;padding:1px 6px;border-radius:4px;border:1px solid rgba(251,191,36,.35);">LEAD${isLeadNovo(a) ? ' •' : ''}</span>` : ''}</div></td>
+                    ${(ordenacao === 'aniversario' || filtro === 'aniver')
+                      ? `<td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${_dtNascFmt}</td><td style="font-size:12px;font-weight:700;color:var(--text);">${_idade !== null ? _idade : '—'}</td>`
+                      : `<td class="td-date">${esc(a.telefone || '—')}</td>`}
+                    <td style="font-size:11px;color:var(--text-muted);">${_profNomes.length ? esc(_profNomes.join(', ')) : '<span style="color:var(--text-dim);">—</span>'}</td>
+                    <td style="font-size:11px;color:var(--text-muted);">${plano ? esc(plano.dshistorico || 'Ativa').substring(0,22) : '<span style="color:var(--text-dim);">—</span>'}</td>
+                    <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${plano ? dtIni + ' → ' + dtVenc : '—'}</td>
+                    <td>${(function(){
+                        const s = situacaoDoAluno(a);
+                        if (s.bloqueado) return '<span class="pill pill-red" title="' + esc(s.motivo || 'bloqueado') + '">Bloqueado</span>';
+                        if (isLead(a)) return '<span class="pill" style="background:rgba(251,191,36,.15);color:#d97706;border:1px solid rgba(251,191,36,.35);">Lead</span>';
+                        if (isNovoCadastro(a)) return '<span class="pill pill-blue">Novo</span>';
+                        if (s.ativo) return '<span class="pill pill-green" title="' + esc(s.motivo || 'plano vigente') + '">Ativo</span>';
+                        return '<span class="pill" style="background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.35);" title="' + esc(s.motivo || '') + '">Inativo</span>';
+                      })()}</td>
+                    <td style="text-align:right;white-space:nowrap;">
+                      ${(podeEditar || hasPerm('at_ver') || hasPerm('nt_incluir') || hasPerm('nt_editar')) ? `<button class="btn btn-secondary btn-sm" onclick="abrirMiniFicha(${a.idatleta})">Abrir</button> ` : ''}
+                      ${podeEditar
+                        ? (a.stbloqueio === 'S'
+                            ? `<button class="btn btn-success btn-sm" onclick="toggleBloqueio(${a.idatleta}, 'N')">Ativar</button>`
+                            : `<button class="btn btn-danger btn-sm" onclick="toggleBloqueio(${a.idatleta}, 'S')">Bloquear</button>`)
+                        : ''}
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+             </table>`
+        }
+      </div>
+
+    </div>
+  `;
+
+  const inp = document.getElementById('inp-busca');
+  if (inp) inp.addEventListener('input', e => {
+    busca = e.target.value; render();
+    const again = document.getElementById('inp-busca');
+    if (again) { again.focus(); again.setSelectionRange(busca.length, busca.length); }
+  });
+  const sel = document.getElementById('sel-filtro');
+  if (sel) sel.addEventListener('change', e => { filtro = e.target.value; render(); });
+  const selOrdem = document.getElementById('sel-ordem');
+  if (selOrdem) selOrdem.addEventListener('change', e => { ordenacao = e.target.value; render(); });
+  document.getElementById('sel-genero')?.addEventListener('change', e => { filtroGenero = e.target.value; render(); });
+  document.getElementById('sel-prof')?.addEventListener('change', e => { filtroProf = e.target.value; render(); });
+}
+
+function setFiltro(f) { filtro = f; render(); }
+
+function toggleSort(col) {
+  const ascMap = { nome: 'alfabetica', professor: 'professor', plano: 'plano', vencimento: 'vencimento', status: 'status', cadastro: 'cadastro_asc' };
+  const descMap = { nome: 'alfabetica_desc', professor: 'professor_desc', plano: 'plano_desc', vencimento: 'vencimento_desc', status: 'status_desc', cadastro: 'cadastro' };
+  const asc = ascMap[col];
+  const desc = descMap[col];
+  if (ordenacao === asc) ordenacao = desc;
+  else ordenacao = asc;
+  render();
+}
+
+function sortCls(col) {
+  const ascMap = { nome: 'alfabetica', professor: 'professor', plano: 'plano', vencimento: 'vencimento', status: 'status' };
+  const descMap = { nome: 'alfabetica_desc', professor: 'professor_desc', plano: 'plano_desc', vencimento: 'vencimento_desc', status: 'status_desc' };
+  const isAsc = ordenacao === ascMap[col];
+  const isDesc = ordenacao === descMap[col];
+  const active = isAsc || isDesc;
+  return 'th-sort' + (active ? ' active' : '');
+}
+function sortIcon(col) {
+  const ascMap = { nome: 'alfabetica', professor: 'professor', plano: 'plano', vencimento: 'vencimento', status: 'status' };
+  const descMap = { nome: 'alfabetica_desc', professor: 'professor_desc', plano: 'plano_desc', vencimento: 'vencimento_desc', status: 'status_desc' };
+  if (ordenacao === ascMap[col]) return '▲';
+  if (ordenacao === descMap[col]) return '▼';
+  return '⇅';
+}
+
+// ═══════════════ MINI FICHA (Dashboard do Aluno) ═══════════════
+async function abrirMiniFicha(id) {
+  if (!hasPerm('at_editar') && !hasPerm('at_ver') && !hasPerm('nt_incluir') && !hasPerm('nt_editar')) return showToast('Sem permissão.', 'error');
+  const podeEditarCliente = hasPerm('at_editar');
+  _fichaReadOnly = !podeEditarCliente;
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  if (!a) return showToast('Cliente não encontrado', 'error');
+
+  const mens = getMensalidadesAtleta(id);
+  const idade = a.dtnascimento ? Math.floor((Date.now() - new Date(a.dtnascimento + 'T00:00:00').getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
+  const iniciais = (a.nome || '??').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  const dtCad = a.dtcadastro ? new Date(a.dtcadastro + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+  const plano = getPlanoAtleta(id);
+  const objetivos = Array.isArray(a.objetivos) ? a.objetivos : [];
+  const dificuldades = Array.isArray(a.dificuldades) ? a.dificuldades : [];
+
+  openModal(`
+    <div style="max-width:1100px;width:100%;">
+      <!-- HEADER HERO -->
+      <div style="display:flex;align-items:center;gap:16px;padding:20px 24px;border-bottom:1px solid var(--border,#2a2a2a);flex-wrap:wrap;">
+        ${avatarHtml(id, a.nome, 56)}
+        <div style="flex:1;min-width:180px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <h2 style="margin:0;font-size:18px;font-weight:800;color:var(--text);">${esc(a.nome)}</h2>
+            ${a.stbloqueio === 'S'
+              ? '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);">Bloqueado</span>'
+              : '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--green-dim);color:var(--green);border:1px solid var(--green);">Ativo</span>'}
+          </div>
+          <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;">
+            ${a.email ? `<span style="font-size:12px;color:var(--text-muted);">📧 ${esc(a.email)}</span>` : ''}
+            ${a.telefone ? `<span style="font-size:12px;color:var(--text-muted);">📱 ${esc(a.telefone)}</span>` : ''}
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal()" style="position:static;font-size:22px;">×</button>
+      </div>
+
+      <!-- QUICK STATS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:1px;background:var(--border,#2a2a2a);">
+        <div style="background:var(--bg2,#1a1a1a);padding:12px 14px;text-align:center;">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;letter-spacing:.5px;">Idade</div>
+          <div style="font-size:16px;font-weight:800;color:var(--text);margin-top:2px;">${idade !== null ? idade : '—'}</div>
+        </div>
+        <div style="background:var(--bg2,#1a1a1a);padding:12px 14px;text-align:center;">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;letter-spacing:.5px;">Gênero</div>
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-top:2px;">${a.genero === 'M' ? 'Homem' : a.genero === 'F' ? 'Mulher' : '—'}</div>
+        </div>
+        <div style="background:var(--bg2,#1a1a1a);padding:12px 14px;text-align:center;">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;letter-spacing:.5px;">Cadastro</div>
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-top:2px;">${dtCad}</div>
+        </div>
+        <div style="background:var(--bg2,#1a1a1a);padding:12px 14px;text-align:center;">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;letter-spacing:.5px;">Plano</div>
+          <div style="font-size:13px;font-weight:700;color:${plano ? 'var(--green)' : 'var(--text-muted)'};margin-top:2px;">${plano ? esc((plano.dshistorico||'Ativo').substring(0,18)) : 'Nenhum'}</div>
+        </div>
+      </div>
+
+      <!-- QUALIFICAÇÃO (objetivos + dificuldades) -->
+      ${(objetivos.length || dificuldades.length) ? `
+      <div style="padding:14px 24px;border-bottom:1px solid var(--border,#2a2a2a);">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Qualificação do aluno</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;">
+          ${objetivos.length ? `<div style="flex:1;min-width:140px;">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">Objetivos</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;">
+              ${objetivos.map(o => `<span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:12px;background:var(--green-dim);color:var(--green);border:1px solid var(--green-dim);">${esc(o)}</span>`).join('')}
+            </div>
+          </div>` : ''}
+          ${dificuldades.length ? `<div style="flex:1;min-width:140px;">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">Dificuldades</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;">
+              ${dificuldades.map(d => `<span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:12px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.2);">${esc(d)}</span>`).join('')}
+            </div>
+          </div>` : ''}
+        </div>
+      </div>` : ''}
+
+      <!-- OBS -->
+      ${a.observacao ? `<div style="padding:10px 24px;border-bottom:1px solid var(--border,#2a2a2a);font-size:12px;color:var(--text-muted);background:var(--green-dim);">
+        <b style="color:var(--text);">Obs:</b> ${esc(a.observacao)}
+      </div>` : ''}
+
+      <!-- TABS -->
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border,#2a2a2a);padding:0 24px;overflow-x:auto;" id="mini-tabs">
+        <button class="mini-tab active" onclick="miniTab('treinos',${id})">🏋️ Treinos</button>
+        <button class="mini-tab" onclick="miniTab('frequencia',${id})">📅 Frequência</button>
+        <button class="mini-tab" onclick="miniTab('matriculas',${id})">💳 Matrículas</button>
+        <button class="mini-tab" onclick="miniTab('avaliacoes',${id})">📊 Avaliações</button>
+        <button class="mini-tab" onclick="miniTab('notas',${id})">📝 Notas</button>
+        <button class="mini-tab" onclick="miniTab('dados',${id})">⚙️ Cadastro</button>
+        <button class="mini-tab" onclick="miniTab('anamnese',${id})">📋 Anamnese</button>
+      </div>
+      <div id="mini-tab-content" style="padding:16px 24px;max-height:62vh;overflow-y:auto;">
+        <div style="text-align:center;color:var(--text-muted);padding:20px;font-size:12px;">Carregando...</div>
+      </div>
+
+      <!-- FOOTER -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-top:1px solid var(--border,#2a2a2a);flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;gap:8px;">
+          ${podeEditarCliente ? (a.stbloqueio === 'S'
+            ? `<button class="btn btn-success btn-sm" onclick="toggleBloqueio(${id},'N');closeModal();">Ativar</button>`
+            : `<button class="btn btn-danger btn-sm" onclick="toggleBloqueio(${id},'S');closeModal();">Bloquear</button>`) : ''}
+          ${podeEditarCliente ? `<button class="btn btn-secondary btn-sm" onclick="desconectarAparelhos(${id}, '${(a.nome||'').replace(/'/g, "\\'")}')" title="Encerra a sessão deste aluno em todos os aparelhos. Ele entra de novo com o código dele.">📱 Desconectar aparelhos</button>` : ''}
+          ${podeEditarCliente ? `<button class="btn btn-danger btn-sm" onclick="excluirCliente(${id})" style="opacity:.7;">Excluir</button>` : ''}
+        </div>
+        <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+      </div>
+    </div>
+  `);
+
+  const style = document.createElement('style');
+  style.textContent = `.modal-box{max-width:1120px!important;width:96%!important;}.mini-tab{background:none;border:none;color:var(--text-muted);font-size:11px;font-weight:700;padding:10px 12px;cursor:pointer;border-bottom:2px solid transparent;font-family:inherit;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;transition:color .15s,border-color .15s;}.mini-tab.active{color:var(--green);border-bottom-color:var(--green);}.mini-tab:hover{color:var(--text);}@media(max-width:600px){.modal-box{max-width:100%!important;margin:8px!important;border-radius:12px!important;}}`;
+  document.querySelector('.modal-overlay')?.appendChild(style);
+
+  miniTab('treinos', id);
+}
+
+let miniTabAtivo = 'treinos';
+let _fichaReadOnly = false;
+
+function miniTab(tab, id) {
+  miniTabAtivo = tab;
+  document.querySelectorAll('.mini-tab').forEach(t => t.classList.remove('active'));
+  const tabs = document.querySelectorAll('.mini-tab');
+  const tabMap = ['treinos','frequencia','matriculas','avaliacoes','notas','dados','anamnese'];
+  const idx = tabMap.indexOf(tab);
+  if (idx >= 0 && tabs[idx]) tabs[idx].classList.add('active');
+
+  if (tab === 'treinos') carregarMiniTreinos(id);
+  else if (tab === 'frequencia') carregarMiniFrequencia(id);
+  else if (tab === 'matriculas') carregarMiniMatriculas(id);
+  else if (tab === 'avaliacoes') carregarMiniAvaliacoes(id);
+  else if (tab === 'notas') carregarMiniNotas(id);
+  else if (tab === 'dados') carregarMiniDados(id);
+  else if (tab === 'anamnese') carregarMiniAnamnese(id);
+}
+
+async function carregarMiniTreinos(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  try {
+    const ficha = await API.getFichaAtleta(id);
+    if (!ficha || !ficha.idficha) {
+      box.innerHTML = `
+        <div style="text-align:center;padding:30px 16px;color:var(--text-muted);font-size:13px;">
+          <div style="font-size:36px;margin-bottom:10px;opacity:.6;">📋</div>
+          <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Sem ficha de treino</div>
+          Este aluno ainda não possui uma ficha configurada.
+          ${hasPerm('tr_incluir') ? `<div style="margin-top:14px;">
+            <button class="btn btn-primary btn-sm" onclick="window.location.href='treinos.html?atleta=${id}'">+ Criar Ficha de Treino</button>
+          </div>` : ''}
+        </div>`;
+      return;
+    }
+    const treinos = await API.getTreinosDaFicha(ficha.idficha);
+    if (!treinos || treinos.length === 0) {
+      box.innerHTML = `
+        <div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">
+          Ficha criada mas sem exercícios.
+          <div style="margin-top:12px;">
+            <a href="treinos.html?atleta=${id}" class="btn btn-secondary btn-sm">Abrir ficha →</a>
+          </div>
+        </div>`;
+      return;
+    }
+    const porDiv = {};
+    treinos.forEach(t => { (porDiv[t.divisao||'A'] = porDiv[t.divisao||'A']||[]).push(t); });
+    const divs = Object.keys(porDiv).sort();
+    box.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${divs.map(d => `
+          <div style="background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:12px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--green);text-transform:uppercase;margin-bottom:8px;">
+              Treino ${esc(d)} <span style="color:var(--text-muted);font-weight:500;text-transform:none;">(${porDiv[d].length} exercícios)</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+            ${porDiv[d].map(t => `
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.03);">
+                <span style="color:var(--text);font-weight:500;">${esc(t.nmexercicio)}</span>
+                <span style="color:var(--text-muted);white-space:nowrap;font-size:11px;font-weight:600;">${t.qtdserie}×${t.qtdrepeticao} · ${t.tempopausa}s</span>
+              </div>
+            `).join('')}
+            </div>
+          </div>
+        `).join('')}
+        <div style="margin-top:8px;">
+          <a href="treinos.html?atleta=${id}" class="btn btn-secondary btn-sm" style="font-size:12px;">${hasPerm('tr_editar') ? 'Editar Ficha Completa →' : 'Ver Ficha Completa →'}</a>
+        </div>
+      </div>`;
+  } catch(e) {
+    box.innerHTML = `<div style="color:#f87171;font-size:12px;text-align:center;padding:16px;">Erro: ${esc(e.message||'')}</div>`;
+  }
+}
+
+async function carregarMiniFrequencia(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">Carregando sessões...</div>';
+  try {
+    const sessoes = await API.listarSessoes(id);
+    if (!sessoes || sessoes.length === 0) {
+      box.innerHTML = '<div style="text-align:center;padding:30px 16px;color:var(--text-muted);font-size:13px;">' +
+        '<div style="font-size:36px;margin-bottom:10px;opacity:.6;">📅</div>' +
+        '<div style="font-weight:600;color:var(--text);margin-bottom:4px;">Nenhuma sessão registrada</div>' +
+        'Este aluno ainda não registrou treinos concluídos.</div>';
+      return;
+    }
+    const sorted = sessoes.slice().sort((a,b) => (b.dtsessao||'').localeCompare(a.dtsessao||''));
+    const totalMin = sorted.reduce((s,x) => s + (parseInt(x.duracao_seg)||0), 0) / 60;
+    const semana = (() => {
+      const h = new Date(); h.setHours(0,0,0,0);
+      const ini = new Date(h); ini.setDate(ini.getDate() - ini.getDay());
+      const iniStr = ini.toISOString().slice(0,10);
+      return sorted.filter(s => (s.dtsessao||'') >= iniStr).length;
+    })();
+
+    box.innerHTML = '<div style="display:flex;flex-direction:column;gap:12px;">' +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' +
+        '<div style="background:var(--green-dim);border-radius:10px;padding:10px 12px;border:1px solid var(--green-dim);text-align:center;">' +
+          '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Total</div>' +
+          '<div style="font-size:15px;font-weight:800;color:var(--green);margin-top:2px;">' + sorted.length + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(59,130,246,.06);border-radius:10px;padding:10px 12px;border:1px solid rgba(59,130,246,.15);text-align:center;">' +
+          '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Minutos</div>' +
+          '<div style="font-size:15px;font-weight:800;color:#60a5fa;margin-top:2px;">' + Math.round(totalMin) + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(251,191,36,.06);border-radius:10px;padding:10px 12px;border:1px solid rgba(251,191,36,.15);text-align:center;">' +
+          '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Esta semana</div>' +
+          '<div style="font-size:15px;font-weight:800;color:#fbbf24;margin-top:2px;">' + semana + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;">' +
+        sorted.map(s => {
+          const dur = parseInt(s.duracao_seg) || 0;
+          const min = Math.floor(dur / 60);
+          const dtFmt = s.dtsessao ? new Date(s.dtsessao + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+          const divisao = s.divisao || '—';
+          const comentario = s.comentario || '';
+          return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:8px;">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="display:flex;align-items:center;gap:6px;">' +
+                '<span style="font-size:12px;font-weight:600;color:var(--text);">' + dtFmt + '</span>' +
+                '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;background:var(--green-dim);color:var(--green);">Treino ' + esc(divisao) + '</span>' +
+                '<span style="font-size:10px;color:var(--text-muted);">' + min + ' min</span>' +
+              '</div>' +
+              (comentario ? '<div style="font-size:11px;color:var(--text-muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(comentario.substring(0,60)) + '</div>' : '') +
+            '</div>' +
+            '<button class="btn btn-danger btn-sm" style="font-size:10px;padding:3px 8px;opacity:.7;flex-shrink:0;" onclick="excluirSessaoAdmin(' + s.idsessao + ',' + id + ')" title="Remover sessão (marcada por engano)">✕</button>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  } catch(e) {
+    box.innerHTML = '<div style="color:#f87171;font-size:12px;text-align:center;padding:16px;">Erro ao carregar sessões: ' + esc(e.message||'') + '</div>';
+  }
+}
+
+async function excluirSessaoAdmin(idsessao, idatleta) {
+  if (!confirm('Remover esta sessão de treino do histórico?\n\nUse isto quando o aluno marcou como feito por engano.')) return;
+  try {
+    await API.excluirSessao(idsessao);
+    showToast('Sessão removida do histórico.');
+    carregarMiniFrequencia(idatleta);
+  } catch(e) {
+    showToast('Erro ao remover: ' + (e.message || 'falha'), 'error');
+  }
+}
+
+function carregarMiniMatriculas(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  const adminEhProf = a && Array.isArray(a.professores_responsaveis) && a.professores_responsaveis.map(Number).some(id => id === 1 || id === 2);
+  const podeVerValores = hasPerm('mt_editar');
+  const podeEditarFinanceiro = isAdmin() || !adminEhProf;
+  const mens = getMensalidadesAtleta(id);
+
+  if (mens.length === 0) {
+    box.innerHTML = `
+      <div style="text-align:center;padding:30px 16px;color:var(--text-muted);font-size:13px;">
+        <div style="font-size:36px;margin-bottom:10px;opacity:.6;">💳</div>
+        <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Nenhuma matrícula</div>
+        Cadastre uma matrícula para este aluno.
+        ${podeEditarFinanceiro ? `<div style="margin-top:14px;">
+          <button class="btn btn-primary btn-sm" onclick="abrirNovaMatricula(${id})">+ Nova Matrícula</button>
+        </div>` : ''}
+      </div>`;
+    return;
+  }
+
+  // ── Status de cada matrícula ──
+  // ativa   = vencimento hoje ou no futuro (paga ou com cobrança pendente) — aluno pode ter mais de uma
+  // vencida = vencimento passado e não paga (em atraso, ainda não renovada)
+  // encerrada = paga e período finalizado (vira histórico)
+  const _hj = new Date().toISOString().slice(0,10);
+  // Mesma fonte do resto do sistema. Esta tela tinha regra propria e por isso
+  // marcava de vermelho aluno que o painel de matriculas ja dava como em dia.
+  const stMat = m => {
+    const st = (typeof API !== 'undefined' && API.situacaoCobranca)
+      ? API.situacaoCobranca(m, mensalidades).estado
+      : (m.stpgto === 'S' ? 'paga' : 'pendente');
+    if (st === 'paga' || st === 'paga_no_anterior') return 'ativa_paga';
+    if (st === 'pendente' || st === 'programada')   return 'ativa_pend';
+    if (st === 'vencida' || st === 'inativa')       return 'vencida';
+    return 'encerrada';   // renovada | renovar | encerrada | cancelada | trancada
+  };
+  const ativas    = mens.filter(m => stMat(m).startsWith('ativa')).sort((a,b) => (a.dtvencimento||'').localeCompare(b.dtvencimento||''));
+  const historico = mens.filter(m => !stMat(m).startsWith('ativa')).sort((a,b) => (b.dtvencimento||'').localeCompare(a.dtvencimento||''));
+  const vencidasN = historico.filter(m => stMat(m) === 'vencida').length;
+  const totalPago = mens.filter(m => m.stpgto === 'S').reduce((s, m) => s + parseFloat(m.vlpagamento || m.vlpagar || 0), 0);
+
+  const _badge = m => {
+    const st = stMat(m);
+    if (st === 'ativa_paga') return '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;background:var(--green-dim);color:var(--green);">Ativa · Paga</span>';
+    if (st === 'ativa_pend') return '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;background:rgba(251,191,36,.1);color:#fbbf24;">Ativa · Pendente</span>';
+    if (st === 'vencida')    return '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;background:rgba(248,113,113,.15);color:#f87171;">Vencida</span>';
+    return '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;background:rgba(148,163,184,.15);color:#94a3b8;">Encerrada</span>';
+  };
+  const _dtFmt = s => s ? new Date(s+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+  const _cardMat = m => {
+    const pago = m.stpgto === 'S';
+    const rec = (m.recorrencia && String(m.recorrencia).toLowerCase() !== 'avulso') ? String(m.recorrencia) : '';
+    const recLabel = rec ? rec.charAt(0).toUpperCase() + rec.slice(1) : '';
+    return `
+    <div style="padding:10px 12px;background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:12px;font-weight:600;color:var(--text);">${esc(m.dshistorico || 'Mensalidade')}${rec ? ` <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(56,189,248,.12);color:#38bdf8;">🔁 ${esc(recLabel)}</span>` : ''}${m.forma_pgto ? ` <span style="font-size:9px;color:var(--text-muted);">· ${esc(String(m.forma_pgto))}</span>` : ''}</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${_dtFmt(m.dtinicio)} → ${_dtFmt(m.dtvencimento)}${m.dtpagamento ? ' · pago em ' + _dtFmt(m.dtpagamento) : ''}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:13px;font-weight:700;color:var(--text);">R$ ${parseFloat(m.vlpagar||0).toFixed(2)}</div>
+          ${_badge(m)}
+        </div>
+      </div>
+      ${podeEditarFinanceiro ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">
+        ${!pago ? `<button class="btn btn-success btn-sm" style="font-size:10px;padding:2px 8px;" onclick="marcarPagoMini(${m.idmensalidade},${id})">✓ Pago</button>` : ''}
+        <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="abrirEditarMatricula(${m.idmensalidade},${id})">✎ Editar</button>
+        <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="renovarMatriculaMini(${m.idmensalidade},${id})" title="Gerar a próxima cobrança">↻ Renovar</button>
+        ${!pago ? `<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="alterarVencMini(${m.idmensalidade},${id})" title="Alterar vencimento">📅</button>` : ''}
+        ${hasPerm('mt_excluir') ? `<button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px;opacity:.6;" onclick="excluirMatriculaMini(${m.idmensalidade},${id})" title="Excluir">✕</button>` : ''}
+      </div>` : ''}
+    </div>`;
+  };
+
+  box.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
+      <div style="background:var(--green-dim);border-radius:10px;padding:10px 12px;border:1px solid var(--green-dim);">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Ativas</div>
+        <div style="font-size:15px;font-weight:800;color:var(--green);margin-top:2px;">${ativas.length}</div>
+      </div>
+      <div style="background:rgba(248,113,113,.06);border-radius:10px;padding:10px 12px;border:1px solid rgba(248,113,113,.15);">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Vencidas</div>
+        <div style="font-size:15px;font-weight:800;color:#f87171;margin-top:2px;">${vencidasN}</div>
+      </div>
+      <div style="background:rgba(59,130,246,.06);border-radius:10px;padding:10px 12px;border:1px solid rgba(59,130,246,.15);">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Total pago</div>
+        <div style="font-size:15px;font-weight:800;color:#60a5fa;margin-top:2px;">R$ ${totalPago.toFixed(2)}</div>
+      </div>
+    </div>
+    ${!podeEditarFinanceiro ? `<div style="padding:8px 12px;background:rgba(127,255,0,.05);border:1px solid rgba(127,255,0,.2);border-radius:8px;margin-bottom:10px;font-size:11px;color:var(--text-muted);">Matrícula gerenciada pela Intus</div>` : ''}
+    ${ativas.length > 0 ? `
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Matrículas ativas (${ativas.length})</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">${ativas.map(_cardMat).join('')}</div>`
+    : `<div style="padding:10px 12px;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);border-radius:8px;margin-bottom:12px;font-size:12px;color:#f87171;font-weight:600;">Nenhuma matrícula ativa</div>`}
+    ${historico.length > 0 ? `
+      <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Histórico (${historico.length})</div>
+      <div style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;">${historico.map(_cardMat).join('')}</div>` : ''}
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      ${podeEditarFinanceiro ? `<button class="btn btn-primary btn-sm" onclick="abrirNovaMatricula(${id})">+ Nova Matrícula</button>` : ''}
+      <a href="mensalidades.html" class="btn btn-secondary btn-sm">Ver Todas →</a>
+    </div>`;
+}
+
+async function carregarMiniAvaliacoes(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">Carregando avaliações...</div>';
+
+  let avaliacoes = [];
+  try {
+    avaliacoes = await API.listarAvaliacoes(id);
+  } catch(e) {
+    avaliacoes = JSON.parse(localStorage.getItem('intus-avaliacoes') || '[]')
+      .filter(av => Number(av.idatleta) === Number(id));
+  }
+  if (!Array.isArray(avaliacoes)) avaliacoes = [];
+  avaliacoes.sort((a,b) => (b.dtavaliacao||b.data||'').localeCompare(a.dtavaliacao||a.data||''));
+
+  if (avaliacoes.length === 0) {
+    box.innerHTML = `
+      <div style="text-align:center;padding:30px 16px;color:var(--text-muted);font-size:13px;">
+        <div style="font-size:36px;margin-bottom:10px;opacity:.6;">📊</div>
+        <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Nenhuma avaliação</div>
+        Registre avaliações físicas para acompanhar a evolução do aluno.
+        <div style="margin-top:14px;">
+          <button class="btn btn-primary btn-sm" onclick="novaAvaliacaoRapida(${id})">+ Nova Avaliação</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${avaliacoes.map(av => {
+        const dt = av.dtavaliacao || av.data || '';
+        const dtFmt = dt ? new Date(dt+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+        const fotos = av.fotos || [];
+        const avId = av.idavaliacao || av.id || '';
+        return `
+        <div style="background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:12px;font-weight:700;color:var(--text);">${dtFmt}${av.metodo ? ' — <span style="font-size:10px;color:var(--text-muted);">' + esc(av.metodo) + '</span>' : ''}</span>
+            <button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px;opacity:.6;" onclick="excluirAvaliacaoAdmin(${avId},${id})">✕</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;">
+            ${av.peso ? `<div style="text-align:center;"><div style="font-size:10px;color:var(--text-muted);">Peso</div><div style="font-size:13px;font-weight:700;color:var(--text);">${av.peso}kg</div></div>` : ''}
+            ${av.altura ? `<div style="text-align:center;"><div style="font-size:10px;color:var(--text-muted);">Altura</div><div style="font-size:13px;font-weight:700;color:var(--text);">${av.altura}m</div></div>` : ''}
+            ${av.percgordura ? `<div style="text-align:center;"><div style="font-size:10px;color:var(--text-muted);">BF%</div><div style="font-size:13px;font-weight:700;color:var(--text);">${av.percgordura}%</div></div>` : ''}
+          </div>
+          ${fotos.length > 0 ? `
+            <div style="margin-top:10px;border-top:1px solid var(--border,#2a2a2a);padding-top:8px;">
+              <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:6px;">📷 ${fotos.length} foto(s)</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:4px;">
+                ${fotos.slice(0,6).map((f,i) => `<img src="${f}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border,#2a2a2a);" onclick="ampliarFotoAvaliacao(${avId},${i})"/>`).join('')}
+                ${fotos.length > 6 ? `<div style="display:flex;align-items:center;justify-content:center;background:var(--bg-card);border-radius:6px;font-size:11px;font-weight:700;color:var(--text-muted);aspect-ratio:1;border:1px solid var(--border,#2a2a2a);">+${fotos.length - 6}</div>` : ''}
+              </div>
+            </div>
+          ` : ''}
+          ${av.observacao ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border,#2a2a2a);padding-top:6px;">${esc(av.observacao)}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <button class="btn btn-primary btn-sm" onclick="novaAvaliacaoRapida(${id})">+ Nova Avaliação</button>
+    </div>`;
+}
+
+async function carregarMiniAnamnese(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">Carregando anamnese...</div>';
+
+  let dados = null;
+  try { dados = await API.getAnamnese(id); } catch(e) { dados = null; }
+
+  const temConteudo = dados && typeof dados === 'object' &&
+    Object.keys(dados).filter(k => k[0] !== '_').some(k => String(dados[k] ?? '').trim() !== '');
+
+  if (!temConteudo) {
+    box.innerHTML = `
+      <div style="text-align:center;padding:30px 16px;color:var(--text-muted);font-size:13px;">
+        <div style="font-size:36px;margin-bottom:10px;opacity:.6;">📋</div>
+        <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Anamnese não respondida</div>
+        O aluno ainda não preencheu — ou ainda não sincronizou — a anamnese no app.
+      </div>`;
+    return;
+  }
+
+  // Texto EXATO das perguntas como o aluno vê no app (aluno.html > var perguntas).
+  const perguntas = [
+    ['objetivo','Qual seu principal objetivo, quando pretende alcançá-lo e por quê?'],
+    ['rotina_trabalho','Como é o seu trabalho e sua rotina diária?'],
+    ['atividades_fisicas','Quais atividades físicas pratica e qual a frequência semanal?'],
+    ['exercicios_gosta','Quais exercícios você mais gosta de fazer?'],
+    ['exercicios_naogosta','Quais exercícios você menos gosta de fazer?'],
+    ['parceiro_treino','Vai treinar com parceiro(a) de treino, personal ou sozinho(a)?'],
+    ['cirurgias','Já passou por algum procedimento cirúrgico? Descreva.'],
+    ['doencas','Tem ou já teve problemas cardíacos, circulatórios, respiratórios ou de pressão arterial?'],
+    ['articulares','Possui problemas articulares, posturais, funcionais ou alguma limitação? Ossos quebrados ou ligamentos lesionados?'],
+    ['sono','Quantas horas costuma dormir e como define a qualidade do sono?'],
+    ['medicamentos','Utiliza algum medicamento contínuo ou controlado? (anticoncepcionais, antibióticos, anabolizantes...)'],
+    ['fatores_limitantes','Existe outro fator que limite sua performance? (labirintite, depressão, gastrite, diabetes, período menstrual severo, etc.)'],
+    ['dias_horarios','Quais dias da semana e horários reservou para treinar e fazer cardio?'],
+    ['alimentacao','Segue ou já seguiu algum plano alimentar? Tem cuidados específicos com a alimentação?'],
+    ['academia','Onde você treina? (academia, em casa, ao ar livre…)'],
+    ['observacoes','Alguma observação adicional para seu professor?'],
+  ];
+  // Qualquer campo extra gravado pelo app que não esteja na lista acima entra no fim,
+  // com rótulo legível — assim nenhuma resposta fica invisível.
+  const _conhecidas = new Set(perguntas.map(x => x[0]));
+  Object.keys(dados || {}).forEach(k => {
+    if (k[0] === '_' || _conhecidas.has(k)) return;
+    if (String(dados[k] ?? '').trim() === '') return;
+    perguntas.push([k, k.replace(/_/g,' ').replace(/^./, c => c.toUpperCase())]);
+  });
+
+  let ts = '';
+  if (dados._timestamp) { try { ts = new Date(dados._timestamp).toLocaleDateString('pt-BR'); } catch(e) {} }
+
+  const linhas = perguntas.map(([k,label]) => {
+    const v = String(dados[k] ?? '').trim();
+    return `
+      <div style="background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:12px;">
+        <div style="font-size:12.5px;font-weight:600;color:var(--green);margin-bottom:6px;line-height:1.45;">${esc(label)}</div>
+        <div style="font-size:13.5px;color:${v ? 'var(--text)' : 'var(--text-muted)'};white-space:pre-wrap;line-height:1.55;">${v ? esc(v) : '—'}</div>
+      </div>`;
+  }).join('');
+
+  box.innerHTML = `
+    ${ts ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">📋 Respondida em ${ts}</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:8px;">${linhas}</div>`;
+}
+
+async function excluirAvaliacaoAdmin(idavaliacao, idatleta) {
+  if (!confirm('Excluir esta avaliação?')) return;
+  try {
+    await API.excluirAvaliacao(idavaliacao);
+    showToast('Avaliação excluída.');
+    carregarMiniAvaliacoes(idatleta);
+  } catch(e) {
+    showToast('Erro: ' + (e.message||''), 'error');
+  }
+}
+
+function ampliarFotoAvaliacao(idavaliacao, idx) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:20px;';
+  ov.onclick = function() { ov.remove(); };
+
+  // Find the photo from cached data
+  const allImgs = ov.querySelectorAll ? [] : [];
+  const avCard = event.target.closest('[style*="border-radius:10px"]');
+  const imgs = avCard ? avCard.querySelectorAll('img[onclick]') : [];
+  const src = event.target.src || '';
+
+  ov.innerHTML = '<img src="' + src + '" style="max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;"/>' +
+    '<div style="position:absolute;top:16px;right:16px;color:#fff;font-size:24px;font-weight:700;cursor:pointer;">✕</div>';
+  document.body.appendChild(ov);
+}
+
+function novaAvaliacaoRapida(idatleta) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  const hoje = new Date().toISOString().slice(0,10);
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);">Nova Avaliação Física</div>
+      <div class="form-group">
+        <label class="label">Data</label>
+        <input id="av-data" class="input" type="date" value="${hoje}"/>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div class="form-group"><label class="label">Peso (kg)</label><input id="av-peso" class="input" type="number" step="0.1" placeholder="75.0"/></div>
+        <div class="form-group"><label class="label">Altura (cm)</label><input id="av-altura" class="input" type="number" placeholder="170"/></div>
+        <div class="form-group"><label class="label">BF (%)</label><input id="av-bf" class="input" type="number" step="0.1" placeholder="18.5"/></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
+        <div class="form-group"><label class="label">Braço</label><input id="av-braco" class="input" type="number" step="0.1" placeholder="cm"/></div>
+        <div class="form-group"><label class="label">Cintura</label><input id="av-cintura" class="input" type="number" step="0.1" placeholder="cm"/></div>
+        <div class="form-group"><label class="label">Quadril</label><input id="av-quadril" class="input" type="number" step="0.1" placeholder="cm"/></div>
+        <div class="form-group"><label class="label">Coxa</label><input id="av-coxa" class="input" type="number" step="0.1" placeholder="cm"/></div>
+      </div>
+      <div class="form-group"><label class="label">Observações</label><textarea id="av-obs" class="input" rows="2" placeholder="Notas da avaliação..."></textarea></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="miniTab('avaliacoes',${idatleta})">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarAvaliacao(${idatleta})">Salvar</button>
+      </div>
+    </div>`;
+}
+
+function salvarAvaliacao(idatleta) {
+  const peso = document.getElementById('av-peso')?.value || '';
+  const altura = document.getElementById('av-altura')?.value || '';
+  const bf = document.getElementById('av-bf')?.value || '';
+  const braco = document.getElementById('av-braco')?.value || '';
+  const cintura = document.getElementById('av-cintura')?.value || '';
+  const quadril = document.getElementById('av-quadril')?.value || '';
+  const coxa = document.getElementById('av-coxa')?.value || '';
+  const obs = document.getElementById('av-obs')?.value || '';
+  const data = document.getElementById('av-data')?.value || new Date().toISOString().slice(0,10);
+
+  if (!peso && !altura && !bf && !braco && !cintura && !quadril && !coxa) {
+    return showToast('Preencha ao menos um campo de medida.', 'error');
+  }
+
+  const imc = (peso && altura) ? (parseFloat(peso) / ((parseFloat(altura)/100) ** 2)).toFixed(1) : '';
+
+  const avaliacoes = JSON.parse(localStorage.getItem('intus-avaliacoes') || '[]');
+  avaliacoes.push({
+    id: 'av-' + Date.now(),
+    idatleta,
+    data,
+    peso, altura, bf, imc, braco, cintura, quadril, coxa, obs
+  });
+  localStorage.setItem('intus-avaliacoes', JSON.stringify(avaliacoes));
+  showToast('Avaliação salva!');
+  miniTab('avaliacoes', idatleta);
+}
+
+function removerAvaliacao(avId, idatleta) {
+  if (!confirm('Remover esta avaliação?')) return;
+  let avaliacoes = JSON.parse(localStorage.getItem('intus-avaliacoes') || '[]');
+  avaliacoes = avaliacoes.filter(a => a.id !== avId);
+  localStorage.setItem('intus-avaliacoes', JSON.stringify(avaliacoes));
+  showToast('Avaliação removida.');
+  miniTab('avaliacoes', idatleta);
+}
+
+function carregarMiniNotas(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  if (!a) return;
+
+  const notas = a.notas_professor || '';
+
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Anotações do Professor</div>
+      <p style="font-size:12px;color:var(--text-muted);margin:0;">Registre feedbacks, observações de treino, comportamento, evolução, restrições e tudo que for relevante para o acompanhamento deste aluno.</p>
+      <textarea id="mf-notas-prof" class="input" rows="8" style="font-size:13px;line-height:1.6;resize:vertical;" placeholder="Ex:&#10;• 10/05 — Feedback positivo, evoluiu no supino&#10;• 08/05 — Reclamou de dor no ombro direito&#10;• 01/05 — Iniciou treino B, adaptação boa&#10;• Próxima reavaliação: 15/06">${esc(notas)}</textarea>
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary btn-sm" onclick="salvarNotasProf(${id})">Salvar Notas</button>
+      </div>
+    </div>`;
+}
+
+async function salvarNotasProf(id) {
+  const notas = (document.getElementById('mf-notas-prof')?.value || '').trim();
+  try {
+    await API.editarAtleta(id, { notas_professor: notas });
+    showToast('Notas salvas!');
+    await carregar();
+  } catch(e) {
+    showToast(e.message || 'Erro ao salvar notas', 'error');
+  }
+}
+
+function carregarMiniDados(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  if (!a) return;
+  const readOnly = _fichaReadOnly;
+
+  const usuarios = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+  const profs = usuarios.filter(u => u.ativo !== false);
+  const selecionados = (a.professores_responsaveis || []).map(Number);
+  const dis = readOnly ? 'disabled' : '';
+
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group">
+        <label class="label">Nome completo</label>
+        <input id="mf-nome" class="input" value="${esc(a.nome||'')}" ${dis}/>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group">
+          <label class="label">E-mail</label>
+          <input id="mf-email" class="input" type="email" value="${esc(a.email||'')}" ${dis}/>
+        </div>
+        <div class="form-group">
+          <label class="label">Telefone</label>
+          <input id="mf-tel" class="input" value="${esc(a.telefone||'')}" ${dis}/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="label">Cidade ${!a.cidade ? '<span style="font-size:10px;color:var(--text-muted);font-weight:400;">(não preenchida pelo aluno — você pode adicionar)</span>' : ''}</label>
+        <input id="mf-cidade" class="input" value="${esc(a.cidade||'')}" placeholder="Cidade do aluno" ${dis}/>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+        <div class="form-group">
+          <label class="label">Nascimento</label>
+          <input id="mf-nasc" class="input" type="date" value="${esc(a.dtnascimento||'')}" ${dis}/>
+        </div>
+        <div class="form-group">
+          <label class="label">Gênero</label>
+          <select id="mf-genero" class="input" ${dis}>
+            <option value="M" ${a.genero==='M'?'selected':''}>Homem</option>
+            <option value="F" ${a.genero==='F'?'selected':''}>Mulher</option>
+            <option value="O" ${a.genero==='O'?'selected':''}>Outro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="label">CPF</label>
+          <input id="mf-cpf" class="input" value="${esc(a.cpf||'')}" placeholder="000.000.000-00" ${dis}/>
+        </div>
+        <div class="form-group">
+          <label class="label">Cód. Acesso</label>
+          <input id="mf-cod" class="input" value="${esc(a.codacesso||'')}" ${dis}/>
+        </div>
+      </div>
+      ${!readOnly ? `<div class="form-group">
+        <label class="label">Senha (vazio = manter atual)</label>
+        <input id="mf-senha" class="input" type="text" placeholder="Nova senha..."/>
+      </div>` : ''}
+      <div class="form-group">
+        <label class="label">Observações gerais</label>
+        <textarea id="mf-obs" class="input" rows="2" ${dis}>${esc(a.observacao||'')}</textarea>
+      </div>
+      ${isAdmin() ? `<div class="form-group">
+        <label class="label">Professores responsáveis</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${profs.map(p => `
+            <label style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;border:1px solid var(--border,#333);background:var(--bg,#111);font-size:12px;color:var(--text);cursor:pointer;transition:border-color .15s;">
+              <input type="checkbox" name="mf-profs" value="${p.idusuario}" ${selecionados.includes(Number(p.idusuario))?'checked':''} style="accent-color:#7fff00;"/>
+              ${esc(p.nome||p.email)}
+            </label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px;padding:12px;border-radius:10px;border:1px solid ${a.aluno_intus==='S'?'rgba(127,255,0,.4)':'var(--border,#333)'};background:${a.aluno_intus==='S'?'rgba(127,255,0,.04)':'transparent'};">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">
+          <input type="checkbox" id="mf-aluno-intus" ${a.aluno_intus==='S'?'checked':''} style="accent-color:#7fff00;width:18px;height:18px;"/>
+          <span>Aluno Intus</span>
+        </label>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;padding-left:28px;">
+          Valores financeiros ficam ocultos para professores colaboradores. Apenas o admin vê pagamentos e mensalidades deste aluno.
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px;">
+        <label class="label">Classificação</label>
+        <select id="mf-origem" class="input" style="width:auto;min-width:200px;">
+          <option value="" ${!a.origem ? 'selected' : ''}>Automática (${isLead(a) ? 'Lead' : 'Cliente'})</option>
+          <option value="app" ${String(a.origem||'').toLowerCase()==='app'?'selected':''}>Lead — app (teste grátis)</option>
+          <option value="captura" ${String(a.origem||'').toLowerCase()==='captura'?'selected':''}>Lead — página de captura</option>
+          <option value="professor" ${String(a.origem||'').toLowerCase()==='professor'?'selected':''}>Cliente — veio de professor</option>
+        </select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Leads vêm do app/captura (teste grátis). "Automática" decide pela origem do cadastro (sem professor e sem pagamento = lead).</div>
+      </div>` : `<div class="form-group">
+        <label class="label">Professor responsável</label>
+        <div style="font-size:12px;color:var(--text-muted);padding:6px 0;">
+          ${selecionados.length ? profs.filter(p => selecionados.includes(Number(p.idusuario))).map(p => esc(p.nome||p.email)).join(', ') : 'Não definido'}
+        </div>
+      </div>`}
+      ${!readOnly ? `<div style="text-align:right;">
+        <button class="btn btn-primary" onclick="salvarMiniDados(${id})">Salvar Alterações</button>
+      </div>` : ''}
+    </div>`;
+}
+
+async function salvarMiniDados(id) {
+  let profsChecked;
+  if (isAdmin()) {
+    profsChecked = [];
+    document.querySelectorAll('input[name="mf-profs"]:checked').forEach(cb => profsChecked.push(parseInt(cb.value)));
+  } else {
+    const _a = atletas.find(x => Number(x.idatleta) === Number(id));
+    profsChecked = _a ? (_a.professores_responsaveis || []) : [];
+  }
+  const senha = (document.getElementById('mf-senha')?.value || '').trim();
+  const payload = {
+    nome:         (document.getElementById('mf-nome')?.value || '').trim(),
+    email:        (document.getElementById('mf-email')?.value || '').trim(),
+    telefone:     (document.getElementById('mf-tel')?.value || '').trim(),
+    cidade:       (document.getElementById('mf-cidade')?.value || '').trim(),
+    genero:       document.getElementById('mf-genero')?.value || '',
+    dtnascimento: document.getElementById('mf-nasc')?.value || null,
+    codacesso:    (document.getElementById('mf-cod')?.value || '').trim(),
+    cpf:          (document.getElementById('mf-cpf')?.value || '').trim(),
+    observacao:   (document.getElementById('mf-obs')?.value || '').trim(),
+    professores_responsaveis: profsChecked,
+  };
+  if (isAdmin()) {
+    payload.aluno_intus = document.getElementById('mf-aluno-intus')?.checked ? 'S' : 'N';
+    payload.origem = document.getElementById('mf-origem')?.value || '';
+  }
+  if (senha) payload.senha = senha;
+  if (!payload.nome) return showToast('Informe o nome.', 'error');
+
+  try {
+    await API.editarAtletaVerificado(id, payload);
+    showToast(senha ? 'Dados e senha salvos no servidor ✓' : 'Dados salvos no servidor ✓');
+    await carregar();
+  } catch(e) {
+    showToast('⚠️ ' + (e.message || 'Erro ao salvar') + ' — os dados NÃO foram salvos.', 'error');
+  }
+}
+
+// ═══════════════ NOVA MATRÍCULA (inline do mini-dashboard) ═══════════════
+const PERSONAL_PRESETS_KEY = 'intus-planos-pessoais';
+
+function getPersonalPresets() {
+  try {
+    const user = Sessao.atual();
+    if (!user || !user.idusuario) return [];
+    const all = JSON.parse(localStorage.getItem(PERSONAL_PRESETS_KEY) || '{}');
+    return all[user.idusuario] || [];
+  } catch { return []; }
+}
+
+function savePersonalPresets(presets) {
+  const user = Sessao.atual();
+  if (!user || !user.idusuario) return;
+  const all = JSON.parse(localStorage.getItem(PERSONAL_PRESETS_KEY) || '{}');
+  all[user.idusuario] = presets;
+  localStorage.setItem(PERSONAL_PRESETS_KEY, JSON.stringify(all));
+}
+
+async function buildPlanoOptionsAlunos() {
+  const opts = [];
+  let planosConfig = {};
+  try { planosConfig = await API.getPlanosConfig(); } catch {}
+  const labels = {
+    'v-treino-tri': 'Treino — Trimestral',
+    'v-treino-sem': 'Treino — Semestral',
+    'v-treino-anual': 'Treino — Anual',
+    'v-dieta-tri': 'Dieta — Trimestral',
+    'v-dieta-sem': 'Dieta — Semestral',
+    'v-dieta-anual': 'Dieta — Anual',
+    'v-combo-tri': 'Treino + Dieta — Trimestral',
+    'v-combo-sem': 'Treino + Dieta — Semestral',
+    'v-combo-anual': 'Treino + Dieta — Anual',
+  };
+  const periodos = { tri: 3, sem: 6, anual: 12 };
+  Object.keys(labels).forEach(key => {
+    const valor = parseFloat(planosConfig[key]);
+    if (valor > 0) {
+      const periodoKey = key.split('-').pop();
+      opts.push({ key, label: labels[key], valor, meses: periodos[periodoKey] || 1, oficial: true });
+    }
+  });
+
+  const descCounts = {};
+  mensalidades.forEach(m => {
+    const desc = (m.dshistorico || '').trim();
+    if (!desc) return;
+    if (!descCounts[desc]) descCounts[desc] = { count: 0, valor: 0, meses: 0 };
+    descCounts[desc].count++;
+    descCounts[desc].valor = Math.max(descCounts[desc].valor, parseFloat(m.vlpagar) || 0);
+    if (m.dtinicio && m.dtvencimento) {
+      const d1 = new Date(m.dtinicio), d2 = new Date(m.dtvencimento);
+      const diffM = Math.round((d2 - d1) / (30.4 * 24 * 60 * 60 * 1000));
+      if (diffM > 0) descCounts[desc].meses = diffM;
+    }
+  });
+  const existingKeys = new Set(opts.map(o => o.label));
+  Object.entries(descCounts).forEach(([desc, info]) => {
+    if (info.count >= 2 && !existingKeys.has(desc)) {
+      opts.push({ key: 'auto-' + desc.toLowerCase().replace(/[^a-z0-9]/g, '-'), label: desc, valor: info.valor, meses: info.meses || 1, oficial: true });
+    }
+  });
+
+  const pessoais = getPersonalPresets();
+  pessoais.forEach(p => {
+    opts.push({ key: 'pessoal-' + p.id, label: p.label, valor: p.valor, meses: p.meses, oficial: false, pessoal: true });
+  });
+
+  return opts;
+}
+
+function aplicarPlanoAlunos(selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  const opts = window._planoOptsAlunos || [];
+  const opt = opts.find(o => o.key === val);
+  if (!opt) return;
+  document.getElementById('nm-valor').value = opt.valor.toFixed(2);
+  document.getElementById('nm-desc').value = opt.label;
+  const hoje = new Date();
+  document.getElementById('nm-ini').value = hoje.toISOString().slice(0,10);
+  const venc = new Date(hoje);
+  venc.setMonth(venc.getMonth() + (opt.meses || 1));
+  document.getElementById('nm-venc').value = venc.toISOString().slice(0,10);
+}
+
+async function abrirNovaMatricula(idatleta) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const venc30 = new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0, 10);
+  const mesNome = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  const planoOpts = await buildPlanoOptionsAlunos();
+  window._planoOptsAlunos = planoOpts;
+
+  const oficiais = planoOpts.filter(o => o.oficial);
+  const pessoais = planoOpts.filter(o => o.pessoal);
+  const user = Sessao.atual();
+  const canCreatePresets = user && (user.admin || user.assinante);
+
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">Nova Matrícula</div>
+
+      ${planoOpts.length > 0 ? `
+      <div class="form-group">
+        <label class="label">Plano pré-definido</label>
+        <select id="sel-plano-aluno" class="input" onchange="aplicarPlanoAlunos(this)">
+          <option value="">— Personalizado —</option>
+          ${oficiais.length ? `<optgroup label="Planos oficiais">${oficiais.map(o => `<option value="${o.key}">${esc(o.label)} — R$ ${o.valor.toFixed(2)}</option>`).join('')}</optgroup>` : ''}
+          ${pessoais.length ? `<optgroup label="Meus planos">${pessoais.map(o => `<option value="${o.key}">${esc(o.label)} — R$ ${o.valor.toFixed(2)}</option>`).join('')}</optgroup>` : ''}
+        </select>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Selecione um plano para preencher automaticamente.</div>
+      </div>` : ''}
+
+      <div class="form-group">
+        <label class="label">Descrição</label>
+        <input id="nm-desc" class="input" value="Mensalidade ${mesNome}" placeholder="Ex.: Mensalidade Maio"/>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group">
+          <label class="label">Data Início</label>
+          <input id="nm-ini" class="input" type="date" value="${hoje}"/>
+        </div>
+        <div class="form-group">
+          <label class="label">Vencimento</label>
+          <input id="nm-venc" class="input" type="date" value="${venc30}"/>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group">
+          <label class="label">Valor (R$)</label>
+          <input id="nm-valor" class="input" type="number" min="0" step="0.01" value="150.00"/>
+        </div>
+        <div class="form-group">
+          <label class="label">Desconto (R$)</label>
+          <input id="nm-desconto" class="input" type="number" min="0" step="0.01" placeholder="0.00" value="0.00"/>
+        </div>
+        <div class="form-group">
+          <label class="label">Dia Pagamento</label>
+          <input id="nm-diapgto" class="input" type="number" min="1" max="31" placeholder="Ex.: 10"/>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group">
+          <label class="label">Status</label>
+          <select id="nm-status" class="input">
+            <option value="N">Aberta</option>
+            <option value="S">Paga</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="label">Data Pagamento <span style="color:var(--text-dim);font-weight:400;">(se paga)</span></label>
+          <input id="nm-dtpgto" class="input" type="date"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="label">Recorrência</label>
+        <select id="nm-recorrencia" class="input">
+          <option value="mensal" selected>Mensal</option>
+          <option value="trimestral">Trimestral</option>
+          <option value="semestral">Semestral</option>
+          <option value="anual">Anual</option>
+          <option value="">Avulso (não renova)</option>
+        </select>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Plano recorrente gera a próxima cobrança automaticamente ao receber.</div>
+      </div>
+
+      ${canCreatePresets ? `
+      <div style="border-top:1px solid var(--border,#2a2a2a);padding-top:10px;margin-top:4px;">
+        <button class="btn btn-secondary btn-sm" onclick="gerenciarPresetsPessoais(${idatleta})" style="font-size:11px;">⚙ Gerenciar meus planos</button>
+      </div>` : ''}
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="miniTab('matriculas',${idatleta})">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarNovaMatricula(${idatleta})">Salvar Matrícula</button>
+      </div>
+    </div>`;
+}
+
+async function salvarNovaMatricula(idatleta) {
+  const desc   = (document.getElementById('nm-desc')?.value || '').trim();
+  const ini    = document.getElementById('nm-ini')?.value || '';
+  const venc   = document.getElementById('nm-venc')?.value || '';
+  const valor  = parseFloat(document.getElementById('nm-valor')?.value || 0);
+  const desconto = parseFloat(document.getElementById('nm-desconto')?.value || 0);
+  const status = document.getElementById('nm-status')?.value || 'N';
+  const dtpgto = document.getElementById('nm-dtpgto')?.value || '';
+  const diaPgto = document.getElementById('nm-diapgto')?.value || '';
+  const recorrencia = document.getElementById('nm-recorrencia')?.value || '';
+
+  if (!desc) return showToast('Informe a descrição.', 'error');
+  if (!venc) return showToast('Informe a data de vencimento.', 'error');
+  if (valor <= 0) return showToast('Informe um valor válido.', 'error');
+
+  let vencFinal = venc;
+  if (diaPgto && parseInt(diaPgto) >= 1 && parseInt(diaPgto) <= 31) {
+    const vd = new Date(venc + 'T00:00:00');
+    const day = parseInt(diaPgto);
+    const lastDay = new Date(vd.getFullYear(), vd.getMonth() + 1, 0).getDate();
+    vd.setDate(Math.min(day, lastDay));
+    vencFinal = vd.toISOString().slice(0, 10);
+  }
+
+  const payload = {
+    idatleta,
+    dshistorico: desc,
+    dtinicio: ini,
+    dtvencimento: vencFinal,
+    vlpagar: valor,
+    vldesconto: desconto,
+    vljuro: 0,
+    stpgto: status,
+    recorrencia: recorrencia || null,
+    dtpagamento: status === 'S' ? (dtpgto || new Date().toISOString().slice(0, 10)) : null,
+  };
+
+  try {
+    await API.criarMensalidade(payload);
+    showToast('Matrícula criada!');
+    try { mensalidades = await API.listarMensalidades(); } catch {}
+    miniTab('matriculas', idatleta);
+  } catch(e) {
+    showToast(e.message || 'Erro ao criar matrícula', 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// Ações de matrícula direto na ficha do aluno (pagar, editar, renovar, vencimento, excluir)
+// ══════════════════════════════════════════════════════════
+const _RECMESES_AL = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
+
+function _mAtual(idmens, idatleta) {
+  return getMensalidadesAtleta(idatleta).find(x => Number(x.idmensalidade) === Number(idmens));
+}
+function _proxVencAl(baseStr, meses, diaVenc) {
+  const base = new Date(baseStr + 'T00:00:00');
+  const y = base.getFullYear(), mo = base.getMonth() + meses;
+  const ld = new Date(y, mo + 1, 0).getDate();
+  return new Date(y, mo, Math.min(diaVenc, ld)).toISOString().slice(0, 10);
+}
+// Gera a próxima cobrança (em aberto) para planos recorrentes. Retorna a data do novo vencimento ou null.
+async function _gerarRenovacaoAl(m, opts) {
+  opts = opts || {};
+  if (!m.dtvencimento) return null;
+  const rec = String(m.recorrencia || '').toLowerCase();
+  const d2 = new Date(m.dtvencimento + 'T00:00:00');
+  const diaVenc = d2.getDate();
+  const hojeD = new Date(); hojeD.setHours(0, 0, 0, 0);
+  let meses = _RECMESES_AL[rec] || 0;
+  if (!meses && m.dtinicio) {
+    const d1 = new Date(m.dtinicio + 'T00:00:00');
+    let dm = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+    const dd = Math.round((d2 - d1) / 86400000);
+    if (dm <= 0 && dd >= 25 && dd <= 35) dm = 1;
+    meses = dm;
+  }
+  if (meses <= 0 && opts.fallbackMensal) meses = 1;
+  if (meses <= 0) return null;
+  const baseStr = d2 > hojeD ? m.dtvencimento : hojeD.toISOString().slice(0, 10);
+  const novoVenc = _proxVencAl(baseStr, meses, diaVenc);
+  if (opts.perguntar && !confirm('Gerar a próxima cobrança?\n\nPlano: ' + (m.dshistorico || 'Mensalidade') + '\nNovo vencimento: ' + new Date(novoVenc + 'T00:00:00').toLocaleDateString('pt-BR'))) return null;
+  await API.criarMensalidade({
+    idatleta: m.idatleta,
+    dshistorico: m.dshistorico || 'Mensalidade',
+    tipo_plano: m.tipo_plano || null,
+    dtinicio: baseStr,
+    dtvencimento: novoVenc,
+    vlpagar: m.vlpagar,
+    vldesconto: 0, vljuro: 0, stpgto: 'N',
+    professor: m.professor || null,
+    recorrencia: rec || null,
+  });
+  return novoVenc;
+}
+
+// ── Marcar pago com forma de pagamento ──
+function marcarPagoMini(idmens, idatleta) {
+  const box = document.getElementById('mini-tab-content'); if (!box) return;
+  const m = _mAtual(idmens, idatleta); if (!m) return;
+  const hoje = new Date().toISOString().slice(0, 10);
+  // Conta do dia da COBRANCA. Antes so aparecia depois do fim da cobertura, ou
+  // seja, voce so era lembrado da multa um ciclo inteiro depois do atraso.
+  const _cob = (typeof API !== 'undefined' && API.dtCobranca) ? API.dtCobranca(m) : String(m.dtvencimento||'').slice(0,10);
+  const venc = !!_cob && _cob < hoje;
+  const atraso = venc ? Math.round((new Date(hoje + 'T00:00:00') - new Date(_cob + 'T00:00:00')) / 86400000) : 0;
+  const base = (parseFloat(m.vlpagar || 0) - parseFloat(m.vldesconto || 0)).toFixed(2);
+  const _fa = String(m.forma_pgto || 'pix').toLowerCase();
+  const op = (v, l) => `<option value="${v}" ${_fa === v ? 'selected' : ''}>${l}</option>`;
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);">Registrar pagamento</div>
+      <div style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || 'Mensalidade')} · <b style="color:var(--text);">R$ ${base}</b></div>
+      <div class="form-group"><label class="label">Forma de pagamento</label>
+        <select id="pgm-forma" class="input" onchange="_pgmForma()">${op('pix','Pix')}${op('dinheiro','Dinheiro')}${op('cartao','Cartão (crédito/débito)')}${op('eduzz','Eduzz')}</select></div>
+      <div id="pgm-eduzz" style="display:none;background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);">Via Eduzz: fica retido ~30 dias; entra no Caixa (líquido) no saque, em Financeiro › Eduzz.</div>
+      ${venc ? `<div class="form-group"><label class="label">Multa/juros (R$) — vencida há ${atraso} dia(s)</label><input id="pgm-juros" class="input" type="number" min="0" step="0.01" value="0"/></div>` : ''}
+      <div class="form-group"><label class="label">Data do pagamento</label><input id="pgm-data" class="input" type="date" value="${hoje}"/></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="miniTab('matriculas',${idatleta})">Cancelar</button>
+        <button class="btn btn-success btn-sm" onclick="confirmarPagamentoMini(${idmens},${idatleta})">Confirmar</button>
+      </div>
+    </div>`;
+  _pgmForma();
+}
+function _pgmForma() {
+  const f = document.getElementById('pgm-forma')?.value;
+  const n = document.getElementById('pgm-eduzz');
+  if (n) n.style.display = f === 'eduzz' ? 'block' : 'none';
+}
+async function confirmarPagamentoMini(idmens, idatleta) {
+  const m = _mAtual(idmens, idatleta); if (!m) return;
+  const forma = document.getElementById('pgm-forma')?.value || null;
+  const data = document.getElementById('pgm-data')?.value || new Date().toISOString().slice(0, 10);
+  let juros = parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0;
+  if (juros < 0) juros = 0;
+  const total = +((parseFloat(m.vlpagar || 0)) + juros - (parseFloat(m.vldesconto || 0))).toFixed(2);
+  try {
+    if (juros > 0) m.vljuro = juros;
+    await API.pagarMensalidade(m, data, total);
+    if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); } catch (e) {} }
+    m.forma_pgto = forma;
+    const recKnown = String(m.recorrencia || '').toLowerCase() in _RECMESES_AL;
+    const nv = await _gerarRenovacaoAl(m, { perguntar: !recKnown });
+    showToast('Pagamento registrado!' + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
+    try { mensalidades = await API.listarMensalidades(); } catch {}
+    miniTab('matriculas', idatleta);
+  } catch (e) {
+    showToast(e.message || 'Erro ao registrar pagamento', 'error');
+  }
+}
+
+// ── Editar matrícula ──
+function abrirEditarMatricula(idmens, idatleta) {
+  const box = document.getElementById('mini-tab-content'); if (!box) return;
+  const m = _mAtual(idmens, idatleta); if (!m) return;
+  const _rec = String(m.recorrencia || '');
+  const _fa = String(m.forma_pgto || '');
+  const rop = (v, l) => `<option value="${v}" ${_rec === v ? 'selected' : ''}>${l}</option>`;
+  const fop = (v, l) => `<option value="${v}" ${_fa === v ? 'selected' : ''}>${l}</option>`;
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);">Editar Matrícula</div>
+      <div class="form-group"><label class="label">Descrição</label><input id="em-desc" class="input" value="${esc(m.dshistorico || '')}"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="label">Início</label><input id="em-ini" class="input" type="date" value="${String(m.dtinicio||'').slice(0,10)}"/></div>
+        <div class="form-group"><label class="label">Vencimento</label><input id="em-venc" class="input" type="date" value="${String(m.dtvencimento||'').slice(0,10)}"/></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="label">Valor (R$)</label><input id="em-valor" class="input" type="number" min="0" step="0.01" value="${parseFloat(m.vlpagar||0).toFixed(2)}"/></div>
+        <div class="form-group"><label class="label">Desconto (R$)</label><input id="em-desc2" class="input" type="number" min="0" step="0.01" value="${parseFloat(m.vldesconto||0).toFixed(2)}"/></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="label">Recorrência</label><select id="em-rec" class="input">${rop('','— Avulso (não renova) —')}${rop('mensal','Mensal')}${rop('trimestral','Trimestral')}${rop('semestral','Semestral')}${rop('anual','Anual')}</select></div>
+        <div class="form-group"><label class="label">Status</label><select id="em-status" class="input"><option value="N" ${m.stpgto!=='S'?'selected':''}>Aberta</option><option value="S" ${m.stpgto==='S'?'selected':''}>Paga</option></select></div>
+      </div>
+      <div class="form-group"><label class="label">Forma de pagamento</label><select id="em-forma" class="input">${fop('','—')}${fop('pix','Pix')}${fop('dinheiro','Dinheiro')}${fop('cartao','Cartão')}${fop('eduzz','Eduzz')}</select></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="miniTab('matriculas',${idatleta})">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarEdicaoMatricula(${idmens},${idatleta})">Salvar</button>
+      </div>
+    </div>`;
+}
+async function salvarEdicaoMatricula(idmens, idatleta) {
+  const g = i => document.getElementById(i);
+  const desc = (g('em-desc')?.value || '').trim();
+  const ini = g('em-ini')?.value || null;
+  const venc = g('em-venc')?.value || '';
+  const valor = parseFloat(g('em-valor')?.value || 0);
+  const desconto = parseFloat(g('em-desc2')?.value || 0);
+  const rec = g('em-rec')?.value || '';
+  const status = g('em-status')?.value || 'N';
+  const forma = g('em-forma')?.value || '';
+  if (!desc) return showToast('Informe a descrição.', 'error');
+  if (!venc) return showToast('Informe o vencimento.', 'error');
+  if (valor <= 0) return showToast('Valor inválido.', 'error');
+  const m = _mAtual(idmens, idatleta);
+  const patch = { dshistorico: desc, dtinicio: ini, dtvencimento: venc, vlpagar: valor, vldesconto: desconto, recorrencia: rec || null, stpgto: status, forma_pgto: forma || null };
+  if (status === 'S' && !(m && m.dtpagamento)) { patch.dtpagamento = new Date().toISOString().slice(0, 10); patch.vlpagamento = valor; }
+  try {
+    await API.editarMensalidade(idmens, patch);
+    showToast('Matrícula atualizada!');
+    try { mensalidades = await API.listarMensalidades(); } catch {}
+    miniTab('matriculas', idatleta);
+  } catch (e) {
+    showToast(e.message || 'Erro ao salvar', 'error');
+  }
+}
+
+// ── Renovar (gerar próxima cobrança) ──
+async function renovarMatriculaMini(idmens, idatleta) {
+  const m = _mAtual(idmens, idatleta); if (!m) return;
+  try {
+    const nv = await _gerarRenovacaoAl(m, { perguntar: true, fallbackMensal: true });
+    if (nv) {
+      showToast('Próxima cobrança gerada — vence ' + new Date(nv + 'T00:00:00').toLocaleDateString('pt-BR') + '.');
+      try { mensalidades = await API.listarMensalidades(); } catch {}
+      miniTab('matriculas', idatleta);
+    }
+  } catch (e) {
+    showToast(e.message || 'Erro ao renovar', 'error');
+  }
+}
+
+// ── Alterar vencimento ──
+async function alterarVencMini(idmens, idatleta) {
+  const m = _mAtual(idmens, idatleta); if (!m) return;
+  const atual = String(m.dtvencimento || '').slice(0, 10);
+  const nova = prompt('Novo vencimento (AAAA-MM-DD):', atual);
+  if (!nova || nova === atual) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(nova)) return showToast('Data inválida. Use AAAA-MM-DD.', 'error');
+  try {
+    await API.editarMensalidade(idmens, { dtvencimento: nova });
+    showToast('Vencimento atualizado.');
+    try { mensalidades = await API.listarMensalidades(); } catch {}
+    miniTab('matriculas', idatleta);
+  } catch (e) {
+    showToast(e.message || 'Erro ao alterar vencimento', 'error');
+  }
+}
+
+// ── Excluir ──
+async function excluirMatriculaMini(idmens, idatleta) {
+  if (!hasPerm('mt_excluir')) return showToast('Sem permissão para excluir.', 'error');
+  if (!confirm('Excluir esta matrícula? Essa ação não pode ser desfeita.')) return;
+  try {
+    await API.excluirMensalidade(idmens);
+    showToast('Matrícula excluída.');
+    try { mensalidades = await API.listarMensalidades(); } catch {}
+    miniTab('matriculas', idatleta);
+  } catch (e) {
+    showToast(e.message || 'Erro ao excluir', 'error');
+  }
+}
+
+function gerenciarPresetsPessoais(idatleta) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  const presets = getPersonalPresets();
+
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">Meus Planos Personalizados</div>
+        <button class="btn btn-secondary btn-sm" onclick="abrirNovaMatricula(${idatleta})" style="font-size:11px;">← Voltar</button>
+      </div>
+      <p style="font-size:11px;color:var(--text-muted);margin:0;">Crie pré-definições de planos que só você pode ver. Planos oficiais com links válidos são gerenciados apenas pelo admin.</p>
+
+      ${presets.length > 0 ? `
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${presets.map((p, i) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text);">${esc(p.label)}</div>
+              <div style="font-size:10px;color:var(--text-muted);">R$ ${p.valor.toFixed(2)} · ${p.meses} ${p.meses === 1 ? 'mês' : 'meses'}</div>
+            </div>
+            <button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px;" onclick="removerPresetPessoal(${i},${idatleta})">✕</button>
+          </div>
+        `).join('')}
+      </div>` : '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px;">Nenhum plano pessoal criado.</div>'}
+
+      <div style="border-top:1px solid var(--border,#2a2a2a);padding-top:12px;">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Adicionar novo</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;">
+          <div class="form-group"><label class="label">Nome</label><input id="pp-label" class="input" placeholder="Ex.: Mensal básico"/></div>
+          <div class="form-group"><label class="label">Valor (R$)</label><input id="pp-valor" class="input" type="number" min="0" step="0.01" placeholder="100.00"/></div>
+          <div class="form-group"><label class="label">Meses</label><input id="pp-meses" class="input" type="number" min="1" max="24" placeholder="1"/></div>
+        </div>
+        <div style="margin-top:8px;text-align:right;">
+          <button class="btn btn-primary btn-sm" onclick="adicionarPresetPessoal(${idatleta})">+ Adicionar Plano</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function adicionarPresetPessoal(idatleta) {
+  const label = (document.getElementById('pp-label')?.value || '').trim();
+  const valor = parseFloat(document.getElementById('pp-valor')?.value || 0);
+  const meses = parseInt(document.getElementById('pp-meses')?.value || 1);
+  if (!label) return showToast('Informe o nome do plano.', 'error');
+  if (valor <= 0) return showToast('Informe um valor válido.', 'error');
+  const presets = getPersonalPresets();
+  presets.push({ id: Date.now(), label, valor, meses: meses || 1 });
+  savePersonalPresets(presets);
+  showToast('Plano pessoal adicionado!');
+  gerenciarPresetsPessoais(idatleta);
+}
+
+function removerPresetPessoal(idx, idatleta) {
+  const presets = getPersonalPresets();
+  presets.splice(idx, 1);
+  savePersonalPresets(presets);
+  showToast('Plano removido.');
+  gerenciarPresetsPessoais(idatleta);
+}
+
+// ═══════════════ NOVO CLIENTE (modal simples) ═══════════════
+function abrirModalNovo() {
+  if (!hasPerm('at_incluir')) return showToast('Você não tem permissão para adicionar clientes.', 'error');
+  const usuarios = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+  const profs = usuarios.filter(u => u.ativo !== false);
+
+  openModal(`
+    <div class="modal-box wide" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-title">Novo Cliente</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="label">Nome completo *</label>
+          <input id="f-nome" class="input" autofocus placeholder="Ex.: Ana Paula Silva"/>
+        </div>
+        <div class="form-group">
+          <label class="label">E-mail</label>
+          <input id="f-email" class="input" type="email" placeholder="aluno@email.com"/>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="label">Senha do aluno</label>
+            <input id="f-senha" class="input" type="text" placeholder="Senha para login"/>
+          </div>
+          <div class="form-group">
+            <label class="label">Gênero</label>
+            <select id="f-genero" class="input">
+              <option value="M">Homem</option>
+              <option value="F">Mulher</option>
+              <option value="O">Outro</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="label">Nascimento</label>
+            <input id="f-nasc" class="input" type="date"/>
+          </div>
+          <div class="form-group">
+            <label class="label">Telefone</label>
+            <input id="f-tel" class="input" placeholder="(00) 00000-0000"/>
+          </div>
+          <div class="form-group">
+            <label class="label">Código de acesso</label>
+            <input id="f-cod" class="input" placeholder="Auto"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Objetivos</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${['Hipertrofia','Emagrecimento','Saúde','Condicionamento','Reabilitação','Performance'].map(o => `
+              <label style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;border:1px solid var(--border,#333);background:var(--bg,#111);font-size:12px;color:var(--text);cursor:pointer;">
+                <input type="checkbox" name="f-objetivos" value="${o}" style="accent-color:#7fff00;"/> ${o}
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Dificuldades</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${['Pouco tempo','Lesões','Nunca treinei','Falta constância','Alimentação','Falta técnica','Falta intensidade','Evoluo pouco'].map(d => `
+              <label style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;border:1px solid var(--border,#333);background:var(--bg,#111);font-size:12px;color:var(--text);cursor:pointer;">
+                <input type="checkbox" name="f-dificuldades" value="${d}" style="accent-color:#fbbf24;"/> ${d}
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Observações</label>
+          <textarea id="f-obs" class="input" rows="2" placeholder="Restrições, lesões, notas gerais..."></textarea>
+        </div>
+        ${isAdmin() ? `<div class="form-group">
+          <label class="label">Professores responsáveis</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${profs.map(p => `
+              <label style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;border:1px solid var(--border,#333);background:var(--bg,#111);font-size:12px;color:var(--text);cursor:pointer;">
+                <input type="checkbox" name="f-profs" value="${p.idusuario}" style="accent-color:#7fff00;"/>
+                ${esc(p.nome||p.email)}
+              </label>
+            `).join('')}
+          </div>
+        </div>` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarNovo()">Salvar</button>
+      </div>
+    </div>
+  `);
+  setTimeout(() => document.getElementById('f-nome')?.focus(), 50);
+}
+
+async function salvarNovo() {
+  let profsChecked = [];
+  if (isAdmin()) {
+    document.querySelectorAll('input[name="f-profs"]:checked').forEach(cb => profsChecked.push(parseInt(cb.value)));
+  } else {
+    const _me = Sessao.atual();
+    if (_me && _me.idusuario) profsChecked = [Number(_me.idusuario)];
+  }
+  const objetivos = [];
+  document.querySelectorAll('input[name="f-objetivos"]:checked').forEach(cb => objetivos.push(cb.value));
+  const dificuldades = [];
+  document.querySelectorAll('input[name="f-dificuldades"]:checked').forEach(cb => dificuldades.push(cb.value));
+  const senha = (document.getElementById('f-senha')?.value || '').trim();
+  const payload = {
+    nome:         (document.getElementById('f-nome')?.value || '').trim(),
+    email:        (document.getElementById('f-email')?.value || '').trim(),
+    telefone:     (document.getElementById('f-tel')?.value || '').trim(),
+    genero:       document.getElementById('f-genero')?.value || '',
+    dtnascimento: document.getElementById('f-nasc')?.value || null,
+    codacesso:    (document.getElementById('f-cod')?.value || '').trim(),
+    observacao:   (document.getElementById('f-obs')?.value || '').trim(),
+    professores_responsaveis: profsChecked,
+    objetivos,
+    dificuldades,
+  };
+  if (senha) payload.senha = senha;
+  if (!payload.nome) return showToast('Informe o nome.', 'error');
+
+  try {
+    await API.criarAtletaVerificado(payload);
+    showToast('Cliente cadastrado no servidor ✓');
+    closeModal();
+    await carregar();
+  } catch(e) {
+    showToast('⚠️ ' + (e.message || 'Erro ao salvar') + ' — o cadastro NÃO foi salvo.', 'error');
+  }
+}
+
+// ═══════════════ AÇÕES ═══════════════
+async function excluirTodosBloqueados() {
+  if (!isAdmin()) return showToast('Apenas admin.', 'error');
+  const bloqueados = atletas.filter(a => a.stbloqueio === 'S');
+  if (!bloqueados.length) return showToast('Nenhum bloqueado.', 'error');
+  if (!confirm(`Excluir definitivamente ${bloqueados.length} cliente(s) bloqueado(s)? Esta ação não pode ser desfeita.`)) return;
+  let ok = 0;
+  for (const a of bloqueados) {
+    try { await API.excluirAtleta(a.idatleta); ok++; } catch {}
+  }
+  showToast(`${ok} cliente(s) excluído(s) definitivamente.`);
+  await carregar();
+}
+
+async function toggleBloqueio(id, novo) {
+  if (!hasPerm('at_editar')) return showToast('Sem permissão.', 'error');
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  if (!a) return;
+  const acao = novo === 'S' ? 'bloquear' : 'ativar';
+  if (!confirm(`Deseja ${acao} o cliente "${a.nome}"?`)) return;
+  try {
+    await API.editarAtleta(id, { stbloqueio: novo });
+    showToast(novo === 'S' ? 'Cliente bloqueado.' : 'Cliente ativado!');
+    await carregar();
+  } catch(e) {
+    showToast(e.message || 'Erro', 'error');
+  }
+}
+
+// ── APARELHO ENTRADO NA CONTA ERRADA ────────────────────────────────────────
+// Em 18/08/2026 uma aluna preencheu a anamnese inteira num celular que estava
+// entrado com a conta de outra pessoa. As respostas foram para o cadastro do
+// dono da sessao, e a unica saida seria pedir para ela mexer nas configuracoes
+// — constrangedor e sem garantia nenhuma.
+// Este botao encerra a sessao daquela conta em TODOS os aparelhos. Na proxima
+// vez que o app abrir, cai na tela de login normalmente, como acontece em
+// qualquer aplicativo, e cada um entra com o proprio codigo.
+async function desconectarAparelhos(idatleta, nome) {
+  if (!confirm('Desconectar ' + (nome || 'este aluno') + ' de todos os aparelhos?\n\nNa próxima vez que abrir o app, ele entra de novo com o código dele. Nenhum dado é apagado.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=sessoes', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_type: 'aluno', user_id: Number(idatleta) }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detalhe || j.error || 'falhou');
+    showToast(j.encerradas > 0
+      ? (j.encerradas + ' aparelho(s) desconectado(s).')
+      : 'Nenhuma sessão ativa encontrada nesta conta.');
+  } catch (e) {
+    showToast('Não deu para desconectar: ' + e.message, 'error');
+  }
+}
+
+async function excluirCliente(id) {
+  if (!hasPerm('at_editar')) return showToast('Sem permissão para excluir clientes.', 'error');
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  if (!a) return showToast('Cliente não encontrado.', 'error');
+
+  let vinculos = { mensalidades: 0, fichas: 0 };
+  try {
+    vinculos.mensalidades = getMensalidadesAtleta(id).length;
+    const fichas = JSON.parse(localStorage.getItem('intus-fichas') || '[]');
+    vinculos.fichas = (Array.isArray(fichas) ? fichas : []).filter(f => Number(f.idatleta) === Number(id)).length;
+  } catch {}
+
+  const vincMsg = [];
+  if (vinculos.mensalidades) vincMsg.push(`${vinculos.mensalidades} matrícula(s)`);
+  if (vinculos.fichas)       vincMsg.push(`${vinculos.fichas} ficha(s) de treino`);
+
+  const alerta = vincMsg.length
+    ? `\n\n⚠️  ATENÇÃO: este cliente tem ${vincMsg.join(', ')} que TAMBÉM serão excluídas.`
+    : '';
+
+  if (!confirm(`Deseja EXCLUIR permanentemente o cliente "${a.nome}"?${alerta}\n\nEsta ação não pode ser desfeita.`)) return;
+
+  const digitado = prompt(`Para confirmar, digite o nome EXATO do cliente:\n\n${a.nome}`);
+  if (digitado == null) return;
+  if (String(digitado).trim() !== String(a.nome).trim()) {
+    return showToast('Nome não confere. Exclusão cancelada.', 'error');
+  }
+
+  try {
+    await API.excluirAtleta(id);
+    showToast(`Cliente "${a.nome}" excluído.`);
+    closeModal();
+    await carregar();
+  } catch(e) {
+    showToast(e.message || 'Erro ao excluir', 'error');
+  }
+}
+
+carregar();
+</script>
+</body>
+</html>

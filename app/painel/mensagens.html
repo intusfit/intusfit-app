@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Central do Aluno — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    /* ─── Modo topo (Atividade / Conversas) ─── */
+    .mode-bar { display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; }
+    .mode-btn { display:flex; align-items:center; gap:8px; padding:10px 18px; border-radius:12px; border:1px solid var(--border); background:var(--bg2); color:var(--text-muted); font-size:13px; font-weight:800; cursor:pointer; transition:.14s; font-family:inherit; }
+    .mode-btn.active { background:rgba(127,255,0,.1); border-color:var(--brand); color:var(--brand); }
+    .mode-btn .mb-badge { background:#f87171; color:#fff; font-size:10px; font-weight:800; padding:1px 7px; border-radius:10px; }
+
+    /* ─── Dashboard / feed ─── */
+    .dash-wrap { max-width: 960px; margin: 0 auto; }
+    .dash-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
+    @media (max-width:760px) { .dash-tiles { grid-template-columns:repeat(2,1fr); } }
+    .dash-tile { background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; cursor:pointer; transition:.14s; position:relative; overflow:hidden; }
+    .dash-tile:hover { border-color:var(--brand); transform:translateY(-1px); }
+    .dash-tile.active { border-color:var(--brand); box-shadow:0 0 0 1px var(--brand) inset; }
+    .dash-tile .t-ic { font-size:18px; }
+    .dash-tile .t-num { font-size:26px; font-weight:900; color:var(--text); line-height:1; margin-top:8px; }
+    .dash-tile .t-lbl { font-size:11px; color:var(--text-muted); margin-top:4px; line-height:1.3; }
+    .dash-tile .t-strip { position:absolute; left:0; top:0; bottom:0; width:4px; }
+
+    .dash-controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+    .dash-chip { padding:7px 14px; border-radius:20px; border:1px solid var(--border); background:var(--bg2); color:var(--text-muted); font-size:12px; font-weight:700; cursor:pointer; transition:.12s; font-family:inherit; }
+    .dash-chip:hover { border-color:var(--brand); }
+    .dash-chip.active { background:rgba(127,255,0,.1); border-color:var(--brand); color:var(--brand); }
+    .dash-search { flex:1; min-width:160px; padding:8px 14px; border-radius:20px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12px; font-family:inherit; }
+    .dash-search:focus { border-color:var(--brand); outline:none; }
+    .dash-sel { padding:8px 12px; border-radius:20px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12px; font-family:inherit; cursor:pointer; }
+
+    .feed { list-style:none; margin:0; padding:0; }
+    .feed-card { display:flex; gap:13px; padding:14px 16px; background:var(--bg2); border:1px solid var(--border); border-left-width:4px; border-radius:12px; margin-bottom:10px; transition:.12s; }
+    .feed-card:hover { border-color:var(--border); }
+    .feed-card.novo { background:rgba(127,255,0,.045); }
+    .feed-ic { width:42px; height:42px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0; }
+    .feed-main { flex:1; min-width:0; }
+    .feed-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px; }
+    .feed-name { font-size:13px; font-weight:800; color:var(--text); }
+    .feed-badge { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; padding:2px 7px; border-radius:6px; }
+    .feed-date { font-size:11px; color:var(--text-muted); margin-left:auto; white-space:nowrap; }
+    .feed-text { font-size:13px; color:var(--text); line-height:1.5; word-wrap:break-word; }
+    .feed-text.quote { font-style:italic; }
+    .feed-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:9px; align-items:center; }
+    .feed-btn { padding:5px 12px; border-radius:9px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; transition:.12s; }
+    .feed-btn:hover { border-color:var(--brand); color:var(--brand); }
+    .feed-btn.primary { background:var(--brand); color:#000; border-color:var(--brand); }
+    .novo-dot { width:8px; height:8px; border-radius:50%; background:var(--brand); flex-shrink:0; }
+    .reaction-btn { padding:3px 7px; border-radius:11px; border:1px solid var(--border); background:var(--bg); font-size:13px; cursor:pointer; transition:.12s; }
+    .reaction-btn:hover { border-color:var(--brand); background:rgba(127,255,0,.06); }
+    .reaction-btn.active { border-color:var(--brand); background:rgba(127,255,0,.12); }
+
+    /* ─── Chat (Conversas) — layout de 2 colunas ─── */
+    .msg-layout { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 150px); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+    @media (max-width: 900px) { .msg-layout { grid-template-columns: 1fr; } .msg-panel { display: none; } .msg-panel.active { display: flex; } .msg-contacts.hidden { display: none; } }
+    .msg-contacts { background: var(--bg2); border-right: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+    .msg-contacts-header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .msg-contacts-header input { width:100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 12px; font-family:inherit; }
+    .msg-contacts-header input:focus { border-color: var(--brand); outline: none; }
+    .contact-item { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s; display: flex; align-items: center; gap: 12px; }
+    .contact-item:hover { background: rgba(127,255,0,.04); }
+    .contact-item.active { background: rgba(127,255,0,.08); border-left: 3px solid var(--brand); }
+    .contact-info { flex: 1; min-width: 0; }
+    .contact-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .contact-last { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .contact-unread { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); flex-shrink: 0; }
+    .msg-panel { flex-direction: column; background: var(--bg); display: flex; }
+    .msg-panel-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+    .msg-panel-header .back-btn { display: none; background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; }
+    @media (max-width: 900px) { .msg-panel-header .back-btn { display: block; } }
+    .msg-panel-header .panel-name { font-size: 14px; font-weight: 700; color: var(--text); }
+    .msg-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .msg-bubble { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-wrap: break-word; position: relative; }
+    .msg-bubble.aluno { align-self: flex-start; background: var(--bg2); color: var(--text); border-bottom-left-radius: 4px; }
+    .msg-bubble.professor { align-self: flex-end; background: rgba(127,255,0,.12); color: var(--text); border-bottom-right-radius: 4px; }
+    .msg-bubble .msg-time { font-size: 9px; color: var(--text-muted); margin-top: 4px; text-align: right; }
+    .msg-input-bar { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+    .msg-input-bar textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; font-family: inherit; background: var(--bg2); color: var(--text); max-height: 80px; }
+    .msg-input-bar textarea:focus { border-color: var(--brand); outline: none; }
+    .msg-input-bar .send-btn { width: 38px; height: 38px; border-radius: 50%; border: none; background: var(--brand); color: #000; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; text-align: center; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .empty-state p { font-size: 13px; color: var(--text-muted); max-width: 320px; }
+
+    body.theme-light .msg-bubble.aluno { background: #f3f4f6; }
+    body.theme-light .msg-bubble.professor { background: rgba(58,153,0,.08); }
+    body.theme-light .contact-item.active { background: rgba(58,153,0,.06); }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Central do Aluno');
+
+const main = document.getElementById('main-content');
+const userId = Sessao.atual()?.idusuario || 0;
+const isAdm = isAdmin();
+
+// modo: 'atividade' (feed) | 'conversas' (chat)
+let mode = 'atividade';
+let dashFilter = 'tudo';   // tudo | mensagem | comentario | mural | foto
+let dashSoNovas = false;
+let dashPeriodo = '30';    // '7' | '30' | 'tudo'
+let dashBusca = '';
+
+let activeAtleta = null;
+let atletas = [];
+let mensagens = [];
+let comentarios = [];
+let muralComentarios = [];
+let sessoesFotos = [];
+let polling = null;
+
+// Faltava risada, comemoracao e surpresa — as tres reacoes que mais aparecem
+// num mural entre colegas. A mesma lista e usada no aplicativo do aluno.
+const REACTIONS = ['👍','❤️','😂','🔥','💪','👏','🎉','😮'];
+
+// ── REACOES DO MURAL ───────────────────────────────────────────────────────
+// O mural nao tinha reacao nenhuma: o professor so podia excluir. Agora ele
+// reage junto com os alunos, na mesma tabela e com as mesmas regras — varias
+// reacoes por pessoa, clicar de novo remove, e o nome de quem reagiu visivel.
+let _reacoesMural = {};
+let _reacaoAberta = null;
+
+async function carregarReacoesMural() {
+  const ids = muralComentarios.map(c => Number(c.idcomentario)).filter(Boolean);
+  if (!ids.length) { _reacoesMural = {}; return; }
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=mural&ids=' + ids.join(',') + '&_=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    _reacoesMural = r.ok ? (await r.json()) : {};
+    if (!_reacoesMural || typeof _reacoesMural !== 'object') _reacoesMural = {};
+  } catch (e) { _reacoesMural = {}; }
+}
+
+async function reagirMural(idcomentario, emoji) {
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alvo_tipo: 'mural', alvo_id: Number(idcomentario), emoji }),
+    });
+    if (!r.ok) throw new Error('falhou');
+    _reacaoAberta = null;
+    await carregarReacoesMural();
+    render();
+  } catch (e) { showToast('Não deu para registrar sua reação.', 'error'); }
+}
+
+function abrirSeletorReacao(id) { _reacaoAberta = (_reacaoAberta === id) ? null : id; render(); }
+
+function htmlReacoesMural(idcomentario) {
+  const lista = _reacoesMural[String(idcomentario)] || [];
+  const grupos = new Map();
+  lista.forEach(r => {
+    if (!grupos.has(r.emoji)) grupos.set(r.emoji, { n: 0, nomes: [], meu: false });
+    const g = grupos.get(r.emoji);
+    g.n++; g.nomes.push(r.autor_nome || 'Alguém');
+    if (r.meu) g.meu = true;
+  });
+  const chips = [...grupos.entries()].map(([emoji, g]) =>
+    `<button class="reaction-btn ${g.meu ? 'active' : ''}" title="${esc(g.nomes.join(', '))}" onclick="reagirMural(${idcomentario},'${emoji}')">${emoji} ${g.n}</button>`).join('');
+  const aberto = (_reacaoAberta === idcomentario);
+  const paleta = aberto
+    ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding:6px 8px;border:1px solid var(--border);border-radius:10px;">
+        ${REACTIONS.map(e => `<button onclick="reagirMural(${idcomentario},'${e}')" style="border:none;background:none;font-size:18px;cursor:pointer;padding:2px 4px;line-height:1;">${e}</button>`).join('')}
+      </div>` : '';
+  const nomes = lista.length
+    ? `<div style="font-size:10.5px;color:var(--text-muted);margin-top:5px;line-height:1.45;">${esc([...new Set(lista.map(r => r.autor_nome || 'Alguém'))].join(', '))} reagiu</div>`
+    : '';
+  return `<div style="margin-top:6px;">
+    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">${chips}
+      <button class="reaction-btn" style="border-style:dashed;" title="Reagir" onclick="abrirSeletorReacao(${idcomentario})">${aberto ? '✕' : '☺ +'}</button>
+    </div>${paleta}${nomes}
+  </div>`;
+}
+
+// Cores/ícones por tipo de evento
+const TIPO = {
+  mensagem:   { cor:'#7FFF00', ic:'💬', label:'Mensagem',  bg:'rgba(127,255,0,.12)' },
+  comentario: { cor:'#60a5fa', ic:'📝', label:'Comentário', bg:'rgba(96,165,250,.14)' },
+  mural:      { cor:'#f59e0b', ic:'🏆', label:'Mural',      bg:'rgba(245,158,11,.14)' },
+  foto:       { cor:'#22d3ee', ic:'📷', label:'Foto cardio', bg:'rgba(34,211,238,.14)' },
+};
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function nomeAtleta(id) {
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  return a ? a.nome : null;
+}
+
+function tsOf(s) {
+  if (!s) return 0;
+  let str = String(s);
+  str = str.length <= 10 ? str + 'T00:00:00' : str.replace(' ', 'T');
+  const t = Date.parse(str);
+  return isNaN(t) ? 0 : t;
+}
+
+function fmtDt(dt) {
+  if (!dt) return '';
+  const d = new Date(String(dt).replace(' ', 'T'));
+  if (isNaN(d)) return '';
+  const hoje = new Date();
+  const ontem = new Date(hoje); ontem.setDate(ontem.getDate() - 1);
+  const hh = d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+  if (d.toDateString() === hoje.toDateString()) return 'Hoje ' + hh;
+  if (d.toDateString() === ontem.toDateString()) return 'Ontem ' + hh;
+  return d.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'}) + ' ' + hh;
+}
+
+async function carregar() {
+  try {
+    const lista = await API.listarAtletas();
+    atletas = API.filtrarMeusAtletas(lista).filter(a => !a.email?.endsWith('@intusfit.local'));
+  } catch {
+    atletas = API.filtrarMeusAtletas(JSON.parse(localStorage.getItem('intus-atletas') || '[]'))
+      .filter(a => !a.email?.endsWith('@intusfit.local'));
+  }
+  const idsMeus = new Set(atletas.map(a => Number(a.idatleta)));
+
+  try { const r = await API.listarMensagens(); mensagens = Array.isArray(r) ? r : Store.get('mensagens'); }
+  catch { mensagens = Store.get('mensagens'); }
+
+  try { const r = await API.listarComentarios(); comentarios = Array.isArray(r) ? r : []; }
+  catch { comentarios = []; }
+
+  try {
+    const apiBase = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+    const tok = localStorage.getItem('mx-token') || '';
+    const r = await fetch(apiBase + '/treinos.php?action=ranking', { headers: { 'Authorization': 'Bearer ' + tok }, cache: 'no-store' });
+    const j = r.ok ? await r.json() : null;
+    muralComentarios = (j && Array.isArray(j.comentarios)) ? j.comentarios : [];
+  } catch { muralComentarios = []; }
+  try { await carregarReacoesMural(); } catch (e) {}
+
+  // Fotos de cardio: sessões com foto anexada pelo aluno
+  try {
+    const todas = await API.listarTodasSessoes();
+    sessoesFotos = (Array.isArray(todas) ? todas : [])
+      .filter(s => Number(s.tem_foto) === 1 && idsMeus.has(Number(s.idatleta)));
+  } catch { sessoesFotos = []; }
+
+  render();
+}
+
+// ─── Constrói a lista unificada de eventos ───
+function buildEventos() {
+  const evs = [];
+  mensagens.filter(m => m.remetente === 'aluno').forEach(m => {
+    evs.push({ tipo:'mensagem', idatleta:Number(m.idatleta), nome:nomeAtleta(m.idatleta) || 'Aluno',
+      ts:tsOf(m.dtmensagem), quando:fmtDt(m.dtmensagem), texto:m.texto, novo: m.stlido === 'N' });
+  });
+  comentarios.forEach(c => {
+    const semReacao = !(c.reacoes && c.reacoes.length);
+    evs.push({ tipo:'comentario', idatleta:Number(c.idatleta), nome:nomeAtleta(c.idatleta) || 'Aluno',
+      ts:tsOf(c.dtcriacao || c.dtsessao), quando:fmtDt(c.dtcriacao || (c.dtsessao ? c.dtsessao + ' 00:00:00' : '')),
+      texto:c.texto, divisao:c.divisao, idcomentario:c.idcomentario, reacoes:c.reacoes || [], novo: semReacao });
+  });
+  muralComentarios.forEach(c => {
+    const recente = (Date.now() - tsOf(c.dtcriacao)) < 7 * 864e5;
+    evs.push({ tipo:'mural', idatleta:Number(c.idatleta || 0), nome:c.nome_atleta || nomeAtleta(c.idatleta) || 'Membro',
+      ts:tsOf(c.dtcriacao), quando:fmtDt(c.dtcriacao), texto:c.texto, idcomentario:c.idcomentario, novo:recente });
+  });
+  sessoesFotos.forEach(s => {
+    const q = (s.dtsessao || '') + ' ' + (s.hora_conclusao || '00:00') + ':00';
+    const recente = (Date.now() - tsOf(q)) < 7 * 864e5;
+    evs.push({ tipo:'foto', idatleta:Number(s.idatleta), nome:nomeAtleta(s.idatleta) || 'Aluno',
+      ts:tsOf(q), quando:fmtDt(q),
+      texto:(s.cardio_tipo || 'Cardio') + (s.cardio_rpe ? ' · esforço ' + s.cardio_rpe + '/10' : ''),
+      idsessao:s.idsessao, novo:recente });
+  });
+  return evs.sort((a, b) => b.ts - a.ts);
+}
+
+function contarPorTipo() {
+  const all = buildEventos();
+  return {
+    mensagem:   all.filter(e => e.tipo === 'mensagem' && e.novo).length,
+    comentario: all.filter(e => e.tipo === 'comentario' && e.novo).length,
+    mural:      all.filter(e => e.tipo === 'mural' && e.novo).length,
+    foto:       all.filter(e => e.tipo === 'foto' && e.novo).length,
+    novasTotal: all.filter(e => e.novo).length,
+  };
+}
+
+function render() {
+  const c = contarPorTipo();
+  main.innerHTML = `
+    <div class="mode-bar">
+      <button class="mode-btn ${mode==='atividade'?'active':''}" onclick="setMode('atividade')">📥 Atividade${c.novasTotal?`<span class="mb-badge">${c.novasTotal}</span>`:''}</button>
+      <button class="mode-btn ${mode==='conversas'?'active':''}" onclick="setMode('conversas')">💬 Conversas${c.mensagem?`<span class="mb-badge">${c.mensagem}</span>`:''}</button>
+    </div>
+    ${mode === 'conversas' ? renderConversas() : renderDashboard(c)}
+  `;
+  if (mode === 'conversas' && activeAtleta) scrollChatBottom();
+}
+
+// ═══════════════ DASHBOARD (feed de atividade) ═══════════════
+function renderDashboard(c) {
+  const tile = (f, ic, num, lbl) => {
+    const t = TIPO[f];
+    return `<div class="dash-tile ${dashFilter===f?'active':''}" onclick="setFiltro('${f}')">
+      <div class="t-strip" style="background:${t.cor};"></div>
+      <div class="t-ic">${ic}</div>
+      <div class="t-num" style="color:${num>0?t.cor:'var(--text)'};">${num}</div>
+      <div class="t-lbl">${lbl}</div>
+    </div>`;
+  };
+
+  let list = buildEventos();
+  if (dashFilter !== 'tudo') list = list.filter(e => e.tipo === dashFilter);
+  if (dashSoNovas) list = list.filter(e => e.novo);
+  if (dashPeriodo !== 'tudo') { const cut = Date.now() - Number(dashPeriodo) * 864e5; list = list.filter(e => e.ts >= cut); }
+  if (dashBusca) { const q = dashBusca.toLowerCase(); list = list.filter(e => (e.nome||'').toLowerCase().includes(q) || (e.texto||'').toLowerCase().includes(q)); }
+  const total = list.length;
+  list = list.slice(0, 150);
+
+  const chips = [['tudo','Tudo'],['mensagem','💬 Mensagens'],['comentario','📝 Comentários'],['mural','🏆 Mural'],['foto','📷 Fotos']];
+
+  return `<div class="dash-wrap">
+    <div class="dash-tiles">
+      ${tile('mensagem','💬', c.mensagem, 'Mensagens não lidas')}
+      ${tile('comentario','📝', c.comentario, 'Comentários sem resposta')}
+      ${tile('foto','📷', c.foto, 'Fotos de cardio (7 dias)')}
+      ${tile('mural','🏆', c.mural, 'Mural recente (7 dias)')}
+    </div>
+
+    <div class="dash-controls">
+      ${chips.map(([f,l]) => `<button class="dash-chip ${dashFilter===f?'active':''}" onclick="setFiltro('${f}')">${l}</button>`).join('')}
+      <button class="dash-chip ${dashSoNovas?'active':''}" onclick="toggleNovas()">${dashSoNovas?'✓ ':''}Só novas</button>
+    </div>
+    <div class="dash-controls">
+      <input class="dash-search" type="text" placeholder="Buscar por aluno ou texto..." value="${esc(dashBusca)}" oninput="setBusca(this.value)"/>
+      <select class="dash-sel" onchange="setPeriodo(this.value)">
+        <option value="7" ${dashPeriodo==='7'?'selected':''}>Últimos 7 dias</option>
+        <option value="30" ${dashPeriodo==='30'?'selected':''}>Últimos 30 dias</option>
+        <option value="tudo" ${dashPeriodo==='tudo'?'selected':''}>Tudo</option>
+      </select>
+    </div>
+
+    ${total === 0
+      ? `<div class="empty-state"><div class="icon">🗂️</div><h3>Nada por aqui</h3><p>Nenhuma atividade para os filtros selecionados. Tente ampliar o período ou limpar os filtros.</p></div>`
+      : `<ul class="feed">${list.map(renderFeedCard).join('')}</ul>
+         ${total > 150 ? `<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:10px;">Mostrando as 150 atividades mais recentes de ${total}. Refine com os filtros.</div>` : ''}`}
+  </div>`;
+}
+
+function renderFeedCard(ev) {
+  const t = TIPO[ev.tipo];
+  const primeiro = (ev.nome || '?').charAt(0).toUpperCase();
+  let acoes = '';
+  if (ev.tipo === 'mensagem') {
+    acoes = `<button class="feed-btn primary" onclick="abrirConversa(${ev.idatleta})">Responder</button>`;
+  } else if (ev.tipo === 'comentario') {
+    acoes = REACTIONS.map(emoji => {
+      const mine = (ev.reacoes||[]).some(r => Number(r.idusuario) === userId && r.emoji === emoji);
+      return `<button class="reaction-btn ${mine?'active':''}" onclick="reagir(${ev.idcomentario},'${emoji}')">${emoji}</button>`;
+    }).join('');
+  } else if (ev.tipo === 'foto') {
+    acoes = `<button class="feed-btn primary" onclick="abrirFotoCardio(${ev.idsessao})">📷 Ver foto</button>`
+      + `<button class="feed-btn" onclick="abrirConversa(${ev.idatleta})">Mensagem</button>`;
+  } else if (ev.tipo === 'mural') {
+    acoes = htmlReacoesMural(Number(ev.idcomentario))
+      + (isAdm ? `<button class="feed-btn" style="color:#f87171;border-color:rgba(248,113,113,.4);margin-top:6px;" onclick="excluirComentarioMural(${Number(ev.idcomentario)})">🗑️ Excluir</button>` : '');
+  }
+  const textoHtml = (ev.tipo === 'comentario' || ev.tipo === 'mural')
+    ? `<div class="feed-text quote">"${esc(ev.texto)}"</div>`
+    : `<div class="feed-text">${esc(ev.texto)}</div>`;
+  return `<li class="feed-card ${ev.novo?'novo':''}" style="border-left-color:${t.cor};">
+    <div class="feed-ic" style="background:${t.bg};">${t.ic}</div>
+    <div class="feed-main">
+      <div class="feed-top">
+        ${ev.novo ? '<span class="novo-dot"></span>' : ''}
+        <span class="feed-name">${esc(ev.nome)}</span>
+        <span class="feed-badge" style="background:${t.bg};color:${t.cor};">${t.label}</span>
+        <span class="feed-date">${ev.quando}</span>
+      </div>
+      ${textoHtml}
+      ${acoes ? `<div class="feed-actions">${acoes}</div>` : ''}
+    </div>
+  </li>`;
+}
+
+function setMode(m) { mode = m; if (m === 'conversas') activeAtleta = activeAtleta || null; render(); }
+function setFiltro(f) { dashFilter = (dashFilter === f && f !== 'tudo') ? 'tudo' : f; render(); }
+function toggleNovas() { dashSoNovas = !dashSoNovas; render(); }
+function setPeriodo(p) { dashPeriodo = p; render(); }
+let _buscaT = null;
+function setBusca(v) { dashBusca = v; clearTimeout(_buscaT); _buscaT = setTimeout(render, 180); }
+
+function abrirConversa(idatleta) {
+  mode = 'conversas';
+  activeAtleta = atletas.find(a => Number(a.idatleta) === Number(idatleta)) || null;
+  if (activeAtleta) marcarLidas();
+  render();
+}
+
+// ═══════════════ CONVERSAS (chat) ═══════════════
+function renderConversas() {
+  return `<div class="msg-layout">
+    <div class="msg-contacts ${activeAtleta ? 'hidden' : ''}">
+      <div class="msg-contacts-header">
+        <input type="text" placeholder="Buscar aluno..." oninput="filtrarContatos(this.value)"/>
+      </div>
+      <div id="contact-list">${renderContacts()}</div>
+    </div>
+    <div class="msg-panel ${activeAtleta ? 'active' : ''}">
+      ${renderChatPanel()}
+    </div>
+  </div>`;
+}
+
+function renderContacts() {
+  const linhas = atletas.map(a => {
+    const msgs = mensagens.filter(m => Number(m.idatleta) === Number(a.idatleta));
+    const last = msgs[msgs.length - 1];
+    const unread = msgs.some(m => m.stlido === 'N' && m.remetente === 'aluno');
+    return { a, last, unread, ts: last ? tsOf(last.dtmensagem) : 0 };
+  }).sort((x, y) => (y.unread - x.unread) || (y.ts - x.ts));
+  return linhas.map(({a, last, unread}) => `
+    <div class="contact-item ${activeAtleta && Number(activeAtleta.idatleta)===Number(a.idatleta)?'active':''}" onclick="selecionarAtleta(${a.idatleta})">
+      ${avatarHtml(a.idatleta, a.nome, 36)}
+      <div class="contact-info">
+        <div class="contact-name">${esc(a.nome)}</div>
+        <div class="contact-last">${last ? esc(last.texto).slice(0,40) : '<i>Sem mensagens</i>'}</div>
+      </div>
+      ${unread ? '<div class="contact-unread"></div>' : ''}
+    </div>`).join('');
+}
+
+function renderChatPanel() {
+  if (!activeAtleta) return `<div class="empty-state"><div class="icon">💬</div><h3>Selecione um aluno</h3><p>Escolha um aluno à esquerda para iniciar ou continuar uma conversa.</p></div>`;
+  const msgs = mensagens.filter(m => Number(m.idatleta) === Number(activeAtleta.idatleta)).sort((a,b) => tsOf(a.dtmensagem) - tsOf(b.dtmensagem));
+  return `
+    <div class="msg-panel-header">
+      <button class="back-btn" onclick="voltarContatos()">←</button>
+      ${avatarHtml(activeAtleta.idatleta, activeAtleta.nome, 32)}
+      <div class="panel-name">${esc(activeAtleta.nome)}</div>
+    </div>
+    <div class="msg-body" id="chat-body">
+      ${msgs.length === 0 ? '<div class="empty-state" style="flex:1;"><div class="icon">👋</div><h3>Inicie a conversa</h3><p>Mande uma mensagem para ' + esc(activeAtleta.nome.split(' ')[0]) + '.</p></div>' :
+        msgs.map(m => `<div class="msg-bubble ${m.remetente}">
+          ${esc(m.texto)}
+          <div class="msg-time">${fmtDt(m.dtmensagem)}</div>
+        </div>`).join('')}
+    </div>
+    <div class="msg-input-bar">
+      <textarea id="msg-input" rows="1" placeholder="Digite sua mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviar();}"></textarea>
+      <button class="send-btn" onclick="enviar()" title="Enviar">➤</button>
+    </div>
+  `;
+}
+
+function filtrarContatos(q) {
+  q = q.toLowerCase().trim();
+  document.querySelectorAll('.contact-item').forEach(el => {
+    const name = el.querySelector('.contact-name')?.textContent?.toLowerCase() || '';
+    el.style.display = name.includes(q) ? '' : 'none';
+  });
+}
+
+function selecionarAtleta(id) {
+  activeAtleta = atletas.find(a => Number(a.idatleta) === Number(id));
+  marcarLidas();
+  render();
+}
+function voltarContatos() { activeAtleta = null; render(); }
+
+async function enviar() {
+  const inp = document.getElementById('msg-input');
+  const texto = (inp?.value || '').trim();
+  if (!texto || !activeAtleta) return;
+  inp.value = '';
+  try {
+    await API.enviarMensagem({ idatleta: activeAtleta.idatleta, idusuario: userId, remetente: 'professor', texto });
+    mensagens = Store.get('mensagens');
+    render();
+  } catch (e) { showToast(e.message || 'Erro ao enviar', 'error'); }
+}
+
+async function marcarLidas() {
+  if (!activeAtleta) return;
+  const naoLidas = mensagens.filter(m => Number(m.idatleta) === Number(activeAtleta.idatleta) && m.stlido === 'N' && m.remetente === 'aluno');
+  if (naoLidas.length === 0) return;
+  const ids = naoLidas.map(m => m.idmensagem);
+  try { await API.marcarMensagensLidas(ids); } catch {}
+  naoLidas.forEach(m => m.stlido = 'S');
+  Store.set('mensagens', mensagens);
+}
+
+async function reagir(idcomentario, emoji) {
+  try {
+    await API.reagirComentario({ idcomentario, idusuario: userId, emoji });
+    const c = comentarios.find(x => Number(x.idcomentario) === Number(idcomentario));
+    if (c) {
+      if (!c.reacoes) c.reacoes = [];
+      const existing = c.reacoes.findIndex(r => Number(r.idusuario) === userId);
+      if (existing >= 0) c.reacoes[existing].emoji = emoji;
+      else c.reacoes.push({ idusuario: userId, emoji });
+    }
+    render();
+  } catch (e) { showToast('Erro ao reagir', 'error'); }
+}
+
+async function excluirComentarioMural(idcomentario) {
+  if (!isAdm) return;
+  if (!confirm('Excluir este comentário do mural do ranking? Essa ação não pode ser desfeita.')) return;
+  try {
+    const apiBase = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+    const tok = localStorage.getItem('mx-token') || '';
+    const r = await fetch(apiBase + '/treinos.php?action=ranking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+      body: JSON.stringify({ subaction: 'excluir_comentario', idcomentario, admin: true })
+    });
+    if (!r.ok) throw new Error();
+    muralComentarios = muralComentarios.filter(c => Number(c.idcomentario) !== Number(idcomentario));
+    render();
+    showToast('Comentário excluído.', 'success');
+  } catch { showToast('Erro ao excluir comentário', 'error'); }
+}
+
+// Foto do cardio (comprovação anexada pelo aluno)
+async function abrirFotoCardio(idsessao) {
+  let ov = document.getElementById('foto-cardio-modal');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'foto-cardio-modal'; document.body.appendChild(ov); }
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:20px;';
+  ov.onclick = function(e){ if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div style="color:#fff;font-size:13px;">Carregando foto…</div>';
+  try {
+    const apiBase = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+    const tok = localStorage.getItem('mx-token') || '';
+    const r = await fetch(apiBase + '/treinos.php?action=cardio&foto=' + idsessao, { headers: { 'Authorization': 'Bearer ' + tok }, cache: 'no-store' });
+    const j = await r.json();
+    if (j && j.foto) {
+      ov.innerHTML = '<div style="max-width:540px;width:100%;text-align:center;">' +
+        '<img src="' + j.foto + '" style="max-width:100%;max-height:80vh;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.5);"/>' +
+        '<div style="margin-top:12px;"><button onclick="document.getElementById(\'foto-cardio-modal\').remove()" style="padding:10px 20px;border-radius:10px;border:none;background:#22d3ee;color:#000;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button></div>' +
+      '</div>';
+    } else {
+      ov.innerHTML = '<div style="color:#fff;text-align:center;">Sem foto para esta sessão.<br><br><button onclick="document.getElementById(\'foto-cardio-modal\').remove()" style="padding:8px 18px;border-radius:8px;border:none;background:#333;color:#fff;cursor:pointer;">Fechar</button></div>';
+    }
+  } catch { ov.innerHTML = '<div style="color:#fff;text-align:center;">Erro ao carregar a foto.<br><br><button onclick="document.getElementById(\'foto-cardio-modal\').remove()" style="padding:8px 18px;border-radius:8px;border:none;background:#333;color:#fff;cursor:pointer;">Fechar</button></div>'; }
+}
+
+function scrollChatBottom() {
+  setTimeout(() => { const el = document.getElementById('chat-body'); if (el) el.scrollTop = el.scrollHeight; }, 50);
+}
+
+// Atualização automática (30s) — só recarrega se algo mudou
+function startPolling() {
+  polling = setInterval(async () => {
+    try {
+      const newMsgs = await API.listarMensagens();
+      if (Array.isArray(newMsgs) && newMsgs.length !== mensagens.length) {
+        mensagens = newMsgs;
+        render();
+      }
+    } catch {}
+  }, 30000);
+}
+
+carregar();
+startPolling();
+</script>
+</body>
+</html>

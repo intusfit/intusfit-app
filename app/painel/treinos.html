@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Treinos — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    /* COMBO (autocomplete dropdown) */
+    .combo-wrap { position:relative; width:100%; }
+    .combo-input { width:100%; cursor:pointer; background:var(--bg2, #1a1a1a); border:1px solid var(--border, #333); color:var(--text, #f0f0f0); }
+    .combo-list {
+      display:none; position:absolute; top:calc(100% + 4px); left:0; right:0;
+      background: var(--bg2, #1a1a1a);
+      border:1px solid var(--border, #333); border-radius:10px;
+      max-height: 260px; overflow-y:auto; z-index:9999;
+      box-shadow: 0 10px 30px rgba(0,0,0,.45);
+    }
+    .combo-list.open { display:block; }
+    .combo-item {
+      padding:10px 14px; cursor:pointer; font-size:14px; color:var(--text, #f0f0f0);
+      border-bottom:1px solid var(--border, rgba(255,255,255,.05));
+    }
+    .combo-item:last-child { border-bottom:none; }
+    .combo-item:hover, .combo-item.active { background: rgba(127,255,0,.12); }
+    .combo-item.selected { background: rgba(127,255,0,.18); color: var(--brand, #7fff00); font-weight:600; }
+    .combo-empty { padding:14px; color:var(--text-muted, #888); font-size:13px; text-align:center; }
+    .combo-new { padding:10px 14px; cursor:pointer; font-size:13px; color:var(--brand, #7fff00); font-weight:600; border-top:1px solid var(--border, #333); }
+    .combo-new:hover { background: rgba(127,255,0,.08); }
+
+    /* TABS */
+    .tab-bar { display:flex; gap:4px; border-bottom:1px solid var(--border, #2a2a2a); margin-bottom:16px; }
+    .tab-btn {
+      padding:10px 18px; font-size:13px; font-weight:700; cursor:pointer;
+      background:transparent; border:none; color:var(--text-muted, #888);
+      border-bottom:2px solid transparent; font-family:inherit;
+      transition: color .15s, border-color .15s;
+    }
+    .tab-btn:hover { color:var(--text, #fff); }
+    .tab-btn.active { color:var(--brand, #7FFF00); border-bottom-color:var(--brand, #7FFF00); }
+    .tab-btn .badge { font-size:10px; background:var(--bg3,#333); color:var(--text-muted); padding:2px 6px; border-radius:8px; margin-left:6px; }
+    .tab-btn.active .badge { background:rgba(127,255,0,.15); color:var(--brand); }
+
+    /* ICON BUTTON (small) */
+    .btn-icon-sm {
+      width:30px; height:30px; border-radius:8px; border:1px solid var(--border,#2a2a2a);
+      background:var(--bg3,#222); color:var(--text-muted,#888); cursor:pointer;
+      display:inline-flex; align-items:center; justify-content:center;
+      transition: background .15s, color .15s, border-color .15s;
+    }
+    .btn-icon-sm:hover { background:rgba(127,255,0,.12); color:var(--brand,#7FFF00); border-color:rgba(127,255,0,.3); }
+
+    /* FICHA CARDS (lista) */
+    .ficha-card {
+      background:var(--bg2, #1a1a1a); border:1px solid var(--border, #2a2a2a);
+      border-radius:14px; padding:16px; margin-bottom:12px; cursor:pointer;
+      transition: border-color .15s, transform .08s;
+    }
+    .ficha-card:hover { border-color:rgba(127,255,0,.4); }
+    .ficha-card:active { transform:scale(.995); }
+    .ficha-card .title { font-size:16px; font-weight:800; color:var(--text); }
+    .ficha-card .sub { font-size:12px; color:var(--text-muted); margin-top:4px; }
+    .ficha-card .badges { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+
+    /* EXERCÍCIO CARD */
+    .ex-card {
+      background:var(--bg2, #151515); border:1px solid var(--border, #2a2a2a);
+      border-radius:12px; padding:16px; margin-bottom:12px;
+      transition: border-color .15s; position:relative; overflow:visible;
+    }
+    .ex-card:hover { border-color: rgba(127,255,0,.2); }
+    .ex-card .ex-header { display:flex; align-items:flex-end; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+    .ex-card .ex-header .combo-wrap { flex:1; min-width:200px; }
+    .ex-card .ex-fields { display:grid; grid-template-columns:120px 1fr 1fr; gap:10px; margin-bottom:10px; }
+    .ex-card .ex-fields .field-group { display:flex; flex-direction:column; gap:3px; }
+    .ex-card .ex-fields .field-group label { font-size:11px; font-weight:700; color:var(--text-muted, #888); text-transform:uppercase; letter-spacing:.3px; }
+    .ex-card .ex-fields .field-group input { font-size:13px; padding:6px 8px; background:var(--bg, #111); border:1px solid var(--border, #333); color:var(--text); border-radius:6px; }
+    .ex-card .rep-row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .ex-card .rep-pill {
+      background:var(--bg, #111); border:1px solid var(--border, #333);
+      border-radius:8px; padding:5px 10px; font-size:12px; color:var(--text);
+      min-width:50px; text-align:center; cursor:pointer;
+    }
+    .ex-card .rep-pill:focus { border-color:var(--brand); outline:none; }
+    .ex-card .carga-row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .ex-card .carga-pill {
+      background:var(--bg, #111); border:1px solid var(--border, #333);
+      border-radius:8px; padding:5px 10px; font-size:12px; color:var(--text-muted);
+      min-width:50px; text-align:center; cursor:pointer;
+    }
+    .ex-card .carga-pill:focus { border-color:var(--brand); outline:none; }
+    .ex-card .ex-footer { display:flex; align-items:center; gap:10px; }
+    .ex-card .ex-footer input[type="text"] { flex:1; font-size:13px; padding:6px 10px; background:var(--bg, #111); border:1px solid var(--border, #333); color:var(--text); border-radius:6px; }
+    .ex-card .ex-actions { display:flex; gap:6px; justify-content:flex-end; margin-top:10px; }
+
+    /* ALONGAMENTO CARD */
+    .along-card {
+      background:var(--bg2, #151515); border:1px solid var(--border, #2a2a2a);
+      border-radius:10px; padding:12px 14px; margin-bottom:8px;
+    }
+    .along-card .along-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .along-card .along-fields { display:grid; grid-template-columns:80px 120px 1fr; gap:8px; align-items:end; }
+    .along-card .along-fields label { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:2px; }
+    .along-card .along-fields input { font-size:13px; padding:5px 8px; background:var(--bg, #111); border:1px solid var(--border, #333); color:var(--text); border-radius:6px; }
+
+    /* ALONG COMBOBOX INLINE */
+    .along-combo-wrap { position:relative; }
+    .along-combo-input { width:100%; font-size:13px; padding:5px 8px; background:var(--bg, #111); border:1px solid var(--border, #333); color:var(--text); border-radius:6px; }
+    .along-combo-list {
+      display:none; position:absolute; top:calc(100% + 2px); left:0; right:0;
+      background:var(--bg2, #1a1a1a); border:1px solid var(--border, #333);
+      border-radius:8px; max-height:200px; overflow-y:auto; z-index:9999;
+      box-shadow:0 8px 24px rgba(0,0,0,.4);
+    }
+    .along-combo-list.open { display:block; }
+
+    .add-ex-btn {
+      display:flex; align-items:center; justify-content:center; gap:8px; padding:14px;
+      border:1px dashed var(--border, #333); border-radius:12px;
+      background:transparent; color:var(--text-muted); cursor:pointer;
+      font-family:inherit; font-size:14px; font-weight:600; width:100%;
+      transition: border-color .15s, color .15s;
+    }
+    .add-ex-btn:hover { border-color:var(--brand); color:var(--brand); }
+
+    .section-header {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 16px; background:var(--bg2, #151515);
+      border:1px solid var(--border, #2a2a2a); border-radius:10px;
+      margin-bottom:12px; cursor:pointer; user-select:none;
+    }
+    .section-header h3 { font-size:14px; font-weight:800; color:var(--text); margin:0; }
+    .section-header .toggle { font-size:18px; color:var(--text-muted); }
+
+    .falha-check { display:flex; align-items:center; gap:5px; }
+    .falha-check input[type="checkbox"] { width:14px; height:14px; accent-color:var(--brand, #7fff00); }
+    .falha-check label { font-size:11px; color:var(--text-muted); }
+
+    /* LIGHT THEME OVERRIDES */
+    body.theme-light .combo-list { background:#fff; border-color:#d1d5db; box-shadow:0 10px 30px rgba(0,0,0,.12); }
+    body.theme-light .combo-item { color:#111827; border-bottom-color:#f3f4f6; }
+    body.theme-light .combo-item:hover, body.theme-light .combo-item.active { background:rgba(58,153,0,.08); }
+    body.theme-light .combo-item.selected { background:rgba(58,153,0,.12); color:#3a9900; }
+    body.theme-light .combo-input { background:#fff; border-color:#d1d5db; color:#111827; }
+    body.theme-light .combo-new { color:#3a9900; border-top-color:#e5e7eb; }
+    body.theme-light .ex-card { background:#fff; border-color:#e5e7eb; }
+    body.theme-light .ex-card .ex-fields .field-group input,
+    body.theme-light .ex-card .rep-pill,
+    body.theme-light .ex-card .carga-pill,
+    body.theme-light .ex-card .ex-footer input { background:#f9fafb; border-color:#d1d5db; color:#111827; }
+    body.theme-light .along-card { background:#fff; border-color:#e5e7eb; }
+    body.theme-light .along-card .along-fields input,
+    body.theme-light .along-combo-input { background:#f9fafb; border-color:#d1d5db; color:#111827; }
+    body.theme-light .along-combo-list { background:#fff; border-color:#d1d5db; box-shadow:0 8px 20px rgba(0,0,0,.08); }
+    body.theme-light .section-header { background:#fff; border-color:#e5e7eb; }
+    body.theme-light .ficha-card { background:#fff; border-color:#e5e7eb; }
+    body.theme-light .tab-btn { color:#6b7280; }
+    body.theme-light .tab-btn:hover { color:#111827; }
+    body.theme-light .tab-btn.active { color:#3a9900; border-bottom-color:#3a9900; }
+
+    @media(max-width:768px) {
+      .ex-card .ex-fields { grid-template-columns:1fr 1fr; }
+      .ex-card .ex-header { flex-wrap:wrap; }
+      .along-card .along-fields { grid-template-columns:1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Treinos');
+
+const main = document.getElementById('main-content');
+const _isAdm = (() => { try { return isAdmin(); } catch(e) { return false; } })();
+
+let atletas = [], fichas = [], treinos = [], exercicios = [], alongamentos = [];
+let mensalidades = [];
+// Mesma regra da tela de Inicio e de Clientes (api.js): so e ativo quem tem plano
+// vigente ou vencido ha ate 30 dias. Inativo e bloqueado saem da lista de treinos
+// ativos — nao adianta prescrever para quem nao tem acesso ao app.
+function situacaoDoAluno(a) {
+  if (typeof API !== 'undefined' && typeof API.situacaoPlano === 'function') return API.situacaoPlano(a, mensalidades);
+  return { estado: 'ativo', ativo: true, inativo: false, bloqueado: a.stbloqueio === 'S', motivo: '', lead: false };
+}
+function alunoAtivo(a) { const s = situacaoDoAluno(a); return s.ativo; }
+
+// Mesmas predefinicoes das caixas da tela de Inicio: lista inteira com rolagem e
+// botao para alternar a ordem. Antes cada caixa mostrava 5 ou 6 itens e escondia
+// o resto atras de "+N mais", sem jeito de ver nem reordenar.
+const ordemCaixaTreino = {};
+function alternarOrdemTreino(chave) {
+  ordemCaixaTreino[chave] = (ordemCaixaTreino[chave] === 'asc') ? 'desc' : 'asc';
+  render();
+}
+function _btnOrdem(chave, rotulo) {
+  const ord = ordemCaixaTreino[chave] || 'asc';
+  return '<button onclick="alternarOrdemTreino(\'' + chave + '\')" title="' + rotulo + '"' +
+    ' style="margin-left:auto;border:1px solid var(--border);background:transparent;color:var(--text-muted);' +
+    'border-radius:7px;padding:2px 8px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;">' +
+    (ord === 'asc' ? '↑' : '↓') + ' ' + rotulo + '</button>';
+}
+function _ordenar(lista, chave, campoFn) {
+  const ord = ordemCaixaTreino[chave] || 'asc';
+  return lista.slice().sort((a, b) => {
+    const x = campoFn(a), y = campoFn(b);
+    const r = (typeof x === 'string') ? String(x).localeCompare(String(y), 'pt-BR') : (x - y);
+    return ord === 'asc' ? r : -r;
+  });
+}
+const _CAIXA = 'max-height:230px;overflow-y:auto;';
+let view = 'lista';
+let editFichaId = null;
+
+// ── CARREGAMENTO: SEIS CHAMADAS, UMA FALHA, TELA EM BRANCO ──────────────────
+// Promise.all rejeita inteiro se UMA das seis falhar. Sem try/catch a excecao
+// subia, render() nunca era chamado e a tela ficava permanentemente em branco:
+// sem spinner, sem aviso, sem botao. Foi exatamente o que o ranking dos alunos
+// fez em 14/08. Agora ha estado de carregando, a falha vira mensagem honesta
+// com "Tentar de novo", e as listas em memoria nao sao zeradas por engano.
+async function carregar() {
+  try { if (main && window.IntusEstado) main.innerHTML = IntusEstado.carregando('Carregando treinos…'); } catch (e) {}
+
+  let as, fs, ts, es, als, ms;
+  try {
+    [as, fs, ts, es, als, ms] = await Promise.all([
+      API.listarAtletas(''),
+      API.listarFichas(),
+      API.listarTodosTreinos(),
+      API.listarExercicios(),
+      API.listarAlongamentos(),
+      (API.listarMensalidades ? API.listarMensalidades().catch(() => []) : Promise.resolve([])),
+    ]);
+  } catch (e) {
+    const msg = (e && e.message) ? String(e.message) : 'falha na conexão';
+    if (main && window.IntusEstado) main.innerHTML = IntusEstado.erro(msg, 'carregar()');
+    return;
+  }
+
+  mensalidades = Array.isArray(ms) ? ms : [];
+  atletas = as || [];
+  fichas  = fs || [];
+  treinos = ts || [];
+  exercicios = es || [];
+  alongamentos = als || [];
+  // Professor só vê fichas/atletas da sua carteira (admin vê todos incluindo modelos)
+  atletas = API.filtrarMeusAtletas(atletas);
+  if (!Sessao.atual()?.admin) {
+    const _idsVisiveis = new Set(atletas.map(a => Number(a.idatleta)));
+    fichas = fichas.filter(f => _idsVisiveis.has(Number(f.idatleta)));
+  }
+  render();
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function formatSeg(s) { s=parseInt(s)||0; return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
+function parseSeg(v) { v=String(v||'').trim(); if(v.includes(':')){ const[m,s]=v.split(':'); return(parseInt(m)||0)*60+(parseInt(s)||0); } return parseInt(v)||60; }
+
+function calcTempoEstimado(exs) {
+  if (!exs || exs.length === 0) return 0;
+  const REP_TIME = 3;
+  const TRANSICAO = 60;
+  let total = 0;
+  exs.forEach(ex => {
+    const series = parseInt(ex.qtdserie) || 3;
+    const repStr = String(ex.repeticoes || ex.qtdrepeticao || '12');
+    const reps = parseInt(repStr) || 12;
+    const intervalo = ex.tempopausa ? parseInt(ex.tempopausa) : parseSeg(ex.intervalo || '01:00');
+    const uni = ex.unilateral ? 2 : 1;
+    const tempoExecSerie = reps * REP_TIME * uni;
+    total += (tempoExecSerie * series) + (intervalo * (series - 1)) + TRANSICAO;
+  });
+  return Math.round(total / 60);
+}
+
+function formatTempo(min) {
+  return min + ' min';
+}
+
+function render() {
+  if (view === 'editor') return renderEditor();
+  if (view === 'lixeira') return renderLixeira();
+  if (view === 'historico') return renderHistoricoAluno();
+  renderLista();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VIEW: LISTA DE FICHAS
+// ═══════════════════════════════════════════════════════════════
+let filtroAtivo = true;
+let buscaTreino = '';
+let ordenacaoTreino = 'recentes';
+let filtroProfs = [];
+
+// ── Regra de vencimento de ficha ─────────────────────────────────────────
+// Após FICHA_GRACE_DIAS dias do vencimento (dtfim), a ficha conta automaticamente
+// como INATIVA: o aluno perde acesso no app e ela aparece no filtro "Inativos",
+// onde o professor responsável pode encontrá-la e atualizá-la.
+const FICHA_GRACE_DIAS = 2;
+function fichaFlagAtiva(f) { return f.ativo !== false && f.ativo !== 0 && f.ativo !== '0'; }
+function fichaExpirada(f) {
+  if (!f.dtfim) return false;
+  const d = new Date(); d.setDate(d.getDate() - FICHA_GRACE_DIAS);
+  return String(f.dtfim).slice(0,10) < d.toISOString().slice(0,10);
+}
+function fichaAtivaEfetiva(f) { return fichaFlagAtiva(f) && !fichaExpirada(f); }
+
+function renderLista() {
+  const podeIncluir = hasPerm('tr_incluir');
+  let fichasComInfo = fichas.map(f => {
+    const aluno = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    const exs = treinos.filter(t => Number(t.idficha) === Number(f.idficha));
+    const divs = [...new Set(exs.map(t => t.divisao || 'A'))].sort();
+    // Ficha vencida há mais de 2 dias conta como inativa automaticamente
+    const ativo = fichaAtivaEfetiva(f);
+    return { ...f, aluno, exs, divs, ativo };
+  }).filter(f => filtroAtivo ? f.ativo : !f.ativo);
+
+  // Filtro por professor
+  if (filtroProfs.length > 0) {
+    fichasComInfo = fichasComInfo.filter(f => {
+      const profs = f.aluno?.professores_responsaveis || [];
+      return filtroProfs.some(id => profs.map(Number).includes(Number(id)));
+    });
+  }
+
+  // Busca
+  if (buscaTreino) {
+    const q = buscaTreino.toLowerCase();
+    fichasComInfo = fichasComInfo.filter(f =>
+      (f.nmficha||'').toLowerCase().includes(q) ||
+      (f.aluno?.nome||'').toLowerCase().includes(q) ||
+      (f.observacao||'').toLowerCase().includes(q)
+    );
+  }
+
+  // Ordenação
+  if (ordenacaoTreino === 'recentes') fichasComInfo.sort((a,b) => (b.dtinicio||'').localeCompare(a.dtinicio||''));
+  else if (ordenacaoTreino === 'antigos') fichasComInfo.sort((a,b) => (a.dtinicio||'').localeCompare(b.dtinicio||''));
+  else if (ordenacaoTreino === 'nome_aluno') fichasComInfo.sort((a,b) => (a.aluno?.nome||'').localeCompare(b.aluno?.nome||'','pt-BR'));
+  else if (ordenacaoTreino === 'nome_ficha') fichasComInfo.sort((a,b) => (a.nmficha||'').localeCompare(b.nmficha||'','pt-BR'));
+  else if (ordenacaoTreino === 'exercicios') fichasComInfo.sort((a,b) => b.exs.length - a.exs.length);
+
+  // ── Dashboard insights ──
+  const hoje = new Date().toISOString().slice(0,10);
+  // Fichas com flag ativa (inclui vencidas ainda não atualizadas pelo professor)
+  const flagAtivas = fichas.filter(fichaFlagAtiva);
+  // Fichas efetivamente ativas (exclui vencidas há mais de 2 dias)
+  const todasAtivas = flagAtivas.filter(f => !fichaExpirada(f));
+
+  // Últimos prescritos (top 5 por dtinicio desc)
+  const ultPrescritos = [...todasAtivas].filter(f => f.dtinicio).sort((a,b) => (b.dtinicio||'').localeCompare(a.dtinicio||'')).slice(0,5);
+
+  // Treinos a vencer/vencidos: dtfim <= hoje +7 dias.
+  // Só entra na lista se o aluno NÃO tem outro treino ativo válido (treino já atualizado sai da lista).
+  const em7dias = new Date(); em7dias.setDate(em7dias.getDate() + 7);
+  const limiteStr = em7dias.toISOString().slice(0,10);
+  const temTreinoAtualizado = f => todasAtivas.some(g =>
+    Number(g.idficha) !== Number(f.idficha) &&
+    Number(g.idatleta) === Number(f.idatleta) &&
+    (!g.dtfim || g.dtfim > limiteStr));
+  const aVencer = flagAtivas
+    .filter(f => f.dtfim && f.dtfim <= limiteStr)
+    .filter(f => !temTreinoAtualizado(f))
+    .sort((a,b) => (b.dtfim||'').localeCompare(a.dtfim||'')); // vencidos há mais tempo ao FINAL da lista
+
+  // Alunos sem treino ativo (fichas vencidas há +2 dias não contam como ativas)
+  const atletasComFicha = new Set(todasAtivas.map(f => Number(f.idatleta)));
+  // Nao cobra treino de quem esta inativo/bloqueado: sem plano, sem acesso ao app.
+  const semTreino = atletas.filter(a => !atletasComFicha.has(Number(a.idatleta))
+    && a.email !== 'modelo.masculino@intusfit.local' && a.email !== 'modelo.feminino@intusfit.local'
+    && alunoAtivo(a));
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h1 style="font-size:22px;font-weight:800;color:var(--text);margin:0;">Treinos</h1>
+          <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">Fichas de treino prescritas para seus clientes.</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn ${filtroAtivo?'btn-primary':'btn-secondary'} btn-sm" onclick="filtroAtivo=true;render();">Ativos</button>
+          <button class="btn ${!filtroAtivo?'btn-primary':'btn-secondary'} btn-sm" onclick="filtroAtivo=false;render();">Inativos</button>
+          <button class="btn btn-secondary btn-sm" onclick="view='lixeira';render();" title="Fichas excluídas">🗑️</button>
+          ${podeIncluir ? `<button class="btn btn-primary" onclick="novoTreino()">+ Adicionar Treino</button>` : ''}
+        </div>
+      </div>
+
+      <!-- DASHBOARD INSIGHTS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+        <!-- Últimos prescritos -->
+        <div class="card" style="padding:14px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-size:18px;">📋</span>
+            <span style="font-size:12px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.5px;">Últimos prescritos</span>
+            ${_btnOrdem('ult','data')}
+          </div>
+          ${ultPrescritos.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Nenhuma ficha recente.</p>' : '<div style="'+_CAIXA+'">' + _ordenar(ultPrescritos,'ult',f => f.dtinicio||'').map(f => {
+            const al = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
+              <div style="min-width:0;">
+                <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(al?.nome || '—')}</div>
+                <div style="font-size:11px;color:var(--text-muted);">${esc(f.nmficha || 'Ficha')}</div>
+              </div>
+              <span style="font-size:10px;color:var(--text-muted);flex-shrink:0;margin-left:8px;">${f.dtinicio ? new Date(f.dtinicio+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : ''}</span>
+            </div>`;
+          }).join('') + '</div>'}
+        </div>
+
+        <!-- Treinos a vencer -->
+        <div class="card" style="padding:14px;${aVencer.length > 0 ? 'border-color:rgba(251,146,60,.4);' : ''}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-size:18px;">⚠️</span>
+            <span style="font-size:12px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.5px;">Treinos a vencer</span>
+            ${aVencer.length > 0 ? `<span style="background:#f87171;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700;">${aVencer.length}</span>` : ''}
+            ${_btnOrdem('venc','vencimento')}
+          </div>
+          ${aVencer.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Nenhum treino perto de vencer. 👍</p>' : '<div style="'+_CAIXA+'">' + _ordenar(aVencer,'venc',f => f.dtfim||'').map(f => {
+            const al = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+            const vencido = f.dtfim < hoje;
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
+              <div style="min-width:0;">
+                <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(al?.nome || '—')}</div>
+                <div style="font-size:11px;color:var(--text-muted);">${esc(f.nmficha || 'Ficha')}</div>
+              </div>
+              <span style="font-size:10px;font-weight:700;flex-shrink:0;margin-left:8px;padding:2px 6px;border-radius:4px;${vencido ? 'background:rgba(248,113,113,.15);color:#f87171;' : 'background:rgba(251,191,36,.12);color:#fbbf24;'}">${vencido ? 'Vencido ' : 'Vence '}${new Date(f.dtfim+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</span>
+            </div>`;
+          }).join('') + '</div>'}
+        </div>
+
+        <!-- Alunos sem treino ativo -->
+        <div class="card" style="padding:14px;${semTreino.length > 0 ? 'border-color:rgba(96,165,250,.4);' : ''}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-size:18px;">🚫</span>
+            <span style="font-size:12px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.5px;">Sem treino ativo</span>
+            ${semTreino.length > 0 ? `<span style="background:#60a5fa;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700;">${semTreino.length}</span>` : ''}
+            ${_btnOrdem('sem','nome')}
+          </div>
+          ${semTreino.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Todos os alunos têm treino! 🎉</p>' : '<div style="'+_CAIXA+'">' + _ordenar(semTreino,'sem',a => a.nome||'').map(a => {
+            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="novoTreinoParaAluno(${a.idatleta})">
+              <span style="font-size:12px;font-weight:600;color:var(--text);">${esc(a.nome)}</span>
+              <span style="font-size:10px;color:var(--brand);margin-left:auto;">+ Prescrever</span>
+            </div>`;
+          }).join('') + '</div>'}
+        </div>
+      </div>
+      <div class="card" style="padding:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input id="inp-busca-treino" class="input" placeholder="Buscar aluno, ficha..." value="${(buscaTreino||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:180px;max-width:300px;"
+          oninput="buscaTreino=this.value;render();var _e=document.getElementById('inp-busca-treino');if(_e){_e.focus();_e.setSelectionRange(buscaTreino.length,buscaTreino.length);}"/>
+        <select class="input" style="width:auto;" onchange="ordenacaoTreino=this.value;render();">
+          <option value="recentes" ${ordenacaoTreino==='recentes'?'selected':''}>Mais recentes</option>
+          <option value="antigos" ${ordenacaoTreino==='antigos'?'selected':''}>Mais antigos</option>
+          <option value="nome_aluno" ${ordenacaoTreino==='nome_aluno'?'selected':''}>Nome do aluno</option>
+          <option value="nome_ficha" ${ordenacaoTreino==='nome_ficha'?'selected':''}>Nome da ficha</option>
+          <option value="exercicios" ${ordenacaoTreino==='exercicios'?'selected':''}>Qtd exercícios</option>
+        </select>
+        ${isAdmin() ? (() => {
+          const _uAll = JSON.parse(localStorage.getItem('intus-usuarios') || '[]').filter(u => u.ativo !== false);
+          return `<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+            ${_uAll.map(u => {
+              const sel = filtroProfs.includes(Number(u.idusuario));
+              return `<button class="btn btn-sm ${sel ? 'btn-primary' : 'btn-secondary'}" style="padding:3px 10px;font-size:11px;" onclick="toggleFiltroProf(${u.idusuario})">${esc((u.nome||'').split(' ')[0])}</button>`;
+            }).join('')}
+            ${filtroProfs.length > 0 ? `<button class="btn btn-sm btn-secondary" style="padding:3px 8px;font-size:11px;opacity:.7;" onclick="filtroProfs=[];render();">✕</button>` : ''}
+          </div>`;
+        })() : ''}
+        <span style="font-size:12px;color:var(--text-muted);">${fichasComInfo.length} ficha${fichasComInfo.length!==1?'s':''}</span>
+      </div>
+      ${fichasComInfo.length === 0 ? `
+        <div class="card" style="padding:50px 20px;text-align:center;color:var(--text-muted);">
+          <div style="font-size:40px;margin-bottom:12px;">📋</div>
+          <p>Nenhuma ficha de treino ainda.</p>
+          ${podeIncluir ? '<p style="margin-top:8px;">Clique em <b>+ Adicionar Treino</b> para criar a primeira.</p>' : ''}
+        </div>
+      ` : fichasComInfo.map(f => {
+        const _profs = (() => {
+          if (!f.aluno || !f.aluno.professores_responsaveis) return '';
+          const allU = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+          return f.aluno.professores_responsaveis.map(id => { const u = allU.find(x => Number(x.idusuario) === Number(id)); return u ? (u.nome||'').split(' ')[0] : ''; }).filter(Boolean).join(', ');
+        })();
+        const _isModelo = f.aluno && (f.aluno.email === 'modelo.masculino@intusfit.local' || f.aluno.email === 'modelo.feminino@intusfit.local');
+        const _modeloTag = _isModelo ? (f.aluno.email.includes('masculino') ? '♂️ MODELO H' : '♀️ MODELO M') : '';
+        return `
+        <div class="ficha-card" onclick="abrirFicha(${f.idficha})" ${_isModelo ? 'style="border-color:rgba(255,165,0,.35);background:rgba(255,165,0,.03);"' : ''}>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div>
+              <div style="font-size:15px;font-weight:800;color:var(--text);">
+                ${f.aluno ? esc(f.aluno.nome) : '<i style="color:var(--text-muted);">Aluno removido</i>'}
+                ${_isModelo ? `<span style="font-size:10px;font-weight:800;background:rgba(255,165,0,.15);color:#ffa500;padding:2px 8px;border-radius:6px;margin-left:8px;border:1px solid rgba(255,165,0,.3);">${_modeloTag}</span>` : ''}
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${esc(f.nmficha || 'Ficha sem nome')}${f.observacao ? ' · '+esc(f.observacao.slice(0,50)) : ''}${_isModelo ? ' · <span style="color:#ffa500;">Treinos copiados para teste grátis</span>' : ''}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:11px;color:var(--text-muted);">${f.dtinicio ? new Date(f.dtinicio+'T00:00:00').toLocaleDateString('pt-BR') : ''}</span>
+              <button class="btn-icon-sm" onclick="event.stopPropagation();verHistorico(${f.idatleta})" title="Histórico do aluno">📊</button>
+              ${podeIncluir ? `<button class="btn-icon-sm" onclick="event.stopPropagation();duplicarFicha(${f.idficha})" title="Duplicar para outro aluno">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>` : ''}
+            </div>
+          </div>
+          <div class="badges" style="margin-top:10px;">
+            ${f.divs.map(d => { const nm = (f.divNomes && f.divNomes[d]) ? f.divNomes[d] : 'Divisão ' + d; const exsDiv = f.exs.filter(e => (e.divisao||'A') === d); const t = calcTempoEstimado(exsDiv); return `<span class="pill" style="background:rgba(127,255,0,.10);color:var(--brand);border:1px solid rgba(127,255,0,.25);padding:2px 8px;font-size:11px;font-weight:700;">${esc(nm)}${t > 0 ? ' · ' + formatTempo(t) : ''}</span>`; }).join('')}
+            <span class="pill" style="background:var(--bg3);color:var(--text-muted);padding:2px 8px;font-size:11px;">${f.exs.length} exercício${f.exs.length!==1?'s':''}</span>
+            ${_profs ? `<span class="pill" style="background:rgba(250,204,21,.08);color:#facc15;border:1px solid rgba(250,204,21,.2);padding:2px 8px;font-size:11px;">👤 ${esc(_profs)}</span>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+function toggleFiltroProf(id) {
+  const idx = filtroProfs.indexOf(Number(id));
+  if (idx >= 0) filtroProfs.splice(idx, 1);
+  else filtroProfs.push(Number(id));
+  render();
+}
+
+function novoTreino() { editFichaId = null; editorState = {}; view = 'editor'; render(); }
+function novoTreinoParaAluno(idatleta) { editFichaId = null; editorState = { init: true, fichaId: null, nome: '', atletaId: idatleta, observacao: '', dtinicio: new Date().toISOString().slice(0,10), validade: '', ativo: true, exercicios: [], alongamentos: [], divNomes: {}, tabAtiva: 'A', secaoAlong: true, secaoEx: true }; view = 'editor'; render(); }
+function abrirFicha(id) { editFichaId = id; view = 'editor'; render(); }
+
+async function duplicarFicha(id) {
+  if (window.__dupFicha) return;
+  if (!hasPerm('tr_incluir')) return showToast('Sem permissão para duplicar treinos.', 'error');
+  const ficha = fichas.find(f => Number(f.idficha) === Number(id));
+  if (!ficha) return showToast('Ficha não encontrada.', 'error');
+  const exsOriginal = treinos.filter(t => Number(t.idficha) === Number(id));
+  const nomeNovo = (ficha.nmficha || 'Ficha') + ' (cópia)';
+  window.__dupFicha = true;
+  try {
+    const nova = await API.criarFicha({
+      idatleta: ficha.idatleta,
+      nmficha: nomeNovo,
+      dtinicio: new Date().toISOString().slice(0,10),
+      dtfim: null,
+      observacao: ficha.observacao || '',
+      ativo: 1,
+      alongamentos: ficha.alongamentos || null,
+      // Nomes personalizados das divisoes. Sem esta linha a copia nascia sem eles
+      // e a tela caia no rotulo generico A, B, C — o conteudo vinha certo, so o
+      // nome da divisao se perdia.  A API espera a chave 'divNomes'.
+      divNomes: ficha.divNomes || null,
+    });
+    let _copiado = false;
+    try {
+      await checarAPI();
+      if (USAR_API && !Auth.isLocalToken()) {
+        await apiFetch('/treinos.php?action=treinos_replace', {
+          method: 'POST',
+          body: JSON.stringify({
+            idficha: nova.idficha,
+            exercicios: exsOriginal.map(ex => ({
+              idexercicio: ex.idexercicio, nmexercicio: ex.nmexercicio,
+              divisao: ex.divisao || 'A', qtdserie: ex.qtdserie || 4, qtdrepeticao: ex.qtdrepeticao || 12,
+              repeticoes: ex.repeticoes || '', tempopausa: ex.tempopausa || 60, intervalo: ex.intervalo || '',
+              metodo: ex.metodo || '', observacao: ex.observacao || '',
+              unilateral: ex.unilateral || false, substitutos: ex.substitutos,
+            })),
+          }),
+        });
+        _copiado = true;
+      }
+    } catch (e) {
+      if (e && e.status === 403) throw e;
+    }
+    if (!_copiado) {
+      for (const ex of exsOriginal) {
+        await API.adicionarExercicioFicha({
+          idficha: nova.idficha, idexercicio: ex.idexercicio, nmexercicio: ex.nmexercicio,
+          divisao: ex.divisao || 'A', qtdserie: ex.qtdserie || 4, qtdrepeticao: ex.qtdrepeticao || 12,
+          repeticoes: ex.repeticoes || '', tempopausa: ex.tempopausa || 60, intervalo: ex.intervalo || '',
+          metodo: ex.metodo || '', observacao: ex.observacao || '', tut: ex.tut || '',
+          falha: ex.falha || false, unilateral: ex.unilateral || false, cargas: ex.cargas || [], reps_por_serie: ex.reps_por_serie || [], intervalos_por_serie: ex.intervalos_por_serie || [], tecnicas_por_serie: ex.tecnicas_por_serie || [],
+          substitutos: ex.substitutos,
+        });
+      }
+    }
+    showToast(`Ficha duplicada! Abra "${nomeNovo}" para atribuir a outro aluno.`);
+    await carregar();
+  } catch (e) { showToast(e.message || 'Erro ao duplicar.', 'error'); }
+  finally { window.__dupFicha = false; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VIEW: HISTÓRICO DO ALUNO
+// ═══════════════════════════════════════════════════════════════
+let historicoAtletaId = null;
+let historicoSessoes = [];
+
+function verHistorico(idatleta) {
+  historicoAtletaId = idatleta;
+  view = 'historico';
+  render();
+}
+
+// ═══════════════ EVOLUÇÃO DO ALUNO — VISÃO DO PROFESSOR ═══════════════
+// A tela de histórico do professor era só uma tabela de sessões: data, divisão,
+// duração e quantidade de exercícios. Não dava para responder a pergunta que o
+// professor precisa responder toda semana — "este aluno progrediu no supino nos
+// últimos três meses?". Agora usa o mesmo módulo de gráficos da tela do aluno,
+// então os dois olham exatamente para os mesmos números.
+let _evoProf = { escala: 'sessao', idex: null };
+
+function trocarEscalaEvoProf(e) { _evoProf.escala = e; renderHistoricoAluno(); }
+function trocarExercicioEvoProf(id) { _evoProf.idex = id; renderHistoricoAluno(); }
+
+function _blocoEvolucaoProf(sessoes) {
+  if (typeof IntusEvolucao === 'undefined') return '';
+  const isLight = document.body.classList.contains('theme-light');
+  const lista = IntusEvolucao.exercicios(sessoes);
+  if (!lista.length && !(sessoes || []).length) return '';
+
+  let html = '<div class="card"><div class="card-header"><span class="card-title">📈 Evolução</span></div>' +
+    '<div style="padding:0 2px 4px;">' +
+    '<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;line-height:1.5;">' +
+      'A escala de tempo vale para todos os gráficos abaixo.</p>' +
+    IntusEvolucao.barraEscala(_evoProf.escala, 'trocarEscalaEvoProf', isLight);
+
+  // Volume por divisão saiu em 22/08/2026. Comparava dia de perna com dia de
+  // braço: a divisão de perna sempre ganha, porque agachamento carrega mais
+  // peso que rosca direta, e a linha mais baixa não significava descuido
+  // nenhum. No lugar entram duas coisas que se sustentam sozinhas: com que
+  // frequência o cliente treinou, e o quanto cada exercício evoluiu.
+  const _hj = new Date(); _hj.setHours(0, 0, 0, 0);
+  const _domA = new Date(_hj); _domA.setDate(_domA.getDate() - _hj.getDay());
+  const _sem = [];
+  for (let w = 11; w >= 0; w--) {
+    const ini = new Date(_domA); ini.setDate(ini.getDate() - w * 7);
+    const fim = new Date(ini); fim.setDate(fim.getDate() + 6); fim.setHours(23, 59, 59, 999);
+    const n = (sessoes || []).filter(s => {
+      if (s.nao_contar) return false;
+      const d = new Date(String(s.dtsessao).slice(0, 10) + 'T00:00:00');
+      return d >= ini && d <= fim;
+    }).length;
+    _sem.push({ rotulo: String(ini.getDate()).padStart(2,'0') + '/' + String(ini.getMonth()+1).padStart(2,'0'), valor: n, atual: w === 0 });
+  }
+  html += IntusEvolucao.barras({
+    id: 'pev-freq', isLight, meta: 0,
+    titulo: 'Treinos por semana',
+    sub: 'Últimas 12 semanas, de domingo a sábado. A última ainda está em andamento.',
+    itens: _sem, altura: 140, pxPorItem: 34,
+  });
+
+  // Começou → hoje, por exercício.
+  const _comp = [];
+  IntusEvolucao.exercicios(sessoes).forEach(e => {
+    const pts = IntusEvolucao.historicoExercicio(sessoes, e.id).filter(p => p.media > 0);
+    if (pts.length < 2) return;
+    _comp.push({ nome: e.nome, de: Math.round(pts[0].media * 10) / 10, para: Math.round(pts[pts.length-1].media * 10) / 10 });
+  });
+  _comp.sort((a, b) => ((b.para - b.de) / (b.de || 1)) - ((a.para - a.de) / (a.de || 1)));
+  if (_comp.length) {
+    html += '<div style="margin-top:12px;">' + IntusEvolucao.comecouAgora({
+      id: 'pev-dumb', isLight,
+      titulo: 'Começou com quanto, está com quanto',
+      sub: 'Carga média da primeira sessão contra a da última, exercício por exercício. Cada linha tem a sua própria escala.',
+      itens: _comp.slice(0, 12),
+    }) + '</div>';
+  }
+
+  if (lista.length) {
+    let atual = _evoProf.idex;
+    if (!atual || !lista.some(e => String(e.id) === String(atual))) atual = lista[0].id;
+
+    html += '<div style="margin-top:14px;">' +
+      '<label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Exercício</label>' +
+      '<select onchange="trocarExercicioEvoProf(this.value)" style="width:100%;max-width:420px;min-height:42px;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:14px;font-family:inherit;">' +
+      lista.map(e => '<option value="' + esc(e.id) + '"' + (String(e.id) === String(atual) ? ' selected' : '') + '>' + esc(e.nome) + ' (' + e.sessoes + ')</option>').join('') +
+      '</select></div>';
+
+    const pontos = IntusEvolucao.historicoExercicio(sessoes, atual);
+    const dados = IntusEvolucao.agrupar(pontos, _evoProf.escala);
+    const rots = dados.map(p => p.rotulo);
+    const dets = dados.map(p => p.detalhe);
+
+    let maxS = 0;
+    dados.forEach(p => { if (p.series && p.series.length > maxS) maxS = p.series.length; });
+    const seriesGraf = [];
+    for (let i = 0; i < Math.min(maxS, 6); i++) {
+      seriesGraf.push({
+        nome: 'Série ' + (i + 1),
+        valores: dados.map(p => (p.series && p.series[i]) ? p.series[i].peso : null),
+      });
+    }
+    const sufixo = _evoProf.escala === 'sessao' ? 'sessão a sessão'
+                 : _evoProf.escala === 'mes' ? 'média de cada mês' : 'média de cada ano';
+
+    html += '<div style="display:flex;flex-direction:column;gap:12px;margin-top:12px;">' +
+      IntusEvolucao.grafico({
+        id: 'pev-series', isLight, titulo: 'Carga de cada série',
+        sub: 'kg em cada série, ' + sufixo + '. A última série é a que denuncia fadiga e carga mal ajustada.',
+        rotulos: rots, detalhes: dets, series: seriesGraf, unidade: 'kg', altura: 220,
+      }) +
+      IntusEvolucao.grafico({
+        id: 'pev-maxmed', isLight, titulo: 'Carga máxima × carga média',
+        sub: 'Pico subindo com média parada = a carga subiu em uma série só.',
+        rotulos: rots, detalhes: dets, unidade: 'kg', altura: 190,
+        series: [
+          { nome: 'Máxima', valores: dados.map(p => p.max) },
+          { nome: 'Média',  valores: dados.map(p => p.media) },
+        ],
+      }) +
+      IntusEvolucao.grafico({
+        id: 'pev-vol', isLight, titulo: 'Volume do exercício',
+        sub: 'Carga × repetições somando todas as séries.',
+        rotulos: rots, detalhes: dets, unidade: 'kg', altura: 170, casas: 0,
+        series: [{ nome: 'Volume', valores: dados.map(p => p.volume) }],
+      }) +
+    '</div>';
+  }
+
+  return html + '</div></div>';
+}
+
+async function renderHistoricoAluno() {
+  const aluno = atletas.find(a => Number(a.idatleta) === Number(historicoAtletaId));
+  const nome = aluno ? aluno.nome : 'Aluno';
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:900px;margin:0 auto;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary btn-sm" onclick="view='lista';render();">← Voltar</button>
+        <h1 style="font-size:20px;font-weight:800;color:var(--text);margin:0;">📊 Histórico — ${esc(nome)}</h1>
+      </div>
+      <div class="card" style="padding:40px;text-align:center;color:var(--text-muted);">Carregando...</div>
+    </div>`;
+
+  // "catch { = [] }" transformava falha de rede em "nenhuma sessao registrada".
+  // O professor concluia que o aluno nao treinou. Agora a falha tem cara de
+  // falha, e so quem voltou 200 com lista vazia pode dizer "nao treinou".
+  let _erroHist = null;
+  try { historicoSessoes = await API.listarSessoes(historicoAtletaId); }
+  catch (e) { historicoSessoes = []; _erroHist = (e && e.message) ? String(e.message) : 'falha na conexão'; }
+
+  if (_erroHist || !historicoSessoes.length) {
+    const miolo = _erroHist
+      ? `<div style="font-size:40px;margin-bottom:12px;">⚠️</div>
+         <p style="color:var(--text);font-weight:700;">Não consegui carregar o histórico.</p>
+         <p style="font-size:12.5px;margin-top:6px;">${esc(_erroHist)}</p>
+         <p style="font-size:12.5px;margin-top:6px;">Isto não significa que o aluno não treinou — os dados não chegaram.</p>
+         <button class="btn btn-primary btn-sm" style="margin-top:14px;" onclick="renderHistoricoAluno()">Tentar de novo</button>`
+      : `<div style="font-size:40px;margin-bottom:12px;">📊</div>
+         <p>Nenhuma sessão registrada para este aluno.</p>`;
+    main.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:16px;max-width:900px;margin:0 auto;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="btn btn-secondary btn-sm" onclick="view='lista';render();">← Voltar</button>
+          <h1 style="font-size:20px;font-weight:800;color:var(--text);margin:0;">📊 Histórico — ${esc(nome)}</h1>
+        </div>
+        <div class="card" style="padding:50px 20px;text-align:center;color:var(--text-muted);">
+          ${miolo}
+        </div>
+      </div>`;
+    return;
+  }
+
+  const totalTreinos = historicoSessoes.length;
+  const totalMin = historicoSessoes.reduce((s, x) => s + Math.floor((x.duracao_seg||0)/60), 0);
+
+  let rows = historicoSessoes.map(s => {
+    const data = s.dtsessao ? new Date(s.dtsessao + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    const durMin = Math.floor((s.duracao_seg||0)/60);
+    const nExs = (s.itens||[]).length;
+    return `<tr>
+      <td class="td-date">${data}</td>
+      <td>Divisão ${esc(s.divisao)}</td>
+      <td>${durMin} min</td>
+      <td>${nExs} exercícios</td>
+      <td>${s.nao_contar ? '⏱️ Teste' : s.marcado_como_feito ? '☑️ Marcado' : '✅ Completo'}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:12px;">${esc(s.comentario||'')}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-danger btn-sm" onclick="excluirSessao(${s.idsessao})" title="Excluir sessão">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:900px;margin:0 auto;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary btn-sm" onclick="view='lista';render();">← Voltar</button>
+        <h1 style="font-size:20px;font-weight:800;color:var(--text);margin:0;">📊 Histórico — ${esc(nome)}</h1>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <div class="card" style="flex:1;padding:16px;text-align:center;">
+          <div style="font-size:24px;font-weight:900;color:var(--brand);">${totalTreinos}</div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Sessões</div>
+        </div>
+        <div class="card" style="flex:1;padding:16px;text-align:center;">
+          <div style="font-size:24px;font-weight:900;color:var(--brand);">${totalMin}</div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Minutos totais</div>
+        </div>
+      </div>
+      ${_blocoEvolucaoProf(historicoSessoes)}
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Sessões Registradas</span>
+          <button class="btn btn-danger btn-sm" onclick="excluirTodoHistorico()">Excluir tudo</button>
+        </div>
+        <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead><tr>
+            <th>Data</th><th>Divisão</th><th>Duração</th><th>Exercícios</th><th>Status</th><th>Comentário</th><th style="width:60px;"></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        </div>
+      </div>
+    </div>`;
+  try { IntusEvolucao.ativar(main); } catch (e) {}
+}
+
+async function excluirSessao(id) {
+  if (!confirm('Excluir esta sessão do histórico?')) return;
+  try {
+    await API.excluirSessao(id);
+    showToast('Sessão excluída.');
+    renderHistoricoAluno();
+  } catch (e) { showToast(e.message || 'Erro ao excluir.', 'error'); }
+}
+
+async function excluirTodoHistorico() {
+  if (!confirm('Excluir TODO o histórico deste aluno? Esta ação não pode ser desfeita.')) return;
+  try {
+    for (const s of historicoSessoes) await API.excluirSessao(s.idsessao);
+    showToast('Histórico limpo.');
+    renderHistoricoAluno();
+  } catch (e) { showToast(e.message || 'Erro ao excluir.', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VIEW: EDITOR DE FICHA
+// ═══════════════════════════════════════════════════════════════
+let editorState = {};
+
+let _editorReadOnly = false;
+function renderEditor() {
+  const isEdit = !!editFichaId;
+  const readOnly = isEdit && !hasPerm('tr_editar');
+  _editorReadOnly = readOnly;
+  const ficha = isEdit ? fichas.find(f => Number(f.idficha) === Number(editFichaId)) : null;
+  const fichaExs = isEdit ? treinos.filter(t => Number(t.idficha) === Number(editFichaId)) : [];
+
+  if (!editorState.init || editorState.fichaId !== editFichaId) {
+    editorState = {
+      init: true, fichaId: editFichaId,
+      nome: ficha ? ficha.nmficha : '',
+      atletaId: ficha ? ficha.idatleta : null,
+      observacao: ficha ? (ficha.observacao || '') : '',
+      dtinicio: ficha ? (ficha.dtinicio || '') : new Date().toISOString().slice(0,10),
+      validade: ficha ? (ficha.dtfim || '') : '',
+      ativo: ficha ? (ficha.ativo !== false && ficha.ativo !== 0) : true,
+      exercicios: fichaExs.map(t => ({...t})),
+      alongamentos: (ficha && ficha.alongamentos) ? ficha.alongamentos.map(a => ({...a})) : [],
+      divNomes: (ficha && ficha.divNomes) ? {...ficha.divNomes} : {},
+      tabAtiva: 'A', secaoAlong: true, secaoEx: true,
+    };
+  }
+
+  const divs = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))].sort();
+  if (!divs.includes(editorState.tabAtiva) && divs.length > 0) editorState.tabAtiva = divs[0];
+  if (divs.length === 0) divs.push('A');
+  if (!divs.includes(editorState.tabAtiva)) editorState.tabAtiva = divs[0];
+
+  const alunoAtual = atletas.find(a => Number(a.idatleta) === Number(editorState.atletaId));
+  const exsDaTab = editorState.exercicios.filter(e => (e.divisao||'A') === editorState.tabAtiva && !e._placeholder);
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:900px;margin:0 auto;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary btn-sm" onclick="voltarLista()">← Voltar</button>
+        <h1 style="font-size:20px;font-weight:800;color:var(--text);margin:0;">🏋️ Treino</h1>
+        <span style="font-size:12px;color:var(--text-muted);">${readOnly ? 'visualizar' : (isEdit ? 'modificar' : 'novo')}</span>
+      </div>
+
+      <!-- NOME DO TREINO -->
+      <div class="card" style="padding:18px;">
+        <div class="form-group">
+          <label class="label">Nome do Treino *</label>
+          <input id="ed-nome" class="input" type="text" placeholder="Ex: Mesociclo de ativação metabólica" value="${esc(editorState.nome)}" ${readOnly ? 'disabled' : ''}/>
+        </div>
+        <div class="form-group" style="margin-top:10px;">
+          <label class="label">Observações</label>
+          <textarea id="ed-obs" class="input" rows="2" placeholder="Ex: REAVALIAR ATÉ 10/01/2025" ${readOnly ? 'disabled' : ''}>${esc(editorState.observacao)}</textarea>
+        </div>
+      </div>
+
+      <!-- CLIENTE E VALIDADE -->
+      <div class="card" style="padding:18px;overflow:visible;">
+        <div class="form-group" style="position:relative;">
+          <label class="label">Cliente</label>
+          ${readOnly ? `<input type="text" class="input" value="${alunoAtual ? esc(alunoAtual.nome) : ''}" disabled/>` : `
+          <div class="combo-wrap" id="combo-atleta">
+            <input type="text" class="input combo-input" id="combo-atleta-input"
+                   autocomplete="off" spellcheck="false" placeholder="Pesquisar cliente…"
+                   value="${alunoAtual ? esc(alunoAtual.nome) : ''}"/>
+            <div class="combo-list" id="combo-atleta-list" role="listbox"></div>
+          </div>`}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+          <div class="form-group">
+            <label class="label">Data Início</label>
+            <input id="ed-dtinicio" class="input" type="date" value="${esc(editorState.dtinicio)}" ${readOnly ? 'disabled' : ''}/>
+          </div>
+          <div class="form-group">
+            <label class="label">Validade / Reavaliar até</label>
+            <input id="ed-validade" class="input" type="date" value="${esc(editorState.validade)}" ${readOnly ? 'disabled' : ''}/>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:14px;">
+          <label class="label">Situação no app do aluno</label>
+          <div style="display:flex;gap:8px;">
+            <button type="button" ${readOnly ? 'disabled' : ''} onclick="editorState.ativo=true;renderEditor();" style="flex:1;padding:11px;border-radius:10px;cursor:${readOnly?'default':'pointer'};font-family:inherit;font-weight:800;font-size:13px;border:1.5px solid ${editorState.ativo?'#22c55e':'var(--border)'};background:${editorState.ativo?'rgba(34,197,94,.14)':'transparent'};color:${editorState.ativo?'#22c55e':'var(--text-muted)'};">✅ Ativo</button>
+            <button type="button" ${readOnly ? 'disabled' : ''} onclick="editorState.ativo=false;renderEditor();" style="flex:1;padding:11px;border-radius:10px;cursor:${readOnly?'default':'pointer'};font-family:inherit;font-weight:800;font-size:13px;border:1.5px solid ${!editorState.ativo?'#f87171':'var(--border)'};background:${!editorState.ativo?'rgba(248,113,113,.14)':'transparent'};color:${!editorState.ativo?'#f87171':'var(--text-muted)'};">⛔ Inativo</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;">Só fichas <b>Ativas</b> e dentro do período aparecem para o aluno. Treinos <b>fora das datas</b> (antes do início ou depois da validade) ficam automaticamente indisponíveis no app até você atualizar.</div>
+        </div>
+      </div>
+
+      <!-- DIVISÕES (tabs logo abaixo do cliente) -->
+      <div class="card" style="padding:14px 18px;overflow:visible;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="tab-bar" style="flex:1;margin-bottom:0;border-bottom:none;">
+            ${divs.map(d => {
+              const count = editorState.exercicios.filter(e => (e.divisao||'A') === d && !e._placeholder).length;
+              const divName = editorState.divNomes && editorState.divNomes[d] ? editorState.divNomes[d] : 'Divisão ' + d;
+              const isActive = d === editorState.tabAtiva;
+              return `<button class="tab-btn${isActive?' active':''}" onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')">${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
+            }).join('')}
+          </div>
+          ${!readOnly ? `<button class="btn btn-secondary btn-sm" onclick="adicionarDivisao()">+ Divisão</button>
+          <button class="btn btn-secondary btn-sm" onclick="duplicarDivisao()" title="Duplicar exercícios, alongamentos e observações para a próxima divisão">⧉ Duplicar</button>
+          <button class="btn btn-secondary btn-sm" onclick="excluirDivisao()" title="Excluir somente esta divisão" style="color:var(--danger);">🗑️ Excluir divisão</button>` : ''}
+        </div>
+      </div>
+
+      <!-- ALONGAMENTOS -->
+      <div class="section-header" onclick="editorState.secaoAlong=!editorState.secaoAlong;renderEditor();">
+        <h3>Alongamentos</h3>
+        <span class="toggle">${editorState.secaoAlong ? '−' : '+'}</span>
+      </div>
+      ${editorState.secaoAlong ? renderAlongSection() : ''}
+
+      <!-- EXERCÍCIOS -->
+      <div class="section-header" onclick="editorState.secaoEx=!editorState.secaoEx;renderEditor();">
+        <h3>Exercícios</h3>
+        <span class="toggle">${editorState.secaoEx ? '−' : '+'}</span>
+      </div>
+      ${editorState.secaoEx ? `
+        <div id="ex-cards">
+          ${exsDaTab.map((ex, idx) => renderExCard(ex, idx, exsDaTab.length)).join('')}
+          ${!readOnly ? `<button class="add-ex-btn" onclick="adicionarExEditor()">+ Adicionar Novo Exercício</button>` : ''}
+        </div>
+      ` : ''}
+
+      <!-- TEMPO ESTIMADO -->
+      <div style="background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:18px;">⏱</span>
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;">Tempo estimado — ${esc((editorState.divNomes && editorState.divNomes[editorState.tabAtiva]) || 'Divisão ' + editorState.tabAtiva)}</div>
+          <div style="font-size:18px;font-weight:900;color:#60a5fa;">${formatTempo(calcTempoEstimado(exsDaTab))}</div>
+        </div>
+      </div>
+
+      <!-- RODAPÉ -->
+      <div style="display:flex;gap:12px;justify-content:flex-end;padding:16px 0;border-top:1px solid var(--border);flex-wrap:wrap;">
+        ${isEdit && hasPerm('tr_excluir') ? `<button class="btn btn-danger" onclick="excluirFicha(${editFichaId})">Excluir</button>` : ''}
+        <button class="btn btn-secondary" onclick="voltarLista()">${readOnly ? '← Voltar' : 'Cancelar'}</button>
+        ${!readOnly && (hasPerm('tr_editar') || !isEdit) ? `<button class="btn btn-primary" onclick="salvarFichaCompleta()">💾 Salvar</button>` : ''}
+      </div>
+    </div>
+  `;
+
+  if (!readOnly) {
+    document.getElementById('ed-nome').addEventListener('input', e => { editorState.nome = e.target.value; });
+    document.getElementById('ed-obs').addEventListener('input', e => { editorState.observacao = e.target.value; });
+    document.getElementById('ed-dtinicio').addEventListener('input', e => { editorState.dtinicio = e.target.value; });
+    document.getElementById('ed-validade').addEventListener('input', e => { editorState.validade = e.target.value; });
+    setTimeout(() => { setupComboAtleta(); setupAllExCombos(); setupAllAlongCombos(); }, 0);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ALONGAMENTOS — inline combobox (keyboard-friendly, no modal)
+// ═══════════════════════════════════════════════════════════════
+function renderAlongSection() {
+  const ro = _editorReadOnly;
+  const alongsDaTab = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva);
+  let html = '<div style="margin-bottom:12px;">';
+  alongsDaTab.forEach((al, idx) => {
+    html += `
+      <div class="along-card">
+        <div class="along-header">
+          <span style="font-size:12px;color:var(--text-muted);font-weight:700;min-width:20px;">${idx+1}.</span>
+          ${ro ? `<input type="text" class="along-combo-input" value="${esc(al.nome || al.nmalong || '')}" disabled style="flex:1;"/>` : `
+          <div class="along-combo-wrap" style="flex:1;" id="along-combo-wrap-${idx}">
+            <input type="text" class="along-combo-input" id="along-combo-input-${idx}"
+                   autocomplete="off" spellcheck="false" placeholder="Digite o alongamento…"
+                   data-idx="${idx}"/>
+            <div class="along-combo-list" id="along-combo-list-${idx}"></div>
+          </div>`}
+          ${!ro ? `<div style="display:flex;gap:4px;">
+            <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;" onclick="moverAlong(${idx},-1)" ${idx===0?'disabled':''}>▲</button>
+            <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;" onclick="moverAlong(${idx},1)" ${idx===alongsDaTab.length-1?'disabled':''}>▼</button>
+            <button class="btn btn-danger btn-sm" style="padding:2px 6px;" onclick="removerAlong(${idx})">✕</button>
+          </div>` : ''}
+        </div>
+        <div class="along-fields">
+          <div>
+            <label>Séries</label>
+            <input class="along-combo-input" type="number" min="1" max="10" value="${al.series || 1}" ${ro ? 'disabled' : `onchange="updateAlongField(${idx},'series',parseInt(this.value)||1)"`} style="width:60px;text-align:center;"/>
+          </div>
+          <div>
+            <label>Tempo / Reps</label>
+            <input class="along-combo-input" type="text" value="${esc(al.tempo || '30s')}" placeholder="30s ou 10x" ${ro ? 'disabled' : `onchange="updateAlongField(${idx},'tempo',this.value)"`}/>
+          </div>
+          <div>
+            <label>Observações</label>
+            <input class="along-combo-input" type="text" value="${esc(al.obs || '')}" placeholder="" ${ro ? 'disabled' : `onchange="updateAlongField(${idx},'obs',this.value)"`}/>
+          </div>
+        </div>
+      </div>`;
+  });
+  html += !ro ? `<button class="add-ex-btn" style="padding:10px;" onclick="addAlongRow()">+ Adicionar Alongamento</button></div>` : '</div>';
+  return html;
+}
+
+function addAlongRow() {
+  editorState.alongamentos.push({ idalongamento: null, nome: '', series: 1, tempo: '30s', obs: '', divisao: editorState.tabAtiva });
+  renderEditor();
+  setTimeout(() => {
+    const alongsDaTab = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva);
+    const idx = alongsDaTab.length - 1;
+    const inp = document.getElementById('along-combo-input-' + idx);
+    if (inp) inp.focus();
+  }, 50);
+}
+
+function setupAllAlongCombos() {
+  const alongsDaTab = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva);
+  alongsDaTab.forEach((al, idx) => {
+    const input = document.getElementById('along-combo-input-' + idx);
+    const list = document.getElementById('along-combo-list-' + idx);
+    if (!input || !list) return;
+
+    const realIdx = editorState.alongamentos.indexOf(al);
+    input.value = al.nome || '';
+    let busca = '', activeIdx2 = -1;
+
+    function filtrados() {
+      const q = busca.trim().toLowerCase();
+      if (!q) return alongamentos;
+      if (/^\d+$/.test(q)) {
+        const byId = alongamentos.filter(a => String(a.idalongamento) === q);
+        if (byId.length) return byId;
+        return alongamentos.filter(a => String(a.idalongamento).startsWith(q));
+      }
+      return alongamentos.filter(a => (a.nome||a.nmalongamento||'').toLowerCase().includes(q));
+    }
+    function renderL() {
+      const arr = filtrados();
+      if (!arr.length) { list.innerHTML = '<div class="combo-empty">Nenhum encontrado.</div>'; return; }
+      list.innerHTML = arr.map((a, i) => {
+        const sel = a.idalongamento === al.idalongamento;
+        return `<div class="combo-item${sel?' selected':''}${i===activeIdx2?' active':''}" data-id="${a.idalongamento}">${a.idalongamento}. ${esc(a.nome||a.nmalongamento||'')}</div>`;
+      }).join('');
+      list.querySelectorAll('.combo-item').forEach(el => {
+        el.addEventListener('mousedown', ev => { ev.preventDefault(); selAl(parseInt(el.dataset.id)); });
+      });
+    }
+    function selAl(id) {
+      const found = alongamentos.find(a => a.idalongamento === id);
+      if (found) {
+        editorState.alongamentos[realIdx].idalongamento = id;
+        editorState.alongamentos[realIdx].nome = found.nome || found.nmalongamento || '';
+        input.value = editorState.alongamentos[realIdx].nome;
+      }
+      list.classList.remove('open');
+    }
+
+    input.addEventListener('focus', () => { busca = ''; activeIdx2 = -1; list.classList.add('open'); renderL(); });
+    input.addEventListener('input', ev => { busca = ev.target.value; activeIdx2 = -1; list.classList.add('open'); renderL(); });
+    input.addEventListener('blur', () => setTimeout(() => {
+      list.classList.remove('open');
+      if (!al.idalongamento && input.value.trim()) {
+        editorState.alongamentos[realIdx].nome = input.value.trim();
+      }
+    }, 200));
+    input.addEventListener('keydown', ev => {
+      const arr = filtrados();
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); activeIdx2 = Math.min(activeIdx2+1, arr.length-1); renderL(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); activeIdx2 = Math.max(activeIdx2-1, 0); renderL(); }
+      else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        if (activeIdx2 >= 0 && arr[activeIdx2]) selAl(arr[activeIdx2].idalongamento);
+        else if (/^\d+$/.test(input.value.trim())) {
+          const byId = alongamentos.find(a => String(a.idalongamento) === input.value.trim());
+          if (byId) selAl(byId.idalongamento);
+          else { editorState.alongamentos[realIdx].nome = input.value.trim(); list.classList.remove('open'); }
+        }
+        else if (arr.length === 1) selAl(arr[0].idalongamento);
+        else if (input.value.trim()) { editorState.alongamentos[realIdx].nome = input.value.trim(); list.classList.remove('open'); }
+      }
+      else if (ev.key === 'Escape') { list.classList.remove('open'); input.blur(); }
+      else if (ev.key === 'Tab' && !ev.shiftKey) {
+        list.classList.remove('open');
+        if (!al.idalongamento && input.value.trim()) editorState.alongamentos[realIdx].nome = input.value.trim();
+      }
+    });
+  });
+}
+
+function getAlongReal(idx) {
+  const alongs = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva);
+  return editorState.alongamentos.indexOf(alongs[idx]);
+}
+function updateAlongField(idx, field, value) {
+  const r = getAlongReal(idx);
+  if (r >= 0) editorState.alongamentos[r][field] = value;
+}
+
+function removerAlong(idx) { const r = getAlongReal(idx); if (r >= 0) editorState.alongamentos.splice(r, 1); renderEditor(); }
+function moverAlong(idx, dir) {
+  const r = getAlongReal(idx);
+  const r2 = getAlongReal(idx + dir);
+  if (r < 0 || r2 < 0) return;
+  [editorState.alongamentos[r], editorState.alongamentos[r2]] = [editorState.alongamentos[r2], editorState.alongamentos[r]];
+  renderEditor();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXERCÍCIO CARD
+// ═══════════════════════════════════════════════════════════════
+// ── TÉCNICAS DE SÉRIE ───────────────────────────────────────────────────────
+// Chave curta (vai para o banco), rótulo no editor, e a instrução que o aluno
+// lê na hora de executar. A instrução é o que faz a técnica existir de verdade
+// no app: sem ela o aluno vê uma sigla e não sabe o que fazer.
+const TECNICAS_SERIE = [
+  ['',          '—'],
+  ['drop',      'Drop set'],
+  ['restpause', 'Rest-pause'],
+  ['cluster',   'Cluster'],
+  ['backoff',   'Back-off'],
+  ['falha',     'Até a falha'],
+  ['isometria', 'Isometria final'],
+  ['negativa',  'Negativa lenta'],
+];
+
+function renderExCard(ex, idx, total) {
+  const ro = _editorReadOnly;
+  const dis = ro ? 'disabled' : '';
+  const numSeries = parseInt(ex.qtdserie) || 4;
+  const reps = ex.repeticoes || ex.qtdrepeticao || '10 a 12';
+  const cargas = ex.cargas || [];
+
+  let repPills = '';
+  for (let i = 0; i < numSeries; i++) {
+    const val = Array.isArray(ex.reps_por_serie) && ex.reps_por_serie[i] ? ex.reps_por_serie[i] : reps;
+    repPills += `<input class="rep-pill" value="${esc(val)}" ${ro ? 'disabled' : `onchange="updateRepSerie(${idx},${i},this.value)"`}/>`;
+  }
+  let cargaPills = '';
+  for (let i = 0; i < numSeries; i++) {
+    const val = cargas[i] || '';
+    cargaPills += `<input class="carga-pill" value="${esc(val)}" placeholder="${i+1}ª série" ${ro ? 'disabled' : `onchange="updateCargaSerie(${idx},${i},this.value)"`}/>`;
+  }
+
+  // Intervalo por série. O campo único lá em cima continua existindo e vale
+  // como padrão; estas pílulas permitem diferenciar quando faz diferença.
+  const intPadrao = ex.intervalo && !String(ex.intervalo).includes('/')
+    ? ex.intervalo : (ex.tempopausa ? formatSeg(ex.tempopausa) : '01:00');
+  const intLista = Array.isArray(ex.intervalos_por_serie) && ex.intervalos_por_serie.length
+    ? ex.intervalos_por_serie
+    : (String(ex.intervalo || '').includes('/') ? String(ex.intervalo).split('/').map(x => x.trim()) : []);
+  let intPills = '';
+  for (let i = 0; i < numSeries; i++) {
+    const val = intLista[i] || intPadrao;
+    intPills += `<input class="rep-pill" value="${esc(val)}" ${ro ? 'disabled' : `onchange="updateIntervaloSerie(${idx},${i},this.value)"`}/>`;
+  }
+
+  // Técnicas de série. São diferentes de "Dinâmica": aquela agrupa exercícios
+  // (super série, triset, circuito), estas acontecem DENTRO de uma série só,
+  // quase sempre a última do exercício.
+  const tecLista = Array.isArray(ex.tecnicas_por_serie) ? ex.tecnicas_por_serie : [];
+  let tecPills = '';
+  for (let i = 0; i < numSeries; i++) {
+    const val = tecLista[i] || '';
+    tecPills += `<select class="rep-pill" ${ro ? 'disabled' : `onchange="updateTecnicaSerie(${idx},${i},this.value)"`} style="padding:5px 2px;">` +
+      TECNICAS_SERIE.map(t => `<option value="${t[0]}"${val === t[0] ? ' selected' : ''}>${t[1]}</option>`).join('') +
+    '</select>';
+  }
+
+  return `
+    <div class="ex-card">
+      <div class="ex-header">
+        <div class="form-group" style="flex:1;margin:0;min-width:200px;position:relative;">
+          <label class="label">Exercício</label>
+          ${ro ? `<input type="text" class="input" value="${esc(ex.nmexercicio || ex.nome || '')}" disabled/>` : `
+          <div class="combo-wrap" id="combo-ex-${idx}">
+            <input type="text" class="input combo-input" id="combo-ex-input-${idx}"
+                   autocomplete="off" spellcheck="false" placeholder="Pesquisar exercício…" data-idx="${idx}"/>
+            <div class="combo-list" id="combo-ex-list-${idx}" role="listbox"></div>
+          </div>`}
+        </div>
+        <div class="form-group" style="width:80px;margin:0;">
+          <label class="label">Séries</label>
+          <input class="input" type="number" min="1" max="10" value="${numSeries}" ${ro ? 'disabled' : `onchange="updateSeries(${idx},this.value)"`} style="text-align:center;"/>
+        </div>
+        <div class="form-group" style="width:90px;margin:0;">
+          <label class="label">Intervalo</label>
+          <input class="input" type="text" value="${esc(ex.intervalo || (ex.tempopausa ? formatSeg(ex.tempopausa) : '01:00'))}" ${ro ? 'disabled' : `onchange="updateIntervalo(${idx},this.value)"`} style="text-align:center;"/>
+        </div>
+        <div class="form-group" style="width:120px;margin:0;">
+          <label class="label">Dinâmica</label>
+          <select class="input" ${ro ? 'disabled' : `onchange="updateMetodo(${idx},this.value)"`} style="font-size:12px;padding:6px 4px;">
+            <option value="" ${!ex.metodo?'selected':''}>Normal</option>
+            <option value="super" ${ex.metodo==='super'?'selected':''}>Super Série</option>
+            <option value="triset" ${ex.metodo==='triset'?'selected':''}>Triset</option>
+            <option value="circuito" ${ex.metodo==='circuito'?'selected':''}>Circuito</option>
+          </select>
+        </div>
+        <div class="falha-check" style="padding-top:18px;">
+          <input type="checkbox" id="falha-${idx}" ${ex.falha?'checked':''} ${ro ? 'disabled' : `onchange="updateFalha(${idx},this.checked)"`}/>
+          <label for="falha-${idx}">Falha</label>
+        </div>
+        <div class="falha-check" style="padding-top:18px;" title="Exercício executado um lado por vez (dobra o tempo de execução na estimativa)">
+          <input type="checkbox" id="uni-${idx}" ${ex.unilateral?'checked':''} ${ro ? 'disabled' : `onchange="updateUnilateral(${idx},this.checked)"`}/>
+          <label for="uni-${idx}">Uni</label>
+        </div>
+      </div>
+      <div class="ex-fields">
+        <div class="field-group">
+          <label>T.U.T</label>
+          <input value="${esc(ex.tut || '3020')}" placeholder="3020" ${ro ? 'disabled' : `onchange="updateTut(${idx},this.value)"`}/>
+        </div>
+        <div class="field-group">
+          <label>Repetições</label>
+          <div class="rep-row">${repPills}</div>
+        </div>
+        <div class="field-group">
+          <label>Carga</label>
+          <div class="carga-row">${cargaPills}</div>
+        </div>
+        <div class="field-group">
+          <label>Intervalo por série</label>
+          <div class="rep-row">${intPills}</div>
+        </div>
+        <div class="field-group">
+          <label>Técnica na série</label>
+          <div class="rep-row">${tecPills}</div>
+        </div>
+      </div>
+      <div class="ex-footer">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;">Considerações</label>
+        <input type="text" value="${esc(ex.observacao || '')}" placeholder="" ${ro ? 'disabled' : `onchange="updateObs(${idx},this.value)"`}/>
+      </div>
+      ${!ro ? `<div class="ex-actions">
+        <button class="btn btn-secondary btn-sm" onclick="moverEx(${idx},'${editorState.tabAtiva}',-1)" ${idx===0?'disabled':''}>▲</button>
+        <button class="btn btn-secondary btn-sm" onclick="moverEx(${idx},'${editorState.tabAtiva}',1)" ${idx===total-1?'disabled':''}>▼</button>
+        <button class="btn btn-danger btn-sm" onclick="removerExEditor(${idx},'${editorState.tabAtiva}')">Remover</button>
+      </div>` : ''}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INLINE UPDATES
+// ═══════════════════════════════════════════════════════════════
+function getExReal(idx) {
+  const exs = editorState.exercicios.filter(e => (e.divisao||'A') === editorState.tabAtiva && !e._placeholder);
+  return editorState.exercicios.indexOf(exs[idx]);
+}
+function updateSeries(idx, val) { const r = getExReal(idx); if (r >= 0) { editorState.exercicios[r].qtdserie = parseInt(val)||4; renderEditor(); } }
+function updateIntervalo(idx, val) { const r = getExReal(idx); if (r >= 0) { editorState.exercicios[r].intervalo = val; editorState.exercicios[r].tempopausa = parseSeg(val); } }
+function updateFalha(idx, val) { const r = getExReal(idx); if (r >= 0) editorState.exercicios[r].falha = val; }
+function updateUnilateral(idx, val) { const r = getExReal(idx); if (r >= 0) { editorState.exercicios[r].unilateral = val; renderEditor(); } }
+function updateTut(idx, val) { const r = getExReal(idx); if (r >= 0) editorState.exercicios[r].tut = val; }
+// ── PRESCRIÇÃO POR SÉRIE ────────────────────────────────────────────────────
+// O bug: a última linha desta função era `repeticoes = val`, ou seja, editar
+// QUALQUER série sobrescrevia o campo do exercício inteiro com o valor daquela
+// série. Prescrevendo 12/10/8, o campo terminava valendo "8" — e é ele que
+// viaja para o servidor e que o app do aluno lê. Por isso todas as séries
+// apareciam iguais no celular: a informação por série morria no editor.
+// A correção: `repeticoes` passa a ser a lista inteira separada por "/", que é
+// o formato que o app do aluno já sabe interpretar. Quando todas as séries têm
+// o mesmo valor, volta a ser um valor só, para não poluir prescrições simples.
+function _juntarPorSerie(arr, n, padrao) {
+  const v = [];
+  for (let i = 0; i < n; i++) {
+    const x = (arr && arr[i] != null && String(arr[i]).trim() !== '') ? String(arr[i]).trim() : String(padrao);
+    v.push(x);
+  }
+  if (!v.length) return String(padrao);
+  return v.every(x => x === v[0]) ? v[0] : v.join('/');
+}
+
+function updateRepSerie(idx, serie, val) {
+  const r = getExReal(idx);
+  if (r < 0) return;
+  const ex = editorState.exercicios[r];
+  const n = parseInt(ex.qtdserie) || 4;
+  const padrao = ex.repeticoes && !String(ex.repeticoes).includes('/') ? ex.repeticoes : (ex.qtdrepeticao || '12');
+  if (!Array.isArray(ex.reps_por_serie)) {
+    // Primeira edição: parte do que já estava valendo para todas as séries.
+    const base = String(ex.repeticoes || padrao);
+    ex.reps_por_serie = base.includes('/') ? base.split('/').map(x => x.trim()) : new Array(n).fill(base);
+  }
+  ex.reps_por_serie[serie] = val;
+  ex.repeticoes = _juntarPorSerie(ex.reps_por_serie, n, padrao);
+}
+
+// Intervalo por série. Mesmo transporte das repetições: um valor só quando
+// todas são iguais, lista com "/" quando o professor diferencia. Séries de
+// força pedem pausa longa; a última série de um back-off pede pausa curta.
+function updateIntervaloSerie(idx, serie, val) {
+  const r = getExReal(idx);
+  if (r < 0) return;
+  const ex = editorState.exercicios[r];
+  const n = parseInt(ex.qtdserie) || 4;
+  const padrao = ex.intervalo && !String(ex.intervalo).includes('/')
+    ? ex.intervalo
+    : (ex.tempopausa ? formatSeg(ex.tempopausa) : '01:00');
+  if (!Array.isArray(ex.intervalos_por_serie)) {
+    const base = String(ex.intervalo || padrao);
+    ex.intervalos_por_serie = base.includes('/') ? base.split('/').map(x => x.trim()) : new Array(n).fill(base);
+  }
+  ex.intervalos_por_serie[serie] = val;
+  ex.intervalo = _juntarPorSerie(ex.intervalos_por_serie, n, padrao);
+  // tempopausa continua sendo o número usado nos cálculos de tempo estimado:
+  // fica com a pausa da primeira série, que é a representativa.
+  ex.tempopausa = parseSeg(ex.intervalos_por_serie[0] || padrao);
+}
+
+// Técnica aplicada a UMA série. Diferente de "Dinâmica", que agrupa
+// exercícios (super série, triset, circuito): drop set, rest-pause, cluster e
+// back-off acontecem dentro de uma série só, quase sempre a última.
+function updateTecnicaSerie(idx, serie, val) {
+  const r = getExReal(idx);
+  if (r < 0) return;
+  const ex = editorState.exercicios[r];
+  if (!Array.isArray(ex.tecnicas_por_serie)) ex.tecnicas_por_serie = [];
+  ex.tecnicas_por_serie[serie] = val || '';
+  if (ex.tecnicas_por_serie.every(x => !x)) delete ex.tecnicas_por_serie;
+}
+function updateCargaSerie(idx, serie, val) { const r = getExReal(idx); if (r >= 0) { if (!editorState.exercicios[r].cargas) editorState.exercicios[r].cargas = []; editorState.exercicios[r].cargas[serie] = val; } }
+function updateObs(idx, val) { const r = getExReal(idx); if (r >= 0) editorState.exercicios[r].observacao = val; }
+function updateMetodo(idx, val) { const r = getExReal(idx); if (r >= 0) editorState.exercicios[r].metodo = val || ''; }
+
+function voltarLista() { view = 'lista'; editorState = {}; render(); }
+function trocarTab(d) { editorState.tabAtiva = d; renderEditor(); }
+function renomearDivisao(d) {
+  const atual = (editorState.divNomes && editorState.divNomes[d]) ? editorState.divNomes[d] : 'Divisão ' + d;
+  const novo = prompt('Nome da divisão ' + d + ':', atual);
+  if (novo !== null && novo.trim()) {
+    if (!editorState.divNomes) editorState.divNomes = {};
+    editorState.divNomes[d] = novo.trim();
+    renderEditor();
+  }
+}
+function adicionarDivisao() {
+  const existentes = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))];
+  if (existentes.length === 0) existentes.push('A');
+  const proxima = 'ABCDEFGH'.split('').find(l => !existentes.includes(l));
+  if (!proxima) return showToast('Máximo de divisões atingido.', 'error');
+  editorState.tabAtiva = proxima;
+  editorState.exercicios.push({ _placeholder: true, divisao: proxima, idexercicio: 0, nmexercicio: '', qtdserie: 4, repeticoes: '10 a 12', intervalo: '01:00', tut: '3020', observacao: '' });
+  renderEditor();
+}
+
+function duplicarDivisao() {
+  const divAtual = editorState.tabAtiva;
+  const existentes = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))].sort();
+  const proxima = 'ABCDEFGH'.split('').find(l => !existentes.includes(l));
+  if (!proxima) return showToast('Máximo de divisões atingido.', 'error');
+  const exsDaTab = editorState.exercicios.filter(e => (e.divisao||'A') === divAtual && !e._placeholder);
+  if (!exsDaTab.length && !editorState.alongamentos.length) return showToast('Nenhum conteúdo para duplicar.', 'error');
+  exsDaTab.forEach(ex => {
+    editorState.exercicios.push({
+      ...JSON.parse(JSON.stringify(ex)),
+      divisao: proxima,
+      idtreino: undefined,
+    });
+  });
+  if (editorState.alongamentos && editorState.alongamentos.length > 0) {
+    const alongsDaTab = editorState.alongamentos.filter(a => (a.divisao || 'A') === divAtual);
+    const alongsCopia = alongsDaTab.map(a => ({...JSON.parse(JSON.stringify(a)), divisao: proxima}));
+    editorState.alongamentos.push(...alongsCopia);
+  }
+  if (editorState.divNomes && editorState.divNomes[divAtual]) {
+    if (!editorState.divNomes[proxima]) editorState.divNomes[proxima] = editorState.divNomes[divAtual] + ' (cópia)';
+  }
+  const placeholders = editorState.exercicios.filter(e => e._placeholder && e.divisao === proxima);
+  placeholders.forEach(p => { const i = editorState.exercicios.indexOf(p); if (i >= 0) editorState.exercicios.splice(i, 1); });
+  editorState.tabAtiva = proxima;
+  showToast(`Divisão ${divAtual} duplicada para ${proxima} (exercícios + alongamentos)!`);
+  renderEditor();
+}
+
+function excluirDivisao() {
+  const div = editorState.tabAtiva;
+  const existentes = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))].sort();
+  if (existentes.length <= 1) return showToast('Não é possível excluir a única divisão.', 'error');
+  const divName = (editorState.divNomes && editorState.divNomes[div]) || ('Divisão ' + div);
+  if (!confirm(`Excluir "${divName}" e todos os exercícios/alongamentos dela?`)) return;
+  editorState.exercicios = editorState.exercicios.filter(e => (e.divisao || 'A') !== div);
+  if (editorState.alongamentos) editorState.alongamentos = editorState.alongamentos.filter(a => (a.divisao || 'A') !== div);
+  if (editorState.divNomes) delete editorState.divNomes[div];
+  const remaining = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))].sort();
+  editorState.tabAtiva = remaining[0] || 'A';
+  showToast(`${divName} excluída.`);
+  renderEditor();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMBOBOX ATLETA
+// ═══════════════════════════════════════════════════════════════
+function setupComboAtleta() {
+  const input = document.getElementById('combo-atleta-input');
+  const list  = document.getElementById('combo-atleta-list');
+  if (!input || !list) return;
+  const alunoAtual = atletas.find(a => Number(a.idatleta) === Number(editorState.atletaId));
+  if (alunoAtual) input.value = alunoAtual.nome;
+  let busca = '', activeIdx = -1;
+
+  function filtrados() {
+    const q = busca.trim().toLowerCase();
+    if (!q) return atletas.slice(0, 200);
+    return atletas.filter(a => String(a.nome||'').toLowerCase().includes(q)).slice(0, 200);
+  }
+  function renderL() {
+    const arr = filtrados();
+    if (!arr.length) { list.innerHTML = '<div class="combo-empty">Nenhum cliente encontrado.</div>'; return; }
+    list.innerHTML = arr.map((a,i) => {
+      const sel = Number(a.idatleta) === Number(editorState.atletaId);
+      return `<div class="combo-item${sel?' selected':''}${i===activeIdx?' active':''}" data-id="${a.idatleta}">${esc(a.nome)}</div>`;
+    }).join('');
+    list.querySelectorAll('.combo-item').forEach(el => {
+      el.addEventListener('mousedown', ev => { ev.preventDefault(); selA(parseInt(el.dataset.id)); });
+    });
+  }
+  function fechar() { list.classList.remove('open'); const c = atletas.find(a => Number(a.idatleta) === Number(editorState.atletaId)); input.value = c ? c.nome : ''; }
+  function selA(id) { editorState.atletaId = id; fechar(); }
+
+  input.addEventListener('focus', () => { busca=''; activeIdx=-1; list.classList.add('open'); renderL(); });
+  input.addEventListener('input', e => { busca = e.target.value; activeIdx = -1; list.classList.add('open'); renderL(); });
+  input.addEventListener('blur', () => setTimeout(fechar, 200));
+  input.addEventListener('keydown', e => {
+    const arr = filtrados();
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx+1, arr.length-1); renderL(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx-1, 0); renderL(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (activeIdx >= 0 && arr[activeIdx]) selA(parseInt(arr[activeIdx].idatleta)); else if (arr.length === 1) selA(parseInt(arr[0].idatleta)); }
+    else if (e.key === 'Escape') input.blur();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMBOBOX EXERCÍCIO (with "Cadastrar novo" for admin)
+// ═══════════════════════════════════════════════════════════════
+function setupAllExCombos() {
+  const exsDaTab = editorState.exercicios.filter(e => (e.divisao||'A') === editorState.tabAtiva && !e._placeholder);
+  exsDaTab.forEach((ex, idx) => {
+    const input = document.getElementById('combo-ex-input-' + idx);
+    const list  = document.getElementById('combo-ex-list-' + idx);
+    if (!input || !list) return;
+
+    const cur = exercicios.find(e => Number(e.idexercicio) === Number(ex.idexercicio));
+    input.value = cur ? cur.nmexercicio : (ex.nmexercicio || '');
+    let busca = '', activeIdx2 = -1;
+
+    function filtrados() {
+      const q = busca.trim().toLowerCase();
+      if (!q) return exercicios;
+      const palavras = q.split(/\s+/).filter(Boolean);
+      return exercicios.filter(e => {
+        const nome = (e.nmexercicio||'').toLowerCase();
+        const grupo = (e.grupo||'').toLowerCase();
+        return palavras.every(p => nome.includes(p) || grupo.includes(p));
+      });
+    }
+    function renderL() {
+      const arr = filtrados();
+      let html = '';
+      if (!arr.length) {
+        html = '<div class="combo-empty">Nenhum exercício encontrado.</div>';
+      } else {
+        html = arr.map((e,i) => {
+          const sel = Number(e.idexercicio) === Number(ex.idexercicio);
+          return `<div class="combo-item${sel?' selected':''}${i===activeIdx2?' active':''}" data-id="${e.idexercicio}">
+            <span>${esc(e.nmexercicio)}</span> <small style="color:var(--text-muted);margin-left:8px;">${esc(e.grupo||'')}</small>
+          </div>`;
+        }).join('');
+      }
+      if (_isAdm && busca.trim()) {
+        html += `<div class="combo-new" data-action="new" onclick="cadastrarNovoExercicio(${idx},'${esc(busca.trim())}')">+ Cadastrar "${esc(busca.trim())}" como novo exercício</div>`;
+      }
+      list.innerHTML = html;
+      list.querySelectorAll('.combo-item').forEach(el => {
+        el.addEventListener('mousedown', ev => { ev.preventDefault(); selE(parseInt(el.dataset.id)); });
+      });
+    }
+    function selE(id) {
+      const realIdx = editorState.exercicios.indexOf(ex);
+      const found = exercicios.find(e => Number(e.idexercicio) === id);
+      if (realIdx >= 0 && found) {
+        editorState.exercicios[realIdx].idexercicio = id;
+        editorState.exercicios[realIdx].nmexercicio = found.nmexercicio;
+        editorState.exercicios[realIdx].substitutos = found.substitutos || null;
+      }
+      list.classList.remove('open');
+      input.value = found ? found.nmexercicio : '';
+    }
+
+    input.addEventListener('focus', () => { busca = ''; activeIdx2 = -1; list.classList.add('open'); renderL(); });
+    input.addEventListener('input', ev => { busca = ev.target.value; activeIdx2 = -1; list.classList.add('open'); renderL(); });
+    input.addEventListener('blur', () => setTimeout(() => {
+      list.classList.remove('open');
+      const c = exercicios.find(e2 => Number(e2.idexercicio) === Number(ex.idexercicio));
+      input.value = c ? c.nmexercicio : (ex.nmexercicio || '');
+    }, 250));
+    input.addEventListener('keydown', ev => {
+      const arr = filtrados();
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); activeIdx2 = Math.min(activeIdx2+1, arr.length-1); renderL(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); activeIdx2 = Math.max(activeIdx2-1, 0); renderL(); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); if (activeIdx2 >= 0 && arr[activeIdx2]) selE(parseInt(arr[activeIdx2].idexercicio)); else if (arr.length === 1) selE(parseInt(arr[0].idexercicio)); }
+      else if (ev.key === 'Escape') input.blur();
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CADASTRAR NOVO EXERCÍCIO (admin, inline)
+// ═══════════════════════════════════════════════════════════════
+function cadastrarNovoExercicio(exIdx, nomeDigitado) {
+  const _realIdx = getExReal(exIdx);
+  const gruposUnicos = [...new Set(exercicios.map(e => (e.grupo||'').trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt-BR'));
+  const optGrupos = gruposUnicos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Cadastrar Novo Exercício</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="label">Nome do Exercício *</label>
+        <input id="novo-ex-nome" class="input" type="text" value="${esc(nomeDigitado)}"/>
+      </div>
+      <div class="form-group" style="margin-top:10px;">
+        <label class="label">Grupo Muscular *</label>
+        <select id="novo-ex-grupo" class="input">
+          <option value="">Selecione o grupo...</option>
+          ${optGrupos}
+        </select>
+      </div>
+      <div class="form-group" style="margin-top:10px;">
+        <label class="label">Observação</label>
+        <input id="novo-ex-obs" class="input" type="text" placeholder="Dica de execução (opcional)"/>
+      </div>
+      <div class="form-group" style="margin-top:10px;">
+        <label class="label">Vídeo YouTube (opcional)</label>
+        <input id="novo-ex-video" class="input" type="text" placeholder="https://youtube.com/watch?v=..."/>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNovoExercicio(${_realIdx})">Salvar e Usar</button>
+    </div>
+  `);
+  setTimeout(() => { const el = document.getElementById('novo-ex-grupo'); if (el) el.focus(); }, 100);
+}
+
+async function salvarNovoExercicio(realIdx) {
+  const nome = (document.getElementById('novo-ex-nome').value || '').trim();
+  const grupo = (document.getElementById('novo-ex-grupo').value || '').trim();
+  const obs = (document.getElementById('novo-ex-obs').value || '').trim();
+  const video = (document.getElementById('novo-ex-video').value || '').trim();
+  if (!nome) return showToast('Informe o nome.', 'error');
+  if (!grupo) return showToast('Informe o grupo muscular.', 'error');
+
+  try {
+    const novo = await API.criarExercicio({ nmexercicio: nome, grupo, observacao: obs, videoyoutube: video || undefined, substitutos: [] });
+    // Reload exercises from Store to stay in sync
+    exercicios = JSON.parse(localStorage.getItem('intus-exercicios') || '[]');
+
+    if (realIdx >= 0 && editorState.exercicios[realIdx]) {
+      editorState.exercicios[realIdx].idexercicio = novo.idexercicio;
+      editorState.exercicios[realIdx].nmexercicio = novo.nmexercicio;
+    }
+    closeModal();
+    showToast('Exercício cadastrado!');
+    renderEditor();
+  } catch (e) { showToast(e.message || 'Erro ao cadastrar.', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ADICIONAR / REMOVER / REORDENAR EXERCÍCIOS
+// ═══════════════════════════════════════════════════════════════
+function adicionarExEditor() {
+  editorState.exercicios.push({
+    divisao: editorState.tabAtiva, idexercicio: 0, nmexercicio: '',
+    qtdserie: 4, repeticoes: '10 a 12', qtdrepeticao: 12,
+    intervalo: '01:00', tempopausa: 60, tut: '3020',
+    metodo: '', observacao: '', falha: false, unilateral: false, cargas: [], reps_por_serie: [], intervalos_por_serie: [], tecnicas_por_serie: [],
+  });
+  renderEditor();
+}
+function removerExEditor(idx, div) {
+  const exs = editorState.exercicios.filter(e => (e.divisao||'A') === div && !e._placeholder);
+  const real = editorState.exercicios.indexOf(exs[idx]);
+  if (real >= 0) editorState.exercicios.splice(real, 1);
+  renderEditor();
+}
+function moverEx(idx, div, dir) {
+  const exsDiv = editorState.exercicios.filter(e => (e.divisao||'A') === div && !e._placeholder);
+  const n = idx + dir;
+  if (n < 0 || n >= exsDiv.length) return;
+  const rA = editorState.exercicios.indexOf(exsDiv[idx]);
+  const rB = editorState.exercicios.indexOf(exsDiv[n]);
+  [editorState.exercicios[rA], editorState.exercicios[rB]] = [editorState.exercicios[rB], editorState.exercicios[rA]];
+  renderEditor();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SALVAR / EXCLUIR
+// ═══════════════════════════════════════════════════════════════
+async function salvarFichaCompleta() {
+  if (window.__savingFicha) return;
+  if (editFichaId && !hasPerm('tr_editar')) return showToast('Sem permissão para editar treinos.', 'error');
+  if (!editFichaId && !hasPerm('tr_incluir')) return showToast('Sem permissão para incluir treinos.', 'error');
+  if (!editorState.nome.trim()) return showToast('Informe o nome do treino.', 'error');
+  if (!editorState.atletaId) return showToast('Selecione um cliente.', 'error');
+  window.__savingFicha = true;
+  try {
+    let fichaId = editFichaId;
+    if (fichaId) {
+      await API.editarFicha(fichaId, {
+        nmficha: editorState.nome.trim(), idatleta: editorState.atletaId,
+        observacao: editorState.observacao.trim(),
+        dtinicio: editorState.dtinicio || null, dtfim: editorState.validade || null,
+        ativo: editorState.ativo ? 1 : 0, alongamentos: editorState.alongamentos,
+        divNomes: editorState.divNomes || {},
+      });
+    } else {
+      const nova = await API.criarFicha({
+        idatleta: editorState.atletaId, nmficha: editorState.nome.trim(),
+        dtinicio: editorState.dtinicio || new Date().toISOString().slice(0,10),
+        dtfim: editorState.validade || null, observacao: editorState.observacao.trim(),
+        ativo: editorState.ativo ? 1 : 0, alongamentos: editorState.alongamentos,
+        divNomes: editorState.divNomes || {},
+      });
+      fichaId = nova.idficha;
+    }
+    const exsReais = editorState.exercicios.filter(e => !e._placeholder && e.idexercicio);
+    // Substituicao ATOMICA no servidor (apaga+reinsere numa transacao) — evita
+    // duplicacao por cache desatualizado. Offline: mantem o fluxo local antigo.
+    let _replaced = false;
+    try {
+      await checarAPI();
+      if (USAR_API && !Auth.isLocalToken()) {
+        await apiFetch('/treinos.php?action=treinos_replace', {
+          method: 'POST',
+          body: JSON.stringify({
+            idficha: fichaId,
+            exercicios: exsReais.map(ex => ({
+              idexercicio: ex.idexercicio, nmexercicio: ex.nmexercicio,
+              divisao: ex.divisao || 'A', qtdserie: ex.qtdserie || 4, qtdrepeticao: ex.qtdrepeticao || 12,
+              repeticoes: ex.repeticoes || '', tempopausa: ex.tempopausa || 60, intervalo: ex.intervalo || '',
+              metodo: ex.metodo || '', observacao: ex.observacao || '',
+              unilateral: ex.unilateral || false, substitutos: ex.substitutos,
+            })),
+          }),
+        });
+        _replaced = true;
+      }
+    } catch (e) {
+      if (e && e.status === 403) throw e;
+    }
+    if (!_replaced) {
+      const antigos = treinos.filter(t => Number(t.idficha) === Number(fichaId));
+      for (const t of antigos) await API.removerExercicioFicha(t.idtreino);
+      for (const ex of exsReais) {
+        await API.adicionarExercicioFicha({
+          idficha: fichaId, idexercicio: ex.idexercicio, nmexercicio: ex.nmexercicio,
+          divisao: ex.divisao || 'A', qtdserie: ex.qtdserie || 4, qtdrepeticao: ex.qtdrepeticao || 12,
+          repeticoes: ex.repeticoes || '', tempopausa: ex.tempopausa || 60, intervalo: ex.intervalo || '',
+          metodo: ex.metodo || '', observacao: ex.observacao || '', tut: ex.tut || '',
+          falha: ex.falha || false, unilateral: ex.unilateral || false, cargas: ex.cargas || [], reps_por_serie: ex.reps_por_serie || [], intervalos_por_serie: ex.intervalos_por_serie || [], tecnicas_por_serie: ex.tecnicas_por_serie || [],
+          substitutos: ex.substitutos,
+        });
+      }
+    }
+    showToast('Treino salvo!');
+    editorState = {}; view = 'lista';
+    await carregar();
+  } catch (e) { showToast(e.message || 'Erro ao salvar.', 'error'); }
+  finally { window.__savingFicha = false; }
+}
+
+async function excluirFicha(id) {
+  if (!hasPerm('tr_excluir')) return showToast('Sem permissão para excluir treinos.', 'error');
+  if (!confirm('Mover esta ficha para a lixeira? Ela ficará disponível por 30 dias para recuperação.')) return;
+  try {
+    const lixeira = JSON.parse(localStorage.getItem('intus-lixeira') || '[]');
+    const ficha = fichas.find(f => Number(f.idficha) === Number(id));
+    const exsFicha = treinos.filter(t => Number(t.idficha) === Number(id));
+    lixeira.push({ ficha: {...ficha}, exercicios: exsFicha, excluido_em: Date.now() });
+    localStorage.setItem('intus-lixeira', JSON.stringify(lixeira));
+    for (const t of exsFicha) await API.removerExercicioFicha(t.idtreino);
+    await API.excluirFicha(id);
+    showToast('Ficha movida para a lixeira (30 dias para recuperar).');
+    editorState = {}; view = 'lista'; await carregar();
+  } catch (e) { showToast(e.message || 'Erro.', 'error'); }
+}
+
+function limparLixeiraExpirada() {
+  const lixeira = JSON.parse(localStorage.getItem('intus-lixeira') || '[]');
+  const agora = Date.now();
+  const valida = lixeira.filter(item => (agora - item.excluido_em) < 30 * 24 * 60 * 60 * 1000);
+  localStorage.setItem('intus-lixeira', JSON.stringify(valida));
+  return valida;
+}
+
+function renderLixeira() {
+  const itens = limparLixeiraExpirada();
+  let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div>
+      <h1 style="font-size:22px;font-weight:800;color:var(--text);margin:0;">🗑️ Lixeira</h1>
+      <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">Fichas excluídas ficam aqui por 30 dias.</p>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="view='lista';render();">← Voltar</button>
+  </div>`;
+  if (!itens.length) {
+    html += `<div class="card" style="padding:50px 20px;text-align:center;color:var(--text-muted);">
+      <div style="font-size:40px;margin-bottom:12px;">🗑️</div><p>Lixeira vazia.</p></div>`;
+  } else {
+    itens.forEach((item, idx) => {
+      const dias = Math.floor((Date.now() - item.excluido_em) / (24*60*60*1000));
+      const restam = 30 - dias;
+      const aluno = atletas.find(a => Number(a.idatleta) === Number(item.ficha.idatleta));
+      html += `<div class="card" style="padding:16px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="font-weight:700;color:var(--text);">${esc(item.ficha.nmficha || 'Ficha')}</div>
+            <div style="font-size:11px;color:var(--text-muted);">${aluno ? esc(aluno.nome) : 'Aluno'} · ${item.exercicios.length} exercícios · Restam ${restam} dia(s)</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-primary btn-sm" onclick="restaurarLixeira(${idx})">♻️ Restaurar</button>
+            <button class="btn btn-danger btn-sm" onclick="excluirDefinitivo(${idx})">Excluir</button>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  main.innerHTML = html;
+}
+
+async function restaurarLixeira(idx) {
+  const lixeira = JSON.parse(localStorage.getItem('intus-lixeira') || '[]');
+  const item = lixeira[idx];
+  if (!item) return;
+  try {
+    const nova = await API.criarFicha({
+      idatleta: item.ficha.idatleta, nmficha: item.ficha.nmficha,
+      dtinicio: item.ficha.dtinicio, dtfim: item.ficha.dtfim,
+      observacao: item.ficha.observacao || '', ativo: 1,
+      alongamentos: item.ficha.alongamentos || null, divNomes: item.ficha.divNomes || null,
+    });
+    for (const ex of item.exercicios) {
+      await API.adicionarExercicioFicha({
+        idficha: nova.idficha, idexercicio: ex.idexercicio, nmexercicio: ex.nmexercicio,
+        divisao: ex.divisao || 'A', qtdserie: ex.qtdserie || 4, qtdrepeticao: ex.qtdrepeticao || 12,
+        repeticoes: ex.repeticoes || '', tempopausa: ex.tempopausa || 60, intervalo: ex.intervalo || '',
+        metodo: ex.metodo || '', observacao: ex.observacao || '', tut: ex.tut || '',
+        falha: ex.falha || false, unilateral: ex.unilateral || false, cargas: ex.cargas || [], reps_por_serie: ex.reps_por_serie || [], intervalos_por_serie: ex.intervalos_por_serie || [], tecnicas_por_serie: ex.tecnicas_por_serie || [],
+        substitutos: ex.substitutos,
+      });
+    }
+    lixeira.splice(idx, 1);
+    localStorage.setItem('intus-lixeira', JSON.stringify(lixeira));
+    showToast('Ficha restaurada com sucesso!');
+    await carregar();
+  } catch (e) { showToast(e.message || 'Erro ao restaurar.', 'error'); }
+}
+
+function excluirDefinitivo(idx) {
+  if (!confirm('Excluir definitivamente? Não será possível recuperar.')) return;
+  const lixeira = JSON.parse(localStorage.getItem('intus-lixeira') || '[]');
+  lixeira.splice(idx, 1);
+  localStorage.setItem('intus-lixeira', JSON.stringify(lixeira));
+  showToast('Excluído definitivamente.');
+  renderLixeira();
+}
+
+carregar();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) carregar(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Mensagens — Intus</title>
+  <script src="_mock.js?v=20260520d"></script>
+  <script src="api.js?v=20260520d"></script>
+  <style>
+    .msg-layout { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 80px); }
+    @media (max-width: 900px) { .msg-layout { grid-template-columns: 1fr; } .msg-panel { display: none; } .msg-panel.active { display: flex; } .msg-contacts.hidden { display: none; } }
+
+    .msg-contacts { background: var(--bg2); border-right: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+    .msg-contacts-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+    .msg-contacts-header input { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 12px; }
+    .msg-contacts-header input:focus { border-color: var(--brand); outline: none; }
+
+    .msg-tab-bar { display: flex; border-bottom: 1px solid var(--border); }
+    .msg-tab { flex: 1; padding: 10px 8px; text-align: center; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
+    .msg-tab.active { color: var(--brand); border-color: var(--brand); }
+    .msg-tab .badge-count { display: inline-block; background: #f87171; color: #fff; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 8px; margin-left: 4px; }
+
+    .contact-item { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s; display: flex; align-items: center; gap: 12px; }
+    .contact-item:hover { background: rgba(127,255,0,.04); }
+    .contact-item.active { background: rgba(127,255,0,.08); border-left: 3px solid var(--brand); }
+    .contact-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--brand); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #000; flex-shrink: 0; }
+    .contact-info { flex: 1; min-width: 0; }
+    .contact-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .contact-last { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .contact-unread { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); flex-shrink: 0; }
+
+    .msg-panel { flex-direction: column; background: var(--bg); display: flex; }
+    .msg-panel-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+    .msg-panel-header .back-btn { display: none; background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; }
+    @media (max-width: 900px) { .msg-panel-header .back-btn { display: block; } }
+    .msg-panel-header .panel-name { font-size: 14px; font-weight: 700; color: var(--text); }
+
+    .msg-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .msg-bubble { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-wrap: break-word; position: relative; }
+    .msg-bubble.aluno { align-self: flex-start; background: var(--bg2); color: var(--text); border-bottom-left-radius: 4px; }
+    .msg-bubble.professor { align-self: flex-end; background: rgba(127,255,0,.12); color: var(--text); border-bottom-right-radius: 4px; }
+    .msg-bubble .msg-time { font-size: 9px; color: var(--text-muted); margin-top: 4px; text-align: right; }
+
+    .msg-input-bar { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+    .msg-input-bar textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; font-family: inherit; background: var(--bg2); color: var(--text); max-height: 80px; }
+    .msg-input-bar textarea:focus { border-color: var(--brand); outline: none; }
+    .msg-input-bar .send-btn { width: 38px; height: 38px; border-radius: 50%; border: none; background: var(--brand); color: #000; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .msg-input-bar .send-btn:disabled { opacity: .4; cursor: default; }
+
+    .comment-feed { padding: 0; list-style: none; margin: 0; }
+    .comment-card { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .comment-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .comment-card-name { font-size: 12px; font-weight: 700; color: var(--text); }
+    .comment-card-date { font-size: 10px; color: var(--text-muted); }
+    .comment-card-divisao { font-size: 10px; background: rgba(96,165,250,.12); color: #60a5fa; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+    .comment-card-text { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 8px; }
+    .comment-reactions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .reaction-btn { padding: 4px 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg2); font-size: 13px; cursor: pointer; transition: all .12s; }
+    .reaction-btn:hover { border-color: var(--brand); background: rgba(127,255,0,.06); }
+    .reaction-btn.active { border-color: var(--brand); background: rgba(127,255,0,.1); }
+
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; text-align: center; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .empty-state p { font-size: 13px; color: var(--text-muted); max-width: 280px; }
+
+    body.theme-light .msg-bubble.aluno { background: #f3f4f6; }
+    body.theme-light .msg-bubble.professor { background: rgba(58,153,0,.08); }
+    body.theme-light .contact-item.active { background: rgba(58,153,0,.06); }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Mensagens');
+
+const main = document.getElementById('main-content');
+const userId = Sessao.atual()?.idusuario || 0;
+const isAdm = isAdmin();
+let activeTab = 'chat';
+let activeAtleta = null;
+let atletas = [];
+let mensagens = [];
+let comentarios = [];
+let polling = null;
+
+const REACTIONS = ['👍','💪','🔥','✅','👏','❤️','😂','😈','🤡','💀','🫡'];
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function carregar() {
+  try {
+    const lista = await API.listarAtletas();
+    atletas = API.filtrarMeusAtletas(lista).filter(a => !a.email?.endsWith('@intusfit.local'));
+  } catch {
+    atletas = API.filtrarMeusAtletas(JSON.parse(localStorage.getItem('intus-atletas') || '[]'))
+      .filter(a => !a.email?.endsWith('@intusfit.local'));
+  }
+  try {
+    const res = await API.listarMensagens();
+    mensagens = Array.isArray(res) ? res : Store.get('mensagens');
+  } catch { mensagens = Store.get('mensagens'); }
+  try {
+    const res = await API.listarComentarios();
+    comentarios = Array.isArray(res) ? res : [];
+  } catch { comentarios = []; }
+  render();
+}
+
+function render() {
+  const naoLidasChat = mensagens.filter(m => m.stlido === 'N' && m.remetente === 'aluno').length;
+  const naoLidasComents = comentarios.filter(c => !c.reacoes || c.reacoes.length === 0).length;
+
+  main.innerHTML = `
+    <div class="msg-layout">
+      <div class="msg-contacts ${activeAtleta && activeTab === 'chat' ? 'hidden' : ''}">
+        <div class="msg-tab-bar">
+          <div class="msg-tab ${activeTab==='chat'?'active':''}" onclick="switchTab('chat')">Chat${naoLidasChat ? `<span class="badge-count">${naoLidasChat}</span>` : ''}</div>
+          <div class="msg-tab ${activeTab==='comentarios'?'active':''}" onclick="switchTab('comentarios')">Comentários${naoLidasComents ? `<span class="badge-count">${naoLidasComents}</span>` : ''}</div>
+        </div>
+        <div class="msg-contacts-header">
+          <input type="text" placeholder="Buscar aluno..." oninput="filtrarContatos(this.value)"/>
+        </div>
+        <div id="contact-list">${renderContacts()}</div>
+      </div>
+      <div class="msg-panel ${activeAtleta || activeTab === 'comentarios' ? 'active' : ''}">
+        ${activeTab === 'chat' ? renderChatPanel() : renderComentariosPanel()}
+      </div>
+    </div>
+  `;
+  if (activeTab === 'chat' && activeAtleta) scrollChatBottom();
+}
+
+function renderContacts() {
+  if (activeTab === 'comentarios') {
+    return atletas.map(a => {
+      const count = comentarios.filter(c => Number(c.idatleta) === Number(a.idatleta)).length;
+      if (count === 0) return '';
+      const hasNew = comentarios.some(c => Number(c.idatleta) === Number(a.idatleta) && (!c.reacoes || c.reacoes.length === 0));
+      return `<div class="contact-item ${activeAtleta && Number(activeAtleta.idatleta)===Number(a.idatleta)?'active':''}" onclick="selecionarAtleta(${a.idatleta})">
+        ${avatarHtml(a.idatleta, a.nome, 36)}
+        <div class="contact-info">
+          <div class="contact-name">${esc(a.nome)}</div>
+          <div class="contact-last">${count} comentário${count>1?'s':''}</div>
+        </div>
+        ${hasNew ? '<div class="contact-unread"></div>' : ''}
+      </div>`;
+    }).join('') || '<div class="empty-state"><p>Nenhum comentário de treino ainda.</p></div>';
+  }
+
+  return atletas.map(a => {
+    const msgs = mensagens.filter(m => Number(m.idatleta) === Number(a.idatleta));
+    const last = msgs[msgs.length - 1];
+    const unread = msgs.some(m => m.stlido === 'N' && m.remetente === 'aluno');
+    return `<div class="contact-item ${activeAtleta && Number(activeAtleta.idatleta)===Number(a.idatleta)?'active':''}" onclick="selecionarAtleta(${a.idatleta})">
+      ${avatarHtml(a.idatleta, a.nome, 36)}
+      <div class="contact-info">
+        <div class="contact-name">${esc(a.nome)}</div>
+        <div class="contact-last">${last ? esc(last.texto).slice(0,40) : '<i>Sem mensagens</i>'}</div>
+      </div>
+      ${unread ? '<div class="contact-unread"></div>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderChatPanel() {
+  if (!activeAtleta) return `<div class="empty-state"><div class="icon">💬</div><h3>Selecione um aluno</h3><p>Escolha um aluno à esquerda para iniciar ou continuar uma conversa.</p></div>`;
+  const msgs = mensagens.filter(m => Number(m.idatleta) === Number(activeAtleta.idatleta));
+  return `
+    <div class="msg-panel-header">
+      <button class="back-btn" onclick="voltarContatos()">←</button>
+      ${avatarHtml(activeAtleta.idatleta, activeAtleta.nome, 32)}
+      <div class="panel-name">${esc(activeAtleta.nome)}</div>
+    </div>
+    <div class="msg-body" id="chat-body">
+      ${msgs.length === 0 ? '<div class="empty-state" style="flex:1;"><div class="icon">👋</div><h3>Inicie a conversa</h3><p>Mande uma mensagem para ' + esc(activeAtleta.nome.split(' ')[0]) + '.</p></div>' :
+        msgs.map(m => `<div class="msg-bubble ${m.remetente}">
+          ${esc(m.texto)}
+          <div class="msg-time">${fmtDt(m.dtmensagem)}</div>
+        </div>`).join('')}
+    </div>
+    <div class="msg-input-bar">
+      <textarea id="msg-input" rows="1" placeholder="Digite sua mensagem..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviar();}"></textarea>
+      <button class="send-btn" onclick="enviar()" title="Enviar">➤</button>
+    </div>
+  `;
+}
+
+function renderComentariosPanel() {
+  if (!activeAtleta) return `<div class="empty-state"><div class="icon">📝</div><h3>Comentários de treino</h3><p>Selecione um aluno para ver os comentários que ele deixou nos treinos.</p></div>`;
+  const comts = comentarios.filter(c => Number(c.idatleta) === Number(activeAtleta.idatleta));
+  if (comts.length === 0) return `<div class="empty-state"><div class="icon">📝</div><h3>Sem comentários</h3><p>${esc(activeAtleta.nome.split(' ')[0])} ainda não deixou comentários.</p></div>`;
+
+  const fichas = JSON.parse(localStorage.getItem('intus-fichas') || '[]');
+
+  return `
+    <div class="msg-panel-header">
+      <button class="back-btn" onclick="voltarContatos()">←</button>
+      <div class="panel-name">Comentários — ${esc(activeAtleta.nome)}</div>
+    </div>
+    <div class="msg-body" style="padding:0;">
+      <div class="comment-feed">
+        ${comts.map(c => {
+          const ficha = fichas.find(f => Number(f.idficha) === Number(c.idficha));
+          const fichaNome = ficha ? ficha.nmficha : '';
+          return `<div class="comment-card">
+            <div class="comment-card-header">
+              <span class="comment-card-date">${fmtDt(c.dtcriacao)}</span>
+              ${c.divisao ? `<span class="comment-card-divisao">Div ${esc(c.divisao)}</span>` : ''}
+              ${fichaNome ? `<span class="comment-card-divisao" style="background:rgba(127,255,0,.1);color:var(--brand);">${esc(fichaNome)}</span>` : ''}
+            </div>
+            <div class="comment-card-text">"${esc(c.texto)}"</div>
+            <div class="comment-reactions">
+              ${REACTIONS.map(emoji => {
+                const mine = (c.reacoes||[]).some(r => Number(r.idusuario) === userId && r.emoji === emoji);
+                return `<button class="reaction-btn ${mine?'active':''}" onclick="reagir(${c.idcomentario},'${emoji}')">${emoji}</button>`;
+              }).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function fmtDt(dt) {
+  if (!dt) return '';
+  const d = new Date(dt.replace(' ', 'T'));
+  const hoje = new Date();
+  if (d.toDateString() === hoje.toDateString()) return d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+  return d.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+}
+
+function switchTab(tab) { activeTab = tab; activeAtleta = null; render(); }
+function voltarContatos() { activeAtleta = null; render(); }
+
+function selecionarAtleta(id) {
+  activeAtleta = atletas.find(a => Number(a.idatleta) === Number(id));
+  if (activeTab === 'chat') marcarLidas();
+  render();
+}
+
+function filtrarContatos(q) {
+  q = q.toLowerCase().trim();
+  document.querySelectorAll('.contact-item').forEach(el => {
+    const name = el.querySelector('.contact-name')?.textContent?.toLowerCase() || '';
+    el.style.display = name.includes(q) ? '' : 'none';
+  });
+}
+
+async function enviar() {
+  const inp = document.getElementById('msg-input');
+  const texto = (inp?.value || '').trim();
+  if (!texto || !activeAtleta) return;
+  inp.value = '';
+  try {
+    await API.enviarMensagem({
+      idatleta: activeAtleta.idatleta,
+      idusuario: userId,
+      remetente: 'professor',
+      texto,
+    });
+    mensagens = Store.get('mensagens');
+    render();
+  } catch (e) { showToast(e.message || 'Erro ao enviar', 'error'); }
+}
+
+async function marcarLidas() {
+  if (!activeAtleta) return;
+  const naoLidas = mensagens.filter(m => Number(m.idatleta) === Number(activeAtleta.idatleta) && m.stlido === 'N' && m.remetente === 'aluno');
+  if (naoLidas.length === 0) return;
+  const ids = naoLidas.map(m => m.idmensagem);
+  try { await API.marcarMensagensLidas(ids); } catch {}
+  naoLidas.forEach(m => m.stlido = 'S');
+  Store.set('mensagens', mensagens);
+}
+
+async function reagir(idcomentario, emoji) {
+  try {
+    await API.reagirComentario({ idcomentario, idusuario: userId, emoji });
+    const c = comentarios.find(x => Number(x.idcomentario) === Number(idcomentario));
+    if (c) {
+      if (!c.reacoes) c.reacoes = [];
+      const existing = c.reacoes.findIndex(r => Number(r.idusuario) === userId);
+      if (existing >= 0) c.reacoes[existing].emoji = emoji;
+      else c.reacoes.push({ idusuario: userId, emoji });
+    }
+    render();
+  } catch (e) { showToast('Erro ao reagir', 'error'); }
+}
+
+function scrollChatBottom() {
+  setTimeout(() => { const el = document.getElementById('chat-body'); if (el) el.scrollTop = el.scrollHeight; }, 50);
+}
+
+// Polling a cada 30s
+function startPolling() {
+  polling = setInterval(async () => {
+    try {
+      const newMsgs = await API.listarMensagens();
+      if (Array.isArray(newMsgs) && newMsgs.length !== mensagens.length) {
+        mensagens = newMsgs;
+        render();
+      }
+    } catch {}
+  }, 30000);
+}
+
+carregar();
+startPolling();
+</script>
+</body>
+</html>

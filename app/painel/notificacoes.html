@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Notificações — Intus</title>
+  <script src="_mock.js?v=20260901a"></script>
+  <script src="api.js?v=20260901a"></script>
+  <style>
+    .ntf-tabs { display: flex; gap: 4px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
+    .ntf-tab {
+      padding: 8px 16px; font-size: 12px; font-weight: 600; border-radius: 8px;
+      background: var(--bg3); color: var(--text-muted); border: 1px solid var(--border);
+      cursor: pointer; white-space: nowrap; transition: .15s;
+    }
+    .ntf-tab:hover { color: var(--text); background: var(--bg2); }
+    .ntf-tab.active { background: rgba(127,255,0,.12); color: #7FFF00; border-color: rgba(127,255,0,.3); }
+
+    .ntf-section { display: none; }
+    .ntf-section.active { display: block; }
+
+    .ntf-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px; margin-bottom: 16px;
+    }
+    .ntf-card h3 {
+      font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .ntf-card .ntf-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+
+    .ntf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .ntf-row.full { grid-template-columns: 1fr; }
+    @media (max-width: 600px) { .ntf-row { grid-template-columns: 1fr; } }
+
+    .ntf-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .ntf-input {
+      width: 100%; padding: 10px 12px; font-size: 13px; background: var(--bg3);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      font-family: inherit; transition: border-color .15s;
+    }
+    .ntf-input:focus { outline: none; border-color: #7FFF00; }
+    textarea.ntf-input { min-height: 80px; resize: vertical; }
+    select.ntf-input { cursor: pointer; }
+
+    .ntf-save {
+      padding: 10px 24px; font-size: 13px; font-weight: 700; border-radius: 8px;
+      background: #7FFF00; color: #000; border: none; cursor: pointer; transition: .15s;
+    }
+    .ntf-save:hover { background: #6be600; transform: translateY(-1px); }
+    .ntf-save.secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+    .ntf-save.secondary:hover { background: var(--bg2); transform: none; }
+
+    .ntf-occasion {
+      display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px;
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+      margin-bottom: 10px; transition: border-color .15s;
+    }
+    .ntf-occasion:hover { border-color: rgba(127,255,0,.25); }
+    .ntf-occasion .occ-toggle { flex-shrink: 0; margin-top: 2px; }
+    .ntf-occasion .occ-body { flex: 1; }
+    .ntf-occasion .occ-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+    .ntf-occasion .occ-sub { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+    .ntf-occasion textarea {
+      width: 100%; padding: 8px 10px; font-size: 12px; background: var(--bg2);
+      border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+      font-family: inherit; resize: vertical; min-height: 50px;
+    }
+    .ntf-occasion textarea:focus { outline: none; border-color: #7FFF00; }
+    .ntf-occasion .occ-vars { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+
+    .toggle-sm { position: relative; width: 38px; height: 22px; display: inline-block; }
+    .toggle-sm input { opacity: 0; width: 0; height: 0; }
+    .toggle-sm .sl {
+      position: absolute; inset: 0; background: #444; border-radius: 22px; cursor: pointer; transition: .2s;
+    }
+    .toggle-sm .sl::before {
+      content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
+      background: #fff; border-radius: 50%; transition: .2s;
+    }
+    .toggle-sm input:checked + .sl { background: #7FFF00; }
+    .toggle-sm input:checked + .sl::before { transform: translateX(16px); }
+
+    .ntf-hist-list { max-height: 400px; overflow-y: auto; }
+    .ntf-hist-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ntf-hist-item:last-child { border-bottom: none; }
+    .ntf-hist-item .hist-icon { font-size: 16px; opacity: .7; }
+    .ntf-hist-item .hist-body { flex: 1; }
+    .ntf-hist-item .hist-title { font-size: 12px; font-weight: 600; color: var(--text); }
+    .ntf-hist-item .hist-meta { font-size: 11px; color: var(--text-muted); }
+    .ntf-hist-item .hist-status { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+    .ntf-hist-item .hist-status.sent { background: rgba(127,255,0,.12); color: #7FFF00; }
+    .ntf-hist-item .hist-status.pending { background: rgba(255,165,0,.12); color: #ffa500; }
+    .ntf-hist-item .hist-status.failed { background: rgba(255,60,60,.12); color: #ff5555; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Notificações');
+
+const main = document.getElementById('main-content');
+const NTF_KEY = 'intus-notificacoes-config';
+const NTF_HIST_KEY = 'intus-notificacoes-historico';
+
+function loadNtfConfig() {
+  try { return JSON.parse(localStorage.getItem(NTF_KEY) || '{}'); } catch { return {}; }
+}
+function saveNtfConfig(cfg) { localStorage.setItem(NTF_KEY, JSON.stringify(cfg)); }
+function loadHist() {
+  try { return JSON.parse(localStorage.getItem(NTF_HIST_KEY) || '[]'); } catch { return []; }
+}
+function saveHist(h) { localStorage.setItem(NTF_HIST_KEY, JSON.stringify(h)); }
+
+const OCCASIONS = [
+  {
+    id: 'boas_vindas',
+    title: 'Boas-vindas',
+    desc: 'Enviada automaticamente quando um novo aluno se cadastra.',
+    defaultMsg: 'Bem-vindo(a) ao Intus Fit, {nome}! 🎉 Seu teste grátis de {dias_teste} dias está ativo. Aproveite seus treinos!',
+    vars: '{nome}, {email}, {dias_teste}, {plano}',
+  },
+  {
+    id: 'teste_expirando',
+    title: 'Teste expirando',
+    desc: 'Enviada 1 dia antes do teste grátis vencer.',
+    defaultMsg: 'Oi {nome}! Seu teste grátis vence amanhã. Gostou dos treinos? Fale com a gente para continuar! 💪',
+    vars: '{nome}, {dias_restantes}, {data_vencimento}',
+  },
+  {
+    id: 'teste_expirado',
+    title: 'Teste expirado',
+    desc: 'Enviada quando o teste grátis vence.',
+    defaultMsg: '{nome}, seu período de teste terminou. Que tal assinar um plano e continuar evoluindo? Entre em contato com o suporte!',
+    vars: '{nome}, {data_vencimento}',
+  },
+  {
+    id: 'mensalidade_vencendo',
+    title: 'Mensalidade vencendo',
+    desc: 'Enviada X dias antes do vencimento da mensalidade.',
+    defaultMsg: 'Oi {nome}! Sua mensalidade vence em {dias_restantes} dia(s) ({data_vencimento}). Não esqueça de renovar para não perder o acesso!',
+    vars: '{nome}, {dias_restantes}, {data_vencimento}, {valor}',
+  },
+  {
+    id: 'mensalidade_vencida',
+    title: 'Mensalidade vencida',
+    desc: 'Enviada quando a mensalidade vence (acesso bloqueado).',
+    defaultMsg: '{nome}, sua mensalidade venceu. Regularize para voltar a acessar seus treinos. Qualquer dúvida, fale com o suporte!',
+    vars: '{nome}, {data_vencimento}, {dias_atraso}',
+  },
+  {
+    id: 'aniversario',
+    title: 'Aniversário',
+    desc: 'Enviada no dia do aniversário do aluno.',
+    defaultMsg: 'Feliz aniversário, {nome}! 🎂🎉 O Intus Fit deseja um dia incrível! Continue firme nos treinos! 💪',
+    vars: '{nome}, {idade}',
+  },
+  {
+    id: 'ficha_nova',
+    title: 'Nova ficha de treino',
+    desc: 'Enviada quando o professor cria/atualiza uma ficha para o aluno.',
+    defaultMsg: '{nome}, você tem uma nova ficha de treino! Abra o app para conferir: {nome_ficha} 📋',
+    vars: '{nome}, {nome_ficha}, {professor}',
+  },
+  {
+    id: 'inatividade',
+    title: 'Inatividade',
+    desc: 'Enviada quando o aluno não registra treino há X dias.',
+    defaultMsg: 'Oi {nome}! Sentimos sua falta! 😢 Faz {dias_inativo} dias desde seu último treino. Vamos voltar?',
+    vars: '{nome}, {dias_inativo}, {ultimo_treino}',
+  },
+  {
+    id: 'avaliacao_disponivel',
+    title: 'Avaliação disponível',
+    desc: 'Enviada quando uma nova avaliação física é registrada para o aluno.',
+    defaultMsg: '{nome}, sua avaliação física foi atualizada! Confira seus resultados no app. 📈',
+    vars: '{nome}, {data_avaliacao}',
+  },
+  {
+    id: 'lembrete_treino',
+    title: 'Lembrete de treino',
+    desc: 'Lembrete diário para treinar (configurável por horário).',
+    defaultMsg: 'Bora treinar, {nome}? 💪 Seu treino de hoje está te esperando no app!',
+    vars: '{nome}, {treino_hoje}',
+  },
+];
+
+function getOccasionConfig(id) {
+  const cfg = loadNtfConfig();
+  const occasions = cfg.occasions || {};
+  return occasions[id] || {};
+}
+
+function render() {
+  const cfg = loadNtfConfig();
+  const hist = loadHist();
+  const atletas = JSON.parse(localStorage.getItem('intus-atletas') || '[]')
+    .filter(a => a.email && !a.email.endsWith('@intusfit.local'));
+
+  main.innerHTML = `
+    <div class="ntf-tabs">
+      <button class="ntf-tab active" data-tab="automaticas">Automáticas</button>
+      <button class="ntf-tab" data-tab="individual">Enviar Individual</button>
+      <button class="ntf-tab" data-tab="historico">Histórico</button>
+      <button class="ntf-tab" data-tab="config">Configuração</button>
+      <button class="ntf-tab" data-tab="frases">Frases do App</button>
+      <button class="ntf-tab" data-tab="figurinhas">Figurinhas</button>
+      <button class="ntf-tab" data-tab="conquistas">Conquistas</button>
+      <button class="ntf-tab" data-tab="cardioregras">Cardio</button>
+      <button class="ntf-tab" data-tab="pontuacao">Pontuação</button>
+    </div>
+
+    <!-- AUTOMÁTICAS -->
+    <div class="ntf-section active" id="sec-automaticas">
+      <div class="ntf-card">
+        <h3>🔔 Notificações Automáticas</h3>
+        <p class="ntf-desc">Configure as mensagens enviadas automaticamente em cada ocasião. Ative/desative individualmente. Variáveis entre {chaves} são substituídas pelos dados do aluno.</p>
+      </div>
+      ${OCCASIONS.map(occ => {
+        const ocfg = getOccasionConfig(occ.id);
+        const ativo = ocfg.ativo !== false;
+        const msg = ocfg.mensagem || occ.defaultMsg;
+        const canal = ocfg.canal || 'whatsapp';
+        return `
+        <div class="ntf-occasion">
+          <div class="occ-toggle">
+            <label class="toggle-sm">
+              <input type="checkbox" data-occ="${occ.id}" ${ativo ? 'checked' : ''} onchange="toggleOccasion('${occ.id}', this.checked)"/>
+              <span class="sl"></span>
+            </label>
+          </div>
+          <div class="occ-body">
+            <div class="occ-title">${occ.title}</div>
+            <div class="occ-sub">${occ.desc}</div>
+            <textarea id="msg-${occ.id}" ${!ativo ? 'disabled style="opacity:.5;"' : ''}>${esc(msg)}</textarea>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+              <select class="ntf-input" id="canal-${occ.id}" style="width:auto;padding:4px 8px;font-size:11px;" ${!ativo ? 'disabled' : ''}>
+                <option value="whatsapp" ${canal==='whatsapp'?'selected':''}>WhatsApp</option>
+                <option value="email" ${canal==='email'?'selected':''}>E-mail</option>
+                <option value="push" ${canal==='push'?'selected':''}>Push (app)</option>
+                <option value="todos" ${canal==='todos'?'selected':''}>Todos</option>
+              </select>
+              <span class="occ-vars">Variáveis: ${occ.vars}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+      <button class="ntf-save" onclick="salvarAutomaticas()">Salvar configurações</button>
+    </div>
+
+    <!-- ENVIAR INDIVIDUAL -->
+    <div class="ntf-section" id="sec-individual">
+      <div class="ntf-card">
+        <h3>📤 Notificação Individual</h3>
+        <p class="ntf-desc">Envie uma mensagem única para um aluno específico ou para todos.</p>
+
+        <div class="ntf-row">
+          <div>
+            <div class="ntf-label">Destinatário</div>
+            <select class="ntf-input" id="ntf-dest">
+              <option value="todos">📢 Todos os alunos ativos</option>
+              ${atletas.filter(a => a.stbloqueio !== 'S').map(a => `<option value="${a.idatleta}">${esc(a.nome)} (${esc(a.email||'')})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <div class="ntf-label">Canal</div>
+            <select class="ntf-input" id="ntf-canal-ind">
+              <option value="whatsapp">WhatsApp</option>
+              <option value="email">E-mail</option>
+              <option value="push">Push (app)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="ntf-row full">
+          <div>
+            <div class="ntf-label">Assunto (e-mail)</div>
+            <input class="ntf-input" id="ntf-assunto" placeholder="Assunto do e-mail (opcional para WhatsApp)"/>
+          </div>
+        </div>
+
+        <div class="ntf-row full">
+          <div>
+            <div class="ntf-label">Mensagem</div>
+            <textarea class="ntf-input" id="ntf-msg-ind" placeholder="Digite a mensagem...&#10;&#10;Use {nome} para personalizar com o nome do aluno."></textarea>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+          <button class="ntf-save" onclick="enviarIndividual()">Enviar agora</button>
+          <button class="ntf-save secondary" onclick="agendarIndividual()">Agendar</button>
+          <span style="font-size:11px;color:var(--text-muted);" id="ntf-ind-status"></span>
+        </div>
+
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+          <div class="ntf-label" style="margin-bottom:8px;">Templates rápidos</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="ntf-save secondary" style="font-size:11px;padding:6px 12px;" onclick="usarTemplate('promo')">🏷️ Promoção</button>
+            <button class="ntf-save secondary" style="font-size:11px;padding:6px 12px;" onclick="usarTemplate('aviso')">⚠️ Aviso</button>
+            <button class="ntf-save secondary" style="font-size:11px;padding:6px 12px;" onclick="usarTemplate('evento')">📅 Evento</button>
+            <button class="ntf-save secondary" style="font-size:11px;padding:6px 12px;" onclick="usarTemplate('motivacao')">💪 Motivação</button>
+            <button class="ntf-save secondary" style="font-size:11px;padding:6px 12px;" onclick="usarTemplate('retorno')">🔄 Retorno</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTÓRICO -->
+    <div class="ntf-section" id="sec-historico">
+      <div class="ntf-card">
+        <h3>📋 Histórico de Envios</h3>
+        <p class="ntf-desc">Últimas notificações enviadas pelo sistema.</p>
+        <div class="ntf-hist-list">
+          ${hist.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);padding:12px;">Nenhuma notificação enviada ainda.</p>' :
+            hist.slice(0, 50).map(h => `
+              <div class="ntf-hist-item">
+                <div class="hist-icon">${h.canal === 'whatsapp' ? '💬' : h.canal === 'email' ? '📧' : '🔔'}</div>
+                <div class="hist-body">
+                  <div class="hist-title">${esc(h.destNome || h.dest || 'Todos')}</div>
+                  <div class="hist-meta">${esc((h.msg||'').slice(0, 80))}${(h.msg||'').length > 80 ? '...' : ''}</div>
+                  <div class="hist-meta">${new Date(h.dt).toLocaleString('pt-BR')}</div>
+                </div>
+                <span class="hist-status ${h.status || 'sent'}">${h.status === 'failed' ? 'Falhou' : h.status === 'pending' ? 'Pendente' : 'Enviado'}</span>
+              </div>
+            `).join('')}
+        </div>
+        ${hist.length > 0 ? `<div style="margin-top:12px;"><button class="ntf-save secondary" style="font-size:11px;" onclick="limparHistorico()">Limpar histórico</button></div>` : ''}
+      </div>
+    </div>
+
+    <!-- CONFIGURAÇÃO -->
+    <div class="ntf-section" id="sec-config">
+      <div class="ntf-card">
+        <h3>⚙️ Configuração de Envio</h3>
+        <p class="ntf-desc">Configure os parâmetros gerais das notificações.</p>
+
+        <div class="ntf-row">
+          <div>
+            <div class="ntf-label">Dias antes do vencimento (mensalidade)</div>
+            <input class="ntf-input" id="cfg-dias-antes-venc" type="number" value="${cfg.dias_antes_vencimento || 3}" min="1" max="15"/>
+          </div>
+          <div>
+            <div class="ntf-label">Dias de inatividade para lembrete</div>
+            <input class="ntf-input" id="cfg-dias-inatividade" type="number" value="${cfg.dias_inatividade || 7}" min="1" max="30"/>
+          </div>
+        </div>
+
+        <div class="ntf-row">
+          <div>
+            <div class="ntf-label">Horário do lembrete de treino</div>
+            <input class="ntf-input" id="cfg-horario-lembrete" type="time" value="${cfg.horario_lembrete || '07:00'}"/>
+          </div>
+          <div>
+            <div class="ntf-label">Canal padrão</div>
+            <select class="ntf-input" id="cfg-canal-padrao">
+              <option value="whatsapp" ${(cfg.canal_padrao||'whatsapp')==='whatsapp'?'selected':''}>WhatsApp</option>
+              <option value="email" ${cfg.canal_padrao==='email'?'selected':''}>E-mail</option>
+              <option value="push" ${cfg.canal_padrao==='push'?'selected':''}>Push (app)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="ntf-row full">
+          <div>
+            <div class="ntf-label">Assinatura das mensagens</div>
+            <input class="ntf-input" id="cfg-assinatura" value="${esc(cfg.assinatura || '— Equipe Intus Fit')}" placeholder="— Equipe Intus Fit"/>
+          </div>
+        </div>
+
+        <div class="ntf-row">
+          <div>
+            <div class="ntf-label">Limite diário de envios</div>
+            <input class="ntf-input" id="cfg-limite-diario" type="number" value="${cfg.limite_diario || 50}" min="1" max="500"/>
+          </div>
+          <div>
+            <div class="ntf-label">Não enviar entre</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input class="ntf-input" id="cfg-silencio-inicio" type="time" value="${cfg.silencio_inicio || '22:00'}" style="width:auto;"/>
+              <span style="color:var(--text-muted);font-size:12px;">e</span>
+              <input class="ntf-input" id="cfg-silencio-fim" type="time" value="${cfg.silencio_fim || '07:00'}" style="width:auto;"/>
+            </div>
+          </div>
+        </div>
+
+        <button class="ntf-save" onclick="salvarConfig()" style="margin-top:8px;">Salvar configurações</button>
+      </div>
+    </div>
+
+    <!-- FRASES DO APP -->
+    <div class="ntf-section" id="sec-frases">
+      <div class="ntf-card">
+        <h3>💬 Frases do App</h3>
+        <p class="ntf-desc">Edite as frases que aparecem na <b>tela inicial</b> e ao <b>concluir um treino</b> no app do aluno. Adicione, edite ou remova — as mudanças valem para todos os alunos.</p>
+      </div>
+      <div id="frases-container"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Carregando frases…</div></div>
+    </div>
+
+    <!-- FIGURINHAS -->
+    <div class="ntf-section" id="sec-figurinhas">
+      <div class="ntf-card">
+        <h3>🎉 Figurinhas de conclusão</h3>
+        <p class="ntf-desc">Estas figurinhas aparecem na tela de conclusão de treino do aluno, em <b>sorteio inteligente</b> (evita repetir as mostradas recentemente, garantindo variedade). Suba imagens engraçadas (JPG, PNG ou GIF animado), cole um link de imagem, ou crie figurinhas de emoji. As mudanças valem para todos os alunos.</p>
+      </div>
+      <div id="figurinhas-container"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Carregando figurinhas…</div></div>
+    </div>
+
+    <!-- CONQUISTAS -->
+    <div class="ntf-section" id="sec-conquistas">
+      <div class="ntf-card">
+        <h3>🏅 Conquistas dos alunos</h3>
+        <p class="ntf-desc">Renomeie, reescreva a descrição, troque o emoji, ajuste a <b>meta</b> ou desative cada conquista. A <b>regra</b> (o que é contado) é fixa e aparece em cinza — você controla o texto, o ícone e o número da meta. Vale para todos os alunos.</p>
+      </div>
+      <div id="conquistas-container"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Carregando conquistas…</div></div>
+    </div>
+
+    <!-- REGRAS DO CARDIO -->
+    <div class="ntf-section" id="sec-cardioregras">
+      <div class="ntf-card">
+        <h3>🏃 Regras do Cardio (anti-fraude do ranking)</h3>
+        <p class="ntf-desc">Defina o <b>limite diário</b> de cardios que somam pontos, a <b>duração máxima</b> e a <b>velocidade máxima</b> por atividade. Cardios que passarem dessas regras ficam no histórico do aluno, mas <b>não somam pontos</b>. Vale para todos os alunos e é validado no servidor.</p>
+      </div>
+      <div id="cardioregras-container"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Carregando regras…</div></div>
+    </div>
+
+    <!-- PONTUAÇÃO DO RANKING -->
+    <div class="ntf-section" id="sec-pontuacao">
+      <div class="ntf-card">
+        <h3>🏆 Pontuação do Ranking</h3>
+        <p class="ntf-desc">Ajuste quanto vale cada coisa no ranking. A <b>musculação é a âncora</b> (vale mais); o <b>cardio</b> entra como complemento com fator e teto; e há um <b>bônus semanal</b> por frequência. Tudo isso vale <b>a partir da data de vigência</b> — semanas anteriores ficam congeladas (vencedores mantidos). Vale para todos os alunos e é validado no app.</p>
+      </div>
+      <div id="pontuacao-container"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Carregando pontuação…</div></div>
+    </div>
+  `;
+
+  carregarFrases();
+  carregarFigurinhas();
+  carregarConquistas();
+  carregarCardioRegras();
+  carregarRankingRegras();
+
+  // Tab switching
+  main.querySelectorAll('.ntf-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      main.querySelectorAll('.ntf-tab').forEach(t => t.classList.remove('active'));
+      main.querySelectorAll('.ntf-section').forEach(s => s.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('sec-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+}
+
+// ── TOGGLE OCCASION ──
+function toggleOccasion(id, checked) {
+  const ta = document.getElementById('msg-' + id);
+  const sel = document.getElementById('canal-' + id);
+  if (ta) { ta.disabled = !checked; ta.style.opacity = checked ? '1' : '.5'; }
+  if (sel) { sel.disabled = !checked; }
+}
+
+// ── SAVE AUTOMÁTICAS ──
+async function salvarAutomaticas() {
+  const cfg = loadNtfConfig();
+  cfg.occasions = cfg.occasions || {};
+  OCCASIONS.forEach(occ => {
+    const checkbox = document.querySelector(`input[data-occ="${occ.id}"]`);
+    const ta = document.getElementById('msg-' + occ.id);
+    const canal = document.getElementById('canal-' + occ.id);
+    cfg.occasions[occ.id] = {
+      ativo: checkbox ? checkbox.checked : true,
+      mensagem: ta ? ta.value.trim() : occ.defaultMsg,
+      canal: canal ? canal.value : 'whatsapp',
+    };
+  });
+  saveNtfConfig(cfg);
+  const r = await API.saveConfigVerificado('notif_config', cfg, NTF_KEY);
+  if (r.persistido) toast('Notificações automáticas salvas no servidor ✓');
+  else toast('⚠️ Salvou localmente, mas não confirmou no servidor. Verifique a conexão e salve de novo.');
+}
+
+// ── SAVE CONFIG ──
+async function salvarConfig() {
+  const cfg = loadNtfConfig();
+  cfg.dias_antes_vencimento = parseInt(document.getElementById('cfg-dias-antes-venc').value) || 3;
+  cfg.dias_inatividade = parseInt(document.getElementById('cfg-dias-inatividade').value) || 7;
+  cfg.horario_lembrete = document.getElementById('cfg-horario-lembrete').value || '07:00';
+  cfg.canal_padrao = document.getElementById('cfg-canal-padrao').value || 'whatsapp';
+  cfg.assinatura = document.getElementById('cfg-assinatura').value.trim();
+  cfg.limite_diario = parseInt(document.getElementById('cfg-limite-diario').value) || 50;
+  cfg.silencio_inicio = document.getElementById('cfg-silencio-inicio').value || '22:00';
+  cfg.silencio_fim = document.getElementById('cfg-silencio-fim').value || '07:00';
+  saveNtfConfig(cfg);
+  const r = await API.saveConfigVerificado('notif_config', cfg, NTF_KEY);
+  if (r.persistido) toast('Configurações salvas no servidor ✓');
+  else toast('⚠️ Salvou localmente, mas não confirmou no servidor. Verifique a conexão e salve de novo.');
+}
+
+// ── ENVIAR INDIVIDUAL ──
+async function enviarIndividual() {
+  const dest = document.getElementById('ntf-dest').value;
+  const canal = document.getElementById('ntf-canal-ind').value;
+  const assunto = document.getElementById('ntf-assunto').value.trim();
+  const msg = document.getElementById('ntf-msg-ind').value.trim();
+
+  if (!msg) { alert('Digite uma mensagem.'); return; }
+
+  const cfg = loadNtfConfig();
+  const assinatura = cfg.assinatura || '— Equipe Intus Fit';
+  const msgFinal = msg + '\n\n' + assinatura;
+
+  const atletas = JSON.parse(localStorage.getItem('intus-atletas') || '[]')
+    .filter(a => a.stbloqueio !== 'S' && a.email && !a.email.endsWith('@intusfit.local'));
+
+  let destinos = [];
+  if (dest === 'todos') {
+    destinos = atletas;
+  } else {
+    const a = atletas.find(x => Number(x.idatleta) === Number(dest));
+    if (a) destinos = [a];
+  }
+
+  if (destinos.length === 0) { alert('Nenhum destinatário encontrado.'); return; }
+
+  const statusEl = document.getElementById('ntf-ind-status');
+  statusEl.textContent = `Enviando para ${destinos.length} aluno(s)...`;
+
+  // ── SO CONTA COMO ENVIADO O QUE O SERVIDOR ACEITOU ──────────────────────
+  // fetch so rejeita quando a rede cai. Um 500, um 403 ou um 422 resolvem
+  // normalmente, e o codigo antigo somava +1 em cima disso: voce disparava um
+  // aviso de vencimento para a base inteira, lia "Enviado para 40 aluno(s)",
+  // marcava como feito, e ninguem tinha recebido nada. O historico ainda
+  // gravava "enviado" e apagava o rastro. Agora quem falha e nomeado.
+  let enviados = 0;
+  const falhas = [];
+  for (const aluno of destinos) {
+    const msgPers = msgFinal.replace(/\{nome\}/g, aluno.nome || '');
+    try {
+      if (canal === 'email' && aluno.email) {
+        const _r = await fetch(API_BASE + '/usuarios.php?action=send_reset_notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
+          body: JSON.stringify({ email: aluno.email, from: 'contato@intusfit.com.br', assunto: assunto || 'Intus Fit', corpo: msgPers }),
+        });
+        if (_r && _r.ok) enviados++; else falhas.push(aluno.nome || aluno.email);
+      } else if (canal === 'whatsapp' && aluno.telefone) {
+        const tel = aluno.telefone.replace(/\D/g, '');
+        if (tel.length >= 10) {
+          window.open(`https://wa.me/55${tel}?text=${encodeURIComponent(msgPers)}`, '_blank');
+          enviados++;
+        } else { falhas.push((aluno.nome || '') + ' (telefone incompleto)'); }
+      } else if (canal === 'push') {
+        enviados++;
+      } else {
+        falhas.push((aluno.nome || 'aluno') + (canal === 'email' ? ' (sem e-mail)' : ' (sem telefone)'));
+      }
+    } catch (e) { falhas.push((aluno.nome || 'aluno') + ' (' + (e.message || 'falha de rede') + ')'); }
+  }
+
+  // Registra no histórico
+  const hist = loadHist();
+  hist.unshift({
+    dt: new Date().toISOString(),
+    dest: dest === 'todos' ? 'Todos (' + destinos.length + ')' : destinos[0]?.nome || dest,
+    destNome: dest === 'todos' ? 'Todos os alunos' : destinos[0]?.nome || '',
+    canal,
+    msg: msg.slice(0, 200),
+    assunto,
+    status: falhas.length ? (enviados > 0 ? 'parcial' : 'failed') : 'sent',
+    count: enviados,
+    falhas: falhas.length,
+  });
+  if (hist.length > 200) hist.length = 200;
+  saveHist(hist);
+
+  if (falhas.length) {
+    const _lista = falhas.slice(0, 6).join(', ') + (falhas.length > 6 ? ' e mais ' + (falhas.length - 6) : '');
+    statusEl.innerHTML = `<span style="color:var(--warning,#f59e0b);">Enviado para ${enviados} de ${destinos.length}. `
+      + `Não saiu para ${falhas.length}: ${esc(_lista)}.</span>`;
+    toast(`Enviado para ${enviados} de ${destinos.length}. ${falhas.length} não saíram.`, 'error');
+    setTimeout(() => { statusEl.textContent = ''; }, 15000);
+  } else {
+    statusEl.textContent = `✓ Enviado para ${enviados} de ${destinos.length} aluno(s)`;
+    toast(`Notificação enviada para ${enviados} aluno(s)! ✓`);
+    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+  }
+}
+
+function agendarIndividual() {
+  alert('Agendamento de notificações estará disponível em breve! Por enquanto, use "Enviar agora".');
+}
+
+// ── TEMPLATES ──
+const TEMPLATES = {
+  promo: { assunto: 'Promoção especial — Intus Fit', msg: 'Oi {nome}! 🏷️ Temos uma promoção especial para você! [Descreva a promoção aqui]. Aproveite!' },
+  aviso: { assunto: 'Aviso importante — Intus Fit', msg: 'Oi {nome}! ⚠️ Informamos que [descreva o aviso]. Qualquer dúvida, estamos à disposição!' },
+  evento: { assunto: 'Evento — Intus Fit', msg: 'Oi {nome}! 📅 Temos um evento especial: [nome do evento] no dia [data]. Confirme sua presença!' },
+  motivacao: { assunto: 'Motivação — Intus Fit', msg: '{nome}, lembre-se: cada treino te aproxima do seu objetivo! 💪🔥 Não desista! Bora treinar hoje?' },
+  retorno: { assunto: 'Sentimos sua falta — Intus Fit', msg: 'Oi {nome}! 🔄 Faz um tempo que não te vemos por aqui. Que tal voltar? Estamos com novidades para você!' },
+};
+
+function usarTemplate(tipo) {
+  const t = TEMPLATES[tipo];
+  if (!t) return;
+  document.getElementById('ntf-assunto').value = t.assunto;
+  document.getElementById('ntf-msg-ind').value = t.msg;
+}
+
+// ── HISTÓRICO ──
+function limparHistorico() {
+  if (!confirm('Limpar todo o histórico de notificações?')) return;
+  saveHist([]);
+  render();
+}
+
+function toast(msg) {
+  let t = document.getElementById('ntf-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'ntf-toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#7FFF00;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;border:1px solid rgba(127,255,0,.3);opacity:0;transition:opacity .3s;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  setTimeout(() => { t.style.opacity = '0'; }, 2500);
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ══════════════ FRASES DO APP (tela inicial + fim de treino) ══════════════
+const FRASES_CATS = [
+  { key:'motivacional', label:'Tela inicial — frase reflexiva', hint:'Aparece em itálico no topo da home.' },
+  { key:'incentivo',    label:'Tela inicial — chamada de incentivo', hint:'Aparece em destaque na home.' },
+  { key:'final',        label:'Fim de treino — mensagem de conclusão', hint:'Aparece quando o aluno finaliza um treino.' },
+];
+const FRASES_DEFAULTS = {
+  motivacional: [
+    'Ninguém nunca se arrependeu de treinar. De comer o hambúrguer inteiro, já… 🍔',
+    'O sofá é confortável, mas o espelho é sincero. 🛋️➡️🪞',
+    'Seu shape não vai se construir sozinho. Já tentei. Não rola. 🧱',
+    'Treinar é difícil. Ser destreinado também. Escolha o seu difícil. 😏',
+    'Treinar é terapia, só que com barulho de anilha. 🏋️',
+    'Cardio: aquele momento em que você repensa todas as suas escolhas. 🏃💭',
+    'A dieta começa segunda. Toda segunda. 🙃 Mas o treino é hoje.',
+    'Se fosse fácil, chamava de sofá, não de treino. 😅',
+    'Desistir não queima caloria nenhuma. Bora. 🔥',
+    'Você contra você de ontem: o adversário mais fácil de irritar. 😤',
+    'Frango, arroz e teimosia. O trio de respeito. 🍗',
+    'Não é vaidade, é manutenção do templo. (ok, um pouquinho de vaidade) 😎',
+    'O peso não se levanta sozinho. Confia, eu chequei. 🏋️',
+    'Preguiça é normal. Cede a ela amanhã. Hoje não. 😴❌',
+    'Bora buscar o shape que a genética não deu de graça. 🧬',
+    'Disciplina supera motivação. Todos os dias.',
+    'Consistência vence o talento.',
+    'Não existe atalho. Existe constância.',
+    'Seu eu do futuro vai te agradecer por hoje.',
+    'Um dia de cada vez. Um treino de cada vez.',
+  ],
+  incentivo: [
+    'Bora lá? 🔥', 'Partiu treinão! 💪', 'Tá esperando o quê? Vai!', 'Bora meter bronca! 🏋️',
+    'Vamos que vamos! 🚀', 'Bora pra mais um! 💥', 'Sem preguiça, vai!', 'Preparado? Bora! 🎯',
+    'É agora ou nunca! 🔱', 'O treino não vai se fazer sozinho!', 'Bora superar o de ontem!',
+    'Tá fácil? Então aumenta! 😤', 'Partiu construir o shape! 🧱', 'O ferro tá te chamando. Atende! 📞',
+    'Sem choro, só ferro! 😭➡️🏋️', 'Menos desculpa, mais anilha! 🙅‍♂️', 'A preguiça vai ter que esperar. 😴🚫',
+    'Suar hoje pra brilhar depois! 💦✨', 'Levanta esse ferro, campeão(ã)! 🏆',
+  ],
+  final: [
+    'Você é imparável! 💪', 'Mais forte a cada treino! 🔥', 'Mandou muito bem! 🦍',
+    'Hoje você venceu a preguiça! 🚀', 'Treino feito é treino pago! ✅', 'Mais um dia de vitória! 🥇',
+    'Missão cumprida, soldado do ferro! 🫡', 'Amanhã a dor vai lembrar do carinho de hoje. 😅',
+    'Já pode comer com menos culpa. 🍚😋', 'Mais um dia longe do sedentarismo! 🛋️🚫',
+    'Veio, viu e detonou! 🔥', 'Sofá 0 x 1 Você. ⚽', 'A preguiça chorou hoje. 😭',
+    'Shape em construção! 🧱', 'Consistência é a chave! 🔑', 'Orgulho de você! 🌟',
+  ],
+};
+let _frasesData = null;
+
+function carregarFrases() {
+  const cont = document.getElementById('frases-container');
+  if (!cont) return;
+  if (_frasesData) { renderFrasesSection(); return; }
+  const aplicar = (c) => {
+    _frasesData = {};
+    FRASES_CATS.forEach(cat => {
+      _frasesData[cat.key] = (c && Array.isArray(c[cat.key]) && c[cat.key].length) ? c[cat.key].slice() : FRASES_DEFAULTS[cat.key].slice();
+    });
+    renderFrasesSection();
+  };
+  if (typeof API !== 'undefined' && typeof API.getFrasesConfig === 'function') {
+    API.getFrasesConfig().then(aplicar).catch(() => aplicar(null));
+  } else { aplicar(null); }
+}
+
+function renderFrasesSection() {
+  const cont = document.getElementById('frases-container');
+  if (!cont || !_frasesData) return;
+  cont.innerHTML = FRASES_CATS.map(cat => {
+    const arr = _frasesData[cat.key] || [];
+    return '<div class="ntf-card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<div><h3 style="margin:0;">' + cat.label + '</h3><p class="ntf-desc" style="margin:2px 0 0;">' + cat.hint + ' · <b>' + arr.length + '</b> frase(s)</p></div>' +
+        '<button onclick="addFrase(\'' + cat.key + '\')" style="flex-shrink:0;padding:7px 14px;border-radius:8px;border:1px solid rgba(127,255,0,.4);background:rgba(127,255,0,.1);color:#7FFF00;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;">+ Adicionar</button>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">' +
+        (arr.length ? arr.map((f, i) =>
+          '<div style="display:flex;gap:6px;align-items:center;">' +
+            '<input class="ntf-input frase-input" data-cat="' + cat.key + '" value="' + esc(f) + '" style="flex:1;"/>' +
+            '<button onclick="removeFrase(\'' + cat.key + '\',' + i + ')" title="Remover" style="flex-shrink:0;width:36px;height:36px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.1);color:#f87171;cursor:pointer;font-size:14px;">✕</button>' +
+          '</div>'
+        ).join('') : '<div style="text-align:center;padding:12px;color:var(--text-muted);font-size:12px;">Nenhuma frase — clique em “+ Adicionar”.</div>') +
+      '</div>' +
+    '</div>';
+  }).join('') +
+  '<button class="ntf-save" onclick="salvarFrases()">Salvar frases</button>';
+}
+
+function _sincronizarFrasesDOM() {
+  if (!_frasesData) return;
+  FRASES_CATS.forEach(cat => {
+    const inputs = document.querySelectorAll('.frase-input[data-cat="' + cat.key + '"]');
+    if (!inputs.length && (_frasesData[cat.key] || []).length) return; // seção ainda não renderizada
+    const list = []; inputs.forEach(inp => list.push(inp.value));
+    _frasesData[cat.key] = list;
+  });
+}
+function addFrase(cat) { _sincronizarFrasesDOM(); (_frasesData[cat] = _frasesData[cat] || []).push(''); renderFrasesSection(); }
+function removeFrase(cat, idx) { _sincronizarFrasesDOM(); _frasesData[cat].splice(idx, 1); renderFrasesSection(); }
+async function salvarFrases() {
+  _sincronizarFrasesDOM();
+  const clean = {};
+  FRASES_CATS.forEach(cat => { clean[cat.key] = (_frasesData[cat.key] || []).map(x => (x || '').trim()).filter(Boolean); });
+  for (const cat of FRASES_CATS) { if (!clean[cat.key].length) { toast('“' + cat.label + '” precisa de pelo menos 1 frase.'); return; } }
+  _frasesData = clean;
+  const r = await API.saveConfigVerificado('frases_config', clean, 'intus-frases-config');
+  renderFrasesSection();
+  if (r.persistido) toast('Frases salvas no servidor ✓ — já aparecem no app dos alunos.');
+  else toast('⚠️ Salvou localmente, mas não confirmou no servidor. Verifique a conexão e salve de novo.');
+}
+
+// ══════════════ FIGURINHAS (tela de conclusão de treino) ══════════════
+// item = { tipo:'img', src:'url/dataURL', legenda:'' } | { tipo:'emoji', emoji:'💪', legenda:'MODO MONSTRO', cor:'#7FFF00' }
+const FIGURINHAS_DEFAULTS = [
+  { tipo:'emoji', emoji:'💪🔥', legenda:'MODO MONSTRO ATIVADO', cor:'#f59e0b' },
+  { tipo:'emoji', emoji:'🦍',   legenda:'VIROU GORILA HOJE',    cor:'#a3e635' },
+  { tipo:'emoji', emoji:'🐱💪', legenda:'GATO SARADO APROVA',   cor:'#22d3ee' },
+  { tipo:'emoji', emoji:'🏆',   legenda:'LENDA EM CONSTRUÇÃO',  cor:'#fbbf24' },
+  { tipo:'emoji', emoji:'🐺',   legenda:'ALCATEIA DO FERRO',    cor:'#818cf8' },
+  { tipo:'emoji', emoji:'🚀',   legenda:'FOGUETE NÃO TEM RÉ',   cor:'#f472b6' },
+];
+let _figurinhasData = null;
+const FIG_MAX = 150;
+
+function carregarFigurinhas() {
+  const cont = document.getElementById('figurinhas-container');
+  if (!cont) return;
+  if (_figurinhasData) { renderFigurinhasSection(); return; }
+  const aplicar = (c) => {
+    const itens = (c && Array.isArray(c.itens)) ? c.itens : null;
+    // Lista vazia salva pelo admin é uma escolha VÁLIDA (excluiu todas) — só cai nos
+    // padrões quando o servidor não tem config nenhuma (itens === null).
+    _figurinhasData = itens ? itens.slice() : FIGURINHAS_DEFAULTS.slice();
+    renderFigurinhasSection();
+  };
+  if (typeof API !== 'undefined' && typeof API.getFigurinhasConfig === 'function') {
+    API.getFigurinhasConfig().then(aplicar).catch(() => aplicar(null));
+  } else { aplicar(null); }
+}
+
+function _figCardHtml(it, i) {
+  let preview;
+  if (it.tipo === 'img') {
+    preview = '<img src="' + esc(it.src) + '" style="width:100%;height:110px;object-fit:contain;border-radius:8px;background:#0d0d0d;" onerror="this.style.opacity=.3;this.alt=\'(imagem indisponível)\'"/>';
+  } else {
+    preview = '<div style="height:110px;border-radius:8px;background:' + (it.cor || '#7FFF00') + '1a;border:1px solid ' + (it.cor || '#7FFF00') + '55;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">' +
+      '<div style="font-size:38px;line-height:1;">' + esc(it.emoji || '💪') + '</div>' +
+      '<div style="font-size:10px;font-weight:800;color:' + (it.cor || '#7FFF00') + ';text-align:center;padding:0 8px;line-height:1.2;">' + esc(it.legenda || '') + '</div>' +
+    '</div>';
+  }
+  const legendaImg = it.tipo === 'img'
+    ? '<input class="ntf-input" placeholder="Legenda (opcional)" value="' + esc(it.legenda || '') + '" oninput="_figSetLegenda(' + i + ',this.value)" style="margin-top:6px;font-size:12px;"/>'
+    : '';
+  return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:8px;">' +
+    preview + legendaImg +
+    '<button onclick="removeFigurinha(' + i + ')" style="width:100%;margin-top:6px;padding:6px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.1);color:#f87171;cursor:pointer;font-size:12px;font-weight:700;">✕ Remover</button>' +
+  '</div>';
+}
+
+function renderFigurinhasSection() {
+  const cont = document.getElementById('figurinhas-container');
+  if (!cont || !_figurinhasData) return;
+  const grid = _figurinhasData.length
+    ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">' + _figurinhasData.map((it, i) => _figCardHtml(it, i)).join('') + '</div>'
+    : '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Nenhuma figurinha ainda. Adicione uma abaixo. 👇</div>';
+  cont.innerHTML =
+    '<div class="ntf-card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<div><h3 style="margin:0;">Figurinhas cadastradas</h3><p class="ntf-desc" style="margin:2px 0 0;"><b>' + _figurinhasData.length + '</b> / ' + FIG_MAX + '</p></div>' +
+      '</div>' +
+      '<div style="margin-top:12px;">' + grid + '</div>' +
+    '</div>' +
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 4px;">➕ Adicionar figurinha</h3>' +
+      '<div style="display:flex;flex-direction:column;gap:16px;margin-top:10px;">' +
+        // Upload
+        '<div>' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">📤 Enviar imagem do computador (JPG, PNG ou GIF)</div>' +
+          '<input type="file" accept="image/*" id="fig-file" onchange="_figUpload(this)" style="font-size:12px;color:var(--text-muted);"/>' +
+          '<p class="ntf-desc" style="margin:6px 0 0;">GIFs animados são mantidos. Imagens grandes são reduzidas automaticamente.</p>' +
+        '</div>' +
+        // URL
+        '<div>' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">🔗 Ou cole o link de uma imagem</div>' +
+          '<div style="display:flex;gap:6px;">' +
+            '<input class="ntf-input" id="fig-url" placeholder="https://.../figurinha.gif" style="flex:1;"/>' +
+            '<button onclick="_figAddUrl()" style="flex-shrink:0;padding:8px 14px;border-radius:8px;border:1px solid rgba(127,255,0,.4);background:rgba(127,255,0,.1);color:#7FFF00;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;">Adicionar</button>' +
+          '</div>' +
+        '</div>' +
+        // Emoji card
+        '<div>' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">😄 Ou crie uma figurinha de emoji</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+            '<input class="ntf-input" id="fig-emoji" placeholder="💪🔥" style="width:90px;text-align:center;font-size:18px;"/>' +
+            '<input class="ntf-input" id="fig-legenda" placeholder="Texto (ex: MODO MONSTRO)" style="flex:1;min-width:160px;"/>' +
+            '<input type="color" id="fig-cor" value="#7FFF00" style="width:44px;height:38px;border:none;border-radius:8px;background:none;cursor:pointer;"/>' +
+            '<button onclick="_figAddEmoji()" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(127,255,0,.4);background:rgba(127,255,0,.1);color:#7FFF00;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;">Adicionar</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<button class="ntf-save" onclick="salvarFigurinhas()">Salvar figurinhas</button>';
+}
+
+function _figSetLegenda(i, v) { if (_figurinhasData && _figurinhasData[i]) _figurinhasData[i].legenda = v; }
+function removeFigurinha(i) { if (!_figurinhasData) return; _figurinhasData.splice(i, 1); renderFigurinhasSection(); }
+
+function _figAddUrl() {
+  const inp = document.getElementById('fig-url'); if (!inp) return;
+  const url = (inp.value || '').trim();
+  if (!/^https?:\/\//i.test(url)) { toast('Cole um link válido (começando com http).'); return; }
+  if (_figurinhasData.length >= FIG_MAX) { toast('Limite de ' + FIG_MAX + ' figurinhas atingido.'); return; }
+  _figurinhasData.push({ tipo:'img', src:url, legenda:'' });
+  inp.value = '';
+  renderFigurinhasSection();
+}
+
+function _figAddEmoji() {
+  const emoji = (document.getElementById('fig-emoji')?.value || '').trim();
+  const legenda = (document.getElementById('fig-legenda')?.value || '').trim();
+  const cor = document.getElementById('fig-cor')?.value || '#7FFF00';
+  if (!emoji) { toast('Digite ao menos um emoji.'); return; }
+  if (_figurinhasData.length >= FIG_MAX) { toast('Limite de ' + FIG_MAX + ' figurinhas atingido.'); return; }
+  _figurinhasData.push({ tipo:'emoji', emoji, legenda, cor });
+  document.getElementById('fig-emoji').value = '';
+  document.getElementById('fig-legenda').value = '';
+  renderFigurinhasSection();
+}
+
+function _fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = () => reject(new Error('Falha ao ler o arquivo.'));
+    r.readAsDataURL(file);
+  });
+}
+function _compressImage(file, max, q) {
+  return new Promise((resolve, reject) => {
+    _fileToDataURL(file).then(dataUrl => {
+      const img = new Image();
+      img.onload = function() {
+        let w = img.width, h = img.height;
+        if (w > max || h > max) { const r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r); }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        let out; try { out = canvas.toDataURL('image/jpeg', q); } catch (err) { out = dataUrl; }
+        resolve(out);
+      };
+      img.onerror = () => reject(new Error('Não consegui ler essa imagem.'));
+      img.src = dataUrl;
+    }).catch(reject);
+  });
+}
+
+// Sobe a imagem como ARQUIVO no servidor (não base64 no banco) e guarda só a URL — evita perder mídia.
+async function _figUpload(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (_figurinhasData.length >= FIG_MAX) { toast('Limite de ' + FIG_MAX + ' figurinhas atingido.'); input.value = ''; return; }
+  const isGif = /gif/i.test(file.type) || /\.gif$/i.test(file.name);
+  toast('Enviando imagem…');
+  try {
+    let dataUrl;
+    if (isGif) {
+      dataUrl = await _fileToDataURL(file);
+      if (String(dataUrl).length > 4000000) { toast('GIF muito grande (máx ~3MB). Escolha um menor.'); input.value = ''; return; }
+    } else {
+      dataUrl = await _compressImage(file, 420, 0.82);
+    }
+    const url = await API.uploadMidia(dataUrl); // grava arquivo no servidor
+    _figurinhasData.push({ tipo:'img', src:url, legenda:'' });
+    input.value = '';
+    renderFigurinhasSection();
+    toast('Imagem enviada ao servidor ✓ — clique em "Salvar figurinhas" para publicar.');
+  } catch (e) {
+    input.value = '';
+    toast('⚠️ Não consegui enviar a imagem: ' + (e.message || 'erro') + '. Verifique a conexão e tente de novo.');
+  }
+}
+
+async function salvarFigurinhas() {
+  if (!_figurinhasData) return;
+  // Migra qualquer figurinha antiga em base64 para arquivo (deixa a config leve e confiável).
+  let migradas = 0;
+  for (const it of _figurinhasData) {
+    if (it && it.tipo === 'img' && typeof it.src === 'string' && it.src.startsWith('data:')) {
+      try { it.src = await API.uploadMidia(it.src); migradas++; } catch (e) { /* mantém base64 se falhar */ }
+    }
+  }
+  const cfg = { itens: _figurinhasData };
+  const r = await API.saveConfigVerificado('figurinhas_config', cfg, 'intus-figurinhas-config');
+  if (r.persistido) {
+    toast('Figurinhas salvas no servidor ✓' + (migradas ? ' (' + migradas + ' convertidas para arquivo)' : '') + ' — já valem para todos os alunos.');
+  } else {
+    toast('⚠️ Salvou localmente, mas NÃO confirmou no servidor. As figurinhas podem não aparecer para os alunos — verifique a conexão e salve de novo.');
+  }
+}
+
+// ══════════════ CONQUISTAS (edição pelo admin) ══════════════
+// Base espelha a do app (aluno.html). A "regra"/métrica é fixa; o admin edita nome, descrição, emoji, meta e ativa/inativa.
+const CONQUISTAS_METRIC_LABEL = {
+  total: 'atividades no total',
+  treinos: 'treinos de musculação',
+  cardios: 'cardios',
+  tiposCardio: 'tipos diferentes de cardio',
+  maxSemana: 'atividades numa mesma semana',
+  streak: 'semanas seguidas com treino',
+  equilibrio: 'musculação + cardio na mesma semana (fixo)',
+  top5: 'semanas no Top 5 (no total)',
+  top5consec: 'semanas SEGUIDAS no Top 5',
+  top10: 'meses no Top 10',
+  horas: 'horas de treino acumuladas',
+};
+const CONQUISTAS_BASE = [
+  { id:'primeiro',    e:'🎉', nome:'Bem-vindo ao jogo!',   desc:'Você registrou sua primeira atividade no app. Toda grande jornada começa com o primeiro treino — e o seu já está no placar!', metric:'total', goal:1 },
+  { id:'cinco',       e:'🔥', nome:'Esquentando os motores', desc:'5 atividades registradas. O corpo já percebeu que a rotina mudou. Continue nesse embalo!', metric:'total', goal:5 },
+  { id:'vinte5',      e:'💪', nome:'Dedicado',              desc:'25 atividades no total. Aqui o treino já deixou de ser sacrifício e virou hábito. Orgulhe-se disso.', metric:'total', goal:25 },
+  { id:'cinquenta',   e:'🏋️', nome:'Veterano do ferro',     desc:'50 atividades acumuladas. Você é presença constante e já conhece cada treino como a palma da mão.', metric:'total', goal:50 },
+  { id:'cem',         e:'💯', nome:'Centurião',             desc:'100 atividades registradas! Um marco que poucos alcançam. Isso é dedicação de verdade — respeito.', metric:'total', goal:100 },
+  { id:'duzentos',    e:'🛡️', nome:'Máquina de treino',     desc:'200 atividades no total. Consistência de outro nível. Treinar já faz parte de quem você é.', metric:'total', goal:200 },
+  { id:'tresmeia',    e:'🐉', nome:'Lendário',              desc:'365 atividades — praticamente um treino para cada dia do ano. Você virou uma lenda viva da consistência.', metric:'total', goal:365 },
+  { id:'musc25',      e:'🧱', nome:'Pedreiro do shape',     desc:'25 treinos de musculação concluídos. Tijolo por tijolo, o shape vai subindo. A obra está firme!', metric:'treinos', goal:25 },
+  { id:'musc75',      e:'🏗️', nome:'Engenheiro do shape',   desc:'75 treinos de musculação. A construção do seu corpo está avançada e a estrutura é sólida.', metric:'treinos', goal:75 },
+  { id:'musc150',     e:'🏰', nome:'Arquiteto do físico',   desc:'150 treinos de musculação. Você não constrói mais um shape — constrói um patrimônio.', metric:'treinos', goal:150 },
+  { id:'cardio1',     e:'🏃', nome:'Primeiro fôlego',       desc:'Seu primeiro cardio registrado. O coração agradece cada passada, pedalada ou minuto de esteira.', metric:'cardios', goal:1 },
+  { id:'cardio10',    e:'🫁', nome:'Fôlego de sobra',       desc:'10 cardios completos. Sua resistência está crescendo e o cansaço demora bem mais para chegar.', metric:'cardios', goal:10 },
+  { id:'cardio30',    e:'🏅', nome:'Maratonista',           desc:'30 cardios registrados! Sua capacidade aeróbica está em outro patamar. Pulmão e pernas agradecem.', metric:'cardios', goal:30 },
+  { id:'cardio75',    e:'🌬️', nome:'Pulmão de aço',         desc:'75 cardios acumulados. Subir escada, correr, pedalar — nada mais te tira o fôlego.', metric:'cardios', goal:75 },
+  { id:'cardioVar',   e:'🎨', nome:'Explorador do cardio',  desc:'Você já experimentou 4 tipos diferentes de cardio. Variar os estímulos é o segredo de quem evolui de verdade.', metric:'tiposCardio', goal:4 },
+  { id:'semanaCheia', e:'📅', nome:'Semana cheia',          desc:'5 atividades numa mesma semana. Que ritmo! Semanas assim é que constroem resultado de verdade.', metric:'maxSemana', goal:5 },
+  { id:'semanaPerfeita', e:'🗓️', nome:'Semana perfeita',    desc:'7 atividades numa única semana. Uma semana impecável, do primeiro ao último dia. Impressionante.', metric:'maxSemana', goal:7 },
+  { id:'streak3',     e:'⚡', nome:'Constância',            desc:'3 semanas seguidas treinando sem falhar. A regularidade já é a sua marca registrada.', metric:'streak', goal:3 },
+  { id:'streak8',     e:'🌟', nome:'Imparável',             desc:'8 semanas seguidas em atividade. Chuva ou sol, preguiça ou não — nada te para.', metric:'streak', goal:8 },
+  { id:'streak16',    e:'☄️', nome:'Força da natureza',     desc:'16 semanas seguidas treinando. Uma constância que impressiona e vira exemplo para os colegas.', metric:'streak', goal:16 },
+  { id:'streak30',    e:'🔱', nome:'Inabalável',            desc:'30 semanas seguidas em movimento. Você é a definição de disciplina. Fonte de inspiração pura.', metric:'streak', goal:30 },
+  { id:'equilibrio',  e:'⚖️', nome:'Equilíbrio',            desc:'Você fez musculação e cardio na mesma semana. Corpo completo se treina por inteiro — força e fôlego juntos.', metric:'equilibrio', goal:1 },
+  { id:'top5',        e:'🥇', nome:'Pódio semanal',         desc:'Você já ficou pelo menos uma vez no Top 5 da semana. Sinta o gostinho de estar entre os melhores!', metric:'top5', goal:1 },
+  { id:'top5_10',     e:'🎖️', nome:'Frequentador do pódio', desc:'10 semanas figurando no Top 5. O pódio já é praticamente a sua segunda casa.', metric:'top5', goal:10 },
+  { id:'tricampeao',  e:'🏆', nome:'Tricampeão',            desc:'3 semanas seguidas no Top 5 da semana. Você entrou numa sequência de respeito no ranking.', metric:'top5consec', goal:3 },
+  { id:'pentacampeao',e:'👑', nome:'Pentacampeão',          desc:'5 semanas SEGUIDAS no Top 5 da semana. Isso é domínio absoluto — a galera já sabe quem manda no ranking.', metric:'top5consec', goal:5 },
+  { id:'decacampeao', e:'💎', nome:'Dinastia',              desc:'10 semanas seguidas no Top 5 da semana. Uma verdadeira dinastia. Seu nome virou sinônimo de topo.', metric:'top5consec', goal:10 },
+  { id:'top10mes',    e:'🌟', nome:'Destaque do mês',       desc:'Você fechou um mês dentro do Top 10 do ranking. Reconhecimento merecido por um mês de entrega.', metric:'top10', goal:1 },
+  { id:'top10_6',     e:'🌠', nome:'Destaque do ano',       desc:'6 meses no Top 10 do mês. Uma consistência que atravessa o ano inteiro. Elite absoluta.', metric:'top10', goal:6 },
+  { id:'horas10',     e:'⏱️', nome:'10 horas de suor',      desc:'10 horas somadas de treino. Cada minuto investido está virando saúde, força e resultado.', metric:'horas', goal:10 },
+  { id:'horas50',     e:'⌛', nome:'50 horas de dedicação', desc:'50 horas de treino acumuladas. Isso é entrega de verdade — o relógio é testemunha do seu esforço.', metric:'horas', goal:50 },
+];
+let _conquistasOverrides = null; // { id: {nome,desc,emoji,goal,off} }
+
+function carregarConquistas() {
+  const cont = document.getElementById('conquistas-container');
+  if (!cont) return;
+  if (_conquistasOverrides) { renderConquistasSection(); return; }
+  const aplicar = (c) => {
+    _conquistasOverrides = (c && c.overrides && typeof c.overrides === 'object') ? c.overrides : {};
+    renderConquistasSection();
+  };
+  if (typeof API !== 'undefined' && typeof API.getConquistasConfig === 'function') {
+    API.getConquistasConfig().then(aplicar).catch(() => aplicar(null));
+  } else { aplicar(null); }
+}
+
+function _conqEfetiva(base) {
+  const o = (_conquistasOverrides && _conquistasOverrides[base.id]) || {};
+  return {
+    emoji: (o.emoji != null && o.emoji !== '') ? o.emoji : base.e,
+    nome: (o.nome != null && o.nome !== '') ? o.nome : base.nome,
+    desc: (o.desc != null && o.desc !== '') ? o.desc : base.desc,
+    goal: (o.goal != null && !isNaN(o.goal) && Number(o.goal) > 0) ? Math.round(Number(o.goal)) : base.goal,
+    off: !!o.off,
+  };
+}
+
+function renderConquistasSection() {
+  const cont = document.getElementById('conquistas-container');
+  if (!cont || !_conquistasOverrides) return;
+  const ativas = CONQUISTAS_BASE.filter(b => !_conqEfetiva(b).off).length;
+  const cards = CONQUISTAS_BASE.map(b => {
+    const ef = _conqEfetiva(b);
+    const metricLbl = CONQUISTAS_METRIC_LABEL[b.metric] || b.metric;
+    const goalEditavel = b.metric !== 'equilibrio';
+    return '<div class="ntf-card" style="' + (ef.off ? 'opacity:.55;' : '') + '">' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+        '<input class="ntf-input conq-emoji" data-id="' + b.id + '" value="' + esc(ef.emoji) + '" style="width:64px;text-align:center;font-size:20px;" title="Emoji"/>' +
+        '<input class="ntf-input conq-nome" data-id="' + b.id + '" value="' + esc(ef.nome) + '" style="flex:1;min-width:160px;font-weight:700;" placeholder="Nome da conquista"/>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap;">' +
+          '<input type="checkbox" class="conq-ativa" data-id="' + b.id + '" ' + (ef.off ? '' : 'checked') + '/> Ativa' +
+        '</label>' +
+      '</div>' +
+      '<textarea class="ntf-input conq-desc" data-id="' + b.id + '" rows="2" style="width:100%;margin-top:8px;font-size:12px;resize:vertical;" placeholder="Descrição">' + esc(ef.desc) + '</textarea>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">' +
+        (goalEditavel
+          ? '<div style="font-size:12px;color:var(--text);">Meta: <input class="ntf-input conq-goal" data-id="' + b.id + '" type="number" min="1" value="' + ef.goal + '" style="width:80px;display:inline-block;text-align:center;"/></div>'
+          : '<input type="hidden" class="conq-goal" data-id="' + b.id + '" value="1"/><div style="font-size:12px;color:var(--text-muted);">Meta única (marca ao cumprir)</div>') +
+        '<span style="font-size:11px;color:var(--text-muted);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;">Regra fixa: ' + esc(metricLbl) + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  cont.innerHTML =
+    '<div class="ntf-card"><p class="ntf-desc" style="margin:0;"><b>' + ativas + '</b> de <b>' + CONQUISTAS_BASE.length + '</b> conquistas ativas.</p></div>' +
+    cards +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="ntf-save" style="flex:1;" onclick="salvarConquistas()">Salvar conquistas</button>' +
+      '<button onclick="restaurarConquistas()" style="flex-shrink:0;padding:12px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text-muted);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;">↺ Restaurar padrão</button>' +
+    '</div>';
+}
+
+async function salvarConquistas() {
+  const overrides = {};
+  CONQUISTAS_BASE.forEach(b => {
+    const g = (sel) => document.querySelector(sel + '[data-id="' + b.id + '"]');
+    const emoji = (g('.conq-emoji') ? g('.conq-emoji').value : '').trim();
+    const nome = (g('.conq-nome') ? g('.conq-nome').value : '').trim();
+    const desc = (g('.conq-desc') ? g('.conq-desc').value : '').trim();
+    const goalEl = g('.conq-goal');
+    const goal = goalEl ? Math.max(1, Math.round(Number(goalEl.value) || b.goal)) : b.goal;
+    const ativaEl = g('.conq-ativa');
+    const off = ativaEl ? !ativaEl.checked : false;
+    const o = {};
+    if (emoji && emoji !== b.e) o.emoji = emoji;
+    if (nome && nome !== b.nome) o.nome = nome;
+    if (desc && desc !== b.desc) o.desc = desc;
+    if (b.metric !== 'equilibrio' && goal !== b.goal) o.goal = goal;
+    if (off) o.off = true;
+    if (Object.keys(o).length) overrides[b.id] = o;
+  });
+  _conquistasOverrides = overrides;
+  const r = await API.saveConfigVerificado('conquistas_config', { overrides }, 'intus-conquistas-config');
+  renderConquistasSection();
+  if (r.persistido) toast('Conquistas salvas no servidor ✓ — já valem para os alunos.');
+  else toast('⚠️ Salvou localmente, mas não confirmou no servidor. Verifique a conexão e salve de novo.');
+}
+
+async function restaurarConquistas() {
+  _conquistasOverrides = {};
+  try {
+    await API.saveConquistasConfig({ overrides: {} });
+    toast('Conquistas restauradas ao padrão. ✓');
+    renderConquistasSection();
+  } catch (e) { toast('Erro ao restaurar: ' + (e.message || 'falha')); }
+}
+
+// ══════════════ REGRAS DO CARDIO ══════════════
+const CARDIO_REGRAS_PADRAO = {
+  limiteDia: 3,
+  maxMin: 240,
+  velocidades: { 'Caminhada':9, 'Corrida':24, 'Bike':50, 'Natação':7, 'Elíptico':22, 'Escada':12, 'Tênis':22, 'Futebol':26, 'Luta':16, 'Pular Corda':6, 'Outro':45 },
+};
+let _cardioRegras = null;
+
+function carregarCardioRegras() {
+  const cont = document.getElementById('cardioregras-container');
+  if (!cont) return;
+  if (_cardioRegras) { renderCardioRegras(); return; }
+  const aplicar = (c) => {
+    _cardioRegras = {
+      limiteDia: (c && Number(c.limiteDia) > 0) ? Number(c.limiteDia) : CARDIO_REGRAS_PADRAO.limiteDia,
+      maxMin: (c && Number(c.maxMin) > 0) ? Number(c.maxMin) : CARDIO_REGRAS_PADRAO.maxMin,
+      velocidades: Object.assign({}, CARDIO_REGRAS_PADRAO.velocidades, (c && c.velocidades && typeof c.velocidades === 'object') ? c.velocidades : {}),
+    };
+    renderCardioRegras();
+  };
+  if (typeof API !== 'undefined' && typeof API.getCardioRegras === 'function') {
+    API.getCardioRegras().then(aplicar).catch(() => aplicar(null));
+  } else { aplicar(null); }
+}
+
+function renderCardioRegras() {
+  const cont = document.getElementById('cardioregras-container');
+  if (!cont || !_cardioRegras) return;
+  const r = _cardioRegras;
+  const velRows = Object.keys(r.velocidades).map(k =>
+    '<div style="display:flex;align-items:center;gap:8px;">' +
+      '<span style="flex:1;font-size:13px;color:var(--text);">' + esc(k) + '</span>' +
+      '<input class="ntf-input cardio-vel" data-k="' + esc(k) + '" type="number" min="1" step="1" value="' + Number(r.velocidades[k]) + '" style="width:90px;text-align:center;"/>' +
+      '<span style="font-size:11px;color:var(--text-muted);width:44px;">km/h</span>' +
+    '</div>').join('');
+  cont.innerHTML =
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 10px;">Limites gerais</h3>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+        '<div><label class="ntf-desc" style="display:block;margin-bottom:4px;">Cardios/dia que somam pontos</label>' +
+          '<input class="ntf-input" id="cr-limite" type="number" min="1" step="1" value="' + Number(r.limiteDia) + '" style="width:120px;text-align:center;"/></div>' +
+        '<div><label class="ntf-desc" style="display:block;margin-bottom:4px;">Duração máxima (minutos)</label>' +
+          '<input class="ntf-input" id="cr-maxmin" type="number" min="10" step="5" value="' + Number(r.maxMin) + '" style="width:120px;text-align:center;"/></div>' +
+      '</div>' +
+      '<p class="ntf-desc" style="margin:10px 0 0;">Acima do limite diário ou da duração máxima, o cardio é salvo mas não soma pontos.</p>' +
+    '</div>' +
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 4px;">Velocidade máxima por atividade</h3>' +
+      '<p class="ntf-desc" style="margin:0 0 12px;">Se o aluno informar distância e o ritmo (distância ÷ tempo) passar deste valor, o cardio não soma pontos. Use um teto folgado e realista.</p>' +
+      '<div style="display:flex;flex-direction:column;gap:9px;">' + velRows + '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="ntf-save" style="flex:1;" onclick="salvarCardioRegras()">Salvar regras</button>' +
+      '<button onclick="restaurarCardioRegras()" style="flex-shrink:0;padding:12px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text-muted);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;">↺ Restaurar padrão</button>' +
+    '</div>';
+}
+
+async function salvarCardioRegras() {
+  const lim = Math.max(1, Math.round(Number(document.getElementById('cr-limite')?.value) || 3));
+  const mx = Math.max(10, Math.round(Number(document.getElementById('cr-maxmin')?.value) || 240));
+  const vel = {};
+  document.querySelectorAll('.cardio-vel').forEach(inp => { const k = inp.dataset.k; const v = Math.max(1, Math.round(Number(inp.value) || 0)); if (k && v > 0) vel[k] = v; });
+  _cardioRegras = { limiteDia: lim, maxMin: mx, velocidades: vel };
+  const r = await API.saveConfigVerificado('cardio_regras', _cardioRegras, 'intus-cardio-regras');
+  renderCardioRegras();
+  if (r.persistido) toast('Regras do cardio salvas no servidor ✓ — já valem para os alunos.');
+  else toast('⚠️ Salvou localmente, mas não confirmou no servidor. Verifique a conexão e salve de novo.');
+}
+
+async function restaurarCardioRegras() {
+  _cardioRegras = JSON.parse(JSON.stringify(CARDIO_REGRAS_PADRAO));
+  try {
+    await API.saveCardioRegras(_cardioRegras);
+    toast('Regras restauradas ao padrão. ✓');
+    renderCardioRegras();
+  } catch (e) { toast('Erro ao restaurar: ' + (e.message || 'falha')); }
+}
+
+// ══════════════ PONTUAÇÃO DO RANKING ══════════════
+// Os valores padrão moram no api.js, junto com a fórmula que os usa. Esta tela
+// só edita. Enquanto o padrão era copiado aqui, dava para o painel mostrar um
+// número e o app pontuar por outro.
+const RANK_REGRAS_PADRAO = (typeof API !== 'undefined' && API.RANK_PADRAO) ? API.RANK_PADRAO : {
+  vigorApartirDe: '2026-07-26', vigorSegundoDia: '2026-08-30',
+  musBase: 10, musMeia: 5, musCurtaMin: 20, musSegundo: 5, musTerceiro: 0,
+  cardioFator: 0.55, cardioTeto: 7, bonusDias: 4, bonusPts: 5,
+  medalhaSemana: [25, 18, 12, 7, 4],
+  medalhaMes: [60, 42, 30, 20, 16, 13, 10, 8, 6, 4],
+  medalhaDesde: '2026-08-01',
+};
+let _rankRegras = null;
+
+function carregarRankingRegras() {
+  const cont = document.getElementById('pontuacao-container');
+  if (!cont) return;
+  if (_rankRegras) { renderRankingRegras(); return; }
+  const aplicar = (c) => {
+    c = (c && typeof c === 'object') ? c : {};
+    _rankRegras = Object.assign({}, RANK_REGRAS_PADRAO);
+    ['musBase','musMeia','musCurtaMin','musSegundo','musTerceiro','cardioFator','cardioTeto','bonusDias','bonusPts'].forEach(k => {
+      if (c[k] !== undefined && c[k] !== null && c[k] !== '' && !isNaN(Number(c[k]))) _rankRegras[k] = Number(c[k]);
+    });
+    ['vigorApartirDe','vigorSegundoDia'].forEach(k => {
+      if (c[k] && /^\d{4}-\d{2}-\d{2}$/.test(String(c[k]))) _rankRegras[k] = String(c[k]);
+    });
+    if (c.medalhaDesde && /^\d{4}-\d{2}-\d{2}$/.test(String(c.medalhaDesde))) _rankRegras.medalhaDesde = String(c.medalhaDesde);
+    ['medalhaSemana','medalhaMes'].forEach(k => {
+      const v = c[k];
+      if (v == null || v === '') return;
+      const arr = (Array.isArray(v) ? v : String(v).split(/[,;\s]+/))
+        .map(x => Number(String(x).replace(',', '.')))
+        .filter(x => isFinite(x) && x >= 0);
+      if (arr.length) _rankRegras[k] = arr;
+    });
+    renderRankingRegras();
+  };
+  if (typeof API !== 'undefined' && typeof API.getRankingRegras === 'function') {
+    API.getRankingRegras().then(aplicar).catch(() => aplicar(null));
+  } else { aplicar(null); }
+}
+
+function _rrExemplo() {
+  const r = _rankRegras;
+  // Exemplo ilustrativo: bike intensa ~35min (base METs*(min/30) ≈ 11.7) e corrida intensa 60min (≈22)
+  const bike = Math.min(Math.round(11.7 * r.cardioFator * 10) / 10, r.cardioTeto);
+  const corrida = Math.min(Math.round(22 * r.cardioFator * 10) / 10, r.cardioTeto);
+  return { bike, corrida };
+}
+
+function renderRankingRegras() {
+  const cont = document.getElementById('pontuacao-container');
+  if (!cont || !_rankRegras) return;
+  const r = _rankRegras;
+  const ex = _rrExemplo();
+  const fld = (id, label, val, min, step, sufixo, hint) =>
+    '<div style="min-width:150px;flex:1;">' +
+      '<label class="ntf-desc" style="display:block;margin-bottom:4px;">' + label + '</label>' +
+      '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<input class="ntf-input" id="' + id + '" type="number" min="' + min + '" step="' + step + '" value="' + val + '" style="width:110px;text-align:center;"/>' +
+        (sufixo ? '<span style="font-size:11px;color:var(--text-muted);">' + sufixo + '</span>' : '') +
+      '</div>' +
+      (hint ? '<p class="ntf-desc" style="margin:5px 0 0;font-size:11px;">' + hint + '</p>' : '') +
+    '</div>';
+  cont.innerHTML =
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 10px;">💪 Musculação (a âncora)</h3>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+        fld('rr-musbase', 'Pontos por sessão (cheia)', r.musBase, 1, 1, 'pts', 'Valor de um treino de musculação completo.') +
+        fld('rr-muscurta', 'Sessão curta abaixo de', r.musCurtaMin, 1, 1, 'min', 'Treinos mais curtos que isso valem a "meia".') +
+        fld('rr-musmeia', 'Pontos da sessão curta', r.musMeia, 0, 1, 'pts', 'Meia sessão (treino muito curto).') +
+      '</div>' +
+      '<h3 style="margin:18px 0 10px;">🔁 Mais de um treino no mesmo dia</h3>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+        fld('rr-mussegundo', 'Pontos do 2º treino do dia', r.musSegundo, 0, 1, 'pts', 'Vale a pena treinar duas vezes, mas menos que voltar no dia seguinte.') +
+        fld('rr-musterceiro', 'Pontos do 3º em diante', r.musTerceiro, 0, 1, 'pts', 'Zero fecha a porta para empilhar sessão curta só para pontuar.') +
+      '</div>' +
+      '<p class="ntf-desc" style="margin:12px 0 0;padding:10px 12px;background:var(--bg3);border-radius:8px;">Com os valores atuais, dois treinos no mesmo dia somam <b>' + (Number(r.musBase) + Number(r.musSegundo)) + ' pts</b>, contra <b>' + (Number(r.musBase) * 2) + ' pts</b> de treinar em dois dias diferentes.</p>' +
+    '</div>' +
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 10px;">🏃 Cardio (complemento)</h3>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+        fld('rr-cardiofator', 'Fator do cardio', r.cardioFator, 0.05, 0.05, '×', 'Multiplica os pontos-base (METs × min/30). Menor = cardio pesa menos.') +
+        fld('rr-cardioteto', 'Teto por sessão', r.cardioTeto, 1, 1, 'pts', 'Um cardio nunca passa disso — mantém abaixo de uma musculação.') +
+      '</div>' +
+      '<p class="ntf-desc" style="margin:12px 0 0;padding:10px 12px;background:var(--bg3);border-radius:8px;">Exemplo com os valores atuais: ~35 min de bike intensa ≈ <b>' + ex.bike + ' pts</b> · 60 min de corrida intensa ≈ <b>' + ex.corrida + ' pts</b> (contra <b>' + r.musBase + ' pts</b> de uma musculação).</p>' +
+    '</div>' +
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 10px;">🔥 Bônus de frequência (semanal)</h3>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+        fld('rr-bonusdias', 'Dias com musculação na semana', r.bonusDias, 1, 1, 'dias', 'Nº de DIAS diferentes (Dom–Sáb) com musculação que ativa o bônus. Dois treinos no mesmo dia contam como um dia só — o bônus é de constância.') +
+        fld('rr-bonuspts', 'Pontos do bônus', r.bonusPts, 0, 1, 'pts', 'Somados uma vez por semana ao bater a meta.') +
+      '</div>' +
+    '</div>' +
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 10px;">🏅 Quadro de medalhas</h3>' +
+      '<p class="ntf-desc" style="margin:0 0 12px;">Toda semana e todo mês que fecham distribuem medalhas pela classificação geral do período. Escreva os pontos do 1º lugar em diante, separados por vírgula — a quantidade de números define até que colocação premia.</p>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+        '<div style="min-width:230px;flex:1;">' +
+          '<label class="ntf-desc" style="display:block;margin-bottom:4px;">Semana — 1º, 2º, 3º…</label>' +
+          '<input class="ntf-input" id="rr-medsem" type="text" inputmode="numeric" value="' + (r.medalhaSemana || []).join(', ') + '" style="width:100%;"/>' +
+          '<p class="ntf-desc" style="margin:5px 0 0;font-size:11px;">Padrão: 25, 18, 12, 7, 4 — ouro, prata, bronze e mais 4º e 5º lugares.</p>' +
+        '</div>' +
+        '<div style="min-width:230px;flex:1;">' +
+          '<label class="ntf-desc" style="display:block;margin-bottom:4px;">Mês — 1º, 2º, 3º…</label>' +
+          '<input class="ntf-input" id="rr-medmes" type="text" inputmode="numeric" value="' + (r.medalhaMes || []).join(', ') + '" style="width:100%;"/>' +
+          '<p class="ntf-desc" style="margin:5px 0 0;font-size:11px;">Padrão: 60, 42, 30, 20, 16, 13, 10, 8, 6, 4 — do ouro até o 10º lugar.</p>' +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-top:16px;">' +
+        '<label class="ntf-desc" style="display:block;margin-bottom:4px;">O quadro conta a partir de</label>' +
+        '<input class="ntf-input" id="rr-meddesde" type="date" value="' + (r.medalhaDesde || '2026-08-01') + '" style="width:180px;"/>' +
+        '<p class="ntf-desc" style="margin:6px 0 0;font-size:11px;">Semanas e meses anteriores a esta data não premiam. Só período <b>inteiro</b> conta: se a data cair num sábado, a primeira semana premiada é a que começa no domingo seguinte; se cair no meio do mês, o primeiro mês premiado é o seguinte.</p>' +
+      '</div>' +
+      '<p class="ntf-desc" style="margin:12px 0 0;padding:10px 12px;background:var(--bg3);border-radius:8px;">A semana vai de <b>domingo a sábado</b>. As medalhas são um <b>placar à parte</b>: não entram nos pontos da semana. Só períodos <b>encerrados</b> premiam — a semana e o mês em andamento continuam em disputa.</p>' +
+    '</div>' +
+    '<div class="ntf-card">' +
+      '<h3 style="margin:0 0 10px;">🗓️ Vigência</h3>' +
+      '<label class="ntf-desc" style="display:block;margin-bottom:4px;">A nova fórmula vale a partir de (domingo da semana)</label>' +
+      '<input class="ntf-input" id="rr-vigor" type="date" value="' + r.vigorApartirDe + '" style="width:180px;"/>' +
+      '<p class="ntf-desc" style="margin:12px 0 4px;">A partir de quando vale a regra do 2º treino do dia e o bônus por dias:</p>' +
+      '<input class="ntf-input" id="rr-vigorsegundo" type="date" value="' + (r.vigorSegundoDia || RANK_REGRAS_PADRAO.vigorSegundoDia) + '" style="width:180px;"/>' +
+      '<p class="ntf-desc" style="margin:5px 0 0;font-size:11px;">Semanas anteriores a esta data mantêm a conta antiga, para pódio já encerrado não trocar de dono.</p>' +
+      '<p class="ntf-desc" style="margin:8px 0 0;">Semanas anteriores a esta data ficam <b>congeladas</b> com a pontuação antiga (os vencedores não mudam). Use sempre um <b>domingo</b>.</p>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="ntf-save" style="flex:1;" onclick="salvarRankingRegras()">Salvar pontuação</button>' +
+      '<button onclick="restaurarRankingRegras()" style="flex-shrink:0;padding:12px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text-muted);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;">↺ Restaurar padrão</button>' +
+    '</div>';
+}
+
+async function salvarRankingRegras() {
+  const num = (id, def, mn) => { const v = Number(document.getElementById(id)?.value); return (isNaN(v) || v < mn) ? def : v; };
+  // Campo de lista: se o professor apagar tudo ou digitar besteira, volta ao
+  // padrao em vez de gravar uma tabela vazia que zeraria o quadro inteiro.
+  const lista = (id, def) => {
+    const t = document.getElementById(id)?.value || '';
+    const arr = String(t).split(/[,;\s]+/).map(x => Number(String(x).replace(',', '.')))
+      .filter(x => isFinite(x) && x >= 0);
+    return arr.length ? arr : def.slice();
+  };
+  const vigorEl = document.getElementById('rr-vigor');
+  let vigor = (vigorEl && /^\d{4}-\d{2}-\d{2}$/.test(vigorEl.value)) ? vigorEl.value : RANK_REGRAS_PADRAO.vigorApartirDe;
+  _rankRegras = {
+    vigorApartirDe: vigor,
+    musBase: num('rr-musbase', 10, 0),
+    musCurtaMin: num('rr-muscurta', 20, 0),
+    musMeia: num('rr-musmeia', 5, 0),
+    musSegundo: num('rr-mussegundo', 5, 0),
+    musTerceiro: num('rr-musterceiro', 0, 0),
+    vigorSegundoDia: (function () {
+      const el = document.getElementById('rr-vigorsegundo');
+      return (el && /^\d{4}-\d{2}-\d{2}$/.test(el.value)) ? el.value : RANK_REGRAS_PADRAO.vigorSegundoDia;
+    })(),
+    cardioFator: num('rr-cardiofator', 0.55, 0),
+    cardioTeto: num('rr-cardioteto', 7, 0),
+    bonusDias: Math.round(num('rr-bonusdias', 4, 1)),
+    bonusPts: num('rr-bonuspts', 5, 0),
+    medalhaSemana: lista('rr-medsem', RANK_REGRAS_PADRAO.medalhaSemana),
+    medalhaMes: lista('rr-medmes', RANK_REGRAS_PADRAO.medalhaMes),
+    medalhaDesde: (function () {
+      const el = document.getElementById('rr-meddesde');
+      return (el && /^\d{4}-\d{2}-\d{2}$/.test(el.value)) ? el.value : RANK_REGRAS_PADRAO.medalhaDesde;
+    })(),
+  };
+  const r = await API.saveConfigVerificado('ranking_regras', _rankRegras, 'intus-ranking-regras');
+  if (API.aplicarRegrasRanking) API.aplicarRegrasRanking(_rankRegras);   // vale já, sem recarregar
+  renderRankingRegras();
+  if (r.persistido) toast('Pontuação salva no servidor ✓ — já vale para os alunos e para o painel.');
+  else toast('⚠️ Salvou localmente, mas não confirmou no servidor. Verifique a conexão e salve de novo — senão volta ao padrão.');
+}
+
+async function restaurarRankingRegras() {
+  _rankRegras = JSON.parse(JSON.stringify(RANK_REGRAS_PADRAO));
+  try {
+    await API.saveRankingRegras(_rankRegras);
+    toast('Pontuação restaurada ao padrão. ✓');
+    renderRankingRegras();
+  } catch (e) { toast('Erro ao restaurar: ' + (e.message || 'falha')); }
+}
+
+// ── INIT ──
+// Carrega a config de notificações do SERVIDOR antes de montar as telas (persistência real).
+(async function(){
+  try {
+    const c = await API.getNotifConfig();
+    if (c && typeof c === 'object' && Object.keys(c).length) {
+      const cur = loadNtfConfig();
+      saveNtfConfig(Object.assign({}, cur, c));
+    }
+  } catch (e) {}
+  render();
+})();
+</script>
+</body>
+</html>

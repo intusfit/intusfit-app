@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intus Fit — Editor da Home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0e0e0e;--panel:#161616;--border:#222;--red:#CC2936;--white:#F0F0F0;--gray:#888;--gray-l:#ccc}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--white);min-height:100vh}
+
+/* LOGIN */
+#login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.login-box{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:48px 40px;width:100%;max-width:380px;text-align:center}
+.login-box h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.login-box p{font-size:13px;color:var(--gray);margin-bottom:32px}
+.login-box input{width:100%;background:#111;border:1px solid var(--border);border-radius:8px;padding:12px 16px;color:var(--white);font-size:14px;margin-bottom:12px;outline:none;transition:border-color .2s}
+.login-box input:focus{border-color:var(--red)}
+.login-box button{width:100%;background:var(--red);color:#fff;border:none;border-radius:8px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px;transition:opacity .2s}
+.login-box button:hover{opacity:.85}
+.login-error{font-size:12px;color:#e05;margin-top:8px;display:none}
+
+/* EDITOR */
+#editor-screen{display:none}
+.topbar{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(14,14,14,.95);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px}
+.topbar-logo{font-size:15px;font-weight:700;color:var(--white)}
+.topbar-logo span{color:var(--red)}
+.topbar-status{font-size:12px;color:var(--gray);margin-left:auto}
+.topbar-status.saved{color:#4caf50}
+.topbar-status.saving{color:#ff9800}
+.topbar-btn{background:var(--red);color:#fff;border:none;border-radius:7px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.topbar-btn:hover{opacity:.85}
+.topbar-btn.secondary{background:#1e1e1e;border:1px solid var(--border);color:var(--gray-l)}
+.topbar-btn.secondary:hover{color:var(--white);border-color:#555}
+
+.editor-layout{display:flex;min-height:100vh;padding-top:56px}
+.sidebar{width:260px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);padding:20px 0;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}
+.sidebar-section{padding:8px 16px 4px;font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--gray);text-transform:uppercase;margin-top:8px}
+.sidebar-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;font-size:13px;color:var(--gray-l);transition:background .2s,color .2s;border-left:2px solid transparent}
+.sidebar-item:hover{background:#1a1a1a;color:var(--white)}
+.sidebar-item.active{background:#1c1c1c;color:var(--white);border-left-color:var(--red)}
+.sidebar-item-dot{width:6px;height:6px;border-radius:50%;background:var(--border);flex-shrink:0}
+.sidebar-item.active .sidebar-item-dot{background:var(--red)}
+
+.main-panel{flex:1;padding:32px 40px;max-width:860px}
+.section-editor{display:none}
+.section-editor.active{display:block}
+.section-editor h2{font-size:18px;font-weight:700;margin-bottom:4px}
+.section-editor .section-hint{font-size:12px;color:var(--gray);margin-bottom:28px}
+
+.field-group{margin-bottom:24px}
+.field-label{font-size:12px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
+.field-input{width:100%;background:#111;border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--white);font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:border-color .2s;resize:vertical}
+.field-input:focus{border-color:var(--red)}
+textarea.field-input{min-height:80px;line-height:1.6}
+
+.card-editor{background:#111;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px}
+.card-editor-header{font-size:13px;font-weight:600;color:var(--gray-l);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card-editor-header span{width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+.preview-link{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--gray);border:1px solid var(--border);border-radius:6px;padding:6px 12px;margin-bottom:24px;transition:color .2s,border-color .2s;text-decoration:none}
+.preview-link:hover{color:var(--white);border-color:#555}
+
+@media(max-width:768px){
+  .sidebar{width:220px}
+  .main-panel{padding:24px 20px}
+}
+@media(max-width:600px){
+  .editor-layout{flex-direction:column}
+  .sidebar{width:100%;height:auto;position:relative;top:0;flex-direction:row;display:flex;overflow-x:auto;border-right:none;border-bottom:1px solid var(--border);padding:8px 0}
+  .sidebar-section{display:none}
+  .sidebar-item{white-space:nowrap;padding:8px 14px;border-left:none;border-bottom:2px solid transparent}
+  .sidebar-item.active{border-bottom-color:var(--red);border-left:none}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <h1>Editor da Home</h1>
+    <p>Intus Fit — intusfit.com.br</p>
+    <input type="password" id="login-pass" placeholder="Senha de acesso" autocomplete="current-password">
+    <button onclick="doLogin()">Entrar</button>
+    <div class="login-error" id="login-error">Senha incorreta.</div>
+  </div>
+</div>
+
+<!-- EDITOR -->
+<div id="editor-screen">
+
+  <div class="topbar">
+    <div class="topbar-logo">Intus <span>Admin</span></div>
+    <a href="/" target="_blank" class="topbar-btn secondary">Ver site</a>
+    <span class="topbar-status" id="save-status">Pronto</span>
+    <button class="topbar-btn" onclick="saveAll()">Salvar alterações</button>
+    <button class="topbar-btn secondary" onclick="logout()" style="margin-left:4px">Sair</button>
+  </div>
+
+  <div class="editor-layout">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sidebar-section">Seções</div>
+      <div class="sidebar-item active" onclick="showSection('hero')"><span class="sidebar-item-dot"></span>Hero</div>
+      <div class="sidebar-item" onclick="showSection('team')"><span class="sidebar-item-dot"></span>Equipe</div>
+      <div class="sidebar-item" onclick="showSection('results')"><span class="sidebar-item-dot"></span>Resultados</div>
+      <div class="sidebar-item" onclick="showSection('how')"><span class="sidebar-item-dot"></span>Como funciona</div>
+      <div class="sidebar-item" onclick="showSection('cta')"><span class="sidebar-item-dot"></span>CTA Final</div>
+      <div class="sidebar-item" onclick="showSection('footer')"><span class="sidebar-item-dot"></span>Rodapé</div>
+    </div>
+
+    <!-- MAIN -->
+    <div class="main-panel">
+
+      <!-- HERO -->
+      <div class="section-editor active" id="sec-hero">
+        <h2>Hero — Dobra Principal</h2>
+        <p class="section-hint">Primeira seção visível ao entrar no site.</p>
+        <a href="/" target="_blank" class="preview-link">↗ Ver no site</a>
+
+        <div class="field-group">
+          <div class="field-label">Título linha 1</div>
+          <input type="text" class="field-input" id="hero_title1" value="TE LEVAMOS AO">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Título linha 2 (destaque vermelho)</div>
+          <input type="text" class="field-input" id="hero_title2" value="PRÓXIMO NÍVEL">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Subtítulo principal</div>
+          <textarea class="field-input" id="hero_subtitle">Somos mais que um acompanhamento online de treino e dieta. Somos o método que transforma pessoas comuns em resultados extraordinários.</textarea>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Subtítulo secundário (itálico)</div>
+          <textarea class="field-input" id="hero_subtitle2">Do iniciante ao atleta, entregamos uma experiência inteligente, individualizada e eficaz de verdade.</textarea>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Texto do botão CTA</div>
+          <input type="text" class="field-input" id="hero_cta" value="Começar agora">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Texto pequeno abaixo do botão</div>
+          <input type="text" class="field-input" id="hero_sub" value="Do iniciante ao atleta">
+        </div>
+      </div>
+
+      <!-- TEAM -->
+      <div class="section-editor" id="sec-team">
+        <h2>Equipe — Quem vai te acompanhar</h2>
+        <p class="section-hint">Seção com os 3 profissionais (Luiz, Ricardo, Rosangela).</p>
+
+        <div class="field-group">
+          <div class="field-label">Tag da seção</div>
+          <input type="text" class="field-input" id="team_tag" value="Profissionais">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Título da seção</div>
+          <input type="text" class="field-input" id="team_title" value="Quem vai te acompanhar">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Descrição da seção</div>
+          <textarea class="field-input" id="team_desc">Equipe especializada comprometida com a sua transformação real.</textarea>
+        </div>
+
+        <!-- Luiz -->
+        <div class="card-editor">
+          <div class="card-editor-header"><span>1</span> Luiz Nunes</div>
+          <div class="field-group">
+            <div class="field-label">Nome</div>
+            <input type="text" class="field-input" id="team1_name" value="Luiz Nunes">
+          </div>
+          <div class="field-group">
+            <div class="field-label">Cargo</div>
+            <input type="text" class="field-input" id="team1_role" value="Personal Trainer &amp; Mentor">
+          </div>
+          <div class="field-group">
+            <div class="field-label">Bio (parágrafo 1)</div>
+            <textarea class="field-input" id="team1_bio1">Personal Trainer e mentor de transformações reais. Em mais de 17 anos de experiência no fitness, já ajudou milhares de pessoas a alcançarem resultados consistentes com treino inteligente e mudança de hábitos.</textarea>
+          </div>
+          <div class="field-group">
+            <div class="field-label">Bio (parágrafo 2)</div>
+            <textarea class="field-input" id="team1_bio2">Especialista em Bodybuilding Coach e Biomecânica, criou uma metodologia que une ciência e prática para levar você ao próximo nível.</textarea>
+          </div>
+          <div class="field-group">
+            <div class="field-label">Instagram (ex: @luiznunest)</div>
+            <input type="text" class="field-input" id="team1_ig" value="@luiznunest">
+          </div>
+          <div class="field-group">
+            <div class="field-label">CREF</div>
+            <input type="text" class="field-input" id="team1_cref" value="CREF 025204-G/PR">
+          </div>
+        </div>
+
+        <!-- Ricardo -->
+        <div class="card-editor">
+          <div class="card-editor-header"><span>2</span> Ricardo Schmoeller</div>
+          <div class="field-group">
+            <div class="field-label">Nome</div>
+            <input type="text" class="field-input" id="team2_name" value="Ricardo Schmoeller">
+          </div>
+          <div class="field-group">
+            <div class="field-label">Cargo</div>
+            <input type="text" class="field-input" id="team2_role" value="Personal Trainer">
+          </div>
+          <div class="field-group">
+            <div class="field-label">Bio</div>
+            <textarea class="field-input" id="team2_bio1">Treinador pós-graduado em Personal Trainer, Nutrição e Fisiologia aplicadas ao exercício. Há mais de 10 anos no atendimento personalizado, auxiliando em vários objetivos — principalmente emagrecimento e performance feminina.</textarea>
+          </div>
+          <div class="field-group">
+            <div class="field-label">Instagram</div>
+            <input type="text" class="field-input" id="team2_ig" value="@ricardo.schmoeller">
+          </div>
+          <div class="field-group">
+            <div class="field-label">CREF</div>
+            <input type="text" class="field-input" id="team2_cref" value="CREF 021922-G/PR">
+          </div>
+        </div>
+
+        <!-- Rosangela -->
+        <div class="card-editor">
+          <div class="card-editor-header"><span>3</span> Rosangela de Souza</div>
+          <div class="field-group">
+            <div class="field-label">Nome</div>
+            <input type="text" class="field-input" id="team3_name" value="Rosangela de Souza">
+          </div>
+          <div class="field-group">
+            <div class="field-label">Cargo</div>
+            <input type="text" class="field-input" id="team3_role" value="Nutricionista">
+          </div>
+          <div class="field-group">
+            <div class="field-label">Bio (parágrafo 1)</div>
+            <textarea class="field-input" id="team3_bio1">Nutricionista pós-graduada em Nutrição Esportiva e Hipertrofia. Une conhecimento técnico à prática de mais de 12 anos de musculação e alimentação saudável. Ex-atleta de fisiculturismo (Bikini Fitness).</textarea>
+          </div>
+          <div class="field-group">
+            <div class="field-label">Bio (parágrafo 2)</div>
+            <textarea class="field-input" id="team3_bio2">Traz a visão de quem vive na prática os desafios da performance e da estética no dia a dia.</textarea>
+          </div>
+          <div class="field-group">
+            <div class="field-label">Instagram</div>
+            <input type="text" class="field-input" id="team3_ig" value="@nutrirosangeladesouza">
+          </div>
+          <div class="field-group">
+            <div class="field-label">CRN</div>
+            <input type="text" class="field-input" id="team3_crn" value="CRN 18651">
+          </div>
+        </div>
+      </div>
+
+      <!-- RESULTS -->
+      <div class="section-editor" id="sec-results">
+        <h2>Resultados — Antes e Depois</h2>
+        <p class="section-hint">Seção de transformações com nomes dos alunos e disclaimer legal.</p>
+
+        <div class="field-group">
+          <div class="field-label">Headline (ex: RESULTADOS DE 1 ANO EM 3 MESES COM O MÉTODO)</div>
+          <textarea class="field-input" id="results_headline">RESULTADOS DE 1 ANO EM 3 MESES COM O MÉTODO</textarea>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Subtítulo</div>
+          <textarea class="field-input" id="results_sub">Resultado de pessoas reais que aplicaram nosso método.</textarea>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Nomes dos alunos (separados por vírgula)</div>
+          <textarea class="field-input" id="results_names">Tati, Diogo, Marli, Larissa, Euzinete, Jeomar, Maykon, Vitória, Wendy, Anna, Marcelo, Gielen, Matheus, Fabrício, Rosangela, Rogério</textarea>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Disclaimer legal</div>
+          <textarea class="field-input" style="min-height:120px" id="results_disclaimer">Aviso legal: Os depoimentos são experiências pessoais de cada usuário e não é garantido que você poderá obter os mesmos resultados. Como qualquer outro programa de exercícios e alimentação, você assume certas responsabilidades para a sua saúde e segurança utilizando a Mentoria 4x - INTUS. Todas as fotos são de alunos reais que aplicaram nosso método de treino e autorizaram o compartilhamento.</textarea>
+        </div>
+      </div>
+
+      <!-- HOW -->
+      <div class="section-editor" id="sec-how">
+        <h2>Como Funciona — 4 Passos</h2>
+        <p class="section-hint">Metodologia explicada em 4 etapas.</p>
+
+        <div class="field-group">
+          <div class="field-label">Título da seção</div>
+          <input type="text" class="field-input" id="how_title" value="Tenha resultados de 1 ano em 3 meses">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Descrição</div>
+          <input type="text" class="field-input" id="how_desc" value="Com a nossa metodologia. Veja como funciona:">
+        </div>
+
+        <div class="card-editor">
+          <div class="card-editor-header"><span>1</span> Passo 1</div>
+          <div class="field-group"><div class="field-label">Título</div><input type="text" class="field-input" id="step1_title" value="Avaliação completa"></div>
+          <div class="field-group"><div class="field-label">Descrição</div><textarea class="field-input" id="step1_desc">Primeiro avaliamos seu momento atual, postura e necessidades. Assim, prescrevemos uma rotina sob medida de treino e alimentação para você.</textarea></div>
+        </div>
+        <div class="card-editor">
+          <div class="card-editor-header"><span>2</span> Passo 2</div>
+          <div class="field-group"><div class="field-label">Título</div><input type="text" class="field-input" id="step2_title" value="Treinos individualizados"></div>
+          <div class="field-group"><div class="field-label">Descrição</div><textarea class="field-input" id="step2_desc">Tudo organizado para você treinar em casa ou na academia. Aprenda a execução correta, melhore postura, força e condicionamento já nas primeiras semanas. Plataforma completa com desafios e rankings.</textarea></div>
+        </div>
+        <div class="card-editor">
+          <div class="card-editor-header"><span>3</span> Passo 3</div>
+          <div class="field-group"><div class="field-label">Título</div><input type="text" class="field-input" id="step3_title" value="Nutrição prática e personalizada"></div>
+          <div class="field-group"><div class="field-label">Descrição</div><textarea class="field-input" id="step3_desc">Nada de dietas impossíveis ou comidas ruins. Você recebe cardápios eficientes, flexíveis e ajustados ao seu gosto, com alimentos fáceis para o dia a dia.</textarea></div>
+        </div>
+        <div class="card-editor">
+          <div class="card-editor-header"><span>4</span> Passo 4</div>
+          <div class="field-group"><div class="field-label">Título</div><input type="text" class="field-input" id="step4_title" value="Acompanhamento diário"></div>
+          <div class="field-group"><div class="field-label">Descrição</div><textarea class="field-input" id="step4_desc">Com a Intus Fit você tem contato direto e contínuo com os treinadores e nutricionista. Pode enviar vídeos dos treinos, tirar dúvidas de dieta e ter ajustes no seu plano sempre que precisar.</textarea></div>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <div class="section-editor" id="sec-cta">
+        <h2>CTA Final</h2>
+        <p class="section-hint">Seção de chamada para ação no final da página.</p>
+
+        <div class="field-group">
+          <div class="field-label">Título linha 1</div>
+          <input type="text" class="field-input" id="cta_title1" value="PRONTO PARA">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Título linha 2 (destaque vermelho)</div>
+          <input type="text" class="field-input" id="cta_title2" value="EVOLUIR?">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Subtítulo</div>
+          <textarea class="field-input" id="cta_desc">Comece agora. Seu próximo nível está a um clique de distância.</textarea>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Texto do botão</div>
+          <input type="text" class="field-input" id="cta_btn" value="Criar minha conta">
+        </div>
+      </div>
+
+      <!-- FOOTER -->
+      <div class="section-editor" id="sec-footer">
+        <h2>Rodapé</h2>
+        <p class="section-hint">Informações institucionais e links do rodapé.</p>
+
+        <div class="field-group">
+          <div class="field-label">E-mail de contato</div>
+          <input type="email" class="field-input" id="footer_email" value="contato@intusfit.com.br">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Instagram do site</div>
+          <input type="text" class="field-input" id="footer_ig" value="https://instagram.com/intusfit">
+        </div>
+        <div class="field-group">
+          <div class="field-label">CNPJ</div>
+          <input type="text" class="field-input" id="footer_cnpj" value="61.942.499/0001-40">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Endereço completo</div>
+          <textarea class="field-input" id="footer_addr">Rua Rio de Janeiro, 3002, Centro, Cascavel/PR — CEP 85801-031</textarea>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Responsável técnico</div>
+          <input type="text" class="field-input" id="footer_resp" value="Luiz Eduardo Gasparoni Nunes — CREF 25204-G/PR">
+        </div>
+      </div>
+
+    </div><!-- /main-panel -->
+  </div><!-- /editor-layout -->
+</div><!-- /editor-screen -->
+
+<script>
+// ── Auth ──────────────────────────────────────────────────
+const PASS_HASH = 'intus2026admin'; // simple shared secret, checked server-side
+
+function doLogin() {
+  const pass = document.getElementById('login-pass').value.trim();
+  // Simple client-side check; the real gate is save.php on the server
+  fetch('save.php', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({_auth: pass, _check: true})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      sessionStorage.setItem('intus_admin_token', pass);
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('editor-screen').style.display = 'block';
+      loadData();
+    } else {
+      document.getElementById('login-error').style.display = 'block';
+    }
+  })
+  .catch(() => {
+    // Offline fallback: accept if token in sessionStorage
+    document.getElementById('login-error').textContent = 'Erro de conexão com o servidor.';
+    document.getElementById('login-error').style.display = 'block';
+  });
+}
+
+function logout() {
+  sessionStorage.removeItem('intus_admin_token');
+  location.reload();
+}
+
+document.getElementById('login-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// Check existing session
+if (sessionStorage.getItem('intus_admin_token')) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('editor-screen').style.display = 'block';
+  loadData();
+}
+
+// ── Navigation ────────────────────────────────────────────
+function showSection(id) {
+  document.querySelectorAll('.section-editor').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(s => s.classList.remove('active'));
+  document.getElementById('sec-' + id).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+
+// ── Load data from server ─────────────────────────────────
+function loadData() {
+  fetch('data.json?_=' + Date.now())
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d) populateFields(d); })
+    .catch(() => {});
+}
+
+function populateFields(d) {
+  Object.entries(d).forEach(([k, v]) => {
+    const el = document.getElementById(k);
+    if (el) el.value = v;
+  });
+}
+
+// ── Save ──────────────────────────────────────────────────
+function saveAll() {
+  const token = sessionStorage.getItem('intus_admin_token');
+  if (!token) { alert('Sessão expirada. Faça login novamente.'); location.reload(); return; }
+
+  const fields = {};
+  document.querySelectorAll('.field-input[id]').forEach(el => {
+    fields[el.id] = el.value;
+  });
+
+  const status = document.getElementById('save-status');
+  status.textContent = 'Salvando…';
+  status.className = 'topbar-status saving';
+
+  fetch('save.php', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({_auth: token, fields})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      status.textContent = '✓ Salvo';
+      status.className = 'topbar-status saved';
+      setTimeout(() => { status.textContent = 'Pronto'; status.className = 'topbar-status'; }, 3000);
+    } else {
+      status.textContent = '✗ Erro ao salvar';
+      status.className = 'topbar-status';
+      alert(d.error || 'Erro ao salvar.');
+    }
+  })
+  .catch(err => {
+    status.textContent = '✗ Falha';
+    status.className = 'topbar-status';
+    alert('Erro de conexão: ' + err.message);
+  });
+}
+</script>
+</body>
+</html>

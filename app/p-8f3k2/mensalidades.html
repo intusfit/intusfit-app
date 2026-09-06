@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Matrículas — Intus</title>
+  <script src="_mock.js?v=20260520d"></script>
+  <script src="api.js?v=20260520d"></script>
+  <style>
+    /* ── MODAL EXTRA WIDTH ── */
+    .modal-box.wide { max-width: 560px; }
+
+    /* ── LISTA DE ALUNOS (radio-style) ── */
+    .aluno-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+    .aluno-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg3);
+      cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    }
+    .aluno-item:hover { background: var(--bg2); border-color: var(--text-dim); }
+    .aluno-item.selected { border-color: var(--green); background: var(--green-dim); }
+    .aluno-item input[type="radio"] { accent-color: var(--green); width: 14px; height: 14px; flex-shrink: 0; }
+    .aluno-item-name { font-size: 13px; font-weight: 500; color: var(--text); }
+
+    /* ── RESUMO FINANCEIRO ── */
+    .fin-summary {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 12px;
+      margin-bottom: 20px;
+    }
+    .fin-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .fin-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+    .fin-value { font-size: 20px; font-weight: 700; color: var(--text); }
+    .fin-value.green { color: var(--green); }
+    .fin-value.red   { color: #f87171; }
+    .fin-value.yellow { color: #fde047; }
+    body.theme-light .fin-value.yellow { color: #ca8a04; }
+
+    /* ── FILTROS ── */
+    .filtros-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--bg3);
+    }
+    .filtros-bar select.input { width: auto; min-width: 140px; }
+    .filtros-bar .btn { white-space: nowrap; }
+
+    /* ── FORM GRID ── */
+    .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── SEPARADOR ── */
+    .modal-section-title {
+      font-size: 10px; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      padding: 4px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+    }
+
+    .empty-state {
+      text-align: center; padding: 48px 20px; color: var(--text-dim); font-size: 13px;
+    }
+
+    /* ── PLANO SELECTOR ── */
+    .plano-selector { margin-bottom: 12px; }
+    .plano-selector select {
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--border, #333); background: var(--bg, #111);
+      color: var(--text, #f0f0f0); font-size: 13px; font-family: inherit; font-weight: 600;
+    }
+    .plano-selector select:focus { border-color: var(--green); outline: none; }
+    .plano-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Matrículas');
+
+// ── Estado ────────────────────────────────────────────────────────────────
+let mensalidades = [];
+let atletas = [];
+let planosConfig = {};
+let filtroStatus = 'todos';
+let filtroPeriodo = 'tudo';
+let filtroBusca = '';
+let filtroProfessor = new Set(); // vazio = todos
+let ordenacao = 'vencimento_desc';
+let customDe  = '2026-04-15';
+let customAte = new Date().toISOString().slice(0,10);
+let loading = true;
+let erro = null;
+
+let _hideValues = localStorage.getItem('intus-hide-values') === '1';
+function fmtMoedaV(v) {
+  const txt = fmtMoeda(v);
+  return _hideValues ? '<span class="valor-hidden">' + txt + '</span>' : txt;
+}
+function toggleHideValues() {
+  _hideValues = !_hideValues;
+  localStorage.setItem('intus-hide-values', _hideValues ? '1' : '0');
+  render();
+}
+if (!document.getElementById('hide-val-style')) {
+  const _s = document.createElement('style');
+  _s.id = 'hide-val-style';
+  _s.textContent = '.hide-values-btn{background:none;border:1px solid var(--border,#333);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;font-family:inherit;}.hide-values-btn:hover{border-color:var(--green);color:var(--text);}.hide-values-btn.active{border-color:var(--green);background:rgba(127,255,0,.08);color:var(--green);}.valor-hidden{filter:blur(6px);user-select:none;pointer-events:none;transition:filter .2s;}';
+  document.head.appendChild(_s);
+}
+
+// ── Debounce + guard para evitar reloading constante ─────────────────────
+let _carregando = false;
+let _debounceTimer = null;
+function _debouncedCarregar() {
+  if (_debounceTimer) clearTimeout(_debounceTimer);
+  _debounceTimer = setTimeout(() => { if (!_carregando) carregar(); }, 400);
+}
+
+// ── Init: carrega mensalidades + atletas + planos em paralelo ─────────────
+async function carregar() {
+  if (_carregando) return;
+  _carregando = true;
+  loading = true; erro = null;
+  render();
+  try {
+    const [listaM, listaA, planos] = await Promise.all([
+      API.listarMensalidades(''),
+      API.listarAtletas(''),
+      API.getPlanosConfig().catch(() => ({})),
+    ]);
+    mensalidades = Array.isArray(listaM) ? listaM : [];
+    atletas = Array.isArray(listaA) ? listaA : [];
+    planosConfig = planos || {};
+    // Professor só vê dados dos seus clientes
+    atletas = API.filtrarMeusAtletas(atletas);
+    if (!Sessao.atual()?.admin) {
+      const _ids = new Set(atletas.map(a => Number(a.idatleta)));
+      mensalidades = mensalidades.filter(m => _ids.has(Number(m.idatleta)));
+    }
+    // Sincroniza cache local com o que o backend retornou
+    if (mensalidades.length === 0) {
+      localStorage.removeItem('intus-mensalidades');
+    }
+  } catch (e) {
+    erro = e.message || 'Erro ao carregar mensalidades';
+    console.error(e);
+  } finally {
+    loading = false;
+    _carregando = false;
+    render();
+  }
+}
+
+// ── Render principal ──────────────────────────────────────────────────────
+function render() {
+  const main = document.getElementById('main-content');
+  const podeVerValores = hasPerm('mt_editar');
+
+  if (loading) {
+    main.innerHTML = `<div class="empty-state">Carregando matrículas…</div>`;
+    return;
+  }
+  if (erro) {
+    main.innerHTML = `<div class="empty-state" style="color:#f87171;">${erro}</div>
+                      <div style="text-align:center;margin-top:8px;">
+                        <button class="btn btn-secondary btn-sm" onclick="carregar()">Tentar novamente</button>
+                      </div>`;
+    return;
+  }
+
+  const hoje = new Date();
+  const isPago  = m => m.stpgto === 'S';
+  const isVenc  = m => !isPago(m) && new Date((m.dtvencimento||'').slice(0,10) + 'T00:00:00') < hoje;
+  const isPend  = m => !isPago(m) && !isVenc(m);
+
+  // Filtro por período
+  function dentroPeriodo(m) {
+    const dataRef = m.stpgto === 'S' ? (m.dtpagamento || m.dtvencimento) : m.dtvencimento;
+    if (!dataRef) return true;
+    const ds = String(dataRef).slice(0,10);
+    if (filtroPeriodo === 'tudo') return true;
+    if (filtroPeriodo === 'custom') return ds >= customDe && ds <= customAte;
+    const d = new Date(ds + 'T00:00:00');
+    const h = new Date(); h.setHours(0,0,0,0);
+    if (filtroPeriodo === 'mes') return d.getMonth() === h.getMonth() && d.getFullYear() === h.getFullYear();
+    if (filtroPeriodo === 'mes_ant') {
+      const ref = new Date(h.getFullYear(), h.getMonth()-1, 1);
+      return d.getMonth() === ref.getMonth() && d.getFullYear() === ref.getFullYear();
+    }
+    if (filtroPeriodo === 'ano') return d.getFullYear() === h.getFullYear();
+    return true;
+  }
+
+  const periodoMens = mensalidades.filter(dentroPeriodo);
+  const pagos     = periodoMens.filter(isPago);
+  const vencidas  = periodoMens.filter(isVenc);
+  const pendentes = periodoMens.filter(isPend);
+
+  const num = v => parseFloat(v||0);
+  // A Receber = pendentes + vencidas (ainda não pagas) + previsão de renovações (pagas com vencimento em até 30d)
+  const naoPagei = periodoMens.filter(m => !isPago(m));
+  const renovPrevistas = periodoMens.filter(m => {
+    if (!isPago(m) || !m.dtvencimento) return false;
+    const venc = new Date((m.dtvencimento||'').slice(0,10) + 'T00:00:00');
+    const diff = Math.floor((venc - hoje) / (1000*60*60*24));
+    return diff >= -7 && diff <= 30 && num(m.vlpagar) > 0;
+  });
+  const totalReceber  = naoPagei.reduce((s,m) => s + num(m.vlpagar), 0) + renovPrevistas.reduce((s,m) => s + num(m.vlpagar), 0);
+  const totalRecebido = pagos.reduce((s,m) => s + num(m.vlpagamento || m.vlpagar), 0);
+
+  let itens = periodoMens;
+  if (filtroStatus === 'pago')     itens = itens.filter(isPago);
+  if (filtroStatus === 'vencida')  itens = itens.filter(isVenc);
+  if (filtroStatus === 'pendente') itens = itens.filter(isPend);
+
+  // Filtro por professor (admin)
+  const _usr = Sessao.atual();
+  const isAdmin = _usr && _usr.admin;
+  // Pega nomes dos professores das mensalidades + dos usuários cadastrados
+  const _profFromMens = mensalidades.map(m => m.professor || '').filter(Boolean);
+  const _usuarios = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+  const _profFromUsers = _usuarios.filter(u => u.ativo !== false).map(u => u.nome || '').filter(Boolean);
+  const professoresUnicos = [...new Set([..._profFromMens, ..._profFromUsers])].sort((a,b) => a.localeCompare(b,'pt-BR'));
+  if (isAdmin && filtroProfessor.size > 0) {
+    // Cruza via atletas vinculados (professores_responsaveis)
+    const _allAtletas = JSON.parse(localStorage.getItem('intus-atletas') || '[]');
+    const _selectedIds = new Set();
+    let _incluiGeral = filtroProfessor.has('_geral');
+    filtroProfessor.forEach(nome => {
+      if (nome === '_geral') return;
+      const u = _usuarios.find(x => x.nome === nome);
+      if (u) _selectedIds.add(Number(u.idusuario));
+    });
+    const _atletasVinculados = new Set();
+    const _atletasSemProf = new Set();
+    _allAtletas.forEach(a => {
+      const profs = a.professores_responsaveis || [];
+      if (!profs.length) { _atletasSemProf.add(Number(a.idatleta)); }
+      else if (profs.some(pid => _selectedIds.has(Number(pid)))) { _atletasVinculados.add(Number(a.idatleta)); }
+    });
+    itens = itens.filter(m => {
+      const idA = Number(m.idatleta);
+      if (_atletasVinculados.has(idA)) return true;
+      if (_incluiGeral && _atletasSemProf.has(idA)) return true;
+      return false;
+    });
+  }
+
+  // Busca
+  if (filtroBusca) {
+    const q = filtroBusca.toLowerCase();
+    itens = itens.filter(m => (m.nmathleta||'').toLowerCase().includes(q) || (m.dshistorico||'').toLowerCase().includes(q));
+  }
+
+  // Ordenação
+  itens = [...itens];
+  if (ordenacao === 'vencimento_desc')   itens.sort((a,b) => (b.dtvencimento||'').localeCompare(a.dtvencimento||''));
+  else if (ordenacao === 'vencimento_asc') itens.sort((a,b) => (a.dtvencimento||'').localeCompare(b.dtvencimento||''));
+  else if (ordenacao === 'nome_asc')     itens.sort((a,b) => (a.nmathleta||'').localeCompare(b.nmathleta||'','pt-BR'));
+  else if (ordenacao === 'nome_desc')    itens.sort((a,b) => (b.nmathleta||'').localeCompare(a.nmathleta||'','pt-BR'));
+  else if (ordenacao === 'valor_desc')   itens.sort((a,b) => num(b.vlpagar) - num(a.vlpagar));
+  else if (ordenacao === 'valor_asc')    itens.sort((a,b) => num(a.vlpagar) - num(b.vlpagar));
+  else if (ordenacao === 'pagamento')    itens.sort((a,b) => (b.dtpagamento||'').localeCompare(a.dtpagamento||''));
+
+  main.innerHTML = `
+    <!-- Resumo financeiro -->
+    ${podeVerValores ? `<div class="fin-summary">
+      <div class="fin-card">
+        <div class="fin-label">A Receber / Previsão</div>
+        <div class="fin-value yellow">${fmtMoedaV(totalReceber)}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${naoPagei.length} pendente${naoPagei.length!==1?'s':''} + ${renovPrevistas.length} renovaç${renovPrevistas.length!==1?'ões':'ão'}</div>
+      </div>
+      <div class="fin-card">
+        <div class="fin-label">Recebido</div>
+        <div class="fin-value green">${fmtMoedaV(totalRecebido)}</div>
+      </div>
+      <div class="fin-card">
+        <div class="fin-label">Vencidas</div>
+        <div class="fin-value red">${vencidas.length} cobrança${vencidas.length!==1?'s':''}</div>
+      </div>
+    </div>` : ''}
+
+    <!-- Card principal -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Matrículas / Mensalidades</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="hide-values-btn ${_hideValues ? 'active' : ''}" onclick="toggleHideValues()">${_hideValues ? '🙈' : '👁️'} ${_hideValues ? 'Mostrar' : 'Esconder'}</button>
+          ${podeVerValores ? `<button class="btn btn-danger btn-sm" onclick="limparDadosAntigos()" title="Excluir tudo (backend + cache)">🗑 Limpar Tudo</button>
+          <button class="btn btn-secondary btn-sm" onclick="forcarLimpezaCache()" title="Limpar apenas cache local">🧹 Limpar Cache</button>
+          <button class="btn btn-primary btn-sm" onclick="abrirModalMatricula()">+ Nova Matrícula</button>` : ''}
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filtros-bar">
+        <input class="input" id="inp-busca-mat" placeholder="Buscar cliente ou plano..." value="${esc(filtroBusca)}" style="flex:1;min-width:160px;max-width:240px;" oninput="filtroBusca=this.value;render();setTimeout(()=>{const e=document.getElementById('inp-busca-mat');if(e){e.focus();e.setSelectionRange(filtroBusca.length,filtroBusca.length);}},0);"/>
+        <select class="input" id="sel-filtro" onchange="mudarFiltro(this.value)">
+          <option value="todos"    ${filtroStatus==='todos'?'selected':''}>Todos os status</option>
+          <option value="pendente" ${filtroStatus==='pendente'?'selected':''}>Pendentes</option>
+          <option value="vencida"  ${filtroStatus==='vencida'?'selected':''}>Vencidas</option>
+          <option value="pago"     ${filtroStatus==='pago'?'selected':''}>Pagas</option>
+        </select>
+        ${isAdmin ? `
+        <div style="position:relative;display:inline-block;" id="prof-filter-wrap">
+          <button class="input" onclick="toggleProfFilter()" style="cursor:pointer;min-width:120px;text-align:left;display:flex;align-items:center;gap:4px;">
+            <span>${filtroProfessor.size === 0 ? 'Todos prof.' : filtroProfessor.size + ' selecionado' + (filtroProfessor.size > 1 ? 's' : '')}</span>
+            <span style="margin-left:auto;font-size:10px;">▼</span>
+          </button>
+          <div id="prof-filter-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:999;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px;min-width:200px;max-height:240px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.3);">
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:8px;">
+              <input type="checkbox" ${filtroProfessor.size===0?'checked':''} onchange="toggleProfTodos(this.checked)" style="width:16px;height:16px;accent-color:var(--green);"/> <b>Todos</b>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:13px;color:var(--text);">
+              <input type="checkbox" value="_geral" ${filtroProfessor.has('_geral')?'checked':''} onchange="toggleProfItem('_geral',this.checked)" style="width:16px;height:16px;accent-color:var(--green);"/> Geral (sem prof.)
+            </label>
+            ${professoresUnicos.map(p => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:13px;color:var(--text);">
+              <input type="checkbox" value="${esc(p)}" ${filtroProfessor.has(p)?'checked':''} onchange="toggleProfItem('${esc(p)}',this.checked)" style="width:16px;height:16px;accent-color:var(--green);"/> ${esc(p)}
+            </label>`).join('')}
+          </div>
+        </div>
+        ` : ''}
+        <select class="input" id="sel-periodo" onchange="mudarPeriodo(this.value)">
+          <option value="tudo"    ${filtroPeriodo==='tudo'?'selected':''}>Tudo</option>
+          <option value="mes"     ${filtroPeriodo==='mes'?'selected':''}>Este mês</option>
+          <option value="mes_ant" ${filtroPeriodo==='mes_ant'?'selected':''}>Mês anterior</option>
+          <option value="ano"     ${filtroPeriodo==='ano'?'selected':''}>Ano atual</option>
+          <option value="custom"  ${filtroPeriodo==='custom'?'selected':''}>Personalizado</option>
+        </select>
+        ${filtroPeriodo === 'custom' ? `
+          <input type="date" class="input" id="inp-de" value="${customDe}" style="width:auto;font-size:12px;" onchange="customDe=this.value;render();"/>
+          <span style="color:var(--text-muted);font-size:12px;">até</span>
+          <input type="date" class="input" id="inp-ate" value="${customAte}" style="width:auto;font-size:12px;" onchange="customAte=this.value;render();"/>
+        ` : ''}
+        <select class="input" id="sel-ordem" onchange="mudarOrdem(this.value)" style="width:auto;">
+          <option value="vencimento_desc" ${ordenacao==='vencimento_desc'?'selected':''}>Vencimento ↓</option>
+          <option value="vencimento_asc"  ${ordenacao==='vencimento_asc'?'selected':''}>Vencimento ↑</option>
+          <option value="nome_asc"        ${ordenacao==='nome_asc'?'selected':''}>Nome A-Z</option>
+          <option value="nome_desc"       ${ordenacao==='nome_desc'?'selected':''}>Nome Z-A</option>
+          ${podeVerValores ? `<option value="valor_desc"      ${ordenacao==='valor_desc'?'selected':''}>Valor ↓</option>
+          <option value="valor_asc"       ${ordenacao==='valor_asc'?'selected':''}>Valor ↑</option>` : ''}
+          <option value="pagamento"       ${ordenacao==='pagamento'?'selected':''}>Pagamento</option>
+        </select>
+        <span style="font-size:12px;color:var(--text-muted);margin-left:auto;">${itens.length} resultado${itens.length!==1?'s':''}</span>
+      </div>
+
+      <!-- Tabela -->
+      <table class="data-table">
+        <thead><tr>
+          <th>Cliente</th>
+          <th>Descrição</th>
+          ${podeVerValores ? '<th style="text-align:right;">Valor</th>' : ''}
+          <th>Início</th>
+          <th>Vencimento</th>
+          <th>Pagamento</th>
+          <th>Status</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${itens.map(m => {
+            const vencida = isVenc(m);
+            let pillClass = 'pill-yellow', pillLabel = 'Pendente';
+            if (isPago(m))        { pillClass = 'pill-green';  pillLabel = 'Paga'; }
+            else if (vencida)      { pillClass = 'pill-red';    pillLabel = 'Vencida'; }
+            return `<tr>
+              <td class="td-name">${esc(m.nmathleta || '—')}</td>
+              <td style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || '')}</td>
+              ${podeVerValores ? `<td style="text-align:right;font-weight:700;color:var(--text);">${fmtMoedaV(m.vlpagar)}</td>` : ''}
+              <td class="td-date">${m.dtinicio ? fmtData(m.dtinicio) : '—'}</td>
+              <td class="${vencida ? '' : 'td-date'}" style="${vencida ? 'color:#f87171;font-size:12px;font-weight:600;' : ''}">${fmtData(m.dtvencimento)}</td>
+              <td class="td-date">${m.dtpagamento ? fmtData(m.dtpagamento) : '—'}</td>
+              <td><span class="pill ${pillClass}">${pillLabel}</span></td>
+              <td style="text-align:right;white-space:nowrap;gap:6px;display:flex;justify-content:flex-end;padding:8px 20px;">
+                ${!isPago(m) && hasPerm('mt_editar')
+                  ? `<button class="btn btn-success btn-sm" onclick="marcarPago(${m.idmensalidade})">✓ Pago</button>`
+                  : ''}
+                ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="abrirModalEditar(${m.idmensalidade})">Editar</button>` : ''}
+                ${hasPerm('mt_excluir') ? `<button class="btn btn-danger btn-sm" onclick="excluirMensalidade(${m.idmensalidade})" title="Excluir">✕</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+          ${itens.length === 0
+            ? `<tr><td colspan="${podeVerValores ? 8 : 7}" style="text-align:center;padding:32px;color:var(--text-dim);">Nenhuma cobrança neste filtro.</td></tr>`
+            : ''}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function mudarFiltro(v) {
+  filtroStatus = v;
+  render();
+}
+
+function mudarPeriodo(v) {
+  filtroPeriodo = v;
+  render();
+}
+
+function mudarOrdem(v) {
+  ordenacao = v;
+  render();
+}
+
+function toggleProfFilter() {
+  const dd = document.getElementById('prof-filter-dropdown');
+  if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+function toggleProfTodos(checked) {
+  if (checked) { filtroProfessor = new Set(); }
+  render();
+}
+function toggleProfItem(val, checked) {
+  if (checked) { filtroProfessor.add(val); }
+  else { filtroProfessor.delete(val); }
+  render();
+}
+document.addEventListener('click', function(e) {
+  const wrap = document.getElementById('prof-filter-wrap');
+  const dd = document.getElementById('prof-filter-dropdown');
+  if (wrap && dd && !wrap.contains(e.target)) dd.style.display = 'none';
+});
+
+// ── Marcar como pago (chama API) ──────────────────────────────────────────
+async function marcarPago(id) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  if (!m) return;
+  const hoje = new Date().toISOString().slice(0,10);
+  try {
+    await API.pagarMensalidade(m, hoje, m.vlpagar);
+    showToast('Mensalidade marcada como paga!');
+
+    // Auto-gerar renovação preservando o dia de vencimento
+    if (m.dtinicio && m.dtvencimento) {
+      const d1 = new Date(m.dtinicio + 'T00:00:00');
+      const d2 = new Date(m.dtvencimento + 'T00:00:00');
+      const durMeses = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+      if (durMeses > 0) {
+        const diaVenc = d2.getDate();
+        const novoVencPrev = new Date(d2.getFullYear(), d2.getMonth() + durMeses, diaVenc);
+        const gerarRenov = confirm(
+          `Gerar renovação automática?\n\n` +
+          `Plano: ${m.dshistorico || 'Mensalidade'}\n` +
+          `Duração: ${durMeses} ${durMeses === 1 ? 'mês' : 'meses'} | Valor: R$ ${parseFloat(m.vlpagar||0).toFixed(2)}\n\n` +
+          `Novo vencimento: ${novoVencPrev.toLocaleDateString('pt-BR')}`
+        );
+        if (gerarRenov) {
+          const novoInicio = d2 > new Date() ? d2 : new Date();
+          const novoVenc = new Date(novoInicio.getFullYear(), novoInicio.getMonth() + durMeses, diaVenc);
+          const fmt = d => d.toISOString().slice(0, 10);
+          await API.criarMensalidade({
+            idatleta: m.idatleta,
+            nmathleta: m.nmathleta || '',
+            dshistorico: m.dshistorico || 'Renovação',
+            dtinicio: fmt(novoInicio),
+            dtvencimento: fmt(novoVenc),
+            vlpagar: m.vlpagar,
+            stpgto: 'N',
+            professor: m.professor || '',
+          });
+          showToast('Renovação gerada!');
+        }
+      }
+    }
+
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao marcar como paga: ' + e.message, 'error');
+  }
+}
+
+// ── Excluir ───────────────────────────────────────────────────────────────
+async function excluirMensalidade(id) {
+  if (!hasPerm('mt_excluir')) return showToast('Sem permissão para excluir mensalidades.', 'error');
+  if (!confirm('Excluir esta mensalidade? Essa ação não pode ser desfeita.')) return;
+  try {
+    await API.excluirMensalidade(id);
+    showToast('Mensalidade excluída.');
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao excluir: ' + e.message, 'error');
+  }
+}
+
+// ── Monta opções de planos a partir de planosConfig + auto-detecção ───────
+const PERSONAL_PRESETS_KEY = 'intus-planos-pessoais';
+
+function getPersonalPresets() {
+  try {
+    const user = Sessao.atual();
+    if (!user || !user.idusuario) return [];
+    const all = JSON.parse(localStorage.getItem(PERSONAL_PRESETS_KEY) || '{}');
+    return all[user.idusuario] || [];
+  } catch { return []; }
+}
+
+function savePersonalPresets(presets) {
+  const user = Sessao.atual();
+  if (!user || !user.idusuario) return;
+  const all = JSON.parse(localStorage.getItem(PERSONAL_PRESETS_KEY) || '{}');
+  all[user.idusuario] = presets;
+  localStorage.setItem(PERSONAL_PRESETS_KEY, JSON.stringify(all));
+}
+
+function buildPlanoOptions() {
+  const opts = [];
+  const labels = {
+    'v-treino-tri': 'Treino — Trimestral',
+    'v-treino-sem': 'Treino — Semestral',
+    'v-treino-anual': 'Treino — Anual',
+    'v-dieta-tri': 'Dieta — Trimestral',
+    'v-dieta-sem': 'Dieta — Semestral',
+    'v-dieta-anual': 'Dieta — Anual',
+    'v-combo-tri': 'Treino + Dieta — Trimestral',
+    'v-combo-sem': 'Treino + Dieta — Semestral',
+    'v-combo-anual': 'Treino + Dieta — Anual',
+  };
+  const periodos = { tri: 3, sem: 6, anual: 12 };
+  Object.keys(labels).forEach(key => {
+    const valor = parseFloat(planosConfig[key]);
+    if (valor > 0) {
+      const periodoKey = key.split('-').pop();
+      opts.push({ key, label: labels[key], valor, meses: periodos[periodoKey] || 1, oficial: true });
+    }
+  });
+
+  const descCounts = {};
+  mensalidades.forEach(m => {
+    const desc = (m.dshistorico || '').trim();
+    if (!desc) return;
+    if (!descCounts[desc]) descCounts[desc] = { count: 0, valor: 0, meses: 0 };
+    descCounts[desc].count++;
+    descCounts[desc].valor = Math.max(descCounts[desc].valor, parseFloat(m.vlpagar) || 0);
+    if (m.dtinicio && m.dtvencimento) {
+      const d1 = new Date(m.dtinicio), d2 = new Date(m.dtvencimento);
+      const diffM = Math.round((d2 - d1) / (30.4 * 24 * 60 * 60 * 1000));
+      if (diffM > 0) descCounts[desc].meses = diffM;
+    }
+  });
+  const existingKeys = new Set(opts.map(o => o.label));
+  Object.entries(descCounts).forEach(([desc, info]) => {
+    if (info.count >= 2 && !existingKeys.has(desc)) {
+      const customKey = 'auto-' + desc.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const customValor = parseFloat(planosConfig[customKey + '-valor']);
+      const customMeses = parseInt(planosConfig[customKey + '-meses']);
+      opts.push({
+        key: customKey,
+        label: desc,
+        valor: customValor > 0 ? customValor : info.valor,
+        meses: customMeses > 0 ? customMeses : (info.meses || 1),
+        autoDetected: true,
+        oficial: true,
+      });
+    }
+  });
+
+  const pessoais = getPersonalPresets();
+  pessoais.forEach(p => {
+    opts.push({ key: 'pessoal-' + p.id, label: p.label, valor: p.valor, meses: p.meses, oficial: false, pessoal: true });
+  });
+
+  return opts;
+}
+
+function aplicarPlano(selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  const opts = buildPlanoOptions();
+  const opt = opts.find(o => o.key === val);
+  if (!opt) return;
+  document.getElementById('mat-valor').value = opt.valor.toFixed(2);
+  document.getElementById('mat-hist').value = opt.label;
+  const hoje = new Date();
+  document.getElementById('mat-dtinicio').value = hoje.toISOString().slice(0,10);
+  const venc = new Date(hoje);
+  venc.setMonth(venc.getMonth() + (opt.meses || 1));
+  document.getElementById('mat-dtvenc').value = venc.toISOString().slice(0,10);
+}
+
+function getAutoDetectedPlanos() {
+  return buildPlanoOptions().filter(o => o.autoDetected);
+}
+
+function abrirGerenciarPresets() {
+  const presets = getPersonalPresets();
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Meus Planos Personalizados</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:60vh;overflow-y:auto;">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">Crie pré-definições de planos que só você pode ver. Planos oficiais com links válidos são gerenciados apenas pelo admin na seção de Planos.</p>
+      ${presets.length > 0 ? `
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+        ${presets.map((p, i) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text);">${esc(p.label)}</div>
+              <div style="font-size:11px;color:var(--text-muted);">R$ ${p.valor.toFixed(2)} · ${p.meses} ${p.meses === 1 ? 'mês' : 'meses'}</div>
+            </div>
+            <button class="btn btn-danger btn-sm" style="font-size:10px;padding:3px 8px;" onclick="removerPreset(${i})">✕</button>
+          </div>
+        `).join('')}
+      </div>` : '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">Nenhum plano pessoal criado ainda.</div>'}
+      <div style="border-top:1px solid var(--border);padding-top:12px;">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Adicionar novo plano</div>
+        <div class="form-2col" style="grid-template-columns:2fr 1fr 1fr;">
+          <div class="form-group"><label class="label">Nome</label><input id="pp-label" class="input" placeholder="Ex.: Mensal básico"/></div>
+          <div class="form-group"><label class="label">Valor (R$)</label><input id="pp-valor" class="input" type="number" min="0" step="0.01" placeholder="100.00"/></div>
+          <div class="form-group"><label class="label">Meses</label><input id="pp-meses" class="input" type="number" min="1" max="24" placeholder="1"/></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="adicionarPreset()">+ Adicionar</button>
+    </div>
+  `);
+}
+
+function adicionarPreset() {
+  const label = (document.getElementById('pp-label')?.value || '').trim();
+  const valor = parseFloat(document.getElementById('pp-valor')?.value || 0);
+  const meses = parseInt(document.getElementById('pp-meses')?.value || 1);
+  if (!label) return showToast('Informe o nome do plano.', 'error');
+  if (valor <= 0) return showToast('Informe um valor válido.', 'error');
+  const presets = getPersonalPresets();
+  presets.push({ id: Date.now(), label, valor, meses: meses || 1 });
+  savePersonalPresets(presets);
+  showToast('Plano pessoal adicionado!');
+  abrirGerenciarPresets();
+}
+
+function removerPreset(idx) {
+  const presets = getPersonalPresets();
+  presets.splice(idx, 1);
+  savePersonalPresets(presets);
+  showToast('Plano removido.');
+  abrirGerenciarPresets();
+}
+
+// ── Modal: Nova / Editar Matrícula ────────────────────────────────────────
+function abrirModalMatricula(editId) {
+  const isEdit = !!editId;
+  const dados = isEdit ? mensalidades.find(m => Number(m.idmensalidade) === Number(editId)) : null;
+  const _usr = Sessao.atual();
+
+  const atletaPresel = isEdit
+    ? (dados?.idatleta || (atletas[0] && atletas[0].idatleta))
+    : (atletas[0] && atletas[0].idatleta);
+
+  const alunosHTML = atletas.length === 0
+    ? `<div style="padding:12px;color:var(--text-dim);font-size:12px;">Nenhum aluno cadastrado.</div>`
+    : atletas.map(a => `
+        <label class="aluno-item ${Number(a.idatleta)===Number(atletaPresel)?'selected':''}" id="aitem-${a.idatleta}" onclick="selecionarAluno(${a.idatleta})">
+          <input type="radio" name="aluno-radio" value="${a.idatleta}" ${Number(a.idatleta)===Number(atletaPresel)?'checked':''}>
+          <span class="aluno-item-name">${esc(a.nome)}</span>
+        </label>`).join('');
+
+  const hoje   = new Date().toISOString().slice(0,10);
+  const venc30 = new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10);
+
+  // Build plan preset dropdown
+  const planoOpts = buildPlanoOptions();
+  const _oficiais = planoOpts.filter(o => o.oficial);
+  const _pessoais = planoOpts.filter(o => o.pessoal);
+  const _canPresets = _usr && (_usr.admin || _usr.assinante);
+  const planoSelectHTML = planoOpts.length > 0 || _canPresets
+    ? `<div class="plano-selector">
+         <div class="modal-section-title">Plano Pré-definido</div>
+         <select id="sel-plano-preset" onchange="aplicarPlano(this)">
+           <option value="">— Personalizado —</option>
+           ${_oficiais.length ? `<optgroup label="Planos oficiais">${_oficiais.map(o => `<option value="${o.key}">${esc(o.label)} — R$ ${o.valor.toFixed(2)}</option>`).join('')}</optgroup>` : ''}
+           ${_pessoais.length ? `<optgroup label="Meus planos">${_pessoais.map(o => `<option value="${o.key}">${esc(o.label)} — R$ ${o.valor.toFixed(2)}</option>`).join('')}</optgroup>` : ''}
+         </select>
+         <div class="plano-hint" style="display:flex;align-items:center;justify-content:space-between;">
+           <span>Selecione um plano para preencher automaticamente ou customize abaixo.</span>
+           ${_canPresets ? `<button type="button" class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="abrirGerenciarPresets()">⚙ Meus planos</button>` : ''}
+         </div>
+       </div>`
+    : '';
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">${isEdit ? 'Editar Matrícula' : 'Nova Matrícula'}</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+
+      <!-- Aluno -->
+      <div>
+        <div class="modal-section-title">Aluno</div>
+        <div class="aluno-list" style="margin-top:8px;">${alunosHTML}</div>
+      </div>
+
+      <!-- Plano pré-definido (só para nova) -->
+      ${!isEdit ? planoSelectHTML : ''}
+
+      <!-- Descrição -->
+      <div class="form-group">
+        <label class="label">Descrição</label>
+        <input class="input" type="text" id="mat-hist" maxlength="80"
+               placeholder="Ex.: Treino — Trimestral"
+               value="${isEdit ? esc(dados?.dshistorico || '') : ''}">
+      </div>
+
+      <!-- Datas e valores -->
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Data Início</label>
+          <input class="input" type="date" id="mat-dtinicio" value="${isEdit ? (dados?.dtinicio || hoje).slice(0,10) : hoje}">
+        </div>
+        <div class="form-group">
+          <label class="label">Data Vencimento</label>
+          <input class="input" type="date" id="mat-dtvenc" value="${isEdit ? (dados?.dtvencimento || venc30).slice(0,10) : venc30}">
+        </div>
+      </div>
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Valor (R$)</label>
+          <input class="input" type="number" id="mat-valor" min="0" step="0.01" placeholder="0.00"
+                 value="${isEdit ? parseFloat(dados?.vlpagar||0).toFixed(2) : ''}">
+        </div>
+        <div class="form-group">
+          <label class="label">Desconto (R$)</label>
+          <input class="input" type="number" id="mat-desc" min="0" step="0.01" placeholder="0.00"
+                 value="${isEdit ? parseFloat(dados?.vldesconto||0).toFixed(2) : '0.00'}">
+        </div>
+      </div>
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Juros (R$)</label>
+          <input class="input" type="number" id="mat-juros" min="0" step="0.01" placeholder="0.00"
+                 value="${isEdit ? parseFloat(dados?.vljuro||0).toFixed(2) : '0.00'}">
+        </div>
+        <div class="form-group">
+          <label class="label">Status</label>
+          <select class="input" id="mat-status">
+            <option value="N" ${!isEdit || dados?.stpgto!=='S' ? 'selected':''}>Aberta</option>
+            <option value="S" ${isEdit && dados?.stpgto==='S' ? 'selected':''}>Paga</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Data Pagamento <span style="color:var(--text-dim);font-weight:400;">(opcional)</span></label>
+          <input class="input" type="date" id="mat-dtpgto" value="${isEdit && dados?.dtpagamento ? String(dados.dtpagamento).slice(0,10) : ''}">
+        </div>
+        <div class="form-group"></div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="${isEdit ? `salvarEdicao(${editId})` : 'salvarMatricula()'}">Salvar</button>
+    </div>
+  `);
+}
+
+// Seleção visual de aluno
+function selecionarAluno(id) {
+  atletas.forEach(a => {
+    const el = document.getElementById(`aitem-${a.idatleta}`);
+    if (el) el.classList.toggle('selected', Number(a.idatleta) === Number(id));
+  });
+  const radio = document.querySelector(`input[name="aluno-radio"][value="${id}"]`);
+  if (radio) radio.checked = true;
+}
+
+// Monta payload a partir do formulário
+function lerFormulario() {
+  const alunoRadio = document.querySelector('input[name="aluno-radio"]:checked');
+  const dtinicio = document.getElementById('mat-dtinicio').value;
+  const dtvenc  = document.getElementById('mat-dtvenc').value;
+  const valor   = document.getElementById('mat-valor').value;
+  const desc    = document.getElementById('mat-desc').value || '0';
+  const juros   = document.getElementById('mat-juros').value || '0';
+  const dtpgto  = document.getElementById('mat-dtpgto').value;
+  const status  = document.getElementById('mat-status').value;
+  const hist    = document.getElementById('mat-hist').value.trim();
+
+  if (!alunoRadio) { showToast('Selecione um aluno.', 'error'); return null; }
+  if (!dtvenc)     { showToast('Informe a data de vencimento.', 'error'); return null; }
+  if (!valor)      { showToast('Informe o valor.', 'error'); return null; }
+
+  const payload = {
+    idatleta:     parseInt(alunoRadio.value),
+    dshistorico:  hist || 'Mensalidade',
+    dtinicio:     dtinicio || null,
+    dtvencimento: dtvenc,
+    vlpagar:      parseFloat(valor),
+    vldesconto:   parseFloat(desc),
+    vljuro:       parseFloat(juros),
+    stpgto:       status,
+  };
+
+  // Se marcou como pago e informou dtpgto, inclui dados de pagamento
+  if (status === 'S') {
+    payload.dtpagamento = dtpgto || new Date().toISOString().slice(0,10);
+    payload.vlpagamento = parseFloat(valor);
+    payload.dspagamento = 'Pagamento registrado';
+  }
+
+  return payload;
+}
+
+// ── Criar ─────────────────────────────────────────────────────────────────
+async function salvarMatricula() {
+  const payload = lerFormulario();
+  if (!payload) return;
+  try {
+    // POST cria somente a mensalidade (sem pagamento).
+    // Se foi marcada como paga, criamos com stpgto='N' e depois fazemos PUT
+    // para disparar o INSERT em `pagamento` no backend.
+    const wantPaga = payload.stpgto === 'S';
+    const postPayload = { ...payload, stpgto: 'N' };
+    delete postPayload.dtpagamento; delete postPayload.vlpagamento; delete postPayload.dspagamento;
+
+    const res = await API.criarMensalidade(postPayload);
+    const novoId = res?.idmensalidade;
+
+    if (wantPaga && novoId) {
+      await API.editarMensalidade(novoId, {
+        dshistorico:  payload.dshistorico,
+        dtvencimento: payload.dtvencimento,
+        vlpagar:      payload.vlpagar,
+        stpgto:       'S',
+        vldesconto:   payload.vldesconto,
+        vljuro:       payload.vljuro,
+        dtpagamento:  payload.dtpagamento,
+        vlpagamento:  payload.vlpagamento,
+        dspagamento:  payload.dspagamento,
+      });
+    }
+
+    closeModal();
+    showToast('Matrícula criada com sucesso!');
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao criar matrícula: ' + e.message, 'error');
+  }
+}
+
+// ── Editar ────────────────────────────────────────────────────────────────
+function abrirModalEditar(id) {
+  if (!hasPerm('mt_editar')) return showToast('Sem permissão para editar mensalidades.', 'error');
+  abrirModalMatricula(id);
+}
+
+async function salvarEdicao(id) {
+  const payload = lerFormulario();
+  if (!payload) return;
+  // Para editar, o backend aceita: dshistorico, dtvencimento, vlpagar, stpgto, vldesconto, vljuro
+  // (+ dtpagamento/vlpagamento/dspagamento se stpgto='S')
+  try {
+    await API.editarMensalidade(id, payload);
+    closeModal();
+    showToast('Matrícula atualizada!');
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao atualizar: ' + e.message, 'error');
+  }
+}
+
+// ── Limpar dados antigos (admin only) ─────────────────────────────────────
+async function limparDadosAntigos() {
+  if (!isAdmin()) return;
+  if (!confirm('Isso excluirá TODAS as matrículas/mensalidades do sistema (backend + cache local). Os dados contarão apenas daqui para frente.\n\nConfirmar exclusão?')) return;
+  try {
+    let count = 0;
+    const lista = [...mensalidades];
+    for (const m of lista) {
+      try { await API.excluirMensalidade(m.idmensalidade); } catch(ignored) {}
+      count++;
+    }
+    // Limpa cache local completamente
+    localStorage.removeItem('intus-mensalidades');
+    Store.set('mensalidades', []);
+    mensalidades = [];
+    showToast(`${count} matrícula(s) excluída(s). Cache limpo.`);
+    render();
+  } catch (e) {
+    showToast('Erro ao limpar: ' + e.message, 'error');
+  }
+}
+
+// ── Forçar limpeza do cache local (admin) ────────────────────────────────
+async function forcarLimpezaCache() {
+  if (!isAdmin()) return;
+  localStorage.removeItem('intus-mensalidades');
+  Store.set('mensalidades', []);
+  mensalidades = [];
+  showToast('Cache local de matrículas limpo.');
+  render();
+}
+
+// ── Init + sync ───────────────────────────────────────────────────────────
+carregar();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) _debouncedCarregar(); });
+window.addEventListener('storage', ev => {
+  if (ev.key === 'intus-mensalidades' || ev.key === 'intus-atletas') _debouncedCarregar();
+});
+</script>
+</body>
+</html>

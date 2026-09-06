@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Avaliações — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    .modal-box.wide { max-width: 680px; }
+    .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .form-4col { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+    .modal-section-title {
+      font-size: 10px; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      padding: 4px 0; border-bottom: 1px solid var(--border); margin: 14px 0 8px;
+    }
+    .filtros-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--bg3);
+    }
+    .filtros-bar select.input { width: auto; min-width: 160px; }
+    .empty-state { text-align: center; padding: 48px 20px; color: var(--text-dim); font-size: 13px; }
+    .av-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 20px; margin-bottom: 12px; cursor: pointer; transition: border-color .15s;
+    }
+    .av-card:hover { border-color: var(--green); }
+    .av-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .av-card-name { font-size: 14px; font-weight: 700; color: var(--text); }
+    .av-card-date { font-size: 11px; color: var(--text-muted); }
+    .av-card-metrics { display: flex; gap: 16px; flex-wrap: wrap; }
+    .av-metric { text-align: center; }
+    .av-metric-value { font-size: 18px; font-weight: 800; color: var(--green); }
+    .av-metric-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+    .av-metric-delta { font-size: 10px; font-weight: 600; margin-top: 2px; }
+    .av-metric-delta.up { color: #f87171; }
+    .av-metric-delta.down { color: var(--green); }
+    .av-metric-delta.neutral { color: var(--text-muted); }
+    .imc-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 6px;
+      font-size: 11px; font-weight: 700;
+    }
+    .imc-baixo { background: rgba(96,165,250,.15); color: #60a5fa; }
+    .imc-normal { background: rgba(127,255,0,.12); color: #7FFF00; }
+    .imc-sobrepeso { background: rgba(250,204,21,.12); color: #facc15; }
+    .imc-obeso { background: rgba(248,113,113,.12); color: #f87171; }
+    .evolucao-container { margin-top: 20px; }
+    .evolucao-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .evolucao-header h3 { font-size: 14px; font-weight: 700; color: var(--text); margin: 0; }
+    .chart-bar-group { display: flex; align-items: flex-end; gap: 3px; height: 80px; }
+    .chart-bar {
+      width: 24px; border-radius: 4px 4px 0 0; background: var(--green); opacity: .8;
+      transition: opacity .15s; position: relative;
+    }
+    .chart-bar:hover { opacity: 1; }
+    .chart-bar-label { position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--text-muted); white-space: nowrap; }
+    .chart-bar-val { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--text); font-weight: 600; white-space: nowrap; }
+    .medidas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+    .medida-item { text-align: center; background: var(--bg3); border-radius: 8px; padding: 8px; }
+    .medida-item-val { font-size: 16px; font-weight: 700; color: var(--text); }
+    .medida-item-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+    .tabs-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .tab-btn { padding: 10px 18px; font-size: 12px; font-weight: 600; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: color .15s, border-color .15s; }
+    .tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+    .tab-btn:hover { color: var(--text); }
+    .method-select { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .method-chip {
+      padding: 6px 14px; border-radius: 8px; font-size: 11px; font-weight: 600;
+      border: 1px solid var(--border); background: var(--bg3); color: var(--text-muted);
+      cursor: pointer; transition: all .15s;
+    }
+    .method-chip.active { border-color: var(--green); color: var(--green); background: rgba(127,255,0,.08); }
+    .method-chip:hover { border-color: var(--green); }
+    .dobras-info { font-size: 11px; color: var(--text-muted); margin: 8px 0; font-style: italic; }
+    .foto-upload-area {
+      border: 2px dashed var(--border); border-radius: 12px; padding: 20px; text-align: center;
+      cursor: pointer; transition: border-color .15s;
+    }
+    .foto-upload-area:hover { border-color: var(--green); }
+    .foto-thumb { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; margin: 4px; }
+    .anamnese-link {
+      display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+      cursor: pointer; transition: border-color .15s; margin-bottom: 12px;
+    }
+    .anamnese-link:hover { border-color: var(--green); }
+
+    /* ─── Dashboard (Painel) ─── */
+    .dash-tiles { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:18px; }
+    @media (max-width:900px){ .dash-tiles{ grid-template-columns:repeat(2,1fr); } }
+    .dash-tile { position:relative; background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; overflow:hidden; }
+    .dash-tile .t-strip { position:absolute; left:0; top:0; bottom:0; width:4px; }
+    .dash-tile .t-ic { font-size:17px; }
+    .dash-tile .t-num { font-size:24px; font-weight:900; color:var(--text); line-height:1; margin-top:8px; }
+    .dash-tile .t-lbl { font-size:11px; color:var(--text-muted); margin-top:4px; line-height:1.3; }
+    .dash-tile .t-new { position:absolute; top:10px; right:12px; background:#f87171; color:#fff; font-size:9px; font-weight:800; padding:1px 6px; border-radius:9px; }
+    .feed { list-style:none; margin:0; padding:0; }
+    .feed-card { display:flex; gap:12px; padding:13px 15px; background:var(--bg2); border:1px solid var(--border); border-left-width:4px; border-radius:12px; margin-bottom:10px; }
+    .feed-card.novo { background:rgba(127,255,0,.05); }
+    .feed-ic { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+    .feed-main { flex:1; min-width:0; }
+    .feed-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:2px; }
+    .feed-name { font-size:13px; font-weight:800; color:var(--text); }
+    .feed-badge { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; padding:2px 7px; border-radius:6px; }
+    .feed-date { font-size:11px; color:var(--text-muted); margin-left:auto; white-space:nowrap; }
+    .feed-sub { font-size:12.5px; color:var(--text); line-height:1.5; }
+    .feed-btn { padding:4px 11px; border-radius:8px; border:1px solid var(--border); background:var(--bg3); color:var(--text); font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; margin-top:8px; }
+    .feed-btn:hover { border-color:var(--green); color:var(--green); }
+    .novo-dot { width:8px; height:8px; border-radius:50%; background:var(--green); flex-shrink:0; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Avaliações');
+
+const main = document.getElementById('main-content');
+
+let avaliacoes = [];
+let atletas = [];
+let atletasTodos = [];   // lista completa (inclui bloqueados) — só para resolver nomes
+let anamneses = [];
+// Avisos gerados no servidor quando um aluno preenche anamnese/avaliacao.
+// Chegam junto com o e-mail para o professor responsavel — aqui e a via do sistema.
+let avisos = [];
+let filtroAtleta = 0;
+let loading = true;
+let activeTab = 'painel';
+const VISTO_KEY = 'intus-aval-visto';
+function _getVisto() { try { return JSON.parse(localStorage.getItem(VISTO_KEY) || '{}') || {}; } catch { return {}; } }
+function _tsOf(s) { if (!s) return 0; let x = String(s); x = x.length <= 10 ? x + 'T00:00:00' : x.replace(' ', 'T'); const t = Date.parse(x); return isNaN(t) ? 0 : t; }
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d) { return d ? new Date(d+'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+function fmtNum(v, dec=1) { return v != null ? Number(v).toFixed(dec).replace('.', ',') : '—'; }
+
+function calcIMC(peso, altura) {
+  if (!peso || !altura) return null;
+  return peso / (altura * altura);
+}
+
+function classIMC(imc) {
+  if (imc === null) return { label: '—', cls: '' };
+  if (imc < 18.5) return { label: 'Abaixo', cls: 'imc-baixo' };
+  if (imc < 25) return { label: 'Normal', cls: 'imc-normal' };
+  if (imc < 30) return { label: 'Sobrepeso', cls: 'imc-sobrepeso' };
+  return { label: 'Obesidade', cls: 'imc-obeso' };
+}
+
+// ═══════════════ POLLOCK / BODY FAT CALCULATIONS ═══════════════
+function calcPollock7(dobras, genero, idade) {
+  const { subescapular, tricipital, peitoral, axilar, suprailiaca, abdominal, coxa } = dobras;
+  const soma = (subescapular||0) + (tricipital||0) + (peitoral||0) + (axilar||0) + (suprailiaca||0) + (abdominal||0) + (coxa||0);
+  if (soma <= 0) return null;
+  let dc;
+  if (genero === 'M') {
+    dc = 1.112 - 0.00043499 * soma + 0.00000055 * soma * soma - 0.00028826 * idade;
+  } else {
+    dc = 1.097 - 0.00046971 * soma + 0.00000056 * soma * soma - 0.00012828 * idade;
+  }
+  return ((4.95 / dc) - 4.50) * 100;
+}
+
+function calcPollock5(dobras, genero, idade) {
+  if (genero === 'M') {
+    const { peitoral, abdominal, coxa, tricipital, suprailiaca } = dobras;
+    const soma = (peitoral||0) + (abdominal||0) + (coxa||0) + (tricipital||0) + (suprailiaca||0);
+    if (soma <= 0) return null;
+    const dc = 1.112 - 0.00043499 * soma + 0.00000055 * soma * soma - 0.00028826 * idade;
+    return ((4.95 / dc) - 4.50) * 100;
+  } else {
+    const { tricipital, suprailiaca, coxa, abdominal, subescapular } = dobras;
+    const soma = (tricipital||0) + (suprailiaca||0) + (coxa||0) + (abdominal||0) + (subescapular||0);
+    if (soma <= 0) return null;
+    const dc = 1.097 - 0.00046971 * soma + 0.00000056 * soma * soma - 0.00012828 * idade;
+    return ((4.95 / dc) - 4.50) * 100;
+  }
+}
+
+function calcPollock3(dobras, genero, idade) {
+  let soma, dc;
+  if (genero === 'M') {
+    soma = (dobras.peitoral||0) + (dobras.abdominal||0) + (dobras.coxa||0);
+    if (soma <= 0) return null;
+    dc = 1.10938 - 0.0008267 * soma + 0.0000016 * soma * soma - 0.0002574 * idade;
+  } else {
+    soma = (dobras.tricipital||0) + (dobras.suprailiaca||0) + (dobras.coxa||0);
+    if (soma <= 0) return null;
+    dc = 1.0994921 - 0.0009929 * soma + 0.0000023 * soma * soma - 0.0001392 * idade;
+  }
+  return ((4.95 / dc) - 4.50) * 100;
+}
+
+function calcMassaMagra(peso, percGordura) {
+  if (!peso || percGordura == null) return null;
+  return peso * (1 - percGordura / 100);
+}
+
+function calcMassaGorda(peso, percGordura) {
+  if (!peso || percGordura == null) return null;
+  return peso * (percGordura / 100);
+}
+
+async function carregar() {
+  loading = true;
+  render();
+  try {
+    const [listaAv, listaAtl, listaAn, listaTodos, listaAvisos] = await Promise.all([
+      API.listarAvaliacoes(),
+      API.listarAtletas(''),
+      (API.listarAnamneses ? API.listarAnamneses().catch(() => []) : Promise.resolve([])),
+      // Lista COMPLETA (inclui bloqueados/arquivados) — usada só para resolver nomes.
+      // Sem isso, um aluno fora da lista visivel aparecia como "Aluno #<id>".
+      API.listarAtletas('', true).catch(() => []),
+      fetch(API_BASE + '/catalogo.php?action=avisos&_=' + Date.now(),
+        { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' })
+        .then(r => r.ok ? r.json() : []).catch(() => [])
+    ]);
+    avaliacoes = Array.isArray(listaAv) ? listaAv : [];
+    atletas = API.filtrarMeusAtletas(Array.isArray(listaAtl) ? listaAtl : []);
+    atletasTodos = (Array.isArray(listaTodos) && listaTodos.length) ? listaTodos : atletas;
+    avisos = Array.isArray(listaAvisos) ? listaAvisos : [];
+    anamneses = Array.isArray(listaAn) ? listaAn : [];
+    if (!Sessao.atual()?.admin) {
+      const ids = new Set(atletas.map(a => Number(a.idatleta)));
+      avaliacoes = avaliacoes.filter(av => ids.has(Number(av.idatleta)));
+      anamneses = anamneses.filter(an => ids.has(Number(an.idatleta)));
+    }
+  } catch (e) {
+    console.error('[Avaliações] Erro ao carregar:', e);
+  } finally {
+    loading = false;
+    render();
+  }
+}
+
+function getNomeAtleta(id) {
+  const a = atletas.find(x => Number(x.idatleta) === Number(id))
+    || atletasTodos.find(x => Number(x.idatleta) === Number(id));
+  // Sem ficha correspondente = registro orfao (sobra de conta que nunca existiu no
+  // servidor). Dizer isso na cara evita que pareca um aluno de verdade chamado
+  // "Aluno #1" — foi o que confundiu por dias.
+  return a ? a.nome : '\u26A0\uFE0F Registro sem ficha (atleta #' + id + ')';
+}
+
+function getGeneroAtleta(id) {
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  return a?.genero || 'M';
+}
+
+function getIdadeAtleta(id) {
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  if (!a?.dtnascimento) return 30;
+  const birth = new Date(a.dtnascimento + 'T00:00:00');
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
+function getAvaliacoesAtleta(idatleta) {
+  return avaliacoes
+    .filter(av => Number(av.idatleta) === Number(idatleta))
+    .sort((a, b) => (a.dtavaliacao || '').localeCompare(b.dtavaliacao || ''));
+}
+
+function getDelta(atual, anterior) {
+  if (atual == null || anterior == null) return null;
+  return atual - anterior;
+}
+
+function renderLista() {
+  let lista = [...avaliacoes].sort((a, b) => (b.dtavaliacao || '').localeCompare(a.dtavaliacao || ''));
+  if (filtroAtleta > 0) lista = lista.filter(av => Number(av.idatleta) === filtroAtleta);
+
+  if (lista.length === 0) {
+    return `<div class="empty-state">
+      <div style="font-size:40px;margin-bottom:12px;">📋</div>
+      <p>Nenhuma avaliação registrada${filtroAtleta > 0 ? ' para este aluno' : ''}.</p>
+      <p style="margin-top:8px;">Clique em <strong>+ Nova Avaliação</strong> para começar.</p>
+    </div>`;
+  }
+
+  return lista.map(av => {
+    const nome = getNomeAtleta(av.idatleta);
+    const imc = calcIMC(av.peso, av.altura);
+    const imcInfo = classIMC(imc);
+    const historico = getAvaliacoesAtleta(av.idatleta);
+    const idx = historico.findIndex(x => Number(x.idavaliacao) === Number(av.idavaliacao));
+    const prev = idx > 0 ? historico[idx - 1] : null;
+    const deltaPeso = getDelta(av.peso, prev?.peso);
+    const deltaGord = getDelta(av.percgordura, prev?.percgordura);
+    const massaMagra = calcMassaMagra(av.peso, av.percgordura);
+    const massaGorda = calcMassaGorda(av.peso, av.percgordura);
+
+    return `
+      <div class="av-card" onclick="verAvaliacao(${av.idavaliacao})">
+        <div class="av-card-header">
+          <span class="av-card-name">${esc(nome)}</span>
+          <span class="av-card-date">${fmtDate(av.dtavaliacao)}</span>
+        </div>
+        <div class="av-card-metrics">
+          <div class="av-metric">
+            <div class="av-metric-value">${fmtNum(av.peso, 1)}</div>
+            <div class="av-metric-label">Peso (kg)</div>
+            ${deltaPeso !== null ? `<div class="av-metric-delta ${deltaPeso > 0 ? 'up' : deltaPeso < 0 ? 'down' : 'neutral'}">${deltaPeso > 0 ? '+' : ''}${fmtNum(deltaPeso, 1)} kg</div>` : ''}
+          </div>
+          ${av.percgordura != null ? `
+            <div class="av-metric">
+              <div class="av-metric-value">${fmtNum(av.percgordura, 1)}%</div>
+              <div class="av-metric-label">Gordura</div>
+              ${deltaGord !== null ? `<div class="av-metric-delta ${deltaGord > 0 ? 'up' : deltaGord < 0 ? 'down' : 'neutral'}">${deltaGord > 0 ? '+' : ''}${fmtNum(deltaGord, 1)}%</div>` : ''}
+            </div>
+            <div class="av-metric">
+              <div class="av-metric-value">${fmtNum(massaMagra, 1)}</div>
+              <div class="av-metric-label">M. Magra (kg)</div>
+            </div>
+            <div class="av-metric">
+              <div class="av-metric-value">${fmtNum(massaGorda, 1)}</div>
+              <div class="av-metric-label">M. Gorda (kg)</div>
+            </div>
+          ` : ''}
+        </div>
+        ${(() => {
+          const db = dobrasDe(av.medidas);
+          if (!db.length) return '';
+          return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);line-height:1.5;">
+            <b style="color:var(--text);">${db.length} dobra${db.length>1?'s':''}</b> · soma ${fmtNum(somaDobras(av.medidas), 1)} mm${av.metodo ? ' · ' + esc(av.metodo) : ''}<br>
+            ${db.map(([k, v]) => esc(DOBRAS_LABELS[k] || k.replace('dc_','')) + ' ' + fmtNum(v, 1)).join(' · ')}
+          </div>`;
+        })()}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderEvolucao() {
+  if (filtroAtleta <= 0) {
+    return `<div class="empty-state">
+      <div style="font-size:40px;margin-bottom:12px;">📈</div>
+      <p>Selecione um aluno no filtro acima para ver a evolução.</p>
+    </div>`;
+  }
+
+  const historico = getAvaliacoesAtleta(filtroAtleta);
+  if (historico.length === 0) {
+    return `<div class="empty-state"><p>Nenhuma avaliação para este aluno.</p></div>`;
+  }
+
+  const nome = getNomeAtleta(filtroAtleta);
+  const ultima = historico[historico.length - 1];
+  const primeira = historico[0];
+
+  const deltaPesoTotal = getDelta(ultima.peso, primeira.peso);
+  const deltaGordTotal = getDelta(ultima.percgordura, primeira.percgordura);
+  const massaMagra = calcMassaMagra(ultima.peso, ultima.percgordura);
+  const massaGorda = calcMassaGorda(ultima.peso, ultima.percgordura);
+
+  let resumoHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px;">
+      <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+        <div class="av-metric-value">${historico.length}</div>
+        <div class="av-metric-label">Avaliações</div>
+      </div>
+      <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+        <div class="av-metric-value">${fmtNum(ultima.peso, 1)} kg</div>
+        <div class="av-metric-label">Peso Atual</div>
+        ${deltaPesoTotal !== null && historico.length > 1 ? `<div class="av-metric-delta ${deltaPesoTotal > 0 ? 'up' : deltaPesoTotal < 0 ? 'down' : 'neutral'}">${deltaPesoTotal > 0 ? '+' : ''}${fmtNum(deltaPesoTotal, 1)} desde início</div>` : ''}
+      </div>
+      ${ultima.percgordura != null ? `
+        <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+          <div class="av-metric-value">${fmtNum(ultima.percgordura, 1)}%</div>
+          <div class="av-metric-label">% Gordura Atual</div>
+          ${deltaGordTotal !== null && historico.length > 1 ? `<div class="av-metric-delta ${deltaGordTotal > 0 ? 'up' : deltaGordTotal < 0 ? 'down' : 'neutral'}">${deltaGordTotal > 0 ? '+' : ''}${fmtNum(deltaGordTotal, 1)}% desde início</div>` : ''}
+        </div>
+        <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+          <div class="av-metric-value">${fmtNum(massaMagra, 1)} kg</div>
+          <div class="av-metric-label">Massa Magra</div>
+        </div>
+        <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+          <div class="av-metric-value">${fmtNum(massaGorda, 1)} kg</div>
+          <div class="av-metric-label">Massa Gorda</div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  // Chart: peso
+  const pesoValues = historico.filter(h => h.peso != null).map(h => ({ val: h.peso, dt: h.dtavaliacao }));
+  let chartPeso = '';
+  if (pesoValues.length > 1) {
+    const max = Math.max(...pesoValues.map(p => p.val));
+    const min = Math.min(...pesoValues.map(p => p.val));
+    const range = max - min || 1;
+    chartPeso = `
+      <div class="evolucao-header"><h3>Peso (kg)</h3></div>
+      <div class="chart-bar-group">
+        ${pesoValues.slice(-12).map(p => {
+          const h = Math.max(10, ((p.val - min) / range) * 70 + 10);
+          return `<div class="chart-bar" style="height:${h}px;">
+            <span class="chart-bar-val">${fmtNum(p.val, 1)}</span>
+            <span class="chart-bar-label">${p.dt ? p.dt.slice(5).replace('-', '/') : ''}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // Chart: massa magra
+  const magraValues = historico.filter(h => h.percgordura != null && h.peso != null).map(h => ({ val: calcMassaMagra(h.peso, h.percgordura), dt: h.dtavaliacao }));
+  let chartMagra = '';
+  if (magraValues.length > 1) {
+    const max = Math.max(...magraValues.map(p => p.val));
+    const min = Math.min(...magraValues.map(p => p.val));
+    const range = max - min || 1;
+    chartMagra = `
+      <div class="evolucao-header" style="margin-top:24px;"><h3>Massa Magra (kg)</h3></div>
+      <div class="chart-bar-group">
+        ${magraValues.slice(-12).map(p => {
+          const h = Math.max(10, ((p.val - min) / range) * 70 + 10);
+          return `<div class="chart-bar" style="height:${h}px;background:#60a5fa;">
+            <span class="chart-bar-val">${fmtNum(p.val, 1)}</span>
+            <span class="chart-bar-label">${p.dt ? p.dt.slice(5).replace('-', '/') : ''}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // Chart: massa gorda
+  const gordaValues = historico.filter(h => h.percgordura != null && h.peso != null).map(h => ({ val: calcMassaGorda(h.peso, h.percgordura), dt: h.dtavaliacao }));
+  let chartGorda = '';
+  if (gordaValues.length > 1) {
+    const max = Math.max(...gordaValues.map(p => p.val));
+    const min = Math.min(...gordaValues.map(p => p.val));
+    const range = max - min || 1;
+    chartGorda = `
+      <div class="evolucao-header" style="margin-top:24px;"><h3>Massa Gorda (kg)</h3></div>
+      <div class="chart-bar-group">
+        ${gordaValues.slice(-12).map(p => {
+          const h = Math.max(10, ((p.val - min) / range) * 70 + 10);
+          return `<div class="chart-bar" style="height:${h}px;background:#f87171;">
+            <span class="chart-bar-val">${fmtNum(p.val, 1)}</span>
+            <span class="chart-bar-label">${p.dt ? p.dt.slice(5).replace('-', '/') : ''}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // Chart: gordura %
+  const gordValues = historico.filter(h => h.percgordura != null).map(h => ({ val: h.percgordura, dt: h.dtavaliacao }));
+  let chartGord = '';
+  if (gordValues.length > 1) {
+    const max = Math.max(...gordValues.map(p => p.val));
+    const min = Math.min(...gordValues.map(p => p.val));
+    const range = max - min || 1;
+    chartGord = `
+      <div class="evolucao-header" style="margin-top:24px;"><h3>% Gordura</h3></div>
+      <div class="chart-bar-group">
+        ${gordValues.slice(-12).map(p => {
+          const h = Math.max(10, ((p.val - min) / range) * 70 + 10);
+          return `<div class="chart-bar" style="height:${h}px;background:#facc15;">
+            <span class="chart-bar-val">${fmtNum(p.val, 1)}%</span>
+            <span class="chart-bar-label">${p.dt ? p.dt.slice(5).replace('-', '/') : ''}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // Medidas da última avaliação
+  let medidasHtml = '';
+  if (ultima.medidas && typeof ultima.medidas === 'object') {
+    const entries = Object.entries(ultima.medidas).filter(([k, v]) => v != null && v !== '' && !k.startsWith('dc_'));
+    if (entries.length > 0) {
+      medidasHtml = `
+        <div class="evolucao-header" style="margin-top:24px;"><h3>Medidas Corporais (última avaliação)</h3></div>
+        <div class="medidas-grid">
+          ${entries.map(([k, v]) => `
+            <div class="medida-item">
+              <div class="medida-item-val">${esc(String(v))} cm</div>
+              <div class="medida-item-label">${esc(MEDIDAS_LABELS[k] || k)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+  }
+
+  // Dobras da última avaliação, com o somatório e a comparação com a anterior.
+  let dobrasHtml = '';
+  const _db = dobrasDe(ultima.medidas);
+  if (_db.length) {
+    const antAv = historico.length > 1 ? historico[historico.length - 2] : null;
+    const antMed = antAv && antAv.medidas ? antAv.medidas : null;
+    const sAtual = somaDobras(ultima.medidas), sAnt = antMed ? somaDobras(antMed) : 0;
+    const dSoma = (sAnt > 0) ? (sAtual - sAnt) : null;
+    dobrasHtml = `
+      <div class="evolucao-header" style="margin-top:24px;">
+        <h3>Dobras cutâneas — última avaliação${ultima.metodo ? ' · ' + esc(ultima.metodo) : ''}</h3>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+        Soma das dobras: <b style="color:var(--text);">${fmtNum(sAtual, 1)} mm</b>${dSoma !== null ? ` <span style="color:${dSoma < 0 ? '#4ade80' : dSoma > 0 ? '#f87171' : 'var(--text-muted)'};">(${dSoma > 0 ? '+' : ''}${fmtNum(dSoma, 1)} mm vs. anterior)</span>` : ''}
+      </div>
+      <div class="medidas-grid">
+        ${_db.map(([k, v]) => {
+          const ant = antMed && antMed[k] != null && antMed[k] !== '' ? parseFloat(antMed[k]) : null;
+          const d = ant != null ? (parseFloat(v) - ant) : null;
+          return `<div class="medida-item">
+            <div class="medida-item-val">${fmtNum(v, 1)} mm</div>
+            <div class="medida-item-label">${esc(DOBRAS_LABELS[k] || k.replace('dc_',''))}</div>
+            ${d !== null && Math.abs(d) >= 0.1 ? `<div style="font-size:10px;font-weight:700;color:${d < 0 ? '#4ade80' : '#f87171'};">${d > 0 ? '+' : ''}${fmtNum(d, 1)}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  return `
+    <div style="margin-bottom:12px;"><span style="font-size:16px;font-weight:700;color:var(--text);">Evolução — ${esc(nome)}</span></div>
+    ${resumoHtml}
+    ${chartPeso}
+    ${chartMagra}
+    ${chartGorda}
+    ${chartGord}
+    ${dobrasHtml}
+    ${medidasHtml}
+  `;
+}
+
+// ── BUSCA DA ANAMNESE: TRES ESTADOS, NAO UM ─────────────────────────────────
+// A versao antiga marcava _anamneseFetched[id] = true ANTES do try. Se a
+// chamada falhasse, a marca ficava — e nenhuma nova tentativa acontecia
+// enquanto a tela estivesse aberta. Pior: o catch era vazio, entao a tela caia
+// no ramo "ainda nao preencheu a anamnese pelo app". O professor lia que o
+// aluno nao respondeu quando a resposta simplesmente nao chegou. Agora o
+// estado tem nome: 'buscando' | 'ok' | 'erro' — e 'erro' permite retentar.
+let _anamneseFetched = {};
+let _anamneseErro = {};
+async function fetchAnamneseRemote(idatleta) {
+  const st = _anamneseFetched[idatleta];
+  if (st === 'ok' || st === 'buscando') return;
+  _anamneseFetched[idatleta] = 'buscando';
+  try {
+    await API.getAnamnese(idatleta);
+    _anamneseFetched[idatleta] = 'ok';
+    delete _anamneseErro[idatleta];
+  } catch (e) {
+    _anamneseFetched[idatleta] = 'erro';
+    _anamneseErro[idatleta] = (e && e.message) ? String(e.message) : 'falha na conexão';
+  }
+  if (activeTab === 'anamnese') render();
+}
+function recarregarAnamnese(idatleta) {
+  _anamneseFetched[idatleta] = null;
+  delete _anamneseErro[idatleta];
+  fetchAnamneseRemote(idatleta);
+  render();
+}
+
+// ── SECOES DA ANAMNESE ──────────────────────────────────────────────────────
+// O aplicativo do aluno tem quatro formularios que gravam na MESMA anamnese: o
+// principal e mais tres secoes, cada uma guardada como um objeto dentro da
+// resposta. Esta tela nao sabia disso e despejava o objeto inteiro como texto —
+// era o bloco de JSON cru que aparecia no lugar das respostas.
+// Os rotulos abaixo sao copia literal dos formularios do aluno.html. Se uma
+// pergunta mudar la, mude aqui tambem.
+const SECOES_ANAMNESE = {
+  comportamental: {
+    titulo: 'Avaliação Comportamental',
+    labels: {
+      rotina_semana: 'Descreva sua rotina semanal com horários detalhados',
+      rotina_fds: 'Descreva sua rotina de fim de semana/folga com horários',
+      humor: 'Você tem oscilações de humor durante o dia? Descreva.',
+      energia_alta: 'Em quais horários do dia você se sente mais disposto(a) e energético(a)?',
+      energia_baixa: 'Em quais horários do dia se sente mais cansado(a) e fadigado(a)?',
+      corpo_1ano: 'Como você se imagina fisicamente daqui a 1 ano?',
+      corpo_5anos: 'Como você se imagina fisicamente daqui a 5 anos?',
+      lazer: 'Quais são suas atividades de lazer?',
+      consumo_lazer: 'O que costuma consumir nos momentos de lazer?',
+      qualidades: 'Cite 3 características suas que ajudam na disciplina com treino e dieta',
+      fraquezas: 'Cite 3 características que dificultam sua disciplina e qual gostaria mais de melhorar',
+    },
+  },
+  nutricional: {
+    titulo: 'Avaliação Nutricional',
+    labels: {
+      alimentacao: 'Como descreveria sua alimentação atual?',
+      refeicoes_dia: 'Quantas refeições faz por dia?',
+      agua: 'Quantos litros de água bebe por dia?',
+      suplementos: 'Usa algum suplemento?',
+      restricoes: 'Restrições ou alergias alimentares?',
+      cafe_manha: 'O que costuma comer no café da manhã?',
+      almoco: 'O que costuma almoçar?',
+      jantar: 'O que costuma jantar?',
+      lanches: 'Como são seus lanches entre refeições?',
+      final_semana: 'Alimentação muda no fim de semana?',
+      objetivo_nutri: 'Objetivo nutricional?',
+    },
+  },
+  rotina: { titulo: 'Rotina', labels: {} },
+};
+
+// Uma secao pode chegar como objeto ou como texto contendo JSON, dependendo de
+// como foi gravada. Nos dois casos a gente quer o objeto.
+function _comoObjeto(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (t.startsWith('{') && t.endsWith('}')) {
+      try { const o = JSON.parse(t); if (o && typeof o === 'object' && !Array.isArray(o)) return o; } catch (e) {}
+    }
+  }
+  return null;
+}
+function _desempacotar(dados) {
+  const d = _comoObjeto(dados);
+  if (!d) return null;
+  const out = {};
+  for (const k of Object.keys(d)) {
+    const o = _comoObjeto(d[k]);
+    out[k] = o ? o : d[k];
+  }
+  return out;
+}
+function _contarRespostas(obj) {
+  let n = 0;
+  for (const k of Object.keys(obj || {})) {
+    if (k.startsWith('_')) continue;
+    const v = obj[k];
+    if (v == null) continue;
+    if (v && typeof v === 'object' && !Array.isArray(v)) { n += _contarRespostas(v); continue; }
+    if (String(v).trim() === '') continue;
+    n++;
+  }
+  return n;
+}
+
+function renderAnamnese() {
+  // ── Sem aluno selecionado: a lista de todos ───────────────────────────────
+  // Antes esta aba mostrava apenas "Selecione um aluno acima" — para saber quem
+  // ja tinha respondido era preciso abrir o seletor e ir testando nome por nome,
+  // sem nenhuma pista de onde havia resposta. Agora ela abre com todo mundo que
+  // respondeu, ordenado pela resposta mais recente.
+  if (!filtroAtleta) {
+    const linhas = (anamneses || []).map(an => {
+      const d = _desempacotar(an.dados);
+      const n = d ? _contarRespostas(d) : (an.campos_preenchidos || 0);
+      return { id: Number(an.idatleta), n, ts: _tsOf(an.updated_at), dados: d };
+    }).filter(x => x.n > 0).sort((a, b) => b.ts - a.ts);
+
+    if (!linhas.length) {
+      return `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Nenhum aluno respondeu a anamnese ainda.</div>`;
+    }
+
+    // Usa a lista completa (inclui bloqueados) para nao marcar como orfa a
+    // anamnese de um aluno que existe mas esta fora do filtro do professor.
+    const _base = (atletasTodos && atletasTodos.length) ? atletasTodos : atletas;
+    const _existe = (id) => _base.some(a => Number(a.idatleta) === Number(id));
+
+    return `
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <span style="font-size:15px;font-weight:800;color:var(--text);">Anamneses respondidas</span>
+        <span style="font-size:12px;color:var(--text-muted);">${linhas.length} aluno${linhas.length>1?'s':''}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${linhas.map(l => {
+          const orfa = !_existe(l.id);
+          const secoes = l.dados ? Object.keys(l.dados).filter(k => !k.startsWith('_') && l.dados[k] && typeof l.dados[k] === 'object' && !Array.isArray(l.dados[k])) : [];
+          return `<div onclick="filtroAtleta=${l.id};render();" style="cursor:pointer;display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:11px;background:var(--bg2);">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(167,139,250,.16);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📝</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13.5px;font-weight:700;color:var(--text);">
+                ${orfa ? `⚠️ Registro sem ficha (atleta #${l.id})` : esc(getNomeAtleta(l.id))}
+              </div>
+              <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">
+                ${l.n} resposta${l.n>1?'s':''}${secoes.length ? ' · ' + secoes.map(k => esc((SECOES_ANAMNESE[k] && SECOES_ANAMNESE[k].titulo) || k)).join(', ') : ''}
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${l.ts ? _fmtRel(l.ts) : ''}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      ${linhas.some(l => !_existe(l.id)) ? `<p style="font-size:11.5px;color:var(--text-muted);margin-top:12px;line-height:1.5;">Os registros marcados com ⚠️ estão gravados em um número de aluno que não existe no cadastro. São respostas de alguém real que foram parar numa conta fantasma — o servidor já recusa novas gravações assim.</p>` : ''}
+    `;
+  }
+  fetchAnamneseRemote(filtroAtleta);
+  const nome = getNomeAtleta(filtroAtleta);
+  const anamneseKey = 'intus-anamnese-' + filtroAtleta;
+  const saved = _desempacotar(JSON.parse(localStorage.getItem(anamneseKey) || 'null'));
+
+  if (!saved || _contarRespostas(saved) === 0) {
+    // Vazio na tela pode ser tres coisas diferentes. Diga qual delas e.
+    const est = _anamneseFetched[filtroAtleta];
+    let miolo;
+    if (est === 'buscando' || !est) {
+      miolo = `<p style="font-size:13px;color:var(--text-muted);">Carregando as respostas…</p>`;
+    } else if (est === 'erro') {
+      miolo = `<p style="font-size:13px;color:var(--text);"><strong>Não consegui carregar a anamnese.</strong></p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">${esc(_anamneseErro[filtroAtleta] || 'falha na conexão')}</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">Isto <u>não</u> quer dizer que o aluno não respondeu — a resposta não chegou até aqui.</p>
+        <button onclick="recarregarAnamnese(${Number(filtroAtleta)})" style="margin-top:12px;background:#7FFF00;color:#111;border:0;border-radius:9px;font-weight:800;font-size:13px;padding:9px 18px;cursor:pointer;font-family:inherit;">Tentar de novo</button>`;
+    } else {
+      miolo = `<p style="font-size:13px;color:var(--text-muted);">Este aluno ainda não preencheu a anamnese pelo app.</p>`;
+    }
+    return `<div style="padding:20px;text-align:center;">
+      <p style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;">${esc(nome)}</p>
+      ${miolo}
+    </div>`;
+  }
+
+  // Texto EXATO das perguntas como o aluno vê no app (aluno.html > var perguntas).
+  // Manter idêntico: se a pergunta mudar no app, mudar aqui também.
+  const labels = {
+    objetivo: 'Qual seu principal objetivo, quando pretende alcançá-lo e por quê?',
+    rotina_trabalho: 'Como é o seu trabalho e sua rotina diária?',
+    atividades_fisicas: 'Quais atividades físicas pratica e qual a frequência semanal?',
+    exercicios_gosta: 'Quais exercícios você mais gosta de fazer?',
+    exercicios_naogosta: 'Quais exercícios você menos gosta de fazer?',
+    parceiro_treino: 'Vai treinar com parceiro(a) de treino, personal ou sozinho(a)?',
+    cirurgias: 'Já passou por algum procedimento cirúrgico? Descreva.',
+    doencas: 'Tem ou já teve problemas cardíacos, circulatórios, respiratórios ou de pressão arterial?',
+    articulares: 'Possui problemas articulares, posturais, funcionais ou alguma limitação? Ossos quebrados ou ligamentos lesionados?',
+    sono: 'Quantas horas costuma dormir e como define a qualidade do sono?',
+    medicamentos: 'Utiliza algum medicamento contínuo ou controlado? (anticoncepcionais, antibióticos, anabolizantes...)',
+    fatores_limitantes: 'Existe outro fator que limite sua performance? (labirintite, depressão, gastrite, diabetes, período menstrual severo, etc.)',
+    dias_horarios: 'Quais dias da semana e horários reservou para treinar e fazer cardio?',
+    alimentacao: 'Segue ou já seguiu algum plano alimentar? Tem cuidados específicos com a alimentação?',
+    academia: 'Onde você treina? (academia, em casa, ao ar livre…)',
+    observacoes: 'Alguma observação adicional para seu professor?',
+    // Campos de versões antigas do formulário — mantidos para anamneses antigas.
+    experiencia: 'Experiência com exercícios', frequencia: 'Frequência pretendida',
+    patologias: 'Patologias', lesoes: 'Lesões', dores: 'Dores ao exercitar',
+    fumante: 'Fumante', etilismo: 'Consumo de álcool',
+    restricao_alimentar: 'Restrições alimentares', nivel_estresse: 'Nível de estresse',
+    profissao: 'Profissão/rotina',
+  };
+  // Qualquer campo novo que o app venha a gravar e que ainda não esteja no mapa
+  // acima ganha um rótulo legível — assim NENHUMA resposta fica invisível.
+  const rotulo = (k) => labels[k] || k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+  const dtResp = saved._timestamp ? new Date(saved._timestamp).toLocaleDateString('pt-BR') : '';
+
+  let html = `<div style="padding:0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <p style="font-size:14px;font-weight:700;color:var(--text);">${esc(nome)}</p>
+        <p style="font-size:11px;color:var(--text-muted);">${_contarRespostas(saved)} resposta${_contarRespostas(saved)>1?'s':''}${dtResp ? ' · anamnese respondida em ' + dtResp : ''}</p>
+      </div>
+    </div>`;
+
+  // Primeiro os campos conhecidos (na ordem do formulário), depois QUALQUER campo
+  // extra presente na resposta. Campos internos (_timestamp, _idatleta) ficam fora.
+  const _resp = Object.keys(saved).filter(k => !k.startsWith('_'));
+  const _ehSecao = (k) => saved[k] && typeof saved[k] === 'object' && !Array.isArray(saved[k]);
+  const _simples = _resp.filter(k => !_ehSecao(k));
+  const _secoes  = _resp.filter(_ehSecao);
+  const _ordem = Object.keys(labels).filter(k => _simples.includes(k))
+    .concat(_simples.filter(k => !(k in labels)));
+
+  const cartao = (rot, txt) => `<div style="margin-bottom:14px;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);line-height:1.45;margin-bottom:8px;">${esc(rot)}</div>
+      <div style="font-size:14px;color:var(--text);line-height:1.55;white-space:pre-wrap;">${esc(txt)}</div>
+    </div>`;
+
+  let _qtdSimples = 0;
+  _ordem.forEach((key) => {
+    const val = saved[key];
+    if (val == null) return;
+    const txt = Array.isArray(val) ? val.join(', ') : String(val);
+    if (!txt.trim()) return;
+    _qtdSimples++;
+    html += cartao(rotulo(key), txt);
+  });
+  if (_qtdSimples) html = html.replace('<!--ANCORA-SECOES-->', '');
+
+  // ── As secoes, cada uma com seu titulo e suas perguntas ──────────────────
+  // Antes isto virava um paragrafo unico com o JSON inteiro, do jeito que veio
+  // do banco: {"rotina_semana":"...","humor":"Nao",...}. Ilegivel, e sem forma
+  // de saber qual resposta pertence a qual pergunta.
+  _secoes.forEach((chave) => {
+    const secao = SECOES_ANAMNESE[chave] || { titulo: rotulo(chave), labels: {} };
+    const dados = saved[chave] || {};
+    const campos = Object.keys(dados).filter(k => !k.startsWith('_') && dados[k] != null && String(dados[k]).trim() !== '');
+    if (!campos.length) return;
+    const ordemSec = Object.keys(secao.labels).filter(k => campos.includes(k))
+      .concat(campos.filter(k => !(k in secao.labels)));
+    const ts = dados._timestamp ? new Date(dados._timestamp).toLocaleDateString('pt-BR') : '';
+    html += `<div style="margin:22px 0 12px;padding-top:14px;border-top:2px solid var(--border);display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:14px;font-weight:800;color:var(--text);">${esc(secao.titulo)}</span>
+        <span style="font-size:11px;color:var(--text-muted);">${campos.length} resposta${campos.length>1?'s':''}${ts ? ' · respondida em ' + ts : ''}</span>
+      </div>`;
+    ordemSec.forEach((k) => {
+      const v = dados[k];
+      const txt = Array.isArray(v) ? v.join(', ') : String(v);
+      if (!txt.trim()) return;
+      html += cartao(secao.labels[k] || rotulo(k), txt);
+    });
+  });
+
+  // ── De onde veio a ultima gravacao ──────────────────────────────────────
+  // Serve para responder "quem respondeu isto?" sem depender de suposicao. Foi
+  // exatamente o que identificou o caso de 18/08: um aparelho iPhone gravando
+  // com a sessao de outro aluno.
+  const _au = saved._auditoria;
+  if (_au && typeof _au === 'object') {
+    const _quando = _au.em ? String(_au.em) : '';
+    const _ua = String(_au.ua || '');
+    const _aparelho = /iPhone|iPad/i.test(_ua) ? 'iPhone/iPad'
+      : /Android/i.test(_ua) ? 'Android'
+      : /Windows/i.test(_ua) ? 'Windows'
+      : /Macintosh/i.test(_ua) ? 'Mac' : 'aparelho não identificado';
+    const _porQuem = _au.aluno === 'S' ? ('sessão do aluno #' + (_au.ctx_atleta || _au.ctx_id)) : ('painel do professor #' + _au.ctx_id);
+    const _confere = (_au.aluno === 'S' && Number(_au.ctx_atleta || _au.ctx_id) !== Number(filtroAtleta));
+    html += `<div style="margin-top:18px;padding:11px 13px;border-radius:10px;border:1px solid ${_confere ? 'rgba(248,113,113,.4)' : 'var(--border)'};background:${_confere ? 'rgba(248,113,113,.07)' : 'transparent'};font-size:11.5px;color:var(--text-muted);line-height:1.55;">
+      ${_confere ? '<b style="color:#f87171;">⚠ Gravada por outra conta.</b> ' : ''}
+      Última gravação em ${esc(_quando)} · ${esc(_porQuem)} · ${esc(_aparelho)}${_au.ip ? ' · IP ' + esc(String(_au.ip)) : ''}
+    </div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+const MEDIDAS_LABELS = {
+  torax: 'Tórax', cintura: 'Cintura', quadril: 'Quadril',
+  braco_d: 'Braço D', braco_e: 'Braço E',
+  coxa_d: 'Coxa D', coxa_e: 'Coxa E',
+  panturrilha_d: 'Panturrilha D', panturrilha_e: 'Panturrilha E',
+  pescoco: 'Pescoço', ombro: 'Ombro', abdomen: 'Abdômen',
+};
+
+// As dobras estavam sendo medidas, salvas e escondidas: todo lugar que mostrava
+// medidas filtrava as chaves "dc_" fora, e so o percentual de gordura sobrava.
+// Quem afere sete dobras precisa ver as sete — e acompanhar dobra a dobra entre
+// avaliacoes, que e onde a mudanca aparece antes de mexer no percentual.
+function dobrasDe(med) {
+  if (!med || typeof med !== 'object') return [];
+  return Object.entries(med).filter(([k, v]) => String(k).startsWith('dc_') && v != null && v !== '' && !isNaN(parseFloat(v)));
+}
+function somaDobras(med) { return dobrasDe(med).reduce((t, [, v]) => t + parseFloat(v), 0); }
+
+const DOBRAS_LABELS = {
+  dc_subescapular: 'Subescapular', dc_tricipital: 'Tricipital',
+  dc_peitoral: 'Peitoral', dc_axilar: 'Axilar Média',
+  dc_suprailiaca: 'Suprailíaca', dc_abdominal: 'Abdominal', dc_coxa: 'Coxa',
+};
+
+function marcarVisto() {
+  const v = _getVisto(); v.geral = Date.now(); localStorage.setItem(VISTO_KEY, JSON.stringify(v));
+}
+function _lastSeen() {
+  const v = _getVisto();
+  return v.geral ? Number(v.geral) : (Date.now() - 7 * 864e5); // 1ª vez: só últimos 7 dias contam como novo
+}
+function _fmtRel(ts) {
+  if (!ts) return '';
+  const d = new Date(ts), hoje = new Date(), ont = new Date(); ont.setDate(ont.getDate() - 1);
+  const hh = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === hoje.toDateString()) return 'Hoje ' + hh;
+  if (d.toDateString() === ont.toDateString()) return 'Ontem ' + hh;
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+const _TIPO_EV = {
+  avaliacao: { cor: '#7FFF00', ic: '📋', label: 'Avaliação', bg: 'rgba(127,255,0,.12)' },
+  foto:      { cor: '#22d3ee', ic: '📷', label: 'Fotos',     bg: 'rgba(34,211,238,.14)' },
+  anamnese:  { cor: '#a78bfa', ic: '📝', label: 'Anamnese',  bg: 'rgba(167,139,250,.16)' },
+};
+
+async function marcarAvisosLidos() {
+  try {
+    await fetch(API_BASE + '/catalogo.php?action=avisos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
+      body: JSON.stringify({ marcar_todos: true }),
+    });
+  } catch (e) {}
+  avisos = (avisos || []).map(a => ({ ...a, lido: true }));
+  render();
+}
+
+function renderPainel() {
+  const lastSeen = _lastSeen();
+  const agora = Date.now();
+  const totalAv = avaliacoes.length;
+  const alunosAvaliados = new Set(avaliacoes.map(a => Number(a.idatleta))).size;
+  const av30 = avaliacoes.filter(a => (agora - _tsOf(a.dtavaliacao)) <= 30 * 864e5).length;
+  const totalFotos = avaliacoes.reduce((s, a) => s + (Array.isArray(a.fotos) ? a.fotos.length : 0), 0);
+  // Conta só respostas de verdade: ignora campos internos (_timestamp, _idatleta) e vazios.
+  // Conta respostas de verdade, inclusive as que estao dentro das secoes
+  // (comportamental, nutricional, rotina). Antes uma secao inteira com onze
+  // respostas contava como UMA — o painel dizia "preencheu a anamnese (1
+  // resposta)" para quem tinha escrito onze paragrafos.
+  const _nRespostas = (an) => {
+    const d = _desempacotar(an && an.dados);
+    if (d && typeof d === 'object') return _contarRespostas(d);
+    return an && an.campos_preenchidos ? an.campos_preenchidos : 0;
+  };
+  const anamCount = anamneses.filter(an => _nRespostas(an) > 0).length;
+
+  // Avisos ainda nao lidos — o professor responsavel tambem recebe por e-mail.
+  const naoLidos = (avisos || []).filter(a => !a.lido);
+  const faixaAvisos = naoLidos.length ? `
+    <div style="margin:0 0 14px;padding:12px 14px;border-radius:10px;background:rgba(127,255,0,.08);border:1px solid rgba(127,255,0,.28);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <b style="font-size:13px;color:var(--text);">🔔 ${naoLidos.length} aviso${naoLidos.length>1?'s':''} de avaliação preenchida</b>
+        <button class="btn btn-sm" onclick="marcarAvisosLidos()" style="font-size:11px;">Marcar como lidos</button>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;">
+        ${naoLidos.slice(0,6).map(a => `<div style="font-size:12.5px;color:var(--text-muted);line-height:1.5;">• ${esc(a.titulo)}${a.detalhe?` <span style="opacity:.75;">(${esc(a.detalhe)})</span>`:''}</div>`).join('')}
+      </div>
+    </div>` : '';
+
+  const evs = [];
+  anamneses.forEach(an => {
+    const n = _nRespostas(an);
+    if (!(n > 0)) return;
+    const ts = _tsOf(an.updated_at);
+    evs.push({ tipo: 'anamnese', idatleta: an.idatleta, ts, novo: ts > lastSeen, txt: n + (n === 1 ? ' resposta preenchida' : ' respostas preenchidas') });
+  });
+  avaliacoes.forEach(a => {
+    const ts = _tsOf(a.created_at || a.dtavaliacao);
+    const nf = Array.isArray(a.fotos) ? a.fotos.length : 0;
+    if (nf > 0) evs.push({ tipo: 'foto', idatleta: a.idatleta, ts, novo: ts > lastSeen, txt: nf + ' foto(s) de avaliação', idav: a.idavaliacao });
+    evs.push({ tipo: 'avaliacao', idatleta: a.idatleta, ts, novo: ts > lastSeen, txt: 'Avaliação' + (a.peso ? ' · ' + fmtNum(a.peso, 1) + 'kg' : '') + (a.percgordura != null ? ' · ' + fmtNum(a.percgordura, 1) + '% gord.' : ''), idav: a.idavaliacao });
+  });
+  evs.sort((x, y) => y.ts - x.ts);
+
+  const novasAnam = evs.filter(e => e.tipo === 'anamnese' && e.novo).length;
+  const novasFotos = evs.filter(e => e.tipo === 'foto' && e.novo).length;
+  const novasAv = evs.filter(e => e.tipo === 'avaliacao' && e.novo).length;
+  const totalNovas = novasAnam + novasFotos + novasAv;
+
+  const tile = (strip, ic, num, lbl, newN) => `<div class="dash-tile"><div class="t-strip" style="background:${strip};"></div>${newN ? `<span class="t-new">${newN} novo${newN > 1 ? 's' : ''}</span>` : ''}<div class="t-ic">${ic}</div><div class="t-num">${num}</div><div class="t-lbl">${lbl}</div></div>`;
+
+  const feed = evs.slice(0, 40).map(e => {
+    const t = _TIPO_EV[e.tipo];
+    const acao = e.tipo === 'anamnese'
+      ? `<button class="feed-btn" onclick="filtroAtleta=${e.idatleta};activeTab='anamnese';render();">Ver anamnese</button>`
+      : `<button class="feed-btn" onclick="verAvaliacao(${e.idav})">Ver avaliação</button>`;
+    // A faixa de avisos ficava AQUI DENTRO, no retorno de cada item do feed —
+    // por isso ela aparecia repetida entre uma atividade e outra, dezenas de
+    // vezes na mesma tela. Ela e uma so, e agora e desenhada uma vez, acima.
+    return `<li class="feed-card ${e.novo ? 'novo' : ''}" style="border-left-color:${t.cor};">
+      <div class="feed-ic" style="background:${t.bg};">${t.ic}</div>
+      <div class="feed-main">
+        <div class="feed-top">${e.novo ? '<span class="novo-dot"></span>' : ''}<span class="feed-name">${esc(getNomeAtleta(e.idatleta))}</span><span class="feed-badge" style="background:${t.bg};color:${t.cor};">${t.label}</span><span class="feed-date">${_fmtRel(e.ts)}</span></div>
+        <div class="feed-sub">${esc(e.txt)}</div>
+        ${acao}
+      </div>
+    </li>`;
+  }).join('') || '<div class="empty-state"><p>Nenhuma atividade de avaliação ainda.</p></div>';
+
+  return `
+    <div class="dash-tiles">
+      ${tile('#7FFF00', '📋', totalAv, 'Avaliações no total', 0)}
+      ${tile('#7FFF00', '👥', alunosAvaliados, 'Alunos avaliados', 0)}
+      ${tile('#facc15', '🗓️', av30, 'Avaliações (30 dias)', novasAv)}
+      ${tile('#22d3ee', '📷', totalFotos, 'Fotos recebidas', novasFotos)}
+      ${tile('#a78bfa', '📝', anamCount, 'Anamneses respondidas', novasAnam)}
+    </div>
+    ${faixaAvisos}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap;">
+      <div style="font-size:14px;font-weight:800;color:var(--text);">🔔 Atividade recente${totalNovas ? ` <span style="color:#f87171;">(${totalNovas} novo${totalNovas > 1 ? 's' : ''})</span>` : ''}</div>
+      ${totalNovas ? `<button class="feed-btn" style="margin-top:0;" onclick="marcarVisto();render();">✓ Marcar como visto</button>` : ''}
+    </div>
+    <ul class="feed">${feed}</ul>
+  `;
+}
+
+function render() {
+  if (loading) {
+    main.innerHTML = `<div class="empty-state"><p>Carregando avaliações...</p></div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="filtros-bar">
+      <select class="input" onchange="filtroAtleta=Number(this.value);render();">
+        <option value="0">Todos os alunos</option>
+        ${atletas.sort((a,b) => (a.nome||'').localeCompare(b.nome||'')).map(a =>
+          `<option value="${a.idatleta}" ${Number(a.idatleta)===filtroAtleta?'selected':''}>${esc(a.nome)}</option>`
+        ).join('')}
+      </select>
+      ${hasPerm('av_incluir') ? `<button class="btn btn-primary" onclick="abrirModalNova()">+ Nova Avaliação</button>` : ''}
+    </div>
+
+    <div style="padding:20px;">
+      <div class="tabs-bar">
+        <button class="tab-btn ${activeTab==='painel'?'active':''}" onclick="activeTab='painel';render();">📊 Painel</button>
+        <button class="tab-btn ${activeTab==='lista'?'active':''}" onclick="activeTab='lista';render();">Lista</button>
+        <button class="tab-btn ${activeTab==='evolucao'?'active':''}" onclick="activeTab='evolucao';render();">Evolução</button>
+        <button class="tab-btn ${activeTab==='anamnese'?'active':''}" onclick="activeTab='anamnese';render();">Anamnese</button>
+      </div>
+      ${activeTab === 'painel' ? renderPainel() : activeTab === 'lista' ? renderLista() : activeTab === 'evolucao' ? renderEvolucao() : renderAnamnese()}
+    </div>
+  `;
+}
+
+function abrirModalNova() {
+  if (!hasPerm('av_incluir')) return showToast('Sem permissão', 'error');
+  abrirModalForm(null);
+}
+
+function verAvaliacao(id) {
+  const av = avaliacoes.find(x => Number(x.idavaliacao) === Number(id));
+  if (!av) return;
+
+  const nome = getNomeAtleta(av.idatleta);
+  const imc = calcIMC(av.peso, av.altura);
+  const imcInfo = classIMC(imc);
+  const massaMagra = calcMassaMagra(av.peso, av.percgordura);
+  const massaGorda = calcMassaGorda(av.peso, av.percgordura);
+
+  let medidasHtml = '';
+  if (av.medidas && typeof av.medidas === 'object') {
+    const periEntries = Object.entries(av.medidas).filter(([k, v]) => v != null && v !== '' && !k.startsWith('dc_'));
+    const dobrasEntries = Object.entries(av.medidas).filter(([k, v]) => v != null && v !== '' && k.startsWith('dc_'));
+
+    if (periEntries.length > 0) {
+      medidasHtml += `
+        <div class="modal-section-title">Perímetros</div>
+        <div class="medidas-grid" style="margin-bottom:12px;">
+          ${periEntries.map(([k, v]) => `
+            <div class="medida-item">
+              <div class="medida-item-val">${esc(String(v))} cm</div>
+              <div class="medida-item-label">${esc(MEDIDAS_LABELS[k] || k)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+    if (dobrasEntries.length > 0) {
+      medidasHtml += `
+        <div class="modal-section-title">Dobras Cutâneas (mm) — soma ${fmtNum(somaDobras(av.medidas), 1)} mm${av.metodo ? ' · ' + esc(av.metodo) : ''}</div>
+        <div class="medidas-grid" style="margin-bottom:12px;">
+          ${dobrasEntries.map(([k, v]) => `
+            <div class="medida-item">
+              <div class="medida-item-val">${esc(String(v))}</div>
+              <div class="medida-item-label">${esc(DOBRAS_LABELS[k] || k.replace('dc_',''))}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+  }
+
+  let fotosHtml = '';
+  if (av.fotos && Array.isArray(av.fotos) && av.fotos.length > 0) {
+    fotosHtml = `
+      <div class="modal-section-title">Fotos</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        ${av.fotos.map(f => `<img src="${esc(f.url || f)}" class="foto-thumb" style="width:80px;height:80px;" onclick="window.open('${esc(f.url || f)}','_blank')"/>`).join('')}
+      </div>
+    `;
+  }
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Avaliação — ${esc(nome)}</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:14px;font-size:12px;color:var(--text-muted);">Data: ${fmtDate(av.dtavaliacao)}${av.metodo ? ' • Método: ' + esc(av.metodo) : ''}</div>
+
+      <div class="form-2col" style="margin-bottom:14px;">
+        <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+          <div class="av-metric-value">${fmtNum(av.peso, 1)} kg</div>
+          <div class="av-metric-label">Peso</div>
+        </div>
+        <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+          <div class="av-metric-value">${fmtNum(av.altura, 2)} m</div>
+          <div class="av-metric-label">Altura</div>
+        </div>
+        ${av.percgordura != null ? `
+          <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+            <div class="av-metric-value">${fmtNum(av.percgordura, 1)}%</div>
+            <div class="av-metric-label">% Gordura</div>
+          </div>
+        ` : ''}
+        ${massaMagra != null ? `
+          <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+            <div class="av-metric-value">${fmtNum(massaMagra, 1)} kg</div>
+            <div class="av-metric-label">Massa Magra</div>
+          </div>
+        ` : ''}
+        ${massaGorda != null ? `
+          <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+            <div class="av-metric-value">${fmtNum(massaGorda, 1)} kg</div>
+            <div class="av-metric-label">Massa Gorda</div>
+          </div>
+        ` : ''}
+        ${imc !== null ? `
+          <div class="av-metric" style="background:var(--bg3);padding:12px;border-radius:10px;">
+            <div class="av-metric-value">${fmtNum(imc, 1)} <span class="imc-badge ${imcInfo.cls}">${imcInfo.label}</span></div>
+            <div class="av-metric-label">IMC</div>
+          </div>
+        ` : ''}
+      </div>
+
+      ${medidasHtml}
+      ${fotosHtml}
+
+      ${av.observacao ? `
+        <div class="modal-section-title">Observação</div>
+        <div style="font-size:13px;color:var(--text);white-space:pre-wrap;line-height:1.5;">${esc(av.observacao)}</div>
+      ` : ''}
+    </div>
+    <div class="modal-footer">
+      ${hasPerm('av_excluir') ? `<button class="btn btn-danger" onclick="excluirAvaliacao(${av.idavaliacao})">Excluir</button>` : ''}
+      ${hasPerm('av_editar') ? `<button class="btn btn-primary" onclick="closeModal();abrirModalForm(${av.idavaliacao})">Editar</button>` : ''}
+      <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+    </div>
+  `);
+}
+
+let metodoSelecionado = 'pollock7';
+
+function abrirModalForm(idavaliacao) {
+  const av = idavaliacao ? avaliacoes.find(x => Number(x.idavaliacao) === Number(idavaliacao)) : null;
+  const isEdit = !!av;
+  const medidas = av?.medidas || {};
+  metodoSelecionado = av?.metodo || 'pollock7';
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">${isEdit ? 'Editar' : 'Nova'} Avaliação</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+      <div class="form-group">
+        <label class="label">Aluno *</label>
+        <select id="av-atleta" class="input" ${isEdit ? 'disabled' : ''}>
+          <option value="">Selecione...</option>
+          ${atletas.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(a =>
+            `<option value="${a.idatleta}" ${Number(a.idatleta)===Number(av?.idatleta||filtroAtleta)?'selected':''}>${esc(a.nome)}</option>`
+          ).join('')}
+        </select>
+      </div>
+
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Data *</label>
+          <input id="av-data" type="date" class="input" value="${av?.dtavaliacao || new Date().toISOString().slice(0,10)}"/>
+        </div>
+        <div class="form-group">
+          <label class="label">Peso (kg)</label>
+          <input id="av-peso" type="number" step="0.1" class="input" placeholder="Ex: 72.5" value="${av?.peso ?? ''}"/>
+        </div>
+      </div>
+
+      <div class="form-2col">
+        <div class="form-group">
+          <label class="label">Altura (m)</label>
+          <input id="av-altura" type="number" step="0.01" class="input" placeholder="Ex: 1.75" value="${av?.altura ?? ''}"/>
+        </div>
+        <div class="form-group">
+          <label class="label">% Gordura (resultado)</label>
+          <input id="av-gordura" type="number" step="0.1" class="input" placeholder="Calculado pelas dobras" value="${av?.percgordura ?? ''}"/>
+        </div>
+      </div>
+
+      <div id="av-imc-display" style="margin:8px 0;font-size:12px;color:var(--text-muted);"></div>
+
+      <div class="modal-section-title">Método de Avaliação de Composição Corporal</div>
+      <div class="method-select">
+        <span class="method-chip ${metodoSelecionado==='pollock7'?'active':''}" onclick="selecionarMetodo('pollock7')">Pollock 7 dobras</span>
+        <span class="method-chip ${metodoSelecionado==='pollock5'?'active':''}" onclick="selecionarMetodo('pollock5')">Pollock 5 dobras</span>
+        <span class="method-chip ${metodoSelecionado==='pollock3'?'active':''}" onclick="selecionarMetodo('pollock3')">Pollock 3 dobras</span>
+        <span class="method-chip ${metodoSelecionado==='bioimpedancia'?'active':''}" onclick="selecionarMetodo('bioimpedancia')">Bioimpedância</span>
+        <span class="method-chip ${metodoSelecionado==='dexa'?'active':''}" onclick="selecionarMetodo('dexa')">DEXA</span>
+        <span class="method-chip ${metodoSelecionado==='ultrassom'?'active':''}" onclick="selecionarMetodo('ultrassom')">Ultrassom</span>
+        <span class="method-chip ${metodoSelecionado==='manual'?'active':''}" onclick="selecionarMetodo('manual')">Outro / Manual</span>
+      </div>
+
+      <div id="dobras-container">
+        ${renderDobrasFields(metodoSelecionado, medidas)}
+      </div>
+
+      <div class="modal-section-title">Perímetros (cm) — opcional</div>
+      <div class="form-3col">
+        <div class="form-group"><label class="label">Tórax</label><input id="med-torax" type="number" step="0.1" class="input" value="${medidas.torax ?? ''}"/></div>
+        <div class="form-group"><label class="label">Ombro</label><input id="med-ombro" type="number" step="0.1" class="input" value="${medidas.ombro ?? ''}"/></div>
+        <div class="form-group"><label class="label">Pescoço</label><input id="med-pescoco" type="number" step="0.1" class="input" value="${medidas.pescoco ?? ''}"/></div>
+      </div>
+      <div class="form-3col">
+        <div class="form-group"><label class="label">Cintura</label><input id="med-cintura" type="number" step="0.1" class="input" value="${medidas.cintura ?? ''}"/></div>
+        <div class="form-group"><label class="label">Abdômen</label><input id="med-abdomen" type="number" step="0.1" class="input" value="${medidas.abdomen ?? ''}"/></div>
+        <div class="form-group"><label class="label">Quadril</label><input id="med-quadril" type="number" step="0.1" class="input" value="${medidas.quadril ?? ''}"/></div>
+      </div>
+      <div class="form-3col">
+        <div class="form-group"><label class="label">Braço D</label><input id="med-braco_d" type="number" step="0.1" class="input" value="${medidas.braco_d ?? ''}"/></div>
+        <div class="form-group"><label class="label">Braço E</label><input id="med-braco_e" type="number" step="0.1" class="input" value="${medidas.braco_e ?? ''}"/></div>
+        <div class="form-group"><label class="label">Coxa D</label><input id="med-coxa_d" type="number" step="0.1" class="input" value="${medidas.coxa_d ?? ''}"/></div>
+      </div>
+      <div class="form-3col">
+        <div class="form-group"><label class="label">Coxa E</label><input id="med-coxa_e" type="number" step="0.1" class="input" value="${medidas.coxa_e ?? ''}"/></div>
+        <div class="form-group"><label class="label">Panturrilha D</label><input id="med-panturrilha_d" type="number" step="0.1" class="input" value="${medidas.panturrilha_d ?? ''}"/></div>
+        <div class="form-group"><label class="label">Panturrilha E</label><input id="med-panturrilha_e" type="number" step="0.1" class="input" value="${medidas.panturrilha_e ?? ''}"/></div>
+      </div>
+
+      <div class="modal-section-title">Fotos do Aluno</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;line-height:1.5;">
+        <b>Protocolo INTUS:</b> 18 posições (em pé frontal/perfil/costas, deitado, sentado).
+        <a href="modelo-fotos-avaliacao.pdf" target="_blank" style="color:var(--green);margin-left:4px;">📄 Ver modelo PDF</a>
+        <a href="https://youtube.com/watch?v=vyatHf3U7YM" target="_blank" style="color:var(--green);margin-left:4px;">▶ Vídeo tutorial</a>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:60px;text-align:center;padding:6px;background:var(--bg3);border-radius:8px;border:1px dashed var(--border);">
+          <div style="font-size:16px;">🧍</div><div style="font-size:8px;color:var(--text-muted);">01-03 Frontal</div>
+        </div>
+        <div style="flex:1;min-width:60px;text-align:center;padding:6px;background:var(--bg3);border-radius:8px;border:1px dashed var(--border);">
+          <div style="font-size:16px;">🧍‍♂️</div><div style="font-size:8px;color:var(--text-muted);">04-07 Perfil</div>
+        </div>
+        <div style="flex:1;min-width:60px;text-align:center;padding:6px;background:var(--bg3);border-radius:8px;border:1px dashed var(--border);">
+          <div style="font-size:16px;">🔄</div><div style="font-size:8px;color:var(--text-muted);">08-10 Costas</div>
+        </div>
+        <div style="flex:1;min-width:60px;text-align:center;padding:6px;background:var(--bg3);border-radius:8px;border:1px dashed var(--border);">
+          <div style="font-size:16px;">🛏️</div><div style="font-size:8px;color:var(--text-muted);">11-15 Deitado</div>
+        </div>
+        <div style="flex:1;min-width:60px;text-align:center;padding:6px;background:var(--bg3);border-radius:8px;border:1px dashed var(--border);">
+          <div style="font-size:16px;">🧘</div><div style="font-size:8px;color:var(--text-muted);">16-18 Sentado</div>
+        </div>
+      </div>
+      <div class="foto-upload-area" onclick="document.getElementById('foto-input').click();">
+        <div style="font-size:28px;margin-bottom:8px;">📷</div>
+        <div style="font-size:12px;color:var(--text-muted);">Clique para selecionar fotos</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">As fotos serão salvas no Drive do aluno</div>
+      </div>
+      <input type="file" id="foto-input" accept="image/*" multiple style="display:none;" onchange="previewFotos(this)"/>
+      <div id="fotos-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+
+      <div class="modal-section-title">Observação</div>
+      <div class="form-group">
+        <textarea id="av-obs" class="input" rows="3" placeholder="Notas sobre a avaliação...">${esc(av?.observacao || '')}</textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarAvaliacao(${idavaliacao || 0})">Salvar</button>
+    </div>
+  `);
+
+  // IMC live calculation
+  const pesoInput = document.getElementById('av-peso');
+  const alturaInput = document.getElementById('av-altura');
+  function updateIMC() {
+    const p = parseFloat(pesoInput?.value);
+    const a = parseFloat(alturaInput?.value);
+    const display = document.getElementById('av-imc-display');
+    if (!display) return;
+    if (p > 0 && a > 0) {
+      const imc = p / (a * a);
+      const info = classIMC(imc);
+      display.innerHTML = `IMC: <strong>${fmtNum(imc, 1)}</strong> <span class="imc-badge ${info.cls}">${info.label}</span>`;
+    } else {
+      display.innerHTML = '';
+    }
+  }
+  pesoInput?.addEventListener('input', updateIMC);
+  alturaInput?.addEventListener('input', updateIMC);
+  updateIMC();
+}
+
+function renderDobrasFields(metodo, medidas) {
+  if (metodo === 'manual') {
+    return `<div class="dobras-info">Informe o % de gordura diretamente no campo acima.</div>`;
+  }
+
+  if (metodo === 'bioimpedancia') {
+    return `<div class="dobras-info">Bioimpedância: Informe o % de gordura no campo acima conforme resultado do aparelho.</div>
+    <div class="form-2col">
+      <div class="form-group"><label class="label">Massa Magra (kg)</label><input id="med-bio_massa_magra" type="number" step="0.1" class="input dc-input" value="${medidas.bio_massa_magra ?? ''}"/></div>
+      <div class="form-group"><label class="label">Água Corporal (%)</label><input id="med-bio_agua" type="number" step="0.1" class="input dc-input" value="${medidas.bio_agua ?? ''}"/></div>
+      <div class="form-group"><label class="label">Gordura Visceral</label><input id="med-bio_visceral" type="number" step="1" class="input dc-input" value="${medidas.bio_visceral ?? ''}"/></div>
+      <div class="form-group"><label class="label">Taxa Metabólica (kcal)</label><input id="med-bio_tmb" type="number" step="1" class="input dc-input" value="${medidas.bio_tmb ?? ''}"/></div>
+    </div>`;
+  }
+
+  if (metodo === 'dexa') {
+    return `<div class="dobras-info">DEXA (Densitometria): Informe o % de gordura e dados adicionais do exame.</div>
+    <div class="form-2col">
+      <div class="form-group"><label class="label">Gordura Android (%)</label><input id="med-dexa_android" type="number" step="0.1" class="input dc-input" value="${medidas.dexa_android ?? ''}"/></div>
+      <div class="form-group"><label class="label">Gordura Ginóide (%)</label><input id="med-dexa_ginoide" type="number" step="0.1" class="input dc-input" value="${medidas.dexa_ginoide ?? ''}"/></div>
+      <div class="form-group"><label class="label">Massa Óssea (kg)</label><input id="med-dexa_ossea" type="number" step="0.01" class="input dc-input" value="${medidas.dexa_ossea ?? ''}"/></div>
+      <div class="form-group"><label class="label">Relação A/G</label><input id="med-dexa_ag" type="number" step="0.01" class="input dc-input" value="${medidas.dexa_ag ?? ''}"/></div>
+    </div>`;
+  }
+
+  if (metodo === 'ultrassom') {
+    return `<div class="dobras-info">Ultrassom: Informe o % de gordura do laudo e espessuras medidas.</div>
+    <div class="form-3col">
+      <div class="form-group"><label class="label">Abdômen (mm)</label><input id="med-us_abdomen" type="number" step="0.1" class="input dc-input" value="${medidas.us_abdomen ?? ''}"/></div>
+      <div class="form-group"><label class="label">Coxa (mm)</label><input id="med-us_coxa" type="number" step="0.1" class="input dc-input" value="${medidas.us_coxa ?? ''}"/></div>
+      <div class="form-group"><label class="label">Braço (mm)</label><input id="med-us_braco" type="number" step="0.1" class="input dc-input" value="${medidas.us_braco ?? ''}"/></div>
+    </div>`;
+  }
+
+  const all7 = ['dc_subescapular','dc_tricipital','dc_peitoral','dc_axilar','dc_suprailiaca','dc_abdominal','dc_coxa'];
+  let fields = all7;
+  let info = 'Pollock 7 dobras: Subescapular, Tricipital, Peitoral, Axilar Média, Suprailíaca, Abdominal, Coxa';
+
+  if (metodo === 'pollock5') {
+    fields = ['dc_tricipital','dc_peitoral','dc_abdominal','dc_suprailiaca','dc_subescapular','dc_coxa'];
+    info = 'Pollock 5 dobras (Homem: Peitoral, Abdominal, Coxa, Tricipital, Suprailíaca / Mulher: Tricipital, Suprailíaca, Coxa, Abdominal, Subescapular)';
+  } else if (metodo === 'pollock3') {
+    fields = ['dc_peitoral','dc_abdominal','dc_coxa','dc_tricipital','dc_suprailiaca'];
+    info = 'Pollock 3 dobras (Homem: Peitoral, Abdominal, Coxa / Mulher: Tricipital, Suprailíaca, Coxa)';
+  }
+
+  return `
+    <div class="dobras-info">${info}</div>
+    <div class="form-3col">
+      ${fields.map(k => `
+        <div class="form-group">
+          <label class="label">${DOBRAS_LABELS[k] || k} (mm)</label>
+          <input id="med-${k}" type="number" step="0.1" class="input dc-input" value="${medidas[k] ?? ''}" oninput="calcularGorduraAuto()"/>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function selecionarMetodo(metodo) {
+  metodoSelecionado = metodo;
+  const container = document.getElementById('dobras-container');
+  const medidas = {};
+  document.querySelectorAll('.dc-input').forEach(el => {
+    const key = el.id.replace('med-', '');
+    if (el.value) medidas[key] = parseFloat(el.value);
+  });
+  container.innerHTML = renderDobrasFields(metodo, medidas);
+  document.querySelectorAll('.method-chip').forEach(el => el.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+function calcularGorduraAuto() {
+  if (metodoSelecionado === 'manual' || metodoSelecionado === 'bioimpedancia' || metodoSelecionado === 'dexa' || metodoSelecionado === 'ultrassom') return;
+  const idatleta = Number(document.getElementById('av-atleta')?.value);
+  if (!idatleta) return;
+
+  const genero = getGeneroAtleta(idatleta);
+  const idade = getIdadeAtleta(idatleta);
+
+  const dobras = {};
+  ['dc_subescapular','dc_tricipital','dc_peitoral','dc_axilar','dc_suprailiaca','dc_abdominal','dc_coxa'].forEach(k => {
+    const el = document.getElementById('med-' + k);
+    if (el && el.value) dobras[k.replace('dc_','')] = parseFloat(el.value);
+  });
+
+  let perc = null;
+  if (metodoSelecionado === 'pollock7') perc = calcPollock7(dobras, genero, idade);
+  else if (metodoSelecionado === 'pollock5') perc = calcPollock5(dobras, genero, idade);
+  else if (metodoSelecionado === 'pollock3') perc = calcPollock3(dobras, genero, idade);
+
+  if (perc !== null && perc > 0 && perc < 60) {
+    document.getElementById('av-gordura').value = perc.toFixed(1);
+  }
+}
+
+let fotosParaUpload = [];
+
+function previewFotos(input) {
+  const container = document.getElementById('fotos-preview');
+  fotosParaUpload = Array.from(input.files);
+  container.innerHTML = fotosParaUpload.map((f, i) => {
+    const url = URL.createObjectURL(f);
+    return `<img src="${url}" class="foto-thumb"/>`;
+  }).join('');
+}
+
+async function salvarAvaliacao(idavaliacao) {
+  const idatleta = Number(document.getElementById('av-atleta')?.value);
+  const dtavaliacao = document.getElementById('av-data')?.value;
+  if (!idatleta) return showToast('Selecione um aluno', 'error');
+  if (!dtavaliacao) return showToast('Informe a data', 'error');
+
+  const peso = document.getElementById('av-peso')?.value ? parseFloat(document.getElementById('av-peso').value) : null;
+  const altura = document.getElementById('av-altura')?.value ? parseFloat(document.getElementById('av-altura').value) : null;
+  const percgordura = document.getElementById('av-gordura')?.value ? parseFloat(document.getElementById('av-gordura').value) : null;
+  const observacao = document.getElementById('av-obs')?.value || '';
+
+  const medidaKeys = ['torax','ombro','pescoco','cintura','abdomen','quadril','braco_d','braco_e','coxa_d','coxa_e','panturrilha_d','panturrilha_e'];
+  const dobrasKeys = ['dc_subescapular','dc_tricipital','dc_peitoral','dc_axilar','dc_suprailiaca','dc_abdominal','dc_coxa'];
+  const medidas = {};
+  let hasMedidas = false;
+  medidaKeys.forEach(k => {
+    const el = document.getElementById('med-' + k);
+    if (el && el.value) { medidas[k] = parseFloat(el.value); hasMedidas = true; }
+  });
+  dobrasKeys.forEach(k => {
+    const el = document.getElementById('med-' + k);
+    if (el && el.value) { medidas[k] = parseFloat(el.value); hasMedidas = true; }
+  });
+  document.querySelectorAll('.dc-input').forEach(el => {
+    const key = el.id.replace('med-', '');
+    if (el.value && !medidas[key]) { medidas[key] = parseFloat(el.value); hasMedidas = true; }
+  });
+
+  const data = {
+    idatleta, dtavaliacao, peso, altura, percgordura, observacao,
+    medidas: hasMedidas ? medidas : null,
+    metodo: metodoSelecionado !== 'manual' ? metodoSelecionado : null,
+  };
+
+  // Upload fotos ao Drive se houver
+  if (fotosParaUpload.length > 0) {
+    try {
+      const nomeAluno = getNomeAtleta(idatleta).replace(/[^a-zA-ZÀ-ú0-9 ]/g, '').trim();
+      const mes = new Date(dtavaliacao).toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+      showToast('Enviando fotos ao Drive...');
+      const urls = await uploadFotosDrive(fotosParaUpload, nomeAluno, mes);
+      data.fotos = urls;
+    } catch (e) {
+      console.error('Erro ao enviar fotos:', e);
+      showToast('Fotos não enviadas (erro no Drive), salvando avaliação sem fotos', 'error');
+    }
+  }
+
+  try {
+    if (idavaliacao > 0) {
+      await API.editarAvaliacao(idavaliacao, data);
+      showToast('Avaliação atualizada!');
+    } else {
+      await API.criarAvaliacao(data);
+      showToast('Avaliação criada!');
+    }
+    fotosParaUpload = [];
+    closeModal();
+    await carregar();
+  } catch (e) {
+    showToast('Erro: ' + e.message, 'error');
+  }
+}
+
+async function uploadFotosDrive(files, nomeAluno, mes) {
+  // Google Drive folder: 1ESaxQYnGRwdfYU1q7vBPXaQTCEXf0spw
+  // Structure: /{nomeAluno}/{mes}/foto.jpg
+  const DRIVE_FOLDER_ID = '1ESaxQYnGRwdfYU1q7vBPXaQTCEXf0spw';
+  const urls = [];
+
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder_id', DRIVE_FOLDER_ID);
+    formData.append('path', `${nomeAluno}/${mes}`);
+    try {
+      const resp = await fetch(API_BASE.replace('/api', '/api') + '/upload-drive.php', {
+        method: 'POST',
+        body: formData,
+      });
+      const json = await resp.json();
+      if (json.url) urls.push({ url: json.url, name: file.name });
+    } catch (e) {
+      console.error('Upload falhou:', file.name, e);
+    }
+  }
+  return urls;
+}
+
+async function excluirAvaliacao(id) {
+  if (!hasPerm('av_excluir')) return showToast('Sem permissão para excluir avaliações.', 'error');
+  if (!confirm('Excluir esta avaliação? Essa ação não pode ser desfeita.')) return;
+  try {
+    await API.excluirAvaliacao(id);
+    showToast('Avaliação excluída');
+    closeModal();
+    await carregar();
+  } catch (e) {
+    showToast('Erro: ' + e.message, 'error');
+  }
+}
+
+carregar();
+</script>
+</body>
+</html>

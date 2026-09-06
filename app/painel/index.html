@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Início — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    .checklist-card { padding: 16px; }
+    .checklist-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .checklist-header h3 { font-size: 14px; font-weight: 800; color: var(--text); margin: 0; }
+    .checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border, #2a2a2a); }
+    .checklist-item:last-child { border-bottom: none; }
+    .checklist-item input[type="checkbox"] { accent-color: #7FFF00; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
+    .checklist-item .cl-text { flex: 1; font-size: 13px; color: var(--text); cursor: pointer; }
+    .checklist-item.done .cl-text { text-decoration: line-through; opacity: .5; }
+    .checklist-item .cl-date { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+    .checklist-item .cl-remove { background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer; padding: 2px 4px; opacity: .5; }
+    .checklist-item .cl-remove:hover { opacity: 1; color: #f87171; }
+    .cl-add-row { display: flex; gap: 8px; margin-top: 10px; }
+    .cl-add-row input { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border, #333); background: var(--bg, #111); color: var(--text); font-size: 12px; font-family: inherit; }
+    .cl-add-row input:focus { border-color: #7FFF00; outline: none; }
+    .cl-add-row button { padding: 8px 14px; border-radius: 8px; border: none; background: #7FFF00; color: #000; font-size: 12px; font-weight: 700; cursor: pointer; }
+
+    .hide-values-btn { background: none; border: 1px solid var(--border, #333); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all .15s; }
+    .hide-values-btn:hover { border-color: var(--brand); color: var(--text); }
+    .hide-values-btn.active { border-color: var(--brand); background: rgba(127,255,0,.08); color: var(--brand); }
+    .valor-hidden { filter: blur(6px); user-select: none; pointer-events: none; transition: filter .2s; }
+
+    .notes-block { padding: 16px; }
+    .notes-block h3 { font-size: 14px; font-weight: 800; color: var(--text); margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+    .notes-block textarea { width: 100%; min-height: 100px; resize: vertical; border: 1px solid var(--border, #333); border-radius: 10px; padding: 12px 14px; font-size: 13px; font-family: inherit; background: var(--bg, #111); color: var(--text); line-height: 1.6; }
+    .notes-block textarea:focus { border-color: #7FFF00; outline: none; }
+    .notes-block .notes-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+    .notes-block .notes-saved { font-size: 11px; color: var(--text-muted); }
+
+    .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .overview-tile { background: var(--bg2, #1a1a1a); border: 1px solid var(--border, #2a2a2a); border-radius: 10px; padding: 14px; text-align: center; }
+    .overview-tile .ov-icon { font-size: 20px; margin-bottom: 6px; }
+    .overview-tile .ov-value { font-size: 22px; font-weight: 900; color: var(--text); font-variant-numeric: tabular-nums; }
+    .overview-tile .ov-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 700; margin-top: 4px; }
+  
+  /* ── GRÁFICOS DE CRESCIMENTO ──────────────────────────────────────────────
+     Paleta validada com o verificador de daltonismo: as quatro cores passam na
+     separação para protanopia, deuteranopia e tritanopia, nos dois temas. Os
+     valores do tema claro e do escuro são escolhidos um a um contra a
+     superfície de cada tema — não é o mesmo tom clareado. */
+  .viz-root {
+    --viz-s1: #3987e5;  --viz-s2: #d95926;  --viz-s3: #199e70;  --viz-s4: #c98500;
+    --viz-superficie: #1a1a1a;
+    --viz-bom: #4ade80;  --viz-ruim: #f87171;
+  }
+  body.theme-light .viz-root {
+    --viz-s1: #2a78d6;  --viz-s2: #eb6834;  --viz-s3: #1baf7a;  --viz-s4: #eda100;
+    --viz-superficie: #ffffff;
+    --viz-bom: #15803d;  --viz-ruim: #dc2626;
+  }
+  .viz-grade { display:grid; grid-template-columns:repeat(auto-fit,minmax(196px,1fr)); gap:14px; }
+  .viz-card { margin:0; min-width:0; }
+  .viz-s1 { --viz-cor: var(--viz-s1); }
+  .viz-s2 { --viz-cor: var(--viz-s2); }
+  .viz-s3 { --viz-cor: var(--viz-s3); }
+  .viz-s4 { --viz-cor: var(--viz-s4); }
+  .viz-top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .viz-titulo { font-size:11.5px; font-weight:700; color:var(--text-muted); }
+  .viz-delta { font-size:11px; font-weight:700; white-space:nowrap; }
+  .viz-valor { font-size:24px; font-weight:800; color:var(--text); line-height:1.15; margin:2px 0 4px; }
+  .viz-sufixo { font-size:11px; font-weight:600; color:var(--text-muted); }
+  .viz-card svg { width:100%; height:96px; display:block; overflow:visible; }
+  .viz-base  { stroke:var(--border); stroke-width:1; }
+  .viz-area  { fill:var(--viz-cor); opacity:.10; stroke:none; }
+  .viz-linha { fill:none; stroke:var(--viz-cor); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+  .viz-ponto { fill:var(--viz-cor); stroke:var(--viz-superficie); stroke-width:2; }
+  .viz-rotulo { fill:var(--text); font-size:11px; font-weight:700; font-family:inherit; }
+  .viz-eixo   { fill:var(--text-muted); font-size:9.5px; font-family:inherit; }
+  .viz-tabela { width:100%; border-collapse:collapse; font-size:12px; }
+  .viz-tabela th, .viz-tabela td { padding:5px 10px; text-align:right; border-bottom:1px solid var(--border); color:var(--text); white-space:nowrap; }
+  .viz-tabela th:first-child, .viz-tabela td:first-child { text-align:left; color:var(--text-muted); }
+  .viz-tabela th { font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); font-weight:700; }
+
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Início');
+
+// One-shot: na primeira carga após login REAL no backend, empurra dados
+// locais (atletas + mensalidades) para o servidor. Idempotente — só roda
+// uma vez por dispositivo (flag `intus-migrado-v1` no localStorage).
+(async () => {
+  try {
+    if (typeof API !== 'undefined' && API.migrarLocalParaBackend) {
+      const r = await API.migrarLocalParaBackend();
+      if (r && (r.atletas?.criados || r.mensalidades?.criados)) {
+        console.log('[Intus] Migração inicial:', r);
+      }
+    }
+    if (typeof API !== 'undefined' && API.syncExerciseCatalog) {
+      await API.syncExerciseCatalog();
+    }
+    // Healthcheck diário (1x por dia por dispositivo)
+    const hcFlag = 'intus-healthcheck-' + new Date().toISOString().slice(0,10);
+    if (!localStorage.getItem(hcFlag) && typeof API_BASE !== 'undefined') {
+      localStorage.setItem(hcFlag, '1');
+      fetch(API_BASE + '/healthcheck.php').catch(() => {});
+    }
+  } catch (e) { /* silencioso, não bloqueia o painel */ }
+})();
+
+const main = document.getElementById('main-content');
+let _hideValues = localStorage.getItem('intus-hide-values') === '1';
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d){ return d ? new Date(d+'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+function diasAte(d){
+  if(!d) return null;
+  const a = new Date(d+'T00:00:00'); const h = new Date(); h.setHours(0,0,0,0);
+  return Math.round((a - h)/86400000);
+}
+function brl(v){ return 'R$ ' + (parseFloat(v||0)).toFixed(2).replace('.', ','); }
+function brlV(v) {
+  const txt = brl(v);
+  return _hideValues ? '<span class="valor-hidden">' + txt + '</span>' : txt;
+}
+
+function toggleHideValues() {
+  _hideValues = !_hideValues;
+  localStorage.setItem('intus-hide-values', _hideValues ? '1' : '0');
+  render();
+}
+
+// ── NOTAS ────────────────────────────────────────────────────────────────
+function _notesKey() {
+  const uid = (Sessao.atual()?.idusuario) || 0;
+  return 'intus-notes-' + uid;
+}
+function getNotes() { return localStorage.getItem(_notesKey()) || ''; }
+function saveNotes(text) {
+  localStorage.setItem(_notesKey(), text);
+  const el = document.getElementById('notes-saved-indicator');
+  if (el) { el.textContent = 'Salvo'; setTimeout(() => { if (el) el.textContent = ''; }, 2000); }
+}
+let _notesSaveTimer = null;
+function onNotesInput(textarea) {
+  if (_notesSaveTimer) clearTimeout(_notesSaveTimer);
+  _notesSaveTimer = setTimeout(() => saveNotes(textarea.value), 800);
+}
+
+const JANELA_VENCER = 7; // próximos 7 dias já aparecem como "a vencer"
+const JANELA_COBRANCA_DIAS = 30; // por quanto tempo a dívida segue na caixa de vencidas
+
+function carregarDados() {
+  let atletas      = JSON.parse(localStorage.getItem('intus-atletas')      || '[]');
+  let mensalidades = JSON.parse(localStorage.getItem('intus-mensalidades') || '[]');
+  const fichas       = JSON.parse(localStorage.getItem('intus-fichas')       || '[]');
+
+  // Professor só vê dados dos seus clientes
+  atletas = API.filtrarMeusAtletas(atletas);
+  if (!Sessao.atual()?.admin) {
+    const _ids = new Set(atletas.map(a => Number(a.idatleta)));
+    mensalidades = mensalidades.filter(m => _ids.has(Number(m.idatleta)));
+  }
+
+  // === MATRÍCULAS (Mensalidades)
+  const mensVencidas = [];
+  const mensAVencer  = [];
+
+  // ── COBRANCA SUPERADA (copia da regra que vive no mensalidades.html) ──────
+  // Cobranca em aberto cujo vencimento e anterior ao de um ciclo ja pago da
+  // mesma matricula: o periodo dela ja foi pago depois. Nao e divida, e sobra.
+  // Sem isto, o Marcelo — que pagou dia 13/08 e esta em dia ate 14/09 — vinha
+  // parar na caixa de "matriculas vencidas" desta tela por causa de um registro
+  // de 14/08 que ninguem deve.
+  const _superada = (c) => {
+    if (!c || c.stpgto === 'S') return false;
+    if (c.stmatricula === 'cancelada' || c.stmatricula === 'encerrada') return false;
+    const v = String(c.dtvencimento || '').slice(0, 10);
+    if (!v) return false;
+    return mensalidades.some(x =>
+      Number(x.idatleta) === Number(c.idatleta) &&
+      Number(x.idmensalidade) !== Number(c.idmensalidade) &&
+      x.stpgto === 'S' &&
+      Number(x.vlpagar) === Number(c.vlpagar) &&
+      String(x.dtvencimento || '').slice(0, 10) >= v);
+  };
+
+  // ── CICLO PROGRAMADO (mesma regra que vive no mensalidades.html) ─────────
+  // O ciclo seguinte nasce no ato da baixa, mas so vira cobranca quando falta
+  // pouco para o vencimento. Antes disso ele nao e alerta nem previsao: e um
+  // periodo em curso que o aluno ainda vai pagar no fim. Sem isto, o trimestral
+  // da Fernanda, gerado em agosto e devido em novembro, entrava nas contas
+  // desta tela tres meses antes da hora.
+  //
+  // A antecedencia depende do tamanho do ciclo, e estes tres numeros precisam
+  // ser iguais aos do mensalidades.html: as duas telas tem que contar a mesma
+  // historia sobre a mesma matricula.
+  const ANTECEDENCIA_CICLO_CURTO = 15;   // ate trimestral
+  const ANTECEDENCIA_CICLO_LONGO = 30;   // semestral em diante
+  const CORTE_CICLO_LONGO_DIAS   = 100;
+  // A cobranca vence no INICIO do ciclo: o aluno paga o periodo que vai usar.
+  // A coluna Vencimento e o fim da cobertura. Copia fiel do mensalidades.html —
+  // se uma tela ler de um jeito e a outra de outro, as duas mentem sobre o
+  // mesmo aluno. Foi assim que a Vanessa apareceu "a cobrar 30/09" tendo pago
+  // em 30/07: sumia um mes inteiro de cobranca num plano mensal.
+  // A regra mora no api.js. Esta tela e o painel de matriculas precisam contar
+  // a mesma historia sobre o mesmo aluno, e a unica forma de garantir isso e
+  // nao existirem duas contas. A copia local so segura a tela se o api.js nao
+  // tiver carregado.
+  const _dtCobranca = (c) => (typeof API !== 'undefined' && API.dtCobranca)
+    ? API.dtCobranca(c, mensalidades)
+    : (String((c||{}).dtinicio || '').slice(0, 10) || String((c||{}).dtvencimento || '').slice(0, 10));
+
+  const _antecedenciaDias = (c) => {
+    const ini  = String(c.dtinicio || '').slice(0, 10);
+    const venc = String(c.dtvencimento || '').slice(0, 10);
+    if (!ini || !venc) return ANTECEDENCIA_CICLO_LONGO;
+    const dur = Math.round((new Date(venc + 'T00:00:00') - new Date(ini + 'T00:00:00')) / 86400000);
+    if (!(dur > 0)) return ANTECEDENCIA_CICLO_LONGO;
+    return dur <= CORTE_CICLO_LONGO_DIAS ? ANTECEDENCIA_CICLO_CURTO : ANTECEDENCIA_CICLO_LONGO;
+  };
+  const _programado = (c) => {
+    if (!c || c.stpgto === 'S') return false;
+    if (c.stmatricula === 'cancelada' || c.stmatricula === 'encerrada') return false;
+    const d = diasAte(_dtCobranca(c));
+    return d !== null && d > _antecedenciaDias(c);
+  };
+
+  // Uma matricula esta AGUARDANDO RENOVACAO quando o ultimo ciclo dela esta pago,
+  // a cobertura ja acabou e ninguem registrou o ciclo seguinte. Nao e divida —
+  // o aluno nao deve nada — mas e exatamente o que precisa da sua atencao: sem
+  // o ciclo novo, ele para de ser cobrado e some do seu radar. Era o caso do
+  // Luiz e da Cristina, que nao apareciam em lugar nenhum desta tela.
+  // O agrupamento mora no api.js e e o MESMO do painel de matriculas. A versao
+  // que vivia aqui comparava o nome do plano, e por isso o Diogo aparecia
+  // pedindo renovacao: o plano dele foi renomeado, esta tela nao viu que o
+  // ciclo novo era da mesma matricula e achou que o antigo tinha ficado orfao.
+
+  // ── UMA PERGUNTA SO, PARA TODA MATRICULA ──────────────────────────────────
+  // Quem decide se e divida, renovacao ou nada e o api.js. Esta tela so escolhe
+  // em qual lista o item cai e por quantos dias. Antes ela repetia a regra e
+  // divergia das outras — foi assim que Maud, Erick e Samantha apareceram aqui
+  // com o plano em dia, e o Diogo pediu renovacao ja tendo renovado.
+  mensalidades.forEach(m => {
+    const sit = API.situacaoCobranca(m, mensalidades);
+    if (sit.estado === 'encerrada' || sit.estado === 'cancelada' || sit.estado === 'trancada') return;
+    if (sit.estado === 'paga_no_anterior' || sit.estado === 'renovada' || sit.estado === 'programada') return;
+    if (_superada(m)) return;                    // sobra de um periodo ja pago depois
+    if (!sit.proxima) return;
+
+    const d = diasAte(sit.proxima);
+    if (d === null) return;
+
+    if (d >= 0) {
+      // Ainda vai vencer. Inclui as RENOVACOES: quem esta em dia e vence nos
+      // proximos dias nao tem cobranca em aberto registrada, e sem isto a lista
+      // vivia vazia mesmo com gente vencendo na semana.
+      if (d <= JANELA_VENCER) mensAVencer.push({ ...m, dias: d, _cob: sit.proxima, _renovar: sit.ehAcao });
+      return;
+    }
+
+    // Ja passou. Por quanto tempo uma divida continua aparecendo para voce
+    // cobrar: a janela conta do FIM DA COBERTURA, um ponto fixo. Quando ela
+    // contava do dia da cobranca, uma divida de mensal ja nascia com ate 30
+    // dias e a matricula do Luiz sumia desta tela no mesmo dia em que o painel
+    // passava a mostra-la vencida.
+    const fimCob = String(m.dtvencimento || '').slice(0, 10);
+    const desdeFim = fimCob ? -diasAte(fimCob) : Math.abs(d);
+    if (desdeFim > JANELA_COBRANCA_DIAS) return;
+    mensVencidas.push({ ...m, dias: Math.abs(d), _cob: sit.proxima, _renovar: sit.ehAcao });
+  });
+
+  // Regra unica do sistema (api.js) para situacao do plano. Declarada aqui em
+  // cima porque as listas de treino tambem dependem dela.
+  const _sit = (a) => (typeof API !== 'undefined' && API.situacaoPlano)
+    ? API.situacaoPlano(a, mensalidades)
+    : { ativo: a.stbloqueio !== 'S', inativo: false, bloqueado: a.stbloqueio === 'S', lead: false };
+  const _lead = (a) => (typeof API !== 'undefined' && API.ehLead) ? API.ehLead(a) : false;
+
+  // === TREINOS (fichas — dtfim determina validade; se não tiver, considera 90 dias após dtinicio)
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const treVencidos = [];
+  const treAVencer  = [];
+  const _fichaFlagAtiva = f => f.ativo !== false && f.ativo !== 0 && f.ativo !== '0';
+  const _fimFicha = f => {
+    let fim = f.dtfim;
+    if (!fim && f.dtinicio) {
+      const base = new Date(f.dtinicio + 'T00:00:00');
+      base.setDate(base.getDate() + 90);
+      fim = base.toISOString().slice(0,10);
+    }
+    return fim || null;
+  };
+  const fichasAtivas = fichas.filter(_fichaFlagAtiva);
+
+  // ── TREINO VENCIDO: TRES REGRAS ─────────────────────────────────────────
+  // 1. Se o aluno ja tem uma ficha ativa MAIS NOVA, o treino dele nao esta
+  //    vencido — ele foi refeito. A versao anterior so aceitava isso se a
+  //    ficha nova terminasse depois da janela de 7 dias; um treino recem
+  //    montado com validade curta nao contava, e o aluno seguia na lista de
+  //    vencidos com o treino novo em maos.
+  // 2. Aluno sem plano ativo (inativo, bloqueado ou lead) sai das duas listas.
+  // 3. Conta-se ALUNO, nao ficha. Tres fichas vencidas do mesmo aluno eram
+  //    tres linhas e tres no contador; agora e um aluno, representado pela
+  //    ficha que termina mais tarde.
+  const _fichaMaisNova = (f) => fichasAtivas.some(g => {
+    if (Number(g.idficha) === Number(f.idficha)) return false;
+    if (Number(g.idatleta) !== Number(f.idatleta)) return false;
+    const fg = _fimFicha(g), ff = _fimFicha(f);
+    if (!fg) return true;                       // ficha sem prazo = vigente
+    if (!ff) return false;
+    if (fg !== ff) return fg > ff;              // termina depois = mais nova
+    return Number(g.idficha) > Number(f.idficha);
+  });
+
+  const _porAluno = new Map();
+  fichasAtivas.forEach(f => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    if (!atleta) return;
+    const sit = _sit(atleta);
+    if (!sit.ativo || _lead(atleta)) return;    // regra 2
+    if (_fichaMaisNova(f)) return;              // regra 1
+    const fim = _fimFicha(f);
+    if (!fim) return;
+    const d = diasAte(fim);
+    if (d === null) return;
+    if (d > JANELA_VENCER) return;              // ainda longe: nao e assunto
+    const item = { idficha: f.idficha, idatleta: f.idatleta, nome: atleta.nome, dtfim: fim, dias: Math.abs(d), _d: d };
+    const atual = _porAluno.get(Number(f.idatleta));   // regra 3
+    if (!atual || fim > atual.dtfim) _porAluno.set(Number(f.idatleta), item);
+  });
+  for (const item of _porAluno.values()) {
+    if (item._d < 0) treVencidos.push(item); else treAVencer.push(item);
+  }
+
+  treVencidos.sort((a,b)=> a.dias - b.dias);  // vencidos há mais tempo ao FINAL da lista
+  treAVencer.sort((a,b)=> a.dias - b.dias);
+
+  // === Resumo financeiro (só se admin visualizar)
+  // "Em atraso" e dinheiro que alguem DEVE. Matricula aguardando renovacao esta
+  // paga: ela precisa de acao sua, mas nao e divida e nao pode entrar nesta
+  // conta — inflaria o atraso com um valor que ninguem deve.
+  const receberVencidas = mensVencidas
+    .filter(m => !m._renovar)
+    .reduce((s,m)=> s + parseFloat(m.vlpagar||0), 0);
+  const receberAVencer  = mensAVencer.reduce((s,m)=> s + parseFloat(m.vlpagar||0), 0);
+  const pagasNoMes = mensalidades.filter(m => {
+    if (m.stpgto !== 'S') return false;
+    const d = m.dtpagamento || m.dtpgto;
+    if (!d) return false;
+    const dd = new Date(d+'T00:00:00');
+    return dd.getMonth() === hoje.getMonth() && dd.getFullYear() === hoje.getFullYear();
+  });
+  const recebidoMes = pagasNoMes.reduce((s,m)=> s + parseFloat(m.vlpagar||0), 0);
+
+  // Previsão de faturamento (pendentes a vencer em 30 dias)
+  // A previsao tambem tem que contar as RENOVACOES: numa base onde o proximo
+  // ciclo so e criado na hora da baixa, quase ninguem tem cobranca em aberto
+  // registrada, e a previsao vivia em R$ 0,00 com dezenas de alunos vencendo
+  // no mes. A proxima cobranca de quem esta pago e o fim da cobertura dele.
+  // A previsao conta cobrancas E renovacoes: numa base onde o proximo ciclo so
+  // nasce na hora da baixa, quase ninguem tem cobranca em aberto registrada, e
+  // sem as renovacoes a previsao vivia em R$ 0,00 com dezenas vencendo no mes.
+  const previsao30d = mensalidades.filter(m => {
+    const sit = API.situacaoCobranca(m, mensalidades);
+    if (!sit.proxima) return false;
+    if (['encerrada','cancelada','trancada','paga_no_anterior','renovada'].includes(sit.estado)) return false;
+    const dd = diasAte(sit.proxima);
+    return dd !== null && dd >= 0 && dd <= 30;
+  }).reduce((s,m) => s + parseFloat(m.vlpagar||0), 0);
+
+  // Overview metrics
+  // Regra unica do sistema (api.js): ativo = plano vigente ou vencido ha ate 30
+  // dias. Antes, esta tela contava como ativo qualquer aluno que tivesse ALGUMA
+  // mensalidade paga na vida — entao quem encerrou o plano continuava no numero.
+  const totalAlunos = atletas.filter(a => !_lead(a)).length;
+  const alunosAtivos = atletas.filter(a => _sit(a).ativo && !_lead(a)).length;
+  const alunosInativos = atletas.filter(a => { const s = _sit(a); return s.inativo || s.bloqueado; }).length;
+  const treinosAtivos = fichasAtivas.filter(f => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    if (!atleta) return false;
+    const fim = _fimFicha(f);
+    if (!fim) return false;
+    return diasAte(fim) >= 0;
+  }).length;
+  const msgNaoLidas = (JSON.parse(localStorage.getItem('intus-mensagens') || '[]'))
+    .filter(m => m.stlido === 'N' && m.remetente === 'aluno').length;
+
+  // Todo mundo que existe no sistema, leads inclusive. E o numero que responde
+  // "quantas pessoas ja passaram por aqui" — diferente de "Total Alunos", que
+  // desconta os leads, e de "Ativos", que so conta plano vigente.
+  const totalCadastros = atletas.length;
+  const crescimento = calcCrescimento(atletas, mensalidades, fichas, 12);
+
+  return { atletas, mensVencidas, mensAVencer, treVencidos, treAVencer,
+           receberVencidas, receberAVencer, recebidoMes, previsao30d,
+           totalAlunos, alunosAtivos, alunosInativos, treinosAtivos, msgNaoLidas,
+           totalCadastros, crescimento };
+}
+
+// ── CHECKLIST ─────────────────────────────────────────────────────────────
+function _clKey() {
+  const uid = (Sessao.atual()?.idusuario) || 0;
+  return 'intus-checklist-' + uid;
+}
+function getChecklist() {
+  try { return JSON.parse(localStorage.getItem(_clKey()) || '[]'); } catch { return []; }
+}
+function saveChecklist(items) {
+  localStorage.setItem(_clKey(), JSON.stringify(items));
+}
+
+function getChecklistProgress() {
+  const items = getChecklist();
+  if (items.length === 0) return '';
+  const done = items.filter(i => i.done).length;
+  return `${done}/${items.length} concluídas`;
+}
+
+function renderChecklistItems() {
+  const items = getChecklist();
+  if (items.length === 0) {
+    return `<div style="padding:12px 0;text-align:center;color:var(--text-muted);font-size:12px;">
+      Nenhuma tarefa. Adicione feedbacks, reavaliações, trocas de treino...
+    </div>`;
+  }
+  return items.map((item, i) => `
+    <div class="checklist-item ${item.done ? 'done' : ''}">
+      <input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleChecklistItem(${i})"/>
+      <span class="cl-text" onclick="toggleChecklistItem(${i})">${esc(item.text)}</span>
+      ${item.date ? `<span class="cl-date">${item.date}</span>` : ''}
+      <button class="cl-remove" onclick="removeChecklistItem(${i})" title="Remover">✕</button>
+    </div>
+  `).join('');
+}
+
+function addChecklistItem() {
+  const inp = document.getElementById('cl-new-input');
+  const text = (inp?.value || '').trim();
+  if (!text) return;
+  const items = getChecklist();
+  items.push({ text, done: false, date: new Date().toLocaleDateString('pt-BR') });
+  saveChecklist(items);
+  inp.value = '';
+  refreshChecklist();
+}
+
+function toggleChecklistItem(idx) {
+  const items = getChecklist();
+  if (items[idx]) items[idx].done = !items[idx].done;
+  saveChecklist(items);
+  refreshChecklist();
+}
+
+function removeChecklistItem(idx) {
+  const items = getChecklist();
+  items.splice(idx, 1);
+  saveChecklist(items);
+  refreshChecklist();
+}
+
+function refreshChecklist() {
+  const container = document.getElementById('checklist-items');
+  if (container) container.innerHTML = renderChecklistItems();
+  const progress = document.querySelector('.checklist-header span:last-child');
+  if (progress) progress.textContent = getChecklistProgress();
+}
+
+// Adiciona tarefas automáticas baseadas em dados dos alunos
+function gerarSugestoesChecklist() {
+  let items = getChecklist();
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  let atletas = API.filtrarMeusAtletas(JSON.parse(localStorage.getItem('intus-atletas') || '[]'));
+  const fichas = JSON.parse(localStorage.getItem('intus-fichas') || '[]');
+
+  // Sugestão: treinos que vencem em 7 dias → "Trocar treino de [aluno]"
+  //
+  // A checagem de duplicata era feita pelo TEXTO da tarefa, e o texto carrega os
+  // dias restantes — que mudam todo dia. Entao "Trocar treino de Gessica (vence
+  // em 4d)" virava outra tarefa no dia seguinte com "(vence em 3d)", e o checklist
+  // acumulava a mesma pendencia repetida por dia ate ficar com dezenas de linhas.
+  // Agora cada sugestao tem uma CHAVE estavel (a ficha), o texto e apenas
+  // atualizado, e as sugestoes que deixaram de valer sao removidas sozinhas.
+  const chavesAtivas = new Set();
+  fichas.forEach(f => {
+    const atleta = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    if (!atleta) return;
+    let fim = f.dtfim;
+    if (!fim && f.dtinicio) {
+      const base = new Date(f.dtinicio + 'T00:00:00');
+      base.setDate(base.getDate() + 90);
+      fim = base.toISOString().slice(0,10);
+    }
+    if (!fim) return;
+    const d = diasAte(fim);
+    if (d === null || d < 0 || d > 7) return;
+    const chave = 'troca:' + (f.idficha != null ? f.idficha : (f.idatleta + ':' + fim));
+    chavesAtivas.add(chave);
+    const texto = `Trocar treino de ${atleta.nome.split(' ')[0]} (vence em ${d}d)`;
+    const existente = items.find(i => i.chave === chave);
+    if (existente) {
+      existente.text = texto;               // só atualiza a contagem de dias
+    } else {
+      items.push({ text: texto, done: false, date: hoje, auto: true, chave: chave });
+    }
+  });
+
+  // Limpeza: tira as sugestões automáticas que não valem mais (treino renovado,
+  // ou já passou do prazo) e as duplicatas antigas criadas pela regra anterior.
+  const vistos = new Set();
+  items = items.filter(i => {
+    if (!i.auto) return true;                       // tarefa escrita por você fica
+    if (i.chave) {
+      if (!chavesAtivas.has(i.chave)) return false; // sugestão vencida
+      if (vistos.has(i.chave)) return false;        // duplicata
+      vistos.add(i.chave);
+      return true;
+    }
+    // Legado: sugestão antiga sem chave — remove, será recriada com chave.
+    return !/^Trocar treino de /.test(i.text || '');
+  });
+
+  saveChecklist(items);
+}
+
+// Leads = alunos vindos do /app (autocadastro) ou de página de captura (teste grátis)
+function _isLeadIdx(a) {
+  const o = String(a.origem || '').toLowerCase();
+  if (o === 'app' || o === 'captura' || o === 'lead') return true;
+  if (o === 'professor' || o === 'cliente') return false;
+  if (a.email === 'modelo.masculino@intusfit.local' || a.email === 'modelo.feminino@intusfit.local') return false;
+  const temProf = Array.isArray(a.professores_responsaveis) && a.professores_responsaveis.length > 0;
+  return !temProf;
+}
+function _isLeadNovoIdx(a) {
+  if (!_isLeadIdx(a)) return false;
+  let vistos = []; try { vistos = JSON.parse(localStorage.getItem('intus-leads-vistos') || '[]').map(Number); } catch (e) {}
+  if (vistos.includes(Number(a.idatleta))) return false;
+  if (!a.dtcadastro) return true;
+  return (Date.now() - new Date(a.dtcadastro).getTime()) < 30 * 24 * 60 * 60 * 1000;
+}
+
+
+// ═══════════════ AGENDA DA EQUIPE ═══════════════
+// Compromissos que nao sao treino nem cobranca: reuniao, ligar para um lead,
+// palestra, visita. Podem ser so seus ou com outros professores marcados.
+let _eventos = [];
+let _profs = [];
+let _mesRef = (function () { const h = new Date(); return new Date(h.getFullYear(), h.getMonth(), 1); })();
+let _diaSel = new Date().toISOString().slice(0, 10);
+// A agenda comeca RECOLHIDA. Aberta, o mes inteiro em celulas quadradas ocupava
+// quase uma tela inteira e empurrava as listas de matriculas para baixo. Agora
+// ela e uma faixa de uma linha com os proximos compromissos, e so vira
+// calendario quando voce pede. A escolha fica guardada no navegador.
+let _agExp = (localStorage.getItem('intus-agenda-exp') === '1');
+
+function _tk() { return localStorage.getItem('mx-token') || ''; }
+function _ymd(dt) {
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+// _agendaErro separa "a agenda esta vazia" de "a agenda nao carregou". Sem
+// isso um dia cheio de compromissos aparecia como "Nada marcado para este dia"
+// toda vez que a rede falhava — e ninguem tinha como desconfiar.
+let _agendaErro = null;
+
+async function carregarAgenda() {
+  const ini = new Date(_mesRef.getFullYear(), _mesRef.getMonth() - 1, 1);
+  const fim = new Date(_mesRef.getFullYear(), _mesRef.getMonth() + 2, 0);
+  _agendaErro = null;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=eventos&de=' + _ymd(ini) + '&ate=' + _ymd(fim) + '&_=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + _tk() }, cache: 'no-store' });
+    if (!r.ok) { _eventos = []; _agendaErro = 'o servidor respondeu ' + r.status; }
+    else {
+      _eventos = await r.json();
+      if (!Array.isArray(_eventos)) { _eventos = []; _agendaErro = 'resposta inesperada do servidor'; }
+    }
+  } catch (e) { _eventos = []; _agendaErro = (e && e.message) ? String(e.message) : 'falha na conexão'; }
+  if (!_profs.length) {
+    try {
+      const r2 = await fetch(API_BASE + '/usuarios.php?_=' + Date.now(),
+        { headers: { 'Authorization': 'Bearer ' + _tk() }, cache: 'no-store' });
+      const j = r2.ok ? await r2.json() : null;
+      _profs = (j && Array.isArray(j.usuarios)) ? j.usuarios.filter(u => u.ativo !== false) : [];
+    } catch (e) { _profs = []; }
+  }
+}
+
+function _evsDoDia(ymd) { return _eventos.filter(e => String(e.dt).slice(0, 10) === ymd); }
+
+function mudarMes(delta) {
+  _mesRef = new Date(_mesRef.getFullYear(), _mesRef.getMonth() + delta, 1);
+  carregarAgenda().then(render);
+}
+function selecionarDia(ymd) { _diaSel = ymd; render(); }
+
+function alternarAgenda() {
+  _agExp = !_agExp;
+  localStorage.setItem('intus-agenda-exp', _agExp ? '1' : '0');
+  render();
+}
+
+// Clicar num compromisso da faixa abre o calendario ja no dia dele — inclusive
+// se for de outro mes, caso em que os eventos daquele periodo sao buscados.
+function irParaDia(ymd) {
+  const d = new Date(ymd + 'T00:00:00');
+  const outroMes = (d.getFullYear() !== _mesRef.getFullYear() || d.getMonth() !== _mesRef.getMonth());
+  _diaSel = ymd;
+  _mesRef = new Date(d.getFullYear(), d.getMonth(), 1);
+  _agExp = true;
+  localStorage.setItem('intus-agenda-exp', '1');
+  if (outroMes) carregarAgenda().then(render); else render();
+}
+
+function renderAgenda() {
+  const hojeStr = new Date().toISOString().slice(0, 10);
+
+  const btnNovo = '<button onclick="abrirNovoEvento()" class="btn btn-primary" style="font-size:11px;padding:5px 11px;white-space:nowrap;">+ Evento</button>';
+  const btnExp  = '<button onclick="alternarAgenda()" title="' + (_agExp ? 'Recolher agenda' : 'Ver o mes inteiro') + '" ' +
+    'style="border:1px solid var(--border);background:transparent;color:var(--text-muted);border-radius:7px;padding:5px 10px;font-size:11px;cursor:pointer;font-family:inherit;white-space:nowrap;">' +
+    (_agExp ? '\u25B2 Recolher' : '\u25BC Expandir') + '</button>';
+
+  // ── Faixa recolhida: uma linha, com os proximos compromissos ──────────────
+  if (!_agExp) {
+    const futuros  = _eventos.filter(e => String(e.dt).slice(0, 10) >= hojeStr && !e.concluido)
+                             .sort((a, b) => (String(a.dt) + (a.hora || '')).localeCompare(String(b.dt) + (b.hora || '')));
+    const proximos = futuros.slice(0, 3);
+
+    const chips = proximos.map(e => {
+      const ymd = String(e.dt).slice(0, 10);
+      const rot = (ymd === hojeStr) ? 'hoje' : (ymd.slice(8, 10) + '/' + ymd.slice(5, 7));
+      return '<button onclick="irParaDia(\'' + ymd + '\')" ' +
+        'style="border:1px solid var(--border);background:transparent;border-radius:999px;padding:4px 11px;font-size:11.5px;color:var(--text);cursor:pointer;font-family:inherit;max-width:270px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+        '<span style="color:var(--brand);font-weight:800;">' + rot + (e.hora ? ' ' + esc(e.hora) : '') + '</span> · ' + esc(e.titulo) +
+        '</button>';
+    }).join('');
+
+    const resto = futuros.length > proximos.length
+      ? '<span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">+' + (futuros.length - proximos.length) + '</span>' : '';
+
+    return '<div class="card" style="padding:10px 14px;">' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+        '<h3 style="font-size:13px;font-weight:800;color:var(--text);margin:0;white-space:nowrap;">📅 Agenda</h3>' +
+        '<div style="flex:1;min-width:120px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+          (proximos.length ? (chips + resto) : '<span style="font-size:11.5px;color:var(--text-muted);">Nenhum compromisso marcado.</span>') +
+        '</div>' + btnNovo + btnExp +
+      '</div>' +
+    '</div>';
+  }
+
+  const ano = _mesRef.getFullYear(), mes = _mesRef.getMonth();
+  const primeiro = new Date(ano, mes, 1);
+  const inicioGrade = new Date(primeiro); inicioGrade.setDate(1 - primeiro.getDay());
+  const nomeMes = _mesRef.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  let celulas = '';
+  for (let i = 0; i < 42; i++) {
+    const dia = new Date(inicioGrade); dia.setDate(inicioGrade.getDate() + i);
+    const ymd = _ymd(dia);
+    const doMes = dia.getMonth() === mes;
+    const evs = _evsDoDia(ymd);
+    const isHoje = ymd === hojeStr;
+    const isSel = ymd === _diaSel;
+    const cor = isSel ? 'background:var(--brand);color:#111;font-weight:800;'
+      : isHoje ? 'background:rgba(127,255,0,.14);font-weight:800;' : '';
+    celulas += '<button onclick="selecionarDia(\'' + ymd + '\')" style="position:relative;height:30px;border:none;border-radius:7px;cursor:pointer;font-family:inherit;font-size:11.5px;' +
+      'color:' + (doMes ? 'var(--text)' : 'var(--text-dim,#666)') + ';' + cor + (cor ? '' : 'background:transparent;') + '">' +
+      dia.getDate() +
+      (evs.length ? '<span style="position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:' + (isSel ? '#111' : '#60a5fa') + ';"></span>' : '') +
+      '</button>';
+  }
+
+  const nomeProf = (id) => { const u = _profs.find(p => Number(p.idusuario) === Number(id)); return u ? (u.nome || '').split(' ')[0] : ('#' + id); };
+  const evsSel = _evsDoDia(_diaSel).sort((a, b) => String(a.hora || '').localeCompare(String(b.hora || '')));
+  const listaSel = evsSel.length
+    ? evsSel.map(e => '<div style="display:flex;align-items:flex-start;gap:9px;padding:9px 0;border-bottom:1px solid var(--border);">' +
+        '<input type="checkbox" ' + (e.concluido ? 'checked' : '') + ' onchange="concluirEvento(' + e.idevento + ',this.checked)" style="accent-color:#7FFF00;width:15px;height:15px;margin-top:2px;flex-shrink:0;cursor:pointer;"/>' +
+        '<div style="flex:1;min-width:0;' + (e.concluido ? 'opacity:.5;text-decoration:line-through;' : '') + '">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--text);">' + (e.hora ? '<span style="color:var(--brand);">' + esc(e.hora) + '</span> · ' : '') + esc(e.titulo) + '</div>' +
+          (e.descricao ? '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;line-height:1.45;">' + esc(e.descricao) + '</div>' : '') +
+          ((e.participantes && e.participantes.length) ? '<div style="font-size:10.5px;color:#60a5fa;margin-top:3px;">👥 ' + e.participantes.map(nomeProf).join(', ') + '</div>' : '') +
+        '</div>' +
+        '<button onclick="excluirEvento(' + e.idevento + ')" title="Remover" style="background:none;border:none;color:var(--text-muted);font-size:13px;cursor:pointer;flex-shrink:0;">✕</button>' +
+      '</div>').join('')
+    : (_agendaErro
+        ? '<div style="padding:14px 0;text-align:center;color:var(--text-muted);font-size:12px;line-height:1.5;">' +
+            '<div style="font-size:20px;margin-bottom:4px;">⚠️</div>' +
+            '<div style="color:var(--text);font-weight:700;font-size:12.5px;">A agenda não carregou.</div>' +
+            '<div style="margin-top:3px;">' + esc(_agendaErro) + '</div>' +
+            '<div style="margin-top:3px;">Pode haver compromissos marcados que não estão aparecendo.</div>' +
+            '<button onclick="recarregarAgenda()" style="margin-top:10px;border:1px solid var(--border);background:transparent;color:var(--text);border-radius:8px;padding:6px 14px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;">Tentar de novo</button>' +
+          '</div>'
+        : '<div style="padding:14px 0;text-align:center;color:var(--text-muted);font-size:12px;">Nada marcado para este dia.</div>');
+
+  const dataBonita = new Date(_diaSel + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+
+  return '<div class="card" style="padding:16px;">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+      '<h3 style="font-size:14px;font-weight:800;color:var(--text);margin:0;">📅 Agenda da equipe</h3>' +
+      '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<button onclick="mudarMes(-1)" style="border:1px solid var(--border);background:transparent;color:var(--text-muted);border-radius:7px;width:26px;height:26px;cursor:pointer;font-family:inherit;">‹</button>' +
+        '<span style="font-size:12px;font-weight:700;color:var(--text);min-width:120px;text-align:center;text-transform:capitalize;">' + nomeMes + '</span>' +
+        '<button onclick="mudarMes(1)" style="border:1px solid var(--border);background:transparent;color:var(--text-muted);border-radius:7px;width:26px;height:26px;cursor:pointer;font-family:inherit;">›</button>' +
+        btnExp +
+      '</div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px;">' +
+      ['D','S','T','Q','Q','S','S'].map(x => '<div style="text-align:center;font-size:10px;font-weight:700;color:var(--text-muted);padding-bottom:4px;">' + x + '</div>').join('') +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">' + celulas + '</div>' +
+    '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">' +
+        '<span style="font-size:12px;font-weight:700;color:var(--text);text-transform:capitalize;">' + dataBonita + '</span>' +
+        btnNovo +
+      '</div>' +
+      '<div style="max-height:190px;overflow-y:auto;">' + listaSel + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function abrirNovoEvento() {
+  const chks = _profs.map(u =>
+    '<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);padding:3px 0;cursor:pointer;">' +
+      '<input type="checkbox" class="ev-part" value="' + u.idusuario + '" style="accent-color:#7FFF00;width:15px;height:15px;cursor:pointer;"/>' +
+      esc(u.nome || ('Usuário ' + u.idusuario)) +
+    '</label>').join('') || '<span style="font-size:12px;color:var(--text-muted);">Nenhum outro professor cadastrado.</span>';
+
+  const ov = document.createElement('div');
+  ov.id = 'ov-evento';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:18px;';
+  ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+  ov.innerHTML =
+    '<div class="card" style="max-width:440px;width:100%;padding:20px;max-height:88vh;overflow-y:auto;">' +
+      '<h3 style="font-size:15px;font-weight:800;color:var(--text);margin:0 0 14px;">Novo evento</h3>' +
+      '<label style="font-size:11px;font-weight:700;color:var(--text-muted);">TÍTULO</label>' +
+      '<input id="ev-titulo" class="input" placeholder="Reunião de equipe, ligar para o lead João..." style="width:100%;margin:4px 0 12px;"/>' +
+      '<div style="display:flex;gap:10px;">' +
+        '<div style="flex:1;"><label style="font-size:11px;font-weight:700;color:var(--text-muted);">DATA</label>' +
+        '<input id="ev-data" type="date" class="input" value="' + _diaSel + '" style="width:100%;margin-top:4px;"/></div>' +
+        '<div style="width:110px;"><label style="font-size:11px;font-weight:700;color:var(--text-muted);">HORA</label>' +
+        '<input id="ev-hora" type="time" class="input" style="width:100%;margin-top:4px;"/></div>' +
+      '</div>' +
+      '<label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-top:12px;">DESCRIÇÃO (opcional)</label>' +
+      '<textarea id="ev-desc" class="input" rows="2" placeholder="Detalhes, pauta, telefone..." style="width:100%;margin-top:4px;resize:vertical;"></textarea>' +
+      '<label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin:12px 0 4px;">PARTICIPANTES</label>' +
+      '<div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:9px;padding:8px 10px;">' + chks + '</div>' +
+      '<p style="font-size:11px;color:var(--text-muted);margin:6px 0 0;">Sem marcar ninguém, o evento é só seu.</p>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;">' +
+        '<button onclick="document.getElementById(\'ov-evento\').remove()" class="btn btn-secondary" style="flex:1;">Cancelar</button>' +
+        '<button onclick="salvarEvento()" class="btn btn-primary" style="flex:1;">Salvar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  setTimeout(() => { const t = document.getElementById('ev-titulo'); if (t) t.focus(); }, 60);
+}
+
+async function salvarEvento() {
+  const titulo = (document.getElementById('ev-titulo')?.value || '').trim();
+  const dt = document.getElementById('ev-data')?.value || '';
+  if (!titulo || !dt) { alert('Informe pelo menos o título e a data.'); return; }
+  const participantes = [...document.querySelectorAll('.ev-part:checked')].map(c => Number(c.value));
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=eventos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _tk() },
+      body: JSON.stringify({
+        titulo: titulo, dt: dt,
+        hora: document.getElementById('ev-hora')?.value || '',
+        descricao: (document.getElementById('ev-desc')?.value || '').trim(),
+        participantes: participantes,
+      }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => null); alert('Não foi possível salvar' + (j && j.error ? ': ' + j.error : '.')); return; }
+  } catch (e) { alert('Não conseguimos falar com o servidor. Tente de novo.'); return; }
+  document.getElementById('ov-evento')?.remove();
+  _diaSel = dt;
+  await carregarAgenda();
+  render();
+}
+
+function recarregarAgenda() {
+  carregarAgenda().then(render);
+}
+
+// Marcar e excluir eventos nao conferiam o resultado: o await pegava a resposta
+// e jogava fora, o catch era vazio, e a tela alterava a lista local de qualquer
+// jeito. Um evento "removido" com o servidor fora do ar sumia da tela e voltava
+// no proximo carregamento — ou pior, continuava marcado como pendente para o
+// resto da equipe enquanto voce achava que ja tinha resolvido.
+async function _postEvento(corpo) {
+  const r = await fetch(API_BASE + '/catalogo.php?action=eventos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _tk() },
+    body: JSON.stringify(corpo),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => null);
+    throw new Error((j && j.error) ? j.error : ('o servidor respondeu ' + r.status));
+  }
+  return r;
+}
+
+async function concluirEvento(id, valor) {
+  try {
+    await _postEvento({ idevento: id, concluido: valor ? 1 : 0 });
+  } catch (e) {
+    alert('Não consegui salvar essa marcação: ' + ((e && e.message) || 'falha na conexão') +
+          '\n\nO evento continua como estava. Tente de novo.');
+    render();               // desfaz o checkbox na tela
+    return;
+  }
+  const ev = _eventos.find(x => Number(x.idevento) === Number(id));
+  if (ev) ev.concluido = !!valor;
+  render();
+}
+
+async function excluirEvento(id) {
+  if (!confirm('Remover este evento da agenda?')) return;
+  try {
+    await _postEvento({ idevento: id, excluir: 1 });
+  } catch (e) {
+    alert('Não consegui remover esse evento: ' + ((e && e.message) || 'falha na conexão') +
+          '\n\nEle continua na agenda. Tente de novo.');
+    return;
+  }
+  _eventos = _eventos.filter(x => Number(x.idevento) !== Number(id));
+  render();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CRESCIMENTO — evolucao do sistema mes a mes
+// ═══════════════════════════════════════════════════════════════════════════
+// Quatro graficos pequenos em vez de um grafico com quatro linhas. O motivo e
+// simples: cadastros acumulados passam de 60 e treinos criados num mes ficam na
+// casa das unidades. Numa escala so, a linha dos treinos vira uma reta colada no
+// zero e nao se le nada. Cada medida tem o proprio eixo, e a comparacao que
+// importa e a forma de cada uma ao longo do tempo, nao o valor de uma contra a
+// outra.
+//
+// Muitos cadastros antigos estao com dtcadastro em branco. Em vez de sumir com
+// eles do grafico, a data de entrada e estimada pela primeira aparicao do aluno
+// no sistema: a data de cadastro, se existir, senao o inicio da matricula mais
+// antiga ou da primeira ficha de treino. Esta aproximacao esta dita na tela,
+// para o numero nao ser lido como exato.
+const _MESES_PT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+function calcCrescimento(atletas, mensalidades, fichas, meses) {
+  meses = meses || 12;
+  const hoje = new Date();
+  const janela = [];
+  for (let i = meses - 1; i >= 0; i--) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+    const fim = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    janela.push({
+      chave: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'),
+      rotulo: _MESES_PT[d.getMonth()] + (d.getMonth() === 0 || i === meses - 1 ? '/' + String(d.getFullYear()).slice(2) : ''),
+      ini: d.toISOString().slice(0, 10),
+      fim: fim.toISOString().slice(0, 10),
+    });
+  }
+
+  const _d = (v) => v ? String(v).slice(0, 10) : '';
+  const porAtletaMens = new Map(), porAtletaFicha = new Map();
+  mensalidades.forEach(m => {
+    const k = Number(m.idatleta);
+    if (!porAtletaMens.has(k)) porAtletaMens.set(k, []);
+    porAtletaMens.get(k).push(m);
+  });
+  fichas.forEach(f => {
+    const k = Number(f.idatleta);
+    if (!porAtletaFicha.has(k)) porAtletaFicha.set(k, []);
+    porAtletaFicha.get(k).push(f);
+  });
+
+  const entrada = new Map();
+  atletas.forEach(a => {
+    const cand = [];
+    if (a.dtcadastro) cand.push(_d(a.dtcadastro));
+    (porAtletaMens.get(Number(a.idatleta)) || []).forEach(m => { if (m.dtinicio) cand.push(_d(m.dtinicio)); });
+    (porAtletaFicha.get(Number(a.idatleta)) || []).forEach(f => { if (f.dtinicio) cand.push(_d(f.dtinicio)); });
+    const val = cand.filter(Boolean).sort()[0] || '';
+    if (val) entrada.set(Number(a.idatleta), val);
+  });
+
+  const novos = [], acum = [], ativos = [], treinos = [];
+  janela.forEach(mes => {
+    let n = 0, ac = 0;
+    entrada.forEach(dt => {
+      if (dt.slice(0, 7) === mes.chave) n++;
+      if (dt <= mes.fim) ac++;
+    });
+    novos.push(n); acum.push(ac);
+
+    const setAtivos = new Set();
+    mensalidades.forEach(m => {
+      if (m.stpgto !== 'S') return;
+      const iniM = _d(m.dtinicio) || _d(m.dtvencimento);
+      const fimM = _d(m.dtvencimento) || iniM;
+      if (!iniM || !fimM) return;
+      if (iniM <= mes.fim && fimM >= mes.ini) setAtivos.add(Number(m.idatleta));
+    });
+    ativos.push(setAtivos.size);
+
+    treinos.push(fichas.filter(f => _d(f.dtinicio).slice(0, 7) === mes.chave).length);
+  });
+
+  return { janela, novos, acum, ativos, treinos, estimados: atletas.filter(a => !a.dtcadastro).length };
+}
+
+// Um grafico pequeno: area a 10%, linha de 2px, ponto final de 8px com anel na
+// cor da superficie, e rotulo direto so no ultimo ponto — nunca um numero em
+// cima de cada ponto.
+function miniGrafico(serie, janela, slot, titulo, sufixo) {
+  const L = 300, A = 96, padB = 18, padT = 10, padL = 4, padR = 34;
+  const n = serie.length;
+  const max = Math.max(1, ...serie);
+  const x = i => padL + (i * (L - padL - padR)) / Math.max(1, n - 1);
+  const y = v => padT + (A - padT - padB) * (1 - v / (max * 1.12));
+
+  const pts = serie.map((v, i) => [x(i), y(v)]);
+  const linha = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = linha + ' L' + x(n - 1).toFixed(1) + ' ' + (A - padB) + ' L' + x(0).toFixed(1) + ' ' + (A - padB) + ' Z';
+
+  const ultimo = serie[n - 1], primeiro = serie[0];
+  const delta = ultimo - primeiro;
+  const seta = delta > 0 ? '▲' : delta < 0 ? '▼' : '■';
+  const corDelta = delta > 0 ? 'var(--viz-bom)' : delta < 0 ? 'var(--viz-ruim)' : 'var(--text-muted)';
+
+  // Alvos de toque maiores que o ponto, um por mes, com o valor no titulo nativo.
+  const hits = serie.map((v, i) => {
+    const larg = (L - padL - padR) / Math.max(1, n - 1);
+    return '<rect x="' + (x(i) - larg / 2).toFixed(1) + '" y="0" width="' + larg.toFixed(1) + '" height="' + A + '" fill="transparent">' +
+      '<title>' + janela[i].rotulo + ': ' + v + ' ' + sufixo + '</title></rect>';
+  }).join('');
+
+  const eixo = janela.map((m, i) => (i === 0 || i === n - 1 || i === Math.floor(n / 2))
+    ? '<text x="' + x(i).toFixed(1) + '" y="' + (A - 5) + '" text-anchor="' + (i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle') + '" class="viz-eixo">' + m.rotulo + '</text>'
+    : '').join('');
+
+  return '<figure class="viz-card viz-' + slot + '">' +
+    '<figcaption class="viz-top">' +
+      '<span class="viz-titulo">' + titulo + '</span>' +
+      '<span class="viz-delta" style="color:' + corDelta + ';">' + seta + ' ' + (delta > 0 ? '+' : '') + delta + '</span>' +
+    '</figcaption>' +
+    '<div class="viz-valor">' + ultimo + ' <span class="viz-sufixo">' + sufixo + '</span></div>' +
+    '<svg viewBox="0 0 ' + L + ' ' + A + '" preserveAspectRatio="none" role="img" aria-label="' + titulo + ': ' + serie.join(', ') + '">' +
+      '<line x1="' + padL + '" y1="' + (A - padB) + '" x2="' + (L - padR) + '" y2="' + (A - padB) + '" class="viz-base"/>' +
+      '<path d="' + area + '" class="viz-area"/>' +
+      '<path d="' + linha + '" class="viz-linha"/>' +
+      '<circle cx="' + x(n - 1).toFixed(1) + '" cy="' + y(ultimo).toFixed(1) + '" r="4" class="viz-ponto"/>' +
+      '<text x="' + (L - padR + 6) + '" y="' + (y(ultimo) + 4).toFixed(1) + '" class="viz-rotulo">' + ultimo + '</text>' +
+      eixo + hits +
+    '</svg>' +
+  '</figure>';
+}
+
+let _vizTabela = false;
+function alternarTabelaCrescimento() { _vizTabela = !_vizTabela; render(); }
+
+function renderCrescimento(c) {
+  const series = [
+    ['s1', 'Cadastros no total',  c.acum,    'pessoas'],
+    ['s2', 'Novos no mês',        c.novos,   'novos'],
+    ['s3', 'Alunos ativos',       c.ativos,  'com plano'],
+    ['s4', 'Treinos criados',     c.treinos, 'fichas'],
+  ];
+  const tabela = !_vizTabela ? '' :
+    '<div style="overflow-x:auto;margin-top:12px;">' +
+    '<table class="viz-tabela"><thead><tr><th>Mês</th>' + series.map(s => '<th>' + s[1] + '</th>').join('') + '</tr></thead><tbody>' +
+    c.janela.map((m, i) => '<tr><td>' + m.rotulo + '</td>' + series.map(s => '<td>' + s[2][i] + '</td>').join('') + '</tr>').join('') +
+    '</tbody></table></div>';
+
+  return '<div class="card viz-root" style="padding:16px;">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px;">' +
+      '<h3 style="font-size:14px;font-weight:800;color:var(--text);margin:0;">📈 Crescimento nos últimos 12 meses</h3>' +
+      '<button onclick="alternarTabelaCrescimento()" style="border:1px solid var(--border);background:transparent;color:var(--text-muted);border-radius:7px;padding:5px 10px;font-size:11px;cursor:pointer;font-family:inherit;">' +
+        (_vizTabela ? 'Ocultar tabela' : 'Ver tabela') + '</button>' +
+    '</div>' +
+    (c.estimados ? '<p style="font-size:11px;color:var(--text-muted);margin:0 0 12px;line-height:1.5;">' +
+      c.estimados + ' cadastro(s) estão sem data de cadastro preenchida. Para esses, a entrada foi estimada pela matrícula ou ficha mais antiga — os meses antigos são aproximados.</p>'
+      : '<p style="font-size:11px;color:var(--text-muted);margin:0 0 12px;">Passe o dedo ou o mouse sobre um mês para ver o número.</p>') +
+    '<div class="viz-grade">' + series.map(s => miniGrafico(s[2], c.janela, s[0], s[1], s[3])).join('') + '</div>' +
+    tabela +
+  '</div>';
+}
+
+function render() {
+  const d = carregarDados();
+  const admin = isAdmin();
+  const lnovos = (d.atletas || []).filter(_isLeadNovoIdx);
+
+  const nome = (Sessao.atual()?.nome || 'Professor').split(' ')[0];
+  const saudacao = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Bom dia';
+    if (h < 18) return 'Boa tarde';
+    return 'Boa noite';
+  })();
+
+  const eyeIcon = _hideValues ? '🙈' : '👁️';
+  const eyeLabel = _hideValues ? 'Mostrar valores' : 'Esconder valores';
+
+  main.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- BOAS VINDAS + HIDE VALUES -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h1 style="font-size:24px;font-weight:800;color:var(--text);margin:0;">${saudacao}, ${esc(nome)} 👋</h1>
+          <p style="font-size:13px;color:var(--text-muted);margin:4px 0 0;">
+            Aqui está um resumo do que precisa da sua atenção hoje.
+          </p>
+        </div>
+        <button class="hide-values-btn ${_hideValues ? 'active' : ''}" onclick="toggleHideValues()">
+          ${eyeIcon} ${eyeLabel}
+        </button>
+      </div>
+
+      ${lnovos.length ? `
+      <!-- AVISO DE LEADS NOVOS -->
+      <a href="alunos.html" style="text-decoration:none;">
+        <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(251,191,36,.14),rgba(251,191,36,.03));border:1px solid rgba(251,191,36,.4);cursor:pointer;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:26px;">🔔</span>
+            <div style="flex:1;">
+              <div style="font-size:15px;font-weight:800;color:#d97706;">${lnovos.length} lead${lnovos.length>1?'s':''} novo${lnovos.length>1?'s':''} para atender</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Cadastros de teste grátis (app / captura): ${lnovos.slice(0,5).map(a => esc((a.nome||'').split(' ')[0])).join(', ')}${lnovos.length>5?' e mais…':''}</div>
+            </div>
+            <span style="font-size:20px;color:#d97706;">›</span>
+          </div>
+        </div>
+      </a>` : ''}
+
+      <!-- VISÃO GERAL -->
+      <div class="overview-grid">
+        ${overviewTile('🗂️', d.totalCadastros, 'Total de cadastros')}
+        ${overviewTile('👥', d.totalAlunos, 'Total Alunos')}
+        ${overviewTile('✅', d.alunosAtivos, 'Ativos')}
+        ${overviewTile('⏸️', d.alunosInativos, 'Inativos / bloqueados')}
+        ${overviewTile('🔔', lnovos.length, 'Leads novos', 'alunos.html')}
+        ${overviewTile('🏋️', d.treinosAtivos, 'Treinos Ativos')}
+        ${overviewTile('💬', d.msgNaoLidas, 'Msg não lidas')}
+        ${overviewTile('⚠️', d.mensVencidas.length, 'Matr. Vencidas')}
+        ${overviewTile('⏳', d.mensAVencer.length, 'Matr. a Vencer')}
+      </div>
+
+      <!-- KPI CARDS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+        ${kpi('Matrículas vencidas', d.mensVencidas.length, 'red',    '⚠️')}
+        ${kpi('Matrículas a vencer', d.mensAVencer.length,  'yellow', '⏳')}
+        ${kpi('Treinos vencidos',    d.treVencidos.length,  'red',    '🏋️')}
+        ${kpi('Treinos a vencer',    d.treAVencer.length,   'yellow', '📅')}
+      </div>
+
+      <!-- GRID: CHECKLIST + NOTAS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
+        <!-- CHECKLIST DO PROFESSOR -->
+        <div class="card checklist-card">
+          <div class="checklist-header">
+            <h3>📋 Checklist do Dia</h3>
+            <span style="font-size:11px;color:var(--text-muted);">${getChecklistProgress()}</span>
+          </div>
+          <div id="checklist-items">${renderChecklistItems()}</div>
+          <div class="cl-add-row">
+            <input id="cl-new-input" placeholder="Nova tarefa..." onkeydown="if(event.key==='Enter')addChecklistItem()"/>
+            <button onclick="addChecklistItem()">+ Adicionar</button>
+          </div>
+        </div>
+
+        <!-- BLOCO DE ANOTAÇÕES -->
+        <div class="card notes-block">
+          <h3>📝 Anotações</h3>
+          <textarea placeholder="Anote lembretes, observações, ideias..." oninput="onNotesInput(this)">${esc(getNotes())}</textarea>
+          <div class="notes-footer">
+            <span id="notes-saved-indicator" class="notes-saved"></span>
+            <span style="font-size:10px;color:var(--text-muted);">Salva automaticamente</span>
+          </div>
+        </div>
+      </div>
+
+      ${admin ? `
+        <!-- RESUMO FINANCEIRO (somente admin) -->
+        <div class="card" style="padding:18px;background:linear-gradient(135deg, rgba(127,255,0,0.06), rgba(127,255,0,0.01));border:1px solid rgba(127,255,0,0.25);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:20px;">💰</span>
+              <span style="font-size:13px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:1px;">Resumo Financeiro — mês atual</span>
+            </div>
+            <a href="financeiro.html" class="btn btn-primary btn-sm" style="text-decoration:none;">Abrir Financeiro →</a>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
+            ${finTile('Recebido no mês',   brlV(d.recebidoMes),     '#7FFF00')}
+            ${finTile('A receber (7 dias)', brlV(d.receberAVencer), '#facc15')}
+            ${finTile('Previsão 30 dias',  brlV(d.previsao30d),    '#60a5fa')}
+            ${finTile('Em atraso',         brlV(d.receberVencidas), '#f87171')}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- AGENDA DA EQUIPE -->
+      ${renderAgenda()}
+
+      <!-- CRESCIMENTO -->
+      ${renderCrescimento(d.crescimento)}
+
+      <!-- GRID 2 COLUNAS: listas -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
+
+        ${listaCard('Matrículas vencidas (até 30 dias)', d.mensVencidas, 'red', 'mensalidades.html',
+          m => '<td class="td-name">' + esc(m.nmathleta || m.nome || '\u2014') + '</td>' +
+               // A data e a da COBRANCA. Antes mostrava o fim da cobertura ao lado
+               // de "7d atrasado" calculado da cobranca: a Maud aparecia com data
+               // 22/09, no futuro, e sete dias de atraso na mesma linha.
+               '<td class="td-date">' + fmtDate(m._renovar ? m.dtvencimento : (m._cob || m.dtvencimento)) + '</td>' +
+               '<td>' + (m._renovar
+                  ? '<span class="pill" style="background:rgba(56,189,248,.14);color:#38bdf8;" title="O último ciclo está pago e a cobertura terminou. Não há dívida: falta registrar o ciclo seguinte para o aluno voltar a ser cobrado.">renovar · ' + m.dias + 'd</span>'
+                  : '<span class="pill pill-red">' + m.dias + 'd atrasado</span>')
+                 + ((m.qtd||1) > 1 ? ' <span style="font-size:10px;color:var(--text-muted);">' + m.qtd + ' cobranças</span>' : '') + '</td>' +
+               '<td style="text-align:right;">' + brlV(m.vlpagar) + '</td>', 'mv')}
+
+        ${listaCard('Matrículas a vencer (7 dias)', d.mensAVencer, 'yellow', 'mensalidades.html',
+          m => '<td class="td-name">' + esc(m.nmathleta || m.nome || '\u2014') + '</td>' +
+               // A data da COBRANCA, igual ao card de vencidas. Mostrar o fim da
+               // cobertura aqui punha "30/09" ao lado de "em 1d" na mesma linha.
+               '<td class="td-date">' + fmtDate(m._cob || m.dtvencimento) + '</td>' +               '<td>' + (m._renovar
+                  ? '<span class="pill" style="background:rgba(56,189,248,.14);color:#38bdf8;" title="O ciclo atual está pago e termina nesta data. É quando o próximo ciclo começa e um novo pagamento vence — registre a renovação para o aluno continuar sendo cobrado.">renova em ' + m.dias + 'd</span>'
+                  : '<span class="pill pill-yellow">em ' + m.dias + 'd</span>') + '</td>' +
+               '<td style="text-align:right;">' + brlV(m.vlpagar) + '</td>', 'mav')}
+
+        ${listaCard('Treinos vencidos', d.treVencidos, 'red', 'treinos.html',
+          t => '<td class="td-name">' + esc(t.nome) + '</td>' +
+               '<td class="td-date">' + fmtDate(t.dtfim) + '</td>' +
+               '<td><span class="pill pill-red">' + t.dias + 'd atrasado</span></td>' +
+               '<td style="text-align:right;"><a href="treinos.html" style="color:var(--brand);font-weight:700;font-size:12px;">Revisar</a></td>', 'tv')}
+
+        ${listaCard('Treinos a vencer (7 dias)', d.treAVencer, 'yellow', 'treinos.html',
+          t => '<td class="td-name">' + esc(t.nome) + '</td>' +
+               '<td class="td-date">' + fmtDate(t.dtfim) + '</td>' +
+               '<td><span class="pill pill-yellow">' + (t.dias === 0 ? 'hoje' : 'em ' + t.dias + 'd') + '</span></td>' +
+               '<td style="text-align:right;"><a href="treinos.html" style="color:var(--brand);font-weight:700;font-size:12px;">Revisar</a></td>', 'tav')}
+
+      </div>
+
+    </div>
+  `;
+}
+
+// helpers de render ----------------------------------------------------
+function kpi(titulo, valor, cor, icon) {
+  const light = document.body.classList.contains('theme-light');
+  const bg = cor === 'red'    ? (light ? '#fef2f2' : '#2a1111')
+           : cor === 'yellow' ? (light ? '#fffbeb' : '#2a2511')
+           :                    (light ? '#f0fdf4' : '#152010');
+  const bd = cor === 'red'    ? (light ? '#fecaca' : '#4a1d1d')
+           : cor === 'yellow' ? (light ? '#fde68a' : '#4a3a1d')
+           :                    (light ? '#bbf7d0' : '#2a4a10');
+  const fg = cor === 'red'    ? (light ? '#dc2626' : '#f87171')
+           : cor === 'yellow' ? (light ? '#d97706' : '#facc15')
+           :                    (light ? '#16a34a' : '#7FFF00');
+  return `
+    <div class="card" style="padding:16px;background:${bg};border-color:${bd};">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:16px;">${icon}</span>
+        <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;">${titulo}</span>
+      </div>
+      <div style="font-size:28px;font-weight:900;color:${fg};">${valor}</div>
+    </div>
+  `;
+}
+
+function overviewTile(icon, valor, label, href) {
+  const inner = `
+    <div class="overview-tile" ${href ? 'style="cursor:pointer;"' : ''}>
+      <div class="ov-icon">${icon}</div>
+      <div class="ov-value">${valor}</div>
+      <div class="ov-label">${label}</div>
+    </div>
+  `;
+  return href ? `<a href="${href}" style="text-decoration:none;color:inherit;display:block;">${inner}</a>` : inner;
+}
+
+function finTile(titulo, valor, cor) {
+  const light = document.body.classList.contains('theme-light');
+  const bg = light ? 'rgba(0,0,0,.04)' : 'rgba(0,0,0,.25)';
+  const bd = light ? '#e5e7eb' : '#2a2a2a';
+  const fgMap = { '#7FFF00':'#16a34a', '#facc15':'#d97706', '#60a5fa':'#2563eb', '#f87171':'#dc2626' };
+  const fg = light ? (fgMap[cor] || cor) : cor;
+  return `
+    <div style="background:${bg};border:1px solid ${bd};border-radius:10px;padding:12px 14px;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:4px;">${titulo}</div>
+      <div style="font-size:18px;font-weight:900;color:${fg};font-variant-numeric:tabular-nums;">${valor}</div>
+    </div>
+  `;
+}
+
+// Ordem de cada caixa: 'asc' | 'desc' sobre o campo dias. Guardado por caixa.
+const ordemCaixa = {};
+function alternarOrdem(chave) {
+  ordemCaixa[chave] = (ordemCaixa[chave] === 'asc') ? 'desc' : 'asc';
+  render();
+}
+// A lista inteira fica na caixa, com rolagem — antes eram cortados os 6 primeiros
+// e o resto so aparecia em outra tela.
+function listaCard(titulo, lista, cor, link, rowFn, chave) {
+  const badge = cor === 'red' ? 'badge-red' : cor === 'yellow' ? 'badge-yellow' : 'badge-green';
+  const k = chave || titulo;
+  const ord = ordemCaixa[k] || 'asc';
+  const ordenada = lista.slice().sort((a, b) => ord === 'asc' ? (a.dias - b.dias) : (b.dias - a.dias));
+  const rotulo = ord === 'asc' ? 'Menos dias primeiro' : 'Mais dias primeiro';
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">${titulo}</span>
+        <span style="display:flex;align-items:center;gap:8px;">
+          ${lista.length > 1 ? `<button onclick="alternarOrdem('${k.replace(/'/g,"")}')" title="${rotulo}"
+            style="border:1px solid var(--border);background:transparent;color:var(--text-muted);border-radius:7px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
+            ${ord === 'asc' ? '↑' : '↓'} dias</button>` : ''}
+          <span class="card-badge ${badge}">${lista.length}</span>
+        </span>
+      </div>
+      ${lista.length === 0
+        ? `<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">Nada por aqui — tudo em dia! 🎉</div>`
+        : `<div style="max-height:260px;overflow-y:auto;">
+            <table class="data-table">
+              <tbody>
+                ${ordenada.map(item => `<tr>${rowFn(item)}</tr>`).join('')}
+              </tbody>
+            </table>
+           </div>
+           <div style="padding:8px 14px;text-align:right;border-top:1px solid var(--border);"><a href="${link}" style="color:var(--brand);font-size:12px;font-weight:700;">Abrir tela completa →</a></div>
+        `}
+    </div>
+  `;
+}
+
+// Sincroniza se outra aba alterar qualquer coisa (debounced)
+let _renderTimer = null;
+function _debouncedRender() {
+  if (_renderTimer) clearTimeout(_renderTimer);
+  _renderTimer = setTimeout(render, 300);
+}
+['intus-atletas','intus-mensalidades','intus-fichas','intus-treinos'].forEach(k => {
+  window.addEventListener('storage', ev => { if (ev.key === k) _debouncedRender(); });
+});
+['intus-atletas-change','intus-mensalidades-change','intus-fichas-change','intus-treinos-change'].forEach(ev => {
+  window.addEventListener(ev, _debouncedRender);
+});
+
+// Pre-fetch backend (espelha em Store via API.*) antes de renderizar — assim
+// o dashboard mostra dados frescos cross-device, mesmo que carregarDados()
+// leia do localStorage no caminho rapido.
+async function preFetchBackend() {
+  try {
+    if (typeof API === 'undefined') return;
+    const [atl, fic, tre, mens] = await Promise.all([
+      API.listarAtletas('', true).catch(()=>null),
+      typeof API.listarFichas === 'function'         ? API.listarFichas().catch(()=>null)         : null,
+      typeof API.listarTodosTreinos === 'function'   ? API.listarTodosTreinos().catch(()=>null)   : null,
+      typeof API.listarMensalidades === 'function'   ? API.listarMensalidades().catch(()=>null)   : null,
+    ]);
+    // Espelha no Store (listarFichas e listarTodosTreinos ja espelham; mensalidades nao)
+    if (Array.isArray(atl))  Store.set('atletas',      atl);
+    if (Array.isArray(mens)) Store.set('mensalidades', mens);
+  } catch (e) { /* silencioso */ }
+}
+
+(async () => {
+  render();
+  gerarSugestoesChecklist();
+  await preFetchBackend();
+  gerarSugestoesChecklist();
+  render();
+  await carregarAgenda();
+  render();
+})();
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) return;
+  await preFetchBackend();
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Configurações — Intus</title>
+  <script src="_mock.js?v=20260831a"></script>
+  <script src="api.js?v=20260831a"></script>
+  <style>
+    .cfg-tabs { display: flex; gap: 4px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
+    .cfg-tab {
+      padding: 8px 16px; font-size: 12px; font-weight: 600; border-radius: 8px;
+      background: var(--bg3); color: var(--text-muted); border: 1px solid var(--border);
+      cursor: pointer; white-space: nowrap; transition: .15s;
+    }
+    .cfg-tab:hover { color: var(--text); background: var(--bg2); }
+    .cfg-tab.active { background: rgba(127,255,0,.12); color: #7FFF00; border-color: rgba(127,255,0,.3); }
+
+    .cfg-section { display: none; }
+    .cfg-section.active { display: block; }
+
+    .cfg-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px; margin-bottom: 16px;
+    }
+    .cfg-card h3 {
+      font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .cfg-card h3 svg { opacity: .6; }
+
+    .cfg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .cfg-row.full { grid-template-columns: 1fr; }
+    @media (max-width: 600px) { .cfg-row { grid-template-columns: 1fr; } }
+
+    .cfg-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .cfg-input {
+      width: 100%; padding: 10px 12px; font-size: 13px; background: var(--bg3);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      font-family: inherit; transition: border-color .15s;
+    }
+    .cfg-input:focus { outline: none; border-color: #7FFF00; }
+    textarea.cfg-input { min-height: 80px; resize: vertical; }
+
+    .cfg-save {
+      padding: 10px 24px; font-size: 13px; font-weight: 700; border-radius: 8px;
+      background: #7FFF00; color: #000; border: none; cursor: pointer; transition: .15s;
+    }
+    .cfg-save:hover { background: #6be600; transform: translateY(-1px); }
+
+    .cfg-banner-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+    .cfg-banner-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .cfg-banner-item .banner-preview {
+      width: 60px; height: 34px; border-radius: 4px; object-fit: cover; background: #333;
+    }
+    .cfg-banner-item .banner-info { flex: 1; font-size: 12px; color: var(--text); }
+    .cfg-banner-item .banner-info small { color: var(--text-muted); }
+    .cfg-banner-item .btn-del {
+      width: 28px; height: 28px; border-radius: 50%; background: rgba(255,60,60,.15);
+      color: #ff5555; border: none; cursor: pointer; font-size: 14px; display: flex;
+      align-items: center; justify-content: center;
+    }
+
+    .cfg-log-list { max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 11px; }
+    .cfg-log-entry { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
+    .cfg-log-entry .log-type { font-weight: 700; text-transform: uppercase; margin-right: 8px; }
+    .cfg-log-entry .log-type.error { color: #ff5555; }
+    .cfg-log-entry .log-type.warn { color: #ffaa00; }
+    .cfg-log-entry .log-type.info { color: #5599ff; }
+    .cfg-log-entry .log-user { font-weight: 600; color: var(--text); margin-right: 6px; font-size: 10px; }
+    .cfg-log-entry .log-detail { display: block; font-size: 10px; color: var(--text-muted); margin-top: 2px; font-style: italic; }
+
+    .audit-list { display: flex; flex-direction: column; gap: 6px; max-height: 500px; overflow-y: auto; }
+    .audit-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      font-size: 12px; color: var(--text);
+    }
+    .audit-item.desfeito { opacity: .5; text-decoration: line-through; }
+    .audit-icon {
+      width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center;
+      justify-content: center; font-size: 14px; flex-shrink: 0;
+    }
+    .audit-icon.criar { background: rgba(127,255,0,.15); color: #7FFF00; }
+    .audit-icon.editar { background: rgba(85,153,255,.15); color: #5599ff; }
+    .audit-icon.excluir { background: rgba(255,85,85,.15); color: #ff5555; }
+    .audit-icon.bloquear { background: rgba(255,170,0,.15); color: #ffaa00; }
+    .audit-info { flex: 1; min-width: 0; }
+    .audit-info .audit-desc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .audit-info .audit-changes { font-size: 11px; color: var(--text-muted); margin-top: 2px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .audit-info .audit-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .audit-undo {
+      padding: 5px 10px; font-size: 11px; font-weight: 600; border-radius: 6px;
+      background: rgba(255,170,0,.12); color: #ffaa00; border: 1px solid rgba(255,170,0,.3);
+      cursor: pointer; white-space: nowrap; transition: .15s;
+    }
+    .audit-undo:hover { background: rgba(255,170,0,.25); }
+    .audit-day-header { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 10px; padding: 4px 0; }
+
+    .cfg-doc-list { display: flex; flex-direction: column; gap: 8px; }
+    .cfg-doc-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .cfg-doc-item .doc-icon { font-size: 20px; opacity: .7; }
+    .cfg-doc-item .doc-info { flex: 1; }
+    .cfg-doc-item .doc-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .cfg-doc-item .doc-meta { font-size: 11px; color: var(--text-muted); }
+
+    .cfg-meter { margin-bottom: 12px; }
+    .cfg-meter-bar { height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+    .cfg-meter-fill { height: 100%; background: #7FFF00; border-radius: 4px; transition: width .4s; }
+    .cfg-meter-text { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Configurações');
+
+const CONFIG_KEY = 'intus-config-geral';
+
+function loadConfig() {
+  try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}'); } catch { return {}; }
+}
+function saveConfig(cfg) {
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+  const token = localStorage.getItem('mx-token') || '';
+  if (token && typeof API_BASE !== 'undefined') {
+    fetch(API_BASE + '/dashboard.php?action=config', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    }).catch(() => {});
+  }
+}
+
+function getDefaultConfig() {
+  return {
+    empresa: {
+      nome: 'Intus Fit',
+      cnpj: '',
+      endereco: '',
+      cidade: '',
+      estado: '',
+    },
+    contato: {
+      whatsapp_suporte: '',
+      whatsapp_saudacao: 'Oi, preciso de ajuda no app Intus Fit',
+      email: 'contato@intusfit.com.br',
+      instagram: '',
+      facebook: '',
+      youtube: '',
+      site: 'intusfit.com.br',
+    },
+    banners: [],
+    documentos: [],
+    logs: [],
+  };
+}
+
+function cfg() {
+  const saved = loadConfig();
+  const def = getDefaultConfig();
+  return {
+    empresa: { ...def.empresa, ...(saved.empresa || {}) },
+    contato: { ...def.contato, ...(saved.contato || {}) },
+    banners: saved.banners || [],
+    documentos: saved.documentos || [],
+    logs: saved.logs || [],
+  };
+}
+
+function addLog(type, msg, detail) {
+  const c = cfg();
+  const tokenData = localStorage.getItem('mx-token') || '';
+  let user = 'Sistema';
+  if (tokenData) {
+    const parts = tokenData.split('.');
+    if (parts.length === 3) {
+      try { const p = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/'))); user = p.nome || p.name || 'Usuário'; } catch {}
+    }
+    if (user === 'Sistema' && /^(?:prof|local)-\d+/.test(tokenData)) user = 'Professor';
+  }
+  c.logs.unshift({ type, msg, dt: new Date().toISOString(), user, detail: detail || '' });
+  if (c.logs.length > 200) c.logs.length = 200;
+  saveConfig(c);
+}
+
+// Sync config from backend
+async function syncConfig() {
+  try {
+    const token = localStorage.getItem('mx-token') || '';
+    const r = await fetch(API_BASE + '/dashboard.php?action=config', {
+      headers: { 'Authorization': 'Bearer ' + token },
+      cache: 'no-store'
+    });
+    if (r.ok) {
+      const j = await r.json();
+      if (j && j.config) {
+        const local = cfg();
+        const merged = { ...local, ...j.config, logs: local.logs };
+        saveConfig(merged);
+        return merged;
+      }
+    }
+  } catch {}
+  return cfg();
+}
+
+// ── RENDER ──
+const mc = document.getElementById('main-content');
+
+function render() {
+  const c = cfg();
+  mc.innerHTML = `
+    <div class="cfg-tabs">
+      <button class="cfg-tab active" data-tab="empresa">Empresa</button>
+      <button class="cfg-tab" data-tab="planos">Planos</button>
+      <button class="cfg-tab" data-tab="contato">Contato & Redes</button>
+      <button class="cfg-tab" data-tab="banners">Destaques</button>
+      <button class="cfg-tab" data-tab="servidor">Servidor</button>
+      <button class="cfg-tab" data-tab="logs">Histórico</button>
+      <button class="cfg-tab" data-tab="documentos">Documentos</button>
+    </div>
+
+    <!-- EMPRESA -->
+    <div class="cfg-section active" id="sec-empresa">
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg> Dados da Empresa</h3>
+        <div class="cfg-row">
+          <div><div class="cfg-label">Nome da empresa</div><input class="cfg-input" id="cfg-nome" value="${esc(c.empresa.nome)}"/></div>
+          <div><div class="cfg-label">CNPJ</div><input class="cfg-input" id="cfg-cnpj" value="${esc(c.empresa.cnpj)}" placeholder="00.000.000/0000-00"/></div>
+        </div>
+        <div class="cfg-row full">
+          <div><div class="cfg-label">Endereço</div><input class="cfg-input" id="cfg-endereco" value="${esc(c.empresa.endereco)}" placeholder="Rua, número, bairro"/></div>
+        </div>
+        <div class="cfg-row">
+          <div><div class="cfg-label">Cidade</div><input class="cfg-input" id="cfg-cidade" value="${esc(c.empresa.cidade)}"/></div>
+          <div><div class="cfg-label">Estado</div><input class="cfg-input" id="cfg-estado" value="${esc(c.empresa.estado)}" maxlength="2" placeholder="SC"/></div>
+        </div>
+        <button class="cfg-save" onclick="salvarEmpresa()">Salvar</button>
+      </div>
+    </div>
+
+    <!-- PLANOS -->
+    <div class="cfg-section" id="sec-planos">
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg> Métricas de Matrículas</h3>
+        <div id="planos-metricas" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;">
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:#7FFF00;" id="pm-ativas">—</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;">Ativas</div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:#ffaa00;" id="pm-vencidas">—</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;">Vencidas</div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:var(--text);" id="pm-receita">—</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;">Receita mês</div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:#5599ff;" id="pm-populares">—</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;">Plano popular</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg> Planos Pré-definidos</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Configure os planos disponíveis para os alunos. Valores, duração e teste grátis.</p>
+
+        <div style="margin-bottom:16px;padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <span style="font-size:12px;font-weight:700;color:var(--text);">Teste Grátis</span>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="pl-teste-ativo" style="accent-color:#7FFF00;width:16px;height:16px;"/>
+              <span style="font-size:11px;color:var(--text-muted);">Ativo</span>
+            </label>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <div class="cfg-label" style="margin:0;">Dias</div>
+            <input class="cfg-input" id="pl-teste-dias" type="number" min="1" max="30" value="3" style="width:80px;"/>
+          </div>
+        </div>
+
+        <div id="planos-lista" style="display:flex;flex-direction:column;gap:12px;"></div>
+
+        <div style="margin-top:16px;display:flex;gap:8px;">
+          <button class="cfg-save" onclick="salvarPlanos()">Salvar Planos</button>
+          <button class="cfg-save" onclick="adicionarPlano()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">+ Novo Plano</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTATO & REDES -->
+    <div class="cfg-section" id="sec-contato">
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg> Contato & Suporte</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">O WhatsApp de suporte aparecerá automaticamente para os alunos na tela de login e no app.</p>
+        <div class="cfg-row">
+          <div><div class="cfg-label">WhatsApp Suporte</div><input class="cfg-input" id="cfg-whatsapp" value="${esc(c.contato.whatsapp_suporte)}" placeholder="(45) 99115-6006"/></div>
+          <div><div class="cfg-label">E-mail</div><input class="cfg-input" id="cfg-email-contato" value="${esc(c.contato.email)}"/></div>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="cfg-label">Mensagem de saudação (WhatsApp)</div>
+          <textarea class="cfg-input" id="cfg-whatsapp-saudacao" rows="2" style="width:100%;resize:vertical;font-size:12px;" placeholder="Ex: Olá! Preciso de ajuda com o app Intus Fit">${esc(c.contato.whatsapp_saudacao || '')}</textarea>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">Essa frase será enviada automaticamente ao abrir o chat. Use para triagem: ex. "Olá, sou aluno(a) da Intus e preciso de suporte — [descreva sua dúvida]"</p>
+        </div>
+        <div class="cfg-row">
+          <div><div class="cfg-label">Instagram</div><input class="cfg-input" id="cfg-instagram" value="${esc(c.contato.instagram)}" placeholder="@intusfit"/></div>
+          <div><div class="cfg-label">Facebook</div><input class="cfg-input" id="cfg-facebook" value="${esc(c.contato.facebook)}" placeholder="facebook.com/intusfit"/></div>
+        </div>
+        <div class="cfg-row">
+          <div><div class="cfg-label">YouTube</div><input class="cfg-input" id="cfg-youtube" value="${esc(c.contato.youtube)}" placeholder="Canal ou link"/></div>
+          <div><div class="cfg-label">Site</div><input class="cfg-input" id="cfg-site" value="${esc(c.contato.site)}"/></div>
+        </div>
+        <button class="cfg-save" onclick="salvarContato()">Salvar</button>
+      </div>
+    </div>
+
+    <!-- BANNERS / DESTAQUES -->
+    <div class="cfg-section" id="sec-banners">
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg> Banners & Campanhas</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Os destaques aparecem como banners no app do aluno (tela inicial). Use para promoções, avisos e campanhas.</p>
+        <div class="cfg-banner-list" id="banner-list">
+          ${c.banners.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Nenhum banner cadastrado.</p>' :
+            c.banners.map((b, i) => `
+              <div class="cfg-banner-item">
+                <div class="banner-preview" style="background:${b.cor || '#333'};display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;">${b.titulo ? b.titulo.slice(0,8) : 'Banner'}</div>
+                <div class="banner-info">
+                  <div>${esc(b.titulo)}</div>
+                  <small>${b.ativo ? '🟢 Ativo' : '⚪ Inativo'} · ${b.dtinicio || '—'} a ${b.dtfim || '—'}</small>
+                </div>
+                <button class="btn-del" onclick="removerBanner(${i})" title="Remover">×</button>
+              </div>
+            `).join('')}
+        </div>
+        <button class="cfg-save" onclick="abrirNovoBanner()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);margin-right:8px;">+ Novo Banner</button>
+      </div>
+
+      <!-- Modal novo banner -->
+      <div id="mod-banner" style="display:none;" class="cfg-card" style="border-color:#7FFF00;">
+        <h3>Novo Banner</h3>
+        <div class="cfg-row">
+          <div><div class="cfg-label">Título</div><input class="cfg-input" id="bn-titulo" placeholder="Ex: Black Friday 50% OFF"/></div>
+          <div><div class="cfg-label">Cor de fundo</div><input class="cfg-input" id="bn-cor" type="color" value="#7FFF00" style="height:40px;padding:4px;"/></div>
+        </div>
+        <div class="cfg-row full">
+          <div><div class="cfg-label">Descrição / CTA</div><textarea class="cfg-input" id="bn-desc" placeholder="Texto que aparece no banner"></textarea></div>
+        </div>
+        <div class="cfg-row full">
+          <div><div class="cfg-label">Link (opcional)</div><input class="cfg-input" id="bn-link" placeholder="https://..."/></div>
+        </div>
+        <div class="cfg-row">
+          <div><div class="cfg-label">Data início</div><input class="cfg-input" id="bn-inicio" type="date"/></div>
+          <div><div class="cfg-label">Data fim</div><input class="cfg-input" id="bn-fim" type="date"/></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="cfg-save" onclick="salvarBanner()">Salvar Banner</button>
+          <button class="cfg-save" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);" onclick="document.getElementById('mod-banner').style.display='none'">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SERVIDOR -->
+    <div class="cfg-section" id="sec-servidor">
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12H3l9-9 9 9h-2M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/></svg> Uso do Servidor</h3>
+        <div class="cfg-meter">
+          <div class="cfg-label">Armazenamento (KingHost — Hospedagem II)</div>
+          <div class="cfg-meter-bar"><div class="cfg-meter-fill" id="meter-storage" style="width:0%;"></div></div>
+          <div class="cfg-meter-text" id="meter-storage-text">Calculando...</div>
+        </div>
+        <div class="cfg-meter">
+          <div class="cfg-label">Banco de Dados MySQL</div>
+          <div class="cfg-meter-bar"><div class="cfg-meter-fill" id="meter-db" style="width:0%;"></div></div>
+          <div class="cfg-meter-text" id="meter-db-text">Calculando...</div>
+        </div>
+        <div class="cfg-row" style="margin-top:16px;">
+          <div>
+            <div class="cfg-label">Domínio</div>
+            <div style="font-size:13px;color:var(--text);margin-top:4px;">intusfit.com.br</div>
+          </div>
+          <div>
+            <div class="cfg-label">SSL</div>
+            <div style="font-size:13px;color:#7FFF00;margin-top:4px;">✓ Let's Encrypt (auto-renovação)</div>
+          </div>
+        </div>
+        <div class="cfg-row">
+          <div>
+            <div class="cfg-label">Hospedagem</div>
+            <div style="font-size:13px;color:var(--text);margin-top:4px;">KingHost — Plano Hospedagem II</div>
+          </div>
+          <div>
+            <div class="cfg-label">IP</div>
+            <div style="font-size:13px;color:var(--text);margin-top:4px;">191.6.209.210</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <button class="cfg-save" onclick="verificarServidor()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">🔄 Verificar agora</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTÓRICO (Alterações + Eventos unificados) -->
+    <div class="cfg-section" id="sec-logs">
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Histórico de Alterações</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Alterações feitas por usuários nos últimos 7 dias. Admin pode desfazer ações.</p>
+        <div class="audit-list" id="audit-list">
+          <p style="font-size:12px;color:var(--text-muted);padding:12px;">Carregando...</p>
+        </div>
+      </div>
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg> Eventos do Sistema</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Acessos, erros, ações automáticas e eventos significativos do sistema.</p>
+        <div class="cfg-log-list" id="log-list">
+          ${c.logs.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);padding:12px;">Nenhum evento registrado ainda.</p>' :
+            c.logs.slice(0, 50).map(l => '<div class="cfg-log-entry"><span class="log-type ' + (l.type||'') + '">' + (l.type||'') + '</span><span class="log-user">' + esc(l.user||'Sistema') + '</span><span>' + esc(l.msg) + '</span>' + (l.detail ? '<span class="log-detail">' + esc(l.detail) + '</span>' : '') + '<span style="float:right;opacity:.5;">' + new Date(l.dt).toLocaleString('pt-BR') + '</span></div>').join('')}
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button class="cfg-save" onclick="limparLogs()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);font-size:11px;">Limpar logs</button>
+          <button class="cfg-save" onclick="exportarLogs()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);font-size:11px;">Exportar CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DOCUMENTOS -->
+    <div class="cfg-section" id="sec-documentos">
+      <div class="cfg-card">
+        <h3><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg> Documentos & Termos</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Termos de uso, contratos, relatórios e documentos importantes para o CRM.</p>
+        <div class="cfg-doc-list" id="doc-list">
+          ${c.documentos.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Nenhum documento cadastrado.</p>' :
+            c.documentos.map((d, i) => `
+              <div class="cfg-doc-item">
+                <div class="doc-icon">${d.tipo === 'pdf' ? '📄' : d.tipo === 'contrato' ? '📋' : '📝'}</div>
+                <div class="doc-info">
+                  <div class="doc-name">${esc(d.nome)}</div>
+                  <div class="doc-meta">${d.tipo} · ${d.dtcriacao || '—'}</div>
+                </div>
+                <button class="btn-del" onclick="removerDocumento(${i})" title="Remover" style="background:rgba(255,60,60,.15);color:#ff5555;border:none;width:28px;height:28px;border-radius:50%;cursor:pointer;">×</button>
+              </div>
+            `).join('')}
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="cfg-save" onclick="abrirNovoDocumento()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">+ Novo Documento</button>
+        </div>
+      </div>
+
+      <div id="mod-documento" style="display:none;" class="cfg-card">
+        <h3>Novo Documento</h3>
+        <div class="cfg-row">
+          <div><div class="cfg-label">Nome</div><input class="cfg-input" id="doc-nome" placeholder="Ex: Termos de Uso"/></div>
+          <div>
+            <div class="cfg-label">Tipo</div>
+            <select class="cfg-input" id="doc-tipo">
+              <option value="termo">Termo de uso</option>
+              <option value="contrato">Contrato</option>
+              <option value="relatorio">Relatório</option>
+              <option value="pdf">PDF geral</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+        </div>
+        <div class="cfg-row full">
+          <div><div class="cfg-label">Conteúdo / Observações</div><textarea class="cfg-input" id="doc-conteudo" placeholder="Cole o texto do documento ou adicione observações"></textarea></div>
+        </div>
+        <div class="cfg-row full">
+          <div><div class="cfg-label">Link externo (opcional)</div><input class="cfg-input" id="doc-link" placeholder="https://..."/></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="cfg-save" onclick="salvarDocumento()">Salvar</button>
+          <button class="cfg-save" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);" onclick="document.getElementById('mod-documento').style.display='none'">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Tab switching
+  mc.querySelectorAll('.cfg-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      mc.querySelectorAll('.cfg-tab').forEach(t => t.classList.remove('active'));
+      mc.querySelectorAll('.cfg-section').forEach(s => s.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('sec-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  checkServerUsage();
+}
+
+// ── SAVE FUNCTIONS ──
+function salvarEmpresa() {
+  const c = cfg();
+  c.empresa.nome = document.getElementById('cfg-nome').value.trim();
+  c.empresa.cnpj = document.getElementById('cfg-cnpj').value.trim();
+  c.empresa.endereco = document.getElementById('cfg-endereco').value.trim();
+  c.empresa.cidade = document.getElementById('cfg-cidade').value.trim();
+  c.empresa.estado = document.getElementById('cfg-estado').value.trim();
+  saveConfig(c);
+  addLog('info', 'Dados da empresa atualizados');
+  toast('Dados da empresa salvos! ✓');
+}
+
+function salvarContato() {
+  const c = cfg();
+  c.contato.whatsapp_suporte = document.getElementById('cfg-whatsapp').value.trim();
+  c.contato.whatsapp_saudacao = document.getElementById('cfg-whatsapp-saudacao').value.trim();
+  c.contato.email = document.getElementById('cfg-email-contato').value.trim();
+  c.contato.instagram = document.getElementById('cfg-instagram').value.trim();
+  c.contato.facebook = document.getElementById('cfg-facebook').value.trim();
+  c.contato.youtube = document.getElementById('cfg-youtube').value.trim();
+  c.contato.site = document.getElementById('cfg-site').value.trim();
+  saveConfig(c);
+  addLog('info', 'Informações de contato atualizadas');
+  toast('Contato salvo! ✓');
+}
+
+// ── BANNERS ──
+function abrirNovoBanner() {
+  document.getElementById('mod-banner').style.display = 'block';
+  document.getElementById('bn-titulo').value = '';
+  document.getElementById('bn-desc').value = '';
+  document.getElementById('bn-link').value = '';
+  document.getElementById('bn-inicio').value = new Date().toISOString().slice(0,10);
+  document.getElementById('bn-fim').value = '';
+}
+
+function salvarBanner() {
+  const titulo = document.getElementById('bn-titulo').value.trim();
+  if (!titulo) { alert('Informe o título do banner.'); return; }
+  const c = cfg();
+  c.banners.push({
+    titulo,
+    descricao: document.getElementById('bn-desc').value.trim(),
+    cor: document.getElementById('bn-cor').value,
+    link: document.getElementById('bn-link').value.trim(),
+    dtinicio: document.getElementById('bn-inicio').value,
+    dtfim: document.getElementById('bn-fim').value,
+    ativo: true,
+    dtcriacao: new Date().toISOString(),
+  });
+  saveConfig(c);
+  addLog('info', `Banner criado: ${titulo}`);
+  toast('Banner salvo! ✓');
+  render();
+}
+
+function removerBanner(i) {
+  if (!confirm('Remover este banner?')) return;
+  const c = cfg();
+  const nome = c.banners[i]?.titulo || '';
+  c.banners.splice(i, 1);
+  saveConfig(c);
+  addLog('warn', `Banner removido: ${nome}`);
+  render();
+}
+
+// ── DOCUMENTOS ──
+function abrirNovoDocumento() {
+  document.getElementById('mod-documento').style.display = 'block';
+  document.getElementById('doc-nome').value = '';
+  document.getElementById('doc-conteudo').value = '';
+  document.getElementById('doc-link').value = '';
+}
+
+function salvarDocumento() {
+  const nome = document.getElementById('doc-nome').value.trim();
+  if (!nome) { alert('Informe o nome do documento.'); return; }
+  const c = cfg();
+  c.documentos.push({
+    nome,
+    tipo: document.getElementById('doc-tipo').value,
+    conteudo: document.getElementById('doc-conteudo').value.trim(),
+    link: document.getElementById('doc-link').value.trim(),
+    dtcriacao: new Date().toISOString().slice(0,10),
+  });
+  saveConfig(c);
+  addLog('info', `Documento adicionado: ${nome}`);
+  toast('Documento salvo! ✓');
+  render();
+}
+
+function removerDocumento(i) {
+  if (!confirm('Remover este documento?')) return;
+  const c = cfg();
+  const nome = c.documentos[i]?.nome || '';
+  c.documentos.splice(i, 1);
+  saveConfig(c);
+  addLog('warn', `Documento removido: ${nome}`);
+  render();
+}
+
+// ── LOGS ──
+function limparLogs() {
+  if (!confirm('Limpar todos os logs?')) return;
+  const c = cfg();
+  c.logs = [];
+  saveConfig(c);
+  render();
+}
+
+function exportarLogs() {
+  const c = cfg();
+  if (!c.logs.length) { alert('Nenhum log para exportar.'); return; }
+  const csv = 'Data,Tipo,Usuário,Mensagem,Detalhe\n' + c.logs.map(l =>
+    `"${l.dt}","${l.type}","${(l.user||'Sistema').replace(/"/g,'""')}","${l.msg.replace(/"/g,'""')}","${(l.detail||'').replace(/"/g,'""')}"`
+  ).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'intus-logs-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+// ── SERVER USAGE ──
+async function checkServerUsage() {
+  const storageEl = document.getElementById('meter-storage');
+  const storageText = document.getElementById('meter-storage-text');
+  const dbEl = document.getElementById('meter-db');
+  const dbText = document.getElementById('meter-db-text');
+
+  if (!storageEl) return;
+
+  // Estimate from known backup data
+  const storageUsedMB = 32;
+  const storageTotalMB = 10240; // 10 GB plan
+  const storagePct = Math.round((storageUsedMB / storageTotalMB) * 100);
+  storageEl.style.width = storagePct + '%';
+  storageText.textContent = `${storageUsedMB} MB de ${(storageTotalMB/1024).toFixed(0)} GB usados (${storagePct}%)`;
+
+  // DB estimate
+  const dbUsedMB = 2.4;
+  const dbTotalMB = 1024; // 1 GB
+  const dbPct = Math.round((dbUsedMB / dbTotalMB) * 100);
+  dbEl.style.width = Math.max(dbPct, 1) + '%';
+  dbText.textContent = `${dbUsedMB} MB de ${(dbTotalMB/1024).toFixed(0)} GB usados (${dbPct}%)`;
+
+  // Try healthcheck for live data
+  try {
+    const token = localStorage.getItem('mx-token') || '';
+    const r = await fetch(API_BASE + '/healthcheck.php', {
+      headers: { 'Authorization': 'Bearer ' + token },
+      cache: 'no-store'
+    });
+    if (r.ok) {
+      const j = await r.json();
+      if (j.db_size_mb) {
+        const liveDb = parseFloat(j.db_size_mb);
+        const livePct = Math.round((liveDb / dbTotalMB) * 100);
+        dbEl.style.width = Math.max(livePct, 1) + '%';
+        dbText.textContent = `${liveDb.toFixed(1)} MB de ${(dbTotalMB/1024).toFixed(0)} GB usados (${livePct}%)`;
+      }
+    }
+  } catch {}
+}
+
+function verificarServidor() {
+  toast('Verificando servidor...');
+  checkServerUsage();
+  addLog('info', 'Verificação manual do servidor executada');
+}
+
+function toast(msg) {
+  let t = document.getElementById('cfg-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'cfg-toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#7FFF00;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;border:1px solid rgba(127,255,0,.3);opacity:0;transition:opacity .3s;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  setTimeout(() => { t.style.opacity = '0'; }, 2500);
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── AUDIT TRAIL ──
+let _auditAdmin = false;
+
+function _auditAcaoLabel(acao) {
+  const map = { criar: 'Criou', editar: 'Editou', excluir: 'Excluiu', bloquear: 'Bloqueou' };
+  return map[acao] || acao;
+}
+
+function _auditEntidadeLabel(entidade) {
+  const map = { atleta: 'aluno', mensalidade: 'mensalidade', ficha: 'ficha de treino', treino: 'treino', plano: 'plano', usuario: 'usuário' };
+  return map[entidade] || entidade;
+}
+
+function _auditChangeSummary(antes, depois) {
+  if (!antes && !depois) return '';
+  if (!antes && depois) {
+    const keys = Object.keys(depois).filter(k => !k.startsWith('id') && !k.startsWith('dt') && depois[k]);
+    return keys.length ? keys.slice(0, 3).map(k => `${k}: ${String(depois[k]).slice(0, 30)}`).join(', ') : '';
+  }
+  if (antes && depois) {
+    const changes = [];
+    Object.keys(depois).forEach(k => {
+      if (k.startsWith('id') || k.startsWith('dt')) return;
+      if (String(antes[k] ?? '') !== String(depois[k] ?? '')) {
+        changes.push(`${k}: ${String(antes[k] || '—').slice(0, 15)} → ${String(depois[k] || '—').slice(0, 15)}`);
+      }
+    });
+    return changes.slice(0, 3).join(', ');
+  }
+  if (antes && !depois) {
+    const keys = Object.keys(antes).filter(k => !k.startsWith('id') && !k.startsWith('dt') && antes[k]);
+    return keys.length ? keys.slice(0, 3).map(k => `${k}: ${String(antes[k]).slice(0, 30)}`).join(', ') : '';
+  }
+  return '';
+}
+
+async function carregarAudit() {
+  const el = document.getElementById('audit-list');
+  if (!el) return;
+  try {
+    const token = localStorage.getItem('mx-token') || '';
+    const r = await fetch(API_BASE + '/audit.php', {
+      headers: { 'Authorization': 'Bearer ' + token },
+      cache: 'no-store'
+    });
+    if (!r.ok) throw new Error('status ' + r.status);
+    const j = await r.json();
+    _auditAdmin = j.admin || false;
+    const items = j.historico || [];
+    if (items.length === 0) {
+      el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);padding:12px;">Nenhuma alteração registrada nos últimos 7 dias.</p>';
+      return;
+    }
+    let html = '';
+    let lastDay = '';
+    items.forEach(item => {
+      const dt = new Date(item.dtcriacao);
+      const day = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+      if (day !== lastDay) {
+        html += `<div class="audit-day-header">${esc(day)}</div>`;
+        lastDay = day;
+      }
+      const iconClass = item.acao === 'criar' ? 'criar' : item.acao === 'excluir' ? 'excluir' : item.acao === 'bloquear' ? 'bloquear' : 'editar';
+      const iconEmoji = item.acao === 'criar' ? '+' : item.acao === 'excluir' ? '×' : item.acao === 'bloquear' ? '⊘' : '✎';
+      const hora = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const desc = item.descricao || (_auditAcaoLabel(item.acao) + ' ' + _auditEntidadeLabel(item.entidade) + (item.entidade_id ? ' #' + item.entidade_id : ''));
+      const desfeito = item.desfeito;
+      const undoBtn = (_auditAdmin && !desfeito && item.dados_antes) ?
+        `<button class="audit-undo" onclick="desfazerAudit(${item.idaudit})">Desfazer</button>` : '';
+      const desfeitoLabel = desfeito ? '<span style="font-size:10px;background:rgba(255,170,0,.15);color:#ffaa00;padding:2px 6px;border-radius:4px;margin-left:6px;">DESFEITO</span>' : '';
+      const changeSummary = _auditChangeSummary(item.dados_antes, item.dados_depois);
+      const changeHtml = changeSummary ? `<div class="audit-changes">${esc(changeSummary)}</div>` : '';
+      const userId = item.idusuario ? ` (ID ${item.idusuario})` : '';
+      html += `
+        <div class="audit-item${desfeito ? ' desfeito' : ''}">
+          <div class="audit-icon ${iconClass}">${iconEmoji}</div>
+          <div class="audit-info">
+            <div class="audit-desc">${esc(desc)}${desfeitoLabel}</div>
+            ${changeHtml}
+            <div class="audit-meta">${esc(item.nmusuario || 'Sistema')}${esc(userId)} · ${hora}</div>
+          </div>
+          ${undoBtn}
+        </div>
+      `;
+    });
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);padding:12px;">Erro ao carregar histórico.</p>';
+  }
+}
+
+async function desfazerAudit(id) {
+  if (!confirm('Tem certeza que deseja desfazer esta ação? Essa operação irá restaurar os dados anteriores.')) return;
+  try {
+    const token = localStorage.getItem('mx-token') || '';
+    const r = await fetch(API_BASE + '/audit.php?action=desfazer&id=' + id, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    });
+    const j = await r.json();
+    if (j.ok) {
+      toast('Ação desfeita com sucesso! ✓');
+      carregarAudit();
+    } else {
+      alert('Não foi possível desfazer: ' + (j.error || j.motivo || 'erro desconhecido'));
+    }
+  } catch (e) {
+    alert('Erro ao desfazer: ' + e.message);
+  }
+}
+
+// Registrar audit a partir de outros endpoints (helper global)
+window.registrarAudit = async function(acao, entidade, entidade_id, descricao, dados_antes, dados_depois) {
+  try {
+    const token = localStorage.getItem('mx-token') || '';
+    await fetch(API_BASE + '/audit.php', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao, entidade, entidade_id, descricao, dados_antes, dados_depois }),
+    });
+  } catch {}
+};
+
+// ── PLANOS ──
+function getPlanosCfg() {
+  return JSON.parse(localStorage.getItem('intus-planos-config') || '{}');
+}
+function savePlanosCfg(pc) {
+  localStorage.setItem('intus-planos-config', JSON.stringify(pc));
+  // Sync to backend
+  const token = localStorage.getItem('mx-token') || '';
+  fetch(API_BASE + '/catalogo.php?action=planos_config', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(pc),
+  }).catch(() => {});
+}
+
+function renderPlanos() {
+  const pc = getPlanosCfg();
+  const testeAtivo = document.getElementById('pl-teste-ativo');
+  const testeDias = document.getElementById('pl-teste-dias');
+  if (testeAtivo) testeAtivo.checked = pc.teste_ativo !== false;
+  if (testeDias) testeDias.value = pc.teste_dias || 3;
+
+  const defaults = [
+    { key: 'treino', label: 'Treino', periodos: ['tri','sem','anual'] },
+    { key: 'dieta', label: 'Dieta', periodos: ['tri','sem','anual'] },
+    { key: 'treino_dieta', label: 'Treino + Dieta', periodos: ['tri','sem','anual'] },
+  ];
+
+  const customPlanos = pc.custom_planos || [];
+  const allPlanos = [...defaults, ...customPlanos];
+
+  const container = document.getElementById('planos-lista');
+  if (!container) return;
+
+  const periodoLabel = { tri: 'Trimestral', sem: 'Semestral', anual: 'Anual' };
+  const prefixMap = { treino: 'v-treino', dieta: 'v-dieta', treino_dieta: 'v-combo' };
+
+  let html = '';
+  allPlanos.forEach((p, idx) => {
+    const prefix = prefixMap[p.key] || ('v-' + p.key);
+    const isCustom = idx >= defaults.length;
+    html += `<div style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span style="font-size:13px;font-weight:700;color:var(--text);">${esc(p.label)}</span>
+        ${isCustom ? `<button onclick="removerPlano(${idx - defaults.length})" style="background:rgba(255,60,60,.15);color:#ff5555;border:none;width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:12px;">×</button>` : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;">`;
+    (p.periodos || ['tri','sem','anual']).forEach(per => {
+      const cfgKey = `${prefix}-${per}`;
+      const val = pc[cfgKey] || '';
+      html += `<div>
+        <div class="cfg-label">${periodoLabel[per] || per}</div>
+        <input class="cfg-input plano-preco" data-key="${cfgKey}" type="number" min="0" step="0.01" value="${val}" placeholder="R$" style="font-size:12px;"/>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+
+  container.innerHTML = html;
+}
+
+function salvarPlanos() {
+  const pc = getPlanosCfg();
+  pc.teste_ativo = document.getElementById('pl-teste-ativo').checked;
+  pc.teste_dias = parseInt(document.getElementById('pl-teste-dias').value) || 3;
+
+  document.querySelectorAll('.plano-preco').forEach(inp => {
+    const key = inp.dataset.key;
+    const val = parseFloat(inp.value);
+    if (key && !isNaN(val) && val > 0) pc[key] = val;
+    else if (key) delete pc[key];
+  });
+
+  savePlanosCfg(pc);
+  addLog('info', 'Configuração de planos atualizada');
+  toast('Planos salvos! ✓');
+}
+
+function adicionarPlano() {
+  const nome = prompt('Nome do novo plano:');
+  if (!nome || !nome.trim()) return;
+  const key = nome.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  const pc = getPlanosCfg();
+  if (!pc.custom_planos) pc.custom_planos = [];
+  pc.custom_planos.push({ key, label: nome.trim(), periodos: ['tri','sem','anual'] });
+  savePlanosCfg(pc);
+  renderPlanos();
+  toast('Plano adicionado! Configure os valores.');
+}
+
+function removerPlano(idx) {
+  if (!confirm('Remover este plano personalizado?')) return;
+  const pc = getPlanosCfg();
+  if (!pc.custom_planos) return;
+  const removed = pc.custom_planos.splice(idx, 1);
+  if (removed[0]) {
+    const prefix = 'v-' + removed[0].key;
+    ['tri','sem','anual'].forEach(per => delete pc[`${prefix}-${per}`]);
+  }
+  savePlanosCfg(pc);
+  renderPlanos();
+  addLog('warn', 'Plano removido: ' + (removed[0]?.label || ''));
+}
+
+async function carregarMetricasPlanos() {
+  const token = localStorage.getItem('mx-token') || '';
+  try {
+    const r = await fetch(API_BASE + '/mensalidades.php?action=metricas', {
+      headers: { 'Authorization': 'Bearer ' + token },
+      cache: 'no-store'
+    });
+    if (r.ok) {
+      const j = await r.json();
+      if (j.ativas !== undefined) document.getElementById('pm-ativas').textContent = j.ativas;
+      if (j.vencidas !== undefined) document.getElementById('pm-vencidas').textContent = j.vencidas;
+      if (j.receita_mes !== undefined) document.getElementById('pm-receita').textContent = 'R$' + Number(j.receita_mes).toLocaleString('pt-BR', {minimumFractionDigits:0});
+      if (j.plano_popular) document.getElementById('pm-populares').textContent = j.plano_popular;
+    }
+  } catch {}
+
+  // Fallback: calculate from localStorage if API fails
+  const ativas = document.getElementById('pm-ativas');
+  if (ativas && ativas.textContent === '—') {
+    try {
+      const mens = JSON.parse(localStorage.getItem('intus-mensalidades') || '[]');
+      const hoje = new Date().toISOString().slice(0,10);
+      const act = mens.filter(m => m.dtvencimento >= hoje && m.stpgto === 'S');
+      const venc = mens.filter(m => m.dtvencimento < hoje || m.stpgto === 'N');
+      const mesAtual = hoje.slice(0,7);
+      const receitaMes = mens.filter(m => m.dtpagamento && m.dtpagamento.startsWith(mesAtual) && m.stpgto === 'S')
+        .reduce((s,m) => s + (parseFloat(m.vlpagamento) || 0), 0);
+
+      document.getElementById('pm-ativas').textContent = act.length;
+      document.getElementById('pm-vencidas').textContent = venc.length;
+      document.getElementById('pm-receita').textContent = 'R$' + receitaMes.toLocaleString('pt-BR', {minimumFractionDigits:0});
+
+      // Plano mais popular
+      const counts = {};
+      mens.forEach(m => { const d = m.dshistorico || ''; if (d) counts[d] = (counts[d]||0)+1; });
+      const popular = Object.entries(counts).sort((a,b) => b[1]-a[1])[0];
+      if (popular) document.getElementById('pm-populares').textContent = popular[0].split(' ')[0];
+    } catch {}
+  }
+}
+
+// ── INIT ──
+render();
+addLog('info', 'Página de configurações acessada', window.location.href);
+syncConfig();
+setTimeout(carregarAudit, 300);
+setTimeout(() => { renderPlanos(); carregarMetricasPlanos(); }, 200);
+</script>
+</body>
+</html>
