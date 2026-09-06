@@ -15,8 +15,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
-  <script src="_mock.js?v=20260906a"></script>
-  <script src="api.js?v=20260906a"></script>
+  <script src="_mock.js?v=20260906b"></script>
+  <script src="api.js?v=20260906b"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -8854,19 +8854,114 @@ async function salvarAutoAvaliacao() {
 }
 
 // ═══════════════ NUTRIÇÃO DO ALUNO ═══════════════
-function renderNutricaoAluno() {
+let _nutriPlanoAberto = null;
+
+async function renderNutricaoAluno() {
   const container = document.getElementById('v-nutricao');
   const isLight = document.body.classList.contains('tema-claro');
-  container.innerHTML = `${telaHeader('🥗 Nutrição')}
-    <div style="text-align:center;padding:50px 20px;">
-      <div style="font-size:48px;margin-bottom:16px;">🥗</div>
-      <h3 style="font-size:18px;font-weight:800;color:${isLight?'#1a1a1a':'#fff'};margin-bottom:8px;">Em Breve</h3>
-      <p style="font-size:13px;color:#888;line-height:1.6;max-width:300px;margin:0 auto;">
-        Estamos preparando o módulo de nutrição para você acompanhar seu plano alimentar diretamente pelo app.
-      </p>
-      <p style="font-size:12px;color:#666;margin-top:16px;">Fique ligado nas próximas atualizações!</p>
+  container.innerHTML = `${telaHeader('🥗 Nutrição')}<div style="text-align:center;padding:60px 20px;"><div class="spinner"></div></div>`;
+
+  let planos = [];
+  try { planos = await API.listarPlanosNutricionais(idAtleta); } catch { planos = []; }
+  if (!Array.isArray(planos)) planos = [];
+  const plano = planos.find(p => Number(p.ativo) === 1) || planos[0] || null;
+
+  const bgCard = isLight ? '#fff' : '#1a1a1a';
+  const borderC = isLight ? '#e5e5e5' : '#2a2a2a';
+  const muted = isLight ? '#666' : '#888';
+
+  if (!plano) {
+    container.innerHTML = `
+      <div style="padding:16px 0;">
+        ${telaHeader('🥗 Nutrição')}
+        <div style="text-align:center;padding:60px 20px;color:${muted};">
+          <div style="font-size:48px;margin-bottom:12px;">🥗</div>
+          <p style="font-size:14px;">Você ainda não tem um plano alimentar.</p>
+          <p style="font-size:12px;color:${muted};margin-top:8px;">Quando seu professor montar seu plano, ele aparece aqui.</p>
+        </div>
+        ${getFooterHtml()}
+      </div>
+    `;
+    return;
+  }
+
+  const refeicoes = Array.isArray(plano.refeicoes) ? [...plano.refeicoes].sort((a,b) => String(a.horario||'').localeCompare(String(b.horario||''))) : [];
+
+  const somaRefeicao = (ref) => (ref.itens_estruturados || []).reduce((acc, it) => {
+    const n = it.nutrientes || {};
+    acc.kcal += Number(n.energia_kcal) || 0;
+    acc.prot += Number(n.proteina_g) || 0;
+    acc.carb += Number(n.carboidrato_g) || 0;
+    acc.gord += Number(n.lipidio_g) || 0;
+    return acc;
+  }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+
+  const totalDia = refeicoes.reduce((acc, r) => {
+    const s = somaRefeicao(r);
+    acc.kcal += s.kcal; acc.prot += s.prot; acc.carb += s.carb; acc.gord += s.gord;
+    return acc;
+  }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+
+  const chip = (valor, meta, label, cor) => `
+    <div style="flex:1;text-align:center;">
+      <div style="font-size:18px;font-weight:800;color:${cor};">${Math.round(valor)}${meta ? '<span style="font-size:11px;color:'+muted+';font-weight:600;"> / '+Math.round(meta)+'</span>' : ''}</div>
+      <div style="font-size:9.5px;color:${muted};text-transform:uppercase;letter-spacing:.03em;">${label}</div>
+    </div>`;
+
+  const itemHTML = (it) => {
+    const n = it.nutrientes || {};
+    const qtd = it.medida_id === 'g' || !it.medida_nome ? `${it.quantidade}g` : `${it.quantidade} ${it.medida_nome}`;
+    const subs = (it.substitutos || []).filter(s => s && s.nome);
+    return `
+      <div style="padding:8px 0;border-top:1px solid ${borderC};">
+        <div style="display:flex;justify-content:space-between;gap:8px;">
+          <span style="font-size:13px;font-weight:600;">${esc(it.nome)} <span style="color:${muted};font-weight:400;">— ${esc(qtd)}</span></span>
+          <span style="font-size:11px;color:${muted};white-space:nowrap;">${Math.round(n.energia_kcal||0)} kcal</span>
+        </div>
+        ${subs.length ? `<div style="font-size:10.5px;color:var(--link-ex,#7FFF00);margin-top:2px;">↔ substitutos: ${subs.map(s => esc(s.nome)).join(', ')}</div>` : ''}
+      </div>`;
+  };
+
+  const refeicaoHTML = (r, idx) => {
+    const s = somaRefeicao(r);
+    const aberta = _nutriPlanoAberto === idx;
+    return `
+      <div style="background:${bgCard};border:1px solid ${borderC};border-radius:12px;margin-bottom:10px;overflow:hidden;">
+        <div style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="_nutriPlanoAberto=${aberta ? 'null' : idx};renderNutricaoAluno();">
+          <div>
+            <div style="font-size:13px;font-weight:700;">${esc(r.nome || 'Refeição')}</div>
+            <div style="font-size:11px;color:${muted};">${esc(r.horario || '')} · ${(r.itens_estruturados||[]).length} item${(r.itens_estruturados||[]).length!==1?'s':''} · ${Math.round(s.kcal)} kcal</div>
+          </div>
+          <div style="color:${muted};font-size:12px;">${aberta ? '▲' : '▼'}</div>
+        </div>
+        ${aberta ? `<div style="padding:0 14px 12px;">
+          ${(r.itens_estruturados||[]).length ? (r.itens_estruturados||[]).map(itemHTML).join('') : `<p style="font-size:12px;color:${muted};padding-top:8px;">Nenhum alimento cadastrado nesta refeição.</p>`}
+        </div>` : ''}
+      </div>`;
+  };
+
+  container.innerHTML = `
+    <div style="padding:16px 0;">
+      ${telaHeader('🥗 ' + esc(plano.titulo || 'Meu Plano Alimentar'))}
+      ${plano.objetivo ? `<p style="font-size:12px;color:${muted};margin:-4px 0 12px;">${esc(plano.objetivo)}</p>` : ''}
+
+      <div style="background:${bgCard};border:1px solid ${borderC};border-radius:12px;padding:14px;margin-bottom:16px;display:flex;gap:6px;">
+        ${chip(totalDia.kcal, plano.calorias, 'kcal', isLight?'#b45309':'#ffcf4d')}
+        ${chip(totalDia.prot, plano.proteina, 'proteína g', '#60a5fa')}
+        ${chip(totalDia.carb, plano.carboidrato, 'carbo g', 'var(--link-ex,#7FFF00)')}
+        ${chip(totalDia.gord, plano.gordura, 'gordura g', '#f87171')}
+      </div>
+
+      ${plano.comentario_inicio ? `<div style="background:${bgCard};border-left:3px solid var(--link-ex,#7FFF00);border-radius:0 10px 10px 0;padding:10px 12px;margin-bottom:14px;font-size:12.5px;">${esc(plano.comentario_inicio)}</div>` : ''}
+
+      <h3 style="font-size:13px;font-weight:700;margin:0 0 10px;color:${muted};text-transform:uppercase;letter-spacing:.03em;">Refeições do dia</h3>
+      ${refeicoes.length === 0 ? `<p style="font-size:12px;color:${muted};">Nenhuma refeição cadastrada ainda.</p>` : refeicoes.map(refeicaoHTML).join('')}
+
+      ${plano.comentario_fim ? `<div style="background:${bgCard};border-left:3px solid var(--link-ex,#7FFF00);border-radius:0 10px 10px 0;padding:10px 12px;margin:14px 0;font-size:12.5px;">${esc(plano.comentario_fim)}</div>` : ''}
+      ${plano.observacao ? `<p style="font-size:11.5px;color:${muted};margin-top:10px;">${esc(plano.observacao)}</p>` : ''}
     </div>
-    ${getFooterHtml()}`;
+    ${getFooterHtml()}
+  `;
 }
 
 // ═══════════════ PERFIL ═══════════════

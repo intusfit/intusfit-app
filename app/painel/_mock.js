@@ -818,10 +818,15 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
 
     /* ── INPUT ── */
     .input {
-      width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+      width: 100%; min-width: 0; padding: 9px 12px; border: 1px solid var(--border);
       border-radius: 8px; font-size: 13px; color: #fff;
       outline: none; font-family: inherit; background: var(--bg3);
     }
+    /* <select> e <input> tem largura mínima de conteúdo por padrão do navegador
+       (min-width:auto), que width:100% não sobrepõe. Dentro de grid/flex isso
+       empurra o container inteiro pra largura do texto mais longo da opção,
+       cortando o resto da tela em vez de quebrar linha -- achado em telas
+       estreitas do painel (nutrição, refeições) em 06/09/2026. */
     .input:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-dim); }
     .label { font-size: 12px; font-weight: 600; color: #ccc; display: block; margin-bottom: 5px; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
