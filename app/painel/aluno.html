@@ -829,10 +829,11 @@
 </div>
 
 <div class="timer-bar" id="timer-bar">
-  <img id="timer-logo" src="logo-intus-light.png" alt="Intus Fit" style="position:absolute;top:12px;right:16px;height:16px;opacity:.55;"/>
+  <img id="timer-logo" src="logo-intus-light.png" alt="Intus Fit" style="position:absolute;top:12px;right:16px;height:18px;opacity:.8;"/>
   <span class="timer-label">TEMPO TOTAL</span>
   <span class="total-time" id="total-time">00:00:00</span>
   <div class="rest-wrap" id="rest-wrap">
+    <img id="rest-logo" src="logo-intus-light.png" alt="" style="height:13px;opacity:.85;"/>
     <span class="rest-label">Descanso</span>
     <span class="rest-time" id="rest-time">00:00</span>
     <span id="rest-alvo" style="font-size:11px;color:#7a7f85;font-weight:700;margin-left:4px;"></span>
@@ -1095,10 +1096,14 @@ function _figPick(list) {
   try { localStorage.setItem('intus-fig-recent', JSON.stringify(recent)); } catch (e) {}
   return it;
 }
-function figurinhaAleatoriaHtml(isLight) {
+// itPreescolhido: passe a figurinha já sorteada em outro lugar (ex.: renderFim
+// sorteia uma vez e reaproveita aqui e no cartão de compartilhar) — sem isso,
+// cada chamada sorteava a sua, e a figurinha do cartão nunca batia com a que
+// o aluno via na tela ao terminar o treino.
+function figurinhaAleatoriaHtml(isLight, itPreescolhido) {
   const list = _figurinhasList();
   if (!list.length) return '';
-  const it = _figPick(list);
+  const it = itPreescolhido || _figPick(list);
   let inner;
   if (it && it.tipo === 'img' && it.src) {
     inner = '<img src="' + esc(it.src) + '" alt="figurinha" style="max-width:200px;max-height:200px;width:auto;height:auto;border-radius:16px;object-fit:contain;" onerror="this.style.display=\'none\'"/>' +
@@ -1142,7 +1147,9 @@ function abrirCompartilharTreino(info) {
   if (typeof html2canvas === 'undefined') { toast('Não consegui carregar o gerador de imagem. Verifique sua internet e tente de novo.'); return; }
   _shareState = {
     info: info,
-    fig: _figPick(_figurinhasList()),
+    // A figurinha É a do dia daquele treino (gravada em renderFim). Só sorteia
+    // uma nova se for um registro antigo, de antes desta trava existir.
+    fig: info.fig || _figPick(_figurinhasList()),
     incluirFig: true,
     bgModo: 'transparente',
     bgImg: null,
@@ -1153,6 +1160,7 @@ function abrirCompartilharTreino(info) {
 
 function _fecharCompartilhar() {
   document.getElementById('share-overlay')?.remove();
+  _shareFecharCamera(); // segurança: garante que a câmera não fica ligada em segundo plano
   _shareState = null;
 }
 
@@ -1164,9 +1172,91 @@ function _shareTrocarTpl(delta) {
 
 function _shareSetBg(modo) {
   if (modo === 'galeria') { document.getElementById('share-file-galeria').click(); return; }
-  if (modo === 'camera') { document.getElementById('share-file-camera').click(); return; }
+  if (modo === 'camera') { _shareAbrirCamera(); return; }
   _shareState.bgModo = 'transparente';
   _shareState.bgImg = null;
+  _renderShareOverlay();
+}
+
+// ── CÂMERA AO VIVO, COM O CARTÃO POR CIMA ──────────────────────────────────
+// Antes o botão "Câmera" só abria o app de câmera do sistema, cego: o aluno
+// tirava a foto sem saber onde a logo e o texto do cartão iam cair por cima
+// dela depois, e podia acabar atrás de alguma informação. Aqui a prévia ao
+// vivo já mostra o cartão sobreposto (com o modo 'LIVE', que deixa o fundo do
+// template transparente), então dá pra se posicionar antes de apertar o
+// obturador. Precisa de câmera liberada por HTTPS e do Permissions-Policy do
+// próprio domínio permitindo "self" (sem isso o navegador bloqueia mesmo com
+// o aluno aceitando o pedido de permissão).
+let _camStream = null;
+let _camFacing = 'environment';
+
+async function _shareAbrirCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    document.getElementById('share-file-camera').click();
+    return;
+  }
+  try {
+    _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
+  } catch (e) {
+    console.warn('[camera]', e);
+    toast('Não consegui acessar a câmera. Tente escolher da galeria.');
+    document.getElementById('share-file-camera').click();
+    return;
+  }
+  _renderCameraOverlay();
+}
+
+function _renderCameraOverlay() {
+  document.getElementById('cam-overlay')?.remove();
+  const S = _shareState;
+  const tpl = SHARE_TEMPLATES[S.tplIdx];
+  const isLight = document.body.classList.contains('tema-claro');
+  const ov = document.createElement('div');
+  ov.id = 'cam-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+  ov.innerHTML = `
+    <div style="position:relative;width:230px;height:410px;border-radius:18px;overflow:hidden;background:#000;">
+      <video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${_camFacing === 'user' ? 'transform:scaleX(-1);' : ''}"></video>
+      <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
+    </div>
+    <div style="font-size:11.5px;color:#aaa;margin-top:14px;text-align:center;max-width:270px;line-height:1.5;">Posicione-se dentro do quadro — é assim que o cartão vai ficar</div>
+    <div style="display:flex;align-items:center;gap:28px;margin-top:22px;">
+      <button aria-label="Fechar" onclick="_shareFecharCamera()" style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:16px;cursor:pointer;">✕</button>
+      <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:68px;height:68px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.35);cursor:pointer;"></button>
+      <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:16px;cursor:pointer;">🔄</button>
+    </div>
+  `;
+  document.body.appendChild(ov);
+  document.getElementById('share-cam-video').srcObject = _camStream;
+}
+
+function _shareFecharCamera() {
+  if (_camStream) { _camStream.getTracks().forEach(t => t.stop()); _camStream = null; }
+  document.getElementById('cam-overlay')?.remove();
+}
+
+async function _shareAlternarCamera() {
+  _camFacing = _camFacing === 'environment' ? 'user' : 'environment';
+  if (_camStream) _camStream.getTracks().forEach(t => t.stop());
+  try {
+    _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
+    _renderCameraOverlay();
+  } catch (e) { toast('Não consegui trocar de câmera.'); }
+}
+
+function _shareCapturarFoto() {
+  const v = document.getElementById('share-cam-video');
+  if (!v || !v.videoWidth) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+  const ctx = canvas.getContext('2d');
+  // Espelha na câmera frontal: sem isso a foto sai trocada (letras ao contrário
+  // em qualquer texto atrás da pessoa), mesmo a prévia já mostrando espelhado.
+  if (_camFacing === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+  _shareState.bgImg = canvas.toDataURL('image/jpeg', 0.92);
+  _shareState.bgModo = 'foto-custom';
+  _shareFecharCamera();
   _renderShareOverlay();
 }
 
@@ -1192,7 +1282,7 @@ function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'log
 
 // ── os 3 templates (a lista SHARE_TEMPLATES aponta pra estas funções) ──
 function _tplTransparenteHtml(info, fig, bgImg, isLight) {
-  const bg = bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
+  const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   return `<div class="share-card" style="${bg}">
     <div class="share-card-inner" style="justify-content:flex-end;">
       ${_shareFigHtml(fig)}
@@ -1204,7 +1294,7 @@ function _tplTransparenteHtml(info, fig, bgImg, isLight) {
   </div>`;
 }
 function _tplFotoHtml(info, fig, bgImg, isLight) {
-  const bg = bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
+  const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
   return `<div class="share-card" style="${bg}">
     <div class="share-card-inner" style="justify-content:flex-end;background:linear-gradient(to top, rgba(0,0,0,.82), rgba(0,0,0,.1) 60%);">
       ${_shareFigHtml(fig)}
@@ -1216,7 +1306,7 @@ function _tplFotoHtml(info, fig, bgImg, isLight) {
   </div>`;
 }
 function _tplStoryHtml(info, fig, bgImg, isLight) {
-  const bg = bgImg ? `background:url('${bgImg}') center/cover;` : `background:#0a0a0a;`;
+  const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:#0a0a0a;`;
   return `<div class="share-card" style="${bg}">
     <div style="position:absolute;inset:14px;border:1px solid rgba(127,255,0,.35);border-radius:18px;display:flex;flex-direction:column;background:rgba(10,10,10,.35);">
       <div style="padding:14px;text-align:center;border-bottom:1px solid rgba(127,255,0,.2);">
@@ -1332,22 +1422,44 @@ async function _shareAcao(tipo) {
       toast('Imagem copiada! ✅');
       return;
     }
-    if (tipo === 'compartilhar' && navigator.canShare && navigator.canShare({ files: [new File([blob], fname, { type: 'image/png' })] })) {
-      await navigator.share({ files: [new File([blob], fname, { type: 'image/png' })], title: 'Meu treino Intus' });
-      return;
+    if (tipo === 'compartilhar') {
+      const file = new File([blob], fname, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'Meu treino Intus' }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }
+      }
     }
-    // 'salvar', ou 'compartilhar' sem suporte a Web Share com arquivo: baixa a imagem.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = fname;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    toast(tipo === 'compartilhar' ? 'Baixei a imagem — seu navegador não permite compartilhar direto.' : 'Imagem salva! ✅');
+    // 'salvar', ou 'compartilhar' sem suporte a Web Share com arquivo: mostra a
+    // imagem NA PRÓPRIA TELA pra salvar com toque-e-segure (Salvar Imagem /
+    // Adicionar à Galeria), que no celular vai direto pra galeria de fotos.
+    // Um <a download> baixava pra uma pasta de Downloads difícil de achar
+    // depois, e no iOS ainda abria uma prévia do sistema cujo botão de
+    // fechar às vezes trava — bug do próprio aparelho, fora do nosso alcance,
+    // que evitamos simplesmente não entrando nesse caminho.
+    _shareMostrarParaSalvar(blob, fname);
   } catch (e) {
     if (e && e.name === 'AbortError') return; // usuário cancelou o share nativo
     console.error('compartilhar treino:', e);
     toast('Não consegui gerar a imagem agora.');
   }
+}
+
+function _shareMostrarParaSalvar(blob, fname) {
+  const url = URL.createObjectURL(blob);
+  document.getElementById('share-save-overlay')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'share-save-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:16px;';
+  ov.innerHTML =
+    '<img src="' + url + '" style="max-width:min(80vw,300px);max-height:56vh;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);"/>' +
+    '<div style="color:#eee;font-size:13px;text-align:center;max-width:280px;line-height:1.6;">👆 Toque e segure na imagem, depois em <b>"Adicionar à Galeria"</b> ou <b>"Salvar Imagem"</b></div>' +
+    '<a href="' + url + '" download="' + fname + '" style="font-size:12px;color:#7FFF00;text-decoration:underline;">ou baixar o arquivo</a>' +
+    // window.URL, não URL: dentro de um onclick inline, o "URL" desacompanhado
+    // resolve pra document.URL (uma string, sem revokeObjectURL) por causa do
+    // escopo "with" que o navegador aplica a atributos on*, e o revoke falhava
+    // calado — o comportamento certo só apareceu testando de verdade.
+    '<button onclick="document.getElementById(\'share-save-overlay\').remove();window.URL.revokeObjectURL(\'' + url + '\');" style="margin-top:6px;padding:11px 26px;border-radius:12px;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:700;cursor:pointer;">Fechar</button>';
+  document.body.appendChild(ov);
 }
 
 (function(){
@@ -4274,6 +4386,10 @@ function renderFim(duracao, sessaoSalva) {
   const pctCompleto = seriesTotal ? Math.round(seriesFeitas / seriesTotal * 100) : 100;
   const isLight = document.body.classList.contains('tema-claro');
   const nomeTreino = sessaoAtual.nomeFicha || ('Divisão ' + sessaoAtual.divisao);
+  // Sorteia UMA vez só: a mesma figurinha que aparece aqui na tela de fim é a
+  // que vai pro cartão de compartilhar, mesmo que o aluno abra o cartão só
+  // mais tarde (pela Central, por ex.) — sem isso, cada tela sorteava a sua.
+  const figDoDia = _figPick(_figurinhasList());
   // Guardado pro botão "Compartilhar treino" — e pra Central de Compartilhamento
   // conseguir reabrir com os dados do ÚLTIMO treino mesmo fora desta tela.
   const _shareInfo = {
@@ -4281,6 +4397,7 @@ function renderFim(duracao, sessaoSalva) {
     nomeTreino: nomeTreino, divisao: sessaoAtual.divisao,
     min: min, sec: sec, volume: volSessao,
     seriesFeitas: seriesFeitas, seriesTotal: seriesTotal, pctCompleto: pctCompleto,
+    fig: figDoDia,
   };
   try { localStorage.setItem('intus-ultimo-treino-share', JSON.stringify(_shareInfo)); } catch (e) {}
 
@@ -4296,7 +4413,7 @@ function renderFim(duracao, sessaoSalva) {
       <div style="font-size:48px;margin-bottom:12px;">🎉</div>
       <h2 style="font-size:24px;letter-spacing:2px;margin-bottom:8px;color:${txtColor};">TREINO FINALIZADO</h2>
       <p style="font-size:16px;font-weight:600;margin-bottom:10px;color:${subColor};">${esc(mensagem)}</p>
-      <div style="margin-bottom:20px;">${figurinhaAleatoriaHtml(isLight)}</div>
+      <div style="margin-bottom:20px;">${figurinhaAleatoriaHtml(isLight, figDoDia)}</div>
 
       <div id="fim-conquistas"></div>
 
@@ -4319,13 +4436,13 @@ function renderFim(duracao, sessaoSalva) {
         <button class="btn btn-sec" style="width:100%;margin-top:8px;min-height:36px;font-size:12px;" onclick="salvarComentarioFim(${sessaoSalva.idsessao})">Salvar comentário</button>
       </div>
 
-      <button class="btn btn-prim" style="width:100%;max-width:320px;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirCompartilharUltimoTreino()">📤 Compartilhar treino</button>
+      <button class="btn btn-prim" style="width:100%;max-width:320px;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="abrirCompartilharUltimoTreino()">📤 Compartilhar treino</button>
 
-      <div style="display:flex;gap:10px;margin-top:12px;max-width:320px;width:100%;">
+      <div style="display:flex;gap:8px;margin-top:12px;max-width:320px;width:100%;">
         <button class="btn btn-sec" style="flex:1;" onclick="navegar('ranking')">🏆 Ranking</button>
         <button class="btn btn-sec" style="flex:1;" onclick="navegar('historico')">📊 Histórico</button>
+        <button class="btn btn-sec" style="flex:1;" onclick="trocarView('home');renderHome();">🏠 Início</button>
       </div>
-      <button class="btn btn-sec" style="width:100%;max-width:320px;margin-top:10px;" onclick="trocarView('home');renderHome();">🏠 Início</button>
     </div>`;
   try { _celebrarConquistasFim(); } catch (e) {}
 }
@@ -10698,7 +10815,7 @@ function mostrarDicaTema() {
 })();
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js?v=8').then(reg => {
+  navigator.serviceWorker.register('sw.js?v=9').then(reg => {
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
       if (nw) nw.addEventListener('statechange', () => {
