@@ -1438,26 +1438,33 @@ async function salvarAvaliacao(idavaliacao) {
 }
 
 async function uploadFotosDrive(files, nomeAluno, mes) {
-  // Google Drive folder: 1ESaxQYnGRwdfYU1q7vBPXaQTCEXf0spw
-  // Structure: /{nomeAluno}/{mes}/foto.jpg
-  const DRIVE_FOLDER_ID = '1ESaxQYnGRwdfYU1q7vBPXaQTCEXf0spw';
+  // Pasta do Drive e credencial vêm de app/config/gdrive.json no servidor —
+  // o front-end só manda o nome/aluno/mês como contexto do arquivo.
   const urls = [];
+  const falhas = [];
 
   for (const file of files) {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('folder_id', DRIVE_FOLDER_ID);
     formData.append('path', `${nomeAluno}/${mes}`);
     try {
-      const resp = await fetch(API_BASE.replace('/api', '/api') + '/upload-drive.php', {
+      const resp = await fetch(API_BASE + '/upload-drive.php', {
         method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
         body: formData,
       });
       const json = await resp.json();
       if (json.url) urls.push({ url: json.url, name: file.name });
+      else { console.error('Upload falhou:', file.name, json.error); falhas.push(file.name); }
     } catch (e) {
       console.error('Upload falhou:', file.name, e);
+      falhas.push(file.name);
     }
+  }
+  // Antes disso, uma foto que falhasse sumia sem nenhum aviso — nem aqui, nem
+  // no toast de fora, porque o erro nunca saia deste laço (ver CLAUDE.md 11.4).
+  if (falhas.length) {
+    showToast(`${falhas.length} de ${files.length} foto(s) não foram enviadas ao Drive: ${falhas.join(', ')}`, 'error');
   }
   return urls;
 }
