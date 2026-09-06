@@ -19,14 +19,18 @@
 function _gdriveConn() {
     static $pdo = 'unset';
     if ($pdo !== 'unset') return $pdo;
+    // A ordem importa: db.php DEFINE as constantes como efeito colateral mas
+    // nao faz `return` de array nenhum, entao "defined('DB_HOST')" so vira
+    // verdade DEPOIS do include rodar — checar antes (como esta funcao fazia)
+    // sempre caia no ramo errado na primeira chamada do processo.
+    $cfg = @include __DIR__ . '/../config/db.php';
     try {
-        if (defined('DB_HOST')) {
+        if (is_array($cfg) && isset($cfg['host'])) {
+            $pdo = new PDO('mysql:host=' . $cfg['host'] . ';dbname=' . $cfg['database'] . ';charset=utf8mb4', $cfg['username'], $cfg['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        } elseif (defined('DB_HOST')) {
             $pdo = new PDO('mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4', DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         } else {
-            $cfg = @include __DIR__ . '/../config/db.php';
-            $pdo = (is_array($cfg) && isset($cfg['host']))
-                ? new PDO('mysql:host=' . $cfg['host'] . ';dbname=' . $cfg['database'] . ';charset=utf8mb4', $cfg['username'], $cfg['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION])
-                : null;
+            $pdo = null;
         }
     } catch (Throwable $e) { $pdo = null; }
     return $pdo;
@@ -69,7 +73,13 @@ function _gdriveToken($key) {
     $header = $b64(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
     $claim  = $b64(json_encode([
         'iss'   => $key['client_email'],
-        'scope' => 'https://www.googleapis.com/auth/drive.file',
+        // drive.file só enxerga arquivos que a PRÓPRIA conta de serviço criou —
+        // não uma pasta que o Luiz compartilhou com ela depois. Precisa do
+        // escopo cheio para conseguir escrever dentro de uma pasta existente
+        // compartilhada por outra pessoa. Verificado em 06/09/2026: era a causa
+        // exata do "sobe local, nunca aparece no Drive" (404 "File not found"
+        // na pasta, mesmo com a chave e o folder_id certos).
+        'scope' => 'https://www.googleapis.com/auth/drive',
         'aud'   => 'https://oauth2.googleapis.com/token',
         'iat'   => $now,
         'exp'   => $now + 3600,
