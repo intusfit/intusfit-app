@@ -2625,6 +2625,39 @@ const API = {
     () => JSON.parse(localStorage.getItem('intus-desafios') || '[]').filter(d => d.ativo)
   ),
 
+  // Sessões cruas do período do desafio + as regras próprias dele, pra quem
+  // chama montar o ranking com API.agregarPontosRank(sessoes, regras) — a
+  // mesma função do ranking geral, só que com os números deste desafio.
+  rankingPontosDesafio: (iddesafio) => tryRemoteOrLocal(
+    () => apiFetch('/desafios.php?action=ranking_pontos&desafio=' + iddesafio),
+    () => ({ participantes: [], sessoes: [], regras_pontos: null })
+  ),
+
+  anunciarVencedorDesafio: (data) => tryRemoteOrLocal(
+    () => apiFetch('/desafios.php?action=anunciar_vencedor', { method: 'POST', body: JSON.stringify(data) }),
+    () => ({ ok: true })
+  ),
+
+  desafiosAbertos: (idatleta) => tryRemoteOrLocal(
+    () => apiFetch('/desafios.php?action=desafios_abertos' + (idatleta ? '&atleta=' + idatleta : '')),
+    () => []
+  ),
+
+  solicitarEntradaDesafio: (iddesafio, idatleta) => tryRemoteOrLocal(
+    () => apiFetch('/desafios.php?action=solicitar_entrada', { method: 'POST', body: JSON.stringify({ iddesafio, idatleta }) }),
+    () => ({ ok: true, status: 'participante' })
+  ),
+
+  listarSolicitacoesDesafio: (iddesafio) => tryRemoteOrLocal(
+    () => apiFetch('/desafios.php?action=solicitacoes&desafio=' + iddesafio),
+    () => []
+  ),
+
+  responderSolicitacaoDesafio: (idsolicitacao, aprovar) => tryRemoteOrLocal(
+    () => apiFetch('/desafios.php?action=solicitacoes', { method: 'POST', body: JSON.stringify({ idsolicitacao, aprovar }) }),
+    () => ({ ok: true })
+  ),
+
   // Avaliações (backend-first via catalogo.php) ────────────────────────
   listarAvaliacoes: (idatleta) => tryRemoteOrLocal(
     async () => {
@@ -2969,8 +3002,10 @@ const API = {
     const mm = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
     return d.getFullYear() + '-' + mm + '-' + dd;
   },
-  pontosCardioRank: (raw) => {
-    const R = API.regrasRanking();
+  // R opcional: passa as regras de um desafio específico (mescladas sobre o
+  // padrão via mesclarRegrasRanking) em vez das regras globais do painel.
+  pontosCardioRank: (raw, R) => {
+    R = R || API.regrasRanking();
     return Math.min(Math.round((Number(raw) || 0) * R.cardioFator * 10) / 10, R.cardioTeto);
   },
 
@@ -3035,9 +3070,11 @@ const API = {
   // `lista` é o conjunto de sessões do contexto (as do aluno, ou as de todos).
   // Sem ela não dá para saber se este é o primeiro ou o segundo treino do dia,
   // e a função devolve o valor do primeiro.
-  pontosSessaoRank: (s, lista) => {
+  // R opcional: regras de um desafio específico. Sem ela, usa o ranking geral
+  // (comportamento de sempre — todo chamador existente continua igual).
+  pontosSessaoRank: (s, lista, R) => {
     if (!s || !API.contaNoRank(s)) return 0;
-    const R = API.regrasRanking();
+    R = R || API.regrasRanking();
     const dt = API.dtRank(s);
     const legado = !(dt >= new Date(R.vigorApartirDe + 'T00:00:00'));
     if (API.ehMusculacaoRank(s)) {
@@ -3052,19 +3089,20 @@ const API = {
       return R.musBase;
     }
     const raw = parseFloat(s.pontos || 0);
-    return legado ? raw : API.pontosCardioRank(raw);
+    return legado ? raw : API.pontosCardioRank(raw, R);
   },
 
   // ── agregação por atleta (base + bônus) ──────────────────────────────
-  agregarPontosRank: (lista) => {
-    const R = API.regrasRanking();
+  // R opcional: regras de um desafio específico (ver rankingPontosDesafio).
+  agregarPontosRank: (lista, R) => {
+    R = R || API.regrasRanking();
     const corte = new Date(R.vigorApartirDe + 'T00:00:00');
     const corteDia = new Date(R.vigorSegundoDia + 'T00:00:00');
     const acc = {};
     (Array.isArray(lista) ? lista : []).forEach((s) => {
       const id = Number(s && s.idatleta);
       if (!acc[id]) acc[id] = { id: id, base: 0, bonus: 0, _sem: {} };
-      acc[id].base += API.pontosSessaoRank(s, lista);
+      acc[id].base += API.pontosSessaoRank(s, lista, R);
       if (API.ehMusculacaoRank(s) && API.contaNoRank(s)) {
         const k = API.semanaRank(API.dtRank(s));
         if (!acc[id]._sem[k]) {

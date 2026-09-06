@@ -239,9 +239,13 @@ function renderDesafioCard(d, hoje) {
         <span class="d-card-title">${esc(d.nome)}</span>
         <span class="d-card-badge ${ativo?'ativo':'encerrado'}">${ativo ? diasRestantes + 'd restantes' : 'Encerrado'}</span>
       </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <span class="d-card-badge individual">${d.tipo_acesso === 'aberto' ? '🔓 Aberto' : '🔒 Exclusivo'}</span>
+        ${d.vencedor_anunciado ? `<span class="d-card-badge desafio">🏆 Encerrado com vencedor</span>` : ''}
+      </div>
       <div class="d-card-info"><b>Período:</b> ${fmtDate(d.dtinicio)} — ${fmtDate(d.dtfim)}</div>
       <div class="d-card-info"><b>Participantes:</b> ${d.participantes_count || 0}</div>
-      ${plano ? `<div class="d-card-info"><b>Plano:</b> ${esc(plano.nome)}</div>` : ''}
+      ${plano ? `<div class="d-card-info"><b>Plano:</b> ${esc(plano.nome)}${Number(plano.valor)>0 ? ' · R$'+Number(plano.valor).toFixed(2) : ' · gratuito'}</div>` : ''}
       ${d.descricao ? `<div class="d-card-info">${esc(d.descricao).slice(0,80)}</div>` : ''}
       <div class="d-card-actions">
         <button class="btn btn-primary btn-sm" onclick="abrirDetalheDesafio(${d.iddesafio})">Gerenciar</button>
@@ -295,6 +299,34 @@ function abrirModalDesafio(editId) {
       <div class="form-group">
         <label class="label">Descrição (opcional)</label>
         <textarea class="input" id="ds-desc" rows="2" placeholder="Descreva o desafio...">${d ? esc(d.descricao||'') : ''}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="label">Tipo de acesso</label>
+        <select class="input" id="ds-tipoacesso">
+          <option value="exclusivo" ${!d || d.tipo_acesso!=='aberto' ? 'selected' : ''}>Exclusivo — só eu adiciono participante</option>
+          <option value="aberto" ${d && d.tipo_acesso==='aberto' ? 'selected' : ''}>Aberto — aluno pede pra entrar pelo app</option>
+        </select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Se o plano vinculado tiver valor, pedido de entrada num desafio aberto fica pendente até você aprovar (o pagamento você confirma por fora, no Financeiro).</div>
+      </div>
+      <div class="form-group">
+        <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="document.getElementById('ds-pontos-body').style.display=document.getElementById('ds-pontos-body').style.display==='none'?'block':'none';">
+          <label class="label" style="margin:0;cursor:pointer;">⚙️ Pontuação deste desafio (opcional — sem preencher, usa o ranking geral)</label>
+          <span style="font-size:11px;color:var(--brand);">expandir/recolher</span>
+        </div>
+        <div id="ds-pontos-body" style="display:${d && d.regras_pontos ? 'block' : 'none'};margin-top:8px;">
+          <div class="form-2col">
+            <div class="form-group"><label class="label">Pontos 1º treino (musculação)</label><input class="input" type="number" step="0.5" id="pt-musBase" value="${d?.regras_pontos?.musBase ?? 10}"/></div>
+            <div class="form-group"><label class="label">Pontos 2º treino no mesmo dia</label><input class="input" type="number" step="0.5" id="pt-musSegundo" value="${d?.regras_pontos?.musSegundo ?? 5}"/></div>
+          </div>
+          <div class="form-2col">
+            <div class="form-group"><label class="label">Fator do cardio</label><input class="input" type="number" step="0.05" id="pt-cardioFator" value="${d?.regras_pontos?.cardioFator ?? 0.55}"/></div>
+            <div class="form-group"><label class="label">Teto de pontos do cardio</label><input class="input" type="number" step="0.5" id="pt-cardioTeto" value="${d?.regras_pontos?.cardioTeto ?? 7}"/></div>
+          </div>
+          <div class="form-2col">
+            <div class="form-group"><label class="label">Dias p/ bônus semanal</label><input class="input" type="number" id="pt-bonusDias" value="${d?.regras_pontos?.bonusDias ?? 4}"/></div>
+            <div class="form-group"><label class="label">Pontos do bônus</label><input class="input" type="number" step="0.5" id="pt-bonusPts" value="${d?.regras_pontos?.bonusPts ?? 5}"/></div>
+          </div>
+        </div>
       </div>
       <div class="form-group">
         <label class="label">Participantes</label>
@@ -351,12 +383,26 @@ async function salvarDesafio(editId) {
   const participantes = [...document.querySelectorAll('#ds-participantes input:checked')].map(i => Number(i.value));
   const professores = [...document.querySelectorAll('#ds-professores input:checked')].map(i => Number(i.value));
 
+  // Pontuação própria: só manda regras_pontos se o bloco foi de fato aberto/editado
+  // (fica escondido -> null -> herda o ranking geral, sem confusão de "0 pontos").
+  const pontosAberto = document.getElementById('ds-pontos-body').style.display !== 'none';
+  const regrasPontos = pontosAberto ? {
+    musBase: parseFloat(document.getElementById('pt-musBase').value) || 10,
+    musSegundo: parseFloat(document.getElementById('pt-musSegundo').value) || 0,
+    cardioFator: parseFloat(document.getElementById('pt-cardioFator').value) || 0.55,
+    cardioTeto: parseFloat(document.getElementById('pt-cardioTeto').value) || 7,
+    bonusDias: parseInt(document.getElementById('pt-bonusDias').value) || 4,
+    bonusPts: parseFloat(document.getElementById('pt-bonusPts').value) || 0,
+  } : null;
+
   const data = {
     nome,
     descricao: document.getElementById('ds-desc').value.trim(),
     idplano: Number(document.getElementById('ds-plano')?.value) || null,
     dtinicio: document.getElementById('ds-inicio').value,
     dtfim: document.getElementById('ds-fim').value,
+    tipo_acesso: document.getElementById('ds-tipoacesso').value,
+    regras_pontos: regrasPontos,
     participantes,
     professores,
     criado_por: userId,
@@ -393,32 +439,78 @@ async function abrirDetalheDesafio(id) {
   const parts = desafio.participantes || [];
   const profs = desafio.professores || [];
 
+  // Ranking por pontos: sessões cruas do período + regras deste desafio
+  // (ou o ranking geral, se ele não tiver regras próprias) — mesma fórmula
+  // de sempre (API.agregarPontosRank), só os números do desafio mudam.
   let rankingHTML = '';
+  let vencedorSugerido = null;
   try {
-    const ranking = await API.rankingDesafio(id);
-    if (Array.isArray(ranking) && ranking.length > 0) {
-      const maxSessoes = Math.max(...ranking.map(r => r.sessoes), 1);
-      rankingHTML = `
-        <h4 style="font-size:13px;font-weight:700;color:var(--brand);margin:16px 0 8px;">🏆 Ranking</h4>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          ${ranking.sort((a,b) => b.sessoes - a.sessoes).map((r, i) => {
-            const at = atletas.find(a => Number(a.idatleta) === Number(r.idatleta));
-            const nome = at ? at.nome : 'Atleta #' + r.idatleta;
-            const pct = Math.round((r.sessoes / maxSessoes) * 100);
-            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i+1) + 'º';
-            return `<div style="display:flex;align-items:center;gap:10px;">
-              <span style="width:28px;text-align:center;font-size:14px;">${medal}</span>
-              <span style="flex:1;font-size:12px;font-weight:600;color:var(--text);">${esc(nome)}</span>
-              <div style="width:120px;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;">
-                <div style="width:${pct}%;height:100%;background:var(--brand);border-radius:4px;"></div>
-              </div>
-              <span style="font-size:11px;color:var(--text-muted);width:50px;text-align:right;">${r.sessoes} treino${r.sessoes!==1?'s':''}</span>
-            </div>`;
-          }).join('')}
-        </div>
-      `;
-    }
-  } catch {}
+    const rp = await API.rankingPontosDesafio(id);
+    const sessoes = Array.isArray(rp.sessoes) ? rp.sessoes : [];
+    const R = API.mesclarRegrasRanking(API.RANK_PADRAO, rp.regras_pontos || desafio.regras_pontos);
+    const agregado = API.agregarPontosRank(sessoes, R);
+    const linhas = (rp.participantes || []).map(idatleta => {
+      const a = agregado[idatleta] || { total: 0, base: 0, bonus: 0 };
+      return { idatleta, total: a.total || 0 };
+    }).sort((a, b) => b.total - a.total);
+    vencedorSugerido = linhas[0] || null;
+    const maxTotal = Math.max(...linhas.map(l => l.total), 1);
+    rankingHTML = linhas.length === 0 ? '' : `
+      <h4 style="font-size:13px;font-weight:700;color:var(--brand);margin:16px 0 8px;">🏆 Ranking por pontos${rp.regras_pontos || desafio.regras_pontos ? ' (regras próprias deste desafio)' : ' (regras do ranking geral)'}</h4>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${linhas.map((r, i) => {
+          const at = atletas.find(a => Number(a.idatleta) === Number(r.idatleta));
+          const nome = at ? at.nome : 'Atleta #' + r.idatleta;
+          const pct = Math.round((r.total / maxTotal) * 100);
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i+1) + 'º';
+          return `<div style="display:flex;align-items:center;gap:10px;">
+            <span style="width:28px;text-align:center;font-size:14px;">${medal}</span>
+            <span style="flex:1;font-size:12px;font-weight:600;color:var(--text);">${esc(nome)}</span>
+            <div style="width:120px;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:var(--brand);border-radius:4px;"></div>
+            </div>
+            <span style="font-size:11px;color:var(--text-muted);width:60px;text-align:right;">${r.total} pt${r.total!==1?'s':''}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  } catch (e) { console.error('ranking por pontos:', e); }
+
+  // Solicitações pendentes (só desafios abertos)
+  let solicitacoesHTML = '';
+  if (desafio.tipo_acesso === 'aberto') {
+    try {
+      const sols = await API.listarSolicitacoesDesafio(id);
+      if (Array.isArray(sols) && sols.length > 0) {
+        solicitacoesHTML = `
+          <h4 style="font-size:13px;font-weight:700;color:var(--text);margin:16px 0 8px;">📥 Pedidos de entrada pendentes (${sols.length})</h4>
+          <div class="participant-list">
+            ${sols.map(s => {
+              const at = atletas.find(a => Number(a.idatleta) === Number(s.idatleta));
+              const nome = at ? at.nome : 'Atleta #' + s.idatleta;
+              return `<div class="participant-item">
+                <div class="avatar">${nome[0].toUpperCase()}</div>
+                <span class="name">${esc(nome)}</span>
+                <button class="btn btn-primary btn-sm" onclick="responderSolicitacao(${s.idsolicitacao}, true, ${id})">Aprovar</button>
+                <button class="btn btn-danger btn-sm" onclick="responderSolicitacao(${s.idsolicitacao}, false, ${id})">Recusar</button>
+              </div>`;
+            }).join('')}
+          </div>
+        `;
+      }
+    } catch (e) { console.error('solicitacoes:', e); }
+  }
+
+  const vencedorAt = desafio.vencedor_idatleta ? atletas.find(a => Number(a.idatleta) === Number(desafio.vencedor_idatleta)) : null;
+  const vencedorBanner = desafio.vencedor_anunciado ? `
+    <div style="background:rgba(127,255,0,.08);border:1px solid var(--brand);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;font-weight:700;color:var(--brand);">
+      🏆 Vencedor(a) anunciado(a): ${esc(vencedorAt ? vencedorAt.nome : 'Atleta #' + desafio.vencedor_idatleta)}
+    </div>` : '';
+
+  const anunciarBtn = !desafio.vencedor_anunciado ? `
+    <button class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="confirmarAnunciarVencedor(${id}, ${vencedorSugerido ? vencedorSugerido.idatleta : 'null'})">
+      🏆 Encerrar e anunciar vencedor${vencedorSugerido ? ' (sugestão: ' + esc((atletas.find(a=>Number(a.idatleta)===Number(vencedorSugerido.idatleta))||{}).nome || ('#'+vencedorSugerido.idatleta)) + ')' : ''}
+    </button>` : '';
 
   openModal(`
     <div class="modal-header">
@@ -428,11 +520,15 @@ async function abrirDetalheDesafio(id) {
     <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
       <div style="display:flex;gap:8px;margin-bottom:12px;">
         <span class="d-card-badge ${ativo?'ativo':'encerrado'}">${ativo ? 'Ativo' : 'Encerrado'}</span>
+        <span class="d-card-badge individual">${desafio.tipo_acesso === 'aberto' ? '🔓 Aberto' : '🔒 Exclusivo'}</span>
       </div>
+      ${vencedorBanner}
       <div class="d-card-info"><b>Período:</b> ${fmtDate(desafio.dtinicio)} — ${fmtDate(desafio.dtfim)}</div>
       ${desafio.descricao ? `<div class="d-card-info" style="margin-top:6px;">${esc(desafio.descricao)}</div>` : ''}
+      ${anunciarBtn}
 
       ${rankingHTML}
+      ${solicitacoesHTML}
 
       <h4 style="font-size:13px;font-weight:700;color:var(--text);margin:16px 0 8px;">Participantes (${parts.length})</h4>
       <div class="participant-list">
@@ -463,6 +559,29 @@ async function abrirDetalheDesafio(id) {
       <button class="btn btn-primary" onclick="closeModal();abrirModalDesafio(${id})">Editar</button>
     </div>
   `);
+}
+
+async function confirmarAnunciarVencedor(iddesafio, idatletaSugerido) {
+  if (!idatletaSugerido) return showToast('Ninguém pontuou ainda neste desafio — sem dado pra sugerir vencedor.', 'error');
+  const at = atletas.find(a => Number(a.idatleta) === Number(idatletaSugerido));
+  const nome = at ? at.nome : ('Atleta #' + idatletaSugerido);
+  if (!confirm(`Anunciar "${nome}" como vencedor(a)? Isso posta uma mensagem no chat do grupo e não pode ser desfeito por aqui.`)) return;
+  try {
+    await API.anunciarVencedorDesafio({ iddesafio, idatleta: idatletaSugerido, nome_vencedor: nome });
+    showToast('Vencedor anunciado!');
+    closeModal();
+    await carregar();
+  } catch (e) { showToast(e.message || 'Erro ao anunciar', 'error'); }
+}
+
+async function responderSolicitacao(idsolicitacao, aprovar, iddesafio) {
+  try {
+    await API.responderSolicitacaoDesafio(idsolicitacao, aprovar);
+    showToast(aprovar ? 'Participante aprovado!' : 'Pedido recusado.');
+    closeModal();
+    await carregar();
+    abrirDetalheDesafio(iddesafio);
+  } catch (e) { showToast(e.message || 'Erro', 'error'); }
 }
 
 carregar();

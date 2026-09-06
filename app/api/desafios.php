@@ -95,11 +95,15 @@ try {
     exit;
 }
 
-// Desafios sao do professor: catalogo de planos com valores, grupos, e o chat
-// interno. Aluno le o proprio pelo app; qualquer escrita e do professor.
+// Desafios (criar/editar/excluir grupo, catalogo, participantes, professores)
+// sao do professor. Aluno pode: ler o que e seu, mandar mensagem no chat do
+// grupo, e pedir entrada num desafio aberto — o resto continua bloqueado.
+// ANTES: qualquer escrita de aluno levava 403, inclusive mandar mensagem no
+// chat do proprio desafio (a tela existia, o envio nunca funcionava).
 $_sessDes = _intusExigeSessao($pdo, false);
 $_alunoDes = (($_sessDes['user_type'] ?? '') === 'aluno');
-if ($_alunoDes && ($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+$_acaoPermiteAluno = in_array($_GET['action'] ?? '', ['mensagens_grupo', 'solicitar_entrada', 'desafios_abertos', 'meus_desafios', 'ranking_pontos', 'ranking']);
+if ($_alunoDes && ($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET' && !$_acaoPermiteAluno) {
     http_response_code(403);
     echo json_encode(['error' => 'apenas o professor altera desafios']);
     exit;
@@ -171,6 +175,34 @@ $pdo->exec("
         INDEX idx_dt (dtmensagem)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
+
+// Pedidos de entrada em desafio ABERTO e pago — fica pendente ate o
+// professor confirmar o pagamento (por fora, no Financeiro) e aprovar aqui.
+// Desafio aberto e gratuito nao passa por esta tabela: entra direto.
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS intus_desafio_solicitacao (
+        idsolicitacao INT AUTO_INCREMENT PRIMARY KEY,
+        iddesafio     INT NOT NULL,
+        idatleta      INT NOT NULL,
+        status        ENUM('pendente','aprovada','recusada') NOT NULL DEFAULT 'pendente',
+        dtsolicitacao DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        dtresposta    DATETIME NULL,
+        UNIQUE KEY uk_desafio_atleta_pend (iddesafio, idatleta),
+        INDEX idx_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
+// ---------- Migração incremental: colunas novas em intus_desafio ----------
+// Ranking e pontuação configuráveis por desafio (2026-09-06): cada desafio
+// pode ter sua própria faixa de pontos (mesma fórmula do ranking geral, só os
+// números mudam), tipo de acesso (aberto = aluno pode pedir para entrar;
+// exclusivo = só o professor adiciona, como sempre foi) e o registro de quem
+// venceu ao encerrar.
+$_colsDesafio = array_column($pdo->query("SHOW COLUMNS FROM intus_desafio")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+if (!in_array('regras_pontos', $_colsDesafio))    $pdo->exec("ALTER TABLE intus_desafio ADD COLUMN regras_pontos TEXT NULL AFTER descricao");
+if (!in_array('tipo_acesso', $_colsDesafio))      $pdo->exec("ALTER TABLE intus_desafio ADD COLUMN tipo_acesso VARCHAR(12) NOT NULL DEFAULT 'exclusivo' AFTER ativo");
+if (!in_array('vencedor_idatleta', $_colsDesafio)) $pdo->exec("ALTER TABLE intus_desafio ADD COLUMN vencedor_idatleta INT NULL AFTER tipo_acesso");
+if (!in_array('vencedor_anunciado', $_colsDesafio)) $pdo->exec("ALTER TABLE intus_desafio ADD COLUMN vencedor_anunciado TINYINT NOT NULL DEFAULT 0 AFTER vencedor_idatleta");
 
 // ---------- Helpers ----------
 function jsonBody() {
@@ -273,6 +305,10 @@ if ($action === 'desafios' || $action === 'desafio') {
                 'dtfim' => $d['dtfim'],
                 'criado_por' => $d['criado_por'] ? (int)$d['criado_por'] : null,
                 'ativo' => (bool)(int)$d['ativo'],
+                'tipo_acesso' => $d['tipo_acesso'] ?: 'exclusivo',
+                'regras_pontos' => $d['regras_pontos'] ? json_decode($d['regras_pontos'], true) : null,
+                'vencedor_idatleta' => $d['vencedor_idatleta'] ? (int)$d['vencedor_idatleta'] : null,
+                'vencedor_anunciado' => (bool)(int)$d['vencedor_anunciado'],
                 'participantes' => array_map(function($p) {
                     return ['idatleta' => (int)$p['idatleta'], 'dtentrada' => $p['dtentrada'], 'ativo' => (bool)(int)$p['ativo']];
                 }, $participantes),
@@ -295,6 +331,9 @@ if ($action === 'desafios' || $action === 'desafio') {
                 'dtinicio' => $d['dtinicio'],
                 'dtfim' => $d['dtfim'],
                 'ativo' => (bool)(int)$d['ativo'],
+                'tipo_acesso' => $d['tipo_acesso'] ?: 'exclusivo',
+                'vencedor_idatleta' => $d['vencedor_idatleta'] ? (int)$d['vencedor_idatleta'] : null,
+                'vencedor_anunciado' => (bool)(int)$d['vencedor_anunciado'],
                 'participantes_count' => (int)$cnt->fetchColumn(),
             ];
         }
@@ -310,11 +349,13 @@ if ($action === 'desafios' || $action === 'desafio') {
         $dtinicio = $b['dtinicio'] ?? date('Y-m-d');
         $dtfim = $b['dtfim'] ?? date('Y-m-d', strtotime('+30 days'));
         $criado_por = isset($b['criado_por']) ? (int)$b['criado_por'] : null;
+        $tipoAcesso = ($b['tipo_acesso'] ?? 'exclusivo') === 'aberto' ? 'aberto' : 'exclusivo';
+        $regrasPontos = (isset($b['regras_pontos']) && is_array($b['regras_pontos'])) ? json_encode($b['regras_pontos']) : null;
 
         if ($nome === '') { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'nome obrigatório']); exit; }
 
-        $st = $pdo->prepare("INSERT INTO intus_desafio (nome, descricao, idplano, dtinicio, dtfim, criado_por) VALUES (?, ?, ?, ?, ?, ?)");
-        $st->execute([$nome, $desc ?: null, $idplano, $dtinicio, $dtfim, $criado_por]);
+        $st = $pdo->prepare("INSERT INTO intus_desafio (nome, descricao, idplano, dtinicio, dtfim, criado_por, tipo_acesso, regras_pontos) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $st->execute([$nome, $desc ?: null, $idplano, $dtinicio, $dtfim, $criado_por, $tipoAcesso, $regrasPontos]);
         $id = (int)$pdo->lastInsertId();
 
         // Add participantes iniciais
@@ -348,6 +389,8 @@ if ($action === 'desafios' || $action === 'desafio') {
         if (isset($b['dtinicio']))  { $sets[] = "dtinicio = ?"; $params[] = $b['dtinicio']; }
         if (isset($b['dtfim']))     { $sets[] = "dtfim = ?"; $params[] = $b['dtfim']; }
         if (isset($b['ativo']))     { $sets[] = "ativo = ?"; $params[] = $b['ativo'] ? 1 : 0; }
+        if (isset($b['tipo_acesso'])) { $sets[] = "tipo_acesso = ?"; $params[] = $b['tipo_acesso'] === 'aberto' ? 'aberto' : 'exclusivo'; }
+        if (isset($b['regras_pontos'])) { $sets[] = "regras_pontos = ?"; $params[] = is_array($b['regras_pontos']) ? json_encode($b['regras_pontos']) : null; }
         if (!empty($sets)) {
             $params[] = $id;
             $pdo->prepare("UPDATE intus_desafio SET " . implode(', ', $sets) . " WHERE iddesafio = ?")->execute($params);
@@ -603,9 +646,190 @@ if ($action === 'meus_desafios') {
             'dtfim' => $d['dtfim'],
             'ativo' => $ativo,
             'encerrado' => $d['dtfim'] < $hoje,
+            'regras_pontos' => $d['regras_pontos'] ? json_decode($d['regras_pontos'], true) : null,
+            'vencedor_idatleta' => $d['vencedor_idatleta'] ? (int)$d['vencedor_idatleta'] : null,
+            'vencedor_anunciado' => (bool)(int)$d['vencedor_anunciado'],
         ];
     }, $rows));
     exit;
+}
+
+// ═══════════════ RANKING (sessões cruas, para o front calcular pontos) ═══════════════
+// A conta de pontos mora no front (api.js: pontosSessaoRank/agregarPontosRank),
+// que já é a fonte única do ranking geral. Aqui só devolvemos as sessões cruas
+// do período + as regras deste desafio, e quem soma é a mesma função de sempre
+// — assim um desafio com regras próprias não vira uma quarta cópia da fórmula.
+if ($action === 'ranking_pontos') {
+    $iddesafio = (int)($_GET['desafio'] ?? 0);
+    if ($iddesafio <= 0) { http_response_code(400); echo json_encode(['error' => 'desafio obrigatório']); exit; }
+
+    $st = $pdo->prepare("SELECT dtinicio, dtfim, regras_pontos FROM intus_desafio WHERE iddesafio = ?");
+    $st->execute([$iddesafio]);
+    $desafio = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$desafio) { http_response_code(404); echo json_encode(['error' => 'desafio não encontrado']); exit; }
+
+    $st = $pdo->prepare("SELECT idatleta FROM intus_desafio_participante WHERE iddesafio = ? AND ativo = 1");
+    $st->execute([$iddesafio]);
+    $ids = array_column($st->fetchAll(PDO::FETCH_ASSOC), 'idatleta');
+
+    $sessoes = [];
+    if (!empty($ids)) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $params = array_merge($ids, [$desafio['dtinicio'], $desafio['dtfim']]);
+        try {
+            $st = $pdo->prepare("
+                SELECT idsessao, idatleta, dtsessao, duracao_seg, COALESCE(tipo,'musculacao') AS tipo,
+                       COALESCE(pontos,0) AS pontos, COALESCE(nao_contar,0) AS nao_contar, divisao
+                FROM intus_sessao
+                WHERE idatleta IN ($placeholders) AND DATE(dtsessao) >= ? AND DATE(dtsessao) <= ?
+                ORDER BY dtsessao ASC, idsessao ASC
+            ");
+            $st->execute($params);
+            $sessoes = $st->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { $sessoes = []; }
+    }
+
+    echo json_encode([
+        'participantes' => array_map('intval', $ids),
+        'sessoes' => array_map(function($r) {
+            return [
+                'idsessao' => (int)$r['idsessao'],
+                'idatleta' => (int)$r['idatleta'],
+                'dtsessao' => $r['dtsessao'],
+                'duracao_seg' => (int)$r['duracao_seg'],
+                'tipo' => $r['tipo'],
+                'pontos' => (float)$r['pontos'],
+                'nao_contar' => (int)$r['nao_contar'],
+                'divisao' => $r['divisao'],
+            ];
+        }, $sessoes),
+        'regras_pontos' => $desafio['regras_pontos'] ? json_decode($desafio['regras_pontos'], true) : null,
+    ]);
+    exit;
+}
+
+// ═══════════════ ANUNCIAR VENCEDOR ═══════════════
+// Professor fecha o desafio: calcula quem lidera pelas regras do proprio
+// desafio (mesmas sessoes de ranking_pontos) e grava + posta no chat do grupo.
+// Pode ser chamado a qualquer momento (o professor decide a hora), nao só
+// depois do dtfim — fica registrado, nao se recalcula sozinho depois.
+if ($action === 'anunciar_vencedor') {
+    if ($method !== 'POST') { http_response_code(405); echo json_encode(['error' => 'método não permitido']); exit; }
+    $b = jsonBody();
+    $iddesafio = (int)($b['iddesafio'] ?? 0);
+    $idatleta = (int)($b['idatleta'] ?? 0); // quem venceu, decidido no front com as mesmas regras/sessoes
+    $nomeVencedor = trim((string)($b['nome_vencedor'] ?? ''));
+    if ($iddesafio <= 0 || $idatleta <= 0) {
+        http_response_code(400); echo json_encode(['ok' => false, 'error' => 'iddesafio e idatleta obrigatórios']); exit;
+    }
+    $pdo->prepare("UPDATE intus_desafio SET vencedor_idatleta = ?, vencedor_anunciado = 1 WHERE iddesafio = ?")->execute([$idatleta, $iddesafio]);
+    $texto = '🏆 Desafio encerrado! Vencedor(a): ' . ($nomeVencedor !== '' ? $nomeVencedor : ('Atleta #' . $idatleta));
+    $pdo->prepare("INSERT INTO intus_desafio_mensagem (iddesafio, idatleta, idusuario, nome_autor, texto) VALUES (?, NULL, NULL, 'Sistema', ?)")->execute([$iddesafio, $texto]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+// ═══════════════ DESAFIOS ABERTOS (descoberta, para o app do aluno) ═══════════════
+if ($action === 'desafios_abertos') {
+    $idatleta = (int)($_GET['atleta'] ?? 0);
+    $hoje = date('Y-m-d');
+    $st = $pdo->query("SELECT d.*, pc.valor AS plano_valor, pc.nome AS plano_nome
+        FROM intus_desafio d
+        LEFT JOIN intus_plano_catalogo pc ON pc.idplano = d.idplano
+        WHERE d.tipo_acesso = 'aberto' AND d.ativo = 1 AND d.dtfim >= '" . $hoje . "'
+        ORDER BY d.dtinicio ASC");
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    $jaParticipa = [];
+    $jaSolicitou = [];
+    if ($idatleta > 0) {
+        $st = $pdo->prepare("SELECT iddesafio FROM intus_desafio_participante WHERE idatleta = ?");
+        $st->execute([$idatleta]);
+        $jaParticipa = array_column($st->fetchAll(PDO::FETCH_ASSOC), 'iddesafio');
+        $st = $pdo->prepare("SELECT iddesafio FROM intus_desafio_solicitacao WHERE idatleta = ? AND status = 'pendente'");
+        $st->execute([$idatleta]);
+        $jaSolicitou = array_column($st->fetchAll(PDO::FETCH_ASSOC), 'iddesafio');
+    }
+
+    $result = [];
+    foreach ($rows as $d) {
+        if (in_array((int)$d['iddesafio'], $jaParticipa)) continue;
+        $result[] = [
+            'iddesafio' => (int)$d['iddesafio'],
+            'nome' => $d['nome'],
+            'descricao' => $d['descricao'],
+            'dtinicio' => $d['dtinicio'],
+            'dtfim' => $d['dtfim'],
+            'pago' => (float)($d['plano_valor'] ?? 0) > 0,
+            'valor' => (float)($d['plano_valor'] ?? 0),
+            'plano_nome' => $d['plano_nome'],
+            'solicitacao_pendente' => in_array((int)$d['iddesafio'], $jaSolicitou),
+        ];
+    }
+    echo json_encode($result);
+    exit;
+}
+
+// ═══════════════ SOLICITAR ENTRADA (aluno, desafio aberto) ═══════════════
+// Gratuito: entra na hora. Pago: fica pendente ate o professor confirmar o
+// pagamento por fora (Financeiro) e aprovar — nao criamos cobranca sozinhos
+// aqui, essa tabela e sensivel demais para escrever sem confirmacao humana.
+if ($action === 'solicitar_entrada') {
+    if ($method !== 'POST') { http_response_code(405); echo json_encode(['error' => 'método não permitido']); exit; }
+    if (!$_alunoDes) { http_response_code(403); echo json_encode(['error' => 'apenas aluno solicita entrada']); exit; }
+    $b = jsonBody();
+    $iddesafio = (int)($b['iddesafio'] ?? 0);
+    $idatleta = (int)($_sessDes['idatleta'] ?? $b['idatleta'] ?? 0);
+    if ($iddesafio <= 0 || $idatleta <= 0) {
+        http_response_code(400); echo json_encode(['ok' => false, 'error' => 'iddesafio e idatleta obrigatórios']); exit;
+    }
+    $st = $pdo->prepare("SELECT d.tipo_acesso, pc.valor FROM intus_desafio d LEFT JOIN intus_plano_catalogo pc ON pc.idplano = d.idplano WHERE d.iddesafio = ?");
+    $st->execute([$iddesafio]);
+    $d = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$d) { http_response_code(404); echo json_encode(['ok' => false, 'error' => 'desafio não encontrado']); exit; }
+    if ($d['tipo_acesso'] !== 'aberto') { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'este desafio não é aberto para autoinscrição']); exit; }
+
+    $pago = (float)($d['valor'] ?? 0) > 0;
+    if (!$pago) {
+        $pdo->prepare("INSERT IGNORE INTO intus_desafio_participante (iddesafio, idatleta) VALUES (?, ?)")->execute([$iddesafio, $idatleta]);
+        echo json_encode(['ok' => true, 'status' => 'participante']);
+        exit;
+    }
+    $pdo->prepare("INSERT INTO intus_desafio_solicitacao (iddesafio, idatleta) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = 'pendente', dtsolicitacao = CURRENT_TIMESTAMP, dtresposta = NULL")->execute([$iddesafio, $idatleta]);
+    echo json_encode(['ok' => true, 'status' => 'pendente']);
+    exit;
+}
+
+// ═══════════════ SOLICITAÇÕES PENDENTES (professor gerencia) ═══════════════
+if ($action === 'solicitacoes') {
+    $iddesafio = (int)($_GET['desafio'] ?? 0);
+    if ($method === 'GET') {
+        if ($iddesafio <= 0) { http_response_code(400); echo json_encode(['error' => 'desafio obrigatório']); exit; }
+        $st = $pdo->prepare("SELECT * FROM intus_desafio_solicitacao WHERE iddesafio = ? AND status = 'pendente' ORDER BY dtsolicitacao ASC");
+        $st->execute([$iddesafio]);
+        echo json_encode(array_map(function($r) {
+            return ['idsolicitacao' => (int)$r['idsolicitacao'], 'iddesafio' => (int)$r['iddesafio'], 'idatleta' => (int)$r['idatleta'], 'dtsolicitacao' => $r['dtsolicitacao']];
+        }, $st->fetchAll(PDO::FETCH_ASSOC)));
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $idsolicitacao = (int)($b['idsolicitacao'] ?? 0);
+        $aprovar = !empty($b['aprovar']);
+        if ($idsolicitacao <= 0) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'idsolicitacao obrigatório']); exit; }
+        $st = $pdo->prepare("SELECT * FROM intus_desafio_solicitacao WHERE idsolicitacao = ?");
+        $st->execute([$idsolicitacao]);
+        $s = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$s) { http_response_code(404); echo json_encode(['ok' => false, 'error' => 'solicitação não encontrada']); exit; }
+        if ($aprovar) {
+            $pdo->prepare("INSERT IGNORE INTO intus_desafio_participante (iddesafio, idatleta) VALUES (?, ?)")->execute([$s['iddesafio'], $s['idatleta']]);
+            $pdo->prepare("UPDATE intus_desafio_solicitacao SET status = 'aprovada', dtresposta = NOW() WHERE idsolicitacao = ?")->execute([$idsolicitacao]);
+        } else {
+            $pdo->prepare("UPDATE intus_desafio_solicitacao SET status = 'recusada', dtresposta = NOW() WHERE idsolicitacao = ?")->execute([$idsolicitacao]);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
 }
 
 // Rota não encontrada
