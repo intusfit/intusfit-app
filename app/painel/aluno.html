@@ -15,8 +15,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
-  <script src="_mock.js?v=20260906f"></script>
-  <script src="api.js?v=20260906f"></script>
+  <script src="_mock.js?v=20260906g"></script>
+  <script src="api.js?v=20260906g"></script>
+  <!-- Só usada pra transformar o cartão de "Compartilhar treino" em imagem
+       (Salvar/Copiar/Story). Carregada fixa numa versão; se cair um dia, a
+       tela de compartilhar mostra erro em vez de travar o app inteiro. -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -208,6 +212,12 @@
     .menu-panel .menu-item.danger:hover { background: rgba(248,113,113,.05); }
     #menu-zoom-btns button { background:rgba(255,255,255,.06);border:1.5px solid #333;color:#aaa;border-radius:8px;cursor:pointer;font-size:13px;text-align:center;line-height:1.3; }
     body.tema-claro #menu-zoom-btns button { background:rgba(0,0,0,.04);border-color:#ddd;color:#555; }
+
+    /* Cartão de "Compartilhar treino" — tamanho fixo pra sempre virar uma
+       imagem com a mesma proporção, direto (host em share-overlay já dá o
+       tamanho de exibição; aqui é o conteúdo que o html2canvas fotografa). */
+    .share-card { width: 230px; height: 410px; border-radius: 18px; overflow: hidden; position: relative; }
+    .share-card-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; padding: 18px; text-align: center; }
 
     .timer-bar {
       position: sticky; top: 66px; z-index: 9;
@@ -794,6 +804,7 @@
     <div class="menu-item" onclick="navegar('treinos-menu');fecharMenuDireto()"><span class="mi-icon">💪</span> Meus Treinos</div>
     <div class="menu-item" onclick="abrirCardio();fecharMenuDireto()"><span class="mi-icon">🏃</span> Meu Cardio</div>
     <div class="menu-item" onclick="navegar('historico');fecharMenuDireto()"><span class="mi-icon">📊</span> Histórico & Evoluções</div>
+    <div class="menu-item" onclick="abrirCompartilharUltimoTreino();fecharMenuDireto()"><span class="mi-icon">📤</span> Compartilhar treino</div>
     <div class="menu-item" onclick="navegar('ranking');fecharMenuDireto()"><span class="mi-icon">🥇</span> Ranking</div>
     <div class="menu-item" onclick="navegar('desafios');fecharMenuDireto()"><span class="mi-icon">🏆</span> Desafios</div>
     <div class="menu-item" onclick="navegar('nutricao');fecharMenuDireto()"><span class="mi-icon">🥗</span> Nutrição</div>
@@ -1101,6 +1112,244 @@ function figurinhaAleatoriaHtml(isLight) {
   } else { return ''; }
   return '<div style="text-align:center;margin:4px 0 4px;animation:fraseEntrada .5s ease-out both;">' + inner + '</div>';
 }
+
+// ═══════════════ COMPARTILHAR TREINO ═══════════════
+// Cartão de marca pra aluno compartilhar (inspirado em apps de treino que já
+// fazem isso). Lista de templates é aberta de propósito: pra criar um filtro
+// temático novo, só acrescenta um objeto aqui e uma função _tplXxxHtml — o
+// resto (carrossel, fundo, exportar imagem) já funciona pra todos.
+const SHARE_TEMPLATES = [
+  { id: 'transparente', nome: 'Transparente', render: _tplTransparenteHtml },
+  { id: 'foto',         nome: 'Foto de fundo', render: _tplFotoHtml },
+  { id: 'story',        nome: 'Story vertical', render: _tplStoryHtml },
+];
+let _shareState = null;
+
+// Entrada usada tanto pelo botão da tela de Finalização quanto por fora dela
+// (Perfil, por ex.) — os dois leem o mesmo registro do último treino salvo,
+// então o aluno não depende de estar acabando de treinar pra gerar o cartão.
+function abrirCompartilharUltimoTreino() {
+  let info = null;
+  try { info = JSON.parse(localStorage.getItem('intus-ultimo-treino-share') || 'null'); } catch (e) {}
+  if (!info) { toast('Finalize um treino primeiro pra gerar o cartão.'); return; }
+  abrirCompartilharTreino(info);
+}
+
+// Chamada com os dados de UM treino específico (recém-finalizado, ou
+// escolhido depois na Central de Compartilhamento). idsessao é opcional —
+// só usado pra reabrir esta mesma tela depois sabendo qual treino é.
+function abrirCompartilharTreino(info) {
+  if (typeof html2canvas === 'undefined') { toast('Não consegui carregar o gerador de imagem. Verifique sua internet e tente de novo.'); return; }
+  _shareState = {
+    info: info,
+    fig: _figPick(_figurinhasList()),
+    incluirFig: true,
+    bgModo: 'transparente',
+    bgImg: null,
+    tplIdx: 0,
+  };
+  _renderShareOverlay();
+}
+
+function _fecharCompartilhar() {
+  document.getElementById('share-overlay')?.remove();
+  _shareState = null;
+}
+
+function _shareTrocarTpl(delta) {
+  const n = SHARE_TEMPLATES.length;
+  _shareState.tplIdx = (_shareState.tplIdx + delta + n) % n;
+  _renderShareOverlay();
+}
+
+function _shareSetBg(modo) {
+  if (modo === 'galeria') { document.getElementById('share-file-galeria').click(); return; }
+  if (modo === 'camera') { document.getElementById('share-file-camera').click(); return; }
+  _shareState.bgModo = 'transparente';
+  _shareState.bgImg = null;
+  _renderShareOverlay();
+}
+
+function _shareArquivoEscolhido(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    _shareState.bgImg = reader.result;
+    _shareState.bgModo = 'foto-custom';
+    _renderShareOverlay();
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function _shareToggleFig() {
+  _shareState.incluirFig = !_shareState.incluirFig;
+  _renderShareOverlay();
+}
+
+function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'; }
+
+// ── os 3 templates (a lista SHARE_TEMPLATES aponta pra estas funções) ──
+function _tplTransparenteHtml(info, fig, bgImg, isLight) {
+  const bg = bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
+  return `<div class="share-card" style="${bg}">
+    <div class="share-card-inner" style="justify-content:flex-end;">
+      ${_shareFigHtml(fig)}
+      <img src="${_shareLogoSrc(isLight)}" alt="Intus" style="height:26px;margin-bottom:8px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));"/>
+      <div style="font-size:12px;color:#ccc;">${esc(info.nomeAluno)}</div>
+      <div style="font-size:24px;font-weight:900;color:#fff;margin:2px 0 12px;">${esc(info.nomeTreino)}</div>
+      ${_shareStatsRow(info)}
+    </div>
+  </div>`;
+}
+function _tplFotoHtml(info, fig, bgImg, isLight) {
+  const bg = bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
+  return `<div class="share-card" style="${bg}">
+    <div class="share-card-inner" style="justify-content:flex-end;background:linear-gradient(to top, rgba(0,0,0,.82), rgba(0,0,0,.1) 60%);">
+      ${_shareFigHtml(fig)}
+      <img src="${_shareLogoSrc(isLight)}" alt="Intus" style="height:24px;margin-bottom:8px;"/>
+      <div style="font-size:12px;color:#ddd;">${esc(info.nomeAluno)}</div>
+      <div style="font-size:22px;font-weight:900;color:#fff;margin:2px 0 4px;">${esc(info.nomeTreino)} · ${info.pctCompleto}% completo</div>
+      ${_shareStatsRow(info)}
+    </div>
+  </div>`;
+}
+function _tplStoryHtml(info, fig, bgImg, isLight) {
+  const bg = bgImg ? `background:url('${bgImg}') center/cover;` : `background:#0a0a0a;`;
+  return `<div class="share-card" style="${bg}">
+    <div style="position:absolute;inset:14px;border:1px solid rgba(127,255,0,.35);border-radius:18px;display:flex;flex-direction:column;background:rgba(10,10,10,.35);">
+      <div style="padding:14px;text-align:center;border-bottom:1px solid rgba(127,255,0,.2);">
+        <img src="${_shareLogoSrc(isLight)}" alt="Intus" style="height:16px;vertical-align:middle;"/>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:10px;">
+        ${_shareFigHtml(fig)}
+        <div style="font-size:12px;color:#aaa;letter-spacing:.05em;">HOJE EU TREINEI</div>
+        <div style="font-size:40px;font-weight:900;color:#7FFF00;">${info.pctCompleto}%</div>
+        <div style="font-size:13px;color:#fff;text-align:center;">${esc(info.nomeTreino)}${info.volume ? ' · ' + info.volume.toLocaleString('pt-BR') + 'kg movidos' : ''}</div>
+      </div>
+      <div style="padding:10px;text-align:center;border-top:1px solid rgba(127,255,0,.2);font-size:9.5px;color:#888;">te levamos ao próximo nível</div>
+    </div>
+  </div>`;
+}
+function _shareFigHtml(fig) {
+  if (!fig || !(_shareState && _shareState.incluirFig)) return '';
+  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="max-width:90px;max-height:90px;object-fit:contain;margin-bottom:8px;" onerror="this.style.display='none'"/>`;
+  const cor = fig.cor || '#7FFF00';
+  return `<div style="font-size:34px;margin-bottom:4px;line-height:1;">${esc(fig.emoji||'💪')}</div>${fig.legenda ? `<div style="font-size:10px;font-weight:900;color:${cor};margin-bottom:8px;">${esc(fig.legenda)}</div>` : ''}`;
+}
+function _shareStatsRow(info) {
+  const cell = (v,l) => `<div style="text-align:center;"><div style="font-size:15px;font-weight:900;color:#fff;">${v}</div><div style="font-size:8px;color:#aaa;text-transform:uppercase;">${l}</div></div>`;
+  return `<div style="display:flex;gap:14px;">
+    ${cell(info.min+':'+String(info.sec).padStart(2,'0'),'tempo')}
+    ${info.volume ? cell(info.volume.toLocaleString('pt-BR'),'kg') : ''}
+    ${cell(info.seriesFeitas+'/'+info.seriesTotal,'séries')}
+    ${cell('<span style="color:#7FFF00;">'+info.pctCompleto+'%</span>','completo')}
+  </div>`;
+}
+
+function _renderShareOverlay() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const bgCard = isLight ? '#fff' : '#161616';
+  const borderC = isLight ? '#e5e5e5' : '#2a2a2a';
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#777' : '#888';
+  const S = _shareState;
+  const tpl = SHARE_TEMPLATES[S.tplIdx];
+
+  document.getElementById('share-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'share-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:500;background:' + (isLight?'#f5f5f5':'#0a0a0a') + ';overflow-y:auto;';
+  overlay.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid ${borderC};position:sticky;top:0;background:${isLight?'#f5f5f5':'#0a0a0a'};z-index:2;">
+      <span style="font-size:15px;font-weight:800;color:${txt};">Compartilhar treino</span>
+      <button onclick="_fecharCompartilhar()" style="background:${bgCard};border:1px solid ${borderC};border-radius:10px;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;">✕</button>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:20px 10px 8px;">
+      <button onclick="_shareTrocarTpl(-1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
+      <div id="share-card-host" style="width:230px;height:410px;"></div>
+      <button onclick="_shareTrocarTpl(1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">›</button>
+    </div>
+    <div style="text-align:center;font-size:11px;color:${muted};font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${tpl.nome}</div>
+    <div style="display:flex;justify-content:center;gap:5px;margin-bottom:18px;">
+      ${SHARE_TEMPLATES.map((t,i) => `<div style="width:6px;height:6px;border-radius:50%;background:${i===S.tplIdx?'#7FFF00':borderC};"></div>`).join('')}
+    </div>
+
+    <div style="max-width:340px;margin:0 auto;padding:0 16px;">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:${txt};margin-bottom:16px;cursor:pointer;" onclick="_shareToggleFig()">
+        <input type="checkbox" ${S.incluirFig?'checked':''} style="width:16px;height:16px;accent-color:#7FFF00;" onclick="event.stopPropagation();_shareToggleFig()"/>
+        Incluir a figurinha de hoje no cartão
+      </label>
+
+      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Plano de fundo</div>
+      <div style="display:flex;gap:8px;margin-bottom:20px;">
+        <button onclick="_shareSetBg('transparente')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:11.5px;font-weight:700;cursor:pointer;background:${S.bgModo==='transparente'?'rgba(127,255,0,.1)':bgCard};border:1px solid ${S.bgModo==='transparente'?'#7FFF00':borderC};color:${txt};">◱ Transparente</button>
+        <button onclick="_shareSetBg('galeria')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:11.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">🖼️ Galeria</button>
+        <button onclick="_shareSetBg('camera')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:11.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">📷 Câmera</button>
+      </div>
+      <input type="file" id="share-file-galeria" accept="image/*" style="display:none;" onchange="_shareArquivoEscolhido(this)"/>
+      <input type="file" id="share-file-camera" accept="image/*" capture="environment" style="display:none;" onchange="_shareArquivoEscolhido(this)"/>
+
+      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Compartilhar com</div>
+      <div style="display:flex;justify-content:space-around;margin-bottom:30px;">
+        ${_shareActionBtn('📋','Copiar','_shareAcao(\'copiar\')',bgCard,borderC,txt)}
+        ${_shareActionBtn('⬇️','Salvar','_shareAcao(\'salvar\')',bgCard,borderC,txt)}
+        ${_shareActionBtn('📤','Mais','_shareAcao(\'compartilhar\')',bgCard,borderC,txt)}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const host = document.getElementById('share-card-host');
+  host.innerHTML = tpl.render(S.info, S.fig, S.bgImg, isLight);
+}
+function _shareActionBtn(icon, label, onclick, bg, border, txt) {
+  return `<div style="text-align:center;cursor:pointer;" onclick="${onclick}">
+    <div style="width:52px;height:52px;border-radius:50%;background:${bg};border:1px solid ${border};display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 6px;">${icon}</div>
+    <div style="font-size:11px;color:${txt};">${label}</div>
+  </div>`;
+}
+
+async function _shareGerarBlob() {
+  const node = document.querySelector('#share-card-host .share-card');
+  if (!node) throw new Error('cartão não encontrado');
+  const canvas = await html2canvas(node, { scale: 2, backgroundColor: null, useCORS: true });
+  return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+async function _shareAcao(tipo) {
+  try {
+    toast('Gerando imagem...');
+    const blob = await _shareGerarBlob();
+    if (!blob) throw new Error('sem imagem');
+    const fname = 'treino-intus-' + dataHojeLocal() + '.png';
+
+    if (tipo === 'copiar') {
+      if (!navigator.clipboard || !window.ClipboardItem) { toast('Seu navegador não suporta copiar imagem — tente Salvar.'); return; }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      toast('Imagem copiada! ✅');
+      return;
+    }
+    if (tipo === 'compartilhar' && navigator.canShare && navigator.canShare({ files: [new File([blob], fname, { type: 'image/png' })] })) {
+      await navigator.share({ files: [new File([blob], fname, { type: 'image/png' })], title: 'Meu treino Intus' });
+      return;
+    }
+    // 'salvar', ou 'compartilhar' sem suporte a Web Share com arquivo: baixa a imagem.
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast(tipo === 'compartilhar' ? 'Baixei a imagem — seu navegador não permite compartilhar direto.' : 'Imagem salva! ✅');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // usuário cancelou o share nativo
+    console.error('compartilhar treino:', e);
+    toast('Não consegui gerar a imagem agora.');
+  }
+}
+
 (function(){
   _fetchConfigDireto('figurinhas_config').then(function(c){
     if (c && typeof c === 'object' && Array.isArray(c.itens)) _figurinhasConfig = c;
@@ -4018,8 +4267,22 @@ function renderFim(duracao, sessaoSalva) {
     });
     return Math.round(t);
   })();
+  let seriesTotal = 0, seriesFeitas = 0;
+  (sessaoSalva.itens || []).forEach(function (it) {
+    (it.series || []).forEach(function (s) { seriesTotal++; if (s.peso || s.reps) seriesFeitas++; });
+  });
+  const pctCompleto = seriesTotal ? Math.round(seriesFeitas / seriesTotal * 100) : 100;
   const isLight = document.body.classList.contains('tema-claro');
   const nomeTreino = sessaoAtual.nomeFicha || ('Divisão ' + sessaoAtual.divisao);
+  // Guardado pro botão "Compartilhar treino" — e pra Central de Compartilhamento
+  // conseguir reabrir com os dados do ÚLTIMO treino mesmo fora desta tela.
+  const _shareInfo = {
+    nomeAluno: (user && user.nome) ? String(user.nome).split(' ').slice(0,2).join(' ') : 'Atleta Intus',
+    nomeTreino: nomeTreino, divisao: sessaoAtual.divisao,
+    min: min, sec: sec, volume: volSessao,
+    seriesFeitas: seriesFeitas, seriesTotal: seriesTotal, pctCompleto: pctCompleto,
+  };
+  try { localStorage.setItem('intus-ultimo-treino-share', JSON.stringify(_shareInfo)); } catch (e) {}
 
   const txtColor = isLight ? '#1a1a1a' : '#fff';
   const subColor = isLight ? '#666' : '#aaa';
@@ -4056,11 +4319,13 @@ function renderFim(duracao, sessaoSalva) {
         <button class="btn btn-sec" style="width:100%;margin-top:8px;min-height:36px;font-size:12px;" onclick="salvarComentarioFim(${sessaoSalva.idsessao})">Salvar comentário</button>
       </div>
 
-      <div style="display:flex;gap:10px;margin-top:20px;">
+      <button class="btn btn-prim" style="width:100%;max-width:320px;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirCompartilharUltimoTreino()">📤 Compartilhar treino</button>
+
+      <div style="display:flex;gap:10px;margin-top:12px;max-width:320px;width:100%;">
         <button class="btn btn-sec" style="flex:1;" onclick="navegar('ranking')">🏆 Ranking</button>
         <button class="btn btn-sec" style="flex:1;" onclick="navegar('historico')">📊 Histórico</button>
       </div>
-      <button class="btn btn-prim" style="width:100%;margin-top:10px;" onclick="trocarView('home');renderHome();">🏠 Início</button>
+      <button class="btn btn-sec" style="width:100%;max-width:320px;margin-top:10px;" onclick="trocarView('home');renderHome();">🏠 Início</button>
     </div>`;
   try { _celebrarConquistasFim(); } catch (e) {}
 }
