@@ -7603,14 +7603,67 @@ function _renderRankingView() {
       _bonusLinha = '<div style="font-size:11px;color:' + (isLight ? '#666' : '#999') + ';margin-top:4px;">🔥 +' + _meuItem.bonus + ' pts de bônus de frequência no período</div>';
     }
 
-    html += '<div style="padding:12px 14px;background:' + (isLight ? 'rgba(92,184,0,.08)' : 'rgba(127,255,0,.06)') + ';border:1px solid ' + (isLight ? 'rgba(92,184,0,.25)' : 'rgba(127,255,0,.15)') + ';border-radius:12px;margin-bottom:12px;">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
-        '<div style="font-size:13px;font-weight:700;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">Sua posição: <span style="color:' + _accent + ';font-weight:900;">#' + minhaPosicao + '</span></div>' +
-        '<div style="font-size:13px;font-weight:800;color:' + _accent + ';white-space:nowrap;">' + meusPts.toFixed(0) + ' pts</div>' +
-      '</div>' +
-      '<div style="font-size:11px;color:' + (isLight ? '#666' : '#999') + ';margin-top:3px;">' + _det + '</div>' +
-      _bonusLinha +
-    '</div>';
+    // ── CARTÃO PESSOAL (Opção B aprovada) ──────────────────────────────────
+    // Só na semana atual, que é onde "sua posição" tem o sentido de "agora
+    // mesmo": em vez da caixa fina, um cartão de destaque, pensado pra ser
+    // bonito de printar. A comparação usa a MESMA altura da semana passada
+    // (mesmo dia da semana), nunca a semana passada inteira — comparar uma
+    // terça-feira com um sábado encerrado sempre favoreceria o passado.
+    // Mostra só o que é da própria pessoa: nenhum dado de outro aluno aqui.
+    if (_rankingTab === 'semana') {
+      const dowHoje = hoje.getDay();
+      const domAtual = new Date(hoje); domAtual.setDate(domAtual.getDate() - dowHoje);
+      const domPassada = new Date(domAtual); domPassada.setDate(domPassada.getDate() - 7);
+      const cutoffPassado = new Date(domPassada); cutoffPassado.setDate(cutoffPassado.getDate() + dowHoje);
+      let sessPassada = sessoes.filter(s => s.dt >= domPassada && s.dt <= cutoffPassado);
+      if (_rankingCat === 'musculacao') sessPassada = sessPassada.filter(s => s.tipo === 'musculacao');
+      else if (_rankingCat === 'cardio') sessPassada = sessPassada.filter(s => s.tipo === 'cardio');
+      const agPassada = _agregarPontosPorAtleta(sessPassada);
+      const ptsSemanaPassada = (agPassada[meuId] && agPassada[meuId].total) || 0;
+      const diffPts = Math.round(meusPts - ptsSemanaPassada);
+
+      let _compLinha;
+      if (diffPts > 0) {
+        _compLinha = '<span style="color:' + _accent + ';">▲ ' + diffPts + ' pts a mais</span> que nesta mesma altura da semana passada';
+      } else if (diffPts < 0) {
+        _compLinha = '<span style="color:' + (isLight ? '#c0392b' : '#ff6b6b') + ';">▼ ' + Math.abs(diffPts) + ' pts a menos</span> que nesta mesma altura da semana passada';
+      } else {
+        _compLinha = 'Igual à semana passada nesta mesma altura';
+      }
+
+      const treinosPeriodo = filtered.filter(s => Number(s.idatleta) === meuId).length;
+      const lider = ranking[0];
+      const souLider = !!lider && lider.id === meuId;
+      const faltaPro1 = (lider && !souLider) ? Math.max(0, Math.round(lider.pts - meusPts)) : 0;
+
+      function _cartaoStat(val, label) {
+        return '<div style="flex:1;background:' + (isLight ? '#f6f6f6' : 'rgba(255,255,255,.04)') + ';border-radius:10px;padding:9px 4px;">' +
+          '<div style="font-size:17px;font-weight:900;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' + val + '</div>' +
+          '<div style="font-size:8.5px;color:' + (isLight ? '#999' : '#777') + ';text-transform:uppercase;letter-spacing:.03em;margin-top:2px;">' + label + '</div>' +
+        '</div>';
+      }
+
+      html += '<div style="background:linear-gradient(160deg,' + (isLight ? '#ffffff,#f2f9e8' : '#181818,#151d05') + ');border:1px solid ' + (isLight ? '#e0ecd0' : 'rgba(127,255,0,.18)') + ';border-radius:16px;padding:18px 14px;text-align:center;margin-bottom:12px;">' +
+        '<div style="font-size:10px;color:' + (isLight ? '#888' : '#7d838a') + ';text-transform:uppercase;letter-spacing:.08em;font-weight:800;">Sua posição esta semana</div>' +
+        '<div style="font-size:46px;font-weight:900;color:' + _accent + ';line-height:1;margin:6px 0;">' + minhaPosicao + 'º</div>' +
+        '<div style="font-size:11.5px;color:' + (isLight ? '#444' : '#ccc') + ';font-weight:700;">' + _compLinha + '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:14px;">' +
+          _cartaoStat(meusPts.toFixed(0), 'pontos') +
+          _cartaoStat(treinosPeriodo, 'atividades') +
+          _cartaoStat(souLider ? '🏆' : faltaPro1, souLider ? 'você lidera' : 'pro 1º') +
+        '</div>' +
+        _bonusLinha +
+      '</div>';
+    } else {
+      html += '<div style="padding:12px 14px;background:' + (isLight ? 'rgba(92,184,0,.08)' : 'rgba(127,255,0,.06)') + ';border:1px solid ' + (isLight ? 'rgba(92,184,0,.25)' : 'rgba(127,255,0,.15)') + ';border-radius:12px;margin-bottom:12px;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+          '<div style="font-size:13px;font-weight:700;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">Sua posição: <span style="color:' + _accent + ';font-weight:900;">#' + minhaPosicao + '</span></div>' +
+          '<div style="font-size:13px;font-weight:800;color:' + _accent + ';white-space:nowrap;">' + meusPts.toFixed(0) + ' pts</div>' +
+        '</div>' +
+        '<div style="font-size:11px;color:' + (isLight ? '#666' : '#999') + ';margin-top:3px;">' + _det + '</div>' +
+        _bonusLinha +
+      '</div>';
+    }
   }
 
   if (!ranking.length) {
