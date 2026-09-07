@@ -526,3 +526,91 @@ seguem o mesmo padrão antes de assumir que algo é "assim que é" — ver seç�
 endpoint `app/api/upload-drive.php` (a biblioteca `_gdrive.php` já está pronta) e corrigir o catch
 silencioso por arquivo em `avaliacoes.html`. A chave `gdrive.json` só o Luiz gera e coloca no
 servidor.
+
+---
+
+## 17. Atualizações do Claude Code local (07/09/2026)
+
+Tudo abaixo já está **em produção e verificado** (hash local = hash do servidor) até o momento em
+que esta seção foi escrita, exceto onde marcado como "em andamento".
+
+**Home (`aluno.html`):**
+- Cards "Ranking" e "Medalhas" ganharam emoji (🥇/🏅) no título; o card de Medalhas não mostra mais
+  "desde MM/AAAA" quando o aluno não tem medalha nenhuma (virou "ver quadro completo").
+- Cards "Treinos" e "Cardio": ícone e título ficaram lado a lado (`.h-dest .head`, novo), em vez de
+  empilhados — cabe melhor em tela estreita. Legenda do Cardio encurtada pra não deixar palavra
+  sozinha na segunda linha.
+- O espaço de "ver mais" virou grid 2×2: Conquistas/Evoluções/Avaliações diretos, e o 4º quadro abre
+  "ver mais" (Central, Perfil).
+- Botão "❓ Como usar o app" (`#tutorial-overlay`) foi **totalmente reescrito**: de um texto corrido
+  em caixas expansíveis (que ainda pesava pra ler) virou uma experiência tipo Stories do Instagram —
+  tela cheia, ícone animado em CSS puro, título curto, 1-2 frases, avança sozinho a cada 6s
+  (`TUT_SLIDES`, `_tutIrPara()` e funções ao redor, perto de `abrirTutorial()`). Arrasta ou toca nas
+  laterais pra navegar manualmente.
+- `telaHeader()` (cabeçalho fixo usado em Ranking/Medalhas/Evoluções/etc.) trocou o fundo sólido por
+  um fundo translúcido (`rgba(...,.72)`), sem borda — olhando feio antes, com o conteúdo passando
+  atrás durante a rolagem.
+
+**Cardio ao vivo por GPS (novo, `aluno.html`):** rastreio de corrida/caminhada/bike usando
+`navigator.geolocation.watchPosition` — cronômetro, distância (haversine entre leituras, descarta
+GPS impreciso e saltos acima de ~36 km/h) e ritmo/velocidade, com esboço da rota em SVG. Funciona
+hoje, sem depender de app nativo (ver função `abrirCardioLive()` e o bloco "CARDIO AO VIVO" no
+arquivo). Ao finalizar, os números preenchem o **mesmo** formulário manual de sempre — pontuação,
+limite diário e checagem de plausibilidade continuam só no servidor, sem lógica nova duplicada. O
+formulário manual passou a ficar dentro de uma caixa expansível ("Prefiro registrar manualmente"),
+ainda necessária pra atividades sem GPS (natação, escada, elíptico etc).
+
+**Bug do emoji virando "????" no banco — corrigido:** várias tabelas de texto livre (mural do
+ranking, feed, central de mensagens, chat de desafio) foram criadas antes deste projeto especificar
+`utf8mb4` no `CREATE TABLE`, e `IF NOT EXISTS` não corrige uma tabela que já existia com outro
+charset — emoji de 4 bytes virava `?` ao salvar. Criado `app/api/_charset_fix.php`
+(`_intusGarantirUtf8mb4($pdo, $tabela, $colunas)`): confere o charset real via `information_schema` e
+só faz `ALTER TABLE ... CONVERT TO utf8mb4` quando necessário — chamado em `treinos.php`,
+`catalogo.php`, `mensagens.php` e `desafios.php`. **Ao adicionar uma tabela nova de texto livre,
+chame esse helper depois do `CREATE TABLE IF NOT EXISTS`.** Dois comentários que já tinham virado
+"???" (de Luiz Nunes e Isabela Pazzinatto) foram reparados de volta pra 🔥, por texto exato, dentro
+do próprio bootstrap de `treinos.php?action=ranking`.
+
+**Substitutos de exercício — fonte única confirmada:** `intus_exercicio.substitutos` (catálogo,
+editado em `app/painel/exercicios.html`) é a fonte correta. `intus_treino.substitutos` (override por
+ficha individual) já teve um bug de corrupção por colisão de IDs de seed, com conserto manual em
+`treinos.php?action=fix_subs_treino`. **Qualquer feature nova que precise de substituto de exercício
+deve ler do catálogo, nunca duplicar essa lista.** O Luiz relatou (07/09) que alguns exercícios ainda
+têm substituto errado no catálogo — correção pontual dos dados é dele/do professor, via
+`exercicios.html`.
+
+**Captura de leads (novo):**
+- `teste-gratis.html` (raiz do site, fora de `app/`) — landing page pública com a mesma identidade
+  visual do `index.html` institucional (mesma paleta, mesmas fontes). Formulário curto (nome,
+  WhatsApp, e-mail opcional, objetivo) com honeypot anti-spam; ao enviar, abre o WhatsApp
+  (`5545991156006`) com mensagem pronta.
+- `app/api/leads.php` (novo, sem auth, mesmo padrão de `aluno_login.php`, protegido por
+  `checkRateLimit`) — cria linha em `intus_lead` (nome, whatsapp, email, objetivo, origem, status,
+  ip, criado_em). Não cria conta de aluno.
+- QR code apontando pra `teste-gratis.html` foi gerado e entregue direto ao Luiz (não é servido pelo
+  site — fica em `img/`, que é ignorado no git por guardar upload, não build).
+- Existe uma linha de teste em `intus_lead` (`nome = 'TESTE Claude Code (apagar)'`, id 1) que pode
+  ser apagada.
+
+**Três frentes despachadas para fora desta sessão (07/09):**
+1. **Login social (Google/Facebook) + unificação de cadastro duplicado** — em construção *nesta
+   mesma sessão*, logo em seguida a esta atualização: novas ações `oauth_google`/`oauth_facebook` em
+   `aluno_login.php`, casando por e-mail verificado (nunca confiar no e-mail que o cliente diga ser).
+   Quem já é aluno com aquele e-mail entra na conta existente; quem não é vira lead (mesma tabela
+   `intus_lead` acima), nunca conta nova duplicada. Se você está lendo isto numa sessão nova e essas
+   ações ainda não existem no arquivo, o trabalho ficou incompleto — confira o estado real do
+   arquivo antes de assumir qualquer coisa.
+2. **Plano self-service (aluno monta a própria ficha)** — desenho completo (questionário
+   individualizado, motor de regras que aprende com as fichas reais do Luiz, fila de revisão do
+   professor) despachado para uma **sessão separada** do Claude Code, com prompt próprio
+   (`prompt-nova-sessao-plano-self-service.md`, entregue ao Luiz, não commitado no repo). Nada disso
+   foi construído ainda por esta sessão.
+3. **App nativo + publicação nas lojas** — despachado para o **G4OS**, com prompt próprio
+   (`g4os-prompt-publicacao-lojas.md`, entregue ao Luiz, não commitado no repo). Inclui o aviso de que
+   a Apple exige "Sign in with Apple" se o app oferecer outro login social — relevante por causa do
+   item 1 acima.
+
+Se você é uma sessão nova (Claude Code, Cowork ou G4OS) chegando depois desta atualização: **as três
+frentes acima podem já ter avançado em paralelo por outras sessões** — rode o hash-check da seção 4,
+leia o código de verdade antes de assumir que algo descrito aqui ainda reflete o estado atual, e não
+duplique o que already existe (`_charset_fix.php`, `intus_lead`, cardio ao vivo).
