@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260907a"></script>
-  <script src="api.js?v=20260907a"></script>
+  <script src="api.js?v=20260907b"></script>
   <!-- Só usada pra transformar o cartão de "Compartilhar treino" em imagem
        (Salvar/Copiar/Story). Carregada fixa numa versão; se cair um dia, a
        tela de compartilhar mostra erro em vez de travar o app inteiro. -->
@@ -756,20 +756,62 @@
     @keyframes tutGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
     @keyframes tutBarFill { from { width: 0%; } to { width: var(--w, 60%); } }
 
-    /* CARDIO AO VIVO (GPS) — tela cheia, mesmo padrao visual do tutorial */
+    /* CARDIO AO VIVO (GPS) — tela cheia com mais identidade visual: fundo em
+       degradê, distância como herói (é o número que importa numa corrida),
+       cartão da rota com brilho e chips maiores. */
     #cardio-live-overlay {
-      position: fixed; inset: 0; z-index: 1150; background: #0a0a0a;
+      position: fixed; inset: 0; z-index: 1150;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(127,255,0,.16), transparent 55%),
+        radial-gradient(circle at 15% 100%, rgba(6,182,212,.10), transparent 50%),
+        #060606;
       display: none; flex-direction: column; overflow-y: auto;
     }
     #cardio-live-overlay.open { display: flex; }
     .cl-tipo-chip {
-      flex: 1; padding: 12px 8px; border-radius: 12px; border: 1.5px solid #262626; background: #141414;
+      flex: 1; padding: 13px 8px; border-radius: 14px; border: 1.5px solid #262626; background: rgba(255,255,255,.03);
       color: #999; font-size: 13px; font-weight: 800; cursor: pointer; text-align: center; font-family: inherit;
+      transition: border-color .15s, background .15s, color .15s;
     }
-    .cl-tipo-chip.on { border-color: #7FFF00; background: rgba(127,255,0,.1); color: #7FFF00; }
-    .cl-stat-num { font-size: 15px; font-weight: 900; color: #f0f0f0; font-variant-numeric: tabular-nums; }
-    .cl-stat-lbl { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: .06em; margin-top: 2px; }
+    .cl-tipo-chip.on { border-color: #7FFF00; background: rgba(127,255,0,.12); color: #7FFF00; box-shadow: 0 0 0 1px rgba(127,255,0,.15) inset; }
+    .cl-hero { text-align: center; margin: 6px 0 22px; }
+    .cl-hero-num {
+      font-size: 64px; font-weight: 900; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums;
+      background: linear-gradient(135deg, #fff, #7FFF00); -webkit-background-clip: text; background-clip: text; color: transparent;
+      filter: drop-shadow(0 4px 24px rgba(127,255,0,.25));
+    }
+    .cl-hero-lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .14em; margin-top: 4px; font-weight: 700; }
+    .cl-route-card {
+      background: rgba(255,255,255,.025); border: 1px solid rgba(127,255,0,.18); border-radius: 20px;
+      padding: 6px; margin: 4px 0 20px; box-shadow: 0 0 40px rgba(127,255,0,.05) inset;
+    }
+    .cl-stat-num { font-size: 18px; font-weight: 900; color: #f0f0f0; font-variant-numeric: tabular-nums; }
+    .cl-stat-lbl { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: .08em; margin-top: 3px; font-weight: 700; }
+    .cl-stat-box { flex: 1; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); border-radius: 14px; padding: 14px 12px; text-align: center; }
+    .cl-btn {
+      padding: 16px; border-radius: 16px; border: none; font-family: inherit; font-size: 14.5px; font-weight: 800;
+      cursor: pointer; letter-spacing: .02em; transition: transform .1s, opacity .15s;
+    }
+    .cl-btn:active { transform: scale(.97); }
+    .cl-btn-primario { background: linear-gradient(135deg, #7FFF00, #40c000); color: #000; box-shadow: 0 8px 28px rgba(127,255,0,.25); }
+    .cl-btn-info { background: linear-gradient(135deg, #06b6d4, #0ea5e9); color: #fff; box-shadow: 0 8px 28px rgba(6,182,212,.22); }
+    .cl-btn-sec { background: rgba(255,255,255,.06); color: #f0f0f0; border: 1px solid rgba(255,255,255,.1); }
     @keyframes clPulseRec { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    @keyframes clGlowBorder { 0%, 100% { box-shadow: 0 0 0 0 rgba(127,255,0,0); } 50% { box-shadow: 0 0 32px 2px rgba(127,255,0,.12); } }
+
+    /* Pilula flutuante: rastreio continua rodando enquanto o aluno navega pro
+       resto do app (treino, mensagens etc) — só a tela cheia é que some. */
+    #cardio-live-pill {
+      display: none; position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+      transform: translateX(-50%); z-index: 1140; cursor: pointer;
+      background: rgba(10,10,10,.92); backdrop-filter: blur(10px); border: 1.5px solid rgba(127,255,0,.4);
+      border-radius: 999px; padding: 10px 18px; align-items: center; gap: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: clGlowBorder 2.4s ease-in-out infinite;
+    }
+    #cardio-live-pill.on { display: flex; }
+    #cardio-live-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #f87171; animation: clPulseRec 1.4s ease-in-out infinite; }
+    #cardio-live-pill span.stat { font-size: 13px; font-weight: 800; color: #f0f0f0; font-variant-numeric: tabular-nums; }
+    #cardio-live-pill span.sep { color: #444; }
 
     /* FOOTER */
     .app-footer {
@@ -917,6 +959,15 @@
 
 <div id="cardio-live-overlay">
   <div id="cl-conteudo"></div>
+</div>
+
+<!-- Fica visível quando o rastreio é minimizado — o cronômetro e o GPS
+     continuam rodando por trás, só a tela cheia é que sai da frente. -->
+<div id="cardio-live-pill" onclick="_cardioLiveReabrir()">
+  <span class="dot"></span>
+  <span class="stat" id="clp-tempo">00:00</span>
+  <span class="sep">·</span>
+  <span class="stat" id="clp-dist">0.00 km</span>
 </div>
 
 <div id="tutorial-overlay">
@@ -2536,7 +2587,11 @@ function releaseWakeLock() {
   if (wakeLockSentinel) { wakeLockSentinel.release(); wakeLockSentinel = null; }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && treinoTimer) requestWakeLock();
+  // O navegador solta o wake lock sozinho sempre que a aba fica invisivel
+  // (troca de app, tela apagando) — sem reativar aqui, a tela volta a
+  // conseguir dormir na proxima vez, mesmo com um treino ou cardio ao vivo
+  // ainda rodando.
+  if (document.visibilityState === 'visible' && (treinoTimer || _cardioLiveRodando)) requestWakeLock();
 });
 
 function startTreinoTimer(resume) {
@@ -6376,8 +6431,8 @@ let _cardioLivePausadoDesde = 0;
 let _cardioLiveMsPausado = 0;
 let _cardioLiveWatchId = null;
 let _cardioLiveTimerUi = null;
-let _cardioLiveWakeLock = null;
 let _cardioLiveRodando = false;
+let _cardioLiveMinimizado = false;
 
 function abrirCardioLive() {
   _cardioLiveTipo = 'Corrida';
@@ -6386,6 +6441,26 @@ function abrirCardioLive() {
   _cardioLiveInicioMs = 0;
   _cardioLiveMsPausado = 0;
   _cardioLiveRodando = false;
+  _cardioLiveMinimizado = false;
+  document.getElementById('cardio-live-overlay').classList.add('open');
+  document.getElementById('cardio-live-pill').classList.remove('on');
+  _renderCardioLive();
+}
+
+// Some da frente mas NÃO para o rastreio — GPS e cronômetro continuam
+// rodando, só a tela cheia é que sai do caminho pro aluno usar o resto do
+// app (ex.: começar o treino de musculação com o cardio ainda contando).
+// Antes, a única saída era "Descartar", e sair da tela parecia travar tudo.
+function _cardioLiveMinimizar() {
+  if (!_cardioLiveInicioMs) { _cardioLiveDescartar(); return; }
+  _cardioLiveMinimizado = true;
+  document.getElementById('cardio-live-overlay').classList.remove('open');
+  document.getElementById('cardio-live-pill').classList.add('on');
+  _atualizarStatsCardioLive();
+}
+function _cardioLiveReabrir() {
+  _cardioLiveMinimizado = false;
+  document.getElementById('cardio-live-pill').classList.remove('on');
   document.getElementById('cardio-live-overlay').classList.add('open');
   _renderCardioLive();
 }
@@ -6429,9 +6504,10 @@ function _cardioLiveIniciarRastreio() {
     function () { toast('Não consegui acessar sua localização. Verifique a permissão de GPS.'); },
     { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
   );
-  try {
-    if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (wl) { _cardioLiveWakeLock = wl; }).catch(function () {});
-  } catch (e) {}
+  // Reaproveita o wake lock ja usado pelo cronometro de treino (requestWakeLock/
+  // releaseWakeLock, perto de startTreinoTimer) — mesma trava de tela pro app
+  // inteiro, e o listener de visibilitychange de la ja sabe reativar sozinho.
+  requestWakeLock();
   _cardioLiveTimerUi = setInterval(_atualizarStatsCardioLive, 1000);
   _renderCardioLive();
 }
@@ -6441,6 +6517,7 @@ function _cardioLivePausar() {
   _cardioLivePausadoDesde = Date.now();
   if (_cardioLiveWatchId != null) { navigator.geolocation.clearWatch(_cardioLiveWatchId); _cardioLiveWatchId = null; }
   if (_cardioLiveTimerUi) { clearInterval(_cardioLiveTimerUi); _cardioLiveTimerUi = null; }
+  releaseWakeLock();
   _renderCardioLive();
 }
 
@@ -6452,14 +6529,42 @@ function _cardioLiveRetomar() {
 function _cardioLivePararTudo() {
   if (_cardioLiveWatchId != null) { navigator.geolocation.clearWatch(_cardioLiveWatchId); _cardioLiveWatchId = null; }
   if (_cardioLiveTimerUi) { clearInterval(_cardioLiveTimerUi); _cardioLiveTimerUi = null; }
-  if (_cardioLiveWakeLock) { try { _cardioLiveWakeLock.release(); } catch (e) {} _cardioLiveWakeLock = null; }
+  releaseWakeLock();
   _cardioLiveRodando = false;
+  _cardioLiveMinimizado = false;
+  document.getElementById('cardio-live-pill').classList.remove('on');
 }
 
+// Confirmação própria (em vez do confirm() nativo do navegador, que quebra o
+// visual e nem sempre aparece igual em todo navegador/webview).
 function _cardioLiveDescartar() {
-  if (_cardioLiveInicioMs && !confirm('Descartar este rastreio? Os dados não serão salvos.')) return;
-  _cardioLivePararTudo();
-  document.getElementById('cardio-live-overlay').classList.remove('open');
+  if (!_cardioLiveInicioMs) {
+    _cardioLivePararTudo();
+    document.getElementById('cardio-live-overlay').classList.remove('open');
+    return;
+  }
+  const isLight = document.body.classList.contains('tema-claro');
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+  ov.innerHTML =
+    '<div style="background:' + (isLight ? '#fff' : '#141414') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#333') + ';border-radius:16px;padding:22px;max-width:300px;width:100%;text-align:center;">' +
+      '<div style="font-size:30px;margin-bottom:8px;">🗑️</div>' +
+      '<div style="font-size:15px;font-weight:800;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';margin-bottom:6px;">Descartar este rastreio?</div>' +
+      '<div style="font-size:12.5px;color:' + (isLight ? '#666' : '#999') + ';margin-bottom:18px;">' + _cardioLiveKm().toFixed(2) + ' km rastreados serão perdidos. Prefere só sair da tela sem perder nada? Toque em "Minimizar".</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' +
+        '<button id="cl-desc-min" style="padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,#7FFF00,#40c000);color:#000;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">📍 Minimizar (continuar rastreando)</button>' +
+        '<button id="cl-desc-sim" style="padding:11px;border-radius:10px;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:' + (isLight ? '#c0392b' : '#f87171') + ';font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">Descartar mesmo assim</button>' +
+        '<button id="cl-desc-cancelar" style="padding:11px;border-radius:10px;border:none;background:transparent;color:' + (isLight ? '#888' : '#777') + ';font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#cl-desc-min').onclick = function () { ov.remove(); _cardioLiveMinimizar(); };
+  ov.querySelector('#cl-desc-sim').onclick = function () {
+    ov.remove();
+    _cardioLivePararTudo();
+    document.getElementById('cardio-live-overlay').classList.remove('open');
+  };
+  ov.querySelector('#cl-desc-cancelar').onclick = function () { ov.remove(); };
 }
 
 function _cardioLiveTempoMs() {
@@ -6509,9 +6614,13 @@ function _desenharRotaCardioLive() {
 
 function _atualizarStatsCardioLive() {
   const t = document.getElementById('cl-tempo'); if (t) t.textContent = _fmtCronometro(_cardioLiveTempoMs());
-  const d = document.getElementById('cl-dist'); if (d) d.textContent = _cardioLiveKm().toFixed(2) + ' km';
+  const d = document.getElementById('cl-dist'); if (d) d.textContent = _cardioLiveKm().toFixed(2);
   const r = document.getElementById('cl-ritmo'); if (r) r.textContent = _cardioLiveTipo === 'Bike' ? _cardioLiveVelTxt() : _cardioLivePaceTxt();
   _desenharRotaCardioLive();
+  if (_cardioLiveMinimizado) {
+    const pt = document.getElementById('clp-tempo'); if (pt) pt.textContent = _fmtCronometro(_cardioLiveTempoMs());
+    const pd = document.getElementById('clp-dist'); if (pd) pd.textContent = _cardioLiveKm().toFixed(2) + ' km';
+  }
 }
 
 // Fecha o rastreio e leva os numeros pro formulario manual de sempre —
@@ -6523,6 +6632,7 @@ function _cardioLiveFinalizar() {
   const tipo = _cardioLiveTipo;
   _cardioLivePararTudo();
   document.getElementById('cardio-live-overlay').classList.remove('open');
+  document.getElementById('cardio-live-pill').classList.remove('on');
   renderCardio();
   const selTipo = document.getElementById('cardio-tipo');
   if (selTipo) selTipo.value = tipo;
@@ -6541,49 +6651,49 @@ function _cardioLiveFinalizar() {
 function _renderCardioLive() {
   const box = document.getElementById('cl-conteudo');
   if (!box) return;
-  const emojiTipo = { Corrida: '🏃', Caminhada: '🚶', Bike: '🚴' }[_cardioLiveTipo] || '🏃';
   const iniciado = !!_cardioLiveInicioMs;
+  const emoji = { Corrida: '🏃', Caminhada: '🚶', Bike: '🚴' };
 
   const chips = CARDIO_LIVE_TIPOS.map(t =>
     '<button class="cl-tipo-chip' + (t === _cardioLiveTipo ? ' on' : '') + '" ' + (iniciado ? 'disabled style="opacity:.4;"' : '') +
-    ' onclick="_cardioLiveEscolherTipo(\'' + t + '\')">' + ({ Corrida: '🏃', Caminhada: '🚶', Bike: '🚴' }[t]) + '<br>' + t + '</button>'
+    ' onclick="_cardioLiveEscolherTipo(\'' + t + '\')">' + emoji[t] + '<br>' + t + '</button>'
   ).join('');
 
   const controles = !iniciado
-    ? '<button class="btn btn-prim btn-full" style="padding:16px;font-size:16px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar a rastrear</button>'
+    ? '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar a rastrear</button>'
     : _cardioLiveRodando
     ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-        '<button class="btn btn-full" style="padding:14px;background:#262626;color:#f0f0f0;" onclick="_cardioLivePausar()">⏸ Pausar</button>' +
-        '<button class="btn btn-full" style="padding:14px;background:linear-gradient(135deg,#06b6d4,#0ea5e9);border:none;" onclick="_cardioLiveFinalizar()">🏁 Finalizar</button>' +
+        '<button class="cl-btn cl-btn-sec" onclick="_cardioLivePausar()">⏸ Pausar</button>' +
+        '<button class="cl-btn cl-btn-info" onclick="_cardioLiveFinalizar()">🏁 Finalizar</button>' +
       '</div>'
     : '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-        '<button class="btn btn-full" style="padding:14px;background:linear-gradient(135deg,#7FFF00,#40c000);color:#000;" onclick="_cardioLiveRetomar()">▶ Continuar</button>' +
-        '<button class="btn btn-full" style="padding:14px;background:linear-gradient(135deg,#06b6d4,#0ea5e9);border:none;" onclick="_cardioLiveFinalizar()">🏁 Finalizar</button>' +
+        '<button class="cl-btn cl-btn-primario" onclick="_cardioLiveRetomar()">▶ Continuar</button>' +
+        '<button class="cl-btn cl-btn-info" onclick="_cardioLiveFinalizar()">🏁 Finalizar</button>' +
       '</div>';
 
   box.innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 16px 4px;">' +
-      '<span style="font-size:13px;font-weight:800;color:' + (iniciado ? '#f87171' : '#666') + ';display:flex;align-items:center;gap:6px;">' +
+      '<span style="font-size:13px;font-weight:800;color:' + (iniciado ? '#f87171' : '#888') + ';display:flex;align-items:center;gap:6px;">' +
         (iniciado ? '<span style="width:8px;height:8px;border-radius:50%;background:#f87171;display:inline-block;animation:clPulseRec 1.4s ease-in-out infinite;"></span> Rastreando' : '📍 Cardio ao vivo') +
       '</span>' +
-      '<button onclick="_cardioLiveDescartar()" style="background:rgba(255,255,255,.1);border:none;color:#fff;width:30px;height:30px;border-radius:50%;font-size:18px;cursor:pointer;">&times;</button>' +
+      '<div style="display:flex;gap:8px;">' +
+        (iniciado ? '<button onclick="_cardioLiveMinimizar()" title="Minimizar e continuar rastreando" style="background:rgba(127,255,0,.12);border:1px solid rgba(127,255,0,.3);color:#7FFF00;width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer;">▾</button>' : '') +
+        '<button onclick="_cardioLiveDescartar()" title="Fechar" style="background:rgba(255,255,255,.08);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;">&times;</button>' +
+      '</div>' +
     '</div>' +
     '<div style="flex:1;display:flex;flex-direction:column;padding:8px 20px 24px;">' +
-      '<div style="display:flex;gap:8px;margin:8px 0 22px;">' + chips + '</div>' +
-      '<div style="text-align:center;margin-bottom:4px;">' +
-        '<div style="font-size:52px;font-weight:900;color:#f0f0f0;font-variant-numeric:tabular-nums;letter-spacing:-1px;" id="cl-tempo">00:00</div>' +
-        '<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.1em;">tempo</div>' +
+      '<div style="display:flex;gap:8px;margin:8px 0 4px;">' + chips + '</div>' +
+      '<div class="cl-hero">' +
+        '<span class="cl-hero-num" id="cl-dist">0.00</span>' +
+        '<div class="cl-hero-lbl">quilômetros</div>' +
       '</div>' +
-      '<svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:140px;margin:14px 0;"></svg>' +
-      '<div style="display:flex;gap:10px;margin-bottom:26px;">' +
-        '<div style="flex:1;background:#141414;border:1px solid #222;border-radius:12px;padding:12px;text-align:center;">' +
-          '<div class="cl-stat-num" id="cl-dist">0.00 km</div><div class="cl-stat-lbl">distância</div>' +
-        '</div>' +
-        '<div style="flex:1;background:#141414;border:1px solid #222;border-radius:12px;padding:12px;text-align:center;">' +
-          '<div class="cl-stat-num" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0 km/h' : '--:--/km') + '</div><div class="cl-stat-lbl">' + (_cardioLiveTipo === 'Bike' ? 'velocidade' : 'ritmo') + '</div>' +
-        '</div>' +
+      '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:block;"></svg></div>' +
+      '<div style="display:flex;gap:10px;margin-bottom:24px;">' +
+        '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-tempo">00:00</div><div class="cl-stat-lbl">tempo</div></div>' +
+        '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0 km/h' : '--:--/km') + '</div><div class="cl-stat-lbl">' + (_cardioLiveTipo === 'Bike' ? 'velocidade' : 'ritmo') + '</div></div>' +
       '</div>' +
       '<div style="margin-top:auto;">' + controles + '</div>' +
+      (iniciado ? '<div style="text-align:center;font-size:10.5px;color:#666;margin-top:12px;line-height:1.5;">Navegar para outra tela do app não para o rastreio. Travar a tela ou trocar de app, sim — isso só um app instalado consegue segurar.</div>' : '') +
     '</div>';
 }
 
@@ -10830,6 +10940,17 @@ trocarView = function(v) {
   originalTrocarView(v);
 };
 window.addEventListener('popstate', function(e) {
+  // Cardio ao vivo é uma tela cheia fixa (position:fixed), fora do sistema de
+  // views — sem este caso, o botão/gesto de voltar do celular trocava a tela
+  // de baixo mas o cardio ao vivo continuava por cima, tampando tudo, sem
+  // "Voltar" nem menu pra sair (foi exatamente o bug relatado: "voltar pra
+  // essa tela" — na real, ela nunca tinha fechado). Minimiza em vez de
+  // fechar de vez, pra não perder o que já foi rastreado.
+  if (document.getElementById('cardio-live-overlay')?.classList.contains('open')) {
+    _cardioLiveMinimizar();
+    history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
+    return;
+  }
   // Com a folha do histórico aberta, voltar deve fechar a folha e parar por
   // aí. Sem isto, a tela de trás mudava por baixo enquanto a folha continuava
   // na frente, e o aluno saía do treino sem entender como.
