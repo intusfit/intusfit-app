@@ -2123,13 +2123,13 @@ const API = {
   criarAlongamento: (data) => tryRemoteOrLocal(
     async () => {
       const res = await apiFetch('/catalogo.php?action=alongamentos', { method: 'POST', body: JSON.stringify(data) });
-      const novo = { idalongamento: res.idalongamento, grupo: data.grupo || 'Geral', nome: data.nome || '', tempo: data.tempo || '30s', obs: data.obs || '', descricao: data.descricao || null, videoyoutube: data.videoyoutube || null, gifalongamento: data.gifalongamento || null, instrucao_ia: data.instrucao_ia || null };
+      const novo = { idalongamento: res.idalongamento, grupo: data.grupo || 'Geral', nome: data.nome || '', tempo: data.tempo || '30s', obs: data.obs || '', descricao: data.descricao || null, videoyoutube: data.videoyoutube || null, gifalongamento: data.gifalongamento || null, instrucao_ia: data.instrucao_ia || null, equipamento: data.equipamento || null, substitutos: Array.isArray(data.substitutos) ? data.substitutos : [] };
       const lista = Store.get('alongamentos'); lista.push(novo); Store.set('alongamentos', lista);
       return novo;
     },
     () => {
       const lista = Store.get('alongamentos');
-      const novo = { idalongamento: Store.nextId('alongamentos', 'idalongamento'), grupo: data.grupo || 'Geral', nome: data.nome || '', tempo: data.tempo || '30s', obs: data.obs || '', descricao: data.descricao || null, videoyoutube: data.videoyoutube || null };
+      const novo = { idalongamento: Store.nextId('alongamentos', 'idalongamento'), grupo: data.grupo || 'Geral', nome: data.nome || '', tempo: data.tempo || '30s', obs: data.obs || '', descricao: data.descricao || null, videoyoutube: data.videoyoutube || null, equipamento: data.equipamento || null, substitutos: Array.isArray(data.substitutos) ? data.substitutos : [] };
       lista.push(novo); Store.set('alongamentos', lista);
       return novo;
     }

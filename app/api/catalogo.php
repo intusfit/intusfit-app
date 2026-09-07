@@ -88,6 +88,11 @@ function ensureCatalogoTables(PDO $pdo) {
     $cols = array_column($pdo->query("SHOW COLUMNS FROM intus_alongamento")->fetchAll(PDO::FETCH_ASSOC), 'Field');
     if (!in_array('gifalongamento', $cols)) $pdo->exec("ALTER TABLE intus_alongamento ADD COLUMN gifalongamento VARCHAR(500) NULL AFTER videoyoutube");
     if (!in_array('instrucao_ia', $cols)) $pdo->exec("ALTER TABLE intus_alongamento ADD COLUMN instrucao_ia TEXT NULL AFTER gifalongamento");
+    // Mesmo par equipamento+substitutos do catalogo de exercicios (intus_exercicio),
+    // pro plano self-service trocar alongamento tambem quando o aluno nao tem o
+    // equipamento (ex.: alongamento com elastico vs so peso corporal).
+    if (!in_array('equipamento', $cols)) $pdo->exec("ALTER TABLE intus_alongamento ADD COLUMN equipamento VARCHAR(30) NULL AFTER grupo");
+    if (!in_array('substitutos', $cols)) $pdo->exec("ALTER TABLE intus_alongamento ADD COLUMN substitutos TEXT NULL AFTER instrucao_ia");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_avaliacao (
@@ -275,6 +280,51 @@ function jsonBody() {
     if (!$raw) return [];
     $d = json_decode($raw, true);
     return is_array($d) ? $d : [];
+}
+
+// ── Substitutos de alongamento: mesmo esquema de nomesToIds/subsToNomes de
+// treinos.php (catalogo de exercicios) — grava ID no banco, devolve nome pro
+// front-end. Fonte unica: renomear um alongamento nao quebra quem o referencia
+// como substituto, porque a referencia e por ID, resolvida contra o catalogo
+// atual a cada leitura.
+$_alongNomeMap = null;
+function getAlongNomeMap(PDO $pdo): array {
+    global $_alongNomeMap;
+    if ($_alongNomeMap !== null) return $_alongNomeMap;
+    $_alongNomeMap = [];
+    try {
+        $rows = $pdo->query("SELECT idalongamento, nome FROM intus_alongamento")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $row) $_alongNomeMap[(int)$row['idalongamento']] = $row['nome'];
+    } catch (Throwable $e) {}
+    return $_alongNomeMap;
+}
+function alongSubsToNomes(array $raw, PDO $pdo): array {
+    $nomeMap = getAlongNomeMap($pdo);
+    $nomes = [];
+    foreach ($raw as $v) {
+        if (is_int($v) || (is_string($v) && ctype_digit(trim($v)))) {
+            $id = (int)$v;
+            if (isset($nomeMap[$id])) $nomes[] = $nomeMap[$id];
+        } elseif (is_string($v) && trim($v) !== '') {
+            $nomes[] = trim($v);
+        }
+    }
+    return array_values(array_unique($nomes));
+}
+function alongNomesToIds(array $raw, PDO $pdo): array {
+    $nomeMap = getAlongNomeMap($pdo);
+    $normMap = [];
+    foreach ($nomeMap as $id => $nm) $normMap[mb_strtolower(trim($nm), 'UTF-8')] = $id;
+    $ids = [];
+    foreach ($raw as $v) {
+        if (is_int($v) || (is_string($v) && ctype_digit(trim($v)))) {
+            $ids[] = (int)$v;
+        } elseif (is_string($v) && trim($v) !== '') {
+            $key = mb_strtolower(trim($v), 'UTF-8');
+            if (isset($normMap[$key])) $ids[] = $normMap[$key];
+        }
+    }
+    return array_values(array_unique($ids));
 }
 
 // Backup no Google Drive (plugável): fica inativo até existir /app/config/gdrive.json
@@ -515,7 +565,12 @@ try {
 if ($action === 'alongamentos') {
     if ($method === 'GET') {
         $rows = $pdo->query("SELECT * FROM intus_alongamento ORDER BY grupo, nome")->fetchAll(PDO::FETCH_ASSOC);
-        $out = array_map(function($r) {
+        $out = array_map(function($r) use ($pdo) {
+            $subs = null;
+            if (isset($r['substitutos']) && $r['substitutos'] !== null && $r['substitutos'] !== '') {
+                $tmp = json_decode($r['substitutos'], true);
+                if (is_array($tmp) && count($tmp) > 0) $subs = alongSubsToNomes($tmp, $pdo);
+            }
             return [
                 'idalongamento' => (int)$r['idalongamento'],
                 'grupo'         => $r['grupo'],
@@ -526,6 +581,8 @@ if ($action === 'alongamentos') {
                 'videoyoutube'  => $r['videoyoutube'] ?? '',
                 'gifalongamento'=> $r['gifalongamento'] ?? '',
                 'instrucao_ia'  => $r['instrucao_ia'] ?? '',
+                'equipamento'   => $r['equipamento'] ?? '',
+                'substitutos'   => $subs,
             ];
         }, $rows);
         echo json_encode($out);
@@ -535,11 +592,13 @@ if ($action === 'alongamentos') {
         $b = jsonBody();
         $nome = trim($b['nome'] ?? '');
         if (!$nome) { http_response_code(400); echo json_encode(['error' => 'nome obrigatorio']); exit; }
-        $st = $pdo->prepare("INSERT INTO intus_alongamento (grupo, nome, tempo, obs, descricao, videoyoutube, gifalongamento, instrucao_ia) VALUES (?,?,?,?,?,?,?,?)");
+        $subs = (isset($b['substitutos']) && is_array($b['substitutos']) && count($b['substitutos']) > 0) ? json_encode(alongNomesToIds($b['substitutos'], $pdo)) : null;
+        $st = $pdo->prepare("INSERT INTO intus_alongamento (grupo, nome, tempo, obs, descricao, videoyoutube, gifalongamento, instrucao_ia, equipamento, substitutos) VALUES (?,?,?,?,?,?,?,?,?,?)");
         $st->execute([
             $b['grupo'] ?? 'Geral', $nome, $b['tempo'] ?? '30s',
             $b['obs'] ?? '', $b['descricao'] ?? '', $b['videoyoutube'] ?? '',
             $b['gifalongamento'] ?? '', $b['instrucao_ia'] ?? '',
+            $b['equipamento'] ?? null, $subs,
         ]);
         echo json_encode(['ok' => true, 'idalongamento' => (int)$pdo->lastInsertId()]);
         exit;
@@ -549,8 +608,12 @@ if ($action === 'alongamentos') {
         $id = (int)($b['idalongamento'] ?? $_GET['id'] ?? 0);
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
         $sets = []; $vals = [];
-        foreach (['grupo','nome','tempo','obs','descricao','videoyoutube','gifalongamento','instrucao_ia'] as $k) {
+        foreach (['grupo','nome','tempo','obs','descricao','videoyoutube','gifalongamento','instrucao_ia','equipamento'] as $k) {
             if (array_key_exists($k, $b)) { $sets[] = "$k = ?"; $vals[] = $b[$k]; }
+        }
+        if (array_key_exists('substitutos', $b)) {
+            $sets[] = "substitutos = ?";
+            $vals[] = (is_array($b['substitutos']) && count($b['substitutos']) > 0) ? json_encode(alongNomesToIds($b['substitutos'], $pdo)) : null;
         }
         if (empty($sets)) { echo json_encode(['ok' => true]); exit; }
         $vals[] = $id;
@@ -562,6 +625,17 @@ if ($action === 'alongamentos') {
         $id = (int)($_GET['id'] ?? 0);
         if ($id <= 0) { $b = jsonBody(); $id = (int)($b['idalongamento'] ?? 0); }
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        // Mesma limpeza de substituto fantasma que o catalogo de exercicios faz.
+        try {
+            $refs = $pdo->query("SELECT idalongamento, substitutos FROM intus_alongamento WHERE substitutos LIKE '%\"" . $id . "\"%' OR substitutos LIKE '%," . $id . ",%' OR substitutos LIKE '%[" . $id . ",%' OR substitutos LIKE '%," . $id . "]%' OR substitutos = '[" . $id . "]'")->fetchAll(PDO::FETCH_ASSOC);
+            $upd = $pdo->prepare("UPDATE intus_alongamento SET substitutos = ? WHERE idalongamento = ?");
+            foreach ($refs as $r) {
+                $arr = json_decode($r['substitutos'], true);
+                if (!is_array($arr)) continue;
+                $novo = array_values(array_filter($arr, fn($v) => (int)$v !== $id));
+                $upd->execute([count($novo) ? json_encode($novo) : null, $r['idalongamento']]);
+            }
+        } catch (Throwable $e) {}
         $pdo->prepare("DELETE FROM intus_alongamento WHERE idalongamento = ?")->execute([$id]);
         echo json_encode(['ok' => true]);
         exit;

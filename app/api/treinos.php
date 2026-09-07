@@ -1088,6 +1088,19 @@ try {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) { $b = jsonBody(); $id = (int)($b['idexercicio'] ?? 0); }
             if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'idexercicio obrigatorio']); exit; }
+            // Substituto "fantasma": sem isto, exercicio apagado continuava preso na
+            // lista de substitutos de quem o referenciava — a leitura ja filtra isso
+            // em silencio (subsToNomes), mas o dado sujo ficava salvo pra sempre.
+            try {
+                $refs = $pdo->query("SELECT idexercicio, substitutos FROM intus_exercicio WHERE substitutos LIKE '%\"" . $id . "\"%' OR substitutos LIKE '%," . $id . ",%' OR substitutos LIKE '%[" . $id . ",%' OR substitutos LIKE '%," . $id . "]%' OR substitutos = '[" . $id . "]'")->fetchAll(PDO::FETCH_ASSOC);
+                $upd = $pdo->prepare("UPDATE intus_exercicio SET substitutos = ? WHERE idexercicio = ?");
+                foreach ($refs as $r) {
+                    $arr = json_decode($r['substitutos'], true);
+                    if (!is_array($arr)) continue;
+                    $novo = array_values(array_filter($arr, fn($v) => (int)$v !== $id));
+                    $upd->execute([count($novo) ? json_encode($novo) : null, $r['idexercicio']]);
+                }
+            } catch (Throwable $e) {}
             $pdo->prepare("DELETE FROM intus_exercicio WHERE idexercicio = ?")->execute([$id]);
             echo json_encode(['ok' => true]);
             exit;

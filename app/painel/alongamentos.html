@@ -151,6 +151,7 @@ function render() {
                   <th>Alongamento</th>
                   <th style="width:140px;">Duração</th>
                   <th>Descrição</th>
+                  <th style="width:110px;">Equipamento</th>
                   <th style="width:80px;">Vídeo</th>
                   ${(podeEditar || podeExcluir) ? '<th style="width:160px;text-align:right;"></th>' : ''}
                 </tr></thead>
@@ -163,6 +164,11 @@ function render() {
                           title="${esc(it.descricao || it.obs || '')}">
                           ${esc(it.descricao || it.obs || '—')}
                       </td>
+                      <td>${(() => {
+                        const rotulos = { maquina: 'Máquina', halter: 'Halteres', barra_livre: 'Barra livre', elastico: 'Elástico', peso_corporal: 'Peso corporal' };
+                        if (!it.equipamento || !rotulos[it.equipamento]) return `<span class="pill" style="background:rgba(248,113,113,.12);color:#f87171;border:1px solid rgba(248,113,113,.3);">⚠ marcar</span>`;
+                        return `<span class="pill" style="background:var(--bg3);color:var(--text-muted);">${rotulos[it.equipamento]}</span>`;
+                      })()}</td>
                       <td>${it.videoyoutube
                         ? `<a href="${esc(it.videoyoutube)}" target="_blank" style="color:#ff6b6b;font-size:12px;font-weight:600;">▶</a>`
                         : `<span style="color:var(--text-muted);font-size:12px;">—</span>`}</td>
@@ -216,9 +222,13 @@ function abrirModalEditar(id) {
   abrirModal(it);
 }
 
+// guarda os NOMES dos substitutos selecionados no modal atual
+let _modalSubsAl = [];
 function abrirModal(a) {
   const isEdit = !!a;
   const grupos = gruposDistintos();
+  _modalSubsAl = isEdit && Array.isArray(a.substitutos) ? [...a.substitutos] : [];
+  const outrosAlongamentos = alongamentos.filter(x => !isEdit || Number(x.idalongamento) !== Number(a.idalongamento));
   openModal(`
     <div class="modal-header">
       <div class="modal-title">${isEdit ? 'Editar Alongamento' : 'Novo Alongamento'}</div>
@@ -260,6 +270,40 @@ function abrirModal(a) {
         <input id="f-obs" class="input" placeholder="Dica rápida"
                value="${isEdit ? esc(a.obs || '') : ''}"/>
       </div>
+      <div class="form-group">
+        <label class="label">Equipamento</label>
+        <select id="f-equipamento" class="input">
+          <option value="" ${!isEdit || !a.equipamento ? 'selected' : ''}>— não marcado —</option>
+          <option value="maquina" ${isEdit && a.equipamento === 'maquina' ? 'selected' : ''}>Máquina / cabo / polia</option>
+          <option value="halter" ${isEdit && a.equipamento === 'halter' ? 'selected' : ''}>Halteres</option>
+          <option value="barra_livre" ${isEdit && a.equipamento === 'barra_livre' ? 'selected' : ''}>Barra livre</option>
+          <option value="elastico" ${isEdit && a.equipamento === 'elastico' ? 'selected' : ''}>Elástico</option>
+          <option value="peso_corporal" ${isEdit && a.equipamento === 'peso_corporal' ? 'selected' : ''}>Peso corporal</option>
+        </select>
+        <small style="font-size:11px;color:var(--text-muted);display:block;margin-top:6px;">
+          Usado pelo plano self-service pra trocar alongamento quando o aluno não tem o equipamento.
+        </small>
+      </div>
+      <div class="form-group" style="border-top:1px solid #2a2a2a;padding-top:14px;margin-top:4px;">
+        <label class="label" style="display:flex;align-items:center;gap:8px;">
+          <span>🔄</span> Alongamentos substitutos
+        </label>
+        <small style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:8px;">
+          Alternativas equivalentes que o motor pode usar no lugar deste.
+        </small>
+        <div id="subs-al-chips" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${outrosAlongamentos.length === 0
+            ? `<span style="font-size:12px;color:var(--text-muted);">Cadastre outros alongamentos primeiro.</span>`
+            : outrosAlongamentos.map(x => `
+              <button type="button" class="btn btn-sm" data-nome="${esc(x.nome)}"
+                onclick="toggleSubAl('${esc(x.nome).replace(/'/g,"\\'")}')"
+                style="${_modalSubsAl.includes(x.nome)
+                  ? 'background:rgba(127,255,0,.15);color:var(--brand);border:1px solid rgba(127,255,0,.4);'
+                  : 'background:var(--bg3);color:var(--text-muted);border:1px solid var(--border);'}">
+                ${esc(x.nome)}
+              </button>`).join('')}
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
@@ -269,6 +313,18 @@ function abrirModal(a) {
   setTimeout(()=> document.getElementById('f-nome')?.focus(), 50);
 }
 
+function toggleSubAl(nome) {
+  const i = _modalSubsAl.indexOf(nome);
+  if (i >= 0) _modalSubsAl.splice(i, 1);
+  else _modalSubsAl.push(nome);
+  document.querySelectorAll('#subs-al-chips button').forEach(btn => {
+    const sel = _modalSubsAl.includes(btn.dataset.nome);
+    btn.style.cssText = sel
+      ? 'background:rgba(127,255,0,.15);color:var(--brand);border:1px solid rgba(127,255,0,.4);'
+      : 'background:var(--bg3);color:var(--text-muted);border:1px solid var(--border);';
+  });
+}
+
 async function salvar(id) {
   const grupo = document.getElementById('f-grupo').value.trim();
   const nome  = document.getElementById('f-nome').value.trim();
@@ -276,11 +332,12 @@ async function salvar(id) {
   const desc  = document.getElementById('f-desc').value.trim();
   const video = document.getElementById('f-video').value.trim();
   const obs   = document.getElementById('f-obs').value.trim();
+  const equipamento = document.getElementById('f-equipamento').value;
   if (!grupo) return showToast('Informe o grupo muscular.', 'error');
   if (!nome)  return showToast('Informe o nome.', 'error');
   if (!tempo) return showToast('Informe a duração.', 'error');
 
-  const payload = { grupo, nome, tempo, obs, descricao: desc || null, videoyoutube: video || null };
+  const payload = { grupo, nome, tempo, obs, descricao: desc || null, videoyoutube: video || null, equipamento: equipamento || null, substitutos: [..._modalSubsAl] };
 
   try {
     if (id) {
