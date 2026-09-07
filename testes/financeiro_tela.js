@@ -18,7 +18,7 @@ const MENS=[
   C(5,'Aluno Devedor','Personal 2x','2026-07-01','2026-08-01',null,500),
 ];
 (async()=>{
- const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium'});
+ const b=await chromium.launch();
  const p=await b.newPage({viewport:{width:1400,height:900}});
  const erros=[]; p.on('pageerror',e=>erros.push(e.message));
  await p.route(u=>u.href.includes('.php'),r=>{

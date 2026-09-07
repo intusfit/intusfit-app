@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Exercícios — Intus</title>
   <script src="_mock.js?v=20260907a"></script>
-  <script src="api.js?v=20260907a"></script>
+  <script src="api.js?v=20260907b"></script>
   <style>
     /* ─── Tag input para grupos musculares ─── */
     .tags-input-wrap {
@@ -220,6 +220,7 @@ function render() {
                 <th style="width:60px;">#</th>
                 <th>Nome</th>
                 <th style="width:120px;">Grupo</th>
+                <th style="width:110px;">Equipamento</th>
                 <th style="width:110px;">Substitutos</th>
                 <th style="width:90px;">Vídeo</th>
                 ${(podeEditar || podeExcluir) ? '<th style="width:170px;text-align:right;"></th>' : ''}
@@ -235,6 +236,11 @@ function render() {
                       const gs = gruposDe(ex);
                       if (gs.length === 0) return `<span style="color:var(--text-muted);font-size:12px;">—</span>`;
                       return `<span class="grupo-pills">${gs.map(g => `<span class="grupo-pill">${escapeHtml(g)}</span>`).join('')}</span>`;
+                    })()}</td>
+                    <td>${(() => {
+                      const rotulos = { maquina: 'Máquina', halter: 'Halteres', barra_livre: 'Barra livre', elastico: 'Elástico', peso_corporal: 'Peso corporal' };
+                      if (!ex.equipamento || !rotulos[ex.equipamento]) return `<span class="pill" style="background:rgba(248,113,113,.12);color:#f87171;border:1px solid rgba(248,113,113,.3);" title="Ainda não marcado — precisa pra funcionar o plano self-service">⚠ marcar</span>`;
+                      return `<span class="pill" style="background:var(--bg3);color:var(--text-muted);">${rotulos[ex.equipamento]}</span>`;
                     })()}</td>
                     <td>${subs.length
                       ? `<span class="pill" style="background:rgba(127,255,0,.12);color:var(--brand);border:1px solid rgba(127,255,0,.3);" title="${escapeAttr(subs.map(nomeExercicio).join(', '))}">${subs.length} opç${subs.length>1?'ões':'ão'}</span>`
@@ -361,6 +367,21 @@ function abrirModal(ex) {
           </div>` : ''}
         <small style="font-size:11px;color:var(--text-muted);display:block;margin-top:6px;">
           Permite múltiplos grupos. Útil para exercícios compostos (ex: terra → Costas, Glúteos, Coxas) e para filtrar por grupo no futuro.
+        </small>
+      </div>
+      <div class="form-group">
+        <label class="label">Equipamento</label>
+        <select id="f-equipamento" class="input">
+          <option value="" ${!isEdit || !ex.equipamento ? 'selected' : ''}>— não marcado —</option>
+          <option value="maquina" ${isEdit && ex.equipamento === 'maquina' ? 'selected' : ''}>Máquina / cabo / polia</option>
+          <option value="halter" ${isEdit && ex.equipamento === 'halter' ? 'selected' : ''}>Halteres</option>
+          <option value="barra_livre" ${isEdit && ex.equipamento === 'barra_livre' ? 'selected' : ''}>Barra livre</option>
+          <option value="elastico" ${isEdit && ex.equipamento === 'elastico' ? 'selected' : ''}>Elástico</option>
+          <option value="peso_corporal" ${isEdit && ex.equipamento === 'peso_corporal' ? 'selected' : ''}>Peso corporal</option>
+        </select>
+        <small style="font-size:11px;color:var(--text-muted);display:block;margin-top:6px;">
+          Usado pelo plano self-service pra trocar exercício quando o aluno não tem
+          o equipamento (ex.: só peso corporal em casa).
         </small>
       </div>
       <div class="form-group">
@@ -612,6 +633,7 @@ async function salvar(id) {
   const video = document.getElementById('f-video').value.trim();
   const obs   = document.getElementById('f-obs').value.trim();
   const gif   = document.getElementById('f-gif').value.trim();
+  const equipamento = document.getElementById('f-equipamento').value;
 
   // Garante que tag pendente no input (sem Enter) também entra
   const inpGrupo = document.getElementById('f-grupo-input');
@@ -630,6 +652,7 @@ async function salvar(id) {
     nmexercicio:  nome,
     grupo:        grupo || null,
     grupos:       grupos.length ? grupos : null,
+    equipamento:  equipamento || null,
     descricao:    desc  || null,
     videoyoutube: video || null,
     observacao:   obs   || null,

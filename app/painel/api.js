@@ -8,7 +8,9 @@
 // e o fetch estourava. O app interpretava isso como "sem internet" e caia no modo
 // local, criando conta fantasma. Relativo, a chamada usa sempre a mesma origem da
 // pagina — com ou sem www, e em qualquer dominio futuro.
-const API_BASE = '/app/api';
+// No PWA, a API continua relativa à origem atual. O bundle nativo injeta
+// INTUS_API_BASE antes deste arquivo para falar com o mesmo back-end HTTPS.
+const API_BASE = window.INTUS_API_BASE || '/app/api';
 const _APP_VERSION = '20260521p';
 
 // ── SESSAO EXPIRADA: 401 NUNCA PODE VIRAR TELA EM BRANCO ────────────────────
@@ -1987,7 +1989,7 @@ const API = {
               try {
                 await apiFetch('/treinos.php?action=exercicios', {
                   method: 'POST',
-                  body: JSON.stringify({ nmexercicio: ex.nmexercicio, grupo: ex.grupo || '', grupos: ex.grupos || null, observacao: ex.observacao || '', descricao: ex.descricao || '', videoyoutube: ex.videoyoutube || '', substitutos: ex.substitutos || null }),
+                  body: JSON.stringify({ nmexercicio: ex.nmexercicio, grupo: ex.grupo || '', grupos: ex.grupos || null, equipamento: ex.equipamento || null, observacao: ex.observacao || '', descricao: ex.descricao || '', videoyoutube: ex.videoyoutube || '', substitutos: ex.substitutos || null }),
                 });
               } catch {}
             }
@@ -2020,6 +2022,7 @@ const API = {
         nmexercicio:  data.nmexercicio || '',
         grupo:        grupoStr,
         grupos:       grupos && grupos.length ? grupos : null,
+        equipamento:  data.equipamento || null,
         descricao:    data.descricao || null,
         videoyoutube: data.videoyoutube || null,
         observacao:   data.observacao || null,
@@ -2042,6 +2045,7 @@ const API = {
         nmexercicio:  data.nmexercicio || '',
         grupo:        grupoStr,
         grupos:       grupos && grupos.length ? grupos : null,
+        equipamento:  data.equipamento || null,
         descricao:    data.descricao || null,
         videoyoutube: data.videoyoutube || null,
         observacao:   data.observacao || null,

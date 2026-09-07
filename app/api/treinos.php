@@ -997,6 +997,12 @@ try {
         if (!in_array('instrucao_ia', $ecols)) $pdo->exec("ALTER TABLE intus_exercicio ADD COLUMN instrucao_ia TEXT NULL AFTER gifexercicio");
         if (!in_array('grupos', $ecols)) $pdo->exec("ALTER TABLE intus_exercicio ADD COLUMN grupos TEXT NULL AFTER grupo");
         if (!in_array('descricao', $ecols)) $pdo->exec("ALTER TABLE intus_exercicio ADD COLUMN descricao TEXT NULL AFTER observacao");
+        // Equipamento exigido (maquina | halter | barra_livre | peso_corporal | elastico).
+        // Alimenta o plano self-service: o motor troca exercicio por um substituto do
+        // catalogo que bata com o que o aluno tem disponivel (academia completa/basica,
+        // casa com halteres-elasticos, so peso corporal). Marcado manualmente pelo
+        // professor em exercicios.html — nao ha como inferir com confianca so pelo nome.
+        if (!in_array('equipamento', $ecols)) $pdo->exec("ALTER TABLE intus_exercicio ADD COLUMN equipamento VARCHAR(30) NULL AFTER grupos");
 
         if ($method === 'GET') {
             $rows = $pdo->query("SELECT * FROM intus_exercicio ORDER BY nmexercicio")->fetchAll(PDO::FETCH_ASSOC);
@@ -1011,6 +1017,7 @@ try {
                     'nmexercicio'  => $r['nmexercicio'],
                     'grupo'        => $r['grupo'] ?? '',
                     'grupos'       => $grupos,
+                    'equipamento'  => $r['equipamento'] ?? '',
                     'observacao'   => $r['observacao'] ?? '',
                     'descricao'    => $r['descricao'] ?? '',
                     'videoyoutube' => $r['videoyoutube'] ?? '',
@@ -1043,11 +1050,12 @@ try {
             }
             $grupos = isset($b['grupos']) && is_array($b['grupos']) ? json_encode($b['grupos']) : null;
             $subs = (isset($b['substitutos']) && is_array($b['substitutos']) && count($b['substitutos']) > 0) ? json_encode(nomesToIds($b['substitutos'], $pdo)) : null;
-            $st = $pdo->prepare("INSERT INTO intus_exercicio (nmexercicio, grupo, grupos, observacao, descricao, videoyoutube, gifexercicio, instrucao_ia, substitutos) VALUES (?,?,?,?,?,?,?,?,?)");
+            $st = $pdo->prepare("INSERT INTO intus_exercicio (nmexercicio, grupo, grupos, equipamento, observacao, descricao, videoyoutube, gifexercicio, instrucao_ia, substitutos) VALUES (?,?,?,?,?,?,?,?,?,?)");
             $st->execute([
                 $nm,
                 $b['grupo'] ?? '',
                 $grupos,
+                $b['equipamento'] ?? null,
                 $b['observacao'] ?? '',
                 $b['descricao'] ?? '',
                 $b['videoyoutube'] ?? '',
@@ -1064,7 +1072,7 @@ try {
             $id = (int)($b['idexercicio'] ?? $_GET['id'] ?? 0);
             if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'idexercicio obrigatorio']); exit; }
             $sets = []; $vals = [];
-            foreach (['nmexercicio','grupo','observacao','descricao','videoyoutube','gifexercicio','instrucao_ia'] as $k) {
+            foreach (['nmexercicio','grupo','equipamento','observacao','descricao','videoyoutube','gifexercicio','instrucao_ia'] as $k) {
                 if (array_key_exists($k, $b)) { $sets[] = "$k = ?"; $vals[] = $b[$k]; }
             }
             if (array_key_exists('grupos', $b)) { $sets[] = "grupos = ?"; $vals[] = is_array($b['grupos']) ? json_encode($b['grupos']) : null; }
