@@ -1,4 +1,14 @@
 <?php
+// ── LOGIN SOCIAL (Google/Facebook) ──────────────────────────────────────────
+// Client ID do Google (NAO e segredo — e o mesmo valor que vai pro front-end
+// pra iniciar o login). Confere o "aud" do token contra este valor pra evitar
+// aceitar um token emitido pra outro app. Enquanto o Luiz nao criar o OAuth
+// Client ID de verdade (Google Cloud Console > APIs & Services > Credentials,
+// tipo "Web application", origem autorizada https://intusfit.com.br), este
+// placeholder faz a checagem sempre falhar — login social fecha em erro
+// controlado, nunca aberto por engano.
+define('INTUS_GOOGLE_CLIENT_ID', 'SUBSTITUA_PELO_CLIENT_ID_DO_GOOGLE');
+
 // ── DETALHE DE ERRO NAO VAI PARA O CLIENTE ─────────────────────────────────
 // As respostas devolviam $e->getMessage() direto. Em falha de conexao isso
 // traz host, nome do banco e usuario; em erro de SQL, o nome das tabelas e
@@ -551,6 +561,121 @@ try {
         $upd = $pdo->prepare("UPDATE `$tabela` SET $col_senha = ? WHERE $col_id = ?");
         $upd->execute([$hash, $rid]);
         echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    // ===== Login social: casa por e-mail verificado, nunca duplica cadastro =====
+    // Quem ja e aluno com aquele e-mail entra na conta existente; quem nao e
+    // vira lead (mesma tabela da landing page de teste gratis) — a conta de
+    // aluno so nasce pelo cadastro de sempre ou por um professor.
+    function _oauthResolver(PDO $pdo, string $tabela, array $colmap, string $email, string $nomeProvedor, string $provedor) {
+        $colEmail = $colmap['col_email'];
+        $st = $pdo->prepare("SELECT * FROM `$tabela` WHERE LOWER(`$colEmail`) = ? LIMIT 1");
+        $st->execute([$email]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+
+        if ($row) {
+            $colBlock = $colmap['col_block'];
+            if ($colBlock) {
+                $bv = (string)($row[$colBlock] ?? '');
+                $bloqueado = ($colBlock === 'stativo') ? ($bv === 'N') : ($bv === 'S' || $bv === '1');
+                if ($bloqueado) {
+                    http_response_code(403);
+                    echo json_encode(['ok' => false, 'erro' => 'conta bloqueada — fale com seu professor']);
+                    return;
+                }
+            }
+            $atleta = rowToAtleta($row, $colmap);
+            require_once __DIR__ . '/_sessions.php';
+            $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 30);
+            if ($serverToken) $atleta['server_token'] = $serverToken;
+            echo json_encode(['ok' => true, 'existente' => true, 'atleta' => $atleta]);
+            return;
+        }
+
+        // Ninguem com esse e-mail ainda — vira lead, nao aluno. Mesma tabela
+        // que a landing page de teste gratis usa (app/api/leads.php).
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS intus_lead (
+                idlead      INT AUTO_INCREMENT PRIMARY KEY,
+                nome        VARCHAR(150) NOT NULL,
+                whatsapp    VARCHAR(30)  NOT NULL DEFAULT '',
+                email       VARCHAR(150) NULL,
+                objetivo    VARCHAR(100) NULL,
+                origem      VARCHAR(50)  NOT NULL DEFAULT 'landing-teste-gratis',
+                status      VARCHAR(20)  NOT NULL DEFAULT 'novo',
+                ip          VARCHAR(45)  NULL,
+                criado_em   DATETIME DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_criado (criado_em)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+        $nomeSeguro = $nomeProvedor !== '' ? $nomeProvedor : 'Visitante (' . $provedor . ')';
+        $st = $pdo->prepare("INSERT INTO intus_lead (nome, whatsapp, email, origem, ip) VALUES (?, '', ?, ?, ?)");
+        $st->execute([$nomeSeguro, $email, 'login-' . $provedor, $_SERVER['REMOTE_ADDR'] ?? null]);
+        echo json_encode(['ok' => true, 'existente' => false, 'lead' => true, 'nome' => $nomeSeguro, 'email' => $email]);
+    }
+
+    if ($action === 'oauth_google') {
+        require_once __DIR__ . '/_rate_limit.php';
+        checkRateLimit($pdo, 'oauth_google', 20, 3600);
+
+        $credential = (string)($body['credential'] ?? '');
+        if ($credential === '') { http_response_code(400); echo json_encode(['ok' => false, 'erro' => 'credential ausente']); exit; }
+
+        // Verifica o token DIRETO com o Google — nunca confiar em e-mail que o
+        // proprio cliente diga que e (um JS malicioso podia mandar qualquer
+        // string). O tokeninfo confere a assinatura e devolve os dados reais.
+        $info = null;
+        try {
+            $ctx = stream_context_create(['http' => ['timeout' => 8]]);
+            $resp = @file_get_contents('https://oauth2.googleapis.com/tokeninfo?id_token=' . urlencode($credential), false, $ctx);
+            $info = $resp ? json_decode($resp, true) : null;
+        } catch (Throwable $e) { $info = null; }
+
+        if (!is_array($info) || empty($info['email']) || ($info['email_verified'] ?? 'false') !== 'true') {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'erro' => 'token do Google invalido ou expirado']);
+            exit;
+        }
+        if (INTUS_GOOGLE_CLIENT_ID === 'SUBSTITUA_PELO_CLIENT_ID_DO_GOOGLE') {
+            @error_log('[intus oauth] INTUS_GOOGLE_CLIENT_ID ainda nao foi configurado em aluno_login.php');
+            http_response_code(503);
+            echo json_encode(['ok' => false, 'erro' => 'login com Google ainda nao configurado']);
+            exit;
+        }
+        if (($info['aud'] ?? '') !== INTUS_GOOGLE_CLIENT_ID) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'erro' => 'token nao pertence a este app']);
+            exit;
+        }
+
+        _oauthResolver($pdo, $tabela, $colmap, strtolower(trim($info['email'])), trim((string)($info['name'] ?? '')), 'google');
+        exit;
+    }
+
+    if ($action === 'oauth_facebook') {
+        require_once __DIR__ . '/_rate_limit.php';
+        checkRateLimit($pdo, 'oauth_facebook', 20, 3600);
+
+        $accessToken = (string)($body['access_token'] ?? '');
+        if ($accessToken === '') { http_response_code(400); echo json_encode(['ok' => false, 'erro' => 'access_token ausente']); exit; }
+
+        // A propria chamada ao Graph API E a verificacao: so responde com dados
+        // reais se o token tiver sido emitido de verdade pelo login do Facebook.
+        $info = null;
+        try {
+            $ctx = stream_context_create(['http' => ['timeout' => 8]]);
+            $resp = @file_get_contents('https://graph.facebook.com/me?fields=id,name,email&access_token=' . urlencode($accessToken), false, $ctx);
+            $info = $resp ? json_decode($resp, true) : null;
+        } catch (Throwable $e) { $info = null; }
+
+        if (!is_array($info) || empty($info['email'])) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'erro' => 'token do Facebook invalido ou sem e-mail autorizado']);
+            exit;
+        }
+
+        _oauthResolver($pdo, $tabela, $colmap, strtolower(trim($info['email'])), trim((string)($info['name'] ?? '')), 'facebook');
         exit;
     }
 
