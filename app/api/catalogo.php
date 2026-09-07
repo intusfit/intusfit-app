@@ -132,6 +132,30 @@ function ensureCatalogoTables(PDO $pdo) {
     if (!in_array('comentario_inicio', $ncols)) $pdo->exec("ALTER TABLE intus_plano_nutricional ADD COLUMN comentario_inicio TEXT NULL AFTER observacao");
     if (!in_array('comentario_fim', $ncols)) $pdo->exec("ALTER TABLE intus_plano_nutricional ADD COLUMN comentario_fim TEXT NULL AFTER comentario_inicio");
 
+    // Caixa (entradas/saídas manuais do financeiro) — antes só existia no
+    // localStorage do navegador, então lançamentos (principalmente as saídas,
+    // que ninguém mais lança automaticamente) simplesmente desapareciam ao
+    // trocar de aparelho/navegador ou limpar o cache. Agora é tabela de
+    // verdade, com o mesmo id que o front-end já gera (cx-...) como chave.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_caixa (
+            id            VARCHAR(40) PRIMARY KEY,
+            tipo          ENUM('entrada','saida') NOT NULL DEFAULT 'entrada',
+            data          DATE NOT NULL,
+            descricao     VARCHAR(255) NOT NULL DEFAULT '',
+            categoria     VARCHAR(120) NULL,
+            valor         DECIMAL(10,2) NOT NULL DEFAULT 0,
+            obs           TEXT NULL,
+            idusuario     INT NULL,
+            origem_venda  VARCHAR(40) NULL,
+            recorrente_id VARCHAR(40) NULL,
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_data (data),
+            INDEX idx_tipo (tipo)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_config (
             chave   VARCHAR(60) PRIMARY KEY,
@@ -658,6 +682,68 @@ if ($action === 'nutricao') {
         if ($id <= 0) { $b = jsonBody(); $id = (int)($b['idplano'] ?? 0); }
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
         $pdo->prepare("DELETE FROM intus_plano_nutricional WHERE idplano = ?")->execute([$id]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ═══════════════ CAIXA (financeiro) ═══════════════
+// Restrito ao professor/admin, igual às outras ações sensíveis desta rota.
+if ($action === 'caixa') {
+    if ($_ehAluno) { http_response_code(403); echo json_encode(['error' => 'restrito ao professor']); exit; }
+
+    if ($method === 'GET') {
+        $st = $pdo->query("SELECT * FROM intus_caixa ORDER BY data DESC, created_at DESC");
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+        $out = array_map(function($r) {
+            return [
+                'id'           => $r['id'],
+                'tipo'         => $r['tipo'],
+                'data'         => $r['data'],
+                'descricao'    => $r['descricao'],
+                'categoria'    => $r['categoria'],
+                'valor'        => (float)$r['valor'],
+                'obs'          => $r['obs'] ?? '',
+                'idusuario'    => $r['idusuario'] !== null ? (int)$r['idusuario'] : null,
+                'origemVenda'  => $r['origem_venda'],
+                'recorrenteId' => $r['recorrente_id'],
+            ];
+        }, $rows);
+        echo json_encode($out);
+        exit;
+    }
+    // POST faz upsert (INSERT ... ON DUPLICATE KEY UPDATE): o id já vem pronto
+    // do front-end (cx-...), então criar e ressincronizar um lançamento que já
+    // existe é a mesma chamada — importante pra migração dos dados que só
+    // existiam no localStorage de quem já usava o Caixa antes desta tabela existir.
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $id = trim((string)($b['id'] ?? ''));
+        if ($id === '') { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $tipo = ($b['tipo'] ?? '') === 'saida' ? 'saida' : 'entrada';
+        $st = $pdo->prepare("INSERT INTO intus_caixa (id, tipo, data, descricao, categoria, valor, obs, idusuario, origem_venda, recorrente_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON DUPLICATE KEY UPDATE tipo=VALUES(tipo), data=VALUES(data), descricao=VALUES(descricao), categoria=VALUES(categoria),
+                valor=VALUES(valor), obs=VALUES(obs), idusuario=VALUES(idusuario), origem_venda=VALUES(origem_venda), recorrente_id=VALUES(recorrente_id)");
+        $st->execute([
+            $id, $tipo,
+            $b['data'] ?? date('Y-m-d'),
+            $b['descricao'] ?? '',
+            $b['categoria'] ?? null,
+            (float)($b['valor'] ?? 0),
+            $b['obs'] ?? '',
+            isset($b['idusuario']) && $b['idusuario'] !== null ? (int)$b['idusuario'] : null,
+            $b['origemVenda'] ?? null,
+            $b['recorrenteId'] ?? null,
+        ]);
+        echo json_encode(['ok' => true, 'id' => $id]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $id = trim((string)($_GET['id'] ?? ''));
+        if ($id === '') { $b = jsonBody(); $id = trim((string)($b['id'] ?? '')); }
+        if ($id === '') { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $pdo->prepare("DELETE FROM intus_caixa WHERE id = ?")->execute([$id]);
         echo json_encode(['ok' => true]);
         exit;
     }

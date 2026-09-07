@@ -129,10 +129,63 @@ document.addEventListener('click', function(e) {
   if (wrap2 && dd2 && !wrap2.contains(e.target)) dd2.style.display = 'none';
 });
 
-// ── Caixa (entradas/saídas manuais) ──
+// ── Caixa (entradas/saídas manuais) ──────────────────────────────────────
+// Até aqui isto vivia só no localStorage: um lançamento (sobretudo as saídas,
+// que ninguém mais cria automaticamente) só existia no navegador onde foi
+// digitado, e sumia ao trocar de aparelho ou limpar o cache — o comportamento
+// que parecia "não estar salvando". Agora `intus_caixa` é tabela de verdade
+// (via catalogo.php?action=caixa); o localStorage continua existindo, mas
+// como CACHE — a tela nunca espera a rede pra responder, e o que foi digitado
+// sem internet sincroniza sozinho na próxima vez que a página carregar com
+// conexão. saveCaixa é o único lugar que grava: ele compara a lista nova com
+// a de antes e manda pro servidor só o que de fato mudou.
 const CAIXA_KEY = 'intus-caixa';
-function getCaixa() { try { return JSON.parse(localStorage.getItem(CAIXA_KEY) || '[]'); } catch { return []; } }
-function saveCaixa(items) { localStorage.setItem(CAIXA_KEY, JSON.stringify(items)); }
+let _caixaCache = (function () { try { return JSON.parse(localStorage.getItem(CAIXA_KEY) || '[]'); } catch (e) { return []; } })();
+function getCaixa() { return _caixaCache; }
+
+function saveCaixa(items) {
+  const antes = new Map(_caixaCache.map(c => [c.id, c]));
+  const depois = new Map(items.map(c => [c.id, c]));
+
+  _caixaCache = items;
+  localStorage.setItem(CAIXA_KEY, JSON.stringify(items));
+
+  const criarOuAtualizar = [];
+  depois.forEach((item, id) => {
+    const item_antes = antes.get(id);
+    if (!item_antes || JSON.stringify(item_antes) !== JSON.stringify(item)) criarOuAtualizar.push(item);
+  });
+  const excluir = [];
+  antes.forEach((_, id) => { if (!depois.has(id)) excluir.push(id); });
+
+  _sincronizarCaixa(criarOuAtualizar, excluir);
+}
+
+async function _sincronizarCaixa(criarOuAtualizar, excluir) {
+  for (const item of criarOuAtualizar) {
+    try { await API.salvarLancamentoCaixa(item); } catch (e) { console.warn('[caixa] falha ao sincronizar lançamento:', e); }
+  }
+  for (const id of excluir) {
+    try { await API.excluirLancamentoCaixa(id); } catch (e) { console.warn('[caixa] falha ao sincronizar exclusão:', e); }
+  }
+}
+
+// Busca o que está no servidor e mescla com o que só existe aqui ainda (feito
+// offline, ou lançado antes desta tabela existir). O servidor manda; o que só
+// existe localmente sobe na hora — é a migração dos dados antigos.
+async function _carregarCaixaRemoto() {
+  try {
+    const remoto = await API.listarCaixa();
+    if (!Array.isArray(remoto)) return;
+    const idsRemoto = new Set(remoto.map(c => c.id));
+    const somenteLocal = _caixaCache.filter(c => !idsRemoto.has(c.id));
+    _caixaCache = [...remoto, ...somenteLocal];
+    localStorage.setItem(CAIXA_KEY, JSON.stringify(_caixaCache));
+    if (somenteLocal.length) _sincronizarCaixa(somenteLocal, []);
+    _lastDataHash = '';
+    render();
+  } catch (e) { console.warn('[caixa] não consegui sincronizar com o servidor:', e); }
+}
 
 function dentroDoPeriodo(dataStr) {
   if (!dataStr) return false;
@@ -168,6 +221,7 @@ async function syncDoBackend(forceRender) {
   render();
 }
 syncDoBackend();
+_carregarCaixaRemoto();
 
 function carregarDados() {
   const atletas      = JSON.parse(localStorage.getItem('intus-atletas')      || '[]');

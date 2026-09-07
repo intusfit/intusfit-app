@@ -2783,6 +2783,14 @@ const API = {
     }
   ),
 
+  // Caixa (financeiro.html mantém seu próprio cache local em localStorage e
+  // decide quando chamar cada uma destas; aqui é só a chamada de rede crua —
+  // sem isso, lançamentos (principalmente as saídas) só existiam no aparelho
+  // que os criou e desapareciam ao trocar de navegador/computador).
+  listarCaixa: () => apiFetch('/catalogo.php?action=caixa'),
+  salvarLancamentoCaixa: (item) => apiFetch('/catalogo.php?action=caixa', { method: 'POST', body: JSON.stringify(item) }),
+  excluirLancamentoCaixa: (id) => apiFetch('/catalogo.php?action=caixa&id=' + encodeURIComponent(id), { method: 'DELETE' }),
+
   // Planos Config (backend-synced via catalogo.php) ───────────────────
   getPlanosConfig: () => tryRemoteOrLocal(
     async () => {
