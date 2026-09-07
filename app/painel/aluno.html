@@ -10158,6 +10158,16 @@ function renderPerfil() {
         </div>
       </div>
 
+      <div id="pf-contas-conectadas" style="margin-top:10px;padding:14px;background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:12px;">
+        <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};margin-bottom:2px;">🔗 Contas conectadas</div>
+        <div style="font-size:11px;color:${isLight?'#666':'#888'};margin-bottom:12px;">Conecte pra confirmar seu e-mail e entrar mais rápido da próxima vez</div>
+        <div id="pf-google-mount" style="display:none;margin-bottom:8px;"></div>
+        <button type="button" id="pf-btn-facebook" onclick="_pfConectarFacebook()" style="display:none;width:100%;align-items:center;justify-content:center;gap:10px;padding:11px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#2a2a2a'};background:${isLight?'#fff':'#161616'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.25h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07z"/></svg>
+          Conectar Facebook
+        </button>
+      </div>
+
       <div style="margin-top:20px;">
         <button class="btn btn-prim btn-full" onclick="salvarPerfil()">💾 Salvar Perfil</button>
       </div>
@@ -10218,6 +10228,7 @@ function perfilAba(tab) {
     }
   });
   if (tab === 'posts') _carregarPerfilPosts();
+  if (tab === 'dados') _pfInitContasConectadas();
 }
 
 // Grade quadrada estilo Strava/Instagram — toque abre o post no feed completo.
@@ -10564,6 +10575,82 @@ function salvarPerfil() {
   }).catch(() => toast('Sem conexão, salvo localmente'));
 
   toast('Perfil salvo! ✅');
+}
+
+// ═══════════════ CONTAS CONECTADAS (Google/Facebook no Perfil) ═══════════════
+// Mesma ideia do login social da tela de entrada, só que aqui o aluno já está
+// logado: em vez de autenticar contra o servidor, so confirma o e-mail
+// verificado pelo provedor e preenche o campo de e-mail do perfil — o próprio
+// botão "Salvar Perfil" (já existe) grava, pelo mesmo PUT de sempre em
+// atletas.php, que já permite o aluno editar o próprio e-mail.
+const INTUS_GOOGLE_CLIENT_ID = 'SUBSTITUA_PELO_CLIENT_ID_DO_GOOGLE';
+const INTUS_FACEBOOK_APP_ID  = 'SUBSTITUA_PELO_APP_ID_DO_FACEBOOK';
+let _pfContasIniciado = false;
+
+function _pfInitContasConectadas() {
+  if (_pfContasIniciado) return;
+  _pfContasIniciado = true;
+
+  const googleOk = INTUS_GOOGLE_CLIENT_ID.indexOf('SUBSTITUA') !== 0;
+  const fbOk = INTUS_FACEBOOK_APP_ID.indexOf('SUBSTITUA') !== 0;
+  if (!googleOk && !fbOk) {
+    const box = document.getElementById('pf-contas-conectadas');
+    if (box) box.style.display = 'none';
+    return;
+  }
+
+  if (googleOk) {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
+    s.onload = function () {
+      try {
+        google.accounts.id.initialize({ client_id: INTUS_GOOGLE_CLIENT_ID, callback: _pfGoogleResponse });
+        const mount = document.getElementById('pf-google-mount');
+        mount.style.display = 'block';
+        google.accounts.id.renderButton(mount, { theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'pill', width: 260 });
+      } catch (e) { console.warn('[perfil] falha ao iniciar o Google Sign-In:', e); }
+    };
+    document.head.appendChild(s);
+  }
+
+  if (fbOk) {
+    window.fbAsyncInit = function () { FB.init({ appId: INTUS_FACEBOOK_APP_ID, cookie: false, xfbml: false, version: 'v20.0' }); };
+    if (!document.getElementById('facebook-jssdk')) {
+      const s = document.createElement('script');
+      s.id = 'facebook-jssdk'; s.src = 'https://connect.facebook.net/pt_BR/sdk.js'; s.async = true; s.defer = true;
+      document.head.appendChild(s);
+    }
+    document.getElementById('pf-btn-facebook').style.display = 'flex';
+  }
+}
+
+function _pfAplicarEmailConectado(email, origem) {
+  const inp = document.getElementById('pf-email');
+  if (inp) inp.value = email;
+  toast('E-mail do ' + origem + ' confirmado! Toque em "Salvar Perfil" pra concluir. ✅');
+}
+
+function _pfGoogleResponse(response) {
+  // Le so o payload do JWT (sem checar assinatura) — seguro aqui porque o
+  // aluno ja esta autenticado com o proprio token e so pode editar o proprio
+  // e-mail de qualquer forma (o campo de e-mail do perfil ja e editavel
+  // livremente); a verificacao forte contra o Google so importa na hora de
+  // LOGAR como alguem (isso ja acontece no back-end, em aluno_login.php).
+  try {
+    const payload = JSON.parse(atob(response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (payload && payload.email) _pfAplicarEmailConectado(payload.email, 'Google');
+  } catch (e) { toast('Não consegui ler os dados do Google.'); }
+}
+
+function _pfConectarFacebook() {
+  if (typeof FB === 'undefined') { toast('Aguarde o Facebook carregar e tente de novo.'); return; }
+  FB.login(function (response) {
+    if (!response || !response.authResponse) { toast('Não foi possível conectar o Facebook.'); return; }
+    FB.api('/me', { fields: 'name,email' }, function (info) {
+      if (info && info.email) _pfAplicarEmailConectado(info.email, 'Facebook');
+      else toast('Seu Facebook não tem e-mail disponível pra confirmar.');
+    });
+  }, { scope: 'email' });
 }
 
 // ═══════════════ TUTORIAL (stories: autoplay + arrasta/toca) ═══════════════

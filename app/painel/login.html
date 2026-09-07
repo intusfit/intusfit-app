@@ -132,6 +132,23 @@
     .submit-btn:active:not(:disabled) { transform: scale(.99); }
 
     .error-msg { color: #f87171; font-size: 13px; text-align: center; margin-top: 12px; display: none; }
+
+    /* LOGIN SOCIAL — so faz sentido pro aluno, nao pro professor */
+    .social-divider {
+      display: flex; align-items: center; gap: 10px; margin: 20px 0 16px;
+      color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    }
+    .social-divider::before, .social-divider::after { content: ''; flex: 1; height: 1px; background: #2a2a2a; }
+    .social-login-row { display: flex; flex-direction: column; gap: 10px; }
+    .social-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 12px; border-radius: 10px; border: 1px solid #2a2a2a; background: #141414;
+      color: #f0f0f0; font-size: 13.5px; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: background .15s;
+    }
+    .social-btn:hover { background: #1c1c1c; }
+    .social-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+    body.modo-professor .social-login-row, body.modo-professor .social-divider { display: none; }
     .hint { color: #666; font-size: 11px; text-align: center; margin-top: 18px; line-height: 1.45; }
 
     /* MODAL */
@@ -218,6 +235,19 @@
         <button class="submit-btn" id="btn" type="submit">Entrar</button>
       </form>
       <p class="error-msg" id="erro"></p>
+
+      <div class="social-divider"><span>ou</span></div>
+      <div class="social-login-row">
+        <!-- Botao de verdade do Google renderizado aqui (google.accounts.id.renderButton) —
+             um botao proprio "de mentira" disparando um clique sintetico no iframe do Google
+             nao e confiavel (pop-up pode ser bloqueado por nao contar como gesto real do
+             usuario). Estilizado só o quanto a API do Google permite (theme/size/shape). -->
+        <div id="google-btn-mount" style="display:flex;justify-content:center;"></div>
+        <button type="button" class="social-btn" id="btn-facebook" onclick="loginComFacebook()">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.25h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07z"/></svg>
+          Continuar com Facebook
+        </button>
+      </div>
 
       <p class="hint" id="hint-msg">
         Crie sua conta ou entre com seu e-mail para acompanhar treinos e avaliações.
@@ -1210,6 +1240,99 @@
 
     // Esc fecha modais
     document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModais(); });
+
+    // ═══════════════ LOGIN SOCIAL (Google/Facebook) ═══════════════
+    // Nenhum dos dois valores abaixo e segredo (sao os mesmos IDs publicos que
+    // o front-end de qualquer app usa), mas ainda estao com placeholder — o
+    // Luiz precisa criar o OAuth Client ID no Google Cloud Console e o App ID
+    // no Facebook for Developers, e so então substituir os dois valores.
+    // Enquanto isso, os botoes ficam ocultos (em vez de aparecer quebrado).
+    const INTUS_GOOGLE_CLIENT_ID = 'SUBSTITUA_PELO_CLIENT_ID_DO_GOOGLE';
+    const INTUS_FACEBOOK_APP_ID  = 'SUBSTITUA_PELO_APP_ID_DO_FACEBOOK';
+    const _googleConfigurado = INTUS_GOOGLE_CLIENT_ID.indexOf('SUBSTITUA') !== 0;
+    const _facebookConfigurado = INTUS_FACEBOOK_APP_ID.indexOf('SUBSTITUA') !== 0;
+
+    if (!_googleConfigurado) { const el = document.getElementById('google-btn-mount'); if (el) el.style.display = 'none'; }
+    if (!_facebookConfigurado) { const el = document.getElementById('btn-facebook'); if (el) el.style.display = 'none'; }
+    if (!_googleConfigurado && !_facebookConfigurado) {
+      document.querySelectorAll('.social-divider, .social-login-row').forEach(el => el.style.display = 'none');
+    }
+
+    // Trata o resultado das duas rotas (oauth_google/oauth_facebook), que
+    // devolvem o mesmo formato de sempre. Existente = mesma conta de aluno,
+    // sem duplicar; lead = ainda nao e aluno, a equipe segue por WhatsApp.
+    async function _processarRespostaOauth(res) {
+      if (res && res.ok && res.existente && res.atleta && res.atleta.server_token) {
+        const logado = res.atleta;
+        localStorage.setItem('mx-token', logado.server_token);
+        localStorage.setItem('mx-user', JSON.stringify({
+          idatleta: logado.idatleta, nome: logado.nome, email: logado.email,
+          telefone: logado.telefone || '', genero: logado.genero || '',
+          dtnascimento: logado.dtnascimento || '', codacesso: logado.codacesso || '',
+          tipo: 'aluno', admin: false, permissoes: {},
+        }));
+        location.href = 'aluno.html';
+        return;
+      }
+      if (res && res.ok && res.existente === false && res.lead) {
+        mostrarErro('Você ainda não é aluno da Intus Fit — recebemos seu contato e nossa equipe vai falar com você em breve pelo WhatsApp! 💬');
+        return;
+      }
+      mostrarErro((res && res.erro) || 'Não foi possível entrar. Tente novamente.');
+    }
+
+    // ── Google ──
+    window.addEventListener('load', function () {
+      if (!_googleConfigurado || typeof google === 'undefined' || !google.accounts) return;
+      try {
+        google.accounts.id.initialize({ client_id: INTUS_GOOGLE_CLIENT_ID, callback: _googleCredentialResponse });
+        google.accounts.id.renderButton(document.getElementById('google-btn-mount'), {
+          theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'pill', width: 260,
+        });
+      } catch (e) { console.warn('[login] falha ao iniciar o Google Sign-In:', e); }
+    });
+
+    async function _googleCredentialResponse(response) {
+      limparErro();
+      try {
+        const r = await fetch(API_BASE + '/aluno_login.php?action=oauth_google', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: response.credential }), cache: 'no-store',
+        });
+        const j = await r.json().catch(() => null);
+        await _processarRespostaOauth(j);
+      } catch (e) { mostrarErro('Não conseguimos falar com o servidor. Verifique sua internet.'); }
+    }
+
+    // ── Facebook ──
+    window.fbAsyncInit = function () {
+      if (!_facebookConfigurado || typeof FB === 'undefined') return;
+      FB.init({ appId: INTUS_FACEBOOK_APP_ID, cookie: false, xfbml: false, version: 'v20.0' });
+    };
+
+    function loginComFacebook() {
+      if (!_facebookConfigurado || typeof FB === 'undefined') { mostrarErro('Login com Facebook ainda não está configurado.'); return; }
+      limparErro();
+      FB.login(function (response) {
+        if (!response || !response.authResponse || !response.authResponse.accessToken) {
+          mostrarErro('Não foi possível entrar com o Facebook.');
+          return;
+        }
+        (async () => {
+          try {
+            const r = await fetch(API_BASE + '/aluno_login.php?action=oauth_facebook', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ access_token: response.authResponse.accessToken }), cache: 'no-store',
+            });
+            const j = await r.json().catch(() => null);
+            await _processarRespostaOauth(j);
+          } catch (e) { mostrarErro('Não conseguimos falar com o servidor. Verifique sua internet.'); }
+        })();
+      }, { scope: 'email' });
+    }
   </script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <div id="fb-root"></div>
+  <script async defer crossorigin="anonymous" src="https://connect.facebook.net/pt_BR/sdk.js"></script>
 </body>
 </html>
