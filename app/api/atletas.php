@@ -162,6 +162,11 @@ if (!$col_dificuldades) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `di
 if (!$col_notas_prof) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `notas_professor` TEXT NULL"); $col_notas_prof = 'notas_professor'; } catch (Throwable $e) {} }
 $col_ranking_optin = pickCol($colunas, ['ranking_optin']);
 if (!$col_ranking_optin) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ranking_optin` CHAR(1) DEFAULT 'S'"); $col_ranking_optin = 'ranking_optin'; } catch (Throwable $e) {} }
+// Feed dos Alunos e ranking sao coisas diferentes de propósito: o feed tem
+// foto e legenda (mais pessoal), então o opt-in é separado — desligar um não
+// desliga o outro.
+$col_feed_optin = pickCol($colunas, ['feed_optin']);
+if (!$col_feed_optin) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `feed_optin` CHAR(1) DEFAULT 'S'"); $col_feed_optin = 'feed_optin'; } catch (Throwable $e) {} }
 
 $col_aluno_intus = pickCol($colunas, ['aluno_intus']);
 if (!$col_aluno_intus) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `aluno_intus` CHAR(1) DEFAULT 'N'"); $col_aluno_intus = 'aluno_intus'; } catch (Throwable $e) {} }
@@ -178,7 +183,7 @@ if (!$col_cidade) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `cidade` 
 $col_origem = pickCol($colunas, ['origem','origem_cadastro','fonte']);
 if (!$col_origem) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `origem` VARCHAR(40) NULL"); $col_origem = 'origem'; } catch (Throwable $e) {} }
 
-$colmap = compact('col_id','col_nome','col_email','col_tel','col_gen','col_nasc','col_cod','col_cpf','col_block','col_obs','col_dtcad','col_profs','col_objetivos','col_dificuldades','col_notas_prof','col_ranking_optin','col_aluno_intus','col_pais','col_estado','col_cidade','col_origem');
+$colmap = compact('col_id','col_nome','col_email','col_tel','col_gen','col_nasc','col_cod','col_cpf','col_block','col_obs','col_dtcad','col_profs','col_objetivos','col_dificuldades','col_notas_prof','col_ranking_optin','col_feed_optin','col_aluno_intus','col_pais','col_estado','col_cidade','col_origem');
 
 function rowToAtleta($row, $map) {
     $out = [
@@ -219,6 +224,9 @@ function rowToAtleta($row, $map) {
     }
     if ($map['col_ranking_optin'] ?? null) {
         $out['ranking_optin'] = ($row[$map['col_ranking_optin']] ?? 'S') ?: 'S';
+    }
+    if ($map['col_feed_optin'] ?? null) {
+        $out['feed_optin'] = ($row[$map['col_feed_optin']] ?? 'S') ?: 'S';
     }
     if ($map['col_aluno_intus'] ?? null) {
         $out['aluno_intus'] = ($row[$map['col_aluno_intus']] ?? 'N') ?: 'N';
@@ -297,6 +305,10 @@ function setFromBody(array $body, array $colmap) {
     if (array_key_exists('ranking_optin', $body) && ($colmap['col_ranking_optin'] ?? null)) {
         $sets[] = "`{$colmap['col_ranking_optin']}` = ?";
         $vals[] = ($body['ranking_optin'] === 'N') ? 'N' : 'S';
+    }
+    if (array_key_exists('feed_optin', $body) && ($colmap['col_feed_optin'] ?? null)) {
+        $sets[] = "`{$colmap['col_feed_optin']}` = ?";
+        $vals[] = ($body['feed_optin'] === 'N') ? 'N' : 'S';
     }
     if (array_key_exists('aluno_intus', $body) && ($colmap['col_aluno_intus'] ?? null)) {
         $sets[] = "`{$colmap['col_aluno_intus']}` = ?";
@@ -554,10 +566,13 @@ try {
         // montada a mao trocar a propria senha por fora do fluxo de login.
         if ($_ehAlunoAt) {
             $permitidos = ['nome', 'email', 'telefone', 'dtnascimento',
-                           'ranking_optin', 'pais', 'estado', 'cidade'];
+                           'ranking_optin', 'feed_optin', 'pais', 'estado', 'cidade'];
             $body = array_intersect_key((array)$body, array_flip($permitidos));
             if (isset($body['ranking_optin'])) {
                 $body['ranking_optin'] = ($body['ranking_optin'] === 'S') ? 'S' : 'N';
+            }
+            if (isset($body['feed_optin'])) {
+                $body['feed_optin'] = ($body['feed_optin'] === 'S') ? 'S' : 'N';
             }
         }
 

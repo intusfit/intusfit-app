@@ -156,6 +156,51 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Feed dos Alunos — só post feito de propósito pelo aluno (foto/filtro +
+    // legenda), diferente do que já existia antes (que virava post sozinho a
+    // partir de qualquer treino registrado). Comentário reaproveita o mesmo
+    // desenho genérico alvo_tipo/alvo_id que a reação já usa.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_feed_post (
+            idpost      INT AUTO_INCREMENT PRIMARY KEY,
+            idatleta    INT NOT NULL,
+            imagem      VARCHAR(500) NOT NULL,
+            legenda     VARCHAR(500) NULL,
+            ativo       TINYINT(1) NOT NULL DEFAULT 1,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_atleta (idatleta), INDEX idx_ativo (ativo, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_comentario_pub (
+            idcomentario  INT AUTO_INCREMENT PRIMARY KEY,
+            alvo_tipo     VARCHAR(20)  NOT NULL,
+            alvo_id       INT          NOT NULL,
+            autor_tipo    VARCHAR(10)  NOT NULL,
+            autor_id      INT          NOT NULL,
+            autor_nome    VARCHAR(200) NOT NULL DEFAULT '',
+            texto         VARCHAR(500) NOT NULL,
+            created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_alvo (alvo_tipo, alvo_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
+    // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.
+    // As duas direções cabem na mesma tabela porque a regra de leitura é
+    // idêntica dos dois lados — só troca quem é o dono da preferência.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_feed_pref (
+            idpref      INT AUTO_INCREMENT PRIMARY KEY,
+            idatleta    INT NOT NULL,
+            idalvo      INT NOT NULL,
+            tipo        ENUM('ver','mostrar') NOT NULL,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_pref (idatleta, idalvo, tipo)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_config (
             chave   VARCHAR(60) PRIMARY KEY,
@@ -185,6 +230,41 @@ try { ensureCatalogoTables($pdo); } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['error' => 'bootstrap falhou', 'detalhe' => _intusLogErro($e)]);
     exit;
+}
+
+// Resolve tipo/id/nome de quem está autenticado, pra reações/comentários/posts
+// nunca aceitarem o nome que o próprio cliente diga que é. Extraída daqui pra
+// não copiar essa busca de coluna (tabela de atleta/professor não tem nome
+// de coluna garantido) em cada ação nova que precisar assinar algo.
+function _resolverAutorPub(PDO $pdo, array $_ctx, bool $_ehAluno) {
+    $tipo = $_ehAluno ? 'aluno' : 'prof';
+    $id   = $_ehAluno
+        ? (int)($_ctx['idatleta'] ?? $_ctx['idusuario'] ?? 0)
+        : (int)($_ctx['idusuario'] ?? 0);
+    $nome = '';
+    if ($id > 0) {
+        try {
+            $tabelas = $_ehAluno ? ['atleta', 'atletas', 'aluno', 'alunos'] : ['professor', 'usuario', 'usuarios', 'professores'];
+            $idCols  = $_ehAluno ? ['idatleta','idaluno','id'] : ['idusuario','idprofessor','id'];
+            $nmCols  = $_ehAluno ? ['nome','nmathleta','nmatleta','name'] : ['nome','nmusuario','nmprofessor','name'];
+            foreach ($tabelas as $_t) {
+                try {
+                    $_cols = array_column($pdo->query("SHOW COLUMNS FROM `$_t`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+                } catch (Throwable $e) { continue; }
+                $_ci = null; foreach ($idCols as $_c) { if (in_array($_c, $_cols, true)) { $_ci = $_c; break; } }
+                $_cn = null; foreach ($nmCols as $_c) { if (in_array($_c, $_cols, true)) { $_cn = $_c; break; } }
+                if (!$_ci || !$_cn) continue;
+                try {
+                    $q = $pdo->prepare("SELECT `$_cn` FROM `$_t` WHERE `$_ci` = ? LIMIT 1");
+                    $q->execute([$id]);
+                    $nome = (string)$q->fetchColumn();
+                } catch (Throwable $e) {}
+                break;
+            }
+        } catch (Throwable $e) {}
+    }
+    if ($nome === '') $nome = $_ehAluno ? 'Aluno' : 'Professor';
+    return [$tipo, $id, $nome];
 }
 
 function jsonBody() {
@@ -1457,10 +1537,7 @@ if ($action === 'reacoes') {
         }
     } catch (Throwable $e) {}
 
-    $_autorTipo = $_ehAluno ? 'aluno' : 'prof';
-    $_autorId   = $_ehAluno
-        ? (int)($_ctx['idatleta'] ?? $_ctx['idusuario'] ?? 0)
-        : (int)($_ctx['idusuario'] ?? 0);
+    [$_autorTipo, $_autorId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
     if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
 
     if ($method === 'GET') {
@@ -1499,45 +1576,7 @@ if ($action === 'reacoes') {
         if (mb_strlen($emoji) > 8)       { http_response_code(400); echo json_encode(['error' => 'emoji invalido']); exit; }
 
         // Nome de quem reagiu, buscado no servidor — nao aceita o que o cliente diz.
-        $nome = '';
-        try {
-            if ($_ehAluno) {
-                foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $_t) {
-                    try {
-                        $_cols = array_column($pdo->query("SHOW COLUMNS FROM `$_t`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
-                    } catch (Throwable $e) { continue; }
-                    $_ci = null; foreach (['idatleta','idaluno','id'] as $_c) { if (in_array($_c, $_cols, true)) { $_ci = $_c; break; } }
-                    $_cn = null; foreach (['nome','nmathleta','nmatleta','name'] as $_c) { if (in_array($_c, $_cols, true)) { $_cn = $_c; break; } }
-                    if (!$_ci || !$_cn) continue;
-                    try {
-                        $q = $pdo->prepare("SELECT `$_cn` FROM `$_t` WHERE `$_ci` = ? LIMIT 1");
-                        $q->execute([$_autorId]);
-                        $nome = (string)$q->fetchColumn();
-                    } catch (Throwable $e) {}
-                    break;
-                }
-            } else {
-                // A tabela de usuarios nao tem nome de coluna garantido — pode
-                // ser idusuario/idprofessor/id e nome/nmusuario/nmprofessor. Com
-                // o SELECT fixo em "idusuario" e "nome", a busca falhava calada e
-                // toda reacao do professor ficava assinada como "Professor".
-                foreach (['professor', 'usuario', 'usuarios', 'professores'] as $_t) {
-                    try {
-                        $_cols = array_column($pdo->query("SHOW COLUMNS FROM `$_t`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
-                    } catch (Throwable $e) { continue; }
-                    $_ci = null; foreach (['idusuario','idprofessor','id'] as $_c) { if (in_array($_c, $_cols, true)) { $_ci = $_c; break; } }
-                    $_cn = null; foreach (['nome','nmusuario','nmprofessor','name'] as $_c) { if (in_array($_c, $_cols, true)) { $_cn = $_c; break; } }
-                    if (!$_ci || !$_cn) continue;
-                    try {
-                        $q = $pdo->prepare("SELECT `$_cn` FROM `$_t` WHERE `$_ci` = ? LIMIT 1");
-                        $q->execute([$_autorId]);
-                        $nome = (string)$q->fetchColumn();
-                    } catch (Throwable $e) {}
-                    break;
-                }
-            }
-        } catch (Throwable $e) {}
-        if ($nome === '') $nome = $_ehAluno ? 'Aluno' : 'Professor';
+        [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
 
         $st = $pdo->prepare("SELECT idreacao FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id = ? AND autor_tipo = ? AND autor_id = ? AND emoji = ? LIMIT 1");
         $st->execute([$tipo, $alvo, $_autorTipo, $_autorId, $emoji]);
@@ -1550,6 +1589,215 @@ if ($action === 'reacoes') {
                 ->execute([$tipo, $alvo, $_autorTipo, $_autorId, $nome, $emoji]);
             echo json_encode(['ok' => true, 'estado' => 'adicionada']);
         }
+        exit;
+    }
+}
+
+// ═══════════════ COMENTÁRIOS (genérico, mesmo desenho da reação) ═══════════
+if ($action === 'comentarios_pub') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+
+    if ($method === 'GET') {
+        $tipo = trim((string)($_GET['alvo_tipo'] ?? ''));
+        $idsRaw = trim((string)($_GET['ids'] ?? ''));
+        $ids = array_values(array_filter(array_map('intval', explode(',', $idsRaw)), function ($n) { return $n > 0; }));
+        if ($tipo === '' || !count($ids)) { echo json_encode(new stdClass()); exit; }
+        if (count($ids) > 200) $ids = array_slice($ids, 0, 200);
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare("SELECT idcomentario, alvo_id, autor_tipo, autor_id, autor_nome, texto, created_at
+                             FROM intus_comentario_pub WHERE alvo_tipo = ? AND alvo_id IN ($ph)
+                             ORDER BY idcomentario ASC");
+        $st->execute(array_merge([$tipo], $ids));
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $k = (string)(int)$r['alvo_id'];
+            if (!isset($out[$k])) $out[$k] = [];
+            $out[$k][] = [
+                'idcomentario' => (int)$r['idcomentario'],
+                'autor_tipo'   => $r['autor_tipo'],
+                'autor_id'     => (int)$r['autor_id'],
+                'autor_nome'   => $r['autor_nome'],
+                'texto'        => $r['texto'],
+                'created_at'   => $r['created_at'],
+                'meu'          => ($r['autor_tipo'] === $_autorTipo && (int)$r['autor_id'] === $_autorId),
+            ];
+        }
+        echo json_encode($out ?: new stdClass(), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $tipo  = trim((string)($b['alvo_tipo'] ?? ''));
+        $alvo  = (int)($b['alvo_id'] ?? 0);
+        $texto = trim((string)($b['texto'] ?? ''));
+        if ($tipo === '' || $alvo <= 0 || $texto === '') { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
+        if (mb_strlen($texto) > 500) $texto = mb_substr($texto, 0, 500);
+        [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+        $pdo->prepare("INSERT INTO intus_comentario_pub (alvo_tipo, alvo_id, autor_tipo, autor_id, autor_nome, texto) VALUES (?,?,?,?,?,?)")
+            ->execute([$tipo, $alvo, $_autorTipo, $_autorId, $nome, $texto]);
+        echo json_encode(['ok' => true, 'idcomentario' => (int)$pdo->lastInsertId()]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        // Só o autor apaga o próprio comentário (ou o professor, moderando).
+        $st = $pdo->prepare("SELECT autor_tipo, autor_id FROM intus_comentario_pub WHERE idcomentario = ?");
+        $st->execute([$id]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) { echo json_encode(['ok' => true]); exit; }
+        $ehDono = ($row['autor_tipo'] === $_autorTipo && (int)$row['autor_id'] === $_autorId);
+        if (!$ehDono && $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+        $pdo->prepare("DELETE FROM intus_comentario_pub WHERE idcomentario = ?")->execute([$id]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ═══════════════ FEED DOS ALUNOS ═══════════════
+// Só posts feitos de propósito (foto/filtro + legenda) entram aqui — nada é
+// gerado automaticamente a partir de treino. Vê o feed quem está com
+// feed_optin='S' (opt-in próprio, separado do ranking) e não está bloqueado
+// nas duas direções (intus_feed_pref).
+function _feedDetectarTabelaAtleta(PDO $pdo) {
+    foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $_t) {
+        try { $pdo->query("SELECT 1 FROM `$_t` LIMIT 1"); return $_t; } catch (Throwable $e) {}
+    }
+    return null;
+}
+
+if ($action === 'feed_posts') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+
+    if ($method === 'GET') {
+        $tbl = _feedDetectarTabelaAtleta($pdo);
+        $optinIds = [];
+        $nomeMap = [];
+        $avatarMap = [];
+        if ($tbl) {
+            try {
+                $rows = $pdo->query("SELECT idatleta, nome FROM `$tbl` WHERE feed_optin = 'S' AND (stbloqueio IS NULL OR stbloqueio != 'S')")->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) {
+                $rows = $pdo->query("SELECT idatleta, nome FROM `$tbl`")->fetchAll(PDO::FETCH_ASSOC);
+            }
+            foreach ($rows as $r) { $optinIds[] = (int)$r['idatleta']; $nomeMap[(int)$r['idatleta']] = $r['nome']; }
+            try {
+                $avRows = $pdo->query("SELECT idatleta, avatar FROM intus_profile WHERE avatar IS NOT NULL AND avatar != ''")->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($avRows as $av) { $avatarMap[(int)$av['idatleta']] = $av['avatar']; }
+            } catch (Throwable $e) {}
+        }
+        // Quem EU escolhi não ver, e quem escolheu não me mostrar.
+        $ocultarDeles = [];
+        $meOcultaram  = [];
+        try {
+            $st = $pdo->prepare("SELECT idalvo FROM intus_feed_pref WHERE idatleta = ? AND tipo = 'ver'");
+            $st->execute([$_autorId]);
+            $ocultarDeles = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+            $st = $pdo->prepare("SELECT idatleta FROM intus_feed_pref WHERE idalvo = ? AND tipo = 'mostrar'");
+            $st->execute([$_autorId]);
+            $meOcultaram = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) {}
+
+        $visiveis = array_values(array_diff($optinIds, $ocultarDeles, $meOcultaram));
+        // Autor sempre vê os próprios posts, mesmo se saiu do feed depois ou
+        // bloqueou/foi bloqueado por si mesmo (não deveria acontecer, mas não
+        // custa garantir) — sem isso "meus posts" no perfil ficaria vazio
+        // assim que a pessoa desligasse o feed_optin.
+        if (!in_array($_autorId, $visiveis, true)) $visiveis[] = $_autorId;
+        $somenteAutor = (int)($_GET['idatleta'] ?? 0);
+        if ($somenteAutor > 0) $visiveis = ($somenteAutor === $_autorId || in_array($somenteAutor, $visiveis, true)) ? [$somenteAutor] : [];
+
+        if (!count($visiveis)) { echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap]); exit; }
+        $ph = implode(',', array_fill(0, count($visiveis), '?'));
+        $limite = min(100, max(1, (int)($_GET['limite'] ?? 30)));
+        $st = $pdo->prepare("SELECT idpost, idatleta, imagem, legenda, created_at FROM intus_feed_post
+                             WHERE ativo = 1 AND idatleta IN ($ph) ORDER BY created_at DESC, idpost DESC LIMIT $limite");
+        $st->execute($visiveis);
+        $posts = $st->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($posts as &$p) { $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta']; }
+        unset($p);
+        echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $imagemRaw = (string)($b['imagem'] ?? '');
+        $legenda = trim((string)($b['legenda'] ?? ''));
+        if (mb_strlen($legenda) > 500) $legenda = mb_substr($legenda, 0, 500);
+        if ($imagemRaw === '') { http_response_code(400); echo json_encode(['error' => 'imagem obrigatoria']); exit; }
+
+        // Salva como arquivo (mesmo padrão de _persistirFotos em avaliações):
+        // nunca guardamos a imagem inteira em base64 dentro do banco.
+        $url = null;
+        if (preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $imagemRaw, $m)) {
+            $dir = __DIR__ . '/../img/feed';
+            if (!is_dir($dir)) @mkdir($dir, 0755, true);
+            $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
+            $bin = base64_decode($m[2], true);
+            if ($bin === false || strlen($bin) > 8 * 1024 * 1024) { http_response_code(400); echo json_encode(['error' => 'imagem invalida ou grande demais']); exit; }
+            if (!is_dir($dir) || !is_writable($dir)) { http_response_code(500); echo json_encode(['error' => 'sem permissao de escrita']); exit; }
+            try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }
+            $fname = 'feed_' . $_autorId . '_' . time() . '_' . $rand . '.' . $ext;
+            if (@file_put_contents($dir . '/' . $fname, $bin) === false) { http_response_code(500); echo json_encode(['error' => 'falha ao salvar imagem']); exit; }
+            if (function_exists('gdriveBackup')) { try { gdriveBackup($bin, $fname, 'image/' . ($ext === 'jpg' ? 'jpeg' : $ext)); } catch (Throwable $e) {} }
+            $url = _appBaseUrl() . '/img/feed/' . $fname;
+        } elseif (preg_match('#^https?://#i', $imagemRaw)) {
+            $url = $imagemRaw; // já é uma URL salva (ex.: reenvio) — mantém
+        } else {
+            http_response_code(400); echo json_encode(['error' => 'formato de imagem invalido']); exit;
+        }
+
+        $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda) VALUES (?,?,?)");
+        $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null]);
+        echo json_encode(['ok' => true, 'idpost' => (int)$pdo->lastInsertId(), 'imagem' => $url]);
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $st = $pdo->prepare("SELECT idatleta FROM intus_feed_post WHERE idpost = ?");
+        $st->execute([$id]);
+        $dono = (int)$st->fetchColumn();
+        if ($dono && $dono !== $_autorId && $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+        $pdo->prepare("UPDATE intus_feed_post SET ativo = 0 WHERE idpost = ?")->execute([$id]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ── Preferências do feed: quem eu não quero ver, e quem não pode me ver ────
+if ($action === 'feed_pref') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [, $_autorId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+
+    if ($method === 'GET') {
+        $st = $pdo->prepare("SELECT idalvo, tipo FROM intus_feed_pref WHERE idatleta = ?");
+        $st->execute([$_autorId]);
+        echo json_encode($st->fetchAll(PDO::FETCH_ASSOC));
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $idalvo = (int)($b['idalvo'] ?? 0);
+        $tipo = ($b['tipo'] ?? '') === 'mostrar' ? 'mostrar' : 'ver';
+        if ($idalvo <= 0 || $idalvo === $_autorId) { http_response_code(400); echo json_encode(['error' => 'idalvo invalido']); exit; }
+        $pdo->prepare("INSERT IGNORE INTO intus_feed_pref (idatleta, idalvo, tipo) VALUES (?,?,?)")->execute([$_autorId, $idalvo, $tipo]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $idalvo = (int)($_GET['idalvo'] ?? 0);
+        $tipo = ($_GET['tipo'] ?? '') === 'mostrar' ? 'mostrar' : 'ver';
+        if ($idalvo <= 0) { http_response_code(400); echo json_encode(['error' => 'idalvo invalido']); exit; }
+        $pdo->prepare("DELETE FROM intus_feed_pref WHERE idatleta = ? AND idalvo = ? AND tipo = ?")->execute([$_autorId, $idalvo, $tipo]);
+        echo json_encode(['ok' => true]);
         exit;
     }
 }
