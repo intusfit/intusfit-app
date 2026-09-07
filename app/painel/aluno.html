@@ -806,6 +806,7 @@
     <div class="menu-item" onclick="navegar('historico');fecharMenuDireto()"><span class="mi-icon">📊</span> Histórico & Evoluções</div>
     <div class="menu-item" onclick="abrirCompartilharUltimoTreino();fecharMenuDireto()"><span class="mi-icon">📸</span> Compartilhar treino</div>
     <div class="menu-item" onclick="navegar('ranking');fecharMenuDireto()"><span class="mi-icon">🥇</span> Ranking</div>
+    <div class="menu-item" onclick="navegar('feed');fecharMenuDireto()"><span class="mi-icon">📣</span> Feed</div>
     <div class="menu-item" onclick="navegar('desafios');fecharMenuDireto()"><span class="mi-icon">🏆</span> Desafios</div>
     <div class="menu-item" onclick="navegar('nutricao');fecharMenuDireto()"><span class="mi-icon">🥗</span> Nutrição</div>
     <div class="menu-item" onclick="navegar('avaliacoes');fecharMenuDireto()"><span class="mi-icon">📈</span> Avaliações</div>
@@ -860,6 +861,7 @@
   <section class="view" id="v-ranking"></section>
   <section class="view" id="v-cardio"></section>
   <section class="view" id="v-quemsomos"></section>
+  <section class="view" id="v-feed"></section>
 </div>
 
 <div class="toast-ov" id="toast">—</div>
@@ -1787,6 +1789,175 @@ function _htmlReacoes(idcomentario, isLight) {
   '</div>';
 }
 
+// ═══════════════ FEED DA TURMA ═══════════════
+// Cada cartão é uma sessão (treino ou cardio) já registrada, de quem está
+// com o ranking ligado — o MESMO opt-in do ranking (ranking_optin), com os
+// MESMOS dados de _rankingData. Não existe post manual: o feed é uma
+// segunda leitura da mesma atividade que já alimenta o ranking. Reaproveita
+// de propósito a tabela de reações que já existe no mural (intus_reacao_pub
+// aceita qualquer "alvo_tipo" — aqui é 'sessao' em vez de 'mural').
+var _reacoesFeed = {}; // idsessao -> [{emoji, autor_nome, meu}]
+
+async function carregarReacoesFeed(ids) {
+  if (!ids || !ids.length) { _reacoesFeed = {}; return; }
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=sessao&ids=' + ids.join(',') + '&_=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    _reacoesFeed = r.ok ? (await r.json()) : {};
+    if (!_reacoesFeed || typeof _reacoesFeed !== 'object') _reacoesFeed = {};
+  } catch (e) { _reacoesFeed = {}; }
+}
+
+async function reagirSessaoFeed(idsessao) {
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alvo_tipo: 'sessao', alvo_id: Number(idsessao), emoji: '❤️' }),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não deu para registrar sua reação.'); return; }
+  // Atualiza só os botões de curtir na tela (feed completo + prévia da home),
+  // sem re-renderizar tudo — re-renderizar perderia a posição da rolagem.
+  const idsNaTela = [...document.querySelectorAll('[data-feed-card]')].map(el => Number(el.dataset.feedCard));
+  await carregarReacoesFeed([...new Set(idsNaTela)]);
+  document.querySelectorAll('[data-feed-card="' + idsessao + '"] [data-feed-kudos]').forEach(el => {
+    el.outerHTML = _kudosHtml(idsessao);
+  });
+}
+
+function _kudosHtml(idsessao) {
+  const lista = _reacoesFeed[String(idsessao)] || [];
+  const meu = lista.some(r => r.meu);
+  const nomes = lista.map(r => r.autor_nome || 'Alguém');
+  const titulo = nomes.length ? esc(nomes.join(', ')) + ' curtiu' : 'Curtir';
+  return '<button data-feed-kudos onclick="reagirSessaoFeed(' + idsessao + ')" title="' + titulo + '" ' +
+    'style="display:flex;align-items:center;gap:4px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:12px;padding:0;color:' + (meu ? '#7FFF00' : 'inherit') + ';font-weight:' + (meu ? '800' : '600') + ';">' +
+    (meu ? '❤️' : '🤍') + ' ' + lista.length +
+  '</button>';
+}
+
+function _tempoRelativoFeed(dt) {
+  const ms = Date.now() - dt.getTime();
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return 'há ' + min + ' min';
+  const h = Math.floor(min / 60);
+  if (h < 24) return 'há ' + h + 'h';
+  const d = Math.floor(h / 24);
+  if (d < 7) return 'há ' + d + (d === 1 ? ' dia' : ' dias');
+  return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+function _iniciaisNomeFeed(nome) {
+  const partes = String(nome || '?').trim().split(/\s+/);
+  return ((partes[0]?.[0] || '') + (partes[1]?.[0] || '')).toUpperCase() || '?';
+}
+
+// Junta as sessões que entram no feed: só de quem está no ranking, mais
+// recente primeiro, com os pontos já calculados pela MESMA regra central do
+// ranking (pontosSessaoRank) — nunca um número inventado só pro feed.
+function _prepararSessoesFeed(limite) {
+  const data = _rankingData;
+  if (!data || !Array.isArray(data.sessoes) || !data.sessoes.length) return [];
+  const preparadas = data.sessoes.map(s => ({
+    ...s,
+    dt: new Date(String(s.dtsessao).slice(0, 10) + 'T00:00:00'),
+    tipo: s.tipo || (s.cardio_tipo ? 'cardio' : 'musculacao'),
+  })).sort((a, b) => b.dt - a.dt || (b.idsessao || 0) - (a.idsessao || 0));
+  const R = (typeof _rankReg !== 'undefined') ? _rankReg : (typeof API !== 'undefined' ? API.regrasRanking() : null);
+  return preparadas.slice(0, limite || 30).map(s => ({
+    ...s,
+    _pts: (typeof API !== 'undefined' && API.pontosSessaoRank) ? Math.round(API.pontosSessaoRank(s, preparadas, R)) : Math.round(s.pontos || 0),
+  }));
+}
+
+function _feedCardHtml(s, isLight) {
+  const nomeMap = (_rankingData && _rankingData.atletas) || {};
+  const avatarMap = (_rankingData && _rankingData.avatars) || {};
+  const nome = nomeMap[String(s.idatleta)] || 'Membro';
+  const avatar = avatarMap[String(s.idatleta)] || '';
+  const isMe = Number(s.idatleta) === Number(idAtleta);
+  const min = Math.round((Number(s.duracao_seg) || 0) / 60);
+  const ehCardio = s.tipo === 'cardio';
+  const icone = ehCardio ? '🏃' : '💪';
+  const tituloAtiv = ehCardio
+    ? 'Cardio' + (s.cardio_tipo ? ' — ' + esc(s.cardio_tipo) : '')
+    : 'Treino' + (s.divisao ? ' ' + esc(s.divisao) : '') + ' concluído';
+  const detalhe = (min > 0 ? min + 'min' : '') + (min > 0 ? ' · ' : '') + '+' + s._pts + ' pts';
+  const avatarEl = avatar
+    ? '<img src="' + esc(avatar) + '" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/><div style="display:none;width:34px;height:34px;border-radius:50%;background:' + (isLight?'#e5e5e5':'#2a2a2a') + ';align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + (isLight?'#666':'#aaa') + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>'
+    : '<div style="width:34px;height:34px;border-radius:50%;background:' + (isLight?'#e5e5e5':'#2a2a2a') + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + (isLight?'#666':'#aaa') + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
+  return '<div data-feed-card="' + s.idsessao + '" style="background:' + (isLight?'#fff':'#161616') + ';border:1px solid ' + (isLight?'#e5e5e5':'#2a2a2a') + ';border-radius:14px;padding:12px 13px;margin-bottom:10px;">' +
+    '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;">' +
+      avatarEl +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+        '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';">' + _tempoRelativoFeed(s.dt) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:12.5px;color:' + (isLight?'#333':'#ddd') + ';line-height:1.4;margin-bottom:6px;">' + icone + ' ' + tituloAtiv + ' · ' + detalhe + '</div>' +
+    (s.comentario ? '<div style="font-size:11.5px;color:' + (isLight?'#666':'#999') + ';font-style:italic;margin-bottom:8px;">"' + esc(s.comentario) + '"</div>' : '') +
+    '<div data-feed-kudos-wrap>' + _kudosHtml(s.idsessao) + '</div>' +
+  '</div>';
+}
+
+// Prévia embutida na tela inicial: no máximo 2 cartões, sem tirar espaço de
+// nenhuma das funções que já existem ali — só se soma depois de
+// Ranking/Medalhas. Se _rankingData ainda não carregou nesta sessão (a home
+// não busca ranking sozinha), busca uma vez em segundo plano e redesenha só
+// este bloco quando chegar, sem re-renderizar a home inteira.
+function renderFeedHomePreview() {
+  const isLight = document.body.classList.contains('tema-claro');
+  if (!_rankingData) {
+    _fetchRankingDataSeNecessario().then(() => {
+      const el = document.getElementById('h-feed-home');
+      if (el) el.outerHTML = renderFeedHomePreview();
+    });
+    return '<div id="h-feed-home"></div>';
+  }
+  const posts = _prepararSessoesFeed(2);
+  if (!posts.length) return '<div id="h-feed-home"></div>';
+  carregarReacoesFeed(posts.map(p => p.idsessao)).then(() => {
+    posts.forEach(p => {
+      document.querySelectorAll('#h-feed-home [data-feed-card="' + p.idsessao + '"] [data-feed-kudos]').forEach(el => {
+        el.outerHTML = _kudosHtml(p.idsessao);
+      });
+    });
+  });
+  return '<div id="h-feed-home" style="margin-bottom:16px;">' +
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">' +
+      '<span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';">📣 Feed da turma</span>' +
+    '</div>' +
+    posts.map(p => _feedCardHtml(p, isLight)).join('') +
+    '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>' +
+  '</div>';
+}
+
+// Tela cheia do feed, aberta pelo menu ou pelo "Ver feed completo" da home.
+async function renderFeedCompleto() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const box = document.getElementById('v-feed');
+  box.innerHTML = telaHeader('📣 Feed da turma') +
+    '<div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando feed...</div>';
+  await _fetchRankingDataSeNecessario();
+  const posts = _prepararSessoesFeed(30);
+  await carregarReacoesFeed(posts.map(p => p.idsessao));
+  let html = telaHeader('📣 Feed da turma');
+  if (!posts.length) {
+    html += '<div style="text-align:center;padding:40px 20px;">' +
+      '<div style="font-size:44px;margin-bottom:12px;">📣</div>' +
+      '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">Ainda sem atividade pra mostrar</div>' +
+      '<p style="font-size:12.5px;color:' + (isLight?'#666':'#888') + ';max-width:280px;margin:0 auto;">Assim que você e seus colegas com o ranking ativado treinarem, os treinos aparecem aqui.</p>' +
+    '</div>';
+  } else {
+    html += posts.map(p => _feedCardHtml(p, isLight)).join('');
+  }
+  html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">O feed mostra quem está com o ranking ativado. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também.</div>';
+  html += getFooterHtml();
+  box.innerHTML = html;
+}
+
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function sair() { localStorage.removeItem('mx-token'); localStorage.removeItem('mx-user'); location.href = 'login.html'; }
 // Uma mensagem de erro precisa de mais tempo na tela do que um "salvo!".
@@ -1908,7 +2079,7 @@ function navegar(dest) {
     trocarView('home'); renderHome();
     return;
   }
-  if (semMatricula && dest !== 'home' && dest !== 'perfil' && dest !== 'avaliacoes' && dest !== 'anamnese' && dest !== 'matricula' && dest !== 'mensagens' && dest !== 'desafios' && dest !== 'quemsomos') {
+  if (semMatricula && dest !== 'home' && dest !== 'perfil' && dest !== 'avaliacoes' && dest !== 'anamnese' && dest !== 'matricula' && dest !== 'mensagens' && dest !== 'desafios' && dest !== 'quemsomos' && dest !== 'feed') {
     toast('Ative sua matrícula para acessar este recurso');
     trocarView('home'); renderHome();
     return;
@@ -1923,6 +2094,7 @@ function navegar(dest) {
   else if (dest === 'desafios') { renderDesafiosAluno(); trocarView('desafios'); }
   else if (dest === 'mensagens') { renderMensagensAluno(); trocarView('mensagens'); }
   else if (dest === 'ranking') { renderRanking(); trocarView('ranking'); }
+  else if (dest === 'feed') { renderFeedCompleto(); trocarView('feed'); }
   else if (dest === 'quemsomos') { renderQuemSomos(); trocarView('quemsomos'); }
   else if (dest === 'anamnese') { abrirAnamnese(); }
 }
@@ -2017,6 +2189,7 @@ var _RENDER_POR_VIEW = {
   nutricao:    function () { renderNutricaoAluno(); },
   alongamentos:function () { renderAlongamentos(); },
   muscu:       function () { renderMusculacao(); },
+  feed:        function () { renderFeedCompleto(); },
 };
 
 function redesenharViewAtual() {
@@ -3119,6 +3292,8 @@ function renderHome() {
           : 'desde ' + _medalhaDesdeLabel()}</div>
       </div>
     </div>
+
+    ${renderFeedHomePreview()}
 
     <div class="h-duo">
       <div class="h-dest" onclick="renderPerfil();trocarView('perfil');">
@@ -6077,12 +6252,12 @@ function telaHeader(titulo, backView) {
 }
 function rankingHeader(titulo) { return telaHeader(titulo || '🥇 Ranking'); }
 
-async function renderRanking() {
-  const isLight = document.body.classList.contains('tema-claro');
-  const box = document.getElementById('v-ranking');
-  box.innerHTML = rankingHeader('🥇 Ranking') +
-    '<div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando ranking...</div>';
-
+// Busca _rankingData no servidor. Extraído de renderRanking() pra virar a
+// mesma fonte usada pelo Feed (ambos leem sessão dos mesmos colegas
+// opt-in) — sem isso, cada tela reimplementaria essa busca do zero, e era
+// exatamente o tipo de duplicação que já causou divergência entre telas
+// aqui (ver histórico de bugs de pontuação).
+async function _fetchRankingDataSeNecessario() {
   try {
     const token = localStorage.getItem('mx-token') || '';
     const r = await fetch(API_BASE + '/treinos.php?action=ranking', {
@@ -6104,6 +6279,15 @@ async function renderRanking() {
     console.warn('[ranking] não consegui carregar:', e);
     if (!_rankingData) _rankingData = { atletas: {}, sessoes: [], comentarios: [], _falhou: true };
   }
+}
+
+async function renderRanking() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const box = document.getElementById('v-ranking');
+  box.innerHTML = rankingHeader('🥇 Ranking') +
+    '<div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando ranking...</div>';
+
+  await _fetchRankingDataSeNecessario();
   try { _ensureConquistasConfig(); } catch (e) {}
   // As reacoes do mural vem numa chamada propria, so com os ids que estao na
   // tela — nao ha por que trazer as reacoes do mural inteiro.
