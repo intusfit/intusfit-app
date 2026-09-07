@@ -20,6 +20,7 @@
 
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
+require_once __DIR__ . '/_charset_fix.php';
 header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control');
 
@@ -58,6 +59,7 @@ $pdo->exec("
         INDEX idx_lido (stlido)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
+_intusGarantirUtf8mb4($pdo, 'intus_mensagem', ['texto']);
 
 $pdo->exec("
     CREATE TABLE IF NOT EXISTS intus_comentario (
@@ -71,6 +73,7 @@ $pdo->exec("
         INDEX idx_atleta (idatleta)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
+_intusGarantirUtf8mb4($pdo, 'intus_comentario', ['texto']);
 
 $pdo->exec("
     CREATE TABLE IF NOT EXISTS intus_reacao (

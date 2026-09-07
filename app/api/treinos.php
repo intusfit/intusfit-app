@@ -52,6 +52,7 @@ function _intusLogErro(Throwable $e): string {
 
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
+require_once __DIR__ . '/_charset_fix.php';
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control');
 
@@ -834,6 +835,17 @@ try {
                 dtcriacao     DATETIME DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+        _intusGarantirUtf8mb4($pdo, 'intus_ranking_comentario', ['nome_atleta', 'texto']);
+        _intusGarantirUtf8mb4($pdo, 'intus_sessao', ['comentario']);
+
+        // Conserto pontual: dois comentarios do mural ficaram com emoji de
+        // fogo virado "?" (a tabela estava presa num charset antigo — ver
+        // _charset_fix.php). Update exato, por texto igual; assim que o
+        // texto for corrigido a condicao para de bater e isto vira no-op.
+        try {
+            $pdo->exec("UPDATE intus_ranking_comentario SET texto = 'Quero ver quem vai ficar no Top 5 esse mês 🔥🔥🔥' WHERE nome_atleta = 'Luiz Nunes (aluno)' AND texto = 'Quero ver quem vai ficar no Top 5 esse mês ???'");
+            $pdo->exec("UPDATE intus_ranking_comentario SET texto = 'Treino rendeu hoje 🔥🔥🔥🔥' WHERE nome_atleta = 'Isabela Pazzinatto' AND texto = 'Treino rendeu hoje ????'");
+        } catch (Throwable $e) { @error_log('[intus mural fix] ' . $e->getMessage()); }
 
         if ($method === 'GET') {
             // Detect athlete table name

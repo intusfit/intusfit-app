@@ -42,6 +42,7 @@ function _intusLogErro(Throwable $e): string {
 
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
+require_once __DIR__ . '/_charset_fix.php';
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control');
 
@@ -171,6 +172,7 @@ function ensureCatalogoTables(PDO $pdo) {
             INDEX idx_atleta (idatleta), INDEX idx_ativo (ativo, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+    _intusGarantirUtf8mb4($pdo, 'intus_feed_post', ['legenda']);
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_comentario_pub (
@@ -185,6 +187,7 @@ function ensureCatalogoTables(PDO $pdo) {
             INDEX idx_alvo (alvo_tipo, alvo_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+    _intusGarantirUtf8mb4($pdo, 'intus_comentario_pub', ['autor_nome', 'texto']);
 
     // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
     // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.

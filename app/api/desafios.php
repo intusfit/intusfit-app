@@ -37,6 +37,7 @@
 
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
+require_once __DIR__ . '/_charset_fix.php';
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control');
 
@@ -175,6 +176,7 @@ $pdo->exec("
         INDEX idx_dt (dtmensagem)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
+_intusGarantirUtf8mb4($pdo, 'intus_desafio_mensagem', ['nome_autor', 'texto']);
 
 // Pedidos de entrada em desafio ABERTO e pago — fica pendente ate o
 // professor confirmar o pagamento (por fora, no Financeiro) e aprovar aqui.
