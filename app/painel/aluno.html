@@ -235,6 +235,17 @@
     .timer-bar .rest-label { color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
     .timer-bar .rest-time { color: #ff9500; font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; }
 
+    /* Cabeçalho de tela (telaHeader) fixo durante a rolagem, com a logo
+       sempre visível — mesmo padrão do timer-bar do treino. Sem isso a marca
+       some assim que a pessoa rola a tela, bem no tipo de tela que mais vira
+       print (ranking, medalhas, evoluções, conquistas). */
+    .tela-header-fixa {
+      position: sticky; top: 66px; z-index: 9;
+      background: #0f0f0f; margin: 0 -16px 12px; padding: 10px 16px;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    body.tema-claro .tela-header-fixa { background: #f5f5f5; border-bottom-color: #e5e5e5; }
+
     .wrap { padding: 18px 16px calc(60px + env(safe-area-inset-bottom, 0px)); max-width: 640px; margin: 0 auto; min-height: 100vh; min-height: 100dvh; background: #0f0f0f; }
     body.tema-claro .wrap { background: #f5f5f5; }
     .sect-title { font-size: 11px; color: #777; text-transform: uppercase; letter-spacing: 1.2px; margin: 20px 4px 12px; font-weight: 700; }
@@ -435,20 +446,6 @@
     .h-hoje .nome { font-size:17px; font-weight:800; color:var(--texto); line-height:1.2; }
     .h-hoje .sub { font-size:12.5px; color:var(--muted); margin-top:3px; }
 
-    /* Um botao so, mais baixo que o cartao antigo: emoji, acao e a informacao
-       do treino na mesma linha. */
-    .h-btn-treino { display:flex; align-items:center; gap:12px; width:100%; margin-bottom:10px;
-      padding:12px 14px; border-radius:16px; cursor:pointer; font-family:inherit; text-align:left;
-      background:var(--marca-fraca); border:1.5px solid var(--link-ex); min-height:64px; transition:transform .08s; }
-    .h-btn-treino:active { transform:scale(.985); }
-    .h-btn-treino .emoji { font-size:26px; line-height:1; flex-shrink:0; }
-    .h-btn-treino .cabeca { display:flex; align-items:baseline; gap:8px; margin-bottom:3px; }
-    .h-btn-treino .cabeca .tag { font-size:9.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--link-ex); }
-    .h-btn-treino .cabeca .data { flex:1; text-align:right; font-size:10px; font-weight:600; color:var(--muted); white-space:nowrap; }
-    .h-btn-treino .lin1 { display:block; font-size:15.5px; font-weight:800; color:var(--texto); line-height:1.2; }
-    .h-btn-treino .lin2 { display:block; font-size:12px; color:var(--muted); margin-top:2px; line-height:1.3;
-      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .h-btn-treino .seta { font-size:19px; color:var(--link-ex); flex-shrink:0; font-weight:700; }
 
     .h-sem { background:var(--card-bg); border:1px solid var(--borda); border-radius:16px; padding:13px 15px; margin-bottom:10px; cursor:pointer; transition:transform .08s; }
     .h-sem .cab { font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
@@ -1789,52 +1786,109 @@ function _htmlReacoes(idcomentario, isLight) {
   '</div>';
 }
 
-// ═══════════════ FEED DA TURMA ═══════════════
-// Cada cartão é uma sessão (treino ou cardio) já registrada, de quem está
-// com o ranking ligado — o MESMO opt-in do ranking (ranking_optin), com os
-// MESMOS dados de _rankingData. Não existe post manual: o feed é uma
-// segunda leitura da mesma atividade que já alimenta o ranking. Reaproveita
-// de propósito a tabela de reações que já existe no mural (intus_reacao_pub
-// aceita qualquer "alvo_tipo" — aqui é 'sessao' em vez de 'mural').
-var _reacoesFeed = {}; // idsessao -> [{emoji, autor_nome, meu}]
+// ═══════════════ FEED DOS ALUNOS ═══════════════
+// Só existe post feito de propósito (foto/filtro + legenda escolhidos pelo
+// aluno) — nada aqui nasce sozinho de um treino registrado. Kudos reaproveita
+// a mesma tabela de reação do mural (alvo_tipo='feed_post'); comentário usa o
+// mesmo desenho genérico (comentarios_pub). Participação (feed_optin) e as
+// preferências de quem-vê-quem são a favor do aluno, não do professor: cada
+// um decide o próprio feed.
+var _feedPosts = [];        // cache local dos posts já carregados
+var _feedAtletasMap = {};   // idatleta -> nome
+var _feedAvatarsMap = {};   // idatleta -> avatar
+var _reacoesFeed = {};      // idpost -> [{emoji, autor_nome, meu}]
+var _comentariosFeed = {};  // idpost -> [{idcomentario, autor_nome, texto, meu}]
+var _comentariosAbertos = {}; // idpost -> true (painel de comentários expandido)
 
 async function carregarReacoesFeed(ids) {
-  if (!ids || !ids.length) { _reacoesFeed = {}; return; }
+  if (!ids || !ids.length) return;
   try {
-    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=sessao&ids=' + ids.join(',') + '&_=' + Date.now(),
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=feed_post&ids=' + ids.join(',') + '&_=' + Date.now(),
       { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
-    _reacoesFeed = r.ok ? (await r.json()) : {};
-    if (!_reacoesFeed || typeof _reacoesFeed !== 'object') _reacoesFeed = {};
-  } catch (e) { _reacoesFeed = {}; }
+    const j = r.ok ? (await r.json()) : {};
+    Object.assign(_reacoesFeed, (j && typeof j === 'object') ? j : {});
+  } catch (e) {}
 }
 
-async function reagirSessaoFeed(idsessao) {
+async function reagirPost(idpost) {
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alvo_tipo: 'sessao', alvo_id: Number(idsessao), emoji: '❤️' }),
+      body: JSON.stringify({ alvo_tipo: 'feed_post', alvo_id: Number(idpost), emoji: '❤️' }),
     });
     if (!r.ok) throw new Error('falhou');
   } catch (e) { toast('Não deu para registrar sua reação.'); return; }
-  // Atualiza só os botões de curtir na tela (feed completo + prévia da home),
-  // sem re-renderizar tudo — re-renderizar perderia a posição da rolagem.
-  const idsNaTela = [...document.querySelectorAll('[data-feed-card]')].map(el => Number(el.dataset.feedCard));
-  await carregarReacoesFeed([...new Set(idsNaTela)]);
-  document.querySelectorAll('[data-feed-card="' + idsessao + '"] [data-feed-kudos]').forEach(el => {
-    el.outerHTML = _kudosHtml(idsessao);
-  });
+  await carregarReacoesFeed([idpost]);
+  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-kudos]').forEach(el => { el.outerHTML = _kudosHtml(idpost); });
 }
 
-function _kudosHtml(idsessao) {
-  const lista = _reacoesFeed[String(idsessao)] || [];
+function _kudosHtml(idpost) {
+  const lista = _reacoesFeed[String(idpost)] || [];
   const meu = lista.some(r => r.meu);
   const nomes = lista.map(r => r.autor_nome || 'Alguém');
   const titulo = nomes.length ? esc(nomes.join(', ')) + ' curtiu' : 'Curtir';
-  return '<button data-feed-kudos onclick="reagirSessaoFeed(' + idsessao + ')" title="' + titulo + '" ' +
+  return '<button data-feed-kudos onclick="reagirPost(' + idpost + ')" title="' + titulo + '" ' +
     'style="display:flex;align-items:center;gap:4px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:12px;padding:0;color:' + (meu ? '#7FFF00' : 'inherit') + ';font-weight:' + (meu ? '800' : '600') + ';">' +
     (meu ? '❤️' : '🤍') + ' ' + lista.length +
   '</button>';
+}
+
+async function carregarComentariosFeed(ids) {
+  if (!ids || !ids.length) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&alvo_tipo=feed_post&ids=' + ids.join(',') + '&_=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    const j = r.ok ? (await r.json()) : {};
+    Object.assign(_comentariosFeed, (j && typeof j === 'object') ? j : {});
+  } catch (e) {}
+}
+
+function toggleComentariosFeed(idpost) {
+  _comentariosAbertos[idpost] = !_comentariosAbertos[idpost];
+  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentarios]').forEach(el => {
+    el.outerHTML = _comentariosHtml(idpost, document.body.classList.contains('tema-claro'));
+  });
+}
+
+async function enviarComentarioFeed(idpost) {
+  const input = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
+  const texto = input?.value?.trim();
+  if (!texto) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alvo_tipo: 'feed_post', alvo_id: Number(idpost), texto: texto }),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não consegui enviar o comentário.'); return; }
+  _comentariosAbertos[idpost] = true;
+  await carregarComentariosFeed([idpost]);
+  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentarios]').forEach(el => {
+    el.outerHTML = _comentariosHtml(idpost, document.body.classList.contains('tema-claro'));
+  });
+}
+
+function _comentariosHtml(idpost, isLight) {
+  const lista = _comentariosFeed[String(idpost)] || [];
+  const aberto = !!_comentariosAbertos[idpost];
+  const gatilho = '<div onclick="toggleComentariosFeed(' + idpost + ')" style="font-size:11.5px;color:' + (isLight?'#888':'#999') + ';cursor:pointer;margin-top:2px;">' +
+    (lista.length ? 'Ver ' + lista.length + ' comentário' + (lista.length > 1 ? 's' : '') : 'Comentar') +
+  '</div>';
+  if (!aberto) return '<div data-feed-comentarios>' + gatilho + '</div>';
+  const itens = lista.map(c => '<div style="padding:6px 0;border-top:1px solid ' + (isLight?'#f0f0f0':'#1e1e1e') + ';font-size:12px;">' +
+    '<b style="color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';">' + esc(c.autor_nome || 'Alguém') + '</b> ' +
+    '<span style="color:' + (isLight?'#444':'#ccc') + ';">' + esc(c.texto) + '</span>' +
+  '</div>').join('');
+  return '<div data-feed-comentarios>' +
+    '<div onclick="toggleComentariosFeed(' + idpost + ')" style="font-size:11.5px;color:' + (isLight?'#888':'#999') + ';cursor:pointer;margin-bottom:4px;">Ocultar comentários</div>' +
+    itens +
+    '<div style="display:flex;gap:6px;margin-top:8px;">' +
+      '<input data-feed-comment-input placeholder="Escreva um comentário..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight?'#ddd':'#2a2a2a') + ';background:' + (isLight?'#fff':'#111') + ';color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioFeed(' + idpost + ');"/>' +
+      '<button onclick="enviarComentarioFeed(' + idpost + ')" style="padding:8px 14px;border-radius:99px;border:none;background:#7FFF00;color:#0f1a00;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Enviar</button>' +
+    '</div>' +
+  '</div>';
 }
 
 function _tempoRelativoFeed(dt) {
@@ -1854,108 +1908,266 @@ function _iniciaisNomeFeed(nome) {
   return ((partes[0]?.[0] || '') + (partes[1]?.[0] || '')).toUpperCase() || '?';
 }
 
-// Junta as sessões que entram no feed: só de quem está no ranking, mais
-// recente primeiro, com os pontos já calculados pela MESMA regra central do
-// ranking (pontosSessaoRank) — nunca um número inventado só pro feed.
-function _prepararSessoesFeed(limite) {
-  const data = _rankingData;
-  if (!data || !Array.isArray(data.sessoes) || !data.sessoes.length) return [];
-  const preparadas = data.sessoes.map(s => ({
-    ...s,
-    dt: new Date(String(s.dtsessao).slice(0, 10) + 'T00:00:00'),
-    tipo: s.tipo || (s.cardio_tipo ? 'cardio' : 'musculacao'),
-  })).sort((a, b) => b.dt - a.dt || (b.idsessao || 0) - (a.idsessao || 0));
-  const R = (typeof _rankReg !== 'undefined') ? _rankReg : (typeof API !== 'undefined' ? API.regrasRanking() : null);
-  return preparadas.slice(0, limite || 30).map(s => ({
-    ...s,
-    _pts: (typeof API !== 'undefined' && API.pontosSessaoRank) ? Math.round(API.pontosSessaoRank(s, preparadas, R)) : Math.round(s.pontos || 0),
-  }));
+// Busca os posts no servidor. idatletaFiltro: só os posts de uma pessoa (usado
+// no perfil, "meus posts" estilo Strava). Sem filtro, é o feed geral.
+async function carregarFeedPosts(limite, idatletaFiltro) {
+  try {
+    const token = localStorage.getItem('mx-token') || '';
+    let url = API_BASE + '/catalogo.php?action=feed_posts&limite=' + (limite || 30);
+    if (idatletaFiltro) url += '&idatleta=' + idatletaFiltro;
+    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }, cache: 'no-store' });
+    if (!r.ok) return [];
+    const j = await r.json();
+    _feedAtletasMap = (j && j.atletas) || {};
+    _feedAvatarsMap = (j && j.avatars) || {};
+    const posts = (j && Array.isArray(j.posts)) ? j.posts : [];
+    if (!idatletaFiltro) _feedPosts = posts; // só guarda como "o feed" quando é a lista geral
+    return posts;
+  } catch (e) { console.warn('[feed] não consegui carregar:', e); return []; }
 }
 
-function _feedCardHtml(s, isLight) {
-  const nomeMap = (_rankingData && _rankingData.atletas) || {};
-  const avatarMap = (_rankingData && _rankingData.avatars) || {};
-  const nome = nomeMap[String(s.idatleta)] || 'Membro';
-  const avatar = avatarMap[String(s.idatleta)] || '';
-  const isMe = Number(s.idatleta) === Number(idAtleta);
-  const min = Math.round((Number(s.duracao_seg) || 0) / 60);
-  const ehCardio = s.tipo === 'cardio';
-  const icone = ehCardio ? '🏃' : '💪';
-  const tituloAtiv = ehCardio
-    ? 'Cardio' + (s.cardio_tipo ? ' — ' + esc(s.cardio_tipo) : '')
-    : 'Treino' + (s.divisao ? ' ' + esc(s.divisao) : '') + ' concluído';
-  const detalhe = (min > 0 ? min + 'min' : '') + (min > 0 ? ' · ' : '') + '+' + s._pts + ' pts';
+function _feedCardHtml(post, isLight) {
+  const nome = _feedAtletasMap[String(post.idatleta)] || 'Membro';
+  const avatar = _feedAvatarsMap[String(post.idatleta)] || '';
+  const isMe = Number(post.idatleta) === Number(idAtleta);
+  const dt = new Date(String(post.created_at).replace(' ', 'T'));
   const avatarEl = avatar
     ? '<img src="' + esc(avatar) + '" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/><div style="display:none;width:34px;height:34px;border-radius:50%;background:' + (isLight?'#e5e5e5':'#2a2a2a') + ';align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + (isLight?'#666':'#aaa') + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>'
     : '<div style="width:34px;height:34px;border-radius:50%;background:' + (isLight?'#e5e5e5':'#2a2a2a') + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + (isLight?'#666':'#aaa') + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
-  return '<div data-feed-card="' + s.idsessao + '" style="background:' + (isLight?'#fff':'#161616') + ';border:1px solid ' + (isLight?'#e5e5e5':'#2a2a2a') + ';border-radius:14px;padding:12px 13px;margin-bottom:10px;">' +
-    '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;">' +
+  return '<div data-feed-card="' + post.idpost + '" style="background:' + (isLight?'#fff':'#161616') + ';border:1px solid ' + (isLight?'#e5e5e5':'#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
+    '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
       avatarEl +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
-        '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';">' + _tempoRelativoFeed(s.dt) + '</div>' +
+        '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';">' + _tempoRelativoFeed(dt) + '</div>' +
       '</div>' +
+      '<div onclick="_abrirMenuPost(' + post.idpost + ',' + post.idatleta + ')" style="font-size:16px;color:' + (isLight?'#bbb':'#666') + ';cursor:pointer;padding:4px;">⋯</div>' +
     '</div>' +
-    '<div style="font-size:12.5px;color:' + (isLight?'#333':'#ddd') + ';line-height:1.4;margin-bottom:6px;">' + icone + ' ' + tituloAtiv + ' · ' + detalhe + '</div>' +
-    (s.comentario ? '<div style="font-size:11.5px;color:' + (isLight?'#666':'#999') + ';font-style:italic;margin-bottom:8px;">"' + esc(s.comentario) + '"</div>' : '') +
-    '<div data-feed-kudos-wrap>' + _kudosHtml(s.idsessao) + '</div>' +
+    '<img src="' + esc(post.imagem) + '" style="width:100%;display:block;" loading="lazy"/>' +
+    '<div style="padding:11px 12px;">' +
+      (post.legenda ? '<div style="font-size:12.5px;color:' + (isLight?'#333':'#ddd') + ';line-height:1.45;margin-bottom:8px;"><b>' + esc(nome.split(' ')[0]) + '</b> ' + esc(post.legenda) + '</div>' : '') +
+      '<div data-feed-kudos-wrap style="margin-bottom:4px;">' + _kudosHtml(post.idpost) + '</div>' +
+      _comentariosHtml(post.idpost, isLight) +
+    '</div>' +
   '</div>';
 }
 
-// Prévia embutida na tela inicial: no máximo 2 cartões, sem tirar espaço de
-// nenhuma das funções que já existem ali — só se soma depois de
-// Ranking/Medalhas. Se _rankingData ainda não carregou nesta sessão (a home
-// não busca ranking sozinha), busca uma vez em segundo plano e redesenha só
-// este bloco quando chegar, sem re-renderizar a home inteira.
+// "⋯" de um post: dono vê "Excluir" e "Ocultar de alguém"; quem não é dono vê
+// "Não ver posts desta pessoa".
+function _abrirMenuPost(idpost, idatletaDono) {
+  const souDono = Number(idatletaDono) === Number(idAtleta);
+  const nome = _feedAtletasMap[String(idatletaDono)] || 'esta pessoa';
+  const opcoes = souDono
+    ? [['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']]
+    : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')']];
+  const html = opcoes.map(([rot, fn]) =>
+    '<div onclick="closeModal();' + fn + '" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + rot + '</div>'
+  ).join('');
+  openModalGenerico(html);
+}
+
+// Modal simples de lista de opções (reaproveitável) — o app já tem openModal
+// nas telas do painel, mas o app do aluno usa outro overlay; esta é a versão
+// mínima que falta aqui.
+function openModalGenerico(innerHtml) {
+  document.getElementById('ov-menu-generico')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'ov-menu-generico';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;';
+  ov.onclick = (e) => { if (e.target === ov) closeModal(); };
+  ov.innerHTML = '<div style="width:100%;max-width:480px;background:var(--card-bg);border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px);">' +
+    '<div style="width:36px;height:4px;background:var(--borda);border-radius:99px;margin:10px auto;"></div>' +
+    innerHtml +
+    '<div onclick="closeModal()" style="padding:14px 16px;text-align:center;font-weight:800;color:var(--muted);cursor:pointer;">Cancelar</div>' +
+  '</div>';
+  document.body.appendChild(ov);
+}
+function closeModal() { document.getElementById('ov-menu-generico')?.remove(); }
+
+async function _naoVerPostsDe(idatletaAlvo) {
+  try {
+    await fetch(API_BASE + '/catalogo.php?action=feed_pref', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idalvo: idatletaAlvo, tipo: 'ver' }),
+    });
+    toast('Pronto — você não vai mais ver posts desta pessoa.');
+    if (window._viewAtual === 'feed') renderFeedCompleto();
+  } catch (e) { toast('Não consegui salvar.'); }
+}
+
+function _abrirOcultarDeAlguem(idpost) {
+  const outros = Object.keys(_feedAtletasMap).map(Number).filter(id => id !== Number(idAtleta));
+  if (!outros.length) { toast('Não há mais ninguém no feed ainda.'); return; }
+  const html = outros.map(id =>
+    '<div onclick="closeModal();_ocultarMeuPostDe(' + id + ')" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + esc(_feedAtletasMap[id]) + '</div>'
+  ).join('');
+  openModalGenerico('<div style="padding:0 16px 8px;font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;">Ocultar meus posts de</div>' + html);
+}
+
+async function _ocultarMeuPostDe(idatletaAlvo) {
+  try {
+    await fetch(API_BASE + '/catalogo.php?action=feed_pref', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idalvo: idatletaAlvo, tipo: 'mostrar' }),
+    });
+    toast('Pronto — seus posts ficam ocultos pra essa pessoa.');
+  } catch (e) { toast('Não consegui salvar.'); }
+}
+
+async function _excluirPost(idpost) {
+  if (!confirm('Excluir este post? Não dá pra desfazer.')) return;
+  try {
+    await fetch(API_BASE + '/catalogo.php?action=feed_posts&id=' + idpost, {
+      method: 'DELETE', headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
+    });
+    toast('Post excluído.');
+    if (window._viewAtual === 'feed') renderFeedCompleto();
+  } catch (e) { toast('Não consegui excluir.'); }
+}
+
+// ── Prévia na tela inicial: até 2 posts, sem tirar espaço do que já existe ──
 function renderFeedHomePreview() {
   const isLight = document.body.classList.contains('tema-claro');
-  if (!_rankingData) {
-    _fetchRankingDataSeNecessario().then(() => {
-      const el = document.getElementById('h-feed-home');
-      if (el) el.outerHTML = renderFeedHomePreview();
-    });
-    return '<div id="h-feed-home"></div>';
-  }
-  const posts = _prepararSessoesFeed(2);
-  if (!posts.length) return '<div id="h-feed-home"></div>';
-  carregarReacoesFeed(posts.map(p => p.idsessao)).then(() => {
-    posts.forEach(p => {
-      document.querySelectorAll('#h-feed-home [data-feed-card="' + p.idsessao + '"] [data-feed-kudos]').forEach(el => {
-        el.outerHTML = _kudosHtml(p.idsessao);
-      });
-    });
+  carregarFeedPosts(2).then((posts) => {
+    const el = document.getElementById('h-feed-home');
+    if (!el) return;
+    if (!posts.length) { el.innerHTML = ''; return; }
+    carregarReacoesFeed(posts.map(p => p.idpost));
+    carregarComentariosFeed(posts.map(p => p.idpost));
+    el.innerHTML =
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">' +
+        '<span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';">📣 Feed dos Alunos</span>' +
+      '</div>' +
+      posts.map(p => _feedCardHtml(p, isLight)).join('') +
+      '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
   });
-  return '<div id="h-feed-home" style="margin-bottom:16px;">' +
-    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">' +
-      '<span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';">📣 Feed da turma</span>' +
-    '</div>' +
-    posts.map(p => _feedCardHtml(p, isLight)).join('') +
-    '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>' +
-  '</div>';
+  return '<div id="h-feed-home"></div>';
 }
 
 // Tela cheia do feed, aberta pelo menu ou pelo "Ver feed completo" da home.
 async function renderFeedCompleto() {
   const isLight = document.body.classList.contains('tema-claro');
   const box = document.getElementById('v-feed');
-  box.innerHTML = telaHeader('📣 Feed da turma') +
+  box.innerHTML = telaHeader('📣 Feed dos Alunos') +
     '<div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando feed...</div>';
-  await _fetchRankingDataSeNecessario();
-  const posts = _prepararSessoesFeed(30);
-  await carregarReacoesFeed(posts.map(p => p.idsessao));
-  let html = telaHeader('📣 Feed da turma');
+  const posts = await carregarFeedPosts(30);
+  await carregarReacoesFeed(posts.map(p => p.idpost));
+  await carregarComentariosFeed(posts.map(p => p.idpost));
+  let html = telaHeader('📣 Feed dos Alunos');
+  html += '<button class="btn btn-prim" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button>';
   if (!posts.length) {
     html += '<div style="text-align:center;padding:40px 20px;">' +
       '<div style="font-size:44px;margin-bottom:12px;">📣</div>' +
-      '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">Ainda sem atividade pra mostrar</div>' +
-      '<p style="font-size:12.5px;color:' + (isLight?'#666':'#888') + ';max-width:280px;margin:0 auto;">Assim que você e seus colegas com o ranking ativado treinarem, os treinos aparecem aqui.</p>' +
+      '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">Ainda não há posts por aqui</div>' +
+      '<p style="font-size:12.5px;color:' + (isLight?'#666':'#888') + ';max-width:280px;margin:0 auto;">Compartilhe uma foto, uma conquista ou o treino de hoje — toque em "Novo post" acima.</p>' +
     '</div>';
   } else {
     html += posts.map(p => _feedCardHtml(p, isLight)).join('');
   }
-  html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">O feed mostra quem está com o ranking ativado. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também.</div>';
+  html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
   html += getFooterHtml();
   box.innerHTML = html;
+}
+
+// ── Compor um novo post ──────────────────────────────────────────────────
+let _feedComposeImg = null;
+
+function abrirNovoPostFeed() {
+  _feedComposeImg = null;
+  _renderComposeFeed();
+}
+
+function _renderComposeFeed() {
+  const isLight = document.body.classList.contains('tema-claro');
+  document.getElementById('feed-compose-overlay')?.remove();
+  const bg = isLight ? '#f5f5f5' : '#0a0a0a';
+  const cardBg = isLight ? '#fff' : '#161616';
+  const borda = isLight ? '#e5e5e5' : '#2a2a2a';
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#777' : '#888';
+  const logoSrc = isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png';
+  const ov = document.createElement('div');
+  ov.id = 'feed-compose-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:' + bg + ';overflow-y:auto;';
+  ov.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
+      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">Novo post</span>' +
+      '<button onclick="_fecharComposeFeed()" style="background:' + cardBg + ';border:1px solid ' + borda + ';border-radius:10px;width:34px;height:34px;color:' + txt + ';font-size:16px;cursor:pointer;">✕</button>' +
+    '</div>' +
+    '<div style="max-width:340px;margin:0 auto;padding:16px;">' +
+      '<div id="feed-compose-preview" style="width:100%;aspect-ratio:1/1;border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;">' +
+        (_feedComposeImg
+          ? '<img src="' + _feedComposeImg + '" style="width:100%;height:100%;object-fit:cover;"/><img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:16px;opacity:.9;"/>'
+          : '<span style="color:' + muted + ';font-size:13px;">Escolha uma foto</span>') +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin:14px 0;">' +
+        '<button onclick="document.getElementById(\'feed-compose-file-galeria\').click()" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Galeria</button>' +
+        '<button onclick="document.getElementById(\'feed-compose-file-camera\').click()" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">📷 Câmera</button>' +
+      '</div>' +
+      '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
+      '<input type="file" id="feed-compose-file-camera" accept="image/*" capture="environment" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
+      '<textarea id="feed-compose-legenda" placeholder="Escreva uma legenda..." maxlength="500" style="width:100%;min-height:70px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;"></textarea>' +
+      '<button onclick="_publicarPostFeed()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar</button>' +
+    '</div>';
+  document.body.appendChild(ov);
+}
+
+function _composeFeedArquivoEscolhido(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { _feedComposeImg = reader.result; _renderComposeFeed(); };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function _fecharComposeFeed() { document.getElementById('feed-compose-overlay')?.remove(); }
+
+// Cola a logo na imagem de verdade (não só visualmente por cima) — assim a
+// marca viaja com a foto pra onde quer que ela seja compartilhada depois.
+function _compositarLogoNaFoto(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const logo = new Image();
+      const finalizar = () => resolve(canvas.toDataURL('image/jpeg', 0.9));
+      logo.onload = () => {
+        const lh = Math.round(img.height * 0.035);
+        const lw = lh * (logo.width / logo.height);
+        const margem = img.width * 0.03;
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(logo, img.width - lw - margem, img.height - lh - margem, lw, lh);
+        ctx.globalAlpha = 1;
+        finalizar();
+      };
+      logo.onerror = finalizar;
+      logo.src = document.body.classList.contains('tema-claro') ? 'logo-intus-light.png' : 'logo-intus-dark.png';
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+async function _publicarPostFeed() {
+  if (!_feedComposeImg) return toast('Escolha uma foto primeiro.');
+  const legenda = document.getElementById('feed-compose-legenda')?.value?.trim() || '';
+  toast('Publicando...');
+  try {
+    const finalImg = await _compositarLogoNaFoto(_feedComposeImg);
+    const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imagem: finalImg, legenda: legenda }),
+    });
+    if (!r.ok) throw new Error('falhou');
+    toast('Post publicado! 🎉');
+    _fecharComposeFeed();
+    navegar('feed');
+  } catch (e) { toast('Não consegui publicar. Tente de novo.'); }
 }
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -3094,6 +3306,7 @@ function renderHome() {
   let _hoje = null;      // { idficha, divisao, nomeFicha, qtdEx, minutos }
   let _sem  = { dias: [], feitos: 0, alvo: _rankReg.bonusDias, pts: 0, participantes: 0, posicao: 0 };
   let _med  = { ouro: 0, prata: 0, bronze: 0, pos: 0, total: 0 };
+  let _ultimoTreino = null; // { dtsessao, divisao } — pro cartão "Treinos" mostrar o que já foi feito
   try {
     // Proxima divisao: a seguinte a da ultima sessao registrada. Sem sessao
     // nenhuma, comeca pela primeira divisao da ficha.
@@ -3101,6 +3314,7 @@ function renderHome() {
     if (_fAtiva) {
       const _divs = Object.keys(_fAtiva.divisoes).sort();
       const _ult = SessoesTreino.listarDoAtleta(idAtleta).find(x => x.divisao && _divs.includes(x.divisao));
+      _ultimoTreino = _ult || null;
       const _ix = _ult ? (_divs.indexOf(_ult.divisao) + 1) % _divs.length : 0;
       const _dv = _divs[_ix];
       const _exs = _fAtiva.divisoes[_dv] || [];
@@ -3206,9 +3420,6 @@ function renderHome() {
     ? { txt: getMotivationalQuote(), cls: 'quote' }
     : { txt: getIncentivePhrase(),  cls: 'inc' };
 
-  const _diaSemana = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'][new Date().getDay()];
-  const _dataCurta = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-
   document.getElementById('v-home').innerHTML = `
     <div class="h-frase">
       <div class="barra"></div>
@@ -3222,25 +3433,12 @@ function renderHome() {
 
     ${lembreteHtml}
 
-    ${_hoje ? `
-    <button class="h-btn-treino" onclick="comecarTreinoDeHoje(${_hoje.idficha},'${esc(_hoje.divisao)}')">
-      <span class="emoji">${_bracoDoDia()}</span>
-      <span style="flex:1;min-width:0;text-align:left;">
-        <span class="cabeca">
-          <span class="tag">Treino de hoje</span>
-          <span class="data">${_diaSemana}, ${_dataCurta}</span>
-        </span>
-        <span class="lin1">Começar treino</span>
-        <span class="lin2">Treino ${esc(_hoje.divisao)} · ${_hoje.qtdEx} exercício${_hoje.qtdEx === 1 ? '' : 's'}${_hoje.minutos > 0 ? ' · ~' + formatTempo(_hoje.minutos) : ''}</span>
-      </span>
-      <span class="seta">›</span>
-    </button>` : ''}
-
     <div class="h-duo">
-      <div class="h-dest" onclick="abrirMeusTreinos()">
+      <div class="h-dest" onclick="${_hoje ? `comecarTreinoDeHoje(${_hoje.idficha},'${esc(_hoje.divisao)}')` : 'abrirMeusTreinos()'}">
         <div class="ic" style="background:linear-gradient(135deg,#2d8a00,#7FFF00);">📋</div>
         <div class="tt">Treinos</div>
-        <div class="sb">${fichas.length ? 'Trocar a divisão · ' + fichas.length + ' ficha' + (fichas.length === 1 ? '' : 's') : 'Aguardando seu professor'}</div>
+        <div class="sb">${_ultimoTreino ? 'Último: Treino ' + esc(_ultimoTreino.divisao) + ' · ' + _diasAtrasTxt(_ultimoTreino.dtsessao) : (fichas.length ? fichas.length + ' ficha' + (fichas.length === 1 ? '' : 's') : 'Aguardando seu professor')}</div>
+        ${_hoje ? `<div style="margin-top:7px;display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;color:${isLight?'#2d8a00':'#7FFF00'};">▶ Começar agora</div>` : ''}
       </div>
       <div class="h-dest" onclick="abrirCardio()">
         <div class="ic" style="background:linear-gradient(135deg,#0a5c7a,#00bfff);">🏃</div>
@@ -3268,50 +3466,54 @@ function renderHome() {
       </div>
     </div>
 
-    <div class="h-duo">
-      <div class="h-mini" onclick="navegar('ranking')">
-        <div class="cab">Ranking</div>
-        <div style="display:flex;align-items:baseline;gap:5px;margin-top:6px;">
-          ${_sem.posicao
-            ? `<span class="num">${_sem.posicao}º</span><span style="font-size:12px;font-weight:700;color:var(--muted);">de ${_sem.participantes || '?'}</span>`
-            : `<span class="num">${_sem.pts}</span><span style="font-size:12px;font-weight:700;color:var(--muted);">pts</span>`}
+    <!-- Ranking+Medalhas empilhados numa coluna; do lado, os atalhos menos
+         usados no dia a dia ficam atrás de "Ver mais" — o objetivo é o feed
+         já espiar na primeira dobra, sem esconder nada, só reordenar peso. -->
+    <div style="display:flex;gap:10px;margin-bottom:16px;align-items:stretch;">
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px;">
+        <div class="h-mini" onclick="navegar('ranking')" style="flex:1;margin:0;">
+          <div class="cab">Ranking</div>
+          <div style="display:flex;align-items:baseline;gap:5px;margin-top:6px;">
+            ${_sem.posicao
+              ? `<span class="num">${_sem.posicao}º</span><span style="font-size:12px;font-weight:700;color:var(--muted);">de ${_sem.participantes || '?'}</span>`
+              : `<span class="num">${_sem.pts}</span><span style="font-size:12px;font-weight:700;color:var(--muted);">pts</span>`}
+          </div>
+          <div class="pe">${_sem.posicao ? _sem.pts + ' pts nesta semana' : (_sem.participantes ? 'entre ' + _sem.participantes + ' participantes' : 'na semana · ver posição')}</div>
         </div>
-        <div class="pe">${_sem.posicao ? _sem.pts + ' pts nesta semana' : (_sem.participantes ? 'entre ' + _sem.participantes + ' participantes' : 'na semana · ver posição')}</div>
+        <div class="h-mini" onclick="abrirQuadroMedalhas()" style="flex:1;margin:0;">
+          <div class="cab">Medalhas</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:7px;">
+            ${[['--alvo', _med.ouro], ['--prata', _med.prata], ['--bronze', _med.bronze]].map(([cor, n]) => `
+            <div style="display:flex;align-items:baseline;gap:3px;">
+              <span style="width:11px;height:11px;border-radius:50%;background:var(${cor});display:inline-block;${n ? '' : 'opacity:.35;'}"></span>
+              <span style="font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;color:${n ? 'var(--texto)' : 'var(--muted)'};">${n}</span>
+            </div>`).join('')}
+          </div>
+          <div class="pe">${_med.pos
+            ? _med.pos + 'º no quadro' + (_med.total ? ' de ' + _med.total : '')
+            : 'desde ' + _medalhaDesdeLabel()}</div>
+        </div>
       </div>
-      <div class="h-mini" onclick="abrirQuadroMedalhas()">
-        <div class="cab">Medalhas</div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:7px;">
-          ${[['--alvo', _med.ouro], ['--prata', _med.prata], ['--bronze', _med.bronze]].map(([cor, n]) => `
-          <div style="display:flex;align-items:baseline;gap:3px;">
-            <span style="width:11px;height:11px;border-radius:50%;background:var(${cor});display:inline-block;${n ? '' : 'opacity:.35;'}"></span>
-            <span style="font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;color:${n ? 'var(--texto)' : 'var(--muted)'};">${n}</span>
-          </div>`).join('')}
+      <div style="flex:1;display:flex;flex-direction:column;">
+        <div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" style="flex:1;border-radius:16px;border:1px solid var(--borda);background:var(--card-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;min-height:100%;">
+          <div style="font-size:22px;color:var(--muted);">⋯</div>
+          <div id="h-maisatalhos-label" style="font-size:11px;font-weight:800;color:var(--muted);">Ver mais</div>
         </div>
-        <div class="pe">${_med.pos
-          ? _med.pos + 'º no quadro' + (_med.total ? ' de ' + _med.total : '')
-          : 'desde ' + _medalhaDesdeLabel()}</div>
       </div>
     </div>
 
-    ${renderFeedHomePreview()}
-
-    <div class="h-duo">
-      <div class="h-dest" onclick="renderPerfil();trocarView('perfil');">
-        <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
-        <div class="tt">Conquistas</div>
-        <div class="sb">Distintivos, medalhas e meus dados</div>
-      </div>
-      <div class="h-dest" onclick="renderHistorico();trocarView('historico');">
-        <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
-        <div class="tt">Evoluções</div>
-        <div class="sb">Histórico, cargas e progresso</div>
-      </div>
-    </div>
-
-    <div class="h-atalhos" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+    <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px;">
       <div class="h-at" onclick="navegar('avaliacoes')">
         <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
         <div class="tt">Avaliações</div>
+      </div>
+      <div class="h-at" onclick="renderPerfil();trocarView('perfil');">
+        <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
+        <div class="tt">Conquistas</div>
+      </div>
+      <div class="h-at" onclick="renderHistorico();trocarView('historico');">
+        <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
+        <div class="tt">Evoluções</div>
       </div>
       <div class="h-at" onclick="navegar('mensagens')">
         <div class="ic" style="background:linear-gradient(135deg,#5a2a5e,#c060d0);">💬</div>
@@ -3322,6 +3524,8 @@ function renderHome() {
         <div class="tt">Perfil</div>
       </div>
     </div>
+
+    ${renderFeedHomePreview()}
 
     <div style="margin-top:20px;text-align:center;padding:20px;background:${isLight ? 'rgba(0,0,0,.03)' : 'rgba(255,255,255,.03)'};border-radius:12px;">
       <a href="https://instagram.com/intusfit" target="_blank" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:${isLight ? '#2d8a00' : '#7FFF00'};">
@@ -6245,10 +6449,13 @@ async function sincronizarRankingHome(forcar) {
 function telaHeader(titulo, backView) {
   const isLight = document.body.classList.contains('tema-claro');
   const bv = backView || 'home';
-  return '<div style="position:relative;display:flex;align-items:center;min-height:34px;margin:2px 0 12px;">' +
+  return '<div class="tela-header-fixa">' +
+    '<div style="position:relative;display:flex;align-items:center;min-height:34px;">' +
       '<button class="btn-back" onclick="trocarView(\'' + bv + '\')" style="position:relative;z-index:1;">← Voltar</button>' +
       '<div style="position:absolute;left:0;right:0;text-align:center;font-size:18px;font-weight:900;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';pointer-events:none;letter-spacing:-.3px;">' + (titulo || '') + '</div>' +
-    '</div>';
+      '<img src="' + (isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus" style="position:absolute;right:0;height:16px;opacity:.85;"/>' +
+    '</div>' +
+  '</div>';
 }
 function rankingHeader(titulo) { return telaHeader(titulo || '🥇 Ranking'); }
 
@@ -6553,7 +6760,7 @@ function abrirPerfilRanking(id) {
         '<span style="font-size:12px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';text-transform:uppercase;letter-spacing:.5px;">Pontos da semana</span>' +
         '<span style="font-size:20px;font-weight:900;color:' + _accentP + ';line-height:1;">' + _totalSem.toFixed(0) + '</span>' +
       '</div>' +
-      '<div style="font-size:11.5px;color:' + (isLight?'#666':'#999') + ';line-height:1.6;">' +
+      '<div style="font-size:11.5px;color:' + (isLight?'#666':'#999') + ';line-height:1.6;text-wrap:balance;">' +
         '💪🏃 ' + _baseSem.toFixed(0) + ' pts de atividades' +
         (_bonusSem > 0
           ? '<br>🔥 +' + _bonusSem + ' pts de bônus (' + _musSem + ' dias com musculação na semana)'
@@ -7135,10 +7342,27 @@ function _medalhaDesde() {
 // O braco do botao de comecar treino, alternando o tom de pele a cada dia.
 // Nao e aleatorio a cada render de proposito: dentro do mesmo dia ele fica
 // estavel, senao mudaria de cor toda vez que a tela redesenha.
-function _bracoDoDia() {
-  const tons = ['\u{1F4AA}\u{1F3FB}', '\u{1F4AA}\u{1F3FC}', '\u{1F4AA}\u{1F3FD}', '\u{1F4AA}\u{1F3FE}', '\u{1F4AA}\u{1F3FF}'];
-  const dia = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-  return tons[dia % tons.length];
+// "Último: Treino B · há 2 dias" no cartão de Treinos da home.
+function _diasAtrasTxt(dtsessao) {
+  const d = new Date(String(dtsessao).slice(0, 10) + 'T00:00:00');
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const dias = Math.round((hoje - d) / 86400000);
+  if (dias <= 0) return 'hoje';
+  if (dias === 1) return 'ontem';
+  if (dias < 7) return 'há ' + dias + ' dias';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+// "Ver mais" da home: atalhos usados com menos frequência (Avaliações,
+// Conquistas, Evoluções, Central, Perfil) ficam escondidos por padrão, pra
+// dar espaço pro feed já aparecer sem rolar a tela.
+function _toggleMaisAtalhosHome() {
+  const el = document.getElementById('h-maisatalhos');
+  const label = document.getElementById('h-maisatalhos-label');
+  if (!el) return;
+  const abrir = el.style.display === 'none' || !el.style.display;
+  el.style.display = abrir ? 'grid' : 'none';
+  if (label) label.textContent = abrir ? 'Ver menos' : 'Ver mais';
 }
 
 // Rotulo curto da data de corte do quadro, no formato que voce pediu: 08/2026.
@@ -7434,8 +7658,8 @@ function _rodapeMedalhas(tabSem, tabMes, tinta, tinta2, borda, fundo, isLight, l
     '</div>';
 
   const regras =
-    '<div style="margin-top:14px;border-top:1px solid ' + borda + ';padding-top:14px;">' +
-      '<div style="font-size:13px;font-weight:800;color:' + tinta + ';">Como funcionam as medalhas</div>' +
+    '<details style="margin-top:14px;border-top:1px solid ' + borda + ';padding-top:14px;">' +
+      '<summary style="cursor:pointer;list-style:none;font-size:13px;font-weight:800;color:' + tinta + ';">▸ Como funcionam as medalhas</summary>' +
 
       linha('🥇', 'Ouro, prata e bronze.',
         'A semana fecha no sábado e uma nova começa no domingo; o mês fecha no último dia. Quem terminou em 1º, 2º e 3º na classificação geral daquele período leva a medalha, e ela é sua para sempre, mesmo que você caia no ranking depois.') +
@@ -7454,7 +7678,7 @@ function _rodapeMedalhas(tabSem, tabMes, tinta, tinta2, borda, fundo, isLight, l
 
       premio('Premiação da semana', tabSem, 'De domingo a sábado. Fecha no sábado à noite e no domingo começa uma nova.') +
       premio('Premiação do mês', tabMes, 'Do dia 1º ao último dia. Só meses inteiros contam.') +
-    '</div>';
+    '</details>';
 
   return '<div style="margin-top:18px;border:1px solid ' + borda + ';border-radius:14px;padding:15px;background:' + fundo + ';">' +
       mensagem + regras +
@@ -7693,9 +7917,13 @@ function _renderRankingView() {
         rkLinhaCurta('historico', _rankingTab === 'historico', '🏆', 'Top 5 das semanas') +
         rkLinhaCurta('meses_anteriores', _rankingTab === 'meses_anteriores', '👑', 'Top 10 dos meses') +
         // Caminho direto para o quadro, sem precisar voltar para a tela inicial.
+        // Destacado de propósito (fundo dourado) — era um botão neutro igual
+        // aos outros da fileira, e "quadro de medalhas" é destino importante
+        // demais pra passar despercebido igual a um filtro qualquer.
         '<button aria-label="Quadro de medalhas" title="Quadro de medalhas" onclick="_rankingTab=\'medalhas\';_renderRankingView();" ' +
-          'style="display:flex;align-items:center;justify-content:center;padding:7px 11px;border-radius:10px;cursor:pointer;' +
-          'font-family:inherit;min-height:38px;font-size:16px;background:var(--card-bg);border:1px solid var(--borda);">🏅</button>' +
+          'style="display:flex;align-items:center;justify-content:center;padding:7px 13px;border-radius:10px;cursor:pointer;' +
+          'font-family:inherit;min-height:38px;font-size:20px;background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));' +
+          'border:1.5px solid rgba(240,165,0,.55);box-shadow:0 0 0 1px rgba(240,165,0,.08);">🏅</button>' +
       '</div>';
   }
 
@@ -7907,7 +8135,7 @@ function _renderRankingView() {
         // bônus perder o sinal que identifica a conquista.
         '<span style="font-size:15px;flex-shrink:0;line-height:1;">🔥</span>' +
         '<span style="display:flex;gap:3px;align-items:center;flex-shrink:0;">' + bolas + '</span>' +
-        '<span style="flex:1;min-width:0;font-size:11px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.45;">' +
+        '<span style="flex:1;min-width:0;font-size:11px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.45;text-wrap:balance;">' +
           (faltam > 0
             ? 'Falta' + (faltam > 1 ? 'm' : '') + ' <b style="color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' + faltam + '</b> treino' + (faltam > 1 ? 's' : '') +
               ' de musculação pro bônus de <b style="color:' + _accent + ';">+' + _rankReg.bonusPts + ' pts</b>'
@@ -9689,8 +9917,16 @@ function renderPerfil() {
 
     <div style="display:flex;gap:6px;background:${tabBg};padding:5px;border-radius:16px;margin-bottom:18px;">
       ${tabBtn('conquistas','🏅','Conquistas')}
+      ${tabBtn('posts','📸','Posts')}
       ${tabBtn('dados','📋','Dados')}
       ${tabBtn('matricula','💳','Matrícula')}
+    </div>
+
+    <!-- ABA POSTS (feed dos alunos, estilo Strava) -->
+    <div id="pf-aba-posts" style="display:none;">
+      <div id="perfil-posts">
+        <div style="text-align:center;padding:30px;color:${isLight?'#666':'#888'};font-size:13px;">Carregando posts...</div>
+      </div>
     </div>
 
     <!-- ABA CONQUISTAS -->
@@ -9720,6 +9956,20 @@ function renderPerfil() {
             <input type="checkbox" id="pf-ranking" ${(atleta.ranking_optin || 'S') === 'S' ? 'checked' : ''} style="opacity:0;width:0;height:0;position:absolute;"/>
             <span class="pf-rk-track" style="position:absolute;inset:0;border-radius:12px;background:${(atleta.ranking_optin || 'S') === 'S' ? '#5cb800' : (isLight?'#ccc':'#333')};transition:.3s;"></span>
             <span class="pf-rk-knob" style="position:absolute;top:2px;left:${(atleta.ranking_optin || 'S') === 'S' ? '22px' : '2px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,.2);"></span>
+          </label>
+        </div>
+      </div>
+
+      <div style="margin-top:10px;padding:14px;background:${isLight?'#f0fdf4':'rgba(127,255,0,.05)'};border:1px solid ${isLight?'rgba(92,184,0,.3)':'rgba(127,255,0,.15)'};border-radius:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};">📣 Participar do Feed</div>
+            <div style="font-size:11px;color:${isLight?'#666':'#888'};margin-top:2px;">Separado do ranking — desligar tira seus posts do feed e você deixa de ver os dos outros</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;cursor:pointer;" onclick="setTimeout(()=>{const c=document.getElementById('pf-feed');const t=this.querySelector('.pf-rk-track');const k=this.querySelector('.pf-rk-knob');if(c.checked){t.style.background='#5cb800';k.style.left='22px';}else{t.style.background='${isLight?'#ccc':'#333'}';k.style.left='2px';}},0)">
+            <input type="checkbox" id="pf-feed" ${(atleta.feed_optin || 'S') === 'S' ? 'checked' : ''} style="opacity:0;width:0;height:0;position:absolute;"/>
+            <span class="pf-rk-track" style="position:absolute;inset:0;border-radius:12px;background:${(atleta.feed_optin || 'S') === 'S' ? '#5cb800' : (isLight?'#ccc':'#333')};transition:.3s;"></span>
+            <span class="pf-rk-knob" style="position:absolute;top:2px;left:${(atleta.feed_optin || 'S') === 'S' ? '22px' : '2px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,.2);"></span>
           </label>
         </div>
       </div>
@@ -9771,7 +10021,7 @@ function perfilAba(tab) {
   const inactiveTxt = isLight ? '#777' : '#888';
   const activeBg = isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)';
   const activeBd = isLight ? 'rgba(92,184,0,.5)' : 'rgba(127,255,0,.35)';
-  ['conquistas', 'dados', 'matricula'].forEach(t => {
+  ['conquistas', 'posts', 'dados', 'matricula'].forEach(t => {
     const aba = document.getElementById('pf-aba-' + t);
     const btn = document.getElementById('pf-tabbtn-' + t);
     if (aba) aba.style.display = (t === tab) ? 'block' : 'none';
@@ -9783,6 +10033,27 @@ function perfilAba(tab) {
       if (lbl) lbl.style.color = on ? accent : inactiveTxt;
     }
   });
+  if (tab === 'posts') _carregarPerfilPosts();
+}
+
+// Grade quadrada estilo Strava/Instagram — toque abre o post no feed completo.
+async function _carregarPerfilPosts() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const posts = await carregarFeedPosts(60, idAtleta);
+  const el = document.getElementById('perfil-posts');
+  if (!el) return;
+  if (!posts.length) {
+    el.innerHTML = '<div style="text-align:center;padding:34px 20px;">' +
+      '<div style="font-size:38px;margin-bottom:10px;">📸</div>' +
+      '<div style="font-size:13.5px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:5px;">Você ainda não postou nada</div>' +
+      '<p style="font-size:12px;color:' + (isLight?'#666':'#888') + ';max-width:260px;margin:0 auto 14px;">Compartilhe uma foto, uma conquista ou o treino de hoje no feed.</p>' +
+      '<button class="btn btn-prim" onclick="navegar(\'feed\')" style="display:inline-flex;align-items:center;gap:6px;">📸 Novo post</button>' +
+    '</div>';
+    return;
+  }
+  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;">' +
+    posts.map(p => '<div onclick="navegar(\'feed\')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/></div>').join('') +
+  '</div>';
 }
 
 // ═══════════════ SELETOR DE LOCALIZAÇÃO (país/estado/cidade) ═══════════════
@@ -10089,11 +10360,12 @@ function salvarPerfil() {
   const telefone = document.getElementById('pf-tel').value.trim();
   const nasc = document.getElementById('pf-nasc').value;
   const rankingOptin = document.getElementById('pf-ranking')?.checked ? 'S' : 'N';
+  const feedOptin = document.getElementById('pf-feed')?.checked ? 'S' : 'N';
   if (!nome) return toast('Informe seu nome.');
   const loc = (typeof geoValores === 'function') ? geoValores('pf') : { pais: '', estado: '', cidade: '' };
 
   const u = JSON.parse(localStorage.getItem('mx-user') || '{}');
-  u.nome = nome; u.email = email; u.telefone = telefone; u.dtnascimento = nasc; u.ranking_optin = rankingOptin;
+  u.nome = nome; u.email = email; u.telefone = telefone; u.dtnascimento = nasc; u.ranking_optin = rankingOptin; u.feed_optin = feedOptin;
   u.pais = loc.pais; u.estado = loc.estado; u.cidade = loc.cidade;
   localStorage.setItem('mx-user', JSON.stringify(u));
   document.getElementById('nome-top').textContent = nome;
@@ -10102,7 +10374,7 @@ function salvarPerfil() {
   fetch(API_BASE + '/atletas.php?id=' + idAtleta, {
     method: 'PUT',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nome, email, telefone, dtnascimento: nasc, ranking_optin: rankingOptin, pais: loc.pais, estado: loc.estado, cidade: loc.cidade })
+    body: JSON.stringify({ nome, email, telefone, dtnascimento: nasc, ranking_optin: rankingOptin, feed_optin: feedOptin, pais: loc.pais, estado: loc.estado, cidade: loc.cidade })
   }).then(r => {
     if (!r.ok) toast('Erro ao salvar no servidor');
   }).catch(() => toast('Sem conexão, salvo localmente'));
