@@ -89,6 +89,38 @@ const AlimentosDB = (() => {
     return resultados;
   }
 
+  // ── BUSCA ONLINE (Open Food Facts) — produtos de marca ────────────────
+  // A TACO cobre bem alimento fresco/preparo caseiro (arroz, frango, banana),
+  // mas não tem como ter "Whey Protein da marca X" ou "barra de proteína Y" —
+  // são milhares de produtos comerciais que mudam de formulação o tempo todo.
+  // O Open Food Facts é um banco colaborativo aberto (licença ODbL, permite
+  // uso comercial) com forte cobertura de produto de marca, inclusive
+  // brasileiro. A busca em si passa pelo NOSSO servidor (catalogo.php) — a
+  // busca por texto do Open Food Facts não libera CORS pra chamada direta do
+  // navegador (testado: só a consulta por código de barras libera). Nunca
+  // guardamos a base deles aqui — o profissional decide alimento por
+  // alimento, e o que ele escolhe vira um alimento personalizado normal.
+  async function buscarOnline(termo, limite = 8) {
+    if (!termo || termo.length < 2) return [];
+    try {
+      const token = localStorage.getItem('mx-token') || '';
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 8000);
+      const base = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '/app/api';
+      const r = await fetch(
+        base + '/catalogo.php?action=busca_alimento_online&termo=' + encodeURIComponent(termo),
+        { headers: { Authorization: 'Bearer ' + token }, signal: ctrl.signal, cache: 'no-store' }
+      );
+      clearTimeout(timeout);
+      if (!r.ok) return [];
+      const data = await r.json();
+      return Array.isArray(data) ? data.slice(0, limite) : [];
+    } catch (e) {
+      console.warn('[AlimentosDB] busca online indisponível:', e);
+      return [];
+    }
+  }
+
   function getById(id) {
     const numId = Number(id);
     _loadCustomFoods();
@@ -747,6 +779,7 @@ const AlimentosDB = (() => {
     isLoaded,
     totalAlimentos,
     buscar,
+    buscarOnline,
     getById,
     getCategories,
     getByCategory,

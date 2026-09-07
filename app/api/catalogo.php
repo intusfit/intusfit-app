@@ -749,6 +749,59 @@ if ($action === 'caixa') {
     }
 }
 
+// ═══════════════ BUSCA DE ALIMENTO ONLINE (Open Food Facts) ═══════════════
+// A TACO (já embutida no app) cobre bem alimento fresco/preparo caseiro, mas
+// não tem produto de marca (whey de marca X, barrinha Y) — por isso esta
+// consulta ao vivo num banco colaborativo aberto (licença ODbL, permite uso
+// comercial), sem guardar nada aqui: é so repasse. Feito no servidor (não no
+// navegador do nutricionista) porque a busca por texto do Open Food Facts não
+// libera CORS pra chamada direta do navegador — só a consulta por código de
+// barras libera, e aqui a busca é por nome.
+if ($action === 'busca_alimento_online') {
+    if ($_ehAluno) { http_response_code(403); echo json_encode(['error' => 'restrito ao professor']); exit; }
+    if ($method !== 'GET') { http_response_code(405); echo json_encode(['error' => 'metodo invalido']); exit; }
+    $termo = trim((string)($_GET['termo'] ?? ''));
+    if (mb_strlen($termo) < 2) { echo json_encode([]); exit; }
+    if (!function_exists('curl_init')) { echo json_encode([]); exit; }
+
+    $url = 'https://search.openfoodfacts.org/search?' . http_build_query([
+        'q' => $termo,
+        'page_size' => 8,
+        'fields' => 'product_name,brands,nutriments',
+    ]);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 6,
+        CURLOPT_HTTPHEADER => ['User-Agent: IntusFit/1.0 (contato@intusfit.com.br)'],
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200 || !$resp) { echo json_encode([]); exit; }
+    $data = json_decode($resp, true);
+    $hits = is_array($data['hits'] ?? null) ? $data['hits'] : [];
+    $out = [];
+    foreach ($hits as $h) {
+        $n = $h['nutriments'] ?? null;
+        if (empty($h['product_name']) || !is_array($n) || !isset($n['energy-kcal_100g'])) continue;
+        $marca = is_array($h['brands'] ?? null) ? ($h['brands'][0] ?? '') : (is_string($h['brands'] ?? null) ? $h['brands'] : '');
+        $out[] = [
+            'description'     => $h['product_name'] . ($marca ? ' — ' . $marca : ''),
+            'category'        => 'Produto de marca (Open Food Facts)',
+            'energy_kcal'     => (float)($n['energy-kcal_100g'] ?? 0),
+            'protein_g'       => (float)($n['proteins_100g'] ?? 0),
+            'carbohydrate_g'  => (float)($n['carbohydrates_100g'] ?? 0),
+            'lipid_g'         => (float)($n['fat_100g'] ?? 0),
+            'fiber_g'         => (float)($n['fiber_100g'] ?? 0),
+            'sodium_mg'       => (float)($n['sodium_100g'] ?? 0) * 1000,
+            'saturated_g'     => (float)($n['saturated-fat_100g'] ?? 0),
+        ];
+    }
+    echo json_encode($out);
+    exit;
+}
+
 // ═══════════════ PLANOS CONFIG ═══════════════
 if ($action === 'planos_config') {
     if ($method === 'GET') {

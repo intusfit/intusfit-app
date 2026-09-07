@@ -7,7 +7,7 @@
   <title>Nutrição — Intus</title>
   <script src="_mock.js?v=20260907a"></script>
   <script src="api.js?v=20260907a"></script>
-  <script src="alimentos-db.js?v=20260515i"></script>
+  <script src="alimentos-db.js?v=20260907a"></script>
   <style>
     .modal-box.wide { max-width: 820px; }
     .modal-box.full { max-width: 95vw; width: 1100px; }
@@ -1322,8 +1322,12 @@ function buscarAlimento(input, refIdx) {
     // isso o nutricionista tinha que abandonar a refeição, ir em "Meus
     // Alimentos" à parte, cadastrar, e voltar pra achar de novo.
     const cadastrarNovo = `<div class="food-result-item" style="color:var(--green);font-weight:700;" onclick="_iniciarCadastroRapido(${refIdx}, '${esc(termo).replace(/'/g,"\\'")}')">+ Cadastrar "${esc(termo)}" como novo alimento</div>`;
+    // A TACO não tem produto de marca (whey, barrinha, suplemento) — esse
+    // botão busca ao vivo no Open Food Facts só quando o profissional pedir,
+    // pra não disparar uma chamada de rede a cada letra digitada.
+    const buscarMarca = `<div class="food-result-item" style="color:var(--text-muted);font-style:italic;" onclick="_buscarOnlineAlimento(${refIdx}, '${esc(termo).replace(/'/g,"\\'")}')">🌐 Buscar em produtos de marca (Open Food Facts)</div>`;
     if (foods.length === 0) {
-      resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>` + cadastrarNovo;
+      resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>` + cadastrarNovo + buscarMarca;
     } else {
       resultsEl.innerHTML = foods.map(f => `
         <div class="food-result-item" onclick="addAlimento(${refIdx}, ${f.id})">
@@ -1333,10 +1337,57 @@ function buscarAlimento(input, refIdx) {
           </div>
           <div class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</div>
         </div>
-      `).join('') + cadastrarNovo;
+      `).join('') + cadastrarNovo + buscarMarca;
     }
     resultsEl.classList.add('show');
   }, 200);
+}
+
+// ── Busca online (Open Food Facts) sob demanda ─────────────────────────────
+async function _buscarOnlineAlimento(refIdx, termo) {
+  const resultsEl = document.getElementById('food-results-' + refIdx);
+  if (!resultsEl) return;
+  resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Buscando em produtos de marca...</div>`;
+  resultsEl.classList.add('show');
+  const online = await AlimentosDB.buscarOnline(termo, 8);
+  if (!online.length) {
+    resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Nada encontrado em produtos de marca. Tente "+ Cadastrar" com os valores do rótulo.</div>
+      <div class="food-result-item" style="color:var(--green);font-weight:700;" onclick="_iniciarCadastroRapido(${refIdx}, '${esc(termo).replace(/'/g,"\\'")}')">+ Cadastrar "${esc(termo)}" como novo alimento</div>`;
+    return;
+  }
+  resultsEl.innerHTML = online.map((f, i) => `
+    <div class="food-result-item" onclick='_adicionarAlimentoOnline(${refIdx}, ${i})'>
+      <div>
+        <div>${esc(f.description)}<span class="custom-food-badge" style="background:rgba(96,165,250,.15);color:#60a5fa;">MARCA</span></div>
+        <div class="food-cat">${esc(f.category)}</div>
+      </div>
+      <div class="food-kcal">${Math.round(f.energy_kcal)} kcal/100g</div>
+    </div>
+  `).join('');
+  resultsEl.classList.add('show');
+  window._offResultadosTemp = window._offResultadosTemp || {};
+  window._offResultadosTemp[refIdx] = online;
+}
+
+// O produto do Open Food Facts vira um alimento personalizado normal ao ser
+// escolhido — a partir daí funciona offline como qualquer outro "Meu
+// Alimento", sem depender de a busca online continuar disponível depois.
+function _adicionarAlimentoOnline(refIdx, idx) {
+  const item = (window._offResultadosTemp && window._offResultadosTemp[refIdx] || [])[idx];
+  if (!item) return;
+  const novo = AlimentosDB.addCustomFood({
+    description: item.description,
+    category: item.category,
+    energy_kcal: item.energy_kcal,
+    protein_g: item.protein_g,
+    carbohydrate_g: item.carbohydrate_g,
+    lipid_g: item.lipid_g,
+    fiber_g: item.fiber_g,
+    sodium_mg: item.sodium_mg,
+    saturated_g: item.saturated_g,
+  });
+  showToast('Produto adicionado ao seu banco de alimentos!');
+  addAlimento(refIdx, novo.id);
 }
 
 function addAlimento(refIdx, foodId) {
