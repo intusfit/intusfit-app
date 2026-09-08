@@ -1155,8 +1155,20 @@ function _shareIconSvg(nome, tamanho) {
     copiar: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     salvar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
     compartilhar: '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>',
+    trocar: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   }[nome] || '';
   return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${corpo}</svg>`;
+}
+// Ícones sólidos das redes (cor de marca no fundo do círculo, não dá pra usar
+// o mesmo traço fino do resto — ninguém reconhece WhatsApp/Instagram sem cor).
+function _shareIconSvgSolido(nome, tamanho) {
+  const t = tamanho || 20;
+  const corpo = {
+    whatsapp: '<path fill="currentColor" stroke="none" d="M12 2C6.48 2 2 6.28 2 11.5c0 1.95.6 3.76 1.64 5.26L2.5 21.5l4.9-1.28A10.4 10.4 0 0 0 12 21c5.52 0 10-4.28 10-9.5S17.52 2 12 2zm5.02 13.42c-.22.6-1.27 1.16-1.75 1.2-.45.05-.9.24-3.03-.63-2.56-1.05-4.2-3.66-4.33-3.83-.13-.17-1.03-1.37-1.03-2.61 0-1.24.65-1.85.88-2.1.22-.25.5-.3.66-.3.17 0 .33 0 .48.01.16.01.36-.06.56.43.22.53.73 1.83.79 1.97.06.14.1.3.02.48-.09.18-.13.29-.26.44-.13.16-.27.35-.39.47-.13.13-.26.27-.11.53.15.26.68 1.13 1.47 1.83 1.01.9 1.86 1.19 2.12 1.32.26.13.42.11.57-.07.16-.18.65-.76.83-1.02.18-.26.35-.21.6-.13.24.09 1.55.73 1.81.86.27.13.44.2.5.31.07.12.07.68-.15 1.28z"/>',
+    instagram: '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none"/>',
+  }[nome] || '';
+  const stroke = nome === 'instagram' ? 'stroke="currentColor" stroke-width="1.8"' : 'stroke="none"';
+  return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" ${stroke} stroke-linecap="round" stroke-linejoin="round">${corpo}</svg>`;
 }
 
 // Entrada usada tanto pelo botão da tela de Finalização quanto por fora dela
@@ -1208,27 +1220,36 @@ function _shareTrocarTpl(delta) {
 
 function _shareSetBg(modo) {
   _shareState.origem = modo;
-  if (modo === 'galeria') { document.getElementById('share-file-galeria').click(); return; }
+  if (modo === 'galeria') {
+    _shareFecharCamera();
+    document.getElementById('share-file-galeria').click();
+    return;
+  }
   _shareAbrirCamera();
 }
 
-// ── CÂMERA AO VIVO, COM O CARTÃO POR CIMA ──────────────────────────────────
+// ── CÂMERA AO VIVO, EMBUTIDA NO PRÓPRIO CARTÃO ─────────────────────────────
 // Antes o botão "Câmera" só abria o app de câmera do sistema, cego: o aluno
 // tirava a foto sem saber onde a logo e o texto do cartão iam cair por cima
-// dela depois, e podia acabar atrás de alguma informação. Aqui a prévia ao
-// vivo já mostra o cartão sobreposto (com o modo 'LIVE', que deixa o fundo do
-// template transparente), então dá pra se posicionar antes de apertar o
-// obturador. Precisa de câmera liberada por HTTPS e do Permissions-Policy do
-// próprio domínio permitindo "self" (sem isso o navegador bloqueia mesmo com
-// o aluno aceitando o pedido de permissão).
+// dela depois. Depois isso virou uma tela cheia separada — mas aí, ao trocar
+// de filtro (‹ ›), o aluno saía da prévia da câmera pra ver o novo filtro.
+// Agora o vídeo ao vivo entra DIRETO dentro do host do cartão (#share-card-host),
+// então trocar de filtro com a câmera ligada continua mostrando a pessoa em
+// tempo real, só que com o desenho do cartão por cima mudando. Precisa de
+// câmera liberada por HTTPS e do Permissions-Policy do próprio domínio
+// permitindo "self" (sem isso o navegador bloqueia mesmo com o aluno aceitando
+// o pedido de permissão).
 let _camStream = null;
 let _camFacing = 'environment';
 
 async function _shareAbrirCamera() {
+  _shareState.bgImg = null;
+  _shareState.bgModo = 'transparente';
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     document.getElementById('share-file-camera').click();
     return;
   }
+  if (_camStream) { _renderShareOverlay(); return; }
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
   } catch (e) {
@@ -1237,39 +1258,11 @@ async function _shareAbrirCamera() {
     document.getElementById('share-file-camera').click();
     return;
   }
-  _renderCameraOverlay();
-}
-
-function _renderCameraOverlay() {
-  document.getElementById('cam-overlay')?.remove();
-  const S = _shareState;
-  const tpl = SHARE_TEMPLATES[S.tplIdx];
-  const isLight = document.body.classList.contains('tema-claro');
-  const ov = document.createElement('div');
-  ov.id = 'cam-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px));';
-  ov.innerHTML = `
-    <div style="position:relative;width:min(78vw,300px);aspect-ratio:230/410;border-radius:18px;overflow:hidden;background:#000;">
-      <video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${_camFacing === 'user' ? 'transform:scaleX(-1);' : ''}"></video>
-      <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
-    </div>
-    <div style="font-size:11.5px;color:#aaa;margin-top:14px;text-align:center;max-width:270px;line-height:1.5;">Posicione-se dentro do quadro — é assim que o cartão vai ficar</div>
-    <div style="display:flex;align-items:center;gap:28px;margin-top:18px;">
-      <button aria-label="Fechar" onclick="_shareFecharCamera()" style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:16px;cursor:pointer;">✕</button>
-      <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:68px;height:68px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.35);cursor:pointer;"></button>
-      <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:16px;cursor:pointer;">🔄</button>
-    </div>
-  `;
-  document.body.appendChild(ov);
-  document.getElementById('share-cam-video').srcObject = _camStream;
+  _renderShareOverlay();
 }
 
 function _shareFecharCamera() {
   if (_camStream) { _camStream.getTracks().forEach(t => t.stop()); _camStream = null; }
-  document.getElementById('cam-overlay')?.remove();
-  // Se a tela de baixo ainda está aberta (fechou só a câmera, não o fluxo
-  // inteiro), atualiza o destaque dos botões de origem do fundo.
-  if (_shareState && document.getElementById('share-overlay')) _renderShareOverlay();
 }
 
 async function _shareAlternarCamera() {
@@ -1277,13 +1270,17 @@ async function _shareAlternarCamera() {
   if (_camStream) _camStream.getTracks().forEach(t => t.stop());
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
-    _renderCameraOverlay();
+    _renderShareOverlay();
   } catch (e) { toast('Não consegui trocar de câmera.'); }
 }
 
-function _shareCapturarFoto() {
+// Só captura o quadro atual do vídeo pra um dataURL — sem mexer em estado
+// nem re-renderizar. Reaproveitada pelo botão do obturador E por _shareAcao
+// (que precisa "tirar a foto" sozinha se o aluno pedir pra compartilhar
+// direto, ainda com a câmera ao vivo e sem ter apertado o obturador).
+function _shareCapturarFrameAtual() {
   const v = document.getElementById('share-cam-video');
-  if (!v || !v.videoWidth) return;
+  if (!v || !v.videoWidth) return null;
   const canvas = document.createElement('canvas');
   canvas.width = v.videoWidth; canvas.height = v.videoHeight;
   const ctx = canvas.getContext('2d');
@@ -1291,7 +1288,13 @@ function _shareCapturarFoto() {
   // em qualquer texto atrás da pessoa), mesmo a prévia já mostrando espelhado.
   if (_camFacing === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
   ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-  _shareState.bgImg = canvas.toDataURL('image/jpeg', 0.92);
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+function _shareCapturarFoto() {
+  const dataUrl = _shareCapturarFrameAtual();
+  if (!dataUrl) return;
+  _shareState.bgImg = dataUrl;
   _shareState.bgModo = 'foto-custom';
   _shareFecharCamera();
   _renderShareOverlay();
@@ -1403,6 +1406,10 @@ function _renderShareOverlay() {
   const muted = isLight ? '#777' : '#888';
   const S = _shareState;
   const tpl = SHARE_TEMPLATES[S.tplIdx];
+  // Vídeo ao vivo só entra no cartão se a câmera estiver de fato ligada, a
+  // origem escolhida for câmera E ainda não tiver foto tirada/escolhida —
+  // depois de capturar (ou trocar pra galeria) o cartão mostra a imagem parada.
+  const camAtiva = !!_camStream && S.origem === 'camera' && !S.bgImg;
 
   document.getElementById('share-overlay')?.remove();
   const overlay = document.createElement('div');
@@ -1426,9 +1433,19 @@ function _renderShareOverlay() {
 
     <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 10px 8px;">
       <button onclick="_shareTrocarTpl(-1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
-      <div id="share-card-host" style="width:min(78vw,300px);aspect-ratio:230/410;"></div>
+      <div id="share-card-host" style="position:relative;width:min(78vw,300px);aspect-ratio:230/410;border-radius:18px;overflow:hidden;background:#000;">
+        ${camAtiva ? `<video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${_camFacing === 'user' ? 'transform:scaleX(-1);' : ''}"></video>` : ''}
+        <div style="position:absolute;inset:0;${camAtiva ? 'pointer-events:none;' : ''}">${tpl.render(S.info, S.fig, camAtiva ? 'LIVE' : S.bgImg, isLight)}</div>
+      </div>
       <button onclick="_shareTrocarTpl(1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">›</button>
     </div>
+    ${camAtiva ? `
+    <div style="text-align:center;font-size:11px;color:${muted};margin:2px auto 12px;max-width:270px;line-height:1.5;">Posicione-se dentro do quadro — arraste ‹ › pra trocar de filtro sem perder o enquadramento</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:26px;margin-bottom:16px;">
+      <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="width:42px;height:42px;border-radius:50%;background:${bgCard};border:1px solid ${borderC};color:${txt};display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">${_shareIconSvg('trocar',18)}</button>
+      <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:60px;height:60px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.5);cursor:pointer;flex-shrink:0;"></button>
+      <div style="width:42px;flex-shrink:0;"></div>
+    </div>` : ''}
     <div style="text-align:center;font-size:11px;color:${muted};font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${tpl.nome}</div>
     <div style="display:flex;justify-content:center;gap:5px;margin-bottom:18px;">
       ${SHARE_TEMPLATES.map((t,i) => `<div style="width:6px;height:6px;border-radius:50%;background:${i===S.tplIdx?'#7FFF00':borderC};"></div>`).join('')}
@@ -1442,6 +1459,8 @@ function _renderShareOverlay() {
 
       <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Compartilhar com</div>
       <div style="display:flex;justify-content:space-around;margin-bottom:calc(30px + env(safe-area-inset-bottom,0px));">
+        ${_shareSocialBtn(_shareIconSvgSolido('whatsapp',24),'WhatsApp','_shareAcao(\'whatsapp\')','#25D366','#fff',txt)}
+        ${_shareSocialBtn(_shareIconSvgSolido('instagram',20),'Instagram','_shareAcao(\'instagram\')','linear-gradient(45deg,#f9ce34,#ee2a7b 45%,#6228d7)','#fff',txt)}
         ${_shareActionBtn(_shareIconSvg('copiar'),'Copiar','_shareAcao(\'copiar\')',bgCard,borderC,txt)}
         ${_shareActionBtn(_shareIconSvg('salvar'),'Salvar','_shareAcao(\'salvar\')',bgCard,borderC,txt)}
         ${_shareActionBtn(_shareIconSvg('compartilhar'),'Mais','_shareAcao(\'compartilhar\')',bgCard,borderC,txt)}
@@ -1450,13 +1469,21 @@ function _renderShareOverlay() {
   `;
   document.body.appendChild(overlay);
 
-  const host = document.getElementById('share-card-host');
-  host.innerHTML = tpl.render(S.info, S.fig, S.bgImg, isLight);
+  if (camAtiva) document.getElementById('share-cam-video').srcObject = _camStream;
 }
 function _shareActionBtn(icon, label, onclick, bg, border, txt) {
   return `<div style="text-align:center;cursor:pointer;" onclick="${onclick}">
     <div style="width:52px;height:52px;border-radius:50%;background:${bg};border:1px solid ${border};display:flex;align-items:center;justify-content:center;color:${txt};margin:0 auto 6px;">${icon}</div>
     <div style="font-size:11px;color:${txt};">${label}</div>
+  </div>`;
+}
+// Botões de rede social: fundo com a cor da marca (sem borda) e ícone branco —
+// diferente do _shareActionBtn genérico (fundo neutro), porque ninguém
+// reconhece WhatsApp/Instagram sem a cor.
+function _shareSocialBtn(icon, label, onclick, bg, iconColor, labelColor) {
+  return `<div style="text-align:center;cursor:pointer;" onclick="${onclick}">
+    <div style="width:52px;height:52px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;color:${iconColor};margin:0 auto 6px;">${icon}</div>
+    <div style="font-size:11px;color:${labelColor};">${label}</div>
   </div>`;
 }
 
@@ -1469,6 +1496,19 @@ async function _shareGerarBlob() {
 
 async function _shareAcao(tipo) {
   try {
+    // Se a câmera ainda está ao vivo (aluno pediu pra compartilhar sem
+    // apertar o obturador antes), captura o quadro atual primeiro — o
+    // html2canvas não "fotografa" um <video> tocando, geraria um cartão em
+    // branco.
+    if (_camStream && _shareState.origem === 'camera' && !_shareState.bgImg) {
+      const dataUrl = _shareCapturarFrameAtual();
+      if (dataUrl) {
+        _shareState.bgImg = dataUrl;
+        _shareState.bgModo = 'foto-custom';
+        _shareFecharCamera();
+        _renderShareOverlay();
+      }
+    }
     toast('Gerando imagem...');
     const blob = await _shareGerarBlob();
     if (!blob) throw new Error('sem imagem');
@@ -1480,15 +1520,19 @@ async function _shareAcao(tipo) {
       toast('Imagem copiada! ✅');
       return;
     }
-    if (tipo === 'compartilhar') {
+    if (tipo === 'compartilhar' || tipo === 'whatsapp' || tipo === 'instagram') {
+      // Não dá pra abrir um app específico direto do navegador com uma imagem
+      // anexada — isso só existe via Web Share API, que abre o seletor do
+      // sistema (o WhatsApp/Instagram aparecem ali, geralmente entre as
+      // primeiras opções). É a única forma real de entregar a imagem pro app.
       const file = new File([blob], fname, { type: 'image/png' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try { await navigator.share({ files: [file], title: 'Meu treino Intus' }); return; }
         catch (e) { if (e && e.name === 'AbortError') return; }
       }
     }
-    // 'salvar', ou 'compartilhar' sem suporte a Web Share com arquivo: mostra a
-    // imagem NA PRÓPRIA TELA pra salvar com toque-e-segure (Salvar Imagem /
+    // 'salvar', ou compartilhamento sem suporte a Web Share com arquivo: mostra
+    // a imagem NA PRÓPRIA TELA pra salvar com toque-e-segure (Salvar Imagem /
     // Adicionar à Galeria), que no celular vai direto pra galeria de fotos.
     // Um <a download> baixava pra uma pasta de Downloads difícil de achar
     // depois, e no iOS ainda abria uma prévia do sistema cujo botão de
