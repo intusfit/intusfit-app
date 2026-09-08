@@ -993,7 +993,7 @@
 <div id="cardio-live-pill" onclick="abrirCardioLive()">
   <span class="dot"></span>
   <span class="stat" id="clp-tempo">00:00</span>
-  <span class="sep">·</span>
+  <span class="sep" id="clp-sep">·</span>
   <span class="stat" id="clp-dist">0.00 km</span>
 </div>
 
@@ -6465,7 +6465,14 @@ async function salvarCardio() {
 // nao ha logica nova de negocio duplicada aqui.
 // Caminhada primeiro e como padrão: é a atividade mais acessível pra quem tá
 // começando (o público "do iniciante ao atleta" da Intus), não a corrida.
-const CARDIO_LIVE_TIPOS = ['Caminhada', 'Corrida', 'Bike'];
+// Escada/Elíptico/Pular Corda são "monitoráveis" (cronômetro ao vivo, mesma
+// experiência imersiva), mas NÃO usam GPS — são feitos parado, num aparelho
+// de academia, então não haveria deslocamento pra rastrear. Pra esses, o
+// herói da tela é o tempo, sem distância/rota/ritmo (que não existem sem
+// GPS) — o resto (esforço, pontos) segue pelo mesmo formulário manual.
+const CARDIO_LIVE_TIPOS = ['Caminhada', 'Corrida', 'Bike', 'Escada', 'Elíptico'];
+const CARDIO_LIVE_USA_GPS = { Caminhada: true, Corrida: true, Bike: true, Escada: false, 'Elíptico': false };
+const CARDIO_LIVE_EMOJI = { Corrida: '🏃', Caminhada: '🚶', Bike: '🚴', Escada: '🪜', 'Elíptico': '🔄' };
 let _cardioLiveTipo = 'Caminhada';
 let _cardioLivePontos = [];      // [{lat, lng, t}]
 let _cardioLiveDistM = 0;
@@ -6524,7 +6531,7 @@ function _cardioLiveRestaurarSeAtivo() {
 // A aba as vezes fica visivel de novo com o watchPosition anterior morto sem
 // avisar (comum apos suspensao prolongada) — reconecta por garantia.
 function _cardioLiveReconectarSeNecessario() {
-  if (!_cardioLiveInicioMs || !_cardioLiveRodando) return;
+  if (!_cardioLiveInicioMs || !_cardioLiveRodando || !CARDIO_LIVE_USA_GPS[_cardioLiveTipo]) return;
   if (_cardioLiveWatchId != null) { try { navigator.geolocation.clearWatch(_cardioLiveWatchId); } catch (e) {} }
   _cardioLiveWatchId = navigator.geolocation.watchPosition(_cardioLiveOnPos, function () {}, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
 }
@@ -6583,14 +6590,20 @@ function _cardioLiveOnPos(pos) {
 }
 
 function _cardioLiveIniciarRastreio() {
-  if (!navigator.geolocation) { toast('Seu navegador não tem GPS disponível.'); return; }
+  const usaGps = !!CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
+  if (usaGps && !navigator.geolocation) { toast('Seu navegador não tem GPS disponível.'); return; }
   if (!_cardioLiveInicioMs) _cardioLiveInicioMs = Date.now();
   _cardioLiveRodando = true;
-  _cardioLiveWatchId = navigator.geolocation.watchPosition(
-    _cardioLiveOnPos,
-    function () { toast('Não consegui acessar sua localização. Verifique a permissão de GPS.'); },
-    { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
-  );
+  // Escada/Elíptico/Pular Corda são feitos parado — sem GPS pra pedir, só o
+  // cronômetro. Pedir localização sem usar pra nada só assustaria o aluno
+  // com uma permissão desnecessária.
+  if (usaGps) {
+    _cardioLiveWatchId = navigator.geolocation.watchPosition(
+      _cardioLiveOnPos,
+      function () { toast('Não consegui acessar sua localização. Verifique a permissão de GPS.'); },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+    );
+  }
   // Reaproveita o wake lock ja usado pelo cronometro de treino (requestWakeLock/
   // releaseWakeLock, perto de startTreinoTimer) — mesma trava de tela pro app
   // inteiro, e o listener de visibilitychange de la ja sabe reativar sozinho.
@@ -6718,11 +6731,14 @@ function _atualizarStatsCardioLive() {
   // navegado pra outro lugar) — sem depender de saber qual das duas é a
   // visível agora; o elemento que não existir simplesmente não faz nada.
   const t = document.getElementById('cl-tempo'); if (t) t.textContent = _fmtCronometro(_cardioLiveTempoMs());
+  const th = document.getElementById('cl-tempo-hero'); if (th) th.textContent = _fmtCronometro(_cardioLiveTempoMs());
   const d = document.getElementById('cl-dist'); if (d) d.textContent = _cardioLiveKm().toFixed(2);
   const r = document.getElementById('cl-ritmo'); if (r) r.textContent = _cardioLiveTipo === 'Bike' ? _cardioLiveVelTxt() : _cardioLivePaceTxt();
   _desenharRotaCardioLive();
+  const usaGpsPill = CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
   const pt = document.getElementById('clp-tempo'); if (pt) pt.textContent = _fmtCronometro(_cardioLiveTempoMs());
-  const pd = document.getElementById('clp-dist'); if (pd) pd.textContent = _cardioLiveKm().toFixed(2) + ' km';
+  const pd = document.getElementById('clp-dist'); if (pd) pd.textContent = usaGpsPill ? (_cardioLiveKm().toFixed(2) + ' km') : '';
+  const psep = document.getElementById('clp-sep'); if (psep) psep.style.display = usaGpsPill ? '' : 'none';
 }
 
 // Fecha o rastreio e leva os numeros pro formulario manual de sempre —
@@ -6777,12 +6793,29 @@ function _renderCardioLive() {
   const box = document.getElementById('v-cardio-live');
   if (!box) return;
   const iniciado = !!_cardioLiveInicioMs;
-  const emoji = { Corrida: '🏃', Caminhada: '🚶', Bike: '🚴' };
+  const usaGps = !!CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
 
   const chips = CARDIO_LIVE_TIPOS.map(t =>
     '<button class="cl-tipo-chip' + (t === _cardioLiveTipo ? ' on' : '') + '" ' + (iniciado ? 'disabled style="opacity:.4;"' : '') +
-    ' onclick="_cardioLiveEscolherTipo(\'' + t + '\')">' + emoji[t] + '<br>' + t + '</button>'
+    ' onclick="_cardioLiveEscolherTipo(\'' + t + '\')">' + CARDIO_LIVE_EMOJI[t] + '<br>' + t + '</button>'
   ).join('');
+
+  // Escada/Elíptico/Pular Corda são feitos parado, num aparelho — sem GPS,
+  // distância/rota/ritmo não existem de verdade. Pra essas, o herói vira o
+  // tempo, e a rota/ritmo somem da tela (mostrar "0.00 km" pra quem tá na
+  // escada seria inventar um número).
+  const heroHtml = usaGps
+    ? '<div class="cl-hero"><span class="cl-hero-num" id="cl-dist">0.00</span><div class="cl-hero-lbl">quilômetros</div></div>'
+    : '<div class="cl-hero"><span class="cl-hero-num" id="cl-tempo-hero">00:00</span><div class="cl-hero-lbl">' + _cardioLiveTipo.toLowerCase() + '</div></div>';
+  const rotaHtml = usaGps
+    ? '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:block;"></svg></div>'
+    : '';
+  const statsHtml = usaGps
+    ? '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
+        '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-tempo">00:00</div><div class="cl-stat-lbl">tempo</div></div>' +
+        '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0 km/h' : '--:--/km') + '</div><div class="cl-stat-lbl">' + (_cardioLiveTipo === 'Bike' ? 'velocidade' : 'ritmo') + '</div></div>' +
+      '</div>'
+    : '<span id="cl-tempo" style="display:none;">00:00</span>'; // sem GPS o tempo mora só no hero; mantém o id p/ o mesmo updater funcionar
 
   // Antes de começar: cartão comum, escolher atividade. Rastreando: modo
   // imersivo (fundo solido, numero enorme, botão circular), no espírito de
@@ -6790,25 +6823,19 @@ function _renderCardioLive() {
   box.innerHTML = !iniciado
     ? telaHeader('📍 Cardio ao vivo', 'cardio') +
       '<div class="cl-glow-bg">' +
-        '<div style="display:flex;gap:8px;margin-bottom:4px;">' + chips + '</div>' +
-        '<div class="cl-hero"><span class="cl-hero-num" id="cl-dist">0.00</span><div class="cl-hero-lbl">quilômetros</div></div>' +
-        '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:block;"></svg></div>' +
-        '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
-          '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-tempo">00:00</div><div class="cl-stat-lbl">tempo</div></div>' +
-          '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0 km/h' : '--:--/km') + '</div><div class="cl-stat-lbl">' + (_cardioLiveTipo === 'Bike' ? 'velocidade' : 'ritmo') + '</div></div>' +
-        '</div>' +
-        '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar a rastrear</button>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;">' + chips + '</div>' +
+        heroHtml + rotaHtml + statsHtml +
+        '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar' + (usaGps ? ' a rastrear' : '') + '</button>' +
       '</div>' +
       getFooterHtml()
     : telaHeader('📍 Cardio ao vivo', 'cardio') +
       '<div class="cl-imersivo">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:18px;">' +
+        (usaGps ? '<div style="display:flex;justify-content:space-between;margin-bottom:18px;">' +
           '<div class="cl-stat-top"><div class="n" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0' : '--\'--\'\'') + '</div><div class="l">' + (_cardioLiveTipo === 'Bike' ? 'km/h' : 'Pace') + '</div></div>' +
           '<div class="cl-stat-top"><div class="n">--</div><div class="l">BPM</div></div>' +
           '<div class="cl-stat-top"><div class="n" id="cl-tempo">00:00</div><div class="l">Duração</div></div>' +
-        '</div>' +
-        '<div class="cl-hero"><span class="cl-hero-num" id="cl-dist">0.00</span><div class="cl-hero-lbl">quilômetros</div></div>' +
-        '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:120px;display:block;"></svg></div>' +
+        '</div>' : '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.6);margin-bottom:8px;">' + CARDIO_LIVE_EMOJI[_cardioLiveTipo] + ' ' + _cardioLiveTipo + '</div>') +
+        heroHtml + rotaHtml + statsHtml +
         '<button class="cl-btn-circulo" onclick="' + (_cardioLiveRodando ? '_cardioLivePausar()' : '_cardioLiveRetomar()') + '">' + (_cardioLiveRodando ? '⏸' : '▶') + '</button>' +
         '<div style="display:flex;justify-content:center;gap:22px;">' +
           '<button class="cl-link-imersivo" onclick="_cardioLiveConfirmarFinalizar()">🏁 Finalizar</button>' +
