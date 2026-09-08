@@ -178,6 +178,11 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_feed_post', ['legenda']);
+    // 'feed' = entra na lista geral (sujeito ao feed_optin de cada um);
+    // 'perfil' = fica só na grade do próprio perfil, nunca aparece no feed
+    // geral de ninguém (nem do próprio autor).
+    $fpCols = array_column($pdo->query("SHOW COLUMNS FROM intus_feed_post")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    if (!in_array('destino', $fpCols)) $pdo->exec("ALTER TABLE intus_feed_post ADD COLUMN destino ENUM('feed','perfil') NOT NULL DEFAULT 'feed' AFTER legenda");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_comentario_pub (
@@ -1791,8 +1796,12 @@ if ($action === 'feed_posts') {
         if (!count($visiveis)) { echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap]); exit; }
         $ph = implode(',', array_fill(0, count($visiveis), '?'));
         $limite = min(100, max(1, (int)($_GET['limite'] ?? 30)));
-        $st = $pdo->prepare("SELECT idpost, idatleta, imagem, legenda, created_at FROM intus_feed_post
-                             WHERE ativo = 1 AND idatleta IN ($ph) ORDER BY created_at DESC, idpost DESC LIMIT $limite");
+        // Sem filtro de atleta = feed geral: só posts com destino 'feed'. Com
+        // filtro (perfil de alguém, inclusive o próprio) mostra os dois — é
+        // a grade do perfil, que é o único lugar onde um post 'perfil' aparece.
+        $filtroDestino = $somenteAutor > 0 ? '' : " AND destino = 'feed'";
+        $st = $pdo->prepare("SELECT idpost, idatleta, imagem, legenda, destino, created_at FROM intus_feed_post
+                             WHERE ativo = 1 AND idatleta IN ($ph)$filtroDestino ORDER BY created_at DESC, idpost DESC LIMIT $limite");
         $st->execute($visiveis);
         $posts = $st->fetchAll(PDO::FETCH_ASSOC);
         foreach ($posts as &$p) { $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta']; }
@@ -1807,6 +1816,8 @@ if ($action === 'feed_posts') {
         $legenda = trim((string)($b['legenda'] ?? ''));
         if (mb_strlen($legenda) > 500) $legenda = mb_substr($legenda, 0, 500);
         if ($imagemRaw === '') { http_response_code(400); echo json_encode(['error' => 'imagem obrigatoria']); exit; }
+        $destino = (string)($b['destino'] ?? 'feed');
+        if (!in_array($destino, ['feed', 'perfil'], true)) $destino = 'feed';
 
         // Salva como arquivo (mesmo padrão de _persistirFotos em avaliações):
         // nunca guardamos a imagem inteira em base64 dentro do banco.
@@ -1829,9 +1840,9 @@ if ($action === 'feed_posts') {
             http_response_code(400); echo json_encode(['error' => 'formato de imagem invalido']); exit;
         }
 
-        $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda) VALUES (?,?,?)");
-        $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null]);
-        echo json_encode(['ok' => true, 'idpost' => (int)$pdo->lastInsertId(), 'imagem' => $url]);
+        $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino) VALUES (?,?,?,?)");
+        $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino]);
+        echo json_encode(['ok' => true, 'idpost' => (int)$pdo->lastInsertId(), 'imagem' => $url, 'destino' => $destino]);
         exit;
     }
 

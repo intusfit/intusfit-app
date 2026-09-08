@@ -1137,10 +1137,13 @@ function figurinhaAleatoriaHtml(isLight, itPreescolhido) {
 // fazem isso). Lista de templates é aberta de propósito: pra criar um filtro
 // temático novo, só acrescenta um objeto aqui e uma função _tplXxxHtml — o
 // resto (carrossel, fundo, exportar imagem) já funciona pra todos.
+// Nomes descrevem o ESTILO do cartão (como o desenho fica por cima da foto),
+// não o tipo de fundo — os 3 sempre mostram a câmera/galeria por trás agora,
+// "Transparente" e "Story vertical" tinham parado de fazer sentido.
 const SHARE_TEMPLATES = [
-  { id: 'transparente', nome: 'Transparente', render: _tplTransparenteHtml },
-  { id: 'foto',         nome: 'Foto de fundo', render: _tplFotoHtml },
-  { id: 'story',        nome: 'Story vertical', render: _tplStoryHtml },
+  { id: 'transparente', nome: 'Clássico', render: _tplTransparenteHtml },
+  { id: 'foto',         nome: 'Destaque', render: _tplFotoHtml },
+  { id: 'story',        nome: 'Moldura',  render: _tplStoryHtml },
 ];
 let _shareState = null;
 
@@ -1156,6 +1159,8 @@ function _shareIconSvg(nome, tamanho) {
     salvar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
     compartilhar: '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>',
     trocar: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+    feedapp: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    perfil: '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
   }[nome] || '';
   return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${corpo}</svg>`;
 }
@@ -1445,26 +1450,36 @@ function _renderShareOverlay() {
       <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="width:42px;height:42px;border-radius:50%;background:${bgCard};border:1px solid ${borderC};color:${txt};display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">${_shareIconSvg('trocar',18)}</button>
       <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:60px;height:60px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.5);cursor:pointer;flex-shrink:0;"></button>
       <div style="width:42px;flex-shrink:0;"></div>
-    </div>` : ''}
+    </div>` : `
+    <div style="height:6px;"></div>`}
+
+    <div style="max-width:340px;margin:0 auto;padding:0 16px;">
+      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Publicar no app</div>
+      <div style="display:flex;gap:8px;margin-bottom:18px;">
+        <button onclick="_shareAcao('feed')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('feedapp',17)} Feed da Intus</button>
+        <button onclick="_shareAcao('perfil')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('perfil',17)} Só meu perfil</button>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Compartilhar com</div>
+      <div style="display:flex;justify-content:space-around;margin-bottom:22px;">
+        ${_shareSocialBtn(_shareIconSvgSolido('whatsapp',24),'WhatsApp','_shareAcao(\'whatsapp\')','#25D366','#fff',txt)}
+        ${_shareSocialBtn(_shareIconSvgSolido('instagram',20),'Instagram','_shareAcao(\'instagram\')','radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%)','#fff',txt)}
+        ${_shareActionBtn(_shareIconSvg('copiar'),'Copiar','_shareAcao(\'copiar\')',bgCard,borderC,txt)}
+        ${_shareActionBtn(_shareIconSvg('salvar'),'Salvar','_shareAcao(\'salvar\')',bgCard,borderC,txt)}
+        ${_shareActionBtn(_shareIconSvg('compartilhar'),'Mais','_shareAcao(\'compartilhar\')',bgCard,borderC,txt)}
+      </div>
+    </div>
+
     <div style="text-align:center;font-size:11px;color:${muted};font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${tpl.nome}</div>
     <div style="display:flex;justify-content:center;gap:5px;margin-bottom:18px;">
       ${SHARE_TEMPLATES.map((t,i) => `<div style="width:6px;height:6px;border-radius:50%;background:${i===S.tplIdx?'#7FFF00':borderC};"></div>`).join('')}
     </div>
 
     <div style="max-width:340px;margin:0 auto;padding:0 16px;">
-      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:${txt};margin-bottom:20px;cursor:pointer;" onclick="_shareToggleFig()">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:${txt};margin-bottom:calc(30px + env(safe-area-inset-bottom,0px));cursor:pointer;" onclick="_shareToggleFig()">
         <input type="checkbox" ${S.incluirFig?'checked':''} style="width:16px;height:16px;accent-color:#7FFF00;" onclick="event.stopPropagation();_shareToggleFig()"/>
         Incluir a figurinha de hoje no cartão
       </label>
-
-      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Compartilhar com</div>
-      <div style="display:flex;justify-content:space-around;margin-bottom:calc(30px + env(safe-area-inset-bottom,0px));">
-        ${_shareSocialBtn(_shareIconSvgSolido('whatsapp',24),'WhatsApp','_shareAcao(\'whatsapp\')','#25D366','#fff',txt)}
-        ${_shareSocialBtn(_shareIconSvgSolido('instagram',20),'Instagram','_shareAcao(\'instagram\')','linear-gradient(45deg,#f9ce34,#ee2a7b 45%,#6228d7)','#fff',txt)}
-        ${_shareActionBtn(_shareIconSvg('copiar'),'Copiar','_shareAcao(\'copiar\')',bgCard,borderC,txt)}
-        ${_shareActionBtn(_shareIconSvg('salvar'),'Salvar','_shareAcao(\'salvar\')',bgCard,borderC,txt)}
-        ${_shareActionBtn(_shareIconSvg('compartilhar'),'Mais','_shareAcao(\'compartilhar\')',bgCard,borderC,txt)}
-      </div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -1494,6 +1509,40 @@ async function _shareGerarBlob() {
   return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 }
 
+function _shareBlobParaDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Legenda pronta pro post — a tela de compartilhar não tem campo de texto
+// (cartão já mostra treino/%), então usa os mesmos dados do cartão.
+function _shareLegendaAuto() {
+  const info = _shareState.info;
+  return 'Treino ' + info.nomeTreino + ' concluído — ' + info.pctCompleto + '% completo 💪';
+}
+
+// Publica o cartão como post: 'feed' entra na lista geral (visível pros
+// outros alunos, sujeito ao feed_optin de cada um); 'perfil' fica só na
+// grade do próprio perfil, sem aparecer no feed geral de ninguém — mesma
+// tabela (intus_feed_post), só muda a coluna "destino".
+async function _shareGerarBlobEPublicar(destino) {
+  const blob = await _shareGerarBlob();
+  if (!blob) throw new Error('sem imagem');
+  const dataUrl = await _shareBlobParaDataUrl(blob);
+  const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imagem: dataUrl, legenda: _shareLegendaAuto(), destino: destino }),
+  });
+  if (!r.ok) throw new Error('falhou publicar');
+  toast(destino === 'feed' ? 'Publicado no feed! 🎉' : 'Publicado no seu perfil! 🎉');
+  _fecharCompartilhar();
+}
+
 async function _shareAcao(tipo) {
   try {
     // Se a câmera ainda está ao vivo (aluno pediu pra compartilhar sem
@@ -1509,6 +1558,12 @@ async function _shareAcao(tipo) {
         _renderShareOverlay();
       }
     }
+    if (tipo === 'feed' || tipo === 'perfil') {
+      toast('Publicando...');
+      await _shareGerarBlobEPublicar(tipo === 'feed' ? 'feed' : 'perfil');
+      return;
+    }
+
     toast('Gerando imagem...');
     const blob = await _shareGerarBlob();
     if (!blob) throw new Error('sem imagem');
@@ -1542,7 +1597,7 @@ async function _shareAcao(tipo) {
   } catch (e) {
     if (e && e.name === 'AbortError') return; // usuário cancelou o share nativo
     console.error('compartilhar treino:', e);
-    toast('Não consegui gerar a imagem agora.');
+    toast(tipo === 'feed' || tipo === 'perfil' ? 'Não consegui publicar. Tente de novo.' : 'Não consegui gerar a imagem agora.');
   }
 }
 
