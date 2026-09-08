@@ -757,9 +757,10 @@
     @keyframes tutBarFill { from { width: 0%; } to { width: var(--w, 60%); } }
 
     /* CARDIO AO VIVO (GPS) — tela normal do app (mesmo cabeçalho/logo/menu de
-       sempre, via telaHeader()); só o cartão de conteúdo é que ganha um
-       degradê de fundo pra distância virar herói (é o número que importa
-       numa corrida), com a rota em destaque e chips maiores. */
+       sempre, via telaHeader()). Antes de começar, um cartão comum (escolher
+       atividade). Rastreando, vira uma experiência imersiva — fundo solido na
+       cor da marca, numero enorme, botão circular — no espírito de apps de
+       corrida de referência (Nike Run Club etc), mantendo a identidade Intus. */
     .cl-glow-bg {
       border-radius: 22px; padding: 18px 16px 22px;
       background:
@@ -769,6 +770,11 @@
       border: 1px solid rgba(127,255,0,.12);
     }
     body.tema-claro .cl-glow-bg { background: radial-gradient(circle at 50% 0%, rgba(127,255,0,.08), transparent 55%), #fafafa; border-color: rgba(92,184,0,.18); }
+    /* Modo imersivo — só quando o rastreio está rodando/pausado */
+    .cl-imersivo {
+      border-radius: 26px; padding: 22px 20px 26px; background: #7FFF00; border: none;
+      box-shadow: 0 20px 50px rgba(127,255,0,.2);
+    }
     .cl-tipo-chip {
       flex: 1; padding: 13px 8px; border-radius: 14px; border: 1.5px solid #262626; background: rgba(255,255,255,.03);
       color: #999; font-size: 13px; font-weight: 800; cursor: pointer; text-align: center; font-family: inherit;
@@ -784,17 +790,25 @@
       filter: drop-shadow(0 4px 24px rgba(127,255,0,.25));
     }
     body.tema-claro .cl-hero-num { background: linear-gradient(135deg, #1a1a1a, #2d8a00); -webkit-background-clip: text; background-clip: text; }
+    .cl-imersivo .cl-hero-num { background: none; -webkit-text-fill-color: unset; color: #0a0a0a; filter: none; font-size: 76px; }
     .cl-hero-lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .14em; margin-top: 4px; font-weight: 700; }
+    .cl-imersivo .cl-hero-lbl { color: rgba(10,10,10,.6); }
     .cl-route-card {
       background: rgba(255,255,255,.025); border: 1px solid rgba(127,255,0,.18); border-radius: 20px;
       padding: 6px; margin: 4px 0 20px; box-shadow: 0 0 40px rgba(127,255,0,.05) inset;
     }
     body.tema-claro .cl-route-card { background: #fff; border-color: rgba(92,184,0,.25); }
+    .cl-imersivo .cl-route-card { background: rgba(10,10,10,.06); border: none; box-shadow: none; }
     .cl-stat-num { font-size: 18px; font-weight: 900; color: #f0f0f0; font-variant-numeric: tabular-nums; }
     .cl-stat-lbl { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: .08em; margin-top: 3px; font-weight: 700; }
     .cl-stat-box { flex: 1; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); border-radius: 14px; padding: 14px 12px; text-align: center; }
     body.tema-claro .cl-stat-num { color: #1a1a1a; }
     body.tema-claro .cl-stat-box { background: #fff; border-color: #e5e5e5; }
+    /* Linha de estatísticas pequenas no topo do modo imersivo (pace/BPM/duração,
+       igual referência) — sem fundo próprio, só números pretos direto na cor. */
+    .cl-stat-top { flex: 1; text-align: center; }
+    .cl-stat-top .n { font-size: 22px; font-weight: 900; color: #0a0a0a; font-variant-numeric: tabular-nums; line-height: 1; }
+    .cl-stat-top .l { font-size: 11px; color: rgba(10,10,10,.55); margin-top: 4px; font-weight: 700; }
     .cl-btn {
       padding: 16px; border-radius: 16px; border: none; font-family: inherit; font-size: 14.5px; font-weight: 800;
       cursor: pointer; letter-spacing: .02em; transition: transform .1s, opacity .15s;
@@ -804,6 +818,14 @@
     .cl-btn-info { background: linear-gradient(135deg, #06b6d4, #0ea5e9); color: #fff; box-shadow: 0 8px 28px rgba(6,182,212,.22); }
     .cl-btn-sec { background: rgba(255,255,255,.06); color: #f0f0f0; border: 1px solid rgba(255,255,255,.1); }
     body.tema-claro .cl-btn-sec { background: #fff; color: #1a1a1a; border-color: #ddd; }
+    /* Botão circular de pausa/retomar — controle principal no modo imersivo */
+    .cl-btn-circulo {
+      width: 84px; height: 84px; border-radius: 50%; border: none; background: #0a0a0a; color: #fff;
+      font-size: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+      margin: 6px auto 18px; box-shadow: 0 10px 26px rgba(0,0,0,.35); transition: transform .1s;
+    }
+    .cl-btn-circulo:active { transform: scale(.95); }
+    .cl-link-imersivo { background: none; border: none; color: rgba(10,10,10,.65); font-size: 12.5px; font-weight: 700; cursor: pointer; font-family: inherit; padding: 8px; }
     @keyframes clPulseRec { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
     @keyframes clGlowBorder { 0%, 100% { box-shadow: 0 0 0 0 rgba(127,255,0,0); } 50% { box-shadow: 0 0 32px 2px rgba(127,255,0,.12); } }
 
@@ -6436,8 +6458,10 @@ async function salvarCardio() {
 // MESMO formulario manual de sempre: a pontuacao, o limite diario e a
 // checagem de plausibilidade continuam sendo decididos so pelo servidor,
 // nao ha logica nova de negocio duplicada aqui.
-const CARDIO_LIVE_TIPOS = ['Corrida', 'Caminhada', 'Bike'];
-let _cardioLiveTipo = 'Corrida';
+// Caminhada primeiro e como padrão: é a atividade mais acessível pra quem tá
+// começando (o público "do iniciante ao atleta" da Intus), não a corrida.
+const CARDIO_LIVE_TIPOS = ['Caminhada', 'Corrida', 'Bike'];
+let _cardioLiveTipo = 'Caminhada';
 let _cardioLivePontos = [];      // [{lat, lng, t}]
 let _cardioLiveDistM = 0;
 let _cardioLiveInicioMs = 0;
@@ -6509,7 +6533,7 @@ function abrirCardioLive() {
   // Já tem um rastreio rolando (ex.: aluno navegou pra outro lugar e voltou)?
   // Só reabre a tela — recomeçar do zero aqui apagaria a corrida em andamento.
   if (!_cardioLiveInicioMs) {
-    _cardioLiveTipo = 'Corrida';
+    _cardioLiveTipo = 'Caminhada';
     _cardioLivePontos = [];
     _cardioLiveDistM = 0;
     _cardioLiveMsPausado = 0;
@@ -6583,11 +6607,19 @@ function _cardioLiveRetomar() {
   _cardioLiveIniciarRastreio();
 }
 
+// Só chamada quando a sessão termina de verdade (finalizar/descartar) — por
+// isso zera _cardioLiveInicioMs também. Bug real encontrado em produção: sem
+// isso, o wrapper de trocarView (que só mexe na pilula enquanto
+// _cardioLiveInicioMs existir) via a variável ainda "true" no exato instante
+// seguinte (trocarView('cardio') chamado logo depois) e RECOLOCAVA a classe
+// "on" na pilula, um instante depois dela ter acabado de ser removida — a
+// pilula "ressuscitava" congelada, sobrepondo o resto da tela.
 function _cardioLivePararTudo() {
   if (_cardioLiveWatchId != null) { navigator.geolocation.clearWatch(_cardioLiveWatchId); _cardioLiveWatchId = null; }
   if (_cardioLiveTimerUi) { clearInterval(_cardioLiveTimerUi); _cardioLiveTimerUi = null; }
   releaseWakeLock();
   _cardioLiveRodando = false;
+  _cardioLiveInicioMs = 0;
   document.getElementById('cardio-live-pill').classList.remove('on');
 }
 
@@ -6682,6 +6714,28 @@ function _atualizarStatsCardioLive() {
 // Fecha o rastreio e leva os numeros pro formulario manual de sempre —
 // esforço (RPE), foto e o botao "Registrar cardio" continuam sendo os
 // mesmos, com a mesma checagem de pontos/limite feita no servidor.
+// Confirmação antes de finalizar de vez — um toque sem querer no link não
+// pode encerrar o rastreio; mostra um resumo rápido e só finaliza depois do
+// "Sim, finalizar".
+function _cardioLiveConfirmarFinalizar() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+  ov.innerHTML =
+    '<div style="background:' + (isLight ? '#fff' : '#141414') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#333') + ';border-radius:16px;padding:22px;max-width:300px;width:100%;text-align:center;">' +
+      '<div style="font-size:30px;margin-bottom:8px;">🏁</div>' +
+      '<div style="font-size:15px;font-weight:800;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';margin-bottom:6px;">Finalizar este rastreio?</div>' +
+      '<div style="font-size:12.5px;color:' + (isLight ? '#666' : '#999') + ';margin-bottom:18px;">' + _cardioLiveKm().toFixed(2) + ' km em ' + _fmtCronometro(_cardioLiveTempoMs()) + '. Depois disso você confirma o esforço e registra o cardio.</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' +
+        '<button id="cl-fim-sim" style="padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">🏁 Sim, finalizar</button>' +
+        '<button id="cl-fim-cancelar" style="padding:11px;border-radius:10px;border:none;background:transparent;color:' + (isLight ? '#888' : '#777') + ';font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#cl-fim-sim').onclick = function () { ov.remove(); _cardioLiveFinalizar(); };
+  ov.querySelector('#cl-fim-cancelar').onclick = function () { ov.remove(); };
+}
+
 function _cardioLiveFinalizar() {
   const distKm = _cardioLiveKm();
   const min = Math.round(_cardioLiveTempoMs() / 60000);
@@ -6715,38 +6769,39 @@ function _renderCardioLive() {
     ' onclick="_cardioLiveEscolherTipo(\'' + t + '\')">' + emoji[t] + '<br>' + t + '</button>'
   ).join('');
 
-  const controles = !iniciado
-    ? '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar a rastrear</button>'
-    : _cardioLiveRodando
-    ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-        '<button class="cl-btn cl-btn-sec" onclick="_cardioLivePausar()">⏸ Pausar</button>' +
-        '<button class="cl-btn cl-btn-info" onclick="_cardioLiveFinalizar()">🏁 Finalizar</button>' +
-      '</div>'
-    : '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-        '<button class="cl-btn cl-btn-primario" onclick="_cardioLiveRetomar()">▶ Continuar</button>' +
-        '<button class="cl-btn cl-btn-info" onclick="_cardioLiveFinalizar()">🏁 Finalizar</button>' +
-      '</div>';
-
-  box.innerHTML =
-    telaHeader('📍 Cardio ao vivo', 'cardio') +
-    (iniciado ? '<div style="text-align:center;font-size:12px;font-weight:800;color:#f87171;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px;">' +
-      '<span style="width:8px;height:8px;border-radius:50%;background:#f87171;display:inline-block;animation:clPulseRec 1.4s ease-in-out infinite;"></span> Rastreando</div>' : '') +
-    '<div class="cl-glow-bg">' +
-      '<div style="display:flex;gap:8px;margin-bottom:4px;">' + chips + '</div>' +
-      '<div class="cl-hero">' +
-        '<span class="cl-hero-num" id="cl-dist">0.00</span>' +
-        '<div class="cl-hero-lbl">quilômetros</div>' +
+  // Antes de começar: cartão comum, escolher atividade. Rastreando: modo
+  // imersivo (fundo solido, numero enorme, botão circular), no espírito de
+  // apps de corrida de referência.
+  box.innerHTML = !iniciado
+    ? telaHeader('📍 Cardio ao vivo', 'cardio') +
+      '<div class="cl-glow-bg">' +
+        '<div style="display:flex;gap:8px;margin-bottom:4px;">' + chips + '</div>' +
+        '<div class="cl-hero"><span class="cl-hero-num" id="cl-dist">0.00</span><div class="cl-hero-lbl">quilômetros</div></div>' +
+        '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:block;"></svg></div>' +
+        '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
+          '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-tempo">00:00</div><div class="cl-stat-lbl">tempo</div></div>' +
+          '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0 km/h' : '--:--/km') + '</div><div class="cl-stat-lbl">' + (_cardioLiveTipo === 'Bike' ? 'velocidade' : 'ritmo') + '</div></div>' +
+        '</div>' +
+        '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar a rastrear</button>' +
       '</div>' +
-      '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:block;"></svg></div>' +
-      '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
-        '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-tempo">00:00</div><div class="cl-stat-lbl">tempo</div></div>' +
-        '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0 km/h' : '--:--/km') + '</div><div class="cl-stat-lbl">' + (_cardioLiveTipo === 'Bike' ? 'velocidade' : 'ritmo') + '</div></div>' +
+      getFooterHtml()
+    : telaHeader('📍 Cardio ao vivo', 'cardio') +
+      '<div class="cl-imersivo">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:18px;">' +
+          '<div class="cl-stat-top"><div class="n" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0' : '--\'--\'\'') + '</div><div class="l">' + (_cardioLiveTipo === 'Bike' ? 'km/h' : 'Pace') + '</div></div>' +
+          '<div class="cl-stat-top"><div class="n">--</div><div class="l">BPM</div></div>' +
+          '<div class="cl-stat-top"><div class="n" id="cl-tempo">00:00</div><div class="l">Duração</div></div>' +
+        '</div>' +
+        '<div class="cl-hero"><span class="cl-hero-num" id="cl-dist">0.00</span><div class="cl-hero-lbl">quilômetros</div></div>' +
+        '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:120px;display:block;"></svg></div>' +
+        '<button class="cl-btn-circulo" onclick="' + (_cardioLiveRodando ? '_cardioLivePausar()' : '_cardioLiveRetomar()') + '">' + (_cardioLiveRodando ? '⏸' : '▶') + '</button>' +
+        '<div style="display:flex;justify-content:center;gap:22px;">' +
+          '<button class="cl-link-imersivo" onclick="_cardioLiveConfirmarFinalizar()">🏁 Finalizar</button>' +
+          '<button class="cl-link-imersivo" onclick="_cardioLiveDescartar()">🗑️ Descartar</button>' +
+        '</div>' +
       '</div>' +
-      controles +
-      (iniciado ? '<div style="text-align:center;margin-top:14px;"><button onclick="_cardioLiveDescartar()" style="background:none;border:none;color:#888;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">🗑️ Descartar rastreio</button></div>' : '') +
-    '</div>' +
-    (iniciado ? '<div style="text-align:center;font-size:10.5px;color:#888;margin-top:14px;line-height:1.5;">Navegar para outra tela do app não para o rastreio — ele continua contando (veja a pilula flutuante). Travar a tela ou trocar de app, só um app instalado consegue segurar.</div>' : '') +
-    getFooterHtml();
+      '<div style="text-align:center;font-size:10.5px;color:#888;margin-top:14px;line-height:1.5;">⚠️ Função em teste, sujeita a instabilidades.</div>' +
+      getFooterHtml();
 }
 
 // ═══════════════ RANKING ═══════════════
