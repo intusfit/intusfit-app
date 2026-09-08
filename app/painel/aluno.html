@@ -5979,8 +5979,13 @@ function _cardiosContadosHoje() {
 let _cardioHistorico = [];
 
 async function abrirCardio() {
-  trocarView('cardio');
+  // Renderiza ANTES de trocar de view — trocarView() tem uma rede de segurança
+  // que redireciona pra home se a view destino ainda estiver vazia (nunca
+  // renderizada); na ordem invertida, a primeira visita da sessão sempre
+  // caía nessa rede e voltava pra home sozinha (só a segunda tentativa
+  // funcionava, pois a primeira já tinha deixado a view preenchida).
   renderCardio();
+  trocarView('cardio');
   // Load history in background
   try {
     const token = localStorage.getItem('mx-token') || '';
@@ -6539,8 +6544,11 @@ function abrirCardioLive() {
     _cardioLiveMsPausado = 0;
     _cardioLiveRodando = false;
   }
-  trocarView('cardio-live');
+  // Renderiza ANTES de trocar de view — ver comentário em abrirCardio() sobre
+  // a rede de segurança do trocarView() que redireciona pra home se a view
+  // destino estiver vazia.
   _renderCardioLive();
+  trocarView('cardio-live');
 }
 
 function _cardioLiveEscolherTipo(tipo) {
@@ -6629,7 +6637,7 @@ function _cardioLivePararTudo() {
 // continua rodando por trás, com a pilula avisando. Esta função é só a ação
 // explícita de "quero mesmo jogar fora este rastreio".
 function _cardioLiveDescartar() {
-  if (!_cardioLiveInicioMs) { trocarView('cardio'); renderCardio(); return; }
+  if (!_cardioLiveInicioMs) { renderCardio(); trocarView('cardio'); return; }
   const isLight = document.body.classList.contains('tema-claro');
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
@@ -6654,7 +6662,7 @@ function _cardioLiveDescartar() {
     ov.remove();
     _cardioLivePararTudo();
     _cardioLiveLimparAtivo();
-    trocarView('cardio'); renderCardio();
+    renderCardio(); trocarView('cardio');
   };
   ov.querySelector('#cl-desc-cancelar').onclick = function () { ov.remove(); };
 }
@@ -6749,8 +6757,8 @@ function _cardioLiveFinalizar() {
   const tipo = _cardioLiveTipo;
   _cardioLivePararTudo();
   _cardioLiveLimparAtivo();
-  trocarView('cardio');
   renderCardio();
+  trocarView('cardio');
   const selTipo = document.getElementById('cardio-tipo');
   if (selTipo) selTipo.value = tipo;
   onCardioTipoChange();
