@@ -1141,9 +1141,12 @@ function figurinhaAleatoriaHtml(isLight, itPreescolhido) {
 // não o tipo de fundo — os 3 sempre mostram a câmera/galeria por trás agora,
 // "Transparente" e "Story vertical" tinham parado de fazer sentido.
 const SHARE_TEMPLATES = [
-  { id: 'transparente', nome: 'Clássico', render: _tplTransparenteHtml },
-  { id: 'foto',         nome: 'Destaque', render: _tplFotoHtml },
-  { id: 'story',        nome: 'Moldura',  render: _tplStoryHtml },
+  { id: 'transparente', nome: 'Clássico',  emoji: '🎬', render: _tplTransparenteHtml },
+  { id: 'foto',         nome: 'Destaque',  emoji: '✨', render: _tplFotoHtml },
+  { id: 'story',        nome: 'Moldura',   emoji: '🖼️', render: _tplStoryHtml },
+  { id: 'invertido',    nome: 'Invertido', emoji: '🌗', render: _tplInvertidoHtml, filtroCss: 'filter:invert(1) hue-rotate(180deg);' },
+  { id: 'figurona',     nome: 'Mascote',   emoji: '🎉', render: _tplFigurinhaGrandeHtml },
+  { id: 'frase',        nome: 'Frase',     emoji: '💬', render: _tplFraseHtml },
 ];
 let _shareState = null;
 
@@ -1402,6 +1405,59 @@ function _tplStoryHtml(info, fig, bgImg, isLight) {
     </div>
   </div>`;
 }
+// Preto-e-branco de negativo de filme — mesmo layout do Clássico, mas o
+// fundo (foto/vídeo) recebe o filtro invert(); logo e texto ficam por fora
+// dessa camada de propósito, senão ficariam ilegíveis também invertidos.
+// No modo LIVE (câmera ligada) o filtro é aplicado direto no <video> por
+// _renderShareOverlay, porque o vídeo não é HTML deste template.
+function _tplInvertidoHtml(info, fig, bgImg, isLight) {
+  const bg = bgImg === 'LIVE' ? '' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
+  return `<div class="share-card" style="background:#000;">
+    ${bgImg !== 'LIVE' ? `<div style="position:absolute;inset:0;filter:invert(1) hue-rotate(180deg);${bg}"></div>` : ''}
+    <img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;top:${SHARE_SAFE_TOPO}px;left:${SHARE_SAFE_LADO}px;height:16px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));"/>
+    <div style="position:absolute;left:0;right:0;bottom:0;padding:10px ${SHARE_SAFE_LADO}px calc(${SHARE_SAFE_FUNDO}px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0) 100%);">
+      ${_shareBarraInferior(info, fig)}
+    </div>
+  </div>`;
+}
+// Figurinha em destaque — o dobro do tamanho da versão mini usada nos outros
+// templates (28px img / 24px emoji vira 56px / 48px), como um selo no canto.
+function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight) {
+  const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
+  const temFig = fig && _shareState && _shareState.incluirFig;
+  const figGrandeHtml = !temFig ? '' : (fig.tipo === 'img' && fig.src)
+    ? `<img src="${esc(fig.src)}" style="width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'"/>`
+    : `<div style="font-size:48px;line-height:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));">${esc(fig.emoji||'💪')}</div>`;
+  return `<div class="share-card" style="${bg}">
+    <img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;top:${SHARE_SAFE_TOPO}px;left:${SHARE_SAFE_LADO}px;height:16px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));"/>
+    ${figGrandeHtml ? `<div style="position:absolute;top:${SHARE_SAFE_TOPO}px;right:${SHARE_SAFE_LADO}px;">${figGrandeHtml}</div>` : ''}
+    <div style="position:absolute;left:0;right:0;bottom:0;padding:10px ${SHARE_SAFE_LADO}px calc(${SHARE_SAFE_FUNDO}px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0) 100%);">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="flex:1;min-width:0;text-align:left;">
+          <div style="font-size:9.5px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
+          <div style="font-size:14px;font-weight:900;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}</div>
+        </div>
+      </div>
+      ${_shareStatsRow(info)}
+    </div>
+  </div>`;
+}
+// A frase de fim de treino (a mesma sorteada na tela de Finalização, salva em
+// info.mensagem) vira o elemento principal — fallback sorteia uma na hora
+// pra registros antigos salvos antes desse campo existir.
+function _tplFraseHtml(info, fig, bgImg, isLight) {
+  const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
+  const frase = info.mensagem || (typeof getMensagemFinal === 'function' ? getMensagemFinal() : '');
+  return `<div class="share-card" style="${bg}">
+    <img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;top:${SHARE_SAFE_TOPO}px;left:0;right:0;margin:0 auto;height:15px;width:fit-content;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));"/>
+    ${frase ? `<div style="position:absolute;left:${SHARE_SAFE_LADO}px;right:${SHARE_SAFE_LADO}px;top:50%;transform:translateY(-50%);text-align:center;padding:16px 12px;background:rgba(10,10,10,.55);border-radius:14px;">
+      <div style="font-size:17px;font-weight:900;color:#fff;line-height:1.35;text-shadow:0 2px 6px rgba(0,0,0,.6);">${esc(frase)}</div>
+    </div>` : ''}
+    <div style="position:absolute;left:0;right:0;bottom:0;padding:10px ${SHARE_SAFE_LADO}px calc(${SHARE_SAFE_FUNDO}px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0) 100%);">
+      ${_shareBarraInferior(info, fig)}
+    </div>
+  </div>`;
+}
 
 function _renderShareOverlay() {
   const isLight = document.body.classList.contains('tema-claro');
@@ -1439,25 +1495,41 @@ function _renderShareOverlay() {
     <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 10px 8px;">
       <button onclick="_shareTrocarTpl(-1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
       <div id="share-card-host" style="position:relative;width:min(78vw,300px);aspect-ratio:230/410;border-radius:18px;overflow:hidden;background:#000;">
-        ${camAtiva ? `<video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${_camFacing === 'user' ? 'transform:scaleX(-1);' : ''}"></video>` : ''}
+        ${camAtiva ? `<video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${_camFacing === 'user' ? 'transform:scaleX(-1);' : ''}${tpl.filtroCss||''}"></video>` : ''}
         <div style="position:absolute;inset:0;${camAtiva ? 'pointer-events:none;' : ''}">${tpl.render(S.info, S.fig, camAtiva ? 'LIVE' : S.bgImg, isLight)}</div>
       </div>
       <button onclick="_shareTrocarTpl(1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">›</button>
     </div>
     ${camAtiva ? `
-    <div style="text-align:center;font-size:11px;color:${muted};margin:2px auto 12px;max-width:270px;line-height:1.5;">Posicione-se dentro do quadro — arraste ‹ › pra trocar de filtro sem perder o enquadramento</div>
-    <div style="display:flex;align-items:center;justify-content:center;gap:26px;margin-bottom:16px;">
-      <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="width:42px;height:42px;border-radius:50%;background:${bgCard};border:1px solid ${borderC};color:${txt};display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">${_shareIconSvg('trocar',18)}</button>
-      <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:60px;height:60px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.5);cursor:pointer;flex-shrink:0;"></button>
-      <div style="width:42px;flex-shrink:0;"></div>
+    <div style="text-align:center;font-size:11px;color:${muted};margin:2px auto 10px;max-width:270px;line-height:1.5;">Posicione-se dentro do quadro — arraste o dedo sobre a prévia (ou use ‹ ›) pra trocar de filtro sem perder o enquadramento</div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;padding:0 16px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+        <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="width:38px;height:38px;border-radius:50%;background:${bgCard};border:1px solid ${borderC};color:${txt};display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">${_shareIconSvg('trocar',16)}</button>
+        <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:54px;height:54px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.5);cursor:pointer;flex-shrink:0;"></button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;flex:1;min-width:0;padding:6px 2px;">
+        ${_shareFiltroChipsHtml(S, bgCard, borderC)}
+      </div>
+    </div>` : (S.bgImg ? `
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;">
+      <button onclick="_shareAbrirCamera()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('trocar',15)} Tirar outra</button>
+      <button onclick="_shareDescartarFoto()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);color:#ef4444;">🗑️ Descartar foto</button>
     </div>` : `
-    <div style="height:6px;"></div>`}
+    <div style="height:6px;"></div>`)}
 
     <div style="max-width:340px;margin:0 auto;padding:0 16px;">
-      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Publicar no app</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;">Publicar no app</div>
+      </div>
       <div style="display:flex;gap:8px;margin-bottom:18px;">
-        <button onclick="_shareAcao('feed')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('feedapp',17)} Feed da Intus</button>
-        <button onclick="_shareAcao('perfil')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('perfil',17)} Só meu perfil</button>
+        <div style="flex:1;position:relative;">
+          <button onclick="_shareConfirmarPublicar('feed')" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 22px 11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('feedapp',17)} Feed da Intus</button>
+          <button aria-label="O que é o Feed da Intus?" onclick="_shareInfoAjuda('feed')" style="position:absolute;top:50%;right:6px;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;background:${borderC};color:${txt};border:none;font-size:10.5px;font-weight:800;cursor:pointer;line-height:18px;padding:0;">?</button>
+        </div>
+        <div style="flex:1;position:relative;">
+          <button onclick="_shareConfirmarPublicar('perfil')" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 22px 11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('perfil',17)} Só meu perfil</button>
+          <button aria-label="O que é publicar só no perfil?" onclick="_shareInfoAjuda('perfil')" style="position:absolute;top:50%;right:6px;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;background:${borderC};color:${txt};border:none;font-size:10.5px;font-weight:800;cursor:pointer;line-height:18px;padding:0;">?</button>
+        </div>
       </div>
 
       <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Compartilhar com</div>
@@ -1485,6 +1557,74 @@ function _renderShareOverlay() {
   document.body.appendChild(overlay);
 
   if (camAtiva) document.getElementById('share-cam-video').srcObject = _camStream;
+
+  // Arrastar o dedo dentro da área da câmera/cartão também troca de filtro —
+  // antes só dava pra usar os botões ‹ › do lado, fora da área que o aluno
+  // está de fato olhando (a prévia com a própria câmera).
+  const hostEl = document.getElementById('share-card-host');
+  if (hostEl) {
+    let _swipeX0 = null;
+    hostEl.addEventListener('touchstart', (e) => { _swipeX0 = e.touches[0].clientX; }, { passive: true });
+    hostEl.addEventListener('touchend', (e) => {
+      if (_swipeX0 === null) return;
+      const dx = e.changedTouches[0].clientX - _swipeX0;
+      _swipeX0 = null;
+      if (Math.abs(dx) > 40) _shareTrocarTpl(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
+}
+// Carrossel de miniaturas dos filtros — o ativo aparece maior e com borda
+// verde, os vizinhos menores e apagados, dando a sensação de "perspectiva"
+// de qual está selecionado sem precisar de uma lib de carrossel 3D.
+function _shareFiltroChipsHtml(S, bgCard, borderC) {
+  return SHARE_TEMPLATES.map((t, i) => {
+    const ativo = i === S.tplIdx;
+    const tam = ativo ? 44 : 34;
+    return `<div onclick="_shareIrParaTpl(${i})" title="${esc(t.nome)}" style="flex-shrink:0;width:${tam}px;height:${tam}px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:${ativo?19:15}px;background:${bgCard};border:2px solid ${ativo?'#7FFF00':borderC};opacity:${ativo?1:.5};transform:scale(${ativo?1:.92});transition:all .18s;cursor:pointer;">${t.emoji}</div>`;
+  }).join('');
+}
+function _shareIrParaTpl(i) {
+  _shareState.tplIdx = i;
+  _renderShareOverlay();
+}
+function _shareDescartarFoto() {
+  _shareState.bgImg = null;
+  _shareState.bgModo = 'transparente';
+  _renderShareOverlay();
+}
+function _shareInfoAjuda(tipo) {
+  const info = {
+    feed: {
+      titulo: '📣 Feed da Intus',
+      texto: 'Publica esse cartão na lista geral do Feed — os outros alunos que participam do feed conseguem ver, curtir e comentar. Também aparece na grade do seu próprio perfil.',
+    },
+    perfil: {
+      titulo: '👤 Só meu perfil',
+      texto: 'Salva esse cartão só na grade do seu perfil, como um registro pessoal do treino. Não entra na lista geral do Feed — os outros alunos só veem se visitarem seu perfil diretamente.',
+    },
+  }[tipo];
+  if (!info) return;
+  openModalGenerico(
+    '<div style="padding:6px 20px 18px;">' +
+      '<div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:8px;">' + info.titulo + '</div>' +
+      '<div style="font-size:13px;color:var(--muted);line-height:1.6;">' + info.texto + '</div>' +
+    '</div>'
+  );
+}
+// Confirmação antes de publicar de verdade — feito uma vez lá fora (feed) ou
+// gravado no próprio perfil não é algo pra sair sem querer com um toque só.
+function _shareConfirmarPublicar(destino) {
+  const titulo = destino === 'feed' ? 'Publicar no Feed da Intus?' : 'Publicar só no seu perfil?';
+  const texto = destino === 'feed'
+    ? 'Esse cartão vai aparecer na lista geral do Feed, visível pros outros alunos que participam.'
+    : 'Esse cartão fica salvo só na grade do seu perfil — não aparece no Feed geral de ninguém.';
+  openModalGenerico(
+    '<div style="padding:6px 20px 4px;">' +
+      '<div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:8px;">' + titulo + '</div>' +
+      '<div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:16px;">' + texto + '</div>' +
+      '<button onclick="closeModal();_shareAcao(\'' + destino + '\')" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Confirmar e publicar</button>' +
+    '</div>'
+  );
 }
 function _shareActionBtn(icon, label, onclick, bg, border, txt) {
   return `<div style="text-align:center;cursor:pointer;" onclick="${onclick}">
@@ -4971,7 +5111,7 @@ function renderFim(duracao, sessaoSalva) {
     nomeTreino: nomeTreino, divisao: sessaoAtual.divisao,
     min: min, sec: sec, volume: volSessao,
     seriesFeitas: seriesFeitas, seriesTotal: seriesTotal, pctCompleto: pctCompleto,
-    fig: figDoDia,
+    fig: figDoDia, mensagem: mensagem,
   };
   try { localStorage.setItem('intus-ultimo-treino-share', JSON.stringify(_shareInfo)); } catch (e) {}
 
@@ -5004,13 +5144,13 @@ function renderFim(duracao, sessaoSalva) {
         ${sessaoSalva.nao_contar ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:11px;color:#f59e0b;">⏱️ Este treino não será contabilizado na frequência e ranking por ter durado menos de 5 minutos.</div>` : (sessaoSalva.alerta_duracao === 'curto' ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:11px;color:#f59e0b;">⚠️ Treino com menos de 5 minutos, será sinalizado para revisão.</div>` : '')}
       </div>
 
-      <div style="margin:20px auto;max-width:320px;text-align:left;">
+      <button class="btn btn-prim" style="width:100%;max-width:320px;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="abrirCompartilharUltimoTreino()">📸 Compartilhar treino</button>
+
+      <div style="margin:20px auto 0;max-width:320px;text-align:left;">
         <label style="font-size:11px;color:${subColor};font-weight:600;text-transform:uppercase;letter-spacing:.5px;">💬 Comentário</label>
         <textarea id="comentario-fim" placeholder="Como foi o treino hoje?" style="width:100%;margin-top:6px;padding:12px;background:${inputBg};border:1px solid ${cardBorder};border-radius:10px;color:${txtColor};font-size:13px;font-family:inherit;min-height:60px;resize:vertical;">${esc(sessaoSalva.comentario || '')}</textarea>
         <button class="btn btn-sec" style="width:100%;margin-top:8px;min-height:36px;font-size:12px;" onclick="salvarComentarioFim(${sessaoSalva.idsessao})">Salvar comentário</button>
       </div>
-
-      <button class="btn btn-prim" style="width:100%;max-width:320px;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="abrirCompartilharUltimoTreino()">📸 Compartilhar treino</button>
 
       <div style="display:flex;gap:8px;margin-top:12px;max-width:320px;width:100%;">
         <button class="btn btn-sec" style="flex:1;" onclick="navegar('ranking')">🏆 Ranking</button>
