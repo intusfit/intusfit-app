@@ -1350,18 +1350,24 @@ function _renderCameraTelaCheia() {
   const isLight = document.body.classList.contains('tema-claro');
   const ov = document.createElement('div');
   ov.id = 'share-camera-fullscreen';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;';
+  // touch-action:none — sem isso o gesto de pinça também dispara o zoom
+  // NATIVO da página inteira (viewport permite até maximum-scale=5), competindo
+  // com o zoom digital da câmera em _shareAtivarZoomPinca: a tela inteira
+  // (incluindo os botões e os chips de filtro) esticava junto do vídeo.
+  ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;touch-action:none;';
   const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
   ov.innerHTML = `
     <video id="share-cam-video-fs" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:${espelho}scale(${_camZoom});${tpl.filtroCss||''}"></video>
     <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
     <button aria-label="Fechar câmera" onclick="_shareCancelarCameraTelaCheia()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;font-size:17px;cursor:pointer;z-index:3;">✕</button>
-    <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">${_shareIconSvg('trocar',18)}</button>
     <div style="position:absolute;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:16px;z-index:3;">
       <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;max-width:92vw;padding:4px 10px;">
         ${_shareFiltroChipsHtml(S, 'rgba(30,30,30,.75)', 'rgba(255,255,255,.3)')}
       </div>
-      <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:72px;height:72px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.6);cursor:pointer;"></button>
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:100%;">
+        <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:72px;height:72px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.6);cursor:pointer;"></button>
+        <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="position:absolute;left:calc(50% + 60px);width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;">${_shareIconSvg('trocar',19)}</button>
+      </div>
     </div>
   `;
   document.body.appendChild(ov);
@@ -1474,8 +1480,8 @@ function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'log
 // cartão juntas — o resto fica transparente pra foto aparecer inteira.
 function _shareFigMini(fig) {
   if (!fig || !(_shareState && _shareState.incluirFig)) return '';
-  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:64px;height:64px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
-  return `<div style="font-size:56px;line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
+  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:44px;height:44px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
+  return `<div style="font-size:38px;line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
 }
 // BUG real: em largura de celular de verdade (a prévia é min(78vw,300px) —
 // a 375px de tela isso é ~292px, mais estreito que os 300px fixos usados
@@ -1483,13 +1489,22 @@ function _shareFigMini(fig) {
 // conteúdo e não cabiam somadas — a última ("90% completo") saía cortada
 // pelo overflow:hidden do cartão. flex:1 faz as 4 dividirem o espaço
 // disponível em vez de cada uma exigir a própria largura natural.
+// BUG real nº2: min-width:0 deixa a CÉLULA encolher, mas não corta o TEXTO —
+// com um volume de 5 dígitos (ex: "18.960") o número ficava mais largo que a
+// própria célula e vazava por cima da vizinha ("séries"), sem espaço nenhum
+// entre os dois. overflow:hidden + ellipsis no valor evita o vazamento, mas
+// sozinho não bastava: flex:1 dá a mesma fatia pras 4 células (flex-basis:0
+// ignora o tamanho do conteúdo), e num cartão estreito 19px não cabia nem
+// pro "kg", cortando as 4 juntas por igual. Fonte menor + kg com fatia maior
+// (é o valor que mais cresce — sessão pesada passa de 5 dígitos, tempo/
+// séries/completo têm teto natural bem mais curto) resolve sem redesenhar.
 function _shareStatsRow(info) {
-  const cell = (v,l) => `<div style="flex:1;min-width:0;text-align:center;"><div style="font-size:19px;font-weight:900;color:#fff;line-height:1.15;white-space:nowrap;">${v}</div><div style="font-size:10px;color:#ccc;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;">${l}</div></div>`;
-  return `<div style="display:flex;gap:8px;margin-top:10px;">
-    ${cell(info.min+':'+String(info.sec).padStart(2,'0'),'tempo')}
-    ${info.volume ? cell(info.volume.toLocaleString('pt-BR'),'kg') : ''}
-    ${cell(info.seriesFeitas+'/'+info.seriesTotal,'séries')}
-    ${cell('<span style="color:#7FFF00;">'+info.pctCompleto+'%</span>','completo')}
+  const cell = (v,l,peso) => `<div style="flex:${peso||1};min-width:0;text-align:center;"><div style="font-size:16px;font-weight:900;color:#fff;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v}</div><div style="font-size:9.5px;color:#ccc;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;">${l}</div></div>`;
+  return `<div style="display:flex;gap:5px;margin-top:10px;">
+    ${cell(info.min+':'+String(info.sec).padStart(2,'0'),'tempo',1.15)}
+    ${info.volume ? cell(info.volume.toLocaleString('pt-BR'),'kg',1.6) : ''}
+    ${cell(info.seriesFeitas+'/'+info.seriesTotal,'séries',1.05)}
+    ${cell('<span style="color:#7FFF00;">'+info.pctCompleto+'%</span>','completo',1)}
   </div>`;
 }
 // Bloco de informações: figurinha + nome + treino + estatísticas. Fica no
@@ -1523,7 +1538,7 @@ function _shareLogoRodape(isLight) {
 // cresce pra cima — não cobre rosto nem tronco.
 const SHARE_INFO_FUNDO = '20%';  // onde o bloco de nome/treino/estatísticas termina embaixo
 const SHARE_LOGO_TOPO = '9%';    // logo virou selo no canto superior direito
-const SHARE_LADO = '7%';         // margem lateral
+const SHARE_LADO = '5%';         // margem lateral — 7% deixava pouca largura pras 4 células de estatística
 function _tplTransparenteHtml(info, fig, bgImg, isLight) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   return `<div class="share-card" style="${bg}">
