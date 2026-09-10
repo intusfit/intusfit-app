@@ -822,6 +822,30 @@ try {
             echo json_encode(['ok' => true]);
             exit;
         }
+        // O cardio ao vivo (rastreado por GPS) é registrado assim que o aluno
+        // toca em "Finalizar", já com esforço médio (5) por padrão — pra não
+        // depender de o aluno responder a tela de esforço pra o cardio existir.
+        // Este PUT só ajusta cardio_rpe e os pontos recalculados a partir dele,
+        // caso o aluno confirme um esforço diferente do padrão logo em seguida.
+        // Duração/tipo/distância já ficaram travados no POST original.
+        if ($method === 'PUT') {
+            $id = (int)($_GET['id'] ?? 0);
+            if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+            $b = jsonBody();
+            if (!isset($b['cardio_rpe'])) { http_response_code(400); echo json_encode(['error' => 'cardio_rpe obrigatorio']); exit; }
+            $rpe = max(1, min(10, (int)$b['cardio_rpe']));
+            $st = $pdo->prepare("SELECT nao_contar FROM intus_sessao WHERE idsessao = ? AND tipo = 'cardio'");
+            $st->execute([$id]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$row) { http_response_code(404); echo json_encode(['error' => 'sessao nao encontrada']); exit; }
+            // Se já não contava ponto (limite diário ou duração fora do normal), o
+            // esforço pode mudar mas os pontos continuam zero — não foi o RPE que
+            // decidiu não contar, e mudar o RPE não deveria reverter isso.
+            $pontos = (int)$row['nao_contar'] ? 0 : (float)($b['pontos'] ?? 0);
+            $pdo->prepare("UPDATE intus_sessao SET cardio_rpe = ?, pontos = ? WHERE idsessao = ?")->execute([$rpe, $pontos, $id]);
+            echo json_encode(['ok' => true, 'pontos' => $pontos]);
+            exit;
+        }
     }
 
     if ($action === 'ranking') {

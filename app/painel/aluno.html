@@ -4337,6 +4337,10 @@ function abrirInfoTecnica(chave) {
 }
 
 function selecionarTreino(idficha, divisao) {
+  // Treino e cardio ao vivo não podem rodar os dois ao mesmo tempo — os dois
+  // usam o mesmo wake lock e disputariam o cronômetro/tela. Finalizar ou
+  // descartar o cardio primeiro.
+  if (_cardioLiveInicioMs) { toast('Finalize ou descarte o cardio ao vivo antes de começar um treino.'); return; }
   // Escolher um treino enquanto outro já está em andamento apagava tudo sem
   // avisar — as séries continuavam salvas (salvarTreinoAtivo), mas o
   // cronômetro voltava a zero e o aluno só percebia depois. Selecionar a
@@ -6580,29 +6584,33 @@ function renderCardio() {
       </div>
     </details>
 
-    <h2 class="sect-title" style="margin-bottom:12px;">📋 Histórico de cardios</h2>
-    ${_cardioHistorico.length === 0
-      ? `<div style="text-align:center;padding:24px;color:${isLight?'#aaa':'#555'};font-size:13px;">Nenhum cardio registrado ainda.</div>`
-      : `<div style="display:flex;flex-direction:column;gap:8px;">` +
-        _cardioHistorico.slice(0,30).map(c => {
-          const dt = new Date(c.dtsessao + 'T00:00:00');
-          const dtStr = dt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'});
-          const min = Math.round(c.duracao_seg / 60);
-          return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#fff':'rgba(255,255,255,.03)'};border:1px solid ${isLight?'#e5e5e5':'#1a1a1a'};border-radius:10px;">
-            <div style="font-size:22px;">🏃</div>
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(c.cardio_tipo||'Cardio')}${c.cardio_rpe?' · esforço '+c.cardio_rpe+'/10':(c.cardio_intensidade?' · '+esc(c.cardio_intensidade):'')}${(c.tem_foto||c.cardio_foto)?` <button onclick="event.stopPropagation();verFotoCardio(${Number(c.idsessao)||0},'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Ver a foto que você anexou" style="border:none;background:transparent;padding:0 2px;font-size:13px;line-height:1;cursor:pointer;">📷</button>`:''}</div>
-              <div style="font-size:11px;color:${isLight?'#666':'#888'};">${min} min${c.cardio_metrica?' · '+esc(c.cardio_metrica):''} · ${dtStr}</div>
-            </div>
-            <div style="text-align:right;">
-              ${Number(c.nao_contar)===1
-                ? `<div style="font-size:10px;font-weight:700;color:${isLight?'#c2410c':'#fdba74'};line-height:1.2;">não<br>conta</div>`
-                : `<div style="font-size:16px;font-weight:800;color:#22d3ee;">+${pontosCardioExib(c).toFixed(0)}</div><div style="font-size:9px;color:${isLight?'#999':'#555'};">pts</div>`}
-            </div>
-            <button onclick="excluirSessaoHistorico(${Number(c.idsessao)||0},true,'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Remover cardio" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#f87171;width:28px;height:28px;border-radius:8px;font-size:13px;cursor:pointer;line-height:1;flex-shrink:0;">🗑</button>
-          </div>`;
-        }).join('') + '</div>'
-    }
+    <details id="cardio-historico-details" style="background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:14px;padding:14px 18px;margin-bottom:20px;">
+      <summary style="font-size:12.5px;font-weight:800;color:${isLight?'#666':'#999'};cursor:pointer;list-style:none;">📋 Histórico de cardios${_cardioHistorico.length ? ' (' + _cardioHistorico.length + ')' : ''}</summary>
+      <div style="margin-top:14px;">
+      ${_cardioHistorico.length === 0
+        ? `<div style="text-align:center;padding:24px;color:${isLight?'#aaa':'#555'};font-size:13px;">Nenhum cardio registrado ainda.</div>`
+        : `<div style="display:flex;flex-direction:column;gap:8px;">` +
+          _cardioHistorico.slice(0,30).map(c => {
+            const dt = new Date(c.dtsessao + 'T00:00:00');
+            const dtStr = dt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'});
+            const min = Math.round(c.duracao_seg / 60);
+            return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#fff':'rgba(255,255,255,.03)'};border:1px solid ${isLight?'#e5e5e5':'#1a1a1a'};border-radius:10px;">
+              <div style="font-size:22px;">🏃</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(c.cardio_tipo||'Cardio')}${c.cardio_rpe?' · esforço '+c.cardio_rpe+'/10':(c.cardio_intensidade?' · '+esc(c.cardio_intensidade):'')}${(c.tem_foto||c.cardio_foto)?` <button onclick="event.stopPropagation();verFotoCardio(${Number(c.idsessao)||0},'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Ver a foto que você anexou" style="border:none;background:transparent;padding:0 2px;font-size:13px;line-height:1;cursor:pointer;">📷</button>`:''}</div>
+                <div style="font-size:11px;color:${isLight?'#666':'#888'};">${min} min${c.cardio_metrica?' · '+esc(c.cardio_metrica):''} · ${dtStr}</div>
+              </div>
+              <div style="text-align:right;">
+                ${Number(c.nao_contar)===1
+                  ? `<div style="font-size:10px;font-weight:700;color:${isLight?'#c2410c':'#fdba74'};line-height:1.2;">não<br>conta</div>`
+                  : `<div style="font-size:16px;font-weight:800;color:#22d3ee;">+${pontosCardioExib(c).toFixed(0)}</div><div style="font-size:9px;color:${isLight?'#999':'#555'};">pts</div>`}
+              </div>
+              <button onclick="excluirSessaoHistorico(${Number(c.idsessao)||0},true,'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Remover cardio" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#f87171;width:28px;height:28px;border-radius:8px;font-size:13px;cursor:pointer;line-height:1;flex-shrink:0;">🗑</button>
+            </div>`;
+          }).join('') + '</div>'
+      }
+      </div>
+    </details>
     ${getFooterHtml()}
   `;
 
@@ -6878,7 +6886,12 @@ function _fecharResultadoCardio() {
   if (typeof cb === 'function') cb();
 }
 
-async function salvarCardio() {
+// opts.silencioso: usado pela finalização do cardio ao vivo, que grava na
+// hora com esforço padrão (5) sem esperar o aluno — em vez do popup
+// comemorativo de sempre, devolve os dados prontos por opts.onDone pra quem
+// chamou desenhar a própria tela (ver _cardioLiveFinalizar).
+async function salvarCardio(opts) {
+  opts = opts || {};
   const tipo = cardioTipoValor();
   const min = parseInt(document.getElementById('cardio-min')?.value) || 0;
   // Os campos comecam vazios, entao o aluno precisa preencher antes de salvar.
@@ -6920,22 +6933,52 @@ async function salvarCardio() {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify(payload),
     });
+    var idsessaoSalvo = null;
     if (r.ok) {
       const res = await r.json();
       if (typeof res.pontos === 'number') pts = res.pontos;
       if (Number(res.nao_contar) === 1) { excedeu = true; if (!motivo) motivo = 'limite'; }
+      idsessaoSalvo = res.idsessao;
       _cardioHistorico.unshift({ ...localItem, pontos: pts, nao_contar: excedeu ? 1 : 0, tem_foto: foto ? 1 : 0, idsessao: res.idsessao });
     } else { toast('Registrado localmente.'); }
   } catch { toast('Registrado localmente (sem conexão).'); }
-  // Reseta a foto e revela o resultado. Ao fechar, checa conquistas novas e comemora.
+  // Reseta a foto. renderCardio() só faz sentido se a tela de Cardio for a
+  // que vai ficar visível — no fluxo silencioso (cardio ao vivo) quem decide
+  // o que aparece depois é o onDone.
   _cardioFoto = '';
-  renderCardio();
+  if (!opts.silencioso) renderCardio();
   // pts (payload) fica RAW p/ o ranking recomputar; o aluno vê o valor com fator + teto.
   const ptsExib = excedeu ? 0 : _pontosCardioPolitica(pts);
+  if (opts.silencioso) {
+    if (typeof opts.onDone === 'function') opts.onDone({ idsessao: idsessaoSalvo, pts, ptsExib, tipo, min, motivo, rpe });
+    return;
+  }
   mostrarResultadoCardio(ptsExib, tipo, min, motivo, function () {
     _rankingData = null; _rkUltimaBusca = 0; // dados frescos incluem o cardio recém-salvo
     _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
   });
+}
+
+// Atualiza só o esforço (e os pontos recalculados) de um cardio já salvo —
+// usado pela tela de esforço do cardio ao vivo, que registra com esforço
+// padrão (5) na hora e deixa o aluno ajustar depois, sem criar um segundo
+// registro.
+async function _atualizarEsforcoCardio(idsessao, novoRpe, tipo, min, motivo) {
+  const pts = motivo ? 0 : calcCardioPoints(tipo, novoRpe, min);
+  const token = localStorage.getItem('mx-token') || '';
+  try {
+    const r = await fetch(API_BASE + '/treinos.php?action=cardio&id=' + idsessao, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ cardio_rpe: novoRpe, pontos: pts }),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não consegui salvar o esforço agora — o cardio já está registrado, tente ajustar depois pelo histórico.'); return false; }
+  // Mantém o cache local coerente com o que acabou de ser confirmado.
+  const item = _cardioHistorico.find(c => Number(c.idsessao) === Number(idsessao));
+  if (item) { item.cardio_rpe = novoRpe; if (!motivo) item.pontos = pts; }
+  _rankingData = null; _rkUltimaBusca = 0;
+  return true;
 }
 
 // ═══════════════ CARDIO AO VIVO (GPS) ═══════════════
@@ -7073,6 +7116,9 @@ function _cardioLiveOnPos(pos) {
 }
 
 function _cardioLiveIniciarRastreio() {
+  // Mesma trava do lado do treino (ver selecionarTreino): os dois não podem
+  // rodar ao mesmo tempo.
+  if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um cardio.'); return; }
   const usaGps = !!CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
   if (usaGps && !navigator.geolocation) { toast('Seu navegador não tem GPS disponível.'); return; }
   if (!_cardioLiveInicioMs) _cardioLiveInicioMs = Date.now();
@@ -7250,6 +7296,13 @@ function _cardioLiveConfirmarFinalizar() {
   ov.querySelector('#cl-fim-cancelar').onclick = function () { ov.remove(); };
 }
 
+// Finalizar o cardio ao vivo NÃO abre mais o formulário manual (era a mesma
+// tela de quem está digitando um cardio do zero, sem nenhum destaque pro que
+// o rastreio já sabe). Agora grava direto, com esforço médio (5) por padrão
+// — se o aluno não tocar em mais nada, sair do app ou trocar de tela, o
+// cardio já existe, só com uma média razoável em vez de ficar sem registro
+// nenhum. A tela de esforço que abre em seguida só AJUSTA o que já foi
+// salvo (ver _atualizarEsforcoCardio), nunca decide se salva.
 function _cardioLiveFinalizar() {
   const distKm = _cardioLiveKm();
   const min = Math.round(_cardioLiveTempoMs() / 60000);
@@ -7265,11 +7318,79 @@ function _cardioLiveFinalizar() {
   const inpMet = document.getElementById('cardio-metrica'); if (inpMet && distKm > 0) inpMet.value = distKm.toFixed(2);
   const det = document.getElementById('cardio-manual-details'); if (det) det.open = true;
   if (typeof atualizarPreviewCardio === 'function') atualizarPreviewCardio();
-  toast('Rastreio concluído! Confirme o esforço e registre. 🏃');
-  setTimeout(function () {
-    const el = document.getElementById('cardio-manual-details');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, 150);
+  _cardioRpe = 5;
+  salvarCardio({
+    silencioso: true,
+    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm }); },
+  });
+}
+
+// Tela dedicada de confirmação do cardio ao vivo — diferente da tela de
+// registro manual: mostra o que JÁ foi rastreado (tipo, duração, distância)
+// como fato consumado, não como campo pra preencher, e pede só o esforço.
+function _renderTelaEsforcoCardioLive(dados) {
+  document.getElementById('cardio-esforco-overlay')?.remove();
+  const isLight = document.body.classList.contains('tema-claro');
+  const emoji = CARDIO_LIVE_EMOJI[dados.tipo] || '🏃';
+  const usaGps = !!CARDIO_LIVE_USA_GPS[dados.tipo];
+  window._cardioEsforcoDados = dados;
+  const ov = document.createElement('div');
+  ov.id = 'cardio-esforco-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  ov.innerHTML = `
+    <div style="background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#333'};border-radius:18px;padding:24px 22px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:36px;margin-bottom:6px;">✅</div>
+        <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio registrado!</div>
+        <div style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">Já está salvo — só falta confirmar o esforço</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;margin-bottom:18px;">
+        <div style="font-size:26px;">${emoji}</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(dados.tipo)}</div>
+          <div style="font-size:12px;color:${isLight?'#666':'#999'};">${dados.min} min${usaGps && dados.distKm>0 ? ' · ' + dados.distKm.toFixed(2) + ' km' : ''}</div>
+        </div>
+      </div>
+      <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Como foi o esforço?</label>
+      <input type="range" id="cle-rpe" min="1" max="10" step="1" value="5" oninput="_cardioLiveEsforcoChange()"
+        style="width:100%;height:8px;border-radius:6px;accent-color:#06b6d4;cursor:pointer;margin:2px 0 6px;"/>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:${isLight?'#999':'#666'};padding:0 1px;margin-bottom:8px;">
+        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+      </div>
+      <div id="cle-rpe-desc" style="text-align:center;margin-bottom:16px;"></div>
+      <button onclick="_confirmarEsforcoCardioLive()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">Concluir</button>
+      <div style="text-align:center;font-size:10.5px;color:${isLight?'#aaa':'#666'};margin-top:10px;">Já ficou salvo com esforço médio (5) — fechar sem mexer aqui não perde nada.</div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+  _cardioLiveEsforcoChange();
+}
+function _cardioLiveEsforcoChange() {
+  const sl = document.getElementById('cle-rpe');
+  const rpe = sl ? parseInt(sl.value) || 5 : 5;
+  const info = RPE_INFO[rpe] || RPE_INFO[5];
+  const cor = rpeCor(rpe);
+  const desc = document.getElementById('cle-rpe-desc');
+  if (desc) {
+    desc.innerHTML =
+      '<div style="display:inline-flex;align-items:center;gap:8px;">' +
+        '<span style="width:28px;height:28px;border-radius:50%;background:' + cor + ';color:#fff;font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:center;">' + rpe + '</span>' +
+        '<span style="font-size:13px;font-weight:800;color:' + cor + ';">' + info.t + '</span>' +
+      '</div>' +
+      '<div style="font-size:11px;color:#999;margin-top:4px;">' + info.d + '</div>';
+  }
+}
+async function _confirmarEsforcoCardioLive() {
+  const dados = window._cardioEsforcoDados;
+  const sl = document.getElementById('cle-rpe');
+  const novoRpe = sl ? parseInt(sl.value) || 5 : 5;
+  document.getElementById('cardio-esforco-overlay')?.remove();
+  if (!dados || !dados.idsessao) { renderCardio(); return; } // salvo só localmente (sem servidor) — nada pra atualizar
+  if (novoRpe === 5) { renderCardio(); return; } // já é o padrão salvo, nada a fazer
+  toast('Salvando esforço...');
+  const ok = await _atualizarEsforcoCardio(dados.idsessao, novoRpe, dados.tipo, dados.min, dados.motivo);
+  if (ok) toast('Esforço atualizado! 💪');
+  renderCardio();
 }
 
 function _renderCardioLive() {
@@ -7293,11 +7414,18 @@ function _renderCardioLive() {
   const rotaHtml = usaGps
     ? '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:block;"></svg></div>'
     : '';
+  // BUG real (achado testando a correção do pause): com GPS e já iniciado, a
+  // linha de cima (cl-stat-top) e este bloco tinham os MESMOS ids (cl-tempo,
+  // cl-ritmo) — dois elementos com o mesmo id no documento, e
+  // document.getElementById só acha o primeiro, deixando esta segunda caixa
+  // (a de baixo) congelada em "00:00" pra sempre. Como a informação já
+  // aparece em cima (e maior agora), esta caixa só faz sentido ANTES de
+  // começar, como prévia — depois de iniciado ela é pura duplicata quebrada.
   const statsHtml = usaGps
-    ? '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
+    ? (iniciado ? '' : '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
         '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-tempo">00:00</div><div class="cl-stat-lbl">tempo</div></div>' +
         '<div class="cl-stat-box"><div class="cl-stat-num" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0 km/h' : '--:--/km') + '</div><div class="cl-stat-lbl">' + (_cardioLiveTipo === 'Bike' ? 'velocidade' : 'ritmo') + '</div></div>' +
-      '</div>'
+      '</div>')
     : '<span id="cl-tempo" style="display:none;">00:00</span>'; // sem GPS o tempo mora só no hero; mantém o id p/ o mesmo updater funcionar
 
   // Antes de começar: cartão comum, escolher atividade. Rastreando: modo
@@ -7313,20 +7441,40 @@ function _renderCardioLive() {
       getFooterHtml()
     : telaHeader('📍 Cardio ao vivo', 'cardio') +
       '<div class="cl-imersivo">' +
+        // Qual atividade está rolando — antes só aparecia nas sem GPS
+        // (Escada/Elíptico); corrida/caminhada/bike ficavam sem nenhuma
+        // indicação disso durante o rastreio.
+        '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.65);margin-bottom:10px;">' + CARDIO_LIVE_EMOJI[_cardioLiveTipo] + ' ' + _cardioLiveTipo + '</div>' +
         (usaGps ? '<div style="display:flex;justify-content:space-between;margin-bottom:18px;">' +
           '<div class="cl-stat-top"><div class="n" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0' : '--\'--\'\'') + '</div><div class="l">' + (_cardioLiveTipo === 'Bike' ? 'km/h' : 'Pace') + '</div></div>' +
           '<div class="cl-stat-top"><div class="n">--</div><div class="l">BPM</div></div>' +
-          '<div class="cl-stat-top"><div class="n" id="cl-tempo">00:00</div><div class="l">Duração</div></div>' +
-        '</div>' : '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.6);margin-bottom:8px;">' + CARDIO_LIVE_EMOJI[_cardioLiveTipo] + ' ' + _cardioLiveTipo + '</div>') +
+          // Tempo maior e mais em destaque que os outros dois — é o número
+          // que mais importa enquanto o aluno treina.
+          '<div class="cl-stat-top"><div class="n" id="cl-tempo" style="font-size:32px;color:#0a0a0a;">00:00</div><div class="l">Duração</div></div>' +
+        '</div>' : '') +
         heroHtml + rotaHtml + statsHtml +
         '<button class="cl-btn-circulo" onclick="' + (_cardioLiveRodando ? '_cardioLivePausar()' : '_cardioLiveRetomar()') + '">' + (_cardioLiveRodando ? '⏸' : '▶') + '</button>' +
-        '<div style="display:flex;justify-content:center;gap:22px;">' +
-          '<button class="cl-link-imersivo" onclick="_cardioLiveConfirmarFinalizar()">🏁 Finalizar</button>' +
+        '<div style="display:flex;flex-direction:column;align-items:center;gap:10px;">' +
+          // Fundo do .cl-imersivo é verde sólido — um botão "primário" verde
+          // ficaria verde-sobre-verde, quase invisível. Escuro sólido (mesma
+          // lógica do botão redondo de pausa) é o que realmente contrasta.
+          '<button style="width:100%;max-width:260px;padding:14px;border-radius:14px;border:none;background:#0a0a0a;color:#fff;font-size:14.5px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 8px 24px rgba(0,0,0,.3);" onclick="_cardioLiveConfirmarFinalizar()">🏁 Finalizar</button>' +
           '<button class="cl-link-imersivo" onclick="_cardioLiveDescartar()">🗑️ Descartar</button>' +
         '</div>' +
       '</div>' +
       '<div style="text-align:center;font-size:10.5px;color:#888;margin-top:14px;line-height:1.5;">⚠️ Função em teste, sujeita a instabilidades.</div>' +
       getFooterHtml();
+
+  // BUG real relatado em produção: "o botão de pause está zerando tudo".
+  // Não zerava de verdade — o innerHTML acima sempre nasce com os números
+  // em placeholder fixo (00:00, 0.00), esperando o setInterval de
+  // _atualizarStatsCardioLive (que só roda enquanto _cardioLiveRodando)
+  // preencher o valor real um segundo depois. Rodando, isso passava
+  // despercebido; pausado, o interval fica parado de propósito e a tela
+  // ficava PRESA no placeholder pra sempre — parecia ter voltado a zero,
+  // mas o tempo real continuava intacto em _cardioLiveTempoMs(). Preenche
+  // uma vez aqui, direto, sem depender do interval.
+  _atualizarStatsCardioLive();
 }
 
 // ═══════════════ RANKING ═══════════════
@@ -11589,6 +11737,17 @@ window.addEventListener('popstate', function(e) {
   if (window._viewAtual === 'muscu' && treinoTimer && sessaoAtual.idficha) {
     if (!confirm('Você tem um treino em andamento. Sair agora reinicia o cronômetro se você voltar (as séries já preenchidas continuam salvas). Sair mesmo assim?')) {
       history.pushState({ view: 'muscu' }, '', '');
+      return;
+    }
+  }
+  // Mesma trava do treino, pro cardio: um gesto de voltar sem querer não
+  // pode dar a impressão de ter cancelado o rastreio. Diferente do treino,
+  // sair daqui É seguro por si só (o rastreio continua rodando por trás,
+  // com a pilula avisando) — o aviso existe só pra confirmar que o toque
+  // foi intencional, não porque algo se perderia.
+  if (window._viewAtual === 'cardio-live' && _cardioLiveInicioMs) {
+    if (!confirm('Você tem um cardio em andamento. Sair agora não cancela nada — o rastreio continua rodando por trás. Sair mesmo assim?')) {
+      history.pushState({ view: 'cardio-live' }, '', '');
       return;
     }
   }
