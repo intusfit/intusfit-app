@@ -217,6 +217,9 @@
        imagem com a mesma proporção, direto (host em share-overlay já dá o
        tamanho de exibição; aqui é o conteúdo que o html2canvas fotografa). */
     .share-card { width: min(78vw, 300px); aspect-ratio: 230 / 410; border-radius: 18px; overflow: hidden; position: relative; }
+    /* Mesmo template (render()), sem duplicar HTML: dentro da câmera em tela
+       cheia o cartão preenche a tela inteira em vez do tamanho fixo da prévia. */
+    #share-camera-fullscreen .share-card { width: 100%; height: 100%; aspect-ratio: unset; border-radius: 0; }
     .share-card-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; padding: 18px; text-align: center; }
 
     .timer-bar {
@@ -1236,19 +1239,22 @@ function _shareSetBg(modo) {
   _shareAbrirCamera();
 }
 
-// ── CÂMERA AO VIVO, EMBUTIDA NO PRÓPRIO CARTÃO ─────────────────────────────
+// ── CÂMERA EM TELA CHEIA, ESTILO STORIES DO INSTAGRAM ──────────────────────
 // Antes o botão "Câmera" só abria o app de câmera do sistema, cego: o aluno
 // tirava a foto sem saber onde a logo e o texto do cartão iam cair por cima
-// dela depois. Depois isso virou uma tela cheia separada — mas aí, ao trocar
-// de filtro (‹ ›), o aluno saía da prévia da câmera pra ver o novo filtro.
-// Agora o vídeo ao vivo entra DIRETO dentro do host do cartão (#share-card-host),
-// então trocar de filtro com a câmera ligada continua mostrando a pessoa em
-// tempo real, só que com o desenho do cartão por cima mudando. Precisa de
-// câmera liberada por HTTPS e do Permissions-Policy do próprio domínio
-// permitindo "self" (sem isso o navegador bloqueia mesmo com o aluno aceitando
-// o pedido de permissão).
+// dela depois. Depois isso virou o vídeo embutido dentro do cartão pequeno
+// da prévia (300x410) — mas nesse tamanho os ícones/texto do próprio filtro
+// saíam quase ilegíveis, o obturador brigava por espaço com os outros
+// controles, e não dava pra dar zoom. Agora a captura acontece numa tela
+// cheia própria (#share-camera-fullscreen, como o Instagram faz), reusando
+// o MESMO tpl.render() do cartão pequeno — só o CSS troca o tamanho pra
+// preencher a tela (ver regra "#share-camera-fullscreen .share-card" no
+// <style>). A prévia pequena (#share-card-host) continua existindo do jeito
+// que já estava, só que agora ela nunca mostra vídeo ao vivo: só aparece
+// depois que uma foto foi tirada ou escolhida da galeria.
 let _camStream = null;
 let _camFacing = 'environment';
+let _camZoom = 1;
 
 async function _shareAbrirCamera() {
   _shareState.bgImg = null;
@@ -1257,7 +1263,7 @@ async function _shareAbrirCamera() {
     document.getElementById('share-file-camera').click();
     return;
   }
-  if (_camStream) { _renderShareOverlay(); return; }
+  if (_camStream) { _renderCameraTelaCheia(); return; }
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
   } catch (e) {
@@ -1266,11 +1272,20 @@ async function _shareAbrirCamera() {
     document.getElementById('share-file-camera').click();
     return;
   }
-  _renderShareOverlay();
+  _camZoom = 1;
+  _renderCameraTelaCheia();
 }
 
 function _shareFecharCamera() {
   if (_camStream) { _camStream.getTracks().forEach(t => t.stop()); _camStream = null; }
+  document.getElementById('share-camera-fullscreen')?.remove();
+}
+
+// Botão "✕" da tela cheia: desliga a câmera e volta pra prévia (que mostra
+// o placeholder neutro, já que nenhuma foto foi tirada).
+function _shareCancelarCameraTelaCheia() {
+  _shareFecharCamera();
+  _renderShareOverlay();
 }
 
 async function _shareAlternarCamera() {
@@ -1278,8 +1293,72 @@ async function _shareAlternarCamera() {
   if (_camStream) _camStream.getTracks().forEach(t => t.stop());
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
-    _renderShareOverlay();
+    _camZoom = 1;
+    _renderCameraTelaCheia();
   } catch (e) { toast('Não consegui trocar de câmera.'); }
+}
+
+function _renderCameraTelaCheia() {
+  document.getElementById('share-camera-fullscreen')?.remove();
+  const S = _shareState;
+  const tpl = SHARE_TEMPLATES[S.tplIdx];
+  const isLight = document.body.classList.contains('tema-claro');
+  const ov = document.createElement('div');
+  ov.id = 'share-camera-fullscreen';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;';
+  const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
+  ov.innerHTML = `
+    <video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:${espelho}scale(${_camZoom});${tpl.filtroCss||''}"></video>
+    <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
+    <button aria-label="Fechar câmera" onclick="_shareCancelarCameraTelaCheia()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;font-size:17px;cursor:pointer;z-index:3;">✕</button>
+    <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">${_shareIconSvg('trocar',18)}</button>
+    <div style="position:absolute;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:16px;z-index:3;">
+      <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;max-width:92vw;padding:4px 10px;">
+        ${_shareFiltroChipsHtml(S, 'rgba(30,30,30,.75)', 'rgba(255,255,255,.3)')}
+      </div>
+      <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:72px;height:72px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.6);cursor:pointer;"></button>
+    </div>
+  `;
+  document.body.appendChild(ov);
+  const video = document.getElementById('share-cam-video');
+  video.srcObject = _camStream;
+  _shareAtivarZoomPinca(video);
+
+  // Arrastar com UM dedo troca de filtro (dois dedos é o zoom, tratado à
+  // parte em _shareAtivarZoomPinca) — mesmo gesto que já existia na prévia
+  // pequena, agora também funciona aqui, que é "a área onde está aberta a
+  // câmera" de verdade.
+  let _swipeFsX0 = null;
+  ov.addEventListener('touchstart', (e) => { _swipeFsX0 = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+  ov.addEventListener('touchend', (e) => {
+    if (_swipeFsX0 === null) return;
+    const dx = e.changedTouches[0].clientX - _swipeFsX0;
+    _swipeFsX0 = null;
+    if (Math.abs(dx) > 40) _shareIrParaTpl((S.tplIdx + (dx < 0 ? 1 : -1) + SHARE_TEMPLATES.length) % SHARE_TEMPLATES.length);
+  }, { passive: true });
+}
+
+// Zoom digital por pinça (dois dedos): mede a distância inicial entre os
+// toques e escala o vídeo proporcionalmente — não depende de o aparelho
+// suportar zoom óptico controlável via MediaStreamTrack (suporte irregular
+// entre navegadores), então funciona em qualquer câmera.
+function _shareAtivarZoomPinca(video) {
+  let dist0 = null, zoom0 = 1;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const aplicar = () => {
+    const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
+    video.style.transform = espelho + 'scale(' + _camZoom + ')';
+  };
+  video.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) { dist0 = dist(e.touches); zoom0 = _camZoom; }
+  }, { passive: true });
+  video.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && dist0) {
+      _camZoom = Math.min(3, Math.max(1, zoom0 * (dist(e.touches) / dist0)));
+      aplicar();
+    }
+  }, { passive: true });
+  video.addEventListener('touchend', (e) => { if (e.touches.length < 2) dist0 = null; }, { passive: true });
 }
 
 // Só captura o quadro atual do vídeo pra um dataURL — sem mexer em estado
@@ -1290,12 +1369,18 @@ function _shareCapturarFrameAtual() {
   const v = document.getElementById('share-cam-video');
   if (!v || !v.videoWidth) return null;
   const canvas = document.createElement('canvas');
+  // O zoom digital (pinça) é feito com CSS transform na prévia — pra a FOTO
+  // sair igual ao que o aluno via enquadrado, recorta o retângulo central
+  // ampliado em vez do quadro inteiro da câmera.
+  const z = _camZoom || 1;
+  const cw = v.videoWidth / z, ch = v.videoHeight / z;
+  const sx = (v.videoWidth - cw) / 2, sy = (v.videoHeight - ch) / 2;
   canvas.width = v.videoWidth; canvas.height = v.videoHeight;
   const ctx = canvas.getContext('2d');
   // Espelha na câmera frontal: sem isso a foto sai trocada (letras ao contrário
   // em qualquer texto atrás da pessoa), mesmo a prévia já mostrando espelhado.
   if (_camFacing === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
-  ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(v, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
@@ -1474,10 +1559,6 @@ function _renderShareOverlay() {
   const muted = isLight ? '#777' : '#888';
   const S = _shareState;
   const tpl = SHARE_TEMPLATES[S.tplIdx];
-  // Vídeo ao vivo só entra no cartão se a câmera estiver de fato ligada, a
-  // origem escolhida for câmera E ainda não tiver foto tirada/escolhida —
-  // depois de capturar (ou trocar pra galeria) o cartão mostra a imagem parada.
-  const camAtiva = !!_camStream && S.origem === 'camera' && !S.bgImg;
 
   document.getElementById('share-overlay')?.remove();
   const overlay = document.createElement('div');
@@ -1502,25 +1583,16 @@ function _renderShareOverlay() {
     <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 10px 8px;">
       <button onclick="_shareTrocarTpl(-1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
       <div id="share-card-host" style="position:relative;width:min(78vw,300px);aspect-ratio:230/410;border-radius:18px;overflow:hidden;background:#000;">
-        ${camAtiva ? `<video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${_camFacing === 'user' ? 'transform:scaleX(-1);' : ''}${tpl.filtroCss||''}"></video>` : ''}
-        <div style="position:absolute;inset:0;${camAtiva ? 'pointer-events:none;' : ''}">${tpl.render(S.info, S.fig, camAtiva ? 'LIVE' : S.bgImg, isLight)}</div>
-        ${camAtiva ? `<button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="position:absolute;top:10px;right:10px;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">${_shareIconSvg('trocar',17)}</button>` : ''}
+        ${tpl.render(S.info, S.fig, S.bgImg, isLight)}
       </div>
       <button onclick="_shareTrocarTpl(1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">›</button>
     </div>
-    ${camAtiva ? `
-    <div style="text-align:center;font-size:11px;color:${muted};margin:2px auto 12px;max-width:270px;line-height:1.5;">Posicione-se dentro do quadro — arraste o dedo sobre a prévia (ou use ‹ ›) pra trocar de filtro sem perder o enquadramento</div>
-    <div style="display:flex;justify-content:center;margin-bottom:16px;">
-      <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:64px;height:64px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.55);cursor:pointer;"></button>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;padding:6px 16px;margin-bottom:16px;">
-      ${_shareFiltroChipsHtml(S, bgCard, borderC)}
-    </div>` : (S.bgImg ? `
+    ${S.bgImg ? `
     <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;">
       <button onclick="_shareAbrirCamera()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('trocar',15)} Tirar outra</button>
       <button onclick="_shareDescartarFoto()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);color:#ef4444;">🗑️ Descartar foto</button>
     </div>` : `
-    <div style="height:6px;"></div>`)}
+    <div style="height:6px;"></div>`}
 
     <div style="max-width:340px;margin:0 auto;padding:0 16px;">
       <button onclick="_shareAcao('salvar')" style="width:100%;display:flex;align-items:center;justify-content:center;gap:9px;padding:14px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14.5px;font-weight:800;cursor:pointer;margin-bottom:18px;">${_shareIconSvg('salvar',19)} Salvar na galeria</button>
@@ -1560,9 +1632,7 @@ function _renderShareOverlay() {
   `;
   document.body.appendChild(overlay);
 
-  if (camAtiva) document.getElementById('share-cam-video').srcObject = _camStream;
-
-  // Arrastar o dedo dentro da área da câmera/cartão também troca de filtro —
+  // Arrastar o dedo dentro da área do cartão também troca de filtro —
   // antes só dava pra usar os botões ‹ › do lado, fora da área que o aluno
   // está de fato olhando (a prévia com a própria câmera).
   const hostEl = document.getElementById('share-card-host');
@@ -1589,7 +1659,10 @@ function _shareFiltroChipsHtml(S, bgCard, borderC) {
 }
 function _shareIrParaTpl(i) {
   _shareState.tplIdx = i;
-  _renderShareOverlay();
+  // O carrossel de filtros aparece tanto na prévia pequena quanto na câmera
+  // em tela cheia — precisa re-renderizar a tela certa, não sempre a prévia.
+  if (document.getElementById('share-camera-fullscreen')) _renderCameraTelaCheia();
+  else _renderShareOverlay();
 }
 function _shareDescartarFoto() {
   _shareState.bgImg = null;
