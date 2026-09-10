@@ -1174,7 +1174,7 @@ const SHARE_TEMPLATES = [
   { id: 'transparente', nome: 'Clássico',  emoji: '🎬', render: _tplTransparenteHtml },
   { id: 'foto',         nome: 'Destaque',  emoji: '✨', render: _tplFotoHtml },
   { id: 'story',        nome: 'Moldura',   emoji: '🖼️', render: _tplStoryHtml },
-  { id: 'invertido',    nome: 'Invertido', emoji: '🌗', render: _tplInvertidoHtml, filtroCss: 'filter:invert(1) hue-rotate(180deg);' },
+  { id: 'dourado',      nome: 'Dourado',   emoji: '🌇', render: _tplDouradoHtml, filtroCss: 'filter:saturate(1.35) contrast(1.08) brightness(1.05) sepia(.12);' },
   { id: 'figurona',     nome: 'Mascote',   emoji: '🎉', render: _tplFigurinhaGrandeHtml },
   { id: 'frase',        nome: 'Frase',     emoji: '💬', render: _tplFraseHtml },
 ];
@@ -1356,9 +1356,24 @@ function _renderCameraTelaCheia() {
   // (incluindo os botões e os chips de filtro) esticava junto do vídeo.
   ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;touch-action:none;';
   const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
+  // BUG real: a tela cheia mostrava a câmera preenchendo o aparelho inteiro
+  // (proporção da TELA), mas o cartão final — miniatura, foto salva, tudo —
+  // sempre teve proporção FIXA 230:410. Ao tirar a foto, o mesmo enquadramento
+  // que aparecia cheio na tela cheia virava recortado (mais de perto) quando
+  // reaparecia no cartão 230:410 — o rosto "pulava" de posição entre tirar e
+  // salvar. Moldura abaixo trava a área de captura na MESMA proporção
+  // 230:410 já na tela cheia (com barra preta nas sobras), então o que se vê
+  // ao enquadrar é exatamente o que sai na foto — sem susto.
+  const _telaW = window.innerWidth, _telaH = window.innerHeight;
+  const _propAlvo = 230 / 410;
+  let _molduraW, _molduraH;
+  if (_telaW / _telaH > _propAlvo) { _molduraH = _telaH; _molduraW = _telaH * _propAlvo; }
+  else { _molduraW = _telaW; _molduraH = _telaW / _propAlvo; }
   ov.innerHTML = `
-    <video id="share-cam-video-fs" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:${espelho}scale(${_camZoom});${tpl.filtroCss||''}"></video>
-    <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
+    <div id="share-cam-moldura" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${_molduraW}px;height:${_molduraH}px;overflow:hidden;">
+      <video id="share-cam-video-fs" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:${espelho}scale(${_camZoom});${tpl.filtroCss||''}"></video>
+      <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
+    </div>
     <button aria-label="Fechar câmera" onclick="_shareCancelarCameraTelaCheia()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;font-size:17px;cursor:pointer;z-index:3;">✕</button>
     <div style="position:absolute;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:16px;z-index:3;">
       <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;max-width:92vw;padding:4px 10px;">
@@ -1575,20 +1590,18 @@ function _tplStoryHtml(info, fig, bgImg, isLight) {
     ${_shareLogoRodape(isLight)}
   </div>`;
 }
-// Preto-e-branco de negativo de filme — mesmo layout do Clássico, mas o
-// fundo (foto/vídeo) recebe o filtro invert(); logo e texto ficam por fora
-// dessa camada de propósito, senão ficariam ilegíveis também invertidos.
-// No modo LIVE (câmera ligada) o filtro é aplicado direto no <video> por
-// _renderShareOverlay, porque o vídeo não é HTML deste template — este
-// template só desenha o texto por cima. IMPORTANTE: o fundo do próprio
-// .share-card precisa ficar transparente em modo LIVE, senão ele TAPA o
-// vídeo que está atrás (era exatamente esse o bug que deixava a tela preta
-// ao escolher o filtro Invertido com a câmera ligada).
-function _tplInvertidoHtml(info, fig, bgImg, isLight) {
-  const bg = bgImg === 'LIVE' ? '' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
-  const cardBg = bgImg === 'LIVE' ? 'transparent' : '#000';
-  return `<div class="share-card" style="background:${cardBg};">
-    ${bgImg !== 'LIVE' ? `<div style="position:absolute;inset:0;filter:invert(1) hue-rotate(180deg);${bg}"></div>` : ''}
+// Realce quente e saturado (tom "golden hour"), no lugar do antigo filtro de
+// negativo/invertido — o negativo distorcia a cor da pele e não tinha pedido
+// nenhum, trocado por algo que valoriza o físico. Mesmo esquema do Clássico:
+// fundo (foto/vídeo) recebe o filtro; logo e texto ficam FORA dessa camada,
+// senão saturariam junto e ficariam berrantes. No modo LIVE o filtro vai
+// direto no <video> (por quem chama este template) — aqui só desenha o texto
+// por cima, com o fundo do próprio .share-card transparente pra não tapar o
+// vídeo (mesma lição do antigo bug de tela preta no Invertido).
+function _tplDouradoHtml(info, fig, bgImg, isLight) {
+  const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
+  return `<div class="share-card" style="background:transparent;">
+    ${bgImg !== 'LIVE' ? `<div style="position:absolute;inset:0;filter:saturate(1.35) contrast(1.08) brightness(1.05) sepia(.12);${bg}"></div>` : ''}
     <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 18px;background:rgba(10,10,10,.58);border-radius:16px;">
       ${_shareBarraInferior(info, fig)}
     </div>
@@ -7322,6 +7335,8 @@ function _desenharRotaCardioLive() {
 let _cardioLiveMapa = null;
 let _cardioLiveRotaLayer = null;
 let _cardioLiveMarcador = null;
+let _cardioLiveMapaFoco = false; // já centralizou/deu zoom num ponto de GPS real?
+const CARDIO_MAPA_ZOOM = 15; // ~raio de 1km em volta do atleta
 
 // Chamada uma vez por render estrutural. Se o Leaflet não carregou (CDN
 // fora do ar, sem internet), simplesmente não faz nada — _atualizarRotaCardioLive
@@ -7343,10 +7358,14 @@ function _iniciarMapaCardioLive() {
   try {
     const ultimo = _cardioLivePontos[_cardioLivePontos.length - 1];
     const centro = ultimo ? [ultimo.lat, ultimo.lng] : [0, 0];
+    _cardioLiveMapaFoco = !!ultimo;
+    // BUG real: sem ponto de GPS ainda, o mapa abria no zoom 2 (o país
+    // inteiro) — e como _atualizarRotaMapa só dava panTo (nunca corrigia o
+    // zoom), ficava assim até o fim do treino mesmo depois do GPS responder.
     // attributionControl fica ligado de propósito: é exigência de uso dos
     // tiles do OpenStreetMap, não só estilo — sem isso o uso do mapa fica
     // fora da política deles.
-    _cardioLiveMapa = L.map(mapEl, { zoomControl: false, attributionControl: true, dragging: true }).setView(centro, ultimo ? 16 : 2);
+    _cardioLiveMapa = L.map(mapEl, { zoomControl: false, attributionControl: true, dragging: true }).setView(centro, ultimo ? CARDIO_MAPA_ZOOM : 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(_cardioLiveMapa);
     _cardioLiveRotaLayer = L.polyline([], { color: '#0a0a0a', weight: 4, opacity: .85 }).addTo(_cardioLiveMapa);
     if (ultimo) _cardioLiveMarcador = L.circleMarker(centro, { radius: 7, color: '#0a0a0a', weight: 2, fillColor: '#7FFF00', fillOpacity: 1 }).addTo(_cardioLiveMapa);
@@ -7367,7 +7386,12 @@ function _atualizarRotaMapa() {
   const ultimo = latlngs[latlngs.length - 1];
   if (!_cardioLiveMarcador) _cardioLiveMarcador = L.circleMarker(ultimo, { radius: 7, color: '#0a0a0a', weight: 2, fillColor: '#7FFF00', fillOpacity: 1 }).addTo(_cardioLiveMapa);
   else _cardioLiveMarcador.setLatLng(ultimo);
-  _cardioLiveMapa.panTo(ultimo);
+  // O PRIMEIRO ponto real de GPS que chega (mapa tinha nascido no zoom 2, de
+  // país inteiro, por falta de posição) precisa de setView pra dar o zoom de
+  // verdade — panTo só desloca o centro, nunca corrige o zoom. Depois desse
+  // primeiro foco, panTo normal preserva o zoom que o aluno escolher na mão.
+  if (!_cardioLiveMapaFoco) { _cardioLiveMapa.setView(ultimo, CARDIO_MAPA_ZOOM); _cardioLiveMapaFoco = true; }
+  else _cardioLiveMapa.panTo(ultimo);
 }
 // Escolhe mapa real ou o esboço em SVG, o que estiver disponível — chamada
 // a cada segundo pelo mesmo updater de sempre (_atualizarStatsCardioLive).
