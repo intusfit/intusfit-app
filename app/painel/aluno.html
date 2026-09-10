@@ -3830,6 +3830,7 @@ function renderHome() {
         <div class="h-at" onclick="renderHistorico();trocarView('historico');" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
           <div class="tt">Evoluções</div>
+          <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Histórico</div>
         </div>
         <div class="h-at" onclick="navegar('avaliacoes')" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
@@ -3846,10 +3847,12 @@ function renderHome() {
       <div class="h-at" onclick="navegar('mensagens')">
         <div class="ic" style="background:linear-gradient(135deg,#5a2a5e,#c060d0);">💬</div>
         <div class="tt">Central</div>
+        <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Mensagens</div>
       </div>
       <div class="h-at" onclick="abrirPerfilDados()">
         <div class="ic" style="background:linear-gradient(135deg,#3a3a3a,#8a8a8a);">👤</div>
         <div class="tt">Perfil</div>
+        <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Matrícula</div>
       </div>
     </div>
 
@@ -5181,10 +5184,10 @@ function renderFim(duracao, sessaoSalva) {
 
   document.getElementById('v-fim').innerHTML = `
     <div class="fim-wrap">
-      <img src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus" style="height:32px;margin-bottom:20px;"/>
-      <div style="font-size:48px;margin-bottom:12px;">🎉</div>
-      <h2 style="font-size:24px;letter-spacing:2px;margin-bottom:8px;color:${txtColor};">TREINO FINALIZADO</h2>
-      <p style="font-size:16px;font-weight:600;margin-bottom:10px;color:${subColor};">${esc(mensagem)}</p>
+      <img src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus" style="height:28px;margin-bottom:14px;"/>
+      <div style="font-size:40px;margin-bottom:8px;">🎉</div>
+      <h2 style="font-size:22px;letter-spacing:2px;margin-bottom:6px;color:${txtColor};">TREINO FINALIZADO</h2>
+      <p style="font-size:15px;font-weight:600;margin-bottom:10px;color:${subColor};">${esc(mensagem)}</p>
       <div style="margin-bottom:20px;">${figurinhaAleatoriaHtml(isLight, figDoDia)}</div>
 
       <div id="fim-conquistas"></div>
@@ -5204,16 +5207,17 @@ function renderFim(duracao, sessaoSalva) {
 
       <button class="btn btn-prim" style="width:100%;max-width:320px;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="abrirCompartilharUltimoTreino()">📸 Compartilhar treino</button>
 
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;max-width:320px;width:100%;">
+        <button class="btn btn-sec" onclick="navegar('ranking')">🏆 Ranking</button>
+        <button class="btn btn-sec" onclick="abrirQuadroMedalhas()">🏅 Conquistas</button>
+        <button class="btn btn-sec" onclick="navegar('historico')">📊 Histórico</button>
+        <button class="btn btn-sec" onclick="trocarView('home');renderHome();">🏠 Início</button>
+      </div>
+
       <div style="margin:20px auto 0;max-width:320px;text-align:left;">
         <label style="font-size:11px;color:${subColor};font-weight:600;text-transform:uppercase;letter-spacing:.5px;">💬 Comentário</label>
         <textarea id="comentario-fim" placeholder="Como foi o treino hoje?" style="width:100%;margin-top:6px;padding:12px;background:${inputBg};border:1px solid ${cardBorder};border-radius:10px;color:${txtColor};font-size:13px;font-family:inherit;min-height:60px;resize:vertical;">${esc(sessaoSalva.comentario || '')}</textarea>
         <button class="btn btn-sec" style="width:100%;margin-top:8px;min-height:36px;font-size:12px;" onclick="salvarComentarioFim(${sessaoSalva.idsessao})">Salvar comentário</button>
-      </div>
-
-      <div style="display:flex;gap:8px;margin-top:12px;max-width:320px;width:100%;">
-        <button class="btn btn-sec" style="flex:1;" onclick="navegar('ranking')">🏆 Ranking</button>
-        <button class="btn btn-sec" style="flex:1;" onclick="navegar('historico')">📊 Histórico</button>
-        <button class="btn btn-sec" style="flex:1;" onclick="trocarView('home');renderHome();">🏠 Início</button>
       </div>
     </div>`;
   try { _celebrarConquistasFim(); } catch (e) {}
@@ -5703,6 +5707,12 @@ function renderEvolucaoAluno(sessoes, isLight) {
   return html;
 }
 
+let _historicoTab = 'evolucao';
+function _historicoTrocarTab(tab) {
+  _historicoTab = tab;
+  renderHistorico();
+}
+
 function renderHistorico() {
   const sessoes = SessoesTreino.listarDoAtleta(idAtleta);
   const isLight = document.body.classList.contains('tema-claro');
@@ -5712,6 +5722,14 @@ function renderHistorico() {
     html += `<div class="coming-soon"><div class="icon">📊</div><h3>Nenhum treino registrado</h3>
       <p>Ao finalizar seus treinos, o histórico aparecerá aqui.</p></div>`;
   } else {
+    // Abas: a tela juntava evolução (cartões, gráficos) e a lista de sessões
+    // inteira numa rolagem só, ficando comprida demais. Separado em duas
+    // abas — o conteúdo é o mesmo de sempre, só a apresentação muda.
+    const _abaAtiva = _historicoTab || 'evolucao';
+    const _abaBtn = (chave, label) => `<button onclick="_historicoTrocarTab('${chave}')" style="flex:1;padding:10px;border-radius:10px;border:1px solid ${_abaAtiva===chave ? (isLight?'#5cb800':'#7FFF00') : 'var(--borda)'};background:${_abaAtiva===chave ? (isLight?'rgba(92,184,0,.1)':'rgba(127,255,0,.08)') : 'var(--card-bg)'};color:${_abaAtiva===chave ? (isLight?'#2d8a00':'#7FFF00') : 'var(--muted)'};font-weight:800;font-size:12.5px;cursor:pointer;">${label}</button>`;
+    html += `<div style="display:flex;gap:8px;margin-bottom:16px;">${_abaBtn('evolucao','📈 Evolução')}${_abaBtn('linha','🕒 Histórico')}</div>`;
+
+    html += `<div id="hist-painel-evolucao" style="${_abaAtiva==='evolucao'?'':'display:none;'}">`;
     // ─── STATS CARDS ─── (exclui sessões de teste; semana = domingo→hoje, igual ao ranking)
     const contar = sessoes.filter(s => !s.nao_contar);
     const ehCardioS = s => (s.tipo === 'cardio') || !!s.cardio_tipo;
@@ -5829,10 +5847,11 @@ function renderHistorico() {
     // primeiro mostrava uma barra por sessão sem comparar períodos; o segundo
     // plotava só a carga MÁXIMA, escondendo o que acontece em cada série.
     html += renderEvolucaoAluno(sessoes, isLight);
-
+    html += `</div>`; // fecha #hist-painel-evolucao
 
     // ─── SESSION CARDS ───
-    html += `<h2 class="sect-title" style="margin-top:20px;">🕒 Linha do tempo</h2>
+    html += `<div id="hist-painel-linha" style="${_abaAtiva==='linha'?'':'display:none;'}">`;
+    html += `<h2 class="sect-title" style="margin-top:4px;">🕒 Linha do tempo</h2>
       <p style="font-size:11px;color:${isLight?'#888':'#888'};margin:-6px 0 10px;">Tudo o que você vem fazendo, do mais recente ao mais antigo.</p>`;
     sessoes.slice(0, 20).forEach(s => {
       const data = new Date(s.dtsessao + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
@@ -5874,6 +5893,7 @@ function renderHistorico() {
       </div>`;
     });
     html += `<div style="font-size:11px;color:${isLight?'#999':'#666'};line-height:1.6;margin-top:14px;padding:11px 13px;background:${isLight?'#f6f6f6':'#161616'};border-radius:11px;">🔒 <b>Seu histórico completo é privado.</b> Só você enxerga todos os seus treinos e evoluções aqui. No ranking, os outros membros veem apenas as suas atividades <b>da semana atual</b>, e você vê só as deles da semana também.</div>`;
+    html += `</div>`; // fecha #hist-painel-linha
   }
   // A caixa de removidos vem depois do historico e antes do rodape: e para onde
   // o aluno vai olhar quando apagar algo sem querer.
