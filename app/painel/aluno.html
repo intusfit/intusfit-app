@@ -1464,9 +1464,15 @@ function _shareFigMini(fig) {
   if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:44px;height:44px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
   return `<div style="font-size:38px;line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
 }
+// BUG real: em largura de celular de verdade (a prévia é min(78vw,300px) —
+// a 375px de tela isso é ~292px, mais estreito que os 300px fixos usados
+// nos testes em viewport largo), as 4 células mediam a própria largura de
+// conteúdo e não cabiam somadas — a última ("90% completo") saía cortada
+// pelo overflow:hidden do cartão. flex:1 faz as 4 dividirem o espaço
+// disponível em vez de cada uma exigir a própria largura natural.
 function _shareStatsRow(info) {
-  const cell = (v,l) => `<div style="text-align:center;"><div style="font-size:19px;font-weight:900;color:#fff;line-height:1.15;">${v}</div><div style="font-size:10px;color:#ccc;text-transform:uppercase;letter-spacing:.02em;">${l}</div></div>`;
-  return `<div style="display:flex;gap:14px;margin-top:10px;">
+  const cell = (v,l) => `<div style="flex:1;min-width:0;text-align:center;"><div style="font-size:19px;font-weight:900;color:#fff;line-height:1.15;white-space:nowrap;">${v}</div><div style="font-size:10px;color:#ccc;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;">${l}</div></div>`;
+  return `<div style="display:flex;gap:8px;margin-top:10px;">
     ${cell(info.min+':'+String(info.sec).padStart(2,'0'),'tempo')}
     ${info.volume ? cell(info.volume.toLocaleString('pt-BR'),'kg') : ''}
     ${cell(info.seriesFeitas+'/'+info.seriesTotal,'séries')}
@@ -7625,7 +7631,7 @@ function telaHeader(titulo, backView) {
   return '<div class="tela-header-fixa">' +
     '<div style="position:relative;display:flex;align-items:center;min-height:34px;">' +
       '<button class="btn-back" onclick="trocarView(\'' + bv + '\')" style="position:relative;z-index:1;">← Voltar</button>' +
-      '<div class="th-titulo" style="position:absolute;left:0;right:0;text-align:center;font-size:18px;font-weight:900;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';pointer-events:none;letter-spacing:-.3px;">' + (titulo || '') + '</div>' +
+      '<div class="th-titulo" style="position:absolute;left:0;right:0;padding:0 82px 0 60px;text-align:center;font-size:18px;font-weight:900;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';pointer-events:none;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (titulo || '') + '</div>' +
       '<img src="' + (isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus" style="position:absolute;right:0;height:16px;opacity:1;"/>' +
     '</div>' +
   '</div>';
