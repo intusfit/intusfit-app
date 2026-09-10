@@ -1154,9 +1154,18 @@ function renderExCard(ex, idx, total) {
   const reps = ex.repeticoes || ex.qtdrepeticao || '10 a 12';
   const cargas = ex.cargas || [];
 
+  // BUG real em produção: quando faltava reps_por_serie[i] (ex.: a contagem de
+  // séries tinha acabado de aumentar e o array por série ainda não tinha
+  // crescido), o preenchimento caía direto pra `reps` inteiro — que já podia
+  // ser "10 a 12/10/10 a 12" (o texto JUNTADO de uma edição anterior, com "/"
+  // e tudo). Isso colava o valor de VÁRIAS séries dentro de uma caixa só.
+  // Precisa separar por "/" primeiro e pegar só a fatia daquela série.
+  const repsLista = String(reps).includes('/') ? String(reps).split('/').map(x => x.trim()) : null;
   let repPills = '';
   for (let i = 0; i < numSeries; i++) {
-    const val = Array.isArray(ex.reps_por_serie) && ex.reps_por_serie[i] ? ex.reps_por_serie[i] : reps;
+    const val = (Array.isArray(ex.reps_por_serie) && ex.reps_por_serie[i])
+      ? ex.reps_por_serie[i]
+      : (repsLista ? (repsLista[i] || repsLista[0]) : reps);
     repPills += `<input class="rep-pill" value="${esc(val)}" ${ro ? 'disabled' : `onchange="updateRepSerie(${idx},${i},this.value)"`}/>`;
   }
   let cargaPills = '';
@@ -1269,7 +1278,37 @@ function getExReal(idx) {
   const exs = editorState.exercicios.filter(e => (e.divisao||'A') === editorState.tabAtiva && !e._placeholder);
   return editorState.exercicios.indexOf(exs[idx]);
 }
-function updateSeries(idx, val) { const r = getExReal(idx); if (r >= 0) { editorState.exercicios[r].qtdserie = parseInt(val)||4; renderEditor(); } }
+// Mudar a contagem de séries precisa redimensionar as listas por série
+// (repetição, intervalo, carga) junto — antes só trocava qtdserie e deixava
+// as listas do tamanho antigo. Séries novas ficavam sem posição no array, o
+// preenchimento caía num fallback que colava o texto de VÁRIAS séries
+// antigas numa caixa só (bug real relatado em produção: "10 a 12/10/10 a
+// 12/10 a 12" aparecendo em série nenhuma daquelas tinha esse valor).
+function updateSeries(idx, val) {
+  const r = getExReal(idx);
+  if (r < 0) return;
+  const ex = editorState.exercicios[r];
+  const n = parseInt(val) || 4;
+  ex.qtdserie = n;
+  ['reps_por_serie', 'intervalos_por_serie', 'cargas'].forEach(campo => {
+    if (!Array.isArray(ex[campo])) return;
+    const arr = ex[campo];
+    while (arr.length < n) arr.push(arr.length ? arr[arr.length - 1] : '');
+    arr.length = n;
+  });
+  if (Array.isArray(ex.tecnicas_por_serie)) ex.tecnicas_por_serie.length = Math.min(ex.tecnicas_por_serie.length, n);
+  // Os campos "resumo" (repeticoes/intervalo) são o que viaja pro servidor e
+  // o que o app do aluno lê — precisam refletir a lista já redimensionada.
+  if (Array.isArray(ex.reps_por_serie)) {
+    const padrao = ex.repeticoes && !String(ex.repeticoes).includes('/') ? ex.repeticoes : (ex.qtdrepeticao || '12');
+    ex.repeticoes = _juntarPorSerie(ex.reps_por_serie, n, padrao);
+  }
+  if (Array.isArray(ex.intervalos_por_serie)) {
+    const padraoInt = ex.intervalo && !String(ex.intervalo).includes('/') ? ex.intervalo : (ex.tempopausa ? formatSeg(ex.tempopausa) : '01:00');
+    ex.intervalo = _juntarPorSerie(ex.intervalos_por_serie, n, padraoInt);
+  }
+  renderEditor();
+}
 function updateIntervalo(idx, val) { const r = getExReal(idx); if (r >= 0) { editorState.exercicios[r].intervalo = val; editorState.exercicios[r].tempopausa = parseSeg(val); } }
 function updateFalha(idx, val) { const r = getExReal(idx); if (r >= 0) editorState.exercicios[r].falha = val; }
 function updateUnilateral(idx, val) { const r = getExReal(idx); if (r >= 0) { editorState.exercicios[r].unilateral = val; renderEditor(); } }
