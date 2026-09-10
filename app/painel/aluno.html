@@ -218,13 +218,19 @@
     #menu-zoom-btns button { background:rgba(255,255,255,.06);border:1.5px solid #333;color:#aaa;border-radius:8px;cursor:pointer;font-size:13px;text-align:center;line-height:1.3; }
     body.tema-claro #menu-zoom-btns button { background:rgba(0,0,0,.04);border-color:#ddd;color:#555; }
 
-    /* Cartão de "Compartilhar treino" — tamanho fixo pra sempre virar uma
-       imagem com a mesma proporção, direto (host em share-overlay já dá o
-       tamanho de exibição; aqui é o conteúdo que o html2canvas fotografa). */
-    .share-card { width: min(78vw, 300px); aspect-ratio: 230 / 410; border-radius: 18px; overflow: hidden; position: relative; }
+    /* Cartão de "Compartilhar treino" — preenche 100% de quem o contém
+       (#share-card-host na prévia, a tela cheia na câmera). BUG real: aqui
+       era "width: min(78vw, 300px)" — um valor em vw, relativo à JANELA, não
+       ao pai. O host ao lado dos botões ‹ › vira mais estreito que 78vw por
+       causa do flex-shrink, mas o cartão continuava se desenhando na largura
+       cheia e transbordava, cortado pelo overflow:hidden — invisível
+       enquanto nada tocava a borda direita, mas foi o que cortava a logo
+       quando ela virou selo no canto superior direito. 100% resolve porque
+       o host (e a tela cheia) já dão o tamanho certo por fora. */
+    .share-card { width: 100%; height: 100%; border-radius: 18px; overflow: hidden; position: relative; }
     /* Mesmo template (render()), sem duplicar HTML: dentro da câmera em tela
-       cheia o cartão preenche a tela inteira em vez do tamanho fixo da prévia. */
-    #share-camera-fullscreen .share-card { width: 100%; height: 100%; aspect-ratio: unset; border-radius: 0; }
+       cheia o cartão preenche a tela inteira sem cantos arredondados. */
+    #share-camera-fullscreen .share-card { border-radius: 0; }
     .share-card-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; padding: 18px; text-align: center; }
 
     .timer-bar {
@@ -1347,7 +1353,7 @@ function _renderCameraTelaCheia() {
   ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;';
   const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
   ov.innerHTML = `
-    <video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:${espelho}scale(${_camZoom});${tpl.filtroCss||''}"></video>
+    <video id="share-cam-video-fs" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:${espelho}scale(${_camZoom});${tpl.filtroCss||''}"></video>
     <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
     <button aria-label="Fechar câmera" onclick="_shareCancelarCameraTelaCheia()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;font-size:17px;cursor:pointer;z-index:3;">✕</button>
     <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">${_shareIconSvg('trocar',18)}</button>
@@ -1359,7 +1365,12 @@ function _renderCameraTelaCheia() {
     </div>
   `;
   document.body.appendChild(ov);
-  const video = document.getElementById('share-cam-video');
+  // BUG real: a miniatura por baixo (#share-overlay) continua no DOM com o
+  // seu próprio <video id="share-cam-video">, e essa tela cheia usava o MESMO
+  // id — getElementById('share-cam-video') sempre devolvia o primeiro do
+  // documento (o da miniatura, escondido atrás), então o <video> da tela
+  // cheia nunca recebia o srcObject e ficava preto. Id próprio resolve.
+  const video = document.getElementById('share-cam-video-fs');
   video.srcObject = _camStream;
   _shareAtivarZoomPinca(video);
 
@@ -1405,7 +1416,9 @@ function _shareAtivarZoomPinca(video) {
 // (que precisa "tirar a foto" sozinha se o aluno pedir pra compartilhar
 // direto, ainda com a câmera ao vivo e sem ter apertado o obturador).
 function _shareCapturarFrameAtual() {
-  const v = document.getElementById('share-cam-video');
+  // Tela cheia tem id próprio (share-cam-video-fs); sem ela, sobra só o
+  // <video> da miniatura (share-cam-video).
+  const v = document.getElementById('share-cam-video-fs') || document.getElementById('share-cam-video');
   if (!v || !v.videoWidth) return null;
   const canvas = document.createElement('canvas');
   // O zoom digital (pinça) é feito com CSS transform na prévia — pra a FOTO
@@ -1461,8 +1474,8 @@ function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'log
 // cartão juntas — o resto fica transparente pra foto aparecer inteira.
 function _shareFigMini(fig) {
   if (!fig || !(_shareState && _shareState.incluirFig)) return '';
-  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:44px;height:44px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
-  return `<div style="font-size:38px;line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
+  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:64px;height:64px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
+  return `<div style="font-size:56px;line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
 }
 // BUG real: em largura de celular de verdade (a prévia é min(78vw,300px) —
 // a 375px de tela isso é ~292px, mais estreito que os 300px fixos usados
@@ -1479,9 +1492,9 @@ function _shareStatsRow(info) {
     ${cell('<span style="color:#7FFF00;">'+info.pctCompleto+'%</span>','completo')}
   </div>`;
 }
-// Bloco de informações: figurinha + nome + treino + estatísticas. Não é mais
-// "de baixo" — o nome ficou do tempo em que morava colado no rodapé; hoje
-// entra no bloco de cima (ver SHARE_INFO_TOPO), maior e mais destacado.
+// Bloco de informações: figurinha + nome + treino + estatísticas. Fica no
+// terço inferior do cartão (ver SHARE_INFO_FUNDO) — de propósito, é onde
+// ficariam os pés de quem tira a própria foto, longe do rosto.
 function _shareBarraInferior(info, fig) {
   return `<div style="display:flex;align-items:center;gap:12px;">
       ${_shareFigMini(fig)}
@@ -1492,15 +1505,11 @@ function _shareBarraInferior(info, fig) {
     </div>
     ${_shareStatsRow(info)}`;
 }
-// Logo da marca: virou um selo discreto perto do rodapé (era destaque no
-// topo) — quem importa agora é o treino/figurinha, não a marca. Centralizado
-// com left:50%+transform em vez de left:0;right:0;width:fit-content: esse
-// truque de fit-content distorcia a logo no filtro Frase (esticava a imagem
-// pra preencher a largura toda, porque nem todo navegador móvel respeita
-// fit-content num <img> absolutamente posicionado) — transform é robusto em
-// qualquer navegador.
+// Logo da marca: selo discreto no canto superior direito — junto do bloco de
+// informações no terço inferior (ver SHARE_INFO_FUNDO), sobra o resto do
+// cartão livre pra foto/vídeo aparecer inteiro, sem cobrir rosto nem pés.
 function _shareLogoRodape(isLight) {
-  return `<img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;bottom:${SHARE_LOGO_FUNDO};left:50%;transform:translateX(-50%);height:20px;width:auto;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6));"/>`;
+  return `<img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;top:${SHARE_LOGO_TOPO};right:${SHARE_LADO};height:16px;width:auto;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6));"/>`;
 }
 // Margens/posições em % (não em px): o mesmo template roda tanto na miniatura
 // pequena (~300x534) quanto na câmera em tela cheia (a tela inteira do
@@ -1508,13 +1517,17 @@ function _shareLogoRodape(isLight) {
 // miniatura ficava minúscula, colada na borda, na tela cheia bem maior.
 // Percentual escala igual nos dois tamanhos, porque é relativo ao próprio
 // .share-card (que é o bloco de referência dos filhos position:absolute).
-const SHARE_INFO_TOPO = '17%';   // onde o bloco de nome/treino/estatísticas começa
-const SHARE_LOGO_FUNDO = '5%';   // logo perto do rodapé, como selo discreto
+// 17% do topo caía bem em cima do rosto de quem tira a foto esticando o braço
+// (o enquadramento comum de foto de treino) — o bloco tapava a cara. Trocado
+// pra "bottom": o cartão nasce no terço inferior, onde ficariam os pés, e
+// cresce pra cima — não cobre rosto nem tronco.
+const SHARE_INFO_FUNDO = '20%';  // onde o bloco de nome/treino/estatísticas termina embaixo
+const SHARE_LOGO_TOPO = '9%';    // logo virou selo no canto superior direito
 const SHARE_LADO = '7%';         // margem lateral
 function _tplTransparenteHtml(info, fig, bgImg, isLight) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};top:${SHARE_INFO_TOPO};padding:16px 18px;background:rgba(10,10,10,.58);border-radius:16px;">
+    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 18px;background:rgba(10,10,10,.58);border-radius:16px;">
       ${_shareBarraInferior(info, fig)}
     </div>
     ${_shareLogoRodape(isLight)}
@@ -1523,7 +1536,7 @@ function _tplTransparenteHtml(info, fig, bgImg, isLight) {
 function _tplFotoHtml(info, fig, bgImg, isLight) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};top:${SHARE_INFO_TOPO};padding:16px 18px;background:rgba(10,10,10,.6);border-radius:16px;">
+    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 18px;background:rgba(10,10,10,.6);border-radius:16px;">
       <div style="font-size:12.5px;color:#7FFF00;font-weight:800;margin-bottom:6px;">${info.pctCompleto}% COMPLETO</div>
       ${_shareBarraInferior(info, fig)}
     </div>
@@ -1534,7 +1547,7 @@ function _tplStoryHtml(info, fig, bgImg, isLight) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:#0a0a0a;`;
   return `<div class="share-card" style="${bg}">
     <div style="position:absolute;inset:14px;border:1.5px solid rgba(127,255,0,.4);border-radius:16px;pointer-events:none;"></div>
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};top:${SHARE_INFO_TOPO};padding:16px 17px;background:rgba(10,10,10,.75);border:1px solid rgba(127,255,0,.3);border-radius:15px;">
+    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 17px;background:rgba(10,10,10,.75);border:1px solid rgba(127,255,0,.3);border-radius:15px;">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:7px;">
         ${_shareFigMini(fig)}
         <div style="font-size:12px;color:#bbb;letter-spacing:.05em;">HOJE EU TREINEI</div>
@@ -1561,22 +1574,22 @@ function _tplInvertidoHtml(info, fig, bgImg, isLight) {
   const cardBg = bgImg === 'LIVE' ? 'transparent' : '#000';
   return `<div class="share-card" style="background:${cardBg};">
     ${bgImg !== 'LIVE' ? `<div style="position:absolute;inset:0;filter:invert(1) hue-rotate(180deg);${bg}"></div>` : ''}
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};top:${SHARE_INFO_TOPO};padding:16px 18px;background:rgba(10,10,10,.58);border-radius:16px;">
+    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 18px;background:rgba(10,10,10,.58);border-radius:16px;">
       ${_shareBarraInferior(info, fig)}
     </div>
     ${_shareLogoRodape(isLight)}
   </div>`;
 }
-// Figurinha em destaque, centralizada acima do bloco de informações — o
-// dobro do tamanho da versão mini usada nos outros templates.
+// Figurinha em destaque, centralizada acima do bloco de informações — maior
+// que a versão mini usada nos outros templates.
 function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   const temFig = fig && _shareState && _shareState.incluirFig;
   const figGrandeHtml = !temFig ? '' : (fig.tipo === 'img' && fig.src)
-    ? `<img src="${esc(fig.src)}" style="width:88px;height:88px;object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'"/>`
-    : `<div style="font-size:76px;line-height:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));">${esc(fig.emoji||'💪')}</div>`;
+    ? `<img src="${esc(fig.src)}" style="width:112px;height:112px;object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'"/>`
+    : `<div style="font-size:96px;line-height:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));">${esc(fig.emoji||'💪')}</div>`;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};top:${SHARE_INFO_TOPO};display:flex;flex-direction:column;align-items:center;gap:12px;">
+    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};display:flex;flex-direction:column;align-items:center;gap:12px;">
       ${figGrandeHtml}
       <div style="width:100%;padding:14px 16px;box-sizing:border-box;background:rgba(10,10,10,.58);border-radius:16px;">
         <div style="display:flex;align-items:center;justify-content:center;text-align:center;">
@@ -1598,7 +1611,7 @@ function _tplFraseHtml(info, fig, bgImg, isLight) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
   const frase = info.mensagem || (typeof getMensagemFinal === 'function' ? getMensagemFinal() : '');
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};top:${SHARE_INFO_TOPO};">
+    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};">
       ${frase ? `<div style="text-align:center;padding:18px 16px;background:rgba(10,10,10,.62);border-radius:16px;margin-bottom:14px;">
         <div style="font-size:20px;font-weight:900;color:#fff;line-height:1.35;text-shadow:0 2px 6px rgba(0,0,0,.6);">${esc(frase)}</div>
       </div>` : ''}
