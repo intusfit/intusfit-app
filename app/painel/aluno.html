@@ -21,6 +21,11 @@
        (Salvar/Copiar/Story). Carregada fixa numa versão; se cair um dia, a
        tela de compartilhar mostra erro em vez de travar o app inteiro. -->
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <!-- Mapa real do Cardio ao vivo (Leaflet + tiles do OpenStreetMap, sem
+       chave de API). Se o CDN falhar (offline, bloqueio de rede), o app cai
+       sozinho pro esboço em SVG de sempre — ver _iniciarMapaCardioLive. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -806,6 +811,22 @@
     }
     body.tema-claro .cl-route-card { background: #fff; border-color: rgba(92,184,0,.25); }
     .cl-imersivo .cl-route-card { background: rgba(10,10,10,.06); border: none; box-shadow: none; }
+    /* Animação de atividade em aparelho parado (escada, elíptico) — sem GPS
+       não existe percurso de verdade pra desenhar; em vez de deixar o espaço
+       vazio ou mostrar "0.00 km" inventado, uns anéis pulsando comunicam
+       "isso está rodando agora" sem fingir uma distância que não existe. */
+    .cl-pulse-wrap { position: relative; width: 100%; height: 130px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .cl-pulse-ring {
+      position: absolute; width: 40px; height: 40px; border-radius: 50%;
+      border: 3px solid rgba(127,255,0,.55); animation: clPulseRing 2.4s ease-out infinite;
+    }
+    .cl-imersivo .cl-pulse-ring { border-color: rgba(10,10,10,.3); }
+    .cl-pulse-ring:nth-child(2) { animation-delay: .8s; }
+    .cl-pulse-ring:nth-child(3) { animation-delay: 1.6s; }
+    @keyframes clPulseRing { 0% { width: 34px; height: 34px; opacity: .85; } 100% { width: 150px; height: 150px; opacity: 0; } }
+    .cl-pulse-emoji { font-size: 36px; z-index: 1; animation: clPulseBob 1s ease-in-out infinite alternate; filter: drop-shadow(0 2px 4px rgba(0,0,0,.25)); }
+    @keyframes clPulseBob { from { transform: translateY(0); } to { transform: translateY(-7px); } }
+    @media (prefers-reduced-motion: reduce) { .cl-pulse-ring, .cl-pulse-emoji { animation: none; } }
     .cl-stat-num { font-size: 18px; font-weight: 900; color: #f0f0f0; font-variant-numeric: tabular-nums; }
     .cl-stat-lbl { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: .08em; margin-top: 3px; font-weight: 700; }
     .cl-stat-box { flex: 1; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); border-radius: 14px; padding: 14px 12px; text-align: center; }
@@ -7171,6 +7192,10 @@ function _cardioLivePararTudo() {
   _cardioLiveRodando = false;
   _cardioLiveInicioMs = 0;
   document.getElementById('cardio-live-pill').classList.remove('on');
+  // O mapa Leaflet mantém listeners próprios (resize, etc.) que sobrevivem
+  // mesmo com o <div> removido da tela — sem isso, cada sessão de cardio
+  // deixava uma instância órfã na memória.
+  if (_cardioLiveMapa) { try { _cardioLiveMapa.remove(); } catch (e) {} _cardioLiveMapa = null; _cardioLiveRotaLayer = null; _cardioLiveMarcador = null; }
 }
 
 // Confirmação própria (em vez do confirm() nativo do navegador, que quebra o
@@ -7254,6 +7279,69 @@ function _desenharRotaCardioLive() {
     '<circle cx="' + fim[0].toFixed(1) + '" cy="' + fim[1].toFixed(1) + '" r="5" fill="#7FFF00"/>';
 }
 
+// ── MAPA REAL (Leaflet + OpenStreetMap) ────────────────────────────────────
+// _renderCardioLive() reconstrói o innerHTML inteiro a cada pausa/retomada,
+// o que destrói o <div id="cl-map"> e, com ele, qualquer mapa Leaflet
+// amarrado nele — por isso a instância precisa ser recriada a cada render
+// "estrutural" (ver a chamada no fim de _renderCardioLive), nunca só
+// atualizada como o resto dos números.
+let _cardioLiveMapa = null;
+let _cardioLiveRotaLayer = null;
+let _cardioLiveMarcador = null;
+
+// Chamada uma vez por render estrutural. Se o Leaflet não carregou (CDN
+// fora do ar, sem internet), simplesmente não faz nada — _atualizarRotaCardioLive
+// detecta a ausência de window.L e usa o esboço em SVG de sempre, que já
+// vem pronto no HTML (só escondido).
+function _iniciarMapaCardioLive() {
+  if (_cardioLiveMapa) { try { _cardioLiveMapa.remove(); } catch (e) {} _cardioLiveMapa = null; _cardioLiveRotaLayer = null; _cardioLiveMarcador = null; }
+  const mapEl = document.getElementById('cl-map');
+  if (!mapEl) return;
+  // Sem o Leaflet (CDN fora do ar, sem internet na hora de carregar o app),
+  // cai pro esboço em SVG antes mesmo de tentar — sem isso a div do mapa
+  // ficava visível e vazia, e o SVG (que teria o desenho) continuava
+  // escondido.
+  if (typeof L === 'undefined') {
+    mapEl.style.display = 'none';
+    const svgFallback = document.getElementById('cl-svg'); if (svgFallback) svgFallback.style.display = 'block';
+    return;
+  }
+  try {
+    const ultimo = _cardioLivePontos[_cardioLivePontos.length - 1];
+    const centro = ultimo ? [ultimo.lat, ultimo.lng] : [0, 0];
+    // attributionControl fica ligado de propósito: é exigência de uso dos
+    // tiles do OpenStreetMap, não só estilo — sem isso o uso do mapa fica
+    // fora da política deles.
+    _cardioLiveMapa = L.map(mapEl, { zoomControl: false, attributionControl: true, dragging: true }).setView(centro, ultimo ? 16 : 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(_cardioLiveMapa);
+    _cardioLiveRotaLayer = L.polyline([], { color: '#0a0a0a', weight: 4, opacity: .85 }).addTo(_cardioLiveMapa);
+    if (ultimo) _cardioLiveMarcador = L.circleMarker(centro, { radius: 7, color: '#0a0a0a', weight: 2, fillColor: '#7FFF00', fillOpacity: 1 }).addTo(_cardioLiveMapa);
+    document.getElementById('cl-svg').style.display = 'none';
+    mapEl.style.display = '';
+    _atualizarRotaMapa();
+  } catch (e) {
+    console.warn('[cardio-mapa]', e);
+    _cardioLiveMapa = null;
+    if (mapEl) mapEl.style.display = 'none';
+    const svg = document.getElementById('cl-svg'); if (svg) svg.style.display = 'block';
+  }
+}
+function _atualizarRotaMapa() {
+  if (!_cardioLiveMapa || !_cardioLivePontos.length) return;
+  const latlngs = _cardioLivePontos.map(p => [p.lat, p.lng]);
+  _cardioLiveRotaLayer.setLatLngs(latlngs);
+  const ultimo = latlngs[latlngs.length - 1];
+  if (!_cardioLiveMarcador) _cardioLiveMarcador = L.circleMarker(ultimo, { radius: 7, color: '#0a0a0a', weight: 2, fillColor: '#7FFF00', fillOpacity: 1 }).addTo(_cardioLiveMapa);
+  else _cardioLiveMarcador.setLatLng(ultimo);
+  _cardioLiveMapa.panTo(ultimo);
+}
+// Escolhe mapa real ou o esboço em SVG, o que estiver disponível — chamada
+// a cada segundo pelo mesmo updater de sempre (_atualizarStatsCardioLive).
+function _atualizarRotaCardioLive() {
+  if (_cardioLiveMapa) _atualizarRotaMapa();
+  else _desenharRotaCardioLive();
+}
+
 function _atualizarStatsCardioLive() {
   // Atualiza os dois lugares onde a estatística pode estar visível — a tela
   // cheia (se o aluno estiver nela) e a pilula flutuante (se ele tiver
@@ -7263,7 +7351,7 @@ function _atualizarStatsCardioLive() {
   const th = document.getElementById('cl-tempo-hero'); if (th) th.textContent = _fmtCronometro(_cardioLiveTempoMs());
   const d = document.getElementById('cl-dist'); if (d) d.textContent = _cardioLiveKm().toFixed(2);
   const r = document.getElementById('cl-ritmo'); if (r) r.textContent = _cardioLiveTipo === 'Bike' ? _cardioLiveVelTxt() : _cardioLivePaceTxt();
-  _desenharRotaCardioLive();
+  _atualizarRotaCardioLive();
   const usaGpsPill = CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
   const pt = document.getElementById('clp-tempo'); if (pt) pt.textContent = _fmtCronometro(_cardioLiveTempoMs());
   const pd = document.getElementById('clp-dist'); if (pd) pd.textContent = usaGpsPill ? (_cardioLiveKm().toFixed(2) + ' km') : '';
@@ -7411,9 +7499,14 @@ function _renderCardioLive() {
   const heroHtml = usaGps
     ? '<div class="cl-hero"><span class="cl-hero-num" id="cl-dist">0.00</span><div class="cl-hero-lbl">quilômetros</div></div>'
     : '<div class="cl-hero"><span class="cl-hero-num" id="cl-tempo-hero">00:00</span><div class="cl-hero-lbl">' + _cardioLiveTipo.toLowerCase() + '</div></div>';
+  // Mapa real por cima do esboço em SVG (que fica escondido, pronto como
+  // fallback se o Leaflet não tiver carregado — ver _iniciarMapaCardioLive).
+  // Sem GPS (Escada/Elíptico), os anéis pulsando substituem os dois: não tem
+  // percurso de verdade pra desenhar, e fingir um mapa vazio seria pior que
+  // não mostrar nada.
   const rotaHtml = usaGps
-    ? '<div class="cl-route-card"><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:block;"></svg></div>'
-    : '';
+    ? '<div class="cl-route-card"><div id="cl-map" style="width:100%;height:170px;border-radius:14px;overflow:hidden;"></div><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:none;"></svg></div>'
+    : '<div class="cl-route-card cl-pulse-wrap"><div class="cl-pulse-ring"></div><div class="cl-pulse-ring"></div><div class="cl-pulse-ring"></div><div class="cl-pulse-emoji">' + CARDIO_LIVE_EMOJI[_cardioLiveTipo] + '</div></div>';
   // BUG real (achado testando a correção do pause): com GPS e já iniciado, a
   // linha de cima (cl-stat-top) e este bloco tinham os MESMOS ids (cl-tempo,
   // cl-ritmo) — dois elementos com o mesmo id no documento, e
@@ -7464,6 +7557,12 @@ function _renderCardioLive() {
       '</div>' +
       '<div style="text-align:center;font-size:10.5px;color:#888;margin-top:14px;line-height:1.5;">⚠️ Função em teste, sujeita a instabilidades.</div>' +
       getFooterHtml();
+
+  // O <div id="cl-map"> acabou de nascer de novo (innerHTML inteiro trocado
+  // acima) — qualquer mapa Leaflet de antes ficou órfão. Recria se estiver
+  // rodando com GPS; se ainda não começou, o mapa espera o primeiro ponto
+  // (ver _cardioLiveOnPos) — sem localização nenhuma, não tem o que mostrar.
+  if (usaGps && iniciado) _iniciarMapaCardioLive();
 
   // BUG real relatado em produção: "o botão de pause está zerando tudo".
   // Não zerava de verdade — o innerHTML acima sempre nasce com os números
