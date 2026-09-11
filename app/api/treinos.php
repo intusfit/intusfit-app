@@ -195,6 +195,10 @@ function ensureTables(PDO $pdo) {
     try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN cardio_foto LONGTEXT NULL AFTER cardio_rpe"); } catch (Throwable $e2) {}
     // hora do registro (HH:MM, hora local do aluno) — para o professor conferir
     try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN hora_conclusao VARCHAR(5) NULL AFTER cardio_foto"); } catch (Throwable $e2) {}
+    // 1 = cardio rastreado ao vivo pelo app (GPS ou cronômetro), 0 = registro
+    // manual — usado pro selo "ao vivo" e pelo bônus semanal de horas ao vivo
+    // no ranking (API.agregarPontosRank, em api.js).
+    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN ao_vivo TINYINT NOT NULL DEFAULT 0 AFTER hora_conclusao"); } catch (Throwable $e2) {}
 }
 try { ensureTables($pdo); } catch (Throwable $e) {
     http_response_code(500);
@@ -700,6 +704,7 @@ try {
                     'cardio_tipo' => $r['cardio_tipo'] ?? null,
                     'cardio_intensidade' => $r['cardio_intensidade'] ?? null,
                     'cardio_rpe' => isset($r['cardio_rpe']) && $r['cardio_rpe'] !== null ? (int)$r['cardio_rpe'] : null,
+                    'ao_vivo' => (int)($r['ao_vivo'] ?? 0),
                     'hora_conclusao' => $r['hora_conclusao'] ?? null,
                     'tem_foto' => (!empty($r['cardio_foto']) ? 1 : 0),
                     'itens' => $itens,
@@ -779,7 +784,8 @@ try {
             // Controle de tempo: duração acima do máximo configurado não soma pontos
             if ($duracao_seg > $MAX_MIN_CARDIO * 60) { $naoContar = 1; $pontos = 0; }
             $horaConcl = (isset($b['hora_conclusao']) && $b['hora_conclusao'] !== '') ? substr((string)$b['hora_conclusao'], 0, 5) : null;
-            $st = $pdo->prepare("INSERT INTO intus_sessao (idatleta, dtsessao, duracao_seg, comentario, nao_contar, tipo, pontos, cardio_tipo, cardio_intensidade, cardio_rpe, cardio_foto, divisao, hora_conclusao) VALUES (?, ?, ?, ?, ?, 'cardio', ?, ?, ?, ?, ?, 'C', ?)");
+            $aoVivo = !empty($b['ao_vivo']) ? 1 : 0;
+            $st = $pdo->prepare("INSERT INTO intus_sessao (idatleta, dtsessao, duracao_seg, comentario, nao_contar, tipo, pontos, cardio_tipo, cardio_intensidade, cardio_rpe, cardio_foto, divisao, hora_conclusao, ao_vivo) VALUES (?, ?, ?, ?, ?, 'cardio', ?, ?, ?, ?, ?, 'C', ?, ?)");
             $st->execute([
                 $idat,
                 $dtCardio,
@@ -792,6 +798,7 @@ try {
                 $rpe,
                 $foto,
                 $horaConcl,
+                $aoVivo,
             ]);
             $id = (int)$pdo->lastInsertId();
             echo json_encode(['idsessao' => $id, 'ok' => true, 'pontos' => $pontos, 'nao_contar' => $naoContar, 'limite_dia' => $LIMITE_CARDIO_DIA]);
@@ -810,7 +817,7 @@ try {
         if ($method === 'GET') {
             $idat = (int)($_GET['atleta'] ?? 0);
             if ($idat <= 0) { http_response_code(400); echo json_encode(['error' => 'atleta obrigatorio']); exit; }
-            $st = $pdo->prepare("SELECT idsessao, idatleta, dtsessao, duracao_seg, pontos, cardio_tipo, cardio_intensidade, cardio_rpe, nao_contar, (cardio_foto IS NOT NULL AND cardio_foto <> '') AS tem_foto, comentario FROM intus_sessao WHERE idatleta = ? AND tipo = 'cardio' ORDER BY dtsessao DESC, idsessao DESC LIMIT 100");
+            $st = $pdo->prepare("SELECT idsessao, idatleta, dtsessao, duracao_seg, pontos, cardio_tipo, cardio_intensidade, cardio_rpe, nao_contar, ao_vivo, (cardio_foto IS NOT NULL AND cardio_foto <> '') AS tem_foto, comentario FROM intus_sessao WHERE idatleta = ? AND tipo = 'cardio' ORDER BY dtsessao DESC, idsessao DESC LIMIT 100");
             $st->execute([$idat]);
             echo json_encode($st->fetchAll(PDO::FETCH_ASSOC));
             exit;
@@ -892,7 +899,7 @@ try {
             $sessoes = [];
             if (count($ids) > 0) {
                 $placeholders = implode(',', array_fill(0, count($ids), '?'));
-                $st = $pdo->prepare("SELECT idsessao, idatleta, dtsessao, duracao_seg, COALESCE(tipo,'musculacao') AS tipo, COALESCE(pontos,0) AS pontos, comentario, cardio_tipo, cardio_intensidade, cardio_rpe, (cardio_foto IS NOT NULL AND cardio_foto <> '') AS tem_foto, divisao FROM intus_sessao WHERE idatleta IN ($placeholders) AND (duracao_seg >= 300 OR duracao_seg IS NULL) AND (nao_contar IS NULL OR nao_contar = 0) ORDER BY dtsessao DESC");
+                $st = $pdo->prepare("SELECT idsessao, idatleta, dtsessao, duracao_seg, COALESCE(tipo,'musculacao') AS tipo, COALESCE(pontos,0) AS pontos, comentario, cardio_tipo, cardio_intensidade, cardio_rpe, ao_vivo, (cardio_foto IS NOT NULL AND cardio_foto <> '') AS tem_foto, divisao FROM intus_sessao WHERE idatleta IN ($placeholders) AND (duracao_seg >= 300 OR duracao_seg IS NULL) AND (nao_contar IS NULL OR nao_contar = 0) ORDER BY dtsessao DESC");
                 $st->execute($ids);
                 $sessoes = $st->fetchAll(PDO::FETCH_ASSOC);
                 // Back-fill pontos for old musculacao rows: 0 = legacy pre-column rows → assign 5

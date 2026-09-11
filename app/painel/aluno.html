@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260907a"></script>
-  <script src="api.js?v=20260907b"></script>
+  <script src="api.js?v=20260910a"></script>
   <!-- Só usada pra transformar o cartão de "Compartilhar treino" em imagem
        (Salvar/Copiar/Story). Carregada fixa numa versão; se cair um dia, a
        tela de compartilhar mostra erro em vez de travar o app inteiro. -->
@@ -6104,7 +6104,12 @@ function renderHistorico() {
       // dois treinos no mesmo sábado são um dia só.
       const musSem = API.diasComMusculacaoRank(semSess).length;
       const bonusSem = (musSem >= _rankReg.bonusDias) ? _rankReg.bonusPts : 0;
-      const totalSem = Math.round((baseSem + bonusSem)*10)/10;
+      // Bônus de cardio ao vivo: mesma fórmula usada no agregado do ranking
+      // (API.segAoVivoParaPontos) — nunca reimplementada aqui, pra não virar
+      // uma terceira cópia da mesma regra (ver o histórico de bugs disso).
+      const segAoVivoSem = API.somarSegundosCardioAoVivo(semSess);
+      const bonusCardioSem = API.segAoVivoParaPontos(segAoVivoSem);
+      const totalSem = Math.round((baseSem + bonusSem + bonusCardioSem)*10)/10;
       const faltamSem = Math.max(0, _rankReg.bonusDias - musSem);
       const ac = isLight?'#5cb800':'#7FFF00';
       html += `<div style="background:${isLight?'rgba(92,184,0,.06)':'rgba(127,255,0,.05)'};border:1px solid ${isLight?'rgba(92,184,0,.2)':'rgba(127,255,0,.13)'};border-radius:14px;padding:14px 16px;margin-bottom:16px;">
@@ -6113,7 +6118,7 @@ function renderHistorico() {
           <span style="font-size:20px;font-weight:900;color:${ac};line-height:1;">${totalSem.toFixed(0)}</span>
         </div>
         <div style="font-size:11.5px;color:${isLight?'#666':'#999'};line-height:1.6;">
-          💪🏃 ${baseSem.toFixed(0)} pts de atividades${bonusSem>0 ? `<br>🔥 +${bonusSem} pts de bônus de frequência (${musSem} dias com musculação, meta de ${_rankReg.bonusDias} batida!)` : (musSem>0 ? `<br>🔥 Falta${faltamSem>1?'m':''} ${faltamSem} dia${faltamSem>1?'s':''} com musculação pro bônus de +${_rankReg.bonusPts} pts nesta semana` : `<br>🔥 Treine musculação em ${_rankReg.bonusDias} dias da semana e ganhe +${_rankReg.bonusPts} pts de bônus`)}
+          💪🏃 ${baseSem.toFixed(0)} pts de atividades${bonusSem>0 ? `<br>🔥 +${bonusSem} pts de bônus de frequência (${musSem} dias com musculação, meta de ${_rankReg.bonusDias} batida!)` : (musSem>0 ? `<br>🔥 Falta${faltamSem>1?'m':''} ${faltamSem} dia${faltamSem>1?'s':''} com musculação pro bônus de +${_rankReg.bonusPts} pts nesta semana` : `<br>🔥 Treine musculação em ${_rankReg.bonusDias} dias da semana e ganhe +${_rankReg.bonusPts} pts de bônus`)}${bonusCardioSem>0 ? `<br>🔴 +${bonusCardioSem.toFixed(1)} pts de cardio ao vivo (${(segAoVivoSem/3600).toFixed(1)}h rastreadas nesta semana)` : ''}
         </div>
       </div>`;
     })();
@@ -6743,6 +6748,7 @@ function renderCardio() {
       <div style="flex:1;min-width:0;">
         <div style="font-size:17.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Monitore seu cardio ao vivo</div>
         <div style="font-size:13px;color:${isLight?'#555':'#999'};margin-top:3px;">Corrida, caminhada ou bike rastreados por GPS — distância e ritmo calculados na hora</div>
+        <div style="font-size:11.5px;font-weight:700;color:${isLight?'#0e7490':'#67e8f9'};margin-top:6px;">🔴 +1 ponto extra no ranking a cada hora feita ao vivo na semana</div>
       </div>
       <div style="font-size:24px;color:${isLight?'#2d8a00':'#7FFF00'};">▶</div>
     </div>
@@ -6821,7 +6827,7 @@ function renderCardio() {
             return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#fff':'rgba(255,255,255,.03)'};border:1px solid ${isLight?'#e5e5e5':'#1a1a1a'};border-radius:10px;">
               <div style="font-size:22px;">🏃</div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(c.cardio_tipo||'Cardio')}${c.cardio_rpe?' · esforço '+c.cardio_rpe+'/10':(c.cardio_intensidade?' · '+esc(c.cardio_intensidade):'')}${(c.tem_foto||c.cardio_foto)?` <button onclick="event.stopPropagation();verFotoCardio(${Number(c.idsessao)||0},'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Ver a foto que você anexou" style="border:none;background:transparent;padding:0 2px;font-size:13px;line-height:1;cursor:pointer;">📷</button>`:''}</div>
+                <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(c.cardio_tipo||'Cardio')}${c.cardio_rpe?' · esforço '+c.cardio_rpe+'/10':(c.cardio_intensidade?' · '+esc(c.cardio_intensidade):'')}${(c.tem_foto||c.cardio_foto)?` <button onclick="event.stopPropagation();verFotoCardio(${Number(c.idsessao)||0},'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Ver a foto que você anexou" style="border:none;background:transparent;padding:0 2px;font-size:13px;line-height:1;cursor:pointer;">📷</button>`:''}${Number(c.ao_vivo)===1?` <span title="Rastreado ao vivo pelo app" style="display:inline-block;white-space:nowrap;font-size:9.5px;font-weight:800;color:#0ea5e9;background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.35);border-radius:5px;padding:1px 5px;vertical-align:1px;">🔴 AO VIVO</span>`:''}</div>
                 <div style="font-size:11px;color:${isLight?'#666':'#888'};">${min} min${c.cardio_metrica?' · '+esc(c.cardio_metrica):''} · ${dtStr}</div>
               </div>
               <div style="text-align:right;">
@@ -7142,6 +7148,10 @@ async function salvarCardio(opts) {
     cardio_tipo: tipo, cardio_intensidade: intensidade, cardio_rpe: rpe,
     cardio_metrica: extra || '', cardio_foto: foto,
     hora_conclusao: new Date().toTimeString().slice(0, 5),
+    // 1 = veio do cronômetro/GPS ao vivo do app (_cardioLiveFinalizar passa
+    // opts.aoVivo:true); 0 = registro manual. Alimenta o selo "ao vivo" no
+    // histórico e o bônus semanal de horas ao vivo em API.agregarPontosRank.
+    ao_vivo: opts.aoVivo ? 1 : 0,
     comentario: tipo + ' · esforço ' + rpe + '/10 · ' + min + 'min' + (extra ? ' · ' + extra : ''),
   };
   // Save locally (sem a foto, para não estourar o localStorage)
@@ -7623,6 +7633,7 @@ function _cardioLiveFinalizar() {
   _cardioRpe = 5;
   salvarCardio({
     silencioso: true,
+    aoVivo: true,
     onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm }); },
   });
 }
@@ -8138,29 +8149,32 @@ function abrirPerfilRanking(id) {
   const _agrPerf = _agregarPontosPorAtleta(atv.map(x => ({ ...x, idatleta: id })));
   const _meuPerf = _agrPerf[Number(id)] || { base: 0, bonus: 0, total: 0 };
   const _baseSem = Math.round(_meuPerf.base * 10) / 10;
-  const _bonusSem = Math.round(_meuPerf.bonus * 10) / 10;
+  const _bonusFreqSem = Math.round((_meuPerf.bonus - (_meuPerf.bonusCardioAoVivo || 0)) * 10) / 10;
+  const _bonusCardioSem = Math.round((_meuPerf.bonusCardioAoVivo || 0) * 10) / 10;
   const _musSem = API.diasComMusculacaoRank(atv).length;
   const _totalSem = Math.round(_meuPerf.total * 10) / 10;
   const _accentP = isLight?'#5cb800':'#7FFF00';
   const pontosSemHtml =
     '<div style="background:' + (isLight?'rgba(92,184,0,.07)':'rgba(127,255,0,.05)') + ';border:1px solid ' + (isLight?'rgba(92,184,0,.2)':'rgba(127,255,0,.13)') + ';border-radius:14px;padding:14px 16px;margin:4px 0 18px;">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:' + (_bonusSem>0?'8px':'0') + ';">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:' + (_bonusFreqSem>0||_bonusCardioSem>0?'8px':'0') + ';">' +
         '<span style="font-size:12px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';text-transform:uppercase;letter-spacing:.5px;">Pontos da semana</span>' +
         '<span style="font-size:20px;font-weight:900;color:' + _accentP + ';line-height:1;">' + _totalSem.toFixed(0) + '</span>' +
       '</div>' +
       '<div style="font-size:11.5px;color:' + (isLight?'#666':'#999') + ';line-height:1.6;text-wrap:balance;">' +
         '💪🏃 ' + _baseSem.toFixed(0) + ' pts de atividades' +
-        (_bonusSem > 0
-          ? '<br>🔥 +' + _bonusSem + ' pts de bônus (' + _musSem + ' dias com musculação na semana)'
+        (_bonusFreqSem > 0
+          ? '<br>🔥 +' + _bonusFreqSem + ' pts de bônus (' + _musSem + ' dias com musculação na semana)'
           : (_musSem > 0 ? (function(){ var f = Math.max(0,_rankReg.bonusDias - _musSem); return '<br>🔥 Falta' + (f>1?'m':'') + ' ' + f + ' dia' + (f>1?'s':'') + ' com musculação pro bônus de +' + _rankReg.bonusPts + ' pts'; })() : '')) +
+        (_bonusCardioSem > 0 ? '<br>🔴 +' + _bonusCardioSem.toFixed(1) + ' pts de cardio ao vivo' : '') +
       '</div>' +
     '</div>';
   const cardHtml = atv.length
     ? atv.map(c => {
         const isCardio = c.tipo === 'cardio';
         const min = Math.round((c.duracao_seg||0)/60);
+        const selo = (isCardio && Number(c.ao_vivo) === 1) ? ' <span title="Rastreado ao vivo pelo app" style="display:inline-block;white-space:nowrap;font-size:9px;font-weight:800;color:#0ea5e9;">🔴AO VIVO</span>' : '';
         const txt = isCardio
-          ? '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min'))
+          ? '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min')) + selo
           : '💪 Treino' + (c.divisao && c.divisao !== 'C' ? ' ' + esc(String(c.divisao)) : '') + (min ? ' · ' + min + 'min' : '');
         const dtF = c.dt.toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'2-digit' });
         const col = isCardio ? (isLight?'#0e7490':'#67e8f9') : (isLight?'#3f6212':'#a3e635');

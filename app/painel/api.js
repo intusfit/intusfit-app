@@ -3106,6 +3106,15 @@ const API = {
 
   // ── agregação por atleta (base + bônus) ──────────────────────────────
   // R opcional: regras de um desafio específico (ver rankingPontosDesafio).
+  //
+  // Bônus de cardio ao vivo (adicionado sem data de corte própria — é
+  // aditivo, sessão antiga não tem ao_vivo=1 então não muda pontuação já
+  // fechada): 1 ponto extra por HORA de cardio rastreado ao vivo pelo app
+  // (GPS ou cronômetro, ver aluno.html/_cardioLiveFinalizar), somando a
+  // DURAÇÃO entre todas as sessões de cardio ao vivo da semana (não por
+  // sessão nem por dia), por FORA do teto de pontos por sessão (cardioTeto)
+  // — mesmo espírito do bônus de constância da musculação, mas medindo
+  // tempo ao vivo em vez de dias treinados.
   agregarPontosRank: (lista, R) => {
     R = R || API.regrasRanking();
     const corte = new Date(R.vigorApartirDe + 'T00:00:00');
@@ -3113,16 +3122,22 @@ const API = {
     const acc = {};
     (Array.isArray(lista) ? lista : []).forEach((s) => {
       const id = Number(s && s.idatleta);
-      if (!acc[id]) acc[id] = { id: id, base: 0, bonus: 0, _sem: {} };
+      if (!acc[id]) acc[id] = { id: id, base: 0, bonus: 0, bonusCardioAoVivo: 0, _sem: {} };
       acc[id].base += API.pontosSessaoRank(s, lista, R);
-      if (API.ehMusculacaoRank(s) && API.contaNoRank(s)) {
-        const k = API.semanaRank(API.dtRank(s));
+      const semanaDe = (k) => {
         if (!acc[id]._sem[k]) {
           const ini = new Date(k + 'T00:00:00');
-          acc[id]._sem[k] = { sessoes: 0, dias: {}, vale: ini >= corte, porDia: ini >= corteDia };
+          acc[id]._sem[k] = { sessoes: 0, dias: {}, vale: ini >= corte, porDia: ini >= corteDia, segAoVivo: 0 };
         }
-        acc[id]._sem[k].sessoes++;
-        acc[id]._sem[k].dias[API.dataRank(s)] = 1;
+        return acc[id]._sem[k];
+      };
+      if (API.ehMusculacaoRank(s) && API.contaNoRank(s)) {
+        const w = semanaDe(API.semanaRank(API.dtRank(s)));
+        w.sessoes++;
+        w.dias[API.dataRank(s)] = 1;
+      }
+      if (!API.ehMusculacaoRank(s) && API.contaNoRank(s) && Number(s && s.ao_vivo) === 1) {
+        semanaDe(API.semanaRank(API.dtRank(s))).segAoVivo += Number(s.duracao_seg) || 0;
       }
     });
     Object.keys(acc).forEach((id) => {
@@ -3134,8 +3149,14 @@ const API = {
         // pódio já encerrado não mudar de dono retroativamente.
         const quantos = w.porDia ? Object.keys(w.dias).length : w.sessoes;
         if (quantos >= R.bonusDias) a.bonus += R.bonusPts;
+        if (w.segAoVivo > 0) {
+          const ptsAoVivo = API.segAoVivoParaPontos(w.segAoVivo);
+          a.bonusCardioAoVivo += ptsAoVivo;
+          a.bonus += ptsAoVivo;
+        }
       });
       a.base = Math.round(a.base * 10) / 10;
+      a.bonusCardioAoVivo = Math.round(a.bonusCardioAoVivo * 10) / 10;
       a.total = Math.round((a.base + a.bonus) * 10) / 10;
     });
     return acc;
@@ -3149,6 +3170,22 @@ const API = {
     });
     return Object.keys(dias);
   },
+
+  // Segundos de cardio ao vivo → pontos de bônus (1 pt por hora, contínuo,
+  // não arredondado pra baixo). Extraído numa função só porque tanto
+  // agregarPontosRank quanto o resumo semanal do app do aluno (Evoluções)
+  // precisam da mesma conta — sem isso, viraria a mesma regra duplicada em
+  // dois lugares que já causou bug de pontuação divergente antes.
+  segAoVivoParaPontos: (segundos) => Math.round(((Number(segundos) || 0) / 3600) * 10) / 10,
+
+  // Soma a duração de cardio ao vivo (ao_vivo=1) numa lista já filtrada por
+  // período (ex.: sessões de uma semana) — usar com segAoVivoParaPontos.
+  somarSegundosCardioAoVivo: (lista) => (Array.isArray(lista) ? lista : []).reduce((acc, s) => {
+    if (!API.ehMusculacaoRank(s) && API.contaNoRank(s) && Number(s && s.ao_vivo) === 1) {
+      return acc + (Number(s.duracao_seg) || 0);
+    }
+    return acc;
+  }, 0),
 
   // ── O NÚMERO QUE DECIDE TEM QUE SER O NÚMERO QUE APARECE ─────────────
   // A tela mostra pontos inteiros, então a comparação de empate também olha
