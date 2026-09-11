@@ -569,7 +569,13 @@
       position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
       background: #1a1a1a; color: #fff; padding: 14px 22px; border-radius: 12px;
       font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .3s;
-      z-index: 999; pointer-events: none; border: 1px solid #252525;
+      /* BUG real: z-index 999 ficava ATRÁS da pílula do cardio ao vivo
+         (#cardio-live-pill, 1140) — as duas moram perto do rodapé, então o
+         aviso saía ilegível, coberto pela pílula. Um toast é sempre uma
+         mensagem que precisa ser lida na hora, então fica acima de qualquer
+         chrome flutuante (mas abaixo dos modais de verdade, tipo o de
+         confirmar esforço do cardio, 9999). */
+      z-index: 1200; pointer-events: none; border: 1px solid #252525;
       box-shadow: 0 8px 32px rgba(0,0,0,.5);
     }
     .toast-ov.show { opacity: 1; }
@@ -7689,7 +7695,7 @@ function _renderTelaEsforcoCardioLive(dados) {
         <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio registrado!</div>
         <div style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">Já está salvo — só falta confirmar o esforço</div>
       </div>
-      ${temRota ? `<div id="cle-mapa" style="width:100%;height:150px;border-radius:12px;overflow:hidden;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
+      ${temRota ? `<div id="cle-mapa" style="width:100%;height:150px;border-radius:12px;overflow:hidden;isolation:isolate;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;margin-bottom:18px;">
         <div style="font-size:26px;">${emoji}</div>
         <div style="flex:1;">
@@ -7806,7 +7812,15 @@ function _renderCardioLive() {
   // percurso de verdade pra desenhar, e fingir um mapa vazio seria pior que
   // não mostrar nada.
   const rotaHtml = usaGps
-    ? '<div class="cl-route-card"><div id="cl-map" style="width:100%;height:170px;border-radius:14px;overflow:hidden;"></div><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:none;"></svg></div>'
+    // BUG real: o Leaflet dá z-index:1000 pros próprios controles internos
+    // (zoom, atribuição) via CSS dele mesmo (leaflet.css) — bem mais alto
+    // que menu (100), câmera em tela cheia (600) etc. deste app. Isso
+    // deixava o mapa (ou pelo menos a legenda "Leaflet | OpenStreetMap")
+    // vazando por CIMA dessas telas mesmo com a view de cardio "escondida"
+    // atrás. isolation:isolate cria um contexto de empilhamento PRÓPRIO pro
+    // mapa — o 1000 do Leaflet fica preso lá dentro e nunca compete com o
+    // z-index de mais nada fora dele, não importa o valor.
+    ? '<div class="cl-route-card"><div id="cl-map" style="width:100%;height:170px;border-radius:14px;overflow:hidden;isolation:isolate;"></div><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:130px;display:none;"></svg></div>'
     : '<div class="cl-route-card cl-pulse-wrap"><div class="cl-pulse-ring"></div><div class="cl-pulse-ring"></div><div class="cl-pulse-ring"></div><div class="cl-pulse-emoji">' + CARDIO_LIVE_EMOJI[_cardioLiveTipo] + '</div></div>';
   // BUG real (achado testando a correção do pause): com GPS e já iniciado, a
   // linha de cima (cl-stat-top) e este bloco tinham os MESMOS ids (cl-tempo,
