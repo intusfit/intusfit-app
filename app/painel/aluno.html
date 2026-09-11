@@ -1170,14 +1170,10 @@ function figurinhaAleatoriaHtml(isLight, itPreescolhido) {
 // Nomes descrevem o ESTILO do cartão (como o desenho fica por cima da foto),
 // não o tipo de fundo — os 3 sempre mostram a câmera/galeria por trás agora,
 // "Transparente" e "Story vertical" tinham parado de fazer sentido.
-const SHARE_TEMPLATES = [
-  { id: 'transparente', nome: 'Clássico',  emoji: '🎬', render: _tplTransparenteHtml },
-  { id: 'foto',         nome: 'Destaque',  emoji: '✨', render: _tplFotoHtml },
-  { id: 'story',        nome: 'Moldura',   emoji: '🖼️', render: _tplStoryHtml },
-  { id: 'dourado',      nome: 'Dourado',   emoji: '🌇', render: _tplDouradoHtml, filtroCss: 'filter:saturate(1.35) contrast(1.08) brightness(1.05) sepia(.12);' },
-  { id: 'figurona',     nome: 'Mascote',   emoji: '🎉', render: _tplFigurinhaGrandeHtml },
-  { id: 'frase',        nome: 'Frase',     emoji: '💬', render: _tplFraseHtml },
-];
+// SHARE_TEMPLATES é declarado mais abaixo, depois das funções _tplXHtml (3
+// delas vêm de fábrica, _criarTplFiltroCor, que usa const — precisa vir
+// DEPOIS na ordem do arquivo, senão o array tentaria ler um const ainda na
+// zona morta temporal e quebraria o script inteiro no carregamento).
 let _shareState = null;
 
 // Ícones de traço (estilo Feather) pros botões da tela de compartilhar —
@@ -1238,6 +1234,7 @@ function abrirCompartilharTreino(info) {
     // a tela aparece, então já entra destacada nos botões abaixo.
     origem: 'camera',
   };
+  _shareNivelInfo = 0; // sessão nova de compartilhamento começa com tudo visível
   _renderShareOverlay();
   // Abre a câmera já enquadrada dentro da miniatura do cartão assim que a
   // tela aparece — o aluno via só um fundo transparente e precisava de mais
@@ -1247,6 +1244,35 @@ function abrirCompartilharTreino(info) {
   // anterior (com os botões de Feed/Perfil/compartilhar) antes do aluno
   // sequer ver o que tinha ali.
   _shareAbrirCamera();
+}
+
+// MET aproximado por atividade — usado só pra estimar kcal no cartão de
+// compartilhar (o app não pesa o aluno nesta tela, então usa um peso de
+// referência quando não há um real à mão). É uma estimativa, não medição.
+const CARDIO_MET = { Corrida: 9.5, Caminhada: 4.0, Bike: 7.0, Escada: 8.0, 'Elíptico': 5.0 };
+function _estimarKcalCardio(tipo, minutos, pesoKg) {
+  const met = CARDIO_MET[tipo] || 6;
+  return Math.round(met * (pesoKg || 70) * (minutos / 60));
+}
+// Mesmo cartão de Compartilhar treino, com um "info" no formato cardio —
+// _shareStatsRow troca as 4 células (tempo/kg/séries/completo) por
+// tempo/distância/kcal quando vê info.tipo==='cardio'. Chamada pelo botão
+// "📸 Compartilhar cardio" na tela de confirmação de esforço.
+function abrirCompartilharCardio(dados) {
+  if (typeof html2canvas === 'undefined') { toast('Não consegui carregar o gerador de imagem. Verifique sua internet e tente de novo.'); return; }
+  const distKm = dados.distKm || 0;
+  const minutos = dados.min || 0;
+  const info = {
+    tipo: 'cardio',
+    min: minutos, sec: 0,
+    distKm: distKm,
+    kcal: _estimarKcalCardio(dados.tipo, minutos),
+    nomeAluno: (typeof user !== 'undefined' && user && user.nome) ? String(user.nome).split(' ').slice(0,2).join(' ') : 'Atleta Intus',
+    nomeTreino: (CARDIO_LIVE_EMOJI[dados.tipo] || '🏃') + ' ' + dados.tipo,
+    fig: _figPick(_figurinhasList()),
+    mensagem: 'Cardio de hoje concluído! ' + (CARDIO_LIVE_EMOJI[dados.tipo] || '🏃'),
+  };
+  abrirCompartilharTreino(info);
 }
 
 function _fecharCompartilhar() {
@@ -1280,12 +1306,62 @@ function _shareSetBg(modo) {
 // mesma câmera em tela cheia (#share-camera-fullscreen, estilo Stories do
 // Instagram), útil pra enquadrar com mais precisão e dar zoom; fechar a tela
 // cheia (✕) só esconde ela — a câmera continua ligada e a miniatura volta a
-// mostrar a mesma prévia ao vivo, sem reabrir nada. Os dois lugares reusam o
-// MESMO tpl.render(): só uma regra de CSS troca o tamanho do cartão entre os
-// dois contextos (ver "#share-camera-fullscreen .share-card" no <style>).
+// mostrar a mesma prévia ao vivo, sem reabrir nada.
+// BUG real (achado depois de várias rodadas de uso real): miniatura e tela
+// cheia criavam cada uma o seu PRÓPRIO <video> a cada render — trocar de
+// filtro repetidas vezes (cada troca recria o <video> e reatribui o
+// srcObject) eventualmente deixava a tela preta num WebView real (o stream
+// sobrevive, mas o elemento novo às vezes não recebe o primeiro frame depois
+// de várias trocas rápidas) — e como cada tela tinha seu próprio elemento,
+// miniatura e tela cheia podiam ficar levemente diferentes uma da outra.
+// Resolvido com UM ÚNICO <video> (_camVideoEl), criado uma vez só e apenas
+// MOVIDO (appendChild) entre a miniatura e a tela cheia — mover um <video>
+// não interrompe o srcObject nem reinicia o stream, então a imagem nunca
+// pisca nem apaga, e as duas telas literalmente mostram o mesmo elemento.
 let _camStream = null;
+let _camVideoEl = null;
 let _camFacing = 'environment';
 let _camZoom = 1;
+// Nível de "quanto do cartão está visível" — ciclo por toque único na tela
+// cheia (ver _shareCicloNivelInfo): 0 tudo visível, 1 sem estatísticas, 2 sem
+// nome/treino também, 3 sem nada (só a logo, que nunca some). Persiste ao
+// trocar de filtro de propósito — o aluno pode deixar o enquadramento "limpo"
+// e folhear os filtros de cor sem o cartão voltar a aparecer sozinho.
+let _shareNivelInfo = 0;
+// Escala de referência: os tamanhos abaixo (fonte, logo, figurinha, etc.)
+// foram desenhados pra miniatura pequena (até 300px de largura). A tela
+// cheia é bem maior que isso — sem escalar, o mesmo texto em pixels fixos
+// ficava proporcionalmente minúsculo lá (era exatamente o "ícones diferentes
+// entre as duas telas" que o aluno via). _shareEscala(largura) converte a
+// largura real do cartão (miniatura OU moldura da tela cheia) numa razão
+// relativa a esses 300px de referência.
+function _shareEscala(larguraCartaoPx) { return larguraCartaoPx / 300; }
+function _sPx(base, escala) { return (base * (escala || 1)).toFixed(1) + 'px'; }
+
+// Cria o <video> uma ÚNICA vez por sessão de câmera — ver o comentário
+// grande acima de _camStream sobre por que ele nunca é recriado depois
+// disso, só movido entre miniatura e tela cheia via appendChild.
+function _shareCriarVideoElSeNecessario() {
+  if (_camVideoEl) return;
+  _camVideoEl = document.createElement('video');
+  _camVideoEl.id = 'share-cam-video';
+  _camVideoEl.autoplay = true;
+  _camVideoEl.playsInline = true;
+  _camVideoEl.muted = true;
+  _camVideoEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
+  _shareAtivarZoomPinca(_camVideoEl);
+}
+
+// Aplica espelho (câmera frontal) + zoom digital + filtro do template ativo
+// no <video> — chamada sempre que ele é reposicionado ou o filtro muda,
+// nunca precisa recriar o elemento pra isso.
+function _shareAtualizarEstiloVideo() {
+  if (!_camVideoEl) return;
+  const tpl = SHARE_TEMPLATES[_shareState.tplIdx];
+  const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
+  _camVideoEl.style.transform = espelho + 'scale(' + _camZoom + ')';
+  _camVideoEl.style.filter = (tpl.filtroCss || '').replace(/^filter:/, '').replace(/;$/, '');
+}
 
 async function _shareAbrirCamera() {
   _shareState.bgImg = null;
@@ -1304,6 +1380,8 @@ async function _shareAbrirCamera() {
     return;
   }
   _camZoom = 1;
+  _shareCriarVideoElSeNecessario();
+  _camVideoEl.srcObject = _camStream;
   _renderShareOverlay();
 }
 
@@ -1312,6 +1390,7 @@ async function _shareAbrirCamera() {
 // (ver _shareFecharTelaCheia), que deixa a câmera ligada na miniatura.
 function _shareFecharCamera() {
   if (_camStream) { _camStream.getTracks().forEach(t => t.stop()); _camStream = null; }
+  if (_camVideoEl) { _camVideoEl.remove(); _camVideoEl = null; }
   document.getElementById('share-camera-fullscreen')?.remove();
 }
 
@@ -1337,6 +1416,7 @@ async function _shareAlternarCamera() {
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
     _camZoom = 1;
+    if (_camVideoEl) _camVideoEl.srcObject = _camStream;
     // Reflete na tela que estiver de fato aberta — miniatura ou tela cheia.
     if (document.getElementById('share-camera-fullscreen')) _renderCameraTelaCheia();
     else _renderShareOverlay();
@@ -1355,7 +1435,6 @@ function _renderCameraTelaCheia() {
   // com o zoom digital da câmera em _shareAtivarZoomPinca: a tela inteira
   // (incluindo os botões e os chips de filtro) esticava junto do vídeo.
   ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;touch-action:none;';
-  const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
   // BUG real: a tela cheia mostrava a câmera preenchendo o aparelho inteiro
   // (proporção da TELA), mas o cartão final — miniatura, foto salva, tudo —
   // sempre teve proporção FIXA 230:410. Ao tirar a foto, o mesmo enquadramento
@@ -1369,10 +1448,11 @@ function _renderCameraTelaCheia() {
   let _molduraW, _molduraH;
   if (_telaW / _telaH > _propAlvo) { _molduraH = _telaH; _molduraW = _telaH * _propAlvo; }
   else { _molduraW = _telaW; _molduraH = _telaW / _propAlvo; }
+  const escala = _shareEscala(_molduraW);
   ov.innerHTML = `
     <div id="share-cam-moldura" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${_molduraW}px;height:${_molduraH}px;overflow:hidden;">
-      <video id="share-cam-video-fs" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:${espelho}scale(${_camZoom});${tpl.filtroCss||''}"></video>
-      <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight)}</div>
+      <div id="share-cam-video-slot-fs" style="position:absolute;inset:0;"></div>
+      <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight, _shareNivelInfo, escala)}</div>
     </div>
     <button aria-label="Fechar câmera" onclick="_shareCancelarCameraTelaCheia()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;font-size:17px;cursor:pointer;z-index:3;">✕</button>
     <div style="position:absolute;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:16px;z-index:3;">
@@ -1386,27 +1466,44 @@ function _renderCameraTelaCheia() {
     </div>
   `;
   document.body.appendChild(ov);
-  // BUG real: a miniatura por baixo (#share-overlay) continua no DOM com o
-  // seu próprio <video id="share-cam-video">, e essa tela cheia usava o MESMO
-  // id — getElementById('share-cam-video') sempre devolvia o primeiro do
-  // documento (o da miniatura, escondido atrás), então o <video> da tela
-  // cheia nunca recebia o srcObject e ficava preto. Id próprio resolve.
-  const video = document.getElementById('share-cam-video-fs');
-  video.srcObject = _camStream;
-  _shareAtivarZoomPinca(video);
+  // O <video> nunca é recriado aqui — só MOVIDO pro slot da tela cheia (ver
+  // comentário grande acima de _camStream). appendChild em elemento que já
+  // está no DOM (na miniatura, por ex.) o desconecta de lá e reconecta aqui,
+  // sem soltar o srcObject nem piscar.
+  document.getElementById('share-cam-video-slot-fs').appendChild(_camVideoEl);
+  _shareAtualizarEstiloVideo();
 
+  const moldura = document.getElementById('share-cam-moldura');
   // Arrastar com UM dedo troca de filtro (dois dedos é o zoom, tratado à
   // parte em _shareAtivarZoomPinca) — mesmo gesto que já existia na prévia
   // pequena, agora também funciona aqui, que é "a área onde está aberta a
-  // câmera" de verdade.
-  let _swipeFsX0 = null;
-  ov.addEventListener('touchstart', (e) => { _swipeFsX0 = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
-  ov.addEventListener('touchend', (e) => {
+  // câmera" de verdade. Um toque RÁPIDO e PARADO (sem arrastar) em cima da
+  // moldura, em vez disso, faz o ciclo de esconder/mostrar o cartão de
+  // informações — ver _shareCicloNivelInfo.
+  let _swipeFsX0 = null, _swipeFsY0 = null, _swipeFsT0 = 0;
+  moldura.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { _swipeFsX0 = null; return; }
+    _swipeFsX0 = e.touches[0].clientX; _swipeFsY0 = e.touches[0].clientY; _swipeFsT0 = Date.now();
+  }, { passive: true });
+  moldura.addEventListener('touchend', (e) => {
     if (_swipeFsX0 === null) return;
     const dx = e.changedTouches[0].clientX - _swipeFsX0;
+    const dy = e.changedTouches[0].clientY - _swipeFsY0;
+    const dt = Date.now() - _swipeFsT0;
     _swipeFsX0 = null;
-    if (Math.abs(dx) > 40) _shareIrParaTpl((S.tplIdx + (dx < 0 ? 1 : -1) + SHARE_TEMPLATES.length) % SHARE_TEMPLATES.length);
+    if (Math.abs(dx) > 40) { _shareIrParaTpl((S.tplIdx + (dx < 0 ? 1 : -1) + SHARE_TEMPLATES.length) % SHARE_TEMPLATES.length); return; }
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 400) _shareCicloNivelInfo();
   }, { passive: true });
+}
+// Toque único (sem arrastar) na foto/vídeo, na tela cheia: esconde uma parte
+// do cartão de informações a cada toque (estatísticas → nome/treino →
+// figurinha e fundo do cartão), até sumir tudo, e o toque seguinte traz tudo
+// de volta — pensado pra tirar uma foto "limpa" sem abrir mão do enquadramento
+// ao vivo. A logo NUNCA entra nesse ciclo, de propósito (ver _shareLogoRodape).
+function _shareCicloNivelInfo() {
+  _shareNivelInfo = (_shareNivelInfo + 1) % 4;
+  if (document.getElementById('share-camera-fullscreen')) _renderCameraTelaCheia();
+  else _renderShareOverlay();
 }
 
 // Zoom digital por pinça (dois dedos): mede a distância inicial entre os
@@ -1437,9 +1534,7 @@ function _shareAtivarZoomPinca(video) {
 // (que precisa "tirar a foto" sozinha se o aluno pedir pra compartilhar
 // direto, ainda com a câmera ao vivo e sem ter apertado o obturador).
 function _shareCapturarFrameAtual() {
-  // Tela cheia tem id próprio (share-cam-video-fs); sem ela, sobra só o
-  // <video> da miniatura (share-cam-video).
-  const v = document.getElementById('share-cam-video-fs') || document.getElementById('share-cam-video');
+  const v = _camVideoEl;
   if (!v || !v.videoWidth) return null;
   const canvas = document.createElement('canvas');
   // O zoom digital (pinça) é feito com CSS transform na prévia — pra a FOTO
@@ -1493,10 +1588,10 @@ function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'log
 // todo template segue a mesma regra: uma faixa fina no topo (só a logo) e uma
 // faixa fina embaixo (nome/treino/estatísticas), no máximo ~1/3 da altura do
 // cartão juntas — o resto fica transparente pra foto aparecer inteira.
-function _shareFigMini(fig) {
+function _shareFigMini(fig, escala) {
   if (!fig || !(_shareState && _shareState.incluirFig)) return '';
-  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:44px;height:44px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
-  return `<div style="font-size:38px;line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
+  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:${_sPx(44,escala)};height:${_sPx(44,escala)};object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
+  return `<div style="font-size:${_sPx(38,escala)};line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
 }
 // BUG real: em largura de celular de verdade (a prévia é min(78vw,300px) —
 // a 375px de tela isso é ~292px, mais estreito que os 300px fixos usados
@@ -1513,10 +1608,25 @@ function _shareFigMini(fig) {
 // pro "kg", cortando as 4 juntas por igual. Fonte menor + kg com fatia maior
 // (é o valor que mais cresce — sessão pesada passa de 5 dígitos, tempo/
 // séries/completo têm teto natural bem mais curto) resolve sem redesenhar.
-function _shareStatsRow(info) {
-  const cell = (v,l,peso) => `<div style="flex:${peso||1};min-width:0;text-align:center;"><div style="font-size:16px;font-weight:900;color:#fff;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v}</div><div style="font-size:9.5px;color:#ccc;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;">${l}</div></div>`;
-  return `<div style="display:flex;gap:5px;margin-top:10px;">
-    ${cell(info.min+':'+String(info.sec).padStart(2,'0'),'tempo',1.15)}
+// info.tipo === 'cardio' troca as 4 células por 3 (tempo/distância/kcal) —
+// o mesmo cartão serve pra Compartilhar treino E Compartilhar cardio, sem
+// duplicar layout (ver abrirCompartilharCardio).
+function _shareStatsRow(info, escala) {
+  const cell = (v,l,peso) => `<div style="flex:${peso||1};min-width:0;text-align:center;"><div style="font-size:${_sPx(16,escala)};font-weight:900;color:#fff;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v}</div><div style="font-size:${_sPx(9.5,escala)};color:#ccc;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;">${l}</div></div>`;
+  const tempo = info.min + ':' + String(info.sec).padStart(2, '0');
+  if (info.tipo === 'cardio') {
+    // Só 3 células (tempo/distância/kcal), não 4 — "ritmo" (mm:ss/km) é
+    // comprido demais pra dividir espaço com as outras num cartão estreito
+    // sem cortar; as 3 pedidas cabem bem com mais folga cada uma.
+    const temDist = info.distKm != null && info.distKm > 0;
+    return `<div style="display:flex;gap:${_sPx(5,escala)};margin-top:${_sPx(10,escala)};">
+      ${cell(tempo,'tempo',1)}
+      ${temDist ? cell(info.distKm.toFixed(2).replace('.',','),'km',1) : ''}
+      ${info.kcal != null ? cell(Math.round(info.kcal),'kcal',1) : ''}
+    </div>`;
+  }
+  return `<div style="display:flex;gap:${_sPx(5,escala)};margin-top:${_sPx(10,escala)};">
+    ${cell(tempo,'tempo',1.15)}
     ${info.volume ? cell(info.volume.toLocaleString('pt-BR'),'kg',1.6) : ''}
     ${cell(info.seriesFeitas+'/'+info.seriesTotal,'séries',1.05)}
     ${cell('<span style="color:#7FFF00;">'+info.pctCompleto+'%</span>','completo',1)}
@@ -1525,21 +1635,30 @@ function _shareStatsRow(info) {
 // Bloco de informações: figurinha + nome + treino + estatísticas. Fica no
 // terço inferior do cartão (ver SHARE_INFO_FUNDO) — de propósito, é onde
 // ficariam os pés de quem tira a própria foto, longe do rosto.
-function _shareBarraInferior(info, fig) {
-  return `<div style="display:flex;align-items:center;gap:12px;">
-      ${_shareFigMini(fig)}
+// nivel (ver _shareCicloNivelInfo): 0 tudo, 1 sem estatísticas, 2 sem
+// nome/treino (e sem estatísticas), 3 nada — quem chama trata o nível 3
+// escondendo o bloco inteiro (fundo incluso), não é feito aqui dentro.
+function _shareBarraInferior(info, fig, nivel, escala) {
+  const n = nivel || 0;
+  let html = '';
+  if (n < 2) {
+    html += `<div style="display:flex;align-items:center;gap:${_sPx(12,escala)};">
+      ${_shareFigMini(fig, escala)}
       <div style="flex:1;min-width:0;text-align:left;">
-        <div style="font-size:13px;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
-        <div style="font-size:22px;font-weight:900;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}</div>
+        <div style="font-size:${_sPx(13,escala)};color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
+        <div style="font-size:${_sPx(22,escala)};font-weight:900;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}</div>
       </div>
-    </div>
-    ${_shareStatsRow(info)}`;
+    </div>`;
+  }
+  if (n < 1) html += _shareStatsRow(info, escala);
+  return html;
 }
 // Logo da marca: selo discreto no canto superior direito — junto do bloco de
 // informações no terço inferior (ver SHARE_INFO_FUNDO), sobra o resto do
 // cartão livre pra foto/vídeo aparecer inteiro, sem cobrir rosto nem pés.
-function _shareLogoRodape(isLight) {
-  return `<img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;top:${SHARE_LOGO_TOPO};right:${SHARE_LADO};height:16px;width:auto;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6));"/>`;
+// NUNCA entra no ciclo de _shareCicloNivelInfo — é a marca, fica sempre.
+function _shareLogoRodape(isLight, escala) {
+  return `<img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;top:${SHARE_LOGO_TOPO};right:${SHARE_LADO};height:${_sPx(16,escala)};width:auto;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6));"/>`;
 }
 // Margens/posições em % (não em px): o mesmo template roda tanto na miniatura
 // pequena (~300x534) quanto na câmera em tela cheia (a tela inteira do
@@ -1554,40 +1673,41 @@ function _shareLogoRodape(isLight) {
 const SHARE_INFO_FUNDO = '20%';  // onde o bloco de nome/treino/estatísticas termina embaixo
 const SHARE_LOGO_TOPO = '9%';    // logo virou selo no canto superior direito
 const SHARE_LADO = '5%';         // margem lateral — 7% deixava pouca largura pras 4 células de estatística
-function _tplTransparenteHtml(info, fig, bgImg, isLight) {
+function _tplTransparenteHtml(info, fig, bgImg, isLight, nivel, escala) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 18px;background:rgba(10,10,10,.58);border-radius:16px;">
-      ${_shareBarraInferior(info, fig)}
-    </div>
-    ${_shareLogoRodape(isLight)}
+    ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
+      ${_shareBarraInferior(info, fig, nivel, escala)}
+    </div>` : ''}
+    ${_shareLogoRodape(isLight, escala)}
   </div>`;
 }
-function _tplFotoHtml(info, fig, bgImg, isLight) {
+function _tplFotoHtml(info, fig, bgImg, isLight, nivel, escala) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 18px;background:rgba(10,10,10,.6);border-radius:16px;">
-      <div style="font-size:12.5px;color:#7FFF00;font-weight:800;margin-bottom:6px;">${info.pctCompleto}% COMPLETO</div>
-      ${_shareBarraInferior(info, fig)}
-    </div>
-    ${_shareLogoRodape(isLight)}
+    ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.6);border-radius:${_sPx(16,escala)};">
+      <div style="font-size:${_sPx(12.5,escala)};color:#7FFF00;font-weight:800;margin-bottom:${_sPx(6,escala)};">${info.tipo==='cardio' ? esc(info.nomeTreino) : info.pctCompleto+'% COMPLETO'}</div>
+      ${_shareBarraInferior(info, fig, nivel, escala)}
+    </div>` : ''}
+    ${_shareLogoRodape(isLight, escala)}
   </div>`;
 }
-function _tplStoryHtml(info, fig, bgImg, isLight) {
+function _tplStoryHtml(info, fig, bgImg, isLight, nivel, escala) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:#0a0a0a;`;
+  const n = nivel || 0;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;inset:14px;border:1.5px solid rgba(127,255,0,.4);border-radius:16px;pointer-events:none;"></div>
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 17px;background:rgba(10,10,10,.75);border:1px solid rgba(127,255,0,.3);border-radius:15px;">
-      <div style="display:flex;align-items:center;gap:9px;margin-bottom:7px;">
-        ${_shareFigMini(fig)}
-        <div style="font-size:12px;color:#bbb;letter-spacing:.05em;">HOJE EU TREINEI</div>
-      </div>
-      <div style="display:flex;align-items:baseline;gap:10px;">
-        <div style="font-size:34px;font-weight:900;color:#7FFF00;flex-shrink:0;">${info.pctCompleto}%</div>
-        <div style="font-size:15px;color:#fff;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}${info.volume ? ' · ' + info.volume.toLocaleString('pt-BR') + 'kg' : ''}</div>
-      </div>
-    </div>
-    ${_shareLogoRodape(isLight)}
+    <div style="position:absolute;inset:${_sPx(14,escala)};border:1.5px solid rgba(127,255,0,.4);border-radius:${_sPx(16,escala)};pointer-events:none;"></div>
+    ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(17,escala)};background:rgba(10,10,10,.75);border:1px solid rgba(127,255,0,.3);border-radius:${_sPx(15,escala)};">
+      ${n < 2 ? `<div style="display:flex;align-items:center;gap:${_sPx(9,escala)};margin-bottom:${_sPx(7,escala)};">
+        ${_shareFigMini(fig, escala)}
+        <div style="font-size:${_sPx(12,escala)};color:#bbb;letter-spacing:.05em;">HOJE EU TREINEI</div>
+      </div>` : ''}
+      ${n < 1 ? `<div style="display:flex;align-items:baseline;gap:${_sPx(10,escala)};">
+        <div style="font-size:${_sPx(34,escala)};font-weight:900;color:#7FFF00;flex-shrink:0;">${info.tipo==='cardio' ? (info.distKm||0).toFixed(1)+'km' : info.pctCompleto+'%'}</div>
+        <div style="font-size:${_sPx(15,escala)};color:#fff;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}${info.tipo==='cardio' ? (info.kcal!=null?' · '+Math.round(info.kcal)+'kcal':'') : (info.volume ? ' · ' + info.volume.toLocaleString('pt-BR') + 'kg' : '')}</div>
+      </div>` : ''}
+    </div>` : ''}
+    ${_shareLogoRodape(isLight, escala)}
   </div>`;
 }
 // Realce quente e saturado (tom "golden hour"), no lugar do antigo filtro de
@@ -1598,58 +1718,85 @@ function _tplStoryHtml(info, fig, bgImg, isLight) {
 // direto no <video> (por quem chama este template) — aqui só desenha o texto
 // por cima, com o fundo do próprio .share-card transparente pra não tapar o
 // vídeo (mesma lição do antigo bug de tela preta no Invertido).
-function _tplDouradoHtml(info, fig, bgImg, isLight) {
-  const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
-  return `<div class="share-card" style="background:transparent;">
-    ${bgImg !== 'LIVE' ? `<div style="position:absolute;inset:0;filter:saturate(1.35) contrast(1.08) brightness(1.05) sepia(.12);${bg}"></div>` : ''}
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:16px 18px;background:rgba(10,10,10,.58);border-radius:16px;">
-      ${_shareBarraInferior(info, fig)}
-    </div>
-    ${_shareLogoRodape(isLight)}
-  </div>`;
+// Fábrica de "filtro de cor simples": mesmo layout do Clássico (figurinha +
+// nome/treino + estatísticas no terço inferior), só troca o tratamento de
+// cor da foto/vídeo de fundo — evita repetir a mesma estrutura pra cada
+// preset (Dourado, Frio, Vibrante).
+function _criarTplFiltroCor(filtroCss) {
+  return function (info, fig, bgImg, isLight, nivel, escala) {
+    const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
+    return `<div class="share-card" style="background:transparent;">
+      ${bgImg !== 'LIVE' ? `<div style="position:absolute;inset:0;filter:${filtroCss};${bg}"></div>` : ''}
+      ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
+        ${_shareBarraInferior(info, fig, nivel, escala)}
+      </div>` : ''}
+      ${_shareLogoRodape(isLight, escala)}
+    </div>`;
+  };
 }
+const _FILTRO_DOURADO = 'saturate(1.35) contrast(1.08) brightness(1.05) sepia(.12)';
+const _FILTRO_FRIO = 'saturate(0.9) contrast(1.14) brightness(0.99) hue-rotate(-6deg)';
+const _FILTRO_VIBRANTE = 'saturate(1.55) contrast(1.2) brightness(1.03)';
+const _tplDouradoHtml = _criarTplFiltroCor(_FILTRO_DOURADO);
+const _tplFrioHtml = _criarTplFiltroCor(_FILTRO_FRIO);
+const _tplVibranteHtml = _criarTplFiltroCor(_FILTRO_VIBRANTE);
 // Figurinha em destaque, centralizada acima do bloco de informações — maior
-// que a versão mini usada nos outros templates.
-function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight) {
+// que a versão mini usada nos outros templates. A figurinha só some no
+// último nível (junto com o fundo do cartão) — é a protagonista aqui.
+function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
-  const temFig = fig && _shareState && _shareState.incluirFig;
+  const n = nivel || 0;
+  const temFig = fig && _shareState && _shareState.incluirFig && n < 3;
   const figGrandeHtml = !temFig ? '' : (fig.tipo === 'img' && fig.src)
-    ? `<img src="${esc(fig.src)}" style="width:112px;height:112px;object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'"/>`
-    : `<div style="font-size:96px;line-height:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));">${esc(fig.emoji||'💪')}</div>`;
+    ? `<img src="${esc(fig.src)}" style="width:${_sPx(112,escala)};height:${_sPx(112,escala)};object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'"/>`
+    : `<div style="font-size:${_sPx(96,escala)};line-height:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));">${esc(fig.emoji||'💪')}</div>`;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};display:flex;flex-direction:column;align-items:center;gap:12px;">
+    ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};display:flex;flex-direction:column;align-items:center;gap:${_sPx(12,escala)};">
       ${figGrandeHtml}
-      <div style="width:100%;padding:14px 16px;box-sizing:border-box;background:rgba(10,10,10,.58);border-radius:16px;">
-        <div style="display:flex;align-items:center;justify-content:center;text-align:center;">
+      <div style="width:100%;padding:${_sPx(14,escala)} ${_sPx(16,escala)};box-sizing:border-box;background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
+        ${n < 2 ? `<div style="display:flex;align-items:center;justify-content:center;text-align:center;">
           <div style="min-width:0;">
-            <div style="font-size:13px;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
-            <div style="font-size:22px;font-weight:900;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}</div>
+            <div style="font-size:${_sPx(13,escala)};color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
+            <div style="font-size:${_sPx(22,escala)};font-weight:900;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}</div>
           </div>
-        </div>
-        <div style="display:flex;justify-content:center;">${_shareStatsRow(info)}</div>
+        </div>` : ''}
+        ${n < 1 ? `<div style="display:flex;justify-content:center;">${_shareStatsRow(info, escala)}</div>` : ''}
       </div>
-    </div>
-    ${_shareLogoRodape(isLight)}
+    </div>` : ''}
+    ${_shareLogoRodape(isLight, escala)}
   </div>`;
 }
 // A frase de fim de treino (a mesma sorteada na tela de Finalização, salva em
 // info.mensagem) vira o elemento principal — fallback sorteia uma na hora
-// pra registros antigos salvos antes desse campo existir.
-function _tplFraseHtml(info, fig, bgImg, isLight) {
+// pra registros antigos salvos antes desse campo existir. A frase segura até
+// o penúltimo nível, junto da figurinha — só some no último, com o resto.
+function _tplFraseHtml(info, fig, bgImg, isLight, nivel, escala) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
   const frase = info.mensagem || (typeof getMensagemFinal === 'function' ? getMensagemFinal() : '');
+  const n = nivel || 0;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};">
-      ${frase ? `<div style="text-align:center;padding:18px 16px;background:rgba(10,10,10,.62);border-radius:16px;margin-bottom:14px;">
-        <div style="font-size:20px;font-weight:900;color:#fff;line-height:1.35;text-shadow:0 2px 6px rgba(0,0,0,.6);">${esc(frase)}</div>
+    ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};">
+      ${frase && n < 2 ? `<div style="text-align:center;padding:${_sPx(18,escala)} ${_sPx(16,escala)};background:rgba(10,10,10,.62);border-radius:${_sPx(16,escala)};margin-bottom:${_sPx(14,escala)};">
+        <div style="font-size:${_sPx(20,escala)};font-weight:900;color:#fff;line-height:1.35;text-shadow:0 2px 6px rgba(0,0,0,.6);">${esc(frase)}</div>
       </div>` : ''}
-      <div style="padding:14px 16px;background:rgba(10,10,10,.58);border-radius:16px;">
-        ${_shareBarraInferior(info, fig)}
+      <div style="padding:${_sPx(14,escala)} ${_sPx(16,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
+        ${_shareBarraInferior(info, fig, nivel, escala)}
       </div>
-    </div>
-    ${_shareLogoRodape(isLight)}
+    </div>` : ''}
+    ${_shareLogoRodape(isLight, escala)}
   </div>`;
 }
+
+const SHARE_TEMPLATES = [
+  { id: 'transparente', nome: 'Clássico',  emoji: '🎬', render: _tplTransparenteHtml },
+  { id: 'foto',         nome: 'Destaque',  emoji: '✨', render: _tplFotoHtml },
+  { id: 'story',        nome: 'Moldura',   emoji: '🖼️', render: _tplStoryHtml },
+  { id: 'dourado',      nome: 'Dourado',   emoji: '🌇', render: _tplDouradoHtml, filtroCss: `filter:${_FILTRO_DOURADO};` },
+  { id: 'frio',         nome: 'Frio',      emoji: '🧊', render: _tplFrioHtml, filtroCss: `filter:${_FILTRO_FRIO};` },
+  { id: 'vibrante',     nome: 'Vibrante',  emoji: '⚡', render: _tplVibranteHtml, filtroCss: `filter:${_FILTRO_VIBRANTE};` },
+  { id: 'figurona',     nome: 'Mascote',   emoji: '🎉', render: _tplFigurinhaGrandeHtml },
+  { id: 'frase',        nome: 'Frase',     emoji: '💬', render: _tplFraseHtml },
+];
 
 function _renderShareOverlay() {
   const isLight = document.body.classList.contains('tema-claro');
@@ -1662,6 +1809,10 @@ function _renderShareOverlay() {
   // A miniatura mostra a câmera ao vivo sempre que ela estiver ligada, a
   // origem for câmera e nenhuma foto tiver sido tirada ainda.
   const camAtiva = !!_camStream && S.origem === 'camera' && !S.bgImg;
+  // Mesma conta de "width:min(78vw,300px)" do #share-card-host abaixo — ver
+  // _shareEscala e o comentário grande perto de _camStream sobre por que os
+  // tamanhos dos templates precisam escalar com o tamanho real do cartão.
+  const escala = _shareEscala(Math.min(0.78 * window.innerWidth, 300));
 
   document.getElementById('share-overlay')?.remove();
   const overlay = document.createElement('div');
@@ -1670,7 +1821,7 @@ function _renderShareOverlay() {
   overlay.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ${borderC};position:sticky;top:0;background:${isLight?'#f5f5f5':'#0a0a0a'};z-index:2;">
       <button onclick="_fecharCompartilhar()" aria-label="Voltar" style="background:${bgCard};border:1px solid ${borderC};border-radius:10px;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
-      <span style="font-size:15px;font-weight:800;color:${txt};">Compartilhar treino</span>
+      <span style="font-size:15px;font-weight:800;color:${txt};">${S.info.tipo === 'cardio' ? 'Compartilhar cardio' : 'Compartilhar treino'}</span>
       <button onclick="_fecharCompartilhar()" aria-label="Fechar" style="background:${bgCard};border:1px solid ${borderC};border-radius:10px;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">✕</button>
     </div>
 
@@ -1686,8 +1837,8 @@ function _renderShareOverlay() {
     <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 10px 8px;">
       <button onclick="_shareTrocarTpl(-1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
       <div id="share-card-host" style="position:relative;width:min(78vw,300px);aspect-ratio:230/410;border-radius:18px;overflow:hidden;background:#000;">
-        ${camAtiva ? `<video id="share-cam-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${_camFacing === 'user' ? 'transform:scaleX(-1);' : ''}${tpl.filtroCss||''}"></video>` : ''}
-        <div style="position:absolute;inset:0;${camAtiva ? 'pointer-events:none;' : ''}">${tpl.render(S.info, S.fig, camAtiva ? 'LIVE' : S.bgImg, isLight)}</div>
+        ${camAtiva ? `<div id="share-cam-video-slot" style="position:absolute;inset:0;pointer-events:none;"></div>` : ''}
+        <div style="position:absolute;inset:0;${camAtiva ? 'pointer-events:none;' : ''}">${tpl.render(S.info, S.fig, camAtiva ? 'LIVE' : S.bgImg, isLight, _shareNivelInfo, escala)}</div>
         ${camAtiva ? `<button aria-label="Expandir câmera" onclick="_shareAbrirTelaCheia()" style="position:absolute;bottom:10px;right:10px;width:34px;height:34px;border-radius:9px;background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">${_shareIconSvg('expandir',16)}</button>` : ''}
       </div>
       <button onclick="_shareTrocarTpl(1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">›</button>
@@ -1738,7 +1889,12 @@ function _renderShareOverlay() {
   `;
   document.body.appendChild(overlay);
 
-  if (camAtiva) document.getElementById('share-cam-video').srcObject = _camStream;
+  // O <video> nunca é recriado aqui — só MOVIDO pro slot da miniatura (ver
+  // comentário grande perto de _camStream).
+  if (camAtiva) {
+    document.getElementById('share-cam-video-slot').appendChild(_camVideoEl);
+    _shareAtualizarEstiloVideo();
+  }
 
   // Arrastar o dedo dentro da área do cartão também troca de filtro — antes
   // só dava pra usar os botões ‹ › do lado, fora da área que o aluno está de
@@ -6582,17 +6738,17 @@ function renderCardio() {
     ${telaHeader('🏃 Meu Cardio')}
     ${novoVisto ? '' : `<div id="cardio-novo-banner">${novoHtml}</div>`}
 
-    <div onclick="abrirCardioLive()" style="background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(6,182,212,.1));border:1.5px solid rgba(127,255,0,.35);border-radius:16px;padding:18px;margin-bottom:14px;cursor:pointer;display:flex;align-items:center;gap:14px;touch-action:manipulation;">
-      <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#7FFF00,#40c000);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">📍</div>
+    <div onclick="abrirCardioLive()" style="background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(6,182,212,.1));border:1.5px solid rgba(127,255,0,.35);border-radius:18px;padding:22px;margin-bottom:14px;cursor:pointer;display:flex;align-items:center;gap:16px;touch-action:manipulation;">
+      <div style="width:58px;height:58px;border-radius:16px;background:linear-gradient(135deg,#7FFF00,#40c000);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;">📍</div>
       <div style="flex:1;min-width:0;">
-        <div style="font-size:14.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio ao vivo</div>
-        <div style="font-size:11.5px;color:${isLight?'#555':'#999'};margin-top:2px;">Corrida, caminhada ou bike rastreados por GPS — distância e ritmo calculados na hora</div>
+        <div style="font-size:17.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Monitore seu cardio ao vivo</div>
+        <div style="font-size:13px;color:${isLight?'#555':'#999'};margin-top:3px;">Corrida, caminhada ou bike rastreados por GPS — distância e ritmo calculados na hora</div>
       </div>
-      <div style="font-size:20px;color:${isLight?'#2d8a00':'#7FFF00'};">▶</div>
+      <div style="font-size:24px;color:${isLight?'#2d8a00':'#7FFF00'};">▶</div>
     </div>
 
-    <details id="cardio-manual-details" style="background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:14px;padding:14px 18px;margin-bottom:20px;">
-      <summary style="font-size:12.5px;font-weight:800;color:${isLight?'#666':'#999'};cursor:pointer;list-style:none;">✍️ Prefiro registrar manualmente</summary>
+    <details id="cardio-manual-details" style="background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:14px;padding:18px 20px;margin-bottom:20px;">
+      <summary style="font-size:15px;font-weight:800;color:${isLight?'#666':'#999'};cursor:pointer;list-style:none;">✍️ Prefiro registrar manualmente</summary>
       <div style="margin-top:14px;">
 
       <div style="margin-bottom:12px;">
@@ -6652,8 +6808,8 @@ function renderCardio() {
       </div>
     </details>
 
-    <details id="cardio-historico-details" style="background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:14px;padding:14px 18px;margin-bottom:20px;">
-      <summary style="font-size:12.5px;font-weight:800;color:${isLight?'#666':'#999'};cursor:pointer;list-style:none;">📋 Histórico de cardios${_cardioHistorico.length ? ' (' + _cardioHistorico.length + ')' : ''}</summary>
+    <details id="cardio-historico-details" style="background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:14px;padding:18px 20px;margin-bottom:20px;">
+      <summary style="font-size:15px;font-weight:800;color:${isLight?'#666':'#999'};cursor:pointer;list-style:none;">📋 Histórico de cardios${_cardioHistorico.length ? ' (' + _cardioHistorico.length + ')' : ''}</summary>
       <div style="margin-top:14px;">
       ${_cardioHistorico.length === 0
         ? `<div style="text-align:center;padding:24px;color:${isLight?'#aaa':'#555'};font-size:13px;">Nenhum cardio registrado ainda.</div>`
@@ -7505,6 +7661,7 @@ function _renderTelaEsforcoCardioLive(dados) {
       </div>
       <div id="cle-rpe-desc" style="text-align:center;margin-bottom:16px;"></div>
       <button onclick="_confirmarEsforcoCardioLive()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">Concluir</button>
+      <button onclick="document.getElementById('cardio-esforco-overlay')?.remove();abrirCompartilharCardio(window._cardioEsforcoDados);" style="width:100%;margin-top:10px;padding:12px;border-radius:12px;border:1px solid ${isLight?'#e5e5e5':'#333'};background:${isLight?'#f6f6f6':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">📸 Compartilhar cardio</button>
       <div style="text-align:center;font-size:10.5px;color:${isLight?'#aaa':'#666'};margin-top:10px;">Já ficou salvo com esforço médio (5) — fechar sem mexer aqui não perde nada.</div>
     </div>`;
   document.body.appendChild(ov);
