@@ -7566,6 +7566,18 @@ function _iniciarMapaCardioLive() {
     document.getElementById('cl-svg').style.display = 'none';
     mapEl.style.display = '';
     _atualizarRotaMapa();
+    // BUG real (relatado em produção): "ao sair e voltar do Cardio o mapa
+    // fica cortado". Causa: abrirCardioLive() chama _renderCardioLive()
+    // (que cria o mapa aqui) ANTES de trocarView('cardio-live') tornar a
+    // view visível — nesse instante a view ainda está com display:none, e o
+    // Leaflet mede o tamanho do container (0×0) e trava o mosaico de tiles
+    // nesse tamanho errado. trocarView troca pra display:block logo em
+    // seguida, mas o Leaflet não percebe sozinho — sobra só a metade
+    // pintada, o resto cinza. requestAnimationFrame roda depois que
+    // trocarView já deixou a view visível, dando o tamanho certo pro
+    // invalidateSize recalcular.
+    const _mapaParaCorrigir = _cardioLiveMapa;
+    requestAnimationFrame(() => { try { if (_mapaParaCorrigir === _cardioLiveMapa) _mapaParaCorrigir.invalidateSize(false); } catch (e) {} });
   } catch (e) {
     console.warn('[cardio-mapa]', e);
     _cardioLiveMapa = null;
