@@ -7633,6 +7633,11 @@ function _cardioLiveFinalizar() {
   const distKm = _cardioLiveKm();
   const min = Math.round(_cardioLiveTempoMs() / 60000);
   const tipo = _cardioLiveTipo;
+  // Snapshot ANTES de _cardioLivePararTudo/limpar — o array em si não é
+  // zerado por essas duas, mas a próxima sessão de cardio zera, e não
+  // queremos depender de "ninguém mexeu ainda" pra tela de esforço mostrar
+  // a rota certa.
+  const pontos = _cardioLivePontos.slice();
   _cardioLivePararTudo();
   _cardioLiveLimparAtivo();
   renderCardio();
@@ -7648,29 +7653,43 @@ function _cardioLiveFinalizar() {
   salvarCardio({
     silencioso: true,
     aoVivo: true,
-    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm }); },
+    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos }); },
   });
 }
 
 // Tela dedicada de confirmação do cardio ao vivo — diferente da tela de
 // registro manual: mostra o que JÁ foi rastreado (tipo, duração, distância)
 // como fato consumado, não como campo pra preencher, e pede só o esforço.
+// Rota só vale a pena mostrar com GPS de verdade E um percurso com corpo —
+// sem isso (Escada/Elíptico, sem GPS; ou 1-2 pontos de quem ficou parado)
+// o mapa mostraria um ponto só ou nada, mais confuso que útil.
+const _CARDIO_ROTA_DIST_MIN_KM = 0.05;
+function _cardioTemRotaRelevante(dados) {
+  return !!CARDIO_LIVE_USA_GPS[dados.tipo] && Array.isArray(dados.pontos) && dados.pontos.length >= 2 && (Number(dados.distKm) || 0) >= _CARDIO_ROTA_DIST_MIN_KM;
+}
+let _cardioEsforcoMapa = null;
+function _cardioEsforcoFecharMapa() {
+  if (_cardioEsforcoMapa) { try { _cardioEsforcoMapa.remove(); } catch (e) {} _cardioEsforcoMapa = null; }
+}
 function _renderTelaEsforcoCardioLive(dados) {
+  _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
   const isLight = document.body.classList.contains('tema-claro');
   const emoji = CARDIO_LIVE_EMOJI[dados.tipo] || '🏃';
   const usaGps = !!CARDIO_LIVE_USA_GPS[dados.tipo];
+  const temRota = _cardioTemRotaRelevante(dados);
   window._cardioEsforcoDados = dados;
   const ov = document.createElement('div');
   ov.id = 'cardio-esforco-overlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
   ov.innerHTML = `
-    <div style="background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#333'};border-radius:18px;padding:24px 22px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+    <div style="background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#333'};border-radius:18px;padding:24px 22px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:90vh;overflow-y:auto;">
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-size:36px;margin-bottom:6px;">✅</div>
         <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio registrado!</div>
         <div style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">Já está salvo — só falta confirmar o esforço</div>
       </div>
+      ${temRota ? `<div id="cle-mapa" style="width:100%;height:150px;border-radius:12px;overflow:hidden;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;margin-bottom:18px;">
         <div style="font-size:26px;">${emoji}</div>
         <div style="flex:1;">
@@ -7690,8 +7709,35 @@ function _renderTelaEsforcoCardioLive(dados) {
       <div style="text-align:center;font-size:10.5px;color:${isLight?'#aaa':'#666'};margin-top:10px;">Já ficou salvo com esforço médio (5) — fechar sem mexer aqui não perde nada.</div>
     </div>`;
   document.body.appendChild(ov);
-  ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+  // Fecha (e desmonta o mapa, se tiver) ao tocar fora do cartão — mesma
+  // lição do bug de "mapa fantasma": nunca deixar um Leaflet montado sem
+  // dono depois que a tela que o criou some.
+  ov.onclick = function (e) { if (e.target === ov) { _cardioEsforcoFecharMapa(); ov.remove(); } };
+  if (temRota) _iniciarMapaRotaFinalCardio(dados.pontos);
   _cardioLiveEsforcoChange();
+}
+// Mapa ESTÁTICO da rota completa (sem live-tracking, sem controles) — só
+// pra mostrar de relance o que foi percorrido. fitBounds em vez de zoom
+// fixo porque aqui não sabemos o tamanho do percurso de antemão (a tela de
+// cardio ao vivo usa zoom fixo de ~1km porque ali o ponto é "onde eu tô",
+// não "o trajeto inteiro").
+function _iniciarMapaRotaFinalCardio(pontos) {
+  _cardioEsforcoFecharMapa();
+  const mapEl = document.getElementById('cle-mapa');
+  if (!mapEl || typeof L === 'undefined') { if (mapEl) mapEl.style.display = 'none'; return; }
+  try {
+    const latlngs = pontos.map(p => [p.lat, p.lng]);
+    _cardioEsforcoMapa = L.map(mapEl, { zoomControl: false, attributionControl: true, dragging: false, scrollWheelZoom: false, touchZoom: false, doubleClickZoom: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(_cardioEsforcoMapa);
+    L.polyline(latlngs, { color: '#0ea5e9', weight: 4, opacity: .9 }).addTo(_cardioEsforcoMapa);
+    L.circleMarker(latlngs[0], { radius: 6, color: '#0a0a0a', weight: 2, fillColor: '#999', fillOpacity: 1 }).addTo(_cardioEsforcoMapa);
+    L.circleMarker(latlngs[latlngs.length - 1], { radius: 7, color: '#0a0a0a', weight: 2, fillColor: '#7FFF00', fillOpacity: 1 }).addTo(_cardioEsforcoMapa);
+    _cardioEsforcoMapa.fitBounds(L.latLngBounds(latlngs), { padding: [16, 16] });
+  } catch (e) {
+    console.warn('[cardio-esforco-mapa]', e);
+    _cardioEsforcoFecharMapa();
+    mapEl.style.display = 'none';
+  }
 }
 function _cardioLiveEsforcoChange() {
   const sl = document.getElementById('cle-rpe');
@@ -7717,6 +7763,7 @@ function _cardioLiveEsforcoChange() {
 // chamava, e o aluno via "não registrou" mesmo o cardio já estando salvo.
 function _compartilharCardioAoVivo() {
   const dados = window._cardioEsforcoDados;
+  _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
   renderCardio();
   if (dados) abrirCompartilharCardio(dados);
@@ -7725,6 +7772,7 @@ async function _confirmarEsforcoCardioLive() {
   const dados = window._cardioEsforcoDados;
   const sl = document.getElementById('cle-rpe');
   const novoRpe = sl ? parseInt(sl.value) || 5 : 5;
+  _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
   if (!dados || !dados.idsessao) { renderCardio(); return; } // salvo só localmente (sem servidor) — nada pra atualizar
   if (novoRpe === 5) { renderCardio(); return; } // já é o padrão salvo, nada a fazer
