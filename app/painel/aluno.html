@@ -9317,7 +9317,7 @@ function _renderRankingView() {
   function buildRanking(lista) {
     const ag = _agregarPontosPorAtleta(lista);
     const arr = Object.values(ag)
-      .map(a => ({ id: a.id, nome: nomeMap[a.id] || 'Membro', pts: a.total, base: a.base, bonus: a.bonus }))
+      .map(a => ({ id: a.id, nome: nomeMap[a.id] || 'Membro', pts: a.total, base: a.base, bonus: a.bonus, bonusCardioAoVivo: a.bonusCardioAoVivo }))
       .sort((a, b) => b.pts - a.pts);
     // ── EMPATE: MESMA POSICAO, SEM PULAR A SEGUINTE ───────────────────────
     // Antes a posicao era so o indice da lista, entao duas pessoas com pontos
@@ -9653,8 +9653,16 @@ function _renderRankingView() {
             : 'Bônus de <b style="color:' + _accent + ';">+' + _rankReg.bonusPts + ' pts</b> garantido nesta semana. Continue firme!') +
         '</span>' +
       '</div>';
-    } else if (_meuItem.bonus > 0) {
-      _bonusLinha = '<div style="font-size:11px;color:' + (isLight ? '#666' : '#999') + ';margin-top:4px;">🔥 +' + _meuItem.bonus + ' pts de bônus de frequência no período</div>';
+    } else {
+      // BUG real: _meuItem.bonus soma o bônus de frequência (dias de
+      // musculação na semana) COM o bônus de cardio ao vivo (1 pt/hora
+      // rastreado por GPS) — são conquistas diferentes, mas o texto sempre
+      // dizia "bônus de frequência", mesmo quando o valor era só cardio ao
+      // vivo. Isolando aqui pra não anunciar frequência que a pessoa não bateu.
+      const _bonusFreqPeriodo = Math.round((_meuItem.bonus - (_meuItem.bonusCardioAoVivo || 0)) * 10) / 10;
+      if (_bonusFreqPeriodo > 0) {
+        _bonusLinha = '<div style="font-size:11px;color:' + (isLight ? '#666' : '#999') + ';margin-top:4px;">🔥 +' + _bonusFreqPeriodo + ' pts de bônus de frequência no período</div>';
+      }
     }
 
     // ── CARTÃO PESSOAL (Opção B aprovada) ──────────────────────────────────
