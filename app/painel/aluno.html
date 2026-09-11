@@ -1646,7 +1646,7 @@ function _shareBarraInferior(info, fig, nivel, escala) {
       ${_shareFigMini(fig, escala)}
       <div style="flex:1;min-width:0;text-align:left;">
         <div style="font-size:${_sPx(13,escala)};color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
-        <div style="font-size:${_sPx(22,escala)};font-weight:900;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}</div>
+        <div style="font-size:${_sPx(17,escala)};font-weight:900;color:#fff;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${esc(info.nomeTreino)}</div>
       </div>
     </div>`;
   }
@@ -1757,7 +1757,7 @@ function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala) {
         ${n < 2 ? `<div style="display:flex;align-items:center;justify-content:center;text-align:center;">
           <div style="min-width:0;">
             <div style="font-size:${_sPx(13,escala)};color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
-            <div style="font-size:${_sPx(22,escala)};font-weight:900;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}</div>
+            <div style="font-size:${_sPx(17,escala)};font-weight:900;color:#fff;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${esc(info.nomeTreino)}</div>
           </div>
         </div>` : ''}
         ${n < 1 ? `<div style="display:flex;justify-content:center;">${_shareStatsRow(info, escala)}</div>` : ''}
@@ -2842,6 +2842,20 @@ function trocarView(v) {
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('ativo'));
   document.getElementById('v-'+v).classList.add('ativo');
   window.scrollTo(0,0);
+  // BUG real: saindo do cardio ao vivo pra qualquer outra tela (inclusive
+  // pra tirar foto e compartilhar), o mapa Leaflet continuava montado por
+  // baixo, só coberto por display:none — mas o Leaflet usa transform3d pra
+  // arrastar o mapa (camada composta na GPU), e em WebView nativo (o app
+  // iOS empacotado) essa camada às vezes fica "fantasma": aparece por cima
+  // de QUALQUER tela depois (inclusive a câmera em tela cheia e o menu),
+  // porque o compositor não redesenha aquele pedaço sozinho. O rastreio (GPS,
+  // cronômetro, _cardioLivePontos) continua rodando igual sem o mapa
+  // desenhado — só a visualização é desmontada; _iniciarMapaCardioLive()
+  // recria do zero quando o aluno volta pra essa tela.
+  if (window._viewAtual === 'cardio-live' && v !== 'cardio-live' && typeof _cardioLiveMapa !== 'undefined' && _cardioLiveMapa) {
+    try { _cardioLiveMapa.remove(); } catch (e) {}
+    _cardioLiveMapa = null; _cardioLiveRotaLayer = null; _cardioLiveMarcador = null; _cardioLiveMapaFoco = false;
+  }
   window._viewAtual = v;
   if (typeof atualizarBannerTreino === 'function') atualizarBannerTreino(v);
 }
@@ -7672,7 +7686,7 @@ function _renderTelaEsforcoCardioLive(dados) {
       </div>
       <div id="cle-rpe-desc" style="text-align:center;margin-bottom:16px;"></div>
       <button onclick="_confirmarEsforcoCardioLive()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">Concluir</button>
-      <button onclick="document.getElementById('cardio-esforco-overlay')?.remove();abrirCompartilharCardio(window._cardioEsforcoDados);" style="width:100%;margin-top:10px;padding:12px;border-radius:12px;border:1px solid ${isLight?'#e5e5e5':'#333'};background:${isLight?'#f6f6f6':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">📸 Compartilhar cardio</button>
+      <button onclick="_compartilharCardioAoVivo()" style="width:100%;margin-top:10px;padding:12px;border-radius:12px;border:1px solid ${isLight?'#e5e5e5':'#333'};background:${isLight?'#f6f6f6':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">📸 Compartilhar cardio</button>
       <div style="text-align:center;font-size:10.5px;color:${isLight?'#aaa':'#666'};margin-top:10px;">Já ficou salvo com esforço médio (5) — fechar sem mexer aqui não perde nada.</div>
     </div>`;
   document.body.appendChild(ov);
@@ -7693,6 +7707,19 @@ function _cardioLiveEsforcoChange() {
       '</div>' +
       '<div style="font-size:11px;color:#999;margin-top:4px;">' + info.d + '</div>';
   }
+}
+// BUG real: este botão só fechava a tela de esforço e abria o compartilhar,
+// sem chamar renderCardio() — a tela de Meu Cardio por baixo tinha sido
+// desenhada ANTES do salvarCardio terminar (é chamada logo no início de
+// _cardioLiveFinalizar, sem esperar o fetch), então o histórico visível
+// ficava sem o cardio recém-salvo até um refresh acontecer. _confirmarEsforcoCardioLive
+// (botão "Concluir") já chamava renderCardio() no fim; este aqui não
+// chamava, e o aluno via "não registrou" mesmo o cardio já estando salvo.
+function _compartilharCardioAoVivo() {
+  const dados = window._cardioEsforcoDados;
+  document.getElementById('cardio-esforco-overlay')?.remove();
+  renderCardio();
+  if (dados) abrirCompartilharCardio(dados);
 }
 async function _confirmarEsforcoCardioLive() {
   const dados = window._cardioEsforcoDados;
