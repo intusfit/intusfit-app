@@ -2613,6 +2613,51 @@ function _feedCardHtml(post, isLight) {
   '</div>';
 }
 
+// Card explicativo do Feed — aparece intercalado entre os posts reais, no
+// mesmo espírito do "patrocinado" do Instagram: some pra dentro da rolagem
+// normal em vez de ficar fixo no topo pra sempre. 3 variações (A/B/C),
+// alternadas por FEED_EXPLICATIVO_INTERVALO em _renderFeedCompleto.
+function _feedCardExplicativo(variante, isLight) {
+  const accent = isLight ? '#5cb800' : '#7FFF00';
+  const bg = isLight ? '#fff' : '#161616';
+  const border = isLight ? '#e5e5e5' : '#2a2a2a';
+  const ink = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#666' : '#bbb';
+  const badgeBg = isLight ? 'rgba(92,184,0,.12)' : 'rgba(127,255,0,.12)';
+  const divider = isLight ? 'rgba(92,184,0,.25)' : 'rgba(127,255,0,.15)';
+  const wrap = (inner) => '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:14px;padding:13px 13px 14px;margin-bottom:12px;">' + inner + '</div>';
+  const badge = (emoji) => '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;">' +
+      '<div style="width:30px;height:30px;border-radius:50%;background:' + badgeBg + ';display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">' + emoji + '</div>';
+
+  if (variante === 'B') {
+    const passos = [
+      'Toque em <b style="color:' + ink + ';">Novo post</b>, ali em cima',
+      'Escolha uma foto do treino, da refeição ou do resultado',
+      'Escreva uma legenda e publique',
+    ];
+    return wrap(
+      badge('🚀') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">Como postar no Feed</div></div>' +
+      passos.map((p, i) => '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:7px;">' +
+        '<div style="width:17px;height:17px;border-radius:50%;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f0f0f') + ';font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">' + (i + 1) + '</div>' +
+        '<p style="margin:0;font-size:11.5px;color:' + muted + ';line-height:1.45;">' + p + '</p></div>'
+      ).join('') +
+      '<div style="font-size:11px;font-weight:700;color:' + accent + ';line-height:1.45;padding-top:8px;border-top:1px solid ' + divider + ';">Sozinho funciona. Em comunidade funciona melhor e mais fácil.</div>'
+    );
+  }
+  if (variante === 'C') {
+    return wrap(
+      '<div style="font-size:15px;font-weight:800;color:' + ink + ';line-height:1.35;margin-bottom:8px;text-wrap:balance;">Sozinho, você evolui. <span style="color:' + accent + ';">Em comunidade, evolui melhor.</span></div>' +
+      '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;">O Feed é o mural da comunidade Intus: treino, conquista e bastidor de quem está no mesmo caminho que você. Compartilhar o processo deixa tudo mais rápido e mais fácil. Toque em <b style="color:' + ink + ';">Novo post</b> e poste o seu.</div>'
+    );
+  }
+  // A (padrão)
+  return wrap(
+    badge('📣') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">O que é o Feed dos Alunos</div></div>' +
+    '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:9px;">Para compartilhar sua rotina, toque em <b style="color:' + ink + ';">Novo post</b>, ali em cima.</div>' +
+    '<div style="font-size:11px;font-weight:700;color:' + accent + ';line-height:1.45;padding-top:8px;border-top:1px solid ' + divider + ';">Sozinho você evolui. Em comunidade, evolui mais rápido.</div>'
+  );
+}
+
 // "⋯" de um post: dono vê "Excluir" e "Ocultar de alguém"; quem não é dono vê
 // "Não ver posts desta pessoa".
 function _abrirMenuPost(idpost, idatletaDono) {
@@ -2723,7 +2768,19 @@ async function renderFeedCompleto() {
       '<p style="font-size:12.5px;color:' + (isLight?'#666':'#888') + ';max-width:280px;margin:0 auto;">Compartilhe uma foto, uma conquista ou o treino de hoje — toque em "Novo post" acima.</p>' +
     '</div>';
   } else {
-    html += posts.map(p => _feedCardHtml(p, isLight)).join('');
+    // O 1º card explicativo aparece logo após o 1º post; os seguintes, a cada
+    // FEED_EXPLICATIVO_INTERVALO posts reais, alternando entre A/B/C — mesmo
+    // espírito do "patrocinado" intercalado no feed do Instagram.
+    const FEED_EXPLICATIVO_INTERVALO = 5;
+    const variantes = ['A', 'B', 'C'];
+    let vIdx = 0;
+    posts.forEach((p, i) => {
+      html += _feedCardHtml(p, isLight);
+      if (i === 0 || i % FEED_EXPLICATIVO_INTERVALO === 0) {
+        html += _feedCardExplicativo(variantes[vIdx % variantes.length], isLight);
+        vIdx++;
+      }
+    });
   }
   html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
   html += getFooterHtml();
