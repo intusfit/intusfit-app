@@ -1840,9 +1840,21 @@ if ($action === 'feed_posts') {
             http_response_code(400); echo json_encode(['error' => 'formato de imagem invalido']); exit;
         }
 
-        $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino) VALUES (?,?,?,?)");
-        $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino]);
-        echo json_encode(['ok' => true, 'idpost' => (int)$pdo->lastInsertId(), 'imagem' => $url, 'destino' => $destino]);
+        // BUG real relatado em producao: "erro 500" sem motivo nenhum ao
+        // publicar no Feed. O INSERT era o unico passo deste bloco sem
+        // try/catch — qualquer falha de banco virava erro fatal cru (sem
+        // JSON), e o front so sabe mostrar "erro 500" quando nao consegue
+        // interpretar a resposta como JSON. A imagem ja tinha sido salva em
+        // disco nesse ponto, entao o aluno perdia so o registro do post, nao
+        // a foto. Mesmo padrao de log+referencia ja usado na conexao do banco.
+        try {
+            $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino) VALUES (?,?,?,?)");
+            $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino]);
+            echo json_encode(['ok' => true, 'idpost' => (int)$pdo->lastInsertId(), 'imagem' => $url, 'destino' => $destino]);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'falha ao gravar o post', 'detalhe' => _intusLogErro($e)]);
+        }
         exit;
     }
 
