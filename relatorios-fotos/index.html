@@ -51,7 +51,7 @@ input{font-family:inherit}
 .btn-sair{margin-left:auto;background:transparent;border:1px solid var(--borda);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600}
 .btn-sair:hover{color:var(--texto);border-color:var(--accent-borda)}
 .topo .aviso{font-size:12px;color:var(--muted-d);margin-top:8px;max-width:720px;line-height:1.5}
-.topo .aviso-restrito{margin-top:10px;margin-bottom:0;max-width:720px}
+.aviso-restrito-abaixo{margin-top:16px;margin-bottom:0;text-align:center}
 
 /* ── avaliacoes salvas ── */
 .painel-lista{max-width:1400px;margin:0 auto;padding:14px 20px;border-bottom:1px solid var(--borda)}
@@ -116,6 +116,26 @@ input{font-family:inherit}
 .row-check{display:flex;align-items:center}
 .row-check input{width:16px;height:16px;accent-color:var(--accent)}
 
+.campo-autocomplete{position:relative;display:inline-block}
+.autocomplete-lista{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:var(--card-bg);border:1px solid var(--borda);border-radius:9px;max-height:220px;overflow-y:auto;z-index:30;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.autocomplete-item{padding:8px 12px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--borda)}
+.autocomplete-item:last-child{border-bottom:none}
+.autocomplete-item:hover{background:var(--accent-fraca)}
+.autocomplete-item small{display:block;color:var(--muted-d);font-size:10.5px}
+.autocomplete-vazio{padding:8px 12px;font-size:12px;color:var(--muted-d)}
+
+.slot-canvas.modo-anotar{cursor:crosshair}
+.slot-comentario{width:100%;margin-top:7px;padding:6px 9px;border-radius:7px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:11.5px}
+.slot-comentario::placeholder{color:var(--muted-d)}
+.slot-anota-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--borda)}
+.slot-anota-bar button{background:transparent;border:1px solid var(--borda);color:var(--muted);border-radius:7px;padding:5px 7px;font-size:13px}
+.slot-anota-bar button:hover{border-color:var(--accent-borda)}
+.slot-anota-bar .btn-tool.on{background:var(--accent-fraca);border-color:var(--accent-borda)}
+.cores{display:flex;gap:4px}
+.btn-cor{width:20px;height:20px;border-radius:50%;padding:0!important;border:2px solid transparent!important}
+.btn-cor.on{border-color:var(--texto)!important}
+.chk-grade{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-left:auto}
+
 .rodape{max-width:1400px;margin:8px auto 0;padding:24px 20px 40px;text-align:center;border-top:1px solid var(--borda)}
 .logo-rodape{height:24px;opacity:.6;margin:0 auto}
 
@@ -133,7 +153,6 @@ input{font-family:inherit}
     <img src="/app/painel/logo-intus-light.png" alt="Intus Fit" class="login-logo" onerror="this.style.display='none'">
     <h2>Relatórios de avaliação por fotos</h2>
     <p class="login-sub">Entre com o mesmo e-mail e senha de professor que você usa no painel Intus.</p>
-    <p class="aviso-restrito">Ferramenta de uso exclusivo da equipe Intus. Não é permitido o uso por pessoas de fora da equipe, nem o registro de avaliações de quem não é aluno Intus.</p>
     <label>E-mail<input type="email" id="login-email" required autocomplete="username"></label>
     <label>Senha
       <span class="campo-senha">
@@ -143,6 +162,7 @@ input{font-family:inherit}
     </label>
     <p class="login-erro" id="login-erro"></p>
     <button type="submit" class="btn-acao btn-login-entrar" id="btn-login-entrar">Entrar</button>
+    <p class="aviso-restrito aviso-restrito-abaixo">Ferramenta de uso exclusivo da equipe Intus. Não é permitido o uso por pessoas de fora da equipe, nem o registro de avaliações de quem não é aluno Intus.</p>
   </form>
 </div>
 
@@ -154,7 +174,6 @@ input{font-family:inherit}
     <span class="topo-titulo">Relatórios de avaliação por fotos</span>
     <button class="btn-sair" id="btn-sair">Sair</button>
   </div>
-  <p class="aviso-restrito">Ferramenta de uso exclusivo da equipe Intus. Não é permitido o uso por pessoas de fora da equipe, nem o registro de avaliações de quem não é aluno Intus.</p>
   <p class="aviso">
     Fotos e ajustes agora ficam salvos no servidor Intus, vinculados ao seu login de professor.
     Arraste a foto para reposicionar dentro do quadro e use a régua para dar zoom, até sobrar só o
@@ -166,7 +185,10 @@ input{font-family:inherit}
   <div class="tb-grupo">
     <span class="tb-titulo">Avaliação</span>
     <div class="tb-linha">
-      <input type="text" id="input-aluno" placeholder="Nome do aluno" style="min-width:200px">
+      <span class="campo-autocomplete">
+        <input type="text" id="input-aluno" placeholder="Nome do aluno (busca no cadastro)" autocomplete="off" style="min-width:220px">
+        <div class="autocomplete-lista" id="lista-alunos-sugestoes" hidden></div>
+      </span>
       <button class="btn-acao" id="btn-salvar-avaliacao">Salvar avaliação</button>
       <button class="btn-secundario" id="btn-abrir-lista">Avaliações salvas</button>
       <button class="btn-secundario" id="btn-nova-avaliacao">Novo (limpar tudo)</button>
@@ -227,6 +249,8 @@ input{font-family:inherit}
       <span class="contagem" id="contagem-sel">0 selecionadas</span>
       <button class="btn-secundario" id="btn-baixar-sel">Baixar selecionadas (ZIP)</button>
       <button class="btn-acao" id="btn-baixar-tudo">Baixar todas prontas (ZIP)</button>
+      <button class="btn-secundario" id="btn-pdf-sel">Baixar selecionadas (PDF)</button>
+      <button class="btn-acao" id="btn-pdf-tudo">Baixar todas prontas (PDF)</button>
       <span class="status-zip" id="status-zip"></span>
     </div>
   </div>
@@ -236,11 +260,13 @@ input{font-family:inherit}
 
 <div class="rodape">
   <img src="/app/painel/logo-intus-light.png" alt="Intus Fit" class="logo-rodape" onerror="this.style.display='none'">
+  <p class="aviso-restrito aviso-restrito-abaixo">Ferramenta de uso exclusivo da equipe Intus. Não é permitido o uso por pessoas de fora da equipe, nem o registro de avaliações de quem não é aluno Intus.</p>
 </div>
 
 </div><!-- /#app -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -254,6 +280,8 @@ var incluirMarca = true;
 var logoVariant = 'branco';
 var isAdmin = false;
 var currentReportId = null;
+var alunoSelecionadoId = null;
+var buscaAlunoTimer = null;
 
 var LOGO_SRC = { branco: '/app/painel/logo-intus-branco.png', preto: '/app/painel/logo-intus-dark.png' };
 var logoImgs = {};
@@ -303,7 +331,9 @@ function slugify(s){
 
 function makeSlot(tag){
   return { tag: tag, img: null, naturalW: 0, naturalH: 0, z: 1, panX: .5, panY: .5,
-           canvas: null, ctx: null, dragging: false, dragStart: null, imgDirty: false };
+           canvas: null, ctx: null, dragging: false, dragStart: null, imgDirty: false,
+           annotations: [], comment: '', grade: false, corAtual: '#ff3b30',
+           tool: null, draft: null, anguloEmProgresso: null };
 }
 
 function makeRow(i){
@@ -343,10 +373,92 @@ function sourceRect(slot, destW, destH){
   return { sx: slot.panX * slackX, sy: slot.panY * slackY, sW: sW, sH: sH, slackX: slackX, slackY: slackY };
 }
 
+function drawWatermark(ctx, destW, destH){
+  if (!incluirMarca) return;
+  var logo = logoImgs[logoVariant];
+  if (!logo || !logo.complete || !logo.naturalWidth) return;
+  var margin = Math.max(6, destW * 0.035);
+  var lw = destW * 0.26;
+  var lh = lw * (logo.naturalHeight / logo.naturalWidth);
+  var maxLh = destH * 0.11;
+  if (lh > maxLh) { lh = maxLh; lw = lh * (logo.naturalWidth / logo.naturalHeight); }
+  ctx.save();
+  ctx.globalAlpha = 0.82;
+  ctx.drawImage(logo, destW - lw - margin, destH - lh - margin, lw, lh);
+  ctx.restore();
+}
+
+function drawGrade(ctx, destW, destH){
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,59,48,.6)';
+  ctx.lineWidth = Math.max(1, destW * 0.0035);
+  ctx.beginPath(); ctx.moveTo(destW / 2, 0); ctx.lineTo(destW / 2, destH); ctx.stroke();
+  for (var i = 1; i < 10; i++) {
+    if (i === 5) continue;
+    var y = destH * i / 10;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(destW, y); ctx.stroke();
+  }
+  ctx.lineWidth = Math.max(1.5, destW * 0.006);
+  ctx.beginPath(); ctx.moveTo(0, destH / 2); ctx.lineTo(destW, destH / 2); ctx.stroke();
+  ctx.restore();
+}
+
+function anguloEntre(vx, vy, ax, ay, bx, by){
+  var v1x = ax - vx, v1y = ay - vy, v2x = bx - vx, v2y = by - vy;
+  var m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+  if (!m1 || !m2) return 0;
+  var cos = clamp((v1x * v2x + v1y * v2y) / (m1 * m2), -1, 1);
+  return Math.acos(cos) * 180 / Math.PI;
+}
+
+function desenharAnotacao(ctx, a, destW, destH){
+  ctx.save();
+  ctx.strokeStyle = a.cor || '#ff3b30';
+  ctx.fillStyle = a.cor || '#ff3b30';
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (a.tipo === 'draw'){
+    ctx.lineWidth = Math.max(1.5, destW * 0.008);
+    ctx.beginPath();
+    (a.pontos || []).forEach(function(p, i){ var x = p.x * destW, y = p.y * destH; if (!i) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.stroke();
+  } else if (a.tipo === 'circulo'){
+    ctx.lineWidth = Math.max(1.5, destW * 0.006);
+    ctx.beginPath();
+    ctx.ellipse(a.cx * destW, a.cy * destH, Math.max(1, Math.abs(a.rx) * destW), Math.max(1, Math.abs(a.ry) * destH), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (a.tipo === 'angulo'){
+    var vx = a.vx * destW, vy = a.vy * destH, ax = a.ax * destW, ay = a.ay * destH, bx = a.bx * destW, by = a.by * destH;
+    ctx.lineWidth = Math.max(1.5, destW * 0.006);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(vx, vy); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.beginPath(); ctx.arc(vx, vy, Math.max(2, destW * 0.008), 0, Math.PI * 2); ctx.fill();
+    var ang = anguloEntre(vx, vy, ax, ay, bx, by);
+    ctx.font = '800 ' + Math.round(destW * 0.05) + 'px Inter, sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.lineWidth = Math.max(2, destW * 0.012); ctx.strokeStyle = 'rgba(0,0,0,.75)';
+    ctx.strokeText(ang.toFixed(0) + '°', vx + destW * 0.015, vy - destW * 0.015);
+    ctx.fillStyle = a.cor || '#ff3b30';
+    ctx.fillText(ang.toFixed(0) + '°', vx + destW * 0.015, vy - destW * 0.015);
+  }
+  ctx.restore();
+}
+
+function desenharAnguloParcial(ctx, a, destW, destH){
+  ctx.save();
+  ctx.strokeStyle = a.cor || '#ff3b30'; ctx.fillStyle = a.cor || '#ff3b30';
+  ctx.lineWidth = Math.max(1.5, destW * 0.006);
+  var vx = a.vx * destW, vy = a.vy * destH;
+  ctx.beginPath(); ctx.arc(vx, vy, Math.max(2, destW * 0.008), 0, Math.PI * 2); ctx.fill();
+  if ('ax' in a) { ctx.beginPath(); ctx.moveTo(a.ax * destW, a.ay * destH); ctx.lineTo(vx, vy); ctx.stroke(); }
+  ctx.restore();
+}
+
 function drawSlot(ctx, slot, destW, destH){
   if (!slot.img) return;
   var r = sourceRect(slot, destW, destH);
   ctx.drawImage(slot.img, r.sx, r.sy, r.sW, r.sH, 0, 0, destW, destH);
+  if (slot.grade) drawGrade(ctx, destW, destH);
+  (slot.annotations || []).forEach(function(a){ desenharAnotacao(ctx, a, destW, destH); });
+  drawWatermark(ctx, destW, destH);
 }
 
 function renderSlotPreview(row, side){
@@ -356,6 +468,17 @@ function renderSlotPreview(row, side){
   if (sz.w < 2 || sz.h < 2) return;
   slot.ctx = setupCanvas(slot.canvas, sz.w, sz.h);
   drawSlot(slot.ctx, slot, sz.w, sz.h);
+}
+
+function renderSlotPreviewComDraft(row, side){
+  var slot = row.slots[side];
+  if (!slot.canvas || !slot.img) return;
+  var sz = frameSize(row, side);
+  if (sz.w < 2 || sz.h < 2) return;
+  slot.ctx = setupCanvas(slot.canvas, sz.w, sz.h);
+  drawSlot(slot.ctx, slot, sz.w, sz.h);
+  if (slot.draft) desenharAnotacao(slot.ctx, slot.draft, sz.w, sz.h);
+  if (slot.anguloEmProgresso) desenharAnguloParcial(slot.ctx, slot.anguloEmProgresso, sz.w, sz.h);
 }
 
 function updateRowDownloadState(row){
@@ -376,6 +499,7 @@ function loadImageIntoSlot(row, side, file){
     row.els[side].drop.hidden = true;
     row.els[side].canvas.hidden = false;
     row.els[side].tools.hidden = false;
+    row.els[side].comentario.hidden = false;
     row.els[side].zoom.value = 100;
     renderSlotPreview(row, side);
     updateRowDownloadState(row);
@@ -390,16 +514,21 @@ function loadImageIntoSlot(row, side, file){
 function refreshSlotUI(row, side){
   var slot = row.slots[side];
   row.els[side].tag.value = slot.tag;
+  row.els[side].comentario.value = slot.comment || '';
+  row.els[side].chkGrade.checked = !!slot.grade;
   if (slot.img){
     row.els[side].drop.hidden = true;
     row.els[side].canvas.hidden = false;
     row.els[side].tools.hidden = false;
+    row.els[side].comentario.hidden = false;
     row.els[side].zoom.value = Math.round(slot.z * 100);
     renderSlotPreview(row, side);
   } else {
     row.els[side].drop.hidden = false;
     row.els[side].canvas.hidden = true;
     row.els[side].tools.hidden = true;
+    row.els[side].comentario.hidden = true;
+    row.els[side].anotaBar.hidden = true;
   }
   updateRowDownloadState(row);
 }
@@ -408,7 +537,7 @@ function moveSlot(rowId, side, dir){
   var targetId = rowId + dir;
   if (targetId < 0 || targetId >= rows.length) return;
   var a = rows[rowId].slots[side], b = rows[targetId].slots[side];
-  ['tag','img','naturalW','naturalH','z','panX','panY'].forEach(function(f){
+  ['tag','img','naturalW','naturalH','z','panX','panY','annotations','comment','grade','corAtual'].forEach(function(f){
     var tmp = a[f]; a[f] = b[f]; b[f] = tmp;
   });
   a.imgDirty = true; b.imgDirty = true;
@@ -435,9 +564,17 @@ function removeSlotImage(row, side){
   var slot = row.slots[side];
   slot.img = null; slot.naturalW = 0; slot.naturalH = 0; slot.z = 1; slot.panX = .5; slot.panY = .5;
   slot.imgDirty = true; row.dirty = true;
+  slot.annotations = []; slot.comment = ''; slot.grade = false;
+  slot.tool = null; slot.draft = null; slot.anguloEmProgresso = null;
+  row.els[side].comentario.value = '';
+  row.els[side].chkGrade.checked = false;
+  row.els[side].canvas.classList.remove('modo-anotar');
+  row.els[side].wrap.querySelectorAll('.btn-tool').forEach(function(b){ b.classList.remove('on'); });
   row.els[side].drop.hidden = false;
   row.els[side].canvas.hidden = true;
   row.els[side].tools.hidden = true;
+  row.els[side].comentario.hidden = true;
+  row.els[side].anotaBar.hidden = true;
   updateRowDownloadState(row);
 }
 
@@ -451,16 +588,66 @@ function applyDimensions(row, w, h, skipDirty){
   });
 }
 
+function pointFrac(canvas, e){
+  var rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return { x: .5, y: .5 };
+  return { x: clamp((e.clientX - rect.left) / rect.width, 0, 1), y: clamp((e.clientY - rect.top) / rect.height, 0, 1) };
+}
+
 function attachDrag(row, side){
   var slot = row.slots[side];
   var canvas = row.els[side].canvas;
+
   canvas.addEventListener('pointerdown', function(e){
     if (!slot.img) return;
+    canvas.setPointerCapture(e.pointerId);
+    var p = pointFrac(canvas, e);
+
+    if (slot.tool === 'draw'){
+      slot.draft = { tipo: 'draw', pontos: [p], cor: slot.corAtual };
+      return;
+    }
+    if (slot.tool === 'circulo'){
+      slot.draft = { tipo: 'circulo', cx: p.x, cy: p.y, rx: 0, ry: 0, cor: slot.corAtual };
+      return;
+    }
+    if (slot.tool === 'angulo'){
+      if (!slot.anguloEmProgresso) {
+        slot.anguloEmProgresso = { vx: p.x, vy: p.y };
+      } else if (!('ax' in slot.anguloEmProgresso)) {
+        slot.anguloEmProgresso.ax = p.x; slot.anguloEmProgresso.ay = p.y;
+      } else {
+        slot.anguloEmProgresso.bx = p.x; slot.anguloEmProgresso.by = p.y;
+        slot.anguloEmProgresso.tipo = 'angulo';
+        slot.anguloEmProgresso.cor = slot.corAtual;
+        slot.annotations.push(slot.anguloEmProgresso);
+        slot.anguloEmProgresso = null;
+        row.dirty = true;
+      }
+      renderSlotPreviewComDraft(row, side);
+      return;
+    }
+
     slot.dragging = true;
     slot.dragStart = { x: e.clientX, y: e.clientY, panX: slot.panX, panY: slot.panY };
-    canvas.setPointerCapture(e.pointerId);
   });
+
   canvas.addEventListener('pointermove', function(e){
+    if (!slot.img) return;
+    if (slot.tool === 'draw' && slot.draft){
+      slot.draft.pontos.push(pointFrac(canvas, e));
+      renderSlotPreviewComDraft(row, side);
+      return;
+    }
+    if (slot.tool === 'circulo' && slot.draft){
+      var p = pointFrac(canvas, e);
+      slot.draft.rx = p.x - slot.draft.cx;
+      slot.draft.ry = p.y - slot.draft.cy;
+      renderSlotPreviewComDraft(row, side);
+      return;
+    }
+    if (slot.tool) return;
+
     if (!slot.dragging) return;
     var sz = frameSize(row, side);
     var r = sourceRect(slot, sz.w, sz.h);
@@ -472,11 +659,26 @@ function attachDrag(row, side){
     slot.panY = clamp(slot.dragStart.panY + dPanY, 0, 1);
     renderSlotPreview(row, side);
   });
-  function endDrag(){ if (slot.dragging) row.dirty = true; slot.dragging = false; }
+
+  function endDrag(){
+    if (slot.tool === 'draw' && slot.draft){
+      if (slot.draft.pontos.length > 1) { slot.annotations.push(slot.draft); row.dirty = true; }
+      slot.draft = null;
+      renderSlotPreview(row, side);
+    } else if (slot.tool === 'circulo' && slot.draft){
+      if (Math.abs(slot.draft.rx) > 0.01 || Math.abs(slot.draft.ry) > 0.01) { slot.annotations.push(slot.draft); row.dirty = true; }
+      slot.draft = null;
+      renderSlotPreview(row, side);
+    } else if (slot.dragging) {
+      row.dirty = true;
+    }
+    slot.dragging = false;
+  }
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+
   canvas.addEventListener('wheel', function(e){
-    if (!slot.img) return;
+    if (!slot.img || slot.tool) return;
     e.preventDefault();
     var delta = e.deltaY < 0 ? 8 : -8;
     var z = clamp(parseInt(row.els[side].zoom.value, 10) + delta, 100, 400);
@@ -524,6 +726,21 @@ function buildRow(row){
         '<button class="btn-mover-down" title="Trocar de lugar com a foto de baixo">▼</button>' +
         '<button class="btn-trocar">Trocar</button>' +
         '<button class="btn-remover">Remover</button>' +
+        '<button class="btn-anotar-toggle" title="Ferramentas de marcação">✏️ Marcar</button>' +
+      '</div>' +
+      '<input type="text" class="slot-comentario" placeholder="Comentário (opcional)" maxlength="500" hidden>' +
+      '<div class="slot-anota-bar" hidden>' +
+        '<button class="btn-tool" data-tool="draw" title="Desenho livre">✏️</button>' +
+        '<button class="btn-tool" data-tool="circulo" title="Circular um ponto">⭕</button>' +
+        '<button class="btn-tool" data-tool="angulo" title="Ângulo: clique no vértice, depois em cada ponta">📐</button>' +
+        '<span class="cores">' +
+          '<button class="btn-cor on" data-cor="#ff3b30" style="background:#ff3b30"></button>' +
+          '<button class="btn-cor" data-cor="#ffcc00" style="background:#ffcc00"></button>' +
+          '<button class="btn-cor" data-cor="#34c759" style="background:#34c759"></button>' +
+        '</span>' +
+        '<button class="btn-desfazer" title="Desfazer última marcação">↩️</button>' +
+        '<button class="btn-limpar-anot" title="Apagar todas as marcações desta foto">🗑️</button>' +
+        '<label class="chk-grade"><input type="checkbox" class="chk-simetrografo"> Simetrógrafo</label>' +
       '</div>';
     slotsWrap.appendChild(s);
 
@@ -535,7 +752,10 @@ function buildRow(row){
       canvas: s.querySelector('.slot-canvas'),
       file: s.querySelector('.slot-file'),
       tools: s.querySelector('.slot-tools'),
-      zoom: s.querySelector('.slot-tools input[type=range]')
+      zoom: s.querySelector('.slot-tools input[type=range]'),
+      comentario: s.querySelector('.slot-comentario'),
+      anotaBar: s.querySelector('.slot-anota-bar'),
+      chkGrade: s.querySelector('.chk-simetrografo')
     };
     row.slots[side].canvas = row.els[side].canvas;
     if (row.id === 0) s.querySelector('.btn-mover-up').disabled = true;
@@ -563,6 +783,51 @@ function buildRow(row){
     s.querySelector('.btn-remover').addEventListener('click', function(){ removeSlotImage(row, side); });
     s.querySelector('.btn-mover-up').addEventListener('click', function(){ moveSlot(row.id, side, -1); });
     s.querySelector('.btn-mover-down').addEventListener('click', function(){ moveSlot(row.id, side, 1); });
+
+    s.querySelector('.btn-anotar-toggle').addEventListener('click', function(){
+      row.els[side].anotaBar.hidden = !row.els[side].anotaBar.hidden;
+    });
+    row.els[side].comentario.addEventListener('input', function(){
+      row.slots[side].comment = row.els[side].comentario.value;
+      row.dirty = true;
+    });
+    row.els[side].chkGrade.addEventListener('change', function(){
+      row.slots[side].grade = row.els[side].chkGrade.checked;
+      row.dirty = true;
+      renderSlotPreview(row, side);
+    });
+    s.querySelectorAll('.btn-tool').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var slot = row.slots[side];
+        var t = btn.getAttribute('data-tool');
+        slot.tool = (slot.tool === t) ? null : t;
+        slot.anguloEmProgresso = null; slot.draft = null;
+        s.querySelectorAll('.btn-tool').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-tool') === slot.tool); });
+        row.els[side].canvas.classList.toggle('modo-anotar', !!slot.tool);
+      });
+    });
+    s.querySelectorAll('.btn-cor').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        row.slots[side].corAtual = btn.getAttribute('data-cor');
+        s.querySelectorAll('.btn-cor').forEach(function(b){ b.classList.remove('on'); });
+        btn.classList.add('on');
+      });
+    });
+    s.querySelector('.btn-desfazer').addEventListener('click', function(){
+      var slot = row.slots[side];
+      if (!slot.annotations.length) return;
+      slot.annotations.pop();
+      row.dirty = true;
+      renderSlotPreview(row, side);
+    });
+    s.querySelector('.btn-limpar-anot').addEventListener('click', function(){
+      var slot = row.slots[side];
+      if (!slot.annotations.length) return;
+      if (!confirm('Apagar todas as marcações desta foto?')) return;
+      slot.annotations = [];
+      row.dirty = true;
+      renderSlotPreview(row, side);
+    });
 
     attachDrag(row, side);
   });
@@ -602,19 +867,37 @@ function updateContagem(){
   document.getElementById('contagem-sel').textContent = n + (n === 1 ? ' selecionada' : ' selecionadas');
 }
 
+function wrapText(ctx, text, maxWidth){
+  var palavras = String(text || '').split(/\s+/).filter(Boolean);
+  var linhas = []; var atual = '';
+  palavras.forEach(function(p){
+    var teste = atual ? atual + ' ' + p : p;
+    if (ctx.measureText(teste).width > maxWidth && atual) { linhas.push(atual); atual = p; }
+    else atual = teste;
+  });
+  if (atual) linhas.push(atual);
+  return linhas;
+}
+
 function renderComposite(row){
   var canvas = document.createElement('canvas');
   var titleH = row.label.trim() ? 90 : 0;
   var tagH = 60;
-  var footH = incluirMarca ? 46 : 0;
   var pad = 24;
+  var commentFont = '500 24px Inter, sans-serif';
+  var lineH = 32;
   canvas.width = row.width * 2 + GAP_PX + pad * 2;
-  canvas.height = titleH + tagH + row.height + footH + pad * 2;
   var ctx = canvas.getContext('2d');
+  ctx.font = commentFont;
+  var linhasEsq = row.slots.left.comment ? wrapText(ctx, row.slots.left.comment, row.width - 16) : [];
+  var linhasDir = row.slots.right.comment ? wrapText(ctx, row.slots.right.comment, row.width - 16) : [];
+  var maxLinhas = Math.max(linhasEsq.length, linhasDir.length);
+  var commentH = maxLinhas ? (maxLinhas * lineH + 20) : 0;
+
+  canvas.height = titleH + tagH + row.height + commentH + pad * 2;
 
   var bg = appBg === 'claro' ? '#f4f4f4' : '#0d0d0d';
   var fg = appBg === 'claro' ? '#111' : '#f0f0f0';
-  var muted = appBg === 'claro' ? '#666' : '#aeaeae';
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -640,18 +923,12 @@ function renderComposite(row){
   ctx.save(); ctx.translate(pad + row.width + GAP_PX, y); drawSlot(ctx, row.slots.right, row.width, row.height); ctx.restore();
   y += row.height;
 
-  if (footH){
-    var logo = logoImgs[logoVariant];
-    if (logo && logo.complete && logo.naturalWidth){
-      var lh = 30, lw = logo.naturalWidth * (lh / logo.naturalHeight);
-      ctx.drawImage(logo, canvas.width / 2 - lw / 2, y + (footH - lh) / 2, lw, lh);
-    } else {
-    ctx.font = '600 22px Inter, sans-serif';
-    ctx.fillStyle = muted;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('INTUS FIT', canvas.width / 2, y + footH / 2);
-    }
+  if (commentH){
+    ctx.font = commentFont;
+    ctx.fillStyle = fg;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    linhasEsq.forEach(function(l, i){ ctx.fillText(l, pad, y + 10 + i * lineH); });
+    linhasDir.forEach(function(l, i){ ctx.fillText(l, pad + row.width + GAP_PX, y + 10 + i * lineH); });
   }
 
   return canvas;
@@ -723,6 +1000,45 @@ function baixarEmLote(lista){
   });
 }
 
+function baixarPDF(lista){
+  if (!window.jspdf || !window.jspdf.jsPDF){
+    alert('A biblioteca de PDF não carregou (verifique sua conexão) — tente de novo em alguns segundos.');
+    return;
+  }
+  var prontas = lista.filter(function(r){ return r.slots.left.img && r.slots.right.img; });
+  var faltando = lista.length - prontas.length;
+  if (!prontas.length){
+    alert('Nenhuma das linhas escolhidas tem as duas fotos prontas.');
+    return;
+  }
+  var status = document.getElementById('status-zip');
+  status.textContent = 'Gerando PDF 0/' + prontas.length + '...';
+  var doc = null;
+  var chain = Promise.resolve();
+  prontas.forEach(function(row, idx){
+    chain = chain.then(function(){
+      var canvas = renderComposite(row);
+      var imgData = canvas.toDataURL('image/jpeg', 0.93);
+      var orientacao = canvas.width >= canvas.height ? 'l' : 'p';
+      if (!doc) doc = new window.jspdf.jsPDF({ orientation: orientacao, unit: 'px', format: [canvas.width, canvas.height], compress: true });
+      else doc.addPage([canvas.width, canvas.height], orientacao);
+      doc.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+      status.textContent = 'Gerando PDF ' + (idx + 1) + '/' + prontas.length + '...';
+    });
+  });
+  chain.then(function(){
+    var d = new Date();
+    var stamp = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+    doc.save('relatorios-fotos-intus-' + stamp + '.pdf');
+    status.textContent = faltando ? ('Pronto. ' + faltando + ' linha(s) sem as duas fotos foram ignoradas.') : 'PDF pronto.';
+    setTimeout(function(){ status.textContent = ''; }, 6000);
+  }).catch(function(err){
+    console.error(err);
+    status.textContent = '';
+    alert('Não consegui gerar o PDF: ' + err.message);
+  });
+}
+
 var container = document.getElementById('rows');
 rows.forEach(function(row){ container.appendChild(buildRow(row)); });
 
@@ -743,18 +1059,26 @@ document.querySelectorAll('[data-bg]').forEach(function(btn){
     // sugestao automatica de logo com contraste melhor pro fundo escolhido; o professor ainda pode trocar
     logoVariant = appBg === 'claro' ? 'preto' : 'branco';
     document.querySelectorAll('[data-logo]').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-logo') === logoVariant); });
+    renderAllPreviews();
   });
 });
+
+function renderAllPreviews(){
+  rows.forEach(function(row){
+    ['left','right'].forEach(function(side){ if (row.slots[side].img) renderSlotPreview(row, side); });
+  });
+}
 
 document.querySelectorAll('[data-logo]').forEach(function(btn){
   btn.addEventListener('click', function(){
     logoVariant = btn.getAttribute('data-logo');
     document.querySelectorAll('[data-logo]').forEach(function(b){ b.classList.remove('on'); });
     btn.classList.add('on');
+    renderAllPreviews();
   });
 });
 
-document.getElementById('chk-marca').addEventListener('change', function(e){ incluirMarca = e.target.checked; });
+document.getElementById('chk-marca').addEventListener('change', function(e){ incluirMarca = e.target.checked; renderAllPreviews(); });
 
 function aplicarRestricaoMarcaDagua(){
   var chk = document.getElementById('chk-marca');
@@ -767,6 +1091,7 @@ function aplicarRestricaoMarcaDagua(){
     chk.disabled = false;
     document.getElementById('wrap-chk-marca').title = '';
   }
+  renderAllPreviews();
 }
 
 document.getElementById('btn-aplicar-todos').addEventListener('click', function(){
@@ -795,6 +1120,16 @@ document.getElementById('btn-baixar-tudo').addEventListener('click', function(){
   baixarEmLote(rows);
 });
 
+document.getElementById('btn-pdf-sel').addEventListener('click', function(){
+  var sel = rows.filter(function(r){ return r.selected; });
+  if (!sel.length){ alert('Marque ao menos uma linha primeiro.'); return; }
+  baixarPDF(sel);
+});
+
+document.getElementById('btn-pdf-tudo').addEventListener('click', function(){
+  baixarPDF(rows);
+});
+
 document.getElementById('btn-lote-esquerda').addEventListener('click', function(){ document.getElementById('file-lote-esquerda').click(); });
 document.getElementById('file-lote-esquerda').addEventListener('change', function(e){ bulkUpload('left', e.target.files); e.target.value = ''; });
 document.getElementById('btn-lote-direita').addEventListener('click', function(){ document.getElementById('file-lote-direita').click(); });
@@ -804,9 +1139,7 @@ var resizeTimer;
 window.addEventListener('resize', function(){
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(function(){
-    rows.forEach(function(row){
-      ['left','right'].forEach(function(side){ if (row.slots[side].img) renderSlotPreview(row, side); });
-    });
+    renderAllPreviews();
   }, 150);
 });
 
@@ -880,7 +1213,11 @@ function compressForUpload(slot){
 
 function buildSidePayload(row, side){
   var slot = row.slots[side];
-  var out = { tag: slot.tag, zoom: slot.z, pan_x: slot.panX, pan_y: slot.panY };
+  var out = {
+    tag: slot.tag, zoom: slot.z, pan_x: slot.panX, pan_y: slot.panY,
+    grade: slot.grade ? 1 : 0, comentario: slot.comment || '',
+    anotacoes: JSON.stringify(slot.annotations || [])
+  };
   if (!slot.img) { if (slot.imgDirty) out.remover = true; }
   else if (slot.imgDirty) { out.data = compressForUpload(slot); }
   return out;
@@ -894,9 +1231,9 @@ function salvarAvaliacao(){
 
   var chain = Promise.resolve().then(function(){
     if (currentReportId){
-      return apiPost('/relatorios_fotos.php?action=salvar_meta', { id: currentReportId, aluno_nome: alunoNome, bg: appBg, marca: incluirMarca ? 1 : 0 });
+      return apiPost('/relatorios_fotos.php?action=salvar_meta', { id: currentReportId, aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0 });
     }
-    return apiPost('/relatorios_fotos.php?action=criar', { aluno_nome: alunoNome, bg: appBg, marca: incluirMarca ? 1 : 0 }).then(function(data){
+    return apiPost('/relatorios_fotos.php?action=criar', { aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0 }).then(function(data){
       if (!data.ok) throw new Error(data.erro || 'falha ao criar avaliação');
       currentReportId = data.id;
     });
@@ -979,6 +1316,7 @@ function excluirAvaliacao(id, itemEl){
 
 function resetarEditor(){
   currentReportId = null;
+  alunoSelecionadoId = null;
   document.getElementById('input-aluno').value = '';
   var defaultW = clamp(parseInt(document.getElementById('tb-w').value, 10) || 900, 100, 4000);
   var defaultH = clamp(parseInt(document.getElementById('tb-h').value, 10) || 1200, 100, 4000);
@@ -1020,6 +1358,7 @@ function abrirAvaliacao(id){
     resetarEditor();
     var rel = data.relatorio;
     currentReportId = rel.id;
+    alunoSelecionadoId = rel.idatleta || null;
     document.getElementById('input-aluno').value = rel.aluno_nome || '';
     appBg = rel.bg || 'escuro';
     incluirMarca = isAdmin ? !!rel.marca : true;
@@ -1036,6 +1375,9 @@ function abrirAvaliacao(id){
       [['esquerda', 'left'], ['direita', 'right']].forEach(function(par){
         var d = l[par[0]], side = par[1];
         row.slots[side].tag = d.tag || row.slots[side].tag;
+        row.slots[side].grade = !!d.grade;
+        row.slots[side].comment = d.comentario || '';
+        row.slots[side].annotations = Array.isArray(d.anotacoes) ? d.anotacoes : [];
         if (d.url) pendentes.push(carregarFotoDoServidor(row, side, d.url, d.zoom, d.pan_x, d.pan_y));
         else refreshSlotUI(row, side);
       });
@@ -1057,6 +1399,54 @@ document.getElementById('btn-fechar-lista').addEventListener('click', function()
 document.getElementById('btn-nova-avaliacao').addEventListener('click', function(){
   if (!confirm('Limpar tudo e começar uma avaliação nova? O que não foi salvo se perde.')) return;
   resetarEditor();
+});
+
+// ---------- Busca de alunos cadastrados (autocomplete) ----------
+function renderSugestoesAlunos(lista){
+  var wrap = document.getElementById('lista-alunos-sugestoes');
+  wrap.innerHTML = '';
+  if (!lista.length){
+    wrap.innerHTML = '<div class="autocomplete-vazio">Nenhum aluno encontrado no cadastro.</div>';
+    wrap.hidden = false;
+    return;
+  }
+  lista.slice(0, 20).forEach(function(a){
+    var item = document.createElement('div');
+    item.className = 'autocomplete-item';
+    item.innerHTML = (a.nome || '(sem nome)') + (a.email ? '<small>' + a.email + '</small>' : '');
+    item.addEventListener('mousedown', function(e){
+      e.preventDefault();
+      document.getElementById('input-aluno').value = a.nome || '';
+      alunoSelecionadoId = a.idatleta;
+      wrap.hidden = true;
+    });
+    wrap.appendChild(item);
+  });
+  wrap.hidden = false;
+}
+
+function buscarAlunos(query){
+  apiGet('/atletas.php?busca=' + encodeURIComponent(query)).then(function(data){
+    renderSugestoesAlunos(Array.isArray(data) ? data : []);
+  }).catch(function(){});
+}
+
+var inputAluno = document.getElementById('input-aluno');
+inputAluno.addEventListener('input', function(){
+  alunoSelecionadoId = null;
+  var q = inputAluno.value.trim();
+  clearTimeout(buscaAlunoTimer);
+  if (q.length < 2) { document.getElementById('lista-alunos-sugestoes').hidden = true; return; }
+  buscaAlunoTimer = setTimeout(function(){ buscarAlunos(q); }, 300);
+});
+inputAluno.addEventListener('focus', function(){
+  var q = inputAluno.value.trim();
+  if (q.length >= 2) buscarAlunos(q);
+});
+document.addEventListener('click', function(e){
+  if (!e.target.closest || !e.target.closest('.campo-autocomplete')) {
+    document.getElementById('lista-alunos-sugestoes').hidden = true;
+  }
 });
 
 checarSessao();
