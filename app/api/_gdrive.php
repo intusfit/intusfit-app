@@ -23,7 +23,18 @@ function _gdriveConn() {
     // nao faz `return` de array nenhum, entao "defined('DB_HOST')" so vira
     // verdade DEPOIS do include rodar — checar antes (como esta funcao fazia)
     // sempre caia no ramo errado na primeira chamada do processo.
-    $cfg = @include __DIR__ . '/../config/db.php';
+    //
+    // BUG real (achado testando o Drive pela primeira vez com chave de
+    // verdade, 14/09/2026): upload-drive.php e catalogo.php ja incluem este
+    // MESMO db.php no topo do arquivo antes de chamar qualquer funcao daqui.
+    // Com `include` puro, essa segunda inclusao tentava redeclarar a funcao
+    // getDB() que db.php define — fatal error de verdade, do tipo que nem
+    // try/catch pega, derrubando a requisicao inteira (post do feed, upload
+    // de avaliacao) sem log nenhum, so um 500 em branco. `include_once`
+    // resolve: na segunda vez so devolve true (sem rodar o arquivo de novo),
+    // e as constantes ja definidas na primeira inclusao continuam valendo —
+    // o ramo `defined('DB_HOST')` abaixo cobre exatamente esse caso.
+    $cfg = @include_once __DIR__ . '/../config/db.php';
     try {
         if (is_array($cfg) && isset($cfg['host'])) {
             $pdo = new PDO('mysql:host=' . $cfg['host'] . ';dbname=' . $cfg['database'] . ';charset=utf8mb4', $cfg['username'], $cfg['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
