@@ -77,8 +77,15 @@ if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
     echo json_encode(['error' => 'Arquivo não recebido']);
     exit;
 }
-$tmp  = $_FILES['file']['tmp_name'];
-$mime = @mime_content_type($tmp) ?: ($_FILES['file']['type'] ?? '');
+$tmp = $_FILES['file']['tmp_name'];
+// BUG real: mime_content_type() depende da extensao fileinfo, que nem toda
+// hospedagem compartilhada tem habilitada — chamar uma funcao inexistente e
+// um erro FATAL (nao um aviso), e como era o UNICO lugar do projeto usando
+// essa funcao, o endpoint inteiro nunca tinha sido testado de verdade antes.
+// getimagesize() le só o cabeçalho do arquivo (sem depender de extensão
+// nenhuma) e é o que qualquer upload de imagem no PHP já usa.
+$info = @getimagesize($tmp);
+$mime = $info['mime'] ?? ($_FILES['file']['type'] ?? '');
 if (!preg_match('#^image/(png|jpe?g|webp|gif)$#i', $mime)) {
     http_response_code(400);
     echo json_encode(['error' => 'Só imagens são aceitas']);
@@ -91,25 +98,38 @@ if (($_FILES['file']['size'] ?? 0) > 8 * 1024 * 1024) {
 }
 
 require_once __DIR__ . '/_gdrive.php';
-if (!gdriveDisponivel()) {
-    http_response_code(503);
-    echo json_encode(['error' => 'Backup no Google Drive não está configurado neste servidor']);
-    exit;
+
+// Este endpoint era novo e nunca tinha sido exercitado de verdade em
+// produção — sem try/catch aqui, qualquer falha inesperada (como a do
+// mime_content_type acima) virava um 500 completamente em branco, sem
+// nenhuma pista de onde procurar. Mesmo padrão de log+referência já usado
+// em catalogo.php.
+try {
+    if (!gdriveDisponivel()) {
+        http_response_code(503);
+        echo json_encode(['error' => 'Backup no Google Drive não está configurado neste servidor']);
+        exit;
+    }
+
+    $bin  = file_get_contents($tmp);
+    $nome = preg_replace('/[^A-Za-z0-9._-]/', '_', basename($_FILES['file']['name'] ?: 'foto.jpg'));
+    $prefixo = '';
+    if (!empty($_POST['path'])) {
+        $prefixo = str_replace('/', '_', trim(preg_replace('/[^A-Za-z0-9._ \/-]/', '', $_POST['path']))) . '_';
+    }
+
+    $url = gdriveBackup($bin, $prefixo . $nome, $mime);
+
+    if ($url === null) {
+        http_response_code(502);
+        echo json_encode(['error' => 'Falha ao enviar a imagem para o Google Drive']);
+        exit;
+    }
+
+    echo json_encode(['url' => $url]);
+} catch (Throwable $e) {
+    $ref = substr(hash('crc32b', $e->getMessage() . '|' . $e->getFile() . '|' . $e->getLine()), 0, 8);
+    @error_log('[intus ' . $ref . '] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    http_response_code(500);
+    echo json_encode(['error' => 'Falha inesperada ao enviar a imagem', 'detalhe' => 'ref ' . $ref]);
 }
-
-$bin  = file_get_contents($tmp);
-$nome = preg_replace('/[^A-Za-z0-9._-]/', '_', basename($_FILES['file']['name'] ?: 'foto.jpg'));
-$prefixo = '';
-if (!empty($_POST['path'])) {
-    $prefixo = str_replace('/', '_', trim(preg_replace('/[^A-Za-z0-9._ \/-]/', '', $_POST['path']))) . '_';
-}
-
-$url = gdriveBackup($bin, $prefixo . $nome, $mime);
-
-if ($url === null) {
-    http_response_code(502);
-    echo json_encode(['error' => 'Falha ao enviar a imagem para o Google Drive']);
-    exit;
-}
-
-echo json_encode(['url' => $url]);
