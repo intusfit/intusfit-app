@@ -130,7 +130,12 @@ function gdriveBackup($bin, $nome, $mime = 'image/jpeg') {
         $body  = "--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n";
         $body .= "--$boundary\r\nContent-Type: $mime\r\n\r\n$bin\r\n--$boundary--";
 
-        $ch = curl_init('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink');
+        // supportsAllDrives=true e obrigatorio pra gravar num Drive
+        // Compartilhado — sem isso a API trata a pasta como se nao existisse
+        // (o mesmo 403 "Service Accounts do not have storage quota" que
+        // apareceu antes, so que agora seria um 404 se a pasta de destino
+        // for um Drive Compartilhado de verdade).
+        $ch = curl_init('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink&supportsAllDrives=true');
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
