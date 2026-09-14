@@ -151,6 +151,10 @@ foreach (['esquerda', 'direita'] as $_lado) {
 }
 _intusGarantirUtf8mb4($pdo, 'intus_relatorio_fotos_linha', ['esquerda_comentario', 'direita_comentario']);
 
+// Configuracao do simetrografo (numero de divisoes horizontais/verticais da grade), por relatorio.
+_garantirColuna($pdo, 'intus_relatorio_fotos', 'grade_h', "TINYINT UNSIGNED NOT NULL DEFAULT 10");
+_garantirColuna($pdo, 'intus_relatorio_fotos', 'grade_v', "TINYINT UNSIGNED NOT NULL DEFAULT 2");
+
 // ---------- Helpers de arquivo ----------
 function _dirRelatorio($id) {
     $dir = __DIR__ . '/../img/relatorios-fotos/' . (int)$id;
@@ -259,6 +263,7 @@ try {
         echo json_encode(['ok' => true, 'relatorio' => [
             'id' => $id, 'idatleta' => $rel['idatleta'] !== null ? (int)$rel['idatleta'] : null,
             'aluno_nome' => $rel['aluno_nome'], 'bg' => $rel['bg'], 'marca' => (bool)$rel['marca'],
+            'grade_h' => (int)($rel['grade_h'] ?? 10), 'grade_v' => (int)($rel['grade_v'] ?? 2),
             'criado_em' => $rel['criado_em'], 'atualizado_em' => $rel['atualizado_em'], 'linhas' => $linhas,
         ]]);
         exit;
@@ -272,8 +277,10 @@ try {
         // Marca d'agua e obrigatoria por enquanto pra quem nao e admin (regra de negocio,
         // nao so trava de tela: reforcada aqui pra nao dar pra contornar via chamada direta).
         $marca = $ehAdmin ? (empty($body['marca']) ? 0 : 1) : 1;
-        $st = $pdo->prepare("INSERT INTO intus_relatorio_fotos (idprofessor, idatleta, aluno_nome, bg, marca) VALUES (?, ?, ?, ?, ?)");
-        $st->execute([$idprofessor, $idatleta, $alunoNome, $bg, $marca]);
+        $gradeH = max(1, min(20, (int)($body['grade_h'] ?? 10)));
+        $gradeV = max(1, min(20, (int)($body['grade_v'] ?? 2)));
+        $st = $pdo->prepare("INSERT INTO intus_relatorio_fotos (idprofessor, idatleta, aluno_nome, bg, marca, grade_h, grade_v) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $st->execute([$idprofessor, $idatleta, $alunoNome, $bg, $marca, $gradeH, $gradeV]);
         echo json_encode(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
         exit;
     }
@@ -287,8 +294,10 @@ try {
         $idatleta = isset($body['idatleta']) && $body['idatleta'] !== null && $body['idatleta'] !== '' ? (int)$body['idatleta'] : null;
         $bg = ($body['bg'] ?? $rel['bg']) === 'claro' ? 'claro' : 'escuro';
         $marca = $ehAdmin ? (empty($body['marca']) ? 0 : 1) : 1;
-        $st = $pdo->prepare("UPDATE intus_relatorio_fotos SET idatleta = ?, aluno_nome = ?, bg = ?, marca = ? WHERE id = ?");
-        $st->execute([$idatleta, $alunoNome, $bg, $marca, (int)$rel['id']]);
+        $gradeH = max(1, min(20, (int)($body['grade_h'] ?? $rel['grade_h'] ?? 10)));
+        $gradeV = max(1, min(20, (int)($body['grade_v'] ?? $rel['grade_v'] ?? 2)));
+        $st = $pdo->prepare("UPDATE intus_relatorio_fotos SET idatleta = ?, aluno_nome = ?, bg = ?, marca = ?, grade_h = ?, grade_v = ? WHERE id = ?");
+        $st->execute([$idatleta, $alunoNome, $bg, $marca, $gradeH, $gradeV, (int)$rel['id']]);
         echo json_encode(['ok' => true]);
         exit;
     }

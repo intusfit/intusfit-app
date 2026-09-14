@@ -128,6 +128,7 @@ input{font-family:inherit}
 .slot-comentario{width:100%;margin-top:7px;padding:6px 9px;border-radius:7px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:11.5px}
 .slot-comentario::placeholder{color:var(--muted-d)}
 .slot-anota-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--borda)}
+.anota-titulo{font-size:10.5px;font-weight:700;color:var(--muted-d);text-transform:uppercase;letter-spacing:.04em;width:100%}
 .slot-anota-bar button{background:transparent;border:1px solid var(--borda);color:var(--muted);border-radius:7px;padding:5px 7px;font-size:13px}
 .slot-anota-bar button:hover{border-color:var(--accent-borda)}
 .slot-anota-bar .btn-tool.on{background:var(--accent-fraca);border-color:var(--accent-borda)}
@@ -135,6 +136,9 @@ input{font-family:inherit}
 .btn-cor{width:20px;height:20px;border-radius:50%;padding:0!important;border:2px solid transparent!important}
 .btn-cor.on{border-color:var(--texto)!important}
 .chk-grade{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-left:auto}
+
+.btn-add-linha{width:100%;padding:14px;border-radius:12px;border:1.5px dashed var(--borda);background:transparent;color:var(--muted);font-size:13px;font-weight:700;text-align:center}
+.btn-add-linha:hover{border-color:var(--accent-borda);color:var(--accent)}
 
 .rodape{max-width:1400px;margin:8px auto 0;padding:24px 20px 40px;text-align:center;border-top:1px solid var(--borda)}
 .logo-rodape{height:24px;opacity:.6;margin:0 auto}
@@ -229,6 +233,10 @@ input{font-family:inherit}
       <span class="x">logo:</span>
       <button class="btn-chip on" data-logo="branco">Branca</button>
       <button class="btn-chip" data-logo="preto">Preta</button>
+      <span class="x">simetrógrafo:</span>
+      <input type="number" id="grade-v" value="2" min="1" max="20" style="width:52px" title="Divisões verticais (nº de linhas verticais = divisões − 1)">
+      <span class="x">×</span>
+      <input type="number" id="grade-h" value="10" min="1" max="20" style="width:52px" title="Divisões horizontais (nº de linhas horizontais = divisões − 1)">
     </div>
   </div>
 
@@ -280,6 +288,8 @@ var incluirMarca = true;
 var logoVariant = 'branco';
 var isAdmin = false;
 var currentReportId = null;
+var gradeDivH = 10;
+var gradeDivV = 2;
 var alunoSelecionadoId = null;
 var buscaAlunoTimer = null;
 
@@ -389,17 +399,24 @@ function drawWatermark(ctx, destW, destH){
 }
 
 function drawGrade(ctx, destW, destH){
+  var divV = Math.max(1, gradeDivV | 0);
+  var divH = Math.max(1, gradeDivH | 0);
   ctx.save();
   ctx.strokeStyle = 'rgba(255,59,48,.6)';
   ctx.lineWidth = Math.max(1, destW * 0.0035);
-  ctx.beginPath(); ctx.moveTo(destW / 2, 0); ctx.lineTo(destW / 2, destH); ctx.stroke();
-  for (var i = 1; i < 10; i++) {
-    if (i === 5) continue;
-    var y = destH * i / 10;
+  for (var i = 1; i < divV; i++) {
+    if (divV % 2 === 0 && i === divV / 2) continue; // linha central e redesenhada mais forte abaixo
+    var x = destW * i / divV;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, destH); ctx.stroke();
+  }
+  for (var j = 1; j < divH; j++) {
+    if (divH % 2 === 0 && j === divH / 2) continue;
+    var y = destH * j / divH;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(destW, y); ctx.stroke();
   }
   ctx.lineWidth = Math.max(1.5, destW * 0.006);
-  ctx.beginPath(); ctx.moveTo(0, destH / 2); ctx.lineTo(destW, destH / 2); ctx.stroke();
+  if (divV % 2 === 0) { var xm = destW / 2; ctx.beginPath(); ctx.moveTo(xm, 0); ctx.lineTo(xm, destH); ctx.stroke(); }
+  if (divH % 2 === 0) { var ym = destH / 2; ctx.beginPath(); ctx.moveTo(0, ym); ctx.lineTo(destW, ym); ctx.stroke(); }
   ctx.restore();
 }
 
@@ -500,6 +517,7 @@ function loadImageIntoSlot(row, side, file){
     row.els[side].canvas.hidden = false;
     row.els[side].tools.hidden = false;
     row.els[side].comentario.hidden = false;
+    row.els[side].anotaBar.hidden = false;
     row.els[side].zoom.value = 100;
     renderSlotPreview(row, side);
     updateRowDownloadState(row);
@@ -521,6 +539,7 @@ function refreshSlotUI(row, side){
     row.els[side].canvas.hidden = false;
     row.els[side].tools.hidden = false;
     row.els[side].comentario.hidden = false;
+    row.els[side].anotaBar.hidden = false;
     row.els[side].zoom.value = Math.round(slot.z * 100);
     renderSlotPreview(row, side);
   } else {
@@ -536,6 +555,7 @@ function refreshSlotUI(row, side){
 function moveSlot(rowId, side, dir){
   var targetId = rowId + dir;
   if (targetId < 0 || targetId >= rows.length) return;
+  mostrarLinha(Math.max(rowId, targetId));
   var a = rows[rowId].slots[side], b = rows[targetId].slots[side];
   ['tag','img','naturalW','naturalH','z','panX','panY','annotations','comment','grade','corAtual'].forEach(function(f){
     var tmp = a[f]; a[f] = b[f]; b[f] = tmp;
@@ -552,6 +572,7 @@ function bulkUpload(side, fileList){
   var usados = 0;
   for (var i = 0; i < rows.length && usados < files.length; i++){
     if (rows[i].slots[side].img) continue;
+    mostrarLinha(i);
     loadImageIntoSlot(rows[i], side, files[usados]);
     usados++;
   }
@@ -726,20 +747,20 @@ function buildRow(row){
         '<button class="btn-mover-down" title="Trocar de lugar com a foto de baixo">▼</button>' +
         '<button class="btn-trocar">Trocar</button>' +
         '<button class="btn-remover">Remover</button>' +
-        '<button class="btn-anotar-toggle" title="Ferramentas de marcação">✏️ Marcar</button>' +
       '</div>' +
       '<input type="text" class="slot-comentario" placeholder="Comentário (opcional)" maxlength="500" hidden>' +
       '<div class="slot-anota-bar" hidden>' +
-        '<button class="btn-tool" data-tool="draw" title="Desenho livre">✏️</button>' +
-        '<button class="btn-tool" data-tool="circulo" title="Circular um ponto">⭕</button>' +
-        '<button class="btn-tool" data-tool="angulo" title="Ângulo: clique no vértice, depois em cada ponta">📐</button>' +
+        '<span class="anota-titulo">Marcar na foto:</span>' +
+        '<button class="btn-tool" data-tool="draw" title="Desenho livre">✏️ Desenho</button>' +
+        '<button class="btn-tool" data-tool="circulo" title="Circular um ponto">⭕ Círculo</button>' +
+        '<button class="btn-tool" data-tool="angulo" title="Ângulo: clique no vértice, depois em cada ponta">📐 Ângulo</button>' +
         '<span class="cores">' +
           '<button class="btn-cor on" data-cor="#ff3b30" style="background:#ff3b30"></button>' +
           '<button class="btn-cor" data-cor="#ffcc00" style="background:#ffcc00"></button>' +
           '<button class="btn-cor" data-cor="#34c759" style="background:#34c759"></button>' +
         '</span>' +
-        '<button class="btn-desfazer" title="Desfazer última marcação">↩️</button>' +
-        '<button class="btn-limpar-anot" title="Apagar todas as marcações desta foto">🗑️</button>' +
+        '<button class="btn-desfazer" title="Desfazer última marcação">↩️ Desfazer</button>' +
+        '<button class="btn-limpar-anot" title="Apagar todas as marcações desta foto">🗑️ Limpar</button>' +
         '<label class="chk-grade"><input type="checkbox" class="chk-simetrografo"> Simetrógrafo</label>' +
       '</div>';
     slotsWrap.appendChild(s);
@@ -784,9 +805,6 @@ function buildRow(row){
     s.querySelector('.btn-mover-up').addEventListener('click', function(){ moveSlot(row.id, side, -1); });
     s.querySelector('.btn-mover-down').addEventListener('click', function(){ moveSlot(row.id, side, 1); });
 
-    s.querySelector('.btn-anotar-toggle').addEventListener('click', function(){
-      row.els[side].anotaBar.hidden = !row.els[side].anotaBar.hidden;
-    });
     row.els[side].comentario.addEventListener('input', function(){
       row.slots[side].comment = row.els[side].comentario.value;
       row.dirty = true;
@@ -1040,7 +1058,33 @@ function baixarPDF(lista){
 }
 
 var container = document.getElementById('rows');
-rows.forEach(function(row){ container.appendChild(buildRow(row)); });
+var LINHAS_INICIAIS = 3;
+var linhasVisiveis = 0;
+rows.forEach(function(row){ buildRow(row); });
+
+var btnAddLinha = document.createElement('button');
+btnAddLinha.className = 'btn-add-linha';
+btnAddLinha.type = 'button';
+
+function atualizarBotaoAdd(){
+  if (linhasVisiveis >= ROWS_COUNT) { btnAddLinha.hidden = true; return; }
+  btnAddLinha.hidden = false;
+  btnAddLinha.textContent = '+ Adicionar comparativo (' + linhasVisiveis + '/' + ROWS_COUNT + ')';
+}
+
+function mostrarLinha(idx){
+  if (idx < linhasVisiveis) return;
+  for (var i = linhasVisiveis; i <= idx && i < ROWS_COUNT; i++) container.insertBefore(rows[i].el, btnAddLinha);
+  linhasVisiveis = idx + 1;
+  atualizarBotaoAdd();
+}
+
+btnAddLinha.addEventListener('click', function(){ mostrarLinha(linhasVisiveis); });
+
+for (var _i = 0; _i < LINHAS_INICIAIS; _i++) container.appendChild(rows[_i].el);
+container.appendChild(btnAddLinha);
+linhasVisiveis = LINHAS_INICIAIS;
+atualizarBotaoAdd();
 
 document.querySelectorAll('[data-default-orient]').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -1079,6 +1123,17 @@ document.querySelectorAll('[data-logo]').forEach(function(btn){
 });
 
 document.getElementById('chk-marca').addEventListener('change', function(e){ incluirMarca = e.target.checked; renderAllPreviews(); });
+
+document.getElementById('grade-v').addEventListener('change', function(e){
+  gradeDivV = clamp(parseInt(e.target.value, 10) || 2, 1, 20);
+  e.target.value = gradeDivV;
+  renderAllPreviews();
+});
+document.getElementById('grade-h').addEventListener('change', function(e){
+  gradeDivH = clamp(parseInt(e.target.value, 10) || 10, 1, 20);
+  e.target.value = gradeDivH;
+  renderAllPreviews();
+});
 
 function aplicarRestricaoMarcaDagua(){
   var chk = document.getElementById('chk-marca');
@@ -1231,9 +1286,9 @@ function salvarAvaliacao(){
 
   var chain = Promise.resolve().then(function(){
     if (currentReportId){
-      return apiPost('/relatorios_fotos.php?action=salvar_meta', { id: currentReportId, aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0 });
+      return apiPost('/relatorios_fotos.php?action=salvar_meta', { id: currentReportId, aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0, grade_h: gradeDivH, grade_v: gradeDivV });
     }
-    return apiPost('/relatorios_fotos.php?action=criar', { aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0 }).then(function(data){
+    return apiPost('/relatorios_fotos.php?action=criar', { aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0, grade_h: gradeDivH, grade_v: gradeDivV }).then(function(data){
       if (!data.ok) throw new Error(data.erro || 'falha ao criar avaliação');
       currentReportId = data.id;
     });
@@ -1317,6 +1372,9 @@ function excluirAvaliacao(id, itemEl){
 function resetarEditor(){
   currentReportId = null;
   alunoSelecionadoId = null;
+  gradeDivV = 2; gradeDivH = 10;
+  document.getElementById('grade-v').value = gradeDivV;
+  document.getElementById('grade-h').value = gradeDivH;
   document.getElementById('input-aluno').value = '';
   var defaultW = clamp(parseInt(document.getElementById('tb-w').value, 10) || 900, 100, 4000);
   var defaultH = clamp(parseInt(document.getElementById('tb-h').value, 10) || 1200, 100, 4000);
@@ -1332,6 +1390,11 @@ function resetarEditor(){
     applyDimensions(row, defaultW, defaultH, true);
     row.dirty = false; row.savedOnce = false;
   });
+  for (var i = ROWS_COUNT - 1; i >= LINHAS_INICIAIS; i--){
+    if (rows[i].el.parentNode) rows[i].el.parentNode.removeChild(rows[i].el);
+  }
+  linhasVisiveis = LINHAS_INICIAIS;
+  atualizarBotaoAdd();
 }
 
 function carregarFotoDoServidor(row, side, url, zoom, panX, panY){
@@ -1362,6 +1425,10 @@ function abrirAvaliacao(id){
     document.getElementById('input-aluno').value = rel.aluno_nome || '';
     appBg = rel.bg || 'escuro';
     incluirMarca = isAdmin ? !!rel.marca : true;
+    gradeDivV = clamp(parseInt(rel.grade_v, 10) || 2, 1, 20);
+    gradeDivH = clamp(parseInt(rel.grade_h, 10) || 10, 1, 20);
+    document.getElementById('grade-v').value = gradeDivV;
+    document.getElementById('grade-h').value = gradeDivH;
     document.querySelectorAll('[data-bg]').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-bg') === appBg); });
     document.getElementById('chk-marca').checked = incluirMarca;
 
@@ -1369,6 +1436,7 @@ function abrirAvaliacao(id){
     rel.linhas.forEach(function(l){
       var row = rows[l.linha_idx];
       if (!row) return;
+      mostrarLinha(l.linha_idx);
       row.label = l.label || ''; row.els.label.value = row.label;
       row.els.w.value = l.largura; row.els.h.value = l.altura;
       applyDimensions(row, l.largura, l.altura, true);
