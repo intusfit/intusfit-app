@@ -177,12 +177,16 @@ function ensureCatalogoTables(PDO $pdo) {
             INDEX idx_atleta (idatleta), INDEX idx_ativo (ativo, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
-    _intusGarantirUtf8mb4($pdo, 'intus_feed_post', ['legenda']);
+    _intusGarantirUtf8mb4($pdo, 'intus_feed_post', ['legenda', 'localizacao']);
     // 'feed' = entra na lista geral (sujeito ao feed_optin de cada um);
     // 'perfil' = fica só na grade do próprio perfil, nunca aparece no feed
     // geral de ninguém (nem do próprio autor).
     $fpCols = array_column($pdo->query("SHOW COLUMNS FROM intus_feed_post")->fetchAll(PDO::FETCH_ASSOC), 'Field');
     if (!in_array('destino', $fpCols)) $pdo->exec("ALTER TABLE intus_feed_post ADD COLUMN destino ENUM('feed','perfil') NOT NULL DEFAULT 'feed' AFTER legenda");
+    // Texto livre digitado pelo aluno (não é geolocalização real nem lista de
+    // academias — a Intus não tem unidade física, cada aluno treina onde
+    // quiser, então é só uma marcação livre tipo "Academia X" ou "Casa").
+    if (!in_array('localizacao', $fpCols)) $pdo->exec("ALTER TABLE intus_feed_post ADD COLUMN localizacao VARCHAR(120) NULL AFTER destino");
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_comentario_pub (
@@ -1800,7 +1804,7 @@ if ($action === 'feed_posts') {
         // filtro (perfil de alguém, inclusive o próprio) mostra os dois — é
         // a grade do perfil, que é o único lugar onde um post 'perfil' aparece.
         $filtroDestino = $somenteAutor > 0 ? '' : " AND destino = 'feed'";
-        $st = $pdo->prepare("SELECT idpost, idatleta, imagem, legenda, destino, created_at FROM intus_feed_post
+        $st = $pdo->prepare("SELECT idpost, idatleta, imagem, legenda, destino, localizacao, created_at FROM intus_feed_post
                              WHERE ativo = 1 AND idatleta IN ($ph)$filtroDestino ORDER BY created_at DESC, idpost DESC LIMIT $limite");
         $st->execute($visiveis);
         $posts = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -1818,6 +1822,8 @@ if ($action === 'feed_posts') {
         if ($imagemRaw === '') { http_response_code(400); echo json_encode(['error' => 'imagem obrigatoria']); exit; }
         $destino = (string)($b['destino'] ?? 'feed');
         if (!in_array($destino, ['feed', 'perfil'], true)) $destino = 'feed';
+        $localizacao = trim((string)($b['localizacao'] ?? ''));
+        if (mb_strlen($localizacao) > 120) $localizacao = mb_substr($localizacao, 0, 120);
 
         // Salva como arquivo (mesmo padrão de _persistirFotos em avaliações):
         // nunca guardamos a imagem inteira em base64 dentro do banco.
@@ -1848,8 +1854,8 @@ if ($action === 'feed_posts') {
         // disco nesse ponto, entao o aluno perdia so o registro do post, nao
         // a foto. Mesmo padrao de log+referencia ja usado na conexao do banco.
         try {
-            $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino) VALUES (?,?,?,?)");
-            $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino]);
+            $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino, localizacao) VALUES (?,?,?,?,?)");
+            $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino, $localizacao !== '' ? $localizacao : null]);
             echo json_encode(['ok' => true, 'idpost' => (int)$pdo->lastInsertId(), 'imagem' => $url, 'destino' => $destino]);
         } catch (Throwable $e) {
             http_response_code(500);

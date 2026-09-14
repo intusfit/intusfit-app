@@ -2600,7 +2600,10 @@ function _feedCardHtml(post, isLight) {
       avatarEl +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
-        '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';">' + _tempoRelativoFeed(dt) + '</div>' +
+        '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+          (post.localizacao ? '<span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">📍 ' + esc(post.localizacao) + '</span> · ' : '') +
+          _tempoRelativoFeed(dt) +
+        '</div>' +
       '</div>' +
       '<div onclick="_abrirMenuPost(' + post.idpost + ',' + post.idatleta + ')" style="font-size:16px;color:' + (isLight?'#bbb':'#666') + ';cursor:pointer;padding:4px;">⋯</div>' +
     '</div>' +
@@ -2789,9 +2792,13 @@ async function renderFeedCompleto() {
 
 // ── Compor um novo post ──────────────────────────────────────────────────
 let _feedComposeImg = null;
+let _feedComposeLocal = '';
+let _feedComposeCaption = '';
 
 function abrirNovoPostFeed() {
   _feedComposeImg = null;
+  _feedComposeLocal = '';
+  _feedComposeCaption = '';
   _renderComposeFeed();
 }
 
@@ -2803,7 +2810,9 @@ function _renderComposeFeed() {
   const borda = isLight ? '#e5e5e5' : '#2a2a2a';
   const txt = isLight ? '#1a1a1a' : '#f0f0f0';
   const muted = isLight ? '#777' : '#888';
-  const logoSrc = isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png';
+  // Só os triângulos, sem a palavra "INTUS" escrita — pedido explícito pro
+  // Feed (o cartão de compartilhar treino continua com a logo por extenso).
+  const logoSrc = isLight ? 'logo-icon-light.png' : 'logo-icon-dark.png';
   const ov = document.createElement('div');
   ov.id = 'feed-compose-overlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:' + bg + ';overflow-y:auto;';
@@ -2823,7 +2832,8 @@ function _renderComposeFeed() {
       // com um teto de altura só pra uma foto muito alta não esticar a tela.
       '<div id="feed-compose-preview" style="width:100%;border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;' + (_feedComposeImg ? '' : 'aspect-ratio:4/5;') + '">' +
         (_feedComposeImg
-          ? '<img src="' + _feedComposeImg + '" style="display:block;max-width:100%;max-height:420px;width:auto;height:auto;object-fit:contain;"/><img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:16px;opacity:.9;"/>'
+          ? '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:auto;max-height:420px;object-fit:cover;"/><img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
+            '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>'
           : '<span style="color:' + muted + ';font-size:13px;">Escolha uma foto</span>') +
       '</div>' +
       '<div style="display:flex;gap:8px;margin:14px 0;">' +
@@ -2832,7 +2842,11 @@ function _renderComposeFeed() {
       '</div>' +
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
       '<input type="file" id="feed-compose-file-camera" accept="image/*" capture="environment" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
-      '<textarea id="feed-compose-legenda" placeholder="Escreva uma legenda..." maxlength="500" style="width:100%;min-height:70px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;"></textarea>' +
+      '<textarea id="feed-compose-legenda" placeholder="Escreva uma legenda..." maxlength="500" oninput="_feedComposeCaption=this.value;" style="width:100%;min-height:70px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;">' + esc(_feedComposeCaption) + '</textarea>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';">' +
+        '<span style="font-size:14px;flex-shrink:0;">📍</span>' +
+        '<input id="feed-compose-local" type="text" value="' + esc(_feedComposeLocal) + '" oninput="_feedComposeLocal=this.value;" placeholder="Adicionar localização (opcional)" maxlength="120" style="flex:1;min-width:0;border:none;background:transparent;color:' + txt + ';font-size:13px;font-family:inherit;outline:none;"/>' +
+      '</div>' +
       '<button onclick="_publicarPostFeed()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar</button>' +
     '</div>';
   document.body.appendChild(ov);
@@ -2842,9 +2856,199 @@ function _composeFeedArquivoEscolhido(input) {
   const file = input.files && input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => { _feedComposeImg = reader.result; _renderComposeFeed(); };
+  reader.onload = () => { _abrirEditorFotoFeed(reader.result); };
   reader.readAsDataURL(file);
   input.value = '';
+}
+
+// Reabre o editor sobre a foto já escolhida (recorte/zoom/filtro aplicados
+// de novo em cima do resultado anterior) — pro aluno poder ajustar de novo
+// sem precisar escolher o arquivo outra vez.
+function _reabrirEditorFotoFeed() {
+  if (_feedComposeImg) _abrirEditorFotoFeed(_feedComposeImg);
+}
+
+// ── Editor de foto do Feed: recorte, zoom e filtro antes de publicar ───────
+// Reaproveita os mesmos filtros de cor já usados na câmera/compartilhar
+// treino (_FILTRO_DOURADO etc., ver ~linha 1743) — mesma identidade visual
+// do app inteiro, um só lugar pra ajustar intensidade se precisar no futuro.
+const FEED_EDITOR_FILTROS = [
+  { id: '',         nome: 'Nenhum',   css: '' },
+  { id: 'dourado',  nome: 'Dourado',  css: _FILTRO_DOURADO },
+  { id: 'frio',     nome: 'Frio',     css: _FILTRO_FRIO },
+  { id: 'vibrante', nome: 'Vibrante', css: _FILTRO_VIBRANTE },
+];
+// null = proporção original da foto, sem cortar nada.
+const FEED_EDITOR_RATIOS = { original: null, quadrado: 1, retrato: 4 / 5 };
+
+let _feedEdImg = null;      // Image() carregada, em memória, durante a edição
+let _feedEdRatio = 'original';
+let _feedEdZoom = 1;
+let _feedEdPanX = 0;        // px, sempre entre geometria.minX e 0
+let _feedEdPanY = 0;
+let _feedEdFiltro = '';
+let _feedEdDrag = null;     // {x0,y0,panX0,panY0} só durante o arraste
+
+function _abrirEditorFotoFeed(dataUrl) {
+  const img = new Image();
+  img.onload = () => {
+    _feedEdImg = img;
+    _feedEdRatio = 'original';
+    _feedEdZoom = 1;
+    _feedEdPanX = 0; _feedEdPanY = 0;
+    _feedEdFiltro = '';
+    _renderEditorFotoFeed();
+  };
+  img.onerror = () => toast('Não consegui abrir essa foto.');
+  img.src = dataUrl;
+}
+
+// Largura do quadro calculada do viewport (não de leitura do DOM) porque
+// esta função roda tanto ANTES de o quadro existir (primeira renderização)
+// quanto logo DEPOIS de removido o quadro anterior (nas trocas de zoom/
+// proporção, que reconstroem o overlay inteiro) — nos dois casos uma leitura
+// via getElementById().clientWidth vinha vazia.
+function _edGeometria() {
+  const frameW = Math.min(340, window.innerWidth) - 32;
+  const ratio = FEED_EDITOR_RATIOS[_feedEdRatio] || (_feedEdImg.naturalWidth / _feedEdImg.naturalHeight);
+  const frameH = frameW / ratio;
+  const baseScale = Math.max(frameW / _feedEdImg.naturalWidth, frameH / _feedEdImg.naturalHeight);
+  const scale = baseScale * _feedEdZoom;
+  const dispW = _feedEdImg.naturalWidth * scale;
+  const dispH = _feedEdImg.naturalHeight * scale;
+  return { frameW, frameH, dispW, dispH, minX: frameW - dispW, minY: frameH - dispH };
+}
+
+function _renderEditorFotoFeed() {
+  const isLight = document.body.classList.contains('tema-claro');
+  document.getElementById('feed-editor-overlay')?.remove();
+  const bg = isLight ? '#f5f5f5' : '#0a0a0a';
+  const cardBg = isLight ? '#fff' : '#161616';
+  const borda = isLight ? '#e5e5e5' : '#2a2a2a';
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#777' : '#888';
+
+  const ratios = [['original', 'Original'], ['quadrado', '1:1'], ['retrato', '4:5']];
+  const ratioBtns = ratios.map(([id, lbl]) =>
+    '<button onclick="_edEscolherRatio(\'' + id + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;background:' + (_feedEdRatio === id ? '#7FFF00' : cardBg) + ';color:' + (_feedEdRatio === id ? '#0f1a00' : txt) + ';border:1px solid ' + (_feedEdRatio === id ? '#7FFF00' : borda) + ';">' + lbl + '</button>'
+  ).join('');
+
+  const filtroBtns = FEED_EDITOR_FILTROS.map(f =>
+    '<button onclick="_edEscolherFiltro(\'' + f.id + '\')" style="flex:0 0 auto;padding:8px 12px;border-radius:10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;background:' + (_feedEdFiltro === f.id ? '#7FFF00' : cardBg) + ';color:' + (_feedEdFiltro === f.id ? '#0f1a00' : txt) + ';border:1px solid ' + (_feedEdFiltro === f.id ? '#7FFF00' : borda) + ';">' + f.nome + '</button>'
+  ).join('');
+
+  const filtroCss = (FEED_EDITOR_FILTROS.find(f => f.id === _feedEdFiltro) || {}).css || '';
+  const g = _edGeometria();
+  // Centraliza o pan na primeira vez que este quadro/zoom aparece (quando
+  // ainda está em 0,0, o "canto"); depois disso respeita onde a pessoa
+  // arrastou, só recolocando dentro dos limites válidos.
+  if (_feedEdPanX === 0 && _feedEdPanY === 0) { _feedEdPanX = g.minX / 2; _feedEdPanY = g.minY / 2; }
+  _feedEdPanX = Math.min(0, Math.max(g.minX, _feedEdPanX));
+  _feedEdPanY = Math.min(0, Math.max(g.minY, _feedEdPanY));
+
+  const ov = document.createElement('div');
+  ov.id = 'feed-editor-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:650;background:' + bg + ';overflow-y:auto;';
+  ov.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
+      '<button onclick="_edCancelar()" style="background:none;border:none;color:' + muted + ';font-size:13px;font-weight:700;cursor:pointer;padding:6px 2px;">Cancelar</button>' +
+      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">Ajustar foto</span>' +
+      '<button onclick="_edConcluir()" style="background:none;border:none;color:#5cb800;font-size:13px;font-weight:800;cursor:pointer;padding:6px 2px;">Concluir</button>' +
+    '</div>' +
+    '<div style="max-width:340px;margin:0 auto;padding:16px;">' +
+      '<div id="feed-ed-frame" style="width:100%;aspect-ratio:' + (g.frameW / g.frameH) + ';overflow:hidden;position:relative;border-radius:14px;background:#000;touch-action:none;cursor:grab;" onpointerdown="_edPointerDown(event)">' +
+        '<img id="feed-ed-img" src="' + _feedEdImg.src + '" draggable="false" style="position:absolute;left:' + _feedEdPanX + 'px;top:' + _feedEdPanY + 'px;width:' + g.dispW + 'px;height:' + g.dispH + 'px;max-width:none;' + filtroCss + ';user-select:none;-webkit-user-drag:none;pointer-events:none;"/>' +
+      '</div>' +
+      '<div style="text-align:center;font-size:10.5px;color:' + muted + ';margin-top:6px;">Arraste a foto pra reenquadrar</div>' +
+      '<div style="display:flex;gap:8px;margin:12px 0;">' + ratioBtns + '</div>' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:700;color:' + muted + ';display:block;margin-bottom:6px;">🔍 Zoom</label>' +
+        '<input type="range" min="100" max="220" value="' + Math.round(_feedEdZoom * 100) + '" oninput="_edZoomInput(this.value)" style="width:100%;">' +
+      '</div>' +
+      '<div style="margin-top:12px;">' +
+        '<label style="font-size:11px;font-weight:700;color:' + muted + ';display:block;margin-bottom:6px;">🎨 Filtro</label>' +
+        '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;">' + filtroBtns + '</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+}
+
+function _edEscolherRatio(ratio) {
+  _feedEdRatio = ratio;
+  _feedEdZoom = 1;
+  _feedEdPanX = 0; _feedEdPanY = 0; // recentraliza (ver _renderEditorFotoFeed)
+  _renderEditorFotoFeed();
+}
+
+function _edZoomInput(val) {
+  _feedEdZoom = (parseInt(val, 10) || 100) / 100;
+  _renderEditorFotoFeed();
+}
+
+function _edEscolherFiltro(id) {
+  _feedEdFiltro = id;
+  _renderEditorFotoFeed();
+}
+
+function _edPointerDown(e) {
+  const frame = document.getElementById('feed-ed-frame');
+  if (!frame) return;
+  frame.setPointerCapture(e.pointerId);
+  frame.style.cursor = 'grabbing';
+  _feedEdDrag = { x0: e.clientX, y0: e.clientY, panX0: _feedEdPanX, panY0: _feedEdPanY };
+  frame.onpointermove = _edPointerMove;
+  frame.onpointerup = _edPointerUp;
+  frame.onpointercancel = _edPointerUp;
+}
+function _edPointerMove(e) {
+  if (!_feedEdDrag) return;
+  const g = _edGeometria();
+  _feedEdPanX = Math.min(0, Math.max(g.minX, _feedEdDrag.panX0 + (e.clientX - _feedEdDrag.x0)));
+  _feedEdPanY = Math.min(0, Math.max(g.minY, _feedEdDrag.panY0 + (e.clientY - _feedEdDrag.y0)));
+  const img = document.getElementById('feed-ed-img');
+  if (img) { img.style.left = _feedEdPanX + 'px'; img.style.top = _feedEdPanY + 'px'; }
+}
+function _edPointerUp() {
+  const frame = document.getElementById('feed-ed-frame');
+  if (frame) { frame.onpointermove = null; frame.onpointerup = null; frame.onpointercancel = null; frame.style.cursor = 'grab'; }
+  _feedEdDrag = null;
+}
+
+function _edCancelar() {
+  document.getElementById('feed-editor-overlay')?.remove();
+  _feedEdImg = null;
+  // Se era a primeira foto (ainda sem nenhuma publicável), volta pro
+  // composer vazio em vez de deixar a tela sem overlay nenhum.
+  if (!_feedComposeImg) _renderComposeFeed();
+}
+
+// Desenha o recorte/zoom/filtro escolhidos num canvas — essa imagem gerada
+// aqui é a que realmente vai ser publicada, não só um efeito visual do
+// preview.
+function _edConcluir() {
+  const g = _edGeometria();
+  const scale = g.dispW / _feedEdImg.naturalWidth; // px de tela por px natural da foto
+  const srcX = -_feedEdPanX / scale;
+  const srcY = -_feedEdPanY / scale;
+  const srcW = g.frameW / scale;
+  const srcH = g.frameH / scale;
+  // Teto de resolução pra não gerar arquivo enorme de foto de celular
+  // moderno — mantém a proporção do recorte (== proporção do quadro).
+  const MAX_LADO = 1600;
+  let outW = g.frameW, outH = g.frameH;
+  const maior = Math.max(outW, outH);
+  if (maior > MAX_LADO) { const f = MAX_LADO / maior; outW = outW * f; outH = outH * f; }
+  outW = Math.round(outW); outH = Math.round(outH);
+  const canvas = document.createElement('canvas');
+  canvas.width = outW; canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+  const filtroCss = (FEED_EDITOR_FILTROS.find(f => f.id === _feedEdFiltro) || {}).css || '';
+  if (filtroCss) ctx.filter = filtroCss;
+  ctx.drawImage(_feedEdImg, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+  _feedComposeImg = canvas.toDataURL('image/jpeg', 0.9);
+  document.getElementById('feed-editor-overlay')?.remove();
+  _feedEdImg = null;
+  _renderComposeFeed();
 }
 
 function _fecharComposeFeed() { document.getElementById('feed-compose-overlay')?.remove(); }
@@ -2871,7 +3075,12 @@ function _compositarLogoNaFoto(dataUrl) {
         finalizar();
       };
       logo.onerror = finalizar;
-      logo.src = document.body.classList.contains('tema-claro') ? 'logo-intus-light.png' : 'logo-intus-dark.png';
+      // Só os triângulos no Feed, sem a palavra "INTUS" escrita — pedido
+      // explícito (o cartão de compartilhar treino continua com a logo por
+      // extenso, é outro fluxo). A posição/tamanho já são proporcionais ao
+      // tamanho final da imagem (linhas acima), então se ajustam sozinhos a
+      // qualquer proporção que o editor de recorte produzir.
+      logo.src = document.body.classList.contains('tema-claro') ? 'logo-icon-light.png' : 'logo-icon-dark.png';
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
@@ -2880,14 +3089,15 @@ function _compositarLogoNaFoto(dataUrl) {
 
 async function _publicarPostFeed() {
   if (!_feedComposeImg) return toast('Escolha uma foto primeiro.');
-  const legenda = document.getElementById('feed-compose-legenda')?.value?.trim() || '';
+  const legenda = document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '';
+  const localizacao = document.getElementById('feed-compose-local')?.value?.trim() || _feedComposeLocal.trim() || '';
   toast('Publicando...');
   try {
     const finalImg = await _compositarLogoNaFoto(_feedComposeImg);
     const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imagem: finalImg, legenda: legenda }),
+      body: JSON.stringify({ imagem: finalImg, legenda: legenda, localizacao: localizacao }),
     });
     if (!r.ok) throw new Error('falhou');
     toast('Post publicado! 🎉');
