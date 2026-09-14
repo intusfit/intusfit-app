@@ -112,7 +112,11 @@ function _gdriveToken($key) {
     ]);
     $resp = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr = curl_error($ch);
     curl_close($ch);
+    // DIAGNOSTICO TEMPORARIO (14/09/2026) — configuracao nova do Drive, ainda
+    // sem confirmar se a chave/pasta estao certas. Remover depois de validar.
+    $GLOBALS['_gdrive_debug']['token'] = ['http_code' => $code, 'curl_erro' => $curlErr, 'resposta' => substr((string)$resp, 0, 400)];
     if ($code !== 200 || !$resp) return null;
     $j = json_decode($resp, true);
     return $j['access_token'] ?? null;
@@ -143,11 +147,15 @@ function gdriveBackup($bin, $nome, $mime = 'image/jpeg') {
         ]);
         $resp = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
         curl_close($ch);
+        // DIAGNOSTICO TEMPORARIO (14/09/2026) — remover depois de validar.
+        $GLOBALS['_gdrive_debug']['upload'] = ['http_code' => $code, 'curl_erro' => $curlErr, 'resposta' => substr((string)$resp, 0, 400)];
         if ($code < 200 || $code >= 300 || !$resp) return null;
         $j = json_decode($resp, true);
         return $j['webViewLink'] ?? ($j['id'] ? ('drive:' . $j['id']) : null);
     } catch (Throwable $e) {
+        $GLOBALS['_gdrive_debug']['excecao'] = $e->getMessage();
         return null;
     }
 }

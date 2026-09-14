@@ -138,7 +138,9 @@ try {
 
     if ($url === null) {
         http_response_code(502);
-        echo json_encode(['error' => 'Falha ao enviar a imagem para o Google Drive']);
+        // "debug" e temporario, so pra validar a configuracao nova da chave —
+        // remover depois de confirmar que o backup funciona.
+        echo json_encode(['error' => 'Falha ao enviar a imagem para o Google Drive', 'debug' => $GLOBALS['_gdrive_debug'] ?? null]);
         exit;
     }
 
