@@ -13,6 +13,22 @@
  * real no Drive — criar subpastas de verdade fica para uma proxima rodada, se
  * o volume de fotos justificar.
  */
+// DIAGNOSTICO TEMPORARIO: o endpoint retornava 500 completamente em branco
+// (0 bytes) só quando um arquivo de verdade era enviado, mesmo com todo o
+// código de baixo já protegido por try/catch — sinal de erro FATAL de
+// verdade (timeout, memória, ou algo que nem Throwable pega). Isso aqui
+// captura esse fatal no shutdown e devolve a mensagem real, só até eu achar
+// a causa — depois eu tiro o campo "debug" (fica só a referência no log).
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json; charset=utf-8'); }
+        $ref = substr(hash('crc32b', $err['message'] . '|' . $err['file'] . '|' . $err['line']), 0, 8);
+        @error_log('[intus-fatal ' . $ref . '] ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line']);
+        echo json_encode(['error' => 'Falha fatal inesperada', 'detalhe' => 'ref ' . $ref, 'debug' => $err['message'] . ' @ ' . basename($err['file']) . ':' . $err['line']]);
+    }
+});
+
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
 header('Access-Control-Allow-Methods: POST, OPTIONS');
