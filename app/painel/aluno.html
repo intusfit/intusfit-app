@@ -2887,21 +2887,27 @@ const FEED_EDITOR_FILTROS = [
 const FEED_EDITOR_RATIOS = { original: null, quadrado: 1, retrato: 4 / 5 };
 
 let _feedEdImg = null;      // Image() carregada, em memória, durante a edição
-let _feedEdRatio = 'original';
+// 4:5 é o padrão pedido (mesma proporção do feed do Instagram); Original e
+// 1:1 continuam visíveis nos botões pra quem quiser trocar.
+let _feedEdRatio = 'retrato';
 let _feedEdZoom = 1;
 let _feedEdPanX = 0;        // px, sempre entre geometria.minX e 0
 let _feedEdPanY = 0;
 let _feedEdFiltro = '';
-let _feedEdDrag = null;     // {x0,y0,panX0,panY0} só durante o arraste
+// Ponteiros ativos (dedo ou mouse) durante um gesto — Map porque a pinça
+// precisa rastrear 2 ao mesmo tempo, cada um pelo próprio pointerId.
+let _feedEdPointers = new Map();
+let _feedEdGesto = null;    // {modo:'pan'|'pinch', ...} só durante o gesto
 
 function _abrirEditorFotoFeed(dataUrl) {
   const img = new Image();
   img.onload = () => {
     _feedEdImg = img;
-    _feedEdRatio = 'original';
+    _feedEdRatio = 'retrato';
     _feedEdZoom = 1;
     _feedEdPanX = 0; _feedEdPanY = 0;
     _feedEdFiltro = '';
+    _feedEdPointers.clear(); _feedEdGesto = null;
     _renderEditorFotoFeed();
   };
   img.onerror = () => toast('Não consegui abrir essa foto.');
@@ -2938,8 +2944,14 @@ function _renderEditorFotoFeed() {
     '<button onclick="_edEscolherRatio(\'' + id + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;background:' + (_feedEdRatio === id ? '#7FFF00' : cardBg) + ';color:' + (_feedEdRatio === id ? '#0f1a00' : txt) + ';border:1px solid ' + (_feedEdRatio === id ? '#7FFF00' : borda) + ';">' + lbl + '</button>'
   ).join('');
 
+  // Carrossel com miniatura de verdade da própria foto em cada filtro (igual
+  // ao seletor de filtro do Instagram), não só o nome — dá pra ver o efeito
+  // antes de escolher, sem precisar aplicar um por um pra comparar.
   const filtroBtns = FEED_EDITOR_FILTROS.map(f =>
-    '<button onclick="_edEscolherFiltro(\'' + f.id + '\')" style="flex:0 0 auto;padding:8px 12px;border-radius:10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;background:' + (_feedEdFiltro === f.id ? '#7FFF00' : cardBg) + ';color:' + (_feedEdFiltro === f.id ? '#0f1a00' : txt) + ';border:1px solid ' + (_feedEdFiltro === f.id ? '#7FFF00' : borda) + ';">' + f.nome + '</button>'
+    '<div onclick="_edEscolherFiltro(\'' + f.id + '\')" style="flex:0 0 auto;text-align:center;cursor:pointer;width:58px;">' +
+      '<div style="width:58px;height:58px;border-radius:10px;overflow:hidden;background-image:url(\'' + _feedEdImg.src + '\');background-size:cover;background-position:center;border:2px solid ' + (_feedEdFiltro === f.id ? '#7FFF00' : 'transparent') + ';' + (f.css ? 'filter:' + f.css + ';' : '') + '"></div>' +
+      '<div style="font-size:10px;margin-top:4px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:' + (_feedEdFiltro === f.id ? (isLight ? '#5cb800' : '#7FFF00') : muted) + ';">' + f.nome + '</div>' +
+    '</div>'
   ).join('');
 
   const filtroCss = (FEED_EDITOR_FILTROS.find(f => f.id === _feedEdFiltro) || {}).css || '';
@@ -2961,18 +2973,27 @@ function _renderEditorFotoFeed() {
       '<button onclick="_edConcluir()" style="background:none;border:none;color:#5cb800;font-size:13px;font-weight:800;cursor:pointer;padding:6px 2px;">Concluir</button>' +
     '</div>' +
     '<div style="max-width:340px;margin:0 auto;padding:16px;">' +
-      '<div id="feed-ed-frame" style="width:100%;aspect-ratio:' + (g.frameW / g.frameH) + ';overflow:hidden;position:relative;border-radius:14px;background:#000;touch-action:none;cursor:grab;" onpointerdown="_edPointerDown(event)">' +
-        '<img id="feed-ed-img" src="' + _feedEdImg.src + '" draggable="false" style="position:absolute;left:' + _feedEdPanX + 'px;top:' + _feedEdPanY + 'px;width:' + g.dispW + 'px;height:' + g.dispH + 'px;max-width:none;' + filtroCss + ';user-select:none;-webkit-user-drag:none;pointer-events:none;"/>' +
+      '<div id="feed-ed-frame" style="width:100%;aspect-ratio:' + (g.frameW / g.frameH) + ';overflow:hidden;position:relative;border-radius:14px;background:#000;touch-action:none;cursor:grab;" ' +
+        'onpointerdown="_edPointerDown(event)" onpointermove="_edPointerMove(event)" onpointerup="_edPointerFim(event)" onpointercancel="_edPointerFim(event)" onpointerleave="_edPointerFim(event)">' +
+        // BUG real: faltava o "filter:" na frente do valor — filtroCss é só o
+        // valor da função CSS (ex. "saturate(1.35) ..."), sem o nome da
+        // propriedade. Sem o prefixo, o navegador ignora a declaração
+        // inteira em silêncio: o filtro aplicava certinho na miniatura do
+        // carrossel (que já tinha o "filter:" certo) e no arquivo final
+        // publicado (ctx.filter aceita só o valor, esse não precisa do
+        // prefixo), mas a prévia grande nunca mudava — parecia que escolher
+        // filtro não fazia nada.
+        '<img id="feed-ed-img" src="' + _feedEdImg.src + '" draggable="false" style="position:absolute;left:' + _feedEdPanX + 'px;top:' + _feedEdPanY + 'px;width:' + g.dispW + 'px;height:' + g.dispH + 'px;max-width:none;' + (filtroCss ? 'filter:' + filtroCss + ';' : '') + 'user-select:none;-webkit-user-drag:none;pointer-events:none;"/>' +
       '</div>' +
-      '<div style="text-align:center;font-size:10.5px;color:' + muted + ';margin-top:6px;">Arraste a foto pra reenquadrar</div>' +
+      '<div style="text-align:center;font-size:10.5px;color:' + muted + ';margin-top:6px;">Arraste com 1 dedo pra reenquadrar · pinça com 2 pra dar zoom</div>' +
       '<div style="display:flex;gap:8px;margin:12px 0;">' + ratioBtns + '</div>' +
       '<div>' +
         '<label style="font-size:11px;font-weight:700;color:' + muted + ';display:block;margin-bottom:6px;">🔍 Zoom</label>' +
-        '<input type="range" min="100" max="220" value="' + Math.round(_feedEdZoom * 100) + '" oninput="_edZoomInput(this.value)" style="width:100%;">' +
+        '<input id="feed-ed-zoom-slider" type="range" min="100" max="220" value="' + Math.round(_feedEdZoom * 100) + '" oninput="_edZoomInput(this.value)" style="width:100%;">' +
       '</div>' +
       '<div style="margin-top:12px;">' +
         '<label style="font-size:11px;font-weight:700;color:' + muted + ';display:block;margin-bottom:6px;">🎨 Filtro</label>' +
-        '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;">' + filtroBtns + '</div>' +
+        '<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;">' + filtroBtns + '</div>' +
       '</div>' +
     '</div>';
   document.body.appendChild(ov);
@@ -2985,9 +3006,20 @@ function _edEscolherRatio(ratio) {
   _renderEditorFotoFeed();
 }
 
+// Zoom pelo slider aplica direto no estilo (sem reconstruir a tela toda) —
+// mesma função que a pinça usa por baixo, só que disparada pelo input em vez
+// de 2 dedos, então os dois ficam sempre em sintonia (mexer num atualiza o
+// outro também).
 function _edZoomInput(val) {
-  _feedEdZoom = (parseInt(val, 10) || 100) / 100;
-  _renderEditorFotoFeed();
+  const novo = (parseInt(val, 10) || 100) / 100;
+  const g0 = _edGeometria();
+  _feedEdZoom = novo;
+  const g = _edGeometria();
+  // Mantém o centro do enquadramento atual em vez de pular pro canto —
+  // ajusta o pan proporcionalmente ao quanto a imagem cresceu/encolheu.
+  _feedEdPanX = Math.min(0, Math.max(g.minX, _feedEdPanX * (g.dispW / g0.dispW)));
+  _feedEdPanY = Math.min(0, Math.max(g.minY, _feedEdPanY * (g.dispH / g0.dispH)));
+  _edAplicarTransform();
 }
 
 function _edEscolherFiltro(id) {
@@ -2995,33 +3027,92 @@ function _edEscolherFiltro(id) {
   _renderEditorFotoFeed();
 }
 
+// Aplica pan/zoom direto no <img> já existente, sem recriar o DOM — precisa
+// ser rápido o bastante pra acompanhar o dedo em tempo real (60fps).
+function _edAplicarTransform() {
+  const img = document.getElementById('feed-ed-img');
+  if (!img) return;
+  const g = _edGeometria();
+  img.style.width = g.dispW + 'px';
+  img.style.height = g.dispH + 'px';
+  img.style.left = _feedEdPanX + 'px';
+  img.style.top = _feedEdPanY + 'px';
+}
+
+// ── Gestos: 1 dedo arrasta (pan), 2 dedos dão zoom (pinça) ──────────────────
+// BUG relatado em produção: editar a foto escolhida da galeria não estava
+// funcionando de verdade no celular — só dava pra reenquadrar com o slider
+// de zoom, sem arrastar com o dedo nem pinçar, do jeito que qualquer app de
+// foto de verdade funciona. Rastreando cada ponteiro (dedo) por id num Map
+// dá pra saber quantos dedos estão na tela ao mesmo tempo e trocar entre
+// arrastar (1) e pinçar (2) sem perder o gesto no meio do caminho.
 function _edPointerDown(e) {
   const frame = document.getElementById('feed-ed-frame');
   if (!frame) return;
-  frame.setPointerCapture(e.pointerId);
-  frame.style.cursor = 'grabbing';
-  _feedEdDrag = { x0: e.clientX, y0: e.clientY, panX0: _feedEdPanX, panY0: _feedEdPanY };
-  frame.onpointermove = _edPointerMove;
-  frame.onpointerup = _edPointerUp;
-  frame.onpointercancel = _edPointerUp;
+  try { frame.setPointerCapture(e.pointerId); } catch (err) {}
+  _feedEdPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  _edIniciarGesto();
 }
 function _edPointerMove(e) {
-  if (!_feedEdDrag) return;
-  const g = _edGeometria();
-  _feedEdPanX = Math.min(0, Math.max(g.minX, _feedEdDrag.panX0 + (e.clientX - _feedEdDrag.x0)));
-  _feedEdPanY = Math.min(0, Math.max(g.minY, _feedEdDrag.panY0 + (e.clientY - _feedEdDrag.y0)));
-  const img = document.getElementById('feed-ed-img');
-  if (img) { img.style.left = _feedEdPanX + 'px'; img.style.top = _feedEdPanY + 'px'; }
+  if (!_feedEdPointers.has(e.pointerId)) return;
+  _feedEdPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  _edAtualizarGesto();
 }
-function _edPointerUp() {
+function _edPointerFim(e) {
+  _feedEdPointers.delete(e.pointerId);
   const frame = document.getElementById('feed-ed-frame');
-  if (frame) { frame.onpointermove = null; frame.onpointerup = null; frame.onpointercancel = null; frame.style.cursor = 'grab'; }
-  _feedEdDrag = null;
+  if (_feedEdPointers.size > 0) {
+    _edIniciarGesto(); // ainda sobrou 1 dedo (saiu de pinça pra arraste) — recomeça o gesto com ele
+  } else {
+    _feedEdGesto = null;
+    if (frame) frame.style.cursor = 'grab';
+    const slider = document.getElementById('feed-ed-zoom-slider');
+    if (slider) slider.value = Math.round(_feedEdZoom * 100);
+  }
+}
+
+function _edIniciarGesto() {
+  const frame = document.getElementById('feed-ed-frame');
+  const pts = Array.from(_feedEdPointers.values());
+  if (pts.length === 1) {
+    _feedEdGesto = { modo: 'pan', x0: pts[0].x, y0: pts[0].y, panX0: _feedEdPanX, panY0: _feedEdPanY };
+    if (frame) frame.style.cursor = 'grabbing';
+  } else if (pts.length >= 2) {
+    const [a, b] = pts;
+    _feedEdGesto = { modo: 'pinch', dist0: Math.hypot(a.x - b.x, a.y - b.y), zoom0: _feedEdZoom, panX0: _feedEdPanX, panY0: _feedEdPanY };
+  }
+}
+
+function _edAtualizarGesto() {
+  if (!_feedEdGesto) return;
+  const pts = Array.from(_feedEdPointers.values());
+  if (_feedEdGesto.modo === 'pan' && pts.length === 1) {
+    const g = _edGeometria();
+    _feedEdPanX = Math.min(0, Math.max(g.minX, _feedEdGesto.panX0 + (pts[0].x - _feedEdGesto.x0)));
+    _feedEdPanY = Math.min(0, Math.max(g.minY, _feedEdGesto.panY0 + (pts[0].y - _feedEdGesto.y0)));
+    _edAplicarTransform();
+  } else if (_feedEdGesto.modo === 'pinch' && pts.length >= 2) {
+    const [a, b] = pts;
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const fator = dist / _feedEdGesto.dist0;
+    _feedEdZoom = Math.min(2.2, Math.max(1, _feedEdGesto.zoom0 * fator));
+    const g = _edGeometria();
+    // Simplificação deliberada: escala o pan proporcionalmente em vez de
+    // ancorar exatamente no ponto médio dos 2 dedos — bem mais simples de
+    // acertar sem bug, e o resultado visual é quase idêntico pro uso real
+    // (ajustar enquadramento de uma foto, não dar zoom cirúrgico num mapa).
+    _feedEdPanX = Math.min(0, Math.max(g.minX, _feedEdGesto.panX0 * fator));
+    _feedEdPanY = Math.min(0, Math.max(g.minY, _feedEdGesto.panY0 * fator));
+    _edAplicarTransform();
+    const slider = document.getElementById('feed-ed-zoom-slider');
+    if (slider) slider.value = Math.round(_feedEdZoom * 100);
+  }
 }
 
 function _edCancelar() {
   document.getElementById('feed-editor-overlay')?.remove();
   _feedEdImg = null;
+  _feedEdPointers.clear(); _feedEdGesto = null;
   // Se era a primeira foto (ainda sem nenhuma publicável), volta pro
   // composer vazio em vez de deixar a tela sem overlay nenhum.
   if (!_feedComposeImg) _renderComposeFeed();
@@ -3053,6 +3144,7 @@ function _edConcluir() {
   _feedComposeImg = canvas.toDataURL('image/jpeg', 0.9);
   document.getElementById('feed-editor-overlay')?.remove();
   _feedEdImg = null;
+  _feedEdPointers.clear(); _feedEdGesto = null;
   _renderComposeFeed();
 }
 
