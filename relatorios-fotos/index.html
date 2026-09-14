@@ -70,6 +70,7 @@ input{font-family:inherit}
 .tb-grupo{display:flex;flex-direction:column;gap:5px}
 .tb-grupo .tb-titulo{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .tb-linha{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.secao-titulo{flex-basis:100%;font-size:12.5px;font-weight:800;color:var(--texto);padding-bottom:6px;margin-bottom:2px;border-bottom:1px solid var(--borda)}
 .btn-chip{background:var(--card-bg);border:1px solid var(--borda);color:var(--texto);border-radius:8px;padding:7px 12px;font-size:12.5px;font-weight:600}
 .btn-chip:hover{border-color:var(--accent-borda)}
 .btn-chip.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
@@ -136,6 +137,9 @@ input{font-family:inherit}
 .btn-cor{width:20px;height:20px;border-radius:50%;padding:0!important;border:2px solid transparent!important}
 .btn-cor.on{border-color:var(--texto)!important}
 .chk-grade{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-left:auto}
+.grade-config{display:flex;align-items:center;gap:4px}
+.grade-config input{width:36px;padding:4px 2px;border-radius:5px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:11px;text-align:center}
+.grade-config .x{color:var(--muted-d);font-size:10px}
 
 .btn-add-linha{width:100%;padding:14px;border-radius:12px;border:1.5px dashed var(--borda);background:transparent;color:var(--muted);font-size:13px;font-weight:700;text-align:center}
 .btn-add-linha:hover{border-color:var(--accent-borda);color:var(--accent)}
@@ -186,8 +190,9 @@ input{font-family:inherit}
 </div>
 
 <div class="toolbar">
+  <span class="secao-titulo">Avaliação atual</span>
   <div class="tb-grupo">
-    <span class="tb-titulo">Avaliação</span>
+    <span class="tb-titulo">Aluno e progresso</span>
     <div class="tb-linha">
       <span class="campo-autocomplete">
         <input type="text" id="input-aluno" placeholder="Nome do aluno (busca no cadastro)" autocomplete="off" style="min-width:220px">
@@ -210,6 +215,7 @@ input{font-family:inherit}
 </div>
 
 <div class="toolbar">
+  <span class="secao-titulo">Configurações do relatório</span>
   <div class="tb-grupo">
     <span class="tb-titulo">Padrão de dimensões (aplica só ao criar/redefinir)</span>
     <div class="tb-linha">
@@ -233,13 +239,12 @@ input{font-family:inherit}
       <span class="x">logo:</span>
       <button class="btn-chip on" data-logo="branco">Branca</button>
       <button class="btn-chip" data-logo="preto">Preta</button>
-      <span class="x">simetrógrafo:</span>
-      <input type="number" id="grade-v" value="2" min="1" max="20" style="width:52px" title="Divisões verticais (nº de linhas verticais = divisões − 1)">
-      <span class="x">×</span>
-      <input type="number" id="grade-h" value="10" min="1" max="20" style="width:52px" title="Divisões horizontais (nº de linhas horizontais = divisões − 1)">
     </div>
   </div>
+</div>
 
+<div class="toolbar">
+  <span class="secao-titulo">Fotos em lote</span>
   <div class="tb-grupo">
     <span class="tb-titulo">Upload em lote (preenche as linhas vazias em ordem)</span>
     <div class="tb-linha">
@@ -288,8 +293,6 @@ var incluirMarca = true;
 var logoVariant = 'branco';
 var isAdmin = false;
 var currentReportId = null;
-var gradeDivH = 10;
-var gradeDivV = 2;
 var alunoSelecionadoId = null;
 var buscaAlunoTimer = null;
 
@@ -342,7 +345,7 @@ function slugify(s){
 function makeSlot(tag){
   return { tag: tag, img: null, naturalW: 0, naturalH: 0, z: 1, panX: .5, panY: .5,
            canvas: null, ctx: null, dragging: false, dragStart: null, imgDirty: false,
-           annotations: [], comment: '', grade: false, corAtual: '#ff3b30',
+           annotations: [], comment: '', grade: false, gradeV: 2, gradeH: 10, corAtual: '#ff3b30',
            tool: null, draft: null, anguloEmProgresso: null };
 }
 
@@ -398,9 +401,9 @@ function drawWatermark(ctx, destW, destH){
   ctx.restore();
 }
 
-function drawGrade(ctx, destW, destH){
-  var divV = Math.max(1, gradeDivV | 0);
-  var divH = Math.max(1, gradeDivH | 0);
+function drawGrade(ctx, destW, destH, gradeV, gradeH){
+  var divV = Math.max(1, gradeV | 0);
+  var divH = Math.max(1, gradeH | 0);
   ctx.save();
   ctx.strokeStyle = 'rgba(255,59,48,.6)';
   ctx.lineWidth = Math.max(1, destW * 0.0035);
@@ -473,7 +476,7 @@ function drawSlot(ctx, slot, destW, destH){
   if (!slot.img) return;
   var r = sourceRect(slot, destW, destH);
   ctx.drawImage(slot.img, r.sx, r.sy, r.sW, r.sH, 0, 0, destW, destH);
-  if (slot.grade) drawGrade(ctx, destW, destH);
+  if (slot.grade) drawGrade(ctx, destW, destH, slot.gradeV, slot.gradeH);
   (slot.annotations || []).forEach(function(a){ desenharAnotacao(ctx, a, destW, destH); });
   drawWatermark(ctx, destW, destH);
 }
@@ -534,6 +537,8 @@ function refreshSlotUI(row, side){
   row.els[side].tag.value = slot.tag;
   row.els[side].comentario.value = slot.comment || '';
   row.els[side].chkGrade.checked = !!slot.grade;
+  row.els[side].gradeV.value = slot.gradeV;
+  row.els[side].gradeH.value = slot.gradeH;
   if (slot.img){
     row.els[side].drop.hidden = true;
     row.els[side].canvas.hidden = false;
@@ -557,7 +562,7 @@ function moveSlot(rowId, side, dir){
   if (targetId < 0 || targetId >= rows.length) return;
   mostrarLinha(Math.max(rowId, targetId));
   var a = rows[rowId].slots[side], b = rows[targetId].slots[side];
-  ['tag','img','naturalW','naturalH','z','panX','panY','annotations','comment','grade','corAtual'].forEach(function(f){
+  ['tag','img','naturalW','naturalH','z','panX','panY','annotations','comment','grade','gradeV','gradeH','corAtual'].forEach(function(f){
     var tmp = a[f]; a[f] = b[f]; b[f] = tmp;
   });
   a.imgDirty = true; b.imgDirty = true;
@@ -585,10 +590,12 @@ function removeSlotImage(row, side){
   var slot = row.slots[side];
   slot.img = null; slot.naturalW = 0; slot.naturalH = 0; slot.z = 1; slot.panX = .5; slot.panY = .5;
   slot.imgDirty = true; row.dirty = true;
-  slot.annotations = []; slot.comment = ''; slot.grade = false;
+  slot.annotations = []; slot.comment = ''; slot.grade = false; slot.gradeV = 2; slot.gradeH = 10;
   slot.tool = null; slot.draft = null; slot.anguloEmProgresso = null;
   row.els[side].comentario.value = '';
   row.els[side].chkGrade.checked = false;
+  row.els[side].gradeV.value = 2;
+  row.els[side].gradeH.value = 10;
   row.els[side].canvas.classList.remove('modo-anotar');
   row.els[side].wrap.querySelectorAll('.btn-tool').forEach(function(b){ b.classList.remove('on'); });
   row.els[side].drop.hidden = false;
@@ -762,6 +769,11 @@ function buildRow(row){
         '<button class="btn-desfazer" title="Desfazer última marcação">↩️ Desfazer</button>' +
         '<button class="btn-limpar-anot" title="Apagar todas as marcações desta foto">🗑️ Limpar</button>' +
         '<label class="chk-grade"><input type="checkbox" class="chk-simetrografo"> Simetrógrafo</label>' +
+        '<span class="grade-config">' +
+          '<input type="number" class="grade-v-slot" value="2" min="1" max="20" title="Divisões verticais (linhas verticais = divisões − 1)">' +
+          '<span class="x">×</span>' +
+          '<input type="number" class="grade-h-slot" value="10" min="1" max="20" title="Divisões horizontais (linhas horizontais = divisões − 1)">' +
+        '</span>' +
       '</div>';
     slotsWrap.appendChild(s);
 
@@ -776,7 +788,9 @@ function buildRow(row){
       zoom: s.querySelector('.slot-tools input[type=range]'),
       comentario: s.querySelector('.slot-comentario'),
       anotaBar: s.querySelector('.slot-anota-bar'),
-      chkGrade: s.querySelector('.chk-simetrografo')
+      chkGrade: s.querySelector('.chk-simetrografo'),
+      gradeV: s.querySelector('.grade-v-slot'),
+      gradeH: s.querySelector('.grade-h-slot')
     };
     row.slots[side].canvas = row.els[side].canvas;
     if (row.id === 0) s.querySelector('.btn-mover-up').disabled = true;
@@ -811,6 +825,18 @@ function buildRow(row){
     });
     row.els[side].chkGrade.addEventListener('change', function(){
       row.slots[side].grade = row.els[side].chkGrade.checked;
+      row.dirty = true;
+      renderSlotPreview(row, side);
+    });
+    row.els[side].gradeV.addEventListener('change', function(){
+      row.slots[side].gradeV = clamp(parseInt(row.els[side].gradeV.value, 10) || 2, 1, 20);
+      row.els[side].gradeV.value = row.slots[side].gradeV;
+      row.dirty = true;
+      renderSlotPreview(row, side);
+    });
+    row.els[side].gradeH.addEventListener('change', function(){
+      row.slots[side].gradeH = clamp(parseInt(row.els[side].gradeH.value, 10) || 10, 1, 20);
+      row.els[side].gradeH.value = row.slots[side].gradeH;
       row.dirty = true;
       renderSlotPreview(row, side);
     });
@@ -1124,16 +1150,6 @@ document.querySelectorAll('[data-logo]').forEach(function(btn){
 
 document.getElementById('chk-marca').addEventListener('change', function(e){ incluirMarca = e.target.checked; renderAllPreviews(); });
 
-document.getElementById('grade-v').addEventListener('change', function(e){
-  gradeDivV = clamp(parseInt(e.target.value, 10) || 2, 1, 20);
-  e.target.value = gradeDivV;
-  renderAllPreviews();
-});
-document.getElementById('grade-h').addEventListener('change', function(e){
-  gradeDivH = clamp(parseInt(e.target.value, 10) || 10, 1, 20);
-  e.target.value = gradeDivH;
-  renderAllPreviews();
-});
 
 function aplicarRestricaoMarcaDagua(){
   var chk = document.getElementById('chk-marca');
@@ -1270,7 +1286,7 @@ function buildSidePayload(row, side){
   var slot = row.slots[side];
   var out = {
     tag: slot.tag, zoom: slot.z, pan_x: slot.panX, pan_y: slot.panY,
-    grade: slot.grade ? 1 : 0, comentario: slot.comment || '',
+    grade: slot.grade ? 1 : 0, grade_h: slot.gradeH, grade_v: slot.gradeV, comentario: slot.comment || '',
     anotacoes: JSON.stringify(slot.annotations || [])
   };
   if (!slot.img) { if (slot.imgDirty) out.remover = true; }
@@ -1286,9 +1302,9 @@ function salvarAvaliacao(){
 
   var chain = Promise.resolve().then(function(){
     if (currentReportId){
-      return apiPost('/relatorios_fotos.php?action=salvar_meta', { id: currentReportId, aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0, grade_h: gradeDivH, grade_v: gradeDivV });
+      return apiPost('/relatorios_fotos.php?action=salvar_meta', { id: currentReportId, aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0 });
     }
-    return apiPost('/relatorios_fotos.php?action=criar', { aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0, grade_h: gradeDivH, grade_v: gradeDivV }).then(function(data){
+    return apiPost('/relatorios_fotos.php?action=criar', { aluno_nome: alunoNome, idatleta: alunoSelecionadoId, bg: appBg, marca: incluirMarca ? 1 : 0 }).then(function(data){
       if (!data.ok) throw new Error(data.erro || 'falha ao criar avaliação');
       currentReportId = data.id;
     });
@@ -1372,9 +1388,6 @@ function excluirAvaliacao(id, itemEl){
 function resetarEditor(){
   currentReportId = null;
   alunoSelecionadoId = null;
-  gradeDivV = 2; gradeDivH = 10;
-  document.getElementById('grade-v').value = gradeDivV;
-  document.getElementById('grade-h').value = gradeDivH;
   document.getElementById('input-aluno').value = '';
   var defaultW = clamp(parseInt(document.getElementById('tb-w').value, 10) || 900, 100, 4000);
   var defaultH = clamp(parseInt(document.getElementById('tb-h').value, 10) || 1200, 100, 4000);
@@ -1425,10 +1438,6 @@ function abrirAvaliacao(id){
     document.getElementById('input-aluno').value = rel.aluno_nome || '';
     appBg = rel.bg || 'escuro';
     incluirMarca = isAdmin ? !!rel.marca : true;
-    gradeDivV = clamp(parseInt(rel.grade_v, 10) || 2, 1, 20);
-    gradeDivH = clamp(parseInt(rel.grade_h, 10) || 10, 1, 20);
-    document.getElementById('grade-v').value = gradeDivV;
-    document.getElementById('grade-h').value = gradeDivH;
     document.querySelectorAll('[data-bg]').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-bg') === appBg); });
     document.getElementById('chk-marca').checked = incluirMarca;
 
@@ -1444,6 +1453,8 @@ function abrirAvaliacao(id){
         var d = l[par[0]], side = par[1];
         row.slots[side].tag = d.tag || row.slots[side].tag;
         row.slots[side].grade = !!d.grade;
+        row.slots[side].gradeV = clamp(parseInt(d.grade_v, 10) || 2, 1, 20);
+        row.slots[side].gradeH = clamp(parseInt(d.grade_h, 10) || 10, 1, 20);
         row.slots[side].comment = d.comentario || '';
         row.slots[side].annotations = Array.isArray(d.anotacoes) ? d.anotacoes : [];
         if (d.url) pendentes.push(carregarFotoDoServidor(row, side, d.url, d.zoom, d.pan_x, d.pan_y));
