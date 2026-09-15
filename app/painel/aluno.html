@@ -2874,14 +2874,24 @@ function _reabrirEditorFotoFeed() {
 }
 
 // ── Editor de foto do Feed: recorte, zoom e filtro antes de publicar ───────
-// Reaproveita os mesmos filtros de cor já usados na câmera/compartilhar
-// treino (_FILTRO_DOURADO etc., ver ~linha 1743) — mesma identidade visual
-// do app inteiro, um só lugar pra ajustar intensidade se precisar no futuro.
+// Reaproveita os 3 filtros de cor já usados na câmera/compartilhar treino
+// (_FILTRO_DOURADO etc., ver ~linha 1743) e soma mais 4 só deste editor —
+// mesma família visual (ajuste de saturate/contrast/brightness em cima da
+// foto real, sem trocar a cor por um overlay), só que com efeitos que o
+// compartilhar-treino não precisa (P&B, vintage etc.).
+const _FILTRO_PB = 'grayscale(1) contrast(1.12)';
+const _FILTRO_CONTRASTE = 'contrast(1.28) saturate(1.12) brightness(0.98)';
+const _FILTRO_SUAVE = 'saturate(0.82) brightness(1.08) contrast(0.94)';
+const _FILTRO_VINTAGE = 'sepia(.3) saturate(.7) contrast(1.05) brightness(.97)';
 const FEED_EDITOR_FILTROS = [
-  { id: '',         nome: 'Nenhum',   css: '' },
-  { id: 'dourado',  nome: 'Dourado',  css: _FILTRO_DOURADO },
-  { id: 'frio',     nome: 'Frio',     css: _FILTRO_FRIO },
-  { id: 'vibrante', nome: 'Vibrante', css: _FILTRO_VIBRANTE },
+  { id: '',          nome: 'Nenhum',     css: '' },
+  { id: 'dourado',   nome: 'Dourado',    css: _FILTRO_DOURADO },
+  { id: 'frio',      nome: 'Frio',       css: _FILTRO_FRIO },
+  { id: 'vibrante',  nome: 'Vibrante',   css: _FILTRO_VIBRANTE },
+  { id: 'pb',        nome: 'P&B',        css: _FILTRO_PB },
+  { id: 'contraste', nome: 'Contraste',  css: _FILTRO_CONTRASTE },
+  { id: 'suave',     nome: 'Suave',      css: _FILTRO_SUAVE },
+  { id: 'vintage',   nome: 'Vintage',    css: _FILTRO_VINTAGE },
 ];
 // null = proporção original da foto, sem cortar nada.
 const FEED_EDITOR_RATIOS = { original: null, quadrado: 1, retrato: 4 / 5 };
@@ -3128,20 +3138,28 @@ function _edConcluir() {
   const srcY = -_feedEdPanY / scale;
   const srcW = g.frameW / scale;
   const srcH = g.frameH / scale;
-  // Teto de resolução pra não gerar arquivo enorme de foto de celular
-  // moderno — mantém a proporção do recorte (== proporção do quadro).
-  const MAX_LADO = 1600;
-  let outW = g.frameW, outH = g.frameH;
+  // BUG real (causa da queda de qualidade das fotos do feed): o canvas de
+  // saída usava g.frameW/g.frameH — o tamanho em CSS px do quadro NA TELA
+  // do editor (~300px de largura no celular), não o tamanho em px real do
+  // recorte na foto original (srcW/srcH). Toda foto publicada saía com uns
+  // 300x375px de verdade, não importa a resolução da câmera — por isso
+  // ficava borrada no feed. O teto de 1600px nunca entrava em ação porque
+  // 300 já é bem menor que 1600. Agora o canvas nasce do recorte em
+  // resolução nativa e só aí, se for maior que o teto, é reduzido.
+  const MAX_LADO = 1920;
+  let outW = srcW, outH = srcH;
   const maior = Math.max(outW, outH);
   if (maior > MAX_LADO) { const f = MAX_LADO / maior; outW = outW * f; outH = outH * f; }
   outW = Math.round(outW); outH = Math.round(outH);
   const canvas = document.createElement('canvas');
   canvas.width = outW; canvas.height = outH;
   const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   const filtroCss = (FEED_EDITOR_FILTROS.find(f => f.id === _feedEdFiltro) || {}).css || '';
   if (filtroCss) ctx.filter = filtroCss;
   ctx.drawImage(_feedEdImg, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
-  _feedComposeImg = canvas.toDataURL('image/jpeg', 0.9);
+  _feedComposeImg = canvas.toDataURL('image/jpeg', 0.94);
   document.getElementById('feed-editor-overlay')?.remove();
   _feedEdImg = null;
   _feedEdPointers.clear(); _feedEdGesto = null;
@@ -3352,7 +3370,7 @@ function _compositarLogoNaFoto(dataUrl) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
       const logo = new Image();
-      const finalizar = () => resolve(canvas.toDataURL('image/jpeg', 0.9));
+      const finalizar = () => resolve(canvas.toDataURL('image/jpeg', 0.94));
       logo.onload = () => {
         const lh = Math.round(img.height * 0.035);
         const lw = lh * (logo.width / logo.height);
