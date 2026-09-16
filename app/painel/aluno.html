@@ -1168,19 +1168,13 @@ function figurinhaAleatoriaHtml(isLight, itPreescolhido) {
   return '<div style="text-align:center;margin:4px 0 4px;animation:fraseEntrada .5s ease-out both;">' + inner + '</div>';
 }
 
-// ═══════════════ COMPARTILHAR TREINO ═══════════════
-// Cartão de marca pra aluno compartilhar (inspirado em apps de treino que já
-// fazem isso). Lista de templates é aberta de propósito: pra criar um filtro
-// temático novo, só acrescenta um objeto aqui e uma função _tplXxxHtml — o
-// resto (carrossel, fundo, exportar imagem) já funciona pra todos.
-// Nomes descrevem o ESTILO do cartão (como o desenho fica por cima da foto),
-// não o tipo de fundo — os 3 sempre mostram a câmera/galeria por trás agora,
-// "Transparente" e "Story vertical" tinham parado de fazer sentido.
-// SHARE_TEMPLATES é declarado mais abaixo, depois das funções _tplXHtml (3
-// delas vêm de fábrica, _criarTplFiltroCor, que usa const — precisa vir
-// DEPOIS na ordem do arquivo, senão o array tentaria ler um const ainda na
-// zona morta temporal e quebraria o script inteiro no carregamento).
-let _shareState = null;
+// ═══════════════ COMPARTILHAR TREINO / CARDIO ═══════════════
+// abrirCompartilharTreino/abrirCompartilharCardio montam o "info" (dados do
+// treino ou cardio) e entregam pro MESMO motor de composição do Novo post
+// (_renderComposeFeed, mais abaixo) — recorte/zoom/filtro/localização/
+// legenda/publicar são um código só pros 3 pontos de entrada. A camada de
+// figurinha+estatísticas continua existindo como um layout que liga/desliga
+// por cima da foto (INFO_LAYOUTS, declarado depois das funções _tplXHtml).
 
 // Ícones de traço (estilo Feather) pros botões da tela de compartilhar —
 // emoji renderiza diferente em cada aparelho e destoa do resto do app, que
@@ -1226,30 +1220,27 @@ function abrirCompartilharUltimoTreino() {
 // escolhido depois na Central de Compartilhamento). idsessao é opcional —
 // só usado pra reabrir esta mesma tela depois sabendo qual treino é.
 function abrirCompartilharTreino(info) {
-  if (typeof html2canvas === 'undefined') { toast('Não consegui carregar o gerador de imagem. Verifique sua internet e tente de novo.'); return; }
-  _shareState = {
-    info: info,
-    // A figurinha É a do dia daquele treino (gravada em renderFim). Só sorteia
-    // uma nova se for um registro antigo, de antes desta trava existir.
-    fig: info.fig || _figPick(_figurinhasList()),
-    incluirFig: true,
-    bgModo: 'transparente',
-    bgImg: null,
-    tplIdx: 0,
-    // Câmera é a origem padrão do fundo — é ela que abre sozinha assim que
-    // a tela aparece, então já entra destacada nos botões abaixo.
-    origem: 'camera',
-  };
-  _shareNivelInfo = 0; // sessão nova de compartilhamento começa com tudo visível
-  _renderShareOverlay();
-  // Abre a câmera já enquadrada dentro da miniatura do cartão assim que a
-  // tela aparece — o aluno via só um fundo transparente e precisava de mais
-  // um toque em "Câmera" pra descobrir onde a foto ia cair dentro do filtro.
-  // A tela cheia (estilo Stories) só abre se o aluno tocar na miniatura ou
-  // no botão de expandir — não é mais automática, senão ela cobria a tela
-  // anterior (com os botões de Feed/Perfil/compartilhar) antes do aluno
-  // sequer ver o que tinha ali.
-  _shareAbrirCamera();
+  // Guarda o snapshot mais recente (treino OU cardio, pelo info.tipo) — é a
+  // mesma leitura que abrirCompartilharUltimoTreino já usava pro treino;
+  // agora o Novo post também lê daqui pra oferecer "Último treino"/"Último
+  // cardio" sem duplicar o cálculo de volume/séries/kcal, que já existe só
+  // em renderFim() e aqui. Pra treino isso é uma regravação idempotente (já
+  // foi salvo em renderFim); pra cardio é a primeira vez que fica salvo.
+  try { localStorage.setItem(info.tipo === 'cardio' ? 'intus-ultimo-cardio-share' : 'intus-ultimo-treino-share', JSON.stringify(info)); } catch (e) {}
+  _composeOrigem = info.tipo === 'cardio' ? 'cardio' : 'treino';
+  _composeInfo = info;
+  // A figurinha É a do dia daquele treino (gravada em renderFim), ou a
+  // sorteada na hora pro cardio. Só sorteia uma nova se for um registro
+  // antigo, de antes desta trava existir.
+  _composeFig = info.fig || _figPick(_figurinhasList());
+  _composeIncluirFig = true;
+  _composeInfoLayoutIdx = 0;
+  _composeUltimoEscolha = '';
+  _feedComposeImg = null;
+  _feedComposeLocal = '';
+  _feedComposeCaption = _shareLegendaAuto(info);
+  _composeDestino = 'feed';
+  _renderComposeFeed();
 }
 
 // MET aproximado por atividade — usado só pra estimar kcal no cartão de
@@ -1260,12 +1251,11 @@ function _estimarKcalCardio(tipo, minutos, pesoKg) {
   const met = CARDIO_MET[tipo] || 6;
   return Math.round(met * (pesoKg || 70) * (minutos / 60));
 }
-// Mesmo cartão de Compartilhar treino, com um "info" no formato cardio —
+// Mesmo motor de Compartilhar treino, com um "info" no formato cardio —
 // _shareStatsRow troca as 4 células (tempo/kg/séries/completo) por
 // tempo/distância/kcal quando vê info.tipo==='cardio'. Chamada pelo botão
 // "📸 Compartilhar cardio" na tela de confirmação de esforço.
 function abrirCompartilharCardio(dados) {
-  if (typeof html2canvas === 'undefined') { toast('Não consegui carregar o gerador de imagem. Verifique sua internet e tente de novo.'); return; }
   const distKm = dados.distKm || 0;
   const minutos = dados.min || 0;
   const info = {
@@ -1281,265 +1271,137 @@ function abrirCompartilharCardio(dados) {
   abrirCompartilharTreino(info);
 }
 
-function _fecharCompartilhar() {
-  document.getElementById('share-overlay')?.remove();
-  _shareFecharCamera(); // segurança: garante que a câmera não fica ligada em segundo plano
-  _shareState = null;
-}
+// Escala de referência: os tamanhos usados pelos templates de informação
+// (fonte, logo, figurinha etc., ver _sPx) foram desenhados pra um cartão de
+// ~300px de largura. _shareEscala(largura) converte a largura real de onde
+// o template está sendo desenhado (prévia do compose, camada capturada por
+// html2canvas em resolução da foto) numa razão relativa a esses 300px.
+function _shareEscala(larguraCartaoPx) { return larguraCartaoPx / 300; }
+function _sPx(base, escala) { return (base * (escala || 1)).toFixed(1) + 'px'; }
 
-function _shareTrocarTpl(delta) {
-  const n = SHARE_TEMPLATES.length;
-  _shareState.tplIdx = (_shareState.tplIdx + delta + n) % n;
-  _renderShareOverlay();
-}
-
-function _shareSetBg(modo) {
-  _shareState.origem = modo;
-  if (modo === 'galeria') {
-    _shareFecharCamera();
-    document.getElementById('share-file-galeria').click();
-    return;
-  }
-  _shareAbrirCamera();
-}
-
-// ── CÂMERA: MINIATURA AO VIVO + TELA CHEIA OPCIONAL, ESTILO STORIES ────────
-// Antes o botão "Câmera" só abria o app de câmera do sistema, cego: o aluno
-// tirava a foto sem saber onde a logo e o texto do cartão iam cair por cima
-// dela depois. A câmera ao vivo já vem embutida na miniatura do cartão
-// (#share-card-host) assim que a tela abre — dá pra ver o enquadramento sem
-// nenhum toque extra. Tocar na miniatura (ou no botão de expandir, ⛶) abre a
-// mesma câmera em tela cheia (#share-camera-fullscreen, estilo Stories do
-// Instagram), útil pra enquadrar com mais precisão e dar zoom; fechar a tela
-// cheia (✕) só esconde ela — a câmera continua ligada e a miniatura volta a
-// mostrar a mesma prévia ao vivo, sem reabrir nada.
-// BUG real (achado depois de várias rodadas de uso real): miniatura e tela
-// cheia criavam cada uma o seu PRÓPRIO <video> a cada render — trocar de
-// filtro repetidas vezes (cada troca recria o <video> e reatribui o
-// srcObject) eventualmente deixava a tela preta num WebView real (o stream
-// sobrevive, mas o elemento novo às vezes não recebe o primeiro frame depois
-// de várias trocas rápidas) — e como cada tela tinha seu próprio elemento,
-// miniatura e tela cheia podiam ficar levemente diferentes uma da outra.
-// Resolvido com UM ÚNICO <video> (_camVideoEl), criado uma vez só e apenas
-// MOVIDO (appendChild) entre a miniatura e a tela cheia — mover um <video>
-// não interrompe o srcObject nem reinicia o stream, então a imagem nunca
-// pisca nem apaga, e as duas telas literalmente mostram o mesmo elemento.
+// ── CÂMERA AO VIVO ──────────────────────────────────────────────────────────
+// Fonte de foto reaproveitada nos 3 pontos de entrada (Novo post, Compartilhar
+// treino, Compartilhar cardio) — ao lado da galeria. Devolve um dataURL via
+// callback pro editor de recorte fazer o resto (recorte/zoom/filtro): esta
+// câmera não sabe nada de filtro de cor nem de figurinha/estatísticas, isso é
+// ajustado DEPOIS de capturar, no mesmo editor pros 3 casos — mostra só o
+// enquadramento limpo (com zoom por pinça e frente/verso).
 let _camStream = null;
 let _camVideoEl = null;
 let _camFacing = 'environment';
 let _camZoom = 1;
-// Nível de "quanto do cartão está visível" — ciclo por toque único na tela
-// cheia (ver _shareCicloNivelInfo): 0 tudo visível, 1 sem estatísticas, 2 sem
-// nome/treino também, 3 sem nada (só a logo, que nunca some). Persiste ao
-// trocar de filtro de propósito — o aluno pode deixar o enquadramento "limpo"
-// e folhear os filtros de cor sem o cartão voltar a aparecer sozinho.
-let _shareNivelInfo = 0;
-// Escala de referência: os tamanhos abaixo (fonte, logo, figurinha, etc.)
-// foram desenhados pra miniatura pequena (até 300px de largura). A tela
-// cheia é bem maior que isso — sem escalar, o mesmo texto em pixels fixos
-// ficava proporcionalmente minúsculo lá (era exatamente o "ícones diferentes
-// entre as duas telas" que o aluno via). _shareEscala(largura) converte a
-// largura real do cartão (miniatura OU moldura da tela cheia) numa razão
-// relativa a esses 300px de referência.
-function _shareEscala(larguraCartaoPx) { return larguraCartaoPx / 300; }
-function _sPx(base, escala) { return (base * (escala || 1)).toFixed(1) + 'px'; }
+let _camCallback = null; // function(dataUrl), chamada ao capturar ou null se cancelou
 
-// Cria o <video> uma ÚNICA vez por sessão de câmera — ver o comentário
-// grande acima de _camStream sobre por que ele nunca é recriado depois
-// disso, só movido entre miniatura e tela cheia via appendChild.
-function _shareCriarVideoElSeNecessario() {
-  if (_camVideoEl) return;
-  _camVideoEl = document.createElement('video');
-  _camVideoEl.id = 'share-cam-video';
-  _camVideoEl.autoplay = true;
-  _camVideoEl.playsInline = true;
-  _camVideoEl.muted = true;
-  _camVideoEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
-  _shareAtivarZoomPinca(_camVideoEl);
+function _abrirCameraAoVivo(callback) {
+  _camCallback = callback;
+  _abrirCamera();
 }
 
-// Aplica espelho (câmera frontal) + zoom digital + filtro do template ativo
-// no <video> — chamada sempre que ele é reposicionado ou o filtro muda,
-// nunca precisa recriar o elemento pra isso.
-function _shareAtualizarEstiloVideo() {
-  if (!_camVideoEl) return;
-  const tpl = SHARE_TEMPLATES[_shareState.tplIdx];
-  const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
-  _camVideoEl.style.transform = espelho + 'scale(' + _camZoom + ')';
-  _camVideoEl.style.filter = (tpl.filtroCss || '').replace(/^filter:/, '').replace(/;$/, '');
-}
-
-async function _shareAbrirCamera() {
-  _shareState.bgImg = null;
-  _shareState.bgModo = 'transparente';
+async function _abrirCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    document.getElementById('share-file-camera').click();
+    toast('Câmera não disponível neste navegador — escolha da galeria.');
+    _camCallback = null;
     return;
   }
-  if (_camStream) { _renderShareOverlay(); return; }
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
   } catch (e) {
     console.warn('[camera]', e);
     toast('Não consegui acessar a câmera. Tente escolher da galeria.');
-    document.getElementById('share-file-camera').click();
+    _camCallback = null;
     return;
   }
   _camZoom = 1;
-  _shareCriarVideoElSeNecessario();
+  _criarVideoElSeNecessario();
   _camVideoEl.srcObject = _camStream;
-  _renderShareOverlay();
-}
-
-// Desliga o stream de verdade — usada ao capturar a foto, trocar pra galeria
-// ou fechar o fluxo inteiro. NÃO é a mesma coisa que fechar só a tela cheia
-// (ver _shareFecharTelaCheia), que deixa a câmera ligada na miniatura.
-function _shareFecharCamera() {
-  if (_camStream) { _camStream.getTracks().forEach(t => t.stop()); _camStream = null; }
-  if (_camVideoEl) { _camVideoEl.remove(); _camVideoEl = null; }
-  document.getElementById('share-camera-fullscreen')?.remove();
-}
-
-function _shareFecharTelaCheia() {
-  document.getElementById('share-camera-fullscreen')?.remove();
-}
-
-function _shareAbrirTelaCheia() {
-  if (!_camStream) return;
   _renderCameraTelaCheia();
 }
 
-// Botão "✕" da tela cheia: só fecha a tela cheia. A câmera continua ligada
-// e a miniatura por baixo já mostra a mesma prévia ao vivo.
-function _shareCancelarCameraTelaCheia() {
-  _shareFecharTelaCheia();
-  _renderShareOverlay();
+function _criarVideoElSeNecessario() {
+  if (_camVideoEl) return;
+  _camVideoEl = document.createElement('video');
+  _camVideoEl.id = 'cam-video';
+  _camVideoEl.autoplay = true;
+  _camVideoEl.playsInline = true;
+  _camVideoEl.muted = true;
+  _camVideoEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
+  _ativarZoomPinca(_camVideoEl);
 }
 
-async function _shareAlternarCamera() {
+function _fecharCamera() {
+  if (_camStream) { _camStream.getTracks().forEach(t => t.stop()); _camStream = null; }
+  if (_camVideoEl) { _camVideoEl.remove(); _camVideoEl = null; }
+  document.getElementById('cam-fullscreen')?.remove();
+}
+
+function _cancelarCamera() {
+  _fecharCamera();
+  _camCallback = null;
+}
+
+async function _alternarCamera() {
   _camFacing = _camFacing === 'environment' ? 'user' : 'environment';
   if (_camStream) _camStream.getTracks().forEach(t => t.stop());
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
     _camZoom = 1;
     if (_camVideoEl) _camVideoEl.srcObject = _camStream;
-    // Reflete na tela que estiver de fato aberta — miniatura ou tela cheia.
-    if (document.getElementById('share-camera-fullscreen')) _renderCameraTelaCheia();
-    else _renderShareOverlay();
+    _atualizarEstiloVideo();
   } catch (e) { toast('Não consegui trocar de câmera.'); }
 }
 
+// Aplica espelho (câmera frontal) + zoom digital no <video> — chamada sempre
+// que ele é reposicionado ou o zoom muda.
+function _atualizarEstiloVideo() {
+  if (!_camVideoEl) return;
+  const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
+  _camVideoEl.style.transform = espelho + 'scale(' + _camZoom + ')';
+}
+
 function _renderCameraTelaCheia() {
-  document.getElementById('share-camera-fullscreen')?.remove();
-  const S = _shareState;
-  const tpl = SHARE_TEMPLATES[S.tplIdx];
-  const isLight = document.body.classList.contains('tema-claro');
+  document.getElementById('cam-fullscreen')?.remove();
   const ov = document.createElement('div');
-  ov.id = 'share-camera-fullscreen';
+  ov.id = 'cam-fullscreen';
   // touch-action:none — sem isso o gesto de pinça também dispara o zoom
   // NATIVO da página inteira (viewport permite até maximum-scale=5), competindo
-  // com o zoom digital da câmera em _shareAtivarZoomPinca: a tela inteira
-  // (incluindo os botões e os chips de filtro) esticava junto do vídeo.
+  // com o zoom digital da câmera em _ativarZoomPinca.
   ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;touch-action:none;';
-  // BUG real: a tela cheia mostrava a câmera preenchendo o aparelho inteiro
-  // (proporção da TELA), mas o cartão final — miniatura, foto salva, tudo —
-  // sempre teve proporção FIXA 230:410. Ao tirar a foto, o mesmo enquadramento
-  // que aparecia cheio na tela cheia virava recortado (mais de perto) quando
-  // reaparecia no cartão 230:410 — o rosto "pulava" de posição entre tirar e
-  // salvar. Moldura abaixo trava a área de captura na MESMA proporção
-  // 230:410 já na tela cheia (com barra preta nas sobras), então o que se vê
-  // ao enquadrar é exatamente o que sai na foto — sem susto.
-  const _telaW = window.innerWidth, _telaH = window.innerHeight;
-  const _propAlvo = 230 / 410;
-  let _molduraW, _molduraH;
-  if (_telaW / _telaH > _propAlvo) { _molduraH = _telaH; _molduraW = _telaH * _propAlvo; }
-  else { _molduraW = _telaW; _molduraH = _telaW / _propAlvo; }
-  const escala = _shareEscala(_molduraW);
   ov.innerHTML = `
-    <div id="share-cam-moldura" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${_molduraW}px;height:${_molduraH}px;overflow:hidden;">
-      <div id="share-cam-video-slot-fs" style="position:absolute;inset:0;"></div>
-      <div style="position:absolute;inset:0;pointer-events:none;">${tpl.render(S.info, S.fig, 'LIVE', isLight, _shareNivelInfo, escala)}</div>
-    </div>
-    <button aria-label="Fechar câmera" onclick="_shareCancelarCameraTelaCheia()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;font-size:17px;cursor:pointer;z-index:3;">✕</button>
-    <div style="position:absolute;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:16px;z-index:3;">
-      <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;max-width:92vw;padding:4px 10px;">
-        ${_shareFiltroChipsHtml(S, 'rgba(30,30,30,.75)', 'rgba(255,255,255,.3)')}
-      </div>
-      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:100%;">
-        <button aria-label="Tirar foto" onclick="_shareCapturarFoto()" style="width:72px;height:72px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.6);cursor:pointer;"></button>
-        <button aria-label="Trocar câmera" onclick="_shareAlternarCamera()" style="position:absolute;left:calc(50% + 60px);width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;">${_shareIconSvg('trocar',19)}</button>
-      </div>
+    <div id="cam-video-slot" style="position:absolute;inset:0;"></div>
+    <button aria-label="Fechar câmera" onclick="_cancelarCamera()" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;font-size:17px;cursor:pointer;z-index:3;">✕</button>
+    <div style="position:absolute;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;justify-content:center;z-index:3;">
+      <button aria-label="Tirar foto" onclick="_capturarFoto()" style="width:72px;height:72px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.6);cursor:pointer;"></button>
+      <button aria-label="Trocar câmera" onclick="_alternarCamera()" style="position:absolute;left:calc(50% + 60px);width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;">${_shareIconSvg('trocar',19)}</button>
     </div>
   `;
   document.body.appendChild(ov);
-  // O <video> nunca é recriado aqui — só MOVIDO pro slot da tela cheia (ver
-  // comentário grande acima de _camStream). appendChild em elemento que já
-  // está no DOM (na miniatura, por ex.) o desconecta de lá e reconecta aqui,
-  // sem soltar o srcObject nem piscar.
-  document.getElementById('share-cam-video-slot-fs').appendChild(_camVideoEl);
-  _shareAtualizarEstiloVideo();
-
-  const moldura = document.getElementById('share-cam-moldura');
-  // Arrastar com UM dedo troca de filtro (dois dedos é o zoom, tratado à
-  // parte em _shareAtivarZoomPinca) — mesmo gesto que já existia na prévia
-  // pequena, agora também funciona aqui, que é "a área onde está aberta a
-  // câmera" de verdade. Um toque RÁPIDO e PARADO (sem arrastar) em cima da
-  // moldura, em vez disso, faz o ciclo de esconder/mostrar o cartão de
-  // informações — ver _shareCicloNivelInfo.
-  let _swipeFsX0 = null, _swipeFsY0 = null, _swipeFsT0 = 0;
-  moldura.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) { _swipeFsX0 = null; return; }
-    _swipeFsX0 = e.touches[0].clientX; _swipeFsY0 = e.touches[0].clientY; _swipeFsT0 = Date.now();
-  }, { passive: true });
-  moldura.addEventListener('touchend', (e) => {
-    if (_swipeFsX0 === null) return;
-    const dx = e.changedTouches[0].clientX - _swipeFsX0;
-    const dy = e.changedTouches[0].clientY - _swipeFsY0;
-    const dt = Date.now() - _swipeFsT0;
-    _swipeFsX0 = null;
-    if (Math.abs(dx) > 40) { _shareIrParaTpl((S.tplIdx + (dx < 0 ? 1 : -1) + SHARE_TEMPLATES.length) % SHARE_TEMPLATES.length); return; }
-    if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 400) _shareCicloNivelInfo();
-  }, { passive: true });
-}
-// Toque único (sem arrastar) na foto/vídeo, na tela cheia: esconde uma parte
-// do cartão de informações a cada toque (estatísticas → nome/treino →
-// figurinha e fundo do cartão), até sumir tudo, e o toque seguinte traz tudo
-// de volta — pensado pra tirar uma foto "limpa" sem abrir mão do enquadramento
-// ao vivo. A logo NUNCA entra nesse ciclo, de propósito (ver _shareLogoRodape).
-function _shareCicloNivelInfo() {
-  _shareNivelInfo = (_shareNivelInfo + 1) % 4;
-  if (document.getElementById('share-camera-fullscreen')) _renderCameraTelaCheia();
-  else _renderShareOverlay();
+  // O <video> nunca é recriado aqui — só MOVIDO pro slot da tela cheia, sem
+  // soltar o srcObject nem piscar.
+  document.getElementById('cam-video-slot').appendChild(_camVideoEl);
+  _atualizarEstiloVideo();
 }
 
 // Zoom digital por pinça (dois dedos): mede a distância inicial entre os
 // toques e escala o vídeo proporcionalmente — não depende de o aparelho
 // suportar zoom óptico controlável via MediaStreamTrack (suporte irregular
 // entre navegadores), então funciona em qualquer câmera.
-function _shareAtivarZoomPinca(video) {
+function _ativarZoomPinca(video) {
   let dist0 = null, zoom0 = 1;
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-  const aplicar = () => {
-    const espelho = _camFacing === 'user' ? 'scaleX(-1) ' : '';
-    video.style.transform = espelho + 'scale(' + _camZoom + ')';
-  };
   video.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) { dist0 = dist(e.touches); zoom0 = _camZoom; }
   }, { passive: true });
   video.addEventListener('touchmove', (e) => {
     if (e.touches.length === 2 && dist0) {
       _camZoom = Math.min(3, Math.max(1, zoom0 * (dist(e.touches) / dist0)));
-      aplicar();
+      _atualizarEstiloVideo();
     }
   }, { passive: true });
   video.addEventListener('touchend', (e) => { if (e.touches.length < 2) dist0 = null; }, { passive: true });
 }
 
-// Só captura o quadro atual do vídeo pra um dataURL — sem mexer em estado
-// nem re-renderizar. Reaproveitada pelo botão do obturador E por _shareAcao
-// (que precisa "tirar a foto" sozinha se o aluno pedir pra compartilhar
-// direto, ainda com a câmera ao vivo e sem ter apertado o obturador).
-function _shareCapturarFrameAtual() {
+// Só captura o quadro atual do vídeo pra um dataURL, sem mexer em estado.
+function _capturarFrameAtual() {
   const v = _camVideoEl;
   if (!v || !v.videoWidth) return null;
   const canvas = document.createElement('canvas');
@@ -1555,39 +1417,21 @@ function _shareCapturarFrameAtual() {
   // em qualquer texto atrás da pessoa), mesmo a prévia já mostrando espelhado.
   if (_camFacing === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
   ctx.drawImage(v, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.92);
+  return canvas.toDataURL('image/jpeg', 0.95);
 }
 
-function _shareCapturarFoto() {
-  const dataUrl = _shareCapturarFrameAtual();
+function _capturarFoto() {
+  const dataUrl = _capturarFrameAtual();
   if (!dataUrl) return;
-  _shareState.bgImg = dataUrl;
-  _shareState.bgModo = 'foto-custom';
-  _shareFecharCamera();
-  _renderShareOverlay();
-}
-
-function _shareArquivoEscolhido(input) {
-  const file = input.files && input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    _shareState.bgImg = reader.result;
-    _shareState.bgModo = 'foto-custom';
-    _renderShareOverlay();
-  };
-  reader.readAsDataURL(file);
-  input.value = '';
-}
-
-function _shareToggleFig() {
-  _shareState.incluirFig = !_shareState.incluirFig;
-  _renderShareOverlay();
+  const cb = _camCallback;
+  _fecharCamera();
+  _camCallback = null;
+  if (cb) cb(dataUrl);
 }
 
 function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'; }
 
-// ── os 3 templates (a lista SHARE_TEMPLATES aponta pra estas funções) ──
+// ── os templates de layout (a lista INFO_LAYOUTS aponta pra estas funções) ──
 // ── CHROME COMPACTO, FOTO EM DESTAQUE ──────────────────────────────────────
 // Os 3 templates chegaram a ocupar quase o cartão inteiro de texto/logo — a
 // foto (a parte que devia ser a protagonista) ficava espremida atrás. Agora
@@ -1595,7 +1439,9 @@ function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'log
 // faixa fina embaixo (nome/treino/estatísticas), no máximo ~1/3 da altura do
 // cartão juntas — o resto fica transparente pra foto aparecer inteira.
 function _shareFigMini(fig, escala) {
-  if (!fig || !(_shareState && _shareState.incluirFig)) return '';
+  // Quem chama já decide se a figurinha entra ou não (passando fig ou null) —
+  // ver _composeIncluirFig — não depende mais de um estado global aqui dentro.
+  if (!fig) return '';
   if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:${_sPx(44,escala)};height:${_sPx(44,escala)};object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
   return `<div style="font-size:${_sPx(38,escala)};line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
 }
@@ -1641,9 +1487,11 @@ function _shareStatsRow(info, escala) {
 // Bloco de informações: figurinha + nome + treino + estatísticas. Fica no
 // terço inferior do cartão (ver SHARE_INFO_FUNDO) — de propósito, é onde
 // ficariam os pés de quem tira a própria foto, longe do rosto.
-// nivel (ver _shareCicloNivelInfo): 0 tudo, 1 sem estatísticas, 2 sem
-// nome/treino (e sem estatísticas), 3 nada — quem chama trata o nível 3
-// escondendo o bloco inteiro (fundo incluso), não é feito aqui dentro.
+// nivel: 0 tudo, 1 sem estatísticas, 2 sem nome/treino (e sem estatísticas),
+// 3 nada — quem chama trata o nível 3 escondendo o bloco inteiro (fundo
+// incluso), não é feito aqui dentro. O composer sempre chama com nivel 0
+// hoje (a edição de foto acontece depois de capturar, não mais ciclando
+// níveis ao vivo na câmera) — o parâmetro fica pronto se isso voltar.
 function _shareBarraInferior(info, fig, nivel, escala) {
   const n = nivel || 0;
   let html = '';
@@ -1662,7 +1510,7 @@ function _shareBarraInferior(info, fig, nivel, escala) {
 // Logo da marca: selo discreto no canto superior direito — junto do bloco de
 // informações no terço inferior (ver SHARE_INFO_FUNDO), sobra o resto do
 // cartão livre pra foto/vídeo aparecer inteiro, sem cobrir rosto nem pés.
-// NUNCA entra no ciclo de _shareCicloNivelInfo — é a marca, fica sempre.
+// NUNCA some com o nível de informação (nivel 3 esconde o resto) — é a marca, fica sempre.
 function _shareLogoRodape(isLight, escala) {
   return `<img src="${_shareLogoSrc(isLight)}" alt="Intus" style="position:absolute;top:${SHARE_LOGO_TOPO};right:${SHARE_LADO};height:${_sPx(16,escala)};width:auto;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6));"/>`;
 }
@@ -1716,43 +1564,20 @@ function _tplStoryHtml(info, fig, bgImg, isLight, nivel, escala) {
     ${_shareLogoRodape(isLight, escala)}
   </div>`;
 }
-// Realce quente e saturado (tom "golden hour"), no lugar do antigo filtro de
-// negativo/invertido — o negativo distorcia a cor da pele e não tinha pedido
-// nenhum, trocado por algo que valoriza o físico. Mesmo esquema do Clássico:
-// fundo (foto/vídeo) recebe o filtro; logo e texto ficam FORA dessa camada,
-// senão saturariam junto e ficariam berrantes. No modo LIVE o filtro vai
-// direto no <video> (por quem chama este template) — aqui só desenha o texto
-// por cima, com o fundo do próprio .share-card transparente pra não tapar o
-// vídeo (mesma lição do antigo bug de tela preta no Invertido).
-// Fábrica de "filtro de cor simples": mesmo layout do Clássico (figurinha +
-// nome/treino + estatísticas no terço inferior), só troca o tratamento de
-// cor da foto/vídeo de fundo — evita repetir a mesma estrutura pra cada
-// preset (Dourado, Frio, Vibrante).
-function _criarTplFiltroCor(filtroCss) {
-  return function (info, fig, bgImg, isLight, nivel, escala) {
-    const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
-    return `<div class="share-card" style="background:transparent;">
-      ${bgImg !== 'LIVE' ? `<div style="position:absolute;inset:0;filter:${filtroCss};${bg}"></div>` : ''}
-      ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
-        ${_shareBarraInferior(info, fig, nivel, escala)}
-      </div>` : ''}
-      ${_shareLogoRodape(isLight, escala)}
-    </div>`;
-  };
-}
+// Cor "Dourado/Frio/Vibrante" — hoje só filtros de cor comuns (ver
+// FEED_EDITOR_FILTROS, no editor de recorte), não mais um layout próprio,
+// então continuam existindo só como valor CSS, sem o template inteiro que
+// as embrulhava antes.
 const _FILTRO_DOURADO = 'saturate(1.35) contrast(1.08) brightness(1.05) sepia(.12)';
 const _FILTRO_FRIO = 'saturate(0.9) contrast(1.14) brightness(0.99) hue-rotate(-6deg)';
 const _FILTRO_VIBRANTE = 'saturate(1.55) contrast(1.2) brightness(1.03)';
-const _tplDouradoHtml = _criarTplFiltroCor(_FILTRO_DOURADO);
-const _tplFrioHtml = _criarTplFiltroCor(_FILTRO_FRIO);
-const _tplVibranteHtml = _criarTplFiltroCor(_FILTRO_VIBRANTE);
 // Figurinha em destaque, centralizada acima do bloco de informações — maior
 // que a versão mini usada nos outros templates. A figurinha só some no
 // último nível (junto com o fundo do cartão) — é a protagonista aqui.
 function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   const n = nivel || 0;
-  const temFig = fig && _shareState && _shareState.incluirFig && n < 3;
+  const temFig = fig && n < 3;
   const figGrandeHtml = !temFig ? '' : (fig.tipo === 'img' && fig.src)
     ? `<img src="${esc(fig.src)}" style="width:${_sPx(112,escala)};height:${_sPx(112,escala)};object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'"/>`
     : `<div style="font-size:${_sPx(96,escala)};line-height:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));">${esc(fig.emoji||'💪')}</div>`;
@@ -1793,159 +1618,21 @@ function _tplFraseHtml(info, fig, bgImg, isLight, nivel, escala) {
   </div>`;
 }
 
-const SHARE_TEMPLATES = [
-  { id: 'transparente', nome: 'Clássico',  emoji: '🎬', render: _tplTransparenteHtml },
-  { id: 'foto',         nome: 'Destaque',  emoji: '✨', render: _tplFotoHtml },
-  { id: 'story',        nome: 'Moldura',   emoji: '🖼️', render: _tplStoryHtml },
-  { id: 'dourado',      nome: 'Dourado',   emoji: '🌇', render: _tplDouradoHtml, filtroCss: `filter:${_FILTRO_DOURADO};` },
-  { id: 'frio',         nome: 'Frio',      emoji: '🧊', render: _tplFrioHtml, filtroCss: `filter:${_FILTRO_FRIO};` },
-  { id: 'vibrante',     nome: 'Vibrante',  emoji: '⚡', render: _tplVibranteHtml, filtroCss: `filter:${_FILTRO_VIBRANTE};` },
-  { id: 'figurona',     nome: 'Mascote',   emoji: '🎉', render: _tplFigurinhaGrandeHtml },
-  { id: 'frase',        nome: 'Frase',     emoji: '💬', render: _tplFraseHtml },
+// 5 layouts de informação (figurinha+nome/treino+estatísticas) — Dourado/
+// Frio/Vibrante deixaram de ser "layout" porque a cor agora é um filtro
+// comum (FEED_EDITOR_FILTROS, no editor de recorte), disponível com
+// qualquer um destes 5. bgImg='LIVE' já faz os 6 templates renderizarem só
+// a camada de informação com fundo transparente (mesma convenção que o
+// vídeo ao vivo usava) — por isso dá pra reaproveitar render() sem tocar
+// nas funções _tplXHtml.
+const INFO_LAYOUTS = [
+  { id: 'transparente', nome: 'Clássico', emoji: '🎬', render: _tplTransparenteHtml },
+  { id: 'foto',         nome: 'Destaque', emoji: '✨', render: _tplFotoHtml },
+  { id: 'story',        nome: 'Moldura',  emoji: '🖼️', render: _tplStoryHtml },
+  { id: 'figurona',     nome: 'Mascote',  emoji: '🎉', render: _tplFigurinhaGrandeHtml },
+  { id: 'frase',        nome: 'Frase',    emoji: '💬', render: _tplFraseHtml },
 ];
 
-function _renderShareOverlay() {
-  const isLight = document.body.classList.contains('tema-claro');
-  const bgCard = isLight ? '#fff' : '#161616';
-  const borderC = isLight ? '#e5e5e5' : '#2a2a2a';
-  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
-  const muted = isLight ? '#777' : '#888';
-  const S = _shareState;
-  const tpl = SHARE_TEMPLATES[S.tplIdx];
-  // A miniatura mostra a câmera ao vivo sempre que ela estiver ligada, a
-  // origem for câmera e nenhuma foto tiver sido tirada ainda.
-  const camAtiva = !!_camStream && S.origem === 'camera' && !S.bgImg;
-  // Mesma conta de "width:min(78vw,300px)" do #share-card-host abaixo — ver
-  // _shareEscala e o comentário grande perto de _camStream sobre por que os
-  // tamanhos dos templates precisam escalar com o tamanho real do cartão.
-  const escala = _shareEscala(Math.min(0.78 * window.innerWidth, 300));
-
-  document.getElementById('share-overlay')?.remove();
-  const overlay = document.createElement('div');
-  overlay.id = 'share-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:500;background:' + (isLight?'#f5f5f5':'#0a0a0a') + ';overflow-y:auto;';
-  overlay.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ${borderC};position:sticky;top:0;background:${isLight?'#f5f5f5':'#0a0a0a'};z-index:2;">
-      <button onclick="_fecharCompartilhar()" aria-label="Voltar" style="background:${bgCard};border:1px solid ${borderC};border-radius:10px;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
-      <span style="font-size:15px;font-weight:800;color:${txt};">${S.info.tipo === 'cardio' ? 'Compartilhar cardio' : 'Compartilhar treino'}</span>
-      <button onclick="_fecharCompartilhar()" aria-label="Fechar" style="background:${bgCard};border:1px solid ${borderC};border-radius:10px;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">✕</button>
-    </div>
-
-    <div style="max-width:340px;margin:0 auto;padding:16px 16px 0;">
-      <div style="display:flex;gap:8px;">
-        <button onclick="_shareSetBg('camera')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${S.origem==='camera'?'rgba(127,255,0,.1)':bgCard};border:1px solid ${S.origem==='camera'?'#7FFF00':borderC};color:${txt};">${_shareIconSvg('camera',18)} Câmera</button>
-        <button onclick="_shareSetBg('galeria')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${S.origem==='galeria'?'rgba(127,255,0,.1)':bgCard};border:1px solid ${S.origem==='galeria'?'#7FFF00':borderC};color:${txt};">${_shareIconSvg('galeria',18)} Galeria</button>
-      </div>
-      <input type="file" id="share-file-galeria" accept="image/*" style="display:none;" onchange="_shareArquivoEscolhido(this)"/>
-      <input type="file" id="share-file-camera" accept="image/*" capture="environment" style="display:none;" onchange="_shareArquivoEscolhido(this)"/>
-    </div>
-
-    <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:16px 10px 8px;">
-      <button onclick="_shareTrocarTpl(-1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">‹</button>
-      <div id="share-card-host" style="position:relative;width:min(78vw,300px);aspect-ratio:230/410;border-radius:18px;overflow:hidden;background:#000;">
-        ${camAtiva ? `<div id="share-cam-video-slot" style="position:absolute;inset:0;pointer-events:none;"></div>` : ''}
-        <div style="position:absolute;inset:0;${camAtiva ? 'pointer-events:none;' : ''}">${tpl.render(S.info, S.fig, camAtiva ? 'LIVE' : S.bgImg, isLight, _shareNivelInfo, escala)}</div>
-        ${camAtiva ? `<button aria-label="Expandir câmera" onclick="_shareAbrirTelaCheia()" style="position:absolute;bottom:10px;right:10px;width:34px;height:34px;border-radius:9px;background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">${_shareIconSvg('expandir',16)}</button>` : ''}
-      </div>
-      <button onclick="_shareTrocarTpl(1)" style="background:${bgCard};border:1px solid ${borderC};border-radius:50%;width:34px;height:34px;color:${txt};font-size:16px;cursor:pointer;flex-shrink:0;">›</button>
-    </div>
-    ${camAtiva ? `
-    <div style="text-align:center;font-size:11px;color:${muted};margin:2px auto 16px;max-width:270px;line-height:1.5;">Toque na prévia (ou no ⛶) pra abrir em tela cheia e tirar a foto</div>` : (S.bgImg ? `
-    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;">
-      <button onclick="_shareAbrirCamera()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('trocar',15)} Tirar outra</button>
-      <button onclick="_shareDescartarFoto()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);color:#ef4444;">🗑️ Descartar foto</button>
-    </div>` : `
-    <div style="height:6px;"></div>`)}
-
-    <div style="max-width:340px;margin:0 auto;padding:0 16px;">
-      <button onclick="_shareAcao('salvar')" style="width:100%;display:flex;align-items:center;justify-content:center;gap:9px;padding:14px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14.5px;font-weight:800;cursor:pointer;margin-bottom:18px;">${_shareIconSvg('salvar',19)} Salvar na galeria</button>
-
-      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Ou compartilhar direto</div>
-      <div style="display:flex;justify-content:space-around;margin-bottom:22px;">
-        ${_shareSocialBtn(_shareIconSvgSolido('whatsapp',24),'WhatsApp','_shareAcao(\'whatsapp\')','#25D366','#fff',txt)}
-        ${_shareSocialBtn(_shareIconSvgSolido('instagram',20),'Instagram','_shareAcao(\'instagram\')','radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%)','#fff',txt)}
-        ${_shareActionBtn(_shareIconSvg('copiar'),'Copiar','_shareAcao(\'copiar\')',bgCard,borderC,txt)}
-        ${_shareActionBtn(_shareIconSvg('compartilhar'),'Mais','_shareAcao(\'compartilhar\')',bgCard,borderC,txt)}
-      </div>
-
-      <div style="font-size:11px;font-weight:700;color:${muted};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Publicar no app</div>
-      <div style="display:flex;gap:8px;margin-bottom:18px;">
-        <div style="flex:1;">
-          <button onclick="_shareConfirmarPublicar('feed')" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('feedapp',17)} Feed da Intus</button>
-          <div onclick="_shareInfoAjuda('feed')" style="text-align:center;margin-top:5px;font-size:10.5px;color:${muted};text-decoration:underline;cursor:pointer;">O que é isso?</div>
-        </div>
-        <div style="flex:1;">
-          <button onclick="_shareConfirmarPublicar('perfil')" style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:${bgCard};border:1px solid ${borderC};color:${txt};">${_shareIconSvg('perfil',17)} Só meu perfil</button>
-          <div onclick="_shareInfoAjuda('perfil')" style="text-align:center;margin-top:5px;font-size:10.5px;color:${muted};text-decoration:underline;cursor:pointer;">O que é isso?</div>
-        </div>
-      </div>
-    </div>
-
-    <div style="text-align:center;font-size:11px;color:${muted};font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${tpl.nome}</div>
-    <div style="display:flex;justify-content:center;gap:5px;margin-bottom:18px;">
-      ${SHARE_TEMPLATES.map((t,i) => `<div style="width:6px;height:6px;border-radius:50%;background:${i===S.tplIdx?'#7FFF00':borderC};"></div>`).join('')}
-    </div>
-
-    <div style="max-width:340px;margin:0 auto;padding:0 16px;">
-      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:${txt};margin-bottom:calc(30px + env(safe-area-inset-bottom,0px));cursor:pointer;" onclick="_shareToggleFig()">
-        <input type="checkbox" ${S.incluirFig?'checked':''} style="width:16px;height:16px;accent-color:#7FFF00;" onclick="event.stopPropagation();_shareToggleFig()"/>
-        Incluir a figurinha de hoje no cartão
-      </label>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  // O <video> nunca é recriado aqui — só MOVIDO pro slot da miniatura (ver
-  // comentário grande perto de _camStream).
-  if (camAtiva) {
-    document.getElementById('share-cam-video-slot').appendChild(_camVideoEl);
-    _shareAtualizarEstiloVideo();
-  }
-
-  // Arrastar o dedo dentro da área do cartão também troca de filtro — antes
-  // só dava pra usar os botões ‹ › do lado, fora da área que o aluno está de
-  // fato olhando (a prévia com a própria câmera). Com a câmera ligada, um
-  // toque rápido sem arrastar (não uma troca de filtro) expande pra tela
-  // cheia — mesmo gesto natural de "tocar pra ver melhor".
-  const hostEl = document.getElementById('share-card-host');
-  if (hostEl) {
-    let _swipeX0 = null, _swipeY0 = null, _swipeT0 = 0;
-    hostEl.addEventListener('touchstart', (e) => {
-      _swipeX0 = e.touches[0].clientX; _swipeY0 = e.touches[0].clientY; _swipeT0 = Date.now();
-    }, { passive: true });
-    hostEl.addEventListener('touchend', (e) => {
-      if (_swipeX0 === null) return;
-      const dx = e.changedTouches[0].clientX - _swipeX0;
-      const dy = e.changedTouches[0].clientY - _swipeY0;
-      const dt = Date.now() - _swipeT0;
-      _swipeX0 = null;
-      if (Math.abs(dx) > 40) { _shareTrocarTpl(dx < 0 ? 1 : -1); return; }
-      if (camAtiva && Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 400) _shareAbrirTelaCheia();
-    }, { passive: true });
-  }
-}
-// Carrossel de miniaturas dos filtros — o ativo aparece maior e com borda
-// verde, os vizinhos menores e apagados, dando a sensação de "perspectiva"
-// de qual está selecionado sem precisar de uma lib de carrossel 3D.
-function _shareFiltroChipsHtml(S, bgCard, borderC) {
-  return SHARE_TEMPLATES.map((t, i) => {
-    const ativo = i === S.tplIdx;
-    const tam = ativo ? 44 : 34;
-    return `<div onclick="_shareIrParaTpl(${i})" title="${esc(t.nome)}" style="flex-shrink:0;width:${tam}px;height:${tam}px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:${ativo?19:15}px;background:${bgCard};border:2px solid ${ativo?'#7FFF00':borderC};opacity:${ativo?1:.5};transform:scale(${ativo?1:.92});transition:all .18s;cursor:pointer;">${t.emoji}</div>`;
-  }).join('');
-}
-function _shareIrParaTpl(i) {
-  _shareState.tplIdx = i;
-  // O carrossel de filtros aparece tanto na prévia pequena quanto na câmera
-  // em tela cheia — precisa re-renderizar a tela certa, não sempre a prévia.
-  if (document.getElementById('share-camera-fullscreen')) _renderCameraTelaCheia();
-  else _renderShareOverlay();
-}
-function _shareDescartarFoto() {
-  _shareState.bgImg = null;
-  _shareState.bgModo = 'transparente';
-  _renderShareOverlay();
-}
 function _shareInfoAjuda(tipo) {
   const info = {
     feed: {
@@ -1970,13 +1657,13 @@ function _shareInfoAjuda(tipo) {
 function _shareConfirmarPublicar(destino) {
   const titulo = destino === 'feed' ? 'Publicar no Feed da Intus?' : 'Publicar só no seu perfil?';
   const texto = destino === 'feed'
-    ? 'Esse cartão vai aparecer na lista geral do Feed, visível pros outros alunos que participam.'
-    : 'Esse cartão fica salvo só na grade do seu perfil — não aparece no Feed geral de ninguém.';
+    ? 'Esse post vai aparecer na lista geral do Feed, visível pros outros alunos que participam.'
+    : 'Esse post fica salvo só na grade do seu perfil — não aparece no Feed geral de ninguém.';
   openModalGenerico(
     '<div style="padding:6px 20px 4px;">' +
       '<div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:8px;">' + titulo + '</div>' +
       '<div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:16px;">' + texto + '</div>' +
-      '<button onclick="closeModal();_shareAcao(\'' + destino + '\')" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Confirmar e publicar</button>' +
+      '<button onclick="closeModal();_composeAcao(\'' + destino + '\')" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Confirmar e publicar</button>' +
     '</div>'
   );
 }
@@ -1999,23 +1686,6 @@ function _shareSocialBtn(icon, label, onclick, bg, iconColor, labelColor) {
 // scale 3: o cartão mede uns 300px de largura na tela, mas quem recebe vê
 // isso em story de tela cheia (~1080px) — com scale 2 a imagem saía
 // nitidamente borrada por ter menos da metade da resolução de quem via.
-async function _shareGerarBlob() {
-  const node = document.querySelector('#share-card-host .share-card');
-  if (!node) throw new Error('cartão não encontrado');
-  const canvas = await html2canvas(node, { scale: 3, backgroundColor: null, useCORS: true });
-  return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-}
-// JPEG só pro envio pro servidor (Feed/Perfil) — o PNG em alta resolução de
-// uma foto passa fácil de 1-2 MB em base64, e é isso que fazia "Publicar"
-// dar erro: o corpo da requisição estourava o limite de POST do servidor.
-// JPEG a 90% fica uma fração do tamanho, sem perda visível numa foto.
-async function _shareGerarBlobJpeg() {
-  const node = document.querySelector('#share-card-host .share-card');
-  if (!node) throw new Error('cartão não encontrado');
-  const canvas = await html2canvas(node, { scale: 3, backgroundColor: '#000', useCORS: true });
-  return await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-}
-
 function _shareBlobParaDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2025,25 +1695,83 @@ function _shareBlobParaDataUrl(blob) {
   });
 }
 
-// Legenda pronta pro post — a tela de compartilhar não tem campo de texto
-// (cartão já mostra treino/%), então usa os mesmos dados do cartão.
-function _shareLegendaAuto() {
-  const info = _shareState.info;
+function _dataUrlParaBlob(dataUrl) {
+  return fetch(dataUrl).then(r => r.blob());
+}
+
+// Legenda pronta pro post, só usada pra PRÉ-PREENCHER o campo de legenda de
+// verdade (sempre editável agora) quando se vem de Compartilhar treino/cardio.
+function _shareLegendaAuto(info) {
+  if (info.tipo === 'cardio') return info.mensagem || ('Cardio de hoje concluído! 🏃');
   return 'Treino ' + info.nomeTreino + ' concluído — ' + info.pctCompleto + '% completo 💪';
 }
 
-// Publica o cartão como post: 'feed' entra na lista geral (visível pros
-// outros alunos, sujeito ao feed_optin de cada um); 'perfil' fica só na
-// grade do próprio perfil, sem aparecer no feed geral de ninguém — mesma
-// tabela (intus_feed_post), só muda a coluna "destino".
-async function _shareGerarBlobEPublicar(destino) {
-  const blob = await _shareGerarBlobJpeg();
-  if (!blob) throw new Error('sem imagem');
-  const dataUrl = await _shareBlobParaDataUrl(blob);
+// Renderiza só a CAMADA DE INFORMAÇÃO (figurinha+nome/treino+estatísticas,
+// um dos 5 INFO_LAYOUTS) com fundo transparente — 'LIVE' já faz os templates
+// pularem qualquer fundo próprio (mesma convenção que a câmera ao vivo usava)
+// — e "fotografa" isso com html2canvas num tamanho de CSS px controlado, pra
+// depois colar em cima do canvas da foto na resolução exata dela. Só a
+// camada de texto passa por html2canvas agora — a foto em si já é canvas
+// nativo (_edConcluir), não html2canvas do cartão inteiro como antes.
+async function _compositarInfoNaFoto(dataUrl) {
+  if (typeof html2canvas === 'undefined') { toast('Não consegui carregar o gerador de imagem. Verifique sua internet e tente de novo.'); return dataUrl; }
+  const img = await new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = reject;
+    im.src = dataUrl;
+  });
+  const layout = INFO_LAYOUTS[_composeInfoLayoutIdx] || INFO_LAYOUTS[0];
+  const isLight = document.body.classList.contains('tema-claro');
+  const fig = _composeIncluirFig ? _composeFig : null;
+  // Referência de 300px (mesma que _shareEscala sempre usou) pra manter o
+  // texto/figurinha no mesmo tamanho relativo de sempre — a foto pode ser
+  // bem maior que isso (resolução nativa), então renderiza numa largura CSS
+  // razoável e depois escala o html2canvas pra bater com o pixel real da foto.
+  const cssW = Math.min(340, img.width);
+  const cssH = cssW * (img.height / img.width);
+  const escala = _shareEscala(cssW);
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + cssW + 'px;height:' + cssH + 'px;pointer-events:none;';
+  host.innerHTML = layout.render(_composeInfo, fig, 'LIVE', isLight, 0, escala);
+  document.body.appendChild(host);
+  try {
+    const node = host.querySelector('.share-card');
+    const infoCanvas = await html2canvas(node, { scale: img.width / cssW, backgroundColor: null, useCORS: true });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width; canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(infoCanvas, 0, 0, img.width, img.height);
+    return canvas.toDataURL('image/jpeg', 0.94);
+  } finally {
+    host.remove();
+  }
+}
+
+// Monta a imagem final que vai ser publicada/salva/compartilhada: a foto já
+// recortada+filtrada (_feedComposeImg, de _edConcluir) recebe por cima, na
+// ordem, a camada de informação (se ligada) e depois a marca d'água — as
+// duas únicas coisas que ainda "colam" pixel em cima da foto.
+async function _composeImagemFinal() {
+  let dataUrl = _feedComposeImg;
+  if (_composeInfoOn && _composeInfo) dataUrl = await _compositarInfoNaFoto(dataUrl);
+  dataUrl = await _compositarLogoNaFoto(dataUrl);
+  return dataUrl;
+}
+
+// Publica no Feed da Intus ou só no perfil: mesma tabela (intus_feed_post),
+// só muda a coluna "destino" — 'feed' entra na lista geral (visível pros
+// outros alunos, sujeito ao feed_optin de cada um), 'perfil' fica só na
+// grade do próprio perfil.
+async function _composePublicar(destino) {
+  const legenda = document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '';
+  const localizacao = _feedComposeLocal.trim() || '';
+  const dataUrl = await _composeImagemFinal();
   const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imagem: dataUrl, legenda: _shareLegendaAuto(), destino: destino }),
+    body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino }),
   });
   if (!r.ok) {
     // Mostra o motivo de verdade em vez de um erro genérico — sem isso não
@@ -2053,38 +1781,27 @@ async function _shareGerarBlobEPublicar(destino) {
     throw new Error(motivo);
   }
   toast(destino === 'feed' ? 'Publicado no feed! 🎉' : 'Publicado no seu perfil! 🎉');
-  _fecharCompartilhar();
+  _fecharComposeFeed();
+  navegar('feed');
 }
 
-async function _shareAcao(tipo) {
+async function _composeAcao(tipo) {
+  if (!_feedComposeImg) { toast('Escolha uma foto primeiro.'); return; }
   try {
-    // Se a câmera ainda está ao vivo (aluno pediu pra compartilhar sem
-    // apertar o obturador antes), captura o quadro atual primeiro — o
-    // html2canvas não "fotografa" um <video> tocando, geraria um cartão em
-    // branco.
-    if (_camStream && _shareState.origem === 'camera' && !_shareState.bgImg) {
-      const dataUrl = _shareCapturarFrameAtual();
-      if (dataUrl) {
-        _shareState.bgImg = dataUrl;
-        _shareState.bgModo = 'foto-custom';
-        _shareFecharCamera();
-        _renderShareOverlay();
-      }
-    }
     if (tipo === 'feed' || tipo === 'perfil') {
       toast('Publicando...');
-      await _shareGerarBlobEPublicar(tipo === 'feed' ? 'feed' : 'perfil');
+      await _composePublicar(tipo);
       return;
     }
 
     toast('Gerando imagem...');
-    const blob = await _shareGerarBlob();
-    if (!blob) throw new Error('sem imagem');
-    const fname = 'treino-intus-' + dataHojeLocal() + '.png';
+    const dataUrl = await _composeImagemFinal();
+    const blob = await _dataUrlParaBlob(dataUrl);
+    const fname = 'intus-' + dataHojeLocal() + '.jpg';
 
     if (tipo === 'copiar') {
       if (!navigator.clipboard || !window.ClipboardItem) { toast('Seu navegador não suporta copiar imagem — tente Salvar.'); return; }
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': blob })]);
       toast('Imagem copiada! ✅');
       return;
     }
@@ -2093,7 +1810,7 @@ async function _shareAcao(tipo) {
       // anexada — isso só existe via Web Share API, que abre o seletor do
       // sistema (o WhatsApp/Instagram aparecem ali, geralmente entre as
       // primeiras opções). É a única forma real de entregar a imagem pro app.
-      const file = new File([blob], fname, { type: 'image/png' });
+      const file = new File([blob], fname, { type: 'image/jpeg' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try { await navigator.share({ files: [file], title: 'Meu treino Intus' }); return; }
         catch (e) { if (e && e.name === 'AbortError') return; }
@@ -2102,14 +1819,10 @@ async function _shareAcao(tipo) {
     // 'salvar', ou compartilhamento sem suporte a Web Share com arquivo: mostra
     // a imagem NA PRÓPRIA TELA pra salvar com toque-e-segure (Salvar Imagem /
     // Adicionar à Galeria), que no celular vai direto pra galeria de fotos.
-    // Um <a download> baixava pra uma pasta de Downloads difícil de achar
-    // depois, e no iOS ainda abria uma prévia do sistema cujo botão de
-    // fechar às vezes trava — bug do próprio aparelho, fora do nosso alcance,
-    // que evitamos simplesmente não entrando nesse caminho.
     _shareMostrarParaSalvar(blob, fname);
   } catch (e) {
     if (e && e.name === 'AbortError') return; // usuário cancelou o share nativo
-    console.error('compartilhar treino:', e);
+    console.error('compartilhar:', e);
     toast(tipo === 'feed' || tipo === 'perfil' ? 'Não consegui publicar: ' + (e.message || 'erro desconhecido') : 'Não consegui gerar a imagem agora.');
   }
 }
@@ -2790,15 +2503,94 @@ async function renderFeedCompleto() {
   box.innerHTML = html;
 }
 
-// ── Compor um novo post ──────────────────────────────────────────────────
+// ── Compor um post: motor único pro Novo post, Compartilhar treino e
+// Compartilhar cardio ───────────────────────────────────────────────────
+// _composeInfo != null quando veio de Compartilhar treino/cardio (já chega
+// pronto, ver abrirCompartilharTreino) OU quando o aluno, no Novo post,
+// ligou "Mostrar informações" e escolheu Último treino/cardio (ver
+// _composeEscolherUltimo) — nos dois casos a camada de figurinha+
+// estatísticas fica disponível igual. _composeOrigem é só pra saber COMO
+// a tela foi aberta (título e se a legenda já vem pré-preenchida) — não
+// muda o que fica disponível pra editar.
 let _feedComposeImg = null;
 let _feedComposeLocal = '';
 let _feedComposeCaption = '';
+let _composeOrigem = 'post'; // 'post' | 'treino' | 'cardio'
+let _composeInfo = null;
+let _composeInfoOn = false;
+let _composeInfoLayoutIdx = 0;
+let _composeFig = null;
+let _composeIncluirFig = true;
+let _composeUltimoEscolha = ''; // '' | 'treino' | 'cardio' — só relevante quando _composeInfo nasceu vazio
+let _composeDestino = 'feed';   // 'feed' | 'perfil'
 
 function abrirNovoPostFeed() {
+  _composeOrigem = 'post';
+  _composeInfo = null;
+  _composeInfoOn = false;
+  _composeInfoLayoutIdx = 0;
+  _composeFig = null;
+  _composeIncluirFig = true;
+  _composeUltimoEscolha = '';
   _feedComposeImg = null;
   _feedComposeLocal = '';
   _feedComposeCaption = '';
+  _composeDestino = 'feed';
+  _renderComposeFeed();
+}
+
+// De onde vêm os dados de "Último treino"/"Último cardio" — o mesmo
+// snapshot que abrirCompartilharTreino já grava (ver o comentário lá), só
+// lido aqui. Sem isso duplicaria o cálculo de volume/séries/kcal que só
+// existe em renderFim() e em abrirCompartilharCardio.
+function _composeInfoDisponivel() {
+  let treino = null, cardio = null;
+  try { treino = JSON.parse(localStorage.getItem('intus-ultimo-treino-share') || 'null'); } catch (e) {}
+  try { cardio = JSON.parse(localStorage.getItem('intus-ultimo-cardio-share') || 'null'); } catch (e) {}
+  return { treino, cardio };
+}
+
+function _composeToggleInfo() {
+  _composeInfoOn = !_composeInfoOn;
+  _renderComposeFeed();
+}
+
+function _composeEscolherUltimo(tipo) {
+  const disp = _composeInfoDisponivel();
+  const info = tipo === 'cardio' ? disp.cardio : disp.treino;
+  if (!info) return;
+  _composeInfo = info;
+  _composeUltimoEscolha = tipo;
+  _composeFig = info.fig || _figPick(_figurinhasList());
+  _composeIncluirFig = true;
+  _composeInfoLayoutIdx = 0;
+  if (!_feedComposeCaption.trim()) _feedComposeCaption = _shareLegendaAuto(info);
+  _renderComposeFeed();
+}
+
+function _composeEscolherLayout(i) {
+  _composeInfoLayoutIdx = i;
+  _renderComposeFeed();
+}
+
+function _composeToggleFig() {
+  _composeIncluirFig = !_composeIncluirFig;
+  _renderComposeFeed();
+}
+
+function _composeEscolherDestino(d) {
+  _composeDestino = d;
+  _renderComposeFeed();
+}
+
+// Fonte "câmera ao vivo" do composer — captura entrega pro MESMO editor de
+// recorte/zoom/filtro que a galeria entrega (ver _abrirCameraAoVivo).
+function _composeAbrirCamera() {
+  _abrirCameraAoVivo((dataUrl) => _abrirEditorFotoFeed(dataUrl));
+}
+
+function _composeTrocarFoto() {
+  _feedComposeImg = null;
   _renderComposeFeed();
 }
 
@@ -2813,36 +2605,78 @@ function _renderComposeFeed() {
   // Só os triângulos, sem a palavra "INTUS" escrita — pedido explícito pro
   // Feed (o cartão de compartilhar treino continua com a logo por extenso).
   const logoSrc = isLight ? 'logo-icon-light.png' : 'logo-icon-dark.png';
+  const titulo = _composeOrigem === 'cardio' ? 'Compartilhar cardio' : (_composeOrigem === 'treino' ? 'Compartilhar treino' : 'Novo post');
+  const disp = _composeInfoDisponivel();
+
+  // Prévia (só visual, não é o que vira pixel — isso é _composeImagemFinal
+  // na hora de publicar/salvar) da camada de informação por cima da foto,
+  // reaproveitando o mesmo render() dos INFO_LAYOUTS com fundo transparente.
+  let infoPreviewHtml = '';
+  if (_feedComposeImg && _composeInfoOn && _composeInfo) {
+    const layout = INFO_LAYOUTS[_composeInfoLayoutIdx] || INFO_LAYOUTS[0];
+    const escalaPrev = _shareEscala(Math.min(window.innerWidth - 32, 340));
+    infoPreviewHtml = '<div style="position:absolute;inset:0;pointer-events:none;">' + layout.render(_composeInfo, _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev) + '</div>';
+  }
+
+  const layoutChipsHtml = INFO_LAYOUTS.map((l, i) => {
+    const ativo = i === _composeInfoLayoutIdx;
+    return '<div onclick="_composeEscolherLayout(' + i + ')" title="' + esc(l.nome) + '" style="flex-shrink:0;width:' + (ativo?44:34) + 'px;height:' + (ativo?44:34) + 'px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:' + (ativo?19:15) + 'px;background:' + cardBg + ';border:2px solid ' + (ativo?'#7FFF00':borda) + ';opacity:' + (ativo?1:.5) + ';cursor:pointer;">' + l.emoji + '</div>';
+  }).join('');
+
   const ov = document.createElement('div');
   ov.id = 'feed-compose-overlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:' + bg + ';overflow-y:auto;';
   ov.innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
-      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">Novo post</span>' +
+      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">' + titulo + '</span>' +
       '<button onclick="_fecharComposeFeed()" style="background:' + cardBg + ';border:1px solid ' + borda + ';border-radius:10px;width:34px;height:34px;color:' + txt + ';font-size:16px;cursor:pointer;">✕</button>' +
     '</div>' +
     '<div style="max-width:340px;margin:0 auto;padding:16px;">' +
       // BUG real: a prévia forçava aspect-ratio:1/1 + object-fit:cover — toda
       // foto aparecia cortada em quadrado aqui, mesmo a imagem publicada
-      // sendo a ORIGINAL inteira sem corte nenhum (_compositarLogoNaFoto só
-      // cola a logo, não recorta) e o feed em si já mostrando cada post na
-      // proporção natural dele (ver _feedCardHtml). A prévia "mentia" sobre
-      // o enquadramento. Agora ela mostra a foto inteira, sem cortar —
-      // retrato, paisagem ou quadrado, do jeito que a pessoa escolheu —
-      // com um teto de altura só pra uma foto muito alta não esticar a tela.
+      // sendo a ORIGINAL inteira sem corte nenhum e o feed em si já mostrando
+      // cada post na proporção natural dele (ver _feedCardHtml). Agora ela
+      // mostra a foto inteira, sem cortar — retrato, paisagem ou quadrado,
+      // do jeito que a pessoa escolheu — com um teto de altura só pra uma
+      // foto muito alta não esticar a tela.
       '<div id="feed-compose-preview" style="width:100%;border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;' + (_feedComposeImg ? '' : 'aspect-ratio:4/5;') + '">' +
         (_feedComposeImg
-          ? '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:auto;max-height:420px;object-fit:cover;"/><img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
-            '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>'
-          : '<span style="color:' + muted + ';font-size:13px;">Escolha uma foto</span>') +
-      '</div>' +
-      '<div style="display:flex;gap:8px;margin:14px 0;">' +
-        '<button onclick="document.getElementById(\'feed-compose-file-galeria\').click()" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Galeria</button>' +
-        '<button onclick="document.getElementById(\'feed-compose-file-camera\').click()" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">📷 Câmera</button>' +
+          ? '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:auto;max-height:420px;object-fit:cover;"/>' + infoPreviewHtml + '<img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
+            '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>' +
+            '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">🔄 Trocar</button>'
+          : '<div style="display:flex;flex-direction:column;gap:10px;width:80%;">' +
+              '<button onclick="_composeAbrirCamera()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#7FFF00;border:none;color:#0f1a00;">📷 Câmera ao vivo</button>' +
+              '<button onclick="document.getElementById(\'feed-compose-file-galeria\').click()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Escolher da galeria</button>' +
+            '</div>') +
       '</div>' +
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
-      '<input type="file" id="feed-compose-file-camera" accept="image/*" capture="environment" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
-      '<textarea id="feed-compose-legenda" placeholder="Escreva uma legenda..." maxlength="500" oninput="_feedComposeCaption=this.value;" style="width:100%;min-height:70px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;">' + esc(_feedComposeCaption) + '</textarea>' +
+
+      // ── Informações do treino/cardio ──────────────────────────────────
+      '<div style="margin-top:16px;padding:12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';">' +
+        '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:' + txt + ';cursor:pointer;" onclick="event.preventDefault();_composeToggleInfo()">' +
+          '<input type="checkbox" ' + (_composeInfoOn?'checked':'') + ' style="width:16px;height:16px;accent-color:#7FFF00;" onclick="event.stopPropagation();_composeToggleInfo()"/>' +
+          '📊 Mostrar informações do treino/cardio' +
+        '</label>' +
+        (_composeInfoOn ? (
+          !_composeInfo
+            ? ((disp.treino || disp.cardio)
+                ? '<div style="display:flex;gap:8px;margin-top:10px;">' +
+                    (disp.treino ? '<button onclick="_composeEscolherUltimo(\'treino\')" style="flex:1;padding:9px 6px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;background:' + bg + ';border:1px solid ' + borda + ';color:' + txt + ';">🏋️ Último treino</button>' : '') +
+                    (disp.cardio ? '<button onclick="_composeEscolherUltimo(\'cardio\')" style="flex:1;padding:9px 6px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;background:' + bg + ';border:1px solid ' + borda + ';color:' + txt + ';">🏃 Último cardio</button>' : '') +
+                  '</div>'
+                : '<div style="font-size:11.5px;color:' + muted + ';margin-top:8px;">Nenhum treino ou cardio registrado ainda pra puxar informações.</div>')
+            : '<div style="margin-top:12px;">' +
+                (!_composeUltimoEscolha ? '' : '<button onclick="_composeInfo=null;_composeUltimoEscolha=\'\';_renderComposeFeed();" style="font-size:11px;color:' + muted + ';background:none;border:none;text-decoration:underline;cursor:pointer;padding:0 0 8px;">trocar</button><br/>') +
+                '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;">' + layoutChipsHtml + '</div>' +
+                '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:' + txt + ';margin-top:10px;cursor:pointer;" onclick="event.preventDefault();_composeToggleFig()">' +
+                  '<input type="checkbox" ' + (_composeIncluirFig?'checked':'') + ' style="width:15px;height:15px;accent-color:#7FFF00;" onclick="event.stopPropagation();_composeToggleFig()"/>' +
+                  'Incluir a figurinha de hoje' +
+                '</label>' +
+              '</div>'
+        ) : '') +
+      '</div>' +
+
+      '<textarea id="feed-compose-legenda" placeholder="Escreva uma legenda..." maxlength="500" oninput="_feedComposeCaption=this.value;" style="width:100%;min-height:70px;margin-top:12px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;">' + esc(_feedComposeCaption) + '</textarea>' +
       (_feedComposeLocal
         ? '<div onclick="_abrirSeletorLocalFeed()" style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + (isLight?'rgba(92,184,0,.35)':'rgba(127,255,0,.3)') + ';background:' + (isLight?'rgba(92,184,0,.08)':'rgba(127,255,0,.06)') + ';cursor:pointer;">' +
             '<span style="font-size:14px;flex-shrink:0;color:' + (isLight?'#5cb800':'#7FFF00') + ';">📍</span>' +
@@ -2852,7 +2686,22 @@ function _renderComposeFeed() {
         : '<button onclick="_abrirSeletorLocalFeed()" style="width:100%;display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + muted + ';font-size:13px;font-weight:700;cursor:pointer;text-align:left;">' +
             '<span style="font-size:14px;">📍</span> Adicionar localização' +
           '</button>') +
-      '<button onclick="_publicarPostFeed()" style="width:100%;margin-top:12px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar</button>' +
+
+      // ── Destino ─────────────────────────────────────────────────────
+      '<div style="display:flex;gap:8px;margin-top:14px;">' +
+        '<button onclick="_composeEscolherDestino(\'feed\')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + (_composeDestino==='feed'?'rgba(127,255,0,.1)':cardBg) + ';border:1px solid ' + (_composeDestino==='feed'?'#7FFF00':borda) + ';color:' + txt + ';">📣 Feed da Intus</button>' +
+        '<button onclick="_composeEscolherDestino(\'perfil\')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + (_composeDestino==='perfil'?'rgba(127,255,0,.1)':cardBg) + ';border:1px solid ' + (_composeDestino==='perfil'?'#7FFF00':borda) + ';color:' + txt + ';">👤 Só meu perfil</button>' +
+      '</div>' +
+      '<button onclick="if(!_feedComposeImg){toast(\'Escolha uma foto primeiro.\');}else{_shareConfirmarPublicar(\'' + _composeDestino + '\')}" style="width:100%;margin-top:10px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar</button>' +
+
+      (_feedComposeImg
+        ? '<div style="display:flex;justify-content:space-around;margin-top:18px;">' +
+            _shareSocialBtn(_shareIconSvgSolido('whatsapp',24),'WhatsApp','_composeAcao(\'whatsapp\')','#25D366','#fff',txt) +
+            _shareSocialBtn(_shareIconSvgSolido('instagram',20),'Instagram','_composeAcao(\'instagram\')','radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%)','#fff',txt) +
+            _shareActionBtn(_shareIconSvg('copiar'),'Copiar','_composeAcao(\'copiar\')',cardBg,borda,txt) +
+            _shareActionBtn(_shareIconSvg('salvar'),'Salvar','_composeAcao(\'salvar\')',cardBg,borda,txt) +
+          '</div>'
+        : '') +
     '</div>';
   document.body.appendChild(ov);
 }
@@ -3391,25 +3240,6 @@ function _compositarLogoNaFoto(dataUrl) {
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
-}
-
-async function _publicarPostFeed() {
-  if (!_feedComposeImg) return toast('Escolha uma foto primeiro.');
-  const legenda = document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '';
-  const localizacao = document.getElementById('feed-compose-local')?.value?.trim() || _feedComposeLocal.trim() || '';
-  toast('Publicando...');
-  try {
-    const finalImg = await _compositarLogoNaFoto(_feedComposeImg);
-    const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imagem: finalImg, legenda: legenda, localizacao: localizacao }),
-    });
-    if (!r.ok) throw new Error('falhou');
-    toast('Post publicado! 🎉');
-    _fecharComposeFeed();
-    navegar('feed');
-  } catch (e) { toast('Não consegui publicar. Tente de novo.'); }
 }
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -12787,8 +12617,11 @@ window.addEventListener('popstate', function(e) {
   // não era a que ele tinha acabado de finalizar — e finalizar aquilo de
   // novo criava uma SEGUNDA sessão de verdade (foi o que aconteceu com o
   // aluno Erick: duas sessões, divisões diferentes, 2 minutos de intervalo).
-  if (document.getElementById('share-overlay')) {
-    _fecharCompartilhar();
+  // Compartilhar treino/cardio virou o mesmo overlay do Novo post
+  // (#feed-compose-overlay, ver _renderComposeFeed) — a trava continua
+  // valendo pros 3 casos, só mudou o id que ela observa.
+  if (document.getElementById('feed-compose-overlay')) {
+    _fecharComposeFeed();
     history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
     return;
   }
