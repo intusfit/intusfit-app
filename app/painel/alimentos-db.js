@@ -14,7 +14,6 @@ const AlimentosDB = (() => {
   let _loadPromise = null;
 
   const DATA_PATH = '../data/';
-  const CUSTOM_STORAGE_KEY = 'intus-meus-alimentos';
   let _customFoods = [];
 
   async function load() {
@@ -41,7 +40,18 @@ const AlimentosDB = (() => {
       _medidas = medidasResp.alimentos_medidas || {};
       _grupos = gruposResp.grupos || [];
       _loaded = true;
-      _loadCustomFoods();
+      // "Meus Alimentos" mora no servidor (tabela intus_alimento_personalizado)
+      // desde 17/09/2026 — antes vivia só no localStorage do navegador e
+      // sumia ao trocar de aparelho ou limpar dados. Falha aqui não derruba o
+      // resto do banco (TACO já carregou); só fica sem os personalizados.
+      try {
+        const remotos = (typeof API !== 'undefined' && API.listarAlimentosPersonalizados)
+          ? await API.listarAlimentosPersonalizados() : [];
+        _customFoods = Array.isArray(remotos) ? remotos : [];
+      } catch (e) {
+        console.error('[AlimentosDB] Erro ao carregar Meus Alimentos do servidor:', e);
+        _customFoods = [];
+      }
       console.log(`[AlimentosDB] Carregado: ${_taco.length} TACO + ${_customFoods.length} personalizados`);
     } catch (e) {
       console.error('[AlimentosDB] Erro ao carregar dados:', e);
@@ -61,7 +71,6 @@ const AlimentosDB = (() => {
     const termoN = normalizar(termo);
     const palavras = termoN.split(/\s+/);
 
-    _loadCustomFoods();
     const allFoods = [..._customFoods, ..._taco];
 
     const resultados = allFoods
@@ -130,7 +139,6 @@ const AlimentosDB = (() => {
 
   function getById(id) {
     const numId = Number(id);
-    _loadCustomFoods();
     const custom = _customFoods.find(f => f.id === numId);
     if (custom) return custom;
     return _taco.find(f => f.id === numId) || null;
@@ -182,7 +190,6 @@ const AlimentosDB = (() => {
 
   function getMedidasAlimento(foodId) {
     const numId = Number(foodId);
-    _loadCustomFoods();
     const customFood = _customFoods.find(f => f.id === numId);
     if (customFood) {
       const medidas = [{ id: 'g', nome: 'gramas', abrev: 'g', gramas: 1 }];
@@ -704,32 +711,20 @@ const AlimentosDB = (() => {
     };
   }
 
-  // ─── MEUS ALIMENTOS (custom foods) ─────────────────────────────────────
-
-  function _loadCustomFoods() {
-    try {
-      const raw = localStorage.getItem(CUSTOM_STORAGE_KEY);
-      _customFoods = raw ? JSON.parse(raw) : [];
-    } catch { _customFoods = []; }
-  }
-
-  function _saveCustomFoods() {
-    localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(_customFoods));
-  }
+  // ─── MEUS ALIMENTOS (custom foods) ──────────────────────────────────────
+  // Vive no servidor (intus_alimento_personalizado), carregado uma vez em
+  // load() e mantido em _customFoods daqui pra frente — as três funções
+  // abaixo confirmam no servidor antes de mexer nesse cache local, então
+  // getCustomFoods()/buscar()/getById() continuam síncronas normalmente.
 
   function getCustomFoods() {
-    if (!_customFoods.length) _loadCustomFoods();
     return _customFoods;
   }
 
-  function addCustomFood(food) {
-    _loadCustomFoods();
-    const id = -1 * (Date.now() % 1000000000);
-    const novo = {
-      id,
+  async function addCustomFood(food) {
+    const salvo = await API.criarAlimentoPersonalizado({
       description: food.description || 'Alimento personalizado',
       category: food.category || 'Meus Alimentos',
-      custom: true,
       energy_kcal: food.energy_kcal || 0,
       protein_g: food.protein_g || 0,
       carbohydrate_g: food.carbohydrate_g || 0,
@@ -752,25 +747,23 @@ const AlimentosDB = (() => {
       niacin_mg: food.niacin_mg || 0,
       porcao_padrao: food.porcao_padrao || 100,
       medida_padrao: food.medida_padrao || 'g',
-    };
+    });
+    const novo = { ...salvo, custom: true };
     _customFoods.push(novo);
-    _saveCustomFoods();
     return novo;
   }
 
-  function editCustomFood(id, updates) {
-    _loadCustomFoods();
+  async function editCustomFood(id, updates) {
+    await API.editarAlimentoPersonalizado(id, updates);
     const idx = _customFoods.findIndex(f => f.id === id);
     if (idx < 0) return null;
     Object.assign(_customFoods[idx], updates);
-    _saveCustomFoods();
     return _customFoods[idx];
   }
 
-  function deleteCustomFood(id) {
-    _loadCustomFoods();
+  async function deleteCustomFood(id) {
+    await API.excluirAlimentoPersonalizado(id);
     _customFoods = _customFoods.filter(f => f.id !== id);
-    _saveCustomFoods();
   }
 
   // ─── UTILIDADES ────────────────────────────────────────────────────────

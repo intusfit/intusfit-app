@@ -242,6 +242,46 @@ function ensureCatalogoTables(PDO $pdo) {
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    // "Meus Alimentos" (banco de alimentos personalizado do profissional, usado
+    // pelo editor de plano alimentar). Antes só existia em localStorage do
+    // navegador — sumia ao trocar de aparelho/navegador ou limpar dados, e o
+    // alimento cadastrado no computador não aparecia buscando pelo celular.
+    // Agora é tabela de verdade, uma por profissional (idprofessor).
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_alimento_personalizado (
+            id                 INT AUTO_INCREMENT PRIMARY KEY,
+            idprofessor        INT NOT NULL,
+            description        VARCHAR(255) NOT NULL,
+            category           VARCHAR(120) NULL,
+            energy_kcal        DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            protein_g          DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            carbohydrate_g     DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            lipid_g            DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            fiber_g            DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            sodium_mg          DECIMAL(9,2)  NOT NULL DEFAULT 0,
+            calcium_mg         DECIMAL(9,2)  NOT NULL DEFAULT 0,
+            iron_mg            DECIMAL(8,3)  NOT NULL DEFAULT 0,
+            potassium_mg       DECIMAL(9,2)  NOT NULL DEFAULT 0,
+            magnesium_mg       DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            phosphorus_mg      DECIMAL(9,2)  NOT NULL DEFAULT 0,
+            zinc_mg            DECIMAL(8,3)  NOT NULL DEFAULT 0,
+            vitaminC_mg        DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            cholesterol_mg     DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            saturated_g        DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            monounsaturated_g  DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            polyunsaturated_g  DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            thiamine_mg        DECIMAL(8,3)  NOT NULL DEFAULT 0,
+            riboflavin_mg      DECIMAL(8,3)  NOT NULL DEFAULT 0,
+            niacin_mg          DECIMAL(8,2)  NOT NULL DEFAULT 0,
+            porcao_padrao      DECIMAL(8,2)  NOT NULL DEFAULT 100,
+            medida_padrao      VARCHAR(60)   NOT NULL DEFAULT 'g',
+            created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_professor (idprofessor)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_alimento_personalizado', ['description', 'category', 'medida_padrao']);
 }
 try { ensureCatalogoTables($pdo); } catch (Throwable $e) {
     http_response_code(500);
@@ -848,6 +888,92 @@ if ($action === 'nutricao') {
         if ($id <= 0) { $b = jsonBody(); $id = (int)($b['idplano'] ?? 0); }
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
         $pdo->prepare("DELETE FROM intus_plano_nutricional WHERE idplano = ?")->execute([$id]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ═══════════════ MEUS ALIMENTOS (banco de alimentos personalizado) ═══════════════
+// Ferramenta do profissional (quem monta o plano), nunca do aluno — cada um
+// só ve e mexe no proprio catalogo (idprofessor = quem esta logado).
+if ($action === 'meus_alimentos') {
+    if ($_ehAluno) { $_negar(403, 'apenas o profissional usa o catalogo de alimentos'); }
+    $idprofessor = (int)($_ctx['idusuario'] ?? 0);
+    if ($idprofessor <= 0) { $_negar(401, 'sessao sem identidade'); }
+
+    $camposNum = [
+        'energy_kcal','protein_g','carbohydrate_g','lipid_g','fiber_g','sodium_mg','calcium_mg',
+        'iron_mg','potassium_mg','magnesium_mg','phosphorus_mg','zinc_mg','vitaminC_mg','cholesterol_mg',
+        'saturated_g','monounsaturated_g','polyunsaturated_g','thiamine_mg','riboflavin_mg','niacin_mg',
+        'porcao_padrao',
+    ];
+
+    $montarSaida = function($r) {
+        $out = [
+            'id' => (int)$r['id'], 'description' => $r['description'], 'category' => $r['category'] ?? '',
+            'medida_padrao' => $r['medida_padrao'] ?? 'g', 'custom' => true,
+        ];
+        foreach ([
+            'energy_kcal','protein_g','carbohydrate_g','lipid_g','fiber_g','sodium_mg','calcium_mg',
+            'iron_mg','potassium_mg','magnesium_mg','phosphorus_mg','zinc_mg','vitaminC_mg','cholesterol_mg',
+            'saturated_g','monounsaturated_g','polyunsaturated_g','thiamine_mg','riboflavin_mg','niacin_mg',
+            'porcao_padrao',
+        ] as $k) { $out[$k] = (float)$r[$k]; }
+        return $out;
+    };
+
+    if ($method === 'GET') {
+        $st = $pdo->prepare("SELECT * FROM intus_alimento_personalizado WHERE idprofessor = ? ORDER BY description");
+        $st->execute([$idprofessor]);
+        echo json_encode(array_map($montarSaida, $st->fetchAll(PDO::FETCH_ASSOC)));
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $desc = trim($b['description'] ?? '');
+        if (!$desc) { http_response_code(400); echo json_encode(['error' => 'description obrigatorio']); exit; }
+        $cols = ['idprofessor', 'description', 'category', 'medida_padrao'];
+        $vals = [$idprofessor, $desc, $b['category'] ?? 'Meus Alimentos', $b['medida_padrao'] ?? 'g'];
+        foreach ($camposNum as $k) { $cols[] = $k; $vals[] = isset($b[$k]) ? (float)$b[$k] : ($k === 'porcao_padrao' ? 100 : 0); }
+        $ph = implode(',', array_fill(0, count($cols), '?'));
+        $pdo->prepare("INSERT INTO intus_alimento_personalizado (" . implode(',', $cols) . ") VALUES ($ph)")->execute($vals);
+        $novoId = (int)$pdo->lastInsertId();
+        $st = $pdo->prepare("SELECT * FROM intus_alimento_personalizado WHERE id = ?");
+        $st->execute([$novoId]);
+        echo json_encode(['ok' => true] + $montarSaida($st->fetch(PDO::FETCH_ASSOC)));
+        exit;
+    }
+    if ($method === 'PUT') {
+        $b = jsonBody();
+        $id = (int)($b['id'] ?? $_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        // Confere dono antes de alterar — sem isso um profissional editaria o catalogo de outro so trocando o id.
+        $stD = $pdo->prepare("SELECT idprofessor FROM intus_alimento_personalizado WHERE id = ?");
+        $stD->execute([$id]);
+        $dono = $stD->fetchColumn();
+        if ($dono === false) { http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
+        if ((int)$dono !== $idprofessor) { $_negar(403, 'alimento de outro profissional'); }
+        $sets = []; $vals = [];
+        if (array_key_exists('description', $b) && trim($b['description']) !== '') { $sets[] = 'description = ?'; $vals[] = trim($b['description']); }
+        if (array_key_exists('category', $b)) { $sets[] = 'category = ?'; $vals[] = $b['category']; }
+        if (array_key_exists('medida_padrao', $b)) { $sets[] = 'medida_padrao = ?'; $vals[] = $b['medida_padrao']; }
+        foreach ($camposNum as $k) { if (array_key_exists($k, $b)) { $sets[] = "$k = ?"; $vals[] = (float)$b[$k]; } }
+        if (empty($sets)) { echo json_encode(['ok' => true]); exit; }
+        $vals[] = $id;
+        $pdo->prepare("UPDATE intus_alimento_personalizado SET " . implode(', ', $sets) . " WHERE id = ?")->execute($vals);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if ($id <= 0) { $b = jsonBody(); $id = (int)($b['id'] ?? 0); }
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $stD = $pdo->prepare("SELECT idprofessor FROM intus_alimento_personalizado WHERE id = ?");
+        $stD->execute([$id]);
+        $dono = $stD->fetchColumn();
+        if ($dono === false) { echo json_encode(['ok' => true]); exit; }
+        if ((int)$dono !== $idprofessor) { $_negar(403, 'alimento de outro profissional'); }
+        $pdo->prepare("DELETE FROM intus_alimento_personalizado WHERE id = ?")->execute([$id]);
         echo json_encode(['ok' => true]);
         exit;
     }

@@ -6,8 +6,8 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
   <script src="_mock.js?v=20260915a"></script>
-  <script src="api.js?v=20260910a"></script>
-  <script src="alimentos-db.js?v=20260917a"></script>
+  <script src="api.js?v=20260917a"></script>
+  <script src="alimentos-db.js?v=20260917b"></script>
   <style>
     .modal-box.wide { max-width: 820px; }
     .modal-box.full { max-width: 95vw; width: 1100px; }
@@ -1372,22 +1372,26 @@ async function _buscarOnlineAlimento(refIdx, termo) {
 // O produto do Open Food Facts vira um alimento personalizado normal ao ser
 // escolhido — a partir daí funciona offline como qualquer outro "Meu
 // Alimento", sem depender de a busca online continuar disponível depois.
-function _adicionarAlimentoOnline(refIdx, idx) {
+async function _adicionarAlimentoOnline(refIdx, idx) {
   const item = (window._offResultadosTemp && window._offResultadosTemp[refIdx] || [])[idx];
   if (!item) return;
-  const novo = AlimentosDB.addCustomFood({
-    description: item.description,
-    category: item.category,
-    energy_kcal: item.energy_kcal,
-    protein_g: item.protein_g,
-    carbohydrate_g: item.carbohydrate_g,
-    lipid_g: item.lipid_g,
-    fiber_g: item.fiber_g,
-    sodium_mg: item.sodium_mg,
-    saturated_g: item.saturated_g,
-  });
-  showToast('Produto adicionado ao seu banco de alimentos!');
-  addAlimento(refIdx, novo.id);
+  try {
+    const novo = await AlimentosDB.addCustomFood({
+      description: item.description,
+      category: item.category,
+      energy_kcal: item.energy_kcal,
+      protein_g: item.protein_g,
+      carbohydrate_g: item.carbohydrate_g,
+      lipid_g: item.lipid_g,
+      fiber_g: item.fiber_g,
+      sodium_mg: item.sodium_mg,
+      saturated_g: item.saturated_g,
+    });
+    showToast('Produto adicionado ao seu banco de alimentos!');
+    addAlimento(refIdx, novo.id);
+  } catch (e) {
+    showToast('Não consegui salvar no servidor: ' + e.message, 'error');
+  }
 }
 
 function addAlimento(refIdx, foodId) {
@@ -1450,19 +1454,23 @@ function _iniciarCadastroRapido(refIdx, termo) {
   resultsEl.classList.add('show');
 }
 
-function _salvarCadastroRapido(refIdx) {
+async function _salvarCadastroRapido(refIdx) {
   const nome = document.getElementById('qc-nome-' + refIdx)?.value?.trim();
   if (!nome) return showToast('Informe o nome do alimento', 'error');
-  const novo = AlimentosDB.addCustomFood({
-    description: nome,
-    category: 'Meus Alimentos',
-    energy_kcal: parseFloat(document.getElementById('qc-kcal-' + refIdx)?.value) || 0,
-    protein_g: parseFloat(document.getElementById('qc-prot-' + refIdx)?.value) || 0,
-    carbohydrate_g: parseFloat(document.getElementById('qc-carb-' + refIdx)?.value) || 0,
-    lipid_g: parseFloat(document.getElementById('qc-gord-' + refIdx)?.value) || 0,
-  });
-  showToast('Alimento cadastrado e adicionado à refeição!');
-  addAlimento(refIdx, novo.id);
+  try {
+    const novo = await AlimentosDB.addCustomFood({
+      description: nome,
+      category: 'Meus Alimentos',
+      energy_kcal: parseFloat(document.getElementById('qc-kcal-' + refIdx)?.value) || 0,
+      protein_g: parseFloat(document.getElementById('qc-prot-' + refIdx)?.value) || 0,
+      carbohydrate_g: parseFloat(document.getElementById('qc-carb-' + refIdx)?.value) || 0,
+      lipid_g: parseFloat(document.getElementById('qc-gord-' + refIdx)?.value) || 0,
+    });
+    showToast('Alimento cadastrado e adicionado à refeição!');
+    addAlimento(refIdx, novo.id);
+  } catch (e) {
+    showToast('Não consegui salvar no servidor: ' + e.message, 'error');
+  }
 }
 
 function updateItemQtd(refIdx, itemIdx, value) {
@@ -2241,21 +2249,31 @@ function salvarAlimentoCustom(editId) {
     medida_padrao: document.getElementById('cf-medida')?.value?.trim() || 'g',
   };
 
-  if (editId) {
-    AlimentosDB.editCustomFood(editId, dados);
-    showToast('Alimento atualizado!');
-  } else {
-    AlimentosDB.addCustomFood(dados);
-    showToast('Alimento cadastrado!');
-  }
-  abrirMeusAlimentos();
+  (async () => {
+    try {
+      if (editId) {
+        await AlimentosDB.editCustomFood(editId, dados);
+        showToast('Alimento atualizado!');
+      } else {
+        await AlimentosDB.addCustomFood(dados);
+        showToast('Alimento cadastrado!');
+      }
+      abrirMeusAlimentos();
+    } catch (e) {
+      showToast('Não consegui salvar no servidor: ' + e.message, 'error');
+    }
+  })();
 }
 
-function excluirAlimentoCustom(id) {
+async function excluirAlimentoCustom(id) {
   if (!confirm('Excluir este alimento personalizado?')) return;
-  AlimentosDB.deleteCustomFood(id);
-  showToast('Alimento excluído');
-  abrirMeusAlimentos();
+  try {
+    await AlimentosDB.deleteCustomFood(id);
+    showToast('Alimento excluído');
+    abrirMeusAlimentos();
+  } catch (e) {
+    showToast('Não consegui excluir no servidor: ' + e.message, 'error');
+  }
 }
 
 carregar();

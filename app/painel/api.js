@@ -2787,6 +2787,16 @@ const API = {
     }
   ),
 
+  // Meus Alimentos (catálogo de alimentos personalizado do profissional) —
+  // direto no servidor, sem fallback local: antes vivia só no localStorage
+  // do navegador e sumia ao trocar de aparelho ou limpar dados. Erro de rede
+  // aqui deve aparecer pro usuário (por isso sem tryRemoteOrLocal) — cair
+  // pro local em silêncio recriaria exatamente o problema que resolveu.
+  listarAlimentosPersonalizados: () => apiFetch('/catalogo.php?action=meus_alimentos'),
+  criarAlimentoPersonalizado: (data) => apiFetch('/catalogo.php?action=meus_alimentos', { method: 'POST', body: JSON.stringify(data) }),
+  editarAlimentoPersonalizado: (id, data) => apiFetch('/catalogo.php?action=meus_alimentos', { method: 'PUT', body: JSON.stringify({ ...data, id }) }),
+  excluirAlimentoPersonalizado: (id) => apiFetch('/catalogo.php?action=meus_alimentos&id=' + id, { method: 'DELETE' }),
+
   // Caixa (financeiro.html mantém seu próprio cache local em localStorage e
   // decide quando chamar cada uma destas; aqui é só a chamada de rede crua —
   // sem isso, lançamentos (principalmente as saídas) só existiam no aparelho
