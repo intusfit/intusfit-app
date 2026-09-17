@@ -67,12 +67,19 @@ const AlimentosDB = (() => {
     const resultados = allFoods
       .map(food => {
         const descN = normalizar(food.description);
+        const descPalavras = descN.split(/\s+/);
         let score = 0;
         let allMatch = true;
         for (const p of palavras) {
-          if (descN.includes(p)) {
-            score += p.length;
+          if (descPalavras.includes(p)) {
+            // Palavra inteira bate (ex.: "maca" == a palavra "maca" de "Maçã, Fuji").
+            // Vale muito mais que um match parcial, senão "maçã" empata com
+            // "Macarrão" (que também contém "maca" como prefixo) e a ordem de
+            // desempate vira sorteio — foi o que fazia "maçã" sugerir macarrão.
+            score += p.length * 2 + 10;
             if (descN.startsWith(p)) score += 5;
+          } else if (descN.includes(p)) {
+            score += p.length;
           } else {
             allMatch = false;
           }
