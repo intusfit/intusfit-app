@@ -1236,6 +1236,7 @@ function abrirCompartilharTreino(info) {
   _composeIncluirFig = true;
   _composeInfoLayoutIdx = 0;
   _composeUltimoEscolha = '';
+  _composeRatioPre = 'retrato';
   _feedComposeImg = null;
   _feedComposeLocal = '';
   _feedComposeCaption = _shareLegendaAuto(info);
@@ -2474,20 +2475,26 @@ async function _excluirPost(idpost) {
 // ── Prévia na tela inicial: até 2 posts, sem tirar espaço do que já existe ──
 function renderFeedHomePreview() {
   const isLight = document.body.classList.contains('tema-claro');
+  // Cabeçalho + botão "Novo post" aparecem sempre, mesmo sem post nenhum
+  // ainda pra mostrar — antes o botão só existia dentro da tela cheia do
+  // Feed, e quando não havia post nenhum o preview inteiro sumia (innerHTML
+  // vazio), levando o botão junto.
+  const headerHtml =
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;">' +
+      '<span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';">📣 Feed dos Alunos</span>' +
+      '<button onclick="abrirNovoPostFeed()" style="display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:20px;border:none;background:#7FFF00;color:#0f1a00;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;">📸 Novo post</button>' +
+    '</div>';
   carregarFeedPosts(2).then((posts) => {
     const el = document.getElementById('h-feed-home');
     if (!el) return;
-    if (!posts.length) { el.innerHTML = ''; return; }
+    if (!posts.length) { el.innerHTML = headerHtml; return; }
     carregarReacoesFeed(posts.map(p => p.idpost));
     carregarComentariosFeed(posts.map(p => p.idpost));
-    el.innerHTML =
-      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">' +
-        '<span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';">📣 Feed dos Alunos</span>' +
-      '</div>' +
+    el.innerHTML = headerHtml +
       posts.map(p => _feedCardHtml(p, isLight)).join('') +
       '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
   });
-  return '<div id="h-feed-home"></div>';
+  return '<div id="h-feed-home">' + headerHtml + '</div>';
 }
 
 // Tela cheia do feed, aberta pelo menu ou pelo "Ver feed completo" da home.
@@ -2547,6 +2554,13 @@ let _composeFig = null;
 let _composeIncluirFig = true;
 let _composeUltimoEscolha = ''; // '' | 'treino' | 'cardio' — só relevante quando _composeInfo nasceu vazio
 let _composeDestino = 'feed';   // 'feed' | 'perfil'
+// Dimensão escolhida ANTES de tirar/escolher a foto — mesmas chaves de
+// FEED_EDITOR_RATIOS (ver ~linha 2789), só usada aqui pra: (1) recortar
+// visualmente a prévia ao vivo da câmera, e (2) virar o ponto de partida do
+// editor de recorte depois de capturar (ver _abrirEditorFotoFeed) — a
+// pessoa continua podendo trocar lá, é só pra não perguntar a mesma coisa
+// duas vezes.
+let _composeRatioPre = 'retrato';
 
 function abrirNovoPostFeed() {
   _composeOrigem = 'post';
@@ -2556,12 +2570,18 @@ function abrirNovoPostFeed() {
   _composeFig = null;
   _composeIncluirFig = true;
   _composeUltimoEscolha = '';
+  _composeRatioPre = 'retrato';
   _feedComposeImg = null;
   _feedComposeLocal = '';
   _feedComposeCaption = '';
   _composeDestino = 'feed';
   _renderComposeFeed();
   _composeIniciarCamera(); // ver comentário em abrirCompartilharTreino
+}
+
+function _composeEscolherRatioPre(id) {
+  _composeRatioPre = id;
+  _renderComposeFeed();
 }
 
 // De onde vêm os dados de "Último treino"/"Último cardio" — o mesmo
@@ -2633,14 +2653,25 @@ function _renderComposeFeed() {
   const camAtiva = !!_camStream && !_feedComposeImg;
 
   // Prévia (só visual, não é o que vira pixel — isso é _composeImagemFinal
-  // na hora de publicar/salvar) da camada de informação por cima da foto,
-  // reaproveitando o mesmo render() dos INFO_LAYOUTS com fundo transparente.
+  // na hora de publicar/salvar) da camada de informação por cima da foto
+  // OU da câmera ao vivo (pedido explícito: ver a figurinha/estatísticas
+  // ANTES de tirar a foto, não só depois) — reaproveita o mesmo render()
+  // dos INFO_LAYOUTS com fundo transparente nos dois casos.
   let infoPreviewHtml = '';
-  if (_feedComposeImg && _composeInfoOn && _composeInfo) {
+  if ((_feedComposeImg || camAtiva) && _composeInfoOn && _composeInfo) {
     const layout = INFO_LAYOUTS[_composeInfoLayoutIdx] || INFO_LAYOUTS[0];
     const escalaPrev = _shareEscala(Math.min(window.innerWidth - 32, 340));
     infoPreviewHtml = '<div style="position:absolute;inset:0;pointer-events:none;">' + layout.render(_composeInfo, _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev) + '</div>';
   }
+
+  // Dimensão da prévia (foto OU câmera ao vivo, ver _composeRatioPre) —
+  // "Original" pré-captura não tem como saber o tamanho real da foto ainda,
+  // então usa 4:5 como aproximação (o valor de verdade só existe depois de
+  // capturar, no editor de recorte, onde "Original" aí sim é exato).
+  const ratioPreCss = { original: '4/5', quadrado: '1/1', retrato: '4/5' }[_composeRatioPre] || '4/5';
+  const ratioBtnsPre = [['original','Original'],['quadrado','1:1'],['retrato','4:5']].map(([id,lbl]) =>
+    '<button onclick="_composeEscolherRatioPre(\'' + id + '\')" style="flex:1;padding:8px 4px;border-radius:9px;font-size:11.5px;font-weight:800;cursor:pointer;background:' + (_composeRatioPre===id?'#7FFF00':cardBg) + ';color:' + (_composeRatioPre===id?'#0f1a00':txt) + ';border:1px solid ' + (_composeRatioPre===id?'#7FFF00':borda) + ';">' + lbl + '</button>'
+  ).join('');
 
   const layoutChipsHtml = INFO_LAYOUTS.map((l, i) => {
     const ativo = i === _composeInfoLayoutIdx;
@@ -2663,7 +2694,7 @@ function _renderComposeFeed() {
       // mostra a foto inteira, sem cortar — retrato, paisagem ou quadrado,
       // do jeito que a pessoa escolheu — com um teto de altura só pra uma
       // foto muito alta não esticar a tela.
-      '<div id="feed-compose-preview" style="width:100%;border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;' + (_feedComposeImg ? '' : 'aspect-ratio:4/5;') + '">' +
+      '<div id="feed-compose-preview" style="width:100%;border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;' + (_feedComposeImg ? '' : 'aspect-ratio:' + ratioPreCss + ';') + '">' +
         (_feedComposeImg
           ? '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:auto;max-height:420px;object-fit:cover;"/>' + infoPreviewHtml + '<img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
             '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>' +
@@ -2672,7 +2703,9 @@ function _renderComposeFeed() {
               // Câmera já embutida e ao vivo dentro da própria caixa — o
               // <video> é MOVIDO pra cá depois do appendChild mais abaixo
               // (mesmo elemento que a tela cheia usa, sem recriar o stream).
-              ? '<div id="feed-compose-cam-slot" style="position:absolute;inset:0;"></div>' +
+              // infoPreviewHtml por cima do vídeo: pedido explícito de ver a
+              // figurinha/estatísticas ANTES de tirar a foto, não só depois.
+              ? '<div id="feed-compose-cam-slot" style="position:absolute;inset:0;"></div>' + infoPreviewHtml +
                 '<button aria-label="Expandir" onclick="_composeExpandirCamera()" style="position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:9px;background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">' + _shareIconSvg('expandir',14) + '</button>' +
                 '<button aria-label="Escolher da galeria" onclick="_composeEscolherGaleria()" style="position:absolute;bottom:12px;left:14px;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;z-index:3;">🖼️</button>' +
                 '<button aria-label="Tirar foto" onclick="_capturarFoto()" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:60px;height:60px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.6);cursor:pointer;z-index:3;"></button>' +
@@ -2684,6 +2717,11 @@ function _renderComposeFeed() {
                   '<button onclick="_composeEscolherGaleria()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Escolher da galeria</button>' +
                 '</div>')) +
       '</div>' +
+      (_feedComposeImg ? '' :
+        // Dimensão escolhida ANTES de tirar/escolher a foto (ver _composeRatioPre)
+        // — vale pra prévia ao vivo da câmera e vira o ponto de partida do
+        // recorte depois de capturar, sem perguntar a mesma coisa duas vezes.
+        '<div style="display:flex;gap:6px;margin-top:8px;">' + ratioBtnsPre + '</div>') +
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
 
       // ── Informações do treino/cardio ──────────────────────────────────
@@ -2805,7 +2843,10 @@ function _abrirEditorFotoFeed(dataUrl) {
   const img = new Image();
   img.onload = () => {
     _feedEdImg = img;
-    _feedEdRatio = 'retrato';
+    // Começa na proporção que o aluno já tinha escolhido na prévia ao vivo
+    // (ver _composeRatioPre), pra não pedir a mesma decisão duas vezes —
+    // continua ajustável aqui, é só o ponto de partida.
+    _feedEdRatio = _composeRatioPre || 'retrato';
     _feedEdZoom = 1;
     _feedEdPanX = 0; _feedEdPanY = 0;
     _feedEdFiltro = '';
