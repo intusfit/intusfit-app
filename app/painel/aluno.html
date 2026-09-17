@@ -1241,11 +1241,11 @@ function abrirCompartilharTreino(info) {
   _feedComposeCaption = _shareLegendaAuto(info);
   _composeDestino = 'feed';
   _renderComposeFeed();
-  // A câmera já abria sozinha assim que a tela aparecia, antes desta tela
-  // virar o motor único de composição (ver _composeAbrirCamera) — sem foto
-  // nenhuma ainda escolhida, é sempre a câmera que faz mais sentido abrir na
-  // hora, não uma tela intermediária pedindo pra escolher a fonte.
-  _composeAbrirCamera();
+  // A câmera já abria sozinha, embutida, assim que a tela aparecia — sem
+  // foto nenhuma escolhida ainda, é sempre a câmera que faz mais sentido
+  // já mostrar (ver _composeIniciarCamera), não uma tela pedindo pra
+  // escolher a fonte primeiro.
+  _composeIniciarCamera();
 }
 
 // MET aproximado por atividade — usado só pra estimar kcal no cartão de
@@ -1295,31 +1295,28 @@ let _camStream = null;
 let _camVideoEl = null;
 let _camFacing = 'environment';
 let _camZoom = 1;
-let _camCallback = null; // function(dataUrl), chamada ao capturar ou null se cancelou
+let _camCallback = null; // function(dataUrl), chamada ao capturar
 
-function _abrirCameraAoVivo(callback) {
-  _camCallback = callback;
-  _abrirCamera();
-}
-
-async function _abrirCamera() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    toast('Câmera não disponível neste navegador — escolha da galeria.');
-    _camCallback = null;
-    return;
-  }
+// Liga a câmera JÁ EMBUTIDA na caixa de prévia do compose (#feed-compose-cam-slot),
+// assim que a tela abre — é assim que era antes de unificar os 3 fluxos (a
+// câmera aparecia ligada sozinha, sem precisar tocar em nada) e o Luiz pediu
+// de volta depois de ver a versão com botão. Sem permissão/dispositivo, some
+// sem toast e a tela fica com os botões de Câmera/Galeria como alternativa
+// (ver _renderComposeFeed) — a única forma de saber que falhou é essa.
+async function _composeIniciarCamera() {
+  _camCallback = (dataUrl) => _abrirEditorFotoFeed(dataUrl);
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  if (_camStream) { _renderComposeFeed(); return; }
   try {
     _camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: _camFacing }, audio: false });
   } catch (e) {
     console.warn('[camera]', e);
-    toast('Não consegui acessar a câmera. Tente escolher da galeria.');
-    _camCallback = null;
     return;
   }
   _camZoom = 1;
   _criarVideoElSeNecessario();
   _camVideoEl.srcObject = _camStream;
-  _renderCameraTelaCheia();
+  _renderComposeFeed();
 }
 
 function _criarVideoElSeNecessario() {
@@ -1333,15 +1330,38 @@ function _criarVideoElSeNecessario() {
   _ativarZoomPinca(_camVideoEl);
 }
 
-function _fecharCamera() {
+// Pára a câmera de vez e libera o dispositivo — ao capturar, ao trocar pra
+// galeria, ou ao sair do compose inteiro. Diferente de fechar só a tela
+// cheia (ver _cancelarCamera), que mantém o stream ligado e só volta a
+// mostrar a câmera embutida na prévia.
+function _pararCamera() {
   if (_camStream) { _camStream.getTracks().forEach(t => t.stop()); _camStream = null; }
   if (_camVideoEl) { _camVideoEl.remove(); _camVideoEl = null; }
   document.getElementById('cam-fullscreen')?.remove();
+  _camCallback = null;
 }
 
+// Escolher da galeria enquanto a câmera está embutida e ligada: pára a
+// câmera antes (libera o dispositivo, não fica gravando escondida atrás da
+// tela de escolher arquivo) e então abre o seletor de arquivo.
+function _composeEscolherGaleria() {
+  _pararCamera();
+  document.getElementById('feed-compose-file-galeria').click();
+}
+
+// Botão "✕" da tela cheia (ver _renderCameraTelaCheia): só fecha a tela
+// cheia. A câmera continua ligada (mesmo <video>, mesmo stream) e volta a
+// aparecer embutida na prévia do compose, de onde tinha expandido.
 function _cancelarCamera() {
-  _fecharCamera();
-  _camCallback = null;
+  document.getElementById('cam-fullscreen')?.remove();
+  _renderComposeFeed();
+}
+
+// Expande a câmera (já embutida na prévia) pra tela cheia — útil pra
+// enquadrar com mais precisão e dar zoom, mesma ideia de antes da unificação.
+function _composeExpandirCamera() {
+  if (!_camStream) return;
+  _renderCameraTelaCheia();
 }
 
 async function _alternarCamera() {
@@ -1429,8 +1449,7 @@ function _capturarFoto() {
   const dataUrl = _capturarFrameAtual();
   if (!dataUrl) return;
   const cb = _camCallback;
-  _fecharCamera();
-  _camCallback = null;
+  _pararCamera();
   if (cb) cb(dataUrl);
 }
 
@@ -2542,7 +2561,7 @@ function abrirNovoPostFeed() {
   _feedComposeCaption = '';
   _composeDestino = 'feed';
   _renderComposeFeed();
-  _composeAbrirCamera(); // ver comentário em abrirCompartilharTreino
+  _composeIniciarCamera(); // ver comentário em abrirCompartilharTreino
 }
 
 // De onde vêm os dados de "Último treino"/"Último cardio" — o mesmo
@@ -2589,16 +2608,10 @@ function _composeEscolherDestino(d) {
   _renderComposeFeed();
 }
 
-// Fonte "câmera ao vivo" do composer — captura entrega pro MESMO editor de
-// recorte/zoom/filtro que a galeria entrega (ver _abrirCameraAoVivo).
-function _composeAbrirCamera() {
-  _abrirCameraAoVivo((dataUrl) => _abrirEditorFotoFeed(dataUrl));
-}
-
 function _composeTrocarFoto() {
   _feedComposeImg = null;
   _renderComposeFeed();
-  _composeAbrirCamera(); // mesmo padrão de "Tirar outra" de antes: abre a câmera direto
+  _composeIniciarCamera(); // mesmo padrão de "Tirar outra" de antes: abre a câmera direto
 }
 
 function _renderComposeFeed() {
@@ -2614,6 +2627,10 @@ function _renderComposeFeed() {
   const logoSrc = isLight ? 'logo-icon-light.png' : 'logo-icon-dark.png';
   const titulo = _composeOrigem === 'cardio' ? 'Compartilhar cardio' : (_composeOrigem === 'treino' ? 'Compartilhar treino' : 'Novo post');
   const disp = _composeInfoDisponivel();
+  // Câmera embutida e ligada, sem foto escolhida ainda — mostra o vídeo ao
+  // vivo na própria caixa de prévia (ver _composeIniciarCamera), não uma
+  // tela pedindo pra escolher a fonte.
+  const camAtiva = !!_camStream && !_feedComposeImg;
 
   // Prévia (só visual, não é o que vira pixel — isso é _composeImagemFinal
   // na hora de publicar/salvar) da camada de informação por cima da foto,
@@ -2651,10 +2668,21 @@ function _renderComposeFeed() {
           ? '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:auto;max-height:420px;object-fit:cover;"/>' + infoPreviewHtml + '<img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
             '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>' +
             '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">🔄 Trocar</button>'
-          : '<div style="display:flex;flex-direction:column;gap:10px;width:80%;">' +
-              '<button onclick="_composeAbrirCamera()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#7FFF00;border:none;color:#0f1a00;">📷 Câmera ao vivo</button>' +
-              '<button onclick="document.getElementById(\'feed-compose-file-galeria\').click()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Escolher da galeria</button>' +
-            '</div>') +
+          : (camAtiva
+              // Câmera já embutida e ao vivo dentro da própria caixa — o
+              // <video> é MOVIDO pra cá depois do appendChild mais abaixo
+              // (mesmo elemento que a tela cheia usa, sem recriar o stream).
+              ? '<div id="feed-compose-cam-slot" style="position:absolute;inset:0;"></div>' +
+                '<button aria-label="Expandir" onclick="_composeExpandirCamera()" style="position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:9px;background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">' + _shareIconSvg('expandir',14) + '</button>' +
+                '<button aria-label="Escolher da galeria" onclick="_composeEscolherGaleria()" style="position:absolute;bottom:12px;left:14px;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;z-index:3;">🖼️</button>' +
+                '<button aria-label="Tirar foto" onclick="_capturarFoto()" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:60px;height:60px;border-radius:50%;background:#fff;border:4px solid rgba(127,255,0,.6);cursor:pointer;z-index:3;"></button>' +
+                '<button aria-label="Trocar câmera" onclick="_alternarCamera()" style="position:absolute;bottom:16px;right:14px;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;">' + _shareIconSvg('trocar',17) + '</button>'
+              // Sem permissão/dispositivo (ver _composeIniciarCamera): fica
+              // com os dois botões como alternativa.
+              : '<div style="display:flex;flex-direction:column;gap:10px;width:80%;">' +
+                  '<button onclick="_composeIniciarCamera()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#7FFF00;border:none;color:#0f1a00;">📷 Câmera ao vivo</button>' +
+                  '<button onclick="_composeEscolherGaleria()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Escolher da galeria</button>' +
+                '</div>')) +
       '</div>' +
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
 
@@ -2711,11 +2739,19 @@ function _renderComposeFeed() {
         : '') +
     '</div>';
   document.body.appendChild(ov);
+  // O <video> nunca é recriado aqui — só MOVIDO pro slot da prévia (mesmo
+  // elemento que a tela cheia usa, ver _renderCameraTelaCheia), sem soltar
+  // o srcObject nem piscar.
+  if (camAtiva) {
+    document.getElementById('feed-compose-cam-slot').appendChild(_camVideoEl);
+    _atualizarEstiloVideo();
+  }
 }
 
 function _composeFeedArquivoEscolhido(input) {
   const file = input.files && input.files[0];
   if (!file) return;
+  _pararCamera(); // segurança: não deixa a câmera gravando escondida atrás do editor
   const reader = new FileReader();
   reader.onload = () => { _abrirEditorFotoFeed(reader.result); };
   reader.readAsDataURL(file);
@@ -3022,7 +3058,7 @@ function _edConcluir() {
   _renderComposeFeed();
 }
 
-function _fecharComposeFeed() { document.getElementById('feed-compose-overlay')?.remove(); }
+function _fecharComposeFeed() { _pararCamera(); document.getElementById('feed-compose-overlay')?.remove(); }
 
 // ── Seletor de localização do post: mapa + busca, com opção de digitar ─────
 // Alunos treinam o mundo inteiro (a Intus não tem endereço fixo, é
