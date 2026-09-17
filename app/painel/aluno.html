@@ -11881,6 +11881,11 @@ async function salvarAutoAvaliacao() {
 
 // ═══════════════ NUTRIÇÃO DO ALUNO ═══════════════
 let _nutriPlanoAberto = null;
+// Qual opção (principal ou substituta) está sendo mostrada em cada refeição
+// — 0 = principal, 1+ = índice em refeicoes_substitutas + 1. Só afeta o que
+// aparece na tela; as metas do dia continuam calculadas em cima da refeição
+// principal (o que a nutricionista prescreveu), a opção é só pra consulta.
+let _nutriOpcaoSelecionada = {};
 
 async function renderNutricaoAluno() {
   const container = document.getElementById('v-nutricao');
@@ -11958,20 +11963,35 @@ async function renderNutricaoAluno() {
       </div>`;
   };
 
+  // Refeição substituta (opção completa alternativa, ex. "Café da manhã
+  // vegetariano") — não é o substituto de 1 alimento (esse já existia,
+  // ver itemHTML acima). O aluno escolhe entre a principal e a(s)
+  // substituta(s) só pra CONSULTA; as metas do dia continuam batendo com
+  // a refeição principal, que é o que a nutricionista de fato prescreveu.
   const refeicaoHTML = (r, idx) => {
-    const s = somaRefeicao(r);
+    const substs = Array.isArray(r.refeicoes_substitutas) ? r.refeicoes_substitutas.filter(sb => sb && (sb.itens_estruturados||[]).length) : [];
+    const opcaoAtual = Math.min(_nutriOpcaoSelecionada[idx] || 0, substs.length);
+    const itensAtuais = opcaoAtual === 0 ? (r.itens_estruturados || []) : (substs[opcaoAtual - 1].itens_estruturados || []);
+    const s = somaRefeicao({ itens_estruturados: itensAtuais });
     const aberta = _nutriPlanoAberto === idx;
+    const abasHtml = substs.length ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        ${[['Principal', 0], ...substs.map((sb, i) => [sb.nome || 'Opção ' + (i+2), i+1])].map(([lbl, op]) => `
+          <button onclick="event.stopPropagation();_nutriOpcaoSelecionada[${idx}]=${op};renderNutricaoAluno();" style="padding:5px 11px;border-radius:99px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${op===opcaoAtual?'var(--link-ex,#7FFF00)':borderC};background:${op===opcaoAtual?'rgba(127,255,0,.1)':'transparent'};color:${op===opcaoAtual?'var(--link-ex,#7FFF00)':muted};">${esc(lbl)}</button>
+        `).join('')}
+      </div>` : '';
     return `
       <div style="background:${bgCard};border:1px solid ${borderC};border-radius:12px;margin-bottom:10px;overflow:hidden;">
         <div style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="_nutriPlanoAberto=${aberta ? 'null' : idx};renderNutricaoAluno();">
           <div>
-            <div style="font-size:13px;font-weight:700;">${esc(r.nome || 'Refeição')}</div>
-            <div style="font-size:11px;color:${muted};">${esc(r.horario || '')} · ${(r.itens_estruturados||[]).length} item${(r.itens_estruturados||[]).length!==1?'s':''} · ${Math.round(s.kcal)} kcal</div>
+            <div style="font-size:13px;font-weight:700;">${esc(r.nome || 'Refeição')}${substs.length ? ` <span style="font-size:10px;color:#60a5fa;font-weight:700;">↔ ${substs.length} substituição${substs.length>1?'ões':''}</span>` : ''}</div>
+            <div style="font-size:11px;color:${muted};">${esc(r.horario || '')} · ${itensAtuais.length} item${itensAtuais.length!==1?'s':''} · ${Math.round(s.kcal)} kcal</div>
           </div>
           <div style="color:${muted};font-size:12px;">${aberta ? '▲' : '▼'}</div>
         </div>
         ${aberta ? `<div style="padding:0 14px 12px;">
-          ${(r.itens_estruturados||[]).length ? (r.itens_estruturados||[]).map(itemHTML).join('') : `<p style="font-size:12px;color:${muted};padding-top:8px;">Nenhum alimento cadastrado nesta refeição.</p>`}
+          ${abasHtml}
+          ${itensAtuais.length ? itensAtuais.map(itemHTML).join('') : `<p style="font-size:12px;color:${muted};padding-top:8px;">Nenhum alimento cadastrado nesta opção.</p>`}
         </div>` : ''}
       </div>`;
   };
