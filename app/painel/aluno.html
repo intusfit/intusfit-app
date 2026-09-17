@@ -2246,15 +2246,37 @@ async function reagirPost(idpost) {
   document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-kudos]').forEach(el => { el.outerHTML = _kudosHtml(idpost); });
 }
 
+// Coração = curtir (alterna a própria reação); o número = ver quem curtiu
+// (abrirQuemCurtiu), estilo rede social. Sem número (0 curtidas) o clique
+// no número também curte, pra nunca ser um toque morto.
 function _kudosHtml(idpost) {
   const lista = _reacoesFeed[String(idpost)] || [];
   const meu = lista.some(r => r.meu);
-  const nomes = lista.map(r => r.autor_nome || 'Alguém');
-  const titulo = nomes.length ? esc(nomes.join(', ')) + ' curtiu' : 'Curtir';
-  return '<button data-feed-kudos onclick="reagirPost(' + idpost + ')" title="' + titulo + '" ' +
-    'style="display:flex;align-items:center;gap:4px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:12px;padding:0;color:' + (meu ? '#7FFF00' : 'inherit') + ';font-weight:' + (meu ? '800' : '600') + ';">' +
-    (meu ? '❤️' : '🤍') + ' ' + lista.length +
-  '</button>';
+  const cor = meu ? '#7FFF00' : 'inherit';
+  return '<span data-feed-kudos style="display:inline-flex;align-items:center;gap:5px;font-family:inherit;font-size:12px;">' +
+    '<button onclick="reagirPost(' + idpost + ')" title="Curtir" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:13px;line-height:1;">' + (meu ? '❤️' : '🤍') + '</button>' +
+    '<span onclick="' + (lista.length ? 'abrirQuemCurtiu(' + idpost + ')' : 'reagirPost(' + idpost + ')') + '" title="' + (lista.length ? 'Ver quem curtiu' : 'Curtir') + '" style="cursor:pointer;font-weight:' + (meu ? '800' : '600') + ';color:' + cor + ';">' + lista.length + '</span>' +
+  '</span>';
+}
+
+// Lista de quem curtiu, estilo rede social — mesmo dado já carregado em
+// _reacoesFeed (autor_nome, emoji), sem endpoint novo. Mais recente primeiro.
+function abrirQuemCurtiu(idpost) {
+  const lista = (_reacoesFeed[String(idpost)] || []).slice().reverse();
+  if (!lista.length) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const itens = lista.map(r =>
+    '<div style="display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid ' + (isLight ? '#f0f0f0' : '#1e1e1e') + ';">' +
+      '<div style="width:34px;height:34px;border-radius:50%;background:' + (isLight ? '#f0f0f0' : '#1e1e1e') + ';display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">' + esc(r.emoji || '❤️') + '</div>' +
+      '<div style="flex:1;min-width:0;font-size:13.5px;font-weight:700;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(r.autor_nome || 'Alguém') + (r.meu ? ' <span style="font-weight:600;color:' + (isLight ? '#888' : '#888') + ';">(você)</span>' : '') + '</div>' +
+    '</div>'
+  ).join('');
+  openModalGenerico(
+    '<div style="padding:6px 20px 4px;">' +
+      '<div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:8px;">❤️ ' + lista.length + ' curtida' + (lista.length > 1 ? 's' : '') + '</div>' +
+      '<div style="max-height:50vh;overflow-y:auto;">' + itens + '</div>' +
+    '</div>'
+  );
 }
 
 async function carregarComentariosFeed(ids) {
