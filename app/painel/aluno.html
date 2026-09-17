@@ -1229,11 +1229,18 @@ function abrirCompartilharTreino(info) {
   try { localStorage.setItem(info.tipo === 'cardio' ? 'intus-ultimo-cardio-share' : 'intus-ultimo-treino-share', JSON.stringify(info)); } catch (e) {}
   _composeOrigem = info.tipo === 'cardio' ? 'cardio' : 'treino';
   _composeInfo = info;
+  // BUG real (achado testando a camada de recorde): faltava ligar isso —
+  // vindo de Compartilhar treino/cardio a camada de informações (figurinha+
+  // stats) sempre deveria começar LIGADA (é o próprio motivo da tela
+  // existir), mas o switch "Mostrar informações" nascia desligado e escondia
+  // até o corpo do painel (layout/figurinha/recorde), não só a prévia.
+  _composeInfoOn = true;
   // A figurinha É a do dia daquele treino (gravada em renderFim), ou a
   // sorteada na hora pro cardio. Só sorteia uma nova se for um registro
   // antigo, de antes desta trava existir.
   _composeFig = info.fig || _figPick(_figurinhasList());
   _composeIncluirFig = true;
+  _composeIncluirRecorde = true;
   _composeInfoLayoutIdx = 0;
   _composeUltimoEscolha = '';
   _composeRatioPre = 'retrato';
@@ -1517,9 +1524,25 @@ function _shareStatsRow(info, escala) {
 // incluso), não é feito aqui dentro. O composer sempre chama com nivel 0
 // hoje (a edição de foto acontece depois de capturar, não mais ciclando
 // níveis ao vivo na câmera) — o parâmetro fica pronto se isso voltar.
+// Badge de recorde pessoal — só aparece quando a sessão bateu carga máxima
+// nova em pelo menos 1 exercício (ver SessoesTreino.recordesDaSessao, a
+// única fonte desse cálculo). Mais de um recorde na mesma sessão aparecem
+// todos, um por linha, pra não esconder nenhum. Quem chama decide se esse
+// badge entra ou não (passando info com ou sem .recordes, ver
+// _composeIncluirRecorde) — mesmo padrão que a figurinha já usa.
+function _shareRecordeBadgeHtml(info, escala) {
+  const recs = info && info.recordes;
+  if (!recs || !recs.length) return '';
+  const linhas = recs.map(r => esc(r.exercicio) + ' <b>' + r.peso + 'kg</b>' + (r.reps ? ' × ' + r.reps : '')).join('<br>');
+  return `<div style="margin-bottom:${_sPx(8,escala)};padding:${_sPx(7,escala)} ${_sPx(10,escala)};border-radius:${_sPx(10,escala)};background:linear-gradient(135deg,rgba(251,191,36,.24),rgba(217,119,6,.16));border:1px solid rgba(251,191,36,.55);">
+    <div style="font-size:${_sPx(11,escala)};font-weight:900;color:#fbbf24;">🏆 ${recs.length > 1 ? 'Novos recordes pessoais!' : 'Novo recorde pessoal!'}</div>
+    <div style="font-size:${_sPx(11.5,escala)};font-weight:700;color:#fff;margin-top:2px;line-height:1.4;">${linhas}</div>
+  </div>`;
+}
 function _shareBarraInferior(info, fig, nivel, escala) {
   const n = nivel || 0;
   let html = '';
+  html += _shareRecordeBadgeHtml(info, escala);
   if (n < 2) {
     html += `<div style="display:flex;align-items:center;gap:${_sPx(12,escala)};">
       ${_shareFigMini(fig, escala)}
@@ -1610,6 +1633,7 @@ function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala) {
     ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};display:flex;flex-direction:column;align-items:center;gap:${_sPx(12,escala)};">
       ${figGrandeHtml}
       <div style="width:100%;padding:${_sPx(14,escala)} ${_sPx(16,escala)};box-sizing:border-box;background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
+        ${_shareRecordeBadgeHtml(info, escala)}
         ${n < 2 ? `<div style="display:flex;align-items:center;justify-content:center;text-align:center;">
           <div style="min-width:0;">
             <div style="font-size:${_sPx(13,escala)};color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
@@ -1758,7 +1782,7 @@ async function _compositarInfoNaFoto(dataUrl) {
   const escala = _shareEscala(cssW);
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + cssW + 'px;height:' + cssH + 'px;pointer-events:none;';
-  host.innerHTML = layout.render(_composeInfo, fig, 'LIVE', isLight, 0, escala);
+  host.innerHTML = layout.render(_composeInfoParaRender(), fig, 'LIVE', isLight, 0, escala);
   document.body.appendChild(host);
   try {
     const node = host.querySelector('.share-card');
@@ -2552,6 +2576,7 @@ let _composeInfoOn = false;
 let _composeInfoLayoutIdx = 0;
 let _composeFig = null;
 let _composeIncluirFig = true;
+let _composeIncluirRecorde = true; // ver _shareRecordeBadgeHtml — só importa quando _composeInfo.recordes tem algo
 let _composeUltimoEscolha = ''; // '' | 'treino' | 'cardio' — só relevante quando _composeInfo nasceu vazio
 let _composeDestino = 'feed';   // 'feed' | 'perfil'
 // Dimensão escolhida ANTES de tirar/escolher a foto — mesmas chaves de
@@ -2569,6 +2594,7 @@ function abrirNovoPostFeed() {
   _composeInfoLayoutIdx = 0;
   _composeFig = null;
   _composeIncluirFig = true;
+  _composeIncluirRecorde = true;
   _composeUltimoEscolha = '';
   _composeRatioPre = 'retrato';
   _feedComposeImg = null;
@@ -2608,6 +2634,7 @@ function _composeEscolherUltimo(tipo) {
   _composeUltimoEscolha = tipo;
   _composeFig = info.fig || _figPick(_figurinhasList());
   _composeIncluirFig = true;
+  _composeIncluirRecorde = true;
   _composeInfoLayoutIdx = 0;
   if (!_feedComposeCaption.trim()) _feedComposeCaption = _shareLegendaAuto(info);
   _renderComposeFeed();
@@ -2621,6 +2648,20 @@ function _composeEscolherLayout(i) {
 function _composeToggleFig() {
   _composeIncluirFig = !_composeIncluirFig;
   _renderComposeFeed();
+}
+
+function _composeToggleRecorde() {
+  _composeIncluirRecorde = !_composeIncluirRecorde;
+  _renderComposeFeed();
+}
+
+// Filtra .recordes do info antes de passar pro render() dos INFO_LAYOUTS —
+// mesmo padrão que fig/null já usa pra "incluir ou não": quem desenha o
+// template não decide, só respeita o que chega.
+function _composeInfoParaRender() {
+  if (!_composeInfo || _composeIncluirRecorde || !_composeInfo.recordes || !_composeInfo.recordes.length) return _composeInfo;
+  const { recordes, ...semRecorde } = _composeInfo;
+  return semRecorde;
 }
 
 function _composeEscolherDestino(d) {
@@ -2661,7 +2702,7 @@ function _renderComposeFeed() {
   if ((_feedComposeImg || camAtiva) && _composeInfoOn && _composeInfo) {
     const layout = INFO_LAYOUTS[_composeInfoLayoutIdx] || INFO_LAYOUTS[0];
     const escalaPrev = _shareEscala(Math.min(window.innerWidth - 32, 340));
-    infoPreviewHtml = '<div style="position:absolute;inset:0;pointer-events:none;">' + layout.render(_composeInfo, _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev) + '</div>';
+    infoPreviewHtml = '<div style="position:absolute;inset:0;pointer-events:none;">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev) + '</div>';
   }
 
   // Dimensão da prévia (foto OU câmera ao vivo, ver _composeRatioPre) — as
@@ -2744,6 +2785,15 @@ function _renderComposeFeed() {
                   '<input type="checkbox" ' + (_composeIncluirFig?'checked':'') + ' style="width:15px;height:15px;accent-color:#7FFF00;" onclick="event.stopPropagation();_composeToggleFig()"/>' +
                   'Incluir a figurinha de hoje' +
                 '</label>' +
+                // Só aparece quando essa sessão bateu recorde de verdade (ver
+                // SessoesTreino.recordesDaSessao) — não polui a tela quando não
+                // há nada a mostrar.
+                (_composeInfo.recordes && _composeInfo.recordes.length
+                  ? '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#fbbf24;margin-top:8px;cursor:pointer;font-weight:700;" onclick="event.preventDefault();_composeToggleRecorde()">' +
+                      '<input type="checkbox" ' + (_composeIncluirRecorde?'checked':'') + ' style="width:15px;height:15px;accent-color:#fbbf24;" onclick="event.stopPropagation();_composeToggleRecorde()"/>' +
+                      '🏆 Mostrar ' + (_composeInfo.recordes.length > 1 ? 'os recordes pessoais' : 'o recorde pessoal') +
+                    '</label>'
+                  : '') +
               '</div>'
         ) : '') +
       '</div>' +
@@ -3885,6 +3935,43 @@ const SessoesTreino = {
       }
     }
     return null;
+  },
+  // Recorde pessoal (carga máxima nova) por exercício, pra UMA sessão —
+  // fonte única usada na tela final, no histórico e na camada de
+  // informações do compartilhar/Novo post, pra não recalcular (e arriscar
+  // divergir) em cada tela. Regra pedida pelo Luiz: só passa a valer a
+  // partir da 4ª vez que o aluno faz aquele exercício — as 3 primeiras são
+  // só linha de base, bater "recorde" na 1ª vez que faz algo não significa
+  // nada. Séries com técnica (drop-set, rest-pause etc.) ficam fora, mesma
+  // regra já usada pra "carga máxima" no Histórico — a carga anotada nelas
+  // não representa o esforço real da série. Sessões de teste (nao_contar)
+  // também ficam fora da comparação, mesma regra do ranking.
+  recordesDaSessao(sessao) {
+    if (!sessao || !sessao.itens) return [];
+    const validas = (series) => (series || []).filter(sr => !sr.tec && parseFloat(sr.peso) > 0 && parseInt(sr.reps) > 0);
+    const anteriores = this.listarDoAtleta(sessao.idatleta)
+      .filter(s => !s.nao_contar && Number(s.idsessao) !== Number(sessao.idsessao));
+    const recordes = [];
+    sessao.itens.forEach(item => {
+      const seriesAtuais = validas(item.series);
+      if (!seriesAtuais.length) return;
+      let cargaAtual = 0, repsNaCarga = 0;
+      seriesAtuais.forEach(sr => { const p = parseFloat(sr.peso); if (p > cargaAtual) { cargaAtual = p; repsNaCarga = parseInt(sr.reps) || 0; } });
+      let ocorrenciasAnteriores = 0, cargaAnteriorMax = 0;
+      anteriores.forEach(s => {
+        const it = (s.itens || []).find(i => Number(i.idexercicio) === Number(item.idexercicio));
+        if (!it) return;
+        const seriesPrevias = validas(it.series);
+        if (!seriesPrevias.length) return;
+        ocorrenciasAnteriores++;
+        seriesPrevias.forEach(sr => { const p = parseFloat(sr.peso); if (p > cargaAnteriorMax) cargaAnteriorMax = p; });
+      });
+      if (ocorrenciasAnteriores < 3) return;
+      if (cargaAtual > cargaAnteriorMax) {
+        recordes.push({ idexercicio: item.idexercicio, exercicio: item.nmexercicio || 'Exercício', peso: cargaAtual, reps: repsNaCarga });
+      }
+    });
+    return recordes;
   },
 };
 
@@ -6029,6 +6116,9 @@ function renderFim(duracao, sessaoSalva) {
   // que vai pro cartão de compartilhar, mesmo que o aluno abra o cartão só
   // mais tarde (pela Central, por ex.) — sem isso, cada tela sorteava a sua.
   const figDoDia = _figPick(_figurinhasList());
+  // Ver SessoesTreino.recordesDaSessao — fonte única, reaproveitada aqui, no
+  // Histórico e na camada de informações do compartilhar/Novo post.
+  const recordesFim = SessoesTreino.recordesDaSessao(sessaoSalva);
   // Guardado pro botão "Compartilhar treino" — e pra Central de Compartilhamento
   // conseguir reabrir com os dados do ÚLTIMO treino mesmo fora desta tela.
   const _shareInfo = {
@@ -6036,7 +6126,7 @@ function renderFim(duracao, sessaoSalva) {
     nomeTreino: nomeTreino, divisao: sessaoAtual.divisao,
     min: min, sec: sec, volume: volSessao,
     seriesFeitas: seriesFeitas, seriesTotal: seriesTotal, pctCompleto: pctCompleto,
-    fig: figDoDia, mensagem: mensagem,
+    fig: figDoDia, mensagem: mensagem, recordes: recordesFim,
   };
   try { localStorage.setItem('intus-ultimo-treino-share', JSON.stringify(_shareInfo)); } catch (e) {}
 
@@ -6053,6 +6143,11 @@ function renderFim(duracao, sessaoSalva) {
       <h2 style="font-size:22px;letter-spacing:2px;margin-bottom:6px;color:${txtColor};">TREINO FINALIZADO</h2>
       <p style="font-size:15px;font-weight:600;margin-bottom:10px;color:${subColor};">${esc(mensagem)}</p>
       <div style="margin-bottom:20px;">${figurinhaAleatoriaHtml(isLight, figDoDia)}</div>
+
+      ${recordesFim.length ? `<div style="max-width:320px;width:100%;margin-bottom:16px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(217,119,6,.1));border:1px solid rgba(251,191,36,.4);text-align:left;">
+        <div style="font-size:14px;font-weight:900;color:${isLight?'#92400e':'#fbbf24'};margin-bottom:6px;">🏆 ${recordesFim.length > 1 ? 'Novos recordes pessoais!' : 'Novo recorde pessoal!'}</div>
+        ${recordesFim.map(r => `<div style="font-size:13px;font-weight:700;color:${txtColor};margin-top:2px;">${esc(r.exercicio)} — <span style="color:${isLight?'#92400e':'#fbbf24'};">${r.peso}kg</span>${r.reps ? ' × ' + r.reps : ''}</div>`).join('')}
+      </div>` : ''}
 
       <div id="fim-conquistas"></div>
 
@@ -6746,6 +6841,13 @@ function renderHistorico() {
         ? `⏱️ ${durMin}min${ptsLbl}${cardioExtra ? ' • ' + esc(cardioExtra) : ''}`
         : `⏱️ ${durMin}min${totalKgReps > 0 ? ` • 🏋️ ${Math.round(totalKgReps).toLocaleString('pt-BR')} kg` : ''}${s.marcado_como_feito ? ' • Marcado como feito' : ` • ${seriesP} séries`}${ptsLbl}`;
       const comentHtml = (!ehCardio && s.comentario) ? `<div class="hist-comment">💬 "${esc(s.comentario)}"</div>` : '';
+      // Mesma fonte usada na tela final e no compartilhar (ver
+      // SessoesTreino.recordesDaSessao) — retroativo, então uma sessão antiga
+      // também mostra o badge se na época ela bateu carga máxima nova.
+      const recsHist = (!ehCardio && !s.nao_contar) ? SessoesTreino.recordesDaSessao(s) : [];
+      const recordeHtml = recsHist.length
+        ? `<div style="margin-top:6px;font-size:11px;font-weight:800;color:#fbbf24;">🏆 ${recsHist.map(r => esc(r.exercicio) + ' ' + r.peso + 'kg').join(' · ')}</div>`
+        : '';
 
       const rotulo = ehCardio ? (s.cardio_tipo || 'Cardio') : ('Divisão ' + (s.divisao || ''));
       html += `<div class="hist-card" style="${baseStyle}">
@@ -6757,6 +6859,7 @@ function renderHistorico() {
           </div>
         </div>
         <div class="hist-sub">${subHtml}</div>
+        ${recordeHtml}
         ${alertaLbl ? `<div style="font-size:11px;color:#f59e0b;margin-top:4px;">${alertaLbl}</div>` : ''}
         ${comentHtml}
       </div>`;
