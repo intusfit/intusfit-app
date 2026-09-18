@@ -311,7 +311,7 @@ function renderLista() {
   let fichasComInfo = fichas.map(f => {
     const aluno = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
     const exs = treinos.filter(t => Number(t.idficha) === Number(f.idficha));
-    const divs = [...new Set(exs.map(t => t.divisao || 'A'))].sort();
+    const divs = API.ordenarDivisoes(exs.map(t => t.divisao || 'A'), f);
     // Ficha vencida há mais de 2 dias conta como inativa automaticamente
     const ativo = fichaAtivaEfetiva(f);
     return { ...f, aluno, exs, divs, ativo };
@@ -518,7 +518,7 @@ function toggleFiltroProf(id) {
 }
 
 function novoTreino() { editFichaId = null; editorState = {}; view = 'editor'; render(); }
-function novoTreinoParaAluno(idatleta) { editFichaId = null; editorState = { init: true, fichaId: null, nome: '', atletaId: idatleta, observacao: '', dtinicio: new Date().toISOString().slice(0,10), validade: '', ativo: true, exercicios: [], alongamentos: [], divNomes: {}, tabAtiva: 'A', secaoAlong: true, secaoEx: true }; view = 'editor'; render(); }
+function novoTreinoParaAluno(idatleta) { editFichaId = null; editorState = { init: true, fichaId: null, nome: '', atletaId: idatleta, observacao: '', dtinicio: new Date().toISOString().slice(0,10), validade: '', ativo: true, exercicios: [], alongamentos: [], divNomes: {}, divOrdem: [], tabAtiva: 'A', secaoAlong: true, secaoEx: true }; view = 'editor'; render(); }
 function abrirFicha(id) { editFichaId = id; view = 'editor'; render(); }
 
 async function duplicarFicha(id) {
@@ -542,6 +542,7 @@ async function duplicarFicha(id) {
       // e a tela caia no rotulo generico A, B, C — o conteudo vinha certo, so o
       // nome da divisao se perdia.  A API espera a chave 'divNomes'.
       divNomes: ficha.divNomes || null,
+      divOrdem: ficha.divOrdem || null,
     });
     let _copiado = false;
     try {
@@ -854,13 +855,14 @@ function renderEditor() {
       exercicios: fichaExs.map(t => ({...t})),
       alongamentos: (ficha && ficha.alongamentos) ? ficha.alongamentos.map(a => ({...a})) : [],
       divNomes: (ficha && ficha.divNomes) ? {...ficha.divNomes} : {},
+      divOrdem: (ficha && Array.isArray(ficha.divOrdem)) ? [...ficha.divOrdem] : [],
       tabAtiva: 'A', secaoAlong: true, secaoEx: true,
     };
   }
 
-  const divs = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))].sort();
-  if (!divs.includes(editorState.tabAtiva) && divs.length > 0) editorState.tabAtiva = divs[0];
+  const divs = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
   if (divs.length === 0) divs.push('A');
+  editorState.divOrdem = divs; // mantém a ordem persistida sempre em sincronia com as divisões atuais
   if (!divs.includes(editorState.tabAtiva)) editorState.tabAtiva = divs[0];
 
   const alunoAtual = atletas.find(a => Number(a.idatleta) === Number(editorState.atletaId));
@@ -926,7 +928,8 @@ function renderEditor() {
               const count = editorState.exercicios.filter(e => (e.divisao||'A') === d && !e._placeholder).length;
               const divName = editorState.divNomes && editorState.divNomes[d] ? editorState.divNomes[d] : 'Divisão ' + d;
               const isActive = d === editorState.tabAtiva;
-              return `<button class="tab-btn${isActive?' active':''}" onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')">${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
+              const dragAttrs = readOnly ? '' : `draggable="true" ondragstart="_divDragStart(event,'${d}')" ondragover="_divDragOver(event)" ondrop="_divDrop(event,'${d}')" ondragend="_divDragEnd(event)"`;
+              return `<button class="tab-btn${isActive?' active':''}" ${dragAttrs} onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')" title="${readOnly ? '' : 'Arraste para reordenar'}">${!readOnly ? '<span style="opacity:.45;cursor:grab;">⠿</span> ' : ''}${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
             }).join('')}
           </div>
           ${!readOnly ? `<button class="btn btn-secondary btn-sm" onclick="adicionarDivisao()">+ Divisão</button>
@@ -1386,6 +1389,31 @@ function updateMetodo(idx, val) { const r = getExReal(idx); if (r >= 0) editorSt
 
 function voltarLista() { view = 'lista'; editorState = {}; render(); }
 function trocarTab(d) { editorState.tabAtiva = d; renderEditor(); }
+
+// Reordenar divisões arrastando as abas — a ordem final fica em editorState.divOrdem
+// e é salva na ficha (divOrdem), refletindo na tela de escolha de treino do aluno.
+let _dragDivLetra = null;
+function _divDragStart(ev, d) {
+  _dragDivLetra = d;
+  ev.dataTransfer.effectAllowed = 'move';
+  try { ev.dataTransfer.setData('text/plain', d); } catch (e) {}
+  ev.currentTarget.style.opacity = '.4';
+}
+function _divDragOver(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; }
+function _divDrop(ev, dAlvo) {
+  ev.preventDefault();
+  const origem = _dragDivLetra;
+  if (!origem || origem === dAlvo) return;
+  const divs = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
+  const fromIdx = divs.indexOf(origem);
+  const toIdx = divs.indexOf(dAlvo);
+  if (fromIdx < 0 || toIdx < 0) return;
+  divs.splice(fromIdx, 1);
+  divs.splice(toIdx, 0, origem);
+  editorState.divOrdem = divs;
+  renderEditor();
+}
+function _divDragEnd(ev) { _dragDivLetra = null; if (ev.currentTarget) ev.currentTarget.style.opacity = ''; }
 function renomearDivisao(d) {
   const atual = (editorState.divNomes && editorState.divNomes[d]) ? editorState.divNomes[d] : 'Divisão ' + d;
   const novo = prompt('Nome da divisão ' + d + ':', atual);
@@ -1443,7 +1471,8 @@ function excluirDivisao() {
   editorState.exercicios = editorState.exercicios.filter(e => (e.divisao || 'A') !== div);
   if (editorState.alongamentos) editorState.alongamentos = editorState.alongamentos.filter(a => (a.divisao || 'A') !== div);
   if (editorState.divNomes) delete editorState.divNomes[div];
-  const remaining = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))].sort();
+  if (editorState.divOrdem) editorState.divOrdem = editorState.divOrdem.filter(d2 => d2 !== div);
+  const remaining = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
   editorState.tabAtiva = remaining[0] || 'A';
   showToast(`${divName} excluída.`);
   renderEditor();
@@ -1676,6 +1705,7 @@ async function salvarFichaCompleta() {
         dtinicio: editorState.dtinicio || null, dtfim: editorState.validade || null,
         ativo: editorState.ativo ? 1 : 0, alongamentos: editorState.alongamentos,
         divNomes: editorState.divNomes || {},
+        divOrdem: editorState.divOrdem || [],
       });
     } else {
       const nova = await API.criarFicha({
@@ -1684,6 +1714,7 @@ async function salvarFichaCompleta() {
         dtfim: editorState.validade || null, observacao: editorState.observacao.trim(),
         ativo: editorState.ativo ? 1 : 0, alongamentos: editorState.alongamentos,
         divNomes: editorState.divNomes || {},
+        divOrdem: editorState.divOrdem || [],
       });
       fichaId = nova.idficha;
     }
@@ -1801,6 +1832,7 @@ async function restaurarLixeira(idx) {
       dtinicio: item.ficha.dtinicio, dtfim: item.ficha.dtfim,
       observacao: item.ficha.observacao || '', ativo: 1,
       alongamentos: item.ficha.alongamentos || null, divNomes: item.ficha.divNomes || null,
+      divOrdem: item.ficha.divOrdem || null,
     });
     for (const ex of item.exercicios) {
       await API.adicionarExercicioFicha({

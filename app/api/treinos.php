@@ -117,6 +117,7 @@ function ensureTables(PDO $pdo) {
     if (!in_array('ativo', $fcols)) $pdo->exec("ALTER TABLE intus_ficha ADD COLUMN ativo TINYINT NOT NULL DEFAULT 1 AFTER observacao");
     if (!in_array('alongamentos', $fcols)) $pdo->exec("ALTER TABLE intus_ficha ADD COLUMN alongamentos TEXT NULL AFTER ativo");
     if (!in_array('div_nomes', $fcols)) $pdo->exec("ALTER TABLE intus_ficha ADD COLUMN div_nomes TEXT NULL AFTER alongamentos");
+    if (!in_array('div_ordem', $fcols)) $pdo->exec("ALTER TABLE intus_ficha ADD COLUMN div_ordem TEXT NULL AFTER div_nomes");
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_treino (
             idtreino     INT AUTO_INCREMENT PRIMARY KEY,
@@ -224,6 +225,11 @@ function fichaRowToOut($r) {
         $tmp = json_decode($r['div_nomes'], true);
         if (is_array($tmp)) $divNomes = (object)$tmp;
     }
+    $divOrdem = null;
+    if (isset($r['div_ordem']) && $r['div_ordem'] !== null && $r['div_ordem'] !== '') {
+        $tmp = json_decode($r['div_ordem'], true);
+        if (is_array($tmp)) $divOrdem = array_values($tmp);
+    }
     return [
         'idficha'      => (int)$r['idficha'],
         'idatleta'     => (int)$r['idatleta'],
@@ -234,6 +240,7 @@ function fichaRowToOut($r) {
         'ativo'        => (int)($r['ativo'] ?? 1),
         'alongamentos' => $alongs,
         'divNomes'     => $divNomes,
+        'divOrdem'     => $divOrdem,
     ];
 }
 // Carrega mapa id->nome do catálogo uma vez por request
@@ -420,7 +427,9 @@ try {
             if (isset($b['alongamentos']) && is_array($b['alongamentos'])) $alongs = json_encode($b['alongamentos']);
             $divNomes = null;
             if (isset($b['divNomes']) && is_array($b['divNomes'])) $divNomes = json_encode($b['divNomes']);
-            $st = $pdo->prepare("INSERT INTO intus_ficha (idatleta, nmficha, dtinicio, dtfim, observacao, ativo, alongamentos, div_nomes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $divOrdem = null;
+            if (isset($b['divOrdem']) && is_array($b['divOrdem'])) $divOrdem = json_encode(array_values($b['divOrdem']));
+            $st = $pdo->prepare("INSERT INTO intus_ficha (idatleta, nmficha, dtinicio, dtfim, observacao, ativo, alongamentos, div_nomes, div_ordem) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $st->execute([
                 $idat,
                 $b['nmficha'] ?? 'Ficha',
@@ -430,6 +439,7 @@ try {
                 (int)($b['ativo'] ?? 1),
                 $alongs,
                 $divNomes,
+                $divOrdem,
             ]);
             $id = (int)$pdo->lastInsertId();
             $row = $pdo->query("SELECT * FROM intus_ficha WHERE idficha = $id")->fetch(PDO::FETCH_ASSOC);
@@ -453,6 +463,10 @@ try {
             if (array_key_exists('divNomes', $b)) {
                 $sets[] = "div_nomes = ?";
                 $vals[] = is_array($b['divNomes']) ? json_encode($b['divNomes']) : null;
+            }
+            if (array_key_exists('divOrdem', $b)) {
+                $sets[] = "div_ordem = ?";
+                $vals[] = is_array($b['divOrdem']) ? json_encode(array_values($b['divOrdem'])) : null;
             }
             if (!$sets) { echo json_encode(['ok' => true, 'noop' => true]); exit; }
             $vals[] = $id;

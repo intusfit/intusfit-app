@@ -2176,6 +2176,17 @@ const API = {
     Store.set(key, lista);
   },
 
+  // Ordem das divisões (A, B, C...) de uma ficha: respeita ficha.divOrdem (definida
+  // pelo professor em treinos.html), com qualquer divisão nova/órfã sem posição salva
+  // (ficha antiga, ou divisão criada depois do último save) entrando no fim em ordem alfabética.
+  ordenarDivisoes: (letras, ficha) => {
+    const presentes = Array.from(new Set((letras || []).filter(Boolean)));
+    const ordem = (ficha && Array.isArray(ficha.divOrdem)) ? ficha.divOrdem : [];
+    const emOrdem = ordem.filter(d => presentes.includes(d));
+    const orfas = presentes.filter(d => !emOrdem.includes(d)).sort();
+    return emOrdem.concat(orfas);
+  },
+
   // Lista TODAS as fichas (cross-aluno) - para uso em treinos.html / dashboard
   listarFichas: () => tryRemoteOrLocal(
     async () => {
