@@ -16,8 +16,8 @@
 
     /* ─── Dashboard / feed ─── */
     .dash-wrap { max-width: 960px; margin: 0 auto; }
-    .dash-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
-    @media (max-width:760px) { .dash-tiles { grid-template-columns:repeat(2,1fr); } }
+    .dash-tiles { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:18px; }
+    @media (max-width:760px) { .dash-tiles { grid-template-columns:repeat(3,1fr); } }
     .dash-tile { background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; cursor:pointer; transition:.14s; position:relative; overflow:hidden; }
     .dash-tile:hover { border-color:var(--brand); transform:translateY(-1px); }
     .dash-tile.active { border-color:var(--brand); box-shadow:0 0 0 1px var(--brand) inset; }
@@ -105,7 +105,7 @@ const isAdm = isAdmin();
 
 // modo: 'atividade' (feed) | 'conversas' (chat)
 let mode = 'atividade';
-let dashFilter = 'tudo';   // tudo | mensagem | comentario | mural | foto
+let dashFilter = 'tudo';   // tudo | mensagem | comentario | mural | foto | post
 let dashSoNovas = false;
 let dashPeriodo = '30';    // '7' | '30' | 'tudo'
 let dashBusca = '';
@@ -116,6 +116,9 @@ let mensagens = [];
 let comentarios = [];
 let muralComentarios = [];
 let sessoesFotos = [];
+let feedPosts = [];
+let feedAtletasMap = {}; // idatleta -> nome, devolvido pelo próprio GET de feed_posts — cobre
+                          // alunos de outros professores, que "atletas" (só os meus) não tem
 let polling = null;
 
 // Faltava risada, comemoracao e surpresa — as tres reacoes que mais aparecem
@@ -188,6 +191,7 @@ const TIPO = {
   comentario: { cor:'#60a5fa', ic:'📝', label:'Comentário', bg:'rgba(96,165,250,.14)' },
   mural:      { cor:'#f59e0b', ic:'🏆', label:'Mural',      bg:'rgba(245,158,11,.14)' },
   foto:       { cor:'#22d3ee', ic:'📷', label:'Foto cardio', bg:'rgba(34,211,238,.14)' },
+  post:       { cor:'#a78bfa', ic:'📣', label:'Post no Feed', bg:'rgba(167,139,250,.14)' },
 };
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -249,6 +253,19 @@ async function carregar() {
       .filter(s => Number(s.tem_foto) === 1 && idsMeus.has(Number(s.idatleta)));
   } catch { sessoesFotos = []; }
 
+  // Feed dos Alunos: mesmo endpoint que o app do aluno usa pra listar —
+  // sem o parâmetro idatleta, o servidor já devolve só posts com
+  // destino='feed' (os públicos; "só meu perfil" fica de fora de propósito,
+  // são mais privados). Pra admin poder excluir, ver excluirPostFeed.
+  try {
+    const apiBase = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+    const tok = localStorage.getItem('mx-token') || '';
+    const r = await fetch(apiBase + '/catalogo.php?action=feed_posts&limite=100', { headers: { 'Authorization': 'Bearer ' + tok }, cache: 'no-store' });
+    const j = r.ok ? await r.json() : null;
+    feedPosts = (j && Array.isArray(j.posts)) ? j.posts : [];
+    feedAtletasMap = (j && j.atletas) || {};
+  } catch { feedPosts = []; feedAtletasMap = {}; }
+
   render();
 }
 
@@ -278,6 +295,12 @@ function buildEventos() {
       texto:(s.cardio_tipo || 'Cardio') + (s.cardio_rpe ? ' · esforço ' + s.cardio_rpe + '/10' : ''),
       idsessao:s.idsessao, novo:recente });
   });
+  feedPosts.forEach(p => {
+    const recente = (Date.now() - tsOf(p.created_at)) < 7 * 864e5;
+    evs.push({ tipo:'post', idatleta:Number(p.idatleta), nome: feedAtletasMap[p.idatleta] || nomeAtleta(p.idatleta) || 'Aluno',
+      ts:tsOf(p.created_at), quando:fmtDt(p.created_at), texto: p.legenda || '(sem legenda)',
+      idpost:p.idpost, imagem:p.imagem, novo:recente });
+  });
   return evs.sort((a, b) => b.ts - a.ts);
 }
 
@@ -288,6 +311,7 @@ function contarPorTipo() {
     comentario: all.filter(e => e.tipo === 'comentario' && e.novo).length,
     mural:      all.filter(e => e.tipo === 'mural' && e.novo).length,
     foto:       all.filter(e => e.tipo === 'foto' && e.novo).length,
+    post:       all.filter(e => e.tipo === 'post' && e.novo).length,
     novasTotal: all.filter(e => e.novo).length,
   };
 }
@@ -324,7 +348,7 @@ function renderDashboard(c) {
   const total = list.length;
   list = list.slice(0, 150);
 
-  const chips = [['tudo','Tudo'],['mensagem','💬 Mensagens'],['comentario','📝 Comentários'],['mural','🏆 Mural'],['foto','📷 Fotos']];
+  const chips = [['tudo','Tudo'],['mensagem','💬 Mensagens'],['comentario','📝 Comentários'],['mural','🏆 Mural'],['foto','📷 Fotos'],['post','📣 Feed']];
 
   return `<div class="dash-wrap">
     <div class="dash-tiles">
@@ -332,6 +356,7 @@ function renderDashboard(c) {
       ${tile('comentario','📝', c.comentario, 'Comentários sem resposta')}
       ${tile('foto','📷', c.foto, 'Fotos de cardio (7 dias)')}
       ${tile('mural','🏆', c.mural, 'Mural recente (7 dias)')}
+      ${tile('post','📣', c.post, 'Posts no Feed (7 dias)')}
     </div>
 
     <div class="dash-controls">
@@ -371,8 +396,11 @@ function renderFeedCard(ev) {
   } else if (ev.tipo === 'mural') {
     acoes = htmlReacoesMural(Number(ev.idcomentario))
       + (isAdm ? `<button class="feed-btn" style="color:#f87171;border-color:rgba(248,113,113,.4);margin-top:6px;" onclick="excluirComentarioMural(${Number(ev.idcomentario)})">🗑️ Excluir</button>` : '');
+  } else if (ev.tipo === 'post') {
+    acoes = (ev.imagem ? `<a href="${esc(ev.imagem)}" target="_blank" rel="noopener" class="feed-btn primary">🖼️ Ver foto</a>` : '')
+      + (isAdm ? `<button class="feed-btn" style="color:#f87171;border-color:rgba(248,113,113,.4);margin-top:6px;" onclick="excluirPostFeed(${Number(ev.idpost)})">🗑️ Excluir</button>` : '');
   }
-  const textoHtml = (ev.tipo === 'comentario' || ev.tipo === 'mural')
+  const textoHtml = (ev.tipo === 'comentario' || ev.tipo === 'mural' || ev.tipo === 'post')
     ? `<div class="feed-text quote">"${esc(ev.texto)}"</div>`
     : `<div class="feed-text">${esc(ev.texto)}</div>`;
   return `<li class="feed-card ${ev.novo?'novo':''}" style="border-left-color:${t.cor};">
@@ -527,6 +555,27 @@ async function excluirComentarioMural(idcomentario) {
     render();
     showToast('Comentário excluído.', 'success');
   } catch { showToast('Erro ao excluir comentário', 'error'); }
+}
+
+// Mesmo endpoint que o app do aluno usa pra excluir o próprio post
+// (DELETE /catalogo.php?action=feed_posts) — o servidor só bloqueia a
+// exclusão de post alheio quando quem pede é um token de ALUNO; um token
+// de professor/admin (que é o que esta tela sempre usa) já passa direto,
+// sem precisar de nenhuma mudança no backend.
+async function excluirPostFeed(idpost) {
+  if (!isAdm) return;
+  if (!confirm('Excluir este post do Feed dos Alunos? Essa ação não pode ser desfeita.')) return;
+  try {
+    const apiBase = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+    const tok = localStorage.getItem('mx-token') || '';
+    const r = await fetch(apiBase + '/catalogo.php?action=feed_posts&id=' + idpost, {
+      method: 'DELETE', headers: { 'Authorization': 'Bearer ' + tok },
+    });
+    if (!r.ok) throw new Error();
+    feedPosts = feedPosts.filter(p => Number(p.idpost) !== Number(idpost));
+    render();
+    showToast('Post excluído.', 'success');
+  } catch { showToast('Erro ao excluir post', 'error'); }
 }
 
 // Foto do cardio (comprovação anexada pelo aluno)
