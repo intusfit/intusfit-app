@@ -934,6 +934,7 @@ function renderEditor() {
           </div>
           ${!readOnly ? `<button class="btn btn-secondary btn-sm" onclick="adicionarDivisao()">+ Divisão</button>
           <button class="btn btn-secondary btn-sm" onclick="duplicarDivisao()" title="Duplicar exercícios, alongamentos e observações para a próxima divisão">⧉ Duplicar</button>
+          <button class="btn btn-secondary btn-sm" onclick="abrirImportarDivisao()" title="Trazer uma divisão pronta de outro treino, do mesmo aluno ou de outro">📥 Importar divisão</button>
           <button class="btn btn-secondary btn-sm" onclick="excluirDivisao()" title="Excluir somente esta divisão" style="color:var(--danger);">🗑️ Excluir divisão</button>` : ''}
         </div>
       </div>
@@ -1459,6 +1460,118 @@ function duplicarDivisao() {
   placeholders.forEach(p => { const i = editorState.exercicios.indexOf(p); if (i >= 0) editorState.exercicios.splice(i, 1); });
   editorState.tabAtiva = proxima;
   showToast(`Divisão ${divAtual} duplicada para ${proxima} (exercícios + alongamentos)!`);
+  renderEditor();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORTAR DIVISÃO DE OUTRO TREINO (mesmo aluno ou outro)
+// ═══════════════════════════════════════════════════════════════
+function abrirImportarDivisao() {
+  const alunosOrdenados = [...atletas].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  const optAlunos = alunosOrdenados.map(a => `<option value="${a.idatleta}" ${Number(a.idatleta) === Number(editorState.atletaId) ? 'selected' : ''}>${esc(a.nome)}</option>`).join('');
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">📥 Importar Divisão</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="label">Aluno</label>
+        <select id="imp-aluno" class="input" onchange="_impRefreshFichas()">${optAlunos}</select>
+      </div>
+      <div class="form-group" style="margin-top:10px;">
+        <label class="label">Treino (ficha)</label>
+        <select id="imp-ficha" class="input" onchange="_impRefreshDivs()"></select>
+      </div>
+      <div class="form-group" style="margin-top:10px;">
+        <label class="label">Divisão</label>
+        <select id="imp-div" class="input" onchange="_impRefreshPreview()"></select>
+      </div>
+      <div id="imp-preview" style="margin-top:12px;font-size:12px;color:var(--text-muted);line-height:1.6;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarImportarDivisao()">Importar</button>
+    </div>
+  `);
+  _impRefreshFichas();
+}
+
+function _impRefreshFichas() {
+  const idatleta = document.getElementById('imp-aluno').value;
+  const selFicha = document.getElementById('imp-ficha');
+  const lista = fichas.filter(f => Number(f.idatleta) === Number(idatleta) && Number(f.idficha) !== Number(editFichaId));
+  selFicha.innerHTML = lista.length
+    ? lista.map(f => `<option value="${f.idficha}">${esc(f.nmficha || 'Ficha')}</option>`).join('')
+    : `<option value="">Nenhum outro treino deste aluno</option>`;
+  _impRefreshDivs();
+}
+
+function _impRefreshDivs() {
+  const fichaId = document.getElementById('imp-ficha').value;
+  const selDiv = document.getElementById('imp-div');
+  const ficha = fichas.find(f => Number(f.idficha) === Number(fichaId));
+  if (!ficha) { selDiv.innerHTML = `<option value="">—</option>`; _impRefreshPreview(); return; }
+  const exsFicha = treinos.filter(t => Number(t.idficha) === Number(fichaId));
+  const divs = API.ordenarDivisoes(exsFicha.map(t => t.divisao || 'A'), ficha);
+  selDiv.innerHTML = divs.length
+    ? divs.map(d => {
+        const nm = (ficha.divNomes && ficha.divNomes[d]) ? ficha.divNomes[d] : 'Divisão ' + d;
+        const count = exsFicha.filter(t => (t.divisao || 'A') === d).length;
+        return `<option value="${d}">${esc(nm)} (${count} exerc.)</option>`;
+      }).join('')
+    : `<option value="">Este treino não tem divisões</option>`;
+  _impRefreshPreview();
+}
+
+function _impRefreshPreview() {
+  const fichaId = document.getElementById('imp-ficha').value;
+  const div = document.getElementById('imp-div').value;
+  const prev = document.getElementById('imp-preview');
+  if (!fichaId || !div) { prev.innerHTML = ''; return; }
+  const exs = treinos.filter(t => Number(t.idficha) === Number(fichaId) && (t.divisao || 'A') === div);
+  prev.innerHTML = exs.length ? '• ' + exs.map(e => esc(e.nmexercicio)).join('<br>• ') : 'Sem exercícios nesta divisão.';
+}
+
+function confirmarImportarDivisao() {
+  const idatleta = document.getElementById('imp-aluno').value;
+  const fichaId = document.getElementById('imp-ficha').value;
+  const divOrigem = document.getElementById('imp-div').value;
+  if (!fichaId || !divOrigem) return showToast('Escolha um treino e uma divisão.', 'error');
+  const fichaOrigem = fichas.find(f => Number(f.idficha) === Number(fichaId));
+  const exsOrigem = treinos.filter(t => Number(t.idficha) === Number(fichaId) && (t.divisao || 'A') === divOrigem);
+  if (!exsOrigem.length) return showToast('Essa divisão não tem exercícios para importar.', 'error');
+
+  const existentes = [...new Set(editorState.exercicios.map(e => e.divisao || 'A'))];
+  if (existentes.length === 0) existentes.push('A');
+  const destino = 'ABCDEFGH'.split('').find(l => !existentes.includes(l));
+  if (!destino) { closeModal(); return showToast('Máximo de divisões atingido.', 'error'); }
+
+  exsOrigem.forEach(ex => {
+    editorState.exercicios.push({
+      ...JSON.parse(JSON.stringify(ex)),
+      divisao: destino,
+      idficha: undefined,
+      idtreino: undefined,
+    });
+  });
+
+  const alongsOrigem = (fichaOrigem.alongamentos || []).filter(a => (a.divisao || 'A') === divOrigem);
+  if (alongsOrigem.length) {
+    if (!editorState.alongamentos) editorState.alongamentos = [];
+    editorState.alongamentos.push(...alongsOrigem.map(a => ({ ...JSON.parse(JSON.stringify(a)), divisao: destino })));
+  }
+
+  const nomeOrigem = (fichaOrigem.divNomes && fichaOrigem.divNomes[divOrigem]) ? fichaOrigem.divNomes[divOrigem] : null;
+  if (nomeOrigem) {
+    if (!editorState.divNomes) editorState.divNomes = {};
+    const deOutroAluno = Number(idatleta) !== Number(editorState.atletaId);
+    editorState.divNomes[destino] = deOutroAluno ? `${nomeOrigem} (importada)` : nomeOrigem;
+  }
+
+  editorState.tabAtiva = destino;
+  closeModal();
+  showToast(`Divisão importada como ${destino}!`);
   renderEditor();
 }
 
