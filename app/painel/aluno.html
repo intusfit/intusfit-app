@@ -8006,6 +8006,16 @@ function _haversineM(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Tela travada (ou o navegador jogando a aba pra segundo plano) faz o SO
+// parar de entregar posição de GPS por completo — não dá pra contornar isso
+// num app web (só um nativo com permissão de localização em 2º plano
+// resolve de vez, já encaminhado à parte). O que dá pra evitar É continuar
+// tratando essa lacuna como se nada tivesse acontecido: uma pausa de GPS
+// bem maior que o intervalo normal de leitura quase certamente é isso, não
+// o aluno parado — 20s é bem acima do intervalo típico (a cada poucos
+// segundos, mesmo parado, com maximumAge de 2s).
+const CARDIO_LIVE_GAP_S = 20;
+
 function _cardioLiveOnPos(pos) {
   const { latitude, longitude, accuracy } = pos.coords;
   // GPS impreciso (predio, mata fechada) infla a distancia sozinho — descarta
@@ -8014,14 +8024,36 @@ function _cardioLiveOnPos(pos) {
   const novo = { lat: latitude, lng: longitude, t: Date.now() };
   const anterior = _cardioLivePontos[_cardioLivePontos.length - 1];
   if (anterior) {
-    const d = _haversineM(anterior.lat, anterior.lng, novo.lat, novo.lng);
     const dtS = (novo.t - anterior.t) / 1000;
-    // Acima de 10 m/s (36 km/h) sustentado e quase sempre erro de GPS, nao o aluno.
-    if (dtS > 0 && (d / dtS) < 10) _cardioLiveDistM += d;
+    if (dtS > CARDIO_LIVE_GAP_S) {
+      // Lacuna de GPS grande: não soma a distância do "pulo" (seria uma linha
+      // reta que o aluno nunca percorreu) e marca como início de um novo
+      // trecho, pro mapa não ligar os dois lados com uma linha reta.
+      novo.novoTrecho = true;
+    } else {
+      const d = _haversineM(anterior.lat, anterior.lng, novo.lat, novo.lng);
+      // Acima de 10 m/s (36 km/h) sustentado e quase sempre erro de GPS, nao o aluno.
+      if (dtS > 0 && (d / dtS) < 10) _cardioLiveDistM += d;
+    }
   }
   _cardioLivePontos.push(novo);
   _atualizarStatsCardioLive();
   _cardioLiveSalvarAtivo();
+}
+
+// Divide os pontos rastreados em trechos contínuos, cortando onde
+// _cardioLiveOnPos marcou uma lacuna de GPS grande demais — ver comentário
+// lá. Usado pelos dois jeitos de desenhar a rota (mapa real e esboço SVG)
+// pra nenhum dos dois ligar os trechos com uma linha reta inventada.
+function _cardioLiveSegmentos() {
+  const segs = [];
+  let atual = [];
+  _cardioLivePontos.forEach(p => {
+    if (p.novoTrecho && atual.length) { segs.push(atual); atual = []; }
+    atual.push(p);
+  });
+  if (atual.length) segs.push(atual);
+  return segs;
 }
 
 function _cardioLiveIniciarRastreio() {
@@ -8155,14 +8187,19 @@ function _desenharRotaCardioLive() {
   const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
   const W = 280, H = 160, PAD = 16;
   const spanLat = Math.max(maxLat - minLat, 0.0003), spanLng = Math.max(maxLng - minLng, 0.0003);
-  const coords = _cardioLivePontos.map(p => [
+  const toXY = p => [
     PAD + ((p.lng - minLng) / spanLng) * (W - PAD * 2),
     (H - PAD) - ((p.lat - minLat) / spanLat) * (H - PAD * 2),
-  ]);
-  const pts = coords.map(c => c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
-  const ini = coords[0], fim = coords[coords.length - 1];
-  svg.innerHTML =
-    '<polyline points="' + pts + '" fill="none" stroke="#7FFF00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+  ];
+  // Um <polyline> por trecho (ver _cardioLiveSegmentos) — sem ligar com uma
+  // linha reta o trecho de antes da lacuna de GPS (tela travada) com o de
+  // depois.
+  const linhas = _cardioLiveSegmentos().map(seg => {
+    const pts = seg.map(p => { const c = toXY(p); return c[0].toFixed(1) + ',' + c[1].toFixed(1); }).join(' ');
+    return '<polyline points="' + pts + '" fill="none" stroke="#7FFF00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>';
+  }).join('');
+  const ini = toXY(_cardioLivePontos[0]), fim = toXY(_cardioLivePontos[_cardioLivePontos.length - 1]);
+  svg.innerHTML = linhas +
     '<circle cx="' + ini[0].toFixed(1) + '" cy="' + ini[1].toFixed(1) + '" r="4" fill="#666"/>' +
     '<circle cx="' + fim[0].toFixed(1) + '" cy="' + fim[1].toFixed(1) + '" r="5" fill="#7FFF00"/>';
 }
@@ -8234,8 +8271,12 @@ function _iniciarMapaCardioLive() {
 }
 function _atualizarRotaMapa() {
   if (!_cardioLiveMapa || !_cardioLivePontos.length) return;
+  // Array de trechos (em vez de uma lista só de pontos) — o Leaflet desenha
+  // cada um como uma linha separada, sem ligar um trecho no outro. Ver
+  // _cardioLiveSegmentos: é onde a lacuna de GPS (tela travada) é cortada.
+  const segmentos = _cardioLiveSegmentos().map(seg => seg.map(p => [p.lat, p.lng]));
+  _cardioLiveRotaLayer.setLatLngs(segmentos);
   const latlngs = _cardioLivePontos.map(p => [p.lat, p.lng]);
-  _cardioLiveRotaLayer.setLatLngs(latlngs);
   const ultimo = latlngs[latlngs.length - 1];
   if (!_cardioLiveMarcador) _cardioLiveMarcador = L.circleMarker(ultimo, { radius: 7, color: '#0a0a0a', weight: 2, fillColor: '#7FFF00', fillOpacity: 1 }).addTo(_cardioLiveMapa);
   else _cardioLiveMarcador.setLatLng(ultimo);
