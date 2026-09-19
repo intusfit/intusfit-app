@@ -7885,6 +7885,14 @@ const CARDIO_LIVE_TIPOS = ['Caminhada', 'Corrida', 'Bike', 'Escada', 'Elíptico'
 const CARDIO_LIVE_USA_GPS = { Caminhada: true, Corrida: true, Bike: true, Escada: false, 'Elíptico': false };
 const CARDIO_LIVE_EMOJI = { Corrida: '🏃', Caminhada: '🚶', Bike: '🚴', Escada: '🪜', 'Elíptico': '🔄' };
 let _cardioLiveTipo = 'Caminhada';
+// Bug real relatado: bike ergométrica e esteira (Caminhada/Corrida feitas
+// paradas, num aparelho) marcavam distância errada — o app sempre assumia
+// que Caminhada/Corrida/Bike eram ao ar livre e tentava rastrear por GPS.
+// Parado num aparelho, o GPS balança (mesmo com boa precisão) e essa
+// oscilação virava distância fantasma. Este toggle deixa o aluno avisar
+// que está parado ANTES de começar; a partir daí o app trata a sessão
+// exatamente como já trata Escada/Elíptico (sem GPS, só cronômetro).
+let _cardioLiveParado = false;
 let _cardioLivePontos = [];      // [{lat, lng, t}]
 let _cardioLiveDistM = 0;
 let _cardioLiveInicioMs = 0;
@@ -7942,7 +7950,7 @@ function _cardioLiveRestaurarSeAtivo() {
 // A aba as vezes fica visivel de novo com o watchPosition anterior morto sem
 // avisar (comum apos suspensao prolongada) — reconecta por garantia.
 function _cardioLiveReconectarSeNecessario() {
-  if (!_cardioLiveInicioMs || !_cardioLiveRodando || !CARDIO_LIVE_USA_GPS[_cardioLiveTipo]) return;
+  if (!_cardioLiveInicioMs || !_cardioLiveRodando || !_cardioLiveUsaGpsAgora()) return;
   if (_cardioLiveWatchId != null) { try { navigator.geolocation.clearWatch(_cardioLiveWatchId); } catch (e) {} }
   _cardioLiveWatchId = navigator.geolocation.watchPosition(_cardioLiveOnPos, function () {}, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
 }
@@ -7957,6 +7965,7 @@ function abrirCardioLive() {
   // Só reabre a tela — recomeçar do zero aqui apagaria a corrida em andamento.
   if (!_cardioLiveInicioMs) {
     _cardioLiveTipo = 'Caminhada';
+    _cardioLiveParado = false;
     _cardioLivePontos = [];
     _cardioLiveDistM = 0;
     _cardioLiveMsPausado = 0;
@@ -7973,6 +7982,21 @@ function _cardioLiveEscolherTipo(tipo) {
   if (_cardioLiveInicioMs) return; // nao troca de atividade com o cronometro rodando
   _cardioLiveTipo = tipo;
   _renderCardioLive();
+}
+
+function _cardioLiveSetParado(parado) {
+  if (_cardioLiveInicioMs) return; // mesma trava do tipo: nao troca com o cronometro rodando
+  _cardioLiveParado = parado;
+  _renderCardioLive();
+}
+
+// Fonte única de "esta sessão rastreia por GPS agora" — tipo GPS-capaz
+// (Caminhada/Corrida/Bike) E o aluno não marcou que está parado num
+// aparelho. Todo o resto da tela (hero, mapa, stats, watchPosition) lê
+// daqui em vez de CARDIO_LIVE_USA_GPS direto, pra tratar "parado" como
+// mais um caso de "sem GPS", igual Escada/Elíptico já são.
+function _cardioLiveUsaGpsAgora() {
+  return !!CARDIO_LIVE_USA_GPS[_cardioLiveTipo] && !_cardioLiveParado;
 }
 
 function _haversineM(lat1, lon1, lat2, lon2) {
@@ -8004,7 +8028,7 @@ function _cardioLiveIniciarRastreio() {
   // Mesma trava do lado do treino (ver selecionarTreino): os dois não podem
   // rodar ao mesmo tempo.
   if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um cardio.'); return; }
-  const usaGps = !!CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
+  const usaGps = _cardioLiveUsaGpsAgora();
   if (usaGps && !navigator.geolocation) { toast('Seu navegador não tem GPS disponível.'); return; }
   if (!_cardioLiveInicioMs) _cardioLiveInicioMs = Date.now();
   _cardioLiveRodando = true;
@@ -8239,7 +8263,7 @@ function _atualizarStatsCardioLive() {
   const d = document.getElementById('cl-dist'); if (d) d.textContent = _cardioLiveKm().toFixed(2);
   const r = document.getElementById('cl-ritmo'); if (r) r.textContent = _cardioLiveTipo === 'Bike' ? _cardioLiveVelTxt() : _cardioLivePaceTxt();
   _atualizarRotaCardioLive();
-  const usaGpsPill = CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
+  const usaGpsPill = _cardioLiveUsaGpsAgora();
   const pt = document.getElementById('clp-tempo'); if (pt) pt.textContent = _fmtCronometro(_cardioLiveTempoMs());
   const pd = document.getElementById('clp-dist'); if (pd) pd.textContent = usaGpsPill ? (_cardioLiveKm().toFixed(2) + ' km') : '';
   const psep = document.getElementById('clp-sep'); if (psep) psep.style.display = usaGpsPill ? '' : 'none';
@@ -8435,12 +8459,25 @@ function _renderCardioLive() {
   const box = document.getElementById('v-cardio-live');
   if (!box) return;
   const iniciado = !!_cardioLiveInicioMs;
-  const usaGps = !!CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
+  const usaGps = _cardioLiveUsaGpsAgora();
 
   const chips = CARDIO_LIVE_TIPOS.map(t =>
     '<button class="cl-tipo-chip' + (t === _cardioLiveTipo ? ' on' : '') + '" ' + (iniciado ? 'disabled style="opacity:.4;"' : '') +
     ' onclick="_cardioLiveEscolherTipo(\'' + t + '\')">' + CARDIO_LIVE_EMOJI[t] + '<br>' + t + '</button>'
   ).join('');
+
+  // Caminhada/Corrida/Bike podem ser feitas ao ar livre (GPS de verdade) OU
+  // paradas num aparelho (esteira, bike ergométrica) — só o aluno sabe qual
+  // é o caso, então pergunta antes de começar. Escada/Elíptico nem mostram
+  // isso: já são sempre "parado", sem escolha.
+  const podeSerParado = !!CARDIO_LIVE_USA_GPS[_cardioLiveTipo];
+  const paradoToggleHtml = (podeSerParado && !iniciado)
+    ? '<div style="display:flex;gap:8px;margin-bottom:6px;">' +
+        '<button class="cl-tipo-chip' + (!_cardioLiveParado ? ' on' : '') + '" style="flex:1;padding:10px 6px;" onclick="_cardioLiveSetParado(false)">📍<br>Ao ar livre</button>' +
+        '<button class="cl-tipo-chip' + (_cardioLiveParado ? ' on' : '') + '" style="flex:1;padding:10px 6px;" onclick="_cardioLiveSetParado(true)">🏢<br>Num aparelho</button>' +
+      '</div>' +
+      (_cardioLiveParado ? '<div style="text-align:center;font-size:11px;color:#888;margin-bottom:14px;">Sem GPS aqui — só o cronômetro conta. Registre a distância do próprio aparelho ao finalizar.</div>' : '<div style="margin-bottom:14px;"></div>')
+    : '';
 
   // Escada/Elíptico/Pular Corda são feitos parado, num aparelho — sem GPS,
   // distância/rota/ritmo não existem de verdade. Pra essas, o herói vira o
@@ -8485,7 +8522,8 @@ function _renderCardioLive() {
   box.innerHTML = !iniciado
     ? telaHeader('📍 Cardio ao vivo', 'cardio') +
       '<div class="cl-glow-bg">' +
-        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;">' + chips + '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">' + chips + '</div>' +
+        paradoToggleHtml +
         heroHtml + rotaHtml + statsHtml +
         '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar' + (usaGps ? ' a rastrear' : '') + '</button>' +
       '</div>' +
