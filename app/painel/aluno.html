@@ -2225,6 +2225,7 @@ var _feedCarregandoMais = false;
 var _feedScrollHandler = null;
 var _feedGlobalIdx = 0;     // índice corrido de posts reais renderizados (pro intervalo do card explicativo continuar entre lotes)
 var _feedVarianteIdx = 0;
+var _feedModo = 'feed';     // 'feed' (tela cheia) ou 'home' (prévia na inicial) — define quais IDs de container a paginação usa
 const FEED_LOTE = 10;               // quantos posts a API busca por vez
 const FEED_LIMITE_AUTO_SCROLL = 20; // até aqui a rolagem carrega sozinha; depois, só no toque em "Ver mais"
 var _reacoesFeed = {};      // idpost -> [{emoji, autor_nome, meu}]
@@ -2546,15 +2547,21 @@ function renderFeedHomePreview() {
       '<span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';">📣 Feed dos Alunos</span>' +
       '<button onclick="abrirNovoPostFeed()" style="display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:20px;border:none;background:#7FFF00;color:#0f1a00;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;">📸 Novo post</button>' +
     '</div>';
-  carregarFeedPosts(2).then((posts) => {
+  _feedModo = 'home';
+  _feedGlobalIdx = 0;
+  _feedVarianteIdx = 0;
+  if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
+  carregarFeedPosts(FEED_LOTE).then((posts) => {
     const el = document.getElementById('h-feed-home');
     if (!el) return;
     if (!posts.length) { el.innerHTML = headerHtml; return; }
     carregarReacoesFeed(posts.map(p => p.idpost));
     carregarComentariosFeed(posts.map(p => p.idpost));
     el.innerHTML = headerHtml +
-      posts.map(p => _feedCardHtml(p, isLight)).join('') +
-      '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
+      '<div id="h-feed-home-posts">' + _feedPostsHtml(posts, isLight) + '</div>' +
+      '<div id="h-feed-home-pag"></div>' +
+      '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;margin-top:8px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
+    _feedAtualizarPaginacao();
   });
   return '<div id="h-feed-home">' + headerHtml + '</div>';
 }
@@ -2585,6 +2592,7 @@ async function renderFeedCompleto() {
   const box = document.getElementById('v-feed');
   box.innerHTML = telaHeader('📣 Feed dos Alunos') +
     '<div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando feed...</div>';
+  _feedModo = 'feed';
   if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
   _feedGlobalIdx = 0;
   _feedVarianteIdx = 0;
@@ -2613,11 +2621,21 @@ async function renderFeedCompleto() {
   if (posts.length) _feedAtualizarPaginacao();
 }
 
+// IDs dos containers variam conforme _feedModo: a tela cheia do Feed e a
+// prévia da Home reaproveitam a mesma paginação, mas nunca ficam visíveis
+// ao mesmo tempo (o app mostra uma view por vez) — daí dar pra usar o mesmo
+// estado global (_feedPosts, _feedTemMais etc.) pras duas sem conflito.
+function _feedContainerIds() {
+  return _feedModo === 'home'
+    ? { posts: 'h-feed-home-posts', pag: 'h-feed-home-pag', view: 'home' }
+    : { posts: 'feed-posts-container', pag: 'feed-paginacao', view: 'feed' };
+}
+
 // Rolagem contínua até FEED_LIMITE_AUTO_SCROLL posts carregados; depois
 // disso, só "Ver mais" explícito — evita consumir dados/bateria sozinho num
 // feed que pode crescer bastante sem o aluno pedir.
 function _feedAtualizarPaginacao() {
-  const box = document.getElementById('feed-paginacao');
+  const box = document.getElementById(_feedContainerIds().pag);
   if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
   if (!_feedTemMais) {
@@ -2638,7 +2656,7 @@ function _feedAtualizarPaginacao() {
 }
 
 function _feedChecarScrollFeed() {
-  if (window._viewAtual !== 'feed') return; // tela trocou; o listener só se remove sozinho na próxima _feedAtualizarPaginacao
+  if (window._viewAtual !== _feedContainerIds().view) return; // tela trocou; o listener só se remove sozinho na próxima _feedAtualizarPaginacao
   if (_feedCarregandoMais || !_feedTemMais || _feedPosts.length >= FEED_LIMITE_AUTO_SCROLL) return;
   const pertoDoFim = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 400);
   if (pertoDoFim) _feedCarregarMais();
@@ -2648,14 +2666,15 @@ async function _feedCarregarMais() {
   if (_feedCarregandoMais || !_feedTemMais || !_feedPosts.length) return;
   _feedCarregandoMais = true;
   const isLight = document.body.classList.contains('tema-claro');
-  const pagBox = document.getElementById('feed-paginacao');
+  const ids = _feedContainerIds();
+  const pagBox = document.getElementById(ids.pag);
   if (pagBox) pagBox.innerHTML = '<div style="text-align:center;padding:10px;color:' + (isLight?'#999':'#777') + ';font-size:11.5px;">Carregando mais posts...</div>';
   const ultimoId = _feedPosts[_feedPosts.length - 1].idpost;
   const novos = await carregarFeedPosts(FEED_LOTE, null, ultimoId);
   if (novos.length) {
     await carregarReacoesFeed(novos.map(p => p.idpost));
     await carregarComentariosFeed(novos.map(p => p.idpost));
-    const container = document.getElementById('feed-posts-container');
+    const container = document.getElementById(ids.posts);
     if (container) container.insertAdjacentHTML('beforeend', _feedPostsHtml(novos, isLight));
   }
   _feedCarregandoMais = false;
