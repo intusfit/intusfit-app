@@ -2220,6 +2220,13 @@ function _htmlReacoes(idcomentario, isLight) {
 var _feedPosts = [];        // cache local dos posts já carregados
 var _feedAtletasMap = {};   // idatleta -> nome
 var _feedAvatarsMap = {};   // idatleta -> avatar
+var _feedTemMais = false;   // tem mais posts depois do último carregado?
+var _feedCarregandoMais = false;
+var _feedScrollHandler = null;
+var _feedGlobalIdx = 0;     // índice corrido de posts reais renderizados (pro intervalo do card explicativo continuar entre lotes)
+var _feedVarianteIdx = 0;
+const FEED_LOTE = 10;               // quantos posts a API busca por vez
+const FEED_LIMITE_AUTO_SCROLL = 20; // até aqui a rolagem carrega sozinha; depois, só no toque em "Ver mais"
 var _reacoesFeed = {};      // idpost -> [{emoji, autor_nome, meu}]
 var _comentariosFeed = {};  // idpost -> [{idcomentario, autor_nome, texto, meu}]
 var _comentariosAbertos = {}; // idpost -> true (painel de comentários expandido)
@@ -2356,20 +2363,25 @@ function _iniciaisNomeFeed(nome) {
 
 // Busca os posts no servidor. idatletaFiltro: só os posts de uma pessoa (usado
 // no perfil, "meus posts" estilo Strava). Sem filtro, é o feed geral.
-async function carregarFeedPosts(limite, idatletaFiltro) {
+// antesDe: idpost do último post já carregado, pra paginar (ver _feedCarregarMais).
+async function carregarFeedPosts(limite, idatletaFiltro, antesDe) {
   try {
     const token = localStorage.getItem('mx-token') || '';
     let url = API_BASE + '/catalogo.php?action=feed_posts&limite=' + (limite || 30);
     if (idatletaFiltro) url += '&idatleta=' + idatletaFiltro;
+    if (antesDe) url += '&antes_de=' + antesDe;
     const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }, cache: 'no-store' });
-    if (!r.ok) return [];
+    if (!r.ok) { _feedTemMais = false; return []; }
     const j = await r.json();
     _feedAtletasMap = (j && j.atletas) || {};
     _feedAvatarsMap = (j && j.avatars) || {};
     const posts = (j && Array.isArray(j.posts)) ? j.posts : [];
-    if (!idatletaFiltro) _feedPosts = posts; // só guarda como "o feed" quando é a lista geral
+    _feedTemMais = !!(j && j.temMais);
+    // só guarda/acumula como "o feed" quando é a lista geral (sem filtro de atleta):
+    // antesDe = lote seguinte, acumula; sem antesDe = carga nova, substitui.
+    if (!idatletaFiltro) _feedPosts = antesDe ? _feedPosts.concat(posts) : posts;
     return posts;
-  } catch (e) { console.warn('[feed] não consegui carregar:', e); return []; }
+  } catch (e) { console.warn('[feed] não consegui carregar:', e); _feedTemMais = false; return []; }
 }
 
 function _feedCardHtml(post, isLight) {
@@ -2548,12 +2560,35 @@ function renderFeedHomePreview() {
 }
 
 // Tela cheia do feed, aberta pelo menu ou pelo "Ver feed completo" da home.
+// O 1º card explicativo aparece logo após o 1º post; os seguintes, a cada
+// FEED_EXPLICATIVO_INTERVALO posts reais, alternando entre A/B/C — mesmo
+// espírito do "patrocinado" intercalado no feed do Instagram. O índice
+// (_feedGlobalIdx) é corrido entre lotes de paginação, não reseta a cada
+// "Ver mais" — senão o card educativo reapareceria fora do ritmo certo.
+const FEED_EXPLICATIVO_INTERVALO = 5;
+const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C'];
+function _feedPostsHtml(posts, isLight) {
+  let html = '';
+  posts.forEach(p => {
+    html += _feedCardHtml(p, isLight);
+    if (_feedGlobalIdx === 0 || _feedGlobalIdx % FEED_EXPLICATIVO_INTERVALO === 0) {
+      html += _feedCardExplicativo(FEED_EXPLICATIVO_VARIANTES[_feedVarianteIdx % FEED_EXPLICATIVO_VARIANTES.length], isLight);
+      _feedVarianteIdx++;
+    }
+    _feedGlobalIdx++;
+  });
+  return html;
+}
+
 async function renderFeedCompleto() {
   const isLight = document.body.classList.contains('tema-claro');
   const box = document.getElementById('v-feed');
   box.innerHTML = telaHeader('📣 Feed dos Alunos') +
     '<div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando feed...</div>';
-  const posts = await carregarFeedPosts(30);
+  if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
+  _feedGlobalIdx = 0;
+  _feedVarianteIdx = 0;
+  const posts = await carregarFeedPosts(FEED_LOTE);
   await carregarReacoesFeed(posts.map(p => p.idpost));
   await carregarComentariosFeed(posts.map(p => p.idpost));
   let html = telaHeader('📣 Feed dos Alunos');
@@ -2565,19 +2600,8 @@ async function renderFeedCompleto() {
       '<p style="font-size:12.5px;color:' + (isLight?'#666':'#888') + ';max-width:280px;margin:0 auto;">Compartilhe uma foto, uma conquista ou o treino de hoje — toque em "Novo post" acima.</p>' +
     '</div>';
   } else {
-    // O 1º card explicativo aparece logo após o 1º post; os seguintes, a cada
-    // FEED_EXPLICATIVO_INTERVALO posts reais, alternando entre A/B/C — mesmo
-    // espírito do "patrocinado" intercalado no feed do Instagram.
-    const FEED_EXPLICATIVO_INTERVALO = 5;
-    const variantes = ['A', 'B', 'C'];
-    let vIdx = 0;
-    posts.forEach((p, i) => {
-      html += _feedCardHtml(p, isLight);
-      if (i === 0 || i % FEED_EXPLICATIVO_INTERVALO === 0) {
-        html += _feedCardExplicativo(variantes[vIdx % variantes.length], isLight);
-        vIdx++;
-      }
-    });
+    html += '<div id="feed-posts-container">' + _feedPostsHtml(posts, isLight) + '</div>';
+    html += '<div id="feed-paginacao"></div>';
   }
   // Botão também no final — depois de rolar o feed inteiro, o de cima já
   // ficou longe lá em cima; sem esse aqui, quem terminasse de ver os posts
@@ -2586,6 +2610,56 @@ async function renderFeedCompleto() {
   html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
   html += getFooterHtml();
   box.innerHTML = html;
+  if (posts.length) _feedAtualizarPaginacao();
+}
+
+// Rolagem contínua até FEED_LIMITE_AUTO_SCROLL posts carregados; depois
+// disso, só "Ver mais" explícito — evita consumir dados/bateria sozinho num
+// feed que pode crescer bastante sem o aluno pedir.
+function _feedAtualizarPaginacao() {
+  const box = document.getElementById('feed-paginacao');
+  if (!box) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  if (!_feedTemMais) {
+    box.innerHTML = '';
+    if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
+    return;
+  }
+  if (_feedPosts.length < FEED_LIMITE_AUTO_SCROLL) {
+    box.innerHTML = '';
+    if (!_feedScrollHandler) {
+      _feedScrollHandler = _feedChecarScrollFeed;
+      window.addEventListener('scroll', _feedScrollHandler);
+    }
+  } else {
+    if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
+    box.innerHTML = '<button onclick="_feedCarregarMais()" style="width:100%;padding:12px;border-radius:10px;border:1.5px dashed ' + (isLight?'#ccc':'#333') + ';background:transparent;color:' + (isLight?'#666':'#999') + ';font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;">▾ Ver mais posts</button>';
+  }
+}
+
+function _feedChecarScrollFeed() {
+  if (window._viewAtual !== 'feed') return; // tela trocou; o listener só se remove sozinho na próxima _feedAtualizarPaginacao
+  if (_feedCarregandoMais || !_feedTemMais || _feedPosts.length >= FEED_LIMITE_AUTO_SCROLL) return;
+  const pertoDoFim = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 400);
+  if (pertoDoFim) _feedCarregarMais();
+}
+
+async function _feedCarregarMais() {
+  if (_feedCarregandoMais || !_feedTemMais || !_feedPosts.length) return;
+  _feedCarregandoMais = true;
+  const isLight = document.body.classList.contains('tema-claro');
+  const pagBox = document.getElementById('feed-paginacao');
+  if (pagBox) pagBox.innerHTML = '<div style="text-align:center;padding:10px;color:' + (isLight?'#999':'#777') + ';font-size:11.5px;">Carregando mais posts...</div>';
+  const ultimoId = _feedPosts[_feedPosts.length - 1].idpost;
+  const novos = await carregarFeedPosts(FEED_LOTE, null, ultimoId);
+  if (novos.length) {
+    await carregarReacoesFeed(novos.map(p => p.idpost));
+    await carregarComentariosFeed(novos.map(p => p.idpost));
+    const container = document.getElementById('feed-posts-container');
+    if (container) container.insertAdjacentHTML('beforeend', _feedPostsHtml(novos, isLight));
+  }
+  _feedCarregandoMais = false;
+  _feedAtualizarPaginacao();
 }
 
 // ── Compor um post: motor único pro Novo post, Compartilhar treino e

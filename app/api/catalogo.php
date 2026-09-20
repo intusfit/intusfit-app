@@ -1923,20 +1923,28 @@ if ($action === 'feed_posts') {
         $somenteAutor = (int)($_GET['idatleta'] ?? 0);
         if ($somenteAutor > 0) $visiveis = ($somenteAutor === $_autorId || in_array($somenteAutor, $visiveis, true)) ? [$somenteAutor] : [];
 
-        if (!count($visiveis)) { echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap]); exit; }
+        if (!count($visiveis)) { echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false]); exit; }
         $ph = implode(',', array_fill(0, count($visiveis), '?'));
         $limite = min(100, max(1, (int)($_GET['limite'] ?? 30)));
+        // Cursor de paginação: idpost é AUTO_INCREMENT, então cresce junto com
+        // created_at na prática — "antes_de" evita precisar de cursor composto.
+        $antesDe = (int)($_GET['antes_de'] ?? 0);
         // Sem filtro de atleta = feed geral: só posts com destino 'feed'. Com
         // filtro (perfil de alguém, inclusive o próprio) mostra os dois — é
         // a grade do perfil, que é o único lugar onde um post 'perfil' aparece.
         $filtroDestino = $somenteAutor > 0 ? '' : " AND destino = 'feed'";
+        $filtroCursor = $antesDe > 0 ? " AND idpost < $antesDe" : "";
+        // Busca um a mais que o pedido só pra saber se tem mais página depois
+        // desta, sem precisar de um COUNT(*) separado.
         $st = $pdo->prepare("SELECT idpost, idatleta, imagem, legenda, destino, localizacao, created_at FROM intus_feed_post
-                             WHERE ativo = 1 AND idatleta IN ($ph)$filtroDestino ORDER BY created_at DESC, idpost DESC LIMIT $limite");
+                             WHERE ativo = 1 AND idatleta IN ($ph)$filtroDestino$filtroCursor ORDER BY created_at DESC, idpost DESC LIMIT " . ($limite + 1));
         $st->execute($visiveis);
         $posts = $st->fetchAll(PDO::FETCH_ASSOC);
+        $temMais = count($posts) > $limite;
+        if ($temMais) $posts = array_slice($posts, 0, $limite);
         foreach ($posts as &$p) { $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta']; }
         unset($p);
-        echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => $temMais], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
