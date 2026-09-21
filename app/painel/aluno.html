@@ -4335,9 +4335,16 @@ function _planoEncerrado() {
 }
 function verificarInadimplencia() {
   if (!_syncDone || !_matSyncOk) return null;   // sem confirmacao do servidor, nao bloqueia
-  // Plano encerrado pelo professor: o aluno ja foi declarado fora, bloqueia na hora.
-  if (_planoEncerrado()) return BLOQUEIO_DIAS + 1;
+  // Bug real: uma matricula ENCERRADA bloqueava na hora mesmo quando o aluno
+  // já tinha uma matricula NOVA ativa por cima (ex.: reativou, comprou outro
+  // plano). _mensalidadesAtivas() (usada por _temMatriculaAtiva) já ignora
+  // linhas encerradas — então checar a cobertura ativa primeiro garante que a
+  // matricula ativa sempre sobrepõe a encerrada, e só cai no bloqueio duro de
+  // "plano encerrado" quando não sobra NENHUMA cobertura vigente.
   if (_temMatriculaAtiva()) return null;
+  // Plano encerrado pelo professor, sem nenhuma matricula nova ativa por cima:
+  // o aluno ja foi declarado fora, bloqueia na hora.
+  if (_planoEncerrado()) return BLOQUEIO_DIAS + 1;
   // Ate 30 dias do fim do ultimo plano o acesso continua; depois disso, bloqueia.
   const dias = calcularDiasAtraso();
   if (dias > BLOQUEIO_DIAS) return dias;
