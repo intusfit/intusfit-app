@@ -736,14 +736,36 @@ try {
             // Musculação = 5 pontos por sessão válida (MET médio 5.0)
             $pontos = ($naoContar ? 0 : 5.0);
             $horaConcl = (isset($b['hora_conclusao']) && $b['hora_conclusao'] !== '') ? substr((string)$b['hora_conclusao'], 0, 5) : null;
+            $idficha = isset($b['idficha']) ? (int)$b['idficha'] : null;
+            $divisao = $b['divisao'] ?? 'A';
+            $dtsessao = $b['dtsessao'] ?? date('Y-m-d');
+            $duracao = (int)($b['duracao_seg'] ?? 0);
+            $comentario = $b['comentario'] ?? null;
+            // Protege contra reenvio duplicado da MESMA sessão — ex.: a conexão
+            // caiu bem depois do INSERT já ter gravado, o app achou que tinha
+            // falhado (o app propositalmente preserva o treino ativo pra não
+            // perder série digitada num erro de rede) e o aluno confirmou de
+            // novo. Sem isso, cada retry virava um "2º treino do dia" fantasma
+            // no ranking. Só considera duplicata quando TUDO bate (itens,
+            // duração, comentário) — um segundo treino de verdade no mesmo dia
+            // quase sempre tem itens/duração diferentes, então não cai aqui.
+            $stDup = $pdo->prepare("SELECT idsessao FROM intus_sessao
+                WHERE idatleta = ? AND tipo = 'musculacao' AND dtsessao = ?
+                  AND divisao <=> ? AND idficha <=> ? AND duracao_seg = ?
+                  AND itens <=> ? AND comentario <=> ?
+                  AND created_at >= (NOW() - INTERVAL 30 MINUTE)
+                ORDER BY idsessao DESC LIMIT 1");
+            $stDup->execute([$idat, $dtsessao, $divisao, $idficha, $duracao, $itens, $comentario]);
+            $dupId = $stDup->fetchColumn();
+            if ($dupId) { echo json_encode(['idsessao' => (int)$dupId, 'ok' => true, 'duplicata' => true]); exit; }
             $st = $pdo->prepare("INSERT INTO intus_sessao (idatleta, idficha, divisao, dtsessao, duracao_seg, comentario, marcado_como_feito, nao_contar, tipo, pontos, itens, hora_conclusao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'musculacao', ?, ?, ?)");
             $st->execute([
                 $idat,
-                isset($b['idficha']) ? (int)$b['idficha'] : null,
-                $b['divisao'] ?? 'A',
-                $b['dtsessao'] ?? date('Y-m-d'),
-                (int)($b['duracao_seg'] ?? 0),
-                $b['comentario'] ?? null,
+                $idficha,
+                $divisao,
+                $dtsessao,
+                $duracao,
+                $comentario,
                 (int)($b['marcado_como_feito'] ?? 0),
                 $naoContar,
                 $pontos,
