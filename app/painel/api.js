@@ -2401,6 +2401,18 @@ const API = {
     if (!r || !r.ok || !Number(r.idmensalidade)) {
       throw new Error((r && r.error) || 'O servidor não confirmou a criação da matrícula.');
     }
+    // Lead que ganha matrícula deixa de ser lead. Feito aqui (fonte única de
+    // criação de matrícula, não em cada tela que chama isso) pra não duplicar
+    // a regra de novo — mesmo padrão que já doeu com cobrança/ranking.
+    try {
+      const atletas = Store.get('atletas');
+      const atleta = atletas.find(a => Number(a.idatleta) === Number(data.idatleta));
+      if (atleta && API.ehLead(atleta)) {
+        await API.editarAtleta(data.idatleta, { origem: 'professor' });
+        atleta.origem = 'professor';
+        Store.set('atletas', atletas);
+      }
+    } catch (e) { console.warn('[lead->cliente] não consegui reclassificar:', e); }
     return r;
   },
 
