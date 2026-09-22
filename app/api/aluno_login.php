@@ -340,6 +340,17 @@ try {
             }
             $cols[] = $locCol; $vals[] = mb_substr($locVal, 0, 120); $phs[] = '?';
         }
+        // Indicação: veio do link individual de outro aluno (?ref= na landing,
+        // repassado aqui como body.ref). Mesmo distintivo de "indicou 5+ que
+        // acessaram" da versão via leads.php — aqui a conta já nasce ativa, então
+        // ultimo_acesso é gravado junto (ver logo abaixo), contando na hora.
+        $indicadoPor = filter_var($body['ref'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($indicadoPor !== false) {
+            if (!in_array('indicado_por_idatleta', $colunas)) {
+                try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `indicado_por_idatleta` INT NULL"); $colunas[] = 'indicado_por_idatleta'; } catch (Throwable $e) {}
+            }
+            if (in_array('indicado_por_idatleta', $colunas)) { $cols[]='indicado_por_idatleta'; $vals[]=$indicadoPor; $phs[]='?'; }
+        }
         $cols[]='dt_cadastro'; $vals[]=date('Y-m-d H:i:s'); $phs[]='?';
 
         // Marca como NAO bloqueado por padrao
@@ -371,6 +382,13 @@ try {
         $sql = "INSERT INTO `$tabela` (".implode(',', $cols).") VALUES (".implode(',', $phs).")";
         $pdo->prepare($sql)->execute($vals);
         $newId = (int)$pdo->lastInsertId();
+
+        // Conta nasce já logada (a landing guarda o token na hora e leva pro
+        // app) — isso já conta como acesso pro distintivo de indicação.
+        try {
+            if (!in_array('ultimo_acesso', $colunas)) { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ultimo_acesso` DATETIME NULL"); $colunas[] = 'ultimo_acesso'; }
+            $pdo->prepare("UPDATE `$tabela` SET ultimo_acesso = NOW() WHERE $col_id = ?")->execute([$newId]);
+        } catch (Throwable $e) {}
 
         $st = $pdo->prepare("SELECT * FROM `$tabela` WHERE $col_id = ? LIMIT 1");
         $st->execute([$newId]);
@@ -589,6 +607,14 @@ try {
             require_once __DIR__ . '/_sessions.php';
             $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 30);
             if ($serverToken) $atleta['server_token'] = $serverToken;
+            try {
+                $temCol = $pdo->query(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " .
+                    "AND TABLE_NAME = " . $pdo->quote($tabela) . " AND COLUMN_NAME = 'ultimo_acesso'"
+                )->fetchColumn();
+                if (!$temCol) { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ultimo_acesso` DATETIME NULL"); }
+                $pdo->prepare("UPDATE `$tabela` SET ultimo_acesso = NOW() WHERE `{$colmap['col_id']}` = ?")->execute([$atleta['idatleta']]);
+            } catch (Throwable $e) { @error_log('[intus login] falha ao gravar ultimo_acesso (oauth): ' . $e->getMessage()); }
             echo json_encode(['ok' => true, 'existente' => true, 'atleta' => $atleta]);
             return;
         }
@@ -785,6 +811,18 @@ try {
     require_once __DIR__ . '/_sessions.php';
     $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 30);
     if ($serverToken) $atleta['server_token'] = $serverToken;
+
+    // Registra o acesso — alimenta o distintivo de indicação (só conta quem
+    // indicou de verdade ACESSOU o app, não só se cadastrou). Best-effort:
+    // nunca impede o login, mesmo se a coluna ainda não existir nesta tabela.
+    try {
+        $temCol = $pdo->query(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " .
+            "AND TABLE_NAME = " . $pdo->quote($tabela) . " AND COLUMN_NAME = 'ultimo_acesso'"
+        )->fetchColumn();
+        if (!$temCol) { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ultimo_acesso` DATETIME NULL"); }
+        $pdo->prepare("UPDATE `$tabela` SET ultimo_acesso = NOW() WHERE $col_id = ?")->execute([$atleta['idatleta']]);
+    } catch (Throwable $e) { @error_log('[intus login] falha ao gravar ultimo_acesso: ' . $e->getMessage()); }
 
     echo json_encode(['ok'=>true, 'atleta'=>$atleta]);
 } catch (Throwable $e) {

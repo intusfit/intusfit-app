@@ -183,7 +183,16 @@ if (!$col_cidade) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `cidade` 
 $col_origem = pickCol($colunas, ['origem','origem_cadastro','fonte']);
 if (!$col_origem) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `origem` VARCHAR(40) NULL"); $col_origem = 'origem'; } catch (Throwable $e) {} }
 
-$colmap = compact('col_id','col_nome','col_email','col_tel','col_gen','col_nasc','col_cod','col_cpf','col_block','col_obs','col_dtcad','col_profs','col_objetivos','col_dificuldades','col_notas_prof','col_ranking_optin','col_feed_optin','col_aluno_intus','col_pais','col_estado','col_cidade','col_origem');
+// Indicação: qual aluno indicou este (se algum) — preenchido sozinho na
+// criação, batendo o telefone contra intus_lead (ver bloco de indicação no
+// POST abaixo). ultimo_acesso alimenta o distintivo "indicou 5+ que
+// realmente entraram no app" (indicar sozinho não conta, precisa acessar).
+$col_indicado_por = pickCol($colunas, ['indicado_por_idatleta']);
+if (!$col_indicado_por) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `indicado_por_idatleta` INT NULL"); $col_indicado_por = 'indicado_por_idatleta'; } catch (Throwable $e) {} }
+$col_ultimo_acesso = pickCol($colunas, ['ultimo_acesso']);
+if (!$col_ultimo_acesso) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ultimo_acesso` DATETIME NULL"); $col_ultimo_acesso = 'ultimo_acesso'; } catch (Throwable $e) {} }
+
+$colmap = compact('col_id','col_nome','col_email','col_tel','col_gen','col_nasc','col_cod','col_cpf','col_block','col_obs','col_dtcad','col_profs','col_objetivos','col_dificuldades','col_notas_prof','col_ranking_optin','col_feed_optin','col_aluno_intus','col_pais','col_estado','col_cidade','col_origem','col_indicado_por','col_ultimo_acesso');
 
 function rowToAtleta($row, $map) {
     $out = [
@@ -235,6 +244,8 @@ function rowToAtleta($row, $map) {
     if ($map['col_estado'] ?? null) $out['estado'] = $row[$map['col_estado']] ?? '';
     if ($map['col_cidade'] ?? null) $out['cidade'] = $row[$map['col_cidade']] ?? '';
     if ($map['col_origem'] ?? null) $out['origem'] = $row[$map['col_origem']] ?? '';
+    if ($map['col_indicado_por'] ?? null) $out['indicado_por_idatleta'] = $row[$map['col_indicado_por']] !== null ? (int)$row[$map['col_indicado_por']] : null;
+    if ($map['col_ultimo_acesso'] ?? null) $out['ultimo_acesso'] = $row[$map['col_ultimo_acesso']] ?? null;
     return $out;
 }
 
@@ -262,6 +273,7 @@ function setFromBody(array $body, array $colmap) {
         'estado'       => 'col_estado',
         'cidade'       => 'col_cidade',
         'origem'       => 'col_origem',
+        'indicado_por_idatleta' => 'col_indicado_por',
     ];
     foreach ($map as $bodyKey => $colKey) {
         if (!array_key_exists($bodyKey, $body)) continue;
@@ -504,6 +516,25 @@ try {
         if ($col_origem && empty($body['origem'])) {
             $temProf = !empty($body['professores_responsaveis']) && is_array($body['professores_responsaveis']) && count($body['professores_responsaveis']) > 0;
             $body['origem'] = $temProf ? 'professor' : 'app';
+        }
+
+        // Indicação herdada do lead: se o telefone deste novo atleta bate com
+        // um lead que veio de um link de indicação, guarda quem indicou —
+        // sem precisar o professor digitar nada na hora de cadastrar. Só roda
+        // quando o corpo não trouxe indicado_por_idatleta explícito.
+        if ($col_indicado_por && !array_key_exists('indicado_por_idatleta', $body) && $col_tel && !empty($body['telefone'])) {
+            try {
+                $foneNovo = preg_replace('/\D/', '', (string)$body['telefone']);
+                $foneNovo = preg_replace('/^55/', '', $foneNovo); // ignora DDI se veio junto
+                if (strlen($foneNovo) >= 8) {
+                    $stLead = $pdo->query("SELECT whatsapp, indicado_por_idatleta FROM intus_lead WHERE indicado_por_idatleta IS NOT NULL");
+                    foreach ($stLead->fetchAll(PDO::FETCH_ASSOC) as $lr) {
+                        $foneLead = preg_replace('/\D/', '', (string)$lr['whatsapp']);
+                        $foneLead = preg_replace('/^55/', '', $foneLead);
+                        if ($foneLead !== '' && $foneLead === $foneNovo) { $body['indicado_por_idatleta'] = (int)$lr['indicado_por_idatleta']; break; }
+                    }
+                }
+            } catch (Throwable $e) { /* tabela de leads pode nao existir ainda */ }
         }
 
         [$sets, $vals] = setFromBody($body, $colmap);

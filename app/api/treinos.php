@@ -993,6 +993,33 @@ try {
                 }
             }
 
+            // Quantos leads cada atleta já indicou (intus_lead.indicado_por_idatleta) —
+            // alimenta o distintivo de indicação e o card "Indique um amigo". Tabela
+            // pode não existir ainda (só nasce quando alguém usa /leads.php pela 1ª
+            // vez) — sem isso o ranking inteiro não pode quebrar.
+            $indicacoesMap = [];
+            if (count($ids) > 0) {
+                try {
+                    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                    $iq = $pdo->prepare("SELECT indicado_por_idatleta, COUNT(*) AS n FROM intus_lead WHERE indicado_por_idatleta IN ($placeholders) GROUP BY indicado_por_idatleta");
+                    $iq->execute($ids);
+                    foreach ($iq->fetchAll(PDO::FETCH_ASSOC) as $ir) { $indicacoesMap[(int)$ir['indicado_por_idatleta']] = (int)$ir['n']; }
+                } catch (Throwable $e) {}
+            }
+            // Indicações que viraram aluno DE VERDADE e já acessaram o app pelo
+            // menos 1 vez (não conta quem só virou lead) — alimenta o distintivo
+            // de indicação em série. Usa a mesma tabela de atletas ($_rkTbl) já
+            // detectada acima.
+            $indicacoesAtivasMap = [];
+            if ($_rkTbl && count($ids) > 0) {
+                try {
+                    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                    $iq2 = $pdo->prepare("SELECT indicado_por_idatleta, COUNT(*) AS n FROM `$_rkTbl` WHERE indicado_por_idatleta IN ($placeholders) AND ultimo_acesso IS NOT NULL GROUP BY indicado_por_idatleta");
+                    $iq2->execute($ids);
+                    foreach ($iq2->fetchAll(PDO::FETCH_ASSOC) as $ir) { $indicacoesAtivasMap[(int)$ir['indicado_por_idatleta']] = (int)$ir['n']; }
+                } catch (Throwable $e) {}
+            }
+
             echo json_encode([
                 'atletas' => $nomeMap,
                 'sessoes' => $sessoes,
@@ -1001,6 +1028,8 @@ try {
                 'cidades' => $cidadeMap,
                 'estados' => $estadoMap,
                 'paises' => $paisMap,
+                'indicacoes' => $indicacoesMap,
+                'indicacoesAtivas' => $indicacoesAtivasMap,
             ]);
             exit;
         }

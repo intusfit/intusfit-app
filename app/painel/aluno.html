@@ -976,6 +976,7 @@
     <div class="menu-item" onclick="navegar('mensagens');fecharMenuDireto()"><span class="mi-icon">💬</span> Central <span id="menu-msg-badge" style="display:none;background:#f87171;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;margin-left:6px;font-weight:700;"></span></div>
     <div class="menu-item" onclick="navegar('perfil');fecharMenuDireto()"><span class="mi-icon">👤</span> Meu Perfil & Conquistas</div>
     <div class="menu-item" onclick="navegar('quemsomos');fecharMenuDireto()"><span class="mi-icon">🤝</span> Quem Somos</div>
+    <div class="menu-item" onclick="abrirIndicarAmigo();fecharMenuDireto()"><span class="mi-icon">🎁</span> Indique um amigo</div>
     <div class="menu-item" style="cursor:default;gap:10px;">
       <span class="mi-icon">🔍</span>
       <span style="flex:1;">Zoom</span>
@@ -2501,6 +2502,13 @@ function _feedCardExplicativo(variante, isLight) {
       '<a href="' + INTUS_LINK_WHATSAPP_SUPORTE + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Fale com nossa equipe pelo WhatsApp →</a>'
     );
   }
+  if (variante === 'H') {
+    return wrap(
+      badge('🎁') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">Indique um amigo</div></div>' +
+      '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:11px;">Ele ganha <b style="color:' + ink + ';">3 dias de acesso grátis</b> com seu link, e a equipe já sabe que foi você que indicou.</div>' +
+      '<button onclick="_compartilharIndicacaoWhatsApp()" style="display:block;width:100%;text-align:center;padding:9px;border-radius:10px;border:none;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit;">Compartilhar meu link →</button>'
+    );
+  }
   // A (padrão) — o cartão que precisa deixar claro o que é isso e pra quem é,
   // antes de qualquer chamada pra ação: gente que nunca viu um "feed" dentro
   // de um app de treino estranha antes de entender que é fechado e só nosso.
@@ -2626,7 +2634,7 @@ function renderFeedHomePreview() {
 // (_feedGlobalIdx) é corrido entre lotes de paginação, não reseta a cada
 // "Ver mais" — senão o card educativo reapareceria fora do ritmo certo.
 const FEED_EXPLICATIVO_INTERVALO = 5;
-const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 function _feedPostsHtml(posts, isLight) {
   let html = '';
   posts.forEach(p => {
@@ -3616,6 +3624,61 @@ const INTUS_LINK_INSTAGRAM = 'https://instagram.com/intusfit';
 const INTUS_LINK_YOUTUBE = 'https://www.youtube.com/@intusfit';
 const INTUS_LINK_SPOTIFY = 'https://open.spotify.com/playlist/1OtgXKyQan4g4zoY7IZk32?si=2xRKZx9HQL-BvzDJrErb2A&utm_source=copy-link&pi=PXe2xlZaSyOoa';
 const INTUS_LINK_WHATSAPP_SUPORTE = 'https://wa.me/5545991156006?text=' + encodeURIComponent('Oi, preciso de ajuda no app Intus Fit');
+
+// ═══════════════ INDIQUE UM AMIGO ═══════════════
+// Link individual (?ref=<idatleta>) pra landing de teste grátis — o próprio
+// back-end de lá (teste-gratis.html → aluno_login.php?action=criar ou, se
+// falhar, leads.php) já grava quem indicou. Nenhuma lógica de negócio mora
+// aqui na tela: é só montar o link e as duas ações de compartilhar.
+function _linkIndicacao() {
+  return 'https://intusfit.com.br/teste-gratis.html?ref=' + Number(idAtleta);
+}
+function _copiarLinkIndicacao() {
+  const link = _linkIndicacao();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(() => toast('Link copiado!')).catch(() => toast('Não consegui copiar. Link: ' + link));
+  } else {
+    toast('Link: ' + link);
+  }
+}
+function _compartilharIndicacaoWhatsApp() {
+  const msg = 'Bora treinar comigo? Entra na Intus Fit pelo meu link e ganha 3 dias de acesso grátis pra testar: ' + _linkIndicacao();
+  window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+}
+// Abre o card num modal — usado pelo ícone do menu lateral, que não tem uma
+// tela própria de "indicar amigo" pra navegar até.
+function abrirIndicarAmigo() {
+  const isLight = document.body.classList.contains('tema-claro');
+  openModalGenerico('<div style="padding:6px 20px 4px;">' + _indicarAmigoHtml(isLight, false) + '</div>');
+}
+// isCompacto: true tira o texto explicativo (usado onde o espaço é curto,
+// como abaixo do mural do Ranking); indicacoesN: contador já carregado
+// (_rankingData.indicacoes[idAtleta]), opcional — quando não vier, o card
+// funciona igual, só sem a linha "você já indicou N".
+function _indicarAmigoHtml(isLight, isCompacto) {
+  const bg = isLight ? '#fff' : 'rgba(255,255,255,.03)';
+  const borda = isLight ? '#e5e5e5' : '#242424';
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#666' : '#999';
+  const accent = isLight ? '#2d8a00' : '#7FFF00';
+  let indicacoesN = null;
+  try { indicacoesN = (_rankingData && _rankingData.indicacoes) ? (_rankingData.indicacoes[Number(idAtleta)] || 0) : null; } catch (e) {}
+  return '<div style="background:' + bg + ';border:1px solid ' + borda + ';border-radius:16px;padding:16px;' + (isCompacto ? 'margin-top:16px;' : '') + '">' +
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:' + (isCompacto ? '10px' : '8px') + ';">' +
+      '<div style="width:38px;height:38px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#7FFF00,#2d8a00);display:flex;align-items:center;justify-content:center;font-size:18px;">🎁</div>' +
+      '<div style="min-width:0;">' +
+        '<div style="font-size:13.5px;font-weight:900;color:' + txt + ';">Indique um amigo</div>' +
+        '<div style="font-size:11px;color:' + muted + ';">Ele ganha 3 dias de acesso grátis</div>' +
+      '</div>' +
+    '</div>' +
+    (isCompacto ? '' : '<div style="font-size:11.5px;color:' + muted + ';line-height:1.5;margin-bottom:12px;">Compartilhe seu link — quando alguém se cadastrar por ele, a gente já sabe que foi você que indicou.</div>') +
+    (indicacoesN != null ? '<div style="font-size:11px;font-weight:800;color:' + accent + ';margin-bottom:10px;">Você já indicou ' + indicacoesN + ' pessoa' + (indicacoesN === 1 ? '' : 's') + '</div>' : '') +
+    '<div style="display:flex;gap:8px;">' +
+      '<button onclick="_copiarLinkIndicacao()" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid ' + borda + ';background:transparent;color:' + txt + ';font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">🔗 Copiar link</button>' +
+      '<button onclick="_compartilharIndicacaoWhatsApp()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#25D366;color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">💬 WhatsApp</button>' +
+    '</div>' +
+  '</div>';
+}
 
 // Logos reais em SVG (não emoji) — traço simplificado de cada marca, só o
 // glifo em branco, pra vestir a cor oficial de cada rede no fundo do badge
@@ -9549,6 +9612,9 @@ const CONQUISTAS_DEF = [
   // ── Tempo total de treino ──
   { id:'horas10',     e:'⏱️', nome:'10 horas de suor',      desc:'10 horas somadas de treino. Cada minuto investido está virando saúde, força e resultado.', metric:'horas', goal:10 },
   { id:'horas50',     e:'⌛', nome:'50 horas de dedicação', desc:'50 horas de treino acumuladas. Isso é entrega de verdade, o relógio é testemunha do seu esforço.', metric:'horas', goal:50 },
+  // ── Indicação de amigos ──
+  { id:'indicacao1',  e:'🎁', nome:'Embaixador',            desc:'Um amigo se cadastrou com o seu link de indicação. Você já está espalhando o movimento!', metric:'indicacoes', goal:1 },
+  { id:'indicacao5',  e:'🤝', nome:'Recrutador nato',       desc:'5 amigos indicados por você já entraram no app pra valer. Você não treina sozinho, você constrói equipe.', metric:'indicacoesAtivas', goal:5 },
 ];
 
 // Conquistas mescladas com as edições do admin (nome, descrição, emoji, meta, ativa/inativa)
@@ -9658,7 +9724,14 @@ function _conquistaMetrics(id) {
   let top5consec = 0, run = 0;
   flags.forEach(f => { if (f) { run++; if (run > top5consec) top5consec = run; } else { run = 0; } });
   const st = _perfilRankingStats(id);
-  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month };
+  // Indicações: dado vem do servidor (treinos.php?action=ranking), não de
+  // sessão local — sem o dado ainda carregado, conta 0 em vez de quebrar.
+  let indicacoes = 0, indicacoesAtivas = 0;
+  try {
+    if (data.indicacoes) indicacoes = Number(data.indicacoes[alvo]) || 0;
+    if (data.indicacoesAtivas) indicacoesAtivas = Number(data.indicacoesAtivas[alvo]) || 0;
+  } catch (e) {}
+  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas };
 }
 
 function _computeConquistas(id) {
@@ -10632,6 +10705,7 @@ function _renderRankingView() {
   if (_rankingTab === 'medalhas') {
     html += _renderQuadroMedalhas(sessoes, buildRanking, nomeMap, avatarMap, meuId, isLight);
     html += _renderComentarios(data, isLight);
+    html += _indicarAmigoHtml(isLight, true);
     html += getFooterHtml();
     box.innerHTML = html;
     return;
@@ -10946,6 +11020,8 @@ function _renderRankingView() {
 
   html += _renderComentarios(data, isLight);
 
+  html += _indicarAmigoHtml(isLight, true);
+
   // Explanation + opt-out below ranking
   html += '<div style="background:' + (isLight?'rgba(92,184,0,.07)':'rgba(127,255,0,.06)') + ';border:1px solid ' + (isLight?'rgba(92,184,0,.25)':'rgba(127,255,0,.15)') + ';border-radius:14px;padding:16px;margin-top:20px;">' +
     '<div style="display:flex;align-items:flex-start;gap:10px;">' +
@@ -11067,6 +11143,8 @@ function renderQuemSomos() {
     '<div style="font-size:19px;font-weight:900;color:' + accent + ';line-height:1.2;">Resultados de 1 ano em 3 meses</div>' +
     '<div style="font-size:12px;color:' + textSecondary + ';margin-top:6px;">com a nossa metodologia de acompanhamento.</div>' +
   '</div>';
+
+  html += '<div style="margin:0 16px 20px;">' + _indicarAmigoHtml(isLight, false) + '</div>';
 
   // Metodologia (4 passos)
   html += '<div style="padding:0 16px 20px;">' +
@@ -12640,6 +12718,8 @@ function renderPerfil() {
       <div style="font-size:17px;font-weight:900;color:${isLight?'#111':'#f5f5f5'};margin-top:10px;">${esc(nome || 'Aluno')}</div>
       ${email ? `<div style="font-size:12px;color:${isLight?'#777':'#999'};">${esc(email)}</div>` : ''}
     </div>
+
+    <div style="margin-bottom:16px;">${_indicarAmigoHtml(isLight, false)}</div>
 
     <div style="display:flex;gap:6px;background:${tabBg};padding:5px;border-radius:16px;margin-bottom:18px;">
       ${tabBtn('conquistas','🏅','Conquistas')}
