@@ -12830,6 +12830,7 @@ function renderPerfil() {
         <p style="margin-bottom:8px;"><b>CNPJ:</b> 61.942.499/0001-40</p>
       </div>
       <button class="btn btn-sec btn-full" style="font-size:12px;" onclick="mostrarTermos(false);trocarView('termos');">📄 Ver Termos de Uso</button>
+      <button class="btn btn-sec btn-full" style="font-size:12px;margin-top:8px;color:#f87171;border-color:rgba(248,113,113,.35);" onclick="abrirExclusaoConta()">🗑️ Excluir minha conta</button>
     </div>
     ${getFooterHtml()}`;
 
@@ -13731,6 +13732,48 @@ function aceitarTermos() {
   toast('Termos aceitos!');
   trocarView('home');
   renderHome();
+}
+
+// ═══════════════ EXCLUIR MINHA CONTA ═══════════════
+// Iniciado pelo próprio aluno, de dentro do app (exigência de loja: Apple
+// 5.1.1(v)). Não apaga nada na hora — o back-end (aluno_login.php?action=
+// excluir_conta) bloqueia o acesso IMEDIATAMENTE e manda um aviso pra
+// equipe finalizar a exclusão dos dados pelo painel em até 30 dias, igual
+// prometido na política de privacidade. Exige digitar "EXCLUIR" pra evitar
+// toque acidental num botão que não tem volta.
+function abrirExclusaoConta() {
+  const isLight = document.body.classList.contains('tema-claro');
+  openModalGenerico(
+    '<div style="padding:6px 20px 4px;">' +
+      '<div style="font-size:15px;font-weight:900;color:#f87171;margin-bottom:8px;">🗑️ Excluir minha conta</div>' +
+      '<div style="font-size:12.5px;color:' + (isLight?'#555':'#bbb') + ';line-height:1.6;margin-bottom:12px;">' +
+        'Seu acesso ao app é bloqueado <b>imediatamente</b>. Seus dados pessoais são removidos em até 30 dias, conforme a nossa <a href="privacidade.html" target="_blank" style="color:' + (isLight?'#2d8a00':'#7FFF00') + ';">Política de Privacidade</a> — registros financeiros podem ser mantidos pelo prazo exigido por lei.' +
+      '</div>' +
+      '<div style="font-size:12px;font-weight:700;color:' + (isLight?'#333':'#ccc') + ';margin-bottom:6px;">Digite EXCLUIR para confirmar:</div>' +
+      '<input id="excluir-conta-confirma" placeholder="EXCLUIR" style="width:100%;padding:11px;border-radius:10px;border:1.5px solid ' + (isLight?'#ddd':'#333') + ';background:' + (isLight?'#fff':'#111') + ';color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';font-size:14px;font-family:inherit;text-transform:uppercase;margin-bottom:14px;"/>' +
+      '<button onclick="confirmarExclusaoConta()" style="width:100%;padding:13px;border-radius:12px;border:none;background:#f87171;color:#3a0000;font-size:14px;font-weight:900;cursor:pointer;font-family:inherit;">Excluir minha conta e sair</button>' +
+    '</div>'
+  );
+}
+async function confirmarExclusaoConta() {
+  const inp = document.getElementById('excluir-conta-confirma');
+  if (!inp || inp.value.trim().toUpperCase() !== 'EXCLUIR') { toast('Digite EXCLUIR para confirmar.'); return; }
+  const token = localStorage.getItem('mx-token') || '';
+  try {
+    const r = await fetch(API_BASE + '/aluno_login.php?action=excluir_conta', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    });
+    const res = await r.json().catch(() => ({}));
+    if (!r.ok || !res.ok) throw new Error(res.erro || 'falha');
+  } catch (e) {
+    toast('Não consegui processar agora. Tente de novo ou fale com o suporte.');
+    return;
+  }
+  closeModal();
+  localStorage.removeItem('mx-token');
+  localStorage.removeItem('mx-user');
+  location.href = 'login.html?excluido=1';
 }
 
 // ═══════════════ WELCOME SCREEN ═══════════════

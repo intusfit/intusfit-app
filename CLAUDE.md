@@ -73,7 +73,8 @@ Endpoints vivos em `/app/api/`: `aluno_login.php`, `atletas.php`, `audit.php`, `
 `mensalidades.php`, `profile_intus.php`, `treinos.php`, `usuarios.php`, mais os helpers privados
 `_audit_log.php`, `_auth_context.php`, `_cors.php`, `_gdrive.php`, `_otp.php`, `_rate_limit.php`,
 `_sessions.php` (prefixo `_` = biblioteca interna, não endpoint chamável direto).
-**`upload-drive.php` não existe** (ver seção 11, problema 4 — diagnosticado por completo em 06/09).
+~~`upload-drive.php` não existe~~ — **resolvido em 14-22/09/2026**, ver seção 11, problema 4 (endpoint
+existe, chave mora no banco, e o aviso de falha por foto deixou de ser silencioso).
 
 Configurações do sistema ficam no servidor via `catalogo.php?action=config`, nas chaves
 `ranking_regras`, `cardio_regras`, `conquistas_config`, `figurinhas_config`, `frases_config`,
@@ -386,24 +387,23 @@ consequência de cada uma.
    automático. Backup deixou de ser um problema.
 
 2. ~~Autenticação da API aceita qualquer token~~ — **RESOLVIDO pelo G4OS**, verificado em 06/09.
-   Falta ainda conferir a **autorização**: se um professor autenticado consegue ler aluno de outro
-   professor. A permissão por dono era conferida só no navegador. Vale testar com dois usuários.
+   ~~Autorização entre professores~~ — **RESOLVIDO**, verificado em 22/09/2026: `atletas.php` (lista
+   e busca por id) e `treinos.php` (fichas/treinos) já filtram no servidor por
+   `professores_responsaveis` via `getAtletasDoUsuario()` — professor A pedindo aluno de B recebe
+   403, não é mais um filtro só do navegador. Vale ainda um teste ao vivo com dois usuários reais
+   antes de publicar nas lojas, mas o código não mostra brecha.
 
 3. **`maximizeapp.com.br` serve uma cópia viva e velha do painel** (v=20260520d, de maio) cujo
    `api.js` aponta para `https://intusfit.com.br/app/api` — **o mesmo banco de produção**. Quem tiver
    link antigo grava dado real com a lógica financeira de maio. Redirecionar ou apagar antes de o
    domínio expirar. **Ação é do Luiz** (gestão de domínio), não dá para resolver só no código.
 
-4. **`upload-drive.php` não existe no servidor** (nem a pasta `vendor/` do Google). Diagnosticado por
-   completo em 06/09/2026: `avaliacoes.html` (linha ~1452) chama esse endpoint para subir fotos ao
-   Drive; ele nunca existiu. O que existe é `app/api/_gdrive.php`, uma **biblioteca pronta**
-   (`gdriveDisponivel()`, `gdriveBackup()`) que fica inativa até existir `app/config/gdrive.json`
-   — mas falta o arquivo endpoint que liga o front-end a ela. Além disso, o erro é **duplamente
-   silencioso**: cada foto falha dentro do próprio laço de envio (`catch` por arquivo) e nunca chega
-   ao aviso que já existe pronto no código ("Fotos não enviadas..."). Resultado: toda foto de
-   avaliação enviada até hoje foi descartada sem que nenhum professor visse aviso nenhum. Conserto
-   avaliado tem duas partes independentes (criar o endpoint; corrigir o silêncio do erro) — a chave
-   do Drive quem gera e coloca no servidor é o Luiz (ver seção 2).
+4. ~~`upload-drive.php` não existe no servidor~~ — **RESOLVIDO**, verificado em 22/09/2026:
+   `app/api/upload-drive.php` existe (criado 14/09), usa a biblioteca `_gdrive.php`, e a chave já
+   mora no banco (`intus_secrets`, preenchida via `admin/gdrive-key.php` — não mais em
+   `app/config/gdrive.json`, que sumia sozinho do servidor). O catch silencioso por arquivo também
+   foi corrigido: `avaliacoes.html` (`uploadFotosDrive`) agora mostra um toast listando quais fotos
+   falharam, em vez de descartar em silêncio.
 
 5. **SMTP dentro da requisição** faz uma rota levar ~35,9 s. Precisa sair do caminho da resposta.
 
@@ -614,3 +614,56 @@ Se você é uma sessão nova (Claude Code, Cowork ou G4OS) chegando depois desta
 frentes acima podem já ter avançado em paralelo por outras sessões** — rode o hash-check da seção 4,
 leia o código de verdade antes de assumir que algo descrito aqui ainda reflete o estado atual, e não
 duplique o que already existe (`_charset_fix.php`, `intus_lead`, cardio ao vivo).
+
+## 18. Revisão pra publicação nas lojas (22/09/2026)
+
+**Achado importante: já existe um projeto Capacitor local**, em `mobile/` (fora do Git — pasta
+inteira aparece como não rastreada). Tem `capacitor.config.json` (appId `br.com.intusfit.app`),
+projetos iOS e Android já montados (`mobile/ios`, `mobile/android`), ícone iOS 1024×1024 já no lugar,
+splash screens do Android já geradas, e um script (`mobile/scripts/build-web.mjs`) que copia
+`aluno.html`/`login.html`/`api.js`/`_mock.js`/`privacidade.html` etc. de `app/painel/` pra dentro do
+app nativo a cada build. Tem também `mobile/STORE-LAUNCH-CHECKLIST.md`, um checklist próprio de
+lançamento — **leia esse arquivo primeiro** numa sessão nova antes de assumir o que falta.
+
+**Importante pro fluxo de trabalho depois de publicado**: o Capacitor empacota o HTML/JS *localmente*
+no binário (não carrega a tela ao vivo do site — sem `server.url` no config). Isso significa que só
+mudanças em `app/api/*.php` chegam a quem já instalou o app via `git push` normal. Mudanças em
+`aluno.html`/`api.js`/`_mock.js` exigem `npm run sync` + rebuild + reenvio pra loja (Android libera
+rápido; iOS passa pela revisão da Apple de novo).
+
+**Corrigido nesta sessão** (todos os itens abaixo já testados e no ar em `app/painel/`, exceto onde
+marcado como só em `mobile/`, que fica fora do deploy automático):
+- **Exclusão de conta dentro do app** (exigência Apple 5.1.1v) — não existia. Novo botão em Meu
+  Perfil > "Excluir minha conta", pede confirmação digitando EXCLUIR, chama
+  `aluno_login.php?action=excluir_conta` (aluno autenticado via `validateSession`). Não apaga dado na
+  hora: bloqueia o acesso imediatamente, marca `exclusao_solicitada_em`, avisa a equipe por e-mail, e
+  revoga a sessão. A exclusão definitiva dos dados continua manual, pelo painel, em até 30 dias — a
+  regra de "exclusão só pelo painel, nunca por script" (seção 2) não mudou.
+- **Termos de Uso sem URL pública** — criado `app/painel/termos.html`, cópia do texto que já existia
+  só dentro do app (`mostrarTermos()`), agora também acessível como página pública.
+- **Política de privacidade incompleta** — `app/painel/privacidade.html` não mencionava
+  geolocalização (usada no Cardio ao vivo) nem notificações push; adicionado. Data de atualização
+  também subiu.
+- **Permissões nativas sem descrição** — `mobile/ios/App/App/Info.plist` (Info.plist) e
+  `mobile/android/.../AndroidManifest.xml` não declaravam os textos de câmera/localização/fotos nem
+  as permissões Android (câmera, localização, notificações, mídia) — adicionado. Fica só em
+  `mobile/`, fora do deploy automático do site.
+- **Ícone da Play Store faltando** — só existiam favicons pequenos nas pastas do Android; gerado
+  `mobile/store-assets/google-play-icon-512.png` (e uma cópia 1024×1024 pra ficha do App Store
+  Connect) a partir do master já usado no ícone do Xcode.
+
+**Dois itens do checklist que a revisão apontou como abertos e acabaram já estando resolvidos** (o
+`CLAUDE.md` estava desatualizado nesses dois pontos — ver seção 11, itens 2 e 4, já corrigidos acima):
+autorização entre professores, e upload de foto de avaliação pro Drive.
+
+**Ainda em aberto, não resolvido nesta sessão:**
+- **Sign in with Apple** — não existe (`oauth_apple`). Mas Google e Facebook também estão **ambos
+  desligados hoje** (Client ID/App ID ainda são placeholder em `aluno_login.php`/`aluno.html`), e a
+  exigência da Apple só vale se outro login social estiver realmente ativo — não é bloqueio enquanto
+  os dois continuarem desligados. Se algum dia forem ligados antes de submeter pro iOS, isso vira
+  bloqueio de verdade.
+- **Autenticação Google/Facebook desligada** — placeholders (`SUBSTITUA_PELO_CLIENT_ID_DO_GOOGLE`,
+  `SUBSTITUA_PELO_APP_ID_DO_FACEBOOK`) nunca foram trocados pelas credenciais reais.
+- Os outros itens do `mobile/STORE-LAUNCH-CHECKLIST.md` que dependem de conta/acesso do Luiz
+  (Apple Developer Program, Google Play Console, papéis do G4OS, chaves de assinatura) continuam
+  como estavam — nada disso é algo que código resolve.

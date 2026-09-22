@@ -705,6 +705,64 @@ try {
         exit;
     }
 
+    // ===== Excluir conta (iniciado pelo próprio aluno, dentro do app) =====
+    // Não apaga os registros na hora: bloqueia o acesso IMEDIATAMENTE (o
+    // requisito da Apple/Google é que a exclusão seja INICIADA no app, não
+    // necessariamente instantânea) e marca a data do pedido. A política de
+    // privacidade promete até 30 dias — a apuração final (histórico
+    // financeiro, obrigações fiscais) continua manual, pelo painel, igual
+    // a qualquer outra exclusão de dado deste projeto.
+    if ($action === 'excluir_conta') {
+        require_once __DIR__ . '/_rate_limit.php';
+        checkRateLimit($pdo, 'aluno_excluir_conta', 5, 3600);
+
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        $tok = '';
+        if (preg_match('/Bearer\s+(.+)/i', $authHeader, $m)) { $tok = trim($m[1]); }
+        require_once __DIR__ . '/_sessions.php';
+        $sessao = validateSession($pdo, $tok);
+        if (!$sessao || $sessao['user_type'] !== 'aluno' || (int)$sessao['user_id'] <= 0) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'erro' => 'sessao invalida']);
+            exit;
+        }
+        $idExcluir = (int)$sessao['user_id'];
+
+        if (!in_array('exclusao_solicitada_em', $colunas)) {
+            try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `exclusao_solicitada_em` DATETIME NULL"); $colunas[] = 'exclusao_solicitada_em'; } catch (Throwable $e) {}
+        }
+
+        try {
+            $sets = ["exclusao_solicitada_em = NOW()"];
+            $vals = [];
+            if ($col_block && $col_block !== 'stativo') { $sets[] = "`$col_block` = 'S'"; }
+            elseif ($col_block === 'stativo') { $sets[] = "`$col_block` = 'N'"; }
+            $vals[] = $idExcluir;
+            $pdo->prepare("UPDATE `$tabela` SET " . implode(', ', $sets) . " WHERE $col_id = ?")->execute($vals);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'erro' => 'falha ao registrar pedido de exclusão']);
+            exit;
+        }
+
+        // E-mail pra equipe finalizar manualmente — mesmo destino já usado
+        // pelo aviso de novo cadastro.
+        try {
+            $stE = $pdo->prepare("SELECT * FROM `$tabela` WHERE $col_id = ? LIMIT 1");
+            $stE->execute([$idExcluir]);
+            $rowE = $stE->fetch(PDO::FETCH_ASSOC);
+            $_cfgN = @include __DIR__ . '/../config/smtp.php';
+            $emailNotif = (is_array($_cfgN) && !empty($_cfgN['notificar'])) ? $_cfgN['notificar'] : 'contato@intusfit.com.br';
+            @intus_enviar_email($emailNotif, 'Pedido de exclusão de conta: ' . ($rowE[$col_nome] ?? ('#' . $idExcluir)),
+                "Um aluno pediu exclusão da conta pelo app.\n\nNome: " . ($rowE[$col_nome] ?? '-') . "\nE-mail: " . ($rowE[$col_email] ?? '-') . "\nID: $idExcluir\nData: " . date('d/m/Y H:i') . "\n\nO acesso já foi bloqueado. Finalize a exclusão dos dados pelo painel em até 30 dias, conforme a política de privacidade.",
+                $rowE[$col_email] ?? null);
+        } catch (Throwable $e) {}
+
+        revokeSession($pdo, $tok);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
     // ===== Validar login (default) =====
     require_once __DIR__ . '/_rate_limit.php';
     checkRateLimit($pdo, 'aluno_login', 5, 900);
