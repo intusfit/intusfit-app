@@ -471,6 +471,16 @@
     .h-dia.feito .q { border-color:var(--link-ex); background:var(--marca-fraca); color:var(--link-ex); }
     .h-dia.hoje .q { border-color:var(--link-ex); background:transparent; color:var(--texto); }
     .h-barra { flex:1; height:6px; border-radius:99px; background:var(--trilho); overflow:hidden; }
+    .hcal-semana, .hcal-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; }
+    .hcal-semana { margin-bottom:4px; }
+    .hcal-letra { text-align:center; font-size:9px; font-weight:700; color:var(--muted); }
+    .hcal-dia { aspect-ratio:1; border-radius:8px; border:1.5px solid var(--borda); background:var(--sup);
+                display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
+    .hcal-dia.feito { border-color:var(--link-ex); background:var(--marca-fraca); cursor:pointer; }
+    .hcal-dia.hoje { border-color:var(--link-ex); background:transparent; }
+    .hcal-num { font-size:10px; font-weight:700; color:var(--muted); }
+    .hcal-dia.feito .hcal-num { color:var(--texto); }
+    .hcal-ic { font-size:11px; line-height:1; }
     .h-barra i { display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,#5fd000,#7FFF00); }
 
     .h-duo { display:grid; grid-template-columns:1.12fr 1fr; gap:10px; margin-bottom:10px; }
@@ -6842,10 +6852,177 @@ function _historicoTrocarTab(tab) {
   renderHistorico();
 }
 
+// ═══════════════ CALENDÁRIO MENSAL DO HISTÓRICO ═══════════════
+// Início do sistema: mesma data já usada no ranking, aba "Meses anteriores"
+// (aluno.html, _rankingTab==='meses_anteriores') — não existe sessão
+// registrada antes disso, então a navegação não deixa passar pra trás.
+const HIST_CAL_ANO_INICIO = 2026, HIST_CAL_MES_INICIO = 4; // maio
+let _histCalAno = null, _histCalMes = null; // null = usa o mês atual até o aluno navegar
+let _histCalTouchX = null;
+
+function _histCalGarantirMesAtual() {
+  if (_histCalAno == null) {
+    const h = new Date();
+    _histCalAno = h.getFullYear();
+    _histCalMes = h.getMonth();
+  }
+}
+
+function _histCalTrocarMes(delta) {
+  _histCalGarantirMesAtual();
+  let novoMes = _histCalMes + delta, novoAno = _histCalAno;
+  if (novoMes < 0) { novoMes = 11; novoAno--; }
+  else if (novoMes > 11) { novoMes = 0; novoAno++; }
+  const h = new Date();
+  if (novoAno < HIST_CAL_ANO_INICIO || (novoAno === HIST_CAL_ANO_INICIO && novoMes < HIST_CAL_MES_INICIO)) return;
+  if (novoAno > h.getFullYear() || (novoAno === h.getFullYear() && novoMes > h.getMonth())) return;
+  _histCalAno = novoAno; _histCalMes = novoMes;
+  renderHistorico();
+}
+
+// Mesmo detector simples de arraste do tutorial tipo Stories da Home
+// (_tutTouchStart/_tutTouchEnd) — "diferença de X no clientX > limiar decide
+// direção" —, só trocando o alvo pra mês anterior/próximo.
+function _histCalTouchStart(e) { _histCalTouchX = (e.touches ? e.touches[0].clientX : e.clientX); }
+function _histCalTouchEnd(e) {
+  if (_histCalTouchX === null) return;
+  const fim = (e.changedTouches ? e.changedTouches[0].clientX : e.clientX);
+  const dx = fim - _histCalTouchX;
+  _histCalTouchX = null;
+  if (Math.abs(dx) > 40) _histCalTrocarMes(dx < 0 ? 1 : -1);
+}
+
+// Card de UMA sessão, no molde exato da "Linha do tempo" abaixo — extraído
+// pra função porque o modal de "atividades do dia" do calendário precisa do
+// mesmo card, sem duplicar o template dos dois lugares.
+function _histCardHtml(s, sessoes, isLight, comExcluir) {
+  const data = new Date(s.dtsessao + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+  const durMin = Math.floor((s.duracao_seg||0)/60);
+  let totalKgReps = 0, seriesP = 0, seriesT = 0;
+  (s.itens||[]).forEach(item => { (item.series||[]).forEach(sr => { seriesT++; const p=parseFloat(sr.peso),r=parseInt(sr.reps); if(p>0&&r>0){totalKgReps+=p*r;seriesP++;} }); });
+  const ehCardio = (s.tipo === 'cardio') || !!s.cardio_tipo;
+  const pts = Math.round(pontosSessaoRank(s, sessoes));
+  let cardioExtra = '';
+  if (ehCardio && s.comentario && s.comentario.includes(' · ')) cardioExtra = s.comentario.split(' · ').slice(1).join(' · ');
+  const cor = ehCardio ? '#06b6d4' : divisaoCor(s.divisao);
+  const alertaLbl = s.nao_contar ? '⏱️ Não contabilizado (teste)' : s.alerta_duracao === 'longo' ? '⚠️ Duração longa (+3h)' : s.alerta_duracao === 'curto' ? '⚠️ Muito curto (-5min)' : '';
+  const baseStyle = s.nao_contar ? 'border-left:3px solid #888;opacity:.7;' : ('border-left:3px solid ' + cor + ';');
+  const tituloHtml = ehCardio
+    ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>🏃 ${esc(s.cardio_tipo || 'Cardio')}${s.cardio_intensidade ? ' · ' + esc(s.cardio_intensidade) : ''}`
+    : `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>Divisão ${esc(s.divisao)} ${s.marcado_como_feito?'☑️':'✅'}`;
+  const ptsLbl = (!s.nao_contar && pts > 0) ? ` • <b style="color:${isLight?'#5cb800':'#7FFF00'};">+${pts} pts</b>` : '';
+  const subHtml = ehCardio
+    ? `⏱️ ${durMin}min${ptsLbl}${cardioExtra ? ' • ' + esc(cardioExtra) : ''}`
+    : `⏱️ ${durMin}min${totalKgReps > 0 ? ` • 🏋️ ${Math.round(totalKgReps).toLocaleString('pt-BR')} kg` : ''}${s.marcado_como_feito ? ' • Marcado como feito' : ` • ${seriesP} séries`}${ptsLbl}`;
+  const comentHtml = (!ehCardio && s.comentario) ? `<div class="hist-comment">💬 "${esc(s.comentario)}"</div>` : '';
+  const recsHist = (!ehCardio && !s.nao_contar) ? SessoesTreino.recordesDaSessao(s) : [];
+  const recordeHtml = recsHist.length
+    ? `<div style="margin-top:6px;font-size:11px;font-weight:800;color:#fbbf24;">🏆 ${recsHist.map(r => esc(r.exercicio) + ' ' + r.peso + 'kg').join(' · ')}</div>`
+    : '';
+  const rotulo = ehCardio ? (s.cardio_tipo || 'Cardio') : ('Divisão ' + (s.divisao || ''));
+  return `<div class="hist-card" style="${baseStyle}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <div class="hist-title">${tituloHtml}</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <span style="font-size:11px;color:#888;white-space:nowrap;">${data}${s.hora_conclusao ? ' às ' + s.hora_conclusao : ''}</span>
+        ${comExcluir ? `<button onclick="excluirSessaoHistorico(${Number(s.idsessao)||0},${ehCardio?'true':'false'},'${esc(rotulo).replace(/'/g,'')}')" title="Remover registro" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#f87171;width:26px;height:26px;border-radius:7px;font-size:12px;cursor:pointer;line-height:1;flex-shrink:0;">🗑</button>` : ''}
+      </div>
+    </div>
+    <div class="hist-sub">${subHtml}</div>
+    ${recordeHtml}
+    ${alertaLbl ? `<div style="font-size:11px;color:#f59e0b;margin-top:4px;">${alertaLbl}</div>` : ''}
+    ${comentHtml}
+  </div>`;
+}
+
+// Toque num dia com atividade: abre as sessões daquele dia só pra leitura
+// (sem botão de excluir — apagar continua só pela Linha do tempo).
+function _histAbrirDia(iso) {
+  const sessoes = SessoesTreino.listarDoAtleta(idAtleta);
+  const doDia = sessoes.filter(s => String(s.dtsessao).slice(0,10) === iso);
+  const isLight = document.body.classList.contains('tema-claro');
+  const bg = isLight ? '#fff' : '#161616';
+  const _dataFmtRaw = new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+  const dataFmt = _dataFmtRaw.charAt(0).toUpperCase() + _dataFmtRaw.slice(1);
+  const ov = document.createElement('div');
+  ov.id = 'hist-dia-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100003;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .2s ease;';
+  ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+  const corpo = doDia.length
+    ? doDia.map(s => _histCardHtml(s, sessoes, isLight, false)).join('')
+    : '<div style="text-align:center;padding:20px;color:' + (isLight?'#888':'#888') + ';font-size:13px;">Nenhuma atividade neste dia.</div>';
+  ov.innerHTML =
+    '<div style="background:' + bg + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#2a2a2a') + ';border-radius:20px;padding:20px 18px;max-width:360px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4);">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
+        '<div style="font-size:14px;font-weight:900;color:' + (isLight ? '#1a1a1a' : '#f5f5f5') + ';">' + esc(dataFmt) + '</div>' +
+        '<button onclick="document.getElementById(\'hist-dia-overlay\').remove()" style="width:28px;height:28px;border-radius:8px;border:none;background:' + (isLight?'#f0f0f0':'#222') + ';color:' + (isLight?'#333':'#ccc') + ';font-size:14px;cursor:pointer;">×</button>' +
+      '</div>' +
+      corpo +
+    '</div>';
+  document.body.appendChild(ov);
+}
+
+function _histCalHtml(sessoes, isLight) {
+  _histCalGarantirMesAtual();
+  const ano = _histCalAno, mesIdx = _histCalMes;
+  const contar = sessoes.filter(s => !s.nao_contar);
+  // Mesma distinção treino/cardio do card "Sua semana" da Home (_ehMus),
+  // repetida aqui porque aquela vive local ao escopo de renderHome().
+  const ehMusDia = s => !((s.tipo === 'cardio') || s.cardio_tipo);
+  const primeiroDia = new Date(ano, mesIdx, 1);
+  const totalDias = new Date(ano, mesIdx + 1, 0).getDate();
+  const offsetSemana = primeiroDia.getDay();
+  // Maiúscula só na 1ª letra ("Setembro de 2026") — text-transform:capitalize
+  // deixaria "De" maiúsculo também, capitalizando toda palavra.
+  const _nomeMesRaw = primeiroDia.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const nomeMes = _nomeMesRaw.charAt(0).toUpperCase() + _nomeMesRaw.slice(1);
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const podeVoltar = ano > HIST_CAL_ANO_INICIO || (ano === HIST_CAL_ANO_INICIO && mesIdx > HIST_CAL_MES_INICIO);
+  const podeAvancar = !(ano === hoje.getFullYear() && mesIdx === hoje.getMonth());
+
+  const porDia = {};
+  contar.forEach(s => {
+    const d = new Date(String(s.dtsessao).slice(0,10) + 'T00:00:00');
+    if (d.getFullYear() !== ano || d.getMonth() !== mesIdx) return;
+    const dia = d.getDate();
+    if (!porDia[dia]) porDia[dia] = { mus: false, cardio: false };
+    if (ehMusDia(s)) porDia[dia].mus = true; else porDia[dia].cardio = true;
+  });
+
+  const L = ['D','S','T','Q','Q','S','S'];
+  let celulas = '';
+  for (let i = 0; i < offsetSemana; i++) celulas += '<div></div>';
+  for (let dia = 1; dia <= totalDias; dia++) {
+    const info = porDia[dia];
+    const d = new Date(ano, mesIdx, dia);
+    const iso = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const ehHoje = d.getTime() === hoje.getTime();
+    const temAtividade = info && (info.mus || info.cardio);
+    const conteudo = info ? ((info.mus ? '💪' : '') + (info.cardio ? '🏃' : '')) : '';
+    celulas += `<div class="hcal-dia${temAtividade?' feito':''}${ehHoje&&!temAtividade?' hoje':''}" ${temAtividade ? `onclick="_histAbrirDia('${iso}')"` : ''}>
+      <span class="hcal-num">${dia}</span><span class="hcal-ic">${conteudo}</span>
+    </div>`;
+  }
+
+  return `<div class="card" style="padding:14px 12px;margin-bottom:16px;" ontouchstart="_histCalTouchStart(event)" ontouchend="_histCalTouchEnd(event)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <button onclick="_histCalTrocarMes(-1)" ${podeVoltar?'':'disabled'} style="width:30px;height:30px;border-radius:8px;border:1px solid var(--borda);background:var(--sup);color:${podeVoltar?'var(--texto)':'var(--muted)'};font-size:14px;cursor:${podeVoltar?'pointer':'default'};opacity:${podeVoltar?'1':'.4'};">‹</button>
+      <div style="font-size:13px;font-weight:800;color:var(--texto);">${esc(nomeMes)}</div>
+      <button onclick="_histCalTrocarMes(1)" ${podeAvancar?'':'disabled'} style="width:30px;height:30px;border-radius:8px;border:1px solid var(--borda);background:var(--sup);color:${podeAvancar?'var(--texto)':'var(--muted)'};font-size:14px;cursor:${podeAvancar?'pointer':'default'};opacity:${podeAvancar?'1':'.4'};">›</button>
+    </div>
+    <div class="hcal-semana">${L.map(l => `<div class="hcal-letra">${l}</div>`).join('')}</div>
+    <div class="hcal-grid">${celulas}</div>
+  </div>`;
+}
+
 function renderHistorico() {
   const sessoes = SessoesTreino.listarDoAtleta(idAtleta);
   const isLight = document.body.classList.contains('tema-claro');
   let html = telaHeader('📊 Histórico & Evoluções');
+  // Calendário fica fixo em cima, fora das abas — continua visível não
+  // importa qual das duas esteja selecionada abaixo, mesma coisa mesmo
+  // sem sessão nenhuma ainda (mostra o mês vazio, sem esconder o calendário).
+  html += _histCalHtml(sessoes, isLight);
 
   if (!sessoes.length) {
     html += `<div class="coming-soon"><div class="icon">📊</div><h3>Nenhum treino registrado</h3>
@@ -6987,53 +7164,7 @@ function renderHistorico() {
     html += `<div id="hist-painel-linha" style="${_abaAtiva==='linha'?'':'display:none;'}">`;
     html += `<h2 class="sect-title" style="margin-top:4px;">🕒 Linha do tempo</h2>
       <p style="font-size:11px;color:${isLight?'#888':'#888'};margin:-6px 0 10px;">Tudo o que você vem fazendo, do mais recente ao mais antigo.</p>`;
-    sessoes.slice(0, 20).forEach(s => {
-      const data = new Date(s.dtsessao + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
-      const durMin = Math.floor((s.duracao_seg||0)/60);
-      let totalKgReps = 0, seriesP = 0, seriesT = 0;
-      (s.itens||[]).forEach(item => { (item.series||[]).forEach(sr => { seriesT++; const p=parseFloat(sr.peso),r=parseInt(sr.reps); if(p>0&&r>0){totalKgReps+=p*r;seriesP++;} }); });
-
-      const ehCardio = (s.tipo === 'cardio') || !!s.cardio_tipo;
-      const pts = Math.round(pontosSessaoRank(s, sessoes));
-      // métrica (distância/degraus) embutida no comentário do cardio
-      let cardioExtra = '';
-      if (ehCardio && s.comentario && s.comentario.includes(' · ')) cardioExtra = s.comentario.split(' · ').slice(1).join(' · ');
-      const cor = ehCardio ? '#06b6d4' : divisaoCor(s.divisao);
-
-      const alertaLbl = s.nao_contar ? '⏱️ Não contabilizado (teste)' : s.alerta_duracao === 'longo' ? '⚠️ Duração longa (+3h)' : s.alerta_duracao === 'curto' ? '⚠️ Muito curto (-5min)' : '';
-      const baseStyle = s.nao_contar ? 'border-left:3px solid #888;opacity:.7;' : ('border-left:3px solid ' + cor + ';');
-
-      const tituloHtml = ehCardio
-        ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>🏃 ${esc(s.cardio_tipo || 'Cardio')}${s.cardio_intensidade ? ' · ' + esc(s.cardio_intensidade) : ''}`
-        : `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>Divisão ${esc(s.divisao)} ${s.marcado_como_feito?'☑️':'✅'}`;
-      const ptsLbl = (!s.nao_contar && pts > 0) ? ` • <b style="color:${isLight?'#5cb800':'#7FFF00'};">+${pts} pts</b>` : '';
-      const subHtml = ehCardio
-        ? `⏱️ ${durMin}min${ptsLbl}${cardioExtra ? ' • ' + esc(cardioExtra) : ''}`
-        : `⏱️ ${durMin}min${totalKgReps > 0 ? ` • 🏋️ ${Math.round(totalKgReps).toLocaleString('pt-BR')} kg` : ''}${s.marcado_como_feito ? ' • Marcado como feito' : ` • ${seriesP} séries`}${ptsLbl}`;
-      const comentHtml = (!ehCardio && s.comentario) ? `<div class="hist-comment">💬 "${esc(s.comentario)}"</div>` : '';
-      // Mesma fonte usada na tela final e no compartilhar (ver
-      // SessoesTreino.recordesDaSessao) — retroativo, então uma sessão antiga
-      // também mostra o badge se na época ela bateu carga máxima nova.
-      const recsHist = (!ehCardio && !s.nao_contar) ? SessoesTreino.recordesDaSessao(s) : [];
-      const recordeHtml = recsHist.length
-        ? `<div style="margin-top:6px;font-size:11px;font-weight:800;color:#fbbf24;">🏆 ${recsHist.map(r => esc(r.exercicio) + ' ' + r.peso + 'kg').join(' · ')}</div>`
-        : '';
-
-      const rotulo = ehCardio ? (s.cardio_tipo || 'Cardio') : ('Divisão ' + (s.divisao || ''));
-      html += `<div class="hist-card" style="${baseStyle}">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <div class="hist-title">${tituloHtml}</div>
-          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-            <span style="font-size:11px;color:#888;white-space:nowrap;">${data}${s.hora_conclusao ? ' às ' + s.hora_conclusao : ''}</span>
-            <button onclick="excluirSessaoHistorico(${Number(s.idsessao)||0},${ehCardio?'true':'false'},'${esc(rotulo).replace(/'/g,'')}')" title="Remover registro" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#f87171;width:26px;height:26px;border-radius:7px;font-size:12px;cursor:pointer;line-height:1;flex-shrink:0;">🗑</button>
-          </div>
-        </div>
-        <div class="hist-sub">${subHtml}</div>
-        ${recordeHtml}
-        ${alertaLbl ? `<div style="font-size:11px;color:#f59e0b;margin-top:4px;">${alertaLbl}</div>` : ''}
-        ${comentHtml}
-      </div>`;
-    });
+    sessoes.slice(0, 20).forEach(s => { html += _histCardHtml(s, sessoes, isLight, true); });
     html += `<div style="font-size:11px;color:${isLight?'#999':'#666'};line-height:1.6;margin-top:14px;padding:11px 13px;background:${isLight?'#f6f6f6':'#161616'};border-radius:11px;">🔒 <b>Seu histórico completo é privado.</b> Só você enxerga todos os seus treinos e evoluções aqui. No ranking, os outros membros veem apenas as suas atividades <b>da semana atual</b>, e você vê só as deles da semana também.</div>`;
     html += `</div>`; // fecha #hist-painel-linha
   }
