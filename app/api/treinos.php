@@ -746,12 +746,27 @@ try {
             // falhado (o app propositalmente preserva o treino ativo pra não
             // perder série digitada num erro de rede) e o aluno confirmou de
             // novo. Sem isso, cada retry virava um "2º treino do dia" fantasma
-            // no ranking. Só considera duplicata quando TUDO bate (itens,
-            // duração, comentário) — um segundo treino de verdade no mesmo dia
-            // quase sempre tem itens/duração diferentes, então não cai aqui.
+            // no ranking.
+            //
+            // BUG real (achado 22/09/2026, um dia depois desta proteção entrar
+            // no ar): exigir duracao_seg = ? deixava a proteção inofensiva na
+            // prática. finalizarTreino() no front-end calcula a duração ao vivo
+            // — Date.now() menos o início do treino — TODA VEZ que é chamada.
+            // Um reenvio sempre acontece um pouco DEPOIS da tentativa original
+            // (a aluna vê que não confirmou, espera, toca de novo), então a
+            // duração do reenvio é sempre um pouco MAIOR, nunca idêntica — a
+            // duplicata da Keila (22/09) tinha os mesmos 32 séries e itens
+            // idênticos, só a duração e os pontos (1º x 2º treino do dia)
+            // diferentes, e passou direto pela checagem antiga.
+            //
+            // itens+comentário+divisão+ficha+data batendo EXATO já é sinal
+            // fortíssimo de mesma sessão — um treino de verdade, diferente,
+            // no mesmo dia quase nunca repete peso E repetição EM TODAS as
+            // séries de TODOS os exercícios. A duração agora só precisa estar
+            // "na vizinhança" (até 15 min de diferença) em vez de idêntica.
             $stDup = $pdo->prepare("SELECT idsessao FROM intus_sessao
                 WHERE idatleta = ? AND tipo = 'musculacao' AND dtsessao = ?
-                  AND divisao <=> ? AND idficha <=> ? AND duracao_seg = ?
+                  AND divisao <=> ? AND idficha <=> ? AND ABS(duracao_seg - ?) <= 900
                   AND itens <=> ? AND comentario <=> ?
                   AND created_at >= (NOW() - INTERVAL 30 MINUTE)
                 ORDER BY idsessao DESC LIMIT 1");
