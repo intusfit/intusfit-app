@@ -4707,6 +4707,11 @@ function renderHome() {
   let _hoje = null;      // { idficha, divisao, nomeFicha, qtdEx, minutos }
   let _sem  = { dias: [], feitos: 0, alvo: _rankReg.bonusDias, pts: 0, participantes: 0, posicao: 0 };
   let _med  = { ouro: 0, prata: 0, bronze: 0, pos: 0, total: 0 };
+  // Cartão Ranking da Home (Opção B aprovada): tendência vs a MESMA altura da
+  // semana passada (mesmo padrão já usado no cartão pessoal do Ranking, não
+  // uma conta nova) + quanto falta pro próximo colocado, pra barra de progresso.
+  let _diffPts = null;
+  let _proximoPts = null;
   let _ultimoTreino = null; // { dtsessao, divisao } — pro cartão "Treinos" mostrar o que já foi feito
   try {
     // Proxima divisao: a seguinte a da ultima sessao registrada. Sem sessao
@@ -4782,7 +4787,29 @@ function renderHome() {
           .sort((x, y) => y.pts - x.pts);
         posicionarDenso(_ord);
         const _eu = _ord.find(x => Number(x.id) === Number(idAtleta));
-        if (_eu) { _sem.posicao = _eu.pos; _sem.pts = Math.round(_eu.pts); }
+        if (_eu) {
+          _sem.posicao = _eu.pos; _sem.pts = Math.round(_eu.pts);
+          // Quanto o próximo colocado (posição melhor) tem — pra barra de
+          // progresso. Empate divide posição, então pega o 1º da lista com
+          // posição menor que a minha, não simplesmente o índice anterior.
+          const _melhor = _ord.filter(x => x.pos < _eu.pos).pop();
+          if (_melhor) _proximoPts = Math.round(_melhor.pts);
+
+          // Mesma comparação já aprovada no cartão pessoal do Ranking: MESMA
+          // altura da semana passada (mesmo dia da semana), não a semana
+          // inteira — comparar terça com sábado encerrado sempre favoreceria
+          // o passado.
+          const _domPass = new Date(_dom); _domPass.setDate(_domPass.getDate() - 7);
+          const _cutoffPass = new Date(_domPass); _cutoffPass.setDate(_cutoffPass.getDate() + _h0.getDay());
+          const _daSemPass = _rankingData.sessoes.filter(x => {
+            const d = new Date(String(x.dtsessao).slice(0, 10) + 'T00:00:00');
+            return d >= _domPass && d <= _cutoffPass;
+          }).map(x => ({ ...x, dt: new Date(String(x.dtsessao).slice(0, 10) + 'T00:00:00'),
+                         tipo: x.tipo || (x.cardio_tipo ? 'cardio' : 'musculacao') }));
+          const _agPass = _agregarPontosPorAtleta(_daSemPass);
+          const _ptsPass = (_agPass[Number(idAtleta)] && _agPass[Number(idAtleta)].total) || 0;
+          _diffPts = Math.round(_sem.pts - _ptsPass);
+        }
       } catch (e) { console.warn('[home] não consegui calcular a posição:', e); }
     }
 
@@ -4877,13 +4904,20 @@ function renderHome() {
     <div style="display:flex;gap:10px;margin-bottom:16px;align-items:stretch;">
       <div style="flex:1;display:flex;flex-direction:column;gap:10px;">
         <div class="h-mini" onclick="navegar('ranking')" style="flex:1;margin:0;">
-          <div class="cab">🥇 Ranking</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+            <div class="cab">🥇 Ranking</div>
+            ${(_sem.posicao && _diffPts) ? `<span style="font-size:10px;font-weight:800;color:${_diffPts > 0 ? 'var(--link-ex)' : (isLight ? '#c0392b' : '#ff6b6b')};background:${_diffPts > 0 ? 'var(--marca-fraca)' : (isLight ? 'rgba(192,57,43,.1)' : 'rgba(255,107,107,.12)')};padding:2px 7px;border-radius:6px;white-space:nowrap;flex-shrink:0;">${_diffPts > 0 ? '▲' : '▼'} ${Math.abs(_diffPts)} pts</span>` : ''}
+          </div>
           <div style="display:flex;align-items:baseline;gap:5px;margin-top:6px;">
             ${_sem.posicao
               ? `<span class="num">${_sem.posicao}º</span><span style="font-size:12px;font-weight:700;color:var(--muted);">de ${_sem.participantes || '?'}</span>`
               : `<span class="num">${_sem.pts}</span><span style="font-size:12px;font-weight:700;color:var(--muted);">pts</span>`}
           </div>
           <div class="pe">${_sem.posicao ? _sem.pts + ' pts nesta semana' : (_sem.participantes ? 'entre ' + _sem.participantes + ' participantes' : 'na semana · ver posição')}</div>
+          ${(_sem.posicao > 1 && _proximoPts != null && _proximoPts > _sem.pts) ? `
+          <div class="h-barra" style="height:4px;margin-top:8px;"><i style="width:${Math.max(4, Math.min(100, Math.round((_sem.pts / _proximoPts) * 100)))}%;"></i></div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">${_proximoPts - _sem.pts} pts para o ${_sem.posicao - 1}º lugar</div>
+          ` : ''}
         </div>
         <div class="h-mini" onclick="abrirQuadroMedalhas()" style="flex:1;margin:0;">
           <div class="cab">🏅 Medalhas</div>
@@ -4897,6 +4931,9 @@ function renderHome() {
           <div class="pe">${_med.pos
             ? _med.pos + 'º no quadro' + (_med.total ? ' de ' + _med.total : '')
             : 'ver quadro completo'}</div>
+          ${(_med.pos && _med.total > 1) ? `
+          <div class="h-barra" style="height:4px;margin-top:8px;"><i style="width:${Math.max(4, Math.round(((_med.total - _med.pos + 1) / _med.total) * 100))}%;background:linear-gradient(90deg,#a06a10,#ffb020);"></i></div>
+          ` : ''}
         </div>
       </div>
       <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
