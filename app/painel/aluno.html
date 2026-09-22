@@ -4893,7 +4893,7 @@ function renderHome() {
       </div>
     </div>
 
-    <div class="h-sem" onclick="navegar('ranking')">
+    <div class="h-sem" onclick="_abrirHistoricoCalendario()">
       <div style="display:flex;align-items:baseline;gap:8px;">
         <span class="cab">Sua semana</span>
         <span style="flex:1;"></span>
@@ -6852,6 +6852,13 @@ function _historicoTrocarTab(tab) {
   renderHistorico();
 }
 
+// Card "Sua semana" da Home leva direto pra aba com o calendário (não pra
+// aba padrão de Evolução), já que ali o aluno vê os dias marcados de cara.
+function _abrirHistoricoCalendario() {
+  _historicoTab = 'linha';
+  navegar('historico');
+}
+
 // ═══════════════ CALENDÁRIO MENSAL DO HISTÓRICO ═══════════════
 // Início do sistema: mesma data já usada no ranking, aba "Meses anteriores"
 // (aluno.html, _rankingTab==='meses_anteriores') — não existe sessão
@@ -7092,11 +7099,21 @@ function renderHistorico() {
       const domKeyH = (d) => { const x = new Date(String(d).slice(0,10) + 'T00:00:00'); if (isNaN(x)) return null; x.setDate(x.getDate() - x.getDay()); x.setHours(0,0,0,0); return x.getTime(); };
       const weekMap = {};
       contar.forEach(s => { const k = domKeyH(s.dtsessao); if (k != null) weekMap[k] = (weekMap[k] || 0) + 1; });
-      let melhorSemana = 0; Object.values(weekMap).forEach(n => { if (n > melhorSemana) melhorSemana = n; });
+      // Guarda também a CHAVE da semana campeã (não só a contagem), para
+      // apontar de qual semana o número é — em empate, fica a mais recente.
+      let melhorSemana = 0, melhorSemanaKey = null;
+      Object.keys(weekMap).forEach(k => { const kk = Number(k), n = weekMap[k]; if (n > melhorSemana || (n === melhorSemana && (melhorSemanaKey == null || kk > melhorSemanaKey))) { melhorSemana = n; melhorSemanaKey = kk; } });
       const domHoje = new Date(_hoje); domHoje.setDate(domHoje.getDate() - domHoje.getDay()); domHoje.setHours(0,0,0,0);
       let streakH = 0, ck = domHoje.getTime(); if (!weekMap[ck]) ck -= 7 * 86400000;
+      const streakFimTs = ck; // semana mais recente contada na sequência (Domingo dela)
       while (weekMap[ck]) { streakH++; ck -= 7 * 86400000; }
+      const streakInicioTs = ck + 7 * 86400000; // semana mais antiga contada (Domingo dela)
+      const fmtDiaH = d => d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+      const fmtSemanaH = domTs => { const dom = new Date(domTs); const sab = new Date(dom); sab.setDate(sab.getDate() + 6); return fmtDiaH(dom) + '–' + fmtDiaH(sab); };
       let volumeTotal = 0, cargaMax = 0, cargaMaxEx = '', cargaMaxReps = 0, cargaMaxData = '', minutosTotal = 0;
+      // Cardio: tempo, distância (extraída do texto salvo em comentario — o
+      // banco não tem coluna própria pra distância) e a sessão mais longa.
+      let cardioMinutosTotal = 0, cardioDistKmTotal = 0, cardioMaisLongoMin = 0, cardioMaisLongoTipo = '', cardioMaisLongoData = '';
       contar.forEach(s => {
         minutosTotal += Math.floor((s.duracao_seg || 0) / 60);
         // Serie com tecnica (drop, rest-pause, cluster, back-off) fica fora do
@@ -7104,17 +7121,28 @@ function renderHistorico() {
         // o esforco da serie. Mesma regra do api.js, para o resumo aqui nao
         // contradizer os graficos logo abaixo.
         (s.itens || []).forEach(it => { (it.series || []).forEach(sr => { if (sr.tec) return; const p = parseFloat(sr.peso), r = parseInt(sr.reps); if (p > 0 && r > 0) volumeTotal += p * r; if (p > cargaMax) { cargaMax = p; cargaMaxEx = it.nmexercicio || ''; cargaMaxReps = (r > 0 ? r : 0); cargaMaxData = s.dtsessao || ''; } }); });
+        if (ehCardioS(s)) {
+          const cmin = Math.floor((s.duracao_seg || 0) / 60);
+          cardioMinutosTotal += cmin;
+          if (cmin > cardioMaisLongoMin) { cardioMaisLongoMin = cmin; cardioMaisLongoTipo = s.cardio_tipo || 'Cardio'; cardioMaisLongoData = s.dtsessao || ''; }
+          const distM = String(s.comentario || '').match(/·\s*([\d.,]+)\s*(km|m)\s*$/i);
+          if (distM) { const v = parseFloat(distM[1].replace(',', '.')); if (isFinite(v)) cardioDistKmTotal += (distM[2].toLowerCase() === 'm' ? v / 1000 : v); }
+        }
       });
       const ton = (volumeTotal / 1000);
       const tonTxt = ton >= 10 ? Math.round(ton) : (Math.round(ton * 10) / 10);
       const horas = Math.floor(minutosTotal / 60), minsRest = minutosTotal % 60;
       const tempoTxt = horas > 0 ? (horas + 'h' + (minsRest ? ' ' + minsRest + 'm' : '')) : (minutosTotal + 'm');
       const dataMaxFmt = cargaMaxData ? new Date(String(cargaMaxData).slice(0,10) + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+      const cardioHoras = Math.floor(cardioMinutosTotal / 60), cardioMinsRest = cardioMinutosTotal % 60;
+      const cardioTempoTxt = cardioHoras > 0 ? (cardioHoras + 'h' + (cardioMinsRest ? ' ' + cardioMinsRest + 'm' : '')) : (cardioMinutosTotal + 'm');
+      const cardioDistTxt = cardioDistKmTotal > 0 ? (cardioDistKmTotal >= 10 ? Math.round(cardioDistKmTotal) : (Math.round(cardioDistKmTotal * 10) / 10)) + ' km' : '';
+      const cardioLongoDataFmt = cardioMaisLongoData ? new Date(String(cardioMaisLongoData).slice(0,10) + 'T00:00:00').toLocaleDateString('pt-BR') : '';
 
       // Explicações de cada marcador (mostradas no popup ao tocar)
       _evolucaoInfo = {
-        streak:   { ic:'🔥', titulo:'Sequência de semanas', valor: streakH + (streakH===1?' semana':' semanas'), txt:'Quantas <b>semanas seguidas</b> (domingo a sábado) você treinou pelo menos uma vez, sem falhar nenhuma. Não é a posição no ranking nem o número da semana, é a sua constância atual.' },
-        melhor:   { ic:'🏆', titulo:'Melhor semana', valor: melhorSemana + ' atividade' + (melhorSemana===1?'':'s'), txt:'O <b>maior número de atividades</b> (treinos + cardios) que você registrou numa única semana. É a sua semana mais produtiva até hoje, não é posição no ranking nem número da semana.' },
+        streak:   { ic:'🔥', titulo:'Sequência de semanas', valor: streakH + (streakH===1?' semana':' semanas'), txt:'Quantas <b>semanas seguidas</b> (domingo a sábado) você treinou pelo menos uma vez, sem falhar nenhuma. Não é a posição no ranking nem o número da semana, é a sua constância atual.' + (streakH > 0 ? '<br><br>📅 De ' + fmtDiaH(new Date(streakInicioTs)) + ' a ' + fmtDiaH(new Date(streakFimTs + 6 * 86400000)) + '.' : '') },
+        melhor:   { ic:'🏆', titulo:'Melhor semana', valor: melhorSemana + ' atividade' + (melhorSemana===1?'':'s'), txt:'O <b>maior número de atividades</b> (treinos + cardios) que você registrou numa única semana. É a sua semana mais produtiva até hoje, não é posição no ranking nem número da semana.' + (melhorSemanaKey != null ? '<br><br>📅 Semana de ' + fmtSemanaH(melhorSemanaKey) + '.' : '') },
         tempo:    { ic:'⏱️', titulo:'Tempo treinando', valor: tempoTxt, txt:'A <b>soma de todo o tempo</b> dos seus treinos e cardios registrados no app.' },
         volume:   { ic:'🏋️', titulo:'Volume total', valor: tonTxt + ' toneladas', txt:'A soma de <b>peso × repetições</b> de todas as séries que você registrou, somando tudo o que já moveu. 1 tonelada = 1.000 kg.' },
         carga:    { ic:'💪', titulo:'Carga máxima', valor: (cargaMax ? cargaMax + ' kg' : '—'), txt:
@@ -7123,6 +7151,7 @@ function renderHistorico() {
             : 'Ainda sem carga registrada. Ao anotar peso nas séries, sua maior carga aparece aqui.') +
           '<div style="margin-top:12px;padding:11px 12px;border-radius:10px;background:' + (isLight?'#fff7ed':'rgba(251,146,60,.08)') + ';border:1px solid ' + (isLight?'rgba(234,88,12,.3)':'rgba(251,146,60,.25)') + ';font-size:11.5px;color:' + (isLight?'#9a3412':'#fdba74') + ';line-height:1.55;text-align:left;">⚠️ <b>Lembre-se:</b> a carga é <b>consequência</b> do treino bem feito, não o objetivo. Este número é só um registro do seu histórico, não é meta a bater a qualquer custo. Priorize sempre a execução correta e a carga adequada ao seu momento. Evoluir com segurança vale mais que levantar peso demais.</div>' },
         atividades:{ ic:'📊', titulo:'Atividades totais', valor: contar.length + ' atividade' + (contar.length===1?'':'s'), txt:'O <b>total de treinos e cardios válidos</b> que você já registrou (sessões de teste não contam).' },
+        cardio:   { ic:'🏃', titulo:'Cardio total', valor: cardioTempoTxt, txt:'Você já fez <b>' + totalCardios + ' cardio' + (totalCardios===1?'':'s') + '</b>, somando <b>' + cardioTempoTxt + '</b>' + (cardioDistTxt ? ' e <b>' + cardioDistTxt + '</b> percorridos' : '') + '.' + (cardioMaisLongoMin ? '<br><br>🏆 Cardio mais longo: <b>' + esc(cardioMaisLongoTipo) + '</b>, ' + cardioMaisLongoMin + ' min' + (cardioLongoDataFmt ? '<br>em ' + cardioLongoDataFmt : '') + '.' : '') },
       };
 
       const mk = (chave, val, lbl, cor) => { const inf = _evolucaoInfo[chave]; return '<div onclick="abrirDetalheMarcador(\'' + chave + '\')" style="flex:1;min-width:88px;cursor:pointer;background:' + (isLight ? '#fafafa' : '#141414') + ';border:1px solid ' + (isLight ? '#eee' : '#222') + ';border-radius:12px;padding:11px 8px 9px;text-align:center;position:relative;">' +
@@ -7138,11 +7167,14 @@ function renderHistorico() {
           mk('melhor', melhorSemana, 'Melhor semana', (isLight ? '#3f6212' : '#a3e635')) +
           mk('tempo', tempoTxt, 'Tempo treinando', (isLight ? '#7c3aed' : '#a78bfa')) +
         '</div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;' + (totalCardios > 0 ? 'margin-bottom:8px;' : 'margin-bottom:16px;') + '">' +
           mk('volume', tonTxt + 't', 'Volume total', (isLight ? '#0e7490' : '#22d3ee')) +
           mk('carga', cargaMax ? cargaMax + 'kg' : '—', 'Carga máxima', (isLight ? '#be123c' : '#fb7185')) +
           mk('atividades', contar.length, 'Atividades totais', (isLight ? '#1d4ed8' : '#818cf8')) +
-        '</div>';
+        '</div>' +
+        (totalCardios > 0 ? '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">' +
+          mk('cardio', cardioTempoTxt, 'Cardio total', (isLight ? '#0369a1' : '#38bdf8')) +
+        '</div>' : '');
     })();
 
     // ─── ATALHO PARA CONQUISTAS ───
