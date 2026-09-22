@@ -962,7 +962,7 @@
     <div class="menu-item" onclick="abrirCardio();fecharMenuDireto()"><span class="mi-icon">🏃</span> Meu Cardio</div>
     <div class="menu-item" onclick="navegar('historico');fecharMenuDireto()"><span class="mi-icon">📊</span> Histórico & Evoluções</div>
     <div class="menu-item" onclick="abrirCompartilharUltimoTreino();fecharMenuDireto()"><span class="mi-icon">📸</span> Compartilhar treino</div>
-    <div class="menu-item" onclick="navegar('ranking');fecharMenuDireto()"><span class="mi-icon">🥇</span> Ranking</div>
+    <div class="menu-item" onclick="abrirRanking();fecharMenuDireto()"><span class="mi-icon">🥇</span> Ranking</div>
     <div class="menu-item" onclick="navegar('feed');fecharMenuDireto()"><span class="mi-icon">📣</span> Feed</div>
     <div class="menu-item" onclick="navegar('desafios');fecharMenuDireto()"><span class="mi-icon">🏆</span> Desafios</div>
     <div class="menu-item" onclick="navegar('nutricao');fecharMenuDireto()"><span class="mi-icon">🥗</span> Nutrição</div>
@@ -2692,21 +2692,25 @@ function _feedContainerIds() {
 // ═══════════════ BARRA FLUTUANTE "VOLTAR AO TOPO" DO FEED ═══════════════
 // O cabeçalho fixo do app (.top, com logo e menu) já fica sempre visível —
 // mas numa rolagem longa pelo feed (dezenas de posts) o aluno perde a
-// referência de volta pro topo. Pedido do Luiz: depois de passar mais de 4
-// posts, mostrar uma barrinha flutuante com logo + atalho de menu + seta
-// pra voltar ao topo. Um scroll listener PRÓPRIO, separado do
-// _feedScrollHandler (que só cuida da paginação automática e se desliga
-// quando ela termina) — este aqui precisa ficar ligado o tempo todo que o
-// aluno estiver na Home ou no Feed, não só durante o auto-scroll.
+// referência de volta pro topo. Reforça isso com uma barrinha flutuante
+// (logo + atalho de menu + seta pra voltar ao topo), só enquanto o aluno
+// está DENTRO do feed: aparece quando a primeira dobra da tela (tudo que já
+// estava visível antes de rolar) sai inteira de vista, e some de novo assim
+// que a rolagem passa do fim da lista de posts — ela não deve flutuar por
+// cima do rodapé. Corrigido em 23/09: a versão anterior ficava grudada no
+// rodapé por posição (bottom fixo) e usava "passou do 5º post" como gatilho,
+// o que deixava a barra visível bem depois do fim do feed de verdade.
+// Scroll listener PRÓPRIO, separado do _feedScrollHandler (que só cuida da
+// paginação automática e se desliga quando ela termina) — este aqui precisa
+// ficar ligado o tempo todo que o aluno estiver na Home ou no Feed.
 let _feedFloatScrollHandler = null;
-const FEED_FLOAT_LIMIAR_POSTS = 4; // aparece a partir do 5º post (índice 4)
 
 function _feedFloatBarHtml(isLight) {
   const bg = isLight ? 'rgba(255,255,255,.94)' : 'rgba(20,20,20,.94)';
   const border = isLight ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.1)';
   const txt = isLight ? '#1a1a1a' : '#f0f0f0';
   const btnBg = isLight ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.08)';
-  return '<div id="feed-float-bar" style="position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(160%);width:calc(100% - 32px);max-width:360px;z-index:60;display:flex;align-items:center;gap:9px;background:' + bg + ';backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid ' + border + ';border-radius:18px;padding:7px 8px 7px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .28s ease;">' +
+  return '<div id="feed-float-bar" style="position:fixed;left:50%;top:calc(118px + env(safe-area-inset-top,0px));transform:translateX(-50%) translateY(-160%);width:calc(100% - 32px);max-width:360px;z-index:60;display:flex;align-items:center;gap:9px;background:' + bg + ';backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid ' + border + ';border-radius:18px;padding:7px 8px 7px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .28s ease;">' +
     '<img src="logo-icon-light.png" alt="Intus" style="width:24px;height:24px;object-fit:contain;flex-shrink:0;"/>' +
     '<div style="flex:1;font-size:11.5px;font-weight:800;color:' + txt + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Feed dos Alunos</div>' +
     '<button onclick="toggleMenu()" title="Menu" style="width:34px;height:34px;border-radius:11px;border:none;background:' + btnBg + ';color:' + txt + ';font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;">☰</button>' +
@@ -2724,11 +2728,15 @@ function _feedFloatBarChecar() {
   const container = document.getElementById(ids.posts);
   const bar = document.getElementById('feed-float-bar');
   if (!container || !bar) return;
-  const cards = container.querySelectorAll('[data-feed-card]');
-  const alvo = cards[FEED_FLOAT_LIMIAR_POSTS]; // 5º post real
-  // O topo do 5º post já saiu por cima da tela = passou de 4 posts rolados.
-  const passouDoLimiar = !!alvo && alvo.getBoundingClientRect().top < 0;
-  bar.style.transform = 'translateX(-50%) translateY(' + (passouDoLimiar ? '0' : '160%') + ')';
+  // "Sumiu a primeira dobra": já rolou mais do que a altura de uma tela.
+  const passouPrimeiraDobra = window.scrollY > window.innerHeight;
+  // Ainda dentro do feed: falta pelo menos um pedaço razoável da lista de
+  // posts pra passar por cima da tela. Assim que sobra só o "Novo post" /
+  // aviso / rodapé na tela (praticamente nada do container visível), a
+  // barra some — ela não deve flutuar por cima do rodapé.
+  const aindaNoFeed = container.getBoundingClientRect().bottom > 100;
+  const mostrar = passouPrimeiraDobra && aindaNoFeed;
+  bar.style.transform = 'translateX(-50%) translateY(' + (mostrar ? '0' : '-160%') + ')';
 }
 
 function _feedFloatBarLigar() {
@@ -3858,6 +3866,15 @@ function abrirQuadroMedalhas() {
   navegar('ranking');
 }
 
+// Bug real: quem chamava navegar('ranking') direto herdava _rankingTab do
+// jeito que a tela de Ranking foi deixada da última vez — se o aluno tinha
+// aberto Medalhas por último, o ícone "Ranking" da Home abria o quadro de
+// medalhas por engano, porque o estado da aba nunca era resetado.
+function abrirRanking() {
+  if (_rankingTab === 'medalhas') _rankingTab = 'semana';
+  navegar('ranking');
+}
+
 function toggleThemeMenu() { toggleTheme(); updateMenuThemeLabel(); }
 function updateMenuThemeLabel() {
   const isLight = document.body.classList.contains('tema-claro');
@@ -4861,7 +4878,7 @@ function renderHome() {
     if (!_dispensado && _musN >= 1 && _faltN > 0) {
       const _dots = Array.from({length: _rankReg.bonusDias}, (_, i) =>
         '<span style="width:13px;height:13px;border-radius:50%;display:inline-block;background:' + (i < _musN ? (isLight?'#5cb800':'#7FFF00') : (isLight?'#e2e2e2':'#333')) + ';"></span>').join('');
-      bonusNudgeHtml = `<div data-bonus-nudge onclick="navegar('ranking')" style="cursor:pointer;background:${isLight?'rgba(245,158,11,.10)':'rgba(245,158,11,.08)'};border:1px solid ${isLight?'rgba(245,158,11,.3)':'rgba(245,158,11,.22)'};border-radius:14px;padding:13px 14px;margin-bottom:16px;">
+      bonusNudgeHtml = `<div data-bonus-nudge onclick="abrirRanking()" style="cursor:pointer;background:${isLight?'rgba(245,158,11,.10)':'rgba(245,158,11,.08)'};border:1px solid ${isLight?'rgba(245,158,11,.3)':'rgba(245,158,11,.22)'};border-radius:14px;padding:13px 14px;margin-bottom:16px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <span style="font-size:22px;flex-shrink:0;">🔥</span>
           <div style="flex:1;min-width:0;">
@@ -5078,7 +5095,7 @@ function renderHome() {
          já espiar na primeira dobra, sem esconder nada, só reordenar peso. -->
     <div style="display:flex;gap:10px;margin-bottom:16px;align-items:stretch;">
       <div style="flex:1;display:flex;flex-direction:column;gap:10px;">
-        <div class="h-mini" onclick="navegar('ranking')" style="flex:1;margin:0;">
+        <div class="h-mini" onclick="abrirRanking()" style="flex:1;margin:0;">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
             <div class="cab">🥇 Ranking</div>
             ${(_sem.posicao && _diffPts) ? `<span style="font-size:10px;font-weight:800;color:${_diffPts > 0 ? 'var(--link-ex)' : (isLight ? '#c0392b' : '#ff6b6b')};background:${_diffPts > 0 ? 'var(--marca-fraca)' : (isLight ? 'rgba(192,57,43,.1)' : 'rgba(255,107,107,.12)')};padding:2px 7px;border-radius:6px;white-space:nowrap;flex-shrink:0;">${_diffPts > 0 ? '▲' : '▼'} ${Math.abs(_diffPts)} pts</span>` : ''}
@@ -6512,7 +6529,7 @@ function renderFim(duracao, sessaoSalva) {
       <button class="btn btn-prim" style="width:100%;max-width:320px;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="abrirCompartilharUltimoTreino()">📸 Compartilhar treino</button>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;max-width:320px;width:100%;">
-        <button class="btn btn-sec" onclick="navegar('ranking')">🏆 Ranking</button>
+        <button class="btn btn-sec" onclick="abrirRanking()">🏆 Ranking</button>
         <button class="btn btn-sec" onclick="abrirQuadroMedalhas()">🏅 Conquistas</button>
         <button class="btn btn-sec" onclick="navegar('historico')">📊 Histórico</button>
         <button class="btn btn-sec" onclick="trocarView('home');renderHome();">🏠 Início</button>
