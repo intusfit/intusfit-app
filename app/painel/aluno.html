@@ -2710,7 +2710,12 @@ function _feedFloatBarHtml(isLight) {
   const border = isLight ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.1)';
   const txt = isLight ? '#1a1a1a' : '#f0f0f0';
   const btnBg = isLight ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.08)';
-  return '<div id="feed-float-bar" style="position:fixed;left:50%;top:calc(118px + env(safe-area-inset-top,0px));transform:translateX(-50%) translateY(-160%);width:calc(100% - 32px);max-width:360px;z-index:60;display:flex;align-items:center;gap:9px;background:' + bg + ';backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid ' + border + ';border-radius:18px;padding:7px 8px 7px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .28s ease;">' +
+  // Escondida com translateY em PIXEL fixo (não %): um bottom-bar pode se
+  // esconder com % porque "pra baixo" nunca acaba, mas um top-bar com
+  // `top` já deslocado (118px) precisa subir mais que a própria altura pra
+  // sumir de vez — 160% da altura dela (~45px) não bastava pra vencer esse
+  // offset, e ela ficava com a base ainda visível colada no topo da tela.
+  return '<div id="feed-float-bar" style="position:fixed;left:50%;top:calc(118px + env(safe-area-inset-top,0px));transform:translateX(-50%) translateY(-220px);width:calc(100% - 32px);max-width:360px;z-index:60;display:flex;align-items:center;gap:9px;background:' + bg + ';backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid ' + border + ';border-radius:18px;padding:7px 8px 7px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .28s ease;">' +
     '<img src="logo-icon-light.png" alt="Intus" style="width:24px;height:24px;object-fit:contain;flex-shrink:0;"/>' +
     '<div style="flex:1;font-size:11.5px;font-weight:800;color:' + txt + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Feed dos Alunos</div>' +
     '<button onclick="toggleMenu()" title="Menu" style="width:34px;height:34px;border-radius:11px;border:none;background:' + btnBg + ';color:' + txt + ';font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;">☰</button>' +
@@ -2728,15 +2733,23 @@ function _feedFloatBarChecar() {
   const container = document.getElementById(ids.posts);
   const bar = document.getElementById('feed-float-bar');
   if (!container || !bar) return;
-  // "Sumiu a primeira dobra": já rolou mais do que a altura de uma tela.
-  const passouPrimeiraDobra = window.scrollY > window.innerHeight;
+  // Bug real: window.scrollY > window.innerHeight parecia certo, mas em
+  // Safari/iOS o innerHeight muda sozinho quando a barra de endereço
+  // recolhe/expande durante a rolagem, dando falso positivo — a barra
+  // aparecia colada no topo, mesmo sem ter rolado nada. Trocado por uma
+  // medida que não depende do tamanho da viewport: a posição real do
+  // container de posts. "Sumiu a primeira dobra" = o topo do container já
+  // passou por cima da tela (tudo que vinha antes, na Home ou o cabeçalho
+  // fixo no Feed, ficou pra trás).
+  const rect = container.getBoundingClientRect();
+  const passouPrimeiraDobra = rect.top < 0;
   // Ainda dentro do feed: falta pelo menos um pedaço razoável da lista de
   // posts pra passar por cima da tela. Assim que sobra só o "Novo post" /
   // aviso / rodapé na tela (praticamente nada do container visível), a
   // barra some — ela não deve flutuar por cima do rodapé.
-  const aindaNoFeed = container.getBoundingClientRect().bottom > 100;
+  const aindaNoFeed = rect.bottom > 100;
   const mostrar = passouPrimeiraDobra && aindaNoFeed;
-  bar.style.transform = 'translateX(-50%) translateY(' + (mostrar ? '0' : '-160%') + ')';
+  bar.style.transform = 'translateX(-50%) translateY(' + (mostrar ? '0' : '-220px') + ')';
 }
 
 function _feedFloatBarLigar() {
