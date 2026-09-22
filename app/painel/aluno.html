@@ -2234,7 +2234,8 @@ var _feedTemMais = false;   // tem mais posts depois do último carregado?
 var _feedCarregandoMais = false;
 var _feedScrollHandler = null;
 var _feedGlobalIdx = 0;     // índice corrido de posts reais renderizados (pro intervalo do card explicativo continuar entre lotes)
-var _feedVarianteIdx = 0;
+var _feedProximoExplicativo = 0; // em que índice de post o próximo cartão aparece (varia, ver _feedPostsHtml)
+var _feedUltimaVariante = null;  // pra nunca sortear a mesma variante duas vezes seguidas
 var _feedModo = 'feed';     // 'feed' (tela cheia) ou 'home' (prévia na inicial) — define quais IDs de container a paginação usa
 const FEED_LOTE = 10;               // quantos posts a API busca por vez
 const FEED_LIMITE_AUTO_SCROLL = 20; // até aqui a rolagem carrega sozinha; depois, só no toque em "Ver mais"
@@ -2470,14 +2471,28 @@ function _feedCardExplicativo(variante, isLight) {
     return wrap(
       badgeMarca(_SVG_LOGO_YOUTUBE, 'linear-gradient(135deg,#ff3d3d,#cc0000)') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">Treinos e dicas no YouTube</div></div>' +
       '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:11px;">Vídeos de execução, dicas de técnica e conteúdo novo direto no canal oficial da Intus.</div>' +
-      '<a href="' + INTUS_LINK_YOUTUBE + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Inscreva-se no canal →</a>'
+      '<a href="' + INTUS_LINK_YOUTUBE + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Inscreva-se no nosso canal do YouTube →</a>'
     );
   }
   if (variante === 'E') {
     return wrap(
       badgeMarca(_SVG_LOGO_SPOTIFY, 'linear-gradient(135deg,#2ee06b,#1aa34a)') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">Playlist de treino no Spotify</div></div>' +
       '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:11px;">Uma seleção pra te dar aquele ânimo extra na hora de treinar. Toca no fone e bora.</div>' +
-      '<a href="' + INTUS_LINK_SPOTIFY + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Ouvir playlist →</a>'
+      '<a href="' + INTUS_LINK_SPOTIFY + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Ouça a playlist de treino da Intus →</a>'
+    );
+  }
+  if (variante === 'F') {
+    return wrap(
+      badgeMarca(_SVG_LOGO_INSTAGRAM, 'radial-gradient(circle at 30% 110%,#fdf497,#fd5949 30%,#d6249f 60%,#285AEB 90%)') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">A Intus também tá no Instagram</div></div>' +
+      '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:11px;">Bastidor, dica rápida e a evolução de outros alunos. Marque <b style="color:' + ink + ';">@intusfit</b> nos stories e apareça por lá também.</div>' +
+      '<a href="' + INTUS_LINK_INSTAGRAM + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Siga a Intus no Instagram →</a>'
+    );
+  }
+  if (variante === 'G') {
+    return wrap(
+      badgeMarca(_SVG_LOGO_WHATSAPP, 'linear-gradient(135deg,#2eea6f,#128c4a)') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">Precisa de ajuda no app?</div></div>' +
+      '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:11px;">Dúvida de uso, problema técnico ou qualquer outra coisa: fale direto com nossa equipe.</div>' +
+      '<a href="' + INTUS_LINK_WHATSAPP_SUPORTE + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Fale com nossa equipe pelo WhatsApp →</a>'
     );
   }
   // A (padrão) — o cartão que precisa deixar claro o que é isso e pra quem é,
@@ -2577,7 +2592,8 @@ function renderFeedHomePreview() {
     '</div>';
   _feedModo = 'home';
   _feedGlobalIdx = 0;
-  _feedVarianteIdx = 0;
+  _feedProximoExplicativo = 0;
+  _feedUltimaVariante = null;
   if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
   carregarFeedPosts(FEED_LOTE).then((posts) => {
     const el = document.getElementById('h-feed-home');
@@ -2595,20 +2611,32 @@ function renderFeedHomePreview() {
 }
 
 // Tela cheia do feed, aberta pelo menu ou pelo "Ver feed completo" da home.
-// O 1º card explicativo aparece logo após o 1º post; os seguintes, a cada
-// FEED_EXPLICATIVO_INTERVALO posts reais, alternando entre A/B/C — mesmo
-// espírito do "patrocinado" intercalado no feed do Instagram. O índice
+// O 1º card explicativo aparece logo após o 1º post e é sempre o A (explica
+// o que é o Feed pra quem tá vendo pela 1ª vez); os seguintes aparecem a
+// cada ~FEED_EXPLICATIVO_INTERVALO posts, mas com folga de ±1 pra não cair
+// sempre na mesma posição, e sorteados entre todas as variantes (sem repetir
+// a mesma duas vezes seguidas) — pedido do Luiz pra manter a sensação de
+// novidade em vez de sempre o mesmo cartão no mesmo lugar. O índice
 // (_feedGlobalIdx) é corrido entre lotes de paginação, não reseta a cada
 // "Ver mais" — senão o card educativo reapareceria fora do ritmo certo.
 const FEED_EXPLICATIVO_INTERVALO = 5;
-const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C', 'D', 'E'];
+const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 function _feedPostsHtml(posts, isLight) {
   let html = '';
   posts.forEach(p => {
     html += _feedCardHtml(p, isLight);
-    if (_feedGlobalIdx === 0 || _feedGlobalIdx % FEED_EXPLICATIVO_INTERVALO === 0) {
-      html += _feedCardExplicativo(FEED_EXPLICATIVO_VARIANTES[_feedVarianteIdx % FEED_EXPLICATIVO_VARIANTES.length], isLight);
-      _feedVarianteIdx++;
+    if (_feedGlobalIdx === _feedProximoExplicativo) {
+      let variante;
+      if (_feedGlobalIdx === 0) {
+        variante = 'A';
+      } else {
+        const opcoes = FEED_EXPLICATIVO_VARIANTES.filter(v => v !== _feedUltimaVariante);
+        variante = opcoes[Math.floor(Math.random() * opcoes.length)];
+      }
+      html += _feedCardExplicativo(variante, isLight);
+      _feedUltimaVariante = variante;
+      const folga = Math.floor(Math.random() * 3) - 1; // -1, 0 ou +1 post de diferença
+      _feedProximoExplicativo = _feedGlobalIdx + FEED_EXPLICATIVO_INTERVALO + folga;
     }
     _feedGlobalIdx++;
   });
@@ -2623,7 +2651,8 @@ async function renderFeedCompleto() {
   _feedModo = 'feed';
   if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
   _feedGlobalIdx = 0;
-  _feedVarianteIdx = 0;
+  _feedProximoExplicativo = 0;
+  _feedUltimaVariante = null;
   const posts = await carregarFeedPosts(FEED_LOTE);
   await carregarReacoesFeed(posts.map(p => p.idpost));
   await carregarComentariosFeed(posts.map(p => p.idpost));
@@ -3558,12 +3587,19 @@ const _SVG_LOGO_WHATSAPP = '<svg viewBox="0 0 24 24" width="18" height="18" fill
 // gradiente oficial da marca — mesmo componente no rodapé de todas as telas
 // e em Quem Somos, pra não duplicar o HTML dos círculos em cada lugar.
 function _canaisOficiaisHtml(isLight, comSuporte) {
-  const item = (href, svg, grad, titulo) => '<a href="' + href + '" target="_blank" rel="noopener" title="' + titulo + '" style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:' + grad + ';box-shadow:0 2px 7px rgba(0,0,0,.22);flex-shrink:0;text-decoration:none;">' + svg + '</a>';
-  return '<div style="display:flex;align-items:center;justify-content:center;gap:11px;">' +
-    item(INTUS_LINK_INSTAGRAM, _SVG_LOGO_INSTAGRAM, 'radial-gradient(circle at 30% 110%,#fdf497,#fd5949 30%,#d6249f 60%,#285AEB 90%)', 'Instagram') +
-    item(INTUS_LINK_YOUTUBE, _SVG_LOGO_YOUTUBE, 'linear-gradient(135deg,#ff3d3d,#cc0000)', 'YouTube') +
-    item(INTUS_LINK_SPOTIFY, _SVG_LOGO_SPOTIFY, 'linear-gradient(135deg,#2ee06b,#1aa34a)', 'Playlist de treino no Spotify') +
-    (comSuporte ? item(INTUS_LINK_WHATSAPP_SUPORTE, _SVG_LOGO_WHATSAPP, 'linear-gradient(135deg,#2eea6f,#128c4a)', 'Suporte via WhatsApp') : '') +
+  const corTxt = isLight ? '#666' : '#999';
+  // Legenda curta embaixo de cada ícone — a versão compacta do CTA completo
+  // (esse mora nos cartões "patrocinados" do Feed, ver _feedCardExplicativo
+  // variantes D/E/F/G), porque aqui repete em quase toda tela do app.
+  const item = (href, svg, grad, titulo, legenda) => '<a href="' + href + '" target="_blank" rel="noopener" title="' + titulo + '" style="display:flex;flex-direction:column;align-items:center;gap:5px;width:76px;text-decoration:none;">' +
+    '<span style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:' + grad + ';box-shadow:0 2px 7px rgba(0,0,0,.22);flex-shrink:0;">' + svg + '</span>' +
+    '<span style="font-size:9px;font-weight:700;color:' + corTxt + ';text-align:center;line-height:1.25;">' + legenda + '</span>' +
+  '</a>';
+  return '<div style="display:flex;align-items:flex-start;justify-content:center;gap:6px;">' +
+    item(INTUS_LINK_INSTAGRAM, _SVG_LOGO_INSTAGRAM, 'radial-gradient(circle at 30% 110%,#fdf497,#fd5949 30%,#d6249f 60%,#285AEB 90%)', 'Instagram', 'Siga no Instagram') +
+    item(INTUS_LINK_YOUTUBE, _SVG_LOGO_YOUTUBE, 'linear-gradient(135deg,#ff3d3d,#cc0000)', 'YouTube', 'Inscreva-se no canal') +
+    item(INTUS_LINK_SPOTIFY, _SVG_LOGO_SPOTIFY, 'linear-gradient(135deg,#2ee06b,#1aa34a)', 'Playlist de treino no Spotify', 'Ouça a playlist') +
+    (comSuporte ? item(INTUS_LINK_WHATSAPP_SUPORTE, _SVG_LOGO_WHATSAPP, 'linear-gradient(135deg,#2eea6f,#128c4a)', 'Suporte via WhatsApp', 'Fale com a gente') : '') +
   '</div>';
 }
 function sair() { localStorage.removeItem('mx-token'); localStorage.removeItem('mx-user'); location.href = 'login.html'; }
