@@ -6981,13 +6981,19 @@ function _histCalHtml(sessoes, isLight) {
   const podeAvancar = !(ano === hoje.getFullYear() && mesIdx === hoje.getMonth());
 
   const porDia = {};
+  let totalMus = 0, totalCardio = 0, totalCardioSeg = 0;
   contar.forEach(s => {
     const d = new Date(String(s.dtsessao).slice(0,10) + 'T00:00:00');
     if (d.getFullYear() !== ano || d.getMonth() !== mesIdx) return;
     const dia = d.getDate();
     if (!porDia[dia]) porDia[dia] = { mus: false, cardio: false };
-    if (ehMusDia(s)) porDia[dia].mus = true; else porDia[dia].cardio = true;
+    if (ehMusDia(s)) { porDia[dia].mus = true; totalMus++; }
+    else { porDia[dia].cardio = true; totalCardio++; totalCardioSeg += (s.duracao_seg || 0); }
   });
+  const totalCardioMin = Math.round(totalCardioSeg / 60);
+  const cardioTempoLbl = totalCardioMin >= 60
+    ? `${Math.floor(totalCardioMin/60)}h${String(totalCardioMin%60).padStart(2,'0')}`
+    : `${totalCardioMin}min`;
 
   const L = ['D','S','T','Q','Q','S','S'];
   let celulas = '';
@@ -7012,6 +7018,10 @@ function _histCalHtml(sessoes, isLight) {
     </div>
     <div class="hcal-semana">${L.map(l => `<div class="hcal-letra">${l}</div>`).join('')}</div>
     <div class="hcal-grid">${celulas}</div>
+    <div style="display:flex;gap:14px;margin-top:12px;padding-top:11px;border-top:1px solid var(--borda);font-size:11px;color:var(--muted);">
+      <span>💪 <b style="color:var(--texto);">${totalMus}</b> treino${totalMus===1?'':'s'}</span>
+      <span>🏃 <b style="color:var(--texto);">${totalCardio}</b> cardio${totalCardio===1?'':'s'}${totalCardio ? ` · ${cardioTempoLbl}` : ''}</span>
+    </div>
   </div>`;
 }
 
@@ -7019,10 +7029,6 @@ function renderHistorico() {
   const sessoes = SessoesTreino.listarDoAtleta(idAtleta);
   const isLight = document.body.classList.contains('tema-claro');
   let html = telaHeader('📊 Histórico & Evoluções');
-  // Calendário fica fixo em cima, fora das abas — continua visível não
-  // importa qual das duas esteja selecionada abaixo, mesma coisa mesmo
-  // sem sessão nenhuma ainda (mostra o mês vazio, sem esconder o calendário).
-  html += _histCalHtml(sessoes, isLight);
 
   if (!sessoes.length) {
     html += `<div class="coming-soon"><div class="icon">📊</div><h3>Nenhum treino registrado</h3>
@@ -7162,6 +7168,7 @@ function renderHistorico() {
 
     // ─── SESSION CARDS ───
     html += `<div id="hist-painel-linha" style="${_abaAtiva==='linha'?'':'display:none;'}">`;
+    html += _histCalHtml(sessoes, isLight);
     html += `<h2 class="sect-title" style="margin-top:4px;">🕒 Linha do tempo</h2>
       <p style="font-size:11px;color:${isLight?'#888':'#888'};margin:-6px 0 10px;">Tudo o que você vem fazendo, do mais recente ao mais antigo.</p>`;
     sessoes.slice(0, 20).forEach(s => { html += _histCardHtml(s, sessoes, isLight, true); });
