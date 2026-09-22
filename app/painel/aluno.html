@@ -467,7 +467,7 @@
     .h-dia { display:flex; flex-direction:column; align-items:center; gap:5px; }
     .h-dia .l { font-size:9.5px; font-weight:700; color:var(--muted); }
     .h-dia .q { width:100%; height:32px; border-radius:9px; border:1.5px solid var(--borda); background:var(--sup);
-                display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:var(--muted); }
+                display:flex; align-items:center; justify-content:center; gap:1px; font-size:13px; font-weight:800; color:var(--muted); }
     .h-dia.feito .q { border-color:var(--link-ex); background:var(--marca-fraca); color:var(--link-ex); }
     .h-dia.hoje .q { border-color:var(--link-ex); background:transparent; color:var(--texto); }
     .h-barra { flex:1; height:6px; border-radius:99px; background:var(--trilho); overflow:hidden; }
@@ -4740,6 +4740,10 @@ function renderHome() {
     });
     const _ehMus = s => !((s.tipo === 'cardio') || s.cardio_tipo);
     const _diasComMus = new Set(_daSemana.filter(_ehMus).map(s => String(s.dtsessao).slice(0, 10)));
+    // Cardio marca o dia com emoji próprio, junto do de musculação quando os
+    // dois acontecem no mesmo dia — mas não mexe no destaque verde da
+    // caixinha, que continua só sobre musculação (é o que conta pro bônus).
+    const _diasComCardio = new Set(_daSemana.filter(s => !_ehMus(s)).map(s => String(s.dtsessao).slice(0, 10)));
     const _L = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
     for (let i = 0; i < 7; i++) {
       const d = new Date(_dom); d.setDate(d.getDate() + i);
@@ -4747,6 +4751,7 @@ function renderHome() {
       _sem.dias.push({
         letra: _L[i],
         feito: _diasComMus.has(iso),
+        cardio: _diasComCardio.has(iso),
         ehHoje: d.getTime() === _h0.getTime(),
       });
     }
@@ -4888,7 +4893,7 @@ function renderHome() {
       </div>
       <div class="h-dias">
         ${_sem.dias.map(d => `<div class="h-dia ${d.feito ? 'feito' : (d.ehHoje ? 'hoje' : '')}">
-          <div class="l">${d.letra}</div><div class="q">${d.feito ? '✓' : ''}</div>
+          <div class="l">${d.letra}</div><div class="q">${(d.feito ? '💪' : '') + (d.cardio ? '🏃' : '')}</div>
         </div>`).join('')}
       </div>
     </div>
@@ -4935,6 +4940,7 @@ function renderHome() {
         <div class="h-at" onclick="renderPerfil();trocarView('perfil');" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
           <div class="tt">Conquistas</div>
+          <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Distintivos</div>
         </div>
         <div class="h-at" onclick="renderHistorico();trocarView('historico');" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
