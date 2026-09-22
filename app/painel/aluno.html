@@ -2598,7 +2598,7 @@ function renderFeedHomePreview() {
   carregarFeedPosts(FEED_LOTE).then((posts) => {
     const el = document.getElementById('h-feed-home');
     if (!el) return;
-    if (!posts.length) { el.innerHTML = headerHtml; _feedFloatBarDesligar(); return; }
+    if (!posts.length) { el.innerHTML = headerHtml; return; }
     carregarReacoesFeed(posts.map(p => p.idpost));
     carregarComentariosFeed(posts.map(p => p.idpost));
     el.innerHTML = headerHtml +
@@ -2606,7 +2606,6 @@ function renderFeedHomePreview() {
       '<div id="h-feed-home-pag"></div>' +
       '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;margin-top:8px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
     _feedAtualizarPaginacao();
-    _feedFloatBarLigar();
   });
   return '<div id="h-feed-home">' + headerHtml + '</div>';
 }
@@ -2676,7 +2675,7 @@ async function renderFeedCompleto() {
   html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
   html += getFooterHtml();
   box.innerHTML = html;
-  if (posts.length) { _feedAtualizarPaginacao(); _feedFloatBarLigar(); } else { _feedFloatBarDesligar(); }
+  if (posts.length) _feedAtualizarPaginacao();
 }
 
 // IDs dos containers variam conforme _feedModo: a tela cheia do Feed e a
@@ -2687,87 +2686,6 @@ function _feedContainerIds() {
   return _feedModo === 'home'
     ? { posts: 'h-feed-home-posts', pag: 'h-feed-home-pag', view: 'home' }
     : { posts: 'feed-posts-container', pag: 'feed-paginacao', view: 'feed' };
-}
-
-// ═══════════════ BARRA FLUTUANTE "VOLTAR AO TOPO" DO FEED ═══════════════
-// O cabeçalho fixo do app (.top, com logo e menu) já fica sempre visível —
-// mas numa rolagem longa pelo feed (dezenas de posts) o aluno perde a
-// referência de volta pro topo. Reforça isso com uma barrinha flutuante
-// (logo + atalho de menu + seta pra voltar ao topo), só enquanto o aluno
-// está DENTRO do feed: aparece quando a primeira dobra da tela (tudo que já
-// estava visível antes de rolar) sai inteira de vista, e some de novo assim
-// que a rolagem passa do fim da lista de posts — ela não deve flutuar por
-// cima do rodapé. Corrigido em 23/09: a versão anterior ficava grudada no
-// rodapé por posição (bottom fixo) e usava "passou do 5º post" como gatilho,
-// o que deixava a barra visível bem depois do fim do feed de verdade.
-// Scroll listener PRÓPRIO, separado do _feedScrollHandler (que só cuida da
-// paginação automática e se desliga quando ela termina) — este aqui precisa
-// ficar ligado o tempo todo que o aluno estiver na Home ou no Feed.
-let _feedFloatScrollHandler = null;
-
-function _feedFloatBarHtml(isLight) {
-  const bg = isLight ? 'rgba(255,255,255,.94)' : 'rgba(20,20,20,.94)';
-  const border = isLight ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.1)';
-  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
-  const btnBg = isLight ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.08)';
-  // Escondida com translateY em PIXEL fixo (não %): um bottom-bar pode se
-  // esconder com % porque "pra baixo" nunca acaba, mas um top-bar com
-  // `top` já deslocado (118px) precisa subir mais que a própria altura pra
-  // sumir de vez — 160% da altura dela (~45px) não bastava pra vencer esse
-  // offset, e ela ficava com a base ainda visível colada no topo da tela.
-  return '<div id="feed-float-bar" style="position:fixed;left:50%;top:calc(118px + env(safe-area-inset-top,0px));transform:translateX(-50%) translateY(-220px);width:calc(100% - 32px);max-width:360px;z-index:60;display:flex;align-items:center;gap:9px;background:' + bg + ';backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid ' + border + ';border-radius:18px;padding:7px 8px 7px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .28s ease;">' +
-    '<img src="logo-icon-light.png" alt="Intus" style="width:24px;height:24px;object-fit:contain;flex-shrink:0;"/>' +
-    '<div style="flex:1;font-size:11.5px;font-weight:800;color:' + txt + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Feed dos Alunos</div>' +
-    '<button onclick="toggleMenu()" title="Menu" style="width:34px;height:34px;border-radius:11px;border:none;background:' + btnBg + ';color:' + txt + ';font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;">☰</button>' +
-    '<button onclick="_feedVoltarAoTopo()" title="Voltar ao topo" style="width:34px;height:34px;border-radius:11px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;">▲</button>' +
-  '</div>';
-}
-
-function _feedVoltarAoTopo() {
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function _feedFloatBarChecar() {
-  const ids = _feedContainerIds();
-  if (window._viewAtual !== ids.view) return;
-  const container = document.getElementById(ids.posts);
-  const bar = document.getElementById('feed-float-bar');
-  if (!container || !bar) return;
-  // Bug real: window.scrollY > window.innerHeight parecia certo, mas em
-  // Safari/iOS o innerHeight muda sozinho quando a barra de endereço
-  // recolhe/expande durante a rolagem, dando falso positivo — a barra
-  // aparecia colada no topo, mesmo sem ter rolado nada. Trocado por uma
-  // medida que não depende do tamanho da viewport: a posição real do
-  // container de posts. "Sumiu a primeira dobra" = o topo do container já
-  // passou por cima da tela (tudo que vinha antes, na Home ou o cabeçalho
-  // fixo no Feed, ficou pra trás).
-  const rect = container.getBoundingClientRect();
-  const passouPrimeiraDobra = rect.top < 0;
-  // Ainda dentro do feed: falta pelo menos um pedaço razoável da lista de
-  // posts pra passar por cima da tela. Assim que sobra só o "Novo post" /
-  // aviso / rodapé na tela (praticamente nada do container visível), a
-  // barra some — ela não deve flutuar por cima do rodapé.
-  const aindaNoFeed = rect.bottom > 100;
-  const mostrar = passouPrimeiraDobra && aindaNoFeed;
-  bar.style.transform = 'translateX(-50%) translateY(' + (mostrar ? '0' : '-220px') + ')';
-}
-
-function _feedFloatBarLigar() {
-  const isLight = document.body.classList.contains('tema-claro');
-  if (!document.getElementById('feed-float-bar')) {
-    document.body.insertAdjacentHTML('beforeend', _feedFloatBarHtml(isLight));
-  }
-  if (!_feedFloatScrollHandler) {
-    _feedFloatScrollHandler = _feedFloatBarChecar;
-    window.addEventListener('scroll', _feedFloatScrollHandler, { passive: true });
-  }
-  _feedFloatBarChecar();
-}
-
-function _feedFloatBarDesligar() {
-  if (_feedFloatScrollHandler) { window.removeEventListener('scroll', _feedFloatScrollHandler); _feedFloatScrollHandler = null; }
-  const bar = document.getElementById('feed-float-bar');
-  if (bar) bar.remove();
 }
 
 // Rolagem contínua até FEED_LIMITE_AUTO_SCROLL posts carregados; depois
@@ -2818,7 +2736,6 @@ async function _feedCarregarMais() {
   }
   _feedCarregandoMais = false;
   _feedAtualizarPaginacao();
-  _feedFloatBarLigar();
 }
 
 // ── Compor um post: motor único pro Novo post, Compartilhar treino e
@@ -3641,6 +3558,43 @@ function _compositarLogoNaFoto(dataUrl) {
 }
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ═══════════════ INDICADOR DE ROLAGEM LATERAL (auto-esconde) ═══════════
+// Substitui a barra flutuante "voltar ao topo" do Feed (removida — o Luiz
+// achou confusa) por algo mais discreto: uma barrinha fina na lateral, no
+// espírito do indicador nativo do iOS/Android, que aparece enquanto rola e
+// some sozinha depois de ~1,2s parado. A rolagem neste app é sempre no
+// window/body (nunca num container interno), então um listener global cobre
+// qualquer tela, sem precisar ligar/desligar por view.
+let _scrollIndTimer = null;
+function _scrollIndEl() {
+  let el = document.getElementById('scroll-indicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'scroll-indicator';
+    el.style.cssText = 'position:fixed;right:3px;width:4px;border-radius:99px;z-index:70;opacity:0;transition:opacity .35s ease;pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function _scrollIndAtualizar() {
+  const doc = document.documentElement;
+  const rolavel = doc.scrollHeight - window.innerHeight;
+  const el = _scrollIndEl();
+  if (rolavel <= 40) { el.style.opacity = '0'; return; } // tela curta, nada pra indicar
+  const isLight = document.body.classList.contains('tema-claro');
+  el.style.background = isLight ? 'rgba(0,0,0,.28)' : 'rgba(255,255,255,.32)';
+  const margem = 8;
+  const trilho = window.innerHeight - margem * 2;
+  const alturaThumb = Math.max(28, trilho * (window.innerHeight / doc.scrollHeight));
+  const progresso = window.scrollY / rolavel;
+  el.style.height = alturaThumb + 'px';
+  el.style.top = (margem + progresso * (trilho - alturaThumb)) + 'px';
+  el.style.opacity = '1';
+  clearTimeout(_scrollIndTimer);
+  _scrollIndTimer = setTimeout(() => { el.style.opacity = '0'; }, 1200);
+}
+window.addEventListener('scroll', _scrollIndAtualizar, { passive: true });
 // Ícones de tipo de atividade (musculação/cardio) usados como MARCADOR
 // visual (calendário, dia da semana, cartão de sessão, indicadores de
 // Evoluções, abas do Ranking) — no tema claro trocam pra uma versão com
@@ -3710,9 +3664,6 @@ function trocarView(v) {
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('ativo'));
   document.getElementById('v-'+v).classList.add('ativo');
   window.scrollTo(0,0);
-  // A barrinha flutuante "voltar ao topo" do feed só faz sentido na Home e
-  // no Feed — sair pra qualquer outra tela desliga o listener e some com ela.
-  if (v !== 'home' && v !== 'feed' && typeof _feedFloatBarDesligar === 'function') _feedFloatBarDesligar();
   // BUG real: saindo do cardio ao vivo pra qualquer outra tela (inclusive
   // pra tirar foto e compartilhar), o mapa Leaflet continuava montado por
   // baixo, só coberto por display:none — mas o Leaflet usa transform3d pra
