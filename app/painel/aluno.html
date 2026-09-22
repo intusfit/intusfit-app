@@ -2462,6 +2462,20 @@ function _feedCardExplicativo(variante, isLight) {
       '<div style="font-size:11px;font-weight:700;color:' + accent + ';line-height:1.45;padding-top:8px;border-top:1px solid ' + divider + ';">Toque em <span style="color:' + ink + ';">Novo post</span> e poste o seu.</div>'
     );
   }
+  if (variante === 'D') {
+    return wrap(
+      badge('▶️') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">Treinos e dicas no YouTube</div></div>' +
+      '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:11px;">Vídeos de execução, dicas de técnica e conteúdo novo direto no canal oficial da Intus.</div>' +
+      '<a href="' + INTUS_LINK_YOUTUBE + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Inscreva-se no canal →</a>'
+    );
+  }
+  if (variante === 'E') {
+    return wrap(
+      badge('🎵') + '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';line-height:1.3;">Playlist de treino no Spotify</div></div>' +
+      '<div style="font-size:11.5px;color:' + muted + ';line-height:1.55;margin-bottom:11px;">Uma seleção pra te dar aquele ânimo extra na hora de treinar. Toca no fone e bora.</div>' +
+      '<a href="' + INTUS_LINK_SPOTIFY + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:9px;border-radius:10px;background:' + accent + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:11.5px;font-weight:800;text-decoration:none;">Ouvir playlist →</a>'
+    );
+  }
   // A (padrão) — o cartão que precisa deixar claro o que é isso e pra quem é,
   // antes de qualquer chamada pra ação: gente que nunca viu um "feed" dentro
   // de um app de treino estranha antes de entender que é fechado e só nosso.
@@ -2583,7 +2597,7 @@ function renderFeedHomePreview() {
 // (_feedGlobalIdx) é corrido entre lotes de paginação, não reseta a cada
 // "Ver mais" — senão o card educativo reapareceria fora do ritmo certo.
 const FEED_EXPLICATIVO_INTERVALO = 5;
-const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C'];
+const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C', 'D', 'E'];
 function _feedPostsHtml(posts, isLight) {
   let html = '';
   posts.forEach(p => {
@@ -3518,6 +3532,29 @@ function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 // (toast, mensagem motivacional) não usa isto, de propósito.
 function _iconMus(isLight) { return isLight ? '🦾' : '💪'; }
 function _iconCardio(isLight) { return isLight ? '😅' : '🏃'; }
+
+// Canais oficiais da Intus, reaproveitados no rodapé (getFooterHtml),
+// em Quem Somos e nos cartões "patrocinados" do Feed — um lugar só pra
+// mudar link se algum dia trocar.
+const INTUS_LINK_INSTAGRAM = 'https://instagram.com/intusfit';
+const INTUS_LINK_YOUTUBE = 'https://www.youtube.com/@intusfit';
+const INTUS_LINK_SPOTIFY = 'https://open.spotify.com/playlist/1OtgXKyQan4g4zoY7IZk32?si=2xRKZx9HQL-BvzDJrErb2A&utm_source=copy-link&pi=PXe2xlZaSyOoa';
+const INTUS_LINK_WHATSAPP_SUPORTE = 'https://wa.me/5545991156006?text=' + encodeURIComponent('Oi, preciso de ajuda no app Intus Fit');
+
+// Fileira de ícones circulares (Instagram/YouTube/Spotify, e opcionalmente
+// suporte via WhatsApp) — mesmo componente no rodapé de todas as telas e em
+// Quem Somos, pra não duplicar o HTML dos círculos em cada lugar.
+function _canaisOficiaisHtml(isLight, comSuporte) {
+  const bg = isLight ? 'rgba(0,0,0,.045)' : 'rgba(255,255,255,.06)';
+  const cor = isLight ? '#333' : '#eee';
+  const item = (href, emoji, titulo) => '<a href="' + href + '" target="_blank" rel="noopener" title="' + titulo + '" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;text-decoration:none;background:' + bg + ';color:' + cor + ';">' + emoji + '</a>';
+  return '<div style="display:flex;align-items:center;justify-content:center;gap:10px;">' +
+    item(INTUS_LINK_INSTAGRAM, '📷', 'Instagram') +
+    item(INTUS_LINK_YOUTUBE, '▶️', 'YouTube') +
+    item(INTUS_LINK_SPOTIFY, '🎵', 'Playlist de treino no Spotify') +
+    (comSuporte ? item(INTUS_LINK_WHATSAPP_SUPORTE, '💬', 'Suporte via WhatsApp') : '') +
+  '</div>';
+}
 function sair() { localStorage.removeItem('mx-token'); localStorage.removeItem('mx-user'); location.href = 'login.html'; }
 // Uma mensagem de erro precisa de mais tempo na tela do que um "salvo!".
 // 2,2s e curto demais para ler uma explicacao e decidir o que fazer.
@@ -8908,7 +8945,7 @@ function _renderCardioLive() {
         '</div>' +
       '</div>' +
       '<div style="text-align:center;font-size:10.5px;color:#888;margin-top:14px;line-height:1.5;">⚠️ Função em teste, sujeita a instabilidades.</div>' +
-      getFooterHtml();
+      getFooterHtml(false);
 
   // O <div id="cl-map"> acabou de nascer de novo (innerHTML inteiro trocado
   // acima) — qualquer mapa Leaflet de antes ficou órfão. Recria se estiver
@@ -10981,7 +11018,8 @@ function renderQuemSomos() {
   // Contato
   html += '<div style="text-align:center;padding:6px 16px 14px;">' +
     '<p style="font-size:12px;color:' + textMuted + ';margin:0;">contato@intusfit.com.br</p>' +
-    '<p style="font-size:11px;color:' + textMuted + ';margin:4px 0 0;">intusfit.com.br</p>' +
+    '<p style="font-size:11px;color:' + textMuted + ';margin:4px 0 14px;">intusfit.com.br</p>' +
+    _canaisOficiaisHtml(isLight, false) +
   '</div>';
 
   // Aviso legal
@@ -11568,7 +11606,7 @@ function abrirAnamnese() {
     '<div style="margin-top:24px;margin-bottom:40px;">' +
       '<div id="anamnese-auto" style="font-size:11.5px;color:' + (isLight?'#8a8a8a':'#777') + ';text-align:center;margin-bottom:10px;min-height:15px;"></div>' +
       '<button class="btn btn-prim btn-full" onclick="salvarAnamnese()">Salvar Anamnese</button>' +
-    '</div>' + getFooterHtml();
+    '</div>' + getFooterHtml(false);
   trocarView('anamnese');
   _ligarRascunhoAoDigitar();
 }
@@ -11699,7 +11737,7 @@ function abrirComportamental() {
     '<div id="comportamental-form">' + formHtml + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
       '<button class="btn btn-prim btn-full" onclick="salvarComportamental()">Salvar Avaliação Comportamental</button>' +
-    '</div>' + getFooterHtml();
+    '</div>' + getFooterHtml(false);
 }
 
 async function salvarComportamental() {
@@ -11756,7 +11794,7 @@ function abrirFormRotina() {
     '<div id="rotina-form">' + rotinaItems + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
       '<button class="btn btn-prim btn-full" onclick="salvarRotina()">Salvar Rotina</button>' +
-    '</div>' + getFooterHtml();
+    '</div>' + getFooterHtml(false);
 }
 
 async function salvarRotina() {
@@ -11804,7 +11842,7 @@ function abrirFormCircunferencias() {
     <div style="margin-top:20px;margin-bottom:40px;">
       <button class="btn btn-prim btn-full" onclick="salvarCircunferencias()">💾 Salvar Circunferências</button>
     </div>
-    ${getFooterHtml()}
+    ${getFooterHtml(false)}
   `;
 }
 
@@ -11909,7 +11947,7 @@ function abrirFormFotosPostural() {
   html += '<div style="margin-top:20px;margin-bottom:40px;">' +
     '<button class="btn btn-prim btn-full" onclick="enviarFotosAvaliacao()">Enviar Fotos</button>' +
     '<p style="font-size:11px;color:#888;text-align:center;margin-top:8px;">Mínimo 1 foto. Toque nos quadros para tirar ou escolher.</p>' +
-  '</div>' + getFooterHtml();
+  '</div>' + getFooterHtml(false);
   container.innerHTML = html;
 }
 
@@ -12021,7 +12059,7 @@ function abrirFormNutricional() {
     '<div id="nutri-form">' + formItems + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
       '<button class="btn btn-prim btn-full" onclick="salvarNutricional()">Salvar Avaliação Nutricional</button>' +
-    '</div>' + getFooterHtml();
+    '</div>' + getFooterHtml(false);
 }
 
 async function salvarNutricional() {
@@ -12098,7 +12136,7 @@ function abrirFormAutoAvaliacao() {
     '</div>' +
     '<div style="margin-top:20px;margin-bottom:40px;">' +
       '<button class="btn btn-prim btn-full" onclick="salvarAutoAvaliacao()" style="padding:14px;font-size:14px;font-weight:700;">Salvar Avaliação</button>' +
-    '</div>' + getFooterHtml();
+    '</div>' + getFooterHtml(false);
 
   container.innerHTML = html;
   mudarMetodoComposicao();
@@ -13406,9 +13444,16 @@ function getIncentivePhrase() {
 }
 
 // ═══════════════ FOOTER ═══════════════
-function getFooterHtml() {
+// comLinks=false tira a fileira de ícones (Instagram/YouTube/Spotify/
+// suporte) — usado só nas telas onde ela atrapalha mais que ajuda: formulário
+// de avaliação/anamnese (foco é preencher dado de saúde, não navegar pra
+// fora) e o cardio ao vivo já rastreando (tela imersiva, sem distração).
+function getFooterHtml(comLinks) {
+  if (comLinks === undefined) comLinks = true;
+  const isLight = document.body.classList.contains('tema-claro');
   return `<div class="app-footer">
     <div class="slogan">Te levamos ao próximo nível. Do iniciante ao atleta.</div>
+    ${comLinks ? '<div style="margin:14px 0 2px;">' + _canaisOficiaisHtml(isLight, true) + '</div>' : ''}
     <div>© ${new Date().getFullYear()} Intus Fit. Desenvolvido por Luiz Nunes. Todos os direitos reservados.</div>
   </div>`;
 }
