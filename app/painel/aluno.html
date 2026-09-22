@@ -3511,6 +3511,13 @@ function _compositarLogoNaFoto(dataUrl) {
 }
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Ícones de tipo de atividade (musculação/cardio) usados como MARCADOR
+// visual (calendário, dia da semana, cartão de sessão, indicadores de
+// Evoluções, abas do Ranking) — no tema claro trocam pra uma versão com
+// mais contraste contra fundo branco. Frase solta com emoji decorativo
+// (toast, mensagem motivacional) não usa isto, de propósito.
+function _iconMus(isLight) { return isLight ? '🦾' : '💪'; }
+function _iconCardio(isLight) { return isLight ? '😅' : '🏃'; }
 function sair() { localStorage.removeItem('mx-token'); localStorage.removeItem('mx-user'); location.href = 'login.html'; }
 // Uma mensagem de erro precisa de mais tempo na tela do que um "salvo!".
 // 2,2s e curto demais para ler uma explicacao e decidir o que fazer.
@@ -4903,7 +4910,7 @@ function renderHome() {
       </div>
       <div class="h-dias">
         ${_sem.dias.map(d => `<div class="h-dia ${d.feito ? 'feito' : (d.ehHoje ? 'hoje' : '')}">
-          <div class="l">${d.letra}</div><div class="q">${(d.feito ? '💪' : '') + (d.cardio ? '🏃' : '')}</div>
+          <div class="l">${d.letra}</div><div class="q">${(d.feito ? _iconMus(isLight) : '') + (d.cardio ? _iconCardio(isLight) : '')}</div>
         </div>`).join('')}
       </div>
     </div>
@@ -6915,7 +6922,7 @@ function _histCardHtml(s, sessoes, isLight, comExcluir) {
   const alertaLbl = s.nao_contar ? '⏱️ Não contabilizado (teste)' : s.alerta_duracao === 'longo' ? '⚠️ Duração longa (+3h)' : s.alerta_duracao === 'curto' ? '⚠️ Muito curto (-5min)' : '';
   const baseStyle = s.nao_contar ? 'border-left:3px solid #888;opacity:.7;' : ('border-left:3px solid ' + cor + ';');
   const tituloHtml = ehCardio
-    ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>🏃 ${esc(s.cardio_tipo || 'Cardio')}${s.cardio_intensidade ? ' · ' + esc(s.cardio_intensidade) : ''}`
+    ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>${_iconCardio(isLight)} ${esc(s.cardio_tipo || 'Cardio')}${s.cardio_intensidade ? ' · ' + esc(s.cardio_intensidade) : ''}`
     : `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>Divisão ${esc(s.divisao)} ${s.marcado_como_feito?'☑️':'✅'}`;
   const ptsLbl = (!s.nao_contar && pts > 0) ? ` • <b style="color:${isLight?'#5cb800':'#7FFF00'};">+${pts} pts</b>` : '';
   const subHtml = ehCardio
@@ -7011,7 +7018,7 @@ function _histCalHtml(sessoes, isLight) {
     const iso = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     const ehHoje = d.getTime() === hoje.getTime();
     const temAtividade = info && (info.mus || info.cardio);
-    const conteudo = info ? ((info.mus ? '💪' : '') + (info.cardio ? '🏃' : '')) : '';
+    const conteudo = info ? ((info.mus ? _iconMus(isLight) : '') + (info.cardio ? _iconCardio(isLight) : '')) : '';
     celulas += `<div class="hcal-dia${temAtividade?' feito':''}${ehHoje&&!temAtividade?' hoje':''}" ${temAtividade ? `onclick="_histAbrirDia('${iso}')"` : ''}>
       <span class="hcal-num">${dia}</span><span class="hcal-ic">${conteudo}</span>
     </div>`;
@@ -7026,8 +7033,8 @@ function _histCalHtml(sessoes, isLight) {
     <div class="hcal-semana">${L.map(l => `<div class="hcal-letra">${l}</div>`).join('')}</div>
     <div class="hcal-grid">${celulas}</div>
     <div style="display:flex;gap:14px;margin-top:12px;padding-top:11px;border-top:1px solid var(--borda);font-size:11px;color:var(--muted);">
-      <span>💪 <b style="color:var(--texto);">${totalMus}</b> treino${totalMus===1?'':'s'}</span>
-      <span>🏃 <b style="color:var(--texto);">${totalCardio}</b> cardio${totalCardio===1?'':'s'}${totalCardio ? ` · ${cardioTempoLbl}` : ''}</span>
+      <span>${_iconMus(isLight)} <b style="color:var(--texto);">${totalMus}</b> treino${totalMus===1?'':'s'}</span>
+      <span>${_iconCardio(isLight)} <b style="color:var(--texto);">${totalCardio}</b> cardio${totalCardio===1?'':'s'}${totalCardio ? ` · ${cardioTempoLbl}` : ''}</span>
     </div>
   </div>`;
 }
@@ -7145,13 +7152,13 @@ function renderHistorico() {
         melhor:   { ic:'🏆', titulo:'Melhor semana', valor: melhorSemana + ' atividade' + (melhorSemana===1?'':'s'), txt:'O <b>maior número de atividades</b> (treinos + cardios) que você registrou numa única semana. É a sua semana mais produtiva até hoje, não é posição no ranking nem número da semana.' + (melhorSemanaKey != null ? '<br><br>📅 Semana de ' + fmtSemanaH(melhorSemanaKey) + '.' : '') },
         tempo:    { ic:'⏱️', titulo:'Tempo treinando', valor: tempoTxt, txt:'A <b>soma de todo o tempo</b> dos seus treinos e cardios registrados no app.' },
         volume:   { ic:'🏋️', titulo:'Volume total', valor: tonTxt + ' toneladas', txt:'A soma de <b>peso × repetições</b> de todas as séries que você registrou, somando tudo o que já moveu. 1 tonelada = 1.000 kg.' },
-        carga:    { ic:'💪', titulo:'Carga máxima', valor: (cargaMax ? cargaMax + ' kg' : '—'), txt:
+        carga:    { ic:_iconMus(isLight), titulo:'Carga máxima', valor: (cargaMax ? cargaMax + ' kg' : '—'), txt:
           (cargaMax
             ? 'Sua maior carga registrada: <b>' + esc(cargaMaxEx || 'exercício') + '</b>, <b>' + cargaMax + ' kg</b>' + (cargaMaxReps ? ' × ' + cargaMaxReps + ' rep' + (cargaMaxReps>1?'s':'') : '') + (dataMaxFmt ? '<br>em ' + dataMaxFmt : '') + '.'
             : 'Ainda sem carga registrada. Ao anotar peso nas séries, sua maior carga aparece aqui.') +
           '<div style="margin-top:12px;padding:11px 12px;border-radius:10px;background:' + (isLight?'#fff7ed':'rgba(251,146,60,.08)') + ';border:1px solid ' + (isLight?'rgba(234,88,12,.3)':'rgba(251,146,60,.25)') + ';font-size:11.5px;color:' + (isLight?'#9a3412':'#fdba74') + ';line-height:1.55;text-align:left;">⚠️ <b>Lembre-se:</b> a carga é <b>consequência</b> do treino bem feito, não o objetivo. Este número é só um registro do seu histórico, não é meta a bater a qualquer custo. Priorize sempre a execução correta e a carga adequada ao seu momento. Evoluir com segurança vale mais que levantar peso demais.</div>' },
         atividades:{ ic:'📊', titulo:'Atividades totais', valor: contar.length + ' atividade' + (contar.length===1?'':'s'), txt:'O <b>total de treinos e cardios válidos</b> que você já registrou (sessões de teste não contam).' },
-        cardio:   { ic:'🏃', titulo:'Cardio total', valor: cardioTempoTxt, txt:'Você já fez <b>' + totalCardios + ' cardio' + (totalCardios===1?'':'s') + '</b>, somando <b>' + cardioTempoTxt + '</b>' + (cardioDistTxt ? ' e <b>' + cardioDistTxt + '</b> percorridos' : '') + '.' + (cardioMaisLongoMin ? '<br><br>🏆 Cardio mais longo: <b>' + esc(cardioMaisLongoTipo) + '</b>, ' + cardioMaisLongoMin + ' min' + (cardioLongoDataFmt ? '<br>em ' + cardioLongoDataFmt : '') + '.' : '') },
+        cardio:   { ic:_iconCardio(isLight), titulo:'Cardio total', valor: cardioTempoTxt, txt:'Você já fez <b>' + totalCardios + ' cardio' + (totalCardios===1?'':'s') + '</b>, somando <b>' + cardioTempoTxt + '</b>' + (cardioDistTxt ? ' e <b>' + cardioDistTxt + '</b> percorridos' : '') + '.' + (cardioMaisLongoMin ? '<br><br>🏆 Cardio mais longo: <b>' + esc(cardioMaisLongoTipo) + '</b>, ' + cardioMaisLongoMin + ' min' + (cardioLongoDataFmt ? '<br>em ' + cardioLongoDataFmt : '') + '.' : '') },
       };
 
       const mk = (chave, val, lbl, cor) => { const inf = _evolucaoInfo[chave]; return '<div onclick="abrirDetalheMarcador(\'' + chave + '\')" style="flex:1;min-width:88px;cursor:pointer;background:' + (isLight ? '#fafafa' : '#141414') + ';border:1px solid ' + (isLight ? '#eee' : '#222') + ';border-radius:12px;padding:11px 8px 9px;text-align:center;position:relative;">' +
@@ -10361,7 +10368,7 @@ function _renderRankingView() {
   const _lblCss = 'display:block;font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;' +
     'white-space:nowrap;color:' + (isLight ? '#8a8f96' : '#7d838a') + ';margin-bottom:2px;line-height:1.2;';
 
-  const cats = [['geral', '🏅 Geral'], ['musculacao', '💪 Musculação'], ['cardio', '🏃 Cardio']];
+  const cats = [['geral', '🏅 Geral'], ['musculacao', _iconMus(isLight) + ' Musculação'], ['cardio', _iconCardio(isLight) + ' Cardio']];
   const periodos = [['semana', 'Semana'], ['mes', 'Mês atual'], ['30dias', '30 dias'],
                     ['trimestre', 'Trimestre'], ['semestre', 'Semestre'], ['ano_atual', 'Ano atual'],
                     ['ano', '1 ano'], ['tudo', 'Todo período']];
