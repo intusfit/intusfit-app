@@ -1262,9 +1262,19 @@ async function alterarVencimento(id) {
 // ── Sugestão de inativação: 30 dias sem pagar ─────────────────────────────
 // Antes isto rodava sozinho ao abrir a tela e inativava clientes em silêncio,
 // com o catch vazio escondendo até as falhas. Hoje só calcula e mostra.
+//
+// Caso da Maud (ver comentário perto de _statusPill): o ciclo 22/08–22/09
+// ficava com stpgto='N' de verdade, mas a própria tela já mostra ele como
+// "Ativa · Paga" porque a baixa entrou no ciclo anterior por engano
+// (API.cicloJaPago). Filtrar aqui só por stpgto cru divergia do selo — a
+// mesma matrícula aparecia paga na tabela e "32 dias em atraso" no banner.
+// Exclui especificamente esse caso, sem tocar no resto do filtro: um ciclo
+// antigo já quitado e substituído por outro (statusEfetivo 'aguardando'/
+// 'renovada') continua de fora por já ter stpgto='S', como sempre foi.
 function _candidatosInativar() {
   return (mensalidades || []).filter(m =>
     m.stpgto !== 'S' &&
+    !(typeof API !== 'undefined' && API.cicloJaPago && API.cicloJaPago(m, mensalidades)) &&
     m.stmatricula !== 'trancada' && m.stmatricula !== 'cancelada' && m.stmatricula !== 'inativa' &&
     (_diasAtraso(m) != null && _diasAtraso(m) > 30));
 }
