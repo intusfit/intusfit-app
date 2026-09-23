@@ -3306,6 +3306,87 @@ function _edCancelar() {
   if (!_feedComposeImg) _renderComposeFeed();
 }
 
+// ── Aplica o filtro de cor pixel a pixel, sem depender de ctx.filter ───────
+// BUG real: o canvas de exportação usava ctx.filter (propriedade do
+// CanvasRenderingContext2D) pra "queimar" o filtro na foto final. Essa
+// propriedade tem suporte bem mais recente/instável que o "filter:" comum de
+// CSS usado no <img> da prévia e nas miniaturas do carrossel — em Safari/
+// WebView mais antigos (inclusive dentro do app nativo empacotado) ela é
+// ignorada em silêncio, sem erro nenhum: o recorte/zoom saía certo (isso é
+// só drawImage, sem relação com filter) e o filtro de cor simplesmente
+// sumia da foto publicada, mesmo aparecendo certinho na prévia do editor.
+// Reimplementa cada função de filtro como matriz de cor (mesma matemática
+// que a especificação de CSS Filter Effects define, então o resultado bate
+// com o que a prévia já mostra) e aplica com getImageData/putImageData, que
+// tem suporte universal — sem depender do navegador saber ler "filter".
+function _matrizSaturate(s) {
+  return [
+    0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s,
+    0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s,
+    0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s,
+  ];
+}
+function _matrizSepia(a) {
+  return [
+    1 - 0.607 * a, 0.769 * a,     0.189 * a,
+    0.349 * a,     1 - 0.314 * a, 0.168 * a,
+    0.272 * a,     0.534 * a,     1 - 0.869 * a,
+  ];
+}
+function _matrizHueRotate(deg) {
+  const rad = deg * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
+  return [
+    0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
+    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140, 0.072 - c * 0.072 - s * 0.283,
+    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072,
+  ];
+}
+// Lê a string CSS ("saturate(1.35) contrast(1.08) ...", na mesma ordem que
+// _FILTRO_* já declara) e devolve uma lista de operações a aplicar em
+// sequência — a mesma ordem em que o CSS as aplicaria.
+function _filtroOperacoes(filtroCss) {
+  const ops = [];
+  const re = /([\w-]+)\(([^)]+)\)/g;
+  let m;
+  while ((m = re.exec(filtroCss || ''))) {
+    const fn = m[1], num = parseFloat(m[2]);
+    if (isNaN(num)) continue;
+    if (fn === 'saturate') ops.push({ tipo: 'matriz', m: _matrizSaturate(num) });
+    else if (fn === 'grayscale') ops.push({ tipo: 'matriz', m: _matrizSaturate(1 - num) });
+    else if (fn === 'sepia') ops.push({ tipo: 'matriz', m: _matrizSepia(num) });
+    else if (fn === 'hue-rotate') ops.push({ tipo: 'matriz', m: _matrizHueRotate(num) });
+    else if (fn === 'contrast') ops.push({ tipo: 'contraste', v: num });
+    else if (fn === 'brightness') ops.push({ tipo: 'brilho', v: num });
+  }
+  return ops;
+}
+function _aplicarFiltroNoContexto(ctx, w, h, filtroCss) {
+  const ops = _filtroOperacoes(filtroCss);
+  if (!ops.length) return;
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i], g = d[i + 1], b = d[i + 2];
+    for (const op of ops) {
+      if (op.tipo === 'matriz') {
+        const mm = op.m;
+        const nr = r * mm[0] + g * mm[1] + b * mm[2];
+        const ng = r * mm[3] + g * mm[4] + b * mm[5];
+        const nb = r * mm[6] + g * mm[7] + b * mm[8];
+        r = nr; g = ng; b = nb;
+      } else if (op.tipo === 'contraste') {
+        r = (r - 128) * op.v + 128; g = (g - 128) * op.v + 128; b = (b - 128) * op.v + 128;
+      } else if (op.tipo === 'brilho') {
+        r = r * op.v; g = g * op.v; b = b * op.v;
+      }
+      // Clampa entre cada passo, igual a especificação faz entre primitivas.
+      r = Math.min(255, Math.max(0, r)); g = Math.min(255, Math.max(0, g)); b = Math.min(255, Math.max(0, b));
+    }
+    d[i] = r; d[i + 1] = g; d[i + 2] = b;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 // Desenha o recorte/zoom/filtro escolhidos num canvas — essa imagem gerada
 // aqui é a que realmente vai ser publicada, não só um efeito visual do
 // preview.
@@ -3335,8 +3416,8 @@ function _edConcluir() {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   const filtroCss = (FEED_EDITOR_FILTROS.find(f => f.id === _feedEdFiltro) || {}).css || '';
-  if (filtroCss) ctx.filter = filtroCss;
   ctx.drawImage(_feedEdImg, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+  if (filtroCss) _aplicarFiltroNoContexto(ctx, outW, outH, filtroCss);
   _feedComposeImg = canvas.toDataURL('image/jpeg', 0.94);
   document.getElementById('feed-editor-overlay')?.remove();
   _feedEdImg = null;
