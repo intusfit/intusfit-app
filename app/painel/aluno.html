@@ -8353,6 +8353,16 @@ async function salvarCardio(opts) {
       if (Number(res.nao_contar) === 1) { excedeu = true; if (!motivo) motivo = 'limite'; }
       idsessaoSalvo = res.idsessao;
       _cardioHistorico.unshift({ ...localItem, pontos: pts, nao_contar: excedeu ? 1 : 0, tem_foto: foto ? 1 : 0, idsessao: res.idsessao });
+      // Cardio vive num localStorage à parte (intus-cardios-*), separado do
+      // SessoesTreino que a Home lê pro quadro "Sua semana". Sem isto, o
+      // emoji de cardio só aparecia lá depois do próximo login (quando
+      // SessoesTreino.sincronizar roda de novo) — mesmo já contando certo no
+      // ranking, que busca direto do servidor a cada abertura da Home.
+      if (idsessaoSalvo) {
+        const _l = SessoesTreino.load();
+        _l.push({ ...payload, pontos: pts, nao_contar: excedeu ? 1 : 0, idsessao: Number(idsessaoSalvo) });
+        SessoesTreino.save(_l);
+      }
     } else { toast('Registrado localmente.'); }
   } catch { toast('Registrado localmente (sem conexão).'); }
   // Reseta a foto. renderCardio() só faz sentido se a tela de Cardio for a
