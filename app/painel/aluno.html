@@ -2316,11 +2316,19 @@ async function carregarComentariosFeed(ids) {
   } catch (e) {}
 }
 
+function _atualizarLinhaComentarios(idpost) {
+  const isLight = document.body.classList.contains('tema-claro');
+  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentario-gatilho]').forEach(el => {
+    el.outerHTML = _comentarioGatilhoHtml(idpost, isLight);
+  });
+  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentarios]').forEach(el => {
+    el.outerHTML = _comentariosHtml(idpost, isLight);
+  });
+}
+
 function toggleComentariosFeed(idpost) {
   _comentariosAbertos[idpost] = !_comentariosAbertos[idpost];
-  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentarios]').forEach(el => {
-    el.outerHTML = _comentariosHtml(idpost, document.body.classList.contains('tema-claro'));
-  });
+  _atualizarLinhaComentarios(idpost);
 }
 
 async function enviarComentarioFeed(idpost) {
@@ -2337,24 +2345,29 @@ async function enviarComentarioFeed(idpost) {
   } catch (e) { toast('Não consegui enviar o comentário.'); return; }
   _comentariosAbertos[idpost] = true;
   await carregarComentariosFeed([idpost]);
-  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentarios]').forEach(el => {
-    el.outerHTML = _comentariosHtml(idpost, document.body.classList.contains('tema-claro'));
-  });
+  _atualizarLinhaComentarios(idpost);
+}
+
+// Gatilho ("Comentar" / "Ver N comentários" / "Ocultar comentários") — fica
+// na MESMA linha do coração de curtir (ver _feedCardHtml), não mais numa
+// linha própria abaixo. Só o corpo expandido (lista + campo de texto,
+// _comentariosHtml) ocupa linha nova, e só quando está aberto.
+function _comentarioGatilhoHtml(idpost, isLight) {
+  const lista = _comentariosFeed[String(idpost)] || [];
+  const aberto = !!_comentariosAbertos[idpost];
+  const txt = aberto ? 'Ocultar comentários' : (lista.length ? 'Ver ' + lista.length + ' comentário' + (lista.length > 1 ? 's' : '') : 'Comentar');
+  return '<span data-feed-comentario-gatilho onclick="toggleComentariosFeed(' + idpost + ')" style="font-size:13px;font-weight:600;color:' + (isLight?'#888':'#999') + ';cursor:pointer;flex-shrink:0;">' + txt + '</span>';
 }
 
 function _comentariosHtml(idpost, isLight) {
   const lista = _comentariosFeed[String(idpost)] || [];
   const aberto = !!_comentariosAbertos[idpost];
-  const gatilho = '<div onclick="toggleComentariosFeed(' + idpost + ')" style="font-size:14px;font-weight:600;color:' + (isLight?'#888':'#999') + ';cursor:pointer;margin-top:4px;">' +
-    (lista.length ? 'Ver ' + lista.length + ' comentário' + (lista.length > 1 ? 's' : '') : 'Comentar') +
-  '</div>';
-  if (!aberto) return '<div data-feed-comentarios>' + gatilho + '</div>';
+  if (!aberto) return '<div data-feed-comentarios></div>';
   const itens = lista.map(c => '<div style="padding:6px 0;border-top:1px solid ' + (isLight?'#f0f0f0':'#1e1e1e') + ';font-size:12px;">' +
     '<b style="color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';">' + esc(c.autor_nome || 'Alguém') + '</b> ' +
     '<span style="color:' + (isLight?'#444':'#ccc') + ';">' + esc(c.texto) + '</span>' +
   '</div>').join('');
-  return '<div data-feed-comentarios>' +
-    '<div onclick="toggleComentariosFeed(' + idpost + ')" style="font-size:14px;font-weight:600;color:' + (isLight?'#888':'#999') + ';cursor:pointer;margin-bottom:4px;">Ocultar comentários</div>' +
+  return '<div data-feed-comentarios style="margin-top:6px;">' +
     itens +
     '<div style="display:flex;gap:6px;margin-top:8px;">' +
       '<input data-feed-comment-input placeholder="Escreva um comentário..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight?'#ddd':'#2a2a2a') + ';background:' + (isLight?'#fff':'#111') + ';color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioFeed(' + idpost + ');"/>' +
@@ -2426,7 +2439,7 @@ function _feedCardHtml(post, isLight) {
     '<img src="' + esc(post.imagem) + '" style="width:100%;display:block;" loading="lazy"/>' +
     '<div style="padding:11px 12px;">' +
       (post.legenda ? '<div style="font-size:12.5px;color:' + (isLight?'#333':'#ddd') + ';line-height:1.45;margin-bottom:8px;"><b>' + esc(nome.split(' ')[0]) + '</b> ' + esc(post.legenda) + '</div>' : '') +
-      '<div data-feed-kudos-wrap style="margin-bottom:4px;">' + _kudosHtml(post.idpost) + '</div>' +
+      '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
       _comentariosHtml(post.idpost, isLight) +
     '</div>' +
   '</div>';
