@@ -79,6 +79,8 @@ input{font-family:inherit}
 .btn-acao{background:var(--accent);color:var(--accent-text);border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:800}
 .btn-acao:disabled{opacity:.4;cursor:default}
 .btn-secundario{background:transparent;color:var(--texto);border:1px solid var(--borda);border-radius:9px;padding:9px 14px;font-size:13px;font-weight:700}
+.btn-secundario.arrastando{background:var(--accent-fraca);border-color:var(--accent);border-style:dashed}
+.lote-dica{font-size:12px;color:var(--muted)}
 .contagem{font-size:12px;color:var(--muted)}
 .chk-todos{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
 .status-zip{font-size:12px;color:var(--accent);min-width:140px}
@@ -252,9 +254,10 @@ input{font-family:inherit}
     <span class="tb-titulo">Upload em lote (preenche as linhas vazias em ordem)</span>
     <div class="tb-linha">
       <button class="btn-secundario" id="btn-lote-esquerda">Várias fotos → coluna Antes</button>
-      <input type="file" id="file-lote-esquerda" accept="image/*" multiple hidden>
+      <input type="file" id="file-lote-esquerda" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.gif,.bmp,.tif,.tiff" multiple hidden>
       <button class="btn-secundario" id="btn-lote-direita">Várias fotos → coluna Depois</button>
-      <input type="file" id="file-lote-direita" accept="image/*" multiple hidden>
+      <input type="file" id="file-lote-direita" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.gif,.bmp,.tif,.tiff" multiple hidden>
+      <span class="lote-dica">também aceita arrastar vários arquivos direto em cima do botão</span>
     </div>
   </div>
 
@@ -750,7 +753,7 @@ function buildRow(row){
       '<div class="slot-frame" style="aspect-ratio:' + row.width + '/' + row.height + '">' +
         '<div class="slot-drop"><span class="ic">📷</span><span>Clique ou arraste a foto</span></div>' +
         '<canvas class="slot-canvas" hidden></canvas>' +
-        '<input type="file" accept="image/*" class="slot-file" hidden>' +
+        '<input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.gif,.bmp,.tif,.tiff" class="slot-file" hidden>' +
       '</div>' +
       '<div class="slot-tools" hidden>' +
         '<input type="range" min="100" max="400" value="100">' +
@@ -1205,10 +1208,22 @@ document.getElementById('btn-pdf-tudo').addEventListener('click', function(){
   baixarPDF(rows);
 });
 
-document.getElementById('btn-lote-esquerda').addEventListener('click', function(){ document.getElementById('file-lote-esquerda').click(); });
-document.getElementById('file-lote-esquerda').addEventListener('change', function(e){ bulkUpload('left', e.target.files); e.target.value = ''; });
-document.getElementById('btn-lote-direita').addEventListener('click', function(){ document.getElementById('file-lote-direita').click(); });
-document.getElementById('file-lote-direita').addEventListener('change', function(e){ bulkUpload('right', e.target.files); e.target.value = ''; });
+function wireBotaoLote(idBtn, idInput, side){
+  var btn = document.getElementById(idBtn);
+  var input = document.getElementById(idInput);
+  btn.addEventListener('click', function(){ input.click(); });
+  input.addEventListener('change', function(e){ bulkUpload(side, e.target.files); e.target.value = ''; });
+  btn.addEventListener('dragover', function(e){ e.preventDefault(); btn.classList.add('arrastando'); });
+  btn.addEventListener('dragleave', function(){ btn.classList.remove('arrastando'); });
+  btn.addEventListener('drop', function(e){
+    e.preventDefault();
+    btn.classList.remove('arrastando');
+    var arquivos = Array.prototype.filter.call(e.dataTransfer.files, function(f){ return f.type.indexOf('image/') === 0; });
+    if (arquivos.length) bulkUpload(side, arquivos);
+  });
+}
+wireBotaoLote('btn-lote-esquerda', 'file-lote-esquerda', 'left');
+wireBotaoLote('btn-lote-direita', 'file-lote-direita', 'right');
 
 var resizeTimer;
 window.addEventListener('resize', function(){
