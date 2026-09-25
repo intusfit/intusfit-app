@@ -89,6 +89,37 @@ input,textarea{font-family:inherit}
 .cronometro small{font-size:12px;color:var(--muted-d);font-weight:600}
 @keyframes piscar{50%{opacity:.25}}
 
+/* ── passo a passo / erro ── */
+.status-passo{margin-top:14px;background:var(--accent-fraca);border:1px solid var(--accent-borda);color:var(--texto);border-radius:10px;padding:12px 14px;font-size:14px;font-weight:600;display:flex;gap:10px;align-items:center}
+.status-passo::before{content:'';width:14px;height:14px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:girar 1s linear infinite;flex-shrink:0}
+@keyframes girar{to{transform:rotate(360deg)}}
+.msg-erro.destaque{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);border-radius:10px;padding:12px 14px;font-size:13.5px;font-weight:600;margin-top:14px}
+
+/* ── ferramentas de desenho ── */
+.ferramentas{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
+.fer{width:38px;height:36px;border-radius:9px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:16px;font-weight:800}
+.fer.on{border-color:var(--accent);background:var(--accent-fraca)}
+.fer-txt{height:36px;border-radius:9px;border:1px solid var(--borda);background:transparent;color:var(--texto);font-size:12.5px;font-weight:700;padding:0 11px}
+.fer-txt:hover,.fer:hover{border-color:var(--accent-borda)}
+.cor{width:24px;height:24px;border-radius:50%;border:2px solid transparent;padding:0}
+.cor.on{border-color:var(--texto);box-shadow:0 0 0 2px var(--bg) inset}
+.sep{width:1px;height:26px;background:var(--borda);margin:0 4px}
+.dica-ferramenta{font-size:11.5px;color:var(--muted-d);margin-left:6px}
+.palco{aspect-ratio:auto;min-height:200px}
+.palco canvas{max-height:68vh;touch-action:none;cursor:crosshair}
+.palco canvas.sem-desenho{cursor:default}
+.contagem{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:120px;font-weight:900;color:#fff;background:rgba(0,0,0,.45);text-shadow:0 4px 30px rgba(0,0,0,.6)}
+.input-texto{position:absolute;min-width:200px;padding:6px 9px;border-radius:7px;border:2px solid var(--accent);background:rgba(0,0,0,.8);color:#fff;font-size:15px;font-weight:700;font-family:inherit;z-index:5}
+.controles-arquivo{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.miniaturas{display:flex;gap:6px;flex-wrap:wrap}
+.mini{width:52px;height:52px;border-radius:8px;border:2px solid var(--borda);background:#000 center/cover no-repeat;color:#fff;font-size:18px;padding:0}
+.mini.on{border-color:var(--accent)}
+.ctl-video{display:flex;gap:6px;align-items:center;flex:1 1 320px}
+.ctl-video input[type=range]{flex:1;accent-color:var(--accent)}
+.btn-mini.on{background:var(--accent-fraca);border-color:var(--accent-borda);color:var(--accent)}
+#estado-gravacao{font-size:13px;font-weight:800;color:var(--gravando)}
+.cronometro.pausado #estado-gravacao{color:var(--muted)}
+
 /* ── salvar ── */
 .grid-salvar{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px}
 @media(max-width:760px){.grid-salvar{grid-template-columns:1fr}.topo{padding-left:20px;padding-top:52px}}
@@ -163,7 +194,7 @@ input,textarea{font-family:inherit}
     <button class="btn-sair" id="btn-sair">Sair</button>
   </div>
   <p class="aviso">
-    Grave a tela comentando a foto ou o vídeo do aluno, confira a gravação, e mande o link para ele pelo WhatsApp.
+    Abra a foto ou o vídeo do aluno (ou compartilhe uma janela), comente em voz alta desenhando por cima, confira, e mande o link para ele pelo WhatsApp.
     O vídeo fica guardado no Google Drive da Intus, e só quem recebe o link consegue assistir.
   </p>
 </div>
@@ -173,32 +204,76 @@ input,textarea{font-family:inherit}
   <!-- 1. escolher e gravar -->
   <div class="card" id="etapa-escolher">
     <div class="secao-titulo">Nova gravação</div>
+    <span class="rotulo">O que você vai mostrar</span>
     <div class="modos">
-      <button class="modo on" data-modo="tela"><span class="ic">🖥️</span><b>Tela</b><span>Só a tela, com a sua voz narrando.</span></button>
-      <button class="modo" data-modo="bolha"><span class="ic">🖥️🙂</span><b>Tela + câmera</b><span>A tela, com o seu rosto numa bolha no canto.</span></button>
+      <button class="modo on" data-modo="arquivo"><span class="ic">🖼️</span><b>Foto ou vídeo do aluno</b><span>Abra o arquivo que ele mandou e comente desenhando por cima.</span></button>
+      <button class="modo" data-modo="tela"><span class="ic">🖥️</span><b>Uma janela ou aba</b><span>Ex.: o WhatsApp Web com a foto aberta. Ela aparece aqui e você desenha por cima.</span></button>
       <button class="modo" data-modo="camera"><span class="ic">🙂</span><b>Só câmera</b><span>Você falando direto com o aluno.</span></button>
     </div>
+    <div class="linha-botoes" id="bloco-arquivo" style="margin-bottom:14px">
+      <button class="btn-secundario" id="btn-escolher-arquivo">Escolher foto ou vídeo…</button>
+      <span class="dica" id="nome-arquivo" style="margin:0">nenhum arquivo escolhido (pode escolher vários, ex.: antes e depois)</span>
+    </div>
+    <input type="file" id="input-arquivo" accept="image/*,video/*" multiple hidden>
     <div class="opcoes">
       <label class="chk"><input type="checkbox" id="chk-mic" checked> Microfone</label>
-      <label class="chk" id="wrap-chk-som"><input type="checkbox" id="chk-som"> Som do computador <small>(só no Windows/Chrome, compartilhando a tela inteira)</small></label>
+      <label class="chk" id="wrap-chk-bolha"><input type="checkbox" id="chk-bolha" checked> Meu rosto numa bolha no canto</label>
+      <label class="chk" id="wrap-chk-som" hidden><input type="checkbox" id="chk-som"> Som da aba <small>(quando compartilhar uma aba do Chrome)</small></label>
     </div>
     <div class="linha-botoes">
       <button class="btn-gravar" id="btn-comecar"><span class="pt"></span> Começar a gravar</button>
       <span class="dica" style="margin:0">Máximo de <b id="lbl-max">10 minutos</b> por gravação.</span>
     </div>
-    <p class="msg-erro" id="erro-gravar" hidden></p>
+    <div class="status-passo" id="status-passo" hidden></div>
+    <p class="msg-erro destaque" id="erro-gravar" hidden></p>
     <p class="dica" id="dica-navegador" hidden></p>
   </div>
 
   <!-- 2. gravando -->
   <div class="card" id="etapa-gravando" hidden>
-    <div class="palco" id="palco"></div>
+    <div class="ferramentas" id="ferramentas">
+      <button class="fer" data-tool="nenhuma" title="Sem desenho (só mostrar)">👆</button>
+      <button class="fer on" data-tool="caneta" title="Caneta: rabisco livre">✏️</button>
+      <button class="fer" data-tool="linha" title="Linha reta">╱</button>
+      <button class="fer" data-tool="seta" title="Seta">➜</button>
+      <button class="fer" data-tool="retangulo" title="Retângulo">▭</button>
+      <button class="fer" data-tool="circulo" title="Círculo">◯</button>
+      <button class="fer" data-tool="angulo" title="Ângulo: clique no vértice, depois em cada ponta">📐</button>
+      <button class="fer" data-tool="texto" title="Texto: clique onde quer escrever">T</button>
+      <span class="sep"></span>
+      <button class="cor on" data-cor="#ff3b30" style="background:#ff3b30" title="Vermelho"></button>
+      <button class="cor" data-cor="#ffd60a" style="background:#ffd60a" title="Amarelo"></button>
+      <button class="cor" data-cor="#7FFF00" style="background:#7FFF00" title="Verde"></button>
+      <button class="cor" data-cor="#0a84ff" style="background:#0a84ff" title="Azul"></button>
+      <button class="cor" data-cor="#ffffff" style="background:#ffffff" title="Branco"></button>
+      <span class="sep"></span>
+      <button class="fer-txt" id="btn-desfazer" title="Desfazer (Ctrl+Z)">↶ Desfazer</button>
+      <button class="fer-txt" id="btn-limpar" title="Apagar todos os desenhos">Limpar</button>
+      <span class="dica-ferramenta" id="dica-ferramenta">Arraste para rabiscar.</span>
+    </div>
+    <div class="palco" id="palco">
+      <canvas id="canvas-palco"></canvas>
+      <div class="contagem" id="contagem" hidden></div>
+      <input type="text" class="input-texto" id="input-texto" maxlength="80" placeholder="Digite e aperte Enter" hidden>
+    </div>
+    <div class="controles-arquivo" id="controles-arquivo" hidden>
+      <div class="miniaturas" id="miniaturas"></div>
+      <button class="btn-mini" id="btn-add-arquivo">+ foto/vídeo</button>
+      <div class="ctl-video" id="ctl-video" hidden>
+        <button class="btn-mini" id="btn-play">▶</button>
+        <input type="range" id="range-video" min="0" max="1000" value="0">
+        <button class="btn-mini vel" data-vel="0.25">0,25×</button>
+        <button class="btn-mini vel" data-vel="0.5">0,5×</button>
+        <button class="btn-mini vel on" data-vel="1">1×</button>
+      </div>
+    </div>
     <div class="barra-gravando">
-      <div class="cronometro" id="cronometro"><span class="pt"></span><span id="tempo">00:00</span><small id="tempo-max">/ 10:00</small></div>
-      <button class="btn-secundario" id="btn-pausar" style="margin-left:auto">Pausar</button>
+      <div class="cronometro pausado" id="cronometro"><span class="pt"></span><span id="estado-gravacao">Preparando…</span><span id="tempo">00:00</span><small id="tempo-max">/ 10:00</small></div>
+      <button class="btn-secundario" id="btn-bolha" style="margin-left:auto" title="Trocar a bolha da câmera de canto">↻ Bolha de canto</button>
+      <button class="btn-secundario" id="btn-pausar" disabled>⏸ Pausar</button>
       <button class="btn-acao" id="btn-parar">■ Parar</button>
     </div>
-    <p class="dica">Pode trocar de aba ou de janela à vontade: a gravação continua. O navegador mostra um aviso de "compartilhando" enquanto grava.</p>
+    <p class="dica" id="dica-gravando"></p>
   </div>
 
   <!-- 3. conferir e salvar -->
@@ -276,7 +351,7 @@ var VIDEO_BPS = 1200000;        // ~10 MB por minuto somando o áudio
 var AUDIO_BPS = 96000;
 var LARGURA_MAX = 1920;         // teto de resolução (tela 4K gravada inteira só pesaria mais)
 
-var modo = 'tela';
+var modo = 'arquivo';
 var gravacao = null;            // estado da gravação em andamento
 var blobFinal = null, mimeFinal = '', duracaoFinal = 0;
 var alunoSel = null;            // {idatleta, nome, telefone}
@@ -399,30 +474,83 @@ function entrarNaFerramenta(){
 // ---------- suporte do navegador ----------
 var temTela = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
 var temCamera = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+// Se o servidor mandar um cabeçalho proibindo microfone/câmera, o navegador recusa
+// sem nem perguntar ao professor. Detecta isso para dizer a causa certa.
+function bloqueadoPeloSite(recurso){
+  var p = document.permissionsPolicy || document.featurePolicy;
+  try { return !!(p && p.allowsFeature && !p.allowsFeature(recurso)); } catch (e) { return false; }
+}
+function avisoNavegador(txt){ var d = document.getElementById('dica-navegador'); d.textContent = txt; d.hidden = !txt; }
+
 if (!window.MediaRecorder || !temCamera) {
   document.getElementById('btn-comecar').disabled = true;
-  var d = document.getElementById('dica-navegador');
-  d.textContent = 'Este navegador não consegue gravar. Use o Chrome ou o Edge num computador.'; d.hidden = false;
-} else if (!temTela) {
-  // Celular: não existe captura de tela no navegador — só sobra o modo câmera.
-  modo = 'camera';
-  document.querySelectorAll('.modo').forEach(function(b){
-    b.classList.toggle('on', b.dataset.modo === 'camera');
-    if (b.dataset.modo !== 'camera') b.disabled = true, b.style.opacity = .35;
-  });
-  document.getElementById('wrap-chk-som').hidden = true;
-  var d2 = document.getElementById('dica-navegador');
-  d2.textContent = 'Neste aparelho só dá para gravar a câmera. Para gravar a tela, use o Chrome ou o Edge num computador.'; d2.hidden = false;
+  avisoNavegador('Este navegador não consegue gravar. Use o Chrome ou o Edge num computador.');
+} else {
+  if (!temTela) {
+    // Celular: navegador não grava a tela; foto/vídeo do aluno e câmera funcionam.
+    var bTela = document.querySelector('.modo[data-modo="tela"]');
+    bTela.disabled = true; bTela.style.opacity = .35;
+    avisoNavegador('Neste aparelho não dá para gravar uma janela. Os outros dois modos funcionam.');
+  }
+  if (bloqueadoPeloSite('microphone')) erro('erro-gravar', 'O servidor está bloqueando o microfone nesta página (configuração de segurança do site), então a gravação vai sair sem som. Avise o suporte técnico.');
 }
 
+var arquivos = [];   // fotos/vídeos do aluno escolhidos: {tipo:'img'|'video', el, url, nome}
+
+function atualizarOpcoesModo(){
+  document.querySelectorAll('.modo').forEach(function(x){ x.classList.toggle('on', x.dataset.modo === modo); });
+  document.getElementById('bloco-arquivo').hidden = modo !== 'arquivo';
+  document.getElementById('wrap-chk-bolha').hidden = modo === 'camera';
+  document.getElementById('wrap-chk-som').hidden = modo !== 'tela';
+}
 document.querySelectorAll('.modo').forEach(function(b){
-  b.addEventListener('click', function(){
-    if (b.disabled) return;
-    modo = b.dataset.modo;
-    document.querySelectorAll('.modo').forEach(function(x){ x.classList.toggle('on', x === b); });
-    document.getElementById('wrap-chk-som').hidden = (modo === 'camera') || !temTela;
+  b.addEventListener('click', function(){ if (b.disabled) return; modo = b.dataset.modo; erro('erro-gravar', ''); atualizarOpcoesModo(); });
+});
+modo = 'arquivo';
+atualizarOpcoesModo();
+
+// ---------- arquivos do aluno ----------
+document.getElementById('btn-escolher-arquivo').addEventListener('click', function(){ document.getElementById('input-arquivo').click(); });
+document.getElementById('btn-add-arquivo').addEventListener('click', function(){ document.getElementById('input-arquivo').click(); });
+document.getElementById('input-arquivo').addEventListener('change', function(){
+  var lista = Array.prototype.slice.call(this.files || []);
+  this.value = '';
+  if (!lista.length) return;
+  var novaEscolha = !gravacao;           // fora da gravação: substitui; durante: acrescenta
+  Promise.all(lista.map(carregarArquivo)).then(function(res){
+    var ok = res.filter(Boolean);
+    var falhas = lista.length - ok.length;
+    if (novaEscolha) { arquivos.forEach(function(a){ URL.revokeObjectURL(a.url); }); arquivos = []; }
+    arquivos = arquivos.concat(ok);
+    document.getElementById('nome-arquivo').textContent = arquivos.length
+      ? arquivos.map(function(a){ return a.nome; }).join(', ') : 'nenhum arquivo escolhido';
+    if (falhas) {
+      var msg = falhas + ' arquivo(s) não abriram neste navegador (foto HEIC do iPhone, por exemplo). Converta para JPG ou mande o print da tela.';
+      if (gravacao) toast(msg); else erro('erro-gravar', msg);
+    } else if (!gravacao) erro('erro-gravar', '');
+    if (gravacao) { renderMiniaturas(); if (ok.length) trocarFonte(arquivos.length - ok.length); }
   });
 });
+
+function carregarArquivo(file){
+  var url = URL.createObjectURL(file);
+  var ehVideo = /^video\//.test(file.type) || /\.(mp4|mov|webm|m4v|3gp)$/i.test(file.name);
+  return new Promise(function(resolve){
+    var fim = function(ok, el){ if (!ok) { URL.revokeObjectURL(url); resolve(null); } else resolve({ tipo: ehVideo ? 'video' : 'img', el: el, url: url, nome: file.name }); };
+    if (ehVideo) {
+      var v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.preload = 'auto';
+      v.onloadeddata = function(){ fim(true, v); };
+      v.onerror = function(){ fim(false); };
+      v.src = url;
+    } else {
+      var im = new Image();
+      im.onload = function(){ fim(true, im); };
+      im.onerror = function(){ fim(false); };
+      im.src = url;
+    }
+  });
+}
 
 function escolherMime(){
   // MP4 (H.264 + AAC) toca em qualquer celular, inclusive iPhone; WebM é o plano B.
@@ -434,8 +562,7 @@ function escolherMime(){
 
 // Relógio que não para quando a aba sai de foco: timers da aba em segundo plano
 // são freados pelo navegador (1x por segundo ou menos), mas mensagens de um Worker
-// continuam chegando. Sem isto, a bolha da câmera "congelava" quando o professor
-// trocava para a aba com a foto do aluno.
+// continuam chegando. Sem isto o vídeo "congelava" quando o professor trocava de janela.
 function criarRelogio(fps, tick){
   var src = 'var t=setInterval(function(){postMessage(0)},' + Math.round(1000 / fps) + ');';
   var url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
@@ -445,94 +572,174 @@ function criarRelogio(fps, tick){
 }
 
 function pararTracks(stream){ if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); }
+function passo(txt){ var el = document.getElementById('status-passo'); el.textContent = txt || ''; el.hidden = !txt; }
+function videoDe(stream){
+  var v = document.createElement('video'); v.muted = true; v.playsInline = true;
+  v.srcObject = new MediaStream(stream.getVideoTracks()); v.play().catch(function(){});
+  return v;
+}
+function par(n){ return Math.max(2, Math.round(n / 2) * 2); }   // H.264 exige largura/altura pares
 
-// ---------- gravar ----------
+// ---------- começar: permissões -> escolha da janela -> contagem -> grava ----------
 document.getElementById('btn-comecar').addEventListener('click', comecar);
 
 function comecar(){
   erro('erro-gravar', '');
+  if (modo === 'arquivo' && !arquivos.length) { erro('erro-gravar', 'Escolha primeiro a foto ou o vídeo do aluno (botão "Escolher foto ou vídeo…").'); return; }
   var querMic = document.getElementById('chk-mic').checked;
-  var querSom = document.getElementById('chk-som').checked && modo !== 'camera';
-  var g = { streams: [], relogio: null, audioCtx: null, chunks: [], segundos: 0, pausado: false, cancelado: false };
+  var querBolha = modo !== 'camera' && document.getElementById('chk-bolha').checked;
+  var querCam = modo === 'camera' || querBolha;
+  var querSom = modo === 'tela' && document.getElementById('chk-som').checked;
+  var btn = document.getElementById('btn-comecar');
+  btn.disabled = true;
+  var g = { streams: [], chunks: [], segundos: 0, pausado: false, etapa: '', bolha: querBolha,
+            fonteIdx: 0, anotacoesPor: {}, historia: [], ferramenta: ferramentaAtual, cor: corAtual };
 
-  var pTela = modo === 'camera' ? Promise.resolve(null) :
-    navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { max: 30 }, width: { max: LARGURA_MAX }, height: { max: 1080 } }, audio: querSom });
-  pTela.then(function(tela){
-    if (tela) g.streams.push(tela);
-    var precisaCam = modo !== 'tela';
-    if (!precisaCam && !querMic) return [tela, null];
-    return navigator.mediaDevices.getUserMedia({
+  // 1) microfone/câmera PRIMEIRO, com aviso na tela: antes o pedido aparecia depois da
+  // escolha da janela, pequeno, e a tela ficava parada esperando sem dizer nada.
+  var pCam = Promise.resolve(null);
+  if (querMic || querCam) {
+    g.etapa = 'cam';
+    passo('Libere o ' + (querMic && querCam ? 'microfone e a câmera' : querMic ? 'microfone' : 'a câmera') +
+          ': clique em "Permitir" no aviso que o navegador abriu no alto da página.');
+    pCam = navigator.mediaDevices.getUserMedia({
       audio: querMic ? { echoCancellation: true, noiseSuppression: true } : false,
-      video: precisaCam ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false
-    }).then(function(cam){ g.streams.push(cam); return [tela, cam]; });
-  }).then(function(par){
-    iniciarGravacao(g, par[0], par[1]);
+      video: querCam ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false
+    });
+  }
+  pCam.then(function(cam){
+    if (cam) { g.streams.push(cam); g.cam = cam; }
+    if (modo !== 'tela') return null;
+    // 2) escolha da janela/aba. A própria aba da ferramenta e a tela inteira ficam de
+    // fora: gravar a si mesma vira um "espelho infinito" por causa do palco ao vivo.
+    g.etapa = 'tela';
+    passo('Escolha a janela ou a aba com o que você quer mostrar e clique em "Compartilhar".');
+    return navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { max: 30 }, width: { max: LARGURA_MAX }, height: { max: 1080 } }, audio: querSom,
+      selfBrowserSurface: 'exclude', monitorTypeSurfaces: 'exclude', surfaceSwitching: 'include'
+    });
+  }).then(function(tela){
+    if (tela) { g.streams.push(tela); g.tela = tela; }
+    passo('');
+    btn.disabled = false;
+    prepararPalco(g);
+    contagem(g);
   }).catch(function(e){
     g.streams.forEach(pararTracks);
-    if (e && e.name === 'NotAllowedError') erro('erro-gravar', 'Você não liberou a ' + (modo === 'tela' ? 'tela/microfone' : 'câmera/microfone') + '. Clique no cadeado da barra de endereço para liberar e tente de novo.');
-    else if (e && e.name === 'NotFoundError') erro('erro-gravar', 'Não achei câmera ou microfone neste computador.');
-    else erro('erro-gravar', 'Não consegui começar a gravação: ' + (e && e.message ? e.message : e));
+    passo('');
+    btn.disabled = false;
+    var nome = e && e.name;
+    var msg;
+    if (g.etapa === 'tela' && nome === 'NotAllowedError') msg = 'Nenhuma janela foi escolhida. Clique em "Começar a gravar" de novo e escolha a janela ou a aba.';
+    else if (nome === 'NotAllowedError' && bloqueadoPeloSite(querMic ? 'microphone' : 'camera')) msg = 'O servidor está bloqueando o microfone/câmera nesta página. Avise o suporte técnico.';
+    else if (nome === 'NotAllowedError') msg = 'O navegador bloqueou o microfone/câmera. Clique no ícone de câmera (ou no cadeado) à esquerda do endereço, escolha "Permitir" e tente de novo.';
+    else if (nome === 'NotFoundError') msg = 'Não achei ' + (querCam ? 'câmera' : 'microfone') + ' neste computador.' + (querBolha ? ' Desmarque "Meu rosto numa bolha" e tente de novo.' : '');
+    else if (nome === 'NotReadableError') msg = 'A câmera ou o microfone está sendo usado por outro programa (Zoom, Meet...). Feche-o e tente de novo.';
+    else msg = 'Não consegui começar a gravação: ' + (e && e.message ? e.message : e);
+    erro('erro-gravar', msg);
+    toast('Não começou a gravar. Veja o aviso em vermelho.');
   });
 }
 
-function iniciarGravacao(g, tela, cam){
-  var palco = document.getElementById('palco');
-  palco.innerHTML = '';
+// ---------- palco: tudo é desenhado num canvas, e é o canvas que vira o vídeo ----------
+function prepararPalco(g){
+  var canvas = document.getElementById('canvas-palco');
+  var w = 1280, h = 720;
+  if (g.tela) { var s = g.tela.getVideoTracks()[0].getSettings(); w = s.width || 1280; h = s.height || 720; }
+  else if (modo === 'camera') { var sc = g.cam.getVideoTracks()[0].getSettings(); w = sc.width || 1280; h = sc.height || 720; }
+  else { var a = arquivos[0]; w = a.el.naturalWidth || a.el.videoWidth || 1280; h = a.el.naturalHeight || a.el.videoHeight || 720; }
+  // Tamanho FIXO durante a gravação (mudar a resolução no meio pode corromper o MP4);
+  // o que tiver outro formato é encaixado com faixas pretas.
+  var teto = g.tela ? LARGURA_MAX : 1280;
+  // Foto do aluno é levada a 1280 no lado maior mesmo se for menor (foto de WhatsApp
+  // vem pequena): senão os traços e o texto saem serrilhados no vídeo.
+  var k = modo === 'arquivo' ? teto / Math.max(w, h) : Math.min(1, teto / Math.max(w, h));
+  canvas.width = par(w * k); canvas.height = par(h * k);
+  g.canvas = canvas; g.ctx = canvas.getContext('2d');
+  if (g.tela) g.telaVideo = videoDe(g.tela);
+  if (g.cam && g.cam.getVideoTracks().length) g.camVideo = videoDe(g.cam);
 
-  // --- vídeo ---
-  var trackVideo;
-  if (modo === 'tela') {
-    trackVideo = tela.getVideoTracks()[0];
-    var v = document.createElement('video'); v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([trackVideo]); v.play();
-    palco.appendChild(v);
-  } else if (modo === 'camera') {
-    trackVideo = cam.getVideoTracks()[0];
-    var vc = document.createElement('video'); vc.muted = true; vc.playsInline = true; vc.srcObject = new MediaStream([trackVideo]); vc.play();
-    vc.style.transform = 'scaleX(-1)'; // espelho só na prévia ao vivo; o arquivo sai sem espelho
-    palco.appendChild(vc);
-  } else {
-    // Tela + bolha: desenha as duas num canvas e grava o canvas.
-    var vTela = document.createElement('video'); vTela.muted = true; vTela.playsInline = true; vTela.srcObject = new MediaStream([tela.getVideoTracks()[0]]);
-    var vCam = document.createElement('video'); vCam.muted = true; vCam.playsInline = true; vCam.srcObject = new MediaStream([cam.getVideoTracks()[0]]);
-    vTela.play(); vCam.play();
-    var canvas = document.createElement('canvas');
-    var cfg = tela.getVideoTracks()[0].getSettings();
-    var escala = Math.min(1, LARGURA_MAX / (cfg.width || 1280));
-    // H.264 exige largura/altura pares.
-    canvas.width = Math.round((cfg.width || 1280) * escala / 2) * 2;
-    canvas.height = Math.round((cfg.height || 720) * escala / 2) * 2;
-    var ctx = canvas.getContext('2d');
-    palco.appendChild(canvas);
-    g.relogio = criarRelogio(30, function(){
-      // O canvas NÃO muda de tamanho durante a gravação (trocar resolução no meio pode
-      // corromper o MP4): se a janela compartilhada mudar, ela é encaixada com faixas pretas.
-      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      if (vTela.readyState >= 2 && vTela.videoWidth) {
-        var k = Math.min(canvas.width / vTela.videoWidth, canvas.height / vTela.videoHeight);
-        var tw = vTela.videoWidth * k, th = vTela.videoHeight * k;
-        ctx.drawImage(vTela, (canvas.width - tw) / 2, (canvas.height - th) / 2, tw, th);
-      }
-      if (vCam.readyState >= 2) {
-        var d = Math.round(Math.min(canvas.width, canvas.height) * 0.26);
-        var m = Math.round(d * 0.12);
-        var cx = m + d / 2, cy = canvas.height - m - d / 2;
-        var cw = vCam.videoWidth, ch = vCam.videoHeight, lado = Math.min(cw, ch);
-        ctx.save();
-        ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
-        ctx.translate(cx + d / 2, cy - d / 2); ctx.scale(-1, 1); // espelha: o professor se vê como no espelho
-        ctx.drawImage(vCam, (cw - lado) / 2, (ch - lado) / 2, lado, lado, 0, 0, d, d);
-        ctx.restore();
-        ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2);
-        ctx.lineWidth = Math.max(3, d * 0.025); ctx.strokeStyle = '#7FFF00'; ctx.stroke();
-      }
-    });
-    trackVideo = canvas.captureStream(30).getVideoTracks()[0];
+  gravacao = g;
+  g.ferramenta = ferramentaAtual; g.cor = corAtual;
+  aplicarCursor();
+  document.getElementById('controles-arquivo').hidden = modo !== 'arquivo';
+  document.getElementById('btn-bolha').hidden = !g.bolha;
+  if (modo === 'arquivo') { renderMiniaturas(); trocarFonte(0); }
+  document.getElementById('dica-gravando').textContent =
+    modo === 'tela' ? 'A janela escolhida aparece aqui ao vivo: mexa nela normalmente e desenhe por cima nesta tela. Se aparecer esta própria página repetida dentro dela, você escolheu a janela errada: pare e escolha a janela/aba com a foto.'
+    : modo === 'arquivo' ? 'Troque de foto/vídeo pelos quadradinhos acima. Cada foto guarda os próprios desenhos.'
+    : 'Fale olhando para a câmera.';
+  document.getElementById('tempo').textContent = '00:00';
+  document.getElementById('btn-pausar').textContent = '⏸ Pausar';
+  mostrarEtapa('etapa-gravando');
+  document.getElementById('etapa-gravando').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  g.relogio = criarRelogio(30, function(){ desenharQuadro(g); });
+}
+
+function fonteAtual(g){
+  if (g.telaVideo) return g.telaVideo;
+  if (modo === 'camera') return g.camVideo;
+  var a = arquivos[g.fonteIdx]; return a ? a.el : null;
+}
+
+function desenharQuadro(g){
+  var ctx = g.ctx, W = g.canvas.width, H = g.canvas.height;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  var f = fonteAtual(g);
+  var fw = f && (f.videoWidth || f.naturalWidth), fh = f && (f.videoHeight || f.naturalHeight);
+  if (fw && fh) {
+    var k = Math.min(W / fw, H / fh), tw = fw * k, th = fh * k;
+    ctx.drawImage(f, (W - tw) / 2, (H - th) / 2, tw, th);
   }
+  anotacoes(g).forEach(function(a){ desenharAnotacao(ctx, a, W, H); });
+  if (g.rascunho) desenharAnotacao(ctx, g.rascunho, W, H);
+  if (g.bolha && g.camVideo && g.camVideo.readyState >= 2) desenharBolha(ctx, g.camVideo, W, H);
+  // barra de posição do vídeo do aluno acompanha o que está tocando
+  if (f && f.tagName === 'VIDEO' && !g.telaVideo && modo === 'arquivo' && f.duration && !g.arrastandoRange) {
+    document.getElementById('range-video').value = Math.round(f.currentTime / f.duration * 1000);
+    document.getElementById('btn-play').textContent = f.paused ? '▶' : '⏸';
+  }
+}
 
-  // --- áudio ---
+var CANTOS = ['ie', 'id', 'sd', 'se'];   // inferior esquerdo, inferior direito, superior direito, superior esquerdo
+var cantoBolha = 'ie';
+document.getElementById('btn-bolha').addEventListener('click', function(){
+  cantoBolha = CANTOS[(CANTOS.indexOf(cantoBolha) + 1) % CANTOS.length];
+});
+function desenharBolha(ctx, vCam, W, H){
+  var d = Math.round(Math.min(W, H) * 0.26), m = Math.round(d * 0.12);
+  var cx = cantoBolha[1] === 'e' ? m + d / 2 : W - m - d / 2;
+  var cy = cantoBolha[0] === 'i' ? H - m - d / 2 : m + d / 2;
+  var cw = vCam.videoWidth, ch = vCam.videoHeight, lado = Math.min(cw, ch);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+  ctx.translate(cx + d / 2, cy - d / 2); ctx.scale(-1, 1); // espelhada, como o professor se vê
+  ctx.drawImage(vCam, (cw - lado) / 2, (ch - lado) / 2, lado, lado, 0, 0, d, d);
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2);
+  ctx.lineWidth = Math.max(3, d * 0.025); ctx.strokeStyle = '#7FFF00'; ctx.stroke();
+}
+
+// ---------- contagem 3-2-1 e gravação ----------
+function contagem(g){
+  var el = document.getElementById('contagem'), n = 3;
+  g.contando = true;
+  document.getElementById('estado-gravacao').textContent = 'Começa em';
+  el.textContent = n; el.hidden = false;
+  g.timerContagem = setInterval(function(){
+    n--;
+    if (n > 0) { el.textContent = n; return; }
+    clearInterval(g.timerContagem);
+    el.hidden = true; g.contando = false;
+    iniciarGravacao(g);
+  }, 1000);
+}
+
+function iniciarGravacao(g){
+  var trackVideo = g.canvas.captureStream(30).getVideoTracks()[0];
   var fontes = [];
-  if (tela && tela.getAudioTracks().length) fontes.push(tela);
-  if (cam && cam.getAudioTracks().length) fontes.push(cam);
+  if (g.tela && g.tela.getAudioTracks().length) fontes.push(g.tela);
+  if (g.cam && g.cam.getAudioTracks().length) fontes.push(g.cam);
   var trackAudio = null;
   if (fontes.length === 1) trackAudio = fontes[0].getAudioTracks()[0];
   else if (fontes.length > 1) {
@@ -541,24 +748,17 @@ function iniciarGravacao(g, tela, cam){
     fontes.forEach(function(s){ g.audioCtx.createMediaStreamSource(new MediaStream(s.getAudioTracks())).connect(destino); });
     trackAudio = destino.stream.getAudioTracks()[0];
   }
-
   var stream = new MediaStream(trackAudio ? [trackVideo, trackAudio] : [trackVideo]);
-  var mime = escolherMime();
-  var rec;
-  try {
-    rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: VIDEO_BPS, audioBitsPerSecond: AUDIO_BPS });
-  } catch (e) {
-    rec = new MediaRecorder(stream);
-  }
+  var mime = escolherMime(), rec;
+  try { rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: VIDEO_BPS, audioBitsPerSecond: AUDIO_BPS }); }
+  catch (e) { rec = new MediaRecorder(stream); }
   g.rec = rec;
-  g.mime = (rec.mimeType || mime || 'video/webm');
+  g.mime = rec.mimeType || mime || 'video/webm';
   rec.ondataavailable = function(e){ if (e.data && e.data.size) g.chunks.push(e.data); };
   rec.onstop = function(){ finalizarGravacao(g); };
-
   // O professor clicou em "Parar de compartilhar" na barra do navegador.
-  if (tela) tela.getVideoTracks()[0].addEventListener('ended', function(){ parar(); });
+  if (g.tela) g.tela.getVideoTracks()[0].addEventListener('ended', function(){ parar(); });
 
-  gravacao = g;
   rec.start(1000);
   // Tempo medido no relógio de verdade (descontando pausas), não contando "tiques":
   // em aba de fundo ou ocupada o navegador atrasa os timers e a contagem ficava curta.
@@ -569,10 +769,9 @@ function iniciarGravacao(g, tela, cam){
     document.getElementById('tempo').textContent = fmtTempo(g.segundos);
     if (g.segundos >= DURACAO_MAX) { toast('Chegou no limite de ' + Math.round(DURACAO_MAX / 60) + ' minutos.'); parar(); }
   });
-  document.getElementById('tempo').textContent = '00:00';
+  document.getElementById('estado-gravacao').textContent = 'Gravando';
   document.getElementById('cronometro').classList.remove('pausado');
-  document.getElementById('btn-pausar').textContent = 'Pausar';
-  mostrarEtapa('etapa-gravando');
+  document.getElementById('btn-pausar').disabled = false;
 }
 
 function segundosGravados(g){
@@ -581,28 +780,44 @@ function segundosGravados(g){
 }
 
 document.getElementById('btn-pausar').addEventListener('click', function(){
-  var g = gravacao; if (!g) return;
-  if (g.pausado) { g.rec.resume(); g.tempoPausado += Date.now() - g.pausadoEm; g.pausado = false; this.textContent = 'Pausar'; }
-  else { g.rec.pause(); g.pausadoEm = Date.now(); g.pausado = true; this.textContent = 'Continuar'; }
+  var g = gravacao; if (!g || !g.rec) return;
+  if (g.pausado) { g.rec.resume(); g.tempoPausado += Date.now() - g.pausadoEm; g.pausado = false; this.textContent = '⏸ Pausar'; }
+  else { g.rec.pause(); g.pausadoEm = Date.now(); g.pausado = true; this.textContent = '● Continuar'; }
+  document.getElementById('estado-gravacao').textContent = g.pausado ? 'Pausado' : 'Gravando';
   document.getElementById('cronometro').classList.toggle('pausado', g.pausado);
 });
 document.getElementById('btn-parar').addEventListener('click', function(){ parar(); });
 
 function parar(){
   var g = gravacao; if (!g || g.parando) return;
-  g.segundos = segundosGravados(g);
   g.parando = true;
+  if (g.contando || !g.rec) {          // parou durante a contagem: cancela sem gravar nada
+    clearInterval(g.timerContagem);
+    document.getElementById('contagem').hidden = true;
+    encerrarRecursos(g);
+    mostrarEtapa('etapa-escolher');
+    return;
+  }
+  g.segundos = segundosGravados(g);
   g.cronometro.parar();
   if (g.rec.state !== 'inactive') g.rec.stop(); else finalizarGravacao(g);
 }
 
-function finalizarGravacao(g){
-  if (g.finalizada) return; g.finalizada = true;
+function encerrarRecursos(g){
   if (g.relogio) g.relogio.parar();
   g.streams.forEach(pararTracks);
   if (g.audioCtx) g.audioCtx.close();
+  arquivos.forEach(function(a){ if (a.tipo === 'video') a.el.pause(); });
+  fecharTexto(false);
   gravacao = null;
-  document.getElementById('palco').innerHTML = '';
+  document.getElementById('cronometro').classList.add('pausado');
+  document.getElementById('estado-gravacao').textContent = 'Preparando…';
+  document.getElementById('btn-pausar').disabled = true;
+}
+
+function finalizarGravacao(g){
+  if (g.finalizada) return; g.finalizada = true;
+  encerrarRecursos(g);
   if (!g.chunks.length || g.segundos < 1) {
     mostrarEtapa('etapa-escolher');
     erro('erro-gravar', 'A gravação ficou vazia. Tente de novo.');
@@ -621,6 +836,233 @@ function finalizarGravacao(g){
   document.getElementById('envio').hidden = true;
   travarSalvar(false);
   mostrarEtapa('etapa-salvar');
+}
+
+// ---------- fotos/vídeos do aluno durante a gravação ----------
+function renderMiniaturas(){
+  var wrap = document.getElementById('miniaturas');
+  wrap.innerHTML = '';
+  arquivos.forEach(function(a, i){
+    var b = document.createElement('button');
+    b.className = 'mini' + (gravacao && gravacao.fonteIdx === i ? ' on' : '');
+    b.title = a.nome;
+    if (a.tipo === 'img') b.style.backgroundImage = 'url("' + a.url + '")'; else b.textContent = '🎬';
+    b.addEventListener('click', function(){ trocarFonte(i); });
+    wrap.appendChild(b);
+  });
+}
+function trocarFonte(i){
+  var g = gravacao; if (!g) return;
+  var antes = arquivos[g.fonteIdx];
+  if (antes && antes.tipo === 'video' && g.fonteIdx !== i) antes.el.pause();
+  g.fonteIdx = i;
+  g.rascunho = null; g.angulo = null; fecharTexto(false);
+  var a = arquivos[i];
+  var v = a && a.tipo === 'video' ? a.el : null;
+  document.getElementById('ctl-video').hidden = !v;
+  if (v) {
+    v.playbackRate = velocidade;
+    document.querySelectorAll('.vel').forEach(function(x){ x.classList.toggle('on', Number(x.dataset.vel) === velocidade); });
+  }
+  renderMiniaturas();
+}
+var velocidade = 1;
+function videoAtual(){ var g = gravacao, a = g && arquivos[g.fonteIdx]; return a && a.tipo === 'video' ? a.el : null; }
+document.getElementById('btn-play').addEventListener('click', function(){
+  var v = videoAtual(); if (!v) return;
+  if (v.ended) v.currentTime = 0;
+  if (v.paused) v.play().catch(function(){}); else v.pause();
+});
+document.querySelectorAll('.vel').forEach(function(b){
+  b.addEventListener('click', function(){
+    velocidade = Number(b.dataset.vel);
+    var v = videoAtual(); if (v) v.playbackRate = velocidade;
+    document.querySelectorAll('.vel').forEach(function(x){ x.classList.toggle('on', x === b); });
+  });
+});
+var rangeVideo = document.getElementById('range-video');
+rangeVideo.addEventListener('input', function(){
+  var v = videoAtual(); if (!v || !v.duration) return;
+  if (gravacao) gravacao.arrastandoRange = true;
+  v.currentTime = rangeVideo.value / 1000 * v.duration;
+});
+rangeVideo.addEventListener('change', function(){ if (gravacao) gravacao.arrastandoRange = false; });
+
+// ---------- desenho por cima ----------
+// Coordenadas guardadas de 0 a 1 (fração do quadro): o desenho fica no lugar certo
+// qualquer que seja o tamanho em que o palco aparece na tela do professor.
+var ferramentaAtual = 'caneta', corAtual = '#ff3b30';
+var DICAS = {
+  nenhuma: 'Só mostrando, sem desenhar.', caneta: 'Arraste para rabiscar.', linha: 'Arraste de um ponto a outro.',
+  seta: 'Arraste do começo até a ponta da seta.', retangulo: 'Arraste na diagonal.', circulo: 'Arraste na diagonal.',
+  angulo: 'Clique no vértice (ex.: o joelho), depois em cada ponta.', texto: 'Clique onde quer escrever.'
+};
+function anotacoes(g){ var k = g.telaVideo || modo === 'camera' ? 0 : g.fonteIdx; return g.anotacoesPor[k] || (g.anotacoesPor[k] = []); }
+function guardarHistoria(g){ var k = g.telaVideo || modo === 'camera' ? 0 : g.fonteIdx; g.historia.push({ k: k, lista: anotacoes(g).slice() }); }
+function aplicarCursor(){
+  document.getElementById('canvas-palco').classList.toggle('sem-desenho', ferramentaAtual === 'nenhuma');
+  document.getElementById('dica-ferramenta').textContent = DICAS[ferramentaAtual];
+}
+document.querySelectorAll('.fer').forEach(function(b){
+  b.addEventListener('click', function(){
+    ferramentaAtual = b.dataset.tool;
+    document.querySelectorAll('.fer').forEach(function(x){ x.classList.toggle('on', x === b); });
+    if (gravacao) { gravacao.rascunho = null; gravacao.angulo = null; fecharTexto(true); }
+    aplicarCursor();
+  });
+});
+document.querySelectorAll('.cor').forEach(function(b){
+  b.addEventListener('click', function(){
+    corAtual = b.dataset.cor;
+    document.querySelectorAll('.cor').forEach(function(x){ x.classList.toggle('on', x === b); });
+  });
+});
+function desfazer(){
+  var g = gravacao; if (!g || !g.historia.length) return;
+  var h = g.historia.pop();
+  g.anotacoesPor[h.k] = h.lista;
+}
+document.getElementById('btn-desfazer').addEventListener('click', desfazer);
+document.getElementById('btn-limpar').addEventListener('click', function(){
+  var g = gravacao; if (!g || !anotacoes(g).length) return;
+  guardarHistoria(g);                           // "Desfazer" traz de volta
+  g.anotacoesPor[g.telaVideo || modo === 'camera' ? 0 : g.fonteIdx] = [];
+});
+document.addEventListener('keydown', function(e){
+  if (!gravacao || document.activeElement === document.getElementById('input-texto')) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); desfazer(); }
+  if (e.key === 'Escape') { gravacao.rascunho = null; gravacao.angulo = null; }
+});
+
+var canvasPalco = document.getElementById('canvas-palco');
+function pontoFrac(e){
+  var r = canvasPalco.getBoundingClientRect();
+  return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
+}
+canvasPalco.addEventListener('pointerdown', function(e){
+  var g = gravacao; if (!g || ferramentaAtual === 'nenhuma') return;
+  e.preventDefault();
+  var p = pontoFrac(e), cor = corAtual;
+  if (ferramentaAtual === 'texto') { abrirTexto(e, p, cor); return; }
+  if (ferramentaAtual === 'angulo') {
+    // três cliques: vértice, uma ponta, a outra ponta (igual ao Relatório de Fotos)
+    if (!g.angulo) { g.angulo = { tipo: 'angulo', cor: cor, vx: p.x, vy: p.y }; g.rascunho = { tipo: 'angulo-parcial', cor: cor, vx: p.x, vy: p.y, mx: p.x, my: p.y }; }
+    else if (!('ax' in g.angulo)) { g.angulo.ax = p.x; g.angulo.ay = p.y; g.rascunho = Object.assign({}, g.angulo, { bx: p.x, by: p.y }); }
+    else { g.angulo.bx = p.x; g.angulo.by = p.y; guardarHistoria(g); anotacoes(g).push(g.angulo); g.angulo = null; g.rascunho = null; }
+    return;
+  }
+  canvasPalco.setPointerCapture(e.pointerId);
+  g.arrastando = true;
+  if (ferramentaAtual === 'caneta') g.rascunho = { tipo: 'caneta', cor: cor, pontos: [p] };
+  else g.rascunho = { tipo: ferramentaAtual, cor: cor, x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+});
+canvasPalco.addEventListener('pointermove', function(e){
+  var g = gravacao; if (!g || !g.rascunho) return;
+  var p = pontoFrac(e), r = g.rascunho;
+  if (g.angulo) {
+    if ('ax' in g.angulo) { r.bx = p.x; r.by = p.y; } else { r.mx = p.x; r.my = p.y; }
+    return;
+  }
+  if (!g.arrastando) return;
+  if (r.tipo === 'caneta') r.pontos.push(p); else { r.x2 = p.x; r.y2 = p.y; }
+});
+function soltar(){
+  var g = gravacao; if (!g || !g.arrastando) return;
+  g.arrastando = false;
+  var r = g.rascunho; g.rascunho = null;
+  if (!r) return;
+  var grande = r.tipo === 'caneta' ? r.pontos.length > 1 : Math.hypot(r.x2 - r.x1, r.y2 - r.y1) > 0.01;
+  if (grande) { guardarHistoria(g); anotacoes(g).push(r); }
+}
+canvasPalco.addEventListener('pointerup', soltar);
+canvasPalco.addEventListener('pointercancel', soltar);
+
+var inputTexto = document.getElementById('input-texto');
+function abrirTexto(e, p, cor){
+  fecharTexto(true);
+  var palco = document.getElementById('palco').getBoundingClientRect();
+  inputTexto.style.left = Math.min(e.clientX - palco.left, palco.width - 210) + 'px';
+  inputTexto.style.top = (e.clientY - palco.top - 16) + 'px';
+  inputTexto.value = ''; inputTexto.hidden = false;
+  inputTexto.dataset.x = p.x; inputTexto.dataset.y = p.y; inputTexto.dataset.cor = cor;
+  setTimeout(function(){ inputTexto.focus(); }, 0);
+}
+function fecharTexto(salvar){
+  if (inputTexto.hidden) return;
+  var txt = inputTexto.value.trim(), g = gravacao;
+  inputTexto.hidden = true;
+  if (salvar && txt && g) {
+    guardarHistoria(g);
+    anotacoes(g).push({ tipo: 'texto', cor: inputTexto.dataset.cor, x: Number(inputTexto.dataset.x), y: Number(inputTexto.dataset.y), texto: txt });
+  }
+}
+inputTexto.addEventListener('keydown', function(e){
+  if (e.key === 'Enter') { e.preventDefault(); fecharTexto(true); }
+  if (e.key === 'Escape') { e.preventDefault(); fecharTexto(false); }
+});
+inputTexto.addEventListener('blur', function(){ fecharTexto(true); });
+
+function anguloEntre(vx, vy, ax, ay, bx, by){
+  var v1x = ax - vx, v1y = ay - vy, v2x = bx - vx, v2y = by - vy;
+  var m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+  if (!m1 || !m2) return 0;
+  return Math.acos(Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)))) * 180 / Math.PI;
+}
+
+function desenharAnotacao(ctx, a, W, H){
+  var base = Math.min(W, H);
+  var lw = Math.max(3, base * 0.008);
+  ctx.save();
+  ctx.strokeStyle = a.cor; ctx.fillStyle = a.cor;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = lw;
+  // contorno escuro fino por baixo: o traço aparece tanto em fundo claro quanto escuro
+  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = lw * 1.2;
+  var x1 = a.x1 * W, y1 = a.y1 * H, x2 = a.x2 * W, y2 = a.y2 * H;
+  if (a.tipo === 'caneta') {
+    ctx.beginPath();
+    a.pontos.forEach(function(p, i){ if (!i) ctx.moveTo(p.x * W, p.y * H); else ctx.lineTo(p.x * W, p.y * H); });
+    ctx.stroke();
+  } else if (a.tipo === 'linha' || a.tipo === 'seta') {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    if (a.tipo === 'seta') {
+      var ang = Math.atan2(y2 - y1, x2 - x1), t = lw * 4.5;
+      ctx.beginPath(); ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - t * Math.cos(ang - 0.45), y2 - t * Math.sin(ang - 0.45));
+      ctx.lineTo(x2 - t * Math.cos(ang + 0.45), y2 - t * Math.sin(ang + 0.45));
+      ctx.closePath(); ctx.fill();
+    }
+  } else if (a.tipo === 'retangulo') {
+    ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+  } else if (a.tipo === 'circulo') {
+    ctx.beginPath();
+    ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, Math.max(1, Math.abs(x2 - x1) / 2), Math.max(1, Math.abs(y2 - y1) / 2), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (a.tipo === 'texto') {
+    var fs = Math.round(base * 0.05);
+    ctx.font = '800 ' + fs + 'px Inter, sans-serif'; ctx.textBaseline = 'middle'; ctx.shadowBlur = 0;
+    ctx.lineWidth = Math.max(3, fs * 0.18); ctx.strokeStyle = 'rgba(0,0,0,.8)';
+    ctx.strokeText(a.texto, a.x * W, a.y * H); ctx.fillText(a.texto, a.x * W, a.y * H);
+  } else if (a.tipo === 'angulo' || a.tipo === 'angulo-parcial') {
+    var vx = a.vx * W, vy = a.vy * H;
+    ctx.beginPath(); ctx.arc(vx, vy, lw * 1.4, 0, Math.PI * 2); ctx.fill();
+    if (a.tipo === 'angulo-parcial') {         // primeira perna ainda seguindo o mouse
+      ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(a.mx * W, a.my * H); ctx.stroke();
+    } else if ('bx' in a) {
+      var ax = a.ax * W, ay = a.ay * H, bx = a.bx * W, by = a.by * H;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(vx, vy); ctx.lineTo(bx, by); ctx.stroke();
+      var graus = anguloEntre(vx, vy, ax, ay, bx, by);
+      // arco marcando o ângulo medido
+      var r = base * 0.05, a1 = Math.atan2(ay - vy, ax - vx), a2 = Math.atan2(by - vy, bx - vx);
+      var dif = a2 - a1; while (dif > Math.PI) dif -= 2 * Math.PI; while (dif < -Math.PI) dif += 2 * Math.PI;
+      ctx.beginPath(); ctx.arc(vx, vy, r, a1, a1 + dif, dif < 0); ctx.stroke();
+      var fs2 = Math.round(base * 0.05);
+      ctx.font = '800 ' + fs2 + 'px Inter, sans-serif'; ctx.textBaseline = 'bottom'; ctx.shadowBlur = 0;
+      ctx.lineWidth = Math.max(3, fs2 * 0.18); ctx.strokeStyle = 'rgba(0,0,0,.8)';
+      var tx = vx + base * 0.02, ty = vy - base * 0.02;
+      ctx.strokeText(graus.toFixed(0) + '°', tx, ty); ctx.fillText(graus.toFixed(0) + '°', tx, ty);
+    }
+  }
+  ctx.restore();
 }
 
 function descartarGravacao(){

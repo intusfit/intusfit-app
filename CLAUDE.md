@@ -678,6 +678,16 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
   enviar. Depois vincula a um aluno (mesmo autocomplete de `atletas.php?busca=`), dá título e recado,
   e recebe o link. Mesmo login do painel (`mx-token`/`mx-user`), entrada no menu do `_mock.js`
   ("Feedback em Vídeo", ícone `ICONS.video`).
+- **Revisão de 25/09 (depois do 1º teste do Luiz no ar):** ao escolher a tela "nada acontecia". A
+  causa provável: a permissão de microfone/câmera era pedida DEPOIS da escolha da janela, num aviso
+  pequeno do navegador, e a tela ficava esperando sem dizer nada. Agora a ordem é microfone/câmera →
+  janela → contagem 3-2-1, com um aviso na tela em cada passo e o erro destacado. Tudo passa por um
+  canvas (o "palco"), e é o palco que vira o vídeo. Isso permite **desenhar por cima** (caneta, linha,
+  seta, retângulo, círculo, texto e ângulo com graus, na mesma ordem de clique do Relatório de Fotos),
+  com desfazer/limpar e a bolha trocando de canto. Modos: **Foto ou vídeo do aluno** (padrão: abre
+  vários arquivos, cada um guarda os próprios desenhos, e o vídeo tem câmera lenta), **Uma janela ou
+  aba** (a própria aba e a tela inteira ficam fora da lista, senão vira espelho infinito) e **Só
+  câmera**.
 - **`feedback/?v=<token>`**: página pública que o aluno abre pelo WhatsApp, sem login. Token de 32
   hex, impossível de adivinhar. Excluir a gravação derruba o link na hora.
 - **`app/api/feedbacks.php`** + tabela **`intus_feedback`** (tem `tipo`, pensada para receber
