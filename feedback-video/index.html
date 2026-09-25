@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intus Fit · Feedback em vídeo</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none !important}
+:root{
+  --bg:#0d0d0d;--card-bg:#1a1a1a;--borda:#2a2a2a;--input-bg:#111;
+  --texto:#f0f0f0;--muted:#aeaeae;--muted-d:#828282;
+  --accent:#7FFF00;--accent-text:#000;--accent-fraca:rgba(127,255,0,.08);--accent-borda:rgba(127,255,0,.25);
+  --erro:#f87171;--gravando:#ef4444;
+}
+body{
+  font-family:'Inter',-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--texto);line-height:1.5;min-height:100vh;
+  -webkit-font-smoothing:antialiased;padding-bottom:60px;
+}
+button{font-family:inherit;cursor:pointer}
+input,textarea{font-family:inherit}
+
+/* ── login (igual a /relatorios-fotos/) ── */
+#tela-login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{background:var(--card-bg);border:1px solid var(--borda);border-radius:16px;padding:32px 28px;max-width:360px;width:100%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+.login-logo{height:32px;margin:0 auto 18px}
+.login-card h2{font-size:17px;font-weight:800;margin-bottom:8px}
+.login-sub{font-size:12.5px;color:var(--muted);margin-bottom:20px;line-height:1.5}
+.login-card label{display:block;text-align:left;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px}
+.login-card input{width:100%;margin-top:6px;padding:11px 12px;border-radius:9px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:14px}
+.login-card input:focus{outline:none;border-color:var(--accent)}
+.campo-senha{position:relative;display:block}
+.campo-senha input{padding-right:40px}
+.campo-senha button{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);font-size:16px;line-height:1;padding:6px}
+.login-erro{font-size:12px;color:var(--erro);min-height:16px;margin-bottom:8px}
+.aviso-restrito{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);color:#fca5a5;font-size:11.5px;font-weight:600;line-height:1.5;text-align:left;border-radius:9px;padding:10px 12px;margin-top:16px}
+
+/* ── topo (não-sticky, logo fixa — mesmo padrão de /relatorios-fotos/) ── */
+.logo-fixa{position:fixed;top:14px;left:20px;height:26px;z-index:50}
+.topo{padding:22px 20px 16px 130px;border-bottom:1px solid var(--borda);background:var(--bg)}
+.topo-linha{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.topo-titulo{font-size:15px;font-weight:700;color:var(--muted)}
+.btn-sair{background:transparent;border:1px solid var(--borda);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;text-decoration:none}
+.btn-sair:hover{color:var(--texto);border-color:var(--accent-borda)}
+.topo .aviso{font-size:12px;color:var(--muted-d);margin-top:8px;max-width:760px;line-height:1.5}
+
+.wrap{max-width:1100px;margin:0 auto;padding:18px 20px}
+.card{background:var(--card-bg);border:1px solid var(--borda);border-radius:14px;padding:18px;margin-bottom:16px}
+.secao-titulo{font-size:13px;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.secao-titulo .dir{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--muted-d)}
+.rotulo{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:block}
+
+.modos{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.modo{flex:1 1 180px;background:var(--input-bg);border:1.5px solid var(--borda);border-radius:12px;padding:14px;text-align:left;color:var(--texto)}
+.modo b{display:block;font-size:13.5px;margin-bottom:3px}
+.modo span{font-size:11.5px;color:var(--muted)}
+.modo .ic{font-size:20px;display:block;margin-bottom:6px}
+.modo.on{border-color:var(--accent);background:var(--accent-fraca)}
+.opcoes{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.chk{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--texto)}
+.chk input{width:16px;height:16px;accent-color:var(--accent)}
+.chk small{color:var(--muted-d);font-size:11px}
+
+.btn-acao{background:var(--accent);color:var(--accent-text);border:none;border-radius:10px;padding:11px 18px;font-size:13.5px;font-weight:800}
+.btn-acao:disabled{opacity:.4;cursor:default}
+.btn-secundario{background:transparent;color:var(--texto);border:1px solid var(--borda);border-radius:10px;padding:10px 15px;font-size:13px;font-weight:700;text-decoration:none;display:inline-block}
+.btn-secundario:hover{border-color:var(--accent-borda)}
+.btn-gravar{background:var(--gravando);color:#fff;border:none;border-radius:10px;padding:12px 20px;font-size:14px;font-weight:800;display:inline-flex;align-items:center;gap:8px}
+.btn-gravar .pt{width:10px;height:10px;border-radius:50%;background:#fff}
+.btn-mini{background:transparent;border:1px solid var(--borda);color:var(--muted);border-radius:7px;padding:6px 10px;font-size:11.5px;font-weight:700;text-decoration:none;display:inline-block}
+.btn-mini:hover{color:var(--texto);border-color:var(--accent-borda)}
+.btn-mini.perigo:hover{color:var(--erro);border-color:rgba(248,113,113,.4)}
+.linha-botoes{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.msg-erro{font-size:12.5px;color:var(--erro);margin-top:10px}
+.dica{font-size:11.5px;color:var(--muted-d);margin-top:10px;line-height:1.5}
+
+/* ── gravando ── */
+.palco{position:relative;background:#000;border-radius:12px;overflow:hidden;margin-bottom:12px;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center}
+.palco video,.palco canvas{max-width:100%;max-height:100%;display:block}
+.barra-gravando{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cronometro{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:8px}
+.cronometro .pt{width:12px;height:12px;border-radius:50%;background:var(--gravando);animation:piscar 1s infinite}
+.cronometro.pausado .pt{animation:none;background:var(--muted-d)}
+.cronometro small{font-size:12px;color:var(--muted-d);font-weight:600}
+@keyframes piscar{50%{opacity:.25}}
+
+/* ── salvar ── */
+.grid-salvar{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px}
+@media(max-width:760px){.grid-salvar{grid-template-columns:1fr}.topo{padding-left:20px;padding-top:52px}}
+.grid-salvar video{width:100%;border-radius:10px;background:#000;max-height:420px}
+.campo{margin-bottom:12px}
+.campo input,.campo textarea{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:13.5px}
+.campo textarea{resize:vertical;min-height:70px}
+.campo input:focus,.campo textarea:focus{outline:none;border-color:var(--accent)}
+.campo-autocomplete{position:relative;display:block}
+.autocomplete-lista{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:var(--card-bg);border:1px solid var(--borda);border-radius:9px;max-height:220px;overflow-y:auto;z-index:30;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.autocomplete-item{padding:8px 12px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--borda)}
+.autocomplete-item:last-child{border-bottom:none}
+.autocomplete-item:hover{background:var(--accent-fraca)}
+.autocomplete-item small{display:block;color:var(--muted-d);font-size:10.5px}
+.autocomplete-vazio{padding:8px 12px;font-size:12px;color:var(--muted-d)}
+.info-video{font-size:11.5px;color:var(--muted-d);margin-top:6px}
+.progresso{height:8px;background:var(--input-bg);border-radius:6px;overflow:hidden;margin-top:12px;border:1px solid var(--borda)}
+.progresso div{height:100%;width:0;background:var(--accent);transition:width .3s}
+.status-envio{font-size:12px;color:var(--muted);margin-top:6px}
+
+.pronto{border-color:var(--accent-borda)}
+.link-box{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
+.link-box input{flex:1 1 280px;padding:10px 12px;border-radius:9px;border:1px solid var(--accent-borda);background:var(--input-bg);color:var(--accent);font-size:12.5px}
+
+/* ── lista ── */
+.lista{display:flex;flex-direction:column;gap:8px}
+.lista-vazia{font-size:12.5px;color:var(--muted-d)}
+.item{background:var(--input-bg);border:1px solid var(--borda);border-radius:10px;padding:10px 12px}
+.item-topo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.item-info{flex:1 1 240px;min-width:0}
+.item-info b{font-size:13px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-info span{font-size:11.5px;color:var(--muted-d)}
+.selo{font-size:10.5px;font-weight:700;border-radius:20px;padding:2px 8px;white-space:nowrap}
+.selo.visto{color:var(--accent);background:var(--accent-fraca);border:1px solid var(--accent-borda)}
+.selo.nao{color:var(--muted);border:1px solid var(--borda)}
+.selo.erro{color:var(--erro);border:1px solid rgba(248,113,113,.4)}
+.item video{width:100%;max-height:420px;background:#000;border-radius:8px;margin-top:10px}
+
+.rodape{max-width:1100px;margin:8px auto 0;padding:24px 20px 40px;text-align:center;border-top:1px solid var(--borda)}
+.logo-rodape{height:24px;opacity:.6;margin:0 auto}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--card-bg);border:1px solid var(--accent-borda);color:var(--texto);padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+
+<img src="/app/painel/logo-intus-dark.png" alt="Intus Fit" class="logo-fixa" onerror="this.style.display='none'">
+
+<div id="tela-login">
+  <form id="form-login" class="login-card">
+    <img src="/app/painel/logo-intus-dark.png" alt="Intus Fit" class="login-logo" onerror="this.style.display='none'">
+    <h2>Feedback em vídeo</h2>
+    <p class="login-sub">Entre com o mesmo e-mail e senha de professor que você usa no painel Intus.</p>
+    <label>E-mail<input type="email" id="login-email" required autocomplete="username"></label>
+    <label>Senha
+      <span class="campo-senha">
+        <input type="password" id="login-senha" required autocomplete="current-password">
+        <button type="button" id="btn-ver-senha" aria-label="Mostrar senha">👁</button>
+      </span>
+    </label>
+    <p class="login-erro" id="login-erro"></p>
+    <button type="submit" class="btn-acao" id="btn-login-entrar" style="width:100%">Entrar</button>
+    <p class="aviso-restrito">Ferramenta de uso exclusivo da equipe Intus.</p>
+  </form>
+</div>
+
+<div id="app" hidden>
+
+<div class="topo">
+  <div class="topo-linha">
+    <span class="topo-titulo">Feedback em vídeo</span>
+    <a class="btn-sair" href="../app/painel/index.html" style="margin-left:auto">← Painel do professor</a>
+    <button class="btn-sair" id="btn-sair">Sair</button>
+  </div>
+  <p class="aviso">
+    Grave a tela comentando a foto ou o vídeo do aluno, confira a gravação, e mande o link para ele pelo WhatsApp.
+    O vídeo fica guardado no Google Drive da Intus, e só quem recebe o link consegue assistir.
+  </p>
+</div>
+
+<div class="wrap">
+
+  <!-- 1. escolher e gravar -->
+  <div class="card" id="etapa-escolher">
+    <div class="secao-titulo">Nova gravação</div>
+    <div class="modos">
+      <button class="modo on" data-modo="tela"><span class="ic">🖥️</span><b>Tela</b><span>Só a tela, com a sua voz narrando.</span></button>
+      <button class="modo" data-modo="bolha"><span class="ic">🖥️🙂</span><b>Tela + câmera</b><span>A tela, com o seu rosto numa bolha no canto.</span></button>
+      <button class="modo" data-modo="camera"><span class="ic">🙂</span><b>Só câmera</b><span>Você falando direto com o aluno.</span></button>
+    </div>
+    <div class="opcoes">
+      <label class="chk"><input type="checkbox" id="chk-mic" checked> Microfone</label>
+      <label class="chk" id="wrap-chk-som"><input type="checkbox" id="chk-som"> Som do computador <small>(só no Windows/Chrome, compartilhando a tela inteira)</small></label>
+    </div>
+    <div class="linha-botoes">
+      <button class="btn-gravar" id="btn-comecar"><span class="pt"></span> Começar a gravar</button>
+      <span class="dica" style="margin:0">Máximo de <b id="lbl-max">10 minutos</b> por gravação.</span>
+    </div>
+    <p class="msg-erro" id="erro-gravar" hidden></p>
+    <p class="dica" id="dica-navegador" hidden></p>
+  </div>
+
+  <!-- 2. gravando -->
+  <div class="card" id="etapa-gravando" hidden>
+    <div class="palco" id="palco"></div>
+    <div class="barra-gravando">
+      <div class="cronometro" id="cronometro"><span class="pt"></span><span id="tempo">00:00</span><small id="tempo-max">/ 10:00</small></div>
+      <button class="btn-secundario" id="btn-pausar" style="margin-left:auto">Pausar</button>
+      <button class="btn-acao" id="btn-parar">■ Parar</button>
+    </div>
+    <p class="dica">Pode trocar de aba ou de janela à vontade: a gravação continua. O navegador mostra um aviso de "compartilhando" enquanto grava.</p>
+  </div>
+
+  <!-- 3. conferir e salvar -->
+  <div class="card" id="etapa-salvar" hidden>
+    <div class="secao-titulo">Confira antes de enviar</div>
+    <div class="grid-salvar">
+      <div>
+        <video id="previa" controls playsinline></video>
+        <p class="info-video" id="info-video"></p>
+      </div>
+      <div>
+        <div class="campo">
+          <span class="rotulo">Aluno</span>
+          <span class="campo-autocomplete">
+            <input type="text" id="input-aluno" placeholder="Busque pelo nome" autocomplete="off">
+            <div class="autocomplete-lista" id="lista-alunos-sugestoes" hidden></div>
+          </span>
+        </div>
+        <div class="campo">
+          <span class="rotulo">Título</span>
+          <input type="text" id="input-titulo" maxlength="150" placeholder="Ex.: Feedback do agachamento">
+        </div>
+        <div class="campo">
+          <span class="rotulo">Recado (opcional)</span>
+          <textarea id="input-descricao" maxlength="1000" placeholder="Aparece embaixo do vídeo para o aluno"></textarea>
+        </div>
+        <div class="linha-botoes">
+          <button class="btn-acao" id="btn-salvar">Salvar e gerar link</button>
+          <button class="btn-secundario" id="btn-descartar">Descartar e regravar</button>
+        </div>
+        <div id="envio" hidden>
+          <div class="progresso"><div id="barra-envio"></div></div>
+          <p class="status-envio" id="status-envio"></p>
+        </div>
+        <p class="msg-erro" id="erro-salvar" hidden></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. link pronto -->
+  <div class="card pronto" id="etapa-pronto" hidden>
+    <div class="secao-titulo">✓ Feedback salvo</div>
+    <p style="font-size:13px;color:var(--muted)">Mande este link para o aluno. Ele abre no celular, sem precisar de login.</p>
+    <div class="link-box">
+      <input type="text" id="link-gerado" readonly>
+      <button class="btn-secundario" id="btn-copiar-link">Copiar</button>
+      <a class="btn-acao" id="btn-whats" target="_blank" rel="noopener" style="text-decoration:none">Enviar no WhatsApp</a>
+    </div>
+    <div class="linha-botoes" style="margin-top:12px">
+      <button class="btn-secundario" id="btn-nova">Gravar outro</button>
+    </div>
+  </div>
+
+  <!-- lista -->
+  <div class="card">
+    <div class="secao-titulo">Minhas gravações <span class="dir" id="espaco-total"></span></div>
+    <div class="lista" id="lista"><p class="lista-vazia">Carregando...</p></div>
+  </div>
+
+</div>
+
+<div class="rodape">
+  <img src="/app/painel/logo-intus-dark.png" alt="Intus Fit" class="logo-rodape" onerror="this.style.display='none'">
+</div>
+
+</div><!-- /#app -->
+
+<script>
+(function(){
+'use strict';
+
+var API_BASE = '/app/api';
+var DURACAO_MAX = 600;          // segundos; o servidor confirma em action=eu
+var VIDEO_BPS = 1200000;        // ~10 MB por minuto somando o áudio
+var AUDIO_BPS = 96000;
+var LARGURA_MAX = 1920;         // teto de resolução (tela 4K gravada inteira só pesaria mais)
+
+var modo = 'tela';
+var gravacao = null;            // estado da gravação em andamento
+var blobFinal = null, mimeFinal = '', duracaoFinal = 0;
+var alunoSel = null;            // {idatleta, nome, telefone}
+var buscaAlunoTimer = null;
+
+// ---------- utilidades ----------
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function fmtTempo(seg){ seg = Math.max(0, Math.floor(seg)); return String(Math.floor(seg/60)).padStart(2,'0') + ':' + String(seg%60).padStart(2,'0'); }
+function fmtMB(b){ return (b / 1048576).toFixed(b < 10485760 ? 1 : 0).replace('.', ',') + ' MB'; }
+function fmtData(s){
+  try { var d = new Date(String(s).replace(' ', 'T')); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }
+  catch (e) { return s; }
+}
+function hojeCurto(){ var d = new Date(); return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0'); }
+function toast(msg){
+  var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(function(){ t.remove(); }, 2600);
+}
+function mostrarEtapa(id){
+  ['etapa-escolher','etapa-gravando','etapa-salvar','etapa-pronto'].forEach(function(e){ document.getElementById(e).hidden = (e !== id); });
+}
+function erro(idEl, msg){ var el = document.getElementById(idEl); el.textContent = msg || ''; el.hidden = !msg; }
+function linkWhats(link, titulo, telefone){
+  var texto = 'Oi! Gravei um feedback em vídeo pra você' + (titulo ? ' (' + titulo + ')' : '') + ': ' + link;
+  var fone = String(telefone || '').replace(/\D/g, '');
+  if (fone && fone.length <= 11) fone = '55' + fone;
+  return 'https://wa.me/' + (fone.length >= 12 ? fone : '') + '?text=' + encodeURIComponent(texto);
+}
+// Vídeo do MediaRecorder (WebM) vem sem duração no cabeçalho: a barra de tempo fica
+// "infinita" até o navegador ler o arquivo todo. Pular para o fim uma vez corrige.
+function corrigirDuracao(video){
+  video.addEventListener('loadedmetadata', function f(){
+    if (video.duration === Infinity) {
+      video.currentTime = 1e101;
+      video.addEventListener('timeupdate', function g(){ video.removeEventListener('timeupdate', g); video.currentTime = 0; });
+    }
+    video.removeEventListener('loadedmetadata', f);
+  });
+}
+
+// ---------- sessão (mesmo login de professor do painel, mesmas chaves) ----------
+function getToken(){ return localStorage.getItem('mx-token') || ''; }
+function setSession(usuario, token){
+  localStorage.setItem('mx-token', token);
+  try { localStorage.setItem('mx-user', JSON.stringify(usuario)); } catch (e) {}
+}
+function clearSession(){ localStorage.removeItem('mx-token'); localStorage.removeItem('mx-user'); }
+
+function apiFetch(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + getToken() });
+  return fetch(API_BASE + path, opts).then(function(resp){
+    if (resp.status === 401) { clearSession(); mostrarLogin('Sessão expirada. Entre de novo.'); throw new Error('sessão expirada'); }
+    return resp.json().catch(function(){ throw new Error('resposta inválida do servidor (HTTP ' + resp.status + ')'); });
+  });
+}
+function apiGet(path){ return apiFetch(path, { method: 'GET' }); }
+function apiPost(path, bodyObj){
+  return apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyObj || {}) });
+}
+
+function mostrarLogin(msg){
+  document.getElementById('app').hidden = true;
+  document.getElementById('tela-login').hidden = false;
+  document.getElementById('login-erro').textContent = msg || '';
+}
+function mostrarApp(){
+  document.getElementById('tela-login').hidden = true;
+  document.getElementById('app').hidden = false;
+}
+
+document.getElementById('btn-ver-senha').addEventListener('click', function(){
+  var inp = document.getElementById('login-senha');
+  var mostrando = inp.type === 'text';
+  inp.type = mostrando ? 'password' : 'text';
+  this.textContent = mostrando ? '👁' : '🙈';
+});
+
+document.getElementById('form-login').addEventListener('submit', function(e){
+  e.preventDefault();
+  var btn = document.getElementById('btn-login-entrar');
+  btn.disabled = true; btn.textContent = 'Entrando...';
+  fetch(API_BASE + '/usuarios.php?action=validar', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: document.getElementById('login-email').value.trim(), senha: document.getElementById('login-senha').value })
+  }).then(function(r){ return r.json(); }).then(function(data){
+    btn.disabled = false; btn.textContent = 'Entrar';
+    if (!data.ok || !data.usuario || !data.usuario.server_token){
+      document.getElementById('login-erro').textContent = data.erro || 'E-mail ou senha inválidos.';
+      return;
+    }
+    setSession(data.usuario, data.usuario.server_token);
+    entrarNaFerramenta();
+  }).catch(function(){
+    btn.disabled = false; btn.textContent = 'Entrar';
+    document.getElementById('login-erro').textContent = 'Falha de conexão. Tente de novo.';
+  });
+});
+
+document.getElementById('btn-sair').addEventListener('click', function(){
+  if (!confirm('Sair da ferramenta?')) return;
+  clearSession();
+  location.reload();
+});
+
+function entrarNaFerramenta(){
+  mostrarApp();
+  apiGet('/feedbacks.php?action=eu').then(function(data){
+    if (!data.ok) return;
+    if (data.duracao_max_seg) {
+      DURACAO_MAX = data.duracao_max_seg;
+      document.getElementById('lbl-max').textContent = Math.round(DURACAO_MAX / 60) + ' minutos';
+      document.getElementById('tempo-max').textContent = '/ ' + fmtTempo(DURACAO_MAX);
+    }
+    if (!data.drive_ok) erro('erro-gravar', 'Atenção: o Google Drive não está configurado no servidor, então a gravação não vai conseguir ser salva.');
+  }).catch(function(){});
+  carregarLista();
+}
+
+// ---------- suporte do navegador ----------
+var temTela = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+var temCamera = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+if (!window.MediaRecorder || !temCamera) {
+  document.getElementById('btn-comecar').disabled = true;
+  var d = document.getElementById('dica-navegador');
+  d.textContent = 'Este navegador não consegue gravar. Use o Chrome ou o Edge num computador.'; d.hidden = false;
+} else if (!temTela) {
+  // Celular: não existe captura de tela no navegador — só sobra o modo câmera.
+  modo = 'camera';
+  document.querySelectorAll('.modo').forEach(function(b){
+    b.classList.toggle('on', b.dataset.modo === 'camera');
+    if (b.dataset.modo !== 'camera') b.disabled = true, b.style.opacity = .35;
+  });
+  document.getElementById('wrap-chk-som').hidden = true;
+  var d2 = document.getElementById('dica-navegador');
+  d2.textContent = 'Neste aparelho só dá para gravar a câmera. Para gravar a tela, use o Chrome ou o Edge num computador.'; d2.hidden = false;
+}
+
+document.querySelectorAll('.modo').forEach(function(b){
+  b.addEventListener('click', function(){
+    if (b.disabled) return;
+    modo = b.dataset.modo;
+    document.querySelectorAll('.modo').forEach(function(x){ x.classList.toggle('on', x === b); });
+    document.getElementById('wrap-chk-som').hidden = (modo === 'camera') || !temTela;
+  });
+});
+
+function escolherMime(){
+  // MP4 (H.264 + AAC) toca em qualquer celular, inclusive iPhone; WebM é o plano B.
+  var opcoes = ['video/mp4;codecs=avc1.42E01F,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4',
+                'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  for (var i = 0; i < opcoes.length; i++) if (MediaRecorder.isTypeSupported(opcoes[i])) return opcoes[i];
+  return '';
+}
+
+// Relógio que não para quando a aba sai de foco: timers da aba em segundo plano
+// são freados pelo navegador (1x por segundo ou menos), mas mensagens de um Worker
+// continuam chegando. Sem isto, a bolha da câmera "congelava" quando o professor
+// trocava para a aba com a foto do aluno.
+function criarRelogio(fps, tick){
+  var src = 'var t=setInterval(function(){postMessage(0)},' + Math.round(1000 / fps) + ');';
+  var url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+  var w = new Worker(url);
+  w.onmessage = tick;
+  return { parar: function(){ w.terminate(); URL.revokeObjectURL(url); } };
+}
+
+function pararTracks(stream){ if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); }
+
+// ---------- gravar ----------
+document.getElementById('btn-comecar').addEventListener('click', comecar);
+
+function comecar(){
+  erro('erro-gravar', '');
+  var querMic = document.getElementById('chk-mic').checked;
+  var querSom = document.getElementById('chk-som').checked && modo !== 'camera';
+  var g = { streams: [], relogio: null, audioCtx: null, chunks: [], segundos: 0, pausado: false, cancelado: false };
+
+  var pTela = modo === 'camera' ? Promise.resolve(null) :
+    navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { max: 30 }, width: { max: LARGURA_MAX }, height: { max: 1080 } }, audio: querSom });
+  pTela.then(function(tela){
+    if (tela) g.streams.push(tela);
+    var precisaCam = modo !== 'tela';
+    if (!precisaCam && !querMic) return [tela, null];
+    return navigator.mediaDevices.getUserMedia({
+      audio: querMic ? { echoCancellation: true, noiseSuppression: true } : false,
+      video: precisaCam ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false
+    }).then(function(cam){ g.streams.push(cam); return [tela, cam]; });
+  }).then(function(par){
+    iniciarGravacao(g, par[0], par[1]);
+  }).catch(function(e){
+    g.streams.forEach(pararTracks);
+    if (e && e.name === 'NotAllowedError') erro('erro-gravar', 'Você não liberou a ' + (modo === 'tela' ? 'tela/microfone' : 'câmera/microfone') + '. Clique no cadeado da barra de endereço para liberar e tente de novo.');
+    else if (e && e.name === 'NotFoundError') erro('erro-gravar', 'Não achei câmera ou microfone neste computador.');
+    else erro('erro-gravar', 'Não consegui começar a gravação: ' + (e && e.message ? e.message : e));
+  });
+}
+
+function iniciarGravacao(g, tela, cam){
+  var palco = document.getElementById('palco');
+  palco.innerHTML = '';
+
+  // --- vídeo ---
+  var trackVideo;
+  if (modo === 'tela') {
+    trackVideo = tela.getVideoTracks()[0];
+    var v = document.createElement('video'); v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([trackVideo]); v.play();
+    palco.appendChild(v);
+  } else if (modo === 'camera') {
+    trackVideo = cam.getVideoTracks()[0];
+    var vc = document.createElement('video'); vc.muted = true; vc.playsInline = true; vc.srcObject = new MediaStream([trackVideo]); vc.play();
+    vc.style.transform = 'scaleX(-1)'; // espelho só na prévia ao vivo; o arquivo sai sem espelho
+    palco.appendChild(vc);
+  } else {
+    // Tela + bolha: desenha as duas num canvas e grava o canvas.
+    var vTela = document.createElement('video'); vTela.muted = true; vTela.playsInline = true; vTela.srcObject = new MediaStream([tela.getVideoTracks()[0]]);
+    var vCam = document.createElement('video'); vCam.muted = true; vCam.playsInline = true; vCam.srcObject = new MediaStream([cam.getVideoTracks()[0]]);
+    vTela.play(); vCam.play();
+    var canvas = document.createElement('canvas');
+    var cfg = tela.getVideoTracks()[0].getSettings();
+    var escala = Math.min(1, LARGURA_MAX / (cfg.width || 1280));
+    // H.264 exige largura/altura pares.
+    canvas.width = Math.round((cfg.width || 1280) * escala / 2) * 2;
+    canvas.height = Math.round((cfg.height || 720) * escala / 2) * 2;
+    var ctx = canvas.getContext('2d');
+    palco.appendChild(canvas);
+    g.relogio = criarRelogio(30, function(){
+      // O canvas NÃO muda de tamanho durante a gravação (trocar resolução no meio pode
+      // corromper o MP4): se a janela compartilhada mudar, ela é encaixada com faixas pretas.
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (vTela.readyState >= 2 && vTela.videoWidth) {
+        var k = Math.min(canvas.width / vTela.videoWidth, canvas.height / vTela.videoHeight);
+        var tw = vTela.videoWidth * k, th = vTela.videoHeight * k;
+        ctx.drawImage(vTela, (canvas.width - tw) / 2, (canvas.height - th) / 2, tw, th);
+      }
+      if (vCam.readyState >= 2) {
+        var d = Math.round(Math.min(canvas.width, canvas.height) * 0.26);
+        var m = Math.round(d * 0.12);
+        var cx = m + d / 2, cy = canvas.height - m - d / 2;
+        var cw = vCam.videoWidth, ch = vCam.videoHeight, lado = Math.min(cw, ch);
+        ctx.save();
+        ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+        ctx.translate(cx + d / 2, cy - d / 2); ctx.scale(-1, 1); // espelha: o professor se vê como no espelho
+        ctx.drawImage(vCam, (cw - lado) / 2, (ch - lado) / 2, lado, lado, 0, 0, d, d);
+        ctx.restore();
+        ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2);
+        ctx.lineWidth = Math.max(3, d * 0.025); ctx.strokeStyle = '#7FFF00'; ctx.stroke();
+      }
+    });
+    trackVideo = canvas.captureStream(30).getVideoTracks()[0];
+  }
+
+  // --- áudio ---
+  var fontes = [];
+  if (tela && tela.getAudioTracks().length) fontes.push(tela);
+  if (cam && cam.getAudioTracks().length) fontes.push(cam);
+  var trackAudio = null;
+  if (fontes.length === 1) trackAudio = fontes[0].getAudioTracks()[0];
+  else if (fontes.length > 1) {
+    g.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    var destino = g.audioCtx.createMediaStreamDestination();
+    fontes.forEach(function(s){ g.audioCtx.createMediaStreamSource(new MediaStream(s.getAudioTracks())).connect(destino); });
+    trackAudio = destino.stream.getAudioTracks()[0];
+  }
+
+  var stream = new MediaStream(trackAudio ? [trackVideo, trackAudio] : [trackVideo]);
+  var mime = escolherMime();
+  var rec;
+  try {
+    rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: VIDEO_BPS, audioBitsPerSecond: AUDIO_BPS });
+  } catch (e) {
+    rec = new MediaRecorder(stream);
+  }
+  g.rec = rec;
+  g.mime = (rec.mimeType || mime || 'video/webm');
+  rec.ondataavailable = function(e){ if (e.data && e.data.size) g.chunks.push(e.data); };
+  rec.onstop = function(){ finalizarGravacao(g); };
+
+  // O professor clicou em "Parar de compartilhar" na barra do navegador.
+  if (tela) tela.getVideoTracks()[0].addEventListener('ended', function(){ parar(); });
+
+  gravacao = g;
+  rec.start(1000);
+  // Tempo medido no relógio de verdade (descontando pausas), não contando "tiques":
+  // em aba de fundo ou ocupada o navegador atrasa os timers e a contagem ficava curta.
+  g.inicio = Date.now(); g.pausadoEm = 0; g.tempoPausado = 0;
+  g.cronometro = criarRelogio(4, function(){
+    if (g.parando) return;
+    g.segundos = segundosGravados(g);
+    document.getElementById('tempo').textContent = fmtTempo(g.segundos);
+    if (g.segundos >= DURACAO_MAX) { toast('Chegou no limite de ' + Math.round(DURACAO_MAX / 60) + ' minutos.'); parar(); }
+  });
+  document.getElementById('tempo').textContent = '00:00';
+  document.getElementById('cronometro').classList.remove('pausado');
+  document.getElementById('btn-pausar').textContent = 'Pausar';
+  mostrarEtapa('etapa-gravando');
+}
+
+function segundosGravados(g){
+  var agora = g.pausado ? g.pausadoEm : Date.now();
+  return Math.max(0, (agora - g.inicio - g.tempoPausado) / 1000);
+}
+
+document.getElementById('btn-pausar').addEventListener('click', function(){
+  var g = gravacao; if (!g) return;
+  if (g.pausado) { g.rec.resume(); g.tempoPausado += Date.now() - g.pausadoEm; g.pausado = false; this.textContent = 'Pausar'; }
+  else { g.rec.pause(); g.pausadoEm = Date.now(); g.pausado = true; this.textContent = 'Continuar'; }
+  document.getElementById('cronometro').classList.toggle('pausado', g.pausado);
+});
+document.getElementById('btn-parar').addEventListener('click', function(){ parar(); });
+
+function parar(){
+  var g = gravacao; if (!g || g.parando) return;
+  g.segundos = segundosGravados(g);
+  g.parando = true;
+  g.cronometro.parar();
+  if (g.rec.state !== 'inactive') g.rec.stop(); else finalizarGravacao(g);
+}
+
+function finalizarGravacao(g){
+  if (g.finalizada) return; g.finalizada = true;
+  if (g.relogio) g.relogio.parar();
+  g.streams.forEach(pararTracks);
+  if (g.audioCtx) g.audioCtx.close();
+  gravacao = null;
+  document.getElementById('palco').innerHTML = '';
+  if (!g.chunks.length || g.segundos < 1) {
+    mostrarEtapa('etapa-escolher');
+    erro('erro-gravar', 'A gravação ficou vazia. Tente de novo.');
+    return;
+  }
+  mimeFinal = g.mime.split(';')[0];
+  blobFinal = new Blob(g.chunks, { type: mimeFinal });
+  duracaoFinal = Math.round(g.segundos);
+  var prev = document.getElementById('previa');
+  if (prev.src) URL.revokeObjectURL(prev.src);
+  prev.src = URL.createObjectURL(blobFinal);
+  corrigirDuracao(prev);
+  document.getElementById('info-video').textContent = fmtTempo(duracaoFinal) + ' · ' + fmtMB(blobFinal.size) + ' · ' + (mimeFinal === 'video/mp4' ? 'MP4' : 'WebM');
+  if (!document.getElementById('input-titulo').value) document.getElementById('input-titulo').value = 'Feedback — ' + hojeCurto();
+  erro('erro-salvar', '');
+  document.getElementById('envio').hidden = true;
+  travarSalvar(false);
+  mostrarEtapa('etapa-salvar');
+}
+
+function descartarGravacao(){
+  var prev = document.getElementById('previa');
+  if (prev.src) { URL.revokeObjectURL(prev.src); prev.removeAttribute('src'); prev.load(); }
+  blobFinal = null;
+}
+
+document.getElementById('btn-descartar').addEventListener('click', function(){
+  if (!confirm('Descartar esta gravação? Ela não foi enviada e vai se perder.')) return;
+  descartarGravacao();
+  mostrarEtapa('etapa-escolher');
+});
+
+// Fechar a aba com gravação não enviada perde o vídeo: pergunta antes.
+window.addEventListener('beforeunload', function(e){
+  if (gravacao || (blobFinal && !document.getElementById('etapa-salvar').hidden)) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ---------- salvar (upload em pedaços) ----------
+function travarSalvar(sim){
+  ['btn-salvar','btn-descartar','input-aluno','input-titulo','input-descricao'].forEach(function(id){ document.getElementById(id).disabled = sim; });
+}
+
+document.getElementById('btn-salvar').addEventListener('click', function(){
+  erro('erro-salvar', '');
+  if (!blobFinal) return;
+  if (!alunoSel) { erro('erro-salvar', 'Escolha o aluno na lista que aparece ao digitar o nome.'); return; }
+  var titulo = document.getElementById('input-titulo').value.trim();
+  if (!titulo) { erro('erro-salvar', 'Dê um título ao feedback.'); return; }
+  travarSalvar(true);
+  document.getElementById('envio').hidden = false;
+  progresso(0, 'Preparando o envio...');
+  apiPost('/feedbacks.php?action=iniciar', {
+    idatleta: alunoSel.idatleta, aluno_nome: alunoSel.nome, titulo: titulo,
+    descricao: document.getElementById('input-descricao').value.trim(),
+    mime: mimeFinal, tamanho: blobFinal.size, duracao_seg: duracaoFinal
+  }).then(function(data){
+    if (!data.ok) throw new Error(data.erro || 'o servidor recusou');
+    return enviarPedacos(data.id, data.parte_bytes || 4194304);
+  }).then(function(res){
+    var link = res.link;
+    document.getElementById('link-gerado').value = link;
+    document.getElementById('btn-whats').href = linkWhats(link, titulo, alunoSel.telefone);
+    descartarGravacao();
+    document.getElementById('input-titulo').value = '';
+    document.getElementById('input-descricao').value = '';
+    mostrarEtapa('etapa-pronto');
+    carregarLista();
+  }).catch(function(e){
+    travarSalvar(false);
+    erro('erro-salvar', 'Não consegui enviar: ' + e.message + '. A gravação continua aqui; clique em "Salvar e gerar link" de novo.');
+  });
+});
+
+function progresso(frac, texto){
+  document.getElementById('barra-envio').style.width = Math.round(frac * 100) + '%';
+  document.getElementById('status-envio').textContent = texto;
+}
+
+// Manda um pedaço por vez. Se a rede falhar no meio, tenta de novo o mesmo pedaço
+// (até 4 vezes, esperando cada vez mais); o servidor diz de qual byte continuar.
+function enviarPedacos(id, tamanhoParte){
+  var total = blobFinal.size;
+  function enviar(inicio, tentativa){
+    var fim = Math.min(total, inicio + tamanhoParte);
+    progresso(inicio / total, 'Enviando... ' + fmtMB(inicio) + ' de ' + fmtMB(total));
+    return apiFetch('/feedbacks.php?action=enviar_parte&id=' + id + '&inicio=' + inicio, {
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: blobFinal.slice(inicio, fim)
+    }).then(function(data){
+      if (!data.ok) throw new Error(data.erro || 'falha no envio');
+      if (data.concluido) { progresso(1, 'Enviado.'); return data; }
+      return enviar(data.recebido, 0);
+    }, function(e){
+      if (tentativa >= 4 || /sessão expirada/.test(e.message)) throw e;
+      var espera = 2000 * Math.pow(2, tentativa);
+      progresso(inicio / total, 'Conexão falhou, tentando de novo em ' + (espera / 1000) + 's...');
+      return new Promise(function(r){ setTimeout(r, espera); }).then(function(){ return enviar(inicio, tentativa + 1); });
+    });
+  }
+  return enviar(0, 0);
+}
+
+document.getElementById('btn-copiar-link').addEventListener('click', function(){
+  var inp = document.getElementById('link-gerado');
+  copiar(inp.value);
+});
+function copiar(txt){
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function(){ toast('Link copiado'); }, function(){ prompt('Copie o link:', txt); });
+}
+document.getElementById('btn-nova').addEventListener('click', function(){ mostrarEtapa('etapa-escolher'); });
+
+// ---------- lista ----------
+function carregarLista(){
+  apiGet('/feedbacks.php?action=listar').then(function(data){
+    var wrap = document.getElementById('lista');
+    if (!data.ok) { wrap.innerHTML = '<p class="lista-vazia">Não consegui carregar a lista.</p>'; return; }
+    document.getElementById('espaco-total').textContent = data.feedbacks.length ? ('Espaço ocupado no Drive: ' + fmtMB(data.espaco_bytes || 0)) : '';
+    wrap.innerHTML = '';
+    if (!data.feedbacks.length) { wrap.innerHTML = '<p class="lista-vazia">Nenhuma gravação ainda.</p>'; return; }
+    data.feedbacks.forEach(function(f){
+      var item = document.createElement('div');
+      item.className = 'item';
+      var pronto = f.status === 'pronto';
+      var selo = !pronto ? '<span class="selo erro">envio incompleto</span>'
+        : f.visto_em ? '<span class="selo visto">✓ assistido ' + esc(fmtData(f.visto_em)) + '</span>'
+        : '<span class="selo nao">ainda não assistido</span>';
+      item.innerHTML =
+        '<div class="item-topo">' +
+          '<div class="item-info"><b>' + esc(f.titulo || '(sem título)') + '</b>' +
+          '<span>' + esc(f.aluno_nome) + ' · ' + esc(fmtData(f.criado_em)) + ' · ' + fmtTempo(f.duracao_seg) + ' · ' + fmtMB(f.tamanho_bytes) + '</span></div>' +
+          selo +
+          (pronto ? '<button class="btn-mini b-play">▶ Assistir</button><button class="btn-mini b-copiar">Copiar link</button>' +
+                    '<a class="btn-mini" target="_blank" rel="noopener" href="' + esc(linkWhats(f.link, f.titulo, '')) + '">WhatsApp</a>' : '') +
+          '<button class="btn-mini perigo b-excluir">Excluir</button>' +
+        '</div>';
+      if (pronto) {
+        item.querySelector('.b-play').addEventListener('click', function(){
+          var v = item.querySelector('video');
+          if (v) { v.remove(); return; }
+          v = document.createElement('video'); v.controls = true; v.playsInline = true; v.src = f.video_url;
+          corrigirDuracao(v);
+          item.appendChild(v); v.play().catch(function(){});
+        });
+        item.querySelector('.b-copiar').addEventListener('click', function(){ copiar(f.link); });
+      }
+      item.querySelector('.b-excluir').addEventListener('click', function(){ excluir(f, item); });
+      wrap.appendChild(item);
+    });
+  }).catch(function(){});
+}
+
+function excluir(f, itemEl){
+  if (!confirm('Excluir "' + (f.titulo || 'esta gravação') + '"?\n\nO vídeo é apagado do Google Drive e o link para de funcionar para o aluno. Não dá para desfazer.')) return;
+  apiPost('/feedbacks.php?action=excluir', { id: f.id }).then(function(data){
+    if (!data.ok) { alert('Não consegui excluir: ' + (data.erro || '')); return; }
+    if (data.aviso) alert(data.aviso);
+    itemEl.remove();
+    carregarLista();
+  }).catch(function(e){ alert('Não consegui excluir: ' + e.message); });
+}
+
+// ---------- busca de aluno (mesmo padrão de /relatorios-fotos/) ----------
+function renderSugestoesAlunos(lista){
+  var wrap = document.getElementById('lista-alunos-sugestoes');
+  wrap.innerHTML = '';
+  if (!lista.length) { wrap.innerHTML = '<div class="autocomplete-vazio">Nenhum aluno encontrado no cadastro.</div>'; wrap.hidden = false; return; }
+  lista.slice(0, 20).forEach(function(a){
+    var item = document.createElement('div');
+    item.className = 'autocomplete-item';
+    item.innerHTML = esc(a.nome || '(sem nome)') + (a.email ? '<small>' + esc(a.email) + '</small>' : '');
+    item.addEventListener('mousedown', function(e){
+      e.preventDefault();
+      inputAluno.value = a.nome || '';
+      alunoSel = { idatleta: a.idatleta, nome: a.nome || '', telefone: a.telefone || '' };
+      wrap.hidden = true;
+    });
+    wrap.appendChild(item);
+  });
+  wrap.hidden = false;
+}
+function buscarAlunos(q){
+  apiGet('/atletas.php?busca=' + encodeURIComponent(q)).then(function(data){
+    renderSugestoesAlunos(Array.isArray(data) ? data : []);
+  }).catch(function(){});
+}
+var inputAluno = document.getElementById('input-aluno');
+inputAluno.addEventListener('input', function(){
+  alunoSel = null;
+  var q = inputAluno.value.trim();
+  clearTimeout(buscaAlunoTimer);
+  if (q.length < 2) { document.getElementById('lista-alunos-sugestoes').hidden = true; return; }
+  buscaAlunoTimer = setTimeout(function(){ buscarAlunos(q); }, 300);
+});
+inputAluno.addEventListener('focus', function(){ var q = inputAluno.value.trim(); if (q.length >= 2 && !alunoSel) buscarAlunos(q); });
+document.addEventListener('click', function(e){
+  if (!e.target.closest || !e.target.closest('.campo-autocomplete')) document.getElementById('lista-alunos-sugestoes').hidden = true;
+});
+
+if (getToken()) entrarNaFerramenta(); else mostrarLogin('');
+
+})();
+</script>
+</body>
+</html>

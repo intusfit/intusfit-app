@@ -667,3 +667,35 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
 - Os outros itens do `mobile/STORE-LAUNCH-CHECKLIST.md` que dependem de conta/acesso do Luiz
   (Apple Developer Program, Google Play Console, papéis do G4OS, chaves de assinatura) continuam
   como estavam — nada disso é algo que código resolve.
+
+## 19. Feedback em vídeo, estilo Loom (25/09/2026)
+
+**Feito, ainda NÃO publicado** (está na branch `claude/new-session-9w68yu`; o deploy só sai da `main`).
+
+- **`feedback-video/`** (raiz, irmã de `relatorios-fotos/`): o professor grava a **tela**, a
+  **tela + câmera em bolha** ou **só a câmera**, com microfone (e o som do computador quando o
+  navegador permite). Tem pausa, cronômetro, **limite de 10 min** (decisão do Luiz) e prévia antes de
+  enviar. Depois vincula a um aluno (mesmo autocomplete de `atletas.php?busca=`), dá título e recado,
+  e recebe o link. Mesmo login do painel (`mx-token`/`mx-user`), entrada no menu do `_mock.js`
+  ("Feedback em Vídeo", ícone `ICONS.video`).
+- **`feedback/?v=<token>`**: página pública que o aluno abre pelo WhatsApp, sem login. Token de 32
+  hex, impossível de adivinhar. Excluir a gravação derruba o link na hora.
+- **`app/api/feedbacks.php`** + tabela **`intus_feedback`** (tem `tipo`, pensada para receber
+  também outros tipos de feedback depois). Detalhes técnicos no cabeçalho do arquivo.
+- **Armazenamento: Google Drive**, na mesma conta de serviço e na mesma pasta das fotos de avaliação
+  (`_gdrive.php` ganhou funções de upload em partes e de leitura por faixa). O vídeo **nunca fica no
+  disco da KingHost**: cada pedaço de até 4 MB é repassado na hora ao Drive, e o player lê de volta
+  em faixas de 4 MB. O YouTube foi descartado porque exigiria OAuth do canal do Luiz, que é uma
+  credencial dele. Retenção: **só exclusão manual** (decisão do Luiz). A tela mostra o espaço total
+  ocupado.
+- **Microfone estava bloqueado no site inteiro** pelo `Permissions-Policy: microphone=()` do
+  `.htaccess` da raiz. Foi liberado **só** em `feedback-video/.htaccess`.
+- **Pronto para o app/painel**: `feedbacks.php?action=meus` (aluno logado) e
+  `?action=listar&idatleta=N` (professor, respeitando a carteira) já existem. Falta só a tela: aba
+  "Feedbacks" no perfil do aluno em `aluno.html` (exige rebuild do app nas lojas, ver seção 18) e no
+  perfil do aluno no painel.
+
+**Achado na suíte (anterior a este trabalho):** `testes/funcoes.json` foi gravado de uma cópia local
+que tinha as funções `_share*`/`_publicarPostFeed` em `aluno.html`, e elas **nunca estiveram no
+git**. Por isso o `funcoes.js` acusa perda. Ou esse trabalho local ainda não foi publicado, ou a
+linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js gravar`.
