@@ -156,3 +156,153 @@ function gdriveBackup($bin, $nome, $mime = 'image/jpeg') {
         return null;
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arquivos GRANDES (vídeo de feedback) — upload em partes e leitura por faixa.
+//
+// Diferente do gdriveBackup() acima (best-effort, devolve null calado), estas
+// funções LANÇAM Exception com o motivo: quem chama (feedbacks.php) precisa
+// mostrar o erro ao professor em vez de perder a gravação em silêncio.
+//
+// O vídeo nunca passa inteiro pelo PHP: o navegador manda pedaços de poucos MB,
+// cada pedaço é repassado na hora pra uma "sessão de upload retomável" do Drive
+// (a URL da sessão fica guardada no banco), e nada fica no disco da KingHost.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Token de acesso reaproveitado por ~50 min (evita assinar um JWT novo a cada
+// pedaço de vídeo). Guardado na mesma tabela da chave, que já é protegida.
+function gdriveTokenAtual() {
+    $pdo = _gdriveConn();
+    if ($pdo) {
+        try {
+            _gdriveEnsureTable($pdo);
+            $st = $pdo->prepare("SELECT valor FROM intus_secrets WHERE chave = 'gdrive_token_cache' LIMIT 1");
+            $st->execute();
+            $c = json_decode((string)$st->fetchColumn(), true);
+            if (is_array($c) && !empty($c['t']) && (int)($c['exp'] ?? 0) > time() + 120) return $c['t'];
+        } catch (Throwable $e) { /* segue e gera um novo */ }
+    }
+    $key = _gdriveKey();
+    if (!is_array($key) || empty($key['client_email']) || empty($key['private_key'])) throw new Exception('Google Drive não configurado');
+    $t = _gdriveToken($key);
+    if (!$t) throw new Exception('Google Drive recusou a chave (token)');
+    if ($pdo) {
+        try {
+            $pdo->prepare("REPLACE INTO intus_secrets (chave, valor) VALUES ('gdrive_token_cache', ?)")
+                ->execute([json_encode(['t' => $t, 'exp' => time() + 3000])]);
+        } catch (Throwable $e) {}
+    }
+    return $t;
+}
+
+// Abre a sessão de upload e devolve a URL dela (válida por ~1 semana no Google).
+function gdriveIniciarUploadGrande($nome, $mime, $tamanho) {
+    $key = _gdriveKey();
+    if (!is_array($key) || empty($key['folder_id'])) throw new Exception('Google Drive não configurado');
+    $token = gdriveTokenAtual();
+    $meta = json_encode(['name' => $nome, 'parents' => [$key['folder_id']], 'mimeType' => $mime]);
+    $loc = '';
+    $ch = curl_init('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $token,
+            'Content-Type: application/json; charset=UTF-8',
+            'X-Upload-Content-Type: ' . $mime,
+            'X-Upload-Content-Length: ' . (int)$tamanho,
+        ],
+        CURLOPT_POSTFIELDS => $meta,
+        CURLOPT_HEADERFUNCTION => function ($c, $linha) use (&$loc) {
+            if (stripos($linha, 'Location:') === 0) $loc = trim(substr($linha, 9));
+            return strlen($linha);
+        },
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200 || !$loc) throw new Exception('Drive não abriu o upload (HTTP ' . $code . ') ' . substr((string)$resp, 0, 200));
+    return $loc;
+}
+
+// Envia um pedaço. $inicio = byte onde o pedaço começa; $total = tamanho do vídeo.
+// Devolve ['recebido' => próximo byte esperado, 'file_id' => id quando terminou].
+function gdriveEnviarParte($sessao, $bin, $inicio, $total) {
+    $fim = $inicio + strlen($bin) - 1;
+    $range = '';
+    $ch = curl_init($sessao);
+    curl_setopt_array($ch, [
+        CURLOPT_CUSTOMREQUEST => 'PUT',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_HTTPHEADER => [
+            'Content-Length: ' . strlen($bin),
+            'Content-Range: bytes ' . $inicio . '-' . $fim . '/' . (int)$total,
+        ],
+        CURLOPT_POSTFIELDS => $bin,
+        CURLOPT_HEADERFUNCTION => function ($c, $linha) use (&$range) {
+            if (stripos($linha, 'Range:') === 0) $range = trim(substr($linha, 6));
+            return strlen($linha);
+        },
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code === 200 || $code === 201) {
+        $j = json_decode((string)$resp, true);
+        if (empty($j['id'])) throw new Exception('Drive terminou o upload sem devolver o id');
+        return ['recebido' => (int)$total, 'file_id' => $j['id']];
+    }
+    if ($code === 308) {
+        // "Range: bytes=0-N" = o Drive já tem até o byte N. Sem Range = não tem nada.
+        $recebido = preg_match('/bytes=0-(\d+)/', $range, $m) ? ((int)$m[1] + 1) : 0;
+        return ['recebido' => $recebido, 'file_id' => null];
+    }
+    throw new Exception('Drive recusou o pedaço (HTTP ' . $code . ') ' . substr((string)$resp, 0, 200));
+}
+
+// Lê uma faixa de bytes do arquivo (para tocar o vídeo sem baixar tudo de uma vez).
+// Devolve ['codigo', 'corpo', 'content_range', 'tamanho_total'].
+function gdriveLerFaixa($fileId, $inicio, $fim) {
+    $token = gdriveTokenAtual();
+    $contentRange = '';
+    $ch = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode($fileId) . '?alt=media&supportsAllDrives=true');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 60,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'Range: bytes=' . (int)$inicio . '-' . (int)$fim],
+        CURLOPT_HEADERFUNCTION => function ($c, $linha) use (&$contentRange) {
+            if (stripos($linha, 'Content-Range:') === 0) $contentRange = trim(substr($linha, 14));
+            return strlen($linha);
+        },
+    ]);
+    $corpo = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200 && $code !== 206) throw new Exception('Drive não entregou o vídeo (HTTP ' . $code . ')');
+    return ['codigo' => $code, 'corpo' => (string)$corpo, 'content_range' => $contentRange];
+}
+
+// Apaga de vez; se a conta de serviço não tiver permissão pra apagar no Drive
+// compartilhado, tenta mandar pra lixeira. Devolve true se um dos dois deu certo.
+function gdriveExcluirArquivo($fileId) {
+    $token = gdriveTokenAtual();
+    $url = 'https://www.googleapis.com/drive/v3/files/' . rawurlencode($fileId) . '?supportsAllDrives=true';
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_CUSTOMREQUEST => 'DELETE', CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token]]);
+    curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code === 204 || $code === 200 || $code === 404) return true;
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_CUSTOMREQUEST => 'PATCH', CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode(['trashed' => true])]);
+    curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return $code === 200;
+}
