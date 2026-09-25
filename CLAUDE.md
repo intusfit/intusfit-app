@@ -670,7 +670,7 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
 
 ## 19. Feedback em vídeo, estilo Loom (25/09/2026)
 
-**Feito, ainda NÃO publicado** (está na branch `claude/new-session-9w68yu`; o deploy só sai da `main`).
+**Publicado na `main` em 25/09/2026, a pedido do Luiz.** Testado só contra um banco local e um Drive simulado; o primeiro teste com o Google Drive real foi feito por ele, já no ar.
 
 - **`feedback-video/`** (raiz, irmã de `relatorios-fotos/`): o professor grava a **tela**, a
   **tela + câmera em bolha** ou **só a câmera**, com microfone (e o som do computador quando o
