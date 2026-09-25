@@ -5509,6 +5509,21 @@ function _temProgressoTreino(st) {
 // banner, onde o aluno decide se volta.
 const RETOMAR_AUTO_MS = 45 * 60 * 1000;
 
+// Fonte única: "esta ficha/divisão já tem sessão registrada hoje?" — usada
+// tanto pra recusar RETOMAR um treino já finalizado (abaixo) quanto pra
+// recusar FINALIZAR de novo o mesmo treino (_executarFinalizacao). As duas
+// perguntas são a mesma pergunta; tratar como duas regras foi o que deixou
+// passar o treino contado 2x quando o aluno voltava pro treino depois de já
+// ter finalizado (botão físico de voltar restaurando a tela antiga).
+function _sessaoJaFeitaHoje(idficha, divisao) {
+  try {
+    const hoje = dataHojeLocal();
+    return SessoesTreino.listarDoAtleta(idAtleta).find(s =>
+      s.dtsessao === hoje &&
+      Number(s.idficha) === Number(idficha) &&
+      String(s.divisao) === String(divisao)) || null;
+  } catch { return null; }
+}
 function retomarTreinoAtivo(auto) {
   const st = carregarTreinoAtivo();
   if (!st) return false;
@@ -5518,14 +5533,7 @@ function retomarTreinoAtivo(auto) {
   }
   // Segurança: se já existe uma sessão registrada hoje para esta ficha/divisão,
   // o treino já foi finalizado — descarta a retomada (evita "retomar" treino concluído).
-  try {
-    const hoje = dataHojeLocal();
-    const jaFeito = SessoesTreino.listarDoAtleta(idAtleta).some(s =>
-      s.dtsessao === hoje &&
-      Number(s.idficha) === Number(st.sessao.idficha) &&
-      String(s.divisao) === String(st.sessao.divisao));
-    if (jaFeito) { limparTreinoAtivo(); return false; }
-  } catch {}
+  if (_sessaoJaFeitaHoje(st.sessao.idficha, st.sessao.divisao)) { limparTreinoAtivo(); return false; }
   sessaoAtual = st.sessao;
   _treinoStartSaved = st.treinoStart || sessaoAtual.inicio || Date.now();
   _ultimaAtividade = st.ultimaAtividade || Date.now();
@@ -5635,6 +5643,26 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pagehide', () => {
   if (sessaoAtual.idficha) salvarTreinoAtivo();
   if (typeof _cardioLiveSalvarAtivo === 'function' && _cardioLiveInicioMs) _cardioLiveSalvarAtivo();
+});
+// Botão físico de voltar (ou trocar de app e retornar) pode restaurar a
+// página inteira do cache do navegador (bfcache) em vez de recarregar —
+// nesse caso o JS não roda de novo, só volta ao estado exato de antes,
+// inclusive a tela de musculação em andamento. Se essa ficha/divisão já
+// tem sessão de hoje (foi finalizada antes de sair), a tela restaurada está
+// mentindo: manda pra Início em vez de deixar o aluno "finalizar" de novo
+// (_executarFinalizacao já bloqueia o 2º registro, isto aqui evita nem
+// mostrar a tela enganosa).
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  if (window._viewAtual === 'muscu' && sessaoAtual.idficha) {
+    const jaFeita = _sessaoJaFeitaHoje(sessaoAtual.idficha, sessaoAtual.divisao);
+    if (jaFeita) {
+      sessaoAtual = { idficha: null, divisao: null, exercicios: [], alongamentos: [], dados: {}, inicio: 0, comentario: '', activeIdx: 0 };
+      limparTreinoAtivo();
+      trocarView('home'); renderHome();
+      toast('Esse treino já foi finalizado! ✅');
+    }
+  }
 });
 
 // "01:30" ou "90" viram 90.
@@ -6492,6 +6520,24 @@ function _confirmarFinalizacaoCurta(duracao) {
 
 function _executarFinalizacao(duracao, naoContar) {
   stopTreinoTimer(); stopRestTimer();
+
+  // Trava contra treino contado 2x: se o botão físico de voltar (ou o app
+  // voltando de segundo plano) trouxe o aluno de volta pra esta tela DEPOIS
+  // de já ter finalizado — sessaoAtual ainda populado em memória, mas o
+  // servidor já tem a sessão de hoje pra esta ficha/divisão — não faz um 2º
+  // POST (que dependeria da tolerância do servidor pra não duplicar, e nem
+  // sempre bate se os dados mudaram) nem sorteia figurinha/frase novas.
+  // Só mostra de novo o MESMO resultado que já existe.
+  const _jaFeita = _sessaoJaFeitaHoje(sessaoAtual.idficha, sessaoAtual.divisao);
+  if (_jaFeita) {
+    renderFim(_jaFeita.duracao_seg || duracao, _jaFeita);
+    trocarView('fim');
+    sessaoAtual = { idficha: null, divisao: null, exercicios: [], alongamentos: [], dados: {}, inicio: 0, comentario: '', activeIdx: 0 };
+    _treinoStartSaved = 0;
+    limparTreinoAtivo();
+    return;
+  }
+
   // Não remove o rascunho ativo ainda: se o POST falhar, a aluna pode tentar
   // novamente sem perder as séries registradas.
 
@@ -6604,9 +6650,20 @@ function getMensagemFinal() {
   return msgs[Math.floor(Math.random() * msgs.length)];
 }
 
+// Guarda a figurinha/frase sorteadas por idsessao, pra essa tela nunca
+// mostrar um resultado diferente pra uma sessão que já apareceu antes — ver
+// o bloqueio em _executarFinalizacao, que impede um 2º POST pra mesma
+// ficha/divisão/dia, mas ainda assim chama renderFim de novo (voltar pra
+// esta tela depois de já ter finalizado não pode sortear outra figurinha).
+function _fimResultadoKey(idsessao) { return 'intus-fim-resultado-' + idsessao; }
+function _fimResultadoSalvo(idsessao) {
+  if (!idsessao) return null;
+  try { return JSON.parse(localStorage.getItem(_fimResultadoKey(idsessao)) || 'null'); } catch { return null; }
+}
 function renderFim(duracao, sessaoSalva) {
   const min = Math.floor(duracao/60), sec = duracao % 60;
-  const mensagem = getMensagemFinal();
+  const _resultadoSalvo = _fimResultadoSalvo(sessaoSalva && sessaoSalva.idsessao);
+  const mensagem = _resultadoSalvo ? _resultadoSalvo.mensagem : getMensagemFinal();
   // Peso movido no lugar do Fator Potência: carga × repetições somadas, sem
   // dividir por duração. O cronômetro é a parte que o aluno esquece de parar;
   // a carga e as repetições ele digita. Um número só fica na tela se for
@@ -6632,7 +6689,12 @@ function renderFim(duracao, sessaoSalva) {
   // Sorteia UMA vez só: a mesma figurinha que aparece aqui na tela de fim é a
   // que vai pro cartão de compartilhar, mesmo que o aluno abra o cartão só
   // mais tarde (pela Central, por ex.) — sem isso, cada tela sorteava a sua.
-  const figDoDia = _figPick(_figurinhasList());
+  // Com resultado já salvo pra este idsessao (ver _resultadoSalvo acima),
+  // reaproveita a MESMA figurinha em vez de sortear outra.
+  const figDoDia = _resultadoSalvo ? _resultadoSalvo.fig : _figPick(_figurinhasList());
+  if (!_resultadoSalvo && sessaoSalva && sessaoSalva.idsessao) {
+    try { localStorage.setItem(_fimResultadoKey(sessaoSalva.idsessao), JSON.stringify({ fig: figDoDia, mensagem: mensagem })); } catch (e) {}
+  }
   // Ver SessoesTreino.recordesDaSessao — fonte única, reaproveitada aqui, no
   // Histórico e na camada de informações do compartilhar/Novo post.
   const recordesFim = SessoesTreino.recordesDaSessao(sessaoSalva);
