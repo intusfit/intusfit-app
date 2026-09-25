@@ -688,6 +688,24 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
   vários arquivos, cada um guarda os próprios desenhos, e o vídeo tem câmera lenta), **Uma janela ou
   aba** (a própria aba e a tela inteira ficam fora da lista, senão vira espelho infinito) e **Só
   câmera**.
+- **Revisão 2 de 25/09 (pedido do Luiz, usando Opera):** o modo "Foto ou vídeo do aluno" **saiu**.
+  Ficaram **Tela + câmera** (padrão), **Só a tela** e **Só a câmera**. Voltou a **tela inteira**
+  (só a aba da própria ferramenta fica fora da lista). Na tela inteira, o professor vê só um "mapa"
+  do quadro, não a imagem da tela (senão a página se grava dentro dela mesma, o espelho infinito), e
+  os **desenhos ficam desligados**: o navegador não desenha por cima de outros programas. Numa janela
+  ou aba, os desenhos continuam. A bolha **arrasta com o mouse** e tem uma **régua de tamanho**, as
+  duas durante a gravação; a posição e o tamanho ficam salvos em `localStorage['intus-fb-bolha']`.
+  Para o "o pedido de microfone/câmera não aparece": a ferramenta consulta o estado da permissão antes
+  de pedir. Se estiver bloqueada (o Opera/Chrome bloqueiam sozinhos depois de o pedido ser fechado
+  algumas vezes), mostra o passo a passo do navegador em uso (`opera://settings/content/microphone`
+  etc.). Se o pedido ficar 8 s sem resposta, avisa também. A linha "Diagnóstico" mostra
+  navegador/versão, o estado de cada permissão e a política do site; peça print dela quando algo
+  falhar. O `.htaccess` da raiz passou de `microphone=()` para `microphone=(self)`, porque não dava
+  para confirmar daqui se a exceção da pasta valia na KingHost; `feedback-video/.htaccess` agora
+  também manda `Cache-Control: no-cache`.
+- **Achado, não corrigido:** o mesmo cabeçalho da raiz tem `geolocation=()`, e o **Cardio ao vivo
+  por GPS** do `aluno.html` usa geolocalização. Na versão web do app, o GPS provavelmente está sendo
+  recusado. Confirmar com o Luiz antes de mudar.
 - **`feedback/?v=<token>`**: página pública que o aluno abre pelo WhatsApp, sem login. Token de 32
   hex, impossível de adivinhar. Excluir a gravação derruba o link na hora.
 - **`app/api/feedbacks.php`** + tabela **`intus_feedback`** (tem `tipo`, pensada para receber
