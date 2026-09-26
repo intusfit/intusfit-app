@@ -3,9 +3,10 @@
  * Intus Fit — Relatórios de avaliação por fotos (armazenamento server-side)
  *
  * Guarda os relatórios criados na ferramenta /relatorios-fotos/: até 20 linhas de
- * comparativo "antes/depois" por relatório, cada lado com sua própria foto e o
- * ajuste de recorte (zoom + posição) já feito pelo professor, para poder reabrir
- * e continuar editando depois.
+ * comparativo por relatório, cada linha com 2 a 4 fotos (antes/depois, ou com
+ * checkpoints intermediários), cada foto com sua própria etiqueta e o ajuste de
+ * recorte (zoom + posição) já feito pelo professor, para poder reabrir e
+ * continuar editando depois.
  *
  * Fotos são salvas como ARQUIVO em app/img/relatorios-fotos/<id>/, nunca como
  * base64 dentro do banco — mesmo motivo do midia_upload em catalogo.php: base64
@@ -18,11 +19,14 @@
  * Rotas:
  *   GET  ?action=listar                 -> relatórios do professor logado (ou todos, se admin)
  *   GET  ?action=obter&id=N             -> relatório completo, com URL das fotos e recorte salvo
+ *                                          (linha.slots: array de 2 a 4 fotos, sempre nessa forma
+ *                                          mesmo pra relatório antigo salvo só com esquerda/direita)
  *   POST ?action=criar        {aluno_nome, bg, marca}                    -> {ok, id}
  *   POST ?action=salvar_meta  {id, aluno_nome, bg, marca}                -> {ok}
  *   POST ?action=salvar_linha {relatorio_id, linha_idx, label, largura, altura,
- *                               esquerda:{tag,zoom,pan_x,pan_y,data?,remover?},
- *                               direita:{tag,zoom,pan_x,pan_y,data?,remover?}} -> {ok, esquerda_url?, direita_url?}
+ *                               slots:[{tag,zoom,pan_x,pan_y,grade,grade_h,grade_v,
+ *                                       grade_line_overrides,comentario,anotacoes,data?,remover?}, ...]}
+ *                              -> {ok, slot0_url?, slot1_url?, ...}
  *   POST ?action=excluir      {id}                                       -> {ok}
  */
 
@@ -159,6 +163,14 @@ _intusGarantirUtf8mb4($pdo, 'intus_relatorio_fotos_linha', ['esquerda_comentario
 // paradas sem uso — a densidade da grade virou ajuste por foto (esquerda_grade_h/v, direita_grade_h/v
 // acima). Nao removidas por seguranca (nao apaga coluna com dado que ja possa existir).
 
+// Uma linha passou a aceitar de 2 a 4 fotos (nao so "esquerda"/"direita" fixos), pra caber
+// comparativo com foto(s) do meio (ex.: Antes / Semana 4 / Depois). Guardado como JSON — mesmo
+// desenho ja usado em intus_plano_nutricional.refeicoes e intus_avaliacao.medidas/fotos. Linha
+// antiga (sem slots_json) continua lida a partir das colunas esquerda_*/direita_* de sempre; ao
+// salvar de novo, vira slots_json e as colunas velhas ficam paradas (mesmo motivo de sempre: nao
+// apaga coluna que pode ter dado).
+_garantirColuna($pdo, 'intus_relatorio_fotos_linha', 'slots_json', "LONGTEXT NULL");
+
 // ---------- Helpers de arquivo ----------
 function _dirRelatorio($id) {
     $dir = __DIR__ . '/../img/relatorios-fotos/' . (int)$id;
@@ -166,7 +178,7 @@ function _dirRelatorio($id) {
     return $dir;
 }
 
-function _salvarFotoLado($relatorioId, $linhaIdx, $lado, $dataUrl) {
+function _salvarFotoSlot($relatorioId, $linhaIdx, $slotIdx, $dataUrl) {
     if (!preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $dataUrl, $m)) {
         throw new Exception('formato de imagem invalido (use PNG, JPG ou WEBP)');
     }
@@ -176,18 +188,20 @@ function _salvarFotoLado($relatorioId, $linhaIdx, $lado, $dataUrl) {
     if (strlen($bin) > 8 * 1024 * 1024) throw new Exception('imagem grande demais (max 8MB apos compressao)');
     $dir = _dirRelatorio($relatorioId);
     if (!is_writable($dir)) throw new Exception('pasta de upload indisponivel');
-    $fname = (int)$linhaIdx . '-' . $lado . '.' . $ext;
+    $base = (int)$linhaIdx . '-slot' . (int)$slotIdx;
+    $fname = $base . '.' . $ext;
     // remove versao anterior com outra extensao, se houver (evita arquivo orfao)
     foreach (['jpg', 'png', 'webp'] as $e) {
-        if ($e !== $ext) @unlink($dir . '/' . $linhaIdx . '-' . $lado . '.' . $e);
+        if ($e !== $ext) @unlink($dir . '/' . $base . '.' . $e);
     }
     if (@file_put_contents($dir . '/' . $fname, $bin) === false) throw new Exception('falha ao gravar arquivo');
     return $fname;
 }
 
-function _removerFotoLado($relatorioId, $linhaIdx, $lado) {
+function _removerFotoSlot($relatorioId, $linhaIdx, $slotIdx) {
     $dir = __DIR__ . '/../img/relatorios-fotos/' . (int)$relatorioId;
-    foreach (['jpg', 'png', 'webp'] as $e) @unlink($dir . '/' . $linhaIdx . '-' . $lado . '.' . $e);
+    $base = (int)$linhaIdx . '-slot' . (int)$slotIdx;
+    foreach (['jpg', 'png', 'webp'] as $e) @unlink($dir . '/' . $base . '.' . $e);
 }
 
 function _urlFoto($relatorioId, $arquivo) {
@@ -226,10 +240,19 @@ try {
         }
         foreach ($lista as &$r) {
             $r['id'] = (int)$r['id'];
-            $stf = $pdo->prepare("SELECT esquerda_arquivo, direita_arquivo FROM intus_relatorio_fotos_linha WHERE relatorio_id = ? AND (esquerda_arquivo IS NOT NULL OR direita_arquivo IS NOT NULL) ORDER BY linha_idx ASC LIMIT 1");
+            $stf = $pdo->prepare("SELECT esquerda_arquivo, direita_arquivo, slots_json FROM intus_relatorio_fotos_linha WHERE relatorio_id = ? ORDER BY linha_idx ASC");
             $stf->execute([$r['id']]);
-            $foto = $stf->fetch(PDO::FETCH_ASSOC);
-            $arq = $foto ? ($foto['esquerda_arquivo'] ?: $foto['direita_arquivo']) : null;
+            $arq = null;
+            foreach ($stf->fetchAll(PDO::FETCH_ASSOC) as $linhaFoto) {
+                if (!empty($linhaFoto['slots_json'])) {
+                    $slotsTmp = json_decode($linhaFoto['slots_json'], true);
+                    if (is_array($slotsTmp)) {
+                        foreach ($slotsTmp as $st2) { if (!empty($st2['arquivo'])) { $arq = $st2['arquivo']; break; } }
+                    }
+                } elseif (!empty($linhaFoto['esquerda_arquivo'])) { $arq = $linhaFoto['esquerda_arquivo']; }
+                elseif (!empty($linhaFoto['direita_arquivo'])) { $arq = $linhaFoto['direita_arquivo']; }
+                if ($arq) break;
+            }
             $r['thumb_url'] = $arq ? _urlFoto($r['id'], $arq) : null;
         }
         echo json_encode(['ok' => true, 'relatorios' => $lista]);
@@ -245,25 +268,40 @@ try {
         $st->execute([$id]);
         $linhas = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $l) {
+            $slots = [];
+            $slotsSalvos = !empty($l['slots_json']) ? json_decode($l['slots_json'], true) : null;
+            if (is_array($slotsSalvos) && count($slotsSalvos)) {
+                foreach ($slotsSalvos as $sd) {
+                    $slots[] = [
+                        'tag' => $sd['tag'] ?? '', 'url' => _urlFoto($id, $sd['arquivo'] ?? null),
+                        'zoom' => (float)($sd['zoom'] ?? 1), 'pan_x' => (float)($sd['pan_x'] ?? 0.5), 'pan_y' => (float)($sd['pan_y'] ?? 0.5),
+                        'grade' => !empty($sd['grade']), 'grade_h' => (int)($sd['grade_h'] ?? 10), 'grade_v' => (int)($sd['grade_v'] ?? 2),
+                        'grade_line_overrides' => is_array($sd['grade_line_overrides'] ?? null) ? $sd['grade_line_overrides'] : new stdClass(),
+                        'comentario' => $sd['comentario'] ?? '',
+                        'anotacoes' => is_array($sd['anotacoes'] ?? null) ? $sd['anotacoes'] : [],
+                    ];
+                }
+            } else {
+                // Linha antiga (de antes de existir slots_json): sintetiza 2 posicoes a
+                // partir das colunas esquerda_*/direita_* de sempre, pro front-end nunca
+                // precisar saber a diferenca — sempre recebe uma lista de posicoes.
+                foreach (['esquerda', 'direita'] as $lado) {
+                    $slots[] = [
+                        'tag' => $l[$lado . '_tag'] ?? '', 'url' => _urlFoto($id, $l[$lado . '_arquivo'] ?? null),
+                        'zoom' => (float)($l[$lado . '_zoom'] ?? 1), 'pan_x' => (float)($l[$lado . '_pan_x'] ?? 0.5), 'pan_y' => (float)($l[$lado . '_pan_y'] ?? 0.5),
+                        'grade' => !empty($l[$lado . '_grade']), 'grade_h' => (int)($l[$lado . '_grade_h'] ?? 10), 'grade_v' => (int)($l[$lado . '_grade_v'] ?? 2),
+                        'grade_line_overrides' => new stdClass(),
+                        'comentario' => $l[$lado . '_comentario'] ?? '',
+                        'anotacoes' => $l[$lado . '_anotacoes'] ? (json_decode($l[$lado . '_anotacoes'], true) ?: []) : [],
+                    ];
+                }
+            }
             $linhas[] = [
                 'linha_idx' => (int)$l['linha_idx'],
                 'label' => $l['label'],
                 'largura' => (int)$l['largura'],
                 'altura' => (int)$l['altura'],
-                'esquerda' => [
-                    'tag' => $l['esquerda_tag'], 'url' => _urlFoto($id, $l['esquerda_arquivo']),
-                    'zoom' => (float)$l['esquerda_zoom'], 'pan_x' => (float)$l['esquerda_pan_x'], 'pan_y' => (float)$l['esquerda_pan_y'],
-                    'grade' => !empty($l['esquerda_grade']), 'grade_h' => (int)($l['esquerda_grade_h'] ?? 10), 'grade_v' => (int)($l['esquerda_grade_v'] ?? 2),
-                    'comentario' => $l['esquerda_comentario'] ?? '',
-                    'anotacoes' => $l['esquerda_anotacoes'] ? (json_decode($l['esquerda_anotacoes'], true) ?: []) : [],
-                ],
-                'direita' => [
-                    'tag' => $l['direita_tag'], 'url' => _urlFoto($id, $l['direita_arquivo']),
-                    'zoom' => (float)$l['direita_zoom'], 'pan_x' => (float)$l['direita_pan_x'], 'pan_y' => (float)$l['direita_pan_y'],
-                    'grade' => !empty($l['direita_grade']), 'grade_h' => (int)($l['direita_grade_h'] ?? 10), 'grade_v' => (int)($l['direita_grade_v'] ?? 2),
-                    'comentario' => $l['direita_comentario'] ?? '',
-                    'anotacoes' => $l['direita_anotacoes'] ? (json_decode($l['direita_anotacoes'], true) ?: []) : [],
-                ],
+                'slots' => $slots,
             ];
         }
         echo json_encode(['ok' => true, 'relatorio' => [
@@ -320,54 +358,76 @@ try {
         $st->execute([$relatorioId, $linhaIdx]);
         $existente = $st->fetch(PDO::FETCH_ASSOC);
 
-        $resultado = ['ok' => true];
-        $campos = ['esquerda' => [], 'direita' => []];
-        foreach (['esquerda', 'direita'] as $lado) {
-            $ladoIn = is_array($body[$lado] ?? null) ? $body[$lado] : [];
-            $tag = trim((string)($ladoIn['tag'] ?? ($lado === 'esquerda' ? 'Antes' : 'Depois')));
-            $zoom = max(1, min(4, (float)($ladoIn['zoom'] ?? 1)));
-            $panX = max(0, min(1, (float)($ladoIn['pan_x'] ?? 0.5)));
-            $panY = max(0, min(1, (float)($ladoIn['pan_y'] ?? 0.5)));
-            $arquivo = $existente ? $existente[$lado . '_arquivo'] : null;
+        // Slots vindos do body (formato novo, 2 a 4 posicoes). Linha antiga sendo
+        // reaberta e salva de novo tambem manda nesse formato — vira slots_json daqui pra frente.
+        $slotsIn = is_array($body['slots'] ?? null) ? array_values($body['slots']) : [];
+        if (count($slotsIn) < 2 || count($slotsIn) > 4) {
+            http_response_code(400); echo json_encode(['ok' => false, 'erro' => 'um comparativo precisa de 2 a 4 fotos']); exit;
+        }
 
-            if (!empty($ladoIn['remover'])) {
-                _removerFotoLado($relatorioId, $linhaIdx, $lado);
+        // Arquivo ja existente por posicao, pra manter quando o body nao manda foto nova
+        // nem pede remover. Linha ja no formato novo: le do slots_json salvo. Linha ainda
+        // no formato antigo (esquerda_arquivo/direita_arquivo): serve so as posicoes 0 e 1.
+        $arquivosAntigos = [];
+        if ($existente) {
+            if (!empty($existente['slots_json'])) {
+                $tmp = json_decode($existente['slots_json'], true);
+                if (is_array($tmp)) foreach ($tmp as $i => $sd) $arquivosAntigos[$i] = $sd['arquivo'] ?? null;
+            } else {
+                $arquivosAntigos[0] = $existente['esquerda_arquivo'] ?? null;
+                $arquivosAntigos[1] = $existente['direita_arquivo'] ?? null;
+            }
+        }
+
+        $resultado = ['ok' => true];
+        $slotsOut = [];
+        foreach ($slotsIn as $i => $slotIn) {
+            if (!is_array($slotIn)) $slotIn = [];
+            $tag = trim((string)($slotIn['tag'] ?? ('Foto ' . ($i + 1))));
+            $zoom = max(1, min(4, (float)($slotIn['zoom'] ?? 1)));
+            $panX = max(0, min(1, (float)($slotIn['pan_x'] ?? 0.5)));
+            $panY = max(0, min(1, (float)($slotIn['pan_y'] ?? 0.5)));
+            $arquivo = $arquivosAntigos[$i] ?? null;
+
+            if (!empty($slotIn['remover'])) {
+                _removerFotoSlot($relatorioId, $linhaIdx, $i);
                 $arquivo = null;
-            } elseif (!empty($ladoIn['data'])) {
-                $arquivo = _salvarFotoLado($relatorioId, $linhaIdx, $lado, $ladoIn['data']);
-                $resultado[$lado . '_url'] = _urlFoto($relatorioId, $arquivo);
+            } elseif (!empty($slotIn['data'])) {
+                $arquivo = _salvarFotoSlot($relatorioId, $linhaIdx, $i, $slotIn['data']);
+                $resultado['slot' . $i . '_url'] = _urlFoto($relatorioId, $arquivo);
             }
 
-            $grade = empty($ladoIn['grade']) ? 0 : 1;
-            $gradeH = max(1, min(20, (int)($ladoIn['grade_h'] ?? 10)));
-            $gradeV = max(1, min(20, (int)($ladoIn['grade_v'] ?? 2)));
-            $comentario = mb_substr(trim((string)($ladoIn['comentario'] ?? '')), 0, 500);
-            $anotacoesRaw = is_string($ladoIn['anotacoes'] ?? null) ? $ladoIn['anotacoes'] : '[]';
+            $grade = empty($slotIn['grade']) ? 0 : 1;
+            $gradeH = max(1, min(20, (int)($slotIn['grade_h'] ?? 10)));
+            $gradeV = max(1, min(20, (int)($slotIn['grade_v'] ?? 2)));
+            $overrides = is_array($slotIn['grade_line_overrides'] ?? null) ? $slotIn['grade_line_overrides'] : [];
+            $comentario = mb_substr(trim((string)($slotIn['comentario'] ?? '')), 0, 500);
+            $anotacoesRaw = is_string($slotIn['anotacoes'] ?? null) ? $slotIn['anotacoes'] : '[]';
             // Confere que e JSON valido antes de gravar (senao guarda lista vazia) e limita
             // tamanho — isso e desenho vetorial, nao deveria nunca chegar perto disso.
             $anotacoesDecoded = json_decode($anotacoesRaw, true);
-            if (!is_array($anotacoesDecoded) || strlen($anotacoesRaw) > 200000) $anotacoesRaw = '[]';
+            if (!is_array($anotacoesDecoded)) $anotacoesDecoded = [];
+            if (strlen($anotacoesRaw) > 200000) $anotacoesDecoded = [];
 
-            $campos[$lado] = [$tag, $arquivo, $zoom, $panX, $panY, $grade, $gradeH, $gradeV, $anotacoesRaw, $comentario];
+            $slotsOut[] = [
+                'tag' => $tag, 'arquivo' => $arquivo, 'zoom' => $zoom, 'pan_x' => $panX, 'pan_y' => $panY,
+                'grade' => $grade, 'grade_h' => $gradeH, 'grade_v' => $gradeV, 'grade_line_overrides' => $overrides,
+                'comentario' => $comentario, 'anotacoes' => $anotacoesDecoded,
+            ];
+        }
+        // Se a linha encolheu (tinha 4 fotos, passou a ter 2), apaga o arquivo das posicoes que sobraram.
+        foreach ($arquivosAntigos as $i => $arq) {
+            if ($i >= count($slotsOut) && $arq) _removerFotoSlot($relatorioId, $linhaIdx, $i);
         }
 
+        $slotsJson = json_encode($slotsOut, JSON_UNESCAPED_UNICODE);
+
         if ($existente) {
-            $sql = "UPDATE intus_relatorio_fotos_linha SET label=?, largura=?, altura=?,
-                    esquerda_tag=?, esquerda_arquivo=?, esquerda_zoom=?, esquerda_pan_x=?, esquerda_pan_y=?, esquerda_grade=?, esquerda_grade_h=?, esquerda_grade_v=?, esquerda_anotacoes=?, esquerda_comentario=?,
-                    direita_tag=?, direita_arquivo=?, direita_zoom=?, direita_pan_x=?, direita_pan_y=?, direita_grade=?, direita_grade_h=?, direita_grade_v=?, direita_anotacoes=?, direita_comentario=?
-                    WHERE id = ?";
-            $pdo->prepare($sql)->execute(array_merge(
-                [$label, $largura, $altura], $campos['esquerda'], $campos['direita'], [$existente['id']]
-            ));
+            $pdo->prepare("UPDATE intus_relatorio_fotos_linha SET label=?, largura=?, altura=?, slots_json=? WHERE id = ?")
+                ->execute([$label, $largura, $altura, $slotsJson, $existente['id']]);
         } else {
-            $sql = "INSERT INTO intus_relatorio_fotos_linha
-                    (relatorio_id, linha_idx, label, largura, altura,
-                     esquerda_tag, esquerda_arquivo, esquerda_zoom, esquerda_pan_x, esquerda_pan_y, esquerda_grade, esquerda_grade_h, esquerda_grade_v, esquerda_anotacoes, esquerda_comentario,
-                     direita_tag, direita_arquivo, direita_zoom, direita_pan_x, direita_pan_y, direita_grade, direita_grade_h, direita_grade_v, direita_anotacoes, direita_comentario)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            $pdo->prepare($sql)->execute(array_merge(
-                [$relatorioId, $linhaIdx, $label, $largura, $altura], $campos['esquerda'], $campos['direita']
-            ));
+            $pdo->prepare("INSERT INTO intus_relatorio_fotos_linha (relatorio_id, linha_idx, label, largura, altura, slots_json) VALUES (?, ?, ?, ?, ?, ?)")
+                ->execute([$relatorioId, $linhaIdx, $label, $largura, $altura, $slotsJson]);
         }
         $pdo->prepare("UPDATE intus_relatorio_fotos SET atualizado_em = NOW() WHERE id = ?")->execute([$relatorioId]);
         echo json_encode($resultado);
