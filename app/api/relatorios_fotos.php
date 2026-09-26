@@ -296,13 +296,20 @@ try {
                     ];
                 }
             }
-            $linhas[] = [
+            $linha = [
                 'linha_idx' => (int)$l['linha_idx'],
                 'label' => $l['label'],
                 'largura' => (int)$l['largura'],
                 'altura' => (int)$l['altura'],
                 'slots' => $slots,
             ];
+            // Compat: enquanto o navegador do professor pode estar com o JS antigo em
+            // cache (que le linha.esquerda/linha.direita em vez de linha.slots), manda
+            // os dois primeiros slots tambem nesse formato. Puramente aditivo — remover
+            // quando der certeza de que ninguem mais tem a versao antiga cacheada.
+            $linha['esquerda'] = isset($slots[0]) ? $slots[0] : null;
+            $linha['direita'] = isset($slots[1]) ? $slots[1] : null;
+            $linhas[] = $linha;
         }
         echo json_encode(['ok' => true, 'relatorio' => [
             'id' => $id, 'idatleta' => $rel['idatleta'] !== null ? (int)$rel['idatleta'] : null,
@@ -361,6 +368,11 @@ try {
         // Slots vindos do body (formato novo, 2 a 4 posicoes). Linha antiga sendo
         // reaberta e salva de novo tambem manda nesse formato — vira slots_json daqui pra frente.
         $slotsIn = is_array($body['slots'] ?? null) ? array_values($body['slots']) : [];
+        if (!$slotsIn && (is_array($body['esquerda'] ?? null) || is_array($body['direita'] ?? null))) {
+            // Compat: JS antigo em cache ainda manda {esquerda, direita} em vez de slots[].
+            // Remover quando der certeza de que ninguem mais tem a versao antiga cacheada.
+            $slotsIn = [$body['esquerda'] ?? [], $body['direita'] ?? []];
+        }
         if (count($slotsIn) < 2 || count($slotsIn) > 4) {
             http_response_code(400); echo json_encode(['ok' => false, 'erro' => 'um comparativo precisa de 2 a 4 fotos']); exit;
         }
