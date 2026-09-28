@@ -4379,6 +4379,32 @@ const SessoesTreino = {
     this.save(l);
     return salva;
   },
+  // Atualiza uma sessão de musculação JÁ existente (mesmo idsessao) — usada
+  // quando o aluno finalizou sem querer, voltou pra dar sequência e finaliza
+  // de novo: isso precisa CONTAR o trabalho extra, mas sem criar um 2º
+  // registro pro mesmo dia/ficha/divisão (ver _voltarParaContinuarTreino e
+  // _executarFinalizacao).
+  async atualizar(idsessao, s) {
+    const token = localStorage.getItem('mx-token') || '';
+    let resposta;
+    try {
+      const r = await fetch(API_BASE + '/treinos.php?action=sessoes&id=' + idsessao, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify(s),
+      });
+      resposta = await r.json().catch(() => ({}));
+      if (!r.ok || !resposta.ok) throw new Error(resposta.error || 'Não foi possível atualizar o treino no servidor.');
+    } catch (e) {
+      throw new Error(e && e.message ? e.message : 'Sem conexão: a atualização não foi salva.');
+    }
+    const salva = { ...s, idsessao: Number(idsessao) };
+    const l = this.load();
+    const idx = l.findIndex(x => Number(x.idsessao) === Number(idsessao));
+    if (idx >= 0) l[idx] = salva; else l.push(salva);
+    this.save(l);
+    return salva;
+  },
   async sincronizar(idatleta) {
     try {
       const token = localStorage.getItem('mx-token') || '';
@@ -6521,21 +6547,26 @@ function _confirmarFinalizacaoCurta(duracao) {
 function _executarFinalizacao(duracao, naoContar) {
   stopTreinoTimer(); stopRestTimer();
 
-  // Trava contra treino contado 2x: se o botão físico de voltar (ou o app
-  // voltando de segundo plano) trouxe o aluno de volta pra esta tela DEPOIS
-  // de já ter finalizado — sessaoAtual ainda populado em memória, mas o
-  // servidor já tem a sessão de hoje pra esta ficha/divisão — não faz um 2º
-  // POST (que dependeria da tolerância do servidor pra não duplicar, e nem
-  // sempre bate se os dados mudaram) nem sorteia figurinha/frase novas.
+  // _continuarIdsessao só existe quando o aluno chegou aqui de propósito,
+  // por "Voltar e continuar o treino" na confirmação da tela final (ver
+  // _voltarParaContinuarTreino) — nesse caso ELE ESCOLHEU continuar, então
+  // o trabalho extra tem que ser somado à sessão existente (não ignorado).
+  // Sem esse flag, é a trava padrão contra treino contado 2x: se o botão
+  // físico de voltar (ou o app voltando de segundo plano) trouxe o aluno de
+  // volta pra esta tela DEPOIS de já ter finalizado — sessaoAtual ainda
+  // populado em memória, mas o servidor já tem a sessão de hoje pra esta
+  // ficha/divisão — não faz um 2º POST nem sorteia figurinha/frase novas.
   // Só mostra de novo o MESMO resultado que já existe.
-  const _jaFeita = _sessaoJaFeitaHoje(sessaoAtual.idficha, sessaoAtual.divisao);
-  if (_jaFeita) {
-    renderFim(_jaFeita.duracao_seg || duracao, _jaFeita);
-    trocarView('fim');
-    sessaoAtual = { idficha: null, divisao: null, exercicios: [], alongamentos: [], dados: {}, inicio: 0, comentario: '', activeIdx: 0 };
-    _treinoStartSaved = 0;
-    limparTreinoAtivo();
-    return;
+  if (!sessaoAtual._continuarIdsessao) {
+    const _jaFeita = _sessaoJaFeitaHoje(sessaoAtual.idficha, sessaoAtual.divisao);
+    if (_jaFeita) {
+      renderFim(_jaFeita.duracao_seg || duracao, _jaFeita);
+      trocarView('fim');
+      sessaoAtual = { idficha: null, divisao: null, exercicios: [], alongamentos: [], dados: {}, inicio: 0, comentario: '', activeIdx: 0 };
+      _treinoStartSaved = 0;
+      limparTreinoAtivo();
+      return;
+    }
   }
 
   // Não remove o rascunho ativo ainda: se o POST falhar, a aluna pode tentar
@@ -6565,15 +6596,21 @@ function _executarFinalizacao(duracao, naoContar) {
   });
   const temDados = itens.some(it => it.series.some(s => s.peso || s.reps));
 
+  // Continuando um treino já finalizado (ver _voltarParaContinuarTreino):
+  // "duracao" aqui é só o tempo DESTA retomada — soma com o que já tinha
+  // sido gravado da primeira vez, senão o cronômetro "voltaria a zero".
+  const _duracaoAnterior = sessaoAtual._continuarDuracaoAnterior || 0;
+  const duracaoTotal = _duracaoAnterior + duracao;
+
   const agora = new Date();
   const horaConclusao = agora.toTimeString().slice(0, 5);
   let alertaDuracao = null;
-  if (duracao > 10800) alertaDuracao = 'longo';
-  else if (duracao < 300) alertaDuracao = 'curto';
+  if (duracaoTotal > 10800) alertaDuracao = 'longo';
+  else if (duracaoTotal < 300) alertaDuracao = 'curto';
 
   const sessao = {
     idatleta: idAtleta, idficha: sessaoAtual.idficha, divisao: sessaoAtual.divisao,
-    dtsessao: dataHojeLocal(), duracao_seg: duracao,
+    dtsessao: dataHojeLocal(), duracao_seg: duracaoTotal,
     hora_conclusao: horaConclusao,
     alerta_duracao: alertaDuracao,
     nao_contar: naoContar ? 1 : 0,
@@ -6581,11 +6618,13 @@ function _executarFinalizacao(duracao, naoContar) {
     marcado_como_feito: !temDados,
     itens: temDados ? itens : itens.map(it => ({...it, series: []})),
   };
-  SessoesTreino.criar(sessao).then(function(sessaoSalva) {
+  const _idParaContinuar = sessaoAtual._continuarIdsessao;
+  const _promessa = _idParaContinuar ? SessoesTreino.atualizar(_idParaContinuar, sessao) : SessoesTreino.criar(sessao);
+  _promessa.then(function(sessaoSalva) {
     if (sessaoAtual.comentario) {
       try { API.salvarComentarioBackend({ idatleta: idAtleta, idficha: sessaoAtual.idficha, divisao: sessaoAtual.divisao, dtsessao: dataHojeLocal(), texto: sessaoAtual.comentario }); } catch {}
     }
-    renderFim(duracao, sessaoSalva);
+    renderFim(duracaoTotal, sessaoSalva);
     trocarView('fim');
     // Só limpa a sessão após confirmação do servidor. Em erro, os dados ficam
     // intactos para a aluna tentar novamente, sem criar um treino fantasma.
@@ -6660,7 +6699,105 @@ function _fimResultadoSalvo(idsessao) {
   if (!idsessao) return null;
   try { return JSON.parse(localStorage.getItem(_fimResultadoKey(idsessao)) || 'null'); } catch { return null; }
 }
+
+// ── "Finalizou sem querer?" — confirmação no botão físico de voltar ────────
+// Pedido do Luiz: quem toca "Finalizar" cedo demais precisa de um jeito de
+// voltar e continuar, sem isso virar um treino perdido (a única saída antes
+// era começar tudo de novo — nem sempre com o mesmo peso/reps lembrados).
+//
+// O gesto de voltar já tem um sistema próprio (ver "BACK GESTURE (iOS)",
+// mais abaixo no arquivo: viewStack + trocarView "embrulhado" + um único
+// popstate central, que já trata os casos de 'muscu' com cronômetro rodando
+// e 'cardio-live'). Esta confirmação entra como mais um caso NAQUELE mesmo
+// listener — _confirmarVoltarDoFim/_voltarParaContinuarTreino só fazem a
+// parte visual e de dados; quem decide QUANDO chamar é o popstate central.
+// Um popstate próprio aqui (2º pushState/2º listener) foi tentado e
+// descartado: os dois sistemas brigavam pela mesma navegação e o aluno
+// caía direto na Início, sem nem ver a pergunta.
+let _ultimaSessaoFinalizada = null; // sessaoSalva do último renderFim, pro botão "Continuar treino"
+
+function _confirmarVoltarDoFim() {
+  if (document.getElementById('overlay-voltar-fim')) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const bg = isLight ? '#fff' : '#1a1a1a';
+  const border = isLight ? '#e5e5e5' : '#2a2a2a';
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const sub = isLight ? '#666' : '#999';
+  const overlay = document.createElement('div');
+  overlay.id = 'overlay-voltar-fim';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:${bg};border:1px solid ${border};border-radius:16px;padding:28px 24px;max-width:340px;width:100%;text-align:center;">
+      <div style="font-size:36px;margin-bottom:12px;">🤔</div>
+      <h3 style="font-size:17px;font-weight:700;color:${txt};margin:0 0 10px;">Finalizou o treino sem querer?</h3>
+      <p style="font-size:13px;color:${sub};line-height:1.5;margin:0 0 16px;">
+        Volte para dar sequência — as séries que já fez continuam contando, sem duplicar o treino.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <button class="btn btn-prim" style="min-height:44px;font-size:13px;" onclick="_voltarParaContinuarTreino()">↩️ Voltar e continuar o treino</button>
+        <button class="btn btn-sec" style="min-height:40px;font-size:13px;" onclick="document.getElementById('overlay-voltar-fim').remove()">Está tudo certo, ficar aqui</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+// Reconstrói sessaoAtual a partir de uma sessão JÁ finalizada, pra reabrir a
+// tela de musculação com tudo que já foi preenchido (mesma lógica de
+// selecionarTreino, só que semeada com os dados salvos em vez de vazia) —
+// as séries feitas continuam marcadas, o cronômetro conta só o tempo NOVO
+// (soma com o anterior só na hora de salvar, ver _executarFinalizacao).
+function _voltarParaContinuarTreino() {
+  document.getElementById('overlay-voltar-fim')?.remove();
+  const sessaoSalva = _ultimaSessaoFinalizada;
+  if (!sessaoSalva || !sessaoSalva.idficha) { toast('Não consegui localizar esse treino pra continuar.'); return; }
+  const fichas = carregarFicha();
+  const ficha = fichas.find(f => Number(f.idficha) === Number(sessaoSalva.idficha));
+  if (!ficha) { toast('Não encontrei mais essa ficha.'); return; }
+  const divisao = sessaoSalva.divisao;
+  const exs = ficha.divisoes[divisao] || [];
+  const divLabelSel = (ficha.divNomes && ficha.divNomes[divisao]) ? ficha.divNomes[divisao] : 'Divisão ' + divisao;
+  sessaoAtual = {
+    idficha: ficha.idficha, divisao, divisaoLabel: divLabelSel, nomeFicha: ficha.nmficha || '',
+    exercicios: exs, alongamentos: [], dados: {}, inicio: Date.now(),
+    comentario: sessaoSalva.comentario || '', activeIdx: -1,
+    _continuarIdsessao: sessaoSalva.idsessao,
+    _continuarDuracaoAnterior: sessaoSalva.duracao_seg || 0,
+  };
+  const itensSalvos = sessaoSalva.itens || [];
+  exs.forEach(ex => {
+    const nSeries = ex.qtdserie || 3;
+    const repStr = String(ex.repeticoes || ex.qtdrepeticao || '12');
+    const perSerie = repStr.includes('/') ? repStr.split('/').map(s => s.trim()) : null;
+    const intStr = String(ex.intervalo || (ex.tempopausa ? _segParaMMSS(ex.tempopausa) : '01:00'));
+    const perInt = intStr.includes('/') ? intStr.split('/').map(x => x.trim()) : null;
+    const tecArr = Array.isArray(ex.tecnicas_por_serie) ? ex.tecnicas_por_serie : [];
+    const itemSalvo = itensSalvos.find(it => Number(it.idexercicio) === Number(ex.idexercicio));
+    const seriesSalvas = (itemSalvo && itemSalvo.series) || [];
+    const total = Math.max(nSeries, seriesSalvas.length);
+    sessaoAtual.dados[ex.idtreino] = Array.from({ length: total }, (_, i) => {
+      const s = seriesSalvas[i];
+      return {
+        peso: s ? (s.peso || '') : '', reps: s ? (s.reps || '') : '',
+        repTarget: perSerie ? (perSerie[i] || perSerie[perSerie.length - 1]) : repStr,
+        intervalo: perInt ? (perInt[i] || perInt[perInt.length - 1]) : intStr,
+        tecnica: (s && s.tec) || tecArr[i] || '',
+        feita: !!(s && (s.peso || s.reps)),
+      };
+    });
+  });
+  treinoStart = sessaoAtual.inicio;
+  _treinoStartSaved = sessaoAtual.inicio;
+  startTreinoTimer();
+  renderMusculacao();
+  trocarView('muscu');
+  iniciarMonitorInatividade();
+  salvarTreinoAtivo();
+  toast('Treino reaberto — continue de onde parou. 💪');
+}
+
 function renderFim(duracao, sessaoSalva) {
+  _ultimaSessaoFinalizada = sessaoSalva;
   const min = Math.floor(duracao/60), sec = duracao % 60;
   const _resultadoSalvo = _fimResultadoSalvo(sessaoSalva && sessaoSalva.idsessao);
   const mensagem = _resultadoSalvo ? _resultadoSalvo.mensagem : getMensagemFinal();
@@ -13686,6 +13823,16 @@ window.addEventListener('popstate', function(e) {
       history.pushState({ view: 'cardio-live' }, '', '');
       return;
     }
+  }
+  // "Finalizou sem querer?" — pedido do Luiz. Na tela de fim do treino, o
+  // gesto de voltar não sai direto: pergunta antes, com a chance de voltar
+  // e dar sequência (ver _confirmarVoltarDoFim/_voltarParaContinuarTreino,
+  // perto de renderFim). _executarFinalizacao já garante que continuar não
+  // duplica a sessão nem sorteia figurinha/frase novas.
+  if (window._viewAtual === 'fim' && _ultimaSessaoFinalizada) {
+    history.pushState({ view: 'fim' }, '', '');
+    _confirmarVoltarDoFim();
+    return;
   }
   // Com a folha do histórico aberta, voltar deve fechar a folha e parar por
   // aí. Sem isto, a tela de trás mudava por baixo enquanto a folha continuava

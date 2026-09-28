@@ -798,6 +798,44 @@ try {
             echo json_encode(['ok' => true]);
             exit;
         }
+        // Atualiza uma sessão de musculação JÁ existente — caso do aluno que
+        // finalizou sem querer, voltou pra dar sequência (mais séries, mais
+        // tempo) e finalizou de novo. Isso precisa CONTAR o trabalho extra,
+        // mas sem criar um 2º registro pro mesmo dia/ficha/divisão (o front-
+        // end decide se é um POST novo ou este PUT, ver _executarFinalizacao
+        // em aluno.html). ficha/divisão/data não mudam aqui — só o conteúdo
+        // do treino em si.
+        if ($method === 'PUT') {
+            $id = (int)($_GET['id'] ?? 0);
+            if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+            $st = $pdo->prepare("SELECT idatleta FROM intus_sessao WHERE idsessao = ? AND tipo = 'musculacao'");
+            $st->execute([$id]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$row) { http_response_code(404); echo json_encode(['error' => 'sessão não encontrada']); exit; }
+            if (!_checkAtletaAccess((int)$row['idatleta'])) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
+            $b = jsonBody();
+            $itens = isset($b['itens']) && is_array($b['itens']) ? json_encode($b['itens']) : null;
+            $naoContar = (int)($b['nao_contar'] ?? 0);
+            $pontos = ($naoContar ? 0 : 5.0);
+            $horaConcl = (isset($b['hora_conclusao']) && $b['hora_conclusao'] !== '') ? substr((string)$b['hora_conclusao'], 0, 5) : null;
+            $duracao = (int)($b['duracao_seg'] ?? 0);
+            $comentario = $b['comentario'] ?? null;
+            // alerta_duracao não é coluna da tabela (o POST também não grava
+            // — ver o INSERT logo acima): fica só no objeto local do app.
+            $st = $pdo->prepare("UPDATE intus_sessao SET duracao_seg = ?, comentario = ?, marcado_como_feito = ?, nao_contar = ?, pontos = ?, itens = ?, hora_conclusao = ? WHERE idsessao = ?");
+            $st->execute([
+                $duracao,
+                $comentario,
+                (int)($b['marcado_como_feito'] ?? 0),
+                $naoContar,
+                $pontos,
+                $itens,
+                $horaConcl,
+                $id,
+            ]);
+            echo json_encode(['idsessao' => $id, 'ok' => true]);
+            exit;
+        }
     }
 
     // ── CARDIO ──────────────────────────────────────────────────
