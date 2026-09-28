@@ -703,9 +703,10 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
   falhar. O `.htaccess` da raiz passou de `microphone=()` para `microphone=(self)`, porque não dava
   para confirmar daqui se a exceção da pasta valia na KingHost; `feedback-video/.htaccess` agora
   também manda `Cache-Control: no-cache`.
-- **Achado, não corrigido:** o mesmo cabeçalho da raiz tem `geolocation=()`, e o **Cardio ao vivo
-  por GPS** do `aluno.html` usa geolocalização. Na versão web do app, o GPS provavelmente está sendo
-  recusado. Confirmar com o Luiz antes de mudar.
+- **Corrigido em 28/09, com o OK do Luiz:** o `.htaccess` da raiz tinha `geolocation=()`, o que
+  recusava em silêncio o GPS na versão web do `aluno.html` (Cardio ao vivo e mapa de local do Feed).
+  Passou para `geolocation=(self)`. No app nativo (Capacitor) nada muda: ele não passa por esse
+  cabeçalho.
 - **`feedback/?v=<token>`**: página pública que o aluno abre pelo WhatsApp, sem login. Token de 32
   hex, impossível de adivinhar. Excluir a gravação derruba o link na hora.
 - **`app/api/feedbacks.php`** + tabela **`intus_feedback`** (tem `tipo`, pensada para receber
