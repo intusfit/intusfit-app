@@ -2378,10 +2378,18 @@ if ($action === 'anamnese') {
         $_antes = $linha ? json_decode((string)$linha['dados'], true) : null;
         $_mudou = ($_semRuido($_antes) !== $_semRuido($final));
 
-        if ($linha) {
-            $pdo->prepare("UPDATE intus_anamnese SET dados = ? WHERE idatleta = ?")->execute([$dados, $idatleta]);
-        } else {
+        // BUG real: intus_anamnese.updated_at tem ON UPDATE CURRENT_TIMESTAMP, e
+        // este UPDATE rodava sempre, mesmo quando $_mudou era falso (reenvio da
+        // cópia local, sem nada novo — ver comentário acima). Resultado: um
+        // registro de teste antigo (ex.: a anamnese de um aluno usada só pra
+        // testar o app) reaparecia como "atividade recente" toda vez que o
+        // dono reabria aquela tela, mesmo sem responder nada de novo — o
+        // UPDATE gravava o MESMO valor, mas "hoje" mesmo assim. Só grava de
+        // verdade quando algo mudou (ou quando o registro ainda não existe).
+        if (!$linha) {
             $pdo->prepare("INSERT INTO intus_anamnese (idatleta, dados) VALUES (?, ?)")->execute([$idatleta, $dados]);
+        } elseif ($_mudou) {
+            $pdo->prepare("UPDATE intus_anamnese SET dados = ? WHERE idatleta = ?")->execute([$dados, $idatleta]);
         }
         // Conta respostas de verdade, inclusive as que estao dentro de secoes
         // (comportamental, nutricional, rotina). Antes uma secao inteira com 11
