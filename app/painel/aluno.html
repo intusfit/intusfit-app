@@ -924,6 +924,7 @@
     }
     .spinner { width:36px;height:36px;border:3px solid rgba(255,255,255,.15);border-top-color:#7FFF00;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto; }
     @keyframes spin { to { transform:rotate(360deg); } }
+    .btn-spinner { display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:7px; }
   </style>
   <script>
     (function(){
@@ -1747,7 +1748,7 @@ function _shareConfirmarPublicar(destino) {
     '<div style="padding:6px 20px 4px;">' +
       '<div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:8px;">' + titulo + '</div>' +
       '<div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:16px;">' + texto + '</div>' +
-      '<button onclick="closeModal();_composeAcao(\'' + destino + '\')" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Confirmar e publicar</button>' +
+      '<button onclick="_travarEExecutar(event, function(){ closeModal(); return _composeAcao(\'' + destino + '\'); })" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Confirmar e publicar</button>' +
     '</div>'
   );
 }
@@ -2028,6 +2029,43 @@ function _limparPendente(chave) {
     if (Object.keys(f).length) localStorage.setItem(_FILA_SECOES + idAtleta, JSON.stringify(f));
     else localStorage.removeItem(_FILA_SECOES + idAtleta);
   } catch (e) {}
+}
+
+// ── TRAVA CONTRA CLIQUE DUPLO ────────────────────────────────────────────────
+// Bug real: postar/salvar/enviar qualquer coisa (fotos de avaliação, anamnese,
+// post do feed) nunca desabilitava o próprio botão — em rede lenta, um 2º
+// toque (ou o dedo escorregando) disparava a mesma gravação de novo antes da
+// 1ª terminar. Foi assim que a mesma leva de fotos da Diely virou várias
+// "avaliações" diferentes, todas com as mesmas fotos. _travarEExecutar troca
+// onclick="minhaFuncao()" por onclick="_travarEExecutar(event, minhaFuncao)":
+// trava o botão (desabilita + spinner) assim que aciona, só libera quando a
+// função terminar (sucesso ou erro), e ignora qualquer clique que chegue
+// enquanto já está travado — não empilha.
+function _travarEExecutar(ev, fn) {
+  var btn = ev && (ev.currentTarget || ev.target && ev.target.closest && ev.target.closest('button'));
+  if (btn) {
+    if (btn.disabled) return; // já processando — ignora o toque extra
+    btn.disabled = true;
+    if (btn.dataset.original === undefined) btn.dataset.original = btn.innerHTML;
+    btn.style.opacity = '.6';
+    btn.style.cursor = 'wait';
+    btn.innerHTML = '<span class="btn-spinner"></span>Enviando...';
+  }
+  var destravar = function () {
+    if (!btn) return;
+    // Alguns fluxos re-renderizam a tela inteira em caso de sucesso (o botão
+    // já não existe mais no DOM) — mexer num nó desanexado não quebra nada,
+    // só não tem efeito visual, que é o esperado.
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    if (btn.dataset.original !== undefined) btn.innerHTML = btn.dataset.original;
+  };
+  try {
+    var r = fn();
+    if (r && typeof r.then === 'function') { r.then(destravar, destravar); }
+    else destravar();
+  } catch (e) { destravar(); throw e; }
 }
 
 async function _salvarSecaoComAviso(chave, dados, rotulo) {
@@ -2348,10 +2386,16 @@ function toggleComentariosFeed(idpost) {
   _atualizarLinhaComentarios(idpost);
 }
 
+// Guarda por post: chamada tanto pelo botão "Enviar" quanto pelo Enter no
+// campo de texto — um clique + um Enter quase juntos (ou dois toques
+// rápidos) não podiam virar 2 comentários iguais.
+let _comentarioEnviando = {};
 async function enviarComentarioFeed(idpost) {
+  if (_comentarioEnviando[idpost]) return;
   const input = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
   const texto = input?.value?.trim();
   if (!texto) return;
+  _comentarioEnviando[idpost] = true;
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub', {
       method: 'POST',
@@ -2359,10 +2403,14 @@ async function enviarComentarioFeed(idpost) {
       body: JSON.stringify({ alvo_tipo: 'feed_post', alvo_id: Number(idpost), texto: texto }),
     });
     if (!r.ok) throw new Error('falhou');
-  } catch (e) { toast('Não consegui enviar o comentário.'); return; }
-  _comentariosAbertos[idpost] = true;
-  await carregarComentariosFeed([idpost]);
-  _atualizarLinhaComentarios(idpost);
+    _comentariosAbertos[idpost] = true;
+    await carregarComentariosFeed([idpost]);
+    _atualizarLinhaComentarios(idpost);
+  } catch (e) {
+    toast('Não consegui enviar o comentário.');
+  } finally {
+    _comentarioEnviando[idpost] = false;
+  }
 }
 
 // Gatilho ("Comentar" / "Ver N comentários" / "Ocultar comentários") — fica
@@ -3731,6 +3779,66 @@ function _scrollIndAtualizar() {
   _scrollIndTimer = setTimeout(() => { el.style.opacity = '0'; }, 1200);
 }
 window.addEventListener('scroll', _scrollIndAtualizar, { passive: true });
+
+// ═══════════════ BOTÃO FLUTUANTE "INÍCIO" (Home e Feed) ═══════════════
+// Pedido do Luiz: só aparece DEPOIS de rolar pelos posts (passar os 3
+// primeiros), não a rolagem inteira da tela — e some de novo ao chegar no
+// último post, porque ali embaixo já tem "Ver feed completo"/rodapé fazendo
+// esse papel. Fica fora do DOM (display:none, não só opacidade) enquanto
+// escondido: no topo ou no rodapé não pode sobrar sombra, borda nem marca
+// nenhuma — foi exatamente essa sobra visual que fez o Luiz tirar a barra
+// flutuante antiga (ver comentário do indicador lateral, acima).
+let _btnInicioTicking = false;
+function _btnInicioEl() {
+  let el = document.getElementById('btn-inicio-flutuante');
+  if (!el) {
+    el = document.createElement('button');
+    el.id = 'btn-inicio-flutuante';
+    el.type = 'button';
+    el.setAttribute('aria-label', 'Voltar ao início');
+    el.style.cssText = 'display:none;position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:80;width:46px;height:46px;border-radius:50%;border:none;align-items:center;justify-content:center;font-size:19px;line-height:1;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35);';
+    el.textContent = '🏠';
+    el.onclick = function () {
+      trocarView('home'); renderHome();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function _btnInicioAtualizar() {
+  if (_btnInicioTicking) return;
+  _btnInicioTicking = true;
+  requestAnimationFrame(function () {
+    _btnInicioTicking = false;
+    const view = window._viewAtual;
+    const jaExiste = document.getElementById('btn-inicio-flutuante');
+    let mostra = false;
+    if (view === 'home' || view === 'feed') {
+      const cards = document.querySelectorAll('[data-feed-card]');
+      if (cards.length >= 4) {
+        const passouTres = cards[2].getBoundingClientRect().bottom < 0;
+        const pertoDoUltimo = cards[cards.length - 1].getBoundingClientRect().bottom <= window.innerHeight + 60;
+        mostra = passouTres && !pertoDoUltimo;
+      }
+    }
+    if (!mostra) { if (jaExiste) jaExiste.style.display = 'none'; return; }
+    const btn = _btnInicioEl();
+    const isLight = document.body.classList.contains('tema-claro');
+    btn.style.background = isLight ? '#1a1a1a' : '#7FFF00';
+    btn.style.color = isLight ? '#fff' : '#0f1a00';
+    btn.style.display = 'flex';
+  });
+}
+window.addEventListener('scroll', _btnInicioAtualizar, { passive: true });
+// Sair de Home/Feed sem rolar (ex.: tocar direto em "Ranking") não dispara
+// scroll nenhum — sem isto o botão ficava preso na tela em cima de uma tela
+// que não é mais feed. Em vez de embrulhar o trocarView de novo (já tem duas
+// camadas — a original e o sistema de gesto de voltar, mais abaixo — mexer
+// nele é onde já nasceu bug sério nesta base), uma checagem leve e periódica
+// resolve sem tocar em nada disso: o pior caso é o botão sumir com até ~400ms
+// de atraso depois de trocar de tela, imperceptível.
+setInterval(_btnInicioAtualizar, 400);
 // Ícones de tipo de atividade (musculação/cardio) usados como MARCADOR
 // visual (calendário, dia da semana, cartão de sessão, indicadores de
 // Evoluções, abas do Ranking) — no tema claro trocam pra uma versão com
@@ -12129,7 +12237,7 @@ function abrirAnamnese() {
     '<div id="anamnese-form">' + formHtml + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
       '<div id="anamnese-auto" style="font-size:11.5px;color:' + (isLight?'#8a8a8a':'#777') + ';text-align:center;margin-bottom:10px;min-height:15px;"></div>' +
-      '<button class="btn btn-prim btn-full" onclick="salvarAnamnese()">Salvar Anamnese</button>' +
+      '<button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarAnamnese)">Salvar Anamnese</button>' +
     '</div>' + getFooterHtml(false);
   trocarView('anamnese');
   _ligarRascunhoAoDigitar();
@@ -12260,7 +12368,7 @@ function abrirComportamental() {
     '<p style="font-size:13px;color:' + (isLight?'#666':'#999') + ';margin-bottom:20px;line-height:1.5;">Suas respostas detalhadas e honestas ajudam a monitorar e adequar o acompanhamento de forma completa.</p>' +
     '<div id="comportamental-form">' + formHtml + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
-      '<button class="btn btn-prim btn-full" onclick="salvarComportamental()">Salvar Avaliação Comportamental</button>' +
+      '<button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarComportamental)">Salvar Avaliação Comportamental</button>' +
     '</div>' + getFooterHtml(false);
 }
 
@@ -12317,7 +12425,7 @@ function abrirFormRotina() {
     '<p style="font-size:13px;color:' + (isLight?'#666':'#999') + ';margin-bottom:20px;line-height:1.5;">Sobre seus hábitos diários e disponibilidade para treinar.</p>' +
     '<div id="rotina-form">' + rotinaItems + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
-      '<button class="btn btn-prim btn-full" onclick="salvarRotina()">Salvar Rotina</button>' +
+      '<button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarRotina)">Salvar Rotina</button>' +
     '</div>' + getFooterHtml(false);
 }
 
@@ -12364,7 +12472,7 @@ function abrirFormCircunferencias() {
       ${medidas.map(m => '<div><label style="font-size:10px;color:' + (isLight?'#555':'#aaa') + ';display:block;margin-bottom:3px;">' + m.label + '</label><input type="number" step="0.1" id="circ-' + m.id + '" placeholder="cm" style="width:100%;padding:8px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:6px;color:' + txtColor + ';font-size:12px;"/></div>').join('')}
     </div>
     <div style="margin-top:20px;margin-bottom:40px;">
-      <button class="btn btn-prim btn-full" onclick="salvarCircunferencias()">💾 Salvar Circunferências</button>
+      <button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarCircunferencias)">💾 Salvar Circunferências</button>
     </div>
     ${getFooterHtml(false)}
   `;
@@ -12469,7 +12577,7 @@ function abrirFormFotosPostural() {
   '</div>';
 
   html += '<div style="margin-top:20px;margin-bottom:40px;">' +
-    '<button class="btn btn-prim btn-full" onclick="enviarFotosAvaliacao()">Enviar Fotos</button>' +
+    '<button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, enviarFotosAvaliacao)">Enviar Fotos</button>' +
     '<p style="font-size:11px;color:#888;text-align:center;margin-top:8px;">Mínimo 1 foto. Toque nos quadros para tirar ou escolher.</p>' +
   '</div>' + getFooterHtml(false);
   container.innerHTML = html;
@@ -12582,7 +12690,7 @@ function abrirFormNutricional() {
     '<p style="font-size:13px;color:' + (isLight?'#666':'#999') + ';margin-bottom:20px;line-height:1.5;">Sobre seus hábitos alimentares. Ajuda o nutricionista a prescrever com mais precisão.</p>' +
     '<div id="nutri-form">' + formItems + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
-      '<button class="btn btn-prim btn-full" onclick="salvarNutricional()">Salvar Avaliação Nutricional</button>' +
+      '<button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarNutricional)">Salvar Avaliação Nutricional</button>' +
     '</div>' + getFooterHtml(false);
 }
 
@@ -12659,7 +12767,7 @@ function abrirFormAutoAvaliacao() {
       '</div>' +
     '</div>' +
     '<div style="margin-top:20px;margin-bottom:40px;">' +
-      '<button class="btn btn-prim btn-full" onclick="salvarAutoAvaliacao()" style="padding:14px;font-size:14px;font-weight:700;">Salvar Avaliação</button>' +
+      '<button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarAutoAvaliacao)" style="padding:14px;font-size:14px;font-weight:700;">Salvar Avaliação</button>' +
     '</div>' + getFooterHtml(false);
 
   container.innerHTML = html;
@@ -13127,7 +13235,7 @@ function renderPerfil() {
       </div>
 
       <div style="margin-top:20px;">
-        <button class="btn btn-prim btn-full" onclick="salvarPerfil()">💾 Salvar Perfil</button>
+        <button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarPerfil)">💾 Salvar Perfil</button>
       </div>
     </div>
 
