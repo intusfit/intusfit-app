@@ -1053,9 +1053,10 @@ function verAvaliacao(id) {
   if (av.fotos && Array.isArray(av.fotos) && av.fotos.length > 0) {
     fotosHtml = `
       <div class="modal-section-title">Fotos</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
         ${av.fotos.map(f => `<img src="${esc(f.url || f)}" class="foto-thumb" style="width:80px;height:80px;" onclick="window.open('${esc(f.url || f)}','_blank')"/>`).join('')}
       </div>
+      <button class="btn btn-secondary btn-sm" style="margin-bottom:12px;" onclick="usarFotosNoRelatorio(${Number(av.idavaliacao)})">📋 Usar no Relatório de Fotos</button>
     `;
   }
 
@@ -1116,6 +1117,31 @@ function verAvaliacao(id) {
       <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
     </div>
   `);
+}
+
+// Manda as fotos que o próprio aluno já enviou direto pro Relatório de
+// Fotos — pedido do Luiz pra não precisar baixar cada foto e subir de novo
+// lá. As fotos de avaliação já ficam como arquivo público de verdade em
+// /img/avaliacoes/ (ver _persistirFotos em catalogo.php), mesma origem
+// desta tela, então o relatório consegue buscar cada uma direto (fetch +
+// blob) sem precisar de token nem passar pelo Drive. A entrega é por
+// localStorage (chave lida uma única vez, e apagada assim que o relatório
+// consome) porque são potencialmente várias fotos — não cabem numa URL.
+const RELATORIO_FOTOS_IMPORT_KEY = 'intus-relatorio-fotos-importar';
+function usarFotosNoRelatorio(idavaliacao) {
+  const av = avaliacoes.find(x => Number(x.idavaliacao) === Number(idavaliacao));
+  if (!av || !Array.isArray(av.fotos) || !av.fotos.length) return;
+  const urls = av.fotos.map(f => (f && f.url) || f).filter(Boolean);
+  if (!urls.length) return;
+  try {
+    localStorage.setItem(RELATORIO_FOTOS_IMPORT_KEY, JSON.stringify({
+      nomeAluno: getNomeAtleta(av.idatleta),
+      dtavaliacao: av.dtavaliacao,
+      fotos: urls,
+    }));
+  } catch (e) { showToast('Não consegui preparar as fotos para o relatório.', 'error'); return; }
+  window.open('/relatorios-fotos/index.html', '_blank');
+  showToast('Abrindo o Relatório de Fotos com ' + urls.length + ' foto(s)...');
 }
 
 let metodoSelecionado = 'pollock7';
@@ -1241,7 +1267,7 @@ function abrirModalForm(idavaliacao) {
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarAvaliacao(${idavaliacao || 0})">Salvar</button>
+      <button id="btn-salvar-avaliacao" class="btn btn-primary" onclick="salvarAvaliacao(${idavaliacao || 0})">Salvar</button>
     </div>
   `);
 
@@ -1373,7 +1399,27 @@ function previewFotos(input) {
   }).join('');
 }
 
+// Trava contra clique duplo: fotos vão pro Drive antes de gravar a avaliação
+// (uploadFotosDrive, pode demorar), e sem isso um 2º toque no "Salvar"
+// enquanto a rede está lenta criava uma avaliação inteira de novo, com as
+// mesmas fotos — foi o que aconteceu com as fotos da Diely.
+let _salvandoAvaliacao = false;
 async function salvarAvaliacao(idavaliacao) {
+  if (_salvandoAvaliacao) return;
+  _salvandoAvaliacao = true;
+  const btnSalvar = document.getElementById('btn-salvar-avaliacao');
+  const htmlOriginal = btnSalvar ? btnSalvar.innerHTML : '';
+  if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.style.opacity = '.6'; btnSalvar.innerHTML = 'Salvando...'; }
+  try {
+    await _salvarAvaliacaoInterno(idavaliacao);
+  } finally {
+    _salvandoAvaliacao = false;
+    if (btnSalvar && document.body.contains(btnSalvar)) {
+      btnSalvar.disabled = false; btnSalvar.style.opacity = ''; btnSalvar.innerHTML = htmlOriginal;
+    }
+  }
+}
+async function _salvarAvaliacaoInterno(idavaliacao) {
   const idatleta = Number(document.getElementById('av-atleta')?.value);
   const dtavaliacao = document.getElementById('av-data')?.value;
   if (!idatleta) return showToast('Selecione um aluno', 'error');

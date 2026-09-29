@@ -1565,6 +1565,50 @@ function entrarNaFerramenta(){
     aplicarRestricaoMarcaDagua();
     carregarListaAvaliacoes();
   }).catch(function(){});
+  _importarFotosDeAvaliacaoSePendente();
+}
+
+// ---------- Importar fotos direto de uma avaliação (sem baixar e re-enviar) ----------
+// Pedido do Luiz: a tela de Avaliações manda as fotos que o próprio aluno já
+// enviou pra cá (botão "Usar no Relatório de Fotos", ver usarFotosNoRelatorio
+// em avaliacoes.html), por localStorage — são potencialmente várias fotos,
+// não cabem numa URL. As fotos de avaliação já são arquivo público de
+// verdade (mesma origem desta tela, ver _persistirFotos em catalogo.php),
+// então dá pra buscar cada uma (fetch + blob) sem precisar de token nem
+// passar pelo Drive — loadImageIntoSlot já aceita qualquer Blob, não só
+// File, então não precisou mudar a função que a foto local já usa.
+var RELATORIO_FOTOS_IMPORT_KEY = 'intus-relatorio-fotos-importar';
+function _importarFotosDeAvaliacaoSePendente(){
+  var raw;
+  try { raw = localStorage.getItem(RELATORIO_FOTOS_IMPORT_KEY); } catch (e) { return; }
+  if (!raw) return;
+  try { localStorage.removeItem(RELATORIO_FOTOS_IMPORT_KEY); } catch (e) {}
+  var payload;
+  try { payload = JSON.parse(raw); } catch (e) { return; }
+  var urls = Array.isArray(payload && payload.fotos) ? payload.fotos : [];
+  if (!urls.length) return;
+  if (payload.nomeAluno) {
+    var inputAlunoEl = document.getElementById('input-aluno');
+    if (inputAlunoEl) inputAlunoEl.value = payload.nomeAluno;
+  }
+  // Cada foto vira uma linha nova, na coluna "Antes" — são fotos da MESMA
+  // sessão de avaliação, não um par antes/depois pronto; o professor arrasta
+  // a foto de referência anterior pra coluna "Depois" de cada linha, se
+  // quiser montar a comparação.
+  var pendentes = urls.length, falhas = 0;
+  urls.forEach(function(url, i){
+    if (i >= ROWS_COUNT) { falhas++; pendentes--; return; }
+    mostrarLinha(i);
+    fetch(url).then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.blob(); })
+      .then(function(blob){ loadImageIntoSlot(rows[i], 0, blob); })
+      .catch(function(){ falhas++; })
+      .then(function(){
+        pendentes--;
+        if (pendentes === 0 && falhas > 0) {
+          alert('Importei as fotos, mas ' + falhas + ' não carregaram (link indisponível).');
+        }
+      });
+  });
 }
 
 function checarSessao(){
