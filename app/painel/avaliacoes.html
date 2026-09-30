@@ -1056,7 +1056,12 @@ function verAvaliacao(id) {
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
         ${av.fotos.map(f => `<img src="${esc(f.url || f)}" class="foto-thumb" style="width:80px;height:80px;" onclick="window.open('${esc(f.url || f)}','_blank')"/>`).join('')}
       </div>
-      <button class="btn btn-secondary btn-sm" style="margin-bottom:12px;" onclick="usarFotosNoRelatorio(${Number(av.idavaliacao)})">📋 Usar no Relatório de Fotos</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <span style="font-size:11px;color:var(--text-muted);">📋 Usar no Relatório de Fotos, como:</span>
+        <button class="btn btn-secondary btn-sm" onclick="usarFotosNoRelatorio(${Number(av.idavaliacao)}, 'antes')">Coluna Antes</button>
+        <button class="btn btn-secondary btn-sm" onclick="usarFotosNoRelatorio(${Number(av.idavaliacao)}, 'depois')">Coluna Depois</button>
+        <button class="btn btn-secondary btn-sm" onclick="usarFotosNoRelatorio(${Number(av.idavaliacao)}, 'nova')">Linha nova</button>
+      </div>
     `;
   }
 
@@ -1128,7 +1133,10 @@ function verAvaliacao(id) {
 // localStorage (chave lida uma única vez, e apagada assim que o relatório
 // consome) porque são potencialmente várias fotos — não cabem numa URL.
 const RELATORIO_FOTOS_IMPORT_KEY = 'intus-relatorio-fotos-importar';
-function usarFotosNoRelatorio(idavaliacao) {
+// destino: 'antes' | 'depois' preenchem essa coluna nas linhas já existentes do
+// relatório (empurrando pra baixo, sem linha, quem já tiver foto ali); 'nova'
+// (padrão) cria uma linha nova pra cada foto, como sempre foi.
+function usarFotosNoRelatorio(idavaliacao, destino) {
   const av = avaliacoes.find(x => Number(x.idavaliacao) === Number(idavaliacao));
   if (!av || !Array.isArray(av.fotos) || !av.fotos.length) return;
   const urls = av.fotos.map(f => (f && f.url) || f).filter(Boolean);
@@ -1138,6 +1146,7 @@ function usarFotosNoRelatorio(idavaliacao) {
       nomeAluno: getNomeAtleta(av.idatleta),
       dtavaliacao: av.dtavaliacao,
       fotos: urls,
+      destino: destino === 'antes' || destino === 'depois' ? destino : 'nova',
     }));
   } catch (e) { showToast('Não consegui preparar as fotos para o relatório.', 'error'); return; }
   window.open('/relatorios-fotos/index.html', '_blank');

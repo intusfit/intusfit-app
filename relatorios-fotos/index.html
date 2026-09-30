@@ -223,6 +223,7 @@ input{font-family:inherit}
       </span>
       <button class="btn-acao" id="btn-salvar-avaliacao">Salvar avaliação</button>
       <button class="btn-secundario" id="btn-abrir-lista">Avaliações salvas</button>
+      <button class="btn-secundario" id="btn-importar-avaliacao" title="Trazer fotos de uma avaliação física (medidas) já registrada do aluno">Importar de avaliação</button>
       <button class="btn-secundario" id="btn-nova-avaliacao">Novo (limpar tudo)</button>
       <span class="status-zip" id="status-salvar"></span>
     </div>
@@ -235,6 +236,14 @@ input{font-family:inherit}
     <button class="btn-mini" id="btn-fechar-lista">Fechar ✕</button>
   </div>
   <div id="lista-avaliacoes"></div>
+</div>
+
+<div class="painel-lista" id="painel-importar-avaliacao" hidden>
+  <div class="painel-lista-topo">
+    <span class="tb-titulo">Importar fotos de uma avaliação</span>
+    <button class="btn-mini" id="btn-fechar-importar">Fechar ✕</button>
+  </div>
+  <div id="importar-avaliacao-corpo"></div>
 </div>
 
 <div class="toolbar">
@@ -389,6 +398,125 @@ function makeRow(i){
 
 var rows = [];
 for (var i = 0; i < ROWS_COUNT; i++) rows.push(makeRow(i));
+
+// ---------- Desfazer (Ctrl+Z) ----------
+// Pedido do Luiz: desfazer pro relatório inteiro, não só por foto. Em vez de
+// marcar "antes de mudar X" em cada botão/campo (são muitos), fica de olho no
+// estado inteiro de tempos em tempos: se mudou desde a última olhada, guarda
+// o estado ANTERIOR na pilha. Isso também junta digitação/arraste rápido num
+// só passo de desfazer, que é o esperado. Não cobre abrir outro relatório
+// salvo (a pilha é zerada nesse momento — desfazer não deveria voltar pra
+// dentro de OUTRO relatório).
+var UNDO_LIMITE = 50;
+var UNDO_INTERVALO_MS = 600;
+var undoStack = [];
+var undoUltimaAssinatura = null;
+var undoUltimoSnapshot = null;
+var undoRestaurando = false;
+
+function undoClonarSlot(slot){
+  return {
+    tag: slot.tag, img: slot.img, naturalW: slot.naturalW, naturalH: slot.naturalH,
+    z: slot.z, panX: slot.panX, panY: slot.panY,
+    grade: slot.grade, gradeV: slot.gradeV, gradeH: slot.gradeH,
+    gradeLineOverrides: JSON.parse(JSON.stringify(slot.gradeLineOverrides || {})),
+    comment: slot.comment, annotations: JSON.parse(JSON.stringify(slot.annotations || [])),
+    corAtual: slot.corAtual
+  };
+}
+function undoSnapshotEstado(){
+  return {
+    alunoNome: document.getElementById('input-aluno').value,
+    appBg: appBg, incluirMarca: incluirMarca,
+    linhas: rows.slice(0, linhasVisiveis).map(function(row){
+      return { label: row.label, width: row.width, height: row.height, savedOnce: row.savedOnce, slots: row.slots.map(undoClonarSlot) };
+    })
+  };
+}
+function undoAssinaturaEstado(){
+  // Igual ao snapshot, mas so com valor comparavel (img -> src) pra dar pra
+  // comparar com JSON.stringify sem precisar andar objeto por objeto.
+  return JSON.stringify({
+    alunoNome: document.getElementById('input-aluno').value,
+    appBg: appBg, incluirMarca: incluirMarca,
+    linhas: rows.slice(0, linhasVisiveis).map(function(row){
+      return {
+        label: row.label, width: row.width, height: row.height,
+        slots: row.slots.map(function(s){
+          return { tag: s.tag, imgSrc: s.img ? s.img.src : null, z: s.z, panX: s.panX, panY: s.panY,
+                   grade: s.grade, gradeV: s.gradeV, gradeH: s.gradeH, gradeLineOverrides: s.gradeLineOverrides,
+                   comment: s.comment, annotations: s.annotations };
+        })
+      };
+    })
+  });
+}
+function undoSincronizar(){
+  if (undoRestaurando) return;
+  if (document.getElementById('app').hidden) return;
+  var assinaturaAtual = undoAssinaturaEstado();
+  if (undoUltimaAssinatura !== null && assinaturaAtual !== undoUltimaAssinatura) {
+    undoStack.push(undoUltimoSnapshot);
+    if (undoStack.length > UNDO_LIMITE) undoStack.shift();
+  }
+  undoUltimaAssinatura = assinaturaAtual;
+  undoUltimoSnapshot = undoSnapshotEstado();
+}
+function undoLimparHistorico(){
+  undoStack = [];
+  undoUltimaAssinatura = null;
+  undoUltimoSnapshot = null;
+}
+function desfazer(){
+  undoSincronizar();
+  if (!undoStack.length) return;
+  var estado = undoStack.pop();
+  undoRestaurando = true;
+  try {
+    document.getElementById('input-aluno').value = estado.alunoNome;
+    appBg = estado.appBg; incluirMarca = estado.incluirMarca;
+    document.querySelectorAll('[data-bg]').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-bg') === appBg); });
+    document.getElementById('chk-marca').checked = incluirMarca;
+
+    var alvo = estado.linhas.length;
+    if (alvo > linhasVisiveis) {
+      mostrarLinha(alvo - 1);
+    } else if (alvo < linhasVisiveis) {
+      for (var i = linhasVisiveis - 1; i >= alvo; i--){
+        if (rows[i].el.parentNode) rows[i].el.parentNode.removeChild(rows[i].el);
+      }
+      linhasVisiveis = alvo;
+    }
+    estado.linhas.forEach(function(dados, idx){
+      var row = rows[idx];
+      row.label = dados.label; row.els.label.value = dados.label;
+      row.width = dados.width; row.height = dados.height;
+      row.els.w.value = dados.width; row.els.h.value = dados.height;
+      row.savedOnce = dados.savedOnce; row.dirty = true;
+      row.slots = dados.slots.map(function(s){ return Object.assign(makeSlot(s.tag), s); });
+      rebuildRowSlots(row);
+      applyDimensions(row, dados.width, dados.height, true);
+    });
+    atualizarBotaoAdd();
+  } finally {
+    undoRestaurando = false;
+  }
+  undoUltimoSnapshot = undoSnapshotEstado();
+  undoUltimaAssinatura = undoAssinaturaEstado();
+}
+setInterval(undoSincronizar, UNDO_INTERVALO_MS);
+// Clique é ação discreta (um botão = um passo de desfazer) e vale registrar na
+// hora, sem esperar o intervalo. Digitação fica só por conta do intervalo de
+// propósito — assim uma rajada de teclas conta como um passo só ao desfazer.
+document.addEventListener('click', undoSincronizar, true);
+document.addEventListener('keydown', function(e){
+  var teclaZ = e.key === 'z' || e.key === 'Z';
+  if (!teclaZ || !(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+  var tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return; // deixa o desfazer nativo do campo de texto agir
+  e.preventDefault();
+  desfazer();
+});
 
 // ---------- Seleção de foto (rolagem do mouse só dá zoom na foto selecionada) ----------
 var slotAtivo = null;
@@ -842,6 +970,77 @@ function reordenarSlotsNaLinha(row, origemIdx, destinoIdx){
   row.slots.splice(destinoIdx, 0, movido);
   row.dirty = true;
   rebuildRowSlots(row);
+}
+
+// ---------- Importar fotos de uma avaliação como coluna Antes/Depois/nova ----------
+// destino 'antes' (slot 0) ou 'depois' (slot 1): uma foto por linha, na ordem das
+// linhas já visíveis. Se a linha alvo já tiver foto naquela coluna, EMPURRA essa
+// linha (e as de baixo) uma posição pra baixo pra abrir espaço — nada se perde e
+// nada é sobrescrito, só desloca. destino 'nova': cada foto vira uma linha nova,
+// sempre depois das que já existem (nunca sobrescreve as de cima).
+function aplicarImportacaoColuna(urls, destino){
+  urls = (urls || []).filter(Boolean);
+  if (!urls.length) return;
+
+  if (destino !== 'antes' && destino !== 'depois') {
+    var inicioNova = linhasVisiveis;
+    if (inicioNova + urls.length > ROWS_COUNT) {
+      alert('Só cabem mais ' + Math.max(0, ROWS_COUNT - inicioNova) + ' linha(s) nova(s) neste relatório (máximo de ' + ROWS_COUNT + '). Importe menos fotos ou libere espaço.');
+      return;
+    }
+    urls.forEach(function(url, i){
+      var idx = inicioNova + i;
+      mostrarLinha(idx);
+      _carregarFotoImportadaNoSlot(rows[idx], 0, url);
+    });
+    return;
+  }
+
+  var slotIdx = destino === 'antes' ? 0 : 1;
+  // Simula a operação inteira ANTES de tocar em qualquer coisa — se não cabe
+  // (passaria de ROWS_COUNT linhas), avisa e não faz nada pela metade.
+  var ocupacao = [];
+  for (var i = 0; i < linhasVisiveis; i++) ocupacao.push(!!(rows[i].slots[slotIdx] && rows[i].slots[slotIdx].img));
+  var totalLinhas = linhasVisiveis;
+  var operacoes = [];
+  for (var u = 0; u < urls.length; u++){
+    var pos = u;
+    if (pos >= totalLinhas || !ocupacao[pos]) {
+      operacoes.push({ pos: pos, empurra: false });
+      ocupacao[pos] = true;
+      if (pos >= totalLinhas) totalLinhas++;
+    } else {
+      if (totalLinhas + 1 > ROWS_COUNT) {
+        alert('Não cabe: importar essas ' + urls.length + ' fotos na coluna "' + (destino === 'antes' ? 'Antes' : 'Depois') + '" passaria de ' + ROWS_COUNT + ' comparativos. Libere espaço (remova ou junte alguma linha) e tente de novo.');
+        return;
+      }
+      ocupacao.splice(pos, 0, true);
+      operacoes.push({ pos: pos, empurra: true });
+      totalLinhas++;
+    }
+  }
+
+  operacoes.forEach(function(op, u){
+    if (op.empurra) inserirLinhaEmPosicao(op.pos);
+    else if (op.pos >= linhasVisiveis) mostrarLinha(op.pos);
+    _carregarFotoImportadaNoSlot(rows[op.pos], slotIdx, urls[u]);
+  });
+}
+
+// Abre uma linha vazia na posição idx, empurrando o conteúdo das linhas idx..fim
+// uma posição pra baixo (revela uma linha nova no final pra sobrar espaço).
+function inserirLinhaEmPosicao(idx){
+  mostrarLinha(linhasVisiveis);
+  for (var j = linhasVisiveis - 1; j > idx; j--){
+    aplicarConteudoLinha(rows[j], extrairConteudoLinha(rows[j - 1]));
+  }
+  aplicarConteudoLinha(rows[idx], { label: '', width: rows[idx].width, height: rows[idx].height, slots: [makeSlot('Antes'), makeSlot('Depois')], savedOnce: false });
+}
+
+function _carregarFotoImportadaNoSlot(row, idx, url){
+  fetch(url).then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.blob(); })
+    .then(function(blob){ loadImageIntoSlot(row, idx, blob); })
+    .catch(function(){ alert('Não consegui carregar uma das fotos importadas (link indisponível).'); });
 }
 
 function adicionarSlot(row){
@@ -1591,24 +1790,7 @@ function _importarFotosDeAvaliacaoSePendente(){
     var inputAlunoEl = document.getElementById('input-aluno');
     if (inputAlunoEl) inputAlunoEl.value = payload.nomeAluno;
   }
-  // Cada foto vira uma linha nova, na coluna "Antes" — são fotos da MESMA
-  // sessão de avaliação, não um par antes/depois pronto; o professor arrasta
-  // a foto de referência anterior pra coluna "Depois" de cada linha, se
-  // quiser montar a comparação.
-  var pendentes = urls.length, falhas = 0;
-  urls.forEach(function(url, i){
-    if (i >= ROWS_COUNT) { falhas++; pendentes--; return; }
-    mostrarLinha(i);
-    fetch(url).then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.blob(); })
-      .then(function(blob){ loadImageIntoSlot(rows[i], 0, blob); })
-      .catch(function(){ falhas++; })
-      .then(function(){
-        pendentes--;
-        if (pendentes === 0 && falhas > 0) {
-          alert('Importei as fotos, mas ' + falhas + ' não carregaram (link indisponível).');
-        }
-      });
-  });
+  aplicarImportacaoColuna(urls, payload.destino);
 }
 
 function checarSessao(){
@@ -1784,6 +1966,7 @@ function garantirSlotsNaLinha(row, count){
 function abrirAvaliacao(id){
   apiGet('/relatorios_fotos.php?action=obter&id=' + id).then(function(data){
     if (!data.ok) { alert('Não consegui abrir: ' + (data.erro || '')); return; }
+    undoLimparHistorico(); // desfazer nao deve voltar pra dentro de outro relatorio
     resetarEditor();
     var rel = data.relatorio;
     currentReportId = rel.id;
@@ -1836,6 +2019,58 @@ document.getElementById('btn-nova-avaliacao').addEventListener('click', function
   if (!confirm('Limpar tudo e começar uma avaliação nova? O que não foi salvo se perde.')) return;
   resetarEditor();
 });
+
+// ---------- Importar fotos de uma avaliação física (medidas) já registrada ----------
+// Pedido do Luiz: além de vir de lá pra cá (usarFotosNoRelatorio, ver acima),
+// também dá pra puxar direto de dentro do relatório, sem trocar de aba.
+document.getElementById('btn-importar-avaliacao').addEventListener('click', function(){
+  document.getElementById('painel-avaliacoes').hidden = true;
+  abrirPainelImportarAvaliacao();
+});
+document.getElementById('btn-fechar-importar').addEventListener('click', function(){
+  document.getElementById('painel-importar-avaliacao').hidden = true;
+});
+
+function abrirPainelImportarAvaliacao(){
+  var painel = document.getElementById('painel-importar-avaliacao');
+  var corpo = document.getElementById('importar-avaliacao-corpo');
+  painel.hidden = false;
+  if (!alunoSelecionadoId) {
+    corpo.innerHTML = '<p class="aviso">Escolha o aluno no campo "Nome do aluno" acima (clique num item da lista de sugestões que aparece) e abra esta lista de novo.</p>';
+    return;
+  }
+  corpo.innerHTML = '<p class="aviso">Carregando avaliações do aluno...</p>';
+  apiGet('/catalogo.php?action=avaliacoes&atleta=' + alunoSelecionadoId).then(function(lista){
+    lista = Array.isArray(lista) ? lista.filter(function(a){ return Array.isArray(a.fotos) && a.fotos.length; }) : [];
+    if (!lista.length) { corpo.innerHTML = '<p class="aviso">Esse aluno não tem nenhuma avaliação física com fotos.</p>'; return; }
+    corpo.innerHTML = '';
+    lista.forEach(function(av){
+      var item = document.createElement('div');
+      item.className = 'row-card';
+      var dt = av.dtavaliacao ? new Date(av.dtavaliacao + 'T00:00:00').toLocaleDateString('pt-BR') : '(sem data)';
+      item.innerHTML =
+        '<div class="row-top"><strong>' + dt + '</strong>' +
+        '<span style="margin-left:8px;color:var(--muted)">' + av.fotos.length + ' foto(s)</span></div>' +
+        '<div class="tb-linha" style="margin-top:8px;">' +
+        '<span style="font-size:12px;color:var(--muted);align-self:center;">Importar como:</span>' +
+        '<button type="button" class="btn-mini btn-imp-antes">Coluna Antes</button>' +
+        '<button type="button" class="btn-mini btn-imp-depois">Coluna Depois</button>' +
+        '<button type="button" class="btn-mini btn-imp-nova">Linha nova</button>' +
+        '</div>';
+      item.querySelector('.btn-imp-antes').addEventListener('click', function(){ confirmarEImportarAvaliacao(av, 'antes'); });
+      item.querySelector('.btn-imp-depois').addEventListener('click', function(){ confirmarEImportarAvaliacao(av, 'depois'); });
+      item.querySelector('.btn-imp-nova').addEventListener('click', function(){ confirmarEImportarAvaliacao(av, 'nova'); });
+      corpo.appendChild(item);
+    });
+  }).catch(function(){ corpo.innerHTML = '<p class="aviso">Não consegui carregar as avaliações desse aluno.</p>'; });
+}
+
+function confirmarEImportarAvaliacao(av, destino){
+  var rotulo = destino === 'antes' ? 'coluna "Antes"' : destino === 'depois' ? 'coluna "Depois"' : 'linha(s) nova(s)';
+  if (!confirm('Importar ' + av.fotos.length + ' foto(s) dessa avaliação como ' + rotulo + '?')) return;
+  document.getElementById('painel-importar-avaliacao').hidden = true;
+  aplicarImportacaoColuna(av.fotos, destino);
+}
 
 // ---------- Busca de alunos cadastrados (autocomplete) ----------
 function renderSugestoesAlunos(lista){
