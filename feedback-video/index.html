@@ -485,12 +485,20 @@ function estadoPermissao(nome){
   return navigator.permissions.query({ name: nome }).then(function(r){ return r.state; }, function(){ return '?'; });
 }
 var NOME_ESTADO = { granted: 'liberado', prompt: 'vai perguntar', denied: 'BLOQUEADO', '?': 'não informado' };
+function contarAparelhos(){
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve(null);
+  return navigator.mediaDevices.enumerateDevices().then(function(l){
+    return { cams: l.filter(function(d){ return d.kind === 'videoinput'; }).length, mics: l.filter(function(d){ return d.kind === 'audioinput'; }).length };
+  }, function(){ return null; });
+}
 function atualizarDiagnostico(){
-  Promise.all([estadoPermissao('microphone'), estadoPermissao('camera')]).then(function(e){
+  Promise.all([estadoPermissao('microphone'), estadoPermissao('camera'), contarAparelhos()]).then(function(e){
     document.getElementById('diagnostico').textContent =
       'Diagnóstico: ' + NAV + ' ' + NAV_VERSAO + ' · microfone: ' + NOME_ESTADO[e[0]] + ' · câmera: ' + NOME_ESTADO[e[1]] +
+      (e[2] ? ' · aparelhos vistos: ' + e[2].cams + ' câmera(s), ' + e[2].mics + ' microfone(s)' : '') +
       ' · política do site: ' + (bloqueadoPeloSite('microphone') || bloqueadoPeloSite('camera') ? 'BLOQUEANDO' : 'ok') +
-      ' · gravação: ' + (window.MediaRecorder ? (escolherMime().indexOf('mp4') >= 0 ? 'MP4' : 'WebM') : 'sem suporte');
+      ' · gravação: ' + (window.MediaRecorder ? (escolherMime().indexOf('mp4') >= 0 ? 'MP4' : 'WebM') : 'sem suporte') +
+      (ultimoErroMidia ? ' · último erro: ' + ultimoErroMidia : '');
   });
 }
 ['microphone', 'camera'].forEach(function(n){
@@ -498,6 +506,13 @@ function atualizarDiagnostico(){
     navigator.permissions.query({ name: n }).then(function(r){ r.onchange = atualizarDiagnostico; }, function(){});
 });
 
+// botões dentro do aviso vermelho ("Gravar sem a câmera" / "Gravar sem o microfone")
+document.getElementById('erro-gravar').addEventListener('click', function(e){
+  var b = e.target.closest && e.target.closest('[data-acao]'); if (!b) return;
+  if (b.dataset.acao === 'sem-camera') { modo = 'tela'; atualizarOpcoesModo(); }
+  if (b.dataset.acao === 'sem-mic') document.getElementById('chk-mic').checked = false;
+  comecar();
+});
 function erroHtml(html){ var el = document.getElementById('erro-gravar'); el.innerHTML = html; el.hidden = !html; }
 // Passo a passo para liberar, no navegador que o professor está usando.
 function instrucoesLiberar(oque){
@@ -567,6 +582,42 @@ function videoDe(stream){
 }
 function par(n){ return Math.max(2, Math.round(n / 2) * 2); }   // H.264 exige largura/altura pares
 
+// ---------- abrir microfone/câmera ----------
+// Pede os dois juntos (um pedido só). Se o aparelho falhar ("não abriu"), tenta cada um
+// separado — e a câmera também sem exigir resolução, porque alguns drivers de webcam
+// recusam a resolução pedida. Assim dá para dizer QUAL dos dois falhou (antes a mensagem
+// era "câmera ou microfone") e seguir sem o que não abriu.
+var FALHA_APARELHO = /NotReadable|Abort|Overconstrained|TrackStart/;
+var ultimoErroMidia = '';
+function abrirMicCamera(querMic, querCam){
+  var gum = function(c){ return navigator.mediaDevices.getUserMedia(c); };
+  var cMic = querMic ? { echoCancellation: true, noiseSuppression: true } : false;
+  var cCam = querCam ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false;
+  var abrirCam = function(){ return gum({ video: cCam }).catch(function(e){ if (FALHA_APARELHO.test(e.name)) return gum({ video: true }); throw e; }); };
+  return gum({ audio: cMic, video: cCam }).catch(function(e){
+    ultimoErroMidia = e.name + (e.message ? ': ' + e.message : '');
+    if (!FALHA_APARELHO.test(e.name)) throw e;
+    var r = {};
+    var pMic = querMic ? gum({ audio: cMic }).then(function(st){ r.mic = st; }, function(er){ r.erroMic = er; }) : Promise.resolve();
+    return pMic.then(function(){
+      return querCam ? abrirCam().then(function(st){ r.cam = st; }, function(er){ r.erroCam = er; }) : null;
+    }).then(function(){
+      if (!r.erroMic && !r.erroCam) {                 // separados funcionaram: junta num stream só
+        var tracks = [];
+        if (r.mic) tracks = tracks.concat(r.mic.getTracks());
+        if (r.cam) tracks = tracks.concat(r.cam.getTracks());
+        return new MediaStream(tracks);
+      }
+      pararTracks(r.mic); pararTracks(r.cam);
+      var errReal = r.erroCam || r.erroMic;
+      ultimoErroMidia = errReal.name + (errReal.message ? ': ' + errReal.message : '');
+      var err = new Error(errReal.message); err.name = 'NotReadableError';
+      err.falhouMic = !!r.erroMic; err.falhouCam = !!r.erroCam;
+      throw err;
+    });
+  });
+}
+
 // ---------- começar: permissões -> escolha da tela -> contagem -> grava ----------
 document.getElementById('btn-comecar').addEventListener('click', comecar);
 
@@ -603,10 +654,7 @@ function comecar(){
         passo('Ainda esperando a permissão de ' + oque + '…');
         erroHtml(instrucoesLiberar(oque).replace('por isso o pedido não aparece', 'se o pedido não apareceu'));
       }, 8000);
-      return navigator.mediaDevices.getUserMedia({
-        audio: querMic ? { echoCancellation: true, noiseSuppression: true } : false,
-        video: querCam ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false
-      });
+      return abrirMicCamera(querMic, querCam);
     });
   }
   pCam.then(function(cam){
@@ -638,8 +686,23 @@ function comecar(){
       falhar(instrucoesLiberar(oque));
     else if (nome === 'NotFoundError' || nome === 'OverconstrainedError')
       falhar('Não achei ' + (querCam ? 'câmera' : 'microfone') + ' neste computador.' + (querCam && modo === 'ambos' ? ' Escolha "Só a tela" para gravar sem a câmera.' : ''));
-    else if (nome === 'NotReadableError' || nome === 'AbortError')
-      falhar('<b>A câmera ou o microfone não abriu.</b> Pode estar em uso por outro programa (Zoom, Meet, Teams): feche-o e tente de novo. No Windows, confira também Configurações → Privacidade e segurança → Câmera/Microfone → "Permitir que aplicativos da área de trabalho acessem".');
+    else if (FALHA_APARELHO.test(nome)) {
+      var soCam = e.falhouCam && !e.falhouMic, soMic = e.falhouMic && !e.falhouCam;
+      var qual = soCam ? 'A câmera não abriu' + (querMic ? ' (o microfone está funcionando)' : '')
+               : soMic ? 'O microfone não abriu' + (querCam ? ' (a câmera está funcionando)' : '')
+               : 'A câmera e o microfone não abriram';
+      var aparelho = soMic ? 'o microfone' : 'a câmera';
+      falhar('<b>' + qual + '.</b> O ' + NAV + ' tem permissão, mas o Windows não conseguiu ligar ' + aparelho + '. Causas mais comuns:' +
+        '<ol>' +
+          '<li>Outro programa está usando ' + aparelho + ': Zoom, Meet, Teams, WhatsApp Desktop, OBS, o app Câmera do Windows. Feche-o de vez (inclusive perto do relógio, na bandeja).</li>' +
+          '<li>Outra aba do navegador está com ' + aparelho + ' ligada, inclusive outra aba desta ferramenta.</li>' +
+          '<li>Windows: Configurações → Privacidade e segurança → ' + (soMic ? 'Microfone' : 'Câmera') + ' → ligue "Permitir que aplicativos da área de trabalho acessem".</li>' +
+          '<li>Webcam USB: tire e coloque de volta na porta, e tente de novo.</li>' +
+        '</ol>' +
+        (soCam && modo === 'ambos' ? '<div class="linha-botoes" style="margin-top:10px"><button class="btn-secundario" data-acao="sem-camera">Gravar sem a câmera (só a tela + microfone)</button></div>' : '') +
+        (soMic ? '<div class="linha-botoes" style="margin-top:10px"><button class="btn-secundario" data-acao="sem-mic">Gravar sem o microfone</button></div>' : '') +
+        '<p class="diagnostico" style="margin-top:8px">Mensagem do navegador: ' + esc(ultimoErroMidia) + '</p>');
+    }
     else falhar('Não consegui começar a gravação: ' + esc(e && e.message ? e.message : String(e)));
   });
 }

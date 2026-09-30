@@ -703,6 +703,13 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
   falhar. O `.htaccess` da raiz passou de `microphone=()` para `microphone=(self)`, porque não dava
   para confirmar daqui se a exceção da pasta valia na KingHost; `feedback-video/.htaccess` agora
   também manda `Cache-Control: no-cache`.
+- **Revisão 3 (30/09), Opera 136 no Windows:** com as permissões já liberadas, apareceu "A câmera ou
+  o microfone não abriu" (`NotReadableError`: o Windows não conseguiu ligar o aparelho). Agora
+  `abrirMicCamera()` pede os dois juntos e, se o aparelho falhar, tenta cada um separado (a câmera
+  também sem exigir resolução). Se separados funcionam, grava direto. Se não, diz QUAL falhou e
+  oferece "Gravar sem a câmera" / "Gravar sem o microfone". O diagnóstico mostra quantas câmeras e
+  microfones o sistema enxerga e o último erro exato do navegador. **A causa real no computador do
+  Luiz ainda não foi confirmada**: peça o print do aviso novo.
 - **Corrigido em 28/09, com o OK do Luiz:** o `.htaccess` da raiz tinha `geolocation=()`, o que
   recusava em silêncio o GPS na versão web do `aluno.html` (Cardio ao vivo e mapa de local do Feed).
   Passou para `geolocation=(self)`. No app nativo (Capacitor) nada muda: ele não passa por esse
