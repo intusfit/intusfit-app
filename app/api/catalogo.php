@@ -202,6 +202,10 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_comentario_pub', ['autor_nome', 'texto']);
+    // Resposta a outro comentário do mesmo alvo — só 1 nível (responde sempre
+    // ao comentário-pai, nunca a outra resposta), igual Instagram/feed comum.
+    $cpCols = array_column($pdo->query("SHOW COLUMNS FROM intus_comentario_pub")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    if (!in_array('resposta_a', $cpCols)) $pdo->exec("ALTER TABLE intus_comentario_pub ADD COLUMN resposta_a INT NULL AFTER alvo_id, ADD INDEX idx_resposta (resposta_a)");
 
     // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
     // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.
@@ -1818,7 +1822,7 @@ if ($action === 'comentarios_pub') {
         if ($tipo === '' || !count($ids)) { echo json_encode(new stdClass()); exit; }
         if (count($ids) > 200) $ids = array_slice($ids, 0, 200);
         $ph = implode(',', array_fill(0, count($ids), '?'));
-        $st = $pdo->prepare("SELECT idcomentario, alvo_id, autor_tipo, autor_id, autor_nome, texto, created_at
+        $st = $pdo->prepare("SELECT idcomentario, alvo_id, resposta_a, autor_tipo, autor_id, autor_nome, texto, created_at
                              FROM intus_comentario_pub WHERE alvo_tipo = ? AND alvo_id IN ($ph)
                              ORDER BY idcomentario ASC");
         $st->execute(array_merge([$tipo], $ids));
@@ -1828,6 +1832,7 @@ if ($action === 'comentarios_pub') {
             if (!isset($out[$k])) $out[$k] = [];
             $out[$k][] = [
                 'idcomentario' => (int)$r['idcomentario'],
+                'resposta_a'   => $r['resposta_a'] !== null ? (int)$r['resposta_a'] : null,
                 'autor_tipo'   => $r['autor_tipo'],
                 'autor_id'     => (int)$r['autor_id'],
                 'autor_nome'   => $r['autor_nome'],
@@ -1846,9 +1851,17 @@ if ($action === 'comentarios_pub') {
         $texto = trim((string)($b['texto'] ?? ''));
         if ($tipo === '' || $alvo <= 0 || $texto === '') { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
         if (mb_strlen($texto) > 500) $texto = mb_substr($texto, 0, 500);
+        // Se responde a outro comentário, confirma que o pai é do MESMO alvo —
+        // sem isso um id de comentário de outro post viraria resposta aqui.
+        $respostaA = (int)($b['resposta_a'] ?? 0);
+        if ($respostaA > 0) {
+            $stChk = $pdo->prepare("SELECT 1 FROM intus_comentario_pub WHERE idcomentario = ? AND alvo_tipo = ? AND alvo_id = ?");
+            $stChk->execute([$respostaA, $tipo, $alvo]);
+            if (!$stChk->fetchColumn()) $respostaA = 0;
+        }
         [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
-        $pdo->prepare("INSERT INTO intus_comentario_pub (alvo_tipo, alvo_id, autor_tipo, autor_id, autor_nome, texto) VALUES (?,?,?,?,?,?)")
-            ->execute([$tipo, $alvo, $_autorTipo, $_autorId, $nome, $texto]);
+        $pdo->prepare("INSERT INTO intus_comentario_pub (alvo_tipo, alvo_id, resposta_a, autor_tipo, autor_id, autor_nome, texto) VALUES (?,?,?,?,?,?,?)")
+            ->execute([$tipo, $alvo, $respostaA > 0 ? $respostaA : null, $_autorTipo, $_autorId, $nome, $texto]);
         echo json_encode(['ok' => true, 'idcomentario' => (int)$pdo->lastInsertId()]);
         exit;
     }

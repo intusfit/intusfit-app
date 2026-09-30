@@ -2302,8 +2302,9 @@ var _feedModo = 'feed';     // 'feed' (tela cheia) ou 'home' (prévia na inicial
 const FEED_LOTE = 10;               // quantos posts a API busca por vez
 const FEED_LIMITE_AUTO_SCROLL = 20; // até aqui a rolagem carrega sozinha; depois, só no toque em "Ver mais"
 var _reacoesFeed = {};      // idpost -> [{emoji, autor_nome, meu}]
-var _comentariosFeed = {};  // idpost -> [{idcomentario, autor_nome, texto, meu}]
+var _comentariosFeed = {};  // idpost -> [{idcomentario, resposta_a, autor_nome, texto, meu}]
 var _comentariosAbertos = {}; // idpost -> true (painel de comentários expandido)
+var _comentarioRespondendoA = {}; // idpost -> {id, nome} do comentário que o campo vai responder
 
 async function carregarReacoesFeed(ids) {
   if (!ids || !ids.length) return;
@@ -2396,13 +2397,17 @@ async function enviarComentarioFeed(idpost) {
   const texto = input?.value?.trim();
   if (!texto) return;
   _comentarioEnviando[idpost] = true;
+  const resp = _comentarioRespondendoA[idpost];
   try {
+    const body = { alvo_tipo: 'feed_post', alvo_id: Number(idpost), texto: texto };
+    if (resp && resp.id) body.resposta_a = resp.id;
     const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alvo_tipo: 'feed_post', alvo_id: Number(idpost), texto: texto }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('falhou');
+    delete _comentarioRespondendoA[idpost];
     _comentariosAbertos[idpost] = true;
     await carregarComentariosFeed([idpost]);
     _atualizarLinhaComentarios(idpost);
@@ -2411,6 +2416,24 @@ async function enviarComentarioFeed(idpost) {
   } finally {
     _comentarioEnviando[idpost] = false;
   }
+}
+
+// "Responder": guarda a quem o próximo envio responde (só 1 nível — responder
+// a uma resposta ainda responde ao comentário-pai original, igual Instagram).
+// Lê nome/id de data-* no elemento clicado, não do onclick, pelo mesmo motivo
+// do mapa de localização: nome de comentário é texto de terceiro.
+function _responderComentarioFeed(idpost, el) {
+  const id = Number(el?.dataset?.id || 0);
+  const nome = el?.dataset?.nome || 'Alguém';
+  if (!id) return;
+  _comentarioRespondendoA[idpost] = { id, nome };
+  _atualizarLinhaComentarios(idpost);
+  document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]')?.focus();
+}
+
+function _cancelarRespostaFeed(idpost) {
+  delete _comentarioRespondendoA[idpost];
+  _atualizarLinhaComentarios(idpost);
 }
 
 // Gatilho ("Comentar" / "Ver N comentários" / "Ocultar comentários") — fica
@@ -2424,16 +2447,67 @@ function _comentarioGatilhoHtml(idpost, isLight) {
   return '<span data-feed-comentario-gatilho onclick="toggleComentariosFeed(' + idpost + ')" style="font-size:13px;font-weight:600;color:' + (isLight?'#888':'#999') + ';cursor:pointer;flex-shrink:0;">' + txt + '</span>';
 }
 
+// Redesenho: avatar por comentário (igual ao cabeçalho do post), hora
+// relativa, selo pra comentário de professor, e "Responder" que agrupa as
+// respostas logo abaixo do comentário-pai (só 1 nível de aninhamento).
 function _comentariosHtml(idpost, isLight) {
   const lista = _comentariosFeed[String(idpost)] || [];
   const aberto = !!_comentariosAbertos[idpost];
   if (!aberto) return '<div data-feed-comentarios></div>';
-  const itens = lista.map(c => '<div style="padding:6px 0;border-top:1px solid ' + (isLight?'#f0f0f0':'#1e1e1e') + ';font-size:12px;">' +
-    '<b style="color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';">' + esc(c.autor_nome || 'Alguém') + '</b> ' +
-    '<span style="color:' + (isLight?'#444':'#ccc') + ';">' + esc(c.texto) + '</span>' +
-  '</div>').join('');
-  return '<div data-feed-comentarios style="margin-top:6px;">' +
-    itens +
+  const cor = isLight ? '#1a1a1a' : '#f0f0f0';
+  const corMuted = isLight ? '#999' : '#888';
+  const corTexto = isLight ? '#444' : '#ccc';
+  const corAvBg = isLight ? '#eee' : '#222';
+  const acento = isLight ? '#5cb800' : '#7FFF00';
+  const divisor = isLight ? '#f0f0f0' : '#1e1e1e';
+
+  const porPai = {};
+  const raizes = [];
+  lista.forEach(c => {
+    if (c.resposta_a) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c);
+    else raizes.push(c);
+  });
+
+  function avatarMini(c) {
+    const nome = c.autor_nome || 'Alguém';
+    const av = c.autor_tipo === 'aluno' ? (_feedAvatarsMap[String(c.autor_id)] || '') : '';
+    return av
+      ? '<img src="' + esc(av) + '" style="width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\'"/>'
+      : '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
+  }
+
+  function linha(c, ehResposta) {
+    const dt = new Date(String(c.created_at).replace(' ', 'T'));
+    const selo = c.autor_tipo === 'professor'
+      ? ' <span style="color:' + acento + ';font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.03em;">professor</span>'
+      : '';
+    const responder = ehResposta ? '' :
+      '<span data-id="' + c.idcomentario + '" data-nome="' + esc(c.autor_nome || 'Alguém') + '" onclick="_responderComentarioFeed(' + idpost + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Responder</span>';
+    return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
+      avatarMini(c) +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:12px;line-height:1.4;">' +
+          '<b style="color:' + cor + ';">' + esc(c.autor_nome || 'Alguém') + '</b>' + selo + ' ' +
+          '<span style="color:' + corTexto + ';">' + esc(c.texto) + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:14px;margin-top:2px;">' +
+          '<span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' +
+          responder +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  const itens = raizes.map(c => linha(c, false) + (porPai[c.idcomentario] || []).map(r => linha(r, true)).join('')).join('');
+
+  const resp = _comentarioRespondendoA[idpost];
+  const chipResposta = resp
+    ? '<div style="display:flex;align-items:center;gap:6px;margin:8px 0 0;font-size:11px;color:' + corMuted + ';">Respondendo a <b style="color:' + cor + ';">' + esc(resp.nome) + '</b><span onclick="_cancelarRespostaFeed(' + idpost + ')" style="cursor:pointer;font-weight:800;padding:2px 5px;">✕</span></div>'
+    : '';
+
+  return '<div data-feed-comentarios style="margin-top:2px;">' +
+    (itens ? '<div style="border-top:1px solid ' + divisor + ';">' + itens + '</div>' : '') +
+    chipResposta +
     '<div style="display:flex;gap:6px;margin-top:8px;">' +
       '<input data-feed-comment-input placeholder="Escreva um comentário..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight?'#ddd':'#2a2a2a') + ';background:' + (isLight?'#fff':'#111') + ';color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioFeed(' + idpost + ');"/>' +
       '<button onclick="enviarComentarioFeed(' + idpost + ')" style="padding:8px 14px;border-radius:99px;border:none;background:#7FFF00;color:#0f1a00;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Enviar</button>' +
@@ -2481,6 +2555,39 @@ async function carregarFeedPosts(limite, idatletaFiltro, antesDe) {
   } catch (e) { console.warn('[feed] não consegui carregar:', e); _feedTemMais = false; return []; }
 }
 
+// Abre um mapa externo centrado no NOME do lugar (não temos lat/lng salvos —
+// "localizacao" é texto livre digitado pelo aluno, ver catalogo.php). Lê o
+// nome de data-loc em vez do onclick pra não ter que escapar aspas de texto
+// livre dentro de uma string JS embutida em atributo HTML.
+function _abrirMapaLocalFeed(el) {
+  const nome = el?.dataset?.loc || '';
+  if (!nome) return;
+  window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(nome), '_blank', 'noopener');
+}
+
+// Legenda com "ver mais" pra texto longo — antes vinha inteira sempre, o que
+// empurrava curtidas/comentários pra baixo em legendas grandes. Trocar de
+// span visível pra span escondido é só CSS (sem re-render), então não precisa
+// de função global nem de guardar o texto completo em outro lugar.
+function _feedLegendaHtml(post, nomeCurto, isLight) {
+  if (!post.legenda) return '';
+  const LIMITE = 90;
+  const legenda = String(post.legenda);
+  const cor = isLight ? '#333' : '#ddd';
+  const corMuted = isLight ? '#999' : '#888';
+  const nomeHtml = '<b>' + esc(nomeCurto) + '</b> ';
+  if (legenda.length <= LIMITE) {
+    return '<div style="font-size:12.5px;color:' + cor + ';line-height:1.5;margin-bottom:9px;">' + nomeHtml + esc(legenda) + '</div>';
+  }
+  const curta = esc(legenda.slice(0, LIMITE).trim()) + '…';
+  const completa = esc(legenda);
+  return '<div style="font-size:12.5px;color:' + cor + ';line-height:1.5;margin-bottom:9px;">' +
+    nomeHtml +
+    '<span data-legenda-curta>' + curta + ' <b onclick="this.parentElement.style.display=\'none\';this.parentElement.nextElementSibling.style.display=\'inline\';" style="color:' + corMuted + ';font-weight:700;cursor:pointer;">ver mais</b></span>' +
+    '<span data-legenda-completa style="display:none;">' + completa + '</span>' +
+  '</div>';
+}
+
 function _feedCardHtml(post, isLight) {
   const nome = _feedAtletasMap[String(post.idatleta)] || 'Membro';
   const avatar = _feedAvatarsMap[String(post.idatleta)] || '';
@@ -2495,7 +2602,10 @@ function _feedCardHtml(post, isLight) {
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
         '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
-          (post.localizacao ? '<span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">📍 ' + esc(post.localizacao) + '</span> · ' : '') +
+          // data-loc (não o texto embutido no onclick) porque localizacao é
+          // texto livre digitado pelo aluno — cair dentro de um onclick como
+          // string JS quebraria (ou seria risco de injeção) se tivesse aspas.
+          (post.localizacao ? '<span data-loc="' + esc(post.localizacao) + '" onclick="_abrirMapaLocalFeed(this)" style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;">📍 ' + esc(post.localizacao) + '</span> · ' : '') +
           _tempoRelativoFeed(dt) +
         '</div>' +
       '</div>' +
@@ -2503,7 +2613,7 @@ function _feedCardHtml(post, isLight) {
     '</div>' +
     '<img src="' + esc(post.imagem) + '" style="width:100%;display:block;" loading="lazy"/>' +
     '<div style="padding:11px 12px;">' +
-      (post.legenda ? '<div style="font-size:12.5px;color:' + (isLight?'#333':'#ddd') + ';line-height:1.45;margin-bottom:8px;"><b>' + esc(nome.split(' ')[0]) + '</b> ' + esc(post.legenda) + '</div>' : '') +
+      _feedLegendaHtml(post, nome.split(' ')[0], isLight) +
       '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
       _comentariosHtml(post.idpost, isLight) +
     '</div>' +
@@ -11232,11 +11342,11 @@ function _renderRankingView() {
           // qualquer. Mesmo formato de 2 linhas do Top 5/Top 10 (não mais só um
           // ícone) pra caber o nome escrito por extenso.
           '<button aria-label="Quadro de medalhas" title="Quadro de medalhas" onclick="_rankingTab=\'medalhas\';_renderRankingView();" ' +
-            'style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:7px 5px;border-radius:10px;cursor:pointer;overflow:hidden;flex:1;min-width:0;' +
+            'style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:1px;padding:7px 5px;border-radius:10px;cursor:pointer;overflow:hidden;flex:1;min-width:0;' +
             'font-family:inherit;min-height:38px;white-space:nowrap;font-size:10px;font-weight:800;line-height:1.15;' +
             'background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));color:' + (isLight ? '#7c5e10' : '#facc15') + ';' +
             'border:1.5px solid rgba(240,165,0,.55);box-shadow:0 0 0 1px rgba(240,165,0,.08);">' +
-            '<span>🎖️ Quadro de</span><span style="font-size:8.5px;font-weight:700;opacity:.9;">Medalhas</span>' +
+            '<span style="width:100%;text-align:center;">🎖️ Quadro de</span><span style="width:100%;text-align:center;font-size:8.5px;font-weight:700;opacity:.9;">Medalhas</span>' +
           '</button>' +
         '</div>' +
       '</div>';
