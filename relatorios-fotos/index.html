@@ -314,6 +314,7 @@ input{font-family:inherit}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -694,7 +695,51 @@ function updateRowDownloadState(row){
   row.els.btnDownload.disabled = !ready;
 }
 
+// iPhone salva foto como HEIC por padrão, e nenhum navegador de PC/Android
+// sabe decodificar isso num <img> — sem isso, toda foto vinda direto do
+// iPhone falhava com "não consegui abrir". heic2any converte no próprio
+// navegador (sem subir o arquivo original pra lugar nenhum) antes de seguir
+// pro caminho normal de carregar a imagem.
+var EXT_IMAGEM_ACEITAS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif', 'bmp', 'tif', 'tiff'];
+function extensaoArquivo(file){
+  var m = /\.([a-z0-9]+)$/i.exec((file && file.name) || '');
+  return m ? m[1].toLowerCase() : '';
+}
+function arquivoEhImagemAceita(file){
+  if (!file) return false;
+  if (file.type && file.type.indexOf('image/') === 0) return true;
+  // Windows costuma nao ter tipo MIME nenhum associado a HEIC/HEIF/TIFF —
+  // sem isso, o navegador manda file.type vazio e a foto seria descartada
+  // em silencio ao arrastar, mesmo sendo um arquivo valido.
+  return EXT_IMAGEM_ACEITAS.indexOf(extensaoArquivo(file)) !== -1;
+}
+function arquivoEhHeic(file){
+  if (!file) return false;
+  if (file.type === 'image/heic' || file.type === 'image/heif') return true;
+  var ext = extensaoArquivo(file);
+  return ext === 'heic' || ext === 'heif';
+}
+
 function loadImageIntoSlot(row, idx, file){
+  if (!arquivoEhHeic(file)) { _decodificarImagemNoSlot(row, idx, file); return; }
+  var dropTexto = row.els.slots[idx].drop.querySelector('span:last-child');
+  var textoOriginal = dropTexto ? dropTexto.textContent : '';
+  if (dropTexto) dropTexto.textContent = 'Convertendo HEIC...';
+  if (typeof heic2any === 'undefined') {
+    if (dropTexto) dropTexto.textContent = textoOriginal;
+    alert('Não consegui converter essa foto HEIC (a biblioteca de conversão não carregou — confira a internet e recarregue a página).');
+    return;
+  }
+  heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 }).then(function(resultado){
+    if (dropTexto) dropTexto.textContent = textoOriginal;
+    _decodificarImagemNoSlot(row, idx, Array.isArray(resultado) ? resultado[0] : resultado);
+  }).catch(function(){
+    if (dropTexto) dropTexto.textContent = textoOriginal;
+    alert('Não consegui converter essa foto HEIC. No iPhone, dá pra trocar o formato padrão em Ajustes > Câmera > Formatos > "Mais compatível" (vira JPEG) antes de mandar a foto pro computador.');
+  });
+}
+
+function _decodificarImagemNoSlot(row, idx, file){
   var slot = row.slots[idx];
   var url = URL.createObjectURL(file);
   var img = new Image();
@@ -1168,7 +1213,7 @@ function buildSlotEl(row, idx){
     e.preventDefault();
     els.drop.classList.remove('arrastando');
     var f = e.dataTransfer.files[0];
-    if (f && f.type.indexOf('image/') === 0) loadImageIntoSlot(row, idx, f);
+    if (arquivoEhImagemAceita(f)) loadImageIntoSlot(row, idx, f);
   });
   els.zoom.addEventListener('input', function(){
     row.slots[idx].z = parseInt(els.zoom.value, 10) / 100;
@@ -1700,7 +1745,7 @@ function wireBotaoLote(idBtn, idInput, side){
   btn.addEventListener('drop', function(e){
     e.preventDefault();
     btn.classList.remove('arrastando');
-    var arquivos = Array.prototype.filter.call(e.dataTransfer.files, function(f){ return f.type.indexOf('image/') === 0; });
+    var arquivos = Array.prototype.filter.call(e.dataTransfer.files, arquivoEhImagemAceita);
     if (arquivos.length) bulkUpload(side, arquivos);
   });
 }
