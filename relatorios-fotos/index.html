@@ -314,7 +314,6 @@ input{font-family:inherit}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -697,9 +696,19 @@ function updateRowDownloadState(row){
 
 // iPhone salva foto como HEIC por padrão, e nenhum navegador de PC/Android
 // sabe decodificar isso num <img> — sem isso, toda foto vinda direto do
-// iPhone falhava com "não consegui abrir". heic2any converte no próprio
+// iPhone falhava com "não consegui abrir". Convertemos pra JPEG no próprio
 // navegador (sem subir o arquivo original pra lugar nenhum) antes de seguir
 // pro caminho normal de carregar a imagem.
+//
+// Usamos libheif-js (o decodificador de verdade por trás da maioria das libs
+// de HEIC pra web) em vez do pacote "heic2any", que testamos primeiro mas
+// carrega uma versão travada e antiga do libheif — falha em toda foto tirada
+// com "HDR adaptável" (o padrão desde o iPhone 14 Pro/iOS 16), que grava uma
+// caixa extra "tmap" no arquivo que aquela versão não sabe ler. libheif-js
+// acompanha o libheif atual e lê certo. Carregado sob demanda (o pacote pesa
+// ~2MB) só na primeira foto HEIC, via <script> tradicional simulando
+// CommonJS (window.module/exports) — o bundle publicado no npm só se expõe
+// via require ou AMD, nenhum dos dois existe numa página sem empacotador.
 var EXT_IMAGEM_ACEITAS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif', 'bmp', 'tif', 'tiff'];
 function extensaoArquivo(file){
   var m = /\.([a-z0-9]+)$/i.exec((file && file.name) || '');
@@ -720,21 +729,75 @@ function arquivoEhHeic(file){
   return ext === 'heic' || ext === 'heif';
 }
 
+var LIBHEIF_URL = 'https://cdn.jsdelivr.net/npm/libheif-js@1.23.2/libheif-wasm/libheif-bundle.js';
+var _libheifPromise = null;
+function carregarLibheif(){
+  if (_libheifPromise) return _libheifPromise;
+  _libheifPromise = new Promise(function(resolve, reject){
+    var fabricaPronta = window.__libheifFactory;
+    if (typeof fabricaPronta === 'function') { resolve(fabricaPronta()); return; }
+    var moduloAnterior = window.module, exportsAnterior = window.exports;
+    window.module = { exports: {} };
+    window.exports = window.module.exports;
+    var script = document.createElement('script');
+    script.src = LIBHEIF_URL;
+    script.onload = function(){
+      var fabrica = window.module && window.module.exports;
+      window.module = moduloAnterior; window.exports = exportsAnterior;
+      if (typeof fabrica !== 'function') { reject(new Error('formato inesperado da biblioteca HEIC')); return; }
+      window.__libheifFactory = fabrica;
+      resolve(fabrica());
+    };
+    script.onerror = function(){
+      window.module = moduloAnterior; window.exports = exportsAnterior;
+      reject(new Error('não consegui baixar a biblioteca de conversão HEIC (confira a internet)'));
+    };
+    document.head.appendChild(script);
+  });
+  return _libheifPromise;
+}
+
+// Decodifica um HEIC/HEIF pra um Blob JPEG, usando o libheif-js carregado
+// sob demanda. Resolve com o Blob; rejeita com um Error com mensagem pronta
+// pro usuário caso a foto não seja decodificável.
+function converterHeicParaJpeg(file){
+  return file.arrayBuffer().then(function(buffer){
+    return carregarLibheif().then(function(libheif){
+      var decoder = new libheif.HeifDecoder();
+      var imagens = decoder.decode(buffer);
+      if (!imagens || !imagens.length) throw new Error('nenhuma imagem encontrada nesse arquivo HEIC');
+      var imagem = imagens[0];
+      var w = imagem.get_width(), h = imagem.get_height();
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      var imageData = ctx.createImageData(w, h);
+      return new Promise(function(resolve, reject){
+        imagem.display(imageData, function(dados){
+          imagem.free();
+          if (!dados) { reject(new Error('não consegui decodificar essa foto HEIC')); return; }
+          ctx.putImageData(dados, 0, 0);
+          canvas.toBlob(function(blob){
+            if (!blob) { reject(new Error('não consegui gerar o JPEG dessa foto')); return; }
+            resolve(blob);
+          }, 'image/jpeg', 0.92);
+        });
+      });
+    });
+  });
+}
+
 function loadImageIntoSlot(row, idx, file){
   if (!arquivoEhHeic(file)) { _decodificarImagemNoSlot(row, idx, file); return; }
   var dropTexto = row.els.slots[idx].drop.querySelector('span:last-child');
   var textoOriginal = dropTexto ? dropTexto.textContent : '';
   if (dropTexto) dropTexto.textContent = 'Convertendo HEIC...';
-  if (typeof heic2any === 'undefined') {
+  converterHeicParaJpeg(file).then(function(blob){
     if (dropTexto) dropTexto.textContent = textoOriginal;
-    alert('Não consegui converter essa foto HEIC (a biblioteca de conversão não carregou — confira a internet e recarregue a página).');
-    return;
-  }
-  heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 }).then(function(resultado){
+    _decodificarImagemNoSlot(row, idx, blob);
+  }).catch(function(err){
     if (dropTexto) dropTexto.textContent = textoOriginal;
-    _decodificarImagemNoSlot(row, idx, Array.isArray(resultado) ? resultado[0] : resultado);
-  }).catch(function(){
-    if (dropTexto) dropTexto.textContent = textoOriginal;
+    console.error('Falha ao converter HEIC:', err);
     alert('Não consegui converter essa foto HEIC. No iPhone, dá pra trocar o formato padrão em Ajustes > Câmera > Formatos > "Mais compatível" (vira JPEG) antes de mandar a foto pro computador.');
   });
 }
