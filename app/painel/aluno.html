@@ -9678,6 +9678,17 @@ function _renderCardioLive() {
 // ═══════════════ RANKING ═══════════════
 let _rankingTab = 'semana';
 let _rankingData = null;
+// Pedido do Luiz: quem entra em "Mês atual" pela primeira vez na sessão (ou
+// voltando de outra aba) recebe um lembrete curto de que existe pontuação
+// do mês inteiro, não só da semana — pra mais gente prestar atenção nisso.
+// Só na TRANSIÇÃO pra essa aba (não em todo redesenho enquanto já está
+// nela), senão o toast reapareceria a cada re-render.
+function _rankingAbrirMes() {
+  const eraOutraAba = _rankingTab !== 'mes';
+  _rankingTab = 'mes';
+  _renderRankingView();
+  if (eraOutraAba) toast('📅 Tem ranking do mês inteiro também — vale disputar o mês todo, não só a semana! 🏆', 5000);
+}
 // ── SINCRONIA DA TELA INICIAL ──────────────────────────────────────────────
 // A home mostra pontos, participantes e medalhas, e todos os tres vem do mesmo
 // endereco do ranking. Ela busca em SEGUNDO PLANO: a tela desenha na hora com
@@ -11186,29 +11197,51 @@ function _renderRankingView() {
         '<div style="display:flex;gap:7px;width:max-content;">' +
           periodos.map(function (pp) {
             const on = _rankingTab === pp[0];
-            return '<button onclick="_rankingTab=\'' + pp[0] + '\';_renderRankingView();" style="padding:9px 14px;border-radius:99px;white-space:nowrap;cursor:pointer;font-family:inherit;font-size:12.5px;min-height:38px;' +
+            // "Mês atual" ganha uma linha de progresso colada no rodapé do
+            // próprio botão (dias já passados do mês / total de dias) — pedido
+            // do Luiz pra chamar atenção pro ranking mensal sem precisar de
+            // texto extra o tempo todo. overflow:hidden no botão (pílula) já
+            // recorta a barra nos cantos certos, sem precisar calcular raio.
+            let barra = '';
+            let onclickAttr = '_rankingTab=\'' + pp[0] + '\';_renderRankingView();';
+            if (pp[0] === 'mes') {
+              const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+              const pctMes = Math.min(100, Math.max(4, Math.round((hoje.getDate() / diasNoMes) * 100)));
+              const corBarra = on ? (isLight ? 'rgba(255,255,255,.65)' : 'rgba(0,0,0,.4)') : (isLight ? '#2d8a00' : '#7FFF00');
+              barra = '<span style="position:absolute;left:0;bottom:0;height:3px;width:' + pctMes + '%;background:' + corBarra + ';"></span>';
+              onclickAttr = '_rankingAbrirMes()';
+            }
+            return '<button onclick="' + onclickAttr + '" style="position:relative;overflow:hidden;padding:9px 14px;border-radius:99px;white-space:nowrap;cursor:pointer;font-family:inherit;font-size:12.5px;min-height:38px;' +
               'font-weight:' + (on ? '800' : '600') + ';' +
               'background:' + (on ? 'var(--texto)' : 'var(--card-bg)') + ';' +
               'color:' + (on ? 'var(--card-bg)' : 'var(--muted)') + ';' +
-              'border:1px solid ' + (on ? 'var(--texto)' : 'var(--borda)') + ';">' + pp[1] + '</button>';
+              'border:1px solid ' + (on ? 'var(--texto)' : 'var(--borda)') + ';">' + pp[1] + barra + '</button>';
           }).join('') +
         '</div>' +
       '</div>' +
       // Categoria continua em lista, e os dois arquivos viram atalhos ao lado.
-      '<div style="display:flex;gap:8px;margin-bottom:10px;">' +
-        '<select aria-label="Categoria do ranking" onchange="_rankingCat=this.value;_renderRankingView();" style="' + _selCss + 'flex:1;">' +
+      // O select da categoria ficou mais enxuto (fonte/preenchimento menores)
+      // de propósito: só assim sobrava espaço pro botão do quadro de medalhas
+      // mostrar o nome por extenso em vez de só o ícone — pedido do Luiz, ele
+      // achava o ícone sozinho fácil de passar batido.
+      '<div style="display:flex;gap:6px;margin-bottom:10px;">' +
+        '<select aria-label="Categoria do ranking" onchange="_rankingCat=this.value;_renderRankingView();" style="' + _selCss.replace('font-size:12.5px;', 'font-size:11.5px;').replace('padding:7px 28px 7px 10px;', 'padding:7px 24px 7px 8px;') + 'flex:1;min-width:0;">' +
           cats.map(c => '<option value="' + c[0] + '"' + (_rankingCat === c[0] ? ' selected' : '') + '>' + c[1] + '</option>').join('') +
         '</select>' +
         rkLinhaCurta('historico', _rankingTab === 'historico', '🏆', 'Top 5 das semanas') +
         rkLinhaCurta('meses_anteriores', _rankingTab === 'meses_anteriores', '👑', 'Top 10 dos meses') +
         // Caminho direto para o quadro, sem precisar voltar para a tela inicial.
-        // Destacado de propósito (fundo dourado) — era um botão neutro igual
-        // aos outros da fileira, e "quadro de medalhas" é destino importante
-        // demais pra passar despercebido igual a um filtro qualquer.
+        // Destacado de propósito (fundo dourado) — "quadro de medalhas" é
+        // destino importante demais pra passar despercebido igual a um filtro
+        // qualquer. Mesmo formato de 2 linhas do Top 5/Top 10 (não mais só um
+        // ícone) pra caber o nome escrito por extenso.
         '<button aria-label="Quadro de medalhas" title="Quadro de medalhas" onclick="_rankingTab=\'medalhas\';_renderRankingView();" ' +
-          'style="display:flex;align-items:center;justify-content:center;padding:7px 13px;border-radius:10px;cursor:pointer;' +
-          'font-family:inherit;min-height:38px;font-size:20px;background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));' +
-          'border:1.5px solid rgba(240,165,0,.55);box-shadow:0 0 0 1px rgba(240,165,0,.08);">🏅</button>' +
+          'style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:7px 8px;border-radius:10px;cursor:pointer;' +
+          'font-family:inherit;min-height:38px;white-space:nowrap;font-size:10px;font-weight:800;line-height:1.15;' +
+          'background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));color:' + (isLight ? '#7c5e10' : '#facc15') + ';' +
+          'border:1.5px solid rgba(240,165,0,.55);box-shadow:0 0 0 1px rgba(240,165,0,.08);">' +
+          '<span>🎖️ Quadro de</span><span style="font-size:8.5px;font-weight:700;opacity:.9;">Medalhas</span>' +
+        '</button>' +
       '</div>';
   }
 
