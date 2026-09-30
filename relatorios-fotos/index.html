@@ -895,12 +895,17 @@ function moveSlot(rowId, idx, dir){
   refreshSlotUI(alvoRow, idx);
 }
 
-function bulkUpload(idx, fileList){
+// inicioEm: linha a partir de onde preencher essa coluna (padrão: do começo).
+// Usado tanto pelos botões "Fotos em lote" (sempre do início) quanto por
+// soltar várias fotos de uma vez direto numa foto — aí começa DAQUELA linha
+// pra baixo, preenchendo o resto na mesma coluna até acabar as fotos soltas.
+function bulkUpload(idx, fileList, inicioEm){
   var files = Array.prototype.slice.call(fileList);
   if (!files.length) return;
   var usados = 0;
-  for (var i = 0; i < rows.length && usados < files.length; i++){
-    if (rows[i].slots[idx] && rows[i].slots[idx].img) continue;
+  for (var i = inicioEm || 0; i < rows.length && usados < files.length; i++){
+    if (idx >= rows[i].slots.length) continue; // essa linha não tem essa posição (ex.: 3ª/4ª foto)
+    if (rows[i].slots[idx].img) continue;
     mostrarLinha(i);
     loadImageIntoSlot(rows[i], idx, files[usados]);
     usados++;
@@ -1275,8 +1280,13 @@ function buildSlotEl(row, idx){
   els.frame.addEventListener('drop', function(e){
     e.preventDefault();
     els.drop.classList.remove('arrastando');
-    var f = e.dataTransfer.files[0];
-    if (arquivoEhImagemAceita(f)) loadImageIntoSlot(row, idx, f);
+    var arquivos = Array.prototype.filter.call(e.dataTransfer.files, arquivoEhImagemAceita);
+    if (!arquivos.length) return;
+    // A primeira foto sempre entra nessa posição (substitui o que já tinha,
+    // igual já fazia com uma foto só); soltou mais de uma de uma vez, o resto
+    // desce preenchendo a mesma coluna nas linhas de baixo.
+    loadImageIntoSlot(row, idx, arquivos[0]);
+    if (arquivos.length > 1) bulkUpload(idx, arquivos.slice(1), row.id + 1);
   });
   els.zoom.addEventListener('input', function(){
     row.slots[idx].z = parseInt(els.zoom.value, 10) / 100;
