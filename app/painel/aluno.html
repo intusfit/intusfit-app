@@ -9678,17 +9678,6 @@ function _renderCardioLive() {
 // ═══════════════ RANKING ═══════════════
 let _rankingTab = 'semana';
 let _rankingData = null;
-// Pedido do Luiz: quem entra em "Mês atual" pela primeira vez na sessão (ou
-// voltando de outra aba) recebe um lembrete curto de que existe pontuação
-// do mês inteiro, não só da semana — pra mais gente prestar atenção nisso.
-// Só na TRANSIÇÃO pra essa aba (não em todo redesenho enquanto já está
-// nela), senão o toast reapareceria a cada re-render.
-function _rankingAbrirMes() {
-  const eraOutraAba = _rankingTab !== 'mes';
-  _rankingTab = 'mes';
-  _renderRankingView();
-  if (eraOutraAba) toast('📅 Tem ranking do mês inteiro também — vale disputar o mês todo, não só a semana! 🏆', 5000);
-}
 // ── SINCRONIA DA TELA INICIAL ──────────────────────────────────────────────
 // A home mostra pontos, participantes e medalhas, e todos os tres vem do mesmo
 // endereco do ranking. Ela busca em SEGUNDO PLANO: a tela desenha na hora com
@@ -11146,15 +11135,15 @@ function _renderRankingView() {
   // Atalho compacto para os dois arquivos, ao lado da categoria.
   function rkLinhaCurta(tab, ativo, emoji, titulo) {
     return '<button aria-label="' + titulo + '" title="' + titulo + '" onclick="_rankingTab=\'' + tab + '\';_renderRankingView();" ' +
-      'style="display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 10px;border-radius:10px;cursor:pointer;font-family:inherit;min-height:38px;white-space:nowrap;' +
-      'font-size:10.5px;font-weight:' + (ativo ? '800' : '600') + ';line-height:1.15;flex-direction:column;gap:1px;' +
+      'style="display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 6px;border-radius:10px;cursor:pointer;font-family:inherit;min-height:38px;white-space:nowrap;flex:1;min-width:0;' +
+      'font-size:11px;font-weight:' + (ativo ? '800' : '600') + ';line-height:1.15;flex-direction:column;gap:1px;' +
       'background:' + (ativo ? 'var(--marca-fraca)' : 'var(--card-bg)') + ';' +
       'color:' + (ativo ? 'var(--link-ex)' : 'var(--muted)') + ';' +
       'border:1px solid ' + (ativo ? 'var(--link-ex)' : 'var(--borda)') + ';">' +
       // Antes cortava " semanas" e " meses" e sobrava so "Top 5" e "Top 10",
       // que nao dizem de que periodo sao. O periodo vai na segunda linha.
       '<span>' + emoji + ' ' + titulo.split(' ').slice(0, 2).join(' ') + '</span>' +
-      '<span style="font-size:9px;font-weight:700;opacity:.85;">' + titulo.split(' ').slice(2).join(' ') + '</span>' +
+      '<span style="font-size:9.5px;font-weight:700;opacity:.85;">' + titulo.split(' ').slice(2).join(' ') + '</span>' +
     '</button>';
   }
 
@@ -11209,7 +11198,6 @@ function _renderRankingView() {
               const pctMes = Math.min(100, Math.max(4, Math.round((hoje.getDate() / diasNoMes) * 100)));
               const corBarra = on ? (isLight ? 'rgba(255,255,255,.65)' : 'rgba(0,0,0,.4)') : (isLight ? '#2d8a00' : '#7FFF00');
               barra = '<span style="position:absolute;left:0;bottom:0;height:3px;width:' + pctMes + '%;background:' + corBarra + ';"></span>';
-              onclickAttr = '_rankingAbrirMes()';
             }
             return '<button onclick="' + onclickAttr + '" style="position:relative;overflow:hidden;padding:9px 14px;border-radius:99px;white-space:nowrap;cursor:pointer;font-family:inherit;font-size:12.5px;min-height:38px;' +
               'font-weight:' + (on ? '800' : '600') + ';' +
@@ -11223,25 +11211,30 @@ function _renderRankingView() {
       // O select da categoria ficou mais enxuto (fonte/preenchimento menores)
       // de propósito: só assim sobrava espaço pro botão do quadro de medalhas
       // mostrar o nome por extenso em vez de só o ícone — pedido do Luiz, ele
-      // achava o ícone sozinho fácil de passar batido.
+      // achava o ícone sozinho fácil de passar batido. Os três botões (Top 5 /
+      // Top 10 / Medalhas) ficam num sub-grupo à parte, com gap menor entre
+      // eles do que o gap select→grupo — pedido do Luiz pra deixar a escrita
+      // mais legível sem esticar a fita inteira.
       '<div style="display:flex;gap:6px;margin-bottom:10px;">' +
-        '<select aria-label="Categoria do ranking" onchange="_rankingCat=this.value;_renderRankingView();" style="' + _selCss.replace('font-size:12.5px;', 'font-size:11.5px;').replace('padding:7px 28px 7px 10px;', 'padding:7px 24px 7px 8px;') + 'flex:1;min-width:0;">' +
+        '<select aria-label="Categoria do ranking" onchange="_rankingCat=this.value;_renderRankingView();" style="' + _selCss.replace('font-size:12.5px;', 'font-size:11.5px;').replace('padding:7px 28px 7px 10px;', 'padding:7px 24px 7px 8px;') + 'flex:1.1;min-width:0;">' +
           cats.map(c => '<option value="' + c[0] + '"' + (_rankingCat === c[0] ? ' selected' : '') + '>' + c[1] + '</option>').join('') +
         '</select>' +
-        rkLinhaCurta('historico', _rankingTab === 'historico', '🏆', 'Top 5 das semanas') +
-        rkLinhaCurta('meses_anteriores', _rankingTab === 'meses_anteriores', '👑', 'Top 10 dos meses') +
-        // Caminho direto para o quadro, sem precisar voltar para a tela inicial.
-        // Destacado de propósito (fundo dourado) — "quadro de medalhas" é
-        // destino importante demais pra passar despercebido igual a um filtro
-        // qualquer. Mesmo formato de 2 linhas do Top 5/Top 10 (não mais só um
-        // ícone) pra caber o nome escrito por extenso.
-        '<button aria-label="Quadro de medalhas" title="Quadro de medalhas" onclick="_rankingTab=\'medalhas\';_renderRankingView();" ' +
-          'style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:7px 8px;border-radius:10px;cursor:pointer;' +
-          'font-family:inherit;min-height:38px;white-space:nowrap;font-size:10px;font-weight:800;line-height:1.15;' +
-          'background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));color:' + (isLight ? '#7c5e10' : '#facc15') + ';' +
-          'border:1.5px solid rgba(240,165,0,.55);box-shadow:0 0 0 1px rgba(240,165,0,.08);">' +
-          '<span>🎖️ Quadro de</span><span style="font-size:8.5px;font-weight:700;opacity:.9;">Medalhas</span>' +
-        '</button>' +
+        '<div style="display:flex;gap:3px;flex:1.4;min-width:0;">' +
+          rkLinhaCurta('historico', _rankingTab === 'historico', '🏆', 'Top 5 das semanas') +
+          rkLinhaCurta('meses_anteriores', _rankingTab === 'meses_anteriores', '👑', 'Top 10 dos meses') +
+          // Caminho direto para o quadro, sem precisar voltar para a tela inicial.
+          // Destacado de propósito (fundo dourado) — "quadro de medalhas" é
+          // destino importante demais pra passar despercebido igual a um filtro
+          // qualquer. Mesmo formato de 2 linhas do Top 5/Top 10 (não mais só um
+          // ícone) pra caber o nome escrito por extenso.
+          '<button aria-label="Quadro de medalhas" title="Quadro de medalhas" onclick="_rankingTab=\'medalhas\';_renderRankingView();" ' +
+            'style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:7px 5px;border-radius:10px;cursor:pointer;flex:1;min-width:0;' +
+            'font-family:inherit;min-height:38px;white-space:nowrap;font-size:10.5px;font-weight:800;line-height:1.15;' +
+            'background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));color:' + (isLight ? '#7c5e10' : '#facc15') + ';' +
+            'border:1.5px solid rgba(240,165,0,.55);box-shadow:0 0 0 1px rgba(240,165,0,.08);">' +
+            '<span>🎖️ Quadro de</span><span style="font-size:9px;font-weight:700;opacity:.9;">Medalhas</span>' +
+          '</button>' +
+        '</div>' +
       '</div>';
   }
 
@@ -11272,6 +11265,18 @@ function _renderRankingView() {
     _perLabel = 'Quem dominou cada mês encerrado';
   }
   if (_perLabel) html += '<div style="font-size:11.5px;text-align:center;color:' + (isLight?'#999':'#666') + ';margin:0 2px 10px;">' + _perLabel + '</div>';
+
+  // Texto fixo explicando o ranking do mês, sempre visível nessa aba (não só
+  // num toast na primeira entrada). Pedido do Luiz: o foco não é só disputa
+  // — é lembrar quem não costuma ficar entre os primeiros da semana que o
+  // mês inteiro conta, e uma semana fraca não tira a chance de subir aqui.
+  // Aparece mesmo sem posição ainda (fora do "if minhaPosicao > 0" abaixo),
+  // porque é justamente quem ainda não pontuou que mais precisa ver isso.
+  if (_rankingTab === 'mes') {
+    html += '<div style="padding:12px 14px;background:' + (isLight ? 'rgba(92,184,0,.08)' : 'rgba(127,255,0,.06)') + ';border:1px solid ' + (isLight ? 'rgba(92,184,0,.25)' : 'rgba(127,255,0,.15)') + ';border-radius:12px;margin-bottom:12px;font-size:11.5px;line-height:1.5;color:' + (isLight ? '#3d4a2e' : '#c9d9b8') + ';">' +
+      '📅 <b>Esse ranking soma o mês inteiro.</b> Se uma semana não foi das melhores, ainda dá tempo de subir: cada treino registrado até o fim do mês conta pra essa posição. Vale mais treinar toda semana com constância do que buscar uma única semana perfeita.' +
+    '</div>';
+  }
 
   // ── QUADRO DE MEDALHAS ────────────────────────────────────────
   if (_rankingTab === 'medalhas') {
@@ -11495,31 +11500,54 @@ function _renderRankingView() {
     }
 
     // ── CARTÃO PESSOAL (Opção B aprovada) ──────────────────────────────────
-    // Só na semana atual, que é onde "sua posição" tem o sentido de "agora
-    // mesmo": em vez da caixa fina, um cartão de destaque, pensado pra ser
-    // bonito de printar. A comparação usa a MESMA altura da semana passada
-    // (mesmo dia da semana), nunca a semana passada inteira — comparar uma
-    // terça-feira com um sábado encerrado sempre favoreceria o passado.
-    // Mostra só o que é da própria pessoa: nenhum dado de outro aluno aqui.
-    if (_rankingTab === 'semana') {
-      const dowHoje = hoje.getDay();
-      const domAtual = new Date(hoje); domAtual.setDate(domAtual.getDate() - dowHoje);
-      const domPassada = new Date(domAtual); domPassada.setDate(domPassada.getDate() - 7);
-      const cutoffPassado = new Date(domPassada); cutoffPassado.setDate(cutoffPassado.getDate() + dowHoje);
-      let sessPassada = sessoes.filter(s => s.dt >= domPassada && s.dt <= cutoffPassado);
-      if (_rankingCat === 'musculacao') sessPassada = sessPassada.filter(s => s.tipo === 'musculacao');
-      else if (_rankingCat === 'cardio') sessPassada = sessPassada.filter(s => s.tipo === 'cardio');
-      const agPassada = _agregarPontosPorAtleta(sessPassada);
-      const ptsSemanaPassada = (agPassada[meuId] && agPassada[meuId].total) || 0;
-      const diffPts = Math.round(meusPts - ptsSemanaPassada);
+    // Semana atual e mês atual são os dois períodos "em andamento", onde
+    // "sua posição" tem o sentido de "agora mesmo": em vez da caixa fina, um
+    // cartão de destaque, pensado pra ser bonito de printar. A comparação usa
+    // a MESMA altura do período anterior (mesmo dia da semana / mesmo dia do
+    // mês, limitado aos dias que o mês anterior de fato teve) — nunca o
+    // período anterior inteiro, porque comparar uma terça-feira com um
+    // sábado encerrado sempre favoreceria o passado. Mostra só o que é da
+    // própria pessoa: nenhum dado de outro aluno aqui.
+    if (_rankingTab === 'semana' || _rankingTab === 'mes') {
+      const ehMes = _rankingTab === 'mes';
+      let diffPts, _tituloCartao, _sufixoComp;
+      if (ehMes) {
+        _tituloCartao = 'Sua posição este mês';
+        _sufixoComp = 'que nesta mesma altura do mês passado';
+        const mesAnteriorRef = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+        const anoAnt = mesAnteriorRef.getFullYear(), mesAnt = mesAnteriorRef.getMonth();
+        const diasMesAnterior = new Date(anoAnt, mesAnt + 1, 0).getDate();
+        const diaCorte = Math.min(hoje.getDate(), diasMesAnterior);
+        const inicioMesAnterior = new Date(anoAnt, mesAnt, 1);
+        const cutoffMesAnterior = new Date(anoAnt, mesAnt, diaCorte, 23, 59, 59, 999);
+        let sessMesAnterior = sessoes.filter(s => s.dt >= inicioMesAnterior && s.dt <= cutoffMesAnterior);
+        if (_rankingCat === 'musculacao') sessMesAnterior = sessMesAnterior.filter(s => s.tipo === 'musculacao');
+        else if (_rankingCat === 'cardio') sessMesAnterior = sessMesAnterior.filter(s => s.tipo === 'cardio');
+        const agMesAnterior = _agregarPontosPorAtleta(sessMesAnterior);
+        const ptsMesAnterior = (agMesAnterior[meuId] && agMesAnterior[meuId].total) || 0;
+        diffPts = Math.round(meusPts - ptsMesAnterior);
+      } else {
+        _tituloCartao = 'Sua posição esta semana';
+        _sufixoComp = 'que nesta mesma altura da semana passada';
+        const dowHoje = hoje.getDay();
+        const domAtual = new Date(hoje); domAtual.setDate(domAtual.getDate() - dowHoje);
+        const domPassada = new Date(domAtual); domPassada.setDate(domPassada.getDate() - 7);
+        const cutoffPassado = new Date(domPassada); cutoffPassado.setDate(cutoffPassado.getDate() + dowHoje);
+        let sessPassada = sessoes.filter(s => s.dt >= domPassada && s.dt <= cutoffPassado);
+        if (_rankingCat === 'musculacao') sessPassada = sessPassada.filter(s => s.tipo === 'musculacao');
+        else if (_rankingCat === 'cardio') sessPassada = sessPassada.filter(s => s.tipo === 'cardio');
+        const agPassada = _agregarPontosPorAtleta(sessPassada);
+        const ptsSemanaPassada = (agPassada[meuId] && agPassada[meuId].total) || 0;
+        diffPts = Math.round(meusPts - ptsSemanaPassada);
+      }
 
       let _compLinha;
       if (diffPts > 0) {
-        _compLinha = '<span style="color:' + _accent + ';">▲ ' + diffPts + ' pts a mais</span> que nesta mesma altura da semana passada';
+        _compLinha = '<span style="color:' + _accent + ';">▲ ' + diffPts + ' pts a mais</span> ' + _sufixoComp;
       } else if (diffPts < 0) {
-        _compLinha = '<span style="color:' + (isLight ? '#c0392b' : '#ff6b6b') + ';">▼ ' + Math.abs(diffPts) + ' pts a menos</span> que nesta mesma altura da semana passada';
+        _compLinha = '<span style="color:' + (isLight ? '#c0392b' : '#ff6b6b') + ';">▼ ' + Math.abs(diffPts) + ' pts a menos</span> ' + _sufixoComp;
       } else {
-        _compLinha = 'Igual à semana passada nesta mesma altura';
+        _compLinha = ehMes ? 'Igual ao mês passado nesta mesma altura' : 'Igual à semana passada nesta mesma altura';
       }
 
       const treinosPeriodo = filtered.filter(s => Number(s.idatleta) === meuId).length;
@@ -11535,7 +11563,7 @@ function _renderRankingView() {
       }
 
       html += '<div style="background:linear-gradient(160deg,' + (isLight ? '#ffffff,#f2f9e8' : '#181818,#151d05') + ');border:1px solid ' + (isLight ? '#e0ecd0' : 'rgba(127,255,0,.18)') + ';border-radius:16px;padding:18px 14px;text-align:center;margin-bottom:12px;">' +
-        '<div style="font-size:10px;color:' + (isLight ? '#888' : '#7d838a') + ';text-transform:uppercase;letter-spacing:.08em;font-weight:800;">Sua posição esta semana</div>' +
+        '<div style="font-size:10px;color:' + (isLight ? '#888' : '#7d838a') + ';text-transform:uppercase;letter-spacing:.08em;font-weight:800;">' + _tituloCartao + '</div>' +
         '<div style="font-size:46px;font-weight:900;color:' + _accent + ';line-height:1;margin:6px 0;">' + minhaPosicao + 'º</div>' +
         '<div style="font-size:11.5px;color:' + (isLight ? '#444' : '#ccc') + ';font-weight:700;">' + _compLinha + '</div>' +
         '<div style="display:flex;gap:8px;margin-top:14px;">' +
