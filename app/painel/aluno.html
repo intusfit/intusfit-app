@@ -8838,24 +8838,27 @@ async function salvarCardio(opts) {
   });
 }
 
-// Atualiza só o esforço (e os pontos recalculados) de um cardio já salvo —
-// usado pela tela de esforço do cardio ao vivo, que registra com esforço
-// padrão (5) na hora e deixa o aluno ajustar depois, sem criar um segundo
-// registro.
-async function _atualizarEsforcoCardio(idsessao, novoRpe, tipo, min, motivo) {
+// Atualiza o esforço (e os pontos recalculados) — e, opcionalmente, a foto —
+// de um cardio já salvo. Usado pela tela de esforço do cardio ao vivo, que
+// registra com esforço padrão (5) e sem foto na hora (salvarCardio roda
+// silencioso assim que o GPS para) e deixa o aluno ajustar os dois logo
+// depois, sem criar um segundo registro.
+async function _atualizarEsforcoCardio(idsessao, novoRpe, tipo, min, motivo, foto) {
   const pts = motivo ? 0 : calcCardioPoints(tipo, novoRpe, min);
   const token = localStorage.getItem('mx-token') || '';
+  const body = { cardio_rpe: novoRpe, pontos: pts };
+  if (foto) body.cardio_foto = foto;
   try {
     const r = await fetch(API_BASE + '/treinos.php?action=cardio&id=' + idsessao, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ cardio_rpe: novoRpe, pontos: pts }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('falhou');
   } catch (e) { toast('Não consegui salvar o esforço agora — o cardio já está registrado, tente ajustar depois pelo histórico.'); return false; }
   // Mantém o cache local coerente com o que acabou de ser confirmado.
   const item = _cardioHistorico.find(c => Number(c.idsessao) === Number(idsessao));
-  if (item) { item.cardio_rpe = novoRpe; if (!motivo) item.pontos = pts; }
+  if (item) { item.cardio_rpe = novoRpe; if (!motivo) item.pontos = pts; if (foto) item.tem_foto = 1; }
   _rankingData = null; _rkUltimaBusca = 0;
   return true;
 }
@@ -9338,6 +9341,13 @@ function _cardioLiveConfirmarFinalizar() {
 // nenhum. A tela de esforço que abre em seguida só AJUSTA o que já foi
 // salvo (ver _atualizarEsforcoCardio), nunca decide se salva.
 function _cardioLiveFinalizar() {
+  // _cardioFoto é a mesma variável do formulário manual — se o aluno tivesse
+  // deixado uma foto anexada ali (ex.: abriu o manual, anexou, desistiu, foi
+  // pro cardio ao vivo), o POST silencioso logo abaixo ia mandar essa foto
+  // velha junto, sem o aluno nem ver. Zera aqui, ANTES do salvarCardio
+  // silencioso: a foto do cardio ao vivo só pode vir da tela de esforço,
+  // depois de finalizar (ver _renderTelaEsforcoCardioLive).
+  _cardioFoto = '';
   const distKm = _cardioLiveKm();
   const min = Math.round(_cardioLiveTempoMs() / 60000);
   const tipo = _cardioLiveTipo;
@@ -9412,6 +9422,9 @@ function _renderTelaEsforcoCardioLive(dados) {
         <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
       </div>
       <div id="cle-rpe-desc" style="text-align:center;margin-bottom:16px;"></div>
+      <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Foto (opcional)</label>
+      <input type="file" id="cle-foto-input" accept="image/*" onchange="_cardioLiveOnFoto(this)" style="display:none;"/>
+      <div id="cle-foto-area" style="margin-bottom:16px;"></div>
       <button onclick="_confirmarEsforcoCardioLive()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">Concluir</button>
       <button onclick="_compartilharCardioAoVivo()" style="width:100%;margin-top:10px;padding:12px;border-radius:12px;border:1px solid ${isLight?'#e5e5e5':'#333'};background:${isLight?'#f6f6f6':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">📸 Compartilhar cardio</button>
       <div style="text-align:center;font-size:10.5px;color:${isLight?'#aaa':'#666'};margin-top:10px;">Já ficou salvo com esforço médio (5) — fechar sem mexer aqui não perde nada.</div>
@@ -9423,6 +9436,7 @@ function _renderTelaEsforcoCardioLive(dados) {
   ov.onclick = function (e) { if (e.target === ov) { _cardioEsforcoFecharMapa(); ov.remove(); } };
   if (temRota) _iniciarMapaRotaFinalCardio(dados.pontos);
   _cardioLiveEsforcoChange();
+  _renderCardioLiveFotoArea();
 }
 // Mapa ESTÁTICO da rota completa (sem live-tracking, sem controles) — só
 // pra mostrar de relance o que foi percorrido. fitBounds em vez de zoom
@@ -9462,6 +9476,53 @@ function _cardioLiveEsforcoChange() {
       '<div style="font-size:11px;color:#999;margin-top:4px;">' + info.d + '</div>';
   }
 }
+// Foto opcional do cardio ao vivo — mesma compressão do formulário manual
+// (onCardioFoto), mas com IDs/área próprios: esta tela é um overlay à parte
+// (#cardio-esforco-overlay), não o formulário de #v-cardio. _cardioFoto é a
+// MESMA variável dos dois (zerada no início de _cardioLiveFinalizar, ver
+// comentário lá) — só o elemento que mostra a prévia muda.
+function _cardioLiveOnFoto(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const img = new Image();
+    img.onload = function () {
+      const max = 900;
+      let w = img.width, h = img.height;
+      if (w > max || h > max) { const r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r); }
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      try { _cardioFoto = cv.toDataURL('image/jpeg', 0.72); } catch (err) { _cardioFoto = e.target.result; }
+      _renderCardioLiveFotoArea();
+    };
+    img.onerror = function () { toast('Não consegui ler essa imagem.'); };
+    img.src = e.target.result;
+  };
+  reader.onerror = function () { toast('Falha ao ler o arquivo.'); };
+  reader.readAsDataURL(file);
+}
+function _cardioLiveRemoverFoto() {
+  _cardioFoto = '';
+  const inp = document.getElementById('cle-foto-input'); if (inp) inp.value = '';
+  _renderCardioLiveFotoArea();
+}
+function _renderCardioLiveFotoArea() {
+  const area = document.getElementById('cle-foto-area');
+  if (!area) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  if (_cardioFoto) {
+    area.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid ' + (isLight?'#bae6fd':'#164e63') + ';border-radius:10px;background:' + (isLight?'#f0fbff':'#0c1a1f') + ';">' +
+        '<img src="' + _cardioFoto + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;"/>' +
+        '<span style="flex:1;font-size:12px;color:' + (isLight?'#0e7490':'#67e8f9') + ';font-weight:700;">✅ Foto anexada</span>' +
+        '<button type="button" onclick="_cardioLiveRemoverFoto()" style="background:none;border:none;color:' + (isLight?'#991b1b':'#fca5a5') + ';font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Remover</button>' +
+      '</div>';
+  } else {
+    area.innerHTML =
+      '<button type="button" onclick="document.getElementById(\'cle-foto-input\').click()" style="width:100%;padding:11px;border-radius:10px;border:1px dashed ' + (isLight?'#bae6fd':'#164e63') + ';background:' + (isLight?'rgba(6,182,212,.05)':'rgba(6,182,212,.06)') + ';color:' + (isLight?'#0e7490':'#67e8f9') + ';font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;">📷 Anexar foto</button>';
+  }
+}
 // BUG real: este botão só fechava a tela de esforço e abria o compartilhar,
 // sem chamar renderCardio() — a tela de Meu Cardio por baixo tinha sido
 // desenhada ANTES do salvarCardio terminar (é chamada logo no início de
@@ -9473,6 +9534,11 @@ function _compartilharCardioAoVivo() {
   const dados = window._cardioEsforcoDados;
   _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
+  // Mesma limitação que o esforço já tinha nesta saída (só "Concluir" salva
+  // de verdade, ver aviso na tela): uma foto anexada aqui e não confirmada
+  // seria perdida de qualquer forma — zera pra não vazar pro próximo cardio
+  // manual que o aluno abrir.
+  _cardioFoto = '';
   renderCardio();
   if (dados) abrirCompartilharCardio(dados);
 }
@@ -9480,13 +9546,15 @@ async function _confirmarEsforcoCardioLive() {
   const dados = window._cardioEsforcoDados;
   const sl = document.getElementById('cle-rpe');
   const novoRpe = sl ? parseInt(sl.value) || 5 : 5;
+  const foto = _cardioFoto;
+  _cardioFoto = '';
   _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
   if (!dados || !dados.idsessao) { renderCardio(); return; } // salvo só localmente (sem servidor) — nada pra atualizar
-  if (novoRpe === 5) { renderCardio(); return; } // já é o padrão salvo, nada a fazer
-  toast('Salvando esforço...');
-  const ok = await _atualizarEsforcoCardio(dados.idsessao, novoRpe, dados.tipo, dados.min, dados.motivo);
-  if (ok) toast('Esforço atualizado! 💪');
+  if (novoRpe === 5 && !foto) { renderCardio(); return; } // esforço já é o padrão salvo e nenhuma foto nova — nada a fazer
+  toast(foto ? 'Salvando esforço e foto...' : 'Salvando esforço...');
+  const ok = await _atualizarEsforcoCardio(dados.idsessao, novoRpe, dados.tipo, dados.min, dados.motivo, foto);
+  if (ok) toast(foto ? 'Esforço e foto salvos! 💪' : 'Esforço atualizado! 💪');
   renderCardio();
 }
 

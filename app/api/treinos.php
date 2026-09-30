@@ -938,7 +938,18 @@ try {
             // esforço pode mudar mas os pontos continuam zero — não foi o RPE que
             // decidiu não contar, e mudar o RPE não deveria reverter isso.
             $pontos = (int)$row['nao_contar'] ? 0 : (float)($b['pontos'] ?? 0);
-            $pdo->prepare("UPDATE intus_sessao SET cardio_rpe = ?, pontos = ? WHERE idsessao = ?")->execute([$rpe, $pontos, $id]);
+            $sets = "cardio_rpe = ?, pontos = ?"; $vals = [$rpe, $pontos];
+            // Foto anexada DEPOIS de finalizar o Cardio ao vivo — o registro já foi
+            // criado sem foto (salvarCardio roda silencioso assim que o GPS para,
+            // antes de o aluno ver a tela de esforço), então aqui é a única chance
+            // de anexar uma. Mesma validação de tamanho/formato do registro manual.
+            if (isset($b['cardio_foto']) && $b['cardio_foto'] !== '') {
+                $foto = _intusImagemOk($b['cardio_foto']);
+                if ($foto === false) { http_response_code(413); echo json_encode(['error' => 'imagem invalida ou grande demais (max 3 MB)']); exit; }
+                $sets .= ", cardio_foto = ?"; $vals[] = $foto;
+            }
+            $vals[] = $id;
+            $pdo->prepare("UPDATE intus_sessao SET $sets WHERE idsessao = ?")->execute($vals);
             echo json_encode(['ok' => true, 'pontos' => $pontos]);
             exit;
         }
