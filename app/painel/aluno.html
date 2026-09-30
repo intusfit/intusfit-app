@@ -4786,8 +4786,11 @@ function _matSituacao() {
                                    && _cobrancaEmAtraso(m));
   if (emAtraso.length && typeof API !== 'undefined' && API.diasDeCobranca) {
     const d = Math.min.apply(null, emAtraso.map(m => API.diasDeCobranca(m, ativas)));
-    if (d > GRACE_DIAS) return { vigente: false, carencia: null };
-    return { vigente: false, carencia: { diasAtraso: d, restantes: GRACE_DIAS - d + 1 } };
+    // Data da cobranca que venceu (a mais antiga em aberto): as telas dizem
+    // "cobranca venceu em X", nao "plano terminou em <fim da cobertura>".
+    const cobEm = emAtraso.map(m => _cobrancaDe(m)).filter(Boolean).sort()[0] || '';
+    if (d > GRACE_DIAS) return { vigente: false, carencia: null, cobrancaEm: cobEm };
+    return { vigente: false, carencia: { diasAtraso: d, restantes: GRACE_DIAS - d + 1 }, cobrancaEm: cobEm };
   }
 
   // ── DAQUI PARA BAIXO A COBERTURA JA ACABOU ────────────────────────────────
@@ -5084,10 +5087,16 @@ function renderHome() {
       .filter(Boolean).sort().pop();
     const _jaTeve = !!_ultimoFim;
     const _fimBr = _ultimoFim ? _ultimoFim.split('-').reverse().join('/') : '';
+    // Cobertura ainda corre, mas a cobranca do periodo venceu: o plano NAO
+    // terminou (nao dizer "cobriu ate <data futura>"), falta o pagamento.
+    const _cobEm = _matSituacao().cobrancaEm || '';
+    const _cobBr = _cobEm ? _cobEm.split('-').reverse().join('/') : '';
     // Sem aspas nem crases: este texto entra num atributo onclick que ja vive
     // dentro de um template literal. Foi assim que a tela quebrou na primeira
     // tentativa — uma crase aqui fechava o template da pagina inteira.
-    const _zapMsg = (_jaTeve
+    const _zapMsg = (_cobBr
+      ? 'Minha cobrança venceu em ' + _cobBr + ' e quero regularizar meu pagamento.'
+      : _jaTeve
       ? 'Meu plano terminou em ' + _fimBr + ' e quero renovar minha matrícula.'
       : 'Quero ativar minha matrícula na Intus.').replace(/['"`\\]/g, '');
 
@@ -5103,9 +5112,11 @@ function renderHome() {
 
       <div class="h-aviso">
         <div class="ic">${_jaTeve ? '🗓️' : '📋'}</div>
-        <div class="tt">${_jaTeve ? 'Seu plano terminou' : 'Matrícula não ativa'}</div>
+        <div class="tt">${_cobBr ? 'Pagamento em aberto' : _jaTeve ? 'Seu plano terminou' : 'Matrícula não ativa'}</div>
         <div class="tx">
-          ${_jaTeve
+          ${_cobBr
+            ? `A cobrança do seu plano venceu em <b>${_cobBr}</b>. Para voltar a treinar, fale com ${profNome ? '<b>' + esc(profNome) + '</b>' : 'seu professor responsável'} e regularize o pagamento.`
+            : _jaTeve
             ? `Seu plano cobriu até <b>${_fimBr}</b>. Para voltar a treinar, fale com ${profNome ? '<b>' + esc(profNome) + '</b>' : 'seu professor responsável'} e renove sua matrícula.`
             : `Para acessar seus treinos, fale com ${profNome ? '<b>' + esc(profNome) + '</b>' : 'seu professor responsável'} para ativar seu plano.`}
         </div>
@@ -13258,7 +13269,9 @@ function renderPerfil() {
       <div style="padding:18px;border-radius:16px;background:${statusBg};border:1px solid ${statusCor}44;">
         <div style="font-size:11px;font-weight:800;color:${isLight?'#888':'#888'};text-transform:uppercase;letter-spacing:.5px;">Situação da matrícula</div>
         <div style="font-size:22px;font-weight:900;color:${statusCor};margin-top:4px;">${statusTxt}</div>
-        <div style="font-size:12px;color:${isLight?'#555':'#aaa'};margin-top:8px;">${_venceu
+        <div style="font-size:12px;color:${isLight?'#555':'#aaa'};margin-top:8px;">${mt.cobrancaEm
+          ? `A cobrança do seu plano venceu em <b style="color:${isLight?'#1a1a1a':'#f0f0f0'};">${mt.cobrancaEm.split('-').reverse().join('/')}</b>. Fale com o professor para regularizar.`
+          : _venceu
           ? `Seu plano cobriu até <b style="color:${isLight?'#1a1a1a':'#f0f0f0'};">${vencFmt}</b>. Fale com o professor para renovar.`
           : `Próximo vencimento: <b style="color:${isLight?'#1a1a1a':'#f0f0f0'};">${vencFmt}</b>`}</div>
         ${mt.carencia ? `<div style="font-size:12px;color:#f59e0b;margin-top:6px;">⚠️ Vencida há ${mt.carencia.diasAtraso} dia(s), regularize para não perder o acesso.</div>` : ''}
