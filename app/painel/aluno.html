@@ -4776,6 +4776,20 @@ function _matSituacao() {
                                  && !_cobrancaEmAtraso(m));
   if (temFuturo) return { vigente: true, carencia: null };
 
+  // ── COBERTURA CORRENDO, MAS COBRANCA EM ATRASO ────────────────────────────
+  // Bug real (Luiz Nunes, 28/09): o ciclo 22/09-22/10 estava aberto e vencido
+  // no painel, mas caia no calculo abaixo, que pega o MAIOR dtvencimento — o
+  // proprio ciclo em atraso (22/10, no futuro) — e concluia "vigente". Aqui
+  // espelhamos API.situacaoPlano: a carencia conta da COBRANCA, e passou dela
+  // o acesso cai, mesmo com a cobertura ainda correndo.
+  const emAtraso = ativas.filter(m => new Date(String(m.dtvencimento).slice(0,10) + 'T00:00:00') >= hoje
+                                   && _cobrancaEmAtraso(m));
+  if (emAtraso.length && typeof API !== 'undefined' && API.diasDeCobranca) {
+    const d = Math.min.apply(null, emAtraso.map(m => API.diasDeCobranca(m, ativas)));
+    if (d > GRACE_DIAS) return { vigente: false, carencia: null };
+    return { vigente: false, carencia: { diasAtraso: d, restantes: GRACE_DIAS - d + 1 } };
+  }
+
   // ── DAQUI PARA BAIXO A COBERTURA JA ACABOU ────────────────────────────────
   // Antes, bastava o ultimo ciclo estar PAGO para o app declarar a matricula
   // vigente — sem olhar se o periodo dele ja tinha terminado. Era isso que
