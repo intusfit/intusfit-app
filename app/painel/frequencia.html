@@ -193,12 +193,23 @@ function _pontosCardioPolitica(raw){ return API.pontosCardioRank(raw); }
 function pontosSessaoRank(s, lista){ return API.pontosSessaoRank(s, lista); }
 function _agregarPontosPorAtleta(lista){ return API.agregarPontosRank(lista); }
 
+// DEBUG TEMPORÁRIO (remover depois de achar a causa da frequência/ranking
+// zerados no painel do professor, 02/10/2026): o Luiz não consegue abrir o
+// DevTools no aparelho dele, então em vez de pedir console, a gente mostra o
+// diagnóstico direto na tela (ver uso de _dbgFreq logo abaixo da faixa de
+// estatísticas). Sem isso não dava pra saber se a API devolveu erro, devolveu
+// vazio de verdade, ou se o problema é só no filtro do front.
+let _dbgFreq = null;
 async function carregar() {
   loading = true; render();
+  let _dbgSessoesErro = null;
   try {
     const [listaA, listaSessoes, listaU, listaDesafios] = await Promise.all([
       API.listarAtletas('', true),
-      API.listarTodasSessoes(),
+      API.listarTodasSessoes().catch(e => {
+        _dbgSessoesErro = 'status=' + (e && e.status != null ? e.status : '?') + ' msg=' + (e && e.message ? e.message : String(e));
+        return [];
+      }),
       _isAdminUser ? (API.usuarios && API.usuarios.listar ? API.usuarios.listar().catch(() => []) : Promise.resolve([])) : Promise.resolve([]),
       API.listarDesafios().catch(() => []),
     ]);
@@ -213,10 +224,20 @@ async function carregar() {
     sessoes = Array.isArray(listaSessoes) ? listaSessoes : [];
     usuarios = Array.isArray(listaU) ? listaU : [];
     desafios = Array.isArray(listaDesafios) ? listaDesafios : [];
+    _dbgFreq = {
+      sessoesLen: sessoes.length,
+      sessoesErro: _dbgSessoesErro,
+      sessoesAmostra: sessoes[0] ? JSON.stringify(sessoes[0]).slice(0, 200) : null,
+      atletasLen: atletas.length,
+      isAdmin: _isAdminUser,
+    };
     // Regras de pontuação: uma chamada só. O api.js guarda o resultado e todas
     // as telas passam a enxergar os mesmos pesos.
     try { await API.getRankingRegras(); } catch (e) {}
-  } catch(e) { atletas = []; sessoes = []; }
+  } catch(e) {
+    atletas = []; sessoes = [];
+    _dbgFreq = { erroGeral: (e && e.message) ? e.message : String(e) };
+  }
   loading = false; render();
 }
 
@@ -321,6 +342,7 @@ function render() {
       <div class="freq-stat"><div class="freq-stat-label">Média por aluno</div><div class="freq-stat-value">${mediaPorAluno} treinos</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Total carteira</div><div class="freq-stat-value">${atletasFiltrados.length}</div></div>
     </div>
+    ${_dbgFreq ? `<div style="background:#2a1a00;border:1px solid #614900;border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:11px;font-family:monospace;color:#ffcc66;white-space:pre-wrap;word-break:break-all;">🔧 DEBUG (temporário): ${esc(JSON.stringify(_dbgFreq))}</div>` : ''}
 
     ${view === 'ranking' ? renderRankingView(atletasFiltrados) : view === 'list' ? renderListView(atletasFiltrados, atletaMap, dias) : renderCalendarView(sessFiltradas, atletasFiltrados)}
     ${view === 'list' ? renderAlertaSessoes() : ''}
