@@ -169,20 +169,10 @@ function getAuthContext(PDO $pdo, string $tok): array {
  * Filtragem PHP-side para compatibilidade com MySQL sem JSON_CONTAINS.
  */
 function getAtletasDoUsuario(PDO $pdo, int $idusuario): array {
-    // Pega a tabela com MAIS linhas entre as candidatas, não a primeira que
-    // existir: se por algum motivo mais de uma existir ao mesmo tempo (ex.:
-    // tabela antiga 'atleta' ainda de pé ao lado da atual 'atletas'), pegar
-    // sempre a primeira da lista puxava dados de uma tabela vazia/desatualizada
-    // e devolvia "nenhum atleta vinculado" pro professor mesmo com a carteira
-    // cheia na tabela certa — via de acesso ficava com 0 aluno, sessão some
-    // inteira do painel (frequência/ranking do professor zerados do nada).
     $atletaTable = null;
-    $atletaTableRows = -1;
     foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $t) {
-        try {
-            $n = (int)$pdo->query("SELECT COUNT(*) FROM `$t`")->fetchColumn();
-            if ($n > $atletaTableRows) { $atletaTableRows = $n; $atletaTable = $t; }
-        } catch (Throwable $e) {}
+        try { $pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $atletaTable = $t; break; }
+        catch (Throwable $e) {}
     }
     if (!$atletaTable) return [];
 
