@@ -170,10 +170,14 @@
       backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
       border-bottom: 1px solid #1a1a1a;
       padding: 14px 18px;
-      display: flex; align-items: center; gap: 14px;
+      display: flex; align-items: center; gap: 4px;
       padding-top: calc(14px + env(safe-area-inset-top));
       transition: background .3s, border-color .3s;
     }
+    /* Espaço curto só ENTRE os botões (sino, ?, tema, menu) pra sobrar largura
+       pro nome do aluno; logo→nome mantém o respiro de antes. */
+    .top .logo-wrap { margin-right: 8px; }
+    .top .info { margin-right: 4px; }
     .top .logo-wrap {
       width: 38px; height: 38px; flex-shrink: 0;
       display: inline-flex; align-items: center; justify-content: center;
@@ -185,7 +189,7 @@
     .top .menu-btn {
       background: #161616; border: 1px solid #252525; color: #999;
       padding: 8px 10px; border-radius: 10px; font-family: inherit;
-      font-size: 18px; cursor: pointer; width: 38px; height: 38px;
+      font-size: 18px; cursor: pointer; width: 34px; height: 34px;
       display: inline-flex; align-items: center; justify-content: center;
       transition: background .15s, color .15s;
     }
@@ -2377,18 +2381,89 @@ async function carregarComentariosFeed(ids) {
     const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&alvo_tipo=feed_post&ids=' + ids.join(',') + '&_=' + Date.now(),
       { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
     const j = r.ok ? (await r.json()) : {};
-    Object.assign(_comentariosFeed, (j && typeof j === 'object') ? j : {});
+    const dados = (j && typeof j === 'object') ? j : {};
+    // Post que ficou sem nenhum comentário (ex.: o último foi excluído) não vem
+    // na resposta; sem limpar, a lista antiga continuava na tela.
+    if (r.ok) ids.forEach(id => { if (!dados[String(id)]) delete _comentariosFeed[String(id)]; });
+    Object.assign(_comentariosFeed, dados);
+    const idsC = [];
+    Object.keys(dados).forEach(k => (dados[k] || []).forEach(c => idsC.push(c.idcomentario)));
+    await carregarReacoesComentariosFeed(idsC);
   } catch (e) {}
+}
+
+// Curtidas dos COMENTÁRIOS: mesma tabela de reação do post, com
+// alvo_tipo='feed_comentario' (alvo_id = idcomentario).
+var _reacoesComentFeed = {}; // idcomentario -> [{emoji, autor_nome, meu}]
+async function carregarReacoesComentariosFeed(idsC) {
+  if (!idsC || !idsC.length) return;
+  idsC = idsC.slice(0, 500);
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=feed_comentario&ids=' + idsC.join(',') + '&_=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    idsC.forEach(id => { _reacoesComentFeed[String(id)] = []; });
+    Object.assign(_reacoesComentFeed, (j && typeof j === 'object') ? j : {});
+  } catch (e) {}
+}
+
+async function curtirComentarioFeed(idpost, el) {
+  const id = Number(el?.dataset?.id || 0);
+  if (!id) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alvo_tipo: 'feed_comentario', alvo_id: id, emoji: '❤️' }),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não deu para registrar sua curtida.'); return; }
+  await carregarReacoesComentariosFeed([id]);
+  _atualizarLinhaComentarios(idpost);
+}
+
+// Quem pode excluir é decidido de novo no servidor (autor do comentário ou
+// dono do post); aqui só esconde o botão de quem não pode.
+async function excluirComentarioFeed(idpost, el) {
+  const id = Number(el?.dataset?.id || 0);
+  if (!id) return;
+  if (!confirm('Excluir este comentário? As respostas dele também serão excluídas.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&id=' + id, {
+      method: 'DELETE', headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não consegui excluir o comentário.'); return; }
+  if (_comentarioRespondendoA[idpost] && _comentarioRespondendoA[idpost].id === id) delete _comentarioRespondendoA[idpost];
+  await carregarComentariosFeed([idpost]);
+  _atualizarLinhaComentarios(idpost);
+}
+
+// Dono (idatleta) do post: do cache do Feed, ou do data-dono do cartão (posts
+// que vieram do perfil de alguém não estão em _feedPosts).
+function _donoDoPostFeedLocal(idpost) {
+  const p = (_feedPosts || []).find(x => Number(x.idpost) === Number(idpost));
+  if (p) return Number(p.idatleta);
+  const card = document.querySelector('[data-feed-card="' + idpost + '"]');
+  return card ? Number(card.dataset.dono || 0) : 0;
 }
 
 function _atualizarLinhaComentarios(idpost) {
   const isLight = document.body.classList.contains('tema-claro');
+  // Redesenhar o bloco apagava o que a pessoa já tinha digitado no campo.
+  const campo = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
+  const rascunho = campo ? campo.value : '';
   document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentario-gatilho]').forEach(el => {
     el.outerHTML = _comentarioGatilhoHtml(idpost, isLight);
   });
   document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentarios]').forEach(el => {
     el.outerHTML = _comentariosHtml(idpost, isLight);
   });
+  if (rascunho) {
+    const novo = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
+    if (novo) novo.value = rascunho;
+  }
 }
 
 function toggleComentariosFeed(idpost) {
@@ -2416,6 +2491,7 @@ async function enviarComentarioFeed(idpost) {
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('falhou');
+    input.value = '';   // enviado: _atualizarLinhaComentarios preserva rascunho, então limpa aqui
     delete _comentarioRespondendoA[idpost];
     _comentariosAbertos[idpost] = true;
     await carregarComentariosFeed([idpost]);
@@ -2469,6 +2545,7 @@ function _comentariosHtml(idpost, isLight) {
   const corAvBg = isLight ? '#eee' : '#222';
   const acento = isLight ? '#5cb800' : '#7FFF00';
   const divisor = isLight ? '#f0f0f0' : '#1e1e1e';
+  const souDonoDoPost = _donoDoPostFeedLocal(idpost) === Number(idAtleta);
 
   const porPai = {};
   const raizes = [];
@@ -2492,6 +2569,17 @@ function _comentariosHtml(idpost, isLight) {
       : '';
     const responder = ehResposta ? '' :
       '<span data-id="' + c.idcomentario + '" data-nome="' + esc(c.autor_nome || 'Alguém') + '" onclick="_responderComentarioFeed(' + idpost + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Responder</span>';
+    // Excluir: o autor do comentário, ou o dono do post (modera o próprio post).
+    const podeExcluir = !!c.meu || souDonoDoPost;
+    const excluir = podeExcluir
+      ? '<span data-id="' + c.idcomentario + '" onclick="excluirComentarioFeed(' + idpost + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Excluir</span>'
+      : '';
+    const curtidas = _reacoesComentFeed[String(c.idcomentario)] || [];
+    const curtiu = curtidas.some(x => x.meu);
+    const coracao = '<div data-id="' + c.idcomentario + '" onclick="curtirComentarioFeed(' + idpost + ',this)" title="Curtir comentário" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;padding:2px 2px 0 4px;min-width:22px;">' +
+      '<span style="font-size:14px;line-height:1;">' + (curtiu ? '❤️' : '🤍') + '</span>' +
+      (curtidas.length ? '<span style="font-size:10px;font-weight:700;color:' + (curtiu ? acento : corMuted) + ';">' + curtidas.length + '</span>' : '') +
+    '</div>';
     return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
       avatarMini(c) +
       '<div style="flex:1;min-width:0;">' +
@@ -2502,8 +2590,10 @@ function _comentariosHtml(idpost, isLight) {
         '<div style="display:flex;gap:14px;margin-top:2px;">' +
           '<span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' +
           responder +
+          excluir +
         '</div>' +
       '</div>' +
+      coracao +
     '</div>';
   }
 
@@ -2605,7 +2695,7 @@ function _feedCardHtml(post, isLight) {
   const avatarEl = avatar
     ? '<img src="' + esc(avatar) + '" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/><div style="display:none;width:34px;height:34px;border-radius:50%;background:' + (isLight?'#e5e5e5':'#2a2a2a') + ';align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + (isLight?'#666':'#aaa') + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>'
     : '<div style="width:34px;height:34px;border-radius:50%;background:' + (isLight?'#e5e5e5':'#2a2a2a') + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + (isLight?'#666':'#aaa') + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
-  return '<div data-feed-card="' + post.idpost + '" style="background:' + (isLight?'#fff':'#161616') + ';border:1px solid ' + (isLight?'#e5e5e5':'#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
+  return '<div data-feed-card="' + post.idpost + '" data-dono="' + Number(post.idatleta) + '" style="background:' + (isLight?'#fff':'#161616') + ';border:1px solid ' + (isLight?'#e5e5e5':'#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
     '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
       avatarEl +
       '<div style="flex:1;min-width:0;">' +

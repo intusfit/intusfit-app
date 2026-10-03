@@ -1956,14 +1956,26 @@ if ($action === 'comentarios_pub') {
     if ($method === 'DELETE') {
         $id = (int)($_GET['id'] ?? 0);
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
-        // Só o autor apaga o próprio comentário (ou o professor, moderando).
-        $st = $pdo->prepare("SELECT autor_tipo, autor_id FROM intus_comentario_pub WHERE idcomentario = ?");
+        // Apaga: o autor do comentário, o DONO DO POST (modera o que aparece no
+        // próprio post, só no Feed) ou o professor (moderando).
+        $st = $pdo->prepare("SELECT autor_tipo, autor_id, alvo_tipo, alvo_id FROM intus_comentario_pub WHERE idcomentario = ?");
         $st->execute([$id]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) { echo json_encode(['ok' => true]); exit; }
         $ehDono = ($row['autor_tipo'] === $_autorTipo && (int)$row['autor_id'] === $_autorId);
-        if (!$ehDono && $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
-        $pdo->prepare("DELETE FROM intus_comentario_pub WHERE idcomentario = ?")->execute([$id]);
+        $ehDonoDoPost = ($_ehAluno && $row['alvo_tipo'] === 'feed_post' && _donoDoPostFeed($pdo, (int)$row['alvo_id']) === $_autorId);
+        if (!$ehDono && !$ehDonoDoPost && $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+        // Apagar um comentário leva junto as respostas dele e as curtidas de
+        // ambos: sem isso as respostas ficariam órfãs (somem da tela mas
+        // continuam contando em "Ver N comentários").
+        $stIds = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE idcomentario = ? OR resposta_a = ?");
+        $stIds->execute([$id, $id]);
+        $idsApagar = array_map('intval', $stIds->fetchAll(PDO::FETCH_COLUMN));
+        if (count($idsApagar)) {
+            $phA = implode(',', array_fill(0, count($idsApagar), '?'));
+            $pdo->prepare("DELETE FROM intus_comentario_pub WHERE idcomentario IN ($phA)")->execute($idsApagar);
+            try { $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'feed_comentario' AND alvo_id IN ($phA)")->execute($idsApagar); } catch (Throwable $e) {}
+        }
         echo json_encode(['ok' => true]);
         exit;
     }
