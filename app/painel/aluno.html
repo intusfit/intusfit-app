@@ -1866,17 +1866,46 @@ async function _composePublicar(destino) {
   const legenda = _mencoesCodificar('post', document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '');
   const localizacao = _feedComposeLocal.trim() || '';
   const dataUrl = await _composeImagemFinal();
+  const extras = _composeExtras.slice();
+  const hdrs = { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' };
+  // Mostra o motivo de verdade em vez de um erro genérico — sem isso não
+  // dava pra saber se era permissão, imagem grande demais ou servidor fora.
+  const motivoDe = async (resp) => {
+    let motivo = 'erro ' + resp.status;
+    try { const j = await resp.json(); if (j && j.error) motivo = j.error; } catch (e) {}
+    return motivo;
+  };
   const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino }),
+    headers: hdrs,
+    body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, total_midias: 1 + extras.length }),
   });
-  if (!r.ok) {
-    // Mostra o motivo de verdade em vez de um erro genérico — sem isso não
-    // dava pra saber se era permissão, imagem grande demais ou servidor fora.
-    let motivo = 'erro ' + r.status;
-    try { const j = await r.json(); if (j && j.error) motivo = j.error; } catch (e) {}
-    throw new Error(motivo);
+  if (!r.ok) throw new Error(await motivoDe(r));
+  if (extras.length) {
+    // Carrossel: o post fica invisível até a última foto chegar (uma por
+    // requisição, pra nenhuma ficar grande demais). Cada foto tenta 2 vezes.
+    let idpost = 0;
+    try { idpost = Number((await r.json()).idpost) || 0; } catch (e) {}
+    if (!idpost) throw new Error('resposta invalida do servidor');
+    const enviar = async (corpo) => {
+      let ultimo = '';
+      for (let t = 0; t < 2; t++) {
+        try {
+          const rr = await fetch(API_BASE + '/catalogo.php?action=feed_midia', { method: 'POST', headers: hdrs, body: JSON.stringify(corpo) });
+          if (rr.ok) return;
+          ultimo = await motivoDe(rr);
+        } catch (e) { ultimo = 'sem conexao'; }
+      }
+      throw new Error(ultimo);
+    };
+    for (let i = 0; i < extras.length; i++) {
+      toast('Enviando foto ' + (i + 2) + ' de ' + (extras.length + 1) + '...');
+      const img = await _composeProcessarExtra(extras[i]);
+      try { await enviar({ idpost: idpost, imagem: img }); }
+      catch (e) { throw new Error('a foto ' + (i + 2) + ' não foi (' + e.message + '). Nada foi publicado, tente de novo'); }
+    }
+    try { await enviar({ idpost: idpost, finalizar: 1 }); }
+    catch (e) { throw new Error('não consegui finalizar (' + e.message + '). Nada foi publicado, tente de novo'); }
   }
   toast(destino === 'feed' ? 'Publicado no feed! 🎉' : 'Publicado no seu perfil! 🎉');
   _fecharComposeFeed();
@@ -2688,6 +2717,48 @@ function _feedLegendaHtml(post, nomeCurto, isLight) {
   '</div>';
 }
 
+// ── Mídia do post: 1 foto simples ou carrossel (scroll-snap, pontos, contador) ──
+(function () {
+  const st = document.createElement('style');
+  st.textContent = '.mcar{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;}' +
+    '.mcar::-webkit-scrollbar{display:none;}' +
+    '.mcar>*{flex:0 0 100%;width:100%;scroll-snap-align:center;scroll-snap-stop:always;}' +
+    '.mcar-seta{display:none;position:absolute;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:18px;line-height:1;cursor:pointer;align-items:center;justify-content:center;z-index:2;}' +
+    '@media (hover:hover){.mcar-wrap:hover .mcar-seta{display:flex;}}';
+  document.head.appendChild(st);
+})();
+function _midiasDoPost(post) {
+  const m = post && Array.isArray(post.midias) ? post.midias.filter(x => x && x.url) : [];
+  return m.length ? m : [{ tipo: 'imagem', url: post && post.imagem, poster: null }];
+}
+function _midiaItemHtml(m) {
+  return '<img src="' + esc(m.url) + '" style="width:100%;display:block;" loading="lazy"/>';
+}
+function _carrosselHtml(midias, isLight) {
+  if (midias.length <= 1) return _midiaItemHtml(midias[0]);
+  const accent = isLight ? '#5cb800' : '#7FFF00';
+  return '<div class="mcar-wrap" style="position:relative;">' +
+    '<div class="mcar" onscroll="_carrosselScroll(this)">' + midias.map(_midiaItemHtml).join('') + '</div>' +
+    '<span data-car-cont style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:10px;pointer-events:none;">1/' + midias.length + '</span>' +
+    '<button class="mcar-seta" style="left:8px;" onclick="_carrosselIr(this,-1)" aria-label="Anterior">‹</button>' +
+    '<button class="mcar-seta" style="right:8px;" onclick="_carrosselIr(this,1)" aria-label="Próxima">›</button>' +
+    '<div style="position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center;gap:5px;pointer-events:none;">' +
+      midias.map((_, i) => '<i data-car-dot style="width:6px;height:6px;border-radius:50%;background:' + (i === 0 ? accent : 'rgba(255,255,255,.55)') + ';box-shadow:0 0 3px rgba(0,0,0,.5);"></i>').join('') +
+    '</div></div>';
+}
+function _carrosselScroll(el) {
+  const i = Math.round(el.scrollLeft / (el.clientWidth || 1));
+  const wrap = el.parentElement;
+  const c = wrap.querySelector('[data-car-cont]');
+  if (c) c.textContent = (i + 1) + '/' + el.children.length;
+  const accent = document.body.classList.contains('tema-claro') ? '#5cb800' : '#7FFF00';
+  wrap.querySelectorAll('[data-car-dot]').forEach((d, k) => { d.style.background = k === i ? accent : 'rgba(255,255,255,.55)'; });
+}
+function _carrosselIr(btn, dir) {
+  const el = btn.parentElement.querySelector('.mcar');
+  if (el) el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
+}
+
 function _feedCardHtml(post, isLight) {
   const nome = _feedAtletasMap[String(post.idatleta)] || 'Membro';
   const avatar = _feedAvatarsMap[String(post.idatleta)] || '';
@@ -2711,7 +2782,7 @@ function _feedCardHtml(post, isLight) {
       '</div>' +
       '<div onclick="_abrirMenuPost(' + post.idpost + ',' + post.idatleta + ')" style="font-size:16px;color:' + (isLight?'#bbb':'#666') + ';cursor:pointer;padding:4px;">⋯</div>' +
     '</div>' +
-    '<img src="' + esc(post.imagem) + '" style="width:100%;display:block;" loading="lazy"/>' +
+    _carrosselHtml(_midiasDoPost(post), isLight) +
     '<div style="padding:11px 12px;">' +
       _feedLegendaHtml(post, nome.split(' ')[0], isLight) +
       '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
@@ -3073,6 +3144,13 @@ let _composeDestino = 'feed';   // 'feed' | 'perfil'
 // pessoa continua podendo trocar lá, é só pra não perguntar a mesma coisa
 // duas vezes.
 let _composeRatioPre = 'retrato';
+// Carrossel: fotos EXTRAS além da capa (_feedComposeImg). Ficam guardadas só
+// reduzidas (lado maior 1920, sem corte); o recorte na proporção da capa, o
+// filtro e a marca d'água são aplicados na hora de publicar (_composeProcessarExtra),
+// então editar a capa depois continua valendo pra todas.
+const COMPOSE_MAX_MIDIAS = 10;
+let _composeExtras = [];
+let _composeFiltroCss = '';
 
 function abrirNovoPostFeed() {
   _composeOrigem = 'post';
@@ -3255,6 +3333,7 @@ function _renderComposeFeed() {
         // — vale pra prévia ao vivo da câmera e vira o ponto de partida do
         // recorte depois de capturar, sem perguntar a mesma coisa duas vezes.
         '<div style="display:flex;gap:6px;margin-top:8px;">' + ratioBtnsPre + '</div>') +
+      (_feedComposeImg ? _composeExtrasHtml(cardBg, borda, txt, muted) : '') +
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
 
       // ── Informações do treino/cardio ──────────────────────────────────
@@ -3719,13 +3798,93 @@ function _edConcluir() {
   if (filtroCss) _aplicarFiltroNoContexto(ctx, outW, outH, filtroCss);
   _feedComposeImg = canvas.toDataURL('image/jpeg', 0.94);
   _composeImgRatio = outH / outW;
+  _composeFiltroCss = filtroCss;
   document.getElementById('feed-editor-overlay')?.remove();
   _feedEdImg = null;
   _feedEdPointers.clear(); _feedEdGesto = null;
   _renderComposeFeed();
 }
 
-function _fecharComposeFeed() { _pararCamera(); document.getElementById('feed-compose-overlay')?.remove(); }
+function _fecharComposeFeed() { _pararCamera(); _composeExtras = []; document.getElementById('feed-compose-overlay')?.remove(); }
+
+// ── Carrossel no composer: fotos extras ────────────────────────────────────
+function _composeRerender() {
+  const sc = document.getElementById('feed-compose-overlay')?.scrollTop || 0;
+  _renderComposeFeed();
+  const ov = document.getElementById('feed-compose-overlay');
+  if (ov) ov.scrollTop = sc;
+}
+function _composeExtrasHtml(cardBg, borda, txt, muted) {
+  const total = 1 + _composeExtras.length;
+  const thumb = 'width:58px;height:72px;border-radius:9px;object-fit:cover;display:block;';
+  let h = '<div style="margin-top:12px;">' +
+    '<div style="font-size:12px;font-weight:700;color:' + txt + ';margin-bottom:6px;">Carrossel <span style="color:' + muted + ';font-weight:600;">· ' + total + ' de ' + COMPOSE_MAX_MIDIAS + ' fotos</span></div>' +
+    '<div style="display:flex;gap:8px;overflow-x:auto;padding:2px 0 4px;">' +
+      '<div style="position:relative;flex-shrink:0;"><img src="' + _feedComposeImg + '" style="' + thumb + 'border:2px solid #7FFF00;"/><span style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);color:#fff;border-radius:0 0 7px 7px;padding:1px 0;">CAPA</span></div>';
+  _composeExtras.forEach((src, i) => {
+    h += '<div style="position:relative;flex-shrink:0;"><img src="' + src + '" style="' + thumb + 'border:1px solid ' + borda + ';"/>' +
+      '<span onclick="_composeExtraRemover(' + i + ')" style="position:absolute;top:-5px;right:-5px;width:20px;height:20px;border-radius:50%;background:#222;border:1.5px solid #fff;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>';
+  });
+  if (total < COMPOSE_MAX_MIDIAS) {
+    h += '<div onclick="document.getElementById(\'feed-compose-file-extra\').click()" style="flex-shrink:0;width:58px;height:72px;border-radius:9px;border:1.5px dashed ' + borda + ';background:' + cardBg + ';color:' + muted + ';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;font-weight:700;cursor:pointer;"><span style="font-size:20px;line-height:1;">+</span>foto</div>';
+  }
+  h += '</div></div>' +
+    '<input type="file" id="feed-compose-file-extra" accept="image/*" multiple style="display:none;" onchange="_composeExtraEscolhidas(this)"/>';
+  return h;
+}
+function _composeExtraRemover(i) { _composeExtras.splice(i, 1); _composeRerender(); }
+
+// Lê um arquivo de imagem e devolve um dataURL JPEG com o lado maior limitado.
+function _composeReduzirImagem(src, maxLado, qualidade) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const f = Math.min(1, maxLado / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * f)); c.height = Math.max(1, Math.round(img.naturalHeight * f));
+      const x = c.getContext('2d');
+      x.imageSmoothingQuality = 'high';
+      x.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', qualidade));
+    };
+    img.onerror = () => reject(new Error('imagem ilegivel'));
+    img.src = src;
+  });
+}
+async function _composeExtraEscolhidas(input) {
+  const arquivos = Array.from(input.files || []);
+  input.value = '';
+  const vagas = COMPOSE_MAX_MIDIAS - 1 - _composeExtras.length;
+  if (!arquivos.length) return;
+  if (arquivos.length > vagas) toast('Limite de ' + COMPOSE_MAX_MIDIAS + ' fotos por post.');
+  for (const f of arquivos.slice(0, Math.max(0, vagas))) {
+    if (!/^image\//.test(f.type)) continue;
+    const url = URL.createObjectURL(f);
+    try { _composeExtras.push(await _composeReduzirImagem(url, 1920, 0.9)); }
+    catch (e) { toast('Não consegui ler uma das fotos.'); }
+    URL.revokeObjectURL(url);
+  }
+  _composeRerender();
+}
+// Recorta a foto extra (centro) na MESMA proporção da capa, aplica o mesmo
+// filtro e a marca d'água — devolve o dataURL final que vai pro servidor.
+async function _composeProcessarExtra(src) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('imagem ilegivel')); i.src = src; });
+  const r = _composeImgRatio || 5 / 4; // altura/largura
+  let cw = img.naturalWidth, ch = cw * r;
+  if (ch > img.naturalHeight) { ch = img.naturalHeight; cw = ch / r; }
+  const sx = (img.naturalWidth - cw) / 2, sy = (img.naturalHeight - ch) / 2;
+  let ow = cw, oh = ch;
+  const maior = Math.max(ow, oh);
+  if (maior > 1920) { const f = 1920 / maior; ow *= f; oh *= f; }
+  ow = Math.round(ow); oh = Math.round(oh);
+  const c = document.createElement('canvas'); c.width = ow; c.height = oh;
+  const x = c.getContext('2d');
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(img, sx, sy, cw, ch, 0, 0, ow, oh);
+  if (_composeFiltroCss) _aplicarFiltroNoContexto(x, ow, oh, _composeFiltroCss);
+  return _compositarLogoNaFoto(c.toDataURL('image/jpeg', 0.92));
+}
 
 // ── Seletor de localização do post: mapa + busca, com opção de digitar ─────
 // Alunos treinam o mundo inteiro (a Intus não tem endereço fixo, é
@@ -13865,7 +14024,7 @@ async function _carregarPerfilPosts() {
     return;
   }
   el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;">' +
-    posts.map(p => '<div onclick="navegar(\'feed\')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/></div>').join('') +
+    posts.map(p => '<div onclick="navegar(\'feed\')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + (_midiasDoPost(p).length > 1 ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">⧉</span>' : '') + '</div>').join('') +
   '</div>';
 }
 

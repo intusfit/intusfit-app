@@ -202,6 +202,29 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_comentario_pub', ['autor_nome', 'texto']);
+    // Mídia de um post (carrossel de fotos e, depois, vídeo) ou de um resultado.
+    // intus_feed_post.imagem continua sendo a CAPA (apps antigos só leem ela);
+    // post sem linhas aqui é devolvido como uma mídia só, a partir da capa.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_midia (
+            idmidia        INT AUTO_INCREMENT PRIMARY KEY,
+            dono_tipo      VARCHAR(20)  NOT NULL,
+            dono_id        INT          NOT NULL,
+            ordem          TINYINT      NOT NULL DEFAULT 0,
+            tipo           VARCHAR(10)  NOT NULL DEFAULT 'imagem',
+            url            VARCHAR(500) NULL,
+            poster         VARCHAR(500) NULL,
+            drive_id       VARCHAR(120) NULL,
+            token_publico  VARCHAR(40)  NULL,
+            mime           VARCHAR(60)  NULL,
+            tamanho        BIGINT       NULL,
+            duracao_seg    INT          NULL,
+            status         VARCHAR(10)  NOT NULL DEFAULT 'pronto',
+            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_dono (dono_tipo, dono_id, ordem),
+            INDEX idx_token (token_publico)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
     // Resposta a outro comentário do mesmo alvo — só 1 nível (responde sempre
     // ao comentário-pai, nunca a outra resposta), igual Instagram/feed comum.
     $cpCols = array_column($pdo->query("SHOW COLUMNS FROM intus_comentario_pub")->fetchAll(PDO::FETCH_ASSOC), 'Field');
@@ -339,6 +362,43 @@ function _resolverAutorPub(PDO $pdo, array $_ctx, bool $_ehAluno) {
 }
 
 require_once __DIR__ . '/_notificacoes.php';   // helpers do sino (_criarNotificacao, menções)
+
+// Salva uma imagem base64 (data URI) em app/img/feed e devolve a URL pública.
+// Lança Exception com mensagem curta se for inválida. Mesma regra do POST do Feed.
+function _salvarImagemFeedB64(string $raw, int $autorId): string {
+    if (!preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $raw, $m)) throw new Exception('formato de imagem invalido');
+    $dir = __DIR__ . '/../img/feed';
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
+    $bin = base64_decode($m[2], true);
+    if ($bin === false || strlen($bin) > 8 * 1024 * 1024) throw new Exception('imagem invalida ou grande demais');
+    if (!is_dir($dir) || !is_writable($dir)) throw new Exception('sem permissao de escrita');
+    try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }
+    $fname = 'feed_' . $autorId . '_' . time() . '_' . $rand . '.' . $ext;
+    if (@file_put_contents($dir . '/' . $fname, $bin) === false) throw new Exception('falha ao salvar imagem');
+    if (function_exists('gdriveBackup')) { try { gdriveBackup($bin, $fname, 'image/' . ($ext === 'jpg' ? 'jpeg' : $ext)); } catch (Throwable $e) {} }
+    return _appBaseUrl() . '/img/feed/' . $fname;
+}
+
+// Mídias de vários posts de uma vez: [idpost => [{tipo,url,poster,token?,duracao?}...]].
+// Nunca devolve drive_id. Só mídia 'pronto'.
+function _midiasDosPosts(PDO $pdo, string $donoTipo, array $ids): array {
+    $out = [];
+    $ids = array_values(array_filter(array_map('intval', $ids)));
+    if (!$ids) return $out;
+    try {
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare("SELECT dono_id, tipo, url, poster, token_publico, duracao_seg FROM intus_midia
+                             WHERE dono_tipo = ? AND dono_id IN ($ph) AND status = 'pronto' ORDER BY dono_id, ordem, idmidia");
+        $st->execute(array_merge([$donoTipo], $ids));
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $item = ['tipo' => $r['tipo'], 'url' => $r['url'], 'poster' => $r['poster']];
+            if ($r['tipo'] === 'video') { $item['token'] = $r['token_publico']; $item['duracao'] = (int)$r['duracao_seg']; }
+            $out[(int)$r['dono_id']][] = $item;
+        }
+    } catch (Throwable $e) {}
+    return $out;
+}
 
 // Dono (aluno) de um post do Feed, ou 0 se não existe/foi apagado.
 function _donoDoPostFeed(PDO $pdo, int $idpost): int {
@@ -2222,7 +2282,11 @@ if ($action === 'feed_posts') {
         $posts = $st->fetchAll(PDO::FETCH_ASSOC);
         $temMais = count($posts) > $limite;
         if ($temMais) $posts = array_slice($posts, 0, $limite);
-        foreach ($posts as &$p) { $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta']; }
+        $_midiasMap = _midiasDosPosts($pdo, 'feed_post', array_column($posts, 'idpost'));
+        foreach ($posts as &$p) {
+            $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta'];
+            $p['midias'] = $_midiasMap[$p['idpost']] ?? [['tipo' => 'imagem', 'url' => $p['imagem'], 'poster' => null]];
+        }
         unset($p);
         echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => $temMais], JSON_UNESCAPED_UNICODE);
         exit;
@@ -2238,6 +2302,12 @@ if ($action === 'feed_posts') {
         if (!in_array($destino, ['feed', 'perfil'], true)) $destino = 'feed';
         $localizacao = trim((string)($b['localizacao'] ?? ''));
         if (mb_strlen($localizacao) > 120) $localizacao = mb_substr($localizacao, 0, 120);
+        // Carrossel: o post nasce invisível (ativo=2) e só aparece no "finalizar",
+        // depois que todas as fotos extras chegaram (uma por requisição).
+        $totalMidias = max(1, min(10, (int)($b['total_midias'] ?? 1)));
+        $ativoNovo = $totalMidias > 1 ? 2 : 1;
+        // Post preso pela metade há mais de 24 h (celular sem sinal no meio do envio) é descartado.
+        try { $pdo->exec("UPDATE intus_feed_post SET ativo = 0 WHERE ativo = 2 AND created_at < (NOW() - INTERVAL 1 DAY)"); } catch (Throwable $e) {}
 
         // Salva como arquivo (mesmo padrão de _persistirFotos em avaliações):
         // nunca guardamos a imagem inteira em base64 dentro do banco.
@@ -2268,12 +2338,16 @@ if ($action === 'feed_posts') {
         // disco nesse ponto, entao o aluno perdia so o registro do post, nao
         // a foto. Mesmo padrao de log+referencia ja usado na conexao do banco.
         try {
-            $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino, localizacao) VALUES (?,?,?,?,?)");
-            $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino, $localizacao !== '' ? $localizacao : null]);
+            $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino, localizacao, ativo) VALUES (?,?,?,?,?,?)");
+            $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino, $localizacao !== '' ? $localizacao : null, $ativoNovo]);
             $novoPost = (int)$pdo->lastInsertId();
+            try {
+                $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('feed_post', ?, 0, 'imagem', ?)")->execute([$novoPost, $url]);
+            } catch (Throwable $e) {}
             // @menções na legenda avisam as pessoas marcadas (não em post só do perfil).
-            if ($legenda !== '' && $destino === 'feed') _notificarMencoes($pdo, $legenda, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $novoPost);
-            echo json_encode(['ok' => true, 'idpost' => $novoPost, 'imagem' => $url, 'destino' => $destino]);
+            // Em carrossel isso espera o "finalizar", quando o post de fato aparece.
+            if ($ativoNovo === 1 && $legenda !== '' && $destino === 'feed') _notificarMencoes($pdo, $legenda, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $novoPost);
+            echo json_encode(['ok' => true, 'idpost' => $novoPost, 'imagem' => $url, 'destino' => $destino, 'pendente' => $ativoNovo === 2]);
         } catch (Throwable $e) {
             http_response_code(500);
             echo json_encode(['error' => 'falha ao gravar o post', 'detalhe' => _intusLogErro($e)]);
@@ -2295,6 +2369,46 @@ if ($action === 'feed_posts') {
         echo json_encode(['ok' => true]);
         exit;
     }
+}
+
+// ── Carrossel: foto extra de um post (uma por requisição) e finalização ────
+// O dono envia o post com a capa (feed_posts POST, total_midias > 1), manda cada
+// foto extra aqui e por fim chama com finalizar=1, que torna o post visível.
+if ($action === 'feed_midia' && $method === 'POST') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    $b = jsonBody();
+    $idpost = (int)($b['idpost'] ?? 0);
+    $st = $pdo->prepare("SELECT idatleta, ativo, legenda, destino FROM intus_feed_post WHERE idpost = ? LIMIT 1");
+    $st->execute([$idpost]);
+    $post = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$post || (int)$post['idatleta'] !== $_autorId || (int)$post['ativo'] === 0) { http_response_code(403); echo json_encode(['error' => 'post invalido']); exit; }
+    $st = $pdo->prepare("SELECT COUNT(*) FROM intus_midia WHERE dono_tipo = 'feed_post' AND dono_id = ?");
+    $st->execute([$idpost]);
+    $qtd = (int)$st->fetchColumn();
+
+    if (!empty($b['finalizar'])) {
+        if ((int)$post['ativo'] === 2) {
+            $pdo->prepare("UPDATE intus_feed_post SET ativo = 1 WHERE idpost = ? AND ativo = 2")->execute([$idpost]);
+            $leg = (string)($post['legenda'] ?? '');
+            if ($leg !== '' && $post['destino'] === 'feed') _notificarMencoes($pdo, $leg, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $idpost);
+        }
+        echo json_encode(['ok' => true, 'idpost' => $idpost, 'midias' => $qtd]);
+        exit;
+    }
+
+    if ($qtd >= 10) { http_response_code(400); echo json_encode(['error' => 'limite de 10 midias por post']); exit; }
+    try { $url = _salvarImagemFeedB64((string)($b['imagem'] ?? ''), $_autorId); }
+    catch (Exception $e) { http_response_code(400); echo json_encode(['error' => $e->getMessage()]); exit; }
+    try {
+        $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('feed_post', ?, ?, 'imagem', ?)")->execute([$idpost, $qtd, $url]);
+        echo json_encode(['ok' => true, 'idpost' => $idpost, 'ordem' => $qtd, 'url' => $url]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'falha ao gravar a midia', 'detalhe' => _intusLogErro($e)]);
+    }
+    exit;
 }
 
 // ── Preferências do feed: quem eu não quero ver, e quem não pode me ver ────
