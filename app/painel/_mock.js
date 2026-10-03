@@ -637,6 +637,7 @@ function renderLayout(activePage) {
     { href: 'financeiro.html',   icon: ICONS.money,    label: 'Financeiro',   show: !!user.admin },
     { href: 'gestao.html',       icon: ICONS.chart,    label: 'Gestão',       show: podeVerGestao() },
     { href: 'mensagens.html',    icon: ICONS.chat,     label: 'Central do Aluno', show: true },
+    { href: 'feed.html',         icon: ICONS.camera,   label: 'Feed',         show: true },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },
     { href: 'configuracoes.html',icon: ICONS.gear,     label: 'Configurações',show: !!user.admin },

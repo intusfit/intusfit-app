@@ -2177,25 +2177,31 @@ if ($action === 'feed_posts') {
             } catch (Throwable $e) {}
         }
         // Quem EU escolhi não ver, e quem escolheu não me mostrar.
+        // Preferências de bloqueio são entre ALUNOS. Professor (id de outra
+        // tabela) não passa por elas: o número dele não pode ser lido como se
+        // fosse o de um aluno.
         $ocultarDeles = [];
         $meOcultaram  = [];
-        try {
-            $st = $pdo->prepare("SELECT idalvo FROM intus_feed_pref WHERE idatleta = ? AND tipo = 'ver'");
-            $st->execute([$_autorId]);
-            $ocultarDeles = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
-            $st = $pdo->prepare("SELECT idatleta FROM intus_feed_pref WHERE idalvo = ? AND tipo = 'mostrar'");
-            $st->execute([$_autorId]);
-            $meOcultaram = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
-        } catch (Throwable $e) {}
+        if ($_autorTipo === 'aluno') {
+            try {
+                $st = $pdo->prepare("SELECT idalvo FROM intus_feed_pref WHERE idatleta = ? AND tipo = 'ver'");
+                $st->execute([$_autorId]);
+                $ocultarDeles = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+                $st = $pdo->prepare("SELECT idatleta FROM intus_feed_pref WHERE idalvo = ? AND tipo = 'mostrar'");
+                $st->execute([$_autorId]);
+                $meOcultaram = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+            } catch (Throwable $e) {}
+        }
 
         $visiveis = array_values(array_diff($optinIds, $ocultarDeles, $meOcultaram));
         // Autor sempre vê os próprios posts, mesmo se saiu do feed depois ou
         // bloqueou/foi bloqueado por si mesmo (não deveria acontecer, mas não
         // custa garantir) — sem isso "meus posts" no perfil ficaria vazio
         // assim que a pessoa desligasse o feed_optin.
-        if (!in_array($_autorId, $visiveis, true)) $visiveis[] = $_autorId;
+        // (só aluno: o id de um professor não pode virar "autor visível" de aluno)
+        if ($_autorTipo === 'aluno' && !in_array($_autorId, $visiveis, true)) $visiveis[] = $_autorId;
         $somenteAutor = (int)($_GET['idatleta'] ?? 0);
-        if ($somenteAutor > 0) $visiveis = ($somenteAutor === $_autorId || in_array($somenteAutor, $visiveis, true)) ? [$somenteAutor] : [];
+        if ($somenteAutor > 0) $visiveis = (($_autorTipo === 'aluno' && $somenteAutor === $_autorId) || in_array($somenteAutor, $visiveis, true)) ? [$somenteAutor] : [];
 
         if (!count($visiveis)) { echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false]); exit; }
         $ph = implode(',', array_fill(0, count($visiveis), '?'));

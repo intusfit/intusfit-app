@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Feed — Intus</title>
+  <script src="_mock.js?v=20261003d"></script>
+  <script src="api.js?v=20260917a"></script>
+  <style>
+    .fd-wrap { max-width: 640px; margin: 0 auto; }
+    .fd-intro { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; }
+    .fd-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
+    .fd-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+    .fd-av { width: 36px; height: 36px; border-radius: 50%; background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: var(--text-muted); flex-shrink: 0; object-fit: cover; }
+    .fd-nome { font-size: 13px; font-weight: 800; color: var(--text); }
+    .fd-meta { font-size: 11px; color: var(--text-muted); }
+    .fd-meta a { color: var(--green); font-weight: 700; text-decoration: none; }
+    .fd-foto { width: 100%; display: block; background: var(--bg3); }
+    .fd-body { padding: 12px 14px; }
+    .fd-legenda { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 10px; white-space: pre-wrap; word-wrap: break-word; }
+    .fd-acoes { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+    .fd-btn { background: transparent; border: none; cursor: pointer; font-family: inherit; color: var(--text-muted); font-size: 13px; font-weight: 600; padding: 0; }
+    .fd-curtir { font-size: 20px; line-height: 1; margin-right: 6px; }
+    .fd-men { color: var(--green); font-weight: 700; }
+    .fd-com { display: flex; gap: 8px; padding: 7px 0; }
+    .fd-com.resp { margin-left: 34px; }
+    .fd-com .fd-av { width: 26px; height: 26px; font-size: 10px; }
+    .fd-com-txt { font-size: 12px; line-height: 1.4; color: var(--text); word-wrap: break-word; }
+    .fd-com-sub { display: flex; gap: 14px; margin-top: 2px; font-size: 10.5px; color: var(--text-muted); }
+    .fd-com-sub span.a { cursor: pointer; font-weight: 700; }
+    .fd-selo { color: var(--green); font-weight: 800; font-size: 9px; text-transform: uppercase; letter-spacing: .03em; }
+    .fd-lista-com { border-top: 1px solid var(--border); margin-top: 6px; }
+    .fd-envio { display: flex; gap: 6px; margin-top: 8px; }
+    .fd-envio input { flex: 1; padding: 8px 12px; border-radius: 99px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); font-size: 12px; font-family: inherit; }
+    .fd-envio button { padding: 8px 16px; border-radius: 99px; border: none; background: var(--green); color: #0f1a00; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit; }
+    .fd-chip { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+    .fd-vazio { text-align: center; padding: 50px 16px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+    .fd-mais { display: block; margin: 0 auto 24px; padding: 10px 22px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); font-weight: 700; font-size: 12px; cursor: pointer; font-family: inherit; }
+    #fd-dd { position: fixed; z-index: 400; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 4px; max-height: 260px; overflow-y: auto; }
+    #fd-dd .it { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text); }
+    #fd-dd .it:hover { background: var(--bg3); }
+    #fd-dd .it small { display: block; font-size: 10.5px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Feed');
+
+const main = document.getElementById('main-content');
+const _isAdmin = (typeof isAdmin === 'function') ? isAdmin() : false;
+const BASE = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+const TEXTO_LIMITE = 1000;
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function tok() { return localStorage.getItem('mx-token') || ''; }
+function api(path, opts) {
+  opts = opts || {};
+  return fetch(BASE + path, Object.assign({ cache: 'no-store' }, opts, { headers: Object.assign({ 'Authorization': 'Bearer ' + tok() }, opts.headers || {}) }));
+}
+function apiJson(path, corpo, metodo) {
+  return api(path, { method: metodo || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+}
+
+// ── estado ──
+let posts = [], atletas = {}, avatares = {}, temMais = false, carregando = false;
+let reacPost = {}, comPost = {}, reacCom = {}, abertos = {}, respondendo = {};
+
+function iniciais(nome) {
+  const p = String(nome || '?').trim().split(/\s+/);
+  return ((p[0] && p[0][0] || '') + (p[1] && p[1][0] || '')).toUpperCase() || '?';
+}
+function quando(s) {
+  const dt = new Date(String(s).replace(' ', 'T'));
+  const min = Math.floor((Date.now() - dt.getTime()) / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return 'há ' + min + ' min';
+  const h = Math.floor(min / 60);
+  if (h < 24) return 'há ' + h + 'h';
+  const d = Math.floor(h / 24);
+  if (d < 7) return 'há ' + d + (d === 1 ? ' dia' : ' dias');
+  return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+function avatar(tipo, id, nome) {
+  const url = tipo === 'aluno' ? (avatares[String(id)] || '') : '';
+  return url
+    ? '<img class="fd-av" src="' + esc(url) + '" alt="" onerror="this.style.display=\'none\'"/>'
+    : '<div class="fd-av">' + esc(iniciais(nome)) + '</div>';
+}
+
+// ── menções (@): mesmo formato do app do aluno ──
+function segmentos(texto) {
+  const rx = /@\[([^\]\r\n]{1,60})\]\{(aluno|prof):(\d+)\}/g;
+  texto = String(texto == null ? '' : texto);
+  const segs = []; let ult = 0, m;
+  while ((m = rx.exec(texto))) {
+    if (m.index > ult) segs.push({ t: texto.slice(ult, m.index) });
+    segs.push({ nome: m[1] });
+    ult = m.index + m[0].length;
+  }
+  if (ult < texto.length) segs.push({ t: texto.slice(ult) });
+  return segs;
+}
+function textoMen(texto) { return segmentos(texto).map(s => s.t != null ? esc(s.t) : '<span class="fd-men">@' + esc(s.nome) + '</span>').join(''); }
+
+let pessoas = null, pessoasTs = 0, camposMen = {}, ctxMen = null;
+async function carregarPessoas() {
+  if (pessoas && Date.now() - pessoasTs < 600000) return pessoas;
+  try { const r = await api('/catalogo.php?action=pessoas_mencionaveis&_=' + Date.now()); if (r.ok) { const j = await r.json(); pessoas = j.pessoas || []; pessoasTs = Date.now(); } } catch (e) {}
+  return pessoas || [];
+}
+function semAcento(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+function codificar(chave, texto) {
+  const lista = (camposMen[chave] || []).map((p, i) => ({ p, i })).sort((a, b) => b.p.nome.length - a.p.nome.length || a.i - b.i);
+  let out = String(texto || '');
+  lista.forEach(({ p }) => {
+    const marca = '@' + p.nome, pos = out.indexOf(marca);
+    if (pos === -1) return;
+    out = out.slice(0, pos) + '@[' + p.nome.replace(/[\]\r\n]/g, '').slice(0, 60) + ']{' + p.tipo + ':' + p.id + '}' + out.slice(pos + marca.length);
+  });
+  return out;
+}
+function rotuloRepetido(p) {
+  const k = semAcento(p.nome);
+  const iguais = (pessoas || []).filter(x => semAcento(x.nome) === k);
+  if (iguais.length < 2) return '';
+  const mesmoMes = iguais.filter(x => (x.desde || '') === (p.desde || '')).length > 1;
+  return [p.desde ? 'desde ' + p.desde : '', mesmoMes || !p.desde ? 'nº ' + p.id : ''].filter(Boolean).join(' · ');
+}
+function fecharDd() { const d = document.getElementById('fd-dd'); if (d) d.remove(); ctxMen = null; }
+function mostrarDd(el, lista, inicio, fim) {
+  fecharDd();
+  if (!lista.length) return;
+  ctxMen = { el, lista, inicio, fim };
+  const r = el.getBoundingClientRect();
+  const dd = document.createElement('div');
+  dd.id = 'fd-dd';
+  const larg = Math.max(220, Math.min(r.width, 360));
+  const acima = r.top > lista.length * 48 + 24;
+  dd.style.cssText = 'left:' + Math.max(8, Math.min(r.left, window.innerWidth - larg - 8)) + 'px;width:' + larg + 'px;' + (acima ? 'bottom:' + (window.innerHeight - r.top + 6) + 'px;' : 'top:' + (r.bottom + 6) + 'px;');
+  dd.innerHTML = lista.map((p, i) => '<div class="it" data-i="' + i + '">' + avatar(p.tipo, p.id, p.nome) +
+    '<span style="flex:1;min-width:0;"><b>' + esc(p.nome) + '</b>' + (rotuloRepetido(p) ? '<small>' + esc(rotuloRepetido(p)) + '</small>' : '') + '</span>' +
+    (p.tipo === 'prof' ? '<span class="fd-selo">professor</span>' : '') + '</div>').join('');
+  dd.addEventListener('pointerdown', ev => { const it = ev.target.closest('[data-i]'); if (!it) return; ev.preventDefault(); escolherMen(Number(it.dataset.i)); });
+  document.body.appendChild(dd);
+}
+function escolherMen(i) {
+  const c = ctxMen; if (!c || !c.lista[i]) return;
+  const p = c.lista[i], el = c.el, v = el.value;
+  el.value = v.slice(0, c.inicio) + '@' + p.nome + ' ' + v.slice(c.fim);
+  const pos = c.inicio + p.nome.length + 2;
+  try { el.setSelectionRange(pos, pos); } catch (e) {}
+  (camposMen[el.dataset.men] = camposMen[el.dataset.men] || []).push({ nome: p.nome, tipo: p.tipo, id: p.id });
+  fecharDd();
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.focus();
+}
+document.addEventListener('input', async e => {
+  const el = e.target;
+  if (!el || !el.matches || !el.matches('[data-men]')) return;
+  // limite de texto (conta a marcação pelo tamanho que ocupa no texto salvo)
+  const tam = () => codificar(el.dataset.men, el.value).length;
+  if (tam() > TEXTO_LIMITE) {
+    const prev = typeof el._valido === 'string' ? el._valido : null;
+    const entrou = prev === null ? 0 : el.value.length - prev.length;
+    if (prev !== null && entrou > 0 && entrou <= 5) { const pos = (el.selectionStart || el.value.length) - entrou; el.value = prev; try { el.setSelectionRange(pos, pos); } catch (x) {} }
+    else { let v = el.value, g = 0; while (v.length && g++ < 4000) { v = v.slice(0, -1); el.value = v; if (tam() <= TEXTO_LIMITE) break; } }
+    el._valido = el.value;
+    showToast('Limite de ' + TEXTO_LIMITE + ' caracteres atingido.', 'error');
+    return;
+  }
+  el._valido = el.value;
+  const pos = el.selectionStart != null ? el.selectionStart : el.value.length;
+  const m = el.value.slice(0, pos).match(/(^|\s)@([^\s@\[\]]{0,30})$/);
+  if (!m) { fecharDd(); return; }
+  const consulta = semAcento(m[2]);
+  const todas = await carregarPessoas();
+  if (document.activeElement !== el) return;
+  const nota = p => { const n = semAcento(p.nome); if (!consulta) return 1; if (n.split(/\s+/).some(w => w.startsWith(consulta))) return 2; return n.includes(consulta) ? 1 : 0; };
+  const lista = todas.map(p => ({ p, s: nota(p) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 6).map(x => x.p);
+  mostrarDd(el, lista, pos - m[2].length - 1, pos);
+});
+document.addEventListener('focusout', e => { if (e.target && e.target.matches && e.target.matches('[data-men]')) setTimeout(fecharDd, 200); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharDd(); });
+window.addEventListener('scroll', fecharDd, true);
+
+// ── dados ──
+async function carregarExtras(ids) {
+  if (!ids.length) return;
+  const q = ids.join(',');
+  try {
+    const [rr, rc] = await Promise.all([
+      api('/catalogo.php?action=reacoes&alvo_tipo=feed_post&ids=' + q + '&_=' + Date.now()),
+      api('/catalogo.php?action=comentarios_pub&alvo_tipo=feed_post&ids=' + q + '&_=' + Date.now()),
+    ]);
+    const jr = rr.ok ? await rr.json() : {}, jc = rc.ok ? await rc.json() : {};
+    ids.forEach(id => { reacPost[id] = jr[String(id)] || []; comPost[id] = jc[String(id)] || []; });
+    const idsC = []; Object.keys(jc).forEach(k => (jc[k] || []).forEach(c => idsC.push(c.idcomentario)));
+    await carregarReacCom(idsC);
+  } catch (e) {}
+}
+async function carregarReacCom(idsC) {
+  idsC = (idsC || []).slice(0, 500);
+  if (!idsC.length) return;
+  try {
+    const r = await api('/catalogo.php?action=reacoes&alvo_tipo=feed_comentario&ids=' + idsC.join(',') + '&_=' + Date.now());
+    if (!r.ok) return;
+    const j = await r.json();
+    idsC.forEach(id => { reacCom[id] = j[String(id)] || []; });
+  } catch (e) {}
+}
+async function carregar(maisAntesDe) {
+  if (carregando) return;
+  carregando = true;
+  try {
+    const r = await api('/catalogo.php?action=feed_posts&limite=10' + (maisAntesDe ? '&antes_de=' + maisAntesDe : '') + '&_=' + Date.now());
+    if (!r.ok) throw new Error('falhou');
+    const j = await r.json();
+    const novos = Array.isArray(j.posts) ? j.posts : [];
+    Object.assign(atletas, j.atletas || {}); Object.assign(avatares, j.avatars || {});
+    temMais = !!j.temMais;
+    posts = maisAntesDe ? posts.concat(novos) : novos;
+    await carregarExtras(novos.map(p => p.idpost));
+  } catch (e) { showToast('Não consegui carregar o Feed agora.', 'error'); }
+  carregando = false;
+  render();
+}
+
+// ── tela ──
+function comentarioHtml(idpost, c, ehResp) {
+  const lk = reacCom[c.idcomentario] || [], curtiu = lk.some(x => x.meu);
+  const selo = c.autor_tipo === 'prof' || c.autor_tipo === 'professor' ? ' <span class="fd-selo">professor</span>' : '';
+  return '<div class="fd-com' + (ehResp ? ' resp' : '') + '">' + avatar(c.autor_tipo === 'aluno' ? 'aluno' : 'prof', c.autor_id, c.autor_nome) +
+    '<div style="flex:1;min-width:0;"><div class="fd-com-txt"><b>' + esc(c.autor_nome || 'Alguém') + '</b>' + selo + ' ' + textoMen(c.texto) + '</div>' +
+    '<div class="fd-com-sub"><span>' + quando(c.created_at) + '</span>' +
+    (ehResp ? '' : '<span class="a" onclick="responder(' + idpost + ',' + c.idcomentario + ')">Responder</span>') +
+    '<span class="a" onclick="excluirCom(' + idpost + ',' + c.idcomentario + ')">Excluir</span></div></div>' +
+    '<div style="flex-shrink:0;cursor:pointer;text-align:center;font-size:14px;min-width:22px;" onclick="curtirCom(' + c.idcomentario + ')" title="Curtir comentário">' + (curtiu ? '❤️' : '🤍') +
+    (lk.length ? '<div style="font-size:10px;font-weight:700;color:var(--text-muted);">' + lk.length + '</div>' : '') + '</div></div>';
+}
+function comentariosHtml(p) {
+  const id = p.idpost, lista = comPost[id] || [];
+  if (!abertos[id]) return '';
+  const porPai = {}, raizes = [];
+  lista.forEach(c => { if (c.resposta_a) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
+  const itens = raizes.map(c => comentarioHtml(id, c, false) + (porPai[c.idcomentario] || []).map(r => comentarioHtml(id, r, true)).join('')).join('');
+  const resp = respondendo[id];
+  return (itens ? '<div class="fd-lista-com">' + itens + '</div>' : '') +
+    (resp ? '<div class="fd-chip">Respondendo a <b>' + esc(resp.nome) + '</b> <span style="cursor:pointer;font-weight:800;" onclick="cancelarResp(' + id + ')">✕</span></div>' : '') +
+    '<div class="fd-envio"><input data-men="com:' + id + '" data-com-input="' + id + '" placeholder="Comente como professor... (@ para marcar)" onkeydown="if(event.key===\'Enter\')enviarCom(' + id + ')"/>' +
+    '<button onclick="enviarCom(' + id + ')">Enviar</button></div>';
+}
+function cartaoHtml(p) {
+  const id = p.idpost, nome = atletas[String(p.idatleta)] || 'Aluno';
+  const lk = reacPost[id] || [], curtiu = lk.some(x => x.meu), n = (comPost[id] || []).length;
+  const quemCurtiu = lk.map(x => x.autor_nome).filter(Boolean).slice(0, 12).join(', ');
+  return '<div class="fd-card" data-post="' + id + '">' +
+    '<div class="fd-head">' + avatar('aluno', p.idatleta, nome) +
+      '<div style="flex:1;min-width:0;"><div class="fd-nome">' + esc(nome) + '</div><div class="fd-meta">' +
+      (p.localizacao ? '<a href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.localizacao) + '" target="_blank" rel="noopener">📍 ' + esc(p.localizacao) + '</a> · ' : '') + quando(p.created_at) + '</div></div>' +
+      (_isAdmin ? '<button class="fd-btn" title="Excluir post (moderação)" onclick="excluirPost(' + id + ')">🗑️</button>' : '') + '</div>' +
+    '<img class="fd-foto" src="' + esc(p.imagem) + '" loading="lazy" alt=""/>' +
+    '<div class="fd-body">' + (p.legenda ? '<div class="fd-legenda"><b>' + esc(String(nome).split(' ')[0]) + '</b> ' + textoMen(p.legenda) + '</div>' : '') +
+    '<div class="fd-acoes"><span><button class="fd-btn fd-curtir" onclick="curtirPost(' + id + ')">' + (curtiu ? '❤️' : '🤍') + '</button>' +
+      '<span class="fd-btn" title="' + esc(quemCurtiu) + '">' + lk.length + '</span></span>' +
+      '<button class="fd-btn" onclick="alternar(' + id + ')">' + (abertos[id] ? 'Ocultar comentários' : (n ? 'Ver ' + n + ' comentário' + (n > 1 ? 's' : '') : 'Comentar')) + '</button></div>' +
+    '<div data-com-bloco="' + id + '">' + comentariosHtml(p) + '</div></div></div>';
+}
+function render() {
+  // guarda o que estava sendo digitado: o redesenho não pode apagar rascunho
+  const rascunhos = {};
+  document.querySelectorAll('[data-com-input]').forEach(i => { if (i.value) rascunhos[i.dataset.comInput] = i.value; });
+  main.innerHTML = '<div class="fd-wrap"><div class="fd-intro">Posts dos alunos que entraram no Feed. Como professor você curte, comenta, responde e marca alunos com @. Cada aluno só aparece aqui se escolheu participar do Feed.</div>' +
+    (posts.length ? posts.map(cartaoHtml).join('') : '<div class="fd-vazio">' + (carregando ? 'Carregando...' : 'Nenhum post no Feed ainda.') + '</div>') +
+    (temMais ? '<button class="fd-mais" onclick="carregar(' + (posts.length ? posts[posts.length - 1].idpost : 0) + ')">Carregar mais</button>' : '') + '</div>';
+  Object.keys(rascunhos).forEach(id => { const i = document.querySelector('[data-com-input="' + id + '"]'); if (i) i.value = rascunhos[id]; });
+}
+function atualizarBloco(id) {
+  const p = posts.find(x => x.idpost === id); if (!p) return;
+  const card = document.querySelector('[data-post="' + id + '"]'); if (!card) return render();
+  const campo = card.querySelector('[data-com-input]'), rasc = campo ? campo.value : '';
+  card.outerHTML = cartaoHtml(p);
+  if (rasc) { const n = document.querySelector('[data-post="' + id + '"] [data-com-input]'); if (n) n.value = rasc; }
+}
+
+// ── ações ──
+async function curtirPost(id) {
+  try { const r = await apiJson('/catalogo.php?action=reacoes', { alvo_tipo: 'feed_post', alvo_id: id, emoji: '❤️' }); if (!r.ok) throw 0; }
+  catch (e) { showToast('Não deu para curtir.', 'error'); return; }
+  try { const r = await api('/catalogo.php?action=reacoes&alvo_tipo=feed_post&ids=' + id + '&_=' + Date.now()); const j = r.ok ? await r.json() : {}; reacPost[id] = j[String(id)] || []; } catch (e) {}
+  atualizarBloco(id);
+}
+function alternar(id) { abertos[id] = !abertos[id]; atualizarBloco(id); }
+function responder(idpost, idcom) {
+  const c = (comPost[idpost] || []).find(x => x.idcomentario === idcom); if (!c) return;
+  respondendo[idpost] = { id: idcom, nome: c.autor_nome || 'Alguém' };
+  abertos[idpost] = true; atualizarBloco(idpost);
+  const i = document.querySelector('[data-com-input="' + idpost + '"]'); if (i) i.focus();
+}
+function cancelarResp(idpost) { delete respondendo[idpost]; atualizarBloco(idpost); }
+let enviando = {};
+async function enviarCom(idpost) {
+  if (enviando[idpost]) return;
+  const campo = document.querySelector('[data-com-input="' + idpost + '"]');
+  const texto = codificar('com:' + idpost, (campo && campo.value || '').trim());
+  if (!texto) return;
+  enviando[idpost] = true;
+  try {
+    const corpo = { alvo_tipo: 'feed_post', alvo_id: idpost, texto: texto };
+    if (respondendo[idpost]) corpo.resposta_a = respondendo[idpost].id;
+    const r = await apiJson('/catalogo.php?action=comentarios_pub', corpo);
+    if (!r.ok) throw 0;
+    campo.value = ''; camposMen['com:' + idpost] = []; delete respondendo[idpost]; abertos[idpost] = true;
+    await carregarExtras([idpost]);
+    atualizarBloco(idpost);
+  } catch (e) { showToast('Não consegui enviar o comentário.', 'error'); }
+  enviando[idpost] = false;
+}
+async function curtirCom(idcom) {
+  try { const r = await apiJson('/catalogo.php?action=reacoes', { alvo_tipo: 'feed_comentario', alvo_id: idcom, emoji: '❤️' }); if (!r.ok) throw 0; }
+  catch (e) { showToast('Não deu para curtir.', 'error'); return; }
+  await carregarReacCom([idcom]);
+  const p = posts.find(x => (comPost[x.idpost] || []).some(c => c.idcomentario === idcom)); if (p) atualizarBloco(p.idpost);
+}
+async function excluirCom(idpost, idcom) {
+  if (!confirm('Excluir este comentário? As respostas a ele também serão excluídas.')) return;
+  try { const r = await api('/catalogo.php?action=comentarios_pub&id=' + idcom, { method: 'DELETE' }); if (!r.ok) throw 0; }
+  catch (e) { showToast('Não consegui excluir o comentário.', 'error'); return; }
+  await carregarExtras([idpost]);
+  atualizarBloco(idpost);
+}
+async function excluirPost(id) {
+  if (!confirm('Excluir este post do Feed? Essa ação não pode ser desfeita.')) return;
+  try { const r = await api('/catalogo.php?action=feed_posts&id=' + id, { method: 'DELETE' }); if (!r.ok) throw 0; }
+  catch (e) { showToast('Não consegui excluir o post.', 'error'); return; }
+  posts = posts.filter(p => p.idpost !== id);
+  render();
+}
+
+render();
+carregar();
+</script>
+</body>
+</html>
