@@ -67,7 +67,7 @@ function midiasDoPost(p) {
 function midiaItem(m) {
   if (m.tipo === 'video') {
     const src = m.token ? BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
-    return '<video class="fd-foto" src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" style="background:#000;max-height:80vh;"></video>';
+    return '<video class="fd-foto" src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" onerror="videoFalhou(this)" style="background:#000;max-height:80vh;"></video>';
   }
   return '<img class="fd-foto" src="' + esc(m.url) + '" loading="lazy" alt=""/>';
 }
@@ -80,6 +80,25 @@ function carrossel(midias) {
     '<div style="position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center;gap:5px;pointer-events:none;">' +
       midias.map((_, i) => '<i data-car-dot style="width:6px;height:6px;border-radius:50%;background:' + (i === 0 ? '#7FFF00' : 'rgba(255,255,255,.55)') + ';box-shadow:0 0 3px rgba(0,0,0,.5);"></i>').join('') +
     '</div></div>';
+}
+function videoFalhou(v) {
+  const cod = v.error ? v.error.code : 0;
+  const box = document.createElement('div');
+  box.style.cssText = 'padding:26px 16px;text-align:center;background:#000;color:#ddd;font-size:12.5px;line-height:1.6;';
+  box.setAttribute('data-src', v.getAttribute('src') || '');
+  box.setAttribute('data-poster', v.getAttribute('poster') || '');
+  box.innerHTML = 'Não foi possível carregar este vídeo' + (cod ? ' (código ' + cod + ')' : '') + '.<br><span onclick="videoTentar(this.parentElement)" style="color:#7FFF00;font-weight:700;cursor:pointer;text-decoration:underline;">Tentar de novo</span>';
+  v.replaceWith(box);
+}
+function videoTentar(box) {
+  const v = document.createElement('video');
+  v.src = box.getAttribute('data-src') || '';
+  if (box.getAttribute('data-poster')) v.poster = box.getAttribute('data-poster');
+  v.controls = true; v.playsInline = true; v.preload = 'auto';
+  v.style.cssText = 'width:100%;display:block;background:#000;max-height:80vh;';
+  v.onerror = function () { videoFalhou(v); };
+  box.replaceWith(v);
+  v.load();
 }
 function carScroll(el) {
   const i = Math.round(el.scrollLeft / (el.clientWidth || 1));

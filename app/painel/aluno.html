@@ -2751,9 +2751,30 @@ function _midiaItemHtml(m) {
   if (m.tipo === 'video') {
     // O <video> não manda Authorization: a URL leva o token público do vídeo.
     const src = m.token ? API_BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
-    return '<video src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" style="width:100%;display:block;background:#000;max-height:80vh;"></video>';
+    return '<video src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" onerror="_videoFalhou(this)" style="width:100%;display:block;background:#000;max-height:80vh;"></video>';
   }
   return '<img src="' + esc(m.url) + '" style="width:100%;display:block;" loading="lazy"/>';
+}
+// Vídeo que não carregou: diz o código do erro do navegador e deixa tentar de novo.
+function _videoFalhou(v) {
+  const cod = v.error ? v.error.code : 0;
+  const box = document.createElement('div');
+  box.style.cssText = 'padding:26px 16px;text-align:center;background:#000;color:#ddd;font-size:12.5px;line-height:1.6;';
+  box.setAttribute('data-src', v.getAttribute('src') || '');
+  box.setAttribute('data-poster', v.getAttribute('poster') || '');
+  box.innerHTML = 'Não foi possível carregar este vídeo' + (cod ? ' (código ' + cod + ')' : '') + '.<br>' +
+    '<span onclick="_videoTentar(this.parentElement)" style="color:#7FFF00;font-weight:700;cursor:pointer;text-decoration:underline;">Tentar de novo</span>';
+  v.replaceWith(box);
+}
+function _videoTentar(box) {
+  const v = document.createElement('video');
+  v.src = box.getAttribute('data-src') || '';
+  if (box.getAttribute('data-poster')) v.poster = box.getAttribute('data-poster');
+  v.controls = true; v.playsInline = true; v.preload = 'auto';
+  v.style.cssText = 'width:100%;display:block;background:#000;max-height:80vh;';
+  v.onerror = function () { _videoFalhou(v); };
+  box.replaceWith(v);
+  v.load();
 }
 function _carrosselHtml(midias, isLight) {
   if (midias.length <= 1) return _midiaItemHtml(midias[0]);
@@ -3929,17 +3950,253 @@ function _composeVideoMime(f) {
   const ext = ((f.name || '').split('.').pop() || '').toLowerCase();
   return { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm' }[ext] || '';
 }
-async function _composeLerVideo(f, exigirPoster) {
-  const mime = _composeVideoMime(f);
-  if (!mime) { toast('Formato de vídeo não suportado. Use MP4, MOV ou WEBM.'); return null; }
-  if (f.size > COMPOSE_VIDEO_MAX_MB * 1024 * 1024) { toast('Vídeo grande demais (máximo ' + COMPOSE_VIDEO_MAX_MB + ' MB).'); return null; }
-  let info = null;
-  try { info = await _composeVideoInfo(f); } catch (e) {}
-  if (!info) { toast('Não consegui ler esse vídeo neste aparelho.'); return null; }
-  if (info.dur > COMPOSE_VIDEO_MAX_SEG + 0.5) { toast('O vídeo tem mais de ' + COMPOSE_VIDEO_MAX_SEG + ' segundos. Escolha um mais curto.'); return null; }
-  if (exigirPoster && !info.poster) { toast('Não consegui gerar a capa desse vídeo.'); return null; }
-  return { tipo: 'video', file: f, mime: mime, dur: info.dur, poster: info.poster };
+// ── Editor de vídeo: escolhe o trecho (até 60 s) e recodifica leve no próprio aparelho ──
+// Todo vídeo passa por aqui antes de subir. O trecho escolhido é reproduzido e
+// regravado (MediaRecorder) em até 720p e ~2,5 Mbps: um minuto fica em torno de
+// 20 MB, sem depender do formato original (HEVC, .mov, 4K...). Se o aparelho
+// consegue mostrar o vídeo aqui, consegue regravar; se não consegue, o aluno vê o
+// motivo em vez de um envio que falha depois.
+var _vt = null;   // {url, video, dur, ini, fim, resolve, cancelado, codificando}
+
+function _vtFmt(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+function _composeLerVideo(f, exigirPoster) {
+  return new Promise(function (resolve) {
+    if (!/^video\//.test(f.type || '') && !_composeVideoMime(f)) { toast('Formato de vídeo não suportado.'); resolve(null); return; }
+    if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
+      toast('Este aparelho não consegue preparar vídeo. Atualize o navegador ou o app.'); resolve(null); return;
+    }
+    _vtAbrir(f, resolve);
+  });
 }
+
+function _vtMotivoErro(v) {
+  const c = v && v.error ? v.error.code : 0;
+  if (c === 4 || c === 3) return 'Este aparelho não consegue abrir esse vídeo. Isso é comum com vídeos gravados em HEVC (H.265) no computador. Escolha outro vídeo ou grave em modo "Mais compatível".';
+  if (c === 2) return 'Falha de leitura do arquivo. Tente escolher o vídeo de novo.';
+  return 'Não consegui abrir esse vídeo.';
+}
+
+function _vtAbrir(f, resolve) {
+  _vtFechar(true);
+  const isLight = document.body.classList.contains('tema-claro');
+  const bg = isLight ? '#f5f5f5' : '#0a0a0a';
+  const cardBg = isLight ? '#fff' : '#161616';
+  const borda = isLight ? '#e5e5e5' : '#2a2a2a';
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#777' : '#888';
+  const url = URL.createObjectURL(f);
+  _vt = { url: url, video: null, dur: 0, ini: 0, fim: 0, resolve: resolve, cancelado: false, codificando: false, pronto: false };
+  const ov = document.createElement('div');
+  ov.id = 'vt-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:' + bg + ';overflow-y:auto;';
+  ov.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
+      '<button onclick="_vtCancelar()" style="background:none;border:none;color:' + muted + ';font-size:13px;font-weight:700;cursor:pointer;padding:6px 2px;">Cancelar</button>' +
+      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">Ajustar vídeo</span>' +
+      '<span style="width:56px;"></span>' +
+    '</div>' +
+    '<div style="max-width:420px;margin:0 auto;padding:16px;">' +
+      '<div style="position:relative;background:#000;border-radius:14px;overflow:hidden;">' +
+        '<video id="vt-video" src="' + url + '" playsinline preload="auto" style="width:100%;max-height:52vh;display:block;background:#000;"></video>' +
+        '<div id="vt-play" onclick="_vtPlayPause()" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;"><span id="vt-play-ico" style="width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:24px;display:flex;align-items:center;justify-content:center;">▶</span></div>' +
+        '<div id="vt-carregando" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;background:rgba(0,0,0,.6);padding:16px;text-align:center;">Abrindo o vídeo...</div>' +
+      '</div>' +
+      '<div id="vt-controles" style="display:none;margin-top:14px;">' +
+        '<div id="vt-resumo" style="font-size:13px;font-weight:800;color:' + txt + ';margin-bottom:10px;"></div>' +
+        '<div style="font-size:11.5px;color:' + muted + ';margin-bottom:4px;">Início</div>' +
+        '<input id="vt-ini" type="range" min="0" max="1" step="0.1" value="0" oninput="_vtMover(\'ini\',this.value)" style="width:100%;accent-color:#7FFF00;"/>' +
+        '<div style="font-size:11.5px;color:' + muted + ';margin:8px 0 4px;">Fim</div>' +
+        '<input id="vt-fim" type="range" min="0" max="1" step="0.1" value="1" oninput="_vtMover(\'fim\',this.value)" style="width:100%;accent-color:#7FFF00;"/>' +
+        '<p id="vt-aviso" style="font-size:11.5px;color:' + muted + ';line-height:1.5;margin:12px 0 0;"></p>' +
+        '<div id="vt-acao"><button onclick="_vtUsar()" style="width:100%;margin-top:14px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Usar este trecho</button></div>' +
+        '<div id="vt-prog" style="display:none;margin-top:14px;text-align:center;">' +
+          '<div id="vt-prog-txt" style="font-size:13px;font-weight:800;color:' + txt + ';margin-bottom:8px;">Preparando o vídeo...</div>' +
+          '<div style="height:8px;border-radius:6px;background:' + borda + ';overflow:hidden;"><div id="vt-prog-bar" style="height:100%;width:0;background:#7FFF00;transition:width .2s;"></div></div>' +
+          '<div style="font-size:11px;color:' + muted + ';margin-top:8px;">Mantenha o app aberto até terminar.</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const v = document.getElementById('vt-video');
+  _vt.video = v;
+  v.onerror = function () {
+    const c = document.getElementById('vt-carregando');
+    if (c) { c.style.display = 'flex'; c.textContent = _vtMotivoErro(v); }
+  };
+  v.onloadedmetadata = function () {
+    if (!isFinite(v.duration) || v.duration <= 0) { v.onerror(); return; }
+    _vt.dur = v.duration;
+    _vt.ini = 0;
+    _vt.fim = Math.min(v.duration, COMPOSE_VIDEO_MAX_SEG);
+    ['vt-ini', 'vt-fim'].forEach(function (id) { const r = document.getElementById(id); r.max = String(v.duration); });
+    document.getElementById('vt-ini').value = String(_vt.ini);
+    document.getElementById('vt-fim').value = String(_vt.fim);
+    document.getElementById('vt-carregando').style.display = 'none';
+    document.getElementById('vt-controles').style.display = 'block';
+    document.getElementById('vt-aviso').textContent = (v.duration > COMPOSE_VIDEO_MAX_SEG
+      ? 'O vídeo tem ' + _vtFmt(v.duration) + '. Escolha um trecho de até ' + COMPOSE_VIDEO_MAX_SEG + ' segundos. '
+      : '') + 'O vídeo é otimizado para ficar leve (até 720p), e a preparação leva cerca do tempo do trecho.';
+    _vtResumo();
+    try { v.currentTime = 0.05; } catch (e) {}
+  };
+  v.ontimeupdate = function () {
+    if (_vt && !_vt.codificando && !v.paused && v.currentTime >= _vt.fim) { v.pause(); try { v.currentTime = _vt.ini; } catch (e) {} }
+  };
+  v.onplay = function () { const i = document.getElementById('vt-play-ico'); if (i) i.style.display = 'none'; };
+  v.onpause = function () { const i = document.getElementById('vt-play-ico'); if (i) i.style.display = 'flex'; };
+}
+
+function _vtResumo() {
+  if (!_vt) return;
+  const el = document.getElementById('vt-resumo');
+  if (el) el.textContent = _vtFmt(_vt.ini) + ' a ' + _vtFmt(_vt.fim) + '  ·  ' + Math.round(_vt.fim - _vt.ini) + ' s';
+}
+
+function _vtMover(qual, valor) {
+  if (!_vt || _vt.codificando) return;
+  let ini = _vt.ini, fim = _vt.fim;
+  const x = parseFloat(valor);
+  const max = COMPOSE_VIDEO_MAX_SEG, dur = _vt.dur;
+  if (qual === 'ini') {
+    ini = Math.min(x, dur - 1);
+    if (fim - ini < 1) fim = Math.min(dur, ini + 1);
+    if (fim - ini > max) fim = ini + max;
+  } else {
+    fim = Math.max(x, 1);
+    if (fim - ini < 1) ini = Math.max(0, fim - 1);
+    if (fim - ini > max) ini = fim - max;
+  }
+  _vt.ini = Math.max(0, ini); _vt.fim = Math.min(dur, fim);
+  document.getElementById('vt-ini').value = String(_vt.ini);
+  document.getElementById('vt-fim').value = String(_vt.fim);
+  _vtResumo();
+  const v = _vt.video;
+  try { v.pause(); v.currentTime = qual === 'ini' ? _vt.ini : Math.max(_vt.ini, _vt.fim - 0.3); } catch (e) {}
+}
+
+function _vtPlayPause() {
+  if (!_vt || _vt.codificando) return;
+  const v = _vt.video;
+  if (v.paused) {
+    if (v.currentTime < _vt.ini || v.currentTime >= _vt.fim - 0.1) { try { v.currentTime = _vt.ini; } catch (e) {} }
+    const p = v.play(); if (p && p.catch) p.catch(function () { toast('Não consegui reproduzir a prévia.'); });
+  } else { v.pause(); }
+}
+
+function _vtCancelar() {
+  if (_vt) _vt.cancelado = true;
+  _vtFechar(false);
+}
+function _vtFechar(silencioso) {
+  document.getElementById('vt-overlay')?.remove();
+  const s = _vt; _vt = null;
+  if (!s) return;
+  try { if (s.video) { s.video.pause(); s.video.removeAttribute('src'); s.video.load(); } } catch (e) {}
+  try { URL.revokeObjectURL(s.url); } catch (e) {}
+  if (!s.pronto && s.resolve) { const r = s.resolve; s.resolve = null; r(null); }
+}
+
+async function _vtUsar() {
+  const s = _vt;
+  if (!s || s.codificando) return;
+  const v = s.video;
+  const ini = s.ini, fim = s.fim, dur = fim - ini;
+  s.codificando = true;
+  document.getElementById('vt-acao').style.display = 'none';
+  document.getElementById('vt-prog').style.display = 'block';
+  document.getElementById('vt-ini').disabled = true; document.getElementById('vt-fim').disabled = true;
+  const prog = function (p, t) {
+    const b = document.getElementById('vt-prog-bar'); if (b) b.style.width = p + '%';
+    const e = document.getElementById('vt-prog-txt'); if (e && t) e.textContent = t;
+  };
+  let ac = null, rec = null, rodando = true;
+  const voltar = function (msg) {
+    rodando = false;
+    try { v.pause(); } catch (e) {}
+    try { if (rec && rec.state !== 'inactive') rec.stop(); } catch (e) {}
+    try { if (ac) ac.close(); } catch (e) {}
+    if (_vt === s) {
+      s.codificando = false;
+      const a = document.getElementById('vt-acao'); if (a) a.style.display = 'block';
+      const p = document.getElementById('vt-prog'); if (p) p.style.display = 'none';
+      const i1 = document.getElementById('vt-ini'), i2 = document.getElementById('vt-fim'); if (i1) i1.disabled = false; if (i2) i2.disabled = false;
+    }
+    if (msg) toast(msg);
+  };
+  try {
+    const vw = v.videoWidth || 640, vh = v.videoHeight || 360;
+    const f = Math.min(1, 1280 / Math.max(vw, vh), 720 / Math.min(vw, vh));
+    const w = Math.max(2, Math.round(vw * f / 2) * 2), h = Math.max(2, Math.round(vh * f / 2) * 2);
+    const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const stream = canvas.captureStream(30);
+    // Áudio: o som do vídeo vai para a gravação sem tocar no alto-falante.
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) {
+        ac = new AC();
+        if (ac.state === 'suspended') await ac.resume();
+        const src = ac.createMediaElementSource(v);
+        const dest = ac.createMediaStreamDestination();
+        src.connect(dest);
+        dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
+      }
+    } catch (e) { /* sem áudio: segue só com imagem */ }
+    const candidatos = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    const tipo = candidatos.find(function (t) { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
+    rec = new MediaRecorder(stream, Object.assign(tipo ? { mimeType: tipo } : {}, { videoBitsPerSecond: 2500000, audioBitsPerSecond: 96000 }));
+    const pedacos = [];
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) pedacos.push(e.data); };
+    const terminou = new Promise(function (res) { rec.onstop = res; });
+    v.pause();
+    await new Promise(function (res) {
+      let ok = false; const fim1 = function () { if (!ok) { ok = true; res(); } };
+      v.onseeked = fim1; setTimeout(fim1, 3000);
+      try { v.currentTime = ini; } catch (e) { fim1(); }
+    });
+    v.onseeked = null;
+    v.muted = false; v.volume = 1;
+    let poster = '';
+    rec.start(1000);
+    await v.play();
+    await new Promise(function (res) {
+      let timer = null;
+      const quadro = function () {
+        if (!rodando || s.cancelado) { clearInterval(timer); res(); return; }
+        try { ctx.drawImage(v, 0, 0, w, h); } catch (e) {}
+        if (!poster) { try { poster = canvas.toDataURL('image/jpeg', 0.85); } catch (e) {} }
+        const feito = Math.max(0, Math.min(1, (v.currentTime - ini) / dur));
+        prog(Math.round(feito * 100), 'Preparando o vídeo... ' + Math.round(feito * 100) + '%');
+        if (v.currentTime >= fim - 0.05 || v.ended) { clearInterval(timer); res(); return; }
+      };
+      v.onended = function () { clearInterval(timer); res(); };
+      // setInterval (e não requestAnimationFrame): continua rodando, mais devagar, se o app sair de foco.
+      timer = setInterval(quadro, 33);
+      quadro();
+    });
+    v.onended = null;
+    rodando = false;
+    if (s.cancelado) { voltar(); return; }
+    v.pause();
+    if (rec.state !== 'inactive') rec.stop();
+    await terminou;
+    try { ac && ac.close(); } catch (e) {}
+    const base = (rec.mimeType || tipo || 'video/webm').split(';')[0];
+    const blob = new Blob(pedacos, { type: base });
+    if (!blob.size) { voltar('Não consegui preparar o vídeo. Tente outro trecho ou outro vídeo.'); return; }
+    if (blob.size > 100 * 1024 * 1024) { voltar('O vídeo ficou grande demais. Escolha um trecho mais curto.'); return; }
+    const arq = new File([blob], 'video.' + (base === 'video/mp4' ? 'mp4' : 'webm'), { type: base });
+    const item = { tipo: 'video', file: arq, mime: base, dur: dur, poster: poster };
+    s.pronto = true;
+    const r = s.resolve; s.resolve = null;
+    _vtFechar(true);
+    if (r) r(item);
+  } catch (e) {
+    voltar('Não consegui preparar o vídeo neste aparelho' + (e && e.message ? ' (' + e.message + ')' : '') + '.');
+  }
+}
+
 
 async function _composeExtraEscolhidas(input) {
   const arquivos = Array.from(input.files || []);
