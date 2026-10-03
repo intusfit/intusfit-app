@@ -336,6 +336,7 @@ function treinoRowToOut($r) {
 }
 
 require_once __DIR__ . '/_auth_context.php';
+require_once __DIR__ . '/_notificacoes.php';
 $_authCtx = getAuthContext($pdo, $tok);
 // ─── SEGURANCA: token presente porem nao reconhecido ────────────────────────
 // Ate aqui bastava existir QUALQUER texto no cabecalho Authorization. Um token
@@ -1113,7 +1114,10 @@ try {
                 if ($idat <= 0 || !$texto) { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
                 $st = $pdo->prepare("INSERT INTO intus_ranking_comentario (idatleta, nome_atleta, texto) VALUES (?, ?, ?)");
                 $st->execute([$idat, $nome, $texto]);
-                echo json_encode(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
+                $novoIdMural = (int)$pdo->lastInsertId();
+                // @menções no comentário do mural avisam as pessoas marcadas.
+                try { _notificarMencoes($pdo, $texto, 'aluno', $idat, $nome, 'mural', $novoIdMural); } catch (Throwable $e) {}
+                echo json_encode(['ok' => true, 'id' => $novoIdMural]);
                 exit;
             }
             if ($subaction === 'excluir_comentario') {

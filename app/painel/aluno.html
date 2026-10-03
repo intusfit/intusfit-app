@@ -1863,7 +1863,7 @@ async function _composeImagemFinal() {
 // outros alunos, sujeito ao feed_optin de cada um), 'perfil' fica só na
 // grade do próprio perfil.
 async function _composePublicar(destino) {
-  const legenda = document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '';
+  const legenda = _mencoesCodificar('post', document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '');
   const localizacao = _feedComposeLocal.trim() || '';
   const dataUrl = await _composeImagemFinal();
   const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
@@ -2478,7 +2478,7 @@ let _comentarioEnviando = {};
 async function enviarComentarioFeed(idpost) {
   if (_comentarioEnviando[idpost]) return;
   const input = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
-  const texto = input?.value?.trim();
+  const texto = _mencoesCodificar('feed:' + idpost, input?.value?.trim());
   if (!texto) return;
   _comentarioEnviando[idpost] = true;
   const resp = _comentarioRespondendoA[idpost];
@@ -2492,6 +2492,7 @@ async function enviarComentarioFeed(idpost) {
     });
     if (!r.ok) throw new Error('falhou');
     input.value = '';   // enviado: _atualizarLinhaComentarios preserva rascunho, então limpa aqui
+    _mencoesLimpar('feed:' + idpost);
     delete _comentarioRespondendoA[idpost];
     _comentariosAbertos[idpost] = true;
     await carregarComentariosFeed([idpost]);
@@ -2585,7 +2586,7 @@ function _comentariosHtml(idpost, isLight) {
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12px;line-height:1.4;">' +
           '<b style="color:' + cor + ';">' + esc(c.autor_nome || 'Alguém') + '</b>' + selo + ' ' +
-          '<span style="color:' + corTexto + ';">' + esc(c.texto) + '</span>' +
+          '<span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:14px;margin-top:2px;">' +
           '<span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' +
@@ -2608,7 +2609,7 @@ function _comentariosHtml(idpost, isLight) {
     (itens ? '<div style="border-top:1px solid ' + divisor + ';">' + itens + '</div>' : '') +
     chipResposta +
     '<div style="display:flex;gap:6px;margin-top:8px;">' +
-      '<input data-feed-comment-input placeholder="Escreva um comentário..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight?'#ddd':'#2a2a2a') + ';background:' + (isLight?'#fff':'#111') + ';color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioFeed(' + idpost + ');"/>' +
+      '<input data-feed-comment-input data-mencoes="feed:' + idpost + '" placeholder="Escreva um comentário..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight?'#ddd':'#2a2a2a') + ';background:' + (isLight?'#fff':'#111') + ';color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioFeed(' + idpost + ');"/>' +
       '<button onclick="enviarComentarioFeed(' + idpost + ')" style="padding:8px 14px;border-radius:99px;border:none;background:#7FFF00;color:#0f1a00;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Enviar</button>' +
     '</div>' +
   '</div>';
@@ -2675,11 +2676,11 @@ function _feedLegendaHtml(post, nomeCurto, isLight) {
   const cor = isLight ? '#333' : '#ddd';
   const corMuted = isLight ? '#999' : '#888';
   const nomeHtml = '<b>' + esc(nomeCurto) + '</b> ';
-  if (legenda.length <= LIMITE) {
-    return '<div style="font-size:12.5px;color:' + cor + ';line-height:1.5;margin-bottom:9px;">' + nomeHtml + esc(legenda) + '</div>';
+  if (_mencoesPlano(legenda).length <= LIMITE) {
+    return '<div style="font-size:12.5px;color:' + cor + ';line-height:1.5;margin-bottom:9px;">' + nomeHtml + _textoComMencoes(legenda) + '</div>';
   }
-  const curta = esc(legenda.slice(0, LIMITE).trim()) + '…';
-  const completa = esc(legenda);
+  const curta = _textoComMencoes(legenda, LIMITE).trimEnd() + '…';
+  const completa = _textoComMencoes(legenda);
   return '<div style="font-size:12.5px;color:' + cor + ';line-height:1.5;margin-bottom:9px;">' +
     nomeHtml +
     '<span data-legenda-curta>' + curta + ' <b onclick="this.parentElement.style.display=\'none\';this.parentElement.nextElementSibling.style.display=\'inline\';" style="color:' + corMuted + ';font-weight:700;cursor:pointer;">ver mais</b></span>' +
@@ -3086,6 +3087,7 @@ function abrirNovoPostFeed() {
   _feedComposeImg = null;
   _feedComposeLocal = '';
   _feedComposeCaption = '';
+  _mencoesLimpar('post');
   _composeDestino = 'feed';
   _renderComposeFeed();
   _composeIniciarCamera(); // ver comentário em abrirCompartilharTreino
@@ -3289,7 +3291,7 @@ function _renderComposeFeed() {
         ) : '') +
       '</div>' +
 
-      '<textarea id="feed-compose-legenda" placeholder="Escreva uma legenda..." maxlength="500" oninput="_feedComposeCaption=this.value;" style="width:100%;min-height:70px;margin-top:12px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;">' + esc(_feedComposeCaption) + '</textarea>' +
+      '<textarea id="feed-compose-legenda" data-mencoes="post" placeholder="Escreva uma legenda..." maxlength="500" oninput="_feedComposeCaption=this.value;" style="width:100%;min-height:70px;margin-top:12px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;">' + esc(_feedComposeCaption) + '</textarea>' +
       (_feedComposeLocal
         ? '<div onclick="_abrirSeletorLocalFeed()" style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + (isLight?'rgba(92,184,0,.35)':'rgba(127,255,0,.3)') + ';background:' + (isLight?'rgba(92,184,0,.08)':'rgba(127,255,0,.06)') + ';cursor:pointer;">' +
             '<span style="font-size:14px;flex-shrink:0;color:' + (isLight?'#5cb800':'#7FFF00') + ';">📍</span>' +
@@ -10805,7 +10807,7 @@ function muralCancelar(idm) { delete _muralRespondendoA[idm]; _muralAtualizar(id
 async function muralEnviar(idm) {
   if (_muralEnviando[idm]) return;
   const input = document.querySelector('[data-mural-card="' + idm + '"] [data-mural-input]');
-  const texto = input?.value?.trim();
+  const texto = _mencoesCodificar('mural:' + idm, input?.value?.trim());
   if (!texto) return;
   _muralEnviando[idm] = true;
   const resp = _muralRespondendoA[idm];
@@ -10817,6 +10819,7 @@ async function muralEnviar(idm) {
     });
     if (!r.ok) throw new Error('falhou');
     input.value = '';
+    _mencoesLimpar('mural:' + idm);
     delete _muralRespondendoA[idm];
     _muralAberto[idm] = true;
     await carregarRespostasMural([idm]);
@@ -10889,7 +10892,7 @@ function _muralThreadHtml(idm, isLight) {
     return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
       '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>' +
       '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:12px;line-height:1.4;"><b style="color:' + cor + ';">' + esc(nome) + '</b>' + selo + ' <span style="color:' + corTexto + ';">' + esc(c.texto) + '</span></div>' +
+        '<div style="font-size:12px;line-height:1.4;"><b style="color:' + cor + ';">' + esc(nome) + '</b>' + selo + ' <span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span></div>' +
         '<div style="display:flex;gap:14px;margin-top:2px;"><span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' + responder + excluir + '</div>' +
       '</div>' + coracao +
     '</div>';
@@ -10901,7 +10904,7 @@ function _muralThreadHtml(idm, isLight) {
   return '<div data-mural-thread style="margin-top:6px;">' + gatilho +
     (itens ? '<div style="margin-top:4px;border-top:1px solid ' + divisor + ';">' + itens + '</div>' : '') + chip +
     '<div style="display:flex;gap:6px;margin-top:8px;">' +
-      '<input data-mural-input placeholder="Escreva uma resposta..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight ? '#ddd' : '#2a2a2a') + ';background:' + (isLight ? '#fff' : '#111') + ';color:' + cor + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')muralEnviar(' + idm + ');"/>' +
+      '<input data-mural-input data-mencoes="mural:' + idm + '" placeholder="Escreva uma resposta..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight ? '#ddd' : '#2a2a2a') + ';background:' + (isLight ? '#fff' : '#111') + ';color:' + cor + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')muralEnviar(' + idm + ');"/>' +
       '<button onclick="muralEnviar(' + idm + ')" style="padding:8px 14px;border-radius:99px;border:none;background:#7FFF00;color:#0f1a00;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Enviar</button>' +
     '</div>' +
   '</div>';
@@ -10918,7 +10921,7 @@ function _renderComentarios(data, isLight) {
   let html = '<div style="margin-top:8px;">' +
     '<h2 class="sect-title" style="margin-bottom:12px;">💬 Mural dos Membros</h2>' +
     '<div style="display:flex;gap:8px;margin-bottom:16px;">' +
-      '<input id="ranking-comment-input" type="text" placeholder="Deixe uma mensagem para a galera..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + textPrim + ';font-size:13px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioRanking();"/>' +
+      '<input id="ranking-comment-input" data-mencoes="ranking" type="text" placeholder="Deixe uma mensagem para a galera..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + textPrim + ';font-size:13px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioRanking();"/>' +
       '<button class="btn btn-prim" style="padding:10px 16px;font-size:13px;" onclick="enviarComentarioRanking()">Enviar</button>' +
     '</div>';
   const comentarios = data.comentarios || [];
@@ -10939,7 +10942,7 @@ function _renderComentarios(data, isLight) {
           '<span style="font-size:12px;font-weight:700;color:' + textPrim + ';">' + esc(c.nome_atleta || 'Membro') + '</span>' +
           '<span style="display:flex;align-items:center;"><span style="font-size:10px;color:' + textMuted + ';">' + dtStr + '</span>' + delBtn + '</span>' +
         '</div>' +
-        '<div style="font-size:13px;color:' + textSec + ';line-height:1.5;">' + esc(c.texto) + '</div>' +
+        '<div style="font-size:13px;color:' + textSec + ';line-height:1.5;">' + _textoComMencoes(c.texto) + '</div>' +
         (c.idcomentario ? _htmlReacoes(Number(c.idcomentario), isLight) : '') +
         (c.idcomentario ? _muralThreadHtml(Number(c.idcomentario), isLight) : '') +
       '</div>';
@@ -12025,9 +12028,10 @@ function _renderRankingView() {
 
 async function enviarComentarioRanking() {
   const inp = document.getElementById('ranking-comment-input');
-  const texto = (inp?.value || '').trim();
+  const texto = _mencoesCodificar('ranking', (inp?.value || '').trim());
   if (!texto) return toast('Digite uma mensagem.');
   inp.value = '';
+  _mencoesLimpar('ranking');
 
   const atletaUser = JSON.parse(localStorage.getItem('mx-user') || '{}');
   const nome = atletaUser.nome || 'Membro';
@@ -14487,6 +14491,155 @@ function iniciarNotificacoes() {
   }
 }
 
+// ═══════════════ MENÇÕES (@) ═══════════════
+// Não existe @usuário único no app (só nome, que repete). Ao digitar "@" num
+// campo marcado com data-mencoes aparece a lista de pessoas; escolher uma deixa
+// "@Nome" no campo e guarda a escolha. Só ao ENVIAR o "@Nome" vira o token
+// @[Nome]{aluno:42} / @[Nome]{prof:3}, que o servidor usa pra avisar a pessoa.
+// Digitar "@alguem" sem escolher da lista não marca ninguém (de propósito).
+// A chave do campo (data-mencoes) mantém a escolha mesmo se o campo for
+// redesenhado enquanto a pessoa digita.
+var _mencoesPessoas = null, _mencoesPessoasTs = 0, _mencoesCampos = {}, _mencoesCtx = null;
+
+async function _mencoesCarregar() {
+  if (_mencoesPessoas && Date.now() - _mencoesPessoasTs < 600000) return _mencoesPessoas;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=pessoas_mencionaveis&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    if (r.ok) { const j = await r.json(); _mencoesPessoas = (j && Array.isArray(j.pessoas)) ? j.pessoas : []; _mencoesPessoasTs = Date.now(); }
+  } catch (e) {}
+  return _mencoesPessoas || [];
+}
+
+function _semAcentoMencao(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+
+function _mencoesLimpar(chave) { _mencoesCampos[chave] = []; }
+
+// "@Nome" escolhido -> token. Nome que a pessoa editou depois de escolher não
+// casa e segue como texto comum (sem aviso), que é o comportamento certo.
+function _mencoesCodificar(chave, texto) {
+  const lista = (_mencoesCampos[chave] || []).slice().sort((a, b) => b.nome.length - a.nome.length);
+  let out = String(texto || '');
+  lista.forEach(p => {
+    const marca = '@' + p.nome;
+    if (out.indexOf(marca) === -1) return;
+    const nome = p.nome.replace(/[\]\r\n]/g, '').slice(0, 60);
+    out = out.split(marca).join('@[' + nome + ']{' + p.tipo + ':' + p.id + '}');
+  });
+  return out;
+}
+
+function _mencoesSegmentos(texto) {
+  const rx = /@\[([^\]\r\n]{1,60})\]\{(aluno|prof):(\d+)\}/g;
+  texto = String(texto == null ? '' : texto);
+  const segs = []; let ult = 0, m;
+  while ((m = rx.exec(texto))) {
+    if (m.index > ult) segs.push({ t: texto.slice(ult, m.index) });
+    segs.push({ nome: m[1], tipo: m[2], id: Number(m[3]) });
+    ult = m.index + m[0].length;
+  }
+  if (ult < texto.length) segs.push({ t: texto.slice(ult) });
+  return segs;
+}
+function _mencoesPlano(texto) { return _mencoesSegmentos(texto).map(s => s.t != null ? s.t : '@' + s.nome).join(''); }
+
+function _mencaoHtml(s) {
+  const cor = document.body.classList.contains('tema-claro') ? '#2d8a00' : '#7FFF00';
+  const aluno = s.tipo === 'aluno';
+  return '<span' + (aluno ? ' data-mencao-id="' + s.id + '" onclick="event.stopPropagation();_mencaoAbrir(this)"' : '') +
+    ' style="color:' + cor + ';font-weight:700;' + (aluno ? 'cursor:pointer;' : '') + '">@' + esc(s.nome) + '</span>';
+}
+function _mencaoAbrir(el) {
+  const id = Number(el?.dataset?.mencaoId || 0);
+  if (!id) return;
+  try { abrirPerfilRanking(id); } catch (e) {}
+}
+
+// Texto escapado com as menções destacadas. limite = máx. de caracteres
+// visíveis; a menção nunca é cortada no meio.
+function _textoComMencoes(texto, limite) {
+  let restante = limite || Infinity, out = '';
+  for (const s of _mencoesSegmentos(texto)) {
+    if (restante <= 0) break;
+    if (s.t != null) { const t = s.t.length > restante ? s.t.slice(0, restante) : s.t; out += esc(t); restante -= t.length; }
+    else { out += _mencaoHtml(s); restante -= s.nome.length + 1; }
+  }
+  return out;
+}
+
+function _mencoesFechar() { document.getElementById('mencao-dd')?.remove(); _mencoesCtx = null; }
+
+function _mencoesMostrar(el, lista, inicio, fim) {
+  _mencoesFechar();
+  if (!lista.length) return;
+  _mencoesCtx = { el, lista, inicio, fim };
+  const isLight = document.body.classList.contains('tema-claro');
+  const dd = document.createElement('div');
+  dd.id = 'mencao-dd';
+  const rect = el.getBoundingClientRect();
+  const largura = Math.max(220, Math.min(rect.width, 360));
+  const esq = Math.max(8, Math.min(rect.left, window.innerWidth - largura - 8));
+  const altura = lista.length * 40 + 8;
+  const acima = rect.top > altura + 16;
+  dd.style.cssText = 'position:fixed;z-index:100050;left:' + esq + 'px;width:' + largura + 'px;' + (acima ? 'bottom:' + (window.innerHeight - rect.top + 6) + 'px;' : 'top:' + (rect.bottom + 6) + 'px;') +
+    'background:' + (isLight ? '#fff' : '#1a1a1a') + ';border:1px solid ' + (isLight ? '#ddd' : '#2a2a2a') + ';border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px;max-height:260px;overflow-y:auto;';
+  dd.innerHTML = lista.map((p, i) =>
+    '<div data-i="' + i + '" style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13px;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' +
+      '<span style="width:24px;height:24px;border-radius:50%;background:' + (isLight ? '#eee' : '#2a2a2a') + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0;">' + esc(_iniciaisNomeFeed(p.nome)) + '</span>' +
+      '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;">' + esc(p.nome) + '</span>' +
+      (p.tipo === 'prof' ? '<span style="font-size:9px;font-weight:800;text-transform:uppercase;color:' + (isLight ? '#5cb800' : '#7FFF00') + ';">professor</span>' : '') +
+    '</div>').join('');
+  // pointerdown (não click): o toque não pode tirar o foco do campo antes de escolher.
+  dd.addEventListener('pointerdown', (ev) => {
+    const it = ev.target.closest('[data-i]');
+    if (!it) return;
+    ev.preventDefault();
+    _mencoesEscolher(Number(it.dataset.i));
+  });
+  document.body.appendChild(dd);
+}
+
+function _mencoesEscolher(i) {
+  const c = _mencoesCtx;
+  if (!c || !c.lista[i]) return;
+  const p = c.lista[i];
+  const el = c.el;
+  const v = el.value;
+  el.value = v.slice(0, c.inicio) + '@' + p.nome + ' ' + v.slice(c.fim);
+  const pos = c.inicio + p.nome.length + 2;
+  try { el.setSelectionRange(pos, pos); } catch (e) {}
+  const chave = el.dataset.mencoes;
+  const lista = _mencoesCampos[chave] || (_mencoesCampos[chave] = []);
+  if (!lista.some(x => x.tipo === p.tipo && x.id === p.id)) lista.push({ nome: p.nome, tipo: p.tipo, id: p.id });
+  _mencoesFechar();
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.focus();
+}
+
+document.addEventListener('input', async (e) => {
+  const el = e.target;
+  if (!el || !el.matches || !el.matches('[data-mencoes]')) return;
+  const pos = el.selectionStart != null ? el.selectionStart : el.value.length;
+  const antes = el.value.slice(0, pos);
+  const m = antes.match(/(^|\s)@([^\s@\[\]]{0,30})$/);
+  if (!m) { _mencoesFechar(); return; }
+  const inicio = pos - m[2].length - 1;
+  const consulta = _semAcentoMencao(m[2]);
+  const pessoas = await _mencoesCarregar();
+  if (document.activeElement !== el) return;
+  const pontua = (p) => {
+    const nome = _semAcentoMencao(p.nome);
+    if (!consulta) return 1;
+    if (nome.split(/\s+/).some(w => w.startsWith(consulta))) return 2;
+    return nome.includes(consulta) ? 1 : 0;
+  };
+  const lista = pessoas.map(p => ({ p, s: pontua(p) })).filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s).slice(0, 6).map(x => x.p);
+  _mencoesMostrar(el, lista, inicio, pos);
+});
+document.addEventListener('focusout', (e) => { if (e.target && e.target.matches && e.target.matches('[data-mencoes]')) setTimeout(_mencoesFechar, 200); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _mencoesFechar(); });
+window.addEventListener('scroll', _mencoesFechar, true);
+
 // Linha de notificação, usada na aba Notificações da Central. Medalha e
 // distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
@@ -14498,12 +14651,12 @@ function _notifLinhaHtml(n, isLight) {
     curtida_comentario: noMural ? 'curtiu sua resposta no mural' : 'curtiu seu comentário',
     comentario: noMural ? 'respondeu seu comentário no mural' : 'comentou no seu post',
     resposta: 'respondeu seu comentário',
-    mencao: 'mencionou você',
+    mencao: noMural ? 'mencionou você no mural' : 'mencionou você',
   }[n.tipo] || 'interagiu com você';
   const principal = ehSistema
     ? '<b>' + esc(n.texto || '') + '</b>'
     : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acao;
-  const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || (n.tipo === 'curtida' && noMural);
+  const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'mencao' || (n.tipo === 'curtida' && noMural);
   const trecho = comTrecho && n.texto
     ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“' + esc(n.texto) + '”</div>' : '';
   const dt = new Date(String(n.quando).replace(' ', 'T'));
@@ -14598,7 +14751,7 @@ function _notifAbrir(el) {
       const card = document.querySelector('[data-mural-card="' + alvo + '"]');
       if (!card) return;
       card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      if (tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario') { _muralAberto[alvo] = true; _muralAtualizar(alvo); }
+      if (tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario' || tipo === 'mencao') { _muralAberto[alvo] = true; _muralAtualizar(alvo); }
     }, 1400);
     return;
   }
@@ -14608,7 +14761,7 @@ function _notifAbrir(el) {
     const card = document.querySelector('[data-feed-card="' + alvo + '"]');
     if (!card) return;
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario') {
+    if (tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario' || tipo === 'mencao') {
       _comentariosAbertos[alvo] = true;
       carregarComentariosFeed([alvo]).then(() => _atualizarLinhaComentarios(alvo));
     }
