@@ -687,16 +687,22 @@ try {
     if ($action === 'sessoes') {
         if ($method === 'GET') {
             $idat = (int)($_GET['atleta'] ?? 0);
+            // NAO usar SELECT *: cardio_foto e LONGTEXT (foto em base64, ate 3 MB por
+            // sessao). Para o admin (todas as sessoes de todos os alunos) isso
+            // enchia a memoria do PHP de uma vez e a rota devolvia 500, zerando
+            // Frequencia e Ranking no painel. O JSON so precisa de tem_foto (0/1);
+            // a foto em si continua sob demanda em ?action=cardio&foto=ID.
+            $colsSessao = "idsessao, idatleta, idficha, divisao, dtsessao, duracao_seg, comentario, marcado_como_feito, nao_contar, tipo, pontos, cardio_tipo, cardio_intensidade, cardio_rpe, ao_vivo, hora_conclusao, itens, (cardio_foto IS NOT NULL AND cardio_foto <> '') AS tem_foto";
             if ($idat > 0) {
                 if (!_checkAtletaAccess($idat)) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
-                $st = $pdo->prepare("SELECT * FROM intus_sessao WHERE idatleta = ? ORDER BY dtsessao DESC, idsessao DESC");
+                $st = $pdo->prepare("SELECT $colsSessao FROM intus_sessao WHERE idatleta = ? ORDER BY dtsessao DESC, idsessao DESC");
                 $st->execute([$idat]);
             } elseif ($_accessFilter === null) {
-                $st = $pdo->query("SELECT * FROM intus_sessao ORDER BY dtsessao DESC, idsessao DESC");
+                $st = $pdo->query("SELECT $colsSessao FROM intus_sessao ORDER BY dtsessao DESC, idsessao DESC");
             } else {
                 if (empty($_accessFilter)) { echo json_encode([]); exit; }
                 $ph = implode(',', array_fill(0, count($_accessFilter), '?'));
-                $st = $pdo->prepare("SELECT * FROM intus_sessao WHERE idatleta IN ($ph) ORDER BY dtsessao DESC, idsessao DESC");
+                $st = $pdo->prepare("SELECT $colsSessao FROM intus_sessao WHERE idatleta IN ($ph) ORDER BY dtsessao DESC, idsessao DESC");
                 $st->execute($_accessFilter);
             }
             $rows = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -720,7 +726,7 @@ try {
                     'cardio_rpe' => isset($r['cardio_rpe']) && $r['cardio_rpe'] !== null ? (int)$r['cardio_rpe'] : null,
                     'ao_vivo' => (int)($r['ao_vivo'] ?? 0),
                     'hora_conclusao' => $r['hora_conclusao'] ?? null,
-                    'tem_foto' => (!empty($r['cardio_foto']) ? 1 : 0),
+                    'tem_foto' => ((int)($r['tem_foto'] ?? 0) ? 1 : 0),
                     'itens' => $itens,
                 ];
             }, $rows);
