@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Central do Aluno — Intus</title>
-  <script src="_mock.js?v=20261003b"></script>
+  <script src="_mock.js?v=20261003c"></script>
   <script src="api.js?v=20260917a"></script>
   <style>
     /* ─── Modo topo (Atividade / Conversas) ─── */
@@ -131,6 +131,80 @@ const REACTIONS = ['👍','❤️','😂','🔥','💪','👏','🎉','😮'];
 // reacoes por pessoa, clicar de novo remove, e o nome de quem reagiu visivel.
 let _reacoesMural = {};
 let _reacaoAberta = null;
+
+// ── CHAT: CURTIR E EXCLUIR MENSAGEM ────────────────────────────────────────
+// Curtida na mesma tabela de reação do Feed (alvo_tipo='chat'). Excluir: o
+// servidor deixa o professor apagar as PRÓPRIAS mensagens da sua carteira, e
+// o admin qualquer uma.
+let _reacoesChat = {};
+let _chatReacoesPara = null;   // idatleta cuja conversa já teve as curtidas carregadas
+function _chatApiBase() { return (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api'; }
+function _chatHeaders() { return { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
+
+async function carregarReacoesChat(ids) {
+  ids = (ids || []).map(Number).filter(Boolean).slice(0, 500);
+  if (!ids.length) return;
+  try {
+    const r = await fetch(_chatApiBase() + '/catalogo.php?action=reacoes&alvo_tipo=chat&ids=' + ids.join(',') + '&_=' + Date.now(), { headers: _chatHeaders(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    ids.forEach(id => { _reacoesChat[String(id)] = []; });
+    Object.assign(_reacoesChat, (j && typeof j === 'object') ? j : {});
+  } catch (e) {}
+}
+
+function chatAcoesHtml(m) {
+  const id = Number(m.idmensagem);
+  if (!id) return '';
+  const lk = _reacoesChat[String(id)] || [];
+  const meu = lk.some(r => r.meu);
+  const podeExcluir = m.remetente === 'professor' || isAdm;
+  return '<div class="msg-acoes" data-id="' + id + '" style="display:flex;gap:12px;align-items:center;justify-content:flex-end;margin-top:6px;font-size:12px;color:var(--text-muted);">' +
+    '<span onclick="chatCurtir(' + id + ')" title="Curtir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;">' + (meu ? '❤️' : '🤍') + (lk.length ? '<b style="font-size:10.5px;">' + lk.length + '</b>' : '') + '</span>' +
+    (podeExcluir ? '<span onclick="chatExcluir(' + id + ')" title="Excluir mensagem" style="cursor:pointer;">🗑️</span>' : '') +
+  '</div>';
+}
+
+// Carrega as curtidas da conversa aberta (uma vez por conversa) e atualiza só os rodapés.
+async function chatGarantirReacoes() {
+  if (!activeAtleta || _chatReacoesPara === Number(activeAtleta.idatleta)) return;
+  _chatReacoesPara = Number(activeAtleta.idatleta);
+  const ms = mensagens.filter(m => Number(m.idatleta) === _chatReacoesPara);
+  await carregarReacoesChat(ms.map(m => m.idmensagem));
+  chatAtualizarAcoes();
+}
+function chatAtualizarAcoes() {
+  document.querySelectorAll('.msg-acoes').forEach(el => {
+    const m = mensagens.find(x => Number(x.idmensagem) === Number(el.dataset.id));
+    if (m) el.outerHTML = chatAcoesHtml(m);
+  });
+}
+
+async function chatCurtir(id) {
+  try {
+    const r = await fetch(_chatApiBase() + '/catalogo.php?action=reacoes', {
+      method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, _chatHeaders()),
+      body: JSON.stringify({ alvo_tipo: 'chat', alvo_id: id, emoji: '❤️' }),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { showToast('Erro ao curtir', 'error'); return; }
+  await carregarReacoesChat([id]);
+  chatAtualizarAcoes();
+}
+
+async function chatExcluir(id) {
+  if (!confirm('Excluir esta mensagem?')) return;
+  try {
+    const r = await fetch(_chatApiBase() + '/mensagens.php?action=excluir&id=' + id, { method: 'DELETE', headers: _chatHeaders() });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { showToast('Não consegui excluir a mensagem', 'error'); return; }
+  mensagens = mensagens.filter(m => Number(m.idmensagem) !== Number(id));
+  try { Store.set('mensagens', mensagens); } catch (e) {}
+  const rasc = document.getElementById('msg-input')?.value || '';
+  render();
+  const novo = document.getElementById('msg-input');
+  if (novo && rasc) novo.value = rasc;
+}
 
 async function carregarReacoesMural() {
   const ids = muralComentarios.map(c => Number(c.idcomentario)).filter(Boolean);
@@ -466,6 +540,7 @@ function renderContacts() {
 }
 
 function renderChatPanel() {
+  setTimeout(chatGarantirReacoes, 0);
   if (!activeAtleta) return `<div class="empty-state"><div class="icon">💬</div><h3>Selecione um aluno</h3><p>Escolha um aluno à esquerda para iniciar ou continuar uma conversa.</p></div>`;
   const msgs = mensagens.filter(m => Number(m.idatleta) === Number(activeAtleta.idatleta)).sort((a,b) => tsOf(a.dtmensagem) - tsOf(b.dtmensagem));
   return `
@@ -478,6 +553,7 @@ function renderChatPanel() {
       ${msgs.length === 0 ? '<div class="empty-state" style="flex:1;"><div class="icon">👋</div><h3>Inicie a conversa</h3><p>Mande uma mensagem para ' + esc(activeAtleta.nome.split(' ')[0]) + '.</p></div>' :
         msgs.map(m => `<div class="msg-bubble ${m.remetente}">
           ${esc(m.texto)}
+          ${chatAcoesHtml(m)}
           <div class="msg-time">${fmtDt(m.dtmensagem)}</div>
         </div>`).join('')}
     </div>

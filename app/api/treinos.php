@@ -1112,6 +1112,7 @@ try {
                 $nome = trim($b['nome'] ?? '');
                 $texto = trim($b['texto'] ?? '');
                 if ($idat <= 0 || !$texto) { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
+                $texto = _mencoesLimitar($texto, 1000);
                 $st = $pdo->prepare("INSERT INTO intus_ranking_comentario (idatleta, nome_atleta, texto) VALUES (?, ?, ?)");
                 $st->execute([$idat, $nome, $texto]);
                 $novoIdMural = (int)$pdo->lastInsertId();

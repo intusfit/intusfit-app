@@ -206,6 +206,16 @@ function ensureCatalogoTables(PDO $pdo) {
     // ao comentário-pai, nunca a outra resposta), igual Instagram/feed comum.
     $cpCols = array_column($pdo->query("SHOW COLUMNS FROM intus_comentario_pub")->fetchAll(PDO::FETCH_ASSOC), 'Field');
     if (!in_array('resposta_a', $cpCols)) $pdo->exec("ALTER TABLE intus_comentario_pub ADD COLUMN resposta_a INT NULL AFTER alvo_id, ADD INDEX idx_resposta (resposta_a)");
+    // Limite de texto: legenda do post e comentário passaram de 500 para 1000
+    // caracteres. Só alarga (nenhum dado muda) e só se a coluna ainda é 500.
+    foreach ([['intus_feed_post', 'legenda', 'NULL'], ['intus_comentario_pub', 'texto', 'NOT NULL']] as $_alarga) {
+        try {
+            $_colAl = $pdo->query("SHOW COLUMNS FROM `{$_alarga[0]}` LIKE '{$_alarga[1]}'")->fetch(PDO::FETCH_ASSOC);
+            if ($_colAl && stripos((string)$_colAl['Type'], 'varchar(500)') === 0) {
+                $pdo->exec("ALTER TABLE `{$_alarga[0]}` MODIFY COLUMN `{$_alarga[1]}` VARCHAR(1000) CHARACTER SET utf8mb4 {$_alarga[2]}");
+            }
+        } catch (Throwable $e) {}
+    }
 
     // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
     // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.
@@ -337,6 +347,21 @@ function _donoDoPostFeed(PDO $pdo, int $idpost): int {
         $q->execute([$idpost]);
         return (int)$q->fetchColumn();
     } catch (Throwable $e) { return 0; }
+}
+
+// Mensagem do CHAT (intus_mensagem, em mensagens.php) a que quem pergunta tem
+// acesso: o aluno só da própria conversa, o professor da própria carteira,
+// admin de todas. null = não existe ou sem acesso.
+function _chatMensagem(PDO $pdo, array $ctx, bool $ehAluno, int $id) {
+    try {
+        $q = $pdo->prepare("SELECT idmensagem, idatleta, idusuario, remetente, texto FROM intus_mensagem WHERE idmensagem = ? LIMIT 1");
+        $q->execute([$id]);
+        $m = $q->fetch(PDO::FETCH_ASSOC);
+        if (!$m) return null;
+        if ($ehAluno) return ((int)$m['idatleta'] === (int)($ctx['idatleta'] ?? $ctx['idusuario'] ?? 0)) ? $m : null;
+        if (!empty($ctx['admin'])) return $m;
+        return in_array((int)$m['idatleta'], getAtletasDoUsuario($pdo, (int)($ctx['idusuario'] ?? 0)), true) ? $m : null;
+    } catch (Throwable $e) { return null; }
 }
 
 // Dono (aluno) do "alvo" de um comentário: post do Feed ou comentário do MURAL
@@ -1789,6 +1814,10 @@ if ($action === 'reacoes') {
         $ids = array_values(array_filter(array_map('intval', explode(',', $idsRaw)), function ($n) { return $n > 0; }));
         if (!count($ids)) { echo json_encode(new stdClass()); exit; }
         if (count($ids) > 500) $ids = array_slice($ids, 0, 500);
+        if ($tipo === 'chat') {
+            $ids = array_values(array_filter($ids, function ($i) use ($pdo, $_ctx, $_ehAluno) { return _chatMensagem($pdo, $_ctx, $_ehAluno, $i) !== null; }));
+            if (!count($ids)) { echo json_encode(new stdClass()); exit; }
+        }
         $ph = implode(',', array_fill(0, count($ids), '?'));
         $st = $pdo->prepare("SELECT alvo_id, emoji, autor_tipo, autor_id, autor_nome
                              FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id IN ($ph)
@@ -1817,6 +1846,11 @@ if ($action === 'reacoes') {
         $emoji = trim((string)($b['emoji'] ?? ''));
         if ($alvo <= 0 || $emoji === '') { http_response_code(400); echo json_encode(['error' => 'alvo_id e emoji obrigatorios']); exit; }
         if (mb_strlen($emoji) > 8)       { http_response_code(400); echo json_encode(['error' => 'emoji invalido']); exit; }
+        $msgChat = null;
+        if ($tipo === 'chat') {
+            $msgChat = _chatMensagem($pdo, $_ctx, $_ehAluno, $alvo);
+            if (!$msgChat) { http_response_code(403); echo json_encode(['error' => 'sem acesso a esta mensagem']); exit; }
+        }
 
         // Nome de quem reagiu, buscado no servidor — nao aceita o que o cliente diz.
         [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
@@ -1834,6 +1868,13 @@ if ($action === 'reacoes') {
             // outro desenho). _criarNotificacao nunca lança.
             if ($tipo === 'feed_post') {
                 _criarNotificacao($pdo, 'aluno', _donoDoPostFeed($pdo, $alvo), 'curtida', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $emoji, true);
+            } elseif ($tipo === 'chat' && $msgChat) {
+                // Curtida numa mensagem do chat avisa quem escreveu a mensagem.
+                if ($msgChat['remetente'] === 'aluno') {
+                    _criarNotificacao($pdo, 'aluno', (int)$msgChat['idatleta'], 'curtida_chat', $_autorTipo, $_autorId, $nome, 'chat', $alvo, (string)$msgChat['texto'], true);
+                } elseif ((int)$msgChat['idusuario'] > 0) {
+                    _criarNotificacao($pdo, 'prof', (int)$msgChat['idusuario'], 'curtida_chat', $_autorTipo, $_autorId, $nome, 'chat', $alvo, (string)$msgChat['texto'], true);
+                }
             } elseif ($tipo === 'mural') {
                 // Reação ao comentário do MURAL (o "post" do mural) avisa o autor dele.
                 try {
@@ -1899,7 +1940,7 @@ if ($action === 'comentarios_pub') {
         $alvo  = (int)($b['alvo_id'] ?? 0);
         $texto = trim((string)($b['texto'] ?? ''));
         if ($tipo === '' || $alvo <= 0 || $texto === '') { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
-        $texto = _mencoesLimitar($texto, 500);
+        $texto = _mencoesLimitar($texto, 1000);
         // Se responde a outro comentário, confirma que o pai é do MESMO alvo —
         // sem isso um id de comentário de outro post viraria resposta aqui.
         $respostaA = (int)($b['resposta_a'] ?? 0);
@@ -1991,12 +2032,17 @@ if ($action === 'pessoas_mencionaveis') {
         $tblA = _feedDetectarTabelaAtleta($pdo);
         if ($tblA) {
             try {
-                $rowsA = $pdo->query("SELECT idatleta, nome FROM `$tblA` WHERE feed_optin = 'S' AND (stbloqueio IS NULL OR stbloqueio != 'S')")->fetchAll(PDO::FETCH_ASSOC);
-            } catch (Throwable $e) { $rowsA = []; }
+                $rowsA = $pdo->query("SELECT idatleta, nome, dtcadastro FROM `$tblA` WHERE feed_optin = 'S' AND (stbloqueio IS NULL OR stbloqueio != 'S')")->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) {
+                try { $rowsA = $pdo->query("SELECT idatleta, nome FROM `$tblA` WHERE feed_optin = 'S' AND (stbloqueio IS NULL OR stbloqueio != 'S')")->fetchAll(PDO::FETCH_ASSOC); }
+                catch (Throwable $e2) { $rowsA = []; }
+            }
             foreach ($rowsA as $r) {
                 $ida = (int)$r['idatleta'];
                 if ($ida <= 0 || trim((string)$r['nome']) === '' || ($_pmTipo === 'aluno' && $ida === $_pmId) || in_array($ida, $ocultos, true)) continue;
-                $pessoas[] = ['tipo' => 'aluno', 'id' => $ida, 'nome' => trim((string)$r['nome'])];
+                // "desde MM/AAAA" só serve pra a pessoa distinguir dois alunos de mesmo nome na lista.
+                $desde = (!empty($r['dtcadastro']) && preg_match('/^(\d{4})-(\d{2})/', (string)$r['dtcadastro'], $mm)) ? ($mm[2] . '/' . $mm[1]) : '';
+                $pessoas[] = ['tipo' => 'aluno', 'id' => $ida, 'nome' => trim((string)$r['nome']), 'desde' => $desde];
             }
         }
         foreach (['professor', 'usuario', 'usuarios', 'professores'] as $tblU) {
@@ -2033,6 +2079,10 @@ if ($action === 'notificacoes') {
         // aparece nem conta no sino. Filtra em vez de só apagar: cobre também o
         // que já ficou órfão antes desta regra, sem mexer em nenhuma linha.
         $filtroAlvo = " AND (alvo_tipo <> 'feed_post' OR EXISTS (SELECT 1 FROM intus_feed_post p WHERE p.idpost = intus_notificacao.alvo_id AND p.ativo = 1))";
+        try {
+            $pdo->query("SELECT 1 FROM intus_mensagem LIMIT 1");
+            $filtroAlvo .= " AND (alvo_tipo <> 'chat' OR EXISTS (SELECT 1 FROM intus_mensagem m WHERE m.idmensagem = intus_notificacao.alvo_id))";
+        } catch (Throwable $e) {}
         try {
             $pdo->query("SELECT 1 FROM intus_ranking_comentario LIMIT 1");
             $filtroAlvo .= " AND (alvo_tipo <> 'mural' OR EXISTS (SELECT 1 FROM intus_ranking_comentario c WHERE c.idcomentario = intus_notificacao.alvo_id))";
@@ -2176,7 +2226,7 @@ if ($action === 'feed_posts') {
         $b = jsonBody();
         $imagemRaw = (string)($b['imagem'] ?? '');
         $legenda = trim((string)($b['legenda'] ?? ''));
-        $legenda = _mencoesLimitar($legenda, 500);
+        $legenda = _mencoesLimitar($legenda, 1000);
         if ($imagemRaw === '') { http_response_code(400); echo json_encode(['error' => 'imagem obrigatoria']); exit; }
         $destino = (string)($b['destino'] ?? 'feed');
         if (!in_array($destino, ['feed', 'perfil'], true)) $destino = 'feed';

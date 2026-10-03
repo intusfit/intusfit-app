@@ -573,7 +573,7 @@ async function ntfSinoAbrir(ev) {
     const j = await r.json();
     const lista = (j && Array.isArray(j.notificacoes)) ? j.notificacoes : [];
     await _ntfSinoMensagens();
-    const icones = { curtida: '❤️', curtida_comentario: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣' };
+    const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣' };
     const temNova = lista.some(n => !n.lido);
     const itens = lista.map(n => {
       const mural = n.alvo_tipo === 'mural';
@@ -582,9 +582,10 @@ async function ntfSinoAbrir(ev) {
         curtida_comentario: mural ? 'curtiu sua resposta no mural' : 'curtiu seu comentário',
         comentario: mural ? 'respondeu seu comentário no mural' : 'comentou no seu post',
         resposta: 'respondeu seu comentário',
-        mencao: 'mencionou você',
+        mencao: mural ? 'mencionou você no mural' : 'mencionou você',
+        curtida_chat: 'curtiu sua mensagem',
       };
-      const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || (n.tipo === 'curtida' && mural);
+      const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || (n.tipo === 'curtida' && mural);
       const sub = comTrecho && n.texto ? '<div class="ntfsino-sub">“' + _ntfSinoEsc(n.texto) + '”</div>' : '';
       return '<div class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
         '<div class="ntfsino-txt"><b>' + _ntfSinoEsc(n.ator_nome || 'Alguém') + '</b> ' + (acoes[n.tipo] || 'interagiu com você') + sub + '</div>' +

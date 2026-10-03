@@ -118,6 +118,8 @@ try {
     // ===== Listar mensagens =====
     if ($action === 'listar') {
         $atleta = (int)($_GET['atleta'] ?? 0);
+        // Aluno só lê a PRÓPRIA conversa, mesmo que peça outra ou nenhuma.
+        if (!empty($_authCtx['is_aluno'])) $atleta = (int)($_authCtx['idatleta'] ?? $_userId);
         if ($atleta > 0) {
             // Verificar acesso ao atleta
             if ($_allowedIds !== null && !in_array($atleta, $_allowedIds)) {
@@ -311,7 +313,28 @@ try {
             echo json_encode(['ok' => false, 'error' => 'id obrigatorio']);
             exit;
         }
+        // Antes qualquer login válido apagava qualquer mensagem. Agora: aluno
+        // só as PRÓPRIAS; professor as próprias dentro da sua carteira; admin
+        // qualquer uma.
+        $stM = $pdo->prepare("SELECT idatleta, remetente, idusuario FROM intus_mensagem WHERE idmensagem = ?");
+        $stM->execute([$id]);
+        $msg = $stM->fetch(PDO::FETCH_ASSOC);
+        if (!$msg) { echo json_encode(['ok' => true]); exit; }
+        $pode = false;
+        if (!empty($_authCtx['is_aluno'])) {
+            $pode = $msg['remetente'] === 'aluno' && (int)$msg['idatleta'] === (int)($_authCtx['idatleta'] ?? $_userId);
+        } elseif ($_isAdmin) {
+            $pode = true;
+        } else {
+            $minha = $msg['remetente'] === 'professor' && (empty($msg['idusuario']) || (int)$msg['idusuario'] === (int)$_userId);
+            $pode = $minha && ($_allowedIds === null || in_array((int)$msg['idatleta'], $_allowedIds, true));
+        }
+        if (!$pode) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'sem permissao']); exit; }
         $pdo->prepare("DELETE FROM intus_mensagem WHERE idmensagem = ?")->execute([$id]);
+        // Curtidas e notificações da mensagem apagada saem junto.
+        foreach (["DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'chat' AND alvo_id = ?", "DELETE FROM intus_notificacao WHERE alvo_tipo = 'chat' AND alvo_id = ?"] as $_sqlC) {
+            try { $pdo->prepare($_sqlC)->execute([$id]); } catch (Throwable $e) {}
+        }
         echo json_encode(['ok' => true]);
         exit;
     }
