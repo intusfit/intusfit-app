@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Quadro de Resultados — Intus</title>
+  <script src="_mock.js?v=20261003e"></script>
+  <script src="api.js?v=20260917a"></script>
+  <style>
+    .rs-wrap { max-width: 640px; margin: 0 auto; }
+    .rs-intro { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5; }
+    .rs-filtros { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+    .rs-chip { padding: 8px 14px; border-radius: 99px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .rs-chip.on { background: var(--green); color: #0f1a00; border-color: var(--green); }
+    .rs-busca { flex: 1; min-width: 140px; padding: 8px 12px; border-radius: 99px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); font-size: 12px; font-family: inherit; }
+    .rs-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
+    .rs-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+    .rs-av { width: 36px; height: 36px; border-radius: 50%; background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: var(--text-muted); flex-shrink: 0; object-fit: cover; }
+    .rs-nome { font-size: 13px; font-weight: 800; color: var(--text); }
+    .rs-meta { font-size: 11px; color: var(--text-muted); }
+    .rs-tag { font-size: 10.5px; font-weight: 800; padding: 4px 9px; border-radius: 10px; background: rgba(127,255,0,.10); color: var(--green); white-space: nowrap; }
+    .rs-foto { width: 100%; display: block; background: var(--bg3); }
+    .rs-texto { padding: 12px 14px 4px; font-size: 13px; line-height: 1.55; color: var(--text); white-space: pre-wrap; word-wrap: break-word; }
+    .rs-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px 12px; flex-wrap: wrap; }
+    .rs-site { font-size: 11px; color: var(--text-muted); }
+    .rs-site b { color: var(--green); }
+    .rs-btn { background: transparent; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-family: inherit; color: var(--text); font-size: 12px; font-weight: 700; padding: 6px 10px; }
+    .rs-btn.on { background: var(--green); color: #0f1a00; border-color: var(--green); }
+    .rs-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .rs-vazio { text-align: center; padding: 50px 16px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+    .rs-mais { display: block; margin: 0 auto 24px; padding: 10px 22px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); font-weight: 700; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .mcar-wrap { position: relative; }
+    .mcar { display: flex; align-items: center; background: #000; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+    .mcar::-webkit-scrollbar { display: none; }
+    .mcar > * { flex: 0 0 100%; width: 100%; scroll-snap-align: center; scroll-snap-stop: always; }
+    .mcar-seta { display: none; position: absolute; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(0,0,0,.5); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; align-items: center; justify-content: center; z-index: 2; }
+    .mcar-wrap:hover .mcar-seta { display: flex; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Quadro de Resultados');
+
+const main = document.getElementById('main-content');
+const BASE = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function tok() { return localStorage.getItem('mx-token') || ''; }
+function api(path, opts) {
+  opts = opts || {};
+  return fetch(BASE + path, Object.assign({ cache: 'no-store' }, opts, { headers: Object.assign({ 'Authorization': 'Bearer ' + tok() }, opts.headers || {}) }));
+}
+function apiJson(path, corpo, metodo) {
+  return api(path, { method: metodo || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+}
+
+// Mídia (1 foto/vídeo ou carrossel), igual ao Feed.
+function midiaItem(m) {
+  if (m.tipo === 'video') {
+    const src = m.token ? BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
+    return '<video class="rs-foto" src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" style="background:#000;max-height:80vh;"></video>';
+  }
+  return '<img class="rs-foto" src="' + esc(m.url) + '" loading="lazy" alt=""/>';
+}
+function carrossel(midias) {
+  if (!midias.length) return '';
+  if (midias.length === 1) return midiaItem(midias[0]);
+  return '<div class="mcar-wrap"><div class="mcar" onscroll="carScroll(this)">' + midias.map(midiaItem).join('') + '</div>' +
+    '<span data-car-cont style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:10px;pointer-events:none;">1/' + midias.length + '</span>' +
+    '<button class="mcar-seta" style="left:8px;" onclick="carIr(this,-1)" aria-label="Anterior">‹</button>' +
+    '<button class="mcar-seta" style="right:8px;" onclick="carIr(this,1)" aria-label="Próxima">›</button>' +
+    '<div style="position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center;gap:5px;pointer-events:none;">' +
+      midias.map((_, i) => '<i data-car-dot style="width:6px;height:6px;border-radius:50%;background:' + (i === 0 ? '#7FFF00' : 'rgba(255,255,255,.55)') + ';box-shadow:0 0 3px rgba(0,0,0,.5);"></i>').join('') +
+    '</div></div>';
+}
+function carScroll(el) {
+  const i = Math.round(el.scrollLeft / (el.clientWidth || 1));
+  const w = el.parentElement;
+  Array.from(el.children).forEach((ch, k) => { if (k !== i && ch.tagName === 'VIDEO' && !ch.paused) ch.pause(); });
+  const c = w.querySelector('[data-car-cont]'); if (c) c.textContent = (i + 1) + '/' + el.children.length;
+  w.querySelectorAll('[data-car-dot]').forEach((d, k) => { d.style.background = k === i ? '#7FFF00' : 'rgba(255,255,255,.55)'; });
+}
+function carIr(btn, dir) {
+  const el = btn.parentElement.querySelector('.mcar');
+  if (el) el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
+}
+
+function iniciais(nome) {
+  const p = String(nome || '?').trim().split(/\s+/);
+  return ((p[0] && p[0][0] || '') + (p[1] && p[1][0] || '')).toUpperCase() || '?';
+}
+function quando(s) {
+  const dt = new Date(String(s).replace(' ', 'T'));
+  const min = Math.floor((Date.now() - dt.getTime()) / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return 'há ' + min + ' min';
+  const h = Math.floor(min / 60);
+  if (h < 24) return 'há ' + h + 'h';
+  const d = Math.floor(h / 24);
+  if (d < 7) return 'há ' + d + (d === 1 ? ' dia' : ' dias');
+  return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+// ── estado ──
+let lista = [], atletas = {}, avatares = {}, temMais = false, carregando = false, erro = false;
+let reac = {};
+let filtroTipo = 'todos', busca = '';
+
+async function carregar(antesDe) {
+  if (carregando) return;
+  carregando = true; erro = false;
+  if (!antesDe) { lista = []; render(); }
+  try {
+    let url = '/catalogo.php?action=resultados&limite=20';
+    if (filtroTipo !== 'todos') url += '&tipo=' + filtroTipo;
+    if (antesDe) url += '&antes_de=' + antesDe;
+    const r = await api(url + '&_=' + Date.now());
+    if (!r.ok) throw new Error('erro ' + r.status);
+    const j = await r.json();
+    Object.assign(atletas, j.atletas || {});
+    Object.assign(avatares, j.avatars || {});
+    const novos = Array.isArray(j.resultados) ? j.resultados : [];
+    lista = antesDe ? lista.concat(novos) : novos;
+    temMais = !!j.temMais;
+    const ids = novos.map(x => x.idresultado);
+    if (ids.length) {
+      try {
+        const rr = await api('/catalogo.php?action=reacoes&alvo_tipo=resultado&ids=' + ids.join(',') + '&_=' + Date.now());
+        const jj = rr.ok ? await rr.json() : {};
+        ids.forEach(id => { reac[id] = jj[String(id)] || []; });
+      } catch (e) {}
+    }
+  } catch (e) { erro = true; }
+  carregando = false;
+  render();
+}
+
+function cartaoHtml(r) {
+  const nome = atletas[String(r.idatleta)] || 'Aluno';
+  const av = avatares[String(r.idatleta)];
+  const avatarEl = av ? '<img class="rs-av" src="' + esc(av) + '" alt="" onerror="this.style.display=\'none\'"/>' : '<div class="rs-av">' + esc(iniciais(nome)) + '</div>';
+  const curtidas = (reac[r.idresultado] || []).length;
+  const autorizouSite = Number(r.autoriza_site) === 1;
+  const destaque = Number(r.destaque_site) === 1;
+  return '<div class="rs-card" data-res="' + r.idresultado + '">' +
+    '<div class="rs-head">' + avatarEl +
+      '<div style="flex:1;min-width:0;"><div class="rs-nome">' + esc(nome) + '</div><div class="rs-meta">' + quando(r.created_at) + (r.periodo_txt ? ' · ⏱ ' + esc(r.periodo_txt) : '') + '</div></div>' +
+      '<span class="rs-tag">' + (r.tipo === 'evolucao' ? '📈 Evolução' : '🗣️ Depoimento') + '</span></div>' +
+    carrossel((r.midias || []).filter(m => m && m.url)) +
+    (r.texto ? '<div class="rs-texto">' + esc(r.texto) + '</div>' : '') +
+    '<div class="rs-rodape">' +
+      '<span class="rs-site">❤️ ' + curtidas + ' · ' + (autorizouSite ? '<b>Autorizou uso no site</b>' : 'Só dentro do app') + '</span>' +
+      '<span style="display:flex;gap:8px;">' +
+        '<button class="rs-btn' + (destaque ? ' on' : '') + '" ' + (autorizouSite ? '' : 'disabled title="O aluno não autorizou o uso no site"') + ' onclick="alternarDestaque(' + r.idresultado + ')">' + (destaque ? '⭐ Destaque do site' : '☆ Marcar destaque') + '</button>' +
+        '<button class="rs-btn" title="Excluir resultado (moderação)" onclick="excluir(' + r.idresultado + ')">🗑️ Excluir</button>' +
+      '</span>' +
+    '</div></div>';
+}
+
+function render() {
+  const termo = busca.trim().toLowerCase();
+  const visiveis = termo ? lista.filter(r => String(atletas[String(r.idatleta)] || '').toLowerCase().includes(termo)) : lista;
+  const chip = (id, label) => '<button class="rs-chip' + (filtroTipo === id ? ' on' : '') + '" onclick="trocarFiltro(\'' + id + '\')">' + label + '</button>';
+  const campo = document.getElementById('rs-busca');
+  const tinhaFoco = campo && document.activeElement === campo;
+  main.innerHTML = '<div class="rs-wrap">' +
+    '<div class="rs-intro">Resultados e depoimentos que os alunos publicaram no app. Eles aparecem direto para os outros alunos, e você pode excluir o que não deve ficar no ar. O destaque para o site só vale para quem autorizou o uso e por enquanto serve apenas para separar os melhores; nada é publicado fora do app.</div>' +
+    '<div class="rs-filtros">' + chip('todos', 'Todos') + chip('evolucao', '📈 Evoluções') + chip('depoimento', '🗣️ Depoimentos') +
+      '<input id="rs-busca" class="rs-busca" placeholder="Buscar aluno (nos já carregados)" value="' + esc(busca) + '" oninput="busca=this.value;render();"/></div>' +
+    (visiveis.length ? visiveis.map(cartaoHtml).join('') : '<div class="rs-vazio">' + (carregando ? 'Carregando...' : (erro ? 'Não consegui carregar agora. Tente de novo em instantes.' : 'Nenhum resultado por aqui ainda.')) + '</div>') +
+    (temMais && !termo ? '<button class="rs-mais" onclick="carregar(' + (lista.length ? lista[lista.length - 1].idresultado : 0) + ')">Carregar mais</button>' : '') + '</div>';
+  if (tinhaFoco) { const n = document.getElementById('rs-busca'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }
+}
+
+function trocarFiltro(id) { filtroTipo = id; carregar(); }
+
+async function alternarDestaque(id) {
+  const r0 = lista.find(x => x.idresultado === id); if (!r0) return;
+  const novo = Number(r0.destaque_site) === 1 ? 0 : 1;
+  try {
+    const r = await apiJson('/catalogo.php?action=resultado_destaque', { idresultado: id, destaque_site: novo });
+    if (!r.ok) { let m = 'Não consegui alterar.'; try { const j = await r.json(); if (j && j.error) m = j.error; } catch (e) {} throw new Error(m); }
+    r0.destaque_site = novo;
+    render();
+  } catch (e) { showToast(e.message || 'Não consegui alterar.', 'error'); }
+}
+
+async function excluir(id) {
+  if (!confirm('Excluir este resultado do Quadro? Ele some para todos os alunos e o vídeo, se houver, é apagado. Essa ação não pode ser desfeita.')) return;
+  try { const r = await api('/catalogo.php?action=resultados&id=' + id, { method: 'DELETE' }); if (!r.ok) throw 0; }
+  catch (e) { showToast('Não consegui excluir o resultado.', 'error'); return; }
+  lista = lista.filter(x => x.idresultado !== id);
+  render();
+}
+
+render();
+carregar();
+</script>
+</body>
+</html>

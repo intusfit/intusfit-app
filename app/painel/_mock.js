@@ -573,7 +573,7 @@ async function ntfSinoAbrir(ev) {
     const j = await r.json();
     const lista = (j && Array.isArray(j.notificacoes)) ? j.notificacoes : [];
     await _ntfSinoMensagens();
-    const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣' };
+    const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', resultado_novo: '🌟' };
     const temNova = lista.some(n => !n.lido);
     const itens = lista.map(n => {
       const mural = n.alvo_tipo === 'mural';
@@ -585,11 +585,14 @@ async function ntfSinoAbrir(ev) {
         mencao: mural ? 'mencionou você no mural' : 'mencionou você',
         curtida_chat: 'curtiu sua mensagem',
       };
-      const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || (n.tipo === 'curtida' && mural);
+      acoes.resultado_novo = 'compartilhou um resultado no Quadro';
+      const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || n.tipo === 'resultado_novo' || (n.tipo === 'curtida' && mural);
       const sub = comTrecho && n.texto ? '<div class="ntfsino-sub">“' + _ntfSinoEsc(n.texto) + '”</div>' : '';
-      return '<div class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
+      // Resultado novo é um link: leva ao Quadro de Resultados (e marca como lido).
+      const ehResultado = n.tipo === 'resultado_novo';
+      return '<' + (ehResultado ? 'a href="resultados.html" onclick="_ntfSinoLer(' + Number(n.idnotificacao) + ')" style="text-decoration:none;color:inherit;"' : 'div') + ' class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
         '<div class="ntfsino-txt"><b>' + _ntfSinoEsc(n.ator_nome || 'Alguém') + '</b> ' + (acoes[n.tipo] || 'interagiu com você') + sub + '</div>' +
-        (n.lido ? '' : '<div class="ntfsino-ponto"></div>') + '</div>';
+        (n.lido ? '' : '<div class="ntfsino-ponto"></div>') + '</' + (ehResultado ? 'a' : 'div') + '>';
     }).join('');
     const linhaMsgs = _ntfSinoMsgs > 0
       ? '<a class="ntfsino-item nova" href="mensagens.html" style="text-decoration:none;"><div class="ntfsino-ico">✉️</div><div class="ntfsino-txt"><b>' + _ntfSinoMsgs + (_ntfSinoMsgs > 1 ? ' mensagens novas' : ' mensagem nova') + '</b> de alunos</div></a>' : '';
@@ -600,6 +603,14 @@ async function ntfSinoAbrir(ev) {
   } catch (e) {
     p.innerHTML = '<div class="ntfsino-head"><b>🔔 Notificações</b></div><div class="ntfsino-vazio">Não consegui carregar agora. Tente de novo em instantes.</div><a class="ntfsino-foot" href="mensagens.html">📬 Ir para a Central do Aluno ›</a>';
   }
+}
+
+function _ntfSinoLer(id) {
+  try {
+    fetch(_ntfSinoBase() + '/catalogo.php?action=notificacoes', {
+      method: 'POST', keepalive: true, headers: Object.assign({ 'Content-Type': 'application/json' }, _ntfSinoHeaders()), body: JSON.stringify({ idnotificacao: id }),
+    });
+  } catch (e) {}
 }
 
 async function ntfSinoMarcarTodas() {
@@ -638,6 +649,7 @@ function renderLayout(activePage) {
     { href: 'gestao.html',       icon: ICONS.chart,    label: 'Gestão',       show: podeVerGestao() },
     { href: 'mensagens.html',    icon: ICONS.chat,     label: 'Central do Aluno', show: true },
     { href: 'feed.html',         icon: ICONS.camera,   label: 'Feed',         show: true },
+    { href: 'resultados.html',   icon: ICONS.crown,    label: 'Quadro de Resultados', show: true },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },
     { href: 'configuracoes.html',icon: ICONS.gear,     label: 'Configurações',show: !!user.admin },
