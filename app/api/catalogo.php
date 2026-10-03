@@ -2347,6 +2347,8 @@ if ($action === 'feed_posts') {
         foreach ($posts as &$p) {
             $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta'];
             $p['midias'] = $_midiasMap[$p['idpost']] ?? [['tipo' => 'imagem', 'url' => $p['imagem'], 'poster' => null]];
+            foreach ($p['midias'] as &$_mm) { if ($_mm['tipo'] === 'video' && empty($_mm['poster'])) $_mm['poster'] = $p['imagem']; }
+            unset($_mm);
         }
         unset($p);
         echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => $temMais], JSON_UNESCAPED_UNICODE);

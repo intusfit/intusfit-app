@@ -2873,18 +2873,30 @@ function _feedLegendaHtml(post, nomeCurto, isLight) {
 })();
 function _midiasDoPost(post) {
   const m = post && Array.isArray(post.midias) ? post.midias.filter(x => x && x.url) : [];
-  return m.length ? m : [{ tipo: 'imagem', url: post && post.imagem, poster: null }];
+  // Vídeo sem miniatura própria usa a capa do post: nunca fica uma tela preta carregando.
+  return m.length ? m.map(x => (x.tipo === 'video' && !x.poster && post.imagem) ? Object.assign({}, x, { poster: post.imagem }) : x) : [{ tipo: 'imagem', url: post && post.imagem, poster: null }];
 }
 function _midiaItemHtml(m) {
   if (m.tipo === 'video') {
     // O <video> não manda Authorization: a URL leva o token público do vídeo.
     const src = m.token ? API_BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
-    return '<video src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls muted loop playsinline preload="none" data-auto="1" onerror="_videoFalhou(this)" style="width:100%;display:block;background:#000;max-height:80vh;"></video>';
+    // A miniatura fica de fundo da caixa (e como poster): enquanto o vídeo carrega, ou se o
+    // navegador some com o poster ao dar play, ela continua aparecendo, com um "carregando" por cima.
+    const fundo = m.poster ? 'background:#000 url(&quot;' + esc(m.poster) + '&quot;) center/contain no-repeat;min-height:200px;' : 'background:#000;min-height:200px;';
+    return '<div class="vbox" style="position:relative;' + fundo + '">' +
+      '<video src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls muted loop playsinline preload="none" data-auto="1" onplay="_vSpin(this,1)" onwaiting="_vSpin(this,1)" onplaying="_vSpin(this,0)" onpause="_vSpin(this,0)" onerror="_videoFalhou(this)" style="width:100%;display:block;max-height:80vh;background:transparent;"></video>' +
+      '<div class="vspin" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;pointer-events:none;"><span style="width:38px;height:38px;border-radius:50%;border:4px solid rgba(255,255,255,.35);border-top-color:#7FFF00;animation:busyGira .9s linear infinite;box-shadow:0 0 8px rgba(0,0,0,.5);"></span></div>' +
+    '</div>';
   }
   return '<img src="' + esc(m.url) + '" style="width:100%;display:block;" loading="lazy"/>';
 }
+function _vSpin(v, on) {
+  const sp = v.parentElement && v.parentElement.querySelector('.vspin');
+  if (sp) sp.style.display = on ? 'flex' : 'none';
+}
 // Vídeo que não carregou: diz o código do erro do navegador e deixa tentar de novo.
 function _videoFalhou(v) {
+  _vSpin(v, 0);
   const cod = v.error ? v.error.code : 0;
   const box = document.createElement('div');
   box.style.cssText = 'padding:26px 16px;text-align:center;background:#000;color:#ddd;font-size:12.5px;line-height:1.6;';
@@ -11204,7 +11216,9 @@ function _resultadoCardHtml(r, isLight) {
   const avatarEl = avatar
     ? '<img src="' + esc(avatar) + '" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/><div style="display:none;width:34px;height:34px;border-radius:50%;background:' + fundoAv + ';align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + muted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>'
     : '<div style="width:34px;height:34px;border-radius:50%;background:' + fundoAv + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + muted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
-  const midias = (r.midias || []).filter(m => m && m.url);
+  let midias = (r.midias || []).filter(m => m && m.url);
+  const _foto1 = midias.find(m => m.tipo !== 'video');
+  if (_foto1) midias = midias.map(m => (m.tipo === 'video' && !m.poster) ? Object.assign({}, m, { poster: _foto1.url }) : m);
   return '<div data-resultado-card="' + r.idresultado + '" style="background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
     '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
       '<div onclick="abrirPerfilRanking(' + idA + ')" style="cursor:pointer;display:flex;align-items:center;gap:9px;flex:1;min-width:0;">' + avatarEl +

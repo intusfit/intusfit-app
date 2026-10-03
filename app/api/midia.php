@@ -33,7 +33,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 
 define('MD_DURACAO_MAX_SEG', 60);
 define('MD_TAMANHO_MAX', 100 * 1024 * 1024);
-define('MD_FAIXA_VIDEO', 4 * 1024 * 1024);
+define('MD_FAIXA_VIDEO', 2 * 1024 * 1024);
 define('MD_MAX_MIDIAS', 10);
 define('MD_MAX_VIDEOS', 3);
 
@@ -155,7 +155,9 @@ try {
             header('Content-Range: bytes */' . $total);
             _mdResponder(416, ['ok' => false]);
         }
-        $fim = min($fim, $ini + MD_FAIXA_VIDEO - 1);
+        // Primeiro trecho pequeno (1 MB) para o vídeo começar logo; os seguintes maiores.
+        $tamTrecho = ($ini === 0) ? 1024 * 1024 : MD_FAIXA_VIDEO;
+        $fim = min($fim, $ini + $tamTrecho - 1);
         $f = gdriveLerFaixa($r['drive_id'], $ini, $fim);
         $corpo = $f['corpo'];
         if ($f['codigo'] === 200 && strlen($corpo) > ($fim - $ini + 1)) $corpo = substr($corpo, $ini, $fim - $ini + 1);
