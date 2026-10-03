@@ -328,6 +328,64 @@ function _resolverAutorPub(PDO $pdo, array $_ctx, bool $_ehAluno) {
     return [$tipo, $id, $nome];
 }
 
+// ── NOTIFICAÇÕES SOCIAIS (sino) ─────────────────────────────────────────────
+// Uma linha por destinatário, com "lido" próprio. NÃO reaproveita intus_avisos:
+// aquela é só do professor e o "lido" dela vale pra todo mundo de uma vez.
+// destino_tipo/ator_tipo seguem o mesmo par de _resolverAutorPub: 'aluno'
+// (id = idatleta) ou 'prof' (id = idusuario).
+function _notifGarantirTabela(PDO $pdo) {
+    static $ok = false;
+    if ($ok) return;
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_notificacao (
+            idnotificacao INT AUTO_INCREMENT PRIMARY KEY,
+            destino_tipo  VARCHAR(10)  NOT NULL,
+            destino_id    INT          NOT NULL,
+            tipo          VARCHAR(20)  NOT NULL,
+            ator_tipo     VARCHAR(10)  NOT NULL,
+            ator_id       INT          NOT NULL,
+            ator_nome     VARCHAR(200) NOT NULL DEFAULT '',
+            alvo_tipo     VARCHAR(20)  NOT NULL,
+            alvo_id       INT          NOT NULL,
+            texto         VARCHAR(160) NULL,
+            lido          TINYINT(1)   NOT NULL DEFAULT 0,
+            created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_destino (destino_tipo, destino_id, lido),
+            INDEX idx_alvo (alvo_tipo, alvo_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    $ok = true;
+}
+
+// Falha aqui NUNCA pode derrubar comentar/curtir: tudo dentro de try/catch e
+// sem retorno que o chamador precise checar. Quem faz a ação não notifica a si
+// mesmo. $dedupe = não repetir o mesmo (destino, tipo, autor, alvo) — usado em
+// curtida, que dá pra ligar/desligar em sequência e encheria o sino.
+function _criarNotificacao(PDO $pdo, string $destTipo, int $destId, string $tipo, string $atorTipo, int $atorId, string $atorNome, string $alvoTipo, int $alvoId, string $texto = '', bool $dedupe = false) {
+    if ($destId <= 0 || $atorId <= 0) return;
+    if ($destTipo === $atorTipo && $destId === $atorId) return;
+    try {
+        _notifGarantirTabela($pdo);
+        if ($dedupe) {
+            $q = $pdo->prepare("SELECT 1 FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ? AND tipo = ? AND ator_tipo = ? AND ator_id = ? AND alvo_tipo = ? AND alvo_id = ? LIMIT 1");
+            $q->execute([$destTipo, $destId, $tipo, $atorTipo, $atorId, $alvoTipo, $alvoId]);
+            if ($q->fetchColumn()) return;
+        }
+        if (mb_strlen($texto) > 160) $texto = mb_substr($texto, 0, 160);
+        $pdo->prepare("INSERT INTO intus_notificacao (destino_tipo, destino_id, tipo, ator_tipo, ator_id, ator_nome, alvo_tipo, alvo_id, texto) VALUES (?,?,?,?,?,?,?,?,?)")
+            ->execute([$destTipo, $destId, $tipo, $atorTipo, $atorId, $atorNome, $alvoTipo, $alvoId, $texto !== '' ? $texto : null]);
+    } catch (Throwable $e) {}
+}
+
+// Dono (aluno) de um post do Feed, ou 0 se não existe/foi apagado.
+function _donoDoPostFeed(PDO $pdo, int $idpost): int {
+    try {
+        $q = $pdo->prepare("SELECT idatleta FROM intus_feed_post WHERE idpost = ? AND ativo = 1 LIMIT 1");
+        $q->execute([$idpost]);
+        return (int)$q->fetchColumn();
+    } catch (Throwable $e) { return 0; }
+}
+
 function jsonBody() {
     $raw = file_get_contents('php://input');
     if (!$raw) return [];
@@ -1803,6 +1861,11 @@ if ($action === 'reacoes') {
         } else {
             $pdo->prepare("INSERT INTO intus_reacao_pub (alvo_tipo, alvo_id, autor_tipo, autor_id, autor_nome, emoji) VALUES (?,?,?,?,?,?)")
                 ->execute([$tipo, $alvo, $_autorTipo, $_autorId, $nome, $emoji]);
+            // Curtida em post do Feed avisa o dono (só nesta fase: o mural tem
+            // outro desenho). _criarNotificacao nunca lança.
+            if ($tipo === 'feed_post') {
+                _criarNotificacao($pdo, 'aluno', _donoDoPostFeed($pdo, $alvo), 'curtida', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $emoji, true);
+            }
             echo json_encode(['ok' => true, 'estado' => 'adicionada']);
         }
         exit;
@@ -1862,7 +1925,32 @@ if ($action === 'comentarios_pub') {
         [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
         $pdo->prepare("INSERT INTO intus_comentario_pub (alvo_tipo, alvo_id, resposta_a, autor_tipo, autor_id, autor_nome, texto) VALUES (?,?,?,?,?,?,?)")
             ->execute([$tipo, $alvo, $respostaA > 0 ? $respostaA : null, $_autorTipo, $_autorId, $nome, $texto]);
-        echo json_encode(['ok' => true, 'idcomentario' => (int)$pdo->lastInsertId()]);
+        $novoIdComentario = (int)$pdo->lastInsertId();
+
+        // Notificações (só Feed nesta fase). Resposta avisa o autor do
+        // comentário-pai; comentário (ou resposta) também avisa o dono do post,
+        // sem repetir a mesma pessoa duas vezes pro mesmo comentário. Qualquer
+        // falha aqui é engolida: o comentário já foi gravado.
+        if ($tipo === 'feed_post') {
+            try {
+                $avisados = [];
+                if ($respostaA > 0) {
+                    $stPai = $pdo->prepare("SELECT autor_tipo, autor_id FROM intus_comentario_pub WHERE idcomentario = ?");
+                    $stPai->execute([$respostaA]);
+                    $pai = $stPai->fetch(PDO::FETCH_ASSOC);
+                    if ($pai) {
+                        $avisados[$pai['autor_tipo'] . ':' . (int)$pai['autor_id']] = 1;
+                        _criarNotificacao($pdo, $pai['autor_tipo'], (int)$pai['autor_id'], 'resposta', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $texto);
+                    }
+                }
+                $dono = _donoDoPostFeed($pdo, $alvo);
+                if ($dono > 0 && empty($avisados['aluno:' . $dono])) {
+                    _criarNotificacao($pdo, 'aluno', $dono, 'comentario', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $texto);
+                }
+            } catch (Throwable $e) {}
+        }
+
+        echo json_encode(['ok' => true, 'idcomentario' => $novoIdComentario]);
         exit;
     }
     if ($method === 'DELETE') {
@@ -1878,6 +1966,57 @@ if ($action === 'comentarios_pub') {
         $pdo->prepare("DELETE FROM intus_comentario_pub WHERE idcomentario = ?")->execute([$id]);
         echo json_encode(['ok' => true]);
         exit;
+    }
+}
+
+// ═══════════════ NOTIFICAÇÕES (sino) ═══════════════
+// Cada pessoa só vê e só marca como lidas as PRÓPRIAS (WHERE sempre com
+// destino_tipo + destino_id vindos do token, nunca do cliente).
+if ($action === 'notificacoes') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_nTipo, $_nId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_nId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    try { _notifGarantirTabela($pdo); } catch (Throwable $e) {
+        http_response_code(500); echo json_encode(['error' => 'falha ao preparar notificacoes']); exit;
+    }
+
+    if ($method === 'GET') {
+        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ? AND lido = 0");
+        $st->execute([$_nTipo, $_nId]);
+        $naoLidas = (int)$st->fetchColumn();
+        // Polling pede só o número (barato); a lista só quando o sino abre.
+        if (!empty($_GET['so_contagem'])) { echo json_encode(['nao_lidas' => $naoLidas]); exit; }
+        $st = $pdo->prepare("SELECT idnotificacao, tipo, ator_tipo, ator_id, ator_nome, alvo_tipo, alvo_id, texto, lido, created_at
+                             FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ?
+                             ORDER BY idnotificacao DESC LIMIT 50");
+        $st->execute([$_nTipo, $_nId]);
+        $lista = array_map(function ($r) {
+            return [
+                'idnotificacao' => (int)$r['idnotificacao'],
+                'tipo'          => $r['tipo'],
+                'ator_tipo'     => $r['ator_tipo'],
+                'ator_id'       => (int)$r['ator_id'],
+                'ator_nome'     => $r['ator_nome'],
+                'alvo_tipo'     => $r['alvo_tipo'],
+                'alvo_id'       => (int)$r['alvo_id'],
+                'texto'         => $r['texto'] ?? '',
+                'lido'          => (int)$r['lido'] === 1,
+                'quando'        => $r['created_at'],
+            ];
+        }, $st->fetchAll(PDO::FETCH_ASSOC));
+        echo json_encode(['notificacoes' => $lista, 'nao_lidas' => $naoLidas], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST' || $method === 'PUT') {
+        $b = jsonBody();
+        if (!empty($b['marcar_todos'])) {
+            $pdo->prepare("UPDATE intus_notificacao SET lido = 1 WHERE destino_tipo = ? AND destino_id = ? AND lido = 0")->execute([$_nTipo, $_nId]);
+            echo json_encode(['ok' => true]); exit;
+        }
+        $idn = (int)($b['idnotificacao'] ?? 0);
+        if ($idn <= 0) { http_response_code(400); echo json_encode(['error' => 'idnotificacao obrigatorio']); exit; }
+        $pdo->prepare("UPDATE intus_notificacao SET lido = 1 WHERE idnotificacao = ? AND destino_tipo = ? AND destino_id = ?")->execute([$idn, $_nTipo, $_nId]);
+        echo json_encode(['ok' => true]); exit;
     }
 }
 
