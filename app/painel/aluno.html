@@ -3986,7 +3986,7 @@ function _vtAbrir(f, resolve) {
   const txt = isLight ? '#1a1a1a' : '#f0f0f0';
   const muted = isLight ? '#777' : '#888';
   const url = URL.createObjectURL(f);
-  _vt = { url: url, video: null, dur: 0, ini: 0, fim: 0, resolve: resolve, cancelado: false, codificando: false, pronto: false };
+  _vt = { url: url, file: f, video: null, dur: 0, ini: 0, fim: 0, resolve: resolve, cancelado: false, codificando: false, pronto: false };
   const ov = document.createElement('div');
   ov.id = 'vt-overlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:' + bg + ';overflow-y:auto;';
@@ -4098,21 +4098,26 @@ function _vtFechar(silencioso) {
 }
 
 // Uma tentativa de gravar o trecho. Devolve {item} | {erro} | {travou} | {cancelado}.
-// "travou" = o vídeo não andou (comum no iPhone quando o áudio do vídeo é desviado
-// para o WebAudio e o contexto não está ativo): quem chama tenta de novo sem áudio.
-async function _vtGravar(s, comAudio) {
+// modo (como o SOM entra na gravação):
+//   'elemento' = desvia o áudio do próprio <video> para a gravação (WebAudio). Funciona no
+//                Chrome/Android/computador, mas no iPhone costuma deixar o vídeo parado.
+//   'buffer'   = decodifica o áudio do arquivo e toca só o trecho dentro da gravação. É o
+//                caminho do iPhone; o vídeo roda mudo (nada de bloqueio de autoplay).
+//   'mudo'     = sem som (último recurso).
+// "travou" = o vídeo não andou: quem chama tenta o próximo modo.
+async function _vtGravar(s, modo) {
   const v = s.video;
   const ini = s.ini, fim = s.fim, dur = fim - ini;
   const prog = function (p, t) {
     const b = document.getElementById('vt-prog-bar'); if (b) b.style.width = p + '%';
     const e = document.getElementById('vt-prog-txt'); if (e && t) e.textContent = t;
   };
-  let ac = null, rec = null, timer = null;
+  let rec = null, timer = null, fonteAudio = null;
   const limpar = function () {
     clearInterval(timer);
     try { v.pause(); } catch (e) {}
+    try { if (fonteAudio) fonteAudio.stop(); } catch (e) {}
     try { if (rec && rec.state !== 'inactive') rec.stop(); } catch (e) {}
-    try { if (ac) ac.close(); } catch (e) {}
     v.onended = null; v.onseeked = null;
   };
   try {
@@ -4123,30 +4128,42 @@ async function _vtGravar(s, comAudio) {
     const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d');
     const stream = canvas.captureStream(30);
-    let comSom = false;
-    if (comAudio) {
+    const ac = s.ac;
+    if (ac && modo !== 'mudo' && ac.state !== 'running') await Promise.race([ac.resume(), new Promise(function (r) { setTimeout(r, 1500); })]);
+    const acOk = !!ac && ac.state === 'running';
+    let comSom = false, bufferAudio = null, dest = null;
+    if (modo === 'elemento' && acOk) {
       try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (AC) {
-          ac = new AC();
-          if (ac.state !== 'running') await Promise.race([ac.resume(), new Promise(function (r) { setTimeout(r, 1500); })]);
-          // Só desvia o som do vídeo se o contexto está de fato ativo; senão o vídeo ficaria parado.
-          if (ac.state === 'running') {
-            const src = ac.createMediaElementSource(v);
-            const dest = ac.createMediaStreamDestination();
-            src.connect(dest);
-            dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
-            comSom = true;
-          } else { try { ac.close(); } catch (e) {} ac = null; }
-        }
+        const src = ac.createMediaElementSource(v);
+        dest = ac.createMediaStreamDestination();
+        src.connect(dest);
+        dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
+        comSom = true;
       } catch (e) { comSom = false; }
+    } else if (modo === 'buffer' && acOk) {
+      try {
+        if (s.file && s.file.size <= 200 * 1024 * 1024) {
+          prog(0, 'Preparando o som...');
+          let ab = await s.file.arrayBuffer();
+          bufferAudio = await new Promise(function (res, rej) {
+            const p = ac.decodeAudioData(ab, res, rej);
+            if (p && p.catch) p.catch(rej);
+          });
+          ab = null;
+          dest = ac.createMediaStreamDestination();
+          dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
+          comSom = true;
+        }
+      } catch (e) { comSom = false; bufferAudio = null; }
     }
+    if (modo === 'elemento' && !comSom) return { travou: true };   // não deu pra captar o som do elemento: próximo modo
     const candidatos = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
     const tipo = candidatos.find(function (t) { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
     rec = new MediaRecorder(stream, Object.assign(tipo ? { mimeType: tipo } : {}, { videoBitsPerSecond: 2500000, audioBitsPerSecond: 96000 }));
     const pedacos = [];
     rec.ondataavailable = function (e) { if (e.data && e.data.size) pedacos.push(e.data); };
     const terminou = new Promise(function (res) { rec.onstop = res; });
+    prog(0, 'Iniciando...');
     v.pause();
     await new Promise(function (res) {
       let ok = false; const fim1 = function () { if (!ok) { ok = true; res(); } };
@@ -4154,11 +4171,18 @@ async function _vtGravar(s, comAudio) {
       try { v.currentTime = ini; } catch (e) { fim1(); }
     });
     v.onseeked = null;
-    v.muted = !comSom; v.volume = 1;   // sem som na gravação, o vídeo roda mudo (também evita bloqueio de autoplay)
+    // No modo 'elemento' o som sai do próprio vídeo; nos outros ele roda mudo.
+    v.muted = (modo !== 'elemento') || !comSom; v.volume = 1;
     let poster = '';
     rec.start(1000);
     const tocou = await Promise.race([v.play().then(function () { return true; }), new Promise(function (r) { setTimeout(function () { r(false); }, 6000); })]);
     if (!tocou) { limpar(); return { travou: true }; }
+    if (bufferAudio && dest) {
+      fonteAudio = ac.createBufferSource();
+      fonteAudio.buffer = bufferAudio;
+      fonteAudio.connect(dest);
+      fonteAudio.start(0, Math.min(ini, Math.max(0, bufferAudio.duration - 0.1)), dur);
+    }
     const desfecho = await new Promise(function (res) {
       let ultimoT = v.currentTime, ultimoQuando = Date.now();
       const quadro = function () {
@@ -4181,9 +4205,9 @@ async function _vtGravar(s, comAudio) {
     if (desfecho === 'cancelado') { limpar(); return { cancelado: true }; }
     if (desfecho === 'travou') { limpar(); return { travou: true }; }
     v.pause();
+    try { if (fonteAudio) fonteAudio.stop(); } catch (e) {}
     if (rec.state !== 'inactive') rec.stop();
     await terminou;
-    try { ac && ac.close(); } catch (e) {}
     const base = (rec.mimeType || tipo || 'video/webm').split(';')[0];
     const blob = new Blob(pedacos, { type: base });
     if (!blob.size) return { erro: 'Não consegui preparar o vídeo. Tente outro trecho ou outro vídeo.' };
@@ -4214,6 +4238,10 @@ function _vtRecriarVideo(s) {
   });
 }
 
+function _vtEhIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+}
+
 async function _vtUsar() {
   const s = _vt;
   if (!s || s.codificando) return;
@@ -4222,15 +4250,27 @@ async function _vtUsar() {
   document.getElementById('vt-prog').style.display = 'block';
   document.getElementById('vt-ini').disabled = true; document.getElementById('vt-fim').disabled = true;
   try { s.video.pause(); } catch (e) {}
-  let r = await _vtGravar(s, true);
-  if (r.travou && !s.cancelado && _vt === s) {
-    // Segunda chance: refaz sem desviar o som (o vídeo sai sem áudio, mas sai).
-    await _vtRecriarVideo(s);
-    r = await _vtGravar(s, false);
+  // O AudioContext nasce AGORA, dentro do toque do aluno: no iPhone ele só liga assim.
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) {
+      s.ac = new AC();
+      s.ac.resume();
+      const b = s.ac.createBuffer(1, 1, 22050), z = s.ac.createBufferSource();
+      z.buffer = b; z.connect(s.ac.destination); z.start(0);
+    }
+  } catch (e) { s.ac = null; }
+  const modos = _vtEhIOS() ? ['buffer', 'mudo'] : ['elemento', 'buffer', 'mudo'];
+  let r = null;
+  for (let i = 0; i < modos.length; i++) {
+    if (i > 0) await _vtRecriarVideo(s);
+    r = await _vtGravar(s, modos[i]);
+    if (!r.travou || s.cancelado || _vt !== s) break;
   }
+  try { if (s.ac) s.ac.close(); } catch (e) {}
   if (s.cancelado || _vt !== s) return;
   if (r.item) {
-    if (r.item.semSom) toast('Vídeo preparado sem som (este aparelho não permitiu captar o áudio).');
+    if (r.item.semSom) toast('Vídeo preparado sem som: este aparelho não permitiu captar o áudio.');
     s.pronto = true;
     const res = s.resolve; s.resolve = null;
     _vtFechar(true);
@@ -4336,7 +4376,7 @@ async function _composeEnviarVideo(it, idpost, poster, auth, onPct, donoTipo) {
     const blob = it.file.slice(pos, Math.min(total, pos + parte));
     let d;
     try {
-      const rr = await fetch(API_BASE + '/midia.php?action=enviar_parte&id=' + d0.id + '&inicio=' + pos, { method: 'POST', headers: hAuth, body: blob });
+      const rr = await fetch(API_BASE + '/midia.php?action=enviar_parte&id=' + d0.id + '&inicio=' + pos, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/octet-stream' }, hAuth), body: blob });
       d = await rr.json().catch(() => ({}));
       if (!rr.ok || !d.ok) throw new Error(d.erro || ('erro ' + rr.status));
     } catch (e) {
