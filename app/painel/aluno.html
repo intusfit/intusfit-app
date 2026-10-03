@@ -1864,7 +1864,16 @@ async function _composeImagemFinal() {
 // só muda a coluna "destino" — 'feed' entra na lista geral (visível pros
 // outros alunos, sujeito ao feed_optin de cada um), 'perfil' fica só na
 // grade do próprio perfil.
+var _postPublicando = false;
+// Trava contra toque repetido: enquanto um post está sendo enviado, outro não começa.
 async function _composePublicar(destino) {
+  if (_postPublicando) return;
+  _postPublicando = true;
+  _composeProgresso('Preparando seu post...', null);
+  try { await _composePublicarInterno(destino); }
+  finally { _postPublicando = false; _composeProgressoFim(); }
+}
+async function _composePublicarInterno(destino) {
   const legenda = _mencoesCodificar('post', document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '');
   const localizacao = _feedComposeLocal.trim() || '';
   const dataUrl = await _composeImagemFinal();
@@ -1880,7 +1889,7 @@ async function _composePublicar(destino) {
     try { const j = await resp.json(); if (j && (j.error || j.erro)) motivo = j.error || j.erro; } catch (e) {}
     return motivo;
   };
-  if (itens.length) _composeProgresso('Publicando...', 0);
+  _composeProgresso('Enviando seu post...', itens.length ? 0 : null);
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
       method: 'POST',
@@ -1922,7 +1931,7 @@ async function _composePublicar(destino) {
       try { await enviar({ idpost: idpost, finalizar: 1, esperadas: total }); }
       catch (e) { throw new Error('não consegui finalizar (' + e.message + '). Nada foi publicado, tente de novo'); }
     }
-  } finally { _composeProgressoFim(); }
+  } finally { /* o aviso de carregamento fecha em _composePublicar, depois de abrir o Feed */ }
   toast(destino === 'feed' ? 'Publicado no feed! 🎉' : 'Publicado no seu perfil! 🎉');
   _fecharComposeFeed();
   navegar('feed');
@@ -1932,7 +1941,6 @@ async function _composeAcao(tipo) {
   if (!_feedComposeImg) { toast('Escolha uma foto primeiro.'); return; }
   try {
     if (tipo === 'feed' || tipo === 'perfil') {
-      toast('Publicando...');
       await _composePublicar(tipo);
       return;
     }
@@ -2125,6 +2133,126 @@ function _travarEExecutar(ev, fn) {
     else destravar();
   } catch (e) { destravar(); throw e; }
 }
+
+// ═══════════════ AVISOS DE CARREGAMENTO ═══════════════
+// 1) _busyMostrar/_busyFim: janela em tela cheia que BLOQUEIA toques enquanto algo
+//    pesado acontece (publicar, enviar fotos, encerrar treino...). Sem isso a
+//    pessoa não sabe se deu certo, toca de novo e cria post/treino duplicado, ou
+//    sai da tela e perde o envio. pct = null mostra barra "andando" (sem %).
+// 2) A barra fina no topo (abaixo) aparece sozinha quando QUALQUER envio passa de
+//    0,6 s ou qualquer carga passa de 1,5 s, em todo o app.
+var _busyTimer = null;
+(function () {
+  const st = document.createElement('style');
+  st.textContent = '@keyframes busyGira{to{transform:rotate(360deg)}}' +
+    '@keyframes busyAnda{0%{margin-left:-40%}100%{margin-left:100%}}' +
+    '@keyframes topoAnda{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}';
+  document.head.appendChild(st);
+})();
+function _busyMostrar(txt, pct, sub) {
+  let el = document.getElementById('busy-ov');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'busy-ov';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px;touch-action:none;';
+    el.innerHTML = '<div style="background:#161616;border:1px solid #2a2a2a;border-radius:18px;padding:24px 20px;width:100%;max-width:310px;text-align:center;color:#f0f0f0;">' +
+      '<div style="width:34px;height:34px;margin:0 auto 14px;border-radius:50%;border:3px solid #2a2a2a;border-top-color:#7FFF00;animation:busyGira .9s linear infinite;"></div>' +
+      '<div data-t style="font-size:15px;font-weight:800;margin-bottom:12px;line-height:1.3;"></div>' +
+      '<div style="height:8px;border-radius:6px;background:#2a2a2a;overflow:hidden;"><div data-b style="height:100%;width:0;background:#7FFF00;border-radius:6px;transition:width .2s;"></div></div>' +
+      '<div data-s style="font-size:12px;color:#9a9a9a;margin-top:12px;line-height:1.45;"></div>' +
+      '<div data-l style="font-size:11.5px;color:#fbbf24;margin-top:10px;line-height:1.4;display:none;">Está demorando mais que o normal. Mantenha o app aberto: ainda estamos enviando.</div></div>';
+    document.body.appendChild(el);
+    el._ini = Date.now();
+    clearInterval(_busyTimer);
+    _busyTimer = setInterval(function () {
+      const e = document.getElementById('busy-ov');
+      if (!e) { clearInterval(_busyTimer); return; }
+      const l = e.querySelector('[data-l]'); if (l && Date.now() - e._ini > 12000) l.style.display = 'block';
+    }, 1000);
+  }
+  el.querySelector('[data-t]').textContent = txt || 'Aguarde...';
+  const b = el.querySelector('[data-b]');
+  if (pct == null) { b.style.width = '40%'; b.style.animation = 'busyAnda 1.2s ease-in-out infinite'; }
+  else { b.style.animation = 'none'; b.style.marginLeft = '0'; b.style.width = Math.max(3, Math.min(100, pct)) + '%'; }
+  el.querySelector('[data-s]').textContent = sub !== undefined ? sub : 'Não feche o app até terminar.';
+}
+function _busyFim() {
+  clearInterval(_busyTimer);
+  document.getElementById('busy-ov')?.remove();
+}
+
+// Barra fina no topo: avisa que o app está falando com o servidor (envio > 0,6 s, carga > 1,5 s).
+(function () {
+  if (typeof window.fetch !== 'function') return;
+  const orig = window.fetch.bind(window);
+  const IGNORAR = /action=notificacoes|nao_lidas|so_contagem|atleta_existe|midia\.php|nominatim|countriesnow|ibge\.gov|googleapis|gstatic/i;
+  let pendentes = 0, visivel = false, rotuloAtual = '';
+  function barra(mostrar, rotulo) {
+    let el = document.getElementById('rede-barra');
+    if (!mostrar) { if (el) el.remove(); visivel = false; return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'rede-barra';
+      el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9985;pointer-events:none;';
+      el.innerHTML = '<div style="height:3px;background:rgba(127,255,0,.18);overflow:hidden;"><div style="width:40%;height:100%;background:#7FFF00;animation:topoAnda 1.1s ease-in-out infinite;"></div></div>' +
+        '<div data-r style="margin:6px auto 0;width:max-content;max-width:80%;padding:5px 12px;border-radius:99px;background:rgba(22,22,22,.92);color:#f0f0f0;font-size:11.5px;font-weight:700;border:1px solid #2a2a2a;"></div>';
+      document.body.appendChild(el);
+    }
+    el.querySelector('[data-r]').textContent = rotulo;
+    visivel = true;
+  }
+  window.fetch = function (input, init) {
+    let url = '', metodo = 'GET';
+    try { url = typeof input === 'string' ? input : ((input && input.url) || ''); metodo = String((init && init.method) || (input && input.method) || 'GET').toUpperCase(); } catch (e) {}
+    if (IGNORAR.test(url) || document.getElementById('busy-ov')) return orig(input, init);
+    const envio = metodo !== 'GET' && metodo !== 'HEAD';
+    const rotulo = envio ? 'Salvando...' : 'Carregando...';
+    let contou = false;
+    const t = setTimeout(function () { contou = true; pendentes++; rotuloAtual = rotulo; barra(true, rotulo); }, envio ? 600 : 1500);
+    const fim = function () {
+      clearTimeout(t);
+      if (contou) { pendentes = Math.max(0, pendentes - 1); if (pendentes === 0) barra(false); }
+    };
+    const p = orig(input, init);
+    p.then(fim, fim);
+    return p;
+  };
+})();
+
+// Vídeo do Feed, da Home e do Quadro: toca sozinho, mudo, enquanto está na tela
+// (60% visível) e pausa ao sair. O som liga no próprio controle do vídeo; se a
+// pessoa pausar, o vídeo não volta a tocar sozinho.
+(function () {
+  if (!('IntersectionObserver' in window)) return;
+  const io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      const v = e.target;
+      if (e.isIntersecting && e.intersectionRatio >= 0.6) {
+        if (v.paused && !v._pausadoPeloUsuario && !document.hidden) {
+          v._tocandoAuto = true;
+          v.muted = !v._somLigado;
+          const p = v.play(); if (p && p.catch) p.catch(function () {});
+        }
+      } else if (!v.paused) { v._pausandoAuto = true; v.pause(); }
+    });
+  }, { threshold: [0, 0.6, 1] });
+  function ligar(v) {
+    if (v._autoLigado) return; v._autoLigado = true;
+    v.addEventListener('pause', function () { if (v._pausandoAuto) v._pausandoAuto = false; else if (!v.ended) v._pausadoPeloUsuario = true; });
+    v.addEventListener('play', function () { if (v._tocandoAuto) v._tocandoAuto = false; else v._pausadoPeloUsuario = false; });
+    v.addEventListener('volumechange', function () { v._somLigado = !v.muted; });
+    io.observe(v);
+  }
+  function varrer(no) {
+    if (no.nodeType !== 1) return;
+    if (no.matches && no.matches('video[data-auto]')) ligar(no);
+    if (no.querySelectorAll) no.querySelectorAll('video[data-auto]').forEach(ligar);
+  }
+  new MutationObserver(function (ms) { ms.forEach(function (m) { m.addedNodes.forEach(varrer); }); }).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) document.querySelectorAll('video[data-auto]').forEach(function (v) { if (!v.paused) { v._pausandoAuto = true; v.pause(); } });
+  });
+})();
 
 async function _salvarSecaoComAviso(chave, dados, rotulo) {
   try {
@@ -2751,7 +2879,7 @@ function _midiaItemHtml(m) {
   if (m.tipo === 'video') {
     // O <video> não manda Authorization: a URL leva o token público do vídeo.
     const src = m.token ? API_BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
-    return '<video src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" onerror="_videoFalhou(this)" style="width:100%;display:block;background:#000;max-height:80vh;"></video>';
+    return '<video src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls muted loop playsinline preload="none" data-auto="1" onerror="_videoFalhou(this)" style="width:100%;display:block;background:#000;max-height:80vh;"></video>';
   }
   return '<img src="' + esc(m.url) + '" style="width:100%;display:block;" loading="lazy"/>';
 }
@@ -2770,7 +2898,8 @@ function _videoTentar(box) {
   const v = document.createElement('video');
   v.src = box.getAttribute('data-src') || '';
   if (box.getAttribute('data-poster')) v.poster = box.getAttribute('data-poster');
-  v.controls = true; v.playsInline = true; v.preload = 'auto';
+  v.controls = true; v.playsInline = true; v.muted = true; v.loop = true; v.preload = 'auto';
+  v.setAttribute('data-auto', '1');
   v.style.cssText = 'width:100%;display:block;background:#000;max-height:80vh;';
   v.onerror = function () { _videoFalhou(v); };
   box.replaceWith(v);
@@ -3432,7 +3561,7 @@ function _renderComposeFeed() {
         '<button onclick="_composeEscolherDestino(\'feed\')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + (_composeDestino==='feed'?'rgba(127,255,0,.1)':cardBg) + ';border:1px solid ' + (_composeDestino==='feed'?'#7FFF00':borda) + ';color:' + txt + ';">📣 Feed da Intus</button>' +
         '<button onclick="_composeEscolherDestino(\'perfil\')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + (_composeDestino==='perfil'?'rgba(127,255,0,.1)':cardBg) + ';border:1px solid ' + (_composeDestino==='perfil'?'#7FFF00':borda) + ';color:' + txt + ';">👤 Só meu perfil</button>' +
       '</div>' +
-      '<button onclick="if(!_feedComposeImg){toast(\'Escolha uma foto primeiro.\');}else{_shareConfirmarPublicar(\'' + _composeDestino + '\')}" style="width:100%;margin-top:10px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar</button>' +
+      '<button onclick="if(!_feedComposeImg){toast(\'Escolha uma foto primeiro.\');}else{_travarEExecutar(event, function(){ return _composeAcao(\'' + _composeDestino + '\'); })}" style="width:100%;margin-top:10px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar</button>' +
 
       (_feedComposeImg
         ? '<div style="display:flex;justify-content:space-around;margin-top:18px;">' +
@@ -4342,23 +4471,9 @@ async function _composeProcessarExtra(src) {
   return _compositarLogoNaFoto(c.toDataURL('image/jpeg', 0.92));
 }
 
-// Janela de progresso do envio (carrossel/vídeo): bloqueia toques até terminar.
-function _composeProgresso(txt, pct) {
-  let el = document.getElementById('feed-upl');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'feed-upl';
-    el.style.cssText = 'position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px;';
-    el.innerHTML = '<div style="background:#161616;border:1px solid #2a2a2a;border-radius:16px;padding:20px;width:100%;max-width:300px;text-align:center;color:#f0f0f0;">' +
-      '<div data-t style="font-size:14px;font-weight:800;margin-bottom:12px;"></div>' +
-      '<div style="height:8px;border-radius:6px;background:#2a2a2a;overflow:hidden;"><div data-b style="height:100%;width:0;background:#7FFF00;transition:width .2s;"></div></div>' +
-      '<div style="font-size:11px;color:#888;margin-top:10px;">Não feche o app até terminar.</div></div>';
-    document.body.appendChild(el);
-  }
-  el.querySelector('[data-t]').textContent = txt;
-  if (pct != null) el.querySelector('[data-b]').style.width = pct + '%';
-}
-function _composeProgressoFim() { document.getElementById('feed-upl')?.remove(); }
+// Aviso de progresso do envio (carrossel/vídeo/post): usa a janela geral de carregamento.
+function _composeProgresso(txt, pct) { _busyMostrar(txt, pct == null ? null : pct, 'Não feche o app até terminar.'); }
+function _composeProgressoFim() { _busyFim(); }
 
 // Sobe um vídeo em pedaços (midia.php repassa cada um ao Google Drive).
 async function _composeEnviarVideo(it, idpost, poster, auth, onPct, donoTipo) {
@@ -7556,7 +7671,9 @@ function _confirmarFinalizacaoCurta(duracao) {
   document.body.appendChild(overlay);
 }
 
+var _finalizandoTreino = false;
 function _executarFinalizacao(duracao, naoContar) {
+  if (_finalizandoTreino) return;   // toque repetido durante o salvamento: ignora
   stopTreinoTimer(); stopRestTimer();
 
   // _continuarIdsessao só existe quando o aluno chegou aqui de propósito,
@@ -7632,7 +7749,10 @@ function _executarFinalizacao(duracao, naoContar) {
   };
   const _idParaContinuar = sessaoAtual._continuarIdsessao;
   const _promessa = _idParaContinuar ? SessoesTreino.atualizar(_idParaContinuar, sessao) : SessoesTreino.criar(sessao);
+  _finalizandoTreino = true;
+  _busyMostrar('Salvando o seu treino...', null, 'Estamos registrando seus pontos. Não feche o app.');
   _promessa.then(function(sessaoSalva) {
+    _finalizandoTreino = false; _busyFim();
     if (sessaoAtual.comentario) {
       try { API.salvarComentarioBackend({ idatleta: idAtleta, idficha: sessaoAtual.idficha, divisao: sessaoAtual.divisao, dtsessao: dataHojeLocal(), texto: sessaoAtual.comentario }); } catch {}
     }
@@ -7644,6 +7764,7 @@ function _executarFinalizacao(duracao, naoContar) {
     _treinoStartSaved = 0;
     limparTreinoAtivo();
   }).catch(function(e) {
+    _finalizandoTreino = false; _busyFim();
     toast((e && e.message) || 'Não foi possível salvar o treino. Verifique a conexão e tente finalizar novamente.');
   });
 }
@@ -9634,7 +9755,9 @@ function _fecharResultadoCardio() {
 // hora com esforço padrão (5) sem esperar o aluno — em vez do popup
 // comemorativo de sempre, devolve os dados prontos por opts.onDone pra quem
 // chamou desenhar a própria tela (ver _cardioLiveFinalizar).
+var _cardioSalvando = false;
 async function salvarCardio(opts) {
+  if (_cardioSalvando) return;   // toque repetido durante o salvamento: ignora
   opts = opts || {};
   const tipo = cardioTipoValor();
   const min = parseInt(document.getElementById('cardio-min')?.value) || 0;
@@ -9675,6 +9798,8 @@ async function salvarCardio(opts) {
   localStorage.setItem('intus-cardios-' + idAtleta, JSON.stringify(local.slice(0, 100)));
   // Send to backend (o servidor é a fonte da verdade sobre pontos/limite)
   const token = localStorage.getItem('mx-token') || '';
+  _cardioSalvando = true;
+  _busyMostrar('Salvando o seu cardio...', null, 'Estamos calculando seus pontos. Não feche o app.');
   try {
     const r = await fetch(API_BASE + '/treinos.php?action=cardio', {
       method: 'POST',
@@ -9700,6 +9825,7 @@ async function salvarCardio(opts) {
       }
     } else { toast('Registrado localmente.'); }
   } catch { toast('Registrado localmente (sem conexão).'); }
+  _cardioSalvando = false; _busyFim();
   // Reseta a foto. renderCardio() só faz sentido se a tela de Cardio for a
   // que vai ficar visível — no fluxo silencioso (cardio ao vivo) quem decide
   // o que aparece depois é o onDone.
@@ -11259,7 +11385,13 @@ async function _rcArquivos(input) {
   _rcRerender();
 }
 
+var _rcPublicando = false;
 async function _rcPublicar() {
+  if (_rcPublicando) return;
+  _rcPublicando = true;
+  try { await _rcPublicarInterno(); } finally { _rcPublicando = false; }
+}
+async function _rcPublicarInterno() {
   if (!_rcAceite) { toast('Marque a autorização para publicar.'); return; }
   const texto = (_rcTexto || '').trim();
   const itens = _rcItens.slice();
@@ -11283,7 +11415,7 @@ async function _rcPublicar() {
     throw new Error(ultimo);
   };
   try {
-    if (itens.length) _composeProgresso('Publicando...', 0);
+    _composeProgresso('Publicando seu resultado...', itens.length ? 0 : null);
     const r = await fetch(API_BASE + '/catalogo.php?action=resultados', {
       method: 'POST', headers: hdrs,
       body: JSON.stringify({ tipo: _rcTipo, texto: texto, periodo_txt: (_rcPeriodo || '').trim(), aceite: true, autoriza_site: _rcSite ? 1 : 0, total_midias: itens.length }),
@@ -14193,16 +14325,21 @@ async function enviarFotosAvaliacao() {
     fotos: fotos,
   };
 
+  if (_fotosEnviando) return;
+  _fotosEnviando = true;
+  _busyMostrar('Enviando ' + fotos.length + (fotos.length > 1 ? ' fotos' : ' foto') + '...', null, 'As fotos são grandes e podem levar alguns instantes. Não saia desta tela.');
   try {
-    toast('Enviando ' + fotos.length + ' foto(s)...');
     await API.criarAvaliacao(data);
     _fotosAvaliacao = {};
+    _busyFim();
     toast('Fotos enviadas! Seu professor será notificado. 📸');
     renderAvaliacoesAluno();
   } catch (e) {
+    _busyFim();
     toast('Erro ao enviar: ' + (e.message || 'falha'));
-  }
+  } finally { _fotosEnviando = false; }
 }
+var _fotosEnviando = false;
 
 // ═══════════════ FORMULÁRIO NUTRICIONAL ═══════════════
 function abrirFormNutricional() {
@@ -15202,15 +15339,15 @@ function salvarPerfil() {
   document.getElementById('nome-top').textContent = nome;
 
   const token = localStorage.getItem('mx-token') || '';
+  _busyMostrar('Salvando o seu perfil...', null, '');
   fetch(API_BASE + '/atletas.php?id=' + idAtleta, {
     method: 'PUT',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ nome, email, telefone, dtnascimento: nasc, ranking_optin: rankingOptin, feed_optin: feedOptin, pais: loc.pais, estado: loc.estado, cidade: loc.cidade })
   }).then(r => {
-    if (!r.ok) toast('Erro ao salvar no servidor');
-  }).catch(() => toast('Sem conexão, salvo localmente'));
-
-  toast('Perfil salvo! ✅');
+    _busyFim();
+    toast(r.ok ? 'Perfil salvo! ✅' : 'Erro ao salvar no servidor');
+  }).catch(() => { _busyFim(); toast('Sem conexão, salvo só neste aparelho'); });
 }
 
 // ═══════════════ CONTAS CONECTADAS (Google/Facebook no Perfil) ═══════════════
