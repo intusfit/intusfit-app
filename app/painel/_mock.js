@@ -501,6 +501,94 @@ function podeVerGestao() {
   return !!(u.permissoes && u.permissoes.fin_empresa === true);
 }
 
+// ── SINO DE NOTIFICAÇÕES (topbar) ──────────────────────────────────────────
+// Mesma ação do app do aluno (catalogo.php?action=notificacoes): cada pessoa só
+// vê as próprias. Hoje o professor recebe quando respondem a um comentário dele
+// em post do Feed. Só com a tela aberta: consulta a contagem a cada 45 s com a
+// aba visível. Falha de rede ou token local = sino fica quieto, nunca dá erro.
+let _ntfSinoTimer = null, _ntfSinoUltima = null, _ntfSinoVis = false;
+function _ntfSinoBase() { return (typeof API_BASE !== 'undefined') ? API_BASE : '/app/api'; }
+function _ntfSinoHeaders() { return { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
+function _ntfSinoEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function _ntfSinoPintar(n) {
+  n = Number(n) || 0;
+  const el = document.getElementById('ntfsino-count');
+  if (el) { el.style.display = n > 0 ? 'block' : 'none'; el.textContent = n > 9 ? '9+' : String(n); }
+  if (_ntfSinoUltima !== null && n > _ntfSinoUltima && typeof showToast === 'function') showToast('🔔 Você tem notificação nova');
+  _ntfSinoUltima = n;
+}
+
+async function _ntfSinoContagem() {
+  try {
+    const r = await fetch(_ntfSinoBase() + '/catalogo.php?action=notificacoes&so_contagem=1&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    _ntfSinoPintar(j && j.nao_lidas);
+  } catch (e) {}
+}
+
+function ntfSinoIniciar() {
+  if (!document.getElementById('ntfsino-btn')) return;
+  if (!document.getElementById('ntfsino-panel')) {
+    const p = document.createElement('div');
+    p.id = 'ntfsino-panel'; p.className = 'ntfsino-panel';
+    document.body.appendChild(p);
+  }
+  _ntfSinoContagem();
+  if (_ntfSinoTimer) clearInterval(_ntfSinoTimer);
+  _ntfSinoTimer = setInterval(() => { if (document.visibilityState === 'visible') _ntfSinoContagem(); }, 45000);
+  if (!_ntfSinoVis) {
+    _ntfSinoVis = true;
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _ntfSinoContagem(); });
+    document.addEventListener('click', (e) => {
+      const p = document.getElementById('ntfsino-panel');
+      if (p && p.classList.contains('open') && !p.contains(e.target) && !e.target.closest('#ntfsino-btn')) p.classList.remove('open');
+    });
+  }
+}
+
+async function ntfSinoAbrir(ev) {
+  if (ev) ev.stopPropagation();
+  const p = document.getElementById('ntfsino-panel');
+  if (!p) return;
+  if (p.classList.contains('open')) { p.classList.remove('open'); return; }
+  p.classList.add('open');
+  p.innerHTML = '<div class="ntfsino-head"><b>🔔 Notificações</b></div><div class="ntfsino-vazio">Carregando...</div>';
+  try {
+    const r = await fetch(_ntfSinoBase() + '/catalogo.php?action=notificacoes&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
+    if (!r.ok) throw new Error('falhou');
+    const j = await r.json();
+    const lista = (j && Array.isArray(j.notificacoes)) ? j.notificacoes : [];
+    const icones = { curtida: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣' };
+    const acoes = { curtida: 'curtiu seu post', comentario: 'comentou no seu post', resposta: 'respondeu seu comentário', mencao: 'mencionou você' };
+    const temNova = lista.some(n => !n.lido);
+    const itens = lista.map(n => {
+      const sub = (n.tipo === 'comentario' || n.tipo === 'resposta') && n.texto ? '<div class="ntfsino-sub">“' + _ntfSinoEsc(n.texto) + '”</div>' : '';
+      return '<div class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
+        '<div class="ntfsino-txt"><b>' + _ntfSinoEsc(n.ator_nome || 'Alguém') + '</b> ' + (acoes[n.tipo] || 'interagiu com você') + sub + '</div>' +
+        (n.lido ? '' : '<div class="ntfsino-ponto"></div>') + '</div>';
+    }).join('');
+    p.innerHTML = '<div class="ntfsino-head"><b>🔔 Notificações</b>' + (temNova ? '<span onclick="ntfSinoMarcarTodas()">Marcar todas como lidas</span>' : '') + '</div>' +
+      (itens || '<div class="ntfsino-vazio">Nada por aqui ainda. Respostas aos seus comentários no Feed aparecem neste lugar.</div>');
+    _ntfSinoPintar(j && j.nao_lidas);
+  } catch (e) {
+    p.innerHTML = '<div class="ntfsino-head"><b>🔔 Notificações</b></div><div class="ntfsino-vazio">Não consegui carregar agora. Tente de novo em instantes.</div>';
+  }
+}
+
+async function ntfSinoMarcarTodas() {
+  try {
+    await fetch(_ntfSinoBase() + '/catalogo.php?action=notificacoes', {
+      method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, _ntfSinoHeaders()), body: JSON.stringify({ marcar_todos: true }),
+    });
+  } catch (e) {}
+  document.querySelectorAll('#ntfsino-panel .ntfsino-item').forEach(el => el.classList.remove('nova'));
+  document.querySelectorAll('#ntfsino-panel .ntfsino-ponto').forEach(el => el.remove());
+  const h = document.querySelector('#ntfsino-panel .ntfsino-head span'); if (h) h.remove();
+  _ntfSinoPintar(0);
+}
+
 // ── LAYOUT ENGINE ──────────────────────────────────────────────────────────
 function renderLayout(activePage) {
   const user = Sessao.atual() || { nome: MOCK.professor.nome, admin: false };
@@ -578,6 +666,7 @@ function renderLayout(activePage) {
           </button>
           <div class="topbar-title">${activePage}</div>
           <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
+            <button id="ntfsino-btn" class="ntfsino-btn" onclick="ntfSinoAbrir(event)" title="Notificações" aria-label="Notificações">🔔<span class="ntfsino-count" id="ntfsino-count"></span></button>
             <div class="topbar-badge">Intus</div>
             <button id="theme-toggle" onclick="toggleTheme()" title="Alternar tema" class="theme-toggle-btn">
               <span id="theme-icon">☀️</span>
@@ -592,6 +681,7 @@ function renderLayout(activePage) {
   // Sincroniza ícone do botão e logos depois que o DOM foi injetado
   _syncThemeBtn();
   _updateLogosForTheme();
+  ntfSinoIniciar();
   // Fecha sidebar ao clicar em qualquer link de navegação (mobile)
   document.querySelectorAll('.sidebar-nav .nav-link').forEach(a => {
     a.addEventListener('click', () => closeSidebar());
@@ -919,6 +1009,36 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
       font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
       transition: all 0.15s; flex-shrink: 0;
     }
+
+    /* ── SINO DE NOTIFICAÇÕES (topbar do painel) ── */
+    .ntfsino-btn {
+      position: relative; width: 32px; height: 28px; border-radius: 20px; border: 1px solid var(--border);
+      background: var(--bg3); color: var(--text-muted); cursor: pointer; font-size: 14px; line-height: 1;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: inherit;
+    }
+    .ntfsino-count {
+      position: absolute; top: -6px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px;
+      border-radius: 99px; background: #ff3b30; color: #fff; font-size: 9.5px; font-weight: 800;
+      line-height: 16px; text-align: center; display: none;
+    }
+    .ntfsino-panel {
+      position: fixed; top: 54px; right: 18px; width: 340px; max-width: calc(100vw - 24px);
+      max-height: 70vh; overflow-y: auto; z-index: 200; display: none;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.35);
+    }
+    .ntfsino-panel.open { display: block; }
+    .ntfsino-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg2); }
+    .ntfsino-head b { font-size: 13px; color: var(--text); }
+    .ntfsino-head span { font-size: 11px; color: var(--text-muted); cursor: pointer; font-weight: 600; }
+    .ntfsino-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .ntfsino-item.nova { background: var(--green-dim); }
+    .ntfsino-ico { width: 30px; height: 30px; border-radius: 50%; background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+    .ntfsino-txt { flex: 1; min-width: 0; font-size: 12px; color: var(--text); line-height: 1.35; }
+    .ntfsino-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ntfsino-ponto { width: 8px; height: 8px; border-radius: 50%; background: #ff3b30; flex-shrink: 0; }
+    .ntfsino-vazio { padding: 24px 16px; text-align: center; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    body.theme-light .ntfsino-btn { background: #f0f1f3; color: #374151; border-color: #d1d5db; }
 
     /* ── TABLE WRAP (overflow horizontal no mobile) ── */
     .table-wrap, .data-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
