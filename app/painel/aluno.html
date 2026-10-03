@@ -2564,7 +2564,7 @@ function _comentariosHtml(idpost, isLight) {
 
   function linha(c, ehResposta) {
     const dt = new Date(String(c.created_at).replace(' ', 'T'));
-    const selo = c.autor_tipo === 'professor'
+    const selo = (c.autor_tipo === 'professor' || c.autor_tipo === 'prof')
       ? ' <span style="color:' + acento + ';font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.03em;">professor</span>'
       : '';
     const responder = ehResposta ? '' :
@@ -10718,7 +10718,9 @@ async function _detectarConquistasNovas() {
   if (!Array.isArray(seen)) { try { localStorage.setItem(key, JSON.stringify(unlocked)); } catch (e) {} return []; }
   const novos = unlocked.filter(x => seen.indexOf(x) === -1);
   if (novos.length) { try { localStorage.setItem(key, JSON.stringify(unlocked)); } catch (e) {} }
-  return novos.map(idc => _conquistasDefs().find(c => c.id === idc)).filter(Boolean);
+  const defsNovas = novos.map(idc => _conquistasDefs().find(c => c.id === idc)).filter(Boolean);
+  try { defsNovas.forEach(d => _notifRegistrar({ tipo: 'distintivo', chave: String(d.id), texto: 'Distintivo desbloqueado: ' + d.nome })); } catch (e) {}
+  return defsNovas;
 }
 
 // Ao terminar um treino de musculação: usa o merge local (já inclui a sessão recém-feita)
@@ -10948,6 +10950,7 @@ function _apurarMedalhas(sessoes, buildRanking) {
     (b.ouro - a.ouro) || (b.prata - a.prata) || (b.bronze - a.bronze) || (b.pts - a.pts));
 
   _medalhasCache = { quadro, semanas, meses, por: acc };
+  try { _notifMedalhasNovas(); } catch (e) {}
   return _medalhasCache;
 }
 
@@ -14306,6 +14309,7 @@ function iniciarNotificacoes() {
   const b = document.getElementById('notif-btn');
   if (b) b.style.display = 'inline-flex';
   _notifBuscarContagem();
+  _notifDescarregarFila();
   if (_notifTimer) clearInterval(_notifTimer);
   _notifTimer = setInterval(() => { if (document.visibilityState === 'visible') _notifBuscarContagem(); }, 45000);
   if (!_notifListenerVis) {
@@ -14314,15 +14318,23 @@ function iniciarNotificacoes() {
   }
 }
 
+// Linha de notificação, usada na aba Notificações da Central. Medalha e
+// distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
-  const icones = { curtida: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣' };
+  const icones = { curtida: '❤️', curtida_comentario: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️' };
+  const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo';
   const acao = {
     curtida: 'curtiu seu post',
+    curtida_comentario: 'curtiu seu comentário',
     comentario: 'comentou no seu post',
     resposta: 'respondeu seu comentário',
     mencao: 'mencionou você',
   }[n.tipo] || 'interagiu com você';
-  const trecho = (n.tipo === 'comentario' || n.tipo === 'resposta') && n.texto
+  const principal = ehSistema
+    ? '<b>' + esc(n.texto || '') + '</b>'
+    : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acao;
+  const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario';
+  const trecho = comTrecho && n.texto
     ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“' + esc(n.texto) + '”</div>' : '';
   const dt = new Date(String(n.quando).replace(' ', 'T'));
   const fundo = n.lido ? 'transparent' : (isLight ? 'rgba(92,184,0,.10)' : 'rgba(127,255,0,.07)');
@@ -14330,7 +14342,7 @@ function _notifLinhaHtml(n, isLight) {
     'style="display:flex;align-items:center;gap:11px;padding:10px 8px;border-bottom:1px solid var(--borda);cursor:pointer;background:' + fundo + ';border-radius:8px;">' +
     '<div style="width:34px;height:34px;border-radius:50%;background:var(--borda);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">' + (icones[n.tipo] || '🔔') + '</div>' +
     '<div style="flex:1;min-width:0;">' +
-      '<div style="font-size:13px;color:var(--texto);line-height:1.35;"><b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acao + '</div>' +
+      '<div style="font-size:13px;color:var(--texto);line-height:1.35;">' + principal + '</div>' +
       trecho +
       '<div style="font-size:10.5px;color:var(--muted);margin-top:2px;">' + _tempoRelativoFeed(dt) + '</div>' +
     '</div>' +
@@ -14338,39 +14350,11 @@ function _notifLinhaHtml(n, isLight) {
   '</div>';
 }
 
-async function abrirNotificacoes() {
-  const isLight = document.body.classList.contains('tema-claro');
-  openModalGenerico(
-    '<div style="padding:6px 16px 4px;">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
-        '<div style="font-size:15px;font-weight:800;color:var(--texto);">🔔 Notificações</div>' +
-        '<div id="notif-marcar" onclick="_notifMarcarTodas()" style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:none;">Marcar todas como lidas</div>' +
-      '</div>' +
-      '<div id="notif-lista" style="max-height:55vh;overflow-y:auto;"><div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">Carregando...</div></div>' +
-    '</div>'
-  );
-  const box = () => document.getElementById('notif-lista');
-  try {
-    const r = await fetch(API_BASE + '/catalogo.php?action=notificacoes&_=' + Date.now(), { headers: _notifHeaders(), cache: 'no-store' });
-    if (!r.ok) throw new Error('falhou');
-    const j = await r.json();
-    const lista = (j && Array.isArray(j.notificacoes)) ? j.notificacoes : [];
-    const msgs = _notifMsgsNaoLidas();
-    let html = '';
-    if (msgs > 0) {
-      html += '<div onclick="closeModal();navegar(\'mensagens\')" style="display:flex;align-items:center;gap:11px;padding:10px 8px;border-bottom:1px solid var(--borda);cursor:pointer;background:' + (isLight ? 'rgba(92,184,0,.10)' : 'rgba(127,255,0,.07)') + ';border-radius:8px;">' +
-        '<div style="width:34px;height:34px;border-radius:50%;background:var(--borda);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">✉️</div>' +
-        '<div style="flex:1;font-size:13px;color:var(--texto);"><b>' + msgs + ' mensagem' + (msgs > 1 ? 's' : '') + ' nova' + (msgs > 1 ? 's' : '') + '</b> na Central</div></div>';
-    }
-    html += lista.map(n => _notifLinhaHtml(n, isLight)).join('');
-    if (!html) html = '<div style="padding:26px 10px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5;">Nada por aqui ainda. Curtidas e comentários nos seus posts do Feed aparecem neste lugar.</div>';
-    if (box()) box().innerHTML = html;
-    const marcar = document.getElementById('notif-marcar');
-    if (marcar && lista.some(n => !n.lido)) marcar.style.display = 'block';
-    _notifPintarBadge(j && j.nao_lidas);
-  } catch (e) {
-    if (box()) box().innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">Não consegui carregar agora. Tente de novo em instantes.</div>';
-  }
+// O sino leva pra Central, na aba Notificações (lá ficam mensagens, curtidas,
+// comentários, medalhas e distintivos). Antes abria um painel à parte.
+function abrirNotificacoes() {
+  _centralTab = 'notificacoes';
+  navegar('mensagens');
 }
 
 async function _notifMarcar(corpo) {
@@ -14384,6 +14368,7 @@ async function _notifMarcar(corpo) {
 
 async function _notifMarcarTodas() {
   await _notifMarcar({ marcar_todos: true });
+  (_centralNotifSrv || []).forEach(n => { n.lido = true; });
   document.querySelectorAll('#notif-lista [data-notif-id]').forEach(el => { el.style.background = 'transparent'; });
   document.querySelectorAll('#notif-lista .notif-ponto').forEach(el => el.remove());
   const m = document.getElementById('notif-marcar'); if (m) m.style.display = 'none';
@@ -14395,18 +14380,94 @@ function _notifAbrir(el) {
   const alvo = Number(el.dataset.alvo || 0);
   const tipo = el.dataset.tipo || '';
   if (id) _notifMarcar({ idnotificacao: id });
-  closeModal();
+  if (tipo === 'medalha') { abrirQuadroMedalhas(); return; }
+  if (tipo === 'distintivo') { navegar('perfil'); return; }
   navegar('feed');
   // O post só está na tela se já foi carregado no Feed; senão fica no topo.
   setTimeout(() => {
     const card = document.querySelector('[data-feed-card="' + alvo + '"]');
     if (!card) return;
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (tipo === 'comentario' || tipo === 'resposta') {
+    if (tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario') {
       _comentariosAbertos[alvo] = true;
       carregarComentariosFeed([alvo]).then(() => _atualizarLinhaComentarios(alvo));
     }
   }, 900);
+}
+
+// ── Medalha e distintivo: calculados AQUI no app (o servidor não tem evento
+// pra disparar), então o app avisa o servidor, que cria a notificação pra quem
+// pediu e ignora repetição (mesmo tipo + chave). A fila local garante que um
+// aviso feito sem internet seja reenviado depois, em vez de se perder.
+let _notifFilaEnviando = false;
+function _notifFilaKey() { return 'intus-notif-pendentes-' + idAtleta; }
+function _notifRegistrar(p) {
+  try {
+    const fila = JSON.parse(localStorage.getItem(_notifFilaKey()) || '[]');
+    if (!fila.some(x => x.tipo === p.tipo && x.chave === p.chave)) fila.push(p);
+    localStorage.setItem(_notifFilaKey(), JSON.stringify(fila.slice(-50)));
+  } catch (e) {}
+  _notifDescarregarFila();
+}
+async function _notifDescarregarFila() {
+  if (_notifFilaEnviando) return;
+  _notifFilaEnviando = true;
+  try {
+    // Relê a fila a cada volta: o que entrar enquanto este envio roda sai junto.
+    while (true) {
+      const fila = JSON.parse(localStorage.getItem(_notifFilaKey()) || '[]');
+      if (!fila.length) break;
+      const p = fila[0];
+      const r = await fetch(API_BASE + '/catalogo.php?action=notificacoes', {
+        method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, _notifHeaders()), body: JSON.stringify({ registrar: p }),
+      });
+      if (!r.ok) break;   // tenta de novo na próxima abertura do app
+      // Relê a fila AGORA (não usa a leitura do começo da volta): item que entrou durante o envio não pode ser apagado.
+      const atual = JSON.parse(localStorage.getItem(_notifFilaKey()) || '[]');
+      localStorage.setItem(_notifFilaKey(), JSON.stringify(atual.filter(x => !(x.tipo === p.tipo && x.chave === p.chave))));
+    }
+  } catch (e) {} finally { _notifFilaEnviando = false; }
+  _notifBuscarContagem();
+}
+
+// Fim do período de um pódio, a partir do rótulo ("27/09–03/10" ou "setembro/26").
+function _notifFimPeriodoMedalha(p) {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  if (p.escala === 'semana') {
+    const [d, mo] = (String(p.rotulo).split('–')[1] || '').split('/').map(Number);
+    if (!d || !mo) return null;
+    let dt = new Date(hoje.getFullYear(), mo - 1, d);
+    if (dt > hoje) dt = new Date(hoje.getFullYear() - 1, mo - 1, d);
+    return dt;
+  }
+  const MESN = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const [nome, yy] = String(p.rotulo).split('/');
+  const i = MESN.indexOf(nome);
+  if (i < 0 || !yy) return null;
+  return new Date(2000 + Number(yy), i + 1, 0);
+}
+
+// Chamada ao final de _apurarMedalhas. Só avisa pódio que FECHOU nos últimos 14
+// dias: pódio antigo só entra na lista de "já vistos", senão o primeiro acesso
+// despejaria o histórico inteiro no sino.
+function _notifMedalhasNovas() {
+  const me = _medalhasCache && _medalhasCache.por && _medalhasCache.por[Number(idAtleta)];
+  if (!me || !Array.isArray(me.podios) || !me.podios.length) return;
+  const key = 'intus-medalhas-notif-' + idAtleta;
+  let vistos = [];
+  try { vistos = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) {}
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  let mudou = false;
+  me.podios.forEach(p => {
+    const chave = p.escala + '|' + p.rotulo;
+    if (vistos.indexOf(chave) !== -1) return;
+    vistos.push(chave); mudou = true;
+    const fim = _notifFimPeriodoMedalha(p);
+    if (!fim || (hoje - fim) > 14 * 86400000) return;
+    const onde = p.escala === 'semana' ? 'na semana ' + p.rotulo : 'no mês de ' + p.rotulo;
+    _notifRegistrar({ tipo: 'medalha', chave: chave, texto: p.pos + 'º lugar ' + onde + ' (+' + p.pts + ' pts no Quadro de Medalhas)' });
+  });
+  if (mudou) { try { localStorage.setItem(key, JSON.stringify(vistos.slice(-300))); } catch (e) {} }
 }
 
 // ═══════════════ BACK GESTURE (iOS) ═══════════════
@@ -15048,6 +15109,7 @@ let _centralTab = 'chat';
 let _centralMsgs = [];
 let _centralComents = [];
 let _centralChatTarget = 'main'; // 'main' (first prof), prof id, or 'group'
+let _centralNotifSrv = [];       // notificações do servidor (curtidas, comentários, medalhas, distintivos)
 
 async function renderMensagensAluno() {
   const isLight = document.body.classList.contains('tema-claro');
@@ -15056,6 +15118,10 @@ async function renderMensagensAluno() {
 
   try { _centralMsgs = await API.listarMensagens(idAtleta); } catch { _centralMsgs = Store.get('mensagens').filter(m => Number(m.idatleta) === Number(idAtleta)); }
   try { _centralComents = await API.listarComentarios(idAtleta); } catch { _centralComents = []; }
+  try {
+    const rn = await fetch(API_BASE + '/catalogo.php?action=notificacoes&_=' + Date.now(), { headers: _notifHeaders(), cache: 'no-store' });
+    if (rn.ok) { const jn = await rn.json(); _centralNotifSrv = (jn && Array.isArray(jn.notificacoes)) ? jn.notificacoes : []; _notifPintarBadge(jn && jn.nao_lidas); }
+  } catch (e) {}
 
   renderCentral();
 }
@@ -15070,6 +15136,7 @@ function renderCentral() {
 
   const naoLidasChat = _centralMsgs.filter(m => m.stlido === 'N' && m.remetente === 'professor').length;
   const notifs = gerarNotificacoes();
+  const naoLidasSrv = (_centralNotifSrv || []).filter(n => !n.lido).length;
 
   container.innerHTML = `
     <div style="padding:16px 0;">
@@ -15084,7 +15151,7 @@ function renderCentral() {
           📝 Comentários
         </div>
         <div onclick="_centralTab='notificacoes';renderCentral();" style="flex:1;padding:10px 0;text-align:center;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid ${_centralTab==='notificacoes'?brandColor:'transparent'};color:${_centralTab==='notificacoes'?brandColor:(isLight?'#666':'#888')};">
-          🔔 Avisos${notifs.length ? ' <span style="background:#f87171;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;">' + notifs.length + '</span>' : ''}
+          🔔 Notificações${(naoLidasSrv + notifs.length) ? ' <span style="background:#f87171;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;">' + (naoLidasSrv + notifs.length) + '</span>' : ''}
         </div>
       </div>
 
@@ -15258,9 +15325,15 @@ function gerarNotificacoes() {
 }
 
 function renderCentralNotificacoes(isLight, bgCard, borderC, brandColor, notifs) {
-  if (notifs.length === 0) return '<div style="text-align:center;padding:40px 0;color:' + (isLight?'#888':'#666') + ';"><div style="font-size:36px;margin-bottom:8px;">🔔</div><p style="font-size:13px;">Tudo em dia!</p><p style="font-size:11px;margin-top:4px;color:' + (isLight?'#999':'#555') + ';">Notificações do professor e atualizações de treino aparecerão aqui.</p></div>';
+  const srv = _centralNotifSrv || [];
+  const topoSrv = srv.length
+    ? '<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><div id="notif-marcar" onclick="_notifMarcarTodas()" style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:' + (srv.some(n => !n.lido) ? 'block' : 'none') + ';">Marcar todas como lidas</div></div>' +
+      '<div id="notif-lista" style="margin-bottom:' + (notifs.length ? '14' : '0') + 'px;">' + srv.map(n => _notifLinhaHtml(n, isLight)).join('') + '</div>'
+    : '';
+  if (srv.length && notifs.length === 0) return topoSrv;
+  if (notifs.length === 0) return '<div style="text-align:center;padding:40px 0;color:' + (isLight?'#888':'#666') + ';"><div style="font-size:36px;margin-bottom:8px;">🔔</div><p style="font-size:13px;">Tudo em dia!</p><p style="font-size:11px;margin-top:4px;color:' + (isLight?'#999':'#555') + ';">Curtidas, comentários, medalhas, distintivos e avisos do professor aparecerão aqui.</p></div>';
 
-  return '<div style="display:flex;flex-direction:column;gap:8px;">' + notifs.map(n => {
+  return topoSrv + '<div style="display:flex;flex-direction:column;gap:8px;">' + notifs.map(n => {
     return '<div style="padding:12px 14px;background:' + (isLight?'#f9fafb':'#111') + ';border:1px solid ' + borderC + ';border-radius:10px;display:flex;align-items:flex-start;gap:10px;">' +
       '<span style="font-size:20px;flex-shrink:0;margin-top:2px;">' + n.icon + '</span>' +
       '<div style="flex:1;min-width:0;">' +

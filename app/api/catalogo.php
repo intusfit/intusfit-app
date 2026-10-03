@@ -1865,6 +1865,15 @@ if ($action === 'reacoes') {
             // outro desenho). _criarNotificacao nunca lança.
             if ($tipo === 'feed_post') {
                 _criarNotificacao($pdo, 'aluno', _donoDoPostFeed($pdo, $alvo), 'curtida', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $emoji, true);
+            } elseif ($tipo === 'feed_comentario') {
+                // Curtida em COMENTÁRIO avisa o autor dele. O alvo da notificação
+                // é o POST (é pra onde o toque leva); o texto é o trecho curtido.
+                try {
+                    $stC = $pdo->prepare("SELECT autor_tipo, autor_id, alvo_id, texto FROM intus_comentario_pub WHERE idcomentario = ? AND alvo_tipo = 'feed_post'");
+                    $stC->execute([$alvo]);
+                    $com = $stC->fetch(PDO::FETCH_ASSOC);
+                    if ($com) _criarNotificacao($pdo, $com['autor_tipo'], (int)$com['autor_id'], 'curtida_comentario', $_autorTipo, $_autorId, $nome, 'feed_post', (int)$com['alvo_id'], (string)$com['texto'], true);
+                } catch (Throwable $e) {}
             }
             echo json_encode(['ok' => true, 'estado' => 'adicionada']);
         }
@@ -2021,6 +2030,22 @@ if ($action === 'notificacoes') {
     }
     if ($method === 'POST' || $method === 'PUT') {
         $b = jsonBody();
+        // Medalha e distintivo são calculados no app (não há evento no servidor
+        // pra disparar): o app avisa aqui e a notificação nasce PARA QUEM PEDIU.
+        // Só esses dois tipos, nunca pra outra pessoa, e o mesmo (tipo + chave)
+        // só entra uma vez (dedupe), então reenviar é seguro.
+        if (!empty($b['registrar']) && is_array($b['registrar'])) {
+            $rg = $b['registrar'];
+            $rTipo  = (string)($rg['tipo'] ?? '');
+            $rChave = trim((string)($rg['chave'] ?? ''));
+            $rTexto = trim((string)($rg['texto'] ?? ''));
+            if (!in_array($rTipo, ['medalha', 'distintivo'], true) || $rChave === '' || mb_strlen($rChave) > 80 || $rTexto === '') {
+                http_response_code(400); echo json_encode(['error' => 'registro invalido']); exit;
+            }
+            $rAlvo = crc32($rTipo . ':' . $rChave) & 0x7fffffff;
+            _criarNotificacao($pdo, $_nTipo, $_nId, $rTipo, 'sistema', 1, 'Intus', $rTipo, $rAlvo, $rTexto, true);
+            echo json_encode(['ok' => true]); exit;
+        }
         if (!empty($b['marcar_todos'])) {
             $pdo->prepare("UPDATE intus_notificacao SET lido = 1 WHERE destino_tipo = ? AND destino_id = ? AND lido = 0")->execute([$_nTipo, $_nId]);
             echo json_encode(['ok' => true]); exit;
