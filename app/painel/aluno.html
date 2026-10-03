@@ -4097,52 +4097,50 @@ function _vtFechar(silencioso) {
   if (!s.pronto && s.resolve) { const r = s.resolve; s.resolve = null; r(null); }
 }
 
-async function _vtUsar() {
-  const s = _vt;
-  if (!s || s.codificando) return;
+// Uma tentativa de gravar o trecho. Devolve {item} | {erro} | {travou} | {cancelado}.
+// "travou" = o vídeo não andou (comum no iPhone quando o áudio do vídeo é desviado
+// para o WebAudio e o contexto não está ativo): quem chama tenta de novo sem áudio.
+async function _vtGravar(s, comAudio) {
   const v = s.video;
   const ini = s.ini, fim = s.fim, dur = fim - ini;
-  s.codificando = true;
-  document.getElementById('vt-acao').style.display = 'none';
-  document.getElementById('vt-prog').style.display = 'block';
-  document.getElementById('vt-ini').disabled = true; document.getElementById('vt-fim').disabled = true;
   const prog = function (p, t) {
     const b = document.getElementById('vt-prog-bar'); if (b) b.style.width = p + '%';
     const e = document.getElementById('vt-prog-txt'); if (e && t) e.textContent = t;
   };
-  let ac = null, rec = null, rodando = true;
-  const voltar = function (msg) {
-    rodando = false;
+  let ac = null, rec = null, timer = null;
+  const limpar = function () {
+    clearInterval(timer);
     try { v.pause(); } catch (e) {}
     try { if (rec && rec.state !== 'inactive') rec.stop(); } catch (e) {}
     try { if (ac) ac.close(); } catch (e) {}
-    if (_vt === s) {
-      s.codificando = false;
-      const a = document.getElementById('vt-acao'); if (a) a.style.display = 'block';
-      const p = document.getElementById('vt-prog'); if (p) p.style.display = 'none';
-      const i1 = document.getElementById('vt-ini'), i2 = document.getElementById('vt-fim'); if (i1) i1.disabled = false; if (i2) i2.disabled = false;
-    }
-    if (msg) toast(msg);
+    v.onended = null; v.onseeked = null;
   };
   try {
+    prog(0, 'Iniciando...');
     const vw = v.videoWidth || 640, vh = v.videoHeight || 360;
     const f = Math.min(1, 1280 / Math.max(vw, vh), 720 / Math.min(vw, vh));
     const w = Math.max(2, Math.round(vw * f / 2) * 2), h = Math.max(2, Math.round(vh * f / 2) * 2);
     const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d');
     const stream = canvas.captureStream(30);
-    // Áudio: o som do vídeo vai para a gravação sem tocar no alto-falante.
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) {
-        ac = new AC();
-        if (ac.state === 'suspended') await ac.resume();
-        const src = ac.createMediaElementSource(v);
-        const dest = ac.createMediaStreamDestination();
-        src.connect(dest);
-        dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
-      }
-    } catch (e) { /* sem áudio: segue só com imagem */ }
+    let comSom = false;
+    if (comAudio) {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) {
+          ac = new AC();
+          if (ac.state !== 'running') await Promise.race([ac.resume(), new Promise(function (r) { setTimeout(r, 1500); })]);
+          // Só desvia o som do vídeo se o contexto está de fato ativo; senão o vídeo ficaria parado.
+          if (ac.state === 'running') {
+            const src = ac.createMediaElementSource(v);
+            const dest = ac.createMediaStreamDestination();
+            src.connect(dest);
+            dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
+            comSom = true;
+          } else { try { ac.close(); } catch (e) {} ac = null; }
+        }
+      } catch (e) { comSom = false; }
+    }
     const candidatos = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
     const tipo = candidatos.find(function (t) { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
     rec = new MediaRecorder(stream, Object.assign(tipo ? { mimeType: tipo } : {}, { videoBitsPerSecond: 2500000, audioBitsPerSecond: 96000 }));
@@ -4156,45 +4154,95 @@ async function _vtUsar() {
       try { v.currentTime = ini; } catch (e) { fim1(); }
     });
     v.onseeked = null;
-    v.muted = false; v.volume = 1;
+    v.muted = !comSom; v.volume = 1;   // sem som na gravação, o vídeo roda mudo (também evita bloqueio de autoplay)
     let poster = '';
     rec.start(1000);
-    await v.play();
-    await new Promise(function (res) {
-      let timer = null;
+    const tocou = await Promise.race([v.play().then(function () { return true; }), new Promise(function (r) { setTimeout(function () { r(false); }, 6000); })]);
+    if (!tocou) { limpar(); return { travou: true }; }
+    const desfecho = await new Promise(function (res) {
+      let ultimoT = v.currentTime, ultimoQuando = Date.now();
       const quadro = function () {
-        if (!rodando || s.cancelado) { clearInterval(timer); res(); return; }
+        if (s.cancelado) { res('cancelado'); return; }
         try { ctx.drawImage(v, 0, 0, w, h); } catch (e) {}
         if (!poster) { try { poster = canvas.toDataURL('image/jpeg', 0.85); } catch (e) {} }
-        const feito = Math.max(0, Math.min(1, (v.currentTime - ini) / dur));
+        const t = v.currentTime;
+        if (t > ultimoT + 0.01) { ultimoT = t; ultimoQuando = Date.now(); }
+        else if (Date.now() - ultimoQuando > 5000) { res('travou'); return; }
+        const feito = Math.max(0, Math.min(1, (t - ini) / dur));
         prog(Math.round(feito * 100), 'Preparando o vídeo... ' + Math.round(feito * 100) + '%');
-        if (v.currentTime >= fim - 0.05 || v.ended) { clearInterval(timer); res(); return; }
+        if (t >= fim - 0.05 || v.ended) res('ok');
       };
-      v.onended = function () { clearInterval(timer); res(); };
+      v.onended = function () { res('ok'); };
       // setInterval (e não requestAnimationFrame): continua rodando, mais devagar, se o app sair de foco.
       timer = setInterval(quadro, 33);
       quadro();
     });
-    v.onended = null;
-    rodando = false;
-    if (s.cancelado) { voltar(); return; }
+    clearInterval(timer);
+    if (desfecho === 'cancelado') { limpar(); return { cancelado: true }; }
+    if (desfecho === 'travou') { limpar(); return { travou: true }; }
     v.pause();
     if (rec.state !== 'inactive') rec.stop();
     await terminou;
     try { ac && ac.close(); } catch (e) {}
     const base = (rec.mimeType || tipo || 'video/webm').split(';')[0];
     const blob = new Blob(pedacos, { type: base });
-    if (!blob.size) { voltar('Não consegui preparar o vídeo. Tente outro trecho ou outro vídeo.'); return; }
-    if (blob.size > 100 * 1024 * 1024) { voltar('O vídeo ficou grande demais. Escolha um trecho mais curto.'); return; }
+    if (!blob.size) return { erro: 'Não consegui preparar o vídeo. Tente outro trecho ou outro vídeo.' };
+    if (blob.size > 100 * 1024 * 1024) return { erro: 'O vídeo ficou grande demais. Escolha um trecho mais curto.' };
     const arq = new File([blob], 'video.' + (base === 'video/mp4' ? 'mp4' : 'webm'), { type: base });
-    const item = { tipo: 'video', file: arq, mime: base, dur: dur, poster: poster };
-    s.pronto = true;
-    const r = s.resolve; s.resolve = null;
-    _vtFechar(true);
-    if (r) r(item);
+    return { item: { tipo: 'video', file: arq, mime: base, dur: dur, poster: poster, semSom: !comSom } };
   } catch (e) {
-    voltar('Não consegui preparar o vídeo neste aparelho' + (e && e.message ? ' (' + e.message + ')' : '') + '.');
+    limpar();
+    return { erro: 'Não consegui preparar o vídeo neste aparelho' + (e && e.message ? ' (' + e.message + ')' : '') + '.' };
   }
+}
+
+// Troca o <video> por um novo (um elemento que já foi ligado ao WebAudio não pode ser reaproveitado).
+function _vtRecriarVideo(s) {
+  return new Promise(function (resolve) {
+    const velho = s.video;
+    const novo = document.createElement('video');
+    novo.id = 'vt-video'; novo.setAttribute('playsinline', ''); novo.preload = 'auto';
+    novo.style.cssText = velho.style.cssText;
+    novo.ontimeupdate = velho.ontimeupdate;
+    let ok = false;
+    const fim = function () { if (!ok) { ok = true; resolve(); } };
+    novo.onloadedmetadata = fim; novo.onerror = fim;
+    setTimeout(fim, 8000);
+    novo.src = s.url;
+    velho.replaceWith(novo);
+    s.video = novo;
+  });
+}
+
+async function _vtUsar() {
+  const s = _vt;
+  if (!s || s.codificando) return;
+  s.codificando = true;
+  document.getElementById('vt-acao').style.display = 'none';
+  document.getElementById('vt-prog').style.display = 'block';
+  document.getElementById('vt-ini').disabled = true; document.getElementById('vt-fim').disabled = true;
+  try { s.video.pause(); } catch (e) {}
+  let r = await _vtGravar(s, true);
+  if (r.travou && !s.cancelado && _vt === s) {
+    // Segunda chance: refaz sem desviar o som (o vídeo sai sem áudio, mas sai).
+    await _vtRecriarVideo(s);
+    r = await _vtGravar(s, false);
+  }
+  if (s.cancelado || _vt !== s) return;
+  if (r.item) {
+    if (r.item.semSom) toast('Vídeo preparado sem som (este aparelho não permitiu captar o áudio).');
+    s.pronto = true;
+    const res = s.resolve; s.resolve = null;
+    _vtFechar(true);
+    if (res) res(r.item);
+    return;
+  }
+  // Falhou: volta pra tela de ajuste pra tentar de novo.
+  s.codificando = false;
+  const a = document.getElementById('vt-acao'); if (a) a.style.display = 'block';
+  const p = document.getElementById('vt-prog'); if (p) p.style.display = 'none';
+  const i1 = document.getElementById('vt-ini'), i2 = document.getElementById('vt-fim'); if (i1) i1.disabled = false; if (i2) i2.disabled = false;
+  toast(r.travou ? 'O vídeo não andou durante a preparação. Tente de novo ou escolha outro vídeo.' : (r.erro || 'Não consegui preparar o vídeo.'));
 }
 
 
