@@ -984,6 +984,7 @@
     <div class="menu-item" onclick="abrirCompartilharUltimoTreino();fecharMenuDireto()"><span class="mi-icon">📸</span> Compartilhar treino</div>
     <div class="menu-item" onclick="abrirRanking();fecharMenuDireto()"><span class="mi-icon">🥇</span> Ranking</div>
     <div class="menu-item" onclick="navegar('feed');fecharMenuDireto()"><span class="mi-icon">📣</span> Feed</div>
+    <div class="menu-item" onclick="navegar('resultados');fecharMenuDireto()"><span class="mi-icon">🌟</span> Quadro de Resultados</div>
     <div class="menu-item" onclick="navegar('desafios');fecharMenuDireto()"><span class="mi-icon">🏆</span> Desafios</div>
     <div class="menu-item" onclick="navegar('nutricao');fecharMenuDireto()"><span class="mi-icon">🥗</span> Nutrição</div>
     <div class="menu-item" onclick="navegar('avaliacoes');fecharMenuDireto()"><span class="mi-icon">📈</span> Avaliações</div>
@@ -1042,6 +1043,7 @@
   <section class="view" id="v-cardio-live"></section>
   <section class="view" id="v-quemsomos"></section>
   <section class="view" id="v-feed"></section>
+  <section class="view" id="v-resultados"></section>
 </div>
 
 <div class="toast-ov" id="toast">—</div>
@@ -4014,11 +4016,11 @@ function _composeProgresso(txt, pct) {
 function _composeProgressoFim() { document.getElementById('feed-upl')?.remove(); }
 
 // Sobe um vídeo em pedaços (midia.php repassa cada um ao Google Drive).
-async function _composeEnviarVideo(it, idpost, poster, auth, onPct) {
+async function _composeEnviarVideo(it, idpost, poster, auth, onPct, donoTipo) {
   const hAuth = { 'Authorization': auth };
   const r0 = await fetch(API_BASE + '/midia.php?action=iniciar', {
     method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, hAuth),
-    body: JSON.stringify({ dono_tipo: 'feed_post', dono_id: idpost, mime: it.mime, tamanho: it.file.size, duracao_seg: Math.ceil(it.dur), poster: poster }),
+    body: JSON.stringify({ dono_tipo: donoTipo || 'feed_post', dono_id: idpost, mime: it.mime, tamanho: it.file.size, duracao_seg: Math.ceil(it.dur), poster: poster }),
   });
   const d0 = await r0.json().catch(() => ({}));
   if (!r0.ok || !d0.ok) throw new Error(d0.erro || ('erro ' + r0.status));
@@ -4612,7 +4614,7 @@ function navegar(dest) {
     trocarView('home'); renderHome();
     return;
   }
-  if (semMatricula && dest !== 'home' && dest !== 'perfil' && dest !== 'avaliacoes' && dest !== 'anamnese' && dest !== 'matricula' && dest !== 'mensagens' && dest !== 'desafios' && dest !== 'quemsomos' && dest !== 'feed') {
+  if (semMatricula && dest !== 'home' && dest !== 'perfil' && dest !== 'avaliacoes' && dest !== 'anamnese' && dest !== 'matricula' && dest !== 'mensagens' && dest !== 'desafios' && dest !== 'quemsomos' && dest !== 'feed' && dest !== 'resultados') {
     toast('Ative sua matrícula para acessar este recurso');
     trocarView('home'); renderHome();
     return;
@@ -4628,6 +4630,7 @@ function navegar(dest) {
   else if (dest === 'mensagens') { renderMensagensAluno(); trocarView('mensagens'); }
   else if (dest === 'ranking') { renderRanking(); trocarView('ranking'); }
   else if (dest === 'feed') { renderFeedCompleto(); trocarView('feed'); }
+  else if (dest === 'resultados') { renderResultados(); trocarView('resultados'); }
   else if (dest === 'quemsomos') { renderQuemSomos(); trocarView('quemsomos'); }
   else if (dest === 'anamnese') { abrirAnamnese(); }
 }
@@ -10631,10 +10634,348 @@ function abrirPerfilRanking(id) {
         '<div style="display:flex;flex-direction:column;gap:6px;">' + cardHtml + '</div>' +
         '<div style="font-size:10.5px;color:' + (isLight?'#999':'#666') + ';line-height:1.5;margin-top:10px;padding:8px 10px;background:' + (isLight?'#f6f6f6':'#161616') + ';border-radius:9px;">🔒 ' + (isMe ? 'Seu <b>histórico completo</b> de treinos só você vê. Os outros membros enxergam apenas as suas atividades <b>desta semana</b>.' : 'Aqui aparecem só as atividades <b>desta semana</b>. O histórico completo de treinos é privado, só ' + esc((nome||'o membro').split(' ')[0]) + ' vê o próprio.') + '</div>' +
         _conquistasStripHtml(id, isLight) +
+        '<div id="perfil-rk-resultados"></div>' +
         '<button onclick="document.getElementById(\'overlay-perfil-rk\').remove();" style="margin-top:22px;width:100%;padding:13px;border-radius:12px;border:none;background:' + (isLight?'#f0f0f0':'#222') + ';color:' + (isLight?'#333':'#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(ov);
+  _carregarResultadosNoPerfilRk(id);
+}
+
+// ═══════════════ QUADRO DE RESULTADOS ═══════════════
+// Depoimento ou evolução (texto, fotos e vídeo) publicado pelo aluno, visível
+// aos outros alunos dentro do app: prova social pra quem está começando. Entra
+// direto (o professor é avisado a cada post e pode excluir). Quem publica ganha
+// o distintivo "Prova de Evolução". Mídia reaproveita o carrossel/vídeo do Feed.
+var _resultadosNomes = {};
+var _resultadosAvatars = {};
+var _reacoesResultado = {};   // idresultado -> [{emoji, autor_nome, meu}]
+var _resFiltro = 'todos';     // todos | evolucao | depoimento
+var _resLista = [];
+var _resTemMais = false;
+var _resCarregandoMais = false;
+
+function _resHeaders() { return { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
+
+async function carregarResultados(opts) {
+  opts = opts || {};
+  let url = API_BASE + '/catalogo.php?action=resultados&limite=' + (opts.limite || 10);
+  if (opts.idatleta) url += '&idatleta=' + Number(opts.idatleta);
+  if (opts.tipo && opts.tipo !== 'todos') url += '&tipo=' + encodeURIComponent(opts.tipo);
+  if (opts.antesDe) url += '&antes_de=' + Number(opts.antesDe);
+  try {
+    const r = await fetch(url + '&_=' + Date.now(), { headers: _resHeaders(), cache: 'no-store' });
+    if (!r.ok) return { lista: [], temMais: false, erro: true };
+    const j = await r.json();
+    Object.assign(_resultadosNomes, (j && j.atletas) || {});
+    Object.assign(_resultadosAvatars, (j && j.avatars) || {});
+    const lista = (j && Array.isArray(j.resultados)) ? j.resultados : [];
+    await carregarReacoesResultado(lista.map(x => x.idresultado));
+    return { lista: lista, temMais: !!(j && j.temMais) };
+  } catch (e) { return { lista: [], temMais: false, erro: true }; }
+}
+
+async function carregarReacoesResultado(ids) {
+  if (!ids || !ids.length) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=resultado&ids=' + ids.join(',') + '&_=' + Date.now(), { headers: _resHeaders(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    ids.forEach(id => { _reacoesResultado[String(id)] = []; });
+    Object.assign(_reacoesResultado, (j && typeof j === 'object') ? j : {});
+  } catch (e) {}
+}
+
+function _resultadoKudosHtml(id) {
+  const lista = _reacoesResultado[String(id)] || [];
+  const meu = lista.some(r => r.meu);
+  return '<span data-resultado-kudos style="display:inline-flex;align-items:center;gap:7px;font-size:15px;">' +
+    '<button onclick="curtirResultado(' + id + ')" title="Curtir" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;">' + (meu ? '❤️' : '🤍') + '</button>' +
+    '<span style="font-weight:' + (meu ? '800' : '600') + ';' + (meu ? 'color:#7FFF00;' : '') + '">' + lista.length + '</span>' +
+  '</span>';
+}
+
+async function curtirResultado(id) {
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
+      method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, _resHeaders()),
+      body: JSON.stringify({ alvo_tipo: 'resultado', alvo_id: Number(id), emoji: '❤️' }),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não deu para registrar sua curtida.'); return; }
+  await carregarReacoesResultado([id]);
+  document.querySelectorAll('[data-resultado-card="' + id + '"] [data-resultado-kudos]').forEach(el => { el.outerHTML = _resultadoKudosHtml(id); });
+}
+
+async function excluirResultado(id) {
+  if (!confirm('Excluir este resultado? Ele deixa de aparecer no Quadro para todos.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=resultados&id=' + Number(id), { method: 'DELETE', headers: _resHeaders() });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não consegui excluir agora.'); return; }
+  toast('Resultado excluído.');
+  document.querySelectorAll('[data-resultado-card="' + id + '"]').forEach(el => el.remove());
+  if (document.getElementById('perfil-resultados')) _carregarResultadosPerfil();
+  if (document.getElementById('v-resultados')?.classList.contains('ativo')) renderResultados();
+}
+
+function _resultadoCardHtml(r, isLight) {
+  const idA = Number(r.idatleta);
+  const nome = _resultadosNomes[String(idA)] || 'Aluno';
+  const avatar = _resultadosAvatars[String(idA)] || '';
+  const isMe = idA === Number(idAtleta);
+  const ink = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#777' : '#999';
+  const accent = isLight ? '#5cb800' : '#7FFF00';
+  const fundoAv = isLight ? '#e5e5e5' : '#2a2a2a';
+  const dt = new Date(String(r.created_at).replace(' ', 'T'));
+  const ehEvol = r.tipo === 'evolucao';
+  const avatarEl = avatar
+    ? '<img src="' + esc(avatar) + '" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/><div style="display:none;width:34px;height:34px;border-radius:50%;background:' + fundoAv + ';align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + muted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>'
+    : '<div style="width:34px;height:34px;border-radius:50%;background:' + fundoAv + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + muted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
+  const midias = (r.midias || []).filter(m => m && m.url);
+  return '<div data-resultado-card="' + r.idresultado + '" style="background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
+    '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
+      '<div onclick="abrirPerfilRanking(' + idA + ')" style="cursor:pointer;display:flex;align-items:center;gap:9px;flex:1;min-width:0;">' + avatarEl +
+        '<div style="min-width:0;">' +
+          '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0, 2).join(' ')) + (isMe ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+          '<div style="font-size:10px;color:' + muted + ';">' + _tempoRelativoFeed(dt) + (r.periodo_txt ? ' · ⏱ ' + esc(r.periodo_txt) : '') + '</div>' +
+        '</div></div>' +
+      '<span style="flex-shrink:0;font-size:10.5px;font-weight:800;padding:4px 8px;border-radius:10px;background:' + (isLight ? 'rgba(92,184,0,.12)' : 'rgba(127,255,0,.10)') + ';color:' + accent + ';">' + (ehEvol ? '📈 Evolução' : '🗣️ Depoimento') + '</span>' +
+      (isMe ? '<span onclick="excluirResultado(' + r.idresultado + ')" title="Excluir" style="flex-shrink:0;cursor:pointer;font-size:15px;padding:4px;">🗑️</span>' : '') +
+    '</div>' +
+    (midias.length ? _carrosselHtml(midias, isLight) : '') +
+    (r.texto ? '<div style="padding:11px 12px 4px;font-size:13.5px;line-height:1.5;color:' + (isLight ? '#333' : '#ddd') + ';white-space:pre-wrap;word-break:break-word;">' + esc(r.texto) + '</div>' : '') +
+    '<div style="padding:8px 12px 11px;">' + _resultadoKudosHtml(r.idresultado) + '</div>' +
+  '</div>';
+}
+
+function _resultadoVazioHtml(isLight, ehMeu) {
+  return '<div style="text-align:center;padding:34px 20px;">' +
+    '<div style="font-size:42px;margin-bottom:10px;">🌟</div>' +
+    '<div style="font-size:14px;font-weight:700;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';margin-bottom:6px;">' + (ehMeu ? 'Você ainda não compartilhou um resultado' : 'Ainda não há resultados por aqui') + '</div>' +
+    '<p style="font-size:12.5px;color:' + (isLight ? '#666' : '#888') + ';max-width:290px;margin:0 auto 14px;line-height:1.5;">Mostre sua evolução com fotos, vídeo ou um depoimento. Você inspira quem está começando e ganha o distintivo Prova de Evolução 📈</p>' +
+    '<button class="btn btn-prim" onclick="abrirCompartilharResultado()" style="display:inline-flex;align-items:center;gap:6px;">🌟 Compartilhar meu resultado</button>' +
+  '</div>';
+}
+
+// ── Tela do Quadro (menu) ──
+async function renderResultados(filtro) {
+  if (filtro) _resFiltro = filtro;
+  const isLight = document.body.classList.contains('tema-claro');
+  const box = document.getElementById('v-resultados');
+  if (!box) return;
+  const chip = (id, label) => '<button onclick="renderResultados(\'' + id + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;background:' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#fff' : '#161616')) + ';color:' + (_resFiltro === id ? '#0f1a00' : (isLight ? '#1a1a1a' : '#f0f0f0')) + ';border:1px solid ' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#e5e5e5' : '#2a2a2a')) + ';">' + label + '</button>';
+  const topo = telaHeader('🌟 Resultados') +
+    '<p style="font-size:12.5px;color:' + (isLight ? '#555' : '#aaa') + ';line-height:1.55;margin:0 0 12px;">Veja a evolução de quem treina com a Intus e mostre a sua. Cada resultado inspira quem está começando.</p>' +
+    '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirCompartilharResultado()">🌟 Compartilhar meu resultado</button>' +
+    '<div style="display:flex;gap:6px;margin-bottom:14px;">' + chip('todos', 'Todos') + chip('evolucao', '📈 Evoluções') + chip('depoimento', '🗣️ Depoimentos') + '</div>';
+  box.innerHTML = topo + '<div style="text-align:center;padding:30px;color:' + (isLight ? '#666' : '#888') + ';font-size:13px;">Carregando resultados...</div>';
+  const res = await carregarResultados({ tipo: _resFiltro, limite: 10 });
+  _resLista = res.lista; _resTemMais = res.temMais;
+  let html = topo;
+  if (res.erro) html += '<div style="text-align:center;padding:30px;color:' + (isLight ? '#666' : '#888') + ';font-size:13px;">Não consegui carregar agora. Tente de novo em instantes.</div>';
+  else if (!res.lista.length) html += _resultadoVazioHtml(isLight, false);
+  else html += '<div id="res-lista">' + res.lista.map(r => _resultadoCardHtml(r, isLight)).join('') + '</div><div id="res-pag">' + _resPaginacaoHtml(isLight) + '</div>';
+  html += getFooterHtml();
+  box.innerHTML = html;
+}
+function _resPaginacaoHtml(isLight) {
+  return _resTemMais ? '<button onclick="_resCarregarMais()" style="width:100%;padding:12px;border-radius:10px;border:1.5px dashed ' + (isLight ? '#ccc' : '#333') + ';background:transparent;color:' + (isLight ? '#666' : '#999') + ';font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:14px;">▾ Ver mais resultados</button>' : '';
+}
+async function _resCarregarMais() {
+  if (_resCarregandoMais || !_resLista.length) return;
+  _resCarregandoMais = true;
+  const isLight = document.body.classList.contains('tema-claro');
+  try {
+    const res = await carregarResultados({ tipo: _resFiltro, limite: 10, antesDe: _resLista[_resLista.length - 1].idresultado });
+    _resLista = _resLista.concat(res.lista); _resTemMais = res.temMais;
+    const lista = document.getElementById('res-lista');
+    if (lista) lista.insertAdjacentHTML('beforeend', res.lista.map(r => _resultadoCardHtml(r, isLight)).join(''));
+    const pag = document.getElementById('res-pag'); if (pag) pag.innerHTML = _resPaginacaoHtml(isLight);
+  } finally { _resCarregandoMais = false; }
+}
+
+// ── Aba "Resultados" do Meu Perfil ──
+async function _carregarResultadosPerfil() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const el = document.getElementById('perfil-resultados');
+  if (!el) return;
+  const res = await carregarResultados({ idatleta: idAtleta, limite: 30 });
+  const el2 = document.getElementById('perfil-resultados');
+  if (!el2) return;
+  if (res.erro) { el2.innerHTML = '<div style="text-align:center;padding:30px;color:' + (isLight ? '#666' : '#888') + ';font-size:13px;">Não consegui carregar agora.</div>'; return; }
+  if (!res.lista.length) { el2.innerHTML = _resultadoVazioHtml(isLight, true); return; }
+  el2.innerHTML = '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirCompartilharResultado()">🌟 Compartilhar outro resultado</button>' +
+    res.lista.map(r => _resultadoCardHtml(r, isLight)).join('') +
+    '<div style="text-align:center;margin:4px 0 8px;"><span onclick="navegar(\'resultados\')" style="font-size:12px;font-weight:700;color:' + (isLight ? '#5cb800' : '#7FFF00') + ';cursor:pointer;text-decoration:underline;">Ver o Quadro de Resultados de todos</span></div>';
+}
+
+// ── Seção dentro do perfil de outro aluno (overlay do ranking) ──
+async function _carregarResultadosNoPerfilRk(id) {
+  const isLight = document.body.classList.contains('tema-claro');
+  const el = document.getElementById('perfil-rk-resultados');
+  if (!el) return;
+  const res = await carregarResultados({ idatleta: id, limite: 5 });
+  const el2 = document.getElementById('perfil-rk-resultados');
+  if (!el2 || res.erro || !res.lista.length) return;   // sem resultado, a seção nem aparece
+  el2.innerHTML = '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 10px;">🌟 Quadro de Resultados</div>' +
+    res.lista.map(r => _resultadoCardHtml(r, isLight)).join('');
+}
+
+// ── Compartilhar um resultado ──
+var _rcTipo = 'evolucao';
+var _rcTexto = '';
+var _rcPeriodo = '';
+var _rcItens = [];   // {tipo:'imagem', src} | {tipo:'video', file, mime, dur, poster}
+var _rcAceite = false;
+var _rcSite = false;
+
+function abrirCompartilharResultado() {
+  _rcTipo = 'evolucao'; _rcTexto = ''; _rcPeriodo = ''; _rcItens = []; _rcAceite = false; _rcSite = false;
+  _rcRender();
+}
+function _rcFechar() { document.getElementById('res-compose-overlay')?.remove(); _rcItens = []; }
+function _rcRerender() {
+  const sc = document.getElementById('res-compose-overlay')?.scrollTop || 0;
+  _rcRender();
+  const ov = document.getElementById('res-compose-overlay');
+  if (ov) ov.scrollTop = sc;
+}
+function _rcRender() {
+  const isLight = document.body.classList.contains('tema-claro');
+  document.getElementById('res-compose-overlay')?.remove();
+  const bg = isLight ? '#f5f5f5' : '#0a0a0a';
+  const cardBg = isLight ? '#fff' : '#161616';
+  const borda = isLight ? '#e5e5e5' : '#2a2a2a';
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#777' : '#888';
+  const tipoBtn = (id, label, sub) => '<div onclick="_rcTipo=\'' + id + '\';_rcRerender();" style="flex:1;padding:10px 8px;border-radius:12px;cursor:pointer;text-align:center;background:' + (_rcTipo === id ? 'rgba(127,255,0,.1)' : cardBg) + ';border:1.5px solid ' + (_rcTipo === id ? '#7FFF00' : borda) + ';">' +
+    '<div style="font-size:13px;font-weight:800;color:' + txt + ';">' + label + '</div><div style="font-size:10.5px;color:' + muted + ';margin-top:2px;">' + sub + '</div></div>';
+  const thumb = 'width:62px;height:78px;border-radius:9px;object-fit:cover;display:block;';
+  let midiaHtml = '';
+  _rcItens.forEach((it, i) => {
+    const eVideo = it.tipo === 'video';
+    const src = eVideo ? it.poster : it.src;
+    midiaHtml += '<div style="position:relative;flex-shrink:0;">' +
+      (src ? '<img src="' + src + '" style="' + thumb + 'border:1px solid ' + borda + ';"/>' : '<div style="' + thumb + 'background:#222;"></div>') +
+      (eVideo ? '<span style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);color:#fff;border-radius:0 0 8px 8px;padding:1px 0;">▶ ' + Math.round(it.dur) + 's</span>' : '') +
+      '<span onclick="_rcRemover(' + i + ')" style="position:absolute;top:-5px;right:-5px;width:20px;height:20px;border-radius:50%;background:#222;border:1.5px solid #fff;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>';
+  });
+  if (_rcItens.length < COMPOSE_MAX_MIDIAS) {
+    midiaHtml += '<div onclick="document.getElementById(\'rc-file\').click()" style="flex-shrink:0;width:62px;height:78px;border-radius:9px;border:1.5px dashed ' + borda + ';background:' + cardBg + ';color:' + muted + ';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;font-weight:700;cursor:pointer;text-align:center;"><span style="font-size:22px;line-height:1;">+</span>foto ou vídeo</div>';
+  }
+  const check = (marcado, handler, texto, cor) => '<label style="display:flex;align-items:flex-start;gap:9px;margin-top:10px;font-size:12px;line-height:1.45;color:' + (cor || txt) + ';cursor:pointer;" onclick="event.preventDefault();' + handler + '">' +
+    '<input type="checkbox" ' + (marcado ? 'checked' : '') + ' style="width:17px;height:17px;margin-top:1px;flex-shrink:0;accent-color:#7FFF00;" onclick="event.stopPropagation();' + handler + '"/><span>' + texto + '</span></label>';
+  const ov = document.createElement('div');
+  ov.id = 'res-compose-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:' + bg + ';overflow-y:auto;';
+  ov.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
+      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">🌟 Compartilhar resultado</span>' +
+      '<button onclick="_rcFechar()" style="background:' + cardBg + ';border:1px solid ' + borda + ';border-radius:10px;width:34px;height:34px;color:' + txt + ';font-size:16px;cursor:pointer;">✕</button>' +
+    '</div>' +
+    '<div style="max-width:420px;margin:0 auto;padding:16px;">' +
+      '<p style="font-size:12.5px;color:' + muted + ';line-height:1.55;margin:0 0 14px;">Seu resultado aparece no Quadro de Resultados para os outros alunos, e a equipe da Intus é avisada. Quem compartilha ganha o distintivo Prova de Evolução 📈</p>' +
+      '<div style="display:flex;gap:8px;margin-bottom:12px;">' + tipoBtn('evolucao', '📈 Evolução', 'foto ou vídeo da sua mudança') + tipoBtn('depoimento', '🗣️ Depoimento', 'conte a sua experiência') + '</div>' +
+      '<textarea id="rc-texto" data-limite="1000" placeholder="' + (_rcTipo === 'evolucao' ? 'Conte como foi a sua evolução: o que mudou e o que ajudou...' : 'Conte como a consultoria Intus mudou a sua rotina...') + '" oninput="_rcTexto=this.value;" style="width:100%;min-height:110px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;">' + esc(_rcTexto) + '</textarea>' +
+      '<input id="rc-periodo" maxlength="60" placeholder="Período (ex.: 3 meses de consultoria)" value="' + esc(_rcPeriodo) + '" oninput="_rcPeriodo=this.value;" style="width:100%;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;"/>' +
+      '<div style="margin-top:14px;font-size:12px;font-weight:700;color:' + txt + ';margin-bottom:6px;">Fotos e vídeos <span style="color:' + muted + ';font-weight:600;">· até ' + COMPOSE_MAX_MIDIAS + ' itens, vídeo de até ' + COMPOSE_VIDEO_MAX_SEG + ' s</span></div>' +
+      '<div style="display:flex;gap:8px;overflow-x:auto;padding:2px 0 6px;">' + midiaHtml + '</div>' +
+      '<input type="file" id="rc-file" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" multiple style="display:none;" onchange="_rcArquivos(this)"/>' +
+      '<div style="margin-top:14px;padding:12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';">' +
+        check(_rcAceite, '_rcAceite=!_rcAceite;_rcRerender();', '<b>Autorizo</b> a Intus a exibir este resultado, com meu nome e foto de perfil, para os outros alunos dentro do app. Posso excluir quando quiser.') +
+        check(_rcSite, '_rcSite=!_rcSite;_rcRerender();', 'Autorizo também o uso no site e nas redes da Intus, e posso pedir a remoção quando quiser. <span style="color:' + muted + ';">(opcional)</span>', muted) +
+      '</div>' +
+      '<button onclick="_travarEExecutar(event, _rcPublicar)" style="width:100%;margin-top:14px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar resultado</button>' +
+    '</div>';
+  document.body.appendChild(ov);
+}
+function _rcRemover(i) { _rcItens.splice(i, 1); _rcRerender(); }
+
+async function _rcArquivos(input) {
+  const arquivos = Array.from(input.files || []);
+  input.value = '';
+  if (!arquivos.length) return;
+  const vagas = COMPOSE_MAX_MIDIAS - _rcItens.length;
+  if (arquivos.length > vagas) toast('Limite de ' + COMPOSE_MAX_MIDIAS + ' itens.');
+  for (const f of arquivos.slice(0, Math.max(0, vagas))) {
+    if (/^image\//.test(f.type)) {
+      const url = URL.createObjectURL(f);
+      try { _rcItens.push({ tipo: 'imagem', src: await _composeReduzirImagem(url, 1600, 0.85) }); }
+      catch (e) { toast('Não consegui ler uma das fotos.'); }
+      URL.revokeObjectURL(url);
+    } else if (/^video\//.test(f.type) || _composeVideoMime(f)) {
+      if (_rcItens.filter(x => x.tipo === 'video').length >= 3) { toast('Limite de 3 vídeos.'); continue; }
+      const it = await _composeLerVideo(f, false);
+      if (it) _rcItens.push(it);
+    }
+  }
+  _rcRerender();
+}
+
+async function _rcPublicar() {
+  if (!_rcAceite) { toast('Marque a autorização para publicar.'); return; }
+  const texto = (_rcTexto || '').trim();
+  const itens = _rcItens.slice();
+  if (!texto && !itens.length) { toast('Escreva um texto ou adicione uma foto ou um vídeo.'); return; }
+  const auth = 'Bearer ' + (localStorage.getItem('mx-token') || '');
+  const hdrs = { 'Authorization': auth, 'Content-Type': 'application/json' };
+  const motivoDe = async (resp) => {
+    let motivo = 'erro ' + resp.status;
+    try { const j = await resp.json(); if (j && (j.error || j.erro)) motivo = j.error || j.erro; } catch (e) {}
+    return motivo;
+  };
+  const postar = async (corpo) => {
+    let ultimo = '';
+    for (let t = 0; t < 2; t++) {
+      try {
+        const rr = await fetch(API_BASE + '/catalogo.php?action=resultado_midia', { method: 'POST', headers: hdrs, body: JSON.stringify(corpo) });
+        if (rr.ok) return;
+        ultimo = await motivoDe(rr);
+      } catch (e) { ultimo = 'sem conexao'; }
+    }
+    throw new Error(ultimo);
+  };
+  try {
+    if (itens.length) _composeProgresso('Publicando...', 0);
+    const r = await fetch(API_BASE + '/catalogo.php?action=resultados', {
+      method: 'POST', headers: hdrs,
+      body: JSON.stringify({ tipo: _rcTipo, texto: texto, periodo_txt: (_rcPeriodo || '').trim(), aceite: true, autoriza_site: _rcSite ? 1 : 0, total_midias: itens.length }),
+    });
+    if (!r.ok) throw new Error(await motivoDe(r));
+    if (itens.length) {
+      let id = 0;
+      try { id = Number((await r.json()).idresultado) || 0; } catch (e) {}
+      if (!id) throw new Error('resposta invalida do servidor');
+      for (let i = 0; i < itens.length; i++) {
+        const it = itens[i];
+        const rotulo = 'Enviando ' + (i + 1) + ' de ' + itens.length;
+        _composeProgresso(rotulo, Math.round(i / itens.length * 100));
+        try {
+          if (it.tipo === 'video') {
+            await _composeEnviarVideo(it, id, it.poster, auth, (p) => _composeProgresso(rotulo + ' (vídeo ' + p + '%)', Math.round((i + p / 100) / itens.length * 100)), 'resultado');
+          } else {
+            await postar({ idresultado: id, imagem: it.src });
+          }
+        } catch (e) { throw new Error('o item ' + (i + 1) + ' não foi (' + e.message + '). Nada foi publicado, tente de novo'); }
+      }
+      _composeProgresso('Finalizando...', 100);
+      try { await postar({ idresultado: id, finalizar: 1, esperadas: itens.length }); }
+      catch (e) { throw new Error('não consegui finalizar (' + e.message + '). Nada foi publicado, tente de novo'); }
+    }
+  } catch (e) {
+    _composeProgressoFim();
+    toast('Não consegui publicar: ' + (e.message || 'erro desconhecido'));
+    return;
+  }
+  _composeProgressoFim();
+  toast('Resultado publicado! 🌟');
+  _rcFechar();
+  // O distintivo "Prova de Evolução" depende da contagem do servidor: refaz o ranking e confere.
+  _rankingData = null;
+  _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
+  navegar('resultados');
 }
 
 // ═══════════════ CONQUISTAS (distintivos desbloqueáveis por metas) ═══════════════
@@ -10684,6 +11025,8 @@ const CONQUISTAS_DEF = [
   { id:'horas50',     e:'⌛', nome:'50 horas de dedicação', desc:'50 horas de treino acumuladas. Isso é entrega de verdade, o relógio é testemunha do seu esforço.', metric:'horas', goal:50 },
   // ── Indicação de amigos ──
   { id:'indicacao1',  e:'🎁', nome:'Embaixador',            desc:'Um amigo se cadastrou com o seu link de indicação. Você já está espalhando o movimento!', metric:'indicacoes', goal:1 },
+  // ── Quadro de Resultados ──
+  { id:'resultado',   e:'📈', nome:'Prova de Evolução',     desc:'Você compartilhou um resultado no Quadro de Resultados. Sua evolução inspira quem está começando e mostra que o caminho funciona.', metric:'resultados', goal:1 },
   { id:'indicacao5',  e:'🤝', nome:'Recrutador nato',       desc:'5 amigos indicados por você já entraram no app pra valer. Você não treina sozinho, você constrói equipe.', metric:'indicacoesAtivas', goal:5 },
 ];
 
@@ -10796,12 +11139,13 @@ function _conquistaMetrics(id) {
   const st = _perfilRankingStats(id);
   // Indicações: dado vem do servidor (treinos.php?action=ranking), não de
   // sessão local — sem o dado ainda carregado, conta 0 em vez de quebrar.
-  let indicacoes = 0, indicacoesAtivas = 0;
+  let indicacoes = 0, indicacoesAtivas = 0, resultados = 0;
   try {
     if (data.indicacoes) indicacoes = Number(data.indicacoes[alvo]) || 0;
     if (data.indicacoesAtivas) indicacoesAtivas = Number(data.indicacoesAtivas[alvo]) || 0;
+    if (data.resultados) resultados = Number(data.resultados[alvo]) || 0;   // contagem do Quadro de Resultados (servidor)
   } catch (e) {}
-  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas };
+  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas, resultados };
 }
 
 function _computeConquistas(id) {
@@ -14031,6 +14375,7 @@ function renderPerfil() {
     <div style="display:flex;gap:6px;background:${tabBg};padding:5px;border-radius:16px;margin-bottom:18px;">
       ${tabBtn('conquistas','🏅','Conquistas')}
       ${tabBtn('posts','📸','Posts')}
+      ${tabBtn('resultados','🌟','Resultados')}
       ${tabBtn('dados','📋','Dados')}
       ${tabBtn('matricula','💳','Matrícula')}
     </div>
@@ -14039,6 +14384,13 @@ function renderPerfil() {
     <div id="pf-aba-posts" style="display:none;">
       <div id="perfil-posts">
         <div style="text-align:center;padding:30px;color:${isLight?'#666':'#888'};font-size:13px;">Carregando posts...</div>
+      </div>
+    </div>
+
+    <!-- ABA RESULTADOS (Quadro de Resultados do aluno) -->
+    <div id="pf-aba-resultados" style="display:none;">
+      <div id="perfil-resultados">
+        <div style="text-align:center;padding:30px;color:${isLight?'#666':'#888'};font-size:13px;">Carregando resultados...</div>
       </div>
     </div>
 
@@ -14153,7 +14505,7 @@ function perfilAba(tab) {
   const inactiveTxt = isLight ? '#777' : '#888';
   const activeBg = isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)';
   const activeBd = isLight ? 'rgba(92,184,0,.5)' : 'rgba(127,255,0,.35)';
-  ['conquistas', 'posts', 'dados', 'matricula'].forEach(t => {
+  ['conquistas', 'posts', 'resultados', 'dados', 'matricula'].forEach(t => {
     const aba = document.getElementById('pf-aba-' + t);
     const btn = document.getElementById('pf-tabbtn-' + t);
     if (aba) aba.style.display = (t === tab) ? 'block' : 'none';
@@ -14166,6 +14518,7 @@ function perfilAba(tab) {
     }
   });
   if (tab === 'posts') _carregarPerfilPosts();
+  if (tab === 'resultados') _carregarResultadosPerfil();
   if (tab === 'dados') _pfInitContasConectadas();
 }
 
@@ -15017,7 +15370,7 @@ function _notifLinhaHtml(n, isLight) {
   const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
-    curtida: noMural ? 'curtiu seu comentário no mural' : 'curtiu seu post',
+    curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Quadro' : 'curtiu seu post'),
     curtida_comentario: noMural ? 'curtiu sua resposta no mural' : 'curtiu seu comentário',
     curtida_chat: 'curtiu sua mensagem',
     comentario: noMural ? 'respondeu seu comentário no mural' : 'comentou no seu post',
@@ -15116,6 +15469,7 @@ function _notifAbrir(el) {
   if (tipo === 'medalha') { abrirQuadroMedalhas(); return; }
   if (tipo === 'distintivo') { navegar('perfil'); return; }
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
+  if (el.dataset.alvotipo === 'resultado') { navegar('resultados'); return; }
   if (el.dataset.alvotipo === 'mural') {
     abrirRanking();
     // O comentário do mural só está na tela depois que o ranking carrega.

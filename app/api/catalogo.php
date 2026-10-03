@@ -240,6 +240,28 @@ function ensureCatalogoTables(PDO $pdo) {
         } catch (Throwable $e) {}
     }
 
+    // Quadro de Resultados: depoimento/evolução publicado pelo aluno. Foto e vídeo
+    // ficam em intus_midia (dono_tipo 'resultado'). autoriza_app é o aceite
+    // obrigatório (exibir pros outros alunos); autoriza_site/destaque_site só
+    // preparam o terreno pras páginas públicas do site (nada é exposto ainda).
+    // ativo: 1 = visível, 2 = montando (mídia subindo), 0 = apagado.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_resultado (
+            idresultado   INT AUTO_INCREMENT PRIMARY KEY,
+            idatleta      INT NOT NULL,
+            tipo          VARCHAR(12)  NOT NULL DEFAULT 'depoimento',
+            texto         VARCHAR(1000) NULL,
+            periodo_txt   VARCHAR(60)  NULL,
+            autoriza_app  TINYINT(1) NOT NULL DEFAULT 1,
+            autoriza_site TINYINT(1) NOT NULL DEFAULT 0,
+            destaque_site TINYINT(1) NOT NULL DEFAULT 0,
+            ativo         TINYINT(1) NOT NULL DEFAULT 1,
+            created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_atleta (idatleta), INDEX idx_ativo (ativo, idresultado)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_resultado', ['texto', 'periodo_txt']);
+
     // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
     // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.
     // As duas direções cabem na mesma tabela porque a regra de leitura é
@@ -378,6 +400,37 @@ function _salvarImagemFeedB64(string $raw, int $autorId): string {
     if (@file_put_contents($dir . '/' . $fname, $bin) === false) throw new Exception('falha ao salvar imagem');
     if (function_exists('gdriveBackup')) { try { gdriveBackup($bin, $fname, 'image/' . ($ext === 'jpg' ? 'jpeg' : $ext)); } catch (Throwable $e) {} }
     return _appBaseUrl() . '/img/feed/' . $fname;
+}
+
+// Quem avisar quando um aluno publica um resultado: professores responsáveis
+// pelo aluno + administradores. Devolve ids de professor (destino_tipo 'prof').
+function _resultadoDestinatariosProf(PDO $pdo, int $idatleta): array {
+    $ids = [];
+    $tbl = _feedDetectarTabelaAtleta($pdo);
+    if ($tbl) {
+        try {
+            $st = $pdo->prepare("SELECT professores_responsaveis FROM `$tbl` WHERE idatleta = ? LIMIT 1");
+            $st->execute([$idatleta]);
+            $raw = (string)$st->fetchColumn();
+            $tmp = json_decode($raw, true);
+            if (!is_array($tmp)) $tmp = preg_split('/\D+/', $raw, -1, PREG_SPLIT_NO_EMPTY);
+            foreach ($tmp as $x) $ids[] = (int)$x;
+        } catch (Throwable $e) {}
+    }
+    $achouAdmin = false;
+    try {
+        foreach ($pdo->query("SELECT idprofessor FROM professor WHERE tpacesso = 'A'")->fetchAll(PDO::FETCH_COLUMN) as $a) { $ids[] = (int)$a; $achouAdmin = true; }
+    } catch (Throwable $e) {}
+    if (!$achouAdmin) $ids[] = 1;
+    return array_values(array_unique(array_filter($ids)));
+}
+
+// Resultado passou a valer (texto puro, ou mídia toda enviada): avisa a equipe.
+function _resultadoPublicar(PDO $pdo, int $idresultado, int $idatleta, string $nome, string $texto): void {
+    $trecho = $texto !== '' ? $texto : 'compartilhou um resultado';
+    foreach (_resultadoDestinatariosProf($pdo, $idatleta) as $idprof) {
+        _criarNotificacao($pdo, 'prof', $idprof, 'resultado_novo', 'aluno', $idatleta, $nome, 'resultado', $idresultado, $trecho);
+    }
 }
 
 // Mídias de vários posts de uma vez: [idpost => [{tipo,url,poster,token?,duracao?}...]].
@@ -1928,6 +1981,13 @@ if ($action === 'reacoes') {
             // outro desenho). _criarNotificacao nunca lança.
             if ($tipo === 'feed_post') {
                 _criarNotificacao($pdo, 'aluno', _donoDoPostFeed($pdo, $alvo), 'curtida', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $emoji, true);
+            } elseif ($tipo === 'resultado') {
+                try {
+                    $stR = $pdo->prepare("SELECT idatleta, texto FROM intus_resultado WHERE idresultado = ? AND ativo = 1");
+                    $stR->execute([$alvo]);
+                    $res = $stR->fetch(PDO::FETCH_ASSOC);
+                    if ($res) _criarNotificacao($pdo, 'aluno', (int)$res['idatleta'], 'curtida', $_autorTipo, $_autorId, $nome, 'resultado', $alvo, (string)($res['texto'] ?? ''), true);
+                } catch (Throwable $e) {}
             } elseif ($tipo === 'chat' && $msgChat) {
                 // Curtida numa mensagem do chat avisa quem escreveu a mensagem.
                 if ($msgChat['remetente'] === 'aluno') {
@@ -2139,6 +2199,7 @@ if ($action === 'notificacoes') {
         // aparece nem conta no sino. Filtra em vez de só apagar: cobre também o
         // que já ficou órfão antes desta regra, sem mexer em nenhuma linha.
         $filtroAlvo = " AND (alvo_tipo <> 'feed_post' OR EXISTS (SELECT 1 FROM intus_feed_post p WHERE p.idpost = intus_notificacao.alvo_id AND p.ativo = 1))";
+        $filtroAlvo .= " AND (alvo_tipo <> 'resultado' OR EXISTS (SELECT 1 FROM intus_resultado r WHERE r.idresultado = intus_notificacao.alvo_id AND r.ativo = 1))";
         try {
             $pdo->query("SELECT 1 FROM intus_mensagem LIMIT 1");
             $filtroAlvo .= " AND (alvo_tipo <> 'chat' OR EXISTS (SELECT 1 FROM intus_mensagem m WHERE m.idmensagem = intus_notificacao.alvo_id))";
@@ -2428,6 +2489,186 @@ if ($action === 'feed_midia' && $method === 'POST') {
         http_response_code(500);
         echo json_encode(['error' => 'falha ao gravar a midia', 'detalhe' => _intusLogErro($e)]);
     }
+    exit;
+}
+
+// ── Quadro de Resultados ───────────────────────────────────────────────────
+// GET  ?action=resultados[&idatleta=N][&tipo=depoimento|evolucao][&antes_de=ID][&limite=N]
+// POST ?action=resultados {tipo, texto, periodo_txt, aceite, autoriza_site, total_midias}  (só aluno)
+//        com mídia nasce invisível (ativo=2) e vira visível em resultado_midia {finalizar}
+// DELETE ?action=resultados&id=N  (dono ou professor)
+if ($action === 'resultados') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+
+    if ($method === 'GET') {
+        $limite = min(50, max(1, (int)($_GET['limite'] ?? 20)));
+        $antesDe = (int)($_GET['antes_de'] ?? 0);
+        $idAt = (int)($_GET['idatleta'] ?? 0);
+        $tipoF = (string)($_GET['tipo'] ?? '');
+        $tbl = _feedDetectarTabelaAtleta($pdo);
+        $onde = "r.ativo = 1"; $args = [];
+        if ($idAt > 0) { $onde .= " AND r.idatleta = ?"; $args[] = $idAt; }
+        if (in_array($tipoF, ['depoimento', 'evolucao'], true)) { $onde .= " AND r.tipo = ?"; $args[] = $tipoF; }
+        if ($antesDe > 0) { $onde .= " AND r.idresultado < ?"; $args[] = $antesDe; }
+        $colunas = "r.idresultado, r.idatleta, r.tipo, r.texto, r.periodo_txt, r.autoriza_site, r.destaque_site, r.created_at";
+        $sql = "SELECT $colunas FROM intus_resultado r WHERE %s ORDER BY r.idresultado DESC LIMIT " . ($limite + 1);
+        $rows = null;
+        if ($tbl) {
+            // Aluno bloqueado/inativo não aparece no quadro dos outros.
+            try {
+                $st = $pdo->prepare(sprintf($sql, $onde . " AND r.idatleta NOT IN (SELECT idatleta FROM `$tbl` WHERE stbloqueio = 'S')"));
+                $st->execute($args);
+                $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { $rows = null; }
+        }
+        if ($rows === null) {
+            $st = $pdo->prepare(sprintf($sql, $onde));
+            $st->execute($args);
+            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $temMais = count($rows) > $limite;
+        if ($temMais) $rows = array_slice($rows, 0, $limite);
+        $idsR = array_map(function ($r) { return (int)$r['idresultado']; }, $rows);
+        $midiasMap = _midiasDosPosts($pdo, 'resultado', $idsR);
+        $autores = array_values(array_unique(array_map(function ($r) { return (int)$r['idatleta']; }, $rows)));
+        $nomes = []; $avatars = [];
+        if ($autores && $tbl) {
+            $phA = implode(',', array_fill(0, count($autores), '?'));
+            try {
+                $stN = $pdo->prepare("SELECT idatleta, nome FROM `$tbl` WHERE idatleta IN ($phA)");
+                $stN->execute($autores);
+                foreach ($stN->fetchAll(PDO::FETCH_ASSOC) as $n) $nomes[(int)$n['idatleta']] = $n['nome'];
+            } catch (Throwable $e) {}
+            try {
+                $stV = $pdo->prepare("SELECT idatleta, avatar FROM intus_profile WHERE idatleta IN ($phA) AND avatar IS NOT NULL AND avatar != ''");
+                $stV->execute($autores);
+                foreach ($stV->fetchAll(PDO::FETCH_ASSOC) as $v) $avatars[(int)$v['idatleta']] = $v['avatar'];
+            } catch (Throwable $e) {}
+        }
+        $lista = [];
+        foreach ($rows as $r) {
+            $it = [
+                'idresultado' => (int)$r['idresultado'], 'idatleta' => (int)$r['idatleta'], 'tipo' => $r['tipo'],
+                'texto' => (string)($r['texto'] ?? ''), 'periodo_txt' => (string)($r['periodo_txt'] ?? ''),
+                'created_at' => $r['created_at'], 'midias' => $midiasMap[(int)$r['idresultado']] ?? [],
+            ];
+            // Consentimento de uso no site só interessa à equipe.
+            if (!$_ehAluno) { $it['autoriza_site'] = (int)$r['autoriza_site']; $it['destaque_site'] = (int)$r['destaque_site']; }
+            $lista[] = $it;
+        }
+        echo json_encode(['resultados' => $lista, 'atletas' => (object)$nomes, 'avatars' => (object)$avatars, 'temMais' => $temMais], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($method === 'POST') {
+        if (!$_ehAluno) { http_response_code(403); echo json_encode(['error' => 'somente aluno publica resultado']); exit; }
+        $b = jsonBody();
+        if (empty($b['aceite'])) { http_response_code(400); echo json_encode(['error' => 'aceite obrigatorio']); exit; }
+        $tipoR = in_array((string)($b['tipo'] ?? ''), ['depoimento', 'evolucao'], true) ? (string)$b['tipo'] : 'depoimento';
+        $texto = mb_substr(trim((string)($b['texto'] ?? '')), 0, 1000);
+        $periodo = mb_substr(trim((string)($b['periodo_txt'] ?? '')), 0, 60);
+        $totalMidias = max(0, min(10, (int)($b['total_midias'] ?? 0)));
+        if ($texto === '' && $totalMidias === 0) { http_response_code(400); echo json_encode(['error' => 'escreva um texto ou envie foto/video']); exit; }
+        $autorizaSite = !empty($b['autoriza_site']) ? 1 : 0;
+        $ativoNovo = $totalMidias > 0 ? 2 : 1;
+        try { $pdo->exec("UPDATE intus_resultado SET ativo = 0 WHERE ativo = 2 AND created_at < (NOW() - INTERVAL 1 DAY)"); } catch (Throwable $e) {}
+        try {
+            $st = $pdo->prepare("INSERT INTO intus_resultado (idatleta, tipo, texto, periodo_txt, autoriza_app, autoriza_site, ativo) VALUES (?,?,?,?,1,?,?)");
+            $st->execute([$_autorId, $tipoR, $texto !== '' ? $texto : null, $periodo !== '' ? $periodo : null, $autorizaSite, $ativoNovo]);
+            $novo = (int)$pdo->lastInsertId();
+            if ($ativoNovo === 1) _resultadoPublicar($pdo, $novo, $_autorId, (string)$_autorNome, $texto);
+            echo json_encode(['ok' => true, 'idresultado' => $novo, 'pendente' => $ativoNovo === 2]);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'falha ao gravar o resultado', 'detalhe' => _intusLogErro($e)]);
+        }
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $st = $pdo->prepare("SELECT idatleta FROM intus_resultado WHERE idresultado = ?");
+        $st->execute([$id]);
+        $dono = (int)$st->fetchColumn();
+        if (!$dono) { http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
+        if ($_ehAluno && $dono !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+        $pdo->prepare("UPDATE intus_resultado SET ativo = 0, destaque_site = 0 WHERE idresultado = ?")->execute([$id]);
+        try {
+            $sv = $pdo->prepare("SELECT idmidia, drive_id FROM intus_midia WHERE dono_tipo = 'resultado' AND dono_id = ? AND tipo = 'video' AND drive_id IS NOT NULL");
+            $sv->execute([$id]);
+            foreach ($sv->fetchAll(PDO::FETCH_ASSOC) as $vv) {
+                $ok = false;
+                try { if (function_exists('gdriveExcluirArquivo')) $ok = gdriveExcluirArquivo($vv['drive_id']); } catch (Throwable $e) {}
+                if ($ok) $pdo->prepare("UPDATE intus_midia SET status = 'apagado', drive_id = NULL WHERE idmidia = ?")->execute([(int)$vv['idmidia']]);
+            }
+        } catch (Throwable $e) {}
+        try { $pdo->prepare("DELETE FROM intus_notificacao WHERE alvo_tipo = 'resultado' AND alvo_id = ?")->execute([$id]); } catch (Throwable $e) {}
+        try { $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'resultado' AND alvo_id = ?")->execute([$id]); } catch (Throwable $e) {}
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// Foto de um resultado (uma por requisição) e finalização — mesmo desenho do feed_midia.
+if ($action === 'resultado_midia' && $method === 'POST') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0 || !$_ehAluno) { http_response_code(401); echo json_encode(['error' => 'sem identidade de aluno']); exit; }
+    $b = jsonBody();
+    $idr = (int)($b['idresultado'] ?? 0);
+    $st = $pdo->prepare("SELECT idatleta, ativo, texto FROM intus_resultado WHERE idresultado = ? LIMIT 1");
+    $st->execute([$idr]);
+    $res = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$res || (int)$res['idatleta'] !== $_autorId || (int)$res['ativo'] === 0) { http_response_code(403); echo json_encode(['error' => 'resultado invalido']); exit; }
+    $st = $pdo->prepare("SELECT COUNT(*) FROM intus_midia WHERE dono_tipo = 'resultado' AND dono_id = ?");
+    $st->execute([$idr]);
+    $qtd = (int)$st->fetchColumn();
+
+    if (!empty($b['finalizar'])) {
+        $esperadas = max(0, min(10, (int)($b['esperadas'] ?? 0)));
+        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_midia WHERE dono_tipo = 'resultado' AND dono_id = ? AND status = 'pronto'");
+        $st->execute([$idr]);
+        $prontas = (int)$st->fetchColumn();
+        if ($prontas < $esperadas) { http_response_code(409); echo json_encode(['error' => 'midias incompletas', 'prontas' => $prontas]); exit; }
+        if ((int)$res['ativo'] === 2) {
+            $pdo->prepare("UPDATE intus_resultado SET ativo = 1 WHERE idresultado = ? AND ativo = 2")->execute([$idr]);
+            _resultadoPublicar($pdo, $idr, $_autorId, (string)$_autorNome, (string)($res['texto'] ?? ''));
+        }
+        echo json_encode(['ok' => true, 'idresultado' => $idr, 'midias' => $qtd]);
+        exit;
+    }
+
+    if ($qtd >= 10) { http_response_code(400); echo json_encode(['error' => 'limite de 10 midias']); exit; }
+    try { $url = _salvarImagemFeedB64((string)($b['imagem'] ?? ''), $_autorId); }
+    catch (Exception $e) { http_response_code(400); echo json_encode(['error' => $e->getMessage()]); exit; }
+    try {
+        $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('resultado', ?, ?, 'imagem', ?)")->execute([$idr, $qtd, $url]);
+        echo json_encode(['ok' => true, 'idresultado' => $idr, 'ordem' => $qtd, 'url' => $url]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'falha ao gravar a midia', 'detalhe' => _intusLogErro($e)]);
+    }
+    exit;
+}
+
+// Professor marca um resultado como "destaque para o site" (só grava a marca;
+// nada é publicado). Só vale se o aluno autorizou o uso no site.
+if ($action === 'resultado_destaque' && $method === 'POST') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if ($_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+    $b = jsonBody();
+    $idr = (int)($b['idresultado'] ?? 0);
+    $valor = !empty($b['destaque_site']) ? 1 : 0;
+    $st = $pdo->prepare("SELECT autoriza_site FROM intus_resultado WHERE idresultado = ? AND ativo = 1");
+    $st->execute([$idr]);
+    $r = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$r) { http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
+    if ($valor && !(int)$r['autoriza_site']) { http_response_code(400); echo json_encode(['error' => 'o aluno nao autorizou o uso no site']); exit; }
+    $pdo->prepare("UPDATE intus_resultado SET destaque_site = ? WHERE idresultado = ?")->execute([$valor, $idr]);
+    echo json_encode(['ok' => true, 'destaque_site' => $valor]);
     exit;
 }
 

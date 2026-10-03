@@ -1091,6 +1091,18 @@ try {
                 } catch (Throwable $e) {}
             }
 
+            // Resultados publicados no Quadro de Resultados (distintivo "Prova de
+            // Evolução"). A tabela só existe depois do 1º uso do catalogo.php.
+            $resultadosMap = [];
+            if (count($ids) > 0) {
+                try {
+                    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                    $rq = $pdo->prepare("SELECT idatleta, COUNT(*) AS n FROM intus_resultado WHERE ativo = 1 AND idatleta IN ($placeholders) GROUP BY idatleta");
+                    $rq->execute($ids);
+                    foreach ($rq->fetchAll(PDO::FETCH_ASSOC) as $rr) { $resultadosMap[(int)$rr['idatleta']] = (int)$rr['n']; }
+                } catch (Throwable $e) {}
+            }
+
             echo json_encode([
                 'atletas' => $nomeMap,
                 'sessoes' => $sessoes,
@@ -1101,6 +1113,7 @@ try {
                 'paises' => $paisMap,
                 'indicacoes' => $indicacoesMap,
                 'indicacoesAtivas' => $indicacoesAtivasMap,
+                'resultados' => $resultadosMap,
             ]);
             exit;
         }
