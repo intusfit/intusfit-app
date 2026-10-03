@@ -10743,6 +10743,170 @@ function verificarConquistasHome() {
   }, 1000);
 }
 
+// ═══════════════ MURAL: respostas (mesma lógica do Feed) ═══════════════
+// Cada comentário do mural é o "post": dá pra responder, curtir a resposta e
+// excluir (autor da resposta OU autor do comentário do mural), com aviso no
+// sino. As respostas ficam em intus_comentario_pub com alvo_tipo='mural'
+// (alvo_id = id do comentário do mural). A curtida da resposta reaproveita
+// _reacoesComentFeed e o endpoint de reações do Feed.
+var _muralResp = {};          // idMural -> [{idcomentario, resposta_a, autor_*, texto, created_at, meu}]
+var _muralAberto = {};        // idMural -> true (fio expandido)
+var _muralRespondendoA = {};  // idMural -> {id, nome}
+var _muralDonos = {};         // idMural -> idatleta de quem escreveu o comentário do mural
+var _muralEnviando = {};
+function _muralHeaders() { return { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
+
+async function carregarRespostasMural(ids) {
+  if (!ids || !ids.length) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&alvo_tipo=mural&ids=' + ids.join(',') + '&_=' + Date.now(),
+      { headers: _muralHeaders(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    const dados = (j && typeof j === 'object') ? j : {};
+    ids.forEach(id => { if (!dados[String(id)]) delete _muralResp[String(id)]; });
+    Object.assign(_muralResp, dados);
+    const idsC = [];
+    Object.keys(dados).forEach(k => (dados[k] || []).forEach(c => idsC.push(c.idcomentario)));
+    await carregarReacoesComentariosFeed(idsC);
+  } catch (e) {}
+}
+
+async function _muralCarregarEAtualizar(ids) {
+  await carregarRespostasMural(ids);
+  ids.forEach(_muralAtualizar);
+}
+
+function _muralAtualizar(idm) {
+  const isLight = document.body.classList.contains('tema-claro');
+  const campo = document.querySelector('[data-mural-card="' + idm + '"] [data-mural-input]');
+  const rascunho = campo ? campo.value : '';
+  document.querySelectorAll('[data-mural-card="' + idm + '"] [data-mural-thread]').forEach(el => {
+    el.outerHTML = _muralThreadHtml(idm, isLight);
+  });
+  if (rascunho) {
+    const novo = document.querySelector('[data-mural-card="' + idm + '"] [data-mural-input]');
+    if (novo) novo.value = rascunho;
+  }
+}
+
+function muralToggle(idm) { _muralAberto[idm] = !_muralAberto[idm]; _muralAtualizar(idm); }
+
+function muralResponder(idm, el) {
+  const id = Number(el?.dataset?.id || 0);
+  if (!id) return;
+  _muralRespondendoA[idm] = { id, nome: el?.dataset?.nome || 'Alguém' };
+  _muralAberto[idm] = true;
+  _muralAtualizar(idm);
+  document.querySelector('[data-mural-card="' + idm + '"] [data-mural-input]')?.focus();
+}
+function muralCancelar(idm) { delete _muralRespondendoA[idm]; _muralAtualizar(idm); }
+
+async function muralEnviar(idm) {
+  if (_muralEnviando[idm]) return;
+  const input = document.querySelector('[data-mural-card="' + idm + '"] [data-mural-input]');
+  const texto = input?.value?.trim();
+  if (!texto) return;
+  _muralEnviando[idm] = true;
+  const resp = _muralRespondendoA[idm];
+  try {
+    const body = { alvo_tipo: 'mural', alvo_id: Number(idm), texto: texto };
+    if (resp && resp.id) body.resposta_a = resp.id;
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub', {
+      method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, _muralHeaders()), body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error('falhou');
+    input.value = '';
+    delete _muralRespondendoA[idm];
+    _muralAberto[idm] = true;
+    await carregarRespostasMural([idm]);
+    _muralAtualizar(idm);
+  } catch (e) {
+    toast('Não consegui enviar a resposta.');
+  } finally { _muralEnviando[idm] = false; }
+}
+
+async function muralCurtir(idm, el) {
+  const id = Number(el?.dataset?.id || 0);
+  if (!id) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
+      method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, _muralHeaders()),
+      body: JSON.stringify({ alvo_tipo: 'feed_comentario', alvo_id: id, emoji: '❤️' }),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não deu para registrar sua curtida.'); return; }
+  await carregarReacoesComentariosFeed([id]);
+  _muralAtualizar(idm);
+}
+
+// O servidor decide de novo quem pode excluir; aqui só esconde o botão de quem não pode.
+async function muralExcluir(idm, el) {
+  const id = Number(el?.dataset?.id || 0);
+  if (!id) return;
+  if (!confirm('Excluir esta resposta? As respostas a ela também serão excluídas.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&id=' + id, { method: 'DELETE', headers: _muralHeaders() });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não consegui excluir a resposta.'); return; }
+  if (_muralRespondendoA[idm] && _muralRespondendoA[idm].id === id) delete _muralRespondendoA[idm];
+  await carregarRespostasMural([idm]);
+  _muralAtualizar(idm);
+}
+
+function _muralThreadHtml(idm, isLight) {
+  const lista = _muralResp[String(idm)] || [];
+  const aberto = !!_muralAberto[idm];
+  const corMuted = isLight ? '#999' : '#888';
+  const cor = isLight ? '#1a1a1a' : '#f0f0f0';
+  const corTexto = isLight ? '#444' : '#ccc';
+  const acento = isLight ? '#5cb800' : '#7FFF00';
+  const corAvBg = isLight ? '#eee' : '#222';
+  const divisor = isLight ? '#f0f0f0' : '#1e1e1e';
+  const txt = aberto ? 'Ocultar respostas' : (lista.length ? 'Ver ' + lista.length + ' resposta' + (lista.length > 1 ? 's' : '') : 'Responder');
+  const gatilho = '<span onclick="muralToggle(' + idm + ')" style="font-size:12px;font-weight:700;color:' + corMuted + ';cursor:pointer;">' + txt + '</span>';
+  if (!aberto) return '<div data-mural-thread style="margin-top:6px;">' + gatilho + '</div>';
+
+  const souDono = _muralDonos[idm] === Number(idAtleta);
+  const porPai = {}; const raizes = [];
+  lista.forEach(c => { if (c.resposta_a) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
+
+  function linha(c, ehResposta) {
+    const nome = c.autor_nome || 'Alguém';
+    const dt = new Date(String(c.created_at).replace(' ', 'T'));
+    const selo = (c.autor_tipo === 'professor' || c.autor_tipo === 'prof')
+      ? ' <span style="color:' + acento + ';font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.03em;">professor</span>' : '';
+    const responder = ehResposta ? '' :
+      '<span data-id="' + c.idcomentario + '" data-nome="' + esc(nome) + '" onclick="muralResponder(' + idm + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Responder</span>';
+    const excluir = (c.meu || souDono)
+      ? '<span data-id="' + c.idcomentario + '" onclick="muralExcluir(' + idm + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Excluir</span>' : '';
+    const curtidas = _reacoesComentFeed[String(c.idcomentario)] || [];
+    const curtiu = curtidas.some(x => x.meu);
+    const coracao = '<div data-id="' + c.idcomentario + '" onclick="muralCurtir(' + idm + ',this)" title="Curtir resposta" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;padding:2px 2px 0 4px;min-width:22px;">' +
+      '<span style="font-size:14px;line-height:1;">' + (curtiu ? '❤️' : '🤍') + '</span>' +
+      (curtidas.length ? '<span style="font-size:10px;font-weight:700;color:' + (curtiu ? acento : corMuted) + ';">' + curtidas.length + '</span>' : '') +
+    '</div>';
+    return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
+      '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:12px;line-height:1.4;"><b style="color:' + cor + ';">' + esc(nome) + '</b>' + selo + ' <span style="color:' + corTexto + ';">' + esc(c.texto) + '</span></div>' +
+        '<div style="display:flex;gap:14px;margin-top:2px;"><span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' + responder + excluir + '</div>' +
+      '</div>' + coracao +
+    '</div>';
+  }
+  const itens = raizes.map(c => linha(c, false) + (porPai[c.idcomentario] || []).map(r => linha(r, true)).join('')).join('');
+  const resp = _muralRespondendoA[idm];
+  const chip = resp
+    ? '<div style="display:flex;align-items:center;gap:6px;margin:8px 0 0;font-size:11px;color:' + corMuted + ';">Respondendo a <b style="color:' + cor + ';">' + esc(resp.nome) + '</b><span onclick="muralCancelar(' + idm + ')" style="cursor:pointer;font-weight:800;padding:2px 5px;">✕</span></div>' : '';
+  return '<div data-mural-thread style="margin-top:6px;">' + gatilho +
+    (itens ? '<div style="margin-top:4px;border-top:1px solid ' + divisor + ';">' + itens + '</div>' : '') + chip +
+    '<div style="display:flex;gap:6px;margin-top:8px;">' +
+      '<input data-mural-input placeholder="Escreva uma resposta..." style="flex:1;padding:8px 10px;border-radius:99px;border:1px solid ' + (isLight ? '#ddd' : '#2a2a2a') + ';background:' + (isLight ? '#fff' : '#111') + ';color:' + cor + ';font-size:12px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')muralEnviar(' + idm + ');"/>' +
+      '<button onclick="muralEnviar(' + idm + ')" style="padding:8px 14px;border-radius:99px;border:none;background:#7FFF00;color:#0f1a00;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Enviar</button>' +
+    '</div>' +
+  '</div>';
+}
+
 function _renderComentarios(data, isLight) {
   const bg = isLight ? '#f9f9f9' : '#111';
   const border = isLight ? '#e5e5e5' : '#1a1a1a';
@@ -10769,17 +10933,22 @@ function _renderComentarios(data, isLight) {
       const delBtn = (isMine && c.idcomentario)
         ? '<button onclick="excluirComentarioRanking(' + Number(c.idcomentario) + ')" title="Excluir comentário" style="background:none;border:none;cursor:pointer;font-size:13px;color:' + textMuted + ';padding:0;margin-left:8px;line-height:1;">🗑️</button>'
         : '';
-      html += '<div style="padding:10px 14px;background:' + bg + ';border:1px solid ' + border + ';border-radius:10px;">' +
+      if (c.idcomentario) _muralDonos[Number(c.idcomentario)] = Number(c.idatleta);
+      html += '<div ' + (c.idcomentario ? 'data-mural-card="' + Number(c.idcomentario) + '" ' : '') + 'style="padding:10px 14px;background:' + bg + ';border:1px solid ' + border + ';border-radius:10px;">' +
         '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">' +
           '<span style="font-size:12px;font-weight:700;color:' + textPrim + ';">' + esc(c.nome_atleta || 'Membro') + '</span>' +
           '<span style="display:flex;align-items:center;"><span style="font-size:10px;color:' + textMuted + ';">' + dtStr + '</span>' + delBtn + '</span>' +
         '</div>' +
         '<div style="font-size:13px;color:' + textSec + ';line-height:1.5;">' + esc(c.texto) + '</div>' +
         (c.idcomentario ? _htmlReacoes(Number(c.idcomentario), isLight) : '') +
+        (c.idcomentario ? _muralThreadHtml(Number(c.idcomentario), isLight) : '') +
       '</div>';
     });
     html += '</div>';
   }
+  // Respostas do mural: carrega depois de desenhar e atualiza cada fio.
+  const _idsMural = comentarios.slice(0, 30).map(c => Number(c.idcomentario)).filter(Boolean);
+  if (_idsMural.length) setTimeout(() => _muralCarregarEAtualizar(_idsMural), 60);
   return html + '</div>';
 }
 
@@ -14323,22 +14492,23 @@ function iniciarNotificacoes() {
 function _notifLinhaHtml(n, isLight) {
   const icones = { curtida: '❤️', curtida_comentario: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️' };
   const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo';
+  const noMural = n.alvo_tipo === 'mural';
   const acao = {
-    curtida: 'curtiu seu post',
-    curtida_comentario: 'curtiu seu comentário',
-    comentario: 'comentou no seu post',
+    curtida: noMural ? 'curtiu seu comentário no mural' : 'curtiu seu post',
+    curtida_comentario: noMural ? 'curtiu sua resposta no mural' : 'curtiu seu comentário',
+    comentario: noMural ? 'respondeu seu comentário no mural' : 'comentou no seu post',
     resposta: 'respondeu seu comentário',
     mencao: 'mencionou você',
   }[n.tipo] || 'interagiu com você';
   const principal = ehSistema
     ? '<b>' + esc(n.texto || '') + '</b>'
     : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acao;
-  const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario';
+  const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || (n.tipo === 'curtida' && noMural);
   const trecho = comTrecho && n.texto
     ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“' + esc(n.texto) + '”</div>' : '';
   const dt = new Date(String(n.quando).replace(' ', 'T'));
   const fundo = n.lido ? 'transparent' : (isLight ? 'rgba(92,184,0,.10)' : 'rgba(127,255,0,.07)');
-  return '<div data-notif-id="' + n.idnotificacao + '" data-alvo="' + n.alvo_id + '" data-tipo="' + esc(n.tipo) + '" onclick="_notifAbrir(this)" ' +
+  return '<div data-notif-id="' + n.idnotificacao + '" data-alvo="' + n.alvo_id + '" data-alvotipo="' + esc(n.alvo_tipo || '') + '" data-tipo="' + esc(n.tipo) + '" onclick="_notifAbrir(this)" ' +
     'style="display:flex;align-items:center;gap:11px;padding:10px 8px;border-bottom:1px solid var(--borda);cursor:pointer;background:' + fundo + ';border-radius:8px;">' +
     '<div style="width:34px;height:34px;border-radius:50%;background:var(--borda);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">' + (icones[n.tipo] || '🔔') + '</div>' +
     '<div style="flex:1;min-width:0;">' +
@@ -14350,10 +14520,48 @@ function _notifLinhaHtml(n, isLight) {
   '</div>';
 }
 
-// O sino leva pra Central, na aba Notificações (lá ficam mensagens, curtidas,
-// comentários, medalhas e distintivos). Antes abria um painel à parte.
-function abrirNotificacoes() {
-  _centralTab = 'notificacoes';
+// O sino abre a lista (mensagens novas + notificações) e termina com o atalho
+// pra Central. A mesma lista também mora na aba Notificações da Central.
+async function abrirNotificacoes() {
+  const isLight = document.body.classList.contains('tema-claro');
+  openModalGenerico(
+    '<div style="padding:6px 16px 4px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+        '<div style="font-size:15px;font-weight:800;color:var(--texto);">🔔 Notificações</div>' +
+        '<div id="notif-marcar" onclick="_notifMarcarTodas()" style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:none;">Marcar todas como lidas</div>' +
+      '</div>' +
+      '<div id="notif-lista" style="max-height:50vh;overflow-y:auto;"><div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">Carregando...</div></div>' +
+      '<div onclick="_notifIrCentral()" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;padding:12px;border-radius:12px;border:1px solid var(--borda);font-size:13px;font-weight:800;color:var(--texto);cursor:pointer;">📬 Ir para a Central <span style="color:var(--muted);">›</span></div>' +
+    '</div>'
+  );
+  const box = () => document.getElementById('notif-lista');
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=notificacoes&_=' + Date.now(), { headers: _notifHeaders(), cache: 'no-store' });
+    if (!r.ok) throw new Error('falhou');
+    const j = await r.json();
+    const lista = (j && Array.isArray(j.notificacoes)) ? j.notificacoes : [];
+    const msgs = _notifMsgsNaoLidas();
+    let html = '';
+    if (msgs > 0) {
+      html += '<div onclick="_notifIrCentral(true)" style="display:flex;align-items:center;gap:11px;padding:10px 8px;border-bottom:1px solid var(--borda);cursor:pointer;background:' + (isLight ? 'rgba(92,184,0,.10)' : 'rgba(127,255,0,.07)') + ';border-radius:8px;">' +
+        '<div style="width:34px;height:34px;border-radius:50%;background:var(--borda);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">✉️</div>' +
+        '<div style="flex:1;font-size:13px;color:var(--texto);"><b>' + msgs + (msgs > 1 ? ' mensagens novas' : ' mensagem nova') + '</b> na Central</div></div>';
+    }
+    html += lista.map(n => _notifLinhaHtml(n, isLight)).join('');
+    if (!html) html = '<div style="padding:26px 10px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5;">Nada por aqui ainda. Curtidas, comentários, medalhas e distintivos aparecem neste lugar.</div>';
+    if (box()) box().innerHTML = html;
+    const marcar = document.getElementById('notif-marcar');
+    if (marcar && lista.some(n => !n.lido)) marcar.style.display = 'block';
+    _notifPintarBadge(j && j.nao_lidas);
+  } catch (e) {
+    if (box()) box().innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">Não consegui carregar agora. Tente de novo em instantes.</div>';
+  }
+}
+
+// Atalho do fim da lista. Com mensagem nova não lida abre no Chat; sem, na aba Notificações.
+function _notifIrCentral(paraChat) {
+  closeModal();
+  _centralTab = (paraChat || _notifMsgsNaoLidas() > 0) ? 'chat' : 'notificacoes';
   navegar('mensagens');
 }
 
@@ -14380,8 +14588,20 @@ function _notifAbrir(el) {
   const alvo = Number(el.dataset.alvo || 0);
   const tipo = el.dataset.tipo || '';
   if (id) _notifMarcar({ idnotificacao: id });
+  closeModal();
   if (tipo === 'medalha') { abrirQuadroMedalhas(); return; }
   if (tipo === 'distintivo') { navegar('perfil'); return; }
+  if (el.dataset.alvotipo === 'mural') {
+    abrirRanking();
+    // O comentário do mural só está na tela depois que o ranking carrega.
+    setTimeout(() => {
+      const card = document.querySelector('[data-mural-card="' + alvo + '"]');
+      if (!card) return;
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario') { _muralAberto[alvo] = true; _muralAtualizar(alvo); }
+    }, 1400);
+    return;
+  }
   navegar('feed');
   // O post só está na tela se já foi carregado no Feed; senão fica no topo.
   setTimeout(() => {

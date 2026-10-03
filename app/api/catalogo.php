@@ -386,6 +386,22 @@ function _donoDoPostFeed(PDO $pdo, int $idpost): int {
     } catch (Throwable $e) { return 0; }
 }
 
+// Dono (aluno) do "alvo" de um comentário: post do Feed ou comentário do MURAL
+// do ranking (tabela própria em treinos.php). O mural segue a mesma lógica do
+// Feed: cada comentário dele é o "post" e as respostas são intus_comentario_pub
+// com alvo_tipo='mural'. 0 = não existe.
+function _donoDoAlvoPub(PDO $pdo, string $alvoTipo, int $alvoId): int {
+    if ($alvoTipo === 'feed_post') return _donoDoPostFeed($pdo, $alvoId);
+    if ($alvoTipo === 'mural') {
+        try {
+            $q = $pdo->prepare("SELECT idatleta FROM intus_ranking_comentario WHERE idcomentario = ? LIMIT 1");
+            $q->execute([$alvoId]);
+            return (int)$q->fetchColumn();
+        } catch (Throwable $e) { return 0; }
+    }
+    return 0;
+}
+
 function jsonBody() {
     $raw = file_get_contents('php://input');
     if (!$raw) return [];
@@ -1865,14 +1881,22 @@ if ($action === 'reacoes') {
             // outro desenho). _criarNotificacao nunca lança.
             if ($tipo === 'feed_post') {
                 _criarNotificacao($pdo, 'aluno', _donoDoPostFeed($pdo, $alvo), 'curtida', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $emoji, true);
+            } elseif ($tipo === 'mural') {
+                // Reação ao comentário do MURAL (o "post" do mural) avisa o autor dele.
+                try {
+                    $stM = $pdo->prepare("SELECT idatleta, texto FROM intus_ranking_comentario WHERE idcomentario = ?");
+                    $stM->execute([$alvo]);
+                    $mur = $stM->fetch(PDO::FETCH_ASSOC);
+                    if ($mur) _criarNotificacao($pdo, 'aluno', (int)$mur['idatleta'], 'curtida', $_autorTipo, $_autorId, $nome, 'mural', $alvo, (string)$mur['texto'], true);
+                } catch (Throwable $e) {}
             } elseif ($tipo === 'feed_comentario') {
                 // Curtida em COMENTÁRIO avisa o autor dele. O alvo da notificação
                 // é o POST (é pra onde o toque leva); o texto é o trecho curtido.
                 try {
-                    $stC = $pdo->prepare("SELECT autor_tipo, autor_id, alvo_id, texto FROM intus_comentario_pub WHERE idcomentario = ? AND alvo_tipo = 'feed_post'");
+                    $stC = $pdo->prepare("SELECT autor_tipo, autor_id, alvo_tipo, alvo_id, texto FROM intus_comentario_pub WHERE idcomentario = ? AND alvo_tipo IN ('feed_post', 'mural')");
                     $stC->execute([$alvo]);
                     $com = $stC->fetch(PDO::FETCH_ASSOC);
-                    if ($com) _criarNotificacao($pdo, $com['autor_tipo'], (int)$com['autor_id'], 'curtida_comentario', $_autorTipo, $_autorId, $nome, 'feed_post', (int)$com['alvo_id'], (string)$com['texto'], true);
+                    if ($com) _criarNotificacao($pdo, $com['autor_tipo'], (int)$com['autor_id'], 'curtida_comentario', $_autorTipo, $_autorId, $nome, $com['alvo_tipo'], (int)$com['alvo_id'], (string)$com['texto'], true);
                 } catch (Throwable $e) {}
             }
             echo json_encode(['ok' => true, 'estado' => 'adicionada']);
@@ -1940,7 +1964,7 @@ if ($action === 'comentarios_pub') {
         // comentário-pai; comentário (ou resposta) também avisa o dono do post,
         // sem repetir a mesma pessoa duas vezes pro mesmo comentário. Qualquer
         // falha aqui é engolida: o comentário já foi gravado.
-        if ($tipo === 'feed_post') {
+        if ($tipo === 'feed_post' || $tipo === 'mural') {
             try {
                 $avisados = [];
                 if ($respostaA > 0) {
@@ -1949,12 +1973,12 @@ if ($action === 'comentarios_pub') {
                     $pai = $stPai->fetch(PDO::FETCH_ASSOC);
                     if ($pai) {
                         $avisados[$pai['autor_tipo'] . ':' . (int)$pai['autor_id']] = 1;
-                        _criarNotificacao($pdo, $pai['autor_tipo'], (int)$pai['autor_id'], 'resposta', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $texto);
+                        _criarNotificacao($pdo, $pai['autor_tipo'], (int)$pai['autor_id'], 'resposta', $_autorTipo, $_autorId, $nome, $tipo, $alvo, $texto);
                     }
                 }
-                $dono = _donoDoPostFeed($pdo, $alvo);
+                $dono = _donoDoAlvoPub($pdo, $tipo, $alvo);
                 if ($dono > 0 && empty($avisados['aluno:' . $dono])) {
-                    _criarNotificacao($pdo, 'aluno', $dono, 'comentario', $_autorTipo, $_autorId, $nome, 'feed_post', $alvo, $texto);
+                    _criarNotificacao($pdo, 'aluno', $dono, 'comentario', $_autorTipo, $_autorId, $nome, $tipo, $alvo, $texto);
                 }
             } catch (Throwable $e) {}
         }
@@ -1972,7 +1996,7 @@ if ($action === 'comentarios_pub') {
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) { echo json_encode(['ok' => true]); exit; }
         $ehDono = ($row['autor_tipo'] === $_autorTipo && (int)$row['autor_id'] === $_autorId);
-        $ehDonoDoPost = ($_ehAluno && $row['alvo_tipo'] === 'feed_post' && _donoDoPostFeed($pdo, (int)$row['alvo_id']) === $_autorId);
+        $ehDonoDoPost = ($_ehAluno && in_array($row['alvo_tipo'], ['feed_post', 'mural'], true) && _donoDoAlvoPub($pdo, $row['alvo_tipo'], (int)$row['alvo_id']) === $_autorId);
         if (!$ehDono && !$ehDonoDoPost && $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
         // Apagar um comentário leva junto as respostas dele e as curtidas de
         // ambos: sem isso as respostas ficariam órfãs (somem da tela mas
@@ -2002,13 +2026,21 @@ if ($action === 'notificacoes') {
     }
 
     if ($method === 'GET') {
-        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ? AND lido = 0");
+        // Notificação de post apagado (ou de comentário do mural apagado) não
+        // aparece nem conta no sino. Filtra em vez de só apagar: cobre também o
+        // que já ficou órfão antes desta regra, sem mexer em nenhuma linha.
+        $filtroAlvo = " AND (alvo_tipo <> 'feed_post' OR EXISTS (SELECT 1 FROM intus_feed_post p WHERE p.idpost = intus_notificacao.alvo_id AND p.ativo = 1))";
+        try {
+            $pdo->query("SELECT 1 FROM intus_ranking_comentario LIMIT 1");
+            $filtroAlvo .= " AND (alvo_tipo <> 'mural' OR EXISTS (SELECT 1 FROM intus_ranking_comentario c WHERE c.idcomentario = intus_notificacao.alvo_id))";
+        } catch (Throwable $e) {}
+        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ? AND lido = 0" . $filtroAlvo);
         $st->execute([$_nTipo, $_nId]);
         $naoLidas = (int)$st->fetchColumn();
         // Polling pede só o número (barato); a lista só quando o sino abre.
         if (!empty($_GET['so_contagem'])) { echo json_encode(['nao_lidas' => $naoLidas]); exit; }
         $st = $pdo->prepare("SELECT idnotificacao, tipo, ator_tipo, ator_id, ator_nome, alvo_tipo, alvo_id, texto, lido, created_at
-                             FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ?
+                             FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ?" . $filtroAlvo . "
                              ORDER BY idnotificacao DESC LIMIT 50");
         $st->execute([$_nTipo, $_nId]);
         $lista = array_map(function ($r) {
@@ -2195,6 +2227,9 @@ if ($action === 'feed_posts') {
         $dono = (int)$st->fetchColumn();
         if ($dono && $dono !== $_autorId && $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
         $pdo->prepare("UPDATE intus_feed_post SET ativo = 0 WHERE idpost = ?")->execute([$id]);
+        // Notificações do post (curtida, comentário, resposta) só fazem sentido
+        // enquanto ele existe; são derivadas, então apagar é seguro.
+        try { $pdo->prepare("DELETE FROM intus_notificacao WHERE alvo_tipo = 'feed_post' AND alvo_id = ?")->execute([$id]); } catch (Throwable $e) {}
         echo json_encode(['ok' => true]);
         exit;
     }

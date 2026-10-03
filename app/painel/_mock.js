@@ -506,20 +506,32 @@ function podeVerGestao() {
 // vê as próprias. Hoje o professor recebe quando respondem a um comentário dele
 // em post do Feed. Só com a tela aberta: consulta a contagem a cada 45 s com a
 // aba visível. Falha de rede ou token local = sino fica quieto, nunca dá erro.
-let _ntfSinoTimer = null, _ntfSinoUltima = null, _ntfSinoVis = false;
+let _ntfSinoTimer = null, _ntfSinoUltima = null, _ntfSinoVis = false, _ntfSinoMsgs = 0;
 function _ntfSinoBase() { return (typeof API_BASE !== 'undefined') ? API_BASE : '/app/api'; }
 function _ntfSinoHeaders() { return { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
 function _ntfSinoEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// n = notificações não lidas; o número do sino soma as mensagens novas de alunos.
 function _ntfSinoPintar(n) {
-  n = Number(n) || 0;
+  n = (Number(n) || 0) + _ntfSinoMsgs;
   const el = document.getElementById('ntfsino-count');
   if (el) { el.style.display = n > 0 ? 'block' : 'none'; el.textContent = n > 9 ? '9+' : String(n); }
   if (_ntfSinoUltima !== null && n > _ntfSinoUltima && typeof showToast === 'function') showToast('🔔 Você tem notificação nova');
   _ntfSinoUltima = n;
 }
 
+// Mensagens não lidas ENVIADAS por alunos (só da carteira de quem pergunta).
+async function _ntfSinoMensagens() {
+  try {
+    const r = await fetch(_ntfSinoBase() + '/mensagens.php?action=nao_lidas&remetente=aluno&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    _ntfSinoMsgs = Number(j && j.count) || 0;
+  } catch (e) {}
+}
+
 async function _ntfSinoContagem() {
+  await _ntfSinoMensagens();
   try {
     const r = await fetch(_ntfSinoBase() + '/catalogo.php?action=notificacoes&so_contagem=1&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
     if (!r.ok) return;
@@ -560,20 +572,32 @@ async function ntfSinoAbrir(ev) {
     if (!r.ok) throw new Error('falhou');
     const j = await r.json();
     const lista = (j && Array.isArray(j.notificacoes)) ? j.notificacoes : [];
-    const icones = { curtida: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣' };
-    const acoes = { curtida: 'curtiu seu post', comentario: 'comentou no seu post', resposta: 'respondeu seu comentário', mencao: 'mencionou você' };
+    await _ntfSinoMensagens();
+    const icones = { curtida: '❤️', curtida_comentario: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣' };
     const temNova = lista.some(n => !n.lido);
     const itens = lista.map(n => {
-      const sub = (n.tipo === 'comentario' || n.tipo === 'resposta') && n.texto ? '<div class="ntfsino-sub">“' + _ntfSinoEsc(n.texto) + '”</div>' : '';
+      const mural = n.alvo_tipo === 'mural';
+      const acoes = {
+        curtida: mural ? 'curtiu seu comentário no mural' : 'curtiu seu post',
+        curtida_comentario: mural ? 'curtiu sua resposta no mural' : 'curtiu seu comentário',
+        comentario: mural ? 'respondeu seu comentário no mural' : 'comentou no seu post',
+        resposta: 'respondeu seu comentário',
+        mencao: 'mencionou você',
+      };
+      const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || (n.tipo === 'curtida' && mural);
+      const sub = comTrecho && n.texto ? '<div class="ntfsino-sub">“' + _ntfSinoEsc(n.texto) + '”</div>' : '';
       return '<div class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
         '<div class="ntfsino-txt"><b>' + _ntfSinoEsc(n.ator_nome || 'Alguém') + '</b> ' + (acoes[n.tipo] || 'interagiu com você') + sub + '</div>' +
         (n.lido ? '' : '<div class="ntfsino-ponto"></div>') + '</div>';
     }).join('');
+    const linhaMsgs = _ntfSinoMsgs > 0
+      ? '<a class="ntfsino-item nova" href="mensagens.html" style="text-decoration:none;"><div class="ntfsino-ico">✉️</div><div class="ntfsino-txt"><b>' + _ntfSinoMsgs + (_ntfSinoMsgs > 1 ? ' mensagens novas' : ' mensagem nova') + '</b> de alunos</div></a>' : '';
     p.innerHTML = '<div class="ntfsino-head"><b>🔔 Notificações</b>' + (temNova ? '<span onclick="ntfSinoMarcarTodas()">Marcar todas como lidas</span>' : '') + '</div>' +
-      (itens || '<div class="ntfsino-vazio">Nada por aqui ainda. Respostas aos seus comentários no Feed aparecem neste lugar.</div>');
+      ((linhaMsgs + itens) || '<div class="ntfsino-vazio">Nada por aqui ainda. Respostas e curtidas nos seus comentários do Feed e do mural aparecem neste lugar.</div>') +
+      '<a class="ntfsino-foot" href="mensagens.html">📬 Ir para a Central do Aluno ›</a>';
     _ntfSinoPintar(j && j.nao_lidas);
   } catch (e) {
-    p.innerHTML = '<div class="ntfsino-head"><b>🔔 Notificações</b></div><div class="ntfsino-vazio">Não consegui carregar agora. Tente de novo em instantes.</div>';
+    p.innerHTML = '<div class="ntfsino-head"><b>🔔 Notificações</b></div><div class="ntfsino-vazio">Não consegui carregar agora. Tente de novo em instantes.</div><a class="ntfsino-foot" href="mensagens.html">📬 Ir para a Central do Aluno ›</a>';
   }
 }
 
@@ -1038,6 +1062,8 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
     .ntfsino-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ntfsino-ponto { width: 8px; height: 8px; border-radius: 50%; background: #ff3b30; flex-shrink: 0; }
     .ntfsino-vazio { padding: 24px 16px; text-align: center; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .ntfsino-foot { display: block; padding: 12px 14px; text-align: center; font-size: 12px; font-weight: 700; color: var(--text); text-decoration: none; position: sticky; bottom: 0; background: var(--bg2); border-top: 1px solid var(--border); border-radius: 0 0 12px 12px; }
+    .ntfsino-foot:hover { color: var(--green); }
     body.theme-light .ntfsino-btn { background: #f0f1f3; color: #374151; border-color: #d1d5db; }
 
     /* ── TABLE WRAP (overflow horizontal no mobile) ── */

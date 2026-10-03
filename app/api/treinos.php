@@ -1133,6 +1133,26 @@ try {
                     $st = $pdo->prepare("DELETE FROM intus_ranking_comentario WHERE idcomentario = ? AND idatleta = ?");
                     $st->execute([$idc, $idat]);
                 }
+                // Apagar o comentário do mural leva as respostas, as curtidas e as
+                // notificações dele (mesma regra do Feed). Só se algo foi apagado.
+                if ($st->rowCount() > 0) {
+                    foreach ([
+                        "DELETE FROM intus_notificacao WHERE alvo_tipo = 'mural' AND alvo_id = ?",
+                        "DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'mural' AND alvo_id = ?",
+                    ] as $_sqlLimpa) {
+                        try { $pdo->prepare($_sqlLimpa)->execute([$idc]); } catch (Throwable $e) {}
+                    }
+                    try {
+                        $stR = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE alvo_tipo = 'mural' AND alvo_id = ?");
+                        $stR->execute([$idc]);
+                        $respIds = array_map('intval', $stR->fetchAll(PDO::FETCH_COLUMN));
+                        if (count($respIds)) {
+                            $phR = implode(',', array_fill(0, count($respIds), '?'));
+                            $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'feed_comentario' AND alvo_id IN ($phR)")->execute($respIds);
+                            $pdo->prepare("DELETE FROM intus_comentario_pub WHERE idcomentario IN ($phR)")->execute($respIds);
+                        }
+                    } catch (Throwable $e) {}
+                }
                 echo json_encode(['ok' => true, 'deleted' => $st->rowCount()]);
                 exit;
             }

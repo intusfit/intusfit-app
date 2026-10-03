@@ -200,6 +200,26 @@ try {
 
     // ===== Não lidas (contagem) =====
     if ($action === 'nao_lidas') {
+        // Com ?remetente=aluno|professor: só as não lidas ENVIADAS por esse lado,
+        // limitadas ao que quem pergunta pode ver (professor: a própria carteira;
+        // aluno: só ele). É o que o sino do painel usa. Sem o parâmetro, o
+        // comportamento de sempre.
+        $remFiltro = (string)($_GET['remetente'] ?? '');
+        if ($remFiltro === 'aluno' || $remFiltro === 'professor') {
+            $escopo = $_allowedIds;
+            if (!empty($_authCtx['is_aluno'])) $escopo = [(int)($_authCtx['idatleta'] ?? $_userId)];
+            $sqlN = "SELECT COUNT(*) FROM intus_mensagem WHERE stlido = 'N' AND remetente = ?";
+            $parN = [$remFiltro];
+            if ($escopo !== null) {
+                if (empty($escopo)) { echo json_encode(['count' => 0]); exit; }
+                $sqlN .= " AND idatleta IN (" . implode(',', array_fill(0, count($escopo), '?')) . ")";
+                $parN = array_merge($parN, $escopo);
+            }
+            $stN = $pdo->prepare($sqlN);
+            $stN->execute($parN);
+            echo json_encode(['count' => (int)$stN->fetchColumn()]);
+            exit;
+        }
         $atleta = (int)($_GET['atleta'] ?? 0);
         if ($atleta > 0) {
             $st = $pdo->prepare("SELECT COUNT(*) FROM intus_mensagem WHERE idatleta = ? AND stlido = 'N'");
