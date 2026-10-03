@@ -1866,47 +1866,61 @@ async function _composePublicar(destino) {
   const legenda = _mencoesCodificar('post', document.getElementById('feed-compose-legenda')?.value?.trim() || _feedComposeCaption.trim() || '');
   const localizacao = _feedComposeLocal.trim() || '';
   const dataUrl = await _composeImagemFinal();
-  const extras = _composeExtras.slice();
-  const hdrs = { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' };
+  const itens = _composeExtras.slice();
+  const capaDeVideo = _composeVideoCapa;
+  const total = _composeTotalMidias();
+  const auth = 'Bearer ' + (localStorage.getItem('mx-token') || '');
+  const hdrs = { 'Authorization': auth, 'Content-Type': 'application/json' };
   // Mostra o motivo de verdade em vez de um erro genérico — sem isso não
   // dava pra saber se era permissão, imagem grande demais ou servidor fora.
   const motivoDe = async (resp) => {
     let motivo = 'erro ' + resp.status;
-    try { const j = await resp.json(); if (j && j.error) motivo = j.error; } catch (e) {}
+    try { const j = await resp.json(); if (j && (j.error || j.erro)) motivo = j.error || j.erro; } catch (e) {}
     return motivo;
   };
-  const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
-    method: 'POST',
-    headers: hdrs,
-    body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, total_midias: 1 + extras.length }),
-  });
-  if (!r.ok) throw new Error(await motivoDe(r));
-  if (extras.length) {
-    // Carrossel: o post fica invisível até a última foto chegar (uma por
-    // requisição, pra nenhuma ficar grande demais). Cada foto tenta 2 vezes.
-    let idpost = 0;
-    try { idpost = Number((await r.json()).idpost) || 0; } catch (e) {}
-    if (!idpost) throw new Error('resposta invalida do servidor');
-    const enviar = async (corpo) => {
-      let ultimo = '';
-      for (let t = 0; t < 2; t++) {
+  if (itens.length) _composeProgresso('Publicando...', 0);
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
+      method: 'POST',
+      headers: hdrs,
+      body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, total_midias: Math.max(1, total), capa_de_video: capaDeVideo ? 1 : 0 }),
+    });
+    if (!r.ok) throw new Error(await motivoDe(r));
+    if (itens.length) {
+      // Carrossel/vídeo: o post fica invisível até o último item chegar (um por
+      // requisição, pra nenhum ficar grande demais). Foto tenta 2 vezes.
+      let idpost = 0;
+      try { idpost = Number((await r.json()).idpost) || 0; } catch (e) {}
+      if (!idpost) throw new Error('resposta invalida do servidor');
+      const enviar = async (corpo) => {
+        let ultimo = '';
+        for (let t = 0; t < 2; t++) {
+          try {
+            const rr = await fetch(API_BASE + '/catalogo.php?action=feed_midia', { method: 'POST', headers: hdrs, body: JSON.stringify(corpo) });
+            if (rr.ok) return;
+            ultimo = await motivoDe(rr);
+          } catch (e) { ultimo = 'sem conexao'; }
+        }
+        throw new Error(ultimo);
+      };
+      for (let i = 0; i < itens.length; i++) {
+        const it = itens[i];
+        const n = i + 1 + (capaDeVideo ? 0 : 1);
+        const rotulo = 'Enviando ' + n + ' de ' + total;
+        _composeProgresso(rotulo, Math.round(i / itens.length * 100));
         try {
-          const rr = await fetch(API_BASE + '/catalogo.php?action=feed_midia', { method: 'POST', headers: hdrs, body: JSON.stringify(corpo) });
-          if (rr.ok) return;
-          ultimo = await motivoDe(rr);
-        } catch (e) { ultimo = 'sem conexao'; }
+          if (it.tipo === 'video') {
+            await _composeEnviarVideo(it, idpost, (capaDeVideo && i === 0) ? dataUrl : it.poster, auth, (p) => _composeProgresso(rotulo + ' (vídeo ' + p + '%)', Math.round((i + p / 100) / itens.length * 100)));
+          } else {
+            await enviar({ idpost: idpost, imagem: await _composeProcessarExtra(it.src) });
+          }
+        } catch (e) { throw new Error('o item ' + n + ' não foi (' + e.message + '). Nada foi publicado, tente de novo'); }
       }
-      throw new Error(ultimo);
-    };
-    for (let i = 0; i < extras.length; i++) {
-      toast('Enviando foto ' + (i + 2) + ' de ' + (extras.length + 1) + '...');
-      const img = await _composeProcessarExtra(extras[i]);
-      try { await enviar({ idpost: idpost, imagem: img }); }
-      catch (e) { throw new Error('a foto ' + (i + 2) + ' não foi (' + e.message + '). Nada foi publicado, tente de novo'); }
+      _composeProgresso('Finalizando...', 100);
+      try { await enviar({ idpost: idpost, finalizar: 1, esperadas: total }); }
+      catch (e) { throw new Error('não consegui finalizar (' + e.message + '). Nada foi publicado, tente de novo'); }
     }
-    try { await enviar({ idpost: idpost, finalizar: 1 }); }
-    catch (e) { throw new Error('não consegui finalizar (' + e.message + '). Nada foi publicado, tente de novo'); }
-  }
+  } finally { _composeProgressoFim(); }
   toast(destino === 'feed' ? 'Publicado no feed! 🎉' : 'Publicado no seu perfil! 🎉');
   _fecharComposeFeed();
   navegar('feed');
@@ -2720,7 +2734,7 @@ function _feedLegendaHtml(post, nomeCurto, isLight) {
 // ── Mídia do post: 1 foto simples ou carrossel (scroll-snap, pontos, contador) ──
 (function () {
   const st = document.createElement('style');
-  st.textContent = '.mcar{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;}' +
+  st.textContent = '.mcar{display:flex;align-items:center;background:#000;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;}' +
     '.mcar::-webkit-scrollbar{display:none;}' +
     '.mcar>*{flex:0 0 100%;width:100%;scroll-snap-align:center;scroll-snap-stop:always;}' +
     '.mcar-seta{display:none;position:absolute;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:18px;line-height:1;cursor:pointer;align-items:center;justify-content:center;z-index:2;}' +
@@ -2732,6 +2746,11 @@ function _midiasDoPost(post) {
   return m.length ? m : [{ tipo: 'imagem', url: post && post.imagem, poster: null }];
 }
 function _midiaItemHtml(m) {
+  if (m.tipo === 'video') {
+    // O <video> não manda Authorization: a URL leva o token público do vídeo.
+    const src = m.token ? API_BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
+    return '<video src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" style="width:100%;display:block;background:#000;max-height:80vh;"></video>';
+  }
   return '<img src="' + esc(m.url) + '" style="width:100%;display:block;" loading="lazy"/>';
 }
 function _carrosselHtml(midias, isLight) {
@@ -2749,6 +2768,7 @@ function _carrosselHtml(midias, isLight) {
 function _carrosselScroll(el) {
   const i = Math.round(el.scrollLeft / (el.clientWidth || 1));
   const wrap = el.parentElement;
+  Array.from(el.children).forEach((ch, k) => { if (k !== i && ch.tagName === 'VIDEO' && !ch.paused) ch.pause(); });
   const c = wrap.querySelector('[data-car-cont]');
   if (c) c.textContent = (i + 1) + '/' + el.children.length;
   const accent = document.body.classList.contains('tema-claro') ? '#5cb800' : '#7FFF00';
@@ -3236,6 +3256,7 @@ function _composeEscolherDestino(d) {
 }
 
 function _composeTrocarFoto() {
+  if (_composeVideoCapa) { _composeExtras.shift(); _composeVideoCapa = false; } // trocar a capa de um post de vídeo = recomeçar sem o vídeo
   _feedComposeImg = null;
   _renderComposeFeed();
   _composeIniciarCamera(); // mesmo padrão de "Tirar outra" de antes: abre a câmera direto
@@ -3332,8 +3353,10 @@ function _renderComposeFeed() {
         // Dimensão escolhida ANTES de tirar/escolher a foto (ver _composeRatioPre)
         // — vale pra prévia ao vivo da câmera e vira o ponto de partida do
         // recorte depois de capturar, sem perguntar a mesma coisa duas vezes.
-        '<div style="display:flex;gap:6px;margin-top:8px;">' + ratioBtnsPre + '</div>') +
+        '<div style="display:flex;gap:6px;margin-top:8px;">' + ratioBtnsPre + '</div>' +
+        '<button onclick="_composeEscolherVideoCapa()" style="width:100%;margin-top:8px;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🎬 Postar um vídeo (até 60 s)</button>') +
       (_feedComposeImg ? _composeExtrasHtml(cardBg, borda, txt, muted) : '') +
+      '<input type="file" id="feed-compose-file-video-capa" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" style="display:none;" onchange="_composeVideoCapaEscolhido(this)"/>' +
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
 
       // ── Informações do treino/cardio ──────────────────────────────────
@@ -3679,6 +3702,7 @@ function _edCancelar() {
   document.getElementById('feed-editor-overlay')?.remove();
   _feedEdImg = null;
   _feedEdPointers.clear(); _feedEdGesto = null;
+  if (_composeVideoCapaPend) { _composeExtras.shift(); _composeVideoCapaPend = false; } // desistiu da capa: o vídeo sai junto
   // Se era a primeira foto (ainda sem nenhuma publicável), volta pro
   // composer vazio em vez de deixar a tela sem overlay nenhum.
   if (!_feedComposeImg) _renderComposeFeed();
@@ -3799,15 +3823,24 @@ function _edConcluir() {
   _feedComposeImg = canvas.toDataURL('image/jpeg', 0.94);
   _composeImgRatio = outH / outW;
   _composeFiltroCss = filtroCss;
+  if (_composeVideoCapaPend) { _composeVideoCapa = true; _composeVideoCapaPend = false; }
   document.getElementById('feed-editor-overlay')?.remove();
   _feedEdImg = null;
   _feedEdPointers.clear(); _feedEdGesto = null;
   _renderComposeFeed();
 }
 
-function _fecharComposeFeed() { _pararCamera(); _composeExtras = []; document.getElementById('feed-compose-overlay')?.remove(); }
+function _fecharComposeFeed() { _pararCamera(); _composeExtras = []; _composeVideoCapa = false; _composeVideoCapaPend = false; document.getElementById('feed-compose-overlay')?.remove(); }
 
-// ── Carrossel no composer: fotos extras ────────────────────────────────────
+// ── Carrossel no composer: fotos e vídeos extras ────────────────────────────
+// Itens: {tipo:'imagem', src} | {tipo:'video', file, mime, dur, poster}.
+// Post de vídeo: a "capa" (_feedComposeImg) é um quadro do 1º vídeo, que é o 1º
+// item da lista (_composeVideoCapa) e não gera uma foto extra no carrossel.
+const COMPOSE_VIDEO_MAX_SEG = 60;
+const COMPOSE_VIDEO_MAX_MB = 100;
+let _composeVideoCapa = false;
+let _composeVideoCapaPend = false; // vídeo escolhido, capa ainda no editor
+function _composeTotalMidias() { return (_composeVideoCapa ? 0 : 1) + _composeExtras.length; }
 function _composeRerender() {
   const sc = document.getElementById('feed-compose-overlay')?.scrollTop || 0;
   _renderComposeFeed();
@@ -3815,24 +3848,32 @@ function _composeRerender() {
   if (ov) ov.scrollTop = sc;
 }
 function _composeExtrasHtml(cardBg, borda, txt, muted) {
-  const total = 1 + _composeExtras.length;
+  const total = _composeTotalMidias();
   const thumb = 'width:58px;height:72px;border-radius:9px;object-fit:cover;display:block;';
   let h = '<div style="margin-top:12px;">' +
-    '<div style="font-size:12px;font-weight:700;color:' + txt + ';margin-bottom:6px;">Carrossel <span style="color:' + muted + ';font-weight:600;">· ' + total + ' de ' + COMPOSE_MAX_MIDIAS + ' fotos</span></div>' +
+    '<div style="font-size:12px;font-weight:700;color:' + txt + ';margin-bottom:6px;">' + (_composeVideoCapa && total === 1 ? 'Vídeo' : 'Carrossel') + ' <span style="color:' + muted + ';font-weight:600;">· ' + total + ' de ' + COMPOSE_MAX_MIDIAS + '</span></div>' +
     '<div style="display:flex;gap:8px;overflow-x:auto;padding:2px 0 4px;">' +
-      '<div style="position:relative;flex-shrink:0;"><img src="' + _feedComposeImg + '" style="' + thumb + 'border:2px solid #7FFF00;"/><span style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);color:#fff;border-radius:0 0 7px 7px;padding:1px 0;">CAPA</span></div>';
-  _composeExtras.forEach((src, i) => {
-    h += '<div style="position:relative;flex-shrink:0;"><img src="' + src + '" style="' + thumb + 'border:1px solid ' + borda + ';"/>' +
+      (_composeVideoCapa ? '' : '<div style="position:relative;flex-shrink:0;"><img src="' + _feedComposeImg + '" style="' + thumb + 'border:2px solid #7FFF00;"/><span style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);color:#fff;border-radius:0 0 7px 7px;padding:1px 0;">CAPA</span></div>');
+  _composeExtras.forEach((it, i) => {
+    const eVideo = it.tipo === 'video';
+    const src = eVideo ? it.poster : it.src;
+    h += '<div style="position:relative;flex-shrink:0;">' +
+      (src ? '<img src="' + src + '" style="' + thumb + 'border:1px solid ' + borda + ';"/>' : '<div style="' + thumb + 'background:#222;border:1px solid ' + borda + ';"></div>') +
+      (eVideo ? '<span style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);color:#fff;border-radius:0 0 7px 7px;padding:1px 0;">▶ ' + Math.round(it.dur) + 's</span>' : '') +
       '<span onclick="_composeExtraRemover(' + i + ')" style="position:absolute;top:-5px;right:-5px;width:20px;height:20px;border-radius:50%;background:#222;border:1.5px solid #fff;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>';
   });
   if (total < COMPOSE_MAX_MIDIAS) {
-    h += '<div onclick="document.getElementById(\'feed-compose-file-extra\').click()" style="flex-shrink:0;width:58px;height:72px;border-radius:9px;border:1.5px dashed ' + borda + ';background:' + cardBg + ';color:' + muted + ';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;font-weight:700;cursor:pointer;"><span style="font-size:20px;line-height:1;">+</span>foto</div>';
+    h += '<div onclick="document.getElementById(\'feed-compose-file-extra\').click()" style="flex-shrink:0;width:58px;height:72px;border-radius:9px;border:1.5px dashed ' + borda + ';background:' + cardBg + ';color:' + muted + ';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;font-weight:700;cursor:pointer;text-align:center;"><span style="font-size:20px;line-height:1;">+</span>foto ou vídeo</div>';
   }
   h += '</div></div>' +
-    '<input type="file" id="feed-compose-file-extra" accept="image/*" multiple style="display:none;" onchange="_composeExtraEscolhidas(this)"/>';
+    '<input type="file" id="feed-compose-file-extra" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" multiple style="display:none;" onchange="_composeExtraEscolhidas(this)"/>';
   return h;
 }
-function _composeExtraRemover(i) { _composeExtras.splice(i, 1); _composeRerender(); }
+function _composeExtraRemover(i) {
+  if (_composeVideoCapa && i === 0) _composeVideoCapa = false;
+  _composeExtras.splice(i, 1);
+  _composeRerender();
+}
 
 // Lê um arquivo de imagem e devolve um dataURL JPEG com o lado maior limitado.
 function _composeReduzirImagem(src, maxLado, qualidade) {
@@ -3851,21 +3892,89 @@ function _composeReduzirImagem(src, maxLado, qualidade) {
     img.src = src;
   });
 }
+
+// Duração e um quadro (poster) do vídeo, lidos no próprio aparelho.
+function _composeVideoInfo(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'auto'; v.muted = true; v.playsInline = true;
+    let feito = false;
+    const fim = (err, val) => { if (feito) return; feito = true; clearTimeout(t); v.removeAttribute('src'); try { v.load(); } catch (e) {} URL.revokeObjectURL(url); err ? reject(err) : resolve(val); };
+    const t = setTimeout(() => fim(new Error('tempo esgotado')), 15000);
+    v.onerror = () => fim(new Error('video ilegivel'));
+    v.onloadedmetadata = () => {
+      if (!isFinite(v.duration) || v.duration <= 0) { fim(new Error('duracao desconhecida')); return; }
+      try { v.currentTime = Math.min(0.2, v.duration / 2); } catch (e) {}
+    };
+    v.onseeked = () => {
+      let poster = '';
+      try {
+        const f = Math.min(1, 1080 / Math.max(v.videoWidth || 1, v.videoHeight || 1));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round((v.videoWidth || 1) * f)); c.height = Math.max(1, Math.round((v.videoHeight || 1) * f));
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        poster = c.toDataURL('image/jpeg', 0.85);
+      } catch (e) {}
+      fim(null, { dur: v.duration, poster: poster });
+    };
+    v.src = url;
+  });
+}
+function _composeVideoMime(f) {
+  const t = (f.type || '').toLowerCase();
+  if (t === 'video/mp4' || t === 'video/quicktime' || t === 'video/webm') return t;
+  const ext = ((f.name || '').split('.').pop() || '').toLowerCase();
+  return { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm' }[ext] || '';
+}
+async function _composeLerVideo(f, exigirPoster) {
+  const mime = _composeVideoMime(f);
+  if (!mime) { toast('Formato de vídeo não suportado. Use MP4, MOV ou WEBM.'); return null; }
+  if (f.size > COMPOSE_VIDEO_MAX_MB * 1024 * 1024) { toast('Vídeo grande demais (máximo ' + COMPOSE_VIDEO_MAX_MB + ' MB).'); return null; }
+  let info = null;
+  try { info = await _composeVideoInfo(f); } catch (e) {}
+  if (!info) { toast('Não consegui ler esse vídeo neste aparelho.'); return null; }
+  if (info.dur > COMPOSE_VIDEO_MAX_SEG + 0.5) { toast('O vídeo tem mais de ' + COMPOSE_VIDEO_MAX_SEG + ' segundos. Escolha um mais curto.'); return null; }
+  if (exigirPoster && !info.poster) { toast('Não consegui gerar a capa desse vídeo.'); return null; }
+  return { tipo: 'video', file: f, mime: mime, dur: info.dur, poster: info.poster };
+}
+
 async function _composeExtraEscolhidas(input) {
   const arquivos = Array.from(input.files || []);
   input.value = '';
-  const vagas = COMPOSE_MAX_MIDIAS - 1 - _composeExtras.length;
   if (!arquivos.length) return;
-  if (arquivos.length > vagas) toast('Limite de ' + COMPOSE_MAX_MIDIAS + ' fotos por post.');
+  const vagas = COMPOSE_MAX_MIDIAS - _composeTotalMidias();
+  if (arquivos.length > vagas) toast('Limite de ' + COMPOSE_MAX_MIDIAS + ' itens por post.');
   for (const f of arquivos.slice(0, Math.max(0, vagas))) {
-    if (!/^image\//.test(f.type)) continue;
-    const url = URL.createObjectURL(f);
-    try { _composeExtras.push(await _composeReduzirImagem(url, 1920, 0.9)); }
-    catch (e) { toast('Não consegui ler uma das fotos.'); }
-    URL.revokeObjectURL(url);
+    if (/^image\//.test(f.type)) {
+      const url = URL.createObjectURL(f);
+      try { _composeExtras.push({ tipo: 'imagem', src: await _composeReduzirImagem(url, 1920, 0.9) }); }
+      catch (e) { toast('Não consegui ler uma das fotos.'); }
+      URL.revokeObjectURL(url);
+    } else if (/^video\//.test(f.type) || _composeVideoMime(f)) {
+      if (_composeExtras.filter(x => x.tipo === 'video').length >= 3) { toast('Limite de 3 vídeos por post.'); continue; }
+      const it = await _composeLerVideo(f, false);
+      if (it) _composeExtras.push(it);
+    }
   }
   _composeRerender();
 }
+
+// Post só de vídeo: escolhe o vídeo, usa um quadro dele como capa (passa pelo editor de recorte/filtro).
+function _composeEscolherVideoCapa() { document.getElementById('feed-compose-file-video-capa')?.click(); }
+async function _composeVideoCapaEscolhido(input) {
+  const f = input.files && input.files[0];
+  input.value = '';
+  if (!f) return;
+  toast('Lendo o vídeo...');
+  const it = await _composeLerVideo(f, true);
+  if (!it) return;
+  _pararCamera();
+  _composeExtras.unshift(it);
+  _composeVideoCapaPend = true;
+  _abrirEditorFotoFeed(it.poster);
+}
+
 // Recorta a foto extra (centro) na MESMA proporção da capa, aplica o mesmo
 // filtro e a marca d'água — devolve o dataURL final que vai pro servidor.
 async function _composeProcessarExtra(src) {
@@ -3884,6 +3993,58 @@ async function _composeProcessarExtra(src) {
   x.drawImage(img, sx, sy, cw, ch, 0, 0, ow, oh);
   if (_composeFiltroCss) _aplicarFiltroNoContexto(x, ow, oh, _composeFiltroCss);
   return _compositarLogoNaFoto(c.toDataURL('image/jpeg', 0.92));
+}
+
+// Janela de progresso do envio (carrossel/vídeo): bloqueia toques até terminar.
+function _composeProgresso(txt, pct) {
+  let el = document.getElementById('feed-upl');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'feed-upl';
+    el.style.cssText = 'position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px;';
+    el.innerHTML = '<div style="background:#161616;border:1px solid #2a2a2a;border-radius:16px;padding:20px;width:100%;max-width:300px;text-align:center;color:#f0f0f0;">' +
+      '<div data-t style="font-size:14px;font-weight:800;margin-bottom:12px;"></div>' +
+      '<div style="height:8px;border-radius:6px;background:#2a2a2a;overflow:hidden;"><div data-b style="height:100%;width:0;background:#7FFF00;transition:width .2s;"></div></div>' +
+      '<div style="font-size:11px;color:#888;margin-top:10px;">Não feche o app até terminar.</div></div>';
+    document.body.appendChild(el);
+  }
+  el.querySelector('[data-t]').textContent = txt;
+  if (pct != null) el.querySelector('[data-b]').style.width = pct + '%';
+}
+function _composeProgressoFim() { document.getElementById('feed-upl')?.remove(); }
+
+// Sobe um vídeo em pedaços (midia.php repassa cada um ao Google Drive).
+async function _composeEnviarVideo(it, idpost, poster, auth, onPct) {
+  const hAuth = { 'Authorization': auth };
+  const r0 = await fetch(API_BASE + '/midia.php?action=iniciar', {
+    method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, hAuth),
+    body: JSON.stringify({ dono_tipo: 'feed_post', dono_id: idpost, mime: it.mime, tamanho: it.file.size, duracao_seg: Math.ceil(it.dur), poster: poster }),
+  });
+  const d0 = await r0.json().catch(() => ({}));
+  if (!r0.ok || !d0.ok) throw new Error(d0.erro || ('erro ' + r0.status));
+  const parte = d0.parte_bytes || 4 * 1024 * 1024;
+  const total = it.file.size;
+  let pos = 0, falhas = 0, semAvanco = 0;
+  while (pos < total) {
+    const blob = it.file.slice(pos, Math.min(total, pos + parte));
+    let d;
+    try {
+      const rr = await fetch(API_BASE + '/midia.php?action=enviar_parte&id=' + d0.id + '&inicio=' + pos, { method: 'POST', headers: hAuth, body: blob });
+      d = await rr.json().catch(() => ({}));
+      if (!rr.ok || !d.ok) throw new Error(d.erro || ('erro ' + rr.status));
+    } catch (e) {
+      if (++falhas > 4) throw e;
+      await new Promise(res => setTimeout(res, 1500 * falhas));
+      continue;
+    }
+    falhas = 0;
+    const novo = Number(d.recebido) || pos;
+    if (novo <= pos && !d.concluido) { if (++semAvanco > 3) throw new Error('o envio não avança'); } else semAvanco = 0;
+    pos = novo; // o servidor diz o próximo byte esperado (também no reenvio fora de ordem)
+    if (onPct) onPct(Math.min(99, Math.floor(pos / total * 100)));
+    if (d.concluido) break;
+  }
+  if (onPct) onPct(100);
 }
 
 // ── Seletor de localização do post: mapa + busca, com opção de digitar ─────
@@ -14024,7 +14185,7 @@ async function _carregarPerfilPosts() {
     return;
   }
   el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;">' +
-    posts.map(p => '<div onclick="navegar(\'feed\')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + (_midiasDoPost(p).length > 1 ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">⧉</span>' : '') + '</div>').join('') +
+    posts.map(p => '<div onclick="navegar(\'feed\')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + (_midiasDoPost(p).length > 1 || _midiasDoPost(p).some(x => x.tipo === 'video') ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + (_midiasDoPost(p).some(x => x.tipo === 'video') ? '▶' : '⧉') + '</span>' : '') + '</div>').join('') +
   '</div>';
 }
 

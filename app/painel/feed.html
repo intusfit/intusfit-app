@@ -42,7 +42,7 @@
     #fd-dd .it:hover { background: var(--bg3); }
     #fd-dd .it small { display: block; font-size: 10.5px; color: var(--text-muted); }
     .mcar-wrap { position: relative; }
-    .mcar { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+    .mcar { display: flex; align-items: center; background: #000; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
     .mcar::-webkit-scrollbar { display: none; }
     .mcar > * { flex: 0 0 100%; width: 100%; scroll-snap-align: center; scroll-snap-stop: always; }
     .mcar-seta { display: none; position: absolute; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 50%; border: none; background: rgba(0,0,0,.5); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; align-items: center; justify-content: center; z-index: 2; }
@@ -64,7 +64,13 @@ function midiasDoPost(p) {
   const m = Array.isArray(p.midias) ? p.midias.filter(x => x && x.url) : [];
   return m.length ? m : [{ tipo: 'imagem', url: p.imagem }];
 }
-function midiaItem(m) { return '<img class="fd-foto" src="' + esc(m.url) + '" loading="lazy" alt=""/>'; }
+function midiaItem(m) {
+  if (m.tipo === 'video') {
+    const src = m.token ? BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
+    return '<video class="fd-foto" src="' + esc(src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : '') + ' controls playsinline preload="none" style="background:#000;max-height:80vh;"></video>';
+  }
+  return '<img class="fd-foto" src="' + esc(m.url) + '" loading="lazy" alt=""/>';
+}
 function carrossel(midias) {
   if (midias.length <= 1) return midiaItem(midias[0]);
   return '<div class="mcar-wrap"><div class="mcar" onscroll="carScroll(this)">' + midias.map(midiaItem).join('') + '</div>' +
@@ -78,6 +84,7 @@ function carrossel(midias) {
 function carScroll(el) {
   const i = Math.round(el.scrollLeft / (el.clientWidth || 1));
   const w = el.parentElement;
+  Array.from(el.children).forEach((ch, k) => { if (k !== i && ch.tagName === 'VIDEO' && !ch.paused) ch.pause(); });
   const c = w.querySelector('[data-car-cont]'); if (c) c.textContent = (i + 1) + '/' + el.children.length;
   w.querySelectorAll('[data-car-dot]').forEach((d, k) => { d.style.background = k === i ? '#7FFF00' : 'rgba(255,255,255,.55)'; });
 }

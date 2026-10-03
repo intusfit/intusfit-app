@@ -2305,7 +2305,9 @@ if ($action === 'feed_posts') {
         // Carrossel: o post nasce invisível (ativo=2) e só aparece no "finalizar",
         // depois que todas as fotos extras chegaram (uma por requisição).
         $totalMidias = max(1, min(10, (int)($b['total_midias'] ?? 1)));
-        $ativoNovo = $totalMidias > 1 ? 2 : 1;
+        // Post de vídeo: a "imagem" é só a capa do vídeo; o vídeo sobe depois (midia.php).
+        $capaDeVideo = !empty($b['capa_de_video']);
+        $ativoNovo = ($totalMidias > 1 || $capaDeVideo) ? 2 : 1;
         // Post preso pela metade há mais de 24 h (celular sem sinal no meio do envio) é descartado.
         try { $pdo->exec("UPDATE intus_feed_post SET ativo = 0 WHERE ativo = 2 AND created_at < (NOW() - INTERVAL 1 DAY)"); } catch (Throwable $e) {}
 
@@ -2341,9 +2343,11 @@ if ($action === 'feed_posts') {
             $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino, localizacao, ativo) VALUES (?,?,?,?,?,?)");
             $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino, $localizacao !== '' ? $localizacao : null, $ativoNovo]);
             $novoPost = (int)$pdo->lastInsertId();
-            try {
-                $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('feed_post', ?, 0, 'imagem', ?)")->execute([$novoPost, $url]);
-            } catch (Throwable $e) {}
+            if (!$capaDeVideo) {
+                try {
+                    $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('feed_post', ?, 0, 'imagem', ?)")->execute([$novoPost, $url]);
+                } catch (Throwable $e) {}
+            }
             // @menções na legenda avisam as pessoas marcadas (não em post só do perfil).
             // Em carrossel isso espera o "finalizar", quando o post de fato aparece.
             if ($ativoNovo === 1 && $legenda !== '' && $destino === 'feed') _notificarMencoes($pdo, $legenda, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $novoPost);
@@ -2363,6 +2367,16 @@ if ($action === 'feed_posts') {
         $dono = (int)$st->fetchColumn();
         if ($dono && $dono !== $_autorId && $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
         $pdo->prepare("UPDATE intus_feed_post SET ativo = 0 WHERE idpost = ?")->execute([$id]);
+        // Vídeos do post saem do Drive junto (a linha fica, sem arquivo, com status 'apagado').
+        try {
+            $sv = $pdo->prepare("SELECT idmidia, drive_id FROM intus_midia WHERE dono_tipo = 'feed_post' AND dono_id = ? AND tipo = 'video' AND drive_id IS NOT NULL");
+            $sv->execute([$id]);
+            foreach ($sv->fetchAll(PDO::FETCH_ASSOC) as $vv) {
+                $ok = false;
+                try { if (function_exists('gdriveExcluirArquivo')) $ok = gdriveExcluirArquivo($vv['drive_id']); } catch (Throwable $e) {}
+                if ($ok) $pdo->prepare("UPDATE intus_midia SET status = 'apagado', drive_id = NULL WHERE idmidia = ?")->execute([(int)$vv['idmidia']]);
+            }
+        } catch (Throwable $e) {}
         // Notificações do post (curtida, comentário, resposta) só fazem sentido
         // enquanto ele existe; são derivadas, então apagar é seguro.
         try { $pdo->prepare("DELETE FROM intus_notificacao WHERE alvo_tipo = 'feed_post' AND alvo_id = ?")->execute([$id]); } catch (Throwable $e) {}
@@ -2389,6 +2403,12 @@ if ($action === 'feed_midia' && $method === 'POST') {
     $qtd = (int)$st->fetchColumn();
 
     if (!empty($b['finalizar'])) {
+        // Só publica quando tudo que o aparelho disse que ia mandar já está pronto.
+        $esperadas = max(0, min(10, (int)($b['esperadas'] ?? 0)));
+        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_midia WHERE dono_tipo = 'feed_post' AND dono_id = ? AND status = 'pronto'");
+        $st->execute([$idpost]);
+        $prontas = (int)$st->fetchColumn();
+        if ($prontas < $esperadas) { http_response_code(409); echo json_encode(['error' => 'midias incompletas', 'prontas' => $prontas]); exit; }
         if ((int)$post['ativo'] === 2) {
             $pdo->prepare("UPDATE intus_feed_post SET ativo = 1 WHERE idpost = ? AND ativo = 2")->execute([$idpost]);
             $leg = (string)($post['legenda'] ?? '');
