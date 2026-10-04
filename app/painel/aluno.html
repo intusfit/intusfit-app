@@ -10884,7 +10884,89 @@ function _perfilRankingStats(id) {
   const atividadesSemana = sessoes.filter(s => Number(s.idatleta) === alvo && s.dt >= domSem).sort((a,b) => b.dt - a.dt);
   const treinosSemana = atividadesSemana.filter(s => s.tipo === 'musculacao').length;
   const cardiosSemana = atividadesSemana.filter(s => s.tipo === 'cardio').length;
-  return { top5week, top10month, desdeLabel, treinosSemana, cardiosSemana, atividadesSemana, nome: (data.atletas || {})[String(id)] || 'Membro' };
+
+  // ── SEMANA PASSADA (Top 5): histórico aberto por mais 3 dias ────────────
+  // Quem fechou a semana entre os 5 primeiros mantém as atividades daquela
+  // semana visíveis para os outros alunos por 3 dias depois do fechamento
+  // (sábado): domingo, segunda e terça. Serve para a turma ver o que levou
+  // àqueles pontos. Depois disso o perfil volta a mostrar só a semana atual.
+  let anterior = null;
+  const domPrev = new Date(domSem); domPrev.setDate(domPrev.getDate() - 7);
+  const sabPrev = new Date(domSem); sabPrev.setDate(sabPrev.getDate() - 1);
+  const diasDesdeFechamento = Math.round((hoje - sabPrev) / 86400000);   // domingo = 1
+  if (diasDesdeFechamento >= 1 && diasDesdeFechamento <= 3 && domPrev >= INICIO) {
+    const listaPrev = sessoes.filter(s => s.dt >= domPrev && s.dt <= sabPrev);
+    const agPrev = _agregarPontosPorAtleta(listaPrev);
+    const rankPrev = posicionarDenso(Object.values(agPrev).map(a => ({ id: a.id, pts: a.total })).sort((x, y) => y.pts - x.pts));
+    const euPrev = rankPrev.find(x => x.id === alvo);
+    if (euPrev && euPrev.pos <= 5) {
+      const expira = new Date(sabPrev); expira.setDate(expira.getDate() + 3);
+      anterior = {
+        pos: euPrev.pos, domPrev, sabPrev, expira,
+        atividades: listaPrev.filter(s => Number(s.idatleta) === alvo).sort((a, b) => b.dt - a.dt),
+      };
+    }
+  }
+  return { top5week, top10month, desdeLabel, treinosSemana, cardiosSemana, atividadesSemana, anterior, nome: (data.atletas || {})[String(id)] || 'Membro' };
+}
+
+function _fmtDiaSemana(d) {
+  return d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+}
+
+// Bloco "Semana passada" do perfil: só existe para quem fechou a semana no Top 5
+// e só por 3 dias. Mostra os pontos daquela semana separados dos da semana atual
+// (que seguem no bloco de cima), com a lista das atividades que os geraram.
+function _perfilSemanaAnteriorHtml(id, st, isLight, isMe, nome) {
+  const a = st.anterior;
+  if (!a) return '';
+  const accent = isLight ? '#5cb800' : '#7FFF00';
+  const ink = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#666' : '#999';
+  const atv = a.atividades;
+  const ag = _agregarPontosPorAtleta(atv.map(x => ({ ...x, idatleta: id })));
+  const m = ag[Number(id)] || { base: 0, bonus: 0, total: 0 };
+  const base = Math.round(m.base * 10) / 10;
+  const bonus = Math.round(m.bonus * 10) / 10;
+  const total = Math.round(m.total * 10) / 10;
+  const musDias = API.diasComMusculacaoRank(atv).length;
+  const fmt = (d) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const primeiro = esc((nome || 'o membro').split(' ')[0]);
+  const linhas = atv.length ? atv.map(c => {
+    const isCardio = c.tipo === 'cardio';
+    const min = Math.round((c.duracao_seg || 0) / 60);
+    const txt = isCardio
+      ? '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min'))
+      : '💪 Treino' + (c.divisao && c.divisao !== 'C' ? ' ' + esc(String(c.divisao)) : '') + (min ? ' · ' + min + 'min' : '');
+    const col = isCardio ? (isLight ? '#0e7490' : '#67e8f9') : (isLight ? '#3f6212' : '#a3e635');
+    const bgc = isCardio ? (isLight ? '#f0fbff' : '#0c1a1f') : (isLight ? '#f4fce3' : '#141a08');
+    const bdc = isCardio ? (isLight ? '#bae6fd' : '#164e63') : (isLight ? '#d9f99d' : '#365314');
+    const p = Math.round(pontosSessaoRank(c, atv));
+    const dtF = c.dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+    return '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:' + bgc + ';border:1px solid ' + bdc + ';border-radius:10px;">' +
+      '<span style="font-size:12.5px;color:' + col + ';flex:1;min-width:0;">' + txt + '</span>' +
+      (!c.nao_contar && p > 0 ? '<span style="font-size:11.5px;font-weight:800;color:' + col + ';flex-shrink:0;">+' + p + ' pts</span>' : '') +
+      '<span style="font-size:11px;color:' + (isLight ? '#999' : '#666') + ';flex-shrink:0;text-transform:capitalize;">' + dtF + '</span>' +
+    '</div>';
+  }).join('') : '<div style="text-align:center;padding:14px;color:' + (isLight ? '#aaa' : '#555') + ';font-size:12px;">Nenhuma atividade registrada naquela semana.</div>';
+  return '<div style="margin-top:20px;padding:14px;border-radius:16px;border:1.5px solid ' + (isLight ? 'rgba(92,184,0,.45)' : 'rgba(127,255,0,.3)') + ';background:' + (isLight ? 'rgba(92,184,0,.06)' : 'rgba(127,255,0,.04)') + ';">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+      '<span style="font-size:12px;font-weight:800;color:' + ink + ';text-transform:uppercase;letter-spacing:.5px;">🏆 Semana passada</span>' +
+      '<span style="font-size:11px;font-weight:800;color:' + accent + ';background:' + (isLight ? 'rgba(92,184,0,.12)' : 'rgba(127,255,0,.1)') + ';padding:3px 9px;border-radius:8px;white-space:nowrap;">' + a.pos + 'º lugar no Top 5</span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:' + muted + ';margin-top:2px;">' + fmt(a.domPrev) + ' a ' + fmt(a.sabPrev) + '</div>' +
+    '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:12px;">' +
+      '<span style="font-size:12px;font-weight:700;color:' + muted + ';">Pontos da semana passada</span>' +
+      '<span style="font-size:22px;font-weight:900;color:' + accent + ';line-height:1;">' + total.toFixed(0) + '</span>' +
+    '</div>' +
+    '<div style="font-size:11.5px;color:' + muted + ';line-height:1.6;margin-top:4px;">' +
+      '💪🏃 ' + base.toFixed(0) + ' pts de atividades' + (bonus > 0 ? '<br>🔥 +' + bonus + ' pts de bônus (' + musDias + ' dias com musculação na semana)' : '') +
+    '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">' + linhas + '</div>' +
+    '<div style="font-size:10.5px;color:' + muted + ';line-height:1.55;margin-top:12px;padding:8px 10px;background:' + (isLight ? '#fff' : '#161616') + ';border-radius:9px;">' +
+      'ℹ️ Esta semana já fechou. Por ' + (isMe ? 'você ter ficado' : primeiro + ' ter ficado') + ' no Top 5, o histórico daquela semana fica visível para os outros alunos até <b>' + _fmtDiaSemana(a.expira) + '</b>, para todos verem o que levou a esse resultado. Esses pontos são da semana passada e não entram na soma da semana atual, que aparece separada acima.' +
+    '</div>' +
+  '</div>';
 }
 
 function _perfStat(icon, val, label, isLight, color, nota) {
@@ -11047,7 +11129,7 @@ function abrirPerfilRanking(id) {
   const pontosSemHtml =
     '<div style="background:' + (isLight?'rgba(92,184,0,.07)':'rgba(127,255,0,.05)') + ';border:1px solid ' + (isLight?'rgba(92,184,0,.2)':'rgba(127,255,0,.13)') + ';border-radius:14px;padding:14px 16px;margin:4px 0 18px;">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:' + (_bonusFreqSem>0||_bonusCardioSem>0?'8px':'0') + ';">' +
-        '<span style="font-size:12px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';text-transform:uppercase;letter-spacing:.5px;">Pontos da semana</span>' +
+        '<span style="font-size:12px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';text-transform:uppercase;letter-spacing:.5px;">Pontos desta semana</span>' +
         '<span style="font-size:20px;font-weight:900;color:' + _accentP + ';line-height:1;">' + _totalSem.toFixed(0) + '</span>' +
       '</div>' +
       '<div style="font-size:11.5px;color:' + (isLight?'#666':'#999') + ';line-height:1.6;text-wrap:balance;">' +
@@ -11113,9 +11195,10 @@ function abrirPerfilRanking(id) {
         // dura, e a lista de atividades é o dia a dia. Quem abre o perfil de
         // alguém quer ver primeiro o que a pessoa já conquistou.
         _medalhasPerfilHtml(id, isLight) +
-        '<div style="font-size:11px;font-weight:800;color:' + (isLight?'#888':'#888') + ';text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px;">Atividades de cardio e musculação da semana</div>' +
+        '<div style="font-size:11px;font-weight:800;color:' + (isLight?'#888':'#888') + ';text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px;">Atividades de cardio e musculação desta semana (em andamento)</div>' +
         '<div style="display:flex;flex-direction:column;gap:6px;">' + cardHtml + '</div>' +
-        '<div style="font-size:10.5px;color:' + (isLight?'#999':'#666') + ';line-height:1.5;margin-top:10px;padding:8px 10px;background:' + (isLight?'#f6f6f6':'#161616') + ';border-radius:9px;">🔒 ' + (isMe ? 'Seu <b>histórico completo</b> de treinos só você vê. Os outros membros enxergam apenas as suas atividades <b>desta semana</b>.' : 'Aqui aparecem só as atividades <b>desta semana</b>. O histórico completo de treinos é privado, só ' + esc((nome||'o membro').split(' ')[0]) + ' vê o próprio.') + '</div>' +
+        _perfilSemanaAnteriorHtml(id, st, isLight, isMe, nome) +
+        '<div style="font-size:10.5px;color:' + (isLight?'#999':'#666') + ';line-height:1.5;margin-top:10px;padding:8px 10px;background:' + (isLight?'#f6f6f6':'#161616') + ';border-radius:9px;">🔒 ' + (isMe ? 'Seu <b>histórico completo</b> de treinos só você vê. Os outros membros enxergam apenas as suas atividades <b>desta semana</b>' + (st.anterior ? ' e, por você ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '.' : 'Aqui aparecem as atividades <b>desta semana</b>' + (st.anterior ? ' e, por ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '. O histórico completo de treinos é privado, só ' + esc((nome||'o membro').split(' ')[0]) + ' vê o próprio.') + '</div>' +
         _conquistasStripHtml(id, isLight) +
         '<div id="perfil-rk-resultados"></div>' +
         '<button onclick="document.getElementById(\'overlay-perfil-rk\').remove();" style="margin-top:22px;width:100%;padding:13px;border-radius:12px;border:none;background:' + (isLight?'#f0f0f0':'#222') + ';color:' + (isLight?'#333':'#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>' +
