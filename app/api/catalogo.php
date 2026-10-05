@@ -342,10 +342,18 @@ function ensureCatalogoTables(PDO $pdo) {
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_alimento_personalizado', ['description', 'category', 'medida_padrao']);
 }
-try { ensureCatalogoTables($pdo); } catch (Throwable $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'bootstrap falhou', 'detalhe' => _intusLogErro($e)]);
-    exit;
+// A checagem de tabelas/colunas (dezenas de comandos no banco) rodava em TODO pedido, inclusive nos
+// avisos do sino que cada app aberto faz a cada 45 s. Agora roda uma vez por versão deste arquivo
+// (a marca muda sempre que o arquivo é publicado) e fica registrada na pasta temporária do servidor.
+// Se a pasta não aceitar escrita, tudo continua como antes (roda a cada pedido).
+$_bootMarca = sys_get_temp_dir() . '/intus_catalogo_boot_' . md5(__FILE__) . '_' . (int)@filemtime(__FILE__);
+if (!is_file($_bootMarca)) {
+    try { ensureCatalogoTables($pdo); } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'bootstrap falhou', 'detalhe' => _intusLogErro($e)]);
+        exit;
+    }
+    @touch($_bootMarca);
 }
 
 // Resolve tipo/id/nome de quem está autenticado, pra reações/comentários/posts

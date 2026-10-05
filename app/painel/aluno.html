@@ -2224,16 +2224,25 @@ function _busyFim() {
 // pessoa pausar, o vídeo não volta a tocar sozinho.
 (function () {
   if (!('IntersectionObserver' in window)) return;
+  // Poupa o servidor e o plano de dados: só um vídeo toca por vez, só começa depois de
+  // 0,6 s parado na tela (quem só está rolando não baixa nada) e não toca sozinho com
+  // economia de dados ligada ou conexão 2G.
+  function semDados() { const k = navigator.connection; return !!k && (k.saveData || /(^|-)2g$/.test(k.effectiveType || '')); }
   const io = new IntersectionObserver(function (es) {
     es.forEach(function (e) {
       const v = e.target;
       if (e.isIntersecting && e.intersectionRatio >= 0.6) {
-        if (v.paused && !v._pausadoPeloUsuario && !document.hidden) {
-          v._tocandoAuto = true;
-          v.muted = !v._somLigado;
-          const p = v.play(); if (p && p.catch) p.catch(function () {});
+        if (v.paused && !v._pausadoPeloUsuario && !document.hidden && !semDados()) {
+          clearTimeout(v._tAuto);
+          v._tAuto = setTimeout(function () {
+            if (!v.isConnected || !v.paused) return;
+            document.querySelectorAll('video[data-auto]').forEach(function (o) { if (o !== v && !o.paused) { o._pausandoAuto = true; o.pause(); } });
+            v._tocandoAuto = true;
+            v.muted = !v._somLigado;
+            const p = v.play(); if (p && p.catch) p.catch(function () {});
+          }, 600);
         }
-      } else if (!v.paused) { v._pausandoAuto = true; v.pause(); }
+      } else { clearTimeout(v._tAuto); if (!v.paused) { v._pausandoAuto = true; v.pause(); } }
     });
   }, { threshold: [0, 0.6, 1] });
   function ligar(v) {
@@ -5466,6 +5475,17 @@ function stopRestTimer() {
 }
 
 // ═══════════════ STORE ═══════════════
+// fetch com prazo: sem isso, uma conexão "pendurada" deixava o app esperando para
+// sempre (treino preso em "salvando", app que não abre). Passou do prazo, falha.
+function _fetchT(url, opts, ms) {
+  if (typeof AbortController === 'undefined') return fetch(url, opts);
+  const ctl = new AbortController();
+  const t = setTimeout(function () { ctl.abort(); }, ms || 20000);
+  return fetch(url, Object.assign({}, opts || {}, { signal: ctl.signal })).then(
+    function (r) { clearTimeout(t); return r; },
+    function (e) { clearTimeout(t); throw (e && e.name === 'AbortError') ? new Error('A conexão está lenta e o servidor não respondeu a tempo.') : e; }
+  );
+}
 const SessoesTreino = {
   KEY: 'intus-sessoes-treino',
   load() { try { return JSON.parse(localStorage.getItem(this.KEY)||'[]'); } catch { return []; } },
@@ -5475,17 +5495,17 @@ const SessoesTreino = {
     const token = localStorage.getItem('mx-token') || '';
     let resposta;
     try {
-      const r = await fetch(API_BASE + '/treinos.php?action=sessoes', {
+      const r = await _fetchT(API_BASE + '/treinos.php?action=sessoes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify(s),
-      });
+      }, 25000);
       resposta = await r.json().catch(() => ({}));
       if (!r.ok || !resposta.ok || !Number(resposta.idsessao)) {
-        throw new Error(resposta.error || 'Não foi possível salvar o treino no servidor.');
+        throw Object.assign(new Error(resposta.error || 'Não foi possível salvar o treino no servidor.'), { status: r.status });
       }
     } catch (e) {
-      throw new Error(e && e.message ? e.message : 'Sem conexão: o treino ainda não foi salvo.');
+      throw Object.assign(new Error(e && e.message ? e.message : 'Sem conexão: o treino ainda não foi salvo.'), { status: e && e.status });
     }
     // Só entra no histórico local após o servidor devolver o identificador real.
     // Isso impede que uma sessão aparente existir e suma na próxima sincronização.
@@ -5504,15 +5524,15 @@ const SessoesTreino = {
     const token = localStorage.getItem('mx-token') || '';
     let resposta;
     try {
-      const r = await fetch(API_BASE + '/treinos.php?action=sessoes&id=' + idsessao, {
+      const r = await _fetchT(API_BASE + '/treinos.php?action=sessoes&id=' + idsessao, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify(s),
-      });
+      }, 25000);
       resposta = await r.json().catch(() => ({}));
-      if (!r.ok || !resposta.ok) throw new Error(resposta.error || 'Não foi possível atualizar o treino no servidor.');
+      if (!r.ok || !resposta.ok) throw Object.assign(new Error(resposta.error || 'Não foi possível atualizar o treino no servidor.'), { status: r.status });
     } catch (e) {
-      throw new Error(e && e.message ? e.message : 'Sem conexão: a atualização não foi salva.');
+      throw Object.assign(new Error(e && e.message ? e.message : 'Sem conexão: a atualização não foi salva.'), { status: e && e.status });
     }
     const salva = { ...s, idsessao: Number(idsessao) };
     const l = this.load();
@@ -5600,56 +5620,54 @@ async function sincronizarDoBackend() {
   if (_syncDone) return;
   const token = localStorage.getItem('mx-token') || '';
   const hdrs = { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' };
+  const get = (rota) => _fetchT(API_BASE + rota, { headers: hdrs, cache: 'no-store' }, 15000);
 
-  // Sync config geral (WhatsApp suporte, etc.)
-  try {
-    const cfgR = await fetch(API_BASE + '/dashboard.php?action=config', { headers: hdrs, cache: 'no-store' });
-    if (cfgR.ok) {
-      const cfgJ = await cfgR.json();
-      if (cfgJ && cfgJ.config) localStorage.setItem('intus-config-geral', JSON.stringify(cfgJ.config));
-    }
-  } catch {}
-
-  // Sync usuarios (profs) para Central mostrar nomes, cargo, instagram, bio
-  try {
-    const uR = await fetch(API_BASE + '/usuarios.php', { headers: hdrs, cache: 'no-store' });
-    if (uR.ok) {
-      const uJ = await uR.json();
-      if (uJ && uJ.ok && Array.isArray(uJ.usuarios)) localStorage.setItem('intus-usuarios', JSON.stringify(uJ.usuarios));
-    }
-  } catch {}
-
-  // Sync mensalidades PRIMEIRO (independente de treinos)
-  try {
-    const mR = await fetch(API_BASE + '/mensalidades.php?atleta=' + idAtleta, { headers: hdrs, cache: 'no-store' });
-    if (mR.ok) {
-      const mResp = await mR.json();
-      const fresh = Array.isArray(mResp) ? mResp : [];
-      const all = JSON.parse(localStorage.getItem('intus-mensalidades') || '[]');
-      const other = all.filter(m => Number(m.idatleta) !== Number(idAtleta));
-      localStorage.setItem('intus-mensalidades', JSON.stringify([...other, ...fresh]));
-      _matSyncOk = true;   // so aqui sabemos que a lista veio mesmo do servidor
-    }
-  } catch {}
-
-  try {
-    const rFichas = await fetch(API_BASE + '/treinos.php?action=fichas', { headers: hdrs, cache: 'no-store' });
+  // Estas três não dependem de nada: vão juntas (antes iam uma de cada vez, e com
+  // o servidor lento o app levava minutos para abrir). Config geral (WhatsApp de
+  // suporte etc.), professores (nomes na Central) e mensalidades.
+  const secundarias = [
+    (async () => { try {
+      const cfgR = await get('/dashboard.php?action=config');
+      if (cfgR.ok) { const cfgJ = await cfgR.json(); if (cfgJ && cfgJ.config) localStorage.setItem('intus-config-geral', JSON.stringify(cfgJ.config)); }
+    } catch {} })(),
+    (async () => { try {
+      const uR = await get('/usuarios.php');
+      if (uR.ok) { const uJ = await uR.json(); if (uJ && uJ.ok && Array.isArray(uJ.usuarios)) localStorage.setItem('intus-usuarios', JSON.stringify(uJ.usuarios)); }
+    } catch {} })(),
+    (async () => { try {
+      const mR = await get('/mensalidades.php?atleta=' + idAtleta);
+      if (mR.ok) {
+        const mResp = await mR.json();
+        const fresh = Array.isArray(mResp) ? mResp : [];
+        const all = JSON.parse(localStorage.getItem('intus-mensalidades') || '[]');
+        const other = all.filter(m => Number(m.idatleta) !== Number(idAtleta));
+        localStorage.setItem('intus-mensalidades', JSON.stringify([...other, ...fresh]));
+        _matSyncOk = true;   // so aqui sabemos que a lista veio mesmo do servidor
+      }
+    } catch {} })(),
+  ];
+  const fichasP = (async () => {
+    const rFichas = await get('/treinos.php?action=fichas');
     if (!rFichas.ok) throw new Error('Fichas fetch failed');
     const fichasAll = await rFichas.json();
     if (Array.isArray(fichasAll)) localStorage.setItem('intus-fichas', JSON.stringify(fichasAll));
-    const rTreinos = await fetch(API_BASE + '/treinos.php?action=treinos', { headers: hdrs, cache: 'no-store' });
+    const [rTreinos, rEx] = await Promise.all([get('/treinos.php?action=treinos'), get('/treinos.php?action=exercicios').catch(() => null)]);
     if (rTreinos.ok) {
       const treinosAll = await rTreinos.json();
       if (Array.isArray(treinosAll)) localStorage.setItem('intus-treinos', JSON.stringify(treinosAll));
     }
     try {
-      const rEx = await fetch(API_BASE + '/treinos.php?action=exercicios', { headers: hdrs, cache: 'no-store' });
-      if (rEx.ok) {
+      if (rEx && rEx.ok) {
         const exAll = await rEx.json();
         if (Array.isArray(exAll)) localStorage.setItem('intus-exercicios', JSON.stringify(exAll));
       }
     } catch {}
+  })();
+
+  try {
+    await fichasP;
     await SessoesTreino.sincronizar(idAtleta);
+    await Promise.all(secundarias);
     _syncDone = true;
     _syncFichasOk = true;            // a lista de fichas veio MESMO do servidor
     _syncErro = null;
@@ -6622,6 +6640,9 @@ const TREINO_ATIVO_TTL = 2 * 60 * 60 * 1000; // 2 horas
 
 function salvarTreinoAtivo() {
   if (!sessaoAtual || !sessaoAtual.idficha) return;
+  // Treino já finalizado (salvando ou guardado para envio): não grava de novo o rascunho,
+  // senão ele "ressuscita" como treino em andamento com o tempo zerado.
+  if (_finalizandoTreino || _pendenteDoTreino(sessaoAtual.idficha, sessaoAtual.divisao)) return;
   try {
     localStorage.setItem(TREINO_ATIVO_KEY, JSON.stringify({
       sessao: sessaoAtual,
@@ -6644,6 +6665,8 @@ function carregarTreinoAtivo() {
     const st = JSON.parse(raw);
     if (!st || !st.sessao || !st.sessao.idficha) return null;
     if (Date.now() - (st.salvoEm || 0) > TREINO_ATIVO_TTL) { localStorage.removeItem(TREINO_ATIVO_KEY); return null; }
+    // Esse treino já foi finalizado e só falta o servidor confirmar: não é "em andamento".
+    if (_pendenteDoTreino(st.sessao.idficha, st.sessao.divisao)) return null;
     var _refDia = st.treinoStart || (st.sessao && st.sessao.inicio) || st.salvoEm || 0;
     if (_refDia && new Date(_refDia).toDateString() !== new Date().toDateString()) { localStorage.removeItem(TREINO_ATIVO_KEY); return null; }
     return st;
@@ -7762,25 +7785,117 @@ function _executarFinalizacao(duracao, naoContar) {
     itens: temDados ? itens : itens.map(it => ({...it, series: []})),
   };
   const _idParaContinuar = sessaoAtual._continuarIdsessao;
-  const _promessa = _idParaContinuar ? SessoesTreino.atualizar(_idParaContinuar, sessao) : SessoesTreino.criar(sessao);
+  // O treino pronto fica guardado neste aparelho ANTES de ir ao servidor. Se a rede
+  // cair, o app fechar ou o servidor demorar, ele é reenviado sozinho depois (o
+  // servidor ignora o reenvio do mesmo treino) e nada do que foi feito se perde.
+  _pendenteGravar({
+    sessao: sessao, idParaContinuar: _idParaContinuar || null, duracaoTotal: duracaoTotal,
+    comentario: sessaoAtual.comentario || '', ficha: sessaoAtual.idficha, divisao: sessaoAtual.divisao,
+    dia: sessao.dtsessao, criadoEm: Date.now(),
+  });
   _finalizandoTreino = true;
   _busyMostrar('Salvando o seu treino...', null, 'Estamos registrando seus pontos. Não feche o app.');
-  _promessa.then(function(sessaoSalva) {
-    _finalizandoTreino = false; _busyFim();
-    if (sessaoAtual.comentario) {
-      try { API.salvarComentarioBackend({ idatleta: idAtleta, idficha: sessaoAtual.idficha, divisao: sessaoAtual.divisao, dtsessao: dataHojeLocal(), texto: sessaoAtual.comentario }); } catch {}
+  _enviarSessaoComRetentativas(sessao, _idParaContinuar, function (msg) { _busyMostrar('Salvando o seu treino...', null, msg); })
+    .then(function (sessaoSalva) {
+      const p = _pendenteLer();
+      _pendenteLimpar();
+      _finalizandoTreino = false; _busyFim();
+      if (p) _concluirFinalizacao(sessaoSalva, p);
+    })
+    .catch(function (e) {
+      _finalizandoTreino = false; _busyFim();
+      _treinoFalhaDialogo((e && e.message) || '');
+    });
+}
+
+// ── Treino finalizado aguardando o servidor ──
+var _enviandoPendente = false;
+function _pendenteKey() { return 'intus-sessao-pendente-' + idAtleta; }
+function _pendenteLer() { try { return JSON.parse(localStorage.getItem(_pendenteKey()) || 'null'); } catch { return null; } }
+function _pendenteGravar(p) { try { localStorage.setItem(_pendenteKey(), JSON.stringify(p)); } catch {} }
+function _pendenteLimpar() { try { localStorage.removeItem(_pendenteKey()); } catch {} }
+function _pendenteDoTreino(ficha, divisao) {
+  const p = _pendenteLer();
+  return !!p && Number(p.ficha) === Number(ficha) && String(p.divisao) === String(divisao) && p.dia === dataHojeLocal();
+}
+
+// Até 3 tentativas. O servidor reconhece o reenvio do mesmo treino (não duplica); erro
+// de verdade do servidor (4xx) não adianta repetir.
+async function _enviarSessaoComRetentativas(sessao, idContinuar, aviso) {
+  let ultimo = null;
+  for (let i = 0; i < 3; i++) {
+    try { return idContinuar ? await SessoesTreino.atualizar(idContinuar, sessao) : await SessoesTreino.criar(sessao); }
+    catch (e) {
+      ultimo = e;
+      if (e && e.status && e.status >= 400 && e.status < 500) break;
+      if (i < 2) {
+        if (aviso) aviso('A conexão está lenta. Tentando de novo (' + (i + 2) + ' de 3)...');
+        await new Promise(function (r) { setTimeout(r, 2000 * (i + 1)); });
+      }
     }
-    renderFim(duracaoTotal, sessaoSalva);
+  }
+  throw ultimo;
+}
+
+function _concluirFinalizacao(sessaoSalva, p) {
+  const vivo = sessaoAtual && sessaoAtual.idficha && Number(sessaoAtual.idficha) === Number(p.ficha) && String(sessaoAtual.divisao) === String(p.divisao);
+  if (p.comentario) {
+    try { API.salvarComentarioBackend({ idatleta: idAtleta, idficha: p.ficha, divisao: p.divisao, dtsessao: p.dia, texto: p.comentario }); } catch {}
+  }
+  if (vivo) {
+    renderFim(p.duracaoTotal, sessaoSalva);
     trocarView('fim');
     // Só limpa a sessão após confirmação do servidor. Em erro, os dados ficam
     // intactos para a aluna tentar novamente, sem criar um treino fantasma.
     sessaoAtual = { idficha: null, divisao: null, exercicios: [], alongamentos: [], dados: {}, inicio: 0, comentario: '', activeIdx: 0 };
     _treinoStartSaved = 0;
     limparTreinoAtivo();
-  }).catch(function(e) {
-    _finalizandoTreino = false; _busyFim();
-    toast((e && e.message) || 'Não foi possível salvar o treino. Verifique a conexão e tente finalizar novamente.');
-  });
+    return;
+  }
+  // O app foi fechado e reaberto no meio: só registra e limpa o rascunho desse treino.
+  try {
+    const st = JSON.parse(localStorage.getItem(TREINO_ATIVO_KEY) || 'null');
+    if (st && st.sessao && Number(st.sessao.idficha) === Number(p.ficha) && String(st.sessao.divisao) === String(p.divisao)) localStorage.removeItem(TREINO_ATIVO_KEY);
+  } catch {}
+  limparTreinoAtivo();
+  toast('✅ Seu treino de hoje foi salvo!');
+  try { if (window._viewAtual === 'home') renderHome(); } catch {}
+}
+
+// Reenvia o treino guardado. interativo = a pessoa pediu (mostra a janela de carregamento).
+async function _enviarPendente(interativo) {
+  const p = _pendenteLer();
+  if (!p || _enviandoPendente || _finalizandoTreino) return false;
+  _enviandoPendente = true;
+  if (interativo) _busyMostrar('Enviando o seu treino...', null, 'Não feche o app até terminar.');
+  try {
+    const salva = await _enviarSessaoComRetentativas(p.sessao, p.idParaContinuar, interativo ? function (m) { _busyMostrar('Enviando o seu treino...', null, m); } : null);
+    _pendenteLimpar();
+    if (interativo) _busyFim();
+    _concluirFinalizacao(salva, p);
+    return true;
+  } catch (e) {
+    if (interativo) { _busyFim(); _treinoFalhaDialogo((e && e.message) || ''); }
+    return false;
+  } finally { _enviandoPendente = false; }
+}
+window.addEventListener('online', function () { _enviarPendente(false); });
+document.addEventListener('visibilitychange', function () { if (!document.hidden) _enviarPendente(false); });
+
+function _treinoFalhaDialogo(motivo) {
+  document.getElementById('treino-falha-ov')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'treino-falha-ov';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:24px;';
+  ov.innerHTML = '<div style="background:#161616;border:1px solid #2a2a2a;border-radius:18px;padding:24px 20px;width:100%;max-width:320px;text-align:center;color:#f0f0f0;">' +
+    '<div style="font-size:34px;margin-bottom:8px;">📡</div>' +
+    '<div style="font-size:16px;font-weight:800;margin-bottom:8px;">Não consegui salvar agora</div>' +
+    '<div style="font-size:13px;color:#bdbdbd;line-height:1.5;margin-bottom:6px;">Seu treino está guardado neste aparelho e será enviado sozinho quando a conexão voltar. Você não perdeu nada.</div>' +
+    (motivo ? '<div style="font-size:11px;color:#8a8a8a;margin-bottom:12px;">' + esc(motivo) + '</div>' : '<div style="margin-bottom:12px;"></div>') +
+    '<button onclick="document.getElementById(\'treino-falha-ov\').remove();_enviarPendente(true);" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Tentar agora</button>' +
+    '<button onclick="document.getElementById(\'treino-falha-ov\').remove();" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px solid #2a2a2a;background:transparent;color:#ddd;font-size:13px;font-weight:700;cursor:pointer;">Voltar ao app</button>' +
+  '</div>';
+  document.body.appendChild(ov);
 }
 
 // ═══════════════ FATOR POTÊNCIA ═══════════════
@@ -17333,13 +17448,26 @@ function mostrarDicaTema() {
   }
   initTutorialBtn();
   document.getElementById('v-home').innerHTML = '<div style="text-align:center;padding:60px 20px;"><div class="spinner"></div><p style="margin-top:16px;color:#999;font-size:14px;">Carregando...</p></div>';
-  await sincronizarDoBackend();
+  // Servidor lento: se este aparelho já tem os dados da última vez, abre em até 4 s com
+  // eles e atualiza quando a sincronização terminar (antes ficava no "Carregando..."
+  // até o servidor responder tudo, e o aluno achava que o app tinha travado).
+  const _syncP = sincronizarDoBackend();
+  let _temCache = false;
+  try { _temCache = JSON.parse(localStorage.getItem('intus-fichas') || '[]').length > 0; } catch {}
+  let _abriuRapido = false;
+  if (_temCache) {
+    await Promise.race([_syncP, new Promise(function (r) { setTimeout(function () { _abriuRapido = true; r(); }, 4000); })]);
+  } else { await _syncP; }
   loadAvatars();
   renderHome();
   atualizarBadgeMensagens();
   mostrarDicaTema();
   _criarBannerTreino();
   retomarTreinoAtivo(true); // só entra direto no treino se houver progresso recente
+  _enviarPendente(false);   // treino finalizado que não chegou ao servidor da última vez
+  if (_abriuRapido) _syncP.then(function () {
+    try { if (window._viewAtual === 'home' && !treinoTimer) { renderHome(); atualizarBadgeMensagens(); } } catch (e) {}
+  });
   _cardioLiveRestaurarSeAtivo(); // idem pro cardio ao vivo — sobrevive a tela bloqueada/app fechado
 })();
 

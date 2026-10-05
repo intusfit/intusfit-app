@@ -33,7 +33,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 
 define('MD_DURACAO_MAX_SEG', 60);
 define('MD_TAMANHO_MAX', 100 * 1024 * 1024);
-define('MD_FAIXA_VIDEO', 2 * 1024 * 1024);
+define('MD_FAIXA_VIDEO', 4 * 1024 * 1024);
 define('MD_MAX_MIDIAS', 10);
 define('MD_MAX_VIDEOS', 3);
 
@@ -109,6 +109,8 @@ try {
 }
 
 // ---------- Tabela (a mesma de catalogo.php; as colunas de upload entram aqui) ----------
+// Tocar vídeo (action=video) é o pedido mais frequente: não repete a checagem de tabela nele.
+if (($_GET['action'] ?? '') !== 'video') {
 $pdo->exec("
     CREATE TABLE IF NOT EXISTS intus_midia (
         idmidia        INT AUTO_INCREMENT PRIMARY KEY,
@@ -132,6 +134,7 @@ $pdo->exec("
 $_mdCols = array_column($pdo->query("SHOW COLUMNS FROM intus_midia")->fetchAll(PDO::FETCH_ASSOC), 'Field');
 if (!in_array('upload_sessao', $_mdCols)) $pdo->exec("ALTER TABLE intus_midia ADD COLUMN upload_sessao TEXT NULL");
 if (!in_array('bytes_enviados', $_mdCols)) $pdo->exec("ALTER TABLE intus_midia ADD COLUMN bytes_enviados BIGINT NOT NULL DEFAULT 0");
+}
 
 $action = $_GET['action'] ?? '';
 
