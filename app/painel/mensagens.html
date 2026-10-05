@@ -55,6 +55,24 @@
     .reaction-btn:hover { border-color:var(--brand); background:rgba(127,255,0,.06); }
     .reaction-btn.active { border-color:var(--brand); background:rgba(127,255,0,.12); }
 
+    /* ─── Curtir e comentar no Feed/Mural, direto da Central ─── */
+    .ix { margin-top:9px; }
+    .ix-barra { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .ix-btn { padding:5px 12px; border-radius:20px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; transition:.12s; }
+    .ix-btn:hover { border-color:var(--brand); }
+    .ix-btn.on { border-color:var(--brand); background:rgba(127,255,0,.12); }
+    .ix-painel { margin-top:8px; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
+    .ix-com { display:flex; gap:8px; padding:6px 0; }
+    .ix-com.resp { margin-left:26px; }
+    .ix-com-txt { font-size:12px; line-height:1.4; color:var(--text); word-wrap:break-word; min-width:0; }
+    .ix-com-sub { display:flex; gap:12px; margin-top:2px; font-size:10.5px; color:var(--text-muted); }
+    .ix-com-sub span { cursor:pointer; font-weight:700; }
+    .ix-equipe { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--brand); margin-left:4px; }
+    .ix-envio { display:flex; gap:6px; margin-top:8px; }
+    .ix-envio input { flex:1; padding:8px 12px; border-radius:99px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12px; font-family:inherit; }
+    .ix-envio button { padding:8px 16px; border-radius:99px; border:none; background:var(--brand); color:#000; font-size:12px; font-weight:800; cursor:pointer; font-family:inherit; }
+    .ix-chip { font-size:11px; color:var(--text-muted); margin-top:6px; }
+
     /* ─── Chat (Conversas) — layout de 2 colunas ─── */
     .msg-layout { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 150px); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
     @media (max-width: 900px) { .msg-layout { grid-template-columns: 1fr; } .msg-panel { display: none; } .msg-panel.active { display: flex; } .msg-contacts.hidden { display: none; } }
@@ -259,6 +277,150 @@ function htmlReacoesMural(idcomentario) {
   </div>`;
 }
 
+// ── CURTIR E COMENTAR NO FEED E NO MURAL (como equipe Intus) ───────────────
+// O professor interage com posts do Feed e comentários do mural direto daqui. O
+// servidor assina com o nome público dele (o Luiz aparece como "Luiz Nunes -
+// Treinador") e avisa o aluno no sino. Mesma tabela/regras do app do aluno.
+const _ix = { reac: {}, com: {}, reacCom: {}, aberto: {}, resp: {}, enviando: {} };
+const _ixNomePublico = (userId === 1) ? 'Luiz Nunes - Treinador' : (Sessao.atual()?.nome || 'Professor');
+function _ixBase() { return (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api'; }
+function _ixHdr() { return { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
+function ixKey(tipo, id) { return tipo + ':' + id; }
+
+async function _ixGet(query) {
+  try {
+    const r = await fetch(_ixBase() + '/catalogo.php?' + query + '&_=' + Date.now(), { headers: _ixHdr(), cache: 'no-store' });
+    return r.ok ? await r.json() : {};
+  } catch (e) { return {}; }
+}
+async function _ixPost(action, corpo) {
+  const r = await fetch(_ixBase() + '/catalogo.php?action=' + action, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, _ixHdr()), body: JSON.stringify(corpo) });
+  if (!r.ok) throw new Error('erro ' + r.status);
+  return r;
+}
+// Carrega curtidas e comentários dos posts e do mural já listados.
+async function ixCarregarTudo() {
+  const postIds = feedPosts.map(p => Number(p.idpost)).filter(Boolean).slice(0, 100);
+  const muralIds = muralComentarios.map(m => Number(m.idcomentario)).filter(Boolean).slice(0, 100);
+  if (postIds.length) {
+    const j = await _ixGet('action=reacoes&alvo_tipo=feed_post&ids=' + postIds.join(','));
+    postIds.forEach(id => { _ix.reac[ixKey('feed_post', id)] = j[String(id)] || []; });
+  }
+  for (const [tipo, ids] of [['feed_post', postIds], ['mural', muralIds]]) {
+    if (!ids.length) continue;
+    const j = await _ixGet('action=comentarios_pub&alvo_tipo=' + tipo + '&ids=' + ids.join(','));
+    const idsC = [];
+    ids.forEach(id => { const l = j[String(id)] || []; _ix.com[ixKey(tipo, id)] = l; l.forEach(x => idsC.push(x.idcomentario)); });
+    if (idsC.length) {
+      const jr = await _ixGet('action=reacoes&alvo_tipo=feed_comentario&ids=' + idsC.slice(0, 500).join(','));
+      idsC.forEach(id => { _ix.reacCom[id] = jr[String(id)] || []; });
+    }
+  }
+}
+
+function ixHtml(tipo, id) {
+  return '<div class="ix" data-ix="' + ixKey(tipo, id) + '">' + ixInner(tipo, id) + '</div>';
+}
+function ixInner(tipo, id) {
+  const k = ixKey(tipo, id);
+  const lista = _ix.com[k] || [];
+  const aberto = !!_ix.aberto[k];
+  let h = '<div class="ix-barra">';
+  if (tipo === 'feed_post') {
+    const lk = _ix.reac[k] || [];
+    const meu = lk.some(r => r.meu);
+    const quem = lk.map(r => r.autor_nome).filter(Boolean).slice(0, 12).join(', ');
+    h += '<button class="ix-btn' + (meu ? ' on' : '') + '" title="' + esc(quem) + '" onclick="ixCurtirPost(' + id + ')">' + (meu ? '❤️' : '🤍') + ' Curtir' + (lk.length ? ' · ' + lk.length : '') + '</button>';
+  }
+  h += '<button class="ix-btn' + (aberto ? ' on' : '') + '" onclick="ixAlternar(\'' + tipo + '\',' + id + ')">💬 ' + (lista.length ? lista.length + (lista.length > 1 ? ' comentários' : ' comentário') : 'Comentar') + '</button></div>';
+  if (aberto) {
+    const topo = lista.filter(x => x.resposta_a == null);
+    const respDe = pai => lista.filter(x => Number(x.resposta_a) === Number(pai));
+    const linha = (x, ehResp) => {
+      const lk = _ix.reacCom[x.idcomentario] || [];
+      const meu = lk.some(r => r.meu);
+      const equipe = x.autor_tipo === 'prof';
+      return '<div class="ix-com' + (ehResp ? ' resp' : '') + '"><div style="min-width:0;flex:1;"><div class="ix-com-txt"><b>' + esc(x.autor_nome || 'Alguém') + '</b>' + (equipe ? '<span class="ix-equipe">Equipe</span>' : '') + ' ' + esc(x.texto) + '</div>' +
+        '<div class="ix-com-sub"><span onclick="ixCurtirCom(\'' + tipo + '\',' + id + ',' + x.idcomentario + ')">' + (meu ? '❤️' : '🤍') + (lk.length ? ' ' + lk.length : ' Curtir') + '</span>' +
+        (ehResp ? '' : '<span onclick="ixResponder(\'' + tipo + '\',' + id + ',' + x.idcomentario + ')">Responder</span>') +
+        (isAdm || x.meu ? '<span onclick="ixExcluirCom(\'' + tipo + '\',' + id + ',' + x.idcomentario + ')">Excluir</span>' : '') +
+        '</div></div></div>';
+    };
+    const corpo = topo.length ? topo.map(x => linha(x, false) + respDe(x.idcomentario).map(r => linha(r, true)).join('')).join('') : '<div style="font-size:11.5px;color:var(--text-muted);">Ainda sem comentários.</div>';
+    const resp = _ix.resp[k];
+    h += '<div class="ix-painel">' + corpo +
+      (resp ? '<div class="ix-chip">Respondendo a <b>' + esc(resp.nome) + '</b> <span style="cursor:pointer;font-weight:800;" onclick="ixCancelarResp(\'' + tipo + '\',' + id + ')">✕</span></div>' : '') +
+      '<div class="ix-envio"><input maxlength="1000" data-ix-in="' + k + '" placeholder="Comentar como ' + esc(_ixNomePublico) + '..." onkeydown="if(event.key===\'Enter\')ixEnviar(\'' + tipo + '\',' + id + ')"/>' +
+      '<button onclick="ixEnviar(\'' + tipo + '\',' + id + ')">Enviar</button></div></div>';
+  }
+  return h;
+}
+function ixAtualizar(tipo, id) {
+  const k = ixKey(tipo, id);
+  const el = document.querySelector('[data-ix="' + k + '"]');
+  if (!el) return;
+  const campo = el.querySelector('[data-ix-in]');
+  const rasc = campo ? campo.value : '';
+  el.innerHTML = ixInner(tipo, id);
+  if (rasc) { const n = el.querySelector('[data-ix-in]'); if (n) n.value = rasc; }
+}
+function ixAlternar(tipo, id) { const k = ixKey(tipo, id); _ix.aberto[k] = !_ix.aberto[k]; ixAtualizar(tipo, id); }
+async function ixCurtirPost(id) {
+  try { await _ixPost('reacoes', { alvo_tipo: 'feed_post', alvo_id: id, emoji: '❤️' }); }
+  catch (e) { showToast('Não deu para curtir.', 'error'); return; }
+  const j = await _ixGet('action=reacoes&alvo_tipo=feed_post&ids=' + id);
+  _ix.reac[ixKey('feed_post', id)] = j[String(id)] || [];
+  ixAtualizar('feed_post', id);
+}
+async function ixCurtirCom(tipo, id, idcom) {
+  try { await _ixPost('reacoes', { alvo_tipo: 'feed_comentario', alvo_id: idcom, emoji: '❤️' }); }
+  catch (e) { showToast('Não deu para curtir.', 'error'); return; }
+  const j = await _ixGet('action=reacoes&alvo_tipo=feed_comentario&ids=' + idcom);
+  _ix.reacCom[idcom] = j[String(idcom)] || [];
+  ixAtualizar(tipo, id);
+}
+function ixResponder(tipo, id, idcom) {
+  const k = ixKey(tipo, id);
+  const x = (_ix.com[k] || []).find(c => Number(c.idcomentario) === Number(idcom)); if (!x) return;
+  _ix.resp[k] = { id: idcom, nome: x.autor_nome || 'Alguém' };
+  _ix.aberto[k] = true; ixAtualizar(tipo, id);
+  document.querySelector('[data-ix-in="' + k + '"]')?.focus();
+}
+function ixCancelarResp(tipo, id) { delete _ix.resp[ixKey(tipo, id)]; ixAtualizar(tipo, id); }
+async function _ixRecarregarCom(tipo, id) {
+  const j = await _ixGet('action=comentarios_pub&alvo_tipo=' + tipo + '&ids=' + id);
+  const l = j[String(id)] || [];
+  _ix.com[ixKey(tipo, id)] = l;
+  const ids = l.map(x => x.idcomentario).filter(i => _ix.reacCom[i] === undefined);
+  if (ids.length) { const jr = await _ixGet('action=reacoes&alvo_tipo=feed_comentario&ids=' + ids.join(',')); ids.forEach(i => { _ix.reacCom[i] = jr[String(i)] || []; }); }
+}
+async function ixEnviar(tipo, id) {
+  const k = ixKey(tipo, id);
+  if (_ix.enviando[k]) return;
+  const campo = document.querySelector('[data-ix-in="' + k + '"]');
+  const texto = (campo && campo.value || '').trim();
+  if (!texto) return;
+  _ix.enviando[k] = true;
+  try {
+    const corpo = { alvo_tipo: tipo, alvo_id: id, texto: texto };
+    if (_ix.resp[k]) corpo.resposta_a = _ix.resp[k].id;
+    await _ixPost('comentarios_pub', corpo);
+    campo.value = ''; delete _ix.resp[k]; _ix.aberto[k] = true;
+    await _ixRecarregarCom(tipo, id);
+    ixAtualizar(tipo, id);
+  } catch (e) { showToast('Não consegui enviar o comentário.', 'error'); }
+  _ix.enviando[k] = false;
+}
+async function ixExcluirCom(tipo, id, idcom) {
+  if (!confirm('Excluir este comentário? As respostas a ele também serão excluídas.')) return;
+  try {
+    const r = await fetch(_ixBase() + '/catalogo.php?action=comentarios_pub&id=' + idcom, { method: 'DELETE', headers: _ixHdr() });
+    if (!r.ok) throw new Error();
+  } catch (e) { showToast('Não consegui excluir o comentário.', 'error'); return; }
+  await _ixRecarregarCom(tipo, id);
+  ixAtualizar(tipo, id);
+}
+
 // Cores/ícones por tipo de evento
 const TIPO = {
   mensagem:   { cor:'#7FFF00', ic:'💬', label:'Mensagem',  bg:'rgba(127,255,0,.12)' },
@@ -340,6 +502,7 @@ async function carregar() {
     feedAtletasMap = (j && j.atletas) || {};
   } catch { feedPosts = []; feedAtletasMap = {}; }
 
+  try { await ixCarregarTudo(); } catch (e) {}
   render();
 }
 
@@ -488,6 +651,7 @@ function renderFeedCard(ev) {
       </div>
       ${textoHtml}
       ${acoes ? `<div class="feed-actions">${acoes}</div>` : ''}
+      ${ev.tipo === 'post' ? ixHtml('feed_post', Number(ev.idpost)) : (ev.tipo === 'mural' ? ixHtml('mural', Number(ev.idcomentario)) : '')}
     </div>
   </li>`;
 }

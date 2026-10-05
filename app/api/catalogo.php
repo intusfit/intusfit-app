@@ -360,6 +360,12 @@ if (!is_file($_bootMarca)) {
 // nunca aceitarem o nome que o próprio cliente diga que é. Extraída daqui pra
 // não copiar essa busca de coluna (tabela de atleta/professor não tem nome
 // de coluna garantido) em cada ação nova que precisar assinar algo.
+// Nome com que um professor aparece PARA OS ALUNOS (comentário, curtida, aviso do sino).
+// O cadastro interno do Luiz é "Luiz Nunes (Master)"; para a turma ele é o treinador.
+function _nomePublicoProf(int $id, string $nome): string {
+    return $id === 1 ? 'Luiz Nunes - Treinador' : $nome;
+}
+
 function _resolverAutorPub(PDO $pdo, array $_ctx, bool $_ehAluno) {
     $tipo = $_ehAluno ? 'aluno' : 'prof';
     $id   = $_ehAluno
@@ -388,6 +394,7 @@ function _resolverAutorPub(PDO $pdo, array $_ctx, bool $_ehAluno) {
         } catch (Throwable $e) {}
     }
     if ($nome === '') $nome = $_ehAluno ? 'Aluno' : 'Professor';
+    if (!$_ehAluno) $nome = _nomePublicoProf($id, $nome);
     return [$tipo, $id, $nome];
 }
 
@@ -1952,7 +1959,7 @@ if ($action === 'reacoes') {
                 'emoji'      => $r['emoji'],
                 'autor_tipo' => $r['autor_tipo'],
                 'autor_id'   => (int)$r['autor_id'],
-                'autor_nome' => $r['autor_nome'],
+                'autor_nome' => $r['autor_tipo'] === 'prof' ? _nomePublicoProf((int)$r['autor_id'], (string)$r['autor_nome']) : $r['autor_nome'],
                 'meu'        => ($r['autor_tipo'] === $_autorTipo && (int)$r['autor_id'] === $_autorId),
             ];
         }
@@ -2053,7 +2060,7 @@ if ($action === 'comentarios_pub') {
                 'resposta_a'   => $r['resposta_a'] !== null ? (int)$r['resposta_a'] : null,
                 'autor_tipo'   => $r['autor_tipo'],
                 'autor_id'     => (int)$r['autor_id'],
-                'autor_nome'   => $r['autor_nome'],
+                'autor_nome'   => $r['autor_tipo'] === 'prof' ? _nomePublicoProf((int)$r['autor_id'], (string)$r['autor_nome']) : $r['autor_nome'],
                 'texto'        => $r['texto'],
                 'created_at'   => $r['created_at'],
                 'meu'          => ($r['autor_tipo'] === $_autorTipo && (int)$r['autor_id'] === $_autorId),
@@ -2181,7 +2188,7 @@ if ($action === 'pessoas_mencionaveis') {
             foreach ($pdo->query("SELECT `$cId` AS i, `$cNm` AS n FROM `$tblU`")->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $idp = (int)$r['i'];
                 if ($idp <= 0 || trim((string)$r['n']) === '' || ($_pmTipo === 'prof' && $idp === $_pmId)) continue;
-                $pessoas[] = ['tipo' => 'prof', 'id' => $idp, 'nome' => trim((string)$r['n'])];
+                $pessoas[] = ['tipo' => 'prof', 'id' => $idp, 'nome' => _nomePublicoProf($idp, trim((string)$r['n']))];
             }
             break;
         }
@@ -2231,7 +2238,7 @@ if ($action === 'notificacoes') {
                 'tipo'          => $r['tipo'],
                 'ator_tipo'     => $r['ator_tipo'],
                 'ator_id'       => (int)$r['ator_id'],
-                'ator_nome'     => $r['ator_nome'],
+                'ator_nome'     => $r['ator_tipo'] === 'prof' ? _nomePublicoProf((int)$r['ator_id'], (string)$r['ator_nome']) : $r['ator_nome'],
                 'alvo_tipo'     => $r['alvo_tipo'],
                 'alvo_id'       => (int)$r['alvo_id'],
                 'texto'         => $r['texto'] ?? '',
