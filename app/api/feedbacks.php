@@ -143,7 +143,7 @@ function _fbResumo(array $r, $comLink) {
         'id' => (int)$r['id'], 'tipo' => $r['tipo'], 'idatleta' => (int)$r['idatleta'], 'aluno_nome' => $r['aluno_nome'],
         'idprofessor' => (int)$r['idprofessor'], 'professor_nome' => $r['professor_nome'],
         'titulo' => $r['titulo'], 'descricao' => $r['descricao'], 'status' => $r['status'],
-        'duracao_seg' => (int)$r['duracao_seg'], 'tamanho_bytes' => (int)$r['tamanho_bytes'],
+        'duracao_seg' => (int)$r['duracao_seg'], 'tamanho_bytes' => (int)$r['tamanho_bytes'], 'mime' => $r['mime'],
         'visto_em' => $r['visto_em'], 'criado_em' => $r['criado_em'],
     ];
     if ($comLink && $r['status'] === 'pronto') {

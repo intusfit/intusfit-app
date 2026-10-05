@@ -726,10 +726,20 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
   ocupado.
 - **Microfone estava bloqueado no site inteiro** pelo `Permissions-Policy: microphone=()` do
   `.htaccess` da raiz. Foi liberado **só** em `feedback-video/.htaccess`.
-- **Pronto para o app/painel**: `feedbacks.php?action=meus` (aluno logado) e
-  `?action=listar&idatleta=N` (professor, respeitando a carteira) já existem. Falta só a tela: aba
-  "Feedbacks" no perfil do aluno em `aluno.html` (exige rebuild do app nas lojas, ver seção 18) e no
-  perfil do aluno no painel.
+- **Tela do aluno (05/10/2026)**: em `aluno.html`, na tela **Avaliações**, bloco "Feedbacks em vídeo"
+  (`carregarFeedbacksAluno`, `abrirFeedbackVideo`; lista de `feedbacks.php?action=meus`, selo "Novo"
+  enquanto `visto_em` é nulo, e abrir chama `action=ver` pra marcar como assistido). Na web já vale; no
+  app nativo exige rebuild/envio pra loja (ver seção 18). Ainda falta a aba no perfil do aluno **no
+  painel** do professor (`listar?idatleta=N` já existe).
+- **`feedback/player.js` (05/10/2026)**: quem toca o vídeo, usado pela página do link e pela tela do
+  aluno (no app nativo é carregado de `https://intusfit.com.br/feedback/player.js`, então correção no
+  player não exige rebuild). **Bug que isto corrigiu:** a página do link só abria no celular. O vídeo é
+  MP4 fragmentado (MediaRecorder) e o Chromium (Chrome/Edge/Opera, também o WebView do Android) pula
+  fragmento a fragmento pelo arquivo todo pra achar a duração; cada pulo é um pedido ao Drive via PHP
+  (1–3 s), então um vídeo de 5 min ficava em "carregando" pra sempre. Agora, no Chromium com MP4, baixa
+  em faixas de 4 MB (3 em paralelo) e toca de um Blob; nos outros tenta direto e cai nisso se não abrir
+  em 8 s. Se algum dia o vídeo passar a sair gravado com índice (ex.: remux no `feedback-video`), dá pra
+  simplificar. `feedback/.htaccess` manda `no-cache` pro link não ficar preso na versão antiga.
 
 **Achado na suíte (anterior a este trabalho):** `testes/funcoes.json` foi gravado de uma cópia local
 que tinha as funções `_share*`/`_publicarPostFeed` em `aluno.html`, e elas **nunca estiveram no

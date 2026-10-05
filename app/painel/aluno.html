@@ -4957,6 +4957,8 @@ function sair() { localStorage.removeItem('mx-token'); localStorage.removeItem('
 // 2,2s e curto demais para ler uma explicacao e decidir o que fazer.
 function toast(msg, ms) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'), ms || 2200); }
 function trocarView(v) {
+  // Feedback em vídeo (Avaliações) não pode continuar tocando por baixo de outra tela.
+  if (v !== 'avaliacoes' && typeof _fbLiberarVideo === 'function') _fbLiberarVideo();
   const exinfo = document.getElementById('v-exinfo');
   if (v !== 'exinfo' && exinfo) { exinfo.querySelectorAll('iframe').forEach(f => { f.src = ''; }); }
   // Rede de segurança: se a view destino nunca foi renderizada (vazia), volta para a home
@@ -13657,6 +13659,7 @@ async function renderMatricula() {
 // ═══════════════ AVALIAÇÕES DO ALUNO ═══════════════
 let _avaliacoesCache = [];
 async function renderAvaliacoesAluno() {
+  _fbLiberarVideo();
   const container = document.getElementById('v-avaliacoes');
   const isLight = document.body.classList.contains('tema-claro');
   container.innerHTML = telaHeader('📋 Minhas Avaliações') +
@@ -13696,6 +13699,9 @@ async function renderAvaliacoesAluno() {
       '</div>' +
     '</div>';
   }
+
+  // Feedbacks em vídeo do professor (preenchido por carregarFeedbacksAluno depois)
+  html += '<div id="fb-aluno-bloco"></div>';
 
   // Formulários pendentes
   var anamneseRespondida = localStorage.getItem('intus-anamnese-' + idAtleta);
@@ -13744,6 +13750,129 @@ async function renderAvaliacoesAluno() {
 
   html += getFooterHtml();
   container.innerHTML = html;
+  carregarFeedbacksAluno();
+}
+
+// ═══════════════ FEEDBACKS EM VÍDEO DO PROFESSOR ═══════════════
+// O professor grava um vídeo comentando as fotos/avaliação do aluno em
+// /feedback-video/ (guardado no Google Drive, ver app/api/feedbacks.php). O
+// aluno já recebia o link pelo WhatsApp; aqui ele fica também dentro do app,
+// na tela Avaliações. Quem toca o vídeo é /feedback/player.js — o mesmo da
+// página do link —, carregado só quando o aluno abre um vídeo.
+let _feedbacksAluno = [];
+function _fbTokenDe(f) {
+  const m = /[?&]v=([0-9a-f]{32})/.exec(f.video_url || f.link || '');
+  return m ? m[1] : '';
+}
+function _fbDuracao(seg) {
+  seg = Math.round(Number(seg) || 0);
+  if (seg <= 0) return '';
+  return Math.floor(seg / 60) + ':' + String(seg % 60).padStart(2, '0');
+}
+function _fbDataBr(s) {
+  if (!s) return '';
+  const d = new Date(String(s).replace(' ', 'T'));
+  return isNaN(d) ? '' : d.toLocaleDateString('pt-BR');
+}
+function _fbLiberarVideo() {
+  const v = document.getElementById('fb-video');
+  if (!v) return;
+  try { v.pause(); } catch (e) {}
+  if (/^blob:/.test(v.currentSrc || v.src || '')) { try { URL.revokeObjectURL(v.currentSrc || v.src); } catch (e) {} }
+  v.removeAttribute('src');
+  try { v.load(); } catch (e) {}
+}
+
+async function carregarFeedbacksAluno() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const bgCard = isLight ? '#fff' : '#141414';
+  const borderC = isLight ? '#e5e5e5' : '#1e1e1e';
+  let lista = null;
+  try {
+    const r = await fetch(API_BASE + '/feedbacks.php?action=meus', {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store'
+    });
+    const j = await r.json();
+    if (j && j.ok && Array.isArray(j.feedbacks)) lista = j.feedbacks;
+  } catch (e) {}
+  // O aluno pode ter saído da tela enquanto a lista carregava.
+  const bloco = document.getElementById('fb-aluno-bloco');
+  if (!bloco) return;
+  const titulo = '<div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Feedbacks em vídeo</div>';
+  const caixa = 'background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:10px;padding:12px 14px;';
+  if (lista === null) {
+    bloco.innerHTML = '<div style="margin-bottom:16px;">' + titulo + '<div style="' + caixa + 'font-size:12px;color:#888;">Não consegui carregar seus feedbacks em vídeo agora. Abra esta tela de novo daqui a pouco.</div></div>';
+    return;
+  }
+  _feedbacksAluno = lista;
+  let html = titulo;
+  if (!lista.length) {
+    html += '<div style="' + caixa + 'font-size:12px;color:#888;">Quando seu professor gravar um feedback em vídeo para você, ele aparece aqui.</div>';
+  } else {
+    lista.forEach(function(f, i) {
+      const novo = !f.visto_em;
+      const meta = [f.professor_nome, _fbDataBr(f.criado_em), _fbDuracao(f.duracao_seg)].filter(Boolean).map(esc).join(' · ');
+      html += '<div onclick="abrirFeedbackVideo(' + i + ')" style="display:flex;align-items:center;gap:12px;' + caixa + 'margin-bottom:6px;cursor:pointer;' + (novo ? 'border-left:3px solid #7FFF00;' : '') + '">' +
+        '<div style="width:38px;height:38px;border-radius:50%;background:rgba(127,255,0,.12);color:#7FFF00;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">&#9654;</div>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:700;color:' + (isLight ? '#111' : '#f0f0f0') + ';overflow-wrap:anywhere;line-height:1.3;">' + esc(f.titulo) + '</div>' +
+          '<div style="font-size:10.5px;color:#888;margin-top:2px;">' + meta + '</div>' +
+        '</div>' +
+        (novo ? '<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;background:rgba(127,255,0,.15);color:#7FFF00;flex-shrink:0;">Novo</span>' : '<span style="font-size:14px;color:#555;flex-shrink:0;">&#8250;</span>') +
+      '</div>';
+    });
+  }
+  bloco.innerHTML = '<div style="margin-bottom:16px;">' + html + '</div>';
+}
+
+function _fbCarregarPlayer() {
+  if (window.IntusFeedbackPlayer) return Promise.resolve();
+  return new Promise(function(resolve, reject) {
+    const s = document.createElement('script');
+    s.src = String(API_BASE).replace(/\/app\/api\/?$/, '') + '/feedback/player.js';
+    s.onload = resolve;
+    s.onerror = function() { reject(new Error('player')); };
+    document.head.appendChild(s);
+  });
+}
+
+function abrirFeedbackVideo(i) {
+  const f = _feedbacksAluno[i];
+  if (!f) return;
+  _fbLiberarVideo();
+  const container = document.getElementById('v-avaliacoes');
+  const isLight = document.body.classList.contains('tema-claro');
+  const token = _fbTokenDe(f);
+  const meta = [f.professor_nome ? 'Feedback de ' + f.professor_nome : '', _fbDataBr(f.criado_em), _fbDuracao(f.duracao_seg)].filter(Boolean).map(esc).join(' · ');
+  container.innerHTML = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
+    '<h2 class="sect-title" style="overflow-wrap:anywhere;">' + esc(f.titulo) + '</h2>' +
+    '<p style="font-size:11.5px;color:#888;margin-bottom:12px;">' + meta + '</p>' +
+    '<p id="fb-status" style="font-size:13px;color:#7FFF00;margin-bottom:10px;" hidden></p>' +
+    '<video id="fb-video" controls playsinline preload="metadata" style="width:100%;max-height:70vh;background:#000;border-radius:12px;display:block;"></video>' +
+    '<div id="fb-erro" style="font-size:12.5px;color:#f59e0b;margin-top:10px;line-height:1.5;" hidden></div>' +
+    (f.descricao ? '<div style="margin-top:14px;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;background:' + (isLight ? '#fff' : '#141414') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#1e1e1e') + ';">' + esc(f.descricao) + '</div>' : '') +
+    getFooterHtml();
+  trocarView('avaliacoes');
+
+  // Chamar "ver" é o que marca o feedback como assistido pro professor.
+  if (token && !f.visto_em) {
+    f.visto_em = new Date().toISOString();
+    fetch(API_BASE + '/feedbacks.php?action=ver&v=' + token).catch(function() {});
+  }
+  const status = document.getElementById('fb-status');
+  const erro = document.getElementById('fb-erro');
+  _fbCarregarPlayer().then(function() {
+    return window.IntusFeedbackPlayer.carregar(document.getElementById('fb-video'),
+      API_BASE + '/feedbacks.php?action=video&v=' + token, {
+        mime: f.mime || 'video/mp4',
+        aoMudarEstado: function(t) { if (status) { status.textContent = t || ''; status.hidden = !t; } }
+      });
+  }).catch(function() {
+    if (status) status.hidden = true;
+    if (!erro) return;
+    erro.innerHTML = 'Não consegui tocar o vídeo aqui. ' + (f.link ? '<a href="' + esc(f.link) + '" target="_blank" rel="noopener" style="color:#7FFF00;font-weight:700;">Abrir no navegador</a>' : 'Tente de novo mais tarde.');
+    erro.hidden = false;
+  });
 }
 
 // ═══════════════ NOVA AVALIAÇÃO (Menu) ═══════════════
