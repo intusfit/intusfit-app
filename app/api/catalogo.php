@@ -356,32 +356,31 @@ function ensureCatalogoTables(PDO $pdo) {
             INDEX idx_atleta (idatleta)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
-    // Desafio: meta com prazo (treinos, cardios ou pontos), solo, em dupla ou por turma.
+    // Desafio entre alunos: meta com prazo (dias de treino, de cardio, de atividade ou pontos), numa turma ou entre amigos.
+    // ATENÇÃO: os nomes intus_desafio e intus_desafio_participante pertencem ao recurso Desafios do admin (desafios.php),
+    // com outro formato. Estas são tabelas à parte, de propósito.
     $pdo->exec("
-        CREATE TABLE IF NOT EXISTS intus_desafio (
+        CREATE TABLE IF NOT EXISTS intus_desafio_aluno (
             iddesafio  INT AUTO_INCREMENT PRIMARY KEY,
             idturma    INT NULL,
-            titulo     VARCHAR(100) NOT NULL,
-            descricao  VARCHAR(300) NULL,
-            metrica    VARCHAR(20) NOT NULL DEFAULT 'treinos',
+            titulo     VARCHAR(80) NOT NULL,
+            descricao  VARCHAR(200) NULL,
+            metrica    VARCHAR(12) NOT NULL DEFAULT 'treinos',
             meta       INT NOT NULL DEFAULT 12,
             inicio     DATE NOT NULL,
             fim        DATE NOT NULL,
-            modo       VARCHAR(10) NOT NULL DEFAULT 'solo',
-            distintivo VARCHAR(40) NULL,
-            criador_tipo VARCHAR(10) NOT NULL DEFAULT 'prof',
             criador_id INT NOT NULL,
             ativo      TINYINT(1) NOT NULL DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_periodo (inicio, fim)
+            INDEX idx_periodo (inicio, fim),
+            INDEX idx_turma (idturma)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
-    _intusGarantirUtf8mb4($pdo, 'intus_desafio', ['titulo', 'descricao']);
+    _intusGarantirUtf8mb4($pdo, 'intus_desafio_aluno', ['titulo', 'descricao']);
     $pdo->exec("
-        CREATE TABLE IF NOT EXISTS intus_desafio_participante (
+        CREATE TABLE IF NOT EXISTS intus_desafio_aluno_part (
             iddesafio  INT NOT NULL,
             idatleta   INT NOT NULL,
-            equipe     VARCHAR(40) NULL,
             entrou_em  DATETIME DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (iddesafio, idatleta),
             INDEX idx_atleta (idatleta)
@@ -499,10 +498,9 @@ if (!is_file($_bootMarca)) {
 // não copiar essa busca de coluna (tabela de atleta/professor não tem nome
 // de coluna garantido) em cada ação nova que precisar assinar algo.
 // Chave das conexões entre alunos (amizade, turmas, desafios, parceiro de treino).
-// DESLIGADA de propósito: as estruturas estão prontas, mas só entram em uso quando o Luiz decidir
-// (a ideia é crescer a base de alunos antes). Para ligar, troque para true e publique.
-// Com a chave desligada ninguém consegue pedir amizade, então "só amigos" funciona como "só eu".
-if (!defined('INTUS_CONEXOES_ATIVO')) define('INTUS_CONEXOES_ATIVO', false);
+// LIGADA em 06/10/2026 a pedido do Luiz. Para desligar (esconde tudo no app e os endpoints respondem 403),
+// troque para false e publique. Desligada, ninguém consegue pedir amizade, então "só amigos" funciona como "só eu".
+if (!defined('INTUS_CONEXOES_ATIVO')) define('INTUS_CONEXOES_ATIVO', true);
 
 // Configuração de privacidade do perfil de um aluno. Sem linha = tudo visível para todos.
 function _perfilConfig(PDO $pdo, int $idatleta): array {
@@ -575,6 +573,28 @@ function _pessoasMapa(PDO $pdo, array $ids): array {
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) { $k = (int)$r['idatleta']; if (isset($out[$k])) $out[$k]['avatar'] = $r['avatar']; }
     } catch (Throwable $e) {}
     return $out;
+}
+
+// Turmas ativas em que o aluno está.
+function _turmasDe(PDO $pdo, int $idatleta): array {
+    if ($idatleta <= 0) return [];
+    try {
+        $st = $pdo->prepare("SELECT m.idturma FROM intus_turma_membro m JOIN intus_turma t ON t.idturma = m.idturma WHERE m.idatleta = ? AND t.ativo = 1");
+        $st->execute([$idatleta]);
+        return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+    } catch (Throwable $e) { return []; }
+}
+// Código de convite da turma: 8 letras e números sem os que se confundem (0, O, 1, I, L).
+function _novoCodigoTurma(PDO $pdo): string {
+    $alf = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    for ($t = 0; $t < 8; $t++) {
+        $cod = '';
+        for ($i = 0; $i < 8; $i++) $cod .= $alf[random_int(0, strlen($alf) - 1)];
+        $st = $pdo->prepare("SELECT 1 FROM intus_turma WHERE convite = ?");
+        $st->execute([$cod]);
+        if (!$st->fetchColumn()) return $cod;
+    }
+    return strtoupper(substr(md5(uniqid('', true)), 0, 8));
 }
 
 // Nome com que um professor aparece PARA OS ALUNOS (comentário, curtida, aviso do sino).
@@ -2898,6 +2918,229 @@ if ($action === 'parcerias') {
     if ($method === 'DELETE') {
         $outro = (int)($_GET['id'] ?? 0);
         $pdo->prepare("DELETE FROM intus_parceria WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?)")->execute([$_autorId, $outro, $outro, $_autorId]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ── Turmas de alunos (chave INTUS_CONEXOES_ATIVO) ─────────────────────────
+// Grupo com ranking interno, criado por um aluno e aberto por código de convite. Até 30 membros; cada aluno em até 5 turmas.
+// GET: minhas turmas. POST {nome, descricao}: criar. POST {entrar: CODIGO}: entrar. PUT {idturma, nome, descricao, novo_convite}: só o dono.
+// DELETE ?id=T: dono encerra a turma. DELETE ?id=T&membro=M: dono tira alguém, ou o próprio aluno sai.
+if ($action === 'turmas') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (!INTUS_CONEXOES_ATIVO) { http_response_code(403); echo json_encode(['error' => 'recurso ainda nao liberado']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorTipo !== 'aluno' || $_autorId <= 0) { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
+    $MAX_MEMBROS = 30; $MAX_TURMAS = 5;
+
+    if ($method === 'GET') {
+        $ids = _turmasDe($pdo, $_autorId);
+        $turmas = []; $todos = [];
+        foreach ($ids as $idt) {
+            $st = $pdo->prepare("SELECT idturma, nome, descricao, criador_id, convite FROM intus_turma WHERE idturma = ? AND ativo = 1");
+            $st->execute([$idt]);
+            $t = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$t) continue;
+            $sm = $pdo->prepare("SELECT idatleta FROM intus_turma_membro WHERE idturma = ? ORDER BY entrou_em, idatleta");
+            $sm->execute([$idt]);
+            $mem = array_map('intval', $sm->fetchAll(PDO::FETCH_COLUMN));
+            $todos = array_merge($todos, $mem);
+            $souDono = ((int)$t['criador_id'] === $_autorId);
+            $turmas[] = ['idturma' => (int)$t['idturma'], 'nome' => $t['nome'], 'descricao' => (string)($t['descricao'] ?? ''), 'dono' => (int)$t['criador_id'],
+                         'sou_dono' => $souDono, 'convite' => $souDono ? $t['convite'] : null, 'membros' => $mem];
+        }
+        echo json_encode(['turmas' => $turmas, 'limite_membros' => $MAX_MEMBROS, 'limite_turmas' => $MAX_TURMAS, 'pessoas' => (object)_pessoasMapa($pdo, $todos)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $b = jsonBody();
+    if ($method === 'POST') {
+        if (!empty($b['entrar'])) {
+            $cod = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string)$b['entrar']));
+            $st = $pdo->prepare("SELECT idturma, nome, criador_id FROM intus_turma WHERE convite = ? AND ativo = 1");
+            $st->execute([$cod]);
+            $t = $cod !== '' ? $st->fetch(PDO::FETCH_ASSOC) : false;
+            if (!$t) { http_response_code(404); echo json_encode(['error' => 'codigo nao encontrado']); exit; }
+            $idt = (int)$t['idturma'];
+            if (in_array($idt, _turmasDe($pdo, $_autorId), true)) { echo json_encode(['ok' => true, 'idturma' => $idt, 'ja_membro' => true]); exit; }
+            if (count(_turmasDe($pdo, $_autorId)) >= $MAX_TURMAS) { http_response_code(409); echo json_encode(['error' => 'limite de turmas atingido']); exit; }
+            $st = $pdo->prepare("SELECT COUNT(*) FROM intus_turma_membro WHERE idturma = ?");
+            $st->execute([$idt]);
+            if ((int)$st->fetchColumn() >= $MAX_MEMBROS) { http_response_code(409); echo json_encode(['error' => 'turma cheia']); exit; }
+            $pdo->prepare("INSERT IGNORE INTO intus_turma_membro (idturma, idatleta, papel) VALUES (?,?, 'membro')")->execute([$idt, $_autorId]);
+            try { _criarNotificacao($pdo, 'aluno', (int)$t['criador_id'], 'turma_entrou', 'aluno', $_autorId, (string)$_autorNome, 'turma', $idt, (string)$t['nome']); } catch (Throwable $e) {}
+            echo json_encode(['ok' => true, 'idturma' => $idt]);
+            exit;
+        }
+        $nome = trim(mb_substr((string)($b['nome'] ?? ''), 0, 60));
+        $desc = trim(mb_substr((string)($b['descricao'] ?? ''), 0, 200));
+        if (mb_strlen($nome) < 2) { http_response_code(400); echo json_encode(['error' => 'nome muito curto']); exit; }
+        if (count(_turmasDe($pdo, $_autorId)) >= $MAX_TURMAS) { http_response_code(409); echo json_encode(['error' => 'limite de turmas atingido']); exit; }
+        try {
+            $cod = _novoCodigoTurma($pdo);
+            $pdo->prepare("INSERT INTO intus_turma (nome, descricao, criador_tipo, criador_id, convite) VALUES (?,?, 'aluno', ?, ?)")->execute([$nome, $desc !== '' ? $desc : null, $_autorId, $cod]);
+            $idt = (int)$pdo->lastInsertId();
+            $pdo->prepare("INSERT INTO intus_turma_membro (idturma, idatleta, papel) VALUES (?,?, 'dono')")->execute([$idt, $_autorId]);
+            echo json_encode(['ok' => true, 'idturma' => $idt, 'convite' => $cod]);
+        } catch (Throwable $e) {
+            http_response_code(500); echo json_encode(['error' => 'falha ao criar', 'detalhe' => _intusLogErro($e)]);
+        }
+        exit;
+    }
+    if ($method === 'PUT') {
+        $idt = (int)($b['idturma'] ?? 0);
+        $st = $pdo->prepare("SELECT criador_id FROM intus_turma WHERE idturma = ? AND ativo = 1");
+        $st->execute([$idt]);
+        $dono = (int)$st->fetchColumn();
+        if (!$dono || $dono !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'so o dono altera a turma']); exit; }
+        if (isset($b['nome'])) {
+            $nome = trim(mb_substr((string)$b['nome'], 0, 60));
+            if (mb_strlen($nome) >= 2) $pdo->prepare("UPDATE intus_turma SET nome = ? WHERE idturma = ?")->execute([$nome, $idt]);
+        }
+        if (isset($b['descricao'])) $pdo->prepare("UPDATE intus_turma SET descricao = ? WHERE idturma = ?")->execute([trim(mb_substr((string)$b['descricao'], 0, 200)), $idt]);
+        $novo = null;
+        if (!empty($b['novo_convite'])) { $novo = _novoCodigoTurma($pdo); $pdo->prepare("UPDATE intus_turma SET convite = ? WHERE idturma = ?")->execute([$novo, $idt]); }
+        echo json_encode(['ok' => true, 'convite' => $novo]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $idt = (int)($_GET['id'] ?? 0);
+        $membro = (int)($_GET['membro'] ?? 0);
+        $st = $pdo->prepare("SELECT criador_id FROM intus_turma WHERE idturma = ? AND ativo = 1");
+        $st->execute([$idt]);
+        $dono = (int)$st->fetchColumn();
+        if (!$dono) { http_response_code(404); echo json_encode(['error' => 'turma nao encontrada']); exit; }
+        if ($membro <= 0) {
+            if ($dono !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'so o dono encerra a turma']); exit; }
+            $pdo->prepare("UPDATE intus_turma SET ativo = 0 WHERE idturma = ?")->execute([$idt]);   // a turma sai de cena; nada é apagado
+            echo json_encode(['ok' => true]); exit;
+        }
+        if ($membro !== $_autorId && $dono !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+        $pdo->prepare("DELETE FROM intus_turma_membro WHERE idturma = ? AND idatleta = ?")->execute([$idt, $membro]);
+        if ($membro === $dono) {
+            // O dono saiu: o membro mais antigo assume. Sem ninguém, a turma é encerrada.
+            $st = $pdo->prepare("SELECT idatleta FROM intus_turma_membro WHERE idturma = ? ORDER BY entrou_em, idatleta LIMIT 1");
+            $st->execute([$idt]);
+            $prox = (int)$st->fetchColumn();
+            if ($prox) {
+                $pdo->prepare("UPDATE intus_turma SET criador_id = ? WHERE idturma = ?")->execute([$prox, $idt]);
+                $pdo->prepare("UPDATE intus_turma_membro SET papel = 'dono' WHERE idturma = ? AND idatleta = ?")->execute([$idt, $prox]);
+            } else {
+                $pdo->prepare("UPDATE intus_turma SET ativo = 0 WHERE idturma = ?")->execute([$idt]);
+            }
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ── Desafios entre alunos (chave INTUS_CONEXOES_ATIVO) ────────────────────
+// Não confundir com o recurso Desafios do admin (desafios.php). Meta com prazo, numa turma ou entre amigos.
+// O progresso é calculado no app a partir das sessões do ranking de cada participante.
+// GET: meus desafios (inclusive os da minha turma que ainda não entrei) e os encerrados nos últimos 30 dias.
+// POST {titulo, descricao, metrica, meta, inicio, fim, idturma?, convidados[]}: criar. POST {entrar: ID}: entrar (turma).
+// DELETE ?id=D&sair=1: sair. DELETE ?id=D: o criador cancela.
+if ($action === 'desafios_aluno') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (!INTUS_CONEXOES_ATIVO) { http_response_code(403); echo json_encode(['error' => 'recurso ainda nao liberado']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorTipo !== 'aluno' || $_autorId <= 0) { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
+
+    if ($method === 'GET') {
+        $minhasTurmas = _turmasDe($pdo, $_autorId);
+        $params = [$_autorId];
+        $porTurma = '';
+        if ($minhasTurmas) { $porTurma = " OR d.idturma IN (" . implode(',', array_fill(0, count($minhasTurmas), '?')) . ")"; $params = array_merge($params, $minhasTurmas); }
+        $st = $pdo->prepare("SELECT d.iddesafio, d.idturma, d.titulo, d.descricao, d.metrica, d.meta, d.inicio, d.fim, d.criador_id
+                             FROM intus_desafio_aluno d
+                             WHERE d.ativo = 1 AND d.fim >= (CURDATE() - INTERVAL 30 DAY)
+                               AND (EXISTS (SELECT 1 FROM intus_desafio_aluno_part p WHERE p.iddesafio = d.iddesafio AND p.idatleta = ?)$porTurma)
+                             ORDER BY d.fim DESC, d.iddesafio DESC LIMIT 60");
+        $st->execute($params);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+        $lista = []; $todos = [];
+        $nomesTurma = [];
+        foreach ($rows as $r) {
+            $sp = $pdo->prepare("SELECT idatleta FROM intus_desafio_aluno_part WHERE iddesafio = ? ORDER BY entrou_em, idatleta");
+            $sp->execute([(int)$r['iddesafio']]);
+            $part = array_map('intval', $sp->fetchAll(PDO::FETCH_COLUMN));
+            $todos = array_merge($todos, $part, [(int)$r['criador_id']]);
+            if ($r['idturma'] && !isset($nomesTurma[(int)$r['idturma']])) {
+                $sn = $pdo->prepare("SELECT nome FROM intus_turma WHERE idturma = ?"); $sn->execute([(int)$r['idturma']]);
+                $nomesTurma[(int)$r['idturma']] = (string)$sn->fetchColumn();
+            }
+            $lista[] = ['iddesafio' => (int)$r['iddesafio'], 'idturma' => $r['idturma'] ? (int)$r['idturma'] : null,
+                        'turma' => $r['idturma'] ? ($nomesTurma[(int)$r['idturma']] ?? '') : null,
+                        'titulo' => $r['titulo'], 'descricao' => (string)($r['descricao'] ?? ''), 'metrica' => $r['metrica'], 'meta' => (int)$r['meta'],
+                        'inicio' => $r['inicio'], 'fim' => $r['fim'], 'criador' => (int)$r['criador_id'], 'participantes' => $part,
+                        'participo' => in_array($_autorId, $part, true)];
+        }
+        echo json_encode(['desafios' => $lista, 'pessoas' => (object)_pessoasMapa($pdo, $todos)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $b = jsonBody();
+    if ($method === 'POST') {
+        if (!empty($b['entrar'])) {
+            $idd = (int)$b['entrar'];
+            $st = $pdo->prepare("SELECT idturma, titulo, fim FROM intus_desafio_aluno WHERE iddesafio = ? AND ativo = 1");
+            $st->execute([$idd]);
+            $d = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$d) { http_response_code(404); echo json_encode(['error' => 'desafio nao encontrado']); exit; }
+            if ($d['fim'] < date('Y-m-d')) { http_response_code(409); echo json_encode(['error' => 'desafio encerrado']); exit; }
+            if (!$d['idturma'] || !in_array((int)$d['idturma'], _turmasDe($pdo, $_autorId), true)) { http_response_code(403); echo json_encode(['error' => 'so membros da turma entram']); exit; }
+            $pdo->prepare("INSERT IGNORE INTO intus_desafio_aluno_part (iddesafio, idatleta) VALUES (?,?)")->execute([$idd, $_autorId]);
+            echo json_encode(['ok' => true]); exit;
+        }
+        $titulo = trim(mb_substr((string)($b['titulo'] ?? ''), 0, 80));
+        $desc = trim(mb_substr((string)($b['descricao'] ?? ''), 0, 200));
+        $metrica = (string)($b['metrica'] ?? 'treinos');
+        if (!in_array($metrica, ['treinos', 'cardios', 'atividades', 'pontos'], true)) $metrica = 'treinos';
+        $meta = (int)($b['meta'] ?? 0);
+        $maxMeta = $metrica === 'pontos' ? 2000 : 120;
+        $inicio = (string)($b['inicio'] ?? date('Y-m-d'));
+        $fim = (string)($b['fim'] ?? '');
+        $hoje = date('Y-m-d');
+        $okData = function ($d) { return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && strtotime($d) !== false; };
+        if (mb_strlen($titulo) < 3) { http_response_code(400); echo json_encode(['error' => 'titulo muito curto']); exit; }
+        if ($meta < 1 || $meta > $maxMeta) { http_response_code(400); echo json_encode(['error' => 'meta invalida']); exit; }
+        if (!$okData($inicio) || !$okData($fim) || $fim < $inicio || $fim < $hoje) { http_response_code(400); echo json_encode(['error' => 'datas invalidas']); exit; }
+        if ((strtotime($fim) - strtotime($inicio)) / 86400 > 120) { http_response_code(400); echo json_encode(['error' => 'prazo maximo de 120 dias']); exit; }
+        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_desafio_aluno WHERE criador_id = ? AND ativo = 1 AND fim >= ?");
+        $st->execute([$_autorId, $hoje]);
+        if ((int)$st->fetchColumn() >= 10) { http_response_code(409); echo json_encode(['error' => 'limite de desafios em andamento']); exit; }
+        $idturma = (int)($b['idturma'] ?? 0);
+        if ($idturma > 0 && !in_array($idturma, _turmasDe($pdo, $_autorId), true)) { http_response_code(403); echo json_encode(['error' => 'voce nao esta nessa turma']); exit; }
+        $amigos = _amigosDe($pdo, $_autorId);
+        $conv = [];
+        foreach ((array)($b['convidados'] ?? []) as $x) { $x = (int)$x; if ($x > 0 && in_array($x, $amigos, true)) $conv[$x] = $x; }
+        $conv = array_slice(array_values($conv), 0, 20);
+        try {
+            $pdo->prepare("INSERT INTO intus_desafio_aluno (idturma, titulo, descricao, metrica, meta, inicio, fim, criador_id) VALUES (?,?,?,?,?,?,?,?)")
+                ->execute([$idturma > 0 ? $idturma : null, $titulo, $desc !== '' ? $desc : null, $metrica, $meta, $inicio, $fim, $_autorId]);
+            $idd = (int)$pdo->lastInsertId();
+            $pdo->prepare("INSERT IGNORE INTO intus_desafio_aluno_part (iddesafio, idatleta) VALUES (?,?)")->execute([$idd, $_autorId]);
+            foreach ($conv as $amigo) {
+                $pdo->prepare("INSERT IGNORE INTO intus_desafio_aluno_part (iddesafio, idatleta) VALUES (?,?)")->execute([$idd, $amigo]);
+                try { _criarNotificacao($pdo, 'aluno', $amigo, 'desafio_convite', 'aluno', $_autorId, (string)$_autorNome, 'desafio', $idd, $titulo); } catch (Throwable $e) {}
+            }
+            echo json_encode(['ok' => true, 'iddesafio' => $idd]);
+        } catch (Throwable $e) {
+            http_response_code(500); echo json_encode(['error' => 'falha ao criar', 'detalhe' => _intusLogErro($e)]);
+        }
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $idd = (int)($_GET['id'] ?? 0);
+        $st = $pdo->prepare("SELECT criador_id FROM intus_desafio_aluno WHERE iddesafio = ? AND ativo = 1");
+        $st->execute([$idd]);
+        $criador = (int)$st->fetchColumn();
+        if (!$criador) { http_response_code(404); echo json_encode(['error' => 'desafio nao encontrado']); exit; }
+        if (!empty($_GET['sair'])) {
+            $pdo->prepare("DELETE FROM intus_desafio_aluno_part WHERE iddesafio = ? AND idatleta = ?")->execute([$idd, $_autorId]);
+            echo json_encode(['ok' => true]); exit;
+        }
+        if ($criador !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'so quem criou cancela']); exit; }
+        $pdo->prepare("UPDATE intus_desafio_aluno SET ativo = 0 WHERE iddesafio = ?")->execute([$idd]);   // sai de cena; nada é apagado
         echo json_encode(['ok' => true]);
         exit;
     }

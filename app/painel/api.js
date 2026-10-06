@@ -2940,6 +2940,39 @@ const API = {
     }
     return { resumo: resumo };
   })(),
+  // Turmas e desafios entre alunos: progresso, classificação e estado de um desafio.
+  // Progresso por dias distintos (dois treinos no mesmo dia contam uma vez), dentro do período, de 'YYYY-MM-DD' a 'YYYY-MM-DD'.
+  comunidade: (function () {
+    function progresso(sess, metrica, ini, fim) {
+      const dias = {};
+      (sess || []).forEach(function (s) {
+        if (!s || Number(s.nao_contar) === 1) return;
+        const d = String(s.dtsessao || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < ini || d > fim) return;
+        const tp = s.tipo || 'musculacao';
+        if (metrica === 'treinos' && tp !== 'musculacao') return;
+        if (metrica === 'cardios' && tp !== 'cardio') return;
+        dias[d] = 1;
+      });
+      return Object.keys(dias).length;
+    }
+    // Ordena do maior para o menor valor; empate divide a colocação e a seguinte não é pulada.
+    function ranquear(itens, chave) {
+      const k = chave || 'valor';
+      const lista = (itens || []).slice().sort(function (a, b) { return (b[k] || 0) - (a[k] || 0); });
+      let pos = 0, ant = null;
+      return lista.map(function (it) {
+        if (ant === null || (it[k] || 0) !== ant) { pos++; ant = it[k] || 0; }
+        return Object.assign({}, it, { pos: pos });
+      });
+    }
+    function estado(ini, fim, hoje) { return hoje < ini ? 'agendado' : (hoje > fim ? 'encerrado' : 'andamento'); }
+    // Dias que faltam para o fim (0 = último dia, negativo = já encerrou).
+    function diasRestantes(fim, hoje) {
+      return Math.round((new Date(fim + 'T00:00:00Z') - new Date(hoje + 'T00:00:00Z')) / 86400000);
+    }
+    return { progresso: progresso, ranquear: ranquear, estado: estado, diasRestantes: diasRestantes };
+  })(),
   // Painel da nutri: planos ativos + registros + água dos últimos 14 dias da carteira.
   nutriPainel: () => apiFetch('/catalogo.php?action=nutri_painel'),
   nutriResponder: (idregistro, texto) => apiFetch('/catalogo.php?action=nutri_registro', { method: 'POST', body: JSON.stringify({ subacao: 'resposta', idregistro: idregistro, texto: texto }) }),

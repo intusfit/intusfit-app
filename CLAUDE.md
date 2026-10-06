@@ -781,16 +781,28 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   no servidor (`resultados?idatleta=`). Conquistas e semana são só escondidas na tela (os dados vêm do ranking,
   que é público entre participantes). A equipe (professor) enxerga tudo. Se o app não conseguir ler a privacidade
   de outro aluno, ele esconde tudo em vez de mostrar (falha fecha).
-- **Conexões, DESLIGADAS**: `INTUS_CONEXOES_ATIVO` (constante no topo de `catalogo.php`, valor false). **Para
-  ligar: trocar para true e publicar.** Com ela desligada os endpoints `amizades` e `parcerias` respondem 403, o
-  menu "Amigos e parceiros", os botões do perfil e o filtro de amigos do Feed ficam escondidos (o app lê a chave em
-  `perfil_config`). Já prontos: amizade (pedido, aceite, desfazer, busca por nome entre quem está no ranking, filtro
-  Amigos no Feed, avisos no sino) e parceria de treino (só entre amigos, até 3 parceiros; sequência em dupla e treinos
-  no mesmo dia vêm de `API.parceria`, teste `testes/parceria.js`; aviso "seu parceiro treinou hoje" é registrado pelo
-  próprio app, tipo `parceiro`). Só conta quem participa do ranking (os dados saem das sessões do ranking). Desfazer a
-  amizade desfaz a parceria. Tabelas `intus_turma`, `intus_turma_membro`, `intus_desafio` e
-  `intus_desafio_participante` existem vazias, sem endpoint nem tela (turmas e desafios entre alunos ficam para a
-  ativação). Com a chave desligada ninguém vira amigo, então "Só amigos" funciona como "Só eu".
+- **Conexões, LIGADAS (06/10/2026)**: `INTUS_CONEXOES_ATIVO` (constante no topo de `catalogo.php`). **Para desligar:
+  trocar para false e publicar** (os endpoints respondem 403 e o app esconde o menu Comunidade, os botões do perfil e
+  o filtro do Feed, porque lê a chave em `perfil_config`). Tela **Comunidade** (menu, `v-amigos`) com abas Amigos,
+  Pedidos, Parceiros, Turmas e Desafios.
+  - **Amizade** (`amizades`): pedido, aceite, desfazer, busca por nome entre quem está no ranking, filtro Amigos no
+    Feed (`feed_posts?so_amigos=1`), avisos no sino. Desfazer a amizade desfaz a parceria.
+  - **Parceria de treino** (`parcerias`): só entre amigos, até 3. Sequência em dupla e treinos no mesmo dia vêm de
+    `API.parceria` (teste `testes/parceria.js`). O aviso "seu parceiro treinou hoje" é registrado pelo próprio app
+    (`notificacoes` aceita o tipo `parceiro`).
+  - **Turmas** (`turmas`, tabelas `intus_turma` e `intus_turma_membro`): criadas por aluno, até 30 membros, cada aluno
+    em até 5. Entrada por código de convite de 8 caracteres (só o dono vê e pode gerar outro). Ranking de pontos da
+    semana e do mês calculado no app com `API.agregarPontosRank`. O dono sai passando a turma ao membro mais antigo;
+    encerrar a turma só marca `ativo = 0`. Sem mural da turma por enquanto.
+  - **Desafios entre alunos** (`desafios_aluno`, tabelas `intus_desafio_aluno` e `intus_desafio_aluno_part`): meta
+    com prazo (treinos, cardios, atividades por dia distinto, ou pontos), até 120 dias, numa turma (os membros entram
+    quando quiserem) ou com amigos escolhidos (entram direto e recebem aviso). Regras em `API.comunidade` (teste
+    `testes/comunidade.js`). Cancelar só marca `ativo = 0`. Sem distintivo ao final por enquanto.
+  - **ATENÇÃO, nomes de tabela**: `intus_desafio` e `intus_desafio_participante` são do recurso **Desafios do admin**
+    (`desafios.php`), com outro formato. Os desafios entre alunos usam as tabelas `intus_desafio_aluno*`, de
+    propósito. Não criar nada com os nomes antigos no `catalogo.php`.
+  - Progresso e pontos saem das sessões do ranking (`_rankingData`): quem não participa do ranking aparece sem
+    números. Com as conexões ligadas, "Só amigos" nas fotos funciona de verdade.
 - **Rolagem**: perfil, post aberto e tela de privacidade travam a rolagem da página de trás (`_pkTravarFundo`).
 
 ## 22. Planos alimentares ativos e inativos (06/10/2026)
