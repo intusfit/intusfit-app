@@ -28,6 +28,20 @@
     .rs-btn { background: transparent; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-family: inherit; color: var(--text); font-size: 12px; font-weight: 700; padding: 6px 10px; }
     .rs-btn.on { background: var(--green); color: #0f1a00; border-color: var(--green); }
     .rs-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .rs-add { padding: 9px 16px; border-radius: 99px; border: none; background: var(--green); color: #0f1a00; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit; }
+    .rs-modal { position: fixed; inset: 0; z-index: 900; background: rgba(0,0,0,.7); display: flex; align-items: flex-start; justify-content: center; padding: 20px 12px; overflow-y: auto; }
+    .rs-form { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 520px; padding: 20px; }
+    .rs-form h3 { margin: 0 0 4px; font-size: 16px; color: var(--text); }
+    .rs-form label { display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); margin: 12px 0 4px; }
+    .rs-form input[type=text], .rs-form select, .rs-form textarea { width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); font-size: 13px; font-family: inherit; }
+    .rs-form textarea { min-height: 80px; resize: vertical; }
+    .rs-form .dica { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.45; }
+    .rs-form .chk { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--text); line-height: 1.45; margin: 10px 0 0; cursor: pointer; }
+    .rs-thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .rs-thumbs div { position: relative; }
+    .rs-thumbs img { width: 64px; height: 80px; object-fit: cover; border-radius: 8px; display: block; border: 1px solid var(--border); }
+    .rs-thumbs span { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #222; color: #fff; border: 1.5px solid #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .rs-aviso { font-size: 11.5px; color: #fbbf24; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.3); border-radius: 10px; padding: 8px 10px; margin-top: 12px; line-height: 1.45; }
     .rs-vazio { text-align: center; padding: 50px 16px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
     .rs-mais { display: block; margin: 0 auto 24px; padding: 10px 22px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); font-weight: 700; font-size: 12px; cursor: pointer; font-family: inherit; }
     .mcar-wrap { position: relative; }
@@ -45,6 +59,7 @@ renderLayout('Quadro de Resultados');
 
 const main = document.getElementById('main-content');
 const BASE = (typeof API_BASE !== 'undefined' && API_BASE) ? API_BASE : '../api';
+const _isAdmin = (typeof isAdmin === 'function') ? isAdmin() : false;
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function tok() { return localStorage.getItem('mx-token') || ''; }
@@ -106,6 +121,14 @@ function carIr(btn, dir) {
   if (el) el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
 }
 
+const TAGS = { evolucao: '📈 Evolução', depoimento: '🗣️ Depoimento', print: '💬 Conversa', video: '🎬 Vídeo' };
+function linkHtml(l) {
+  if (!l || !l.id) return '';
+  const id = String(l.id);
+  if (l.tipo === 'youtube') return '<div style="position:relative;padding-top:56.25%;background:#000;"><iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) + '?rel=0" loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0;"></iframe></div>';
+  if (l.tipo === 'instagram') { const cam = id.split('/').map(encodeURIComponent).join('/'); return '<iframe src="https://www.instagram.com/' + cam + '/embed" loading="lazy" scrolling="no" style="width:100%;height:560px;border:0;display:block;background:#fff;"></iframe>'; }
+  return '';
+}
 function iniciais(nome) {
   const p = String(nome || '?').trim().split(/\s+/);
   return ((p[0] && p[0][0] || '') + (p[1] && p[1][0] || '')).toUpperCase() || '?';
@@ -157,8 +180,9 @@ async function carregar(antesDe) {
 }
 
 function cartaoHtml(r) {
-  const nome = atletas[String(r.idatleta)] || 'Aluno';
-  const av = avatares[String(r.idatleta)];
+  const daEquipe = r.origem === 'admin';
+  const nome = daEquipe ? (r.autor_nome || 'Aluno Intus') : (atletas[String(r.idatleta)] || 'Aluno');
+  const av = daEquipe ? '' : avatares[String(r.idatleta)];
   const avatarEl = av ? '<img class="rs-av" src="' + esc(av) + '" alt="" onerror="this.style.display=\'none\'"/>' : '<div class="rs-av">' + esc(iniciais(nome)) + '</div>';
   const curtidas = (reac[r.idresultado] || []).length;
   const autorizouSite = Number(r.autoriza_site) === 1;
@@ -166,11 +190,12 @@ function cartaoHtml(r) {
   return '<div class="rs-card" data-res="' + r.idresultado + '">' +
     '<div class="rs-head">' + avatarEl +
       '<div style="flex:1;min-width:0;"><div class="rs-nome">' + esc(nome) + '</div><div class="rs-meta">' + quando(r.created_at) + (r.periodo_txt ? ' · ⏱ ' + esc(r.periodo_txt) : '') + '</div></div>' +
-      '<span class="rs-tag">' + (r.tipo === 'evolucao' ? '📈 Evolução' : '🗣️ Depoimento') + '</span></div>' +
+      '<span class="rs-tag">' + (TAGS[r.tipo] || '🗣️ Depoimento') + '</span></div>' +
     carrossel((r.midias || []).filter(m => m && m.url)) +
+    linkHtml(r.link) +
     (r.texto ? '<div class="rs-texto">' + esc(r.texto) + '</div>' : '') +
     '<div class="rs-rodape">' +
-      '<span class="rs-site">❤️ ' + curtidas + ' · ' + (autorizouSite ? '<b>Autorizou uso no site</b>' : 'Só dentro do app') + '</span>' +
+      '<span class="rs-site">❤️ ' + curtidas + ' · ' + (daEquipe ? 'Cadastrado pela equipe' + (r.autorizacao_obs ? ' (' + esc(r.autorizacao_obs) + ')' : '') + ' · ' : '') + (autorizouSite ? '<b>Autorizou uso no site</b>' : 'Só dentro do app') + '</span>' +
       '<span style="display:flex;gap:8px;">' +
         '<button class="rs-btn' + (destaque ? ' on' : '') + '" ' + (autorizouSite ? '' : 'disabled title="O aluno não autorizou o uso no site"') + ' onclick="alternarDestaque(' + r.idresultado + ')">' + (destaque ? '⭐ Destaque do site' : '☆ Marcar destaque') + '</button>' +
         '<button class="rs-btn" title="Excluir resultado (moderação)" onclick="excluir(' + r.idresultado + ')">🗑️ Excluir</button>' +
@@ -186,7 +211,8 @@ function render() {
   const tinhaFoco = campo && document.activeElement === campo;
   main.innerHTML = '<div class="rs-wrap">' +
     '<div class="rs-intro">Resultados e depoimentos que os alunos publicaram no app. Eles aparecem direto para os outros alunos, e você pode excluir o que não deve ficar no ar. O destaque para o site só vale para quem autorizou o uso e por enquanto serve apenas para separar os melhores; nada é publicado fora do app.</div>' +
-    '<div class="rs-filtros">' + chip('todos', 'Todos') + chip('evolucao', '📈 Evoluções') + chip('depoimento', '🗣️ Depoimentos') +
+    '<div class="rs-filtros">' + chip('todos', 'Todos') + chip('evolucao', '📈 Evoluções') + chip('depoimento', '🗣️ Depoimentos') + chip('video', '🎬 Vídeos') + chip('print', '💬 Conversas') +
+      (_isAdmin ? '<button class="rs-add" onclick="abrirNovoExterno()">➕ Adicionar resultado</button>' : '') +
       '<input id="rs-busca" class="rs-busca" placeholder="Buscar aluno (nos já carregados)" value="' + esc(busca) + '" oninput="busca=this.value;render();"/></div>' +
     (visiveis.length ? visiveis.map(cartaoHtml).join('') : '<div class="rs-vazio">' + (carregando ? 'Carregando...' : (erro ? 'Não consegui carregar agora. Tente de novo em instantes.' : 'Nenhum resultado por aqui ainda.')) + '</div>') +
     (temMais && !termo ? '<button class="rs-mais" onclick="carregar(' + (lista.length ? lista[lista.length - 1].idresultado : 0) + ')">Carregar mais</button>' : '') + '</div>';
@@ -212,6 +238,102 @@ async function excluir(id) {
   catch (e) { showToast('Não consegui excluir o resultado.', 'error'); return; }
   lista = lista.filter(x => x.idresultado !== id);
   render();
+}
+
+// ── Adicionar resultado externo (só administrador) ──
+// Vídeo do YouTube/Instagram, print de conversa ou antes e depois de ex-aluno que autorizou a divulgação.
+let _extImgs = [];
+function abrirNovoExterno() {
+  _extImgs = [];
+  document.getElementById('rs-modal')?.remove();
+  const m = document.createElement('div');
+  m.id = 'rs-modal'; m.className = 'rs-modal';
+  m.innerHTML = '<div class="rs-form">' +
+    '<h3>Adicionar resultado</h3>' +
+    '<div class="dica">Aparece no Quadro de Resultados do app como "Aluno Intus". Use só com autorização de quem aparece.</div>' +
+    '<label>Tipo</label><select id="ex-tipo"><option value="evolucao">📈 Antes e depois</option><option value="print">💬 Print de conversa</option><option value="video">🎬 Vídeo (YouTube ou Instagram)</option><option value="depoimento">🗣️ Depoimento</option></select>' +
+    '<label>Nome que aparece</label><input type="text" id="ex-nome" maxlength="120" placeholder="Ex.: Maria S. (ex-aluna)"/><div class="dica">Pode ser só o primeiro nome, iniciais ou "Aluna Intus".</div>' +
+    '<label>Período (opcional)</label><input type="text" id="ex-periodo" maxlength="60" placeholder="Ex.: 4 meses de consultoria"/>' +
+    '<label>Texto ou legenda (opcional)</label><textarea id="ex-texto" maxlength="1000" placeholder="O que a pessoa conquistou, ou a frase do depoimento"></textarea>' +
+    '<label>Link do vídeo (opcional)</label><input type="text" id="ex-link" placeholder="https://www.youtube.com/watch?v=... ou https://www.instagram.com/reel/..."/><div class="dica">Aceita vídeo do YouTube (inclusive Shorts) e post ou reel do Instagram.</div>' +
+    '<label>Imagens (opcional, até 10)</label><input type="file" id="ex-arq" accept="image/*" multiple onchange="extArquivos(this)"/><div class="rs-thumbs" id="ex-thumbs"></div>' +
+    '<div class="rs-aviso">Em prints de conversa, cubra nomes e telefones de outras pessoas antes de enviar.</div>' +
+    '<label class="chk"><input type="checkbox" id="ex-aut"/> <span><b>Confirmo que a pessoa autorizou a divulgação</b> deste material (obrigatório).</span></label>' +
+    '<label>Como foi a autorização (opcional)</label><input type="text" id="ex-obs" maxlength="255" placeholder="Ex.: áudio no WhatsApp em 03/2026, termo assinado"/>' +
+    '<label class="chk"><input type="checkbox" id="ex-site"/> <span>Autorizou também o uso no site e nas redes da Intus.</span></label>' +
+    '<div style="display:flex;gap:8px;margin-top:16px;"><button class="rs-btn" style="flex:1;" onclick="document.getElementById(\'rs-modal\').remove()">Cancelar</button>' +
+    '<button class="rs-btn on" id="ex-publicar" style="flex:2;padding:10px;" onclick="extPublicar()">Publicar no Quadro</button></div>' +
+  '</div>';
+  document.body.appendChild(m);
+}
+function extThumbs() {
+  const box = document.getElementById('ex-thumbs'); if (!box) return;
+  box.innerHTML = _extImgs.map((src, i) => '<div><img src="' + src + '" alt=""/><span onclick="_extImgs.splice(' + i + ',1);extThumbs();">✕</span></div>').join('');
+}
+function reduzirImagem(file, maxLado) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const f = Math.min(1, maxLado / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * f)); c.height = Math.max(1, Math.round(img.naturalHeight * f));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.88));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('imagem ilegivel')); };
+    img.src = url;
+  });
+}
+async function extArquivos(input) {
+  const arqs = Array.from(input.files || []); input.value = '';
+  for (const f of arqs) {
+    if (_extImgs.length >= 10) { showToast('Limite de 10 imagens.', 'error'); break; }
+    try { _extImgs.push(await reduzirImagem(f, 1600)); } catch (e) { showToast('Não consegui ler uma das imagens.', 'error'); }
+  }
+  extThumbs();
+}
+let _extEnviando = false;
+async function extPublicar() {
+  if (_extEnviando) return;
+  const v = id => (document.getElementById(id) || {}).value || '';
+  if (!document.getElementById('ex-aut').checked) { showToast('Confirme a autorização da pessoa para divulgar.', 'error'); return; }
+  const corpo = {
+    tipo: v('ex-tipo'), autor_nome: v('ex-nome').trim(), periodo_txt: v('ex-periodo').trim(), texto: v('ex-texto').trim(),
+    link: v('ex-link').trim(), autorizou: true, autorizacao_obs: v('ex-obs').trim(), autoriza_site: document.getElementById('ex-site').checked ? 1 : 0,
+    total_midias: _extImgs.length,
+  };
+  if (!corpo.texto && !corpo.link && !_extImgs.length) { showToast('Informe um texto, um link ou imagens.', 'error'); return; }
+  _extEnviando = true;
+  const btn = document.getElementById('ex-publicar'); const rotuloBtn = btn.textContent;
+  const msgErro = async (r) => { try { const j = await r.json(); return j.error || ('erro ' + r.status); } catch (e) { return 'erro ' + r.status; } };
+  try {
+    btn.disabled = true; btn.textContent = 'Publicando...';
+    const r = await apiJson('/catalogo.php?action=resultados', corpo);
+    if (!r.ok) throw new Error(await msgErro(r));
+    const j = await r.json(); const id = Number(j.idresultado) || 0;
+    if (_extImgs.length) {
+      if (!id) throw new Error('resposta invalida do servidor');
+      for (let i = 0; i < _extImgs.length; i++) {
+        btn.textContent = 'Enviando imagem ' + (i + 1) + ' de ' + _extImgs.length + '...';
+        let ok = false, ult = '';
+        for (let t = 0; t < 2 && !ok; t++) {
+          try { const rr = await apiJson('/catalogo.php?action=resultado_midia', { idresultado: id, imagem: _extImgs[i] }); if (rr.ok) ok = true; else ult = await msgErro(rr); } catch (e) { ult = 'sem conexao'; }
+        }
+        if (!ok) throw new Error('imagem ' + (i + 1) + ': ' + ult + '. Nada foi publicado, tente de novo');
+      }
+      const rf = await apiJson('/catalogo.php?action=resultado_midia', { idresultado: id, finalizar: 1, esperadas: _extImgs.length });
+      if (!rf.ok) throw new Error(await msgErro(rf));
+    }
+    document.getElementById('rs-modal')?.remove();
+    showToast('Resultado publicado no Quadro.', 'success');
+    carregar();
+  } catch (e) {
+    showToast('Não consegui publicar: ' + (e.message || 'erro'), 'error');
+    btn.disabled = false; btn.textContent = rotuloBtn;
+  }
+  _extEnviando = false;
 }
 
 render();

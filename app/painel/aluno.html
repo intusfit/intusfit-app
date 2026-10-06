@@ -11414,11 +11414,31 @@ async function excluirResultado(id) {
   if (document.getElementById('v-resultados')?.classList.contains('ativo')) renderResultados();
 }
 
+// Vídeo do YouTube ou post/reel do Instagram cadastrado pela equipe. O servidor só guarda o
+// identificador; o endereço do player é montado aqui. Sempre com atalho para abrir no app/site
+// de origem (o player embutido nem sempre carrega dentro do app).
+function _resultadoLinkHtml(l, isLight) {
+  if (!l || !l.id) return '';
+  const id = String(l.id);
+  let frame = '', abrir = '', rotulo = '';
+  if (l.tipo === 'youtube') {
+    frame = '<div style="position:relative;padding-top:56.25%;background:#000;"><iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) + '?rel=0&playsinline=1" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0;"></iframe></div>';
+    abrir = 'https://www.youtube.com/watch?v=' + encodeURIComponent(id); rotulo = 'Abrir no YouTube';
+  } else if (l.tipo === 'instagram') {
+    const caminho = id.split('/').map(encodeURIComponent).join('/');
+    frame = '<iframe src="https://www.instagram.com/' + caminho + '/embed" loading="lazy" scrolling="no" style="width:100%;height:560px;border:0;display:block;background:#fff;"></iframe>';
+    abrir = 'https://www.instagram.com/' + caminho + '/'; rotulo = 'Abrir no Instagram';
+  } else return '';
+  return frame + '<div style="padding:6px 12px 0;text-align:right;"><a href="' + abrir + '" target="_blank" rel="noopener" style="font-size:11.5px;font-weight:700;color:' + (isLight ? '#5cb800' : '#7FFF00') + ';text-decoration:none;">' + rotulo + ' ↗</a></div>';
+}
+const _RES_TAGS = { evolucao: '📈 Evolução', depoimento: '🗣️ Depoimento', print: '💬 Conversa', video: '🎬 Vídeo' };
+
 function _resultadoCardHtml(r, isLight) {
   const idA = Number(r.idatleta);
-  const nome = _resultadosNomes[String(idA)] || 'Aluno';
-  const avatar = _resultadosAvatars[String(idA)] || '';
-  const isMe = idA === Number(idAtleta);
+  const daEquipe = r.origem === 'admin';   // cadastrado pela equipe (ex-aluno que autorizou, vídeo, print)
+  const nome = daEquipe ? (r.autor_nome || 'Aluno Intus') : (_resultadosNomes[String(idA)] || 'Aluno');
+  const avatar = daEquipe ? '' : (_resultadosAvatars[String(idA)] || '');
+  const isMe = !daEquipe && idA === Number(idAtleta);
   const ink = isLight ? '#1a1a1a' : '#f0f0f0';
   const muted = isLight ? '#777' : '#999';
   const accent = isLight ? '#5cb800' : '#7FFF00';
@@ -11433,15 +11453,16 @@ function _resultadoCardHtml(r, isLight) {
   if (_foto1) midias = midias.map(m => (m.tipo === 'video' && !m.poster) ? Object.assign({}, m, { poster: _foto1.url }) : m);
   return '<div data-resultado-card="' + r.idresultado + '" style="background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
     '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
-      '<div onclick="abrirPerfilRanking(' + idA + ')" style="cursor:pointer;display:flex;align-items:center;gap:9px;flex:1;min-width:0;">' + avatarEl +
+      '<div ' + (daEquipe ? '' : 'onclick="abrirPerfilRanking(' + idA + ')" ') + 'style="' + (daEquipe ? '' : 'cursor:pointer;') + 'display:flex;align-items:center;gap:9px;flex:1;min-width:0;">' + avatarEl +
         '<div style="min-width:0;">' +
           '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0, 2).join(' ')) + (isMe ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
-          '<div style="font-size:10px;color:' + muted + ';">' + _tempoRelativoFeed(dt) + (r.periodo_txt ? ' · ⏱ ' + esc(r.periodo_txt) : '') + '</div>' +
+          '<div style="font-size:10px;color:' + muted + ';">' + _tempoRelativoFeed(dt) + (daEquipe ? ' · Aluno Intus' : '') + (r.periodo_txt ? ' · ⏱ ' + esc(r.periodo_txt) : '') + '</div>' +
         '</div></div>' +
-      '<span style="flex-shrink:0;font-size:10.5px;font-weight:800;padding:4px 8px;border-radius:10px;background:' + (isLight ? 'rgba(92,184,0,.12)' : 'rgba(127,255,0,.10)') + ';color:' + accent + ';">' + (ehEvol ? '📈 Evolução' : '🗣️ Depoimento') + '</span>' +
+      '<span style="flex-shrink:0;font-size:10.5px;font-weight:800;padding:4px 8px;border-radius:10px;background:' + (isLight ? 'rgba(92,184,0,.12)' : 'rgba(127,255,0,.10)') + ';color:' + accent + ';">' + (_RES_TAGS[r.tipo] || '🗣️ Depoimento') + '</span>' +
       (isMe ? '<span onclick="excluirResultado(' + r.idresultado + ')" title="Excluir" style="flex-shrink:0;cursor:pointer;font-size:15px;padding:4px;">🗑️</span>' : '') +
     '</div>' +
     (midias.length ? _carrosselHtml(midias, isLight) : '') +
+    _resultadoLinkHtml(r.link, isLight) +
     (r.texto ? '<div style="padding:11px 12px 4px;font-size:13.5px;line-height:1.5;color:' + (isLight ? '#333' : '#ddd') + ';white-space:pre-wrap;word-break:break-word;">' + esc(r.texto) + '</div>' : '') +
     '<div style="padding:8px 12px 11px;">' + _resultadoKudosHtml(r.idresultado) + '</div>' +
   '</div>';
@@ -11462,11 +11483,11 @@ async function renderResultados(filtro) {
   const isLight = document.body.classList.contains('tema-claro');
   const box = document.getElementById('v-resultados');
   if (!box) return;
-  const chip = (id, label) => '<button onclick="renderResultados(\'' + id + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;background:' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#fff' : '#161616')) + ';color:' + (_resFiltro === id ? '#0f1a00' : (isLight ? '#1a1a1a' : '#f0f0f0')) + ';border:1px solid ' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#e5e5e5' : '#2a2a2a')) + ';">' + label + '</button>';
+  const chip = (id, label) => '<button onclick="renderResultados(\'' + id + '\')" style="flex:1 1 auto;padding:9px 10px;white-space:nowrap;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;background:' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#fff' : '#161616')) + ';color:' + (_resFiltro === id ? '#0f1a00' : (isLight ? '#1a1a1a' : '#f0f0f0')) + ';border:1px solid ' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#e5e5e5' : '#2a2a2a')) + ';">' + label + '</button>';
   const topo = telaHeader('🌟 Resultados') +
     '<p style="font-size:12.5px;color:' + (isLight ? '#555' : '#aaa') + ';line-height:1.55;margin:0 0 12px;">Veja a evolução de quem treina com a Intus e mostre a sua. Cada resultado inspira quem está começando.</p>' +
     '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirCompartilharResultado()">🌟 Compartilhar meu resultado</button>' +
-    '<div style="display:flex;gap:6px;margin-bottom:14px;">' + chip('todos', 'Todos') + chip('evolucao', '📈 Evoluções') + chip('depoimento', '🗣️ Depoimentos') + '</div>';
+    '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">' + chip('todos', 'Todos') + chip('evolucao', '📈 Evoluções') + chip('depoimento', '🗣️ Depoimentos') + chip('video', '🎬 Vídeos') + chip('print', '💬 Conversas') + '</div>';
   box.innerHTML = topo + '<div style="text-align:center;padding:30px;color:' + (isLight ? '#666' : '#888') + ';font-size:13px;">Carregando resultados...</div>';
   const res = await carregarResultados({ tipo: _resFiltro, limite: 10 });
   _resLista = res.lista; _resTemMais = res.temMais;

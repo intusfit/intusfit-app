@@ -260,7 +260,16 @@ function ensureCatalogoTables(PDO $pdo) {
             INDEX idx_atleta (idatleta), INDEX idx_ativo (ativo, idresultado)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
-    _intusGarantirUtf8mb4($pdo, 'intus_resultado', ['texto', 'periodo_txt']);
+    // Resultados cadastrados pela EQUIPE (admin): vídeo do YouTube/Instagram, print de conversa e
+    // antes/depois de ex-aluno que autorizou a divulgação. Não pertencem a um aluno do app
+    // (idatleta = 0): o nome de exibição e a observação da autorização ficam na própria linha.
+    $rsCols = array_column($pdo->query("SHOW COLUMNS FROM intus_resultado")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    if (!in_array('origem', $rsCols)) $pdo->exec("ALTER TABLE intus_resultado ADD COLUMN origem VARCHAR(10) NOT NULL DEFAULT 'aluno'");
+    if (!in_array('autor_nome', $rsCols)) $pdo->exec("ALTER TABLE intus_resultado ADD COLUMN autor_nome VARCHAR(120) NULL");
+    if (!in_array('link_tipo', $rsCols)) $pdo->exec("ALTER TABLE intus_resultado ADD COLUMN link_tipo VARCHAR(12) NULL");
+    if (!in_array('link_id', $rsCols)) $pdo->exec("ALTER TABLE intus_resultado ADD COLUMN link_id VARCHAR(80) NULL");
+    if (!in_array('autorizacao_obs', $rsCols)) $pdo->exec("ALTER TABLE intus_resultado ADD COLUMN autorizacao_obs VARCHAR(255) NULL");
+    _intusGarantirUtf8mb4($pdo, 'intus_resultado', ['texto', 'periodo_txt', 'autor_nome', 'autorizacao_obs']);
 
     // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
     // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.
@@ -415,6 +424,19 @@ function _salvarImagemFeedB64(string $raw, int $autorId): string {
     if (@file_put_contents($dir . '/' . $fname, $bin) === false) throw new Exception('falha ao salvar imagem');
     if (function_exists('gdriveBackup')) { try { gdriveBackup($bin, $fname, 'image/' . ($ext === 'jpg' ? 'jpeg' : $ext)); } catch (Throwable $e) {} }
     return _appBaseUrl() . '/img/feed/' . $fname;
+}
+
+// Aceita só link de vídeo do YouTube ou post/reel do Instagram e guarda apenas o IDENTIFICADOR
+// (nunca a URL digitada): quem monta o endereço do player é o próprio app. Devolve [tipo, id] ou null.
+function _resultadoParseLink(string $url): ?array {
+    $url = trim($url);
+    if ($url === '') return null;
+    if (preg_match('~^https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|shorts/|embed/|live/)|youtu\.be/)([A-Za-z0-9_-]{11})~i', $url, $m)) return ['youtube', $m[1]];
+    if (preg_match('~^https?://(?:www\.)?instagram\.com/(p|reel|reels|tv)/([A-Za-z0-9_-]{5,40})~i', $url, $m)) {
+        $k = strtolower($m[1]) === 'reels' ? 'reel' : strtolower($m[1]);
+        return ['instagram', $k . '/' . $m[2]];
+    }
+    return null;
 }
 
 // Quem avisar quando um aluno publica um resultado: professores responsáveis
@@ -2527,9 +2549,9 @@ if ($action === 'resultados') {
         $tbl = _feedDetectarTabelaAtleta($pdo);
         $onde = "r.ativo = 1"; $args = [];
         if ($idAt > 0) { $onde .= " AND r.idatleta = ?"; $args[] = $idAt; }
-        if (in_array($tipoF, ['depoimento', 'evolucao'], true)) { $onde .= " AND r.tipo = ?"; $args[] = $tipoF; }
+        if (in_array($tipoF, ['depoimento', 'evolucao', 'print', 'video'], true)) { $onde .= " AND r.tipo = ?"; $args[] = $tipoF; }
         if ($antesDe > 0) { $onde .= " AND r.idresultado < ?"; $args[] = $antesDe; }
-        $colunas = "r.idresultado, r.idatleta, r.tipo, r.texto, r.periodo_txt, r.autoriza_site, r.destaque_site, r.created_at";
+        $colunas = "r.idresultado, r.idatleta, r.tipo, r.texto, r.periodo_txt, r.autoriza_site, r.destaque_site, r.created_at, r.origem, r.autor_nome, r.link_tipo, r.link_id, r.autorizacao_obs";
         $sql = "SELECT $colunas FROM intus_resultado r WHERE %s ORDER BY r.idresultado DESC LIMIT " . ($limite + 1);
         $rows = null;
         if ($tbl) {
@@ -2549,7 +2571,7 @@ if ($action === 'resultados') {
         if ($temMais) $rows = array_slice($rows, 0, $limite);
         $idsR = array_map(function ($r) { return (int)$r['idresultado']; }, $rows);
         $midiasMap = _midiasDosPosts($pdo, 'resultado', $idsR);
-        $autores = array_values(array_unique(array_map(function ($r) { return (int)$r['idatleta']; }, $rows)));
+        $autores = array_values(array_filter(array_unique(array_map(function ($r) { return (int)$r['idatleta']; }, $rows))));
         $nomes = []; $avatars = [];
         if ($autores && $tbl) {
             $phA = implode(',', array_fill(0, count($autores), '?'));
@@ -2570,12 +2592,43 @@ if ($action === 'resultados') {
                 'idresultado' => (int)$r['idresultado'], 'idatleta' => (int)$r['idatleta'], 'tipo' => $r['tipo'],
                 'texto' => (string)($r['texto'] ?? ''), 'periodo_txt' => (string)($r['periodo_txt'] ?? ''),
                 'created_at' => $r['created_at'], 'midias' => $midiasMap[(int)$r['idresultado']] ?? [],
+                'origem' => $r['origem'] ?: 'aluno', 'autor_nome' => (string)($r['autor_nome'] ?? ''),
+                'link' => ($r['link_tipo'] && $r['link_id']) ? ['tipo' => $r['link_tipo'], 'id' => $r['link_id']] : null,
             ];
             // Consentimento de uso no site só interessa à equipe.
-            if (!$_ehAluno) { $it['autoriza_site'] = (int)$r['autoriza_site']; $it['destaque_site'] = (int)$r['destaque_site']; }
+            if (!$_ehAluno) { $it['autoriza_site'] = (int)$r['autoriza_site']; $it['destaque_site'] = (int)$r['destaque_site']; $it['autorizacao_obs'] = (string)($r['autorizacao_obs'] ?? ''); }
             $lista[] = $it;
         }
         echo json_encode(['resultados' => $lista, 'atletas' => (object)$nomes, 'avatars' => (object)$avatars, 'temMais' => $temMais], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($method === 'POST' && !$_ehAluno) {
+        // Cadastro pela equipe (só administrador): conteúdo externo ou de ex-aluno que autorizou.
+        if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador cadastra resultado externo']); exit; }
+        $b = jsonBody();
+        if (empty($b['autorizou'])) { http_response_code(400); echo json_encode(['error' => 'confirme que a pessoa autorizou a divulgacao']); exit; }
+        $tipoR = in_array((string)($b['tipo'] ?? ''), ['depoimento', 'evolucao', 'print', 'video'], true) ? (string)$b['tipo'] : 'depoimento';
+        $texto = mb_substr(trim((string)($b['texto'] ?? '')), 0, 1000);
+        $periodo = mb_substr(trim((string)($b['periodo_txt'] ?? '')), 0, 60);
+        $nomeExib = mb_substr(trim((string)($b['autor_nome'] ?? '')), 0, 120);
+        $obs = mb_substr(trim((string)($b['autorizacao_obs'] ?? '')), 0, 255);
+        $linkRaw = trim((string)($b['link'] ?? ''));
+        $link = _resultadoParseLink($linkRaw);
+        if ($linkRaw !== '' && !$link) { http_response_code(400); echo json_encode(['error' => 'link invalido: use um video do YouTube ou um post/reel do Instagram']); exit; }
+        $totalMidias = max(0, min(10, (int)($b['total_midias'] ?? 0)));
+        if ($texto === '' && !$link && $totalMidias === 0) { http_response_code(400); echo json_encode(['error' => 'informe um texto, um link ou imagens']); exit; }
+        $ativoNovo = $totalMidias > 0 ? 2 : 1;
+        try { $pdo->exec("UPDATE intus_resultado SET ativo = 0 WHERE ativo = 2 AND created_at < (NOW() - INTERVAL 1 DAY)"); } catch (Throwable $e) {}
+        try {
+            $st = $pdo->prepare("INSERT INTO intus_resultado (idatleta, tipo, texto, periodo_txt, autoriza_app, autoriza_site, ativo, origem, autor_nome, link_tipo, link_id, autorizacao_obs) VALUES (0,?,?,?,1,?,?,'admin',?,?,?,?)");
+            $st->execute([$tipoR, $texto !== '' ? $texto : null, $periodo !== '' ? $periodo : null, !empty($b['autoriza_site']) ? 1 : 0, $ativoNovo,
+                $nomeExib !== '' ? $nomeExib : null, $link ? $link[0] : null, $link ? $link[1] : null, $obs !== '' ? $obs : null]);
+            echo json_encode(['ok' => true, 'idresultado' => (int)$pdo->lastInsertId(), 'pendente' => $ativoNovo === 2]);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'falha ao gravar o resultado', 'detalhe' => _intusLogErro($e)]);
+        }
         exit;
     }
 
@@ -2609,8 +2662,9 @@ if ($action === 'resultados') {
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
         $st = $pdo->prepare("SELECT idatleta FROM intus_resultado WHERE idresultado = ?");
         $st->execute([$id]);
-        $dono = (int)$st->fetchColumn();
-        if (!$dono) { http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
+        $linhaR = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$linhaR) { http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
+        $dono = (int)$linhaR['idatleta'];   // 0 = cadastrado pela equipe
         if ($_ehAluno && $dono !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
         $pdo->prepare("UPDATE intus_resultado SET ativo = 0, destaque_site = 0 WHERE idresultado = ?")->execute([$id]);
         try {
@@ -2633,13 +2687,16 @@ if ($action === 'resultados') {
 if ($action === 'resultado_midia' && $method === 'POST') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
-    if ($_autorId <= 0 || !$_ehAluno) { http_response_code(401); echo json_encode(['error' => 'sem identidade de aluno']); exit; }
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade']); exit; }
     $b = jsonBody();
     $idr = (int)($b['idresultado'] ?? 0);
     $st = $pdo->prepare("SELECT idatleta, ativo, texto FROM intus_resultado WHERE idresultado = ? LIMIT 1");
     $st->execute([$idr]);
     $res = $st->fetch(PDO::FETCH_ASSOC);
-    if (!$res || (int)$res['idatleta'] !== $_autorId || (int)$res['ativo'] === 0) { http_response_code(403); echo json_encode(['error' => 'resultado invalido']); exit; }
+    // Dono (aluno) do resultado, ou administrador num resultado cadastrado pela equipe (idatleta 0).
+    $podeMexer = $res && (($_ehAluno && (int)$res['idatleta'] === $_autorId) || (!$_ehAluno && !empty($_ctx['admin']) && (int)$res['idatleta'] === 0));
+    if (!$podeMexer || (int)$res['ativo'] === 0) { http_response_code(403); echo json_encode(['error' => 'resultado invalido']); exit; }
+    $ehEquipe = !$_ehAluno;
     $st = $pdo->prepare("SELECT COUNT(*) FROM intus_midia WHERE dono_tipo = 'resultado' AND dono_id = ?");
     $st->execute([$idr]);
     $qtd = (int)$st->fetchColumn();
@@ -2652,14 +2709,14 @@ if ($action === 'resultado_midia' && $method === 'POST') {
         if ($prontas < $esperadas) { http_response_code(409); echo json_encode(['error' => 'midias incompletas', 'prontas' => $prontas]); exit; }
         if ((int)$res['ativo'] === 2) {
             $pdo->prepare("UPDATE intus_resultado SET ativo = 1 WHERE idresultado = ? AND ativo = 2")->execute([$idr]);
-            _resultadoPublicar($pdo, $idr, $_autorId, (string)$_autorNome, (string)($res['texto'] ?? ''));
+            if (!$ehEquipe) _resultadoPublicar($pdo, $idr, $_autorId, (string)$_autorNome, (string)($res['texto'] ?? ''));   // equipe não avisa a si mesma
         }
         echo json_encode(['ok' => true, 'idresultado' => $idr, 'midias' => $qtd]);
         exit;
     }
 
     if ($qtd >= 10) { http_response_code(400); echo json_encode(['error' => 'limite de 10 midias']); exit; }
-    try { $url = _salvarImagemFeedB64((string)($b['imagem'] ?? ''), $_autorId); }
+    try { $url = _salvarImagemFeedB64((string)($b['imagem'] ?? ''), $ehEquipe ? 0 : $_autorId); }
     catch (Exception $e) { http_response_code(400); echo json_encode(['error' => $e->getMessage()]); exit; }
     try {
         $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('resultado', ?, ?, 'imagem', ?)")->execute([$idr, $qtd, $url]);
