@@ -531,6 +531,52 @@ function _amigosDe(PDO $pdo, int $idatleta): array {
     } catch (Throwable $e) { return []; }
 }
 
+// Parceiros de treino de $idatleta (convite aceito, nos dois sentidos).
+function _parceirosDe(PDO $pdo, int $idatleta): array {
+    if ($idatleta <= 0) return [];
+    try {
+        $st = $pdo->prepare("SELECT de_id, para_id FROM intus_parceria WHERE status = 'aceita' AND (de_id = ? OR para_id = ?)");
+        $st->execute([$idatleta, $idatleta]);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = ((int)$r['de_id'] === $idatleta) ? (int)$r['para_id'] : (int)$r['de_id'];
+        return array_values(array_unique($out));
+    } catch (Throwable $e) { return []; }
+}
+// Situação entre o espectador ($a) e o outro aluno ($b) numa tabela de pares (amizade ou parceria):
+// 'aceita', 'enviado' (eu pedi), 'recebido' (ele pediu) ou null.
+function _estadoPar(PDO $pdo, string $tabela, int $a, int $b): ?string {
+    if (!in_array($tabela, ['intus_amizade', 'intus_parceria'], true) || $a <= 0 || $b <= 0) return null;
+    try {
+        $st = $pdo->prepare("SELECT de_id, status FROM `$tabela` WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?) LIMIT 1");
+        $st->execute([$a, $b, $b, $a]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$r) return null;
+        if ($r['status'] === 'aceita') return 'aceita';
+        return ((int)$r['de_id'] === $a) ? 'enviado' : 'recebido';
+    } catch (Throwable $e) { return null; }
+}
+// Nome e foto de perfil de uma lista de alunos (para as telas de amigos e parceiros).
+function _pessoasMapa(PDO $pdo, array $ids): array {
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    $out = [];
+    if (!$ids) return $out;
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    $tbl = _feedDetectarTabelaAtleta($pdo);
+    if ($tbl) {
+        try {
+            $st = $pdo->prepare("SELECT idatleta, nome FROM `$tbl` WHERE idatleta IN ($ph)");
+            $st->execute($ids);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $out[(int)$r['idatleta']] = ['nome' => (string)$r['nome'], 'avatar' => ''];
+        } catch (Throwable $e) {}
+    }
+    try {
+        $st = $pdo->prepare("SELECT idatleta, avatar FROM intus_profile WHERE idatleta IN ($ph) AND avatar IS NOT NULL AND avatar != ''");
+        $st->execute($ids);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) { $k = (int)$r['idatleta']; if (isset($out[$k])) $out[$k]['avatar'] = $r['avatar']; }
+    } catch (Throwable $e) {}
+    return $out;
+}
+
 // Nome com que um professor aparece PARA OS ALUNOS (comentário, curtida, aviso do sino).
 // O cadastro interno do Luiz é "Luiz Nunes (Master)"; para a turma ele é o treinador.
 function _nomePublicoProf(int $id, string $nome): string {
@@ -1182,7 +1228,8 @@ if ($action === 'nutricao') {
     if ($method === 'GET') {
         $idatleta = (int)($_GET['atleta'] ?? 0);
         if ($idatleta > 0) {
-            $st = $pdo->prepare("SELECT * FROM intus_plano_nutricional WHERE idatleta = ? ORDER BY ativo DESC, dtinicio DESC");
+            // Aluno só recebe plano ativo; a equipe vê todos (para poder ativar de novo).
+            $st = $pdo->prepare("SELECT * FROM intus_plano_nutricional WHERE idatleta = ?" . ($_ehAluno ? " AND ativo = 1" : "") . " ORDER BY ativo DESC, dtinicio DESC");
             $st->execute([$idatleta]);
         } else {
             $st = $pdo->query("SELECT * FROM intus_plano_nutricional ORDER BY ativo DESC, dtinicio DESC");
@@ -2445,7 +2492,7 @@ if ($action === 'notificacoes') {
             $rTipo  = (string)($rg['tipo'] ?? '');
             $rChave = trim((string)($rg['chave'] ?? ''));
             $rTexto = trim((string)($rg['texto'] ?? ''));
-            if (!in_array($rTipo, ['medalha', 'distintivo'], true) || $rChave === '' || mb_strlen($rChave) > 80 || $rTexto === '') {
+            if (!in_array($rTipo, ['medalha', 'distintivo', 'parceiro'], true) || $rChave === '' || mb_strlen($rChave) > 80 || $rTexto === '') {
                 http_response_code(400); echo json_encode(['error' => 'registro invalido']); exit;
             }
             $rAlvo = crc32($rTipo . ':' . $rChave) & 0x7fffffff;
@@ -2539,6 +2586,10 @@ if ($action === 'feed_posts') {
         // assim que a pessoa desligasse o feed_optin.
         // (só aluno: o id de um professor não pode virar "autor visível" de aluno)
         if ($_autorTipo === 'aluno' && !in_array($_autorId, $visiveis, true)) $visiveis[] = $_autorId;
+        // Filtro "Amigos" do Feed (só com as conexões ligadas): os amigos e o próprio aluno.
+        if (INTUS_CONEXOES_ATIVO && $_autorTipo === 'aluno' && ($_GET['so_amigos'] ?? '') === '1' && (int)($_GET['idatleta'] ?? 0) <= 0) {
+            $visiveis = array_values(array_intersect($visiveis, array_merge(_amigosDe($pdo, $_autorId), [$_autorId])));
+        }
         $somenteAutor = (int)($_GET['idatleta'] ?? 0);
         if ($somenteAutor > 0) $visiveis = (($_autorTipo === 'aluno' && $somenteAutor === $_autorId) || in_array($somenteAutor, $visiveis, true)) ? [$somenteAutor] : [];
 
@@ -2697,6 +2748,11 @@ if ($action === 'perfil_config') {
             'amigo'              => $amigo,
             'conexoes'           => INTUS_CONEXOES_ATIVO ? true : false,
         ];
+        $out['amizade'] = null; $out['parceria'] = null;
+        if (INTUS_CONEXOES_ATIVO && $_autorTipo === 'aluno' && !$meu && $alvo > 0) {
+            $out['amizade'] = _estadoPar($pdo, 'intus_amizade', $_autorId, $alvo);
+            $out['parceria'] = _estadoPar($pdo, 'intus_parceria', $_autorId, $alvo);
+        }
         if ($meu) { $out['cfg'] = $cfg; }
         echo json_encode($out, JSON_UNESCAPED_UNICODE);
         exit;
@@ -2737,7 +2793,8 @@ if ($action === 'amizades') {
         $st = $pdo->prepare("SELECT para_id FROM intus_amizade WHERE de_id = ? AND status = 'pendente' ORDER BY idamizade DESC LIMIT 100");
         $st->execute([$_autorId]);
         $env = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
-        echo json_encode(['amigos' => _amigosDe($pdo, $_autorId), 'recebidos' => $rec, 'enviados' => $env]);
+        $amigos = _amigosDe($pdo, $_autorId);
+        echo json_encode(['amigos' => $amigos, 'recebidos' => $rec, 'enviados' => $env, 'pessoas' => (object)_pessoasMapa($pdo, array_merge($amigos, $rec, $env))], JSON_UNESCAPED_UNICODE);
         exit;
     }
     $b = jsonBody();
@@ -2749,8 +2806,13 @@ if ($action === 'amizades') {
         $st->execute([$para, $_autorId]);
         if ($idp = $st->fetchColumn()) {
             $pdo->prepare("UPDATE intus_amizade SET status = 'aceita', aceita_em = NOW() WHERE idamizade = ?")->execute([(int)$idp]);
+            try { _criarNotificacao($pdo, 'aluno', $para, 'amizade_aceita', 'aluno', $_autorId, (string)$_autorNome, 'amizade', $_autorId, ''); } catch (Throwable $e) {}
             echo json_encode(['ok' => true, 'status' => 'aceita']); exit;
         }
+        // Teto de pedidos em aberto, para não virar spam.
+        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_amizade WHERE de_id = ? AND status = 'pendente'");
+        $st->execute([$_autorId]);
+        if ((int)$st->fetchColumn() >= 50) { http_response_code(429); echo json_encode(['error' => 'pedidos demais em aberto']); exit; }
         $pdo->prepare("INSERT IGNORE INTO intus_amizade (de_id, para_id, status) VALUES (?,?, 'pendente')")->execute([$_autorId, $para]);
         try { _criarNotificacao($pdo, 'aluno', $para, 'amizade_pedido', 'aluno', $_autorId, (string)$_autorNome, 'amizade', $_autorId, ''); } catch (Throwable $e) {}
         echo json_encode(['ok' => true, 'status' => 'pendente']);
@@ -2759,7 +2821,9 @@ if ($action === 'amizades') {
     if ($method === 'PUT') {
         $de = (int)($b['de_id'] ?? 0);
         if (!empty($b['aceitar'])) {
-            $pdo->prepare("UPDATE intus_amizade SET status = 'aceita', aceita_em = NOW() WHERE de_id = ? AND para_id = ? AND status = 'pendente'")->execute([$de, $_autorId]);
+            $up = $pdo->prepare("UPDATE intus_amizade SET status = 'aceita', aceita_em = NOW() WHERE de_id = ? AND para_id = ? AND status = 'pendente'");
+            $up->execute([$de, $_autorId]);
+            if ($up->rowCount() > 0) { try { _criarNotificacao($pdo, 'aluno', $de, 'amizade_aceita', 'aluno', $_autorId, (string)$_autorNome, 'amizade', $_autorId, ''); } catch (Throwable $e) {} }
         } else {
             $pdo->prepare("DELETE FROM intus_amizade WHERE de_id = ? AND para_id = ? AND status = 'pendente'")->execute([$de, $_autorId]);
         }
@@ -2769,6 +2833,71 @@ if ($action === 'amizades') {
     if ($method === 'DELETE') {
         $outro = (int)($_GET['id'] ?? 0);
         $pdo->prepare("DELETE FROM intus_amizade WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?)")->execute([$_autorId, $outro, $outro, $_autorId]);
+        $pdo->prepare("DELETE FROM intus_parceria WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?)")->execute([$_autorId, $outro, $outro, $_autorId]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ── Parcerias de treino (DESLIGADO: ver INTUS_CONEXOES_ATIVO) ─────────────
+// Só entre amigos. GET: parceiros e convites; POST {para_id}: convidar; PUT {de_id, aceitar}: aceitar ou recusar;
+// DELETE ?id=: desfazer. No máximo 3 parceiros por aluno.
+if ($action === 'parcerias') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (!INTUS_CONEXOES_ATIVO) { http_response_code(403); echo json_encode(['error' => 'recurso ainda nao liberado']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorTipo !== 'aluno' || $_autorId <= 0) { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
+    $LIMITE_PARCEIROS = 3;
+
+    if ($method === 'GET') {
+        $st = $pdo->prepare("SELECT de_id FROM intus_parceria WHERE para_id = ? AND status = 'pendente' ORDER BY idparceria DESC LIMIT 50");
+        $st->execute([$_autorId]);
+        $rec = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        $st = $pdo->prepare("SELECT para_id FROM intus_parceria WHERE de_id = ? AND status = 'pendente' ORDER BY idparceria DESC LIMIT 50");
+        $st->execute([$_autorId]);
+        $env = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        $par = _parceirosDe($pdo, $_autorId);
+        echo json_encode(['parceiros' => $par, 'recebidos' => $rec, 'enviados' => $env, 'limite' => $LIMITE_PARCEIROS, 'pessoas' => (object)_pessoasMapa($pdo, array_merge($par, $rec, $env))], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $b = jsonBody();
+    if ($method === 'POST') {
+        $para = (int)($b['para_id'] ?? 0);
+        if ($para <= 0 || $para === $_autorId) { http_response_code(400); echo json_encode(['error' => 'aluno invalido']); exit; }
+        if (!in_array($para, _amigosDe($pdo, $_autorId), true)) { http_response_code(400); echo json_encode(['error' => 'so entre amigos']); exit; }
+        if (count(_parceirosDe($pdo, $_autorId)) >= $LIMITE_PARCEIROS || count(_parceirosDe($pdo, $para)) >= $LIMITE_PARCEIROS) {
+            http_response_code(409); echo json_encode(['error' => 'limite de parceiros atingido']); exit;
+        }
+        $estado = _estadoPar($pdo, 'intus_parceria', $_autorId, $para);
+        if ($estado === 'aceita' || $estado === 'enviado') { echo json_encode(['ok' => true, 'status' => $estado === 'aceita' ? 'aceita' : 'pendente']); exit; }
+        if ($estado === 'recebido') {
+            $pdo->prepare("UPDATE intus_parceria SET status = 'aceita', aceita_em = NOW() WHERE de_id = ? AND para_id = ? AND status = 'pendente'")->execute([$para, $_autorId]);
+            try { _criarNotificacao($pdo, 'aluno', $para, 'parceria_aceita', 'aluno', $_autorId, (string)$_autorNome, 'parceria', $_autorId, ''); } catch (Throwable $e) {}
+            echo json_encode(['ok' => true, 'status' => 'aceita']); exit;
+        }
+        $pdo->prepare("INSERT IGNORE INTO intus_parceria (de_id, para_id, status) VALUES (?,?, 'pendente')")->execute([$_autorId, $para]);
+        try { _criarNotificacao($pdo, 'aluno', $para, 'parceria_pedido', 'aluno', $_autorId, (string)$_autorNome, 'parceria', $_autorId, ''); } catch (Throwable $e) {}
+        echo json_encode(['ok' => true, 'status' => 'pendente']);
+        exit;
+    }
+    if ($method === 'PUT') {
+        $de = (int)($b['de_id'] ?? 0);
+        if (!empty($b['aceitar'])) {
+            if (count(_parceirosDe($pdo, $_autorId)) >= $LIMITE_PARCEIROS || count(_parceirosDe($pdo, $de)) >= $LIMITE_PARCEIROS) {
+                http_response_code(409); echo json_encode(['error' => 'limite de parceiros atingido']); exit;
+            }
+            $up = $pdo->prepare("UPDATE intus_parceria SET status = 'aceita', aceita_em = NOW() WHERE de_id = ? AND para_id = ? AND status = 'pendente'");
+            $up->execute([$de, $_autorId]);
+            if ($up->rowCount() > 0) { try { _criarNotificacao($pdo, 'aluno', $de, 'parceria_aceita', 'aluno', $_autorId, (string)$_autorNome, 'parceria', $_autorId, ''); } catch (Throwable $e) {} }
+        } else {
+            $pdo->prepare("DELETE FROM intus_parceria WHERE de_id = ? AND para_id = ? AND status = 'pendente'")->execute([$de, $_autorId]);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $outro = (int)($_GET['id'] ?? 0);
+        $pdo->prepare("DELETE FROM intus_parceria WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?)")->execute([$_autorId, $outro, $outro, $_autorId]);
         echo json_encode(['ok' => true]);
         exit;
     }

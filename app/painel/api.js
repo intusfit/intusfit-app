@@ -2909,6 +2909,37 @@ const API = {
     return { chave: chave, refeicoes: refeicoes, somaItens: somaItens, aderencia: aderencia, consumo: consumo, proximaRefeicao: proximaRefeicao,
              sequencia: sequencia, metaAguaMl: metaAguaMl, listaCompras: listaCompras, alertas: alertas, hojeIso: hojeIso, addDias: addDias };
   })(),
+  // Treino em parceria: sequência da dupla e treinos no mesmo dia, a partir das sessões de cada um.
+  // Semana = domingo a sábado (mesma regra das sequências do app). Sessão marcada como "não contar" fica de fora.
+  parceria: (function () {
+    function iso(d) { return d.toISOString().slice(0, 10); }
+    function domingo(dia) { const d = new Date(dia + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - d.getUTCDay()); return iso(d); }
+    function semanaAntes(dia) { const d = new Date(dia + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return iso(d); }
+    function dias(sess) {
+      const o = {};
+      (sess || []).forEach(function (s) {
+        if (!s || s.nao_contar) return;
+        const d = String(s.dtsessao || '').slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) o[d] = 1;
+      });
+      return o;
+    }
+    function semanas(dset) { const o = {}; Object.keys(dset).forEach(function (d) { o[domingo(d)] = 1; }); return o; }
+    // sessA = as minhas, sessB = as do parceiro, hojeIso = 'YYYY-MM-DD'.
+    function resumo(sessA, sessB, hojeIso) {
+      const dA = dias(sessA), dB = dias(sessB), wA = semanas(dA), wB = semanas(dB);
+      let cur = domingo(hojeIso), semanasEmDupla = 0;
+      if (!(wA[cur] && wB[cur])) cur = semanaAntes(cur);   // a semana atual ainda aberta não zera a sequência
+      while (wA[cur] && wB[cur]) { semanasEmDupla++; cur = semanaAntes(cur); }
+      const mes = hojeIso.slice(0, 7);
+      let juntosNoMes = 0;
+      Object.keys(dA).forEach(function (d) { if (d.slice(0, 7) === mes && dB[d]) juntosNoMes++; });
+      const ordem = Object.keys(dB).sort();
+      return { semanasEmDupla: semanasEmDupla, juntosNoMes: juntosNoMes, ultimoParceiro: ordem.length ? ordem[ordem.length - 1] : null,
+               parceiroTreinouHoje: !!dB[hojeIso], euTreineiHoje: !!dA[hojeIso] };
+    }
+    return { resumo: resumo };
+  })(),
   // Painel da nutri: planos ativos + registros + água dos últimos 14 dias da carteira.
   nutriPainel: () => apiFetch('/catalogo.php?action=nutri_painel'),
   nutriResponder: (idregistro, texto) => apiFetch('/catalogo.php?action=nutri_registro', { method: 'POST', body: JSON.stringify({ subacao: 'resposta', idregistro: idregistro, texto: texto }) }),

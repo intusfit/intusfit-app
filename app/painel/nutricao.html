@@ -316,6 +316,8 @@ const main = document.getElementById('main-content');
 let planos = [];
 let atletas = [];
 let filtroAtleta = 0;
+let filtroPlanoAtivo = true;   // lista de Planos: Ativos (padrão) ou Inativos, como em Treinos
+function planoAtivo(pl) { return Number(pl && pl.ativo) === 1; }
 let loading = true;
 let dbReady = false;
 let aba = 'dashboard';     // 'dashboard' | 'planos'
@@ -380,6 +382,8 @@ function render() {
     return (b.dtinicio || '').localeCompare(a.dtinicio || '');
   });
   if (filtroAtleta > 0) lista = lista.filter(pl => Number(pl.idatleta) === filtroAtleta);
+  const nAtivos = lista.filter(planoAtivo).length, nInativos = lista.length - nAtivos;
+  lista = lista.filter(pl => planoAtivo(pl) === filtroPlanoAtivo);
 
   main.innerHTML = abasHtml() + `
     <div class="filtros-bar">
@@ -389,6 +393,8 @@ function render() {
           `<option value="${a.idatleta}" ${Number(a.idatleta)===filtroAtleta?'selected':''}>${esc(a.nome)}</option>`
         ).join('')}
       </select>
+      <button class="btn ${filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=true;render();">Ativos (${nAtivos})</button>
+      <button class="btn ${!filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=false;render();">Inativos (${nInativos})</button>
       ${hasPerm('nt_incluir') ? `<button class="btn btn-primary" onclick="abrirModalNovo()">+ Novo Plano</button>` : ''}
       <button class="btn btn-secondary" onclick="abrirMeusAlimentos()" style="margin-left:auto;">🍎 Meus Alimentos</button>
       <button class="btn btn-secondary" onclick="abrirCalculadoraGET()">Calculadora GEB/GET</button>
@@ -398,8 +404,8 @@ function render() {
       ${lista.length === 0 ? `
         <div class="empty-state">
           <div style="font-size:40px;margin-bottom:12px;">🥗</div>
-          <p>Nenhum plano nutricional${filtroAtleta > 0 ? ' para este aluno' : ''} cadastrado.</p>
-          <p style="margin-top:8px;">Crie um plano alimentar com refeições estruturadas e metas de macros.</p>
+          <p>${filtroPlanoAtivo ? 'Nenhum plano nutricional ativo' : 'Nenhum plano nutricional inativo'}${filtroAtleta > 0 ? ' para este aluno' : ''}.</p>
+          <p style="margin-top:8px;">${filtroPlanoAtivo ? 'Crie um plano alimentar com refeições estruturadas e metas de macros.' : 'Planos inativos ficam aqui e o aluno não os vê no app. Dá para ativar de novo quando quiser.'}</p>
         </div>
       ` : lista.map(pl => renderPlanoCard(pl)).join('')}
     </div>
@@ -411,15 +417,16 @@ function renderPlanoCard(pl) {
   const nRef = pl.refeicoes ? pl.refeicoes.length : 0;
 
   return `
-    <div class="plano-card ${pl.ativo ? '' : 'inativo'}" onclick="verPlano(${pl.idplano})">
+    <div class="plano-card ${planoAtivo(pl) ? '' : 'inativo'}" onclick="verPlano(${pl.idplano})">
       <div class="plano-header">
         <div>
           <div class="plano-title">${esc(pl.titulo)}</div>
           <div class="plano-subtitle">${esc(nome)} ${pl.objetivo ? '· ' + esc(pl.objetivo) : ''}</div>
         </div>
         <div style="text-align:right;">
-          <span class="plano-status ${pl.ativo ? 'ativo' : 'inativo'}">${pl.ativo ? 'Ativo' : 'Inativo'}</span>
+          <span class="plano-status ${planoAtivo(pl) ? 'ativo' : 'inativo'}">${planoAtivo(pl) ? 'Ativo' : 'Inativo'}</span>
           ${pl.dtinicio ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${fmtDate(pl.dtinicio)}${pl.dtfim ? ' → ' + fmtDate(pl.dtfim) : ''}</div>` : ''}
+          ${hasPerm('nt_editar') ? `<button class="btn btn-secondary btn-sm" style="margin-top:6px;" onclick="alternarAtivoPlano(${pl.idplano}, event)">${planoAtivo(pl) ? 'Inativar' : 'Ativar'}</button>` : ''}
         </div>
       </div>
       <div class="macros-bar">
@@ -525,7 +532,7 @@ function verPlano(id) {
     <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
       <div style="margin-bottom:10px;">
         <span style="font-size:13px;color:var(--text-muted);">${esc(nome)}</span>
-        <span class="plano-status ${pl.ativo ? 'ativo' : 'inativo'}" style="margin-left:8px;">${pl.ativo ? 'Ativo' : 'Inativo'}</span>
+        <span class="plano-status ${planoAtivo(pl) ? 'ativo' : 'inativo'}" style="margin-left:8px;">${planoAtivo(pl) ? 'Ativo' : 'Inativo'}</span>
       </div>
       ${pl.objetivo ? `<div style="font-size:13px;color:var(--text);margin-bottom:8px;"><strong>Objetivo:</strong> ${esc(pl.objetivo)}</div>` : ''}
       ${pl.dtinicio ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Período: ${fmtDate(pl.dtinicio)}${pl.dtfim ? ' → ' + fmtDate(pl.dtfim) : ' (sem fim definido)'}</div>` : ''}
@@ -566,6 +573,7 @@ function verPlano(id) {
     </div>
     <div class="modal-footer">
       ${hasPerm('nt_excluir') ? `<button class="btn btn-danger" onclick="excluirPlano(${pl.idplano})">Excluir</button>` : ''}
+      ${hasPerm('nt_editar') ? `<button class="btn btn-secondary" onclick="alternarAtivoPlano(${pl.idplano})">${planoAtivo(pl) ? '⛔ Inativar plano' : '✅ Ativar plano'}</button>` : ''}
       ${hasPerm('nt_editar') ? `<button class="btn btn-primary" onclick="closeModal();abrirModalForm(${pl.idplano})">Editar</button>` : ''}
       <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
     </div>
@@ -736,10 +744,13 @@ function abrirModalForm(idplano) {
         </div>
 
         <div class="form-group">
-          <label class="label" style="display:flex;align-items:center;gap:8px;">
-            Ativo
-            <input type="checkbox" id="nt-ativo" ${(pl?.ativo !== 0) ? 'checked' : ''} style="accent-color:#7FFF00;width:16px;height:16px;"/>
-          </label>
+          <label class="label">Situação do plano</label>
+          <input type="hidden" id="nt-ativo" value="${(pl && !planoAtivo(pl)) ? 0 : 1}"/>
+          <div style="display:flex;gap:8px;">
+            <button type="button" id="nt-ativo-sim" onclick="ntSetAtivo(1)" style="flex:1;padding:11px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:800;font-size:13px;border:1.5px solid ${(pl && !planoAtivo(pl)) ? 'var(--border)' : '#22c55e'};background:${(pl && !planoAtivo(pl)) ? 'transparent' : 'rgba(34,197,94,.14)'};color:${(pl && !planoAtivo(pl)) ? 'var(--text-muted)' : '#22c55e'};">✅ Ativo</button>
+            <button type="button" id="nt-ativo-nao" onclick="ntSetAtivo(0)" style="flex:1;padding:11px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:800;font-size:13px;border:1.5px solid ${(pl && !planoAtivo(pl)) ? '#f87171' : 'var(--border)'};background:${(pl && !planoAtivo(pl)) ? 'rgba(248,113,113,.14)' : 'transparent'};color:${(pl && !planoAtivo(pl)) ? '#f87171' : 'var(--text-muted)'};">⛔ Inativo</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Plano inativo não aparece para o aluno no app.</div>
         </div>
 
         <div class="modal-section-title">Comentário Inicial (aparece antes das refeições)</div>
@@ -2202,7 +2213,7 @@ async function salvarPlano(idplano) {
   const objetivo = document.getElementById('nt-objetivo')?.value || '';
   const dtinicio = document.getElementById('nt-dtinicio')?.value || null;
   const dtfim = document.getElementById('nt-dtfim')?.value || null;
-  const ativo = document.getElementById('nt-ativo')?.checked ? 1 : 0;
+  const ativo = document.getElementById('nt-ativo')?.value === '0' ? 0 : 1;
   const calorias = document.getElementById('nt-calorias')?.value ? parseInt(document.getElementById('nt-calorias').value) : null;
   const proteina = document.getElementById('nt-proteina')?.value ? parseFloat(document.getElementById('nt-proteina').value) : null;
   const carboidrato = document.getElementById('nt-carboidrato')?.value ? parseFloat(document.getElementById('nt-carboidrato').value) : null;
@@ -2255,6 +2266,31 @@ async function salvarPlano(idplano) {
       await API.criarPlanoNutricional(data);
       showToast('Plano criado!');
     }
+    closeModal();
+    await carregar();
+  } catch (e) {
+    showToast('Erro: ' + e.message, 'error');
+  }
+}
+
+// Visual do seletor Ativo / Inativo do editor (mesmo desenho de Treinos).
+function ntSetAtivo(v) {
+  const h = document.getElementById('nt-ativo'); if (h) h.value = v ? 1 : 0;
+  const on = (el, cor, fundo, ativo) => { if (!el) return; el.style.border = '1.5px solid ' + (ativo ? cor : 'var(--border)'); el.style.background = ativo ? fundo : 'transparent'; el.style.color = ativo ? cor : 'var(--text-muted)'; };
+  on(document.getElementById('nt-ativo-sim'), '#22c55e', 'rgba(34,197,94,.14)', !!v);
+  on(document.getElementById('nt-ativo-nao'), '#f87171', 'rgba(248,113,113,.14)', !v);
+}
+
+// Ativar ou inativar sem abrir o editor (a edição parcial só muda o campo "ativo").
+async function alternarAtivoPlano(id, ev) {
+  if (ev) ev.stopPropagation();
+  const pl = planos.find(x => Number(x.idplano) === Number(id));
+  if (!pl) return;
+  const novo = planoAtivo(pl) ? 0 : 1;
+  if (!novo && !confirm('Inativar este plano? O aluno deixa de ver o plano no app e ele sai da lista de Ativos. Dá para ativar de novo depois.')) return;
+  try {
+    await API.editarPlanoNutricional(id, { ativo: novo });
+    showToast(novo ? 'Plano ativado' : 'Plano inativado');
     closeModal();
     await carregar();
   } catch (e) {

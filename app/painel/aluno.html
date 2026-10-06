@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261006b"></script>
+  <script src="api.js?v=20261006c"></script>
   <!-- Só usada pra transformar o cartão de "Compartilhar treino" em imagem
        (Salvar/Copiar/Story). Carregada fixa numa versão; se cair um dia, a
        tela de compartilhar mostra erro em vez de travar o app inteiro. -->
@@ -985,6 +985,7 @@
     <div class="menu-item" onclick="abrirRanking();fecharMenuDireto()"><span class="mi-icon">🥇</span> Ranking</div>
     <div class="menu-item" onclick="navegar('feed');fecharMenuDireto()"><span class="mi-icon">📣</span> Feed</div>
     <div class="menu-item" onclick="navegar('resultados');fecharMenuDireto()"><span class="mi-icon">🌟</span> Mural de resultados</div>
+    <div class="menu-item" id="menu-amigos" style="display:none;" onclick="navegar('amigos');fecharMenuDireto()"><span class="mi-icon">🤝</span> Amigos e parceiros <span id="menu-amigos-badge" style="display:none;background:#f87171;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;margin-left:6px;font-weight:700;"></span></div>
     <div class="menu-item" onclick="navegar('desafios');fecharMenuDireto()"><span class="mi-icon">🏆</span> Desafios</div>
     <div class="menu-item" onclick="navegar('nutricao');fecharMenuDireto()"><span class="mi-icon">🥗</span> Nutrição</div>
     <div class="menu-item" onclick="navegar('avaliacoes');fecharMenuDireto()"><span class="mi-icon">📈</span> Avaliações</div>
@@ -1044,6 +1045,7 @@
   <section class="view" id="v-quemsomos"></section>
   <section class="view" id="v-feed"></section>
   <section class="view" id="v-resultados"></section>
+  <section class="view" id="v-amigos"></section>
 </div>
 
 <div class="toast-ov" id="toast">—</div>
@@ -2824,6 +2826,7 @@ async function carregarFeedPosts(limite, idatletaFiltro, antesDe) {
     let url = API_BASE + '/catalogo.php?action=feed_posts&limite=' + (limite || 30);
     if (idatletaFiltro) url += '&idatleta=' + idatletaFiltro;
     if (antesDe) url += '&antes_de=' + antesDe;
+    if (_conexoesOn && _feedSoAmigos && !idatletaFiltro && _feedModo === 'feed') url += '&so_amigos=1';
     const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }, cache: 'no-store' });
     if (!r.ok) { _feedTemMais = false; return []; }
     const j = await r.json();
@@ -3224,11 +3227,12 @@ async function renderFeedCompleto() {
   await carregarReacoesFeed(posts.map(p => p.idpost));
   await carregarComentariosFeed(posts.map(p => p.idpost));
   let html = telaHeader('📣 Feed dos Alunos');
+  html += _feedChipsAmigosHtml(isLight);
   html += '<button class="btn btn-prim" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button>';
   if (!posts.length) {
     html += '<div style="text-align:center;padding:40px 20px;">' +
       '<div style="font-size:44px;margin-bottom:12px;">📣</div>' +
-      '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">Ainda não há posts por aqui</div>' +
+      '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">' + (_feedSoAmigos ? 'Seus amigos ainda não postaram' : 'Ainda não há posts por aqui') + '</div>' +
       '<p style="font-size:12.5px;color:' + (isLight?'#666':'#888') + ';max-width:280px;margin:0 auto;">Compartilhe uma foto, uma conquista ou o treino de hoje — toque em "Novo post" acima.</p>' +
     '</div>';
   } else {
@@ -5115,6 +5119,7 @@ function navegar(dest) {
   else if (dest === 'ranking') { renderRanking(); trocarView('ranking'); }
   else if (dest === 'feed') { renderFeedCompleto(); trocarView('feed'); }
   else if (dest === 'resultados') { renderResultados(); trocarView('resultados'); }
+  else if (dest === 'amigos') { renderAmigos(); trocarView('amigos'); }
   else if (dest === 'quemsomos') { renderQuemSomos(); trocarView('quemsomos'); }
   else if (dest === 'anamnese') { abrirAnamnese(); }
 }
@@ -11322,8 +11327,8 @@ async function abrirPerfilRanking(id, social) {
   } else if (isMe) {
     acaoHeader = '<button onclick="abrirPrivacidadePerfil()" style="' + miniBtn + 'border:1px solid ' + (isLight?'#ddd':'#333') + ';background:transparent;color:' + (isLight?'#555':'#bbb') + ';">🔒 Privacidade do perfil</button>';
   } else if (cfg.conexoes) {
-    // Chave das conexões (desligada no servidor por enquanto): pedido de amizade.
-    acaoHeader = '<button id="pk-amigo-btn" ' + (cfg.amigo ? 'disabled' : 'onclick="_pkPedirAmizade(' + Number(id) + ')"') + ' style="' + miniBtn + 'border:1px solid ' + accent + ';background:transparent;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">' + (cfg.amigo ? 'Amigos ✓' : '➕ Adicionar amigo') + '</button>';
+    // Só aparece com as conexões ligadas no servidor (INTUS_CONEXOES_ATIVO).
+    acaoHeader = _pkConexoesBotoes(Number(id), cfg, isLight, miniBtn);
   }
   const cabecalho =
     '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;">' +
@@ -11382,6 +11387,271 @@ async function abrirPerfilRanking(id, social) {
   if (social) _pkCarregarPosts(id, cfg);
 }
 
+// ═══════════════ AMIGOS E PARCEIROS DE TREINO ═══════════════
+// Tudo fica escondido enquanto o servidor estiver com as conexões desligadas (INTUS_CONEXOES_ATIVO em catalogo.php).
+// Amizade: pedido e aceite. Parceria de treino: convite só entre amigos, até 3 parceiros; a sequência em dupla e os
+// treinos no mesmo dia saem das sessões do ranking (API.parceria).
+var _conexoesOn = false;
+var _feedSoAmigos = false;
+var _amzDados = { amigos: [], recebidos: [], enviados: [], pessoas: {} };
+var _pcDados = { parceiros: [], recebidos: [], enviados: [], limite: 3, pessoas: {} };
+var _amzTab = 'amigos';
+
+async function _conexoesChamar(acao, metodo, corpo, query) {
+  const r = await _fetchT(API_BASE + '/catalogo.php?action=' + acao + (query || '') + '&_=' + Date.now(), {
+    method: metodo || 'GET', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
+    body: corpo ? JSON.stringify(corpo) : undefined
+  }, 12000);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error((j && j.error) || 'falhou'); e.status = r.status; e.data = j; throw e; }
+  return j;
+}
+async function _conexoesInit() {
+  try {
+    const cfg = await _pkConfig(idAtleta);
+    _conexoesOn = !!cfg.conexoes;
+    const it = document.getElementById('menu-amigos');
+    if (it) it.style.display = _conexoesOn ? '' : 'none';
+    if (!_conexoesOn) return;
+    await _amzCarregar();
+    _amzBadge();
+    _pcAvisoParceiros();
+  } catch (e) {}
+}
+async function _amzCarregar() {
+  const par = await Promise.all([_conexoesChamar('amizades'), _conexoesChamar('parcerias')]);
+  _amzDados = par[0]; _pcDados = par[1];
+}
+function _amzBadge() {
+  const n = ((_amzDados.recebidos || []).length) + ((_pcDados.recebidos || []).length);
+  const b = document.getElementById('menu-amigos-badge');
+  if (b) { b.textContent = n; b.style.display = n ? '' : 'none'; }
+}
+function _pcHoje() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function _pcSessoes(id) {
+  const alvo = Number(id);
+  const lista = ((_rankingData || {}).sessoes || []).filter(s => Number(s.idatleta) === alvo).map(s => ({ dtsessao: s.dtsessao }));
+  if (alvo === Number(idAtleta) && typeof SessoesTreino !== 'undefined') {
+    try { (SessoesTreino.listarDoAtleta(idAtleta) || []).forEach(s => { if (s && !s.nao_contar) lista.push({ dtsessao: s.dtsessao }); }); } catch (e) {}
+  }
+  return lista;
+}
+// Avisa no sino quando um parceiro já treinou hoje e eu ainda não (uma vez por parceiro e dia).
+async function _pcAvisoParceiros() {
+  const pars = _pcDados.parceiros || [];
+  if (!pars.length) return;
+  try { await _ensureRankingData(); } catch (e) { return; }
+  const hoje = _pcHoje();
+  pars.forEach(function (pid) {
+    const r = API.parceria.resumo(_pcSessoes(idAtleta), _pcSessoes(pid), hoje);
+    if (!r.parceiroTreinouHoje || r.euTreineiHoje) return;
+    const nome = (((_pcDados.pessoas || {})[pid]) || {}).nome || 'Seu parceiro';
+    _notifRegistrar({ tipo: 'parceiro', chave: pid + ':' + hoje, texto: nome.split(' ')[0] + ' treinou hoje. Sua vez de treinar em parceria?' });
+  });
+}
+
+// Depois de qualquer ação: limpa o cache, atualiza o perfil aberto e a tela de amigos.
+function _conexoesAtualizar(idPerfil) {
+  _pkCfgCache = {};
+  if (document.getElementById('overlay-perfil-rk') && idPerfil) abrirPerfilAluno(idPerfil);
+  if (window._viewAtual === 'amigos') renderAmigos();
+  else _amzCarregar().then(_amzBadge).catch(function () {});
+}
+async function _conexoesAgir(fn, msgOk, idPerfil) {
+  try { await fn(); if (msgOk) toast(msgOk); }
+  catch (e) {
+    const lim = e && e.data && e.data.error === 'limite de parceiros atingido';
+    toast(lim ? 'Alguém já tem 3 parceiros. Desfaça uma parceria antes.' : 'Não consegui agora. Tente de novo.');
+  }
+  _conexoesAtualizar(idPerfil);
+}
+function amzPedir(id) { return _conexoesAgir(() => _conexoesChamar('amizades', 'POST', { para_id: Number(id) }), 'Pedido enviado', id); }
+function amzAceitar(id) { return _conexoesAgir(() => _conexoesChamar('amizades', 'PUT', { de_id: Number(id), aceitar: true }), 'Agora vocês são amigos', id); }
+function amzRecusar(id) { return _conexoesAgir(() => _conexoesChamar('amizades', 'PUT', { de_id: Number(id), aceitar: false }), '', id); }
+function amzRemover(id) {
+  if (!confirm('Desfazer a amizade? Se vocês treinam em parceria, a parceria também termina.')) return;
+  return _conexoesAgir(() => _conexoesChamar('amizades', 'DELETE', null, '&id=' + Number(id)), 'Amizade desfeita', id);
+}
+function pcPedir(id) { return _conexoesAgir(() => _conexoesChamar('parcerias', 'POST', { para_id: Number(id) }), 'Convite enviado', id); }
+function pcAceitar(id) { return _conexoesAgir(() => _conexoesChamar('parcerias', 'PUT', { de_id: Number(id), aceitar: true }), 'Parceria feita', id); }
+function pcRecusar(id) { return _conexoesAgir(() => _conexoesChamar('parcerias', 'PUT', { de_id: Number(id), aceitar: false }), '', id); }
+function pcDesfazer(id) {
+  if (!confirm('Desfazer a parceria de treino? A amizade continua.')) return;
+  return _conexoesAgir(() => _conexoesChamar('parcerias', 'DELETE', null, '&id=' + Number(id)), 'Parceria desfeita', id);
+}
+
+// Botões do perfil de outro aluno (só com as conexões ligadas).
+function _pkConexoesBotoes(id, cfg, isLight, miniBtn) {
+  const cor = isLight ? '#2d8a00' : '#7FFF00';
+  const b = (txt, on) => '<button ' + (on ? 'onclick="' + on + '"' : 'disabled') + ' style="' + miniBtn + 'border:1px solid ' + cor + ';background:transparent;color:' + cor + ';' + (on ? '' : 'opacity:.7;') + '">' + txt + '</button>';
+  let h = '';
+  if (cfg.amizade === 'aceita') h += b('Amigos ✓', '');
+  else if (cfg.amizade === 'enviado') h += b('Pedido enviado', '');
+  else if (cfg.amizade === 'recebido') h += b('Aceitar amizade', 'amzAceitar(' + id + ')');
+  else h += b('➕ Adicionar amigo', 'amzPedir(' + id + ')');
+  if (cfg.amizade === 'aceita') {
+    if (cfg.parceria === 'aceita') h += b('Parceiros ✓', '');
+    else if (cfg.parceria === 'enviado') h += b('Convite enviado', '');
+    else if (cfg.parceria === 'recebido') h += b('Aceitar parceria', 'pcAceitar(' + id + ')');
+    else h += b('🤝 Treinar juntos', 'pcPedir(' + id + ')');
+  }
+  return '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' + h + '</div>';
+}
+
+// Filtro Todos / Amigos no topo do Feed.
+function _feedChipsAmigosHtml(isLight) {
+  if (!_conexoesOn) return '';
+  const chip = (txt, on) => '<button onclick="_feedFiltroAmigos(' + (txt === 'Amigos') + ')" style="padding:7px 16px;border-radius:18px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (on ? (isLight ? '#2d8a00' : '#7FFF00') : 'transparent') + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : (isLight ? '#eee' : '#1c1c1c')) + ';color:' + (on ? (isLight ? '#2d8a00' : '#7FFF00') : (isLight ? '#777' : '#999')) + ';">' + txt + '</button>';
+  return '<div style="display:flex;gap:8px;margin:0 0 12px;">' + chip('Todos', !_feedSoAmigos) + chip('Amigos', _feedSoAmigos) + '</div>';
+}
+function _feedFiltroAmigos(on) { _feedSoAmigos = !!on; renderFeedCompleto(); }
+
+// ── Tela Amigos e parceiros ──
+function _amzNorm(t) { return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+function _amzPessoa(id) {
+  const k = String(id);
+  const p = ((_amzDados.pessoas || {})[k]) || ((_pcDados.pessoas || {})[k]) || {};
+  const rk = _rankingData || {};
+  return { nome: p.nome || (rk.atletas || {})[k] || (_feedAtletasMap || {})[k] || 'Aluno', avatar: p.avatar || (rk.avatars || {})[k] || (_feedAvatarsMap || {})[k] || '' };
+}
+function _amzAvHtml(pessoa, isLight) {
+  const base = 'width:42px;height:42px;border-radius:50%;flex-shrink:0;';
+  return pessoa.avatar
+    ? '<img src="' + esc(pessoa.avatar) + '" style="' + base + 'object-fit:cover;" loading="lazy"/>'
+    : '<div style="' + base + 'background:' + (isLight ? '#e5e5e5' : '#2a2a2a') + ';color:' + (isLight ? '#888' : '#aaa') + ';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;">' + esc((pessoa.nome || '?').charAt(0).toUpperCase()) + '</div>';
+}
+function _amzBtn(txt, on, destaque, isLight) {
+  const cor = isLight ? '#2d8a00' : '#7FFF00';
+  return '<button onclick="' + on + '" style="padding:7px 12px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;border:1px solid ' + (destaque ? cor : (isLight ? '#ddd' : '#333')) + ';background:' + (destaque ? cor : 'transparent') + ';color:' + (destaque ? (isLight ? '#fff' : '#111') : (isLight ? '#555' : '#bbb')) + ';">' + txt + '</button>';
+}
+function _amzLinhaHtml(id, sub, botoes, isLight) {
+  const p = _amzPessoa(id);
+  return '<div style="display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid ' + (isLight ? '#eee' : '#222') + ';">' +
+    '<span onclick="abrirPerfilAluno(' + Number(id) + ')" style="cursor:pointer;display:flex;">' + _amzAvHtml(p, isLight) + '</span>' +
+    '<div style="flex:1;min-width:0;"><div onclick="abrirPerfilAluno(' + Number(id) + ')" style="cursor:pointer;font-size:14px;font-weight:800;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(p.nome) + '</div>' +
+    (sub ? '<div style="font-size:11.5px;color:' + (isLight ? '#888' : '#888') + ';margin-top:2px;">' + sub + '</div>' : '') + '</div>' +
+    '<div style="display:flex;gap:6px;flex-shrink:0;">' + (botoes || '') + '</div></div>';
+}
+
+async function renderAmigos() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const box = document.getElementById('v-amigos');
+  box.innerHTML = telaHeader('🤝 Amigos e parceiros') + '<div style="text-align:center;padding:30px;color:' + (isLight ? '#666' : '#888') + ';font-size:13px;">Carregando...</div>';
+  try { await _amzCarregar(); }
+  catch (e) {
+    box.innerHTML = telaHeader('🤝 Amigos e parceiros') + '<div style="text-align:center;padding:30px;color:#888;font-size:13px;">Não consegui carregar agora.<br><button class="btn btn-sec" style="margin-top:12px;" onclick="renderAmigos()">Tentar de novo</button></div>';
+    return;
+  }
+  if (!_rankingData) { try { await _ensureRankingData(); } catch (e) {} }
+  _amzBadge();
+  _amzDesenhar();
+}
+function amzAba(t) { _amzTab = t; _amzDesenhar(); }
+function _amzDesenhar() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const box = document.getElementById('v-amigos'); if (!box) return;
+  const cor = isLight ? '#2d8a00' : '#7FFF00';
+  const nPed = (_amzDados.recebidos || []).length + (_pcDados.recebidos || []).length;
+  const abas = [['amigos', 'Amigos (' + (_amzDados.amigos || []).length + ')'], ['pedidos', 'Pedidos' + (nPed ? ' (' + nPed + ')' : '')], ['parceiros', 'Parceiros (' + (_pcDados.parceiros || []).length + '/' + (_pcDados.limite || 3) + ')']];
+  let html = telaHeader('🤝 Amigos e parceiros') +
+    '<div style="display:flex;gap:6px;margin:4px 0 14px;overflow-x:auto;scrollbar-width:none;">' +
+    abas.map(a => '<button onclick="amzAba(\'' + a[0] + '\')" style="flex:1 0 auto;padding:10px 12px;border-radius:12px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;border:1px solid ' + (_amzTab === a[0] ? cor : 'transparent') + ';background:' + (_amzTab === a[0] ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : (isLight ? '#eee' : '#1c1c1c')) + ';color:' + (_amzTab === a[0] ? cor : (isLight ? '#777' : '#999')) + ';">' + a[1] + '</button>').join('') + '</div>';
+  if (_amzTab === 'amigos') html += _amzAbaAmigosHtml(isLight);
+  else if (_amzTab === 'pedidos') html += _amzAbaPedidosHtml(isLight);
+  else html += _amzAbaParceirosHtml(isLight);
+  html += getFooterHtml();
+  box.innerHTML = html;
+}
+function _amzVazio(emoji, titulo, texto, isLight) {
+  return '<div style="text-align:center;padding:34px 20px;"><div style="font-size:40px;margin-bottom:10px;">' + emoji + '</div><div style="font-size:14px;font-weight:800;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';margin-bottom:6px;">' + titulo + '</div><p style="font-size:12.5px;color:' + (isLight ? '#666' : '#888') + ';max-width:290px;margin:0 auto;line-height:1.5;">' + texto + '</p></div>';
+}
+function _amzAbaAmigosHtml(isLight) {
+  const par = _pcDados.parceiros || [], env = _pcDados.enviados || [], rec = _pcDados.recebidos || [];
+  const cheio = par.length >= (_pcDados.limite || 3);
+  let html = '<input id="amz-busca" type="search" placeholder="Buscar aluno pelo nome" oninput="_amzBuscar(this.value)" style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:12px;font-size:14px;margin-bottom:6px;"/>' +
+    '<div id="amz-busca-res"></div>';
+  const lista = _amzDados.amigos || [];
+  if (!lista.length) return html + _amzVazio('🤝', 'Você ainda não tem amigos por aqui', 'Busque um aluno pelo nome acima, ou toque no nome de alguém no Feed ou nos comentários para adicionar.', isLight);
+  html += '<div>' + lista.map(id => {
+    let sub = '', botoes = '';
+    if (par.indexOf(id) >= 0) sub = '🏋️ Parceiro de treino';
+    else if (env.indexOf(id) >= 0) sub = 'Convite de parceria enviado';
+    else if (rec.indexOf(id) >= 0) botoes += _amzBtn('Aceitar parceria', 'pcAceitar(' + id + ')', true, isLight);
+    else if (!cheio) botoes += _amzBtn('🤝 Treinar juntos', 'pcPedir(' + id + ')', true, isLight);
+    botoes += _amzBtn('Desfazer', 'amzRemover(' + id + ')', false, isLight);
+    return _amzLinhaHtml(id, sub, botoes, isLight);
+  }).join('') + '</div>';
+  return html;
+}
+async function _amzBuscar(q) {
+  const el = document.getElementById('amz-busca-res'); if (!el) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const termo = _amzNorm(q).trim();
+  if (termo.length < 2) { el.innerHTML = ''; return; }
+  const rk = _rankingData || {};
+  const sou = Number(idAtleta);
+  const jaAmigo = (_amzDados.amigos || []), enviados = (_amzDados.enviados || []), recebidos = (_amzDados.recebidos || []);
+  const achados = Object.keys(rk.atletas || {}).filter(k => Number(k) !== sou && _amzNorm(rk.atletas[k]).indexOf(termo) >= 0).slice(0, 12);
+  if (!achados.length) { el.innerHTML = '<div style="padding:12px 4px;font-size:12.5px;color:#888;">Ninguém com esse nome no ranking.</div>'; return; }
+  el.innerHTML = '<div style="margin-bottom:10px;">' + achados.map(k => {
+    const id = Number(k);
+    let b;
+    if (jaAmigo.indexOf(id) >= 0) b = '<span style="font-size:12px;color:#888;">Amigos ✓</span>';
+    else if (enviados.indexOf(id) >= 0) b = '<span style="font-size:12px;color:#888;">Pedido enviado</span>';
+    else if (recebidos.indexOf(id) >= 0) b = _amzBtn('Aceitar', 'amzAceitar(' + id + ')', true, isLight);
+    else b = _amzBtn('➕ Adicionar', 'amzPedir(' + id + ')', true, isLight);
+    return _amzLinhaHtml(id, '', b, isLight);
+  }).join('') + '</div>';
+}
+function _amzAbaPedidosHtml(isLight) {
+  const ar = _amzDados.recebidos || [], ae = _amzDados.enviados || [], pr = _pcDados.recebidos || [], pe = _pcDados.enviados || [];
+  if (!ar.length && !ae.length && !pr.length && !pe.length) return _amzVazio('📭', 'Nenhum pedido por enquanto', 'Pedidos de amizade e convites para treinar em parceria aparecem aqui.', isLight);
+  const tit = (t) => '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 2px;">' + t + '</div>';
+  let html = '';
+  if (ar.length) html += tit('Querem ser seus amigos') + ar.map(id => _amzLinhaHtml(id, '', _amzBtn('Aceitar', 'amzAceitar(' + id + ')', true, isLight) + _amzBtn('Recusar', 'amzRecusar(' + id + ')', false, isLight), isLight)).join('');
+  if (pr.length) html += tit('Convites para treinar em parceria') + pr.map(id => _amzLinhaHtml(id, 'Quer treinar em parceria com você', _amzBtn('Aceitar', 'pcAceitar(' + id + ')', true, isLight) + _amzBtn('Recusar', 'pcRecusar(' + id + ')', false, isLight), isLight)).join('');
+  if (ae.length) html += tit('Pedidos enviados') + ae.map(id => _amzLinhaHtml(id, 'Aguardando resposta', _amzBtn('Cancelar', 'amzRemover(' + id + ')', false, isLight), isLight)).join('');
+  if (pe.length) html += tit('Convites de parceria enviados') + pe.map(id => _amzLinhaHtml(id, 'Aguardando resposta', _amzBtn('Cancelar', 'pcDesfazer(' + id + ')', false, isLight), isLight)).join('');
+  return html;
+}
+function _amzDataCurta(iso, hoje) {
+  if (!iso) return '';
+  if (iso === hoje) return 'hoje';
+  const d = new Date(hoje + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1);
+  if (iso === d.toISOString().slice(0, 10)) return 'ontem';
+  return iso.slice(8, 10) + '/' + iso.slice(5, 7);
+}
+function _amzAbaParceirosHtml(isLight) {
+  const par = _pcDados.parceiros || [];
+  const sub = isLight ? '#666' : '#999', txt = isLight ? '#1a1a1a' : '#f0f0f0', fundo = isLight ? '#f6f6f6' : '#1a1a1a';
+  if (!par.length) return _amzVazio('🏋️', 'Treine em dupla', 'Convide um amigo para ser seu parceiro de treino. Vocês acompanham a sequência de semanas em que os dois treinam e recebem um aviso quando o outro treina. Até ' + (_pcDados.limite || 3) + ' parceiros.', isLight) +
+    '<div style="text-align:center;"><button class="btn btn-prim" onclick="amzAba(\'amigos\')">Escolher um amigo</button></div>';
+  const hoje = _pcHoje();
+  const eu = _pcSessoes(idAtleta);
+  return par.map(id => {
+    const p = _amzPessoa(id);
+    const noRanking = !!((_rankingData || {}).atletas || {})[String(id)];
+    const r = API.parceria.resumo(eu, _pcSessoes(id), hoje);
+    const primeiro = esc((p.nome || '').split(' ')[0]);
+    let corpo;
+    if (!noRanking) {
+      corpo = '<div style="font-size:12.5px;color:' + sub + ';line-height:1.5;">Para mostrar a sequência em dupla, ' + primeiro + ' precisa participar do ranking.</div>';
+    } else {
+      corpo = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+        '<div style="background:' + (isLight ? '#fff' : '#111') + ';border-radius:12px;padding:12px;text-align:center;"><div style="font-size:24px;font-weight:900;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">🔥 ' + r.semanasEmDupla + '</div><div style="font-size:11px;color:' + sub + ';margin-top:3px;">' + (r.semanasEmDupla === 1 ? 'semana em dupla' : 'semanas em dupla') + '</div></div>' +
+        '<div style="background:' + (isLight ? '#fff' : '#111') + ';border-radius:12px;padding:12px;text-align:center;"><div style="font-size:24px;font-weight:900;color:' + txt + ';">' + r.juntosNoMes + '</div><div style="font-size:11px;color:' + sub + ';margin-top:3px;">no mesmo dia este mês</div></div></div>' +
+        '<div style="font-size:12px;color:' + sub + ';margin-top:10px;">' + (r.ultimoParceiro ? 'Último treino de ' + primeiro + ': ' + _amzDataCurta(r.ultimoParceiro, hoje) : primeiro + ' ainda não treinou') + '</div>' +
+        (r.semanasEmDupla === 0 ? '<div style="font-size:12px;color:' + sub + ';margin-top:4px;">Treinem os dois nesta semana para começar a sequência.</div>' : '');
+      if (r.parceiroTreinouHoje && !r.euTreineiHoje) corpo += '<button class="btn btn-prim" style="width:100%;margin-top:12px;" onclick="navegar(\'treinos-menu\')">' + primeiro + ' treinou hoje. Sua vez!</button>';
+    }
+    return '<div style="background:' + fundo + ';border-radius:16px;padding:14px;margin-bottom:12px;">' +
+      '<div style="display:flex;align-items:center;gap:11px;margin-bottom:12px;"><span onclick="abrirPerfilAluno(' + Number(id) + ')" style="cursor:pointer;display:flex;">' + _amzAvHtml(p, isLight) + '</span>' +
+      '<div style="flex:1;min-width:0;font-size:15px;font-weight:800;color:' + txt + ';">' + esc(p.nome) + '</div>' +
+      _amzBtn('Desfazer', 'pcDesfazer(' + id + ')', false, isLight) + '</div>' + corpo + '</div>';
+  }).join('') + '<div style="font-size:11.5px;color:' + sub + ';line-height:1.5;padding:4px;">A sequência conta as semanas, de domingo a sábado, em que os dois fizeram pelo menos um treino. Só aparece quem participa do ranking.</div>';
+}
+
 // ═══════════════ PERFIL SOCIAL ═══════════════
 // Tocar no nome ou na foto de um aluno (post, comentário, curtidas) abre o perfil dele: posts, conquistas
 // e marcas pessoais, resultados e a semana. O perfil é o overlay de abrirPerfilRanking (já existia no ranking)
@@ -11437,17 +11707,6 @@ async function _pkConfig(id) {
   }
   if (!cfg.erro) _pkCfgCache[id] = { t: Date.now(), cfg: cfg };
   return cfg;
-}
-
-async function _pkPedirAmizade(id) {
-  const b = document.getElementById('pk-amigo-btn');
-  try {
-    const r = await _fetchT(API_BASE + '/catalogo.php?action=amizades', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, body: JSON.stringify({ para_id: Number(id) }) }, 10000);
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error('falhou');
-    _pkCfgCache = {};
-    if (b) { b.textContent = j.status === 'aceita' ? 'Amigos ✓' : 'Pedido enviado'; b.disabled = true; }
-  } catch (e) { toast('Não consegui enviar o pedido. Tente de novo.'); }
 }
 
 // Tela de privacidade do próprio perfil: quem vê as fotos e quais partes ficam à mostra.
@@ -15345,7 +15604,8 @@ async function _nutriCarregar() {
     API.listarAvaliacoes(idAtleta).catch(() => []),
   ]);
   const lista = Array.isArray(planos) ? planos : [];
-  _nutri.plano = lista.find(p => Number(p.ativo) === 1) || lista[0] || null;
+  // Só plano ativo vale para o aluno. Plano inativado pela nutri some do app (sem cair no primeiro da lista).
+  _nutri.plano = lista.find(p => Number(p.ativo) === 1) || null;
   if (dados) {
     _nutri.regs = Array.isArray(dados.registros) ? dados.registros : [];
     _nutri.agua = Array.isArray(dados.agua) ? dados.agua : [];
@@ -16744,8 +17004,8 @@ document.addEventListener('input', (e) => {
 // Linha de notificação, usada na aba Notificações da Central. Medalha e
 // distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
-  const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', nutri_resposta: '🥗' };
-  const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo';
+  const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝' };
+  const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
     curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Mural' : 'curtiu seu post'),
@@ -16755,6 +17015,10 @@ function _notifLinhaHtml(n, isLight) {
     resposta: 'respondeu seu comentário',
     mencao: noMural ? 'mencionou você no mural' : 'mencionou você',
     nutri_resposta: 'respondeu ao seu registro de refeição',
+    amizade_pedido: 'quer ser seu amigo',
+    amizade_aceita: 'aceitou sua amizade',
+    parceria_pedido: 'convidou você para treinar em parceria',
+    parceria_aceita: 'aceitou treinar em parceria com você',
   }[n.tipo] || 'interagiu com você';
   const principal = ehSistema
     ? '<b>' + esc(n.texto || '') + '</b>'
@@ -16849,6 +17113,7 @@ function _notifAbrir(el) {
   if (tipo === 'distintivo') { navegar('perfil'); return; }
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
+  if (/^(amizade|parceria)_/.test(tipo) || tipo === 'parceiro') { navegar('amigos'); return; }
   if (el.dataset.alvotipo === 'resultado') { navegar('resultados'); return; }
   if (el.dataset.alvotipo === 'mural') {
     abrirRanking();
@@ -18018,6 +18283,7 @@ function mostrarDicaTema() {
   loadAvatars();
   renderHome();
   atualizarBadgeMensagens();
+  _conexoesInit();
   mostrarDicaTema();
   _criarBannerTreino();
   retomarTreinoAtivo(true); // só entra direto no treino se houver progresso recente

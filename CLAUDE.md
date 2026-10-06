@@ -781,10 +781,22 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   no servidor (`resultados?idatleta=`). Conquistas e semana são só escondidas na tela (os dados vêm do ranking,
   que é público entre participantes). A equipe (professor) enxerga tudo. Se o app não conseguir ler a privacidade
   de outro aluno, ele esconde tudo em vez de mostrar (falha fecha).
-- **Conexões, DESLIGADAS**: `INTUS_CONEXOES_ATIVO` (constante no topo de `catalogo.php`, valor false). As tabelas
-  `intus_amizade`, `intus_turma`, `intus_turma_membro`, `intus_desafio`, `intus_desafio_participante` e
-  `intus_parceria` já existem (vazias). Só amizade tem endpoint (`amizades`, responde 403 enquanto desligado) e
-  botão "Adicionar amigo" no perfil (só aparece com a chave ligada). Turmas, desafios e parceiro de treino têm
-  apenas o esquema do banco; as telas e endpoints serão feitos na ativação. Com a chave desligada ninguém vira
-  amigo, então "Só amigos" funciona como "Só eu" (a tela de privacidade avisa isso).
+- **Conexões, DESLIGADAS**: `INTUS_CONEXOES_ATIVO` (constante no topo de `catalogo.php`, valor false). **Para
+  ligar: trocar para true e publicar.** Com ela desligada os endpoints `amizades` e `parcerias` respondem 403, o
+  menu "Amigos e parceiros", os botões do perfil e o filtro de amigos do Feed ficam escondidos (o app lê a chave em
+  `perfil_config`). Já prontos: amizade (pedido, aceite, desfazer, busca por nome entre quem está no ranking, filtro
+  Amigos no Feed, avisos no sino) e parceria de treino (só entre amigos, até 3 parceiros; sequência em dupla e treinos
+  no mesmo dia vêm de `API.parceria`, teste `testes/parceria.js`; aviso "seu parceiro treinou hoje" é registrado pelo
+  próprio app, tipo `parceiro`). Só conta quem participa do ranking (os dados saem das sessões do ranking). Desfazer a
+  amizade desfaz a parceria. Tabelas `intus_turma`, `intus_turma_membro`, `intus_desafio` e
+  `intus_desafio_participante` existem vazias, sem endpoint nem tela (turmas e desafios entre alunos ficam para a
+  ativação). Com a chave desligada ninguém vira amigo, então "Só amigos" funciona como "Só eu".
 - **Rolagem**: perfil, post aberto e tela de privacidade travam a rolagem da página de trás (`_pkTravarFundo`).
+
+## 22. Planos alimentares ativos e inativos (06/10/2026)
+
+- `nutricao.html`, aba Planos: filtro **Ativos / Inativos** (como em Treinos), botão Ativar/Inativar no cartão e na
+  visualização do plano (edição parcial só do campo `ativo`) e seletor Ativo/Inativo no editor. Não há vencimento
+  automático (diferente das fichas): o alerta de plano vencido continua só avisando a nutri.
+- **O aluno só recebe plano ativo**: `catalogo.php?action=nutricao` filtra `ativo = 1` para aluno e o app não cai mais
+  no primeiro plano da lista. Inativar o único plano de um aluno deixa a Nutrição dele sem plano.
