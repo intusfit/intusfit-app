@@ -984,7 +984,7 @@
     <div class="menu-item" onclick="abrirCompartilharUltimoTreino();fecharMenuDireto()"><span class="mi-icon">📸</span> Compartilhar treino</div>
     <div class="menu-item" onclick="abrirRanking();fecharMenuDireto()"><span class="mi-icon">🥇</span> Ranking</div>
     <div class="menu-item" onclick="navegar('feed');fecharMenuDireto()"><span class="mi-icon">📣</span> Feed</div>
-    <div class="menu-item" onclick="navegar('resultados');fecharMenuDireto()"><span class="mi-icon">🌟</span> Quadro de Resultados</div>
+    <div class="menu-item" onclick="navegar('resultados');fecharMenuDireto()"><span class="mi-icon">🌟</span> Mural de resultados</div>
     <div class="menu-item" onclick="navegar('desafios');fecharMenuDireto()"><span class="mi-icon">🏆</span> Desafios</div>
     <div class="menu-item" onclick="navegar('nutricao');fecharMenuDireto()"><span class="mi-icon">🥗</span> Nutrição</div>
     <div class="menu-item" onclick="navegar('avaliacoes');fecharMenuDireto()"><span class="mi-icon">📈</span> Avaliações</div>
@@ -11221,7 +11221,8 @@ function _medalhasPerfilHtml(id, isLight) {
     '</div>';
 }
 
-function abrirPerfilRanking(id) {
+async function abrirPerfilRanking(id, social) {
+  const cfg = await _pkConfig(id);   // o que o dono deixou à mostra
   const data = _rankingData || {};
   const isLight = document.body.classList.contains('tema-claro');
   const st = _perfilRankingStats(id);
@@ -11298,49 +11299,87 @@ function abrirPerfilRanking(id) {
         '</div>';
       }).join('')
     : '<div style="text-align:center;padding:16px;color:' + (isLight?'#aaa':'#555') + ';font-size:12px;">Nenhuma atividade registrada nesta semana.</div>';
+  const primeiro = esc((nome || 'o membro').split(' ')[0]);
+  const ok = (k) => isMe || cfg[k] !== false;
+  const muted = isLight ? '#888' : '#777';
+  const aviso = (txt) => '<div style="text-align:center;padding:22px 16px;font-size:13px;line-height:1.5;color:' + muted + ';">🔒 ' + txt + '</div>';
+  const statsGrid =
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:20px 0;">' +
+      _perfStat('🏆', st.top5week, 'vezes no Top 5 da semana', isLight, '#f59e0b', 'desde ' + st.desdeLabel) +
+      _perfStat('📆', st.top10month, 'vezes no Top 10 do mês', isLight, '#818cf8', 'desde ' + st.desdeLabel) +
+      _perfStat('💪', st.treinosSemana, 'treinos esta semana', isLight, accent) +
+    '</div>';
+  const atividadesHtml =
+    '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px;">Atividades de cardio e musculação desta semana (em andamento)</div>' +
+    '<div style="display:flex;flex-direction:column;gap:6px;">' + cardHtml + '</div>' +
+    _perfilSemanaAnteriorHtml(id, st, isLight, isMe, nome) +
+    '<div style="font-size:10.5px;color:' + (isLight?'#999':'#666') + ';line-height:1.5;margin-top:10px;padding:8px 10px;background:' + (isLight?'#f6f6f6':'#161616') + ';border-radius:9px;">🔒 ' + (isMe ? 'Seu <b>histórico completo</b> de treinos só você vê. Os outros membros enxergam apenas as suas atividades <b>desta semana</b>' + (st.anterior ? ' e, por você ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '.' : 'Aqui aparecem as atividades <b>desta semana</b>' + (st.anterior ? ' e, por ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '. O histórico completo de treinos é privado, só ' + primeiro + ' vê o próprio.') + '</div>';
+  const fecharBtn = '<button onclick="document.getElementById(\'overlay-perfil-rk\').remove();" style="margin-top:22px;width:100%;padding:13px;border-radius:12px;border:none;background:' + (isLight?'#f0f0f0':'#222') + ';color:' + (isLight?'#333':'#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>';
+  const miniBtn = 'margin-top:8px;padding:8px 16px;border-radius:20px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;';
+  let acaoHeader = '';
+  if (!social) {
+    acaoHeader = '<button onclick="abrirPerfilAluno(' + Number(id) + ')" style="' + miniBtn + 'border:1px solid ' + accent + ';background:transparent;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">Ver perfil completo ›</button>';
+  } else if (isMe) {
+    acaoHeader = '<button onclick="abrirPrivacidadePerfil()" style="' + miniBtn + 'border:1px solid ' + (isLight?'#ddd':'#333') + ';background:transparent;color:' + (isLight?'#555':'#bbb') + ';">🔒 Privacidade do perfil</button>';
+  } else if (cfg.conexoes) {
+    // Chave das conexões (desligada no servidor por enquanto): pedido de amizade.
+    acaoHeader = '<button id="pk-amigo-btn" ' + (cfg.amigo ? 'disabled' : 'onclick="_pkPedirAmizade(' + Number(id) + ')"') + ' style="' + miniBtn + 'border:1px solid ' + accent + ';background:transparent;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">' + (cfg.amigo ? 'Amigos ✓' : '➕ Adicionar amigo') + '</button>';
+  }
+  const cabecalho =
+    '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;">' +
+      '<div id="pk-avatar" style="display:flex;justify-content:center;">' + avatarBig + '</div>' +
+      '<div style="font-size:19px;font-weight:900;color:' + (isLight?'#111':'#f5f5f5') + ';margin-top:10px;" id="pk-nome">' + esc(nome) + (isMe ? ' <span style="color:' + accent + ';">(você)</span>' : '') + '</div>' +
+      (localCompleto ? '<div style="font-size:13px;color:' + (isLight?'#666':'#999') + ';">📍 ' + esc(localCompleto) + '</div>' : '') +
+      acaoHeader +
+    '</div>';
+  const ocultos = [];
+  if (!ok('mostrar_semana')) ocultos.push('a semana');
+  if (!ok('mostrar_conquistas')) ocultos.push('as conquistas');
+  if (!ok('mostrar_resultados')) ocultos.push('o mural de resultados');
+  let corpo;
+  if (cfg.erro && !isMe) {
+    corpo = cabecalho + aviso('Não consegui abrir este perfil agora. Tente de novo em instantes.');
+  } else if (!social) {
+    // Visão de sempre do ranking e das medalhas, com o atalho para o perfil completo.
+    corpo = cabecalho +
+      (ok('mostrar_semana') ? statsGrid + pontosSemHtml : '') +
+      (ok('mostrar_conquistas') ? _medalhasPerfilHtml(id, isLight) : '') +
+      (ok('mostrar_semana') ? atividadesHtml : '') +
+      (ok('mostrar_conquistas') ? _conquistasStripHtml(id, isLight) : '') +
+      (ok('mostrar_resultados') ? '<div id="perfil-rk-resultados"></div>' : '') +
+      (ocultos.length ? aviso(primeiro + ' mantém privado: ' + ocultos.join(', ') + '.') : '');
+  } else {
+    corpo = cabecalho +
+      _pkCabecalhoHtml(id, isLight, participa, ok('mostrar_conquistas')) +
+      '<div data-pk="posts"><div id="perfil-rk-posts" style="min-height:60px;"></div></div>' +
+      '<div data-pk="sem" style="display:none;">' + (ok('mostrar_semana') ? statsGrid + pontosSemHtml + atividadesHtml : aviso(primeiro + ' mantém a semana privada.')) + '</div>' +
+      '<div data-pk="conq" style="display:none;">' + (!ok('mostrar_conquistas') ? aviso(primeiro + ' mantém as conquistas privadas.') : (participa ? _pkMarcasHtml(id, isLight) + _medalhasPerfilHtml(id, isLight) + _conquistasStripHtml(id, isLight) : '')) + '</div>' +
+      '<div data-pk="res" style="display:none;">' + (ok('mostrar_resultados') ? '<div id="perfil-rk-resultados"></div>' : aviso(primeiro + ' mantém o mural de resultados privado.')) + '</div>';
+  }
   const ov = document.createElement('div');
   ov.id = 'overlay-perfil-rk';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s ease;';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s ease;overscroll-behavior:contain;';
   ov.onclick = function(e) { if (e.target === ov) ov.remove(); };
+  ov.addEventListener('touchmove', function(e) { if (e.target === ov) e.preventDefault(); }, { passive: false });
   ov.innerHTML =
-    '<div style="background:' + bg + ';border-radius:22px 22px 0 0;width:100%;max-width:460px;max-height:88vh;display:flex;flex-direction:column;">' +
-      // Cabeçalho fixo com botão de fechar sempre visível
+    '<div style="background:' + bg + ';border-radius:22px 22px 0 0;width:100%;max-width:460px;max-height:88vh;max-height:88dvh;display:flex;flex-direction:column;">' +
+      // Cabeçalho fixo com a logo e o botão de fechar sempre visíveis
       '<div style="flex-shrink:0;position:relative;padding:12px 16px 8px;border-bottom:1px solid ' + (isLight?'#eee':'#222') + ';">' +
+        '<img src="' + _shareLogoSrc(isLight) + '" alt="Intus" style="position:absolute;top:15px;left:16px;height:15px;width:auto;opacity:.85;"/>' +
         '<div style="width:40px;height:4px;border-radius:2px;background:' + (isLight?'#ddd':'#333') + ';margin:0 auto;"></div>' +
         '<button onclick="document.getElementById(\'overlay-perfil-rk\').remove();" aria-label="Fechar" style="position:absolute;top:8px;right:12px;width:34px;height:34px;border-radius:50%;border:none;background:' + (isLight?'#eee':'#2a2a2a') + ';color:' + (isLight?'#555':'#ccc') + ';font-size:22px;line-height:1;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;">×</button>' +
       '</div>' +
-      // Corpo rolável
-      '<div style="overflow-y:auto;padding:18px 20px 28px;">' +
-        '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;">' +
-          '<div id="pk-avatar" style="display:flex;justify-content:center;">' + avatarBig + '</div>' +
-          '<div style="font-size:19px;font-weight:900;color:' + (isLight?'#111':'#f5f5f5') + ';margin-top:10px;" id="pk-nome">' + esc(nome) + (isMe ? ' <span style="color:' + accent + ';">(você)</span>' : '') + '</div>' +
-          (localCompleto ? '<div style="font-size:13px;color:' + (isLight?'#666':'#999') + ';">📍 ' + esc(localCompleto) + '</div>' : '') +
-        '</div>' +
-        _pkCabecalhoHtml(id, isLight, participa) +
-        '<div data-pk="posts"><div id="perfil-rk-posts" style="min-height:60px;"></div></div>' +
-        '<div data-pk="sem" style="display:none;">' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:20px 0;">' +
-          _perfStat('🏆', st.top5week, 'vezes no Top 5 da semana', isLight, '#f59e0b', 'desde ' + st.desdeLabel) +
-          _perfStat('📆', st.top10month, 'vezes no Top 10 do mês', isLight, '#818cf8', 'desde ' + st.desdeLabel) +
-          _perfStat('💪', st.treinosSemana, 'treinos esta semana', isLight, accent) +
-        '</div>' +
-        pontosSemHtml +
-        // As medalhas vêm antes das atividades da semana: são a conquista que
-        // dura, e a lista de atividades é o dia a dia. Quem abre o perfil de
-        // alguém quer ver primeiro o que a pessoa já conquistou.
-        '<div style="font-size:11px;font-weight:800;color:' + (isLight?'#888':'#888') + ';text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px;">Atividades de cardio e musculação desta semana (em andamento)</div>' +
-        '<div style="display:flex;flex-direction:column;gap:6px;">' + cardHtml + '</div>' +
-        _perfilSemanaAnteriorHtml(id, st, isLight, isMe, nome) +
-        '<div style="font-size:10.5px;color:' + (isLight?'#999':'#666') + ';line-height:1.5;margin-top:10px;padding:8px 10px;background:' + (isLight?'#f6f6f6':'#161616') + ';border-radius:9px;">🔒 ' + (isMe ? 'Seu <b>histórico completo</b> de treinos só você vê. Os outros membros enxergam apenas as suas atividades <b>desta semana</b>' + (st.anterior ? ' e, por você ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '.' : 'Aqui aparecem as atividades <b>desta semana</b>' + (st.anterior ? ' e, por ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '. O histórico completo de treinos é privado, só ' + esc((nome||'o membro').split(' ')[0]) + ' vê o próprio.') + '</div>' +
-        '</div>' +
-        '<div data-pk="conq" style="display:none;">' + (participa ? _pkMarcasHtml(id, isLight) + _medalhasPerfilHtml(id, isLight) + _conquistasStripHtml(id, isLight) : '') + '</div>' +
-        '<div data-pk="res" style="display:none;"><div id="perfil-rk-resultados"></div></div>' +
-        '<button onclick="document.getElementById(\'overlay-perfil-rk\').remove();" style="margin-top:22px;width:100%;padding:13px;border-radius:12px;border:none;background:' + (isLight?'#f0f0f0':'#222') + ';color:' + (isLight?'#333':'#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>' +
+      // Corpo rolável: não deixa a rolagem passar para a tela de trás
+      '<div style="overflow-y:auto;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:18px 20px 28px;">' +
+        corpo +
+        fecharBtn +
       '</div>' +
     '</div>';
   document.body.appendChild(ov);
-  _carregarResultadosNoPerfilRk(id);
-  _pkCarregarPosts(id);
+  _pkTravarFundo();
+  if (ok('mostrar_resultados') && !(cfg.erro && !isMe)) _carregarResultadosNoPerfilRk(id);
+  else { const n = document.getElementById('pk-n-res'); if (n) n.textContent = '—'; }
+  if (social) _pkCarregarPosts(id, cfg);
 }
 
 // ═══════════════ PERFIL SOCIAL ═══════════════
@@ -11360,21 +11399,125 @@ async function abrirPerfilAluno(id) {
   }
   document.getElementById('pk-post-ov')?.remove();
   document.getElementById('overlay-perfil-rk')?.remove();
-  abrirPerfilRanking(id);
+  await abrirPerfilRanking(id, true);
+}
+
+// Trava a rolagem da página de trás enquanto o perfil, um post aberto ou a tela de privacidade estão na tela.
+// Sem isso, no celular o arrastar do dedo rolava a página do fundo em vez do perfil.
+var _pkLockObs = null;
+function _pkTravarFundo() {
+  if (document.body.dataset.pkLock) return;
+  document.body.dataset.pkLock = '1';
+  document.body.dataset.pkOv = document.body.style.overflow || '';
+  document.body.style.overflow = 'hidden';
+  document.documentElement.style.overflow = 'hidden';
+  if (_pkLockObs) return;
+  _pkLockObs = new MutationObserver(function() {
+    if (document.getElementById('overlay-perfil-rk') || document.getElementById('pk-post-ov') || document.getElementById('pk-priv-ov')) return;
+    document.body.style.overflow = document.body.dataset.pkOv || '';
+    document.documentElement.style.overflow = '';
+    delete document.body.dataset.pkLock; delete document.body.dataset.pkOv;
+  });
+  _pkLockObs.observe(document.body, { childList: true });
+}
+
+// Privacidade que o dono escolheu para o perfil dele (cache curto; falha fecha por segurança).
+var _pkCfgCache = {};
+async function _pkConfig(id) {
+  id = Number(id);
+  const hit = _pkCfgCache[id];
+  if (hit && Date.now() - hit.t < 20000) return hit.cfg;
+  let cfg;
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=perfil_config&idatleta=' + id + '&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' }, 6000);
+    if (!r.ok) throw new Error('http');
+    cfg = await r.json();
+  } catch (e) {
+    cfg = id === Number(idAtleta) ? { meu: true, conexoes: false } : { erro: true, ver_fotos: false, mostrar_conquistas: false, mostrar_resultados: false, mostrar_semana: false, conexoes: false };
+  }
+  if (!cfg.erro) _pkCfgCache[id] = { t: Date.now(), cfg: cfg };
+  return cfg;
+}
+
+async function _pkPedirAmizade(id) {
+  const b = document.getElementById('pk-amigo-btn');
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=amizades', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, body: JSON.stringify({ para_id: Number(id) }) }, 10000);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error('falhou');
+    _pkCfgCache = {};
+    if (b) { b.textContent = j.status === 'aceita' ? 'Amigos ✓' : 'Pedido enviado'; b.disabled = true; }
+  } catch (e) { toast('Não consegui enviar o pedido. Tente de novo.'); }
+}
+
+// Tela de privacidade do próprio perfil: quem vê as fotos e quais partes ficam à mostra.
+async function abrirPrivacidadePerfil() {
+  _pkCfgCache = {};
+  const isLight = document.body.classList.contains('tema-claro');
+  const cfgR = await _pkConfig(idAtleta);
+  const c = (cfgR && cfgR.cfg) || { fotos_visib: 'todos', mostrar_conquistas: 1, mostrar_resultados: 1, mostrar_semana: 1 };
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0', mut = isLight ? '#777' : '#999', linha = isLight ? '#eee' : '#262626';
+  const accent = isLight ? '#2d8a00' : '#7FFF00';
+  const opt = (v, titulo, sub) => '<label style="display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid ' + linha + ';cursor:pointer;">' +
+    '<input type="radio" name="pk-fv" value="' + v + '" ' + (c.fotos_visib === v ? 'checked' : '') + ' style="margin-top:3px;accent-color:' + accent + ';"/>' +
+    '<span><span style="font-size:14px;font-weight:700;color:' + txt + ';">' + titulo + '</span><br><span style="font-size:12px;color:' + mut + ';line-height:1.4;">' + sub + '</span></span></label>';
+  const tog = (idc, titulo, sub, on) => '<label style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid ' + linha + ';cursor:pointer;">' +
+    '<span><span style="font-size:14px;font-weight:700;color:' + txt + ';">' + titulo + '</span><br><span style="font-size:12px;color:' + mut + ';line-height:1.4;">' + sub + '</span></span>' +
+    '<input type="checkbox" id="' + idc + '" ' + (on ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:' + accent + ';flex-shrink:0;"/></label>';
+  document.getElementById('pk-priv-ov')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'pk-priv-ov';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain;';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.addEventListener('touchmove', function(e) { if (e.target === ov) e.preventDefault(); }, { passive: false });
+  ov.innerHTML = '<div style="background:' + (isLight ? '#fff' : '#141414') + ';border-radius:22px 22px 0 0;width:100%;max-width:460px;max-height:90vh;max-height:90dvh;display:flex;flex-direction:column;">' +
+    '<div style="flex-shrink:0;padding:14px 18px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ' + linha + ';"><b style="font-size:16px;color:' + txt + ';">🔒 Privacidade do perfil</b>' +
+    '<button onclick="document.getElementById(\'pk-priv-ov\').remove()" aria-label="Fechar" style="width:34px;height:34px;border-radius:50%;border:none;background:' + (isLight ? '#eee' : '#2a2a2a') + ';color:' + mut + ';font-size:22px;line-height:1;cursor:pointer;">×</button></div>' +
+    '<div style="overflow-y:auto;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:6px 18px 22px;">' +
+      '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px;">Quem vê minhas fotos</div>' +
+      opt('todos', 'Todos os alunos', 'Suas fotos aparecem no Feed e no seu perfil.') +
+      opt('amigos', 'Só amigos', 'As amizades entre alunos ainda não foram liberadas. Por enquanto, esta opção funciona como Só eu.') +
+      opt('eu', 'Só eu', 'Suas fotos ficam escondidas dos outros alunos, no Feed e no perfil.') +
+      '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 2px;">O que aparece no meu perfil</div>' +
+      tog('pk-pv-conq', 'Conquistas e marcas pessoais', 'Medalhas, distintivos e números do seu histórico.', c.mostrar_conquistas) +
+      tog('pk-pv-res', 'Mural de resultados', 'Seus depoimentos e resultados compartilhados.', c.mostrar_resultados) +
+      tog('pk-pv-sem', 'Atividades e pontos da semana', 'O que você treinou nesta semana.', c.mostrar_semana) +
+      '<div style="font-size:11.5px;color:' + mut + ';line-height:1.5;margin-top:14px;">Seu nome, sua foto de perfil e sua posição no ranking continuam aparecendo no ranking. A equipe da Intus vê tudo para poder te acompanhar.</div>' +
+      '<button id="pk-pv-salvar" onclick="_pkSalvarPrivacidade()" class="btn btn-prim" style="width:100%;margin-top:16px;">Salvar</button>' +
+    '</div></div>';
+  document.body.appendChild(ov);
+  _pkTravarFundo();
+}
+async function _pkSalvarPrivacidade() {
+  const btn = document.getElementById('pk-pv-salvar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+  const fv = (document.querySelector('input[name="pk-fv"]:checked') || {}).value || 'todos';
+  const corpo = { fotos_visib: fv, mostrar_conquistas: document.getElementById('pk-pv-conq').checked, mostrar_resultados: document.getElementById('pk-pv-res').checked, mostrar_semana: document.getElementById('pk-pv-sem').checked };
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=perfil_config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, body: JSON.stringify(corpo) }, 12000);
+    if (!r.ok) throw new Error('falhou');
+    _pkCfgCache = {};
+    document.getElementById('pk-priv-ov')?.remove();
+    toast('Privacidade salva');
+    if (document.getElementById('overlay-perfil-rk')) abrirPerfilAluno(idAtleta);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
+    toast('Não consegui salvar. Tente de novo.');
+  }
 }
 
 function _pkContadorHtml(idEl, valor, rotulo, isLight) {
   return '<div style="flex:1;text-align:center;"><div id="' + idEl + '" style="font-size:19px;font-weight:900;color:' + (isLight ? '#111' : '#f5f5f5') + ';line-height:1;">' + valor + '</div><div style="font-size:11px;color:' + (isLight ? '#777' : '#999') + ';margin-top:3px;">' + rotulo + '</div></div>';
 }
-function _pkCabecalhoHtml(id, isLight, participa) {
+function _pkCabecalhoHtml(id, isLight, participa, mostrarConq) {
   let dist = '—';
-  try { if (participa) { const cq = _computeConquistas(id); dist = cq.unlockedCount; } } catch (e) {}
-  const abas = [['posts', '📸 Posts'], ['conq', '🏅 Conquistas'], ['res', '🌟 Resultados'], ['sem', '📆 Semana']].filter(a => participa || a[0] === 'posts' || a[0] === 'res');
+  try { if (participa && mostrarConq) { const cq = _computeConquistas(id); dist = cq.unlockedCount; } } catch (e) {}
+  const abas = [['posts', '📸 Posts'], ['conq', '🏅 Conquistas'], ['res', '🌟 Mural de resultados'], ['sem', '📆 Semana']].filter(a => participa || a[0] === 'posts' || a[0] === 'res');
   const accent = isLight ? '#2d8a00' : '#7FFF00';
   return '<div style="display:flex;gap:6px;margin:16px 0 4px;padding:12px 4px;border-top:1px solid ' + (isLight ? '#eee' : '#222') + ';border-bottom:1px solid ' + (isLight ? '#eee' : '#222') + ';">' +
-      _pkContadorHtml('pk-n-posts', '…', 'posts', isLight) + _pkContadorHtml('pk-n-dist', dist, 'distintivos', isLight) + _pkContadorHtml('pk-n-res', '…', 'resultados', isLight) +
+      _pkContadorHtml('pk-n-posts', '…', 'posts', isLight) + _pkContadorHtml('pk-n-dist', dist, 'distintivos', isLight) + _pkContadorHtml('pk-n-res', '…', 'no mural', isLight) +
     '</div>' +
-    '<div style="display:flex;gap:4px;margin:10px 0 14px;overflow-x:auto;">' +
+    '<div style="display:flex;gap:4px;margin:10px 0 14px;overflow-x:auto;scrollbar-width:none;">' +
       abas.map(a => '<button data-pk-btn="' + a[0] + '" onclick="_pkAba(\'' + a[0] + '\')" style="flex:1 0 auto;padding:9px 12px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;border:1px solid ' + (a[0] === 'posts' ? accent : 'transparent') + ';background:' + (a[0] === 'posts' ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (a[0] === 'posts' ? accent : (isLight ? '#777' : '#888')) + ';">' + a[1] + '</button>').join('') +
     '</div>';
 }
@@ -11406,23 +11549,31 @@ function _pkMarcasHtml(id, isLight) {
     '</div>';
 }
 
-async function _pkCarregarPosts(id) {
+async function _pkCarregarPosts(id, cfg) {
   const isLight = document.body.classList.contains('tema-claro');
   const box = () => document.getElementById('perfil-rk-posts');
   if (!box()) return;
+  const fotoPrivada = () => {
+    const el = document.getElementById('pk-n-posts'); if (el) el.textContent = '—';
+    const nome = (document.getElementById('pk-nome') || {}).textContent || 'Este aluno';
+    box().innerHTML = '<div style="text-align:center;padding:30px 16px;"><div style="font-size:30px;margin-bottom:8px;">🔒</div><div style="font-size:13px;font-weight:700;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">As fotos de ' + esc(nome.split(' ')[0]) + ' são privadas</div></div>';
+  };
+  if (cfg && cfg.ver_fotos === false) { fotoPrivada(); return; }
   box().innerHTML = '<div style="text-align:center;padding:24px;color:' + (isLight ? '#888' : '#777') + ';font-size:12.5px;">Carregando posts...</div>';
-  let posts = [], temMais = false, falhou = false;
+  let posts = [], temMais = false, falhou = false, restrito = false;
   try {
     const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts&limite=60&idatleta=' + Number(id) + '&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' }, 15000);
     if (!r.ok) throw new Error('erro');
     const j = await r.json();
     posts = Array.isArray(j.posts) ? j.posts : [];
     temMais = !!j.temMais;
+    restrito = !!j.restrito;
     // Nomes e fotos de perfil entram nos mapas do Feed (sem trocar a lista do Feed que está na tela).
     Object.keys(j.atletas || {}).forEach(k => { if (!_feedAtletasMap[k]) _feedAtletasMap[k] = j.atletas[k]; });
     Object.keys(j.avatars || {}).forEach(k => { if (!_feedAvatarsMap[k]) _feedAvatarsMap[k] = j.avatars[k]; });
   } catch (e) { falhou = true; }
   if (!box()) return;   // fechou o perfil enquanto carregava
+  if (restrito) { fotoPrivada(); return; }
   _pkPosts = posts;
   // Quem não está no ranking só é conhecido por esta resposta: completa nome e foto do cabeçalho.
   const nEl = document.getElementById('pk-nome'), idK = String(id);
@@ -11460,10 +11611,11 @@ async function _pkAbrirPost(idpost) {
   document.getElementById('pk-post-ov')?.remove();
   const ov = document.createElement('div');
   ov.id = 'pk-post-ov';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';overflow-y:auto;';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;';
   ov.innerHTML = '<div style="position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';border-bottom:1px solid ' + (isLight ? '#e5e5e5' : '#222') + ';"><button onclick="document.getElementById(\'pk-post-ov\').remove()" style="background:none;border:none;color:' + (isLight ? '#555' : '#aaa') + ';font-size:14px;font-weight:700;cursor:pointer;">← Voltar</button></div>' +
-    '<div style="max-width:460px;margin:0 auto;padding:12px;">' + _feedCardHtml(post, isLight) + '</div>';
+    '<div style="max-width:460px;margin:0 auto;padding:12px;min-height:calc(100% + 2px);">' + _feedCardHtml(post, isLight) + '</div>';
   document.body.appendChild(ov);
+  _pkTravarFundo();
 }
 
 // ═══════════════ QUADRO DE RESULTADOS ═══════════════
@@ -11532,7 +11684,7 @@ async function curtirResultado(id) {
 }
 
 async function excluirResultado(id) {
-  if (!confirm('Excluir este resultado? Ele deixa de aparecer no Quadro para todos.')) return;
+  if (!confirm('Excluir este resultado? Ele deixa de aparecer no Mural para todos.')) return;
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=resultados&id=' + Number(id), { method: 'DELETE', headers: _resHeaders() });
     if (!r.ok) throw new Error('falhou');
@@ -11582,7 +11734,7 @@ function _resultadoCardHtml(r, isLight) {
   if (_foto1) midias = midias.map(m => (m.tipo === 'video' && !m.poster) ? Object.assign({}, m, { poster: _foto1.url }) : m);
   return '<div data-resultado-card="' + r.idresultado + '" style="background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
     '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
-      '<div ' + (daEquipe ? '' : 'onclick="abrirPerfilRanking(' + idA + ')" ') + 'style="' + (daEquipe ? '' : 'cursor:pointer;') + 'display:flex;align-items:center;gap:9px;flex:1;min-width:0;">' + avatarEl +
+      '<div ' + (daEquipe ? '' : 'onclick="abrirPerfilAluno(' + idA + ')" ') + 'style="' + (daEquipe ? '' : 'cursor:pointer;') + 'display:flex;align-items:center;gap:9px;flex:1;min-width:0;">' + avatarEl +
         '<div style="min-width:0;">' +
           '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0, 2).join(' ')) + (isMe ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
           '<div style="font-size:10px;color:' + muted + ';">' + _tempoRelativoFeed(dt) + (daEquipe ? ' · Aluno Intus' : '') + (r.periodo_txt ? ' · ⏱ ' + esc(r.periodo_txt) : '') + '</div>' +
@@ -11613,7 +11765,7 @@ async function renderResultados(filtro) {
   const box = document.getElementById('v-resultados');
   if (!box) return;
   const chip = (id, label) => '<button onclick="renderResultados(\'' + id + '\')" style="flex:1 1 auto;padding:9px 10px;white-space:nowrap;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;background:' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#fff' : '#161616')) + ';color:' + (_resFiltro === id ? '#0f1a00' : (isLight ? '#1a1a1a' : '#f0f0f0')) + ';border:1px solid ' + (_resFiltro === id ? '#7FFF00' : (isLight ? '#e5e5e5' : '#2a2a2a')) + ';">' + label + '</button>';
-  const topo = telaHeader('🌟 Resultados') +
+  const topo = telaHeader('🌟 Mural de resultados') +
     '<p style="font-size:12.5px;color:' + (isLight ? '#555' : '#aaa') + ';line-height:1.55;margin:0 0 12px;">Veja a evolução de quem treina com a Intus e mostre a sua. Cada resultado inspira quem está começando.</p>' +
     '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirCompartilharResultado()">🌟 Compartilhar meu resultado</button>' +
     '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">' + chip('todos', 'Todos') + chip('evolucao', '📈 Evoluções') + chip('depoimento', '🗣️ Depoimentos') + chip('video', '🎬 Vídeos') + chip('print', '💬 Conversas') + '</div>';
@@ -11655,7 +11807,7 @@ async function _carregarResultadosPerfil() {
   if (!res.lista.length) { el2.innerHTML = _resultadoVazioHtml(isLight, true); return; }
   el2.innerHTML = '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirCompartilharResultado()">🌟 Compartilhar outro resultado</button>' +
     res.lista.map(r => _resultadoCardHtml(r, isLight)).join('') +
-    '<div style="text-align:center;margin:4px 0 8px;"><span onclick="navegar(\'resultados\')" style="font-size:12px;font-weight:700;color:' + (isLight ? '#5cb800' : '#7FFF00') + ';cursor:pointer;text-decoration:underline;">Ver o Quadro de Resultados de todos</span></div>';
+    '<div style="text-align:center;margin:4px 0 8px;"><span onclick="navegar(\'resultados\')" style="font-size:12px;font-weight:700;color:' + (isLight ? '#5cb800' : '#7FFF00') + ';cursor:pointer;text-decoration:underline;">Ver o Mural de resultados de todos</span></div>';
 }
 
 // ── Seção dentro do perfil de outro aluno (overlay do ranking) ──
@@ -11669,7 +11821,7 @@ async function _carregarResultadosNoPerfilRk(id) {
   if (cnt) cnt.textContent = res.erro ? '—' : String(Math.max(res.lista.length, Number(((_rankingData || {}).resultados || {})[String(id)]) || 0));
   if (el2 && !res.erro && !res.lista.length) el2.innerHTML = '<div style="text-align:center;padding:30px 16px;font-size:13px;color:#888;">Nenhum resultado compartilhado ainda.</div>';
   if (!el2 || res.erro || !res.lista.length) return;   // sem resultado, a seção nem aparece
-  el2.innerHTML = '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 10px;">🌟 Quadro de Resultados</div>' +
+  el2.innerHTML = '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 10px;">🌟 Mural de resultados</div>' +
     res.lista.map(r => _resultadoCardHtml(r, isLight)).join('');
 }
 
@@ -11726,7 +11878,7 @@ function _rcRender() {
       '<button onclick="_rcFechar()" style="background:' + cardBg + ';border:1px solid ' + borda + ';border-radius:10px;width:34px;height:34px;color:' + txt + ';font-size:16px;cursor:pointer;">✕</button>' +
     '</div>' +
     '<div style="max-width:420px;margin:0 auto;padding:16px;">' +
-      '<p style="font-size:12.5px;color:' + muted + ';line-height:1.55;margin:0 0 14px;">Seu resultado aparece no Quadro de Resultados para os outros alunos, e a equipe da Intus é avisada. Quem compartilha ganha o distintivo Prova de Evolução 📈</p>' +
+      '<p style="font-size:12.5px;color:' + muted + ';line-height:1.55;margin:0 0 14px;">Seu resultado aparece no Mural de resultados para os outros alunos, e a equipe da Intus é avisada. Quem compartilha ganha o distintivo Prova de Evolução 📈</p>' +
       '<div style="display:flex;gap:8px;margin-bottom:12px;">' + tipoBtn('evolucao', '📈 Evolução', 'foto ou vídeo da sua mudança') + tipoBtn('depoimento', '🗣️ Depoimento', 'conte a sua experiência') + '</div>' +
       '<textarea id="rc-texto" data-limite="1000" placeholder="' + (_rcTipo === 'evolucao' ? 'Conte como foi a sua evolução: o que mudou e o que ajudou...' : 'Conte como a consultoria Intus mudou a sua rotina...') + '" oninput="_rcTexto=this.value;" style="width:100%;min-height:110px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;resize:vertical;">' + esc(_rcTexto) + '</textarea>' +
       '<input id="rc-periodo" maxlength="60" placeholder="Período (ex.: 3 meses de consultoria)" value="' + esc(_rcPeriodo) + '" oninput="_rcPeriodo=this.value;" style="width:100%;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13px;font-family:inherit;"/>' +
@@ -11882,7 +12034,7 @@ const CONQUISTAS_DEF = [
   // ── Indicação de amigos ──
   { id:'indicacao1',  e:'🎁', nome:'Embaixador',            desc:'Um amigo se cadastrou com o seu link de indicação. Você já está espalhando o movimento!', metric:'indicacoes', goal:1 },
   // ── Quadro de Resultados ──
-  { id:'resultado',   e:'📈', nome:'Prova de Evolução',     desc:'Você compartilhou um resultado no Quadro de Resultados. Sua evolução inspira quem está começando e mostra que o caminho funciona.', metric:'resultados', goal:1 },
+  { id:'resultado',   e:'📈', nome:'Prova de Evolução',     desc:'Você compartilhou um resultado no Mural de resultados. Sua evolução inspira quem está começando e mostra que o caminho funciona.', metric:'resultados', goal:1 },
   { id:'indicacao5',  e:'🤝', nome:'Recrutador nato',       desc:'5 amigos indicados por você já entraram no app pra valer. Você não treina sozinho, você constrói equipe.', metric:'indicacoesAtivas', goal:5 },
 ];
 
@@ -15600,7 +15752,7 @@ function renderPerfil() {
     <div style="display:flex;gap:6px;background:${tabBg};padding:5px;border-radius:16px;margin-bottom:18px;">
       ${tabBtn('conquistas','🏅','Conquistas')}
       ${tabBtn('posts','📸','Posts')}
-      ${tabBtn('resultados','🌟','Resultados')}
+      ${tabBtn('resultados','🌟','Mural')}
       ${tabBtn('dados','📋','Dados')}
       ${tabBtn('matricula','💳','Matrícula')}
     </div>
@@ -15626,6 +15778,7 @@ function renderPerfil() {
 
     <!-- ABA DADOS -->
     <div id="pf-aba-dados" style="display:none;">
+      <button class="btn btn-sec" onclick="abrirPrivacidadePerfil()" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:8px;">🔒 Privacidade do meu perfil</button>
       <div class="profile-field"><label>Nome completo</label><input id="pf-nome" value="${esc(nome)}" placeholder="Seu nome"/></div>
       <div class="profile-field"><label>E-mail</label><input id="pf-email" type="email" value="${esc(email)}" placeholder="seu@email.com"/></div>
       <div class="profile-field"><label>Telefone</label><input id="pf-tel" value="${esc(telefone)}" placeholder="(00) 00000-0000"/></div>
@@ -16467,7 +16620,7 @@ function _mencaoHtml(s) {
 function _mencaoAbrir(el) {
   const id = Number(el?.dataset?.mencaoId || 0);
   if (!id) return;
-  try { abrirPerfilRanking(id); } catch (e) {}
+  try { abrirPerfilAluno(id); } catch (e) {}
 }
 
 // Texto escapado com as menções destacadas. limite = máx. de caracteres
@@ -16595,7 +16748,7 @@ function _notifLinhaHtml(n, isLight) {
   const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
-    curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Quadro' : 'curtiu seu post'),
+    curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Mural' : 'curtiu seu post'),
     curtida_comentario: noMural ? 'curtiu sua resposta no mural' : 'curtiu seu comentário',
     curtida_chat: 'curtiu sua mensagem',
     comentario: noMural ? 'respondeu seu comentário no mural' : 'comentou no seu post',

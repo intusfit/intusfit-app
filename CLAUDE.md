@@ -767,3 +767,24 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   arquivo continua no disco). Resposta da nutri vira aviso no sino do aluno (`nutri_resposta`).
 - **Limites conhecidos**: o plano é igual todos os dias (não há cardápio por dia); as calorias "consumidas" são
   estimativa do plano, não pesagem.
+
+## 21. Perfil social e conexões entre alunos (06/10/2026)
+
+- **Perfil social** (`aluno.html`, `abrirPerfilAluno(id)`): abre ao tocar no nome ou na foto de um aluno no Feed,
+  nos comentários, no mural e nas curtidas. Abas: Posts (grade e visualizador), Conquistas (marcas pessoais),
+  Mural de resultados e Semana. O ranking e as medalhas continuam abrindo a visão de sempre
+  (`abrirPerfilRanking(id)`), com o botão "Ver perfil completo". As duas usam a mesma função
+  (`abrirPerfilRanking(id, social)`).
+- **Privacidade** (tabela `intus_perfil_config`, action `perfil_config`): `fotos_visib` (todos, amigos, eu) e três
+  chaves (`mostrar_conquistas`, `mostrar_resultados`, `mostrar_semana`). Sem linha, tudo visível. Fotos privadas
+  somem do Feed e do perfil para os outros alunos, no servidor (`feed_posts`). O mural escondido também é cortado
+  no servidor (`resultados?idatleta=`). Conquistas e semana são só escondidas na tela (os dados vêm do ranking,
+  que é público entre participantes). A equipe (professor) enxerga tudo. Se o app não conseguir ler a privacidade
+  de outro aluno, ele esconde tudo em vez de mostrar (falha fecha).
+- **Conexões, DESLIGADAS**: `INTUS_CONEXOES_ATIVO` (constante no topo de `catalogo.php`, valor false). As tabelas
+  `intus_amizade`, `intus_turma`, `intus_turma_membro`, `intus_desafio`, `intus_desafio_participante` e
+  `intus_parceria` já existem (vazias). Só amizade tem endpoint (`amizades`, responde 403 enquanto desligado) e
+  botão "Adicionar amigo" no perfil (só aparece com a chave ligada). Turmas, desafios e parceiro de treino têm
+  apenas o esquema do banco; as telas e endpoints serão feitos na ativação. Com a chave desligada ninguém vira
+  amigo, então "Só amigos" funciona como "Só eu" (a tela de privacidade avisa isso).
+- **Rolagem**: perfil, post aberto e tela de privacidade travam a rolagem da página de trás (`_pkTravarFundo`).

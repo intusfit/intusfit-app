@@ -302,6 +302,104 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Privacidade do perfil social: quem vê as fotos (todos | amigos | eu) e quais partes do perfil
+    // ficam à mostra. Sem linha = tudo visível para todos (o comportamento de antes).
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_perfil_config (
+            idatleta           INT PRIMARY KEY,
+            fotos_visib        VARCHAR(10) NOT NULL DEFAULT 'todos',
+            mostrar_conquistas TINYINT(1)  NOT NULL DEFAULT 1,
+            mostrar_resultados TINYINT(1)  NOT NULL DEFAULT 1,
+            mostrar_semana     TINYINT(1)  NOT NULL DEFAULT 1,
+            updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // ── Conexões entre alunos: ESTRUTURAS PRONTAS, DESLIGADAS ──────────────────────────────────
+    // Nada abaixo é usado enquanto INTUS_CONEXOES_ATIVO for false (ver a constante mais adiante).
+    // As tabelas existem para a ativação ser só ligar a chave, sem migração na hora.
+    // Amizade: um pedido (de -> para) que vira 'aceita'; vale nos dois sentidos.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_amizade (
+            idamizade  INT AUTO_INCREMENT PRIMARY KEY,
+            de_id      INT NOT NULL,
+            para_id    INT NOT NULL,
+            status     VARCHAR(10) NOT NULL DEFAULT 'pendente',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            aceita_em  DATETIME NULL,
+            UNIQUE KEY uniq_par (de_id, para_id),
+            INDEX idx_para (para_id, status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    // Turma: grupo com ranking e mural internos, entrada por convite.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_turma (
+            idturma    INT AUTO_INCREMENT PRIMARY KEY,
+            nome       VARCHAR(80) NOT NULL,
+            descricao  VARCHAR(300) NULL,
+            criador_tipo VARCHAR(10) NOT NULL DEFAULT 'prof',
+            criador_id INT NOT NULL,
+            convite    VARCHAR(32) NULL,
+            ativo      TINYINT(1) NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_convite (convite)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_turma', ['nome', 'descricao']);
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_turma_membro (
+            idturma    INT NOT NULL,
+            idatleta   INT NOT NULL,
+            papel      VARCHAR(10) NOT NULL DEFAULT 'membro',
+            entrou_em  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (idturma, idatleta),
+            INDEX idx_atleta (idatleta)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    // Desafio: meta com prazo (treinos, cardios ou pontos), solo, em dupla ou por turma.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_desafio (
+            iddesafio  INT AUTO_INCREMENT PRIMARY KEY,
+            idturma    INT NULL,
+            titulo     VARCHAR(100) NOT NULL,
+            descricao  VARCHAR(300) NULL,
+            metrica    VARCHAR(20) NOT NULL DEFAULT 'treinos',
+            meta       INT NOT NULL DEFAULT 12,
+            inicio     DATE NOT NULL,
+            fim        DATE NOT NULL,
+            modo       VARCHAR(10) NOT NULL DEFAULT 'solo',
+            distintivo VARCHAR(40) NULL,
+            criador_tipo VARCHAR(10) NOT NULL DEFAULT 'prof',
+            criador_id INT NOT NULL,
+            ativo      TINYINT(1) NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_periodo (inicio, fim)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_desafio', ['titulo', 'descricao']);
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_desafio_participante (
+            iddesafio  INT NOT NULL,
+            idatleta   INT NOT NULL,
+            equipe     VARCHAR(40) NULL,
+            entrou_em  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (iddesafio, idatleta),
+            INDEX idx_atleta (idatleta)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    // Parceria de treino: dupla com pedido e aceite.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_parceria (
+            idparceria INT AUTO_INCREMENT PRIMARY KEY,
+            de_id      INT NOT NULL,
+            para_id    INT NOT NULL,
+            status     VARCHAR(10) NOT NULL DEFAULT 'pendente',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            aceita_em  DATETIME NULL,
+            UNIQUE KEY uniq_dupla (de_id, para_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
     // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.
     // As duas direções cabem na mesma tabela porque a regra de leitura é
@@ -400,6 +498,39 @@ if (!is_file($_bootMarca)) {
 // nunca aceitarem o nome que o próprio cliente diga que é. Extraída daqui pra
 // não copiar essa busca de coluna (tabela de atleta/professor não tem nome
 // de coluna garantido) em cada ação nova que precisar assinar algo.
+// Chave das conexões entre alunos (amizade, turmas, desafios, parceiro de treino).
+// DESLIGADA de propósito: as estruturas estão prontas, mas só entram em uso quando o Luiz decidir
+// (a ideia é crescer a base de alunos antes). Para ligar, troque para true e publique.
+// Com a chave desligada ninguém consegue pedir amizade, então "só amigos" funciona como "só eu".
+if (!defined('INTUS_CONEXOES_ATIVO')) define('INTUS_CONEXOES_ATIVO', false);
+
+// Configuração de privacidade do perfil de um aluno. Sem linha = tudo visível para todos.
+function _perfilConfig(PDO $pdo, int $idatleta): array {
+    $cfg = ['fotos_visib' => 'todos', 'mostrar_conquistas' => 1, 'mostrar_resultados' => 1, 'mostrar_semana' => 1];
+    if ($idatleta <= 0) return $cfg;
+    try {
+        $st = $pdo->prepare("SELECT fotos_visib, mostrar_conquistas, mostrar_resultados, mostrar_semana FROM intus_perfil_config WHERE idatleta = ?");
+        $st->execute([$idatleta]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        if ($r) {
+            $cfg['fotos_visib'] = in_array($r['fotos_visib'], ['todos', 'amigos', 'eu'], true) ? $r['fotos_visib'] : 'todos';
+            foreach (['mostrar_conquistas', 'mostrar_resultados', 'mostrar_semana'] as $k) $cfg[$k] = (int)$r[$k] ? 1 : 0;
+        }
+    } catch (Throwable $e) {}
+    return $cfg;
+}
+// Ids de alunos que são amigos de $idatleta (pedido aceito, nos dois sentidos).
+function _amigosDe(PDO $pdo, int $idatleta): array {
+    if ($idatleta <= 0) return [];
+    try {
+        $st = $pdo->prepare("SELECT de_id, para_id FROM intus_amizade WHERE status = 'aceita' AND (de_id = ? OR para_id = ?)");
+        $st->execute([$idatleta, $idatleta]);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = ((int)$r['de_id'] === $idatleta) ? (int)$r['para_id'] : (int)$r['de_id'];
+        return array_values(array_unique($out));
+    } catch (Throwable $e) { return []; }
+}
+
 // Nome com que um professor aparece PARA OS ALUNOS (comentário, curtida, aviso do sino).
 // O cadastro interno do Luiz é "Luiz Nunes (Master)"; para a turma ele é o treinador.
 function _nomePublicoProf(int $id, string $nome): string {
@@ -2384,6 +2515,24 @@ if ($action === 'feed_posts') {
         }
 
         $visiveis = array_values(array_diff($optinIds, $ocultarDeles, $meOcultaram));
+        // Privacidade das fotos: quem escolheu "só amigos" ou "só eu" some do feed e do perfil para os
+        // outros alunos. O próprio dono sempre se vê; a equipe (professor) enxerga tudo, como moderação.
+        $restritoPor = [];
+        if ($_autorTipo === 'aluno' && count($visiveis)) {
+            try {
+                $rp = $pdo->query("SELECT idatleta, fotos_visib FROM intus_perfil_config WHERE fotos_visib IN ('amigos','eu')")->fetchAll(PDO::FETCH_ASSOC);
+                if ($rp) {
+                    $meusAmigos = _amigosDe($pdo, $_autorId);
+                    foreach ($rp as $r) {
+                        $ida = (int)$r['idatleta'];
+                        if ($ida === $_autorId) continue;
+                        if ($r['fotos_visib'] === 'amigos' && in_array($ida, $meusAmigos, true)) continue;
+                        $restritoPor[$ida] = $r['fotos_visib'];
+                    }
+                    $visiveis = array_values(array_diff($visiveis, array_keys($restritoPor)));
+                }
+            } catch (Throwable $e) {}
+        }
         // Autor sempre vê os próprios posts, mesmo se saiu do feed depois ou
         // bloqueou/foi bloqueado por si mesmo (não deveria acontecer, mas não
         // custa garantir) — sem isso "meus posts" no perfil ficaria vazio
@@ -2393,7 +2542,11 @@ if ($action === 'feed_posts') {
         $somenteAutor = (int)($_GET['idatleta'] ?? 0);
         if ($somenteAutor > 0) $visiveis = (($_autorTipo === 'aluno' && $somenteAutor === $_autorId) || in_array($somenteAutor, $visiveis, true)) ? [$somenteAutor] : [];
 
-        if (!count($visiveis)) { echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false]); exit; }
+        if (!count($visiveis)) {
+            // Perfil de alguém que deixou as fotos privadas: avisa o app para mostrar "fotos privadas" em vez de "sem posts".
+            echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false, 'restrito' => ($somenteAutor > 0 && isset($restritoPor[$somenteAutor])) ? $restritoPor[$somenteAutor] : null]);
+            exit;
+        }
         $ph = implode(',', array_fill(0, count($visiveis), '?'));
         $limite = min(100, max(1, (int)($_GET['limite'] ?? 30)));
         // Cursor de paginação: idpost é AUTO_INCREMENT, então cresce junto com
@@ -2517,6 +2670,110 @@ if ($action === 'feed_posts') {
     }
 }
 
+// ── Privacidade do perfil social ──────────────────────────────────────────
+// GET ?idatleta=ID  -> o que o espectador pode ver do perfil de ID (o dono vê tudo).
+// POST              -> o aluno grava as próprias escolhas (fotos_visib e os três mostrar_*).
+if ($action === 'perfil_config') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+
+    if ($method === 'GET') {
+        $alvo = (int)($_GET['idatleta'] ?? 0);
+        if ($alvo <= 0 && $_autorTipo === 'aluno') $alvo = $_autorId;
+        $cfg = _perfilConfig($pdo, $alvo);
+        $meu = ($_autorTipo === 'aluno' && $alvo === $_autorId);
+        $equipe = ($_autorTipo === 'prof');
+        $amigo = ($_autorTipo === 'aluno' && !$meu) ? in_array($alvo, _amigosDe($pdo, $_autorId), true) : false;
+        $verFotos = $meu || $equipe || $cfg['fotos_visib'] === 'todos' || ($cfg['fotos_visib'] === 'amigos' && $amigo);
+        // Para quem olha de fora, só o resultado final: o que está escondido vem como false.
+        $out = [
+            'meu'                => $meu,
+            'fotos_visib'        => $meu ? $cfg['fotos_visib'] : null,
+            'ver_fotos'          => $verFotos,
+            'mostrar_conquistas' => ($meu || $equipe || $cfg['mostrar_conquistas']) ? true : false,
+            'mostrar_resultados' => ($meu || $equipe || $cfg['mostrar_resultados']) ? true : false,
+            'mostrar_semana'     => ($meu || $equipe || $cfg['mostrar_semana']) ? true : false,
+            'amigo'              => $amigo,
+            'conexoes'           => INTUS_CONEXOES_ATIVO ? true : false,
+        ];
+        if ($meu) { $out['cfg'] = $cfg; }
+        echo json_encode($out, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST') {
+        if ($_autorTipo !== 'aluno') { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
+        $b = jsonBody();
+        $fv = (string)($b['fotos_visib'] ?? 'todos');
+        if (!in_array($fv, ['todos', 'amigos', 'eu'], true)) $fv = 'todos';
+        $mc = !empty($b['mostrar_conquistas']) ? 1 : 0;
+        $mr = !empty($b['mostrar_resultados']) ? 1 : 0;
+        $ms = !empty($b['mostrar_semana']) ? 1 : 0;
+        try {
+            $pdo->prepare("INSERT INTO intus_perfil_config (idatleta, fotos_visib, mostrar_conquistas, mostrar_resultados, mostrar_semana) VALUES (?,?,?,?,?)
+                           ON DUPLICATE KEY UPDATE fotos_visib = VALUES(fotos_visib), mostrar_conquistas = VALUES(mostrar_conquistas), mostrar_resultados = VALUES(mostrar_resultados), mostrar_semana = VALUES(mostrar_semana)")
+                ->execute([$_autorId, $fv, $mc, $mr, $ms]);
+            echo json_encode(['ok' => true, 'fotos_visib' => $fv, 'mostrar_conquistas' => (bool)$mc, 'mostrar_resultados' => (bool)$mr, 'mostrar_semana' => (bool)$ms]);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'falha ao gravar', 'detalhe' => _intusLogErro($e)]);
+        }
+        exit;
+    }
+}
+
+// ── Amizades (DESLIGADO: ver INTUS_CONEXOES_ATIVO) ────────────────────────
+// GET: amigos e pedidos; POST {para_id}: pedir; PUT {de_id, aceitar}: aceitar/recusar; DELETE ?id=: desfazer.
+if ($action === 'amizades') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (!INTUS_CONEXOES_ATIVO) { http_response_code(403); echo json_encode(['error' => 'recurso ainda nao liberado']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorTipo !== 'aluno' || $_autorId <= 0) { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
+
+    if ($method === 'GET') {
+        $st = $pdo->prepare("SELECT de_id FROM intus_amizade WHERE para_id = ? AND status = 'pendente' ORDER BY idamizade DESC LIMIT 100");
+        $st->execute([$_autorId]);
+        $rec = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        $st = $pdo->prepare("SELECT para_id FROM intus_amizade WHERE de_id = ? AND status = 'pendente' ORDER BY idamizade DESC LIMIT 100");
+        $st->execute([$_autorId]);
+        $env = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        echo json_encode(['amigos' => _amigosDe($pdo, $_autorId), 'recebidos' => $rec, 'enviados' => $env]);
+        exit;
+    }
+    $b = jsonBody();
+    if ($method === 'POST') {
+        $para = (int)($b['para_id'] ?? 0);
+        if ($para <= 0 || $para === $_autorId) { http_response_code(400); echo json_encode(['error' => 'aluno invalido']); exit; }
+        // Se a outra pessoa já tinha pedido, o pedido vira amizade na hora.
+        $st = $pdo->prepare("SELECT idamizade FROM intus_amizade WHERE de_id = ? AND para_id = ? AND status = 'pendente'");
+        $st->execute([$para, $_autorId]);
+        if ($idp = $st->fetchColumn()) {
+            $pdo->prepare("UPDATE intus_amizade SET status = 'aceita', aceita_em = NOW() WHERE idamizade = ?")->execute([(int)$idp]);
+            echo json_encode(['ok' => true, 'status' => 'aceita']); exit;
+        }
+        $pdo->prepare("INSERT IGNORE INTO intus_amizade (de_id, para_id, status) VALUES (?,?, 'pendente')")->execute([$_autorId, $para]);
+        try { _criarNotificacao($pdo, 'aluno', $para, 'amizade_pedido', 'aluno', $_autorId, (string)$_autorNome, 'amizade', $_autorId, ''); } catch (Throwable $e) {}
+        echo json_encode(['ok' => true, 'status' => 'pendente']);
+        exit;
+    }
+    if ($method === 'PUT') {
+        $de = (int)($b['de_id'] ?? 0);
+        if (!empty($b['aceitar'])) {
+            $pdo->prepare("UPDATE intus_amizade SET status = 'aceita', aceita_em = NOW() WHERE de_id = ? AND para_id = ? AND status = 'pendente'")->execute([$de, $_autorId]);
+        } else {
+            $pdo->prepare("DELETE FROM intus_amizade WHERE de_id = ? AND para_id = ? AND status = 'pendente'")->execute([$de, $_autorId]);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $outro = (int)($_GET['id'] ?? 0);
+        $pdo->prepare("DELETE FROM intus_amizade WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?)")->execute([$_autorId, $outro, $outro, $_autorId]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
 // ── Carrossel: foto extra de um post (uma por requisição) e finalização ────
 // O dono envia o post com a capa (feed_posts POST, total_midias > 1), manda cada
 // foto extra aqui e por fim chama com finalizar=1, que torna o post visível.
@@ -2578,6 +2835,11 @@ if ($action === 'resultados') {
         $antesDe = (int)($_GET['antes_de'] ?? 0);
         $idAt = (int)($_GET['idatleta'] ?? 0);
         $tipoF = (string)($_GET['tipo'] ?? '');
+        // Mural escondido pelo dono: outro aluno abrindo o perfil dele não recebe a lista (a equipe e o próprio dono sim).
+        if ($idAt > 0 && $_autorTipo === 'aluno' && $idAt !== $_autorId && !_perfilConfig($pdo, $idAt)['mostrar_resultados']) {
+            echo json_encode(['resultados' => [], 'atletas' => new stdClass(), 'avatars' => new stdClass(), 'temMais' => false, 'restrito' => true]);
+            exit;
+        }
         $tbl = _feedDetectarTabelaAtleta($pdo);
         $onde = "r.ativo = 1"; $args = [];
         if ($idAt > 0) { $onde .= " AND r.idatleta = ?"; $args[] = $idAt; }
