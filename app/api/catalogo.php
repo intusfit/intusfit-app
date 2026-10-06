@@ -501,6 +501,9 @@ if (!is_file($_bootMarca)) {
 // LIGADA em 06/10/2026 a pedido do Luiz. Para desligar (esconde tudo no app e os endpoints respondem 403),
 // troque para false e publique. Desligada, ninguém consegue pedir amizade, então "só amigos" funciona como "só eu".
 if (!defined('INTUS_CONEXOES_ATIVO')) define('INTUS_CONEXOES_ATIVO', true);
+// Aluno criar desafio (aba Desafios da Comunidade). DESLIGADO de propósito: por enquanto só a equipe cria desafios,
+// pelo recurso Desafios do painel (desafios.php). Para liberar aos alunos no futuro, troque para true e publique.
+if (!defined('INTUS_ALUNO_CRIA_DESAFIO')) define('INTUS_ALUNO_CRIA_DESAFIO', false);
 
 // Configuração de privacidade do perfil de um aluno. Sem linha = tudo visível para todos.
 function _perfilConfig(PDO $pdo, int $idatleta): array {
@@ -2767,6 +2770,7 @@ if ($action === 'perfil_config') {
             'mostrar_semana'     => ($meu || $equipe || $cfg['mostrar_semana']) ? true : false,
             'amigo'              => $amigo,
             'conexoes'           => INTUS_CONEXOES_ATIVO ? true : false,
+            'desafios_alunos'    => (INTUS_CONEXOES_ATIVO && INTUS_ALUNO_CRIA_DESAFIO) ? true : false,
         ];
         $out['amizade'] = null; $out['parceria'] = null;
         if (INTUS_CONEXOES_ATIVO && $_autorTipo === 'aluno' && !$meu && $alvo > 0) {
@@ -3091,6 +3095,7 @@ if ($action === 'desafios_aluno') {
             $pdo->prepare("INSERT IGNORE INTO intus_desafio_aluno_part (iddesafio, idatleta) VALUES (?,?)")->execute([$idd, $_autorId]);
             echo json_encode(['ok' => true]); exit;
         }
+        if (!INTUS_ALUNO_CRIA_DESAFIO) { http_response_code(403); echo json_encode(['error' => 'criacao de desafio ainda nao liberada para alunos']); exit; }
         $titulo = trim(mb_substr((string)($b['titulo'] ?? ''), 0, 80));
         $desc = trim(mb_substr((string)($b['descricao'] ?? ''), 0, 200));
         $metrica = (string)($b['metrica'] ?? 'treinos');

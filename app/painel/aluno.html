@@ -11392,6 +11392,7 @@ async function abrirPerfilRanking(id, social) {
 // Amizade: pedido e aceite. Parceria de treino: convite só entre amigos, até 3 parceiros; a sequência em dupla e os
 // treinos no mesmo dia saem das sessões do ranking (API.parceria).
 var _conexoesOn = false;
+var _desafioAlunoCria = false;   // aluno criar desafio: liberado pelo servidor (INTUS_ALUNO_CRIA_DESAFIO), hoje só a equipe cria
 var _feedSoAmigos = false;
 var _amzDados = { amigos: [], recebidos: [], enviados: [], pessoas: {} };
 var _pcDados = { parceiros: [], recebidos: [], enviados: [], limite: 3, pessoas: {} };
@@ -11411,6 +11412,7 @@ async function _conexoesInit() {
   try {
     const cfg = await _pkConfig(idAtleta);
     _conexoesOn = !!cfg.conexoes;
+    _desafioAlunoCria = !!cfg.desafios_alunos;
     const it = document.getElementById('menu-amigos');
     if (it) it.style.display = _conexoesOn ? '' : 'none';
     if (!_conexoesOn) return;
@@ -11812,7 +11814,7 @@ async function abrirTurma(id) {
     }).join('');
   // Desafios da turma
   const dsT = (_dsDados.desafios || []).filter(d => d.idturma === t.idturma);
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 4px;"><div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;">Desafios da turma</div><button class="btn btn-sec" style="padding:6px 12px;font-size:12px;" onclick="abrirNovoDesafio(' + t.idturma + ')">➕ Novo</button></div>' +
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 4px;"><div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;">Desafios da turma</div>' + (_desafioAlunoCria ? '<button class="btn btn-sec" style="padding:6px 12px;font-size:12px;" onclick="abrirNovoDesafio(' + t.idturma + ')">➕ Novo</button>' : '') + '</div>' +
     (dsT.length ? dsT.map(d => _dsCartaoHtml(d, isLight, true)).join('') : '<div style="font-size:12.5px;color:' + sub + ';padding:8px 0;">Nenhum desafio ainda nesta turma.</div>');
   // Convite e ações
   if (t.sou_dono && t.convite) {
@@ -11883,9 +11885,11 @@ function _dsCartaoHtml(d, isLight, dentroDaTurma) {
 }
 function _dsAbaHtml(isLight) {
   const lista = _dsDados.desafios || [];
-  const botao = '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;" onclick="abrirNovoDesafio()">➕ Criar desafio</button>';
-  const aviso = '<div style="font-size:11.5px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin:0 0 12px;">Desafios criados por alunos, com os amigos ou numa turma. Os desafios da equipe Intus ficam em Desafios, no menu.</div>';
-  if (!lista.length) return botao + aviso + _amzVazio('🎯', 'Nenhum desafio por aqui', 'Lance uma meta, como 12 treinos em 30 dias, e chame os amigos ou a turma para topar.', isLight);
+  const botao = _desafioAlunoCria
+    ? '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;" onclick="abrirNovoDesafio()">➕ Criar desafio</button>'
+    : '<button class="btn btn-prim" style="width:100%;margin-bottom:12px;" onclick="navegar(\'desafios\')">🏆 Ver os desafios da equipe Intus</button>';
+  const aviso = '<div style="font-size:11.5px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin:0 0 12px;">' + (_desafioAlunoCria ? 'Desafios criados por alunos, com os amigos ou numa turma. Os desafios da equipe Intus ficam em Desafios, no menu.' : 'Os desafios são lançados pela equipe Intus e ficam na tela Desafios, do menu. Em breve você poderá criar os seus aqui.') + '</div>';
+  if (!lista.length) return botao + aviso + _amzVazio('🎯', 'Nenhum desafio por aqui', _desafioAlunoCria ? 'Lance uma meta, como 12 treinos em 30 dias, e chame os amigos ou a turma para topar.' : 'Quando houver um desafio com meta para você ou para a sua turma, ele aparece aqui.', isLight);
   const grupo = (est) => lista.filter(d => _dsEstado(d) === est);
   const tit = (t) => '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;">' + t + '</div>';
   const and = grupo('andamento'), ag = grupo('agendado'), enc = grupo('encerrado');
@@ -11894,6 +11898,7 @@ function _dsAbaHtml(isLight) {
     (enc.length ? tit('Encerrados nos últimos 30 dias') + enc.map(d => _dsCartaoHtml(d, isLight)).join('') : '');
 }
 function abrirNovoDesafio(idturmaFixo) {
+  if (!_desafioAlunoCria) { toast('Por enquanto os desafios são criados pela equipe Intus.'); return; }
   const isLight = document.body.classList.contains('tema-claro');
   const turmas = _trDados.turmas || [], amigos = _amzDados.amigos || [];
   const hoje = _pcHoje(); const f = new Date(); f.setDate(f.getDate() + 30);

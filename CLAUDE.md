@@ -794,6 +794,10 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
     em até 5. Entrada por código de convite de 8 caracteres (só o dono vê e pode gerar outro). Ranking de pontos da
     semana e do mês calculado no app com `API.agregarPontosRank`. O dono sai passando a turma ao membro mais antigo;
     encerrar a turma só marca `ativo = 0`. Sem mural da turma por enquanto.
+  - **Criação de desafio por aluno: DESLIGADA** (`INTUS_ALUNO_CRIA_DESAFIO`, `catalogo.php`, valor false). Hoje só a
+    equipe cria desafios, pelo recurso Desafios do painel (`desafios.php`). Com a chave desligada o servidor recusa o
+    POST (403), a aba Desafios da Comunidade mostra o atalho para a tela Desafios da equipe e o botão "Novo" da turma
+    some. Para liberar aos alunos: trocar para true e publicar (o app lê `desafios_alunos` em `perfil_config`).
   - **Desafios entre alunos** (`desafios_aluno`, tabelas `intus_desafio_aluno` e `intus_desafio_aluno_part`): meta
     com prazo (treinos, cardios, atividades por dia distinto, ou pontos), até 120 dias, numa turma (os membros entram
     quando quiserem) ou com amigos escolhidos (entram direto e recebem aviso). Regras em `API.comunidade` (teste
