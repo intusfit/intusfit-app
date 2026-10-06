@@ -2755,6 +2755,162 @@ const API = {
     }
   ),
 
+  // ── NUTRIÇÃO: aderência, consumo, alertas e lista de compras ───────────────
+  // FONTE ÚNICA das regras do dashboard de Nutrição (aluno e nutri). Nenhuma tela refaz estas contas.
+  // O plano é igual todos os dias; o aluno registra cada refeição como feita, parcial ou fora do plano.
+  //   feito = 1, parcial = 0,5, fora = 0. Refeição sem registro em dia já encerrado vale 0.
+  //   Hoje só entra refeição cujo horário já passou. Dias antes do início do plano não contam.
+  nutri: (function () {
+    var PESO = { feito: 1, parcial: 0.5, fora: 0 };
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+    function hojeIso() { return iso(new Date()); }
+    function agoraHHMM() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+    function addDias(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return iso(d); }
+    function difDias(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }
+    function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+    function chave(r) { return String((r && r.horario) || '').trim() + '|' + String((r && r.nome) || '').trim().toLowerCase(); }
+    function refeicoes(plano) {
+      var l = (plano && Array.isArray(plano.refeicoes)) ? plano.refeicoes.slice() : [];
+      l.sort(function (a, b) { return String(a.horario || '99:99').localeCompare(String(b.horario || '99:99')); });
+      return l.map(function (r) { return Object.assign({}, r, { chave: chave(r) }); });
+    }
+    function somaItens(itens) {
+      return (itens || []).reduce(function (a, it) {
+        var n = (it && it.nutrientes) || {};
+        a.kcal += num(n.energia_kcal); a.prot += num(n.proteina_g); a.carb += num(n.carboidrato_g); a.gord += num(n.lipidio_g);
+        return a;
+      }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+    }
+    function mapaRegistros(registros) {
+      var m = {};
+      (registros || []).forEach(function (r) { m[String(r.data).slice(0, 10) + '#' + r.refeicao] = r; });
+      return m;
+    }
+    // Resultado por dia entre desde e ate (padrão: os 7 dias que terminam hoje).
+    function aderencia(plano, registros, desde, ate) {
+      var hoje = hojeIso();
+      ate = ate || hoje;
+      desde = desde || addDias(ate, -6);
+      var refs = refeicoes(plano);
+      var ini = plano && plano.dtinicio ? String(plano.dtinicio).slice(0, 10) : null;
+      var reg = mapaRegistros(registros);
+      var dias = [];
+      for (var d = desde; d <= ate; d = addDias(d, 1)) {
+        if (ini && d < ini) continue;
+        if (plano && plano.dtfim && d > String(plano.dtfim).slice(0, 10)) continue;
+        var contadas = refs.filter(function (r) {
+          if (d < hoje) return true;
+          if (d > hoje) return false;
+          return r.horario && String(r.horario).slice(0, 5) <= agoraHHMM();
+        });
+        if (!contadas.length) continue;
+        var soma = 0, feitos = 0, parciais = 0, fora = 0, sem = 0;
+        contadas.forEach(function (r) {
+          var x = reg[d + '#' + r.chave];
+          if (!x) { sem++; return; }
+          soma += PESO[x.status] != null ? PESO[x.status] : 0;
+          if (x.status === 'feito') feitos++; else if (x.status === 'parcial') parciais++; else fora++;
+        });
+        dias.push({ data: d, score: soma / contadas.length, feitos: feitos, parciais: parciais, fora: fora, semRegistro: sem, total: contadas.length });
+      }
+      var media = dias.length ? dias.reduce(function (a, x) { return a + x.score; }, 0) / dias.length : null;
+      return { dias: dias, media: media, diasContados: dias.length };
+    }
+    // Calorias e macros PLANEJADOS das refeições registradas (parcial = metade). É estimativa do plano.
+    function consumo(plano, registrosDoDia) {
+      var reg = {};
+      (registrosDoDia || []).forEach(function (r) { reg[r.refeicao] = r; });
+      var t = { kcal: 0, prot: 0, carb: 0, gord: 0 };
+      refeicoes(plano).forEach(function (r) {
+        var x = reg[r.chave]; if (!x) return;
+        var f = x.status === 'feito' ? 1 : (x.status === 'parcial' ? 0.5 : 0);
+        if (!f) return;
+        var s = somaItens(r.itens_estruturados);
+        t.kcal += s.kcal * f; t.prot += s.prot * f; t.carb += s.carb * f; t.gord += s.gord * f;
+      });
+      return t;
+    }
+    // Primeira refeição ainda sem registro cujo horário é de agora em diante (ou a próxima do dia).
+    function proximaRefeicao(plano, registrosDoDia) {
+      var reg = {}; (registrosDoDia || []).forEach(function (r) { reg[r.refeicao] = r; });
+      var refs = refeicoes(plano), agora = agoraHHMM();
+      var pendentes = refs.filter(function (r) { return !reg[r.chave]; });
+      var futura = pendentes.filter(function (r) { return r.horario && String(r.horario).slice(0, 5) >= agora; })[0];
+      return futura || pendentes[0] || null;
+    }
+    // Dias seguidos (terminando hoje ou ontem) com pelo menos uma refeição marcada como feita.
+    function sequencia(registros) {
+      var dias = {}; (registros || []).forEach(function (r) { if (r.status === 'feito') dias[String(r.data).slice(0, 10)] = 1; });
+      var d = hojeIso(); if (!dias[d]) d = addDias(d, -1);
+      var n = 0; while (dias[d]) { n++; d = addDias(d, -1); }
+      return n;
+    }
+    function metaAguaMl(pesoKg) {
+      var p = num(pesoKg);
+      if (!p) return 2500;
+      return Math.max(1500, Math.min(5000, Math.round(p * 35 / 50) * 50));
+    }
+    // Lista de compras para N dias: soma por alimento (gramas quando a medida é g; senão unidades da medida).
+    function listaCompras(plano, dias) {
+      dias = dias || 7;
+      var mapa = {};
+      refeicoes(plano).forEach(function (r) {
+        (r.itens_estruturados || []).forEach(function (it) {
+          if (!it || !it.nome) return;
+          var emG = it.medida_id === 'g' || !it.medida_nome;
+          var un = emG ? 'g' : String(it.medida_nome);
+          var k = String(it.nome).trim().toLowerCase() + '|' + un;
+          if (!mapa[k]) mapa[k] = { nome: String(it.nome).trim(), unidade: un, quantidade: 0 };
+          mapa[k].quantidade += num(it.quantidade) * dias;
+        });
+      });
+      return Object.keys(mapa).map(function (k) { return mapa[k]; }).sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt'); });
+    }
+    // Alertas para a nutri (e o resumo do aluno). Cada um: {tipo, nivel 'alto'|'medio'|'info', texto}.
+    function alertas(plano, registros, avaliacoes) {
+      var out = [], hoje = hojeIso();
+      if (!plano) return [{ tipo: 'sem_plano', nivel: 'medio', texto: 'Sem plano ativo' }];
+      var fim = plano.dtfim ? String(plano.dtfim).slice(0, 10) : null;
+      if (fim) {
+        var dd = difDias(hoje, fim);
+        if (dd < 0) out.push({ tipo: 'vencido', nivel: 'alto', texto: 'Plano venceu há ' + (-dd) + (dd === -1 ? ' dia' : ' dias') });
+        else if (dd <= 15) out.push({ tipo: 'vencendo', nivel: 'info', texto: 'Plano vence em ' + dd + (dd === 1 ? ' dia' : ' dias') });
+      }
+      var ini = plano.dtinicio ? String(plano.dtinicio).slice(0, 10) : null;
+      var datas = (registros || []).map(function (r) { return String(r.data).slice(0, 10); }).sort();
+      var ultimo = datas.length ? datas[datas.length - 1] : null;
+      var desdeQuando = ultimo || ini;
+      if (desdeQuando) {
+        var sem = difDias(desdeQuando, hoje);
+        if (sem >= 3) out.push({ tipo: 'sem_registro', nivel: 'alto', texto: ultimo ? 'Sem registro há ' + sem + ' dias' : 'Nunca registrou (plano começou há ' + sem + ' dias)' });
+      }
+      var a = aderencia(plano, registros);
+      if (ultimo && a.diasContados >= 3 && a.media != null && a.media < 0.5) out.push({ tipo: 'aderencia_baixa', nivel: 'alto', texto: 'Aderência de ' + Math.round(a.media * 100) + '% nos últimos 7 dias' });
+      if (num(plano.proteina) > 0) {
+        var porDia = {}; (registros || []).forEach(function (r) { var d = String(r.data).slice(0, 10); if (d >= addDias(hoje, -6)) (porDia[d] = porDia[d] || []).push(r); });
+        var ds = Object.keys(porDia);
+        if (ds.length >= 3) {
+          var media = ds.reduce(function (t, d) { return t + consumo(plano, porDia[d]).prot; }, 0) / ds.length;
+          if (media < num(plano.proteina) * 0.8) out.push({ tipo: 'proteina_baixa', nivel: 'medio', texto: 'Proteína média de ' + Math.round(media) + ' g (meta ' + Math.round(num(plano.proteina)) + ' g)' });
+        }
+      }
+      var pesos = (avaliacoes || []).filter(function (v) { return num(v.peso) > 0 && v.dtavaliacao; })
+        .map(function (v) { return { d: String(v.dtavaliacao).slice(0, 10), p: num(v.peso) }; })
+        .filter(function (v) { return v.d >= addDias(hoje, -21); }).sort(function (x, y) { return x.d.localeCompare(y.d); });
+      if (pesos.length >= 2 && difDias(pesos[0].d, pesos[pesos.length - 1].d) >= 14) {
+        var ps = pesos.map(function (v) { return v.p; });
+        if (Math.max.apply(null, ps) - Math.min.apply(null, ps) < 0.3) out.push({ tipo: 'peso_parado', nivel: 'info', texto: 'Peso parado há 3 semanas' });
+      }
+      return out;
+    }
+    return { chave: chave, refeicoes: refeicoes, somaItens: somaItens, aderencia: aderencia, consumo: consumo, proximaRefeicao: proximaRefeicao,
+             sequencia: sequencia, metaAguaMl: metaAguaMl, listaCompras: listaCompras, alertas: alertas, hojeIso: hojeIso, addDias: addDias };
+  })(),
+  // Painel da nutri: planos ativos + registros + água dos últimos 14 dias da carteira.
+  nutriPainel: () => apiFetch('/catalogo.php?action=nutri_painel'),
+  nutriResponder: (idregistro, texto) => apiFetch('/catalogo.php?action=nutri_registro', { method: 'POST', body: JSON.stringify({ subacao: 'resposta', idregistro: idregistro, texto: texto }) }),
+
   criarPlanoNutricional: (data) => tryRemoteOrLocal(
     async () => {
       const res = await apiFetch('/catalogo.php?action=nutricao', { method: 'POST', body: JSON.stringify(data) });

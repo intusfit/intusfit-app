@@ -14,6 +14,7 @@ passo () { echo "── $1"; shift; "$@" || falhas=$((falhas+1)); echo; }
 passo "sintaxe de todos os scripts"        node val.js
 passo "nenhuma função sumiu"               node funcoes.js
 passo "pontuação do ranking (unidade)"     node pontos.js
+passo "nutrição: aderência, alertas e compras" node nutri.js
 passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
 
 # Os testes de navegador precisam de um servidor HTTP: o cache-buster "?v=" não

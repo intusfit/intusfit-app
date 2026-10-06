@@ -271,6 +271,37 @@ function ensureCatalogoTables(PDO $pdo) {
     if (!in_array('autorizacao_obs', $rsCols)) $pdo->exec("ALTER TABLE intus_resultado ADD COLUMN autorizacao_obs VARCHAR(255) NULL");
     _intusGarantirUtf8mb4($pdo, 'intus_resultado', ['texto', 'periodo_txt', 'autor_nome', 'autorizacao_obs']);
 
+    // Nutrição: o aluno registra cada refeição do plano (feito/parcial/fora, com foto opcional) e a
+    // água do dia. A nutri vê, responde a registros e acompanha a aderência. Só tabelas novas.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_nutri_registro (
+            idregistro     INT AUTO_INCREMENT PRIMARY KEY,
+            idatleta       INT NOT NULL,
+            idplano        INT NULL,
+            data           DATE NOT NULL,
+            refeicao       VARCHAR(80) NOT NULL,
+            status         VARCHAR(10) NOT NULL DEFAULT 'feito',
+            obs            VARCHAR(300) NULL,
+            foto           VARCHAR(500) NULL,
+            resposta_nutri VARCHAR(300) NULL,
+            respondido_em  DATETIME NULL,
+            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_reg (idatleta, data, refeicao),
+            INDEX idx_data (data)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_nutri_registro', ['refeicao', 'obs', 'resposta_nutri']);
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_nutri_dia (
+            idatleta  INT NOT NULL,
+            data      DATE NOT NULL,
+            agua_ml   INT NOT NULL DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (idatleta, data)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Preferências de visibilidade do feed: 'ver' = eu não quero VER os posts
     // de idalvo; 'mostrar' = eu não quero que idalvo veja os MEUS posts.
     // As duas direções cabem na mesma tabela porque a regra de leitura é
@@ -411,19 +442,20 @@ require_once __DIR__ . '/_notificacoes.php';   // helpers do sino (_criarNotific
 
 // Salva uma imagem base64 (data URI) em app/img/feed e devolve a URL pública.
 // Lança Exception com mensagem curta se for inválida. Mesma regra do POST do Feed.
-function _salvarImagemFeedB64(string $raw, int $autorId): string {
+function _salvarImagemFeedB64(string $raw, int $autorId, string $pasta = 'feed', string $prefixo = 'feed'): string {
     if (!preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $raw, $m)) throw new Exception('formato de imagem invalido');
-    $dir = __DIR__ . '/../img/feed';
+    if (!preg_match('/^[a-z]{3,12}$/', $pasta)) $pasta = 'feed';
+    $dir = __DIR__ . '/../img/' . $pasta;
     if (!is_dir($dir)) @mkdir($dir, 0755, true);
     $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
     $bin = base64_decode($m[2], true);
     if ($bin === false || strlen($bin) > 8 * 1024 * 1024) throw new Exception('imagem invalida ou grande demais');
     if (!is_dir($dir) || !is_writable($dir)) throw new Exception('sem permissao de escrita');
     try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }
-    $fname = 'feed_' . $autorId . '_' . time() . '_' . $rand . '.' . $ext;
+    $fname = preg_replace('/[^a-z]/', '', $prefixo) . '_' . $autorId . '_' . time() . '_' . $rand . '.' . $ext;
     if (@file_put_contents($dir . '/' . $fname, $bin) === false) throw new Exception('falha ao salvar imagem');
     if (function_exists('gdriveBackup')) { try { gdriveBackup($bin, $fname, 'image/' . ($ext === 'jpg' ? 'jpeg' : $ext)); } catch (Throwable $e) {} }
-    return _appBaseUrl() . '/img/feed/' . $fname;
+    return _appBaseUrl() . '/img/' . $pasta . '/' . $fname;
 }
 
 // Aceita só link de vídeo do YouTube ou post/reel do Instagram e guarda apenas o IDENTIFICADOR
@@ -2743,6 +2775,166 @@ if ($action === 'resultado_destaque' && $method === 'POST') {
     if ($valor && !(int)$r['autoriza_site']) { http_response_code(400); echo json_encode(['error' => 'o aluno nao autorizou o uso no site']); exit; }
     $pdo->prepare("UPDATE intus_resultado SET destaque_site = ? WHERE idresultado = ?")->execute([$valor, $idr]);
     echo json_encode(['ok' => true, 'destaque_site' => $valor]);
+    exit;
+}
+
+// ═══════════════ NUTRIÇÃO: registro do aluno, água e painel da nutri ═══════════════
+function _nutriData($d): ?string {
+    $d = substr(trim((string)$d), 0, 10);
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m) || !checkdate((int)$m[2], (int)$m[3], (int)$m[1])) return null;
+    return $d;
+}
+// Admin vê todos; professor só a própria carteira (mesma regra do resto do painel).
+function _nutriPodeVer(PDO $pdo, array $_ctx, int $idatleta): bool {
+    if (!empty($_ctx['admin'])) return true;
+    try { return in_array($idatleta, getAtletasDoUsuario($pdo, (int)($_ctx['idusuario'] ?? 0)), true); } catch (Throwable $e) { return false; }
+}
+
+if ($action === 'nutri_registro') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+
+    if ($method === 'GET') {
+        if ($_ehAluno) $idat = $_autorId;
+        else {
+            $idat = (int)($_GET['atleta'] ?? 0);
+            if ($idat <= 0 || !_nutriPodeVer($pdo, $_ctx, $idat)) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
+        }
+        $desde = _nutriData($_GET['desde'] ?? '') ?: date('Y-m-d', strtotime('-30 days'));
+        $st = $pdo->prepare("SELECT idregistro, data, refeicao, status, obs, foto, resposta_nutri, respondido_em FROM intus_nutri_registro WHERE idatleta = ? AND data >= ? ORDER BY data DESC, idregistro DESC LIMIT 600");
+        $st->execute([$idat, $desde]);
+        $regs = array_map(function ($r) { $r['idregistro'] = (int)$r['idregistro']; return $r; }, $st->fetchAll(PDO::FETCH_ASSOC));
+        $sa = $pdo->prepare("SELECT data, agua_ml FROM intus_nutri_dia WHERE idatleta = ? AND data >= ? ORDER BY data DESC LIMIT 120");
+        $sa->execute([$idat, $desde]);
+        $agua = array_map(function ($r) { $r['agua_ml'] = (int)$r['agua_ml']; return $r; }, $sa->fetchAll(PDO::FETCH_ASSOC));
+        echo json_encode(['registros' => $regs, 'agua' => $agua], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($method === 'POST') {
+        $b = jsonBody();
+        // A nutri (professor) responde a um registro; o aluno é avisado no sino.
+        if (!$_ehAluno) {
+            if (($b['subacao'] ?? '') !== 'resposta') { http_response_code(403); echo json_encode(['error' => 'somente o aluno registra refeicoes']); exit; }
+            $idr = (int)($b['idregistro'] ?? 0);
+            $texto = mb_substr(trim((string)($b['texto'] ?? '')), 0, 300);
+            $st = $pdo->prepare("SELECT idatleta, refeicao FROM intus_nutri_registro WHERE idregistro = ?");
+            $st->execute([$idr]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$row || !_nutriPodeVer($pdo, $_ctx, (int)$row['idatleta'])) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
+            $pdo->prepare("UPDATE intus_nutri_registro SET resposta_nutri = ?, respondido_em = " . ($texto !== '' ? 'NOW()' : 'NULL') . " WHERE idregistro = ?")
+                ->execute([$texto !== '' ? $texto : null, $idr]);
+            if ($texto !== '') _criarNotificacao($pdo, 'aluno', (int)$row['idatleta'], 'nutri_resposta', 'prof', $_autorId, (string)$_autorNome, 'nutri', $idr, $texto);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+        $data = _nutriData($b['data'] ?? '');
+        // Hoje ou ontem (com 1 dia de folga para o fuso do aparelho).
+        if (!$data || $data < date('Y-m-d', strtotime('-2 days')) || $data > date('Y-m-d', strtotime('+1 day'))) { http_response_code(400); echo json_encode(['error' => 'so da para registrar hoje ou ontem']); exit; }
+        $refeicao = mb_substr(trim((string)($b['refeicao'] ?? '')), 0, 80);
+        $status = (string)($b['status'] ?? '');
+        if ($refeicao === '' || !in_array($status, ['feito', 'parcial', 'fora'], true)) { http_response_code(400); echo json_encode(['error' => 'refeicao e status obrigatorios']); exit; }
+        $obs = mb_substr(trim((string)($b['obs'] ?? '')), 0, 300);
+        $idplano = isset($b['idplano']) ? (int)$b['idplano'] : null;
+        $st = $pdo->prepare("SELECT idregistro, foto FROM intus_nutri_registro WHERE idatleta = ? AND data = ? AND refeicao = ?");
+        $st->execute([$_autorId, $data, $refeicao]);
+        $exist = $st->fetch(PDO::FETCH_ASSOC);
+        $foto = $exist ? $exist['foto'] : null;
+        if (!empty($b['foto_remover'])) $foto = null;
+        if (!empty($b['foto'])) {
+            try { $foto = _salvarImagemFeedB64((string)$b['foto'], $_autorId, 'nutri', 'refeicao'); }
+            catch (Exception $e) { http_response_code(400); echo json_encode(['error' => $e->getMessage()]); exit; }
+        }
+        try {
+            if ($exist) {
+                $pdo->prepare("UPDATE intus_nutri_registro SET status = ?, obs = ?, foto = ?, idplano = ? WHERE idregistro = ?")
+                    ->execute([$status, $obs !== '' ? $obs : null, $foto, $idplano, (int)$exist['idregistro']]);
+                $id = (int)$exist['idregistro'];
+            } else {
+                $pdo->prepare("INSERT INTO intus_nutri_registro (idatleta, idplano, data, refeicao, status, obs, foto) VALUES (?,?,?,?,?,?,?)")
+                    ->execute([$_autorId, $idplano, $data, $refeicao, $status, $obs !== '' ? $obs : null, $foto]);
+                $id = (int)$pdo->lastInsertId();
+            }
+            echo json_encode(['ok' => true, 'idregistro' => $id, 'foto' => $foto]);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'falha ao gravar o registro', 'detalhe' => _intusLogErro($e)]);
+        }
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if (!$_ehAluno || $id <= 0) { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+        $pdo->prepare("DELETE FROM intus_nutri_registro WHERE idregistro = ? AND idatleta = ?")->execute([$id, $_autorId]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// Água do dia (só o aluno, o próprio). GET ?desde=; POST {data, agua_ml}
+if ($action === 'nutri_dia') {
+    if (!$_tokValido || !$_ehAluno) { http_response_code(401); echo json_encode(['error' => 'somente aluno']); exit; }
+    [, $_autorId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $data = _nutriData($b['data'] ?? '');
+        if (!$data || $data < date('Y-m-d', strtotime('-2 days')) || $data > date('Y-m-d', strtotime('+1 day'))) { http_response_code(400); echo json_encode(['error' => 'so da para registrar hoje ou ontem']); exit; }
+        $ml = max(0, min(10000, (int)($b['agua_ml'] ?? 0)));
+        $pdo->prepare("INSERT INTO intus_nutri_dia (idatleta, data, agua_ml) VALUES (?,?,?) ON DUPLICATE KEY UPDATE agua_ml = VALUES(agua_ml)")->execute([$_autorId, $data, $ml]);
+        echo json_encode(['ok' => true, 'agua_ml' => $ml]);
+        exit;
+    }
+}
+
+// Painel da nutri: planos ativos + registros, água e peso dos últimos 14 dias da carteira.
+if ($action === 'nutri_painel' && $method === 'GET') {
+    if (!$_tokValido || $_ehAluno) { http_response_code(403); echo json_encode(['error' => 'somente equipe']); exit; }
+    $tblA = _feedDetectarTabelaAtleta($pdo);
+    $nomes = [];
+    if ($tblA) {
+        try { foreach ($pdo->query("SELECT idatleta, nome FROM `$tblA` WHERE (stbloqueio IS NULL OR stbloqueio != 'S')")->fetchAll(PDO::FETCH_ASSOC) as $r) $nomes[(int)$r['idatleta']] = $r['nome']; }
+        catch (Throwable $e) { foreach ($pdo->query("SELECT idatleta, nome FROM `$tblA`")->fetchAll(PDO::FETCH_ASSOC) as $r) $nomes[(int)$r['idatleta']] = $r['nome']; }
+    }
+    $ids = !empty($_ctx['admin']) ? array_keys($nomes) : array_values(array_intersect(array_keys($nomes), getAtletasDoUsuario($pdo, (int)($_ctx['idusuario'] ?? 0))));
+    if (!$ids) { echo json_encode(['atletas' => (object)[], 'planos' => [], 'registros' => [], 'agua' => [], 'pesos' => [], 'sem_plano' => []]); exit; }
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    $planos = [];
+    $comPlano = [];
+    $st = $pdo->prepare("SELECT idplano, idatleta, titulo, objetivo, calorias, proteina, carboidrato, gordura, refeicoes, dtinicio, dtfim FROM intus_plano_nutricional WHERE ativo = 1 AND idatleta IN ($ph) ORDER BY dtinicio DESC, idplano DESC");
+    $st->execute($ids);
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $ida = (int)$r['idatleta'];
+        if (isset($comPlano[$ida])) continue;   // um plano ativo por aluno (o mais recente)
+        $comPlano[$ida] = true;
+        $ref = null; if (!empty($r['refeicoes'])) { $tmp = json_decode($r['refeicoes'], true); if (is_array($tmp)) $ref = $tmp; }
+        $planos[] = ['idplano' => (int)$r['idplano'], 'idatleta' => $ida, 'titulo' => $r['titulo'], 'objetivo' => $r['objetivo'] ?? '',
+            'calorias' => $r['calorias'] !== null ? (int)$r['calorias'] : null, 'proteina' => $r['proteina'] !== null ? (float)$r['proteina'] : null,
+            'carboidrato' => $r['carboidrato'] !== null ? (float)$r['carboidrato'] : null, 'gordura' => $r['gordura'] !== null ? (float)$r['gordura'] : null,
+            'refeicoes' => $ref, 'dtinicio' => $r['dtinicio'], 'dtfim' => $r['dtfim']];
+    }
+    $desde = date('Y-m-d', strtotime('-14 days'));
+    $regs = []; $agua = []; $pesos = [];
+    try {
+        $st = $pdo->prepare("SELECT idregistro, idatleta, data, refeicao, status, obs, foto, resposta_nutri FROM intus_nutri_registro WHERE data >= ? AND idatleta IN ($ph) ORDER BY data DESC, idregistro DESC");
+        $st->execute(array_merge([$desde], $ids));
+        $regs = array_map(function ($r) { $r['idregistro'] = (int)$r['idregistro']; $r['idatleta'] = (int)$r['idatleta']; return $r; }, $st->fetchAll(PDO::FETCH_ASSOC));
+        $st = $pdo->prepare("SELECT idatleta, data, agua_ml FROM intus_nutri_dia WHERE data >= ? AND idatleta IN ($ph)");
+        $st->execute(array_merge([$desde], $ids));
+        $agua = array_map(function ($r) { $r['idatleta'] = (int)$r['idatleta']; $r['agua_ml'] = (int)$r['agua_ml']; return $r; }, $st->fetchAll(PDO::FETCH_ASSOC));
+    } catch (Throwable $e) {}
+    try {
+        $st = $pdo->prepare("SELECT idatleta, dtavaliacao, peso FROM intus_avaliacao WHERE peso IS NOT NULL AND dtavaliacao >= ? AND idatleta IN ($ph) ORDER BY dtavaliacao ASC");
+        $st->execute(array_merge([date('Y-m-d', strtotime('-120 days'))], $ids));
+        $pesos = array_map(function ($r) { $r['idatleta'] = (int)$r['idatleta']; $r['peso'] = (float)$r['peso']; return $r; }, $st->fetchAll(PDO::FETCH_ASSOC));
+    } catch (Throwable $e) {}
+    $semPlano = [];
+    foreach ($ids as $i) if (!isset($comPlano[$i])) $semPlano[] = $i;
+    $atl = [];
+    foreach ($ids as $i) $atl[$i] = $nomes[$i] ?? ('Aluno #' . $i);
+    echo json_encode(['atletas' => (object)$atl, 'planos' => $planos, 'registros' => $regs, 'agua' => $agua, 'pesos' => $pesos, 'sem_plano' => $semPlano], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
