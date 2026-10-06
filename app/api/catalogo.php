@@ -2816,8 +2816,18 @@ if ($action === 'nutri_registro') {
         $b = jsonBody();
         // A nutri (professor) responde a um registro; o aluno é avisado no sino.
         if (!$_ehAluno) {
-            if (($b['subacao'] ?? '') !== 'resposta') { http_response_code(403); echo json_encode(['error' => 'somente o aluno registra refeicoes']); exit; }
+            $subacao = (string)($b['subacao'] ?? '');
+            if ($subacao !== 'resposta' && $subacao !== 'remover_foto') { http_response_code(403); echo json_encode(['error' => 'somente o aluno registra refeicoes']); exit; }
             $idr = (int)($b['idregistro'] ?? 0);
+            if ($subacao === 'remover_foto') {
+                $st = $pdo->prepare("SELECT idatleta FROM intus_nutri_registro WHERE idregistro = ?");
+                $st->execute([$idr]);
+                $dono = (int)$st->fetchColumn();
+                if (!$dono || !_nutriPodeVer($pdo, $_ctx, $dono)) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
+                $pdo->prepare("UPDATE intus_nutri_registro SET foto = NULL WHERE idregistro = ?")->execute([$idr]);
+                echo json_encode(['ok' => true]);
+                exit;
+            }
             $texto = mb_substr(trim((string)($b['texto'] ?? '')), 0, 300);
             $st = $pdo->prepare("SELECT idatleta, refeicao FROM intus_nutri_registro WHERE idregistro = ?");
             $st->execute([$idr]);

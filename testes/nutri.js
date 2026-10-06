@@ -10,7 +10,7 @@ function eq(rot, obtido, esperado) {
 }
 const it = (nome, q, kcal, prot, carb, gord, medida) => ({ nome, quantidade: q, medida_id: medida ? 'un' : 'g', medida_nome: medida || '', nutrientes: { energia_kcal: kcal, proteina_g: prot, carboidrato_g: carb, lipidio_g: gord } });
 const plano = {
-  idplano: 1, dtinicio: '2026-09-28', dtfim: '2026-10-12', calorias: 1900, proteina: 140, carboidrato: 210, gordura: 55,
+  idplano: 1, dtinicio: '2026-09-28', dtfim: '2026-10-12', calorias: 1900, proteina: 120, carboidrato: 210, gordura: 55,
   refeicoes: [
     { nome: 'Jantar', horario: '20:00', itens_estruturados: [it('Frango', 150, 250, 45, 0, 5)] },
     { nome: 'Café', horario: '07:00', itens_estruturados: [it('Ovo', 3, 210, 18, 1, 15, 'unidade'), it('Aveia', 40, 150, 5, 27, 3)] },
@@ -87,6 +87,9 @@ console.log('\n── 3. Alertas ──');
   // proteína: 3 dias só com o café (23 g) contra meta 140 -> alerta
   const reg = [r('2026-10-03', C, 'feito'), r('2026-10-04', C, 'feito'), r('2026-10-05', C, 'feito')];
   eq('proteína baixa', A.alertas(plano, reg, []).map(x => x.tipo).includes('proteina_baixa'), true);
+  // plano que nem entrega a meta de proteína: não culpa o aluno
+  const planoFraco = Object.assign({}, plano, { proteina: 200 });
+  eq('plano abaixo da meta não gera alerta de proteína', A.alertas(planoFraco, reg, []).map(x => x.tipo).includes('proteina_baixa'), false);
 }
 {
   const av = [{ peso: 78.0, dtavaliacao: '2026-09-15' }, { peso: 78.1, dtavaliacao: '2026-10-02' }];

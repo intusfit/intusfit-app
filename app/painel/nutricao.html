@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
   <script src="_mock.js?v=20261003e"></script>
-  <script src="api.js?v=20261006a"></script>
+  <script src="api.js?v=20261006b"></script>
   <script src="alimentos-db.js?v=20260917b"></script>
   <style>
     .modal-box.wide { max-width: 820px; }
@@ -26,6 +26,36 @@
     }
     .filtros-bar select.input { width: auto; min-width: 160px; font-size: 14px; }
     .empty-state { text-align: center; padding: 48px 20px; color: var(--text-dim); font-size: 15px; }
+    .nt-tabs { display: flex; gap: 8px; padding: 12px 20px 0; border-bottom: 1px solid var(--border); }
+    .nt-tab { padding: 9px 18px; border: none; background: none; color: var(--text-muted); font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .nt-tab.on { color: var(--green); border-bottom-color: var(--green); }
+    .nt-wrap { padding: 20px; max-width: 1100px; margin: 0 auto; }
+    .nt-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    @media (max-width: 760px) { .nt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .nt-kpi { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+    .nt-kpi b { display: block; font-size: 26px; font-weight: 800; color: var(--text); line-height: 1.1; }
+    .nt-kpi span { font-size: 12px; color: var(--text-muted); }
+    .nt-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .nt-tools input[type=text] { flex: 1; min-width: 180px; padding: 8px 14px; border-radius: 99px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); font-size: 13px; font-family: inherit; }
+    .nt-chip { padding: 7px 14px; border-radius: 99px; border: 1px solid var(--border); background: var(--bg2); color: var(--text-muted); font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .nt-chip.on { border-color: var(--green); color: var(--green); }
+    .nt-tab-wrap { overflow-x: auto; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; }
+    .nt-tb { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+    .nt-tb th { text-align: left; font-weight: 700; font-size: 11.5px; color: var(--text-muted); padding: 10px 12px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .4px; }
+    .nt-tb td { padding: 10px 12px; border-top: 1px solid var(--border); vertical-align: middle; color: var(--text); }
+    .nt-tb tr.lin { cursor: pointer; }
+    .nt-tb tr.lin:hover td { background: var(--bg3); }
+    .nt-barra { width: 90px; height: 7px; border-radius: 4px; background: var(--bg3); overflow: hidden; display: inline-block; vertical-align: middle; }
+    .nt-barra i { display: block; height: 100%; }
+    .nt-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; margin: 2px 4px 2px 0; white-space: nowrap; }
+    .nt-pill.alto { background: rgba(239,68,68,.14); color: #ef4444; }
+    .nt-pill.medio { background: rgba(245,158,11,.14); color: #f59e0b; }
+    .nt-pill.info { background: rgba(96,165,250,.14); color: #60a5fa; }
+    .nt-grid14 { border-collapse: separate; border-spacing: 3px; font-size: 10.5px; color: var(--text-muted); }
+    .nt-grid14 td { width: 22px; height: 20px; border-radius: 4px; text-align: center; padding: 0; }
+    .nt-reg { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); align-items: flex-start; }
+    .nt-reg img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+    .nt-reg input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); font-size: 12px; font-family: inherit; }
     .plano-card {
       background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
       padding: 18px 20px; margin-bottom: 14px; transition: border-color .15s; cursor: pointer;
@@ -288,6 +318,10 @@ let atletas = [];
 let filtroAtleta = 0;
 let loading = true;
 let dbReady = false;
+let aba = 'dashboard';     // 'dashboard' | 'planos'
+let painel = null;         // resposta de nutri_painel (planos ativos, registros, água, pesos da carteira)
+let painelCarregando = false, painelErro = false;
+let buscaPainel = '', soAlerta = false;
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(d) { return d ? new Date(d+'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
@@ -329,11 +363,17 @@ function getAtletaDados(id) {
   return atletas.find(x => Number(x.idatleta) === Number(id)) || null;
 }
 
+function abasHtml() {
+  return `<div class="nt-tabs"><button class="nt-tab ${aba === 'dashboard' ? 'on' : ''}" onclick="trocarAba('dashboard')">Dashboard</button><button class="nt-tab ${aba === 'planos' ? 'on' : ''}" onclick="trocarAba('planos')">Planos</button></div>`;
+}
+function trocarAba(a) { aba = a; if (a === 'dashboard') carregarPainel(); render(); }
+
 function render() {
   if (loading) {
     main.innerHTML = `<div class="empty-state"><p>Carregando planos...</p></div>`;
     return;
   }
+  if (aba === 'dashboard') { main.innerHTML = abasHtml() + dashboardHtml(); return; }
 
   let lista = [...planos].sort((a, b) => {
     if (a.ativo !== b.ativo) return b.ativo - a.ativo;
@@ -341,7 +381,7 @@ function render() {
   });
   if (filtroAtleta > 0) lista = lista.filter(pl => Number(pl.idatleta) === filtroAtleta);
 
-  main.innerHTML = `
+  main.innerHTML = abasHtml() + `
     <div class="filtros-bar">
       <select class="input" onchange="filtroAtleta=Number(this.value);render();">
         <option value="0">Todos os alunos</option>
@@ -2479,9 +2519,156 @@ async function excluirAlimentoCustom(id) {
   }
 }
 
-carregar();
+// ═══════════════ DASHBOARD DA NUTRI ═══════════════
+// Aderência, alertas e lista vêm de API.nutri (api.js): a mesma regra que o aluno vê no app.
+async function carregarPainel() {
+  if (painelCarregando) return;
+  painelCarregando = true;
+  try { painel = await API.nutriPainel(); painelErro = false; } catch (e) { painelErro = true; }
+  painelCarregando = false;
+  if (aba === 'dashboard') render();
+}
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden) carregar(); });
+function alunosPainel() {
+  if (!painel) return [];
+  const regsPor = {}, pesosPor = {};
+  (painel.registros || []).forEach(r => { (regsPor[r.idatleta] = regsPor[r.idatleta] || []).push(r); });
+  (painel.pesos || []).forEach(p => { (pesosPor[p.idatleta] = pesosPor[p.idatleta] || []).push({ peso: p.peso, dtavaliacao: p.dtavaliacao }); });
+  return (painel.planos || []).map(pl => {
+    const regs = regsPor[pl.idatleta] || [];
+    const ad = API.nutri.aderencia(pl, regs);
+    const al = API.nutri.alertas(pl, regs, pesosPor[pl.idatleta] || []);
+    const ultimo = regs.length ? regs.map(r => String(r.data).slice(0, 10)).sort().pop() : null;
+    return { pl, nome: (painel.atletas || {})[pl.idatleta] || ('Aluno #' + pl.idatleta), regs, ad, al, ultimo, nAlto: al.filter(a => a.nivel === 'alto').length };
+  });
+}
+function corAderencia(m) { return m == null ? 'var(--bg3)' : (m >= 0.8 ? '#22c55e' : (m >= 0.5 ? '#f59e0b' : '#ef4444')); }
+function quandoReg(d) {
+  if (!d) return 'nunca';
+  const n = Math.round((new Date(API.nutri.hojeIso() + 'T12:00:00') - new Date(d + 'T12:00:00')) / 86400000);
+  return n <= 0 ? 'hoje' : (n === 1 ? 'ontem' : 'há ' + n + ' dias');
+}
+
+function dashboardHtml() {
+  if (painelCarregando && !painel) return `<div class="nt-wrap"><div class="empty-state"><p>Carregando o painel...</p></div></div>`;
+  if (painelErro || !painel) return `<div class="nt-wrap"><div class="empty-state"><p>Não consegui carregar o painel agora.</p><button class="btn btn-secondary" style="margin-top:12px;" onclick="carregarPainel()">Tentar de novo</button></div></div>`;
+  const todos = alunosPainel();
+  const comMedia = todos.filter(x => x.ad.media != null);
+  const media = comMedia.length ? comMedia.reduce((t, x) => t + x.ad.media, 0) / comMedia.length : null;
+  const semReg = todos.filter(x => x.al.some(a => a.tipo === 'sem_registro')).length;
+  const vence = todos.filter(x => x.al.some(a => a.tipo === 'vencendo' || a.tipo === 'vencido')).length;
+  const termo = buscaPainel.trim().toLowerCase();
+  let lista = todos.filter(x => !termo || x.nome.toLowerCase().includes(termo));
+  if (soAlerta) lista = lista.filter(x => x.al.length);
+  lista.sort((a, b) => (b.nAlto - a.nAlto) || ((a.ad.media == null ? 2 : a.ad.media) - (b.ad.media == null ? 2 : b.ad.media)) || a.nome.localeCompare(b.nome, 'pt'));
+  const semPlano = (painel.sem_plano || []).map(id => ({ id, nome: (painel.atletas || {})[id] || ('Aluno #' + id) })).filter(x => !termo || x.nome.toLowerCase().includes(termo)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+  const linhas = lista.map(x => `<tr class="lin" onclick="abrirAluno(${x.pl.idatleta})">
+    <td><b>${esc(x.nome)}</b><div style="font-size:11.5px;color:var(--text-muted);">${esc(x.pl.titulo || 'Plano')}</div></td>
+    <td><span class="nt-barra"><i style="width:${x.ad.media == null ? 0 : Math.round(x.ad.media * 100)}%;background:${corAderencia(x.ad.media)};"></i></span> <span style="font-size:12px;">${x.ad.media == null ? 'sem dados' : Math.round(x.ad.media * 100) + '%'}</span></td>
+    <td>${quandoReg(x.ultimo)}</td>
+    <td>${x.al.length ? x.al.map(a => `<span class="nt-pill ${a.nivel}">${esc(a.texto)}</span>`).join('') : '<span style="color:var(--text-muted);font-size:12px;">Tudo certo</span>'}</td>
+  </tr>`).join('');
+  return `<div class="nt-wrap">
+    <div class="nt-kpis">
+      <div class="nt-kpi"><b>${todos.length}</b><span>alunos com plano ativo</span></div>
+      <div class="nt-kpi"><b>${media == null ? '—' : Math.round(media * 100) + '%'}</b><span>aderência média (7 dias)</span></div>
+      <div class="nt-kpi"><b style="color:${semReg ? '#ef4444' : 'var(--text)'};">${semReg}</b><span>sem registro há 3 dias ou mais</span></div>
+      <div class="nt-kpi"><b style="color:${vence ? '#f59e0b' : 'var(--text)'};">${vence}</b><span>planos vencendo em 15 dias</span></div>
+    </div>
+    <div class="nt-tools">
+      <input type="text" id="nt-busca" placeholder="Buscar aluno" value="${esc(buscaPainel)}" oninput="buscaPainel=this.value;renderPainelLista();"/>
+      <button class="nt-chip ${soAlerta ? 'on' : ''}" onclick="soAlerta=!soAlerta;render();">${soAlerta ? '✓ ' : ''}Só com alerta</button>
+      <button class="nt-chip" onclick="painel=null;carregarPainel();render();">Atualizar</button>
+    </div>
+    <div class="nt-tab-wrap"><table class="nt-tb"><tr><th>Aluno</th><th>Aderência 7 dias</th><th>Último registro</th><th>Alertas</th></tr>${linhas || `<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:24px;">Nenhum aluno para os filtros escolhidos.</td></tr>`}</table></div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin:8px 2px 18px;">A aderência conta feito como 100%, parcial como 50% e refeição sem registro como 0. Toque num aluno para ver os registros, as fotos e responder.</div>
+    ${semPlano.length ? `<div style="font-weight:700;font-size:13px;margin-bottom:8px;">Sem plano ativo (${semPlano.length})</div><div>${semPlano.map(x => `<span class="nt-pill info">${esc(x.nome)}</span>`).join('')}</div>` : ''}
+  </div>`;
+}
+// Busca digitando: redesenha só a tabela (mantém o foco no campo).
+function renderPainelLista() {
+  const foco = document.getElementById('nt-busca');
+  const pos = foco ? foco.selectionStart : 0;
+  main.innerHTML = abasHtml() + dashboardHtml();
+  const n = document.getElementById('nt-busca');
+  if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }
+}
+
+function abrirAluno(idatleta) {
+  const x = alunosPainel().find(a => Number(a.pl.idatleta) === Number(idatleta));
+  if (!x) return;
+  const N = API.nutri, hoje = N.hojeIso();
+  const refs = N.refeicoes(x.pl);
+  const dias = []; for (let k = 13; k >= 0; k--) dias.push(N.addDias(hoje, -k));
+  const ini = x.pl.dtinicio ? String(x.pl.dtinicio).slice(0, 10) : null;
+  const letra = d => 'DSTQQSS'[new Date(d + 'T12:00:00').getDay()];
+  const cor = st => ({ feito: ['rgba(34,197,94,.25)', '#22c55e', '✓'], parcial: ['rgba(245,158,11,.25)', '#f59e0b', '◐'], fora: ['rgba(239,68,68,.25)', '#ef4444', '✕'] }[st]);
+  const grade = `<table class="nt-grid14"><tr><td style="width:auto;"></td>${dias.map(d => `<td style="color:${d === hoje ? 'var(--green)' : 'inherit'};">${letra(d)}</td>`).join('')}</tr>` +
+    refs.map(r => `<tr><td style="width:auto;text-align:left;padding-right:8px;white-space:nowrap;">${esc(r.nome || 'Refeição')}</td>${dias.map(d => {
+      const g = x.regs.find(q => String(q.data).slice(0, 10) === d && q.refeicao === r.chave), c = g ? cor(g.status) : null;
+      return `<td style="${c ? 'background:' + c[0] + ';color:' + c[1] + ';' : 'border:1px dashed var(--border);'}${ini && d < ini ? 'opacity:.35;' : ''}" title="${d}">${c ? c[2] : ''}</td>`;
+    }).join('')}</tr>`).join('') + `</table>`;
+  const regs = x.regs.slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || (b.idregistro - a.idregistro)).filter(r => r.foto || r.obs || r.resposta_nutri).slice(0, 30);
+  const regsHtml = regs.length ? regs.map(r => `<div class="nt-reg">
+      ${r.foto ? `<img src="${esc(r.foto)}" alt="" onclick="window.open('${esc(r.foto)}','_blank')"/>` : ''}
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12.5px;"><b>${esc(String(r.data).slice(5, 10).split('-').reverse().join('/'))}</b> · ${esc(String(r.refeicao).split('|').slice(1).join('|') || r.refeicao)} · <span style="color:${cor(r.status)[1]};font-weight:700;">${{ feito: 'Feito', parcial: 'Parcial', fora: 'Fora do plano' }[r.status]}</span></div>
+        ${r.obs ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">“${esc(r.obs)}”</div>` : ''}
+        <div style="display:flex;gap:6px;margin-top:6px;"><input type="text" id="nt-resp-${r.idregistro}" maxlength="300" placeholder="Responder ao aluno" value="${esc(r.resposta_nutri || '')}"/><button class="btn btn-secondary" onclick="responderRegistro(${r.idregistro})">Enviar</button>${r.foto ? `<button class="btn btn-secondary" title="Remover a foto" onclick="removerFotoRegistro(${r.idregistro})">Remover foto</button>` : ''}</div>
+      </div></div>`).join('') : `<div style="font-size:12.5px;color:var(--text-muted);padding:8px 0;">Nenhuma foto ou observação nos últimos 14 dias.</div>`;
+  const pesos = (painel.pesos || []).filter(p => Number(p.idatleta) === Number(idatleta)).slice(-8);
+  let pesoHtml = '';
+  if (pesos.length >= 2) {
+    const mn = Math.min(...pesos.map(p => p.peso)), mx = Math.max(...pesos.map(p => p.peso)), amp = (mx - mn) || 1;
+    const pts = pesos.map((p, k) => (k / (pesos.length - 1) * 300).toFixed(1) + ',' + (4 + (1 - (p.peso - mn) / amp) * 32).toFixed(1)).join(' ');
+    pesoHtml = `<div style="margin-top:14px;"><div class="modal-section-title">Peso nas avaliações</div><svg width="100%" height="44" viewBox="0 0 300 40" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="#60a5fa" stroke-width="2"/></svg><div style="font-size:12px;color:var(--text-muted);">${String(pesos[0].peso).replace('.', ',')} kg → ${String(pesos[pesos.length - 1].peso).replace('.', ',')} kg</div></div>`;
+  }
+  const agua = (painel.agua || []).filter(a => Number(a.idatleta) === Number(idatleta));
+  const aguaMedia = agua.length ? Math.round(agua.reduce((t, a) => t + a.agua_ml, 0) / agua.length) : 0;
+  openModal(`
+    <div class="modal-header"><div class="modal-title">${esc(x.nome)}</div><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px;">${esc(x.pl.titulo || 'Plano')} · aderência 7 dias: <b style="color:var(--text);">${x.ad.media == null ? 'sem dados' : Math.round(x.ad.media * 100) + '%'}</b>${aguaMedia ? ' · água média: <b style="color:var(--text);">' + (aguaMedia / 1000).toFixed(1).replace('.', ',') + ' L</b>' : ''}</div>
+      <div>${x.al.map(a => `<span class="nt-pill ${a.nivel}">${esc(a.texto)}</span>`).join('')}</div>
+      <div class="modal-section-title">Últimos 14 dias</div>
+      <div style="overflow-x:auto;">${grade}</div>
+      <div class="modal-section-title">Fotos e observações do aluno</div>
+      ${regsHtml}
+      ${pesoHtml}
+      <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="closeModal();aba='planos';render();verPlano(${x.pl.idplano})">Abrir plano</button>
+        <a class="btn btn-secondary" href="mensagens.html" style="text-decoration:none;">Mandar mensagem</a>
+        ${hasPerm('nt_editar') ? `<button class="btn btn-secondary" onclick="closeModal();aba='planos';render();abrirModalForm(${x.pl.idplano})">Editar ou renovar plano</button>` : ''}
+      </div>
+    </div>`, 'wide');
+}
+
+async function responderRegistro(id) {
+  const campo = document.getElementById('nt-resp-' + id);
+  const texto = (campo && campo.value || '').trim();
+  try {
+    await API.nutriResponder(id, texto);
+    const r = (painel.registros || []).find(g => Number(g.idregistro) === Number(id));
+    if (r) r.resposta_nutri = texto;
+    showToast(texto ? 'Resposta enviada. O aluno é avisado no app.' : 'Resposta removida.', 'success');
+  } catch (e) { showToast('Não consegui enviar a resposta.', 'error'); }
+}
+async function removerFotoRegistro(id) {
+  if (!confirm('Remover esta foto? O aluno deixa de vê-la no registro.')) return;
+  try {
+    await apiFetch('/catalogo.php?action=nutri_registro', { method: 'POST', body: JSON.stringify({ subacao: 'remover_foto', idregistro: id }) });
+    const r = (painel.registros || []).find(g => Number(g.idregistro) === Number(id));
+    if (r) r.foto = null;
+    const x = (painel.registros || []).find(g => Number(g.idregistro) === Number(id));
+    closeModal(); if (r) abrirAluno(r.idatleta);
+    showToast('Foto removida.', 'success');
+  } catch (e) { showToast('Não consegui remover a foto.', 'error'); }
+}
+
+carregar();
+carregarPainel();
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { carregar(); if (aba === 'dashboard') carregarPainel(); } });
 </script>
 </body>
 </html>

@@ -2887,7 +2887,9 @@ const API = {
       }
       var a = aderencia(plano, registros);
       if (ultimo && a.diasContados >= 3 && a.media != null && a.media < 0.5) out.push({ tipo: 'aderencia_baixa', nivel: 'alto', texto: 'Aderência de ' + Math.round(a.media * 100) + '% nos últimos 7 dias' });
-      if (num(plano.proteina) > 0) {
+      // Só avalia quando o próprio plano entrega a meta de proteína (senão o alerta acusaria o aluno por falha do plano).
+      var protPlano = refeicoes(plano).reduce(function (t, r) { return t + somaItens(r.itens_estruturados).prot; }, 0);
+      if (num(plano.proteina) > 0 && protPlano >= num(plano.proteina) * 0.9) {
         var porDia = {}; (registros || []).forEach(function (r) { var d = String(r.data).slice(0, 10); if (d >= addDias(hoje, -6)) (porDia[d] = porDia[d] || []).push(r); });
         var ds = Object.keys(porDia);
         if (ds.length >= 3) {
