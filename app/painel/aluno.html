@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20260917a"></script>
+  <script src="api.js?v=20261006a"></script>
   <!-- Só usada pra transformar o cartão de "Compartilhar treino" em imagem
        (Salvar/Copiar/Story). Carregada fixa numa versão; se cair um dia, a
        tela de compartilhar mostra erro em vez de travar o app inteiro. -->
@@ -15030,28 +15030,357 @@ async function salvarAutoAvaliacao() {
 }
 
 // ═══════════════ NUTRIÇÃO DO ALUNO ═══════════════
-let _nutriPlanoAberto = null;
-// Qual opção (principal ou substituta) está sendo mostrada em cada refeição
-// — 0 = principal, 1+ = índice em refeicoes_substitutas + 1. Só afeta o que
-// aparece na tela; as metas do dia continuam calculadas em cima da refeição
-// principal (o que a nutricionista prescreveu), a opção é só pra consulta.
-let _nutriOpcaoSelecionada = {};
+// Plano alimentar em 3 visões (Hoje, Prato, Semana) + dashboard do dia. O aluno registra cada
+// refeição (feita, parcial ou fora do plano, com foto e observação opcionais) e a água. As contas
+// (aderência, consumo estimado, sequência, lista de compras) vêm de API.nutri (api.js).
+// Registro feito sem internet fica numa fila e é enviado sozinho depois.
+var _nutri = { plano: null, regs: [], agua: [], pesos: [], visao: 'hoje', dia: 'hoje', aberta: null, opcao: {}, obs: {}, prato: 0, carregado: false };
+
+function _nutriHdr() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
+function _nutriPendKey() { return 'intus-nutri-pend-' + idAtleta; }
+function _nutriCacheKey() { return 'intus-nutri-cache-' + idAtleta; }
+function _nutriPendLer() { try { return JSON.parse(localStorage.getItem(_nutriPendKey()) || '[]'); } catch (e) { return []; } }
+function _nutriPendGravar(l) { try { localStorage.setItem(_nutriPendKey(), JSON.stringify(l.slice(-20))); } catch (e) {} }
+function _nutriDiaIso() { return _nutri.dia === 'ontem' ? API.nutri.addDias(API.nutri.hojeIso(), -1) : API.nutri.hojeIso(); }
+function _nutriRegsDoDia(d) { return _nutri.regs.filter(r => String(r.data).slice(0, 10) === d); }
+function _nutriAguaDoDia(d) { const a = _nutri.agua.find(x => String(x.data).slice(0, 10) === d); return a ? Number(a.agua_ml) || 0 : 0; }
+function _nutriUltimoPeso() { const p = _nutri.pesos.filter(x => Number(x.peso) > 0); return p.length ? Number(p[p.length - 1].peso) : 0; }
+
+async function _nutriGet(query) {
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=' + query + '&_=' + Date.now(), { headers: _nutriHdr(), cache: 'no-store' }, 15000);
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
+
+async function _nutriCarregar() {
+  const hoje = API.nutri.hojeIso();
+  const [planos, dados, avs] = await Promise.all([
+    API.listarPlanosNutricionais(idAtleta).catch(() => []),
+    _nutriGet('nutri_registro&desde=' + API.nutri.addDias(hoje, -21)),
+    API.listarAvaliacoes(idAtleta).catch(() => []),
+  ]);
+  const lista = Array.isArray(planos) ? planos : [];
+  _nutri.plano = lista.find(p => Number(p.ativo) === 1) || lista[0] || null;
+  if (dados) {
+    _nutri.regs = Array.isArray(dados.registros) ? dados.registros : [];
+    _nutri.agua = Array.isArray(dados.agua) ? dados.agua : [];
+    try { localStorage.setItem(_nutriCacheKey(), JSON.stringify({ regs: _nutri.regs, agua: _nutri.agua })); } catch (e) {}
+  } else {
+    try { const c = JSON.parse(localStorage.getItem(_nutriCacheKey()) || 'null'); if (c) { _nutri.regs = c.regs || []; _nutri.agua = c.agua || []; } } catch (e) {}
+  }
+  _nutri.pesos = (Array.isArray(avs) ? avs : []).filter(a => Number(a.peso) > 0 && a.dtavaliacao)
+    .map(a => ({ data: String(a.dtavaliacao).slice(0, 10), peso: Number(a.peso) })).sort((a, b) => a.data.localeCompare(b.data));
+  // Registro feito sem internet entra por cima do que veio do servidor.
+  _nutriPendLer().forEach(p => _nutriAplicarLocal(p.tipo, p.corpo));
+  _nutri.carregado = true;
+}
+
+// Aplica um registro/água na memória (mesmo antes de o servidor confirmar).
+function _nutriAplicarLocal(tipo, corpo) {
+  if (tipo === 'agua') {
+    const a = _nutri.agua.find(x => String(x.data).slice(0, 10) === corpo.data);
+    if (a) a.agua_ml = corpo.agua_ml; else _nutri.agua.push({ data: corpo.data, agua_ml: corpo.agua_ml });
+    return;
+  }
+  let r = _nutri.regs.find(x => String(x.data).slice(0, 10) === corpo.data && x.refeicao === corpo.refeicao);
+  if (!r) { r = { idregistro: 0, data: corpo.data, refeicao: corpo.refeicao }; _nutri.regs.push(r); }
+  r.status = corpo.status; r.obs = corpo.obs || '';
+  if (corpo.foto) r.foto = corpo.foto;
+  if (corpo.foto_remover) r.foto = null;
+}
+
+async function _nutriEnviar(tipo, corpo) {
+  const url = API_BASE + '/catalogo.php?action=' + (tipo === 'agua' ? 'nutri_dia' : 'nutri_registro');
+  const r = await _fetchT(url, { method: 'POST', headers: _nutriHdr(), body: JSON.stringify(corpo) }, 20000);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) { const e = new Error(j.error || ('erro ' + r.status)); e.definitivo = r.status >= 400 && r.status < 500; throw e; }
+  return j;
+}
+
+async function _nutriSalvar(tipo, corpo) {
+  _nutriAplicarLocal(tipo, corpo);
+  _nutriRender();
+  try {
+    const j = await _nutriEnviar(tipo, corpo);
+    if (tipo === 'registro') {
+      const r = _nutri.regs.find(x => String(x.data).slice(0, 10) === corpo.data && x.refeicao === corpo.refeicao);
+      if (r) { r.idregistro = j.idregistro || r.idregistro; if (j.foto) r.foto = j.foto; }
+      _nutriRender();
+    }
+  } catch (e) {
+    if (e.definitivo) { toast('Não consegui salvar: ' + e.message); await _nutriCarregar(); _nutriRender(); return; }
+    const fila = _nutriPendLer();
+    const c = Object.assign({}, corpo);
+    if (c.foto && c.foto.length > 400000) { delete c.foto; toast('Registro guardado, mas a foto ficou de fora (sem conexão).'); }
+    else toast('Guardado neste aparelho. Envio quando a conexão voltar.');
+    fila.push({ tipo: tipo, corpo: c });
+    _nutriPendGravar(fila);
+  }
+}
+
+async function _nutriEnviarPendentes() {
+  const fila = _nutriPendLer();
+  if (!fila.length) return;
+  const restantes = [];
+  for (const p of fila) {
+    try { await _nutriEnviar(p.tipo, p.corpo); }
+    catch (e) { if (!e.definitivo) restantes.push(p); }
+  }
+  _nutriPendGravar(restantes);
+}
+window.addEventListener('online', function () { _nutriEnviarPendentes(); });
+
+// ── Ações da tela ──
+function nutriVisao(v) { _nutri.visao = v; _nutriRender(); }
+function nutriDia(d) { _nutri.dia = d; _nutri.aberta = null; _nutriRender(); }
+function nutriAbrir(i) {
+  const refs = API.nutri.refeicoes(_nutri.plano); const ch = refs[i] && refs[i].chave;
+  _nutri.aberta = (_nutri.aberta === ch) ? null : ch; _nutriRender();
+}
+function nutriOpcao(i, op) { _nutri.opcao[i] = op; _nutriRender(); }
+function nutriPrato(i) { _nutri.prato = i; _nutriRender(); }
+function nutriStatus(i, status) {
+  const ref = API.nutri.refeicoes(_nutri.plano)[i]; if (!ref) return;
+  const dia = _nutriDiaIso();
+  const ex = _nutriRegsDoDia(dia).find(x => x.refeicao === ref.chave);
+  _nutriSalvar('registro', { data: dia, refeicao: ref.chave, status: status, obs: (_nutri.obs[ref.chave] != null ? _nutri.obs[ref.chave] : (ex && ex.obs)) || '', idplano: _nutri.plano.idplano });
+}
+function nutriObs(i, valor) {
+  const ref = API.nutri.refeicoes(_nutri.plano)[i]; if (!ref) return;
+  _nutri.obs[ref.chave] = valor;
+  const ex = _nutriRegsDoDia(_nutriDiaIso()).find(x => x.refeicao === ref.chave);
+  if (ex) _nutriSalvar('registro', { data: _nutriDiaIso(), refeicao: ref.chave, status: ex.status, obs: valor, idplano: _nutri.plano.idplano });
+}
+function nutriFotoPick(i) {
+  let inp = document.getElementById('nutri-foto-input');
+  if (!inp) { inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.id = 'nutri-foto-input'; inp.style.display = 'none'; document.body.appendChild(inp); }
+  inp.value = '';
+  inp.onchange = async function () {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    const ref = API.nutri.refeicoes(_nutri.plano)[i]; if (!ref) return;
+    const url = URL.createObjectURL(f);
+    try {
+      const foto = await _composeReduzirImagem(url, 1280, 0.82);
+      const dia = _nutriDiaIso();
+      const ex = _nutriRegsDoDia(dia).find(x => x.refeicao === ref.chave);
+      _busyMostrar('Enviando a foto...', null, 'Só você e a sua equipe veem esta foto.');
+      await _nutriSalvar('registro', { data: dia, refeicao: ref.chave, status: (ex && ex.status) || 'feito', obs: (ex && ex.obs) || '', foto: foto, idplano: _nutri.plano.idplano });
+    } catch (e) { toast('Não consegui ler essa foto.'); }
+    finally { URL.revokeObjectURL(url); _busyFim(); }
+  };
+  inp.click();
+}
+function nutriFotoRemover(i) {
+  const ref = API.nutri.refeicoes(_nutri.plano)[i]; if (!ref) return;
+  const ex = _nutriRegsDoDia(_nutriDiaIso()).find(x => x.refeicao === ref.chave); if (!ex) return;
+  _nutriSalvar('registro', { data: _nutriDiaIso(), refeicao: ref.chave, status: ex.status, obs: ex.obs || '', foto_remover: 1, idplano: _nutri.plano.idplano });
+}
+function nutriAgua(delta) {
+  const dia = _nutriDiaIso();
+  const novo = Math.max(0, Math.min(10000, _nutriAguaDoDia(dia) + delta));
+  _nutriSalvar('agua', { data: dia, agua_ml: novo });
+}
+function nutriCelula(i, dia) {
+  const hoje = API.nutri.hojeIso();
+  if (dia !== hoje && dia !== API.nutri.addDias(hoje, -1)) { toast('Só dá para registrar hoje ou ontem.'); return; }
+  _nutri.dia = dia === hoje ? 'hoje' : 'ontem';
+  _nutri.aberta = API.nutri.refeicoes(_nutri.plano)[i].chave; _nutri.visao = 'hoje'; _nutriRender();
+}
+function _nutriTextoLista() {
+  return 'Lista de compras da semana (' + (_nutri.plano.titulo || 'plano') + ')\n' + API.nutri.listaCompras(_nutri.plano, 7).map(x => '• ' + x.nome + ': ' + _nutriQtd(x)).join('\n');
+}
+function nutriCopiarLista() {
+  const t = _nutriTextoLista().replace(/&amp;/g, '&');
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('Lista copiada.'), () => toast('Não consegui copiar.'));
+  else toast('Seu navegador não permite copiar. Use o WhatsApp.');
+}
+function nutriWhatsLista() { window.open('https://wa.me/?text=' + encodeURIComponent(_nutriTextoLista().replace(/&amp;/g, '&')), '_blank'); }
+function _nutriQtd(x) {
+  const q = Math.round(x.quantidade * 10) / 10;
+  if (x.unidade === 'g') return q >= 1000 ? (Math.round(q / 100) / 10).toString().replace('.', ',') + ' kg' : Math.round(q) + ' g';
+  return (Number.isInteger(q) ? q : String(q).replace('.', ',')) + ' ' + x.unidade.toLowerCase();
+}
+
+// ── Peças de tela ──
+function _nutriCores() {
+  return { card: 'var(--card-bg)', borda: 'var(--borda)', txt: 'var(--texto)', mut: 'var(--muted)', ok: 'var(--link-ex,#7FFF00)', prot: '#60a5fa', carb: '#84cc16', gord: '#f87171', kcal: '#f59e0b', trilho: 'var(--trilho,rgba(128,128,128,.25))' };
+}
+function _nutriStatusInfo(st) {
+  return { feito: { ic: '✓', cor: 'var(--link-ex,#7FFF00)', bg: 'var(--marca-fraca,rgba(127,255,0,.12))', rot: 'Feito' },
+           parcial: { ic: '◐', cor: '#f59e0b', bg: 'rgba(245,158,11,.14)', rot: 'Parcial' },
+           fora: { ic: '✕', cor: '#ef4444', bg: 'rgba(239,68,68,.12)', rot: 'Fora do plano' } }[st] || null;
+}
+function _nutriItemHtml(it) {
+  const C = _nutriCores(); const n = it.nutrientes || {};
+  const qtd = it.medida_id === 'g' || !it.medida_nome ? `${it.quantidade}g` : `${it.quantidade} ${it.medida_nome}`;
+  const subs = (it.substitutos || []).filter(s => s && s.nome);
+  return `<div style="padding:8px 0;border-top:1px solid ${C.borda};">
+    <div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-size:13px;font-weight:600;">${esc(it.nome)} <span style="color:${C.mut};font-weight:400;">· ${esc(qtd)}</span></span><span style="font-size:11px;color:${C.mut};white-space:nowrap;">${Math.round(n.energia_kcal || 0)} kcal</span></div>
+    ${subs.length ? `<div style="font-size:10.5px;color:${C.ok};margin-top:2px;">↔ pode trocar por: ${subs.map(s => esc(s.nome)).join(', ')}</div>` : ''}
+  </div>`;
+}
+
+function _nutriDashHtml() {
+  const N = API.nutri, C = _nutriCores(), plano = _nutri.plano, hoje = N.hojeIso();
+  const regsHoje = _nutriRegsDoDia(hoje);
+  const cons = N.consumo(plano, regsHoje);
+  const tot = N.refeicoes(plano).reduce((a, r) => { const s = N.somaItens(r.itens_estruturados); a.kcal += s.kcal; a.prot += s.prot; a.carb += s.carb; a.gord += s.gord; return a; }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+  const metaK = Number(plano.calorias) || tot.kcal, metaP = Number(plano.proteina) || tot.prot, metaC = Number(plano.carboidrato) || tot.carb, metaG = Number(plano.gordura) || tot.gord;
+  const pctK = metaK ? Math.min(1, cons.kcal / metaK) : 0;
+  const prox = N.proximaRefeicao(plano, regsHoje);
+  const ad = N.aderencia(plano, _nutri.regs);
+  const seq = N.sequencia(_nutri.regs);
+  const agua = _nutriAguaDoDia(hoje), metaA = N.metaAguaMl(_nutriUltimoPeso());
+  const barra = (rot, v, m, cor) => `<div><div style="display:flex;justify-content:space-between;font-size:11px;color:${C.mut};"><span>${rot}</span><span>${Math.round(v)} de ${Math.round(m)} g</span></div><div style="height:6px;border-radius:3px;background:${C.trilho};overflow:hidden;"><i style="display:block;height:100%;width:${m ? Math.min(100, v / m * 100) : 0}%;background:${cor};"></i></div></div>`;
+  const dias = ad.dias.map(d => { const cor = d.score >= 0.8 ? C.ok : (d.score >= 0.5 ? '#f59e0b' : '#ef4444'); return `<i title="${d.data}" style="flex:1;height:${Math.max(8, Math.round(d.score * 100))}%;background:${cor};border-radius:3px;"></i>`; }).join('');
+  const pesos = _nutri.pesos.slice(-6);
+  let pesoHtml = '';
+  if (pesos.length >= 2) {
+    const mn = Math.min(...pesos.map(p => p.peso)), mx = Math.max(...pesos.map(p => p.peso)), amp = (mx - mn) || 1;
+    const pts = pesos.map((p, k) => (k / (pesos.length - 1) * 300).toFixed(1) + ',' + (4 + (1 - (p.peso - mn) / amp) * 32).toFixed(1)).join(' ');
+    const dif = pesos[pesos.length - 1].peso - pesos[0].peso;
+    pesoHtml = `<div style="margin-top:12px;"><div style="font-size:11px;color:${C.mut};margin-bottom:2px;">Peso nas últimas avaliações</div><svg width="100%" height="40" viewBox="0 0 300 40" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${C.prot}" stroke-width="2"/></svg><div style="font-size:11px;color:${C.mut};">${String(pesos[0].peso).replace('.', ',')} kg → ${String(pesos[pesos.length - 1].peso).replace('.', ',')} kg (${dif > 0 ? '+' : ''}${String(Math.round(dif * 10) / 10).replace('.', ',')} kg)</div></div>`;
+  }
+  return `<div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;margin-bottom:12px;">
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;">
+      <svg width="88" height="88" viewBox="0 0 92 92" style="flex-shrink:0;"><circle cx="46" cy="46" r="38" fill="none" stroke="${C.trilho}" stroke-width="9"/><circle cx="46" cy="46" r="38" fill="none" stroke="${C.kcal}" stroke-width="9" stroke-linecap="round" stroke-dasharray="238.8" stroke-dashoffset="${(238.8 * (1 - pctK)).toFixed(1)}" transform="rotate(-90 46 46)"/><text x="46" y="45" text-anchor="middle" font-size="15" font-weight="800" fill="currentColor">${Math.round(cons.kcal)}</text><text x="46" y="58" text-anchor="middle" font-size="10" fill="${C.mut}">de ${Math.round(metaK)}</text></svg>
+      <div style="flex:1;display:flex;flex-direction:column;gap:7px;">${barra('Proteína', cons.prot, metaP, C.prot)}${barra('Carbo', cons.carb, metaC, C.carb)}${barra('Gordura', cons.gord, metaG, C.gord)}</div>
+    </div>
+    <div style="font-size:10.5px;color:${C.mut};margin:-6px 0 10px;">Calorias estimadas pelo plano, a partir do que você marcou como feito.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div style="background:var(--sup,rgba(128,128,128,.08));border-radius:10px;padding:10px;"><div style="font-size:11px;color:${C.mut};">Próxima refeição</div><div style="font-size:13.5px;font-weight:800;margin-top:2px;">${prox ? esc((prox.horario || '') + ' ' + prox.nome) : 'Tudo registrado'}</div></div>
+      <div style="background:var(--sup,rgba(128,128,128,.08));border-radius:10px;padding:10px;"><div style="font-size:11px;color:${C.mut};">Água hoje</div><div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px;"><span style="font-size:13.5px;font-weight:800;">${(agua / 1000).toFixed(2).replace('.', ',')} de ${(metaA / 1000).toFixed(1).replace('.', ',')} L</span></div><div style="display:flex;gap:6px;margin-top:6px;"><button onclick="nutriAgua(-250)" style="flex:1;padding:5px 0;border-radius:8px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:14px;cursor:pointer;">−</button><button onclick="nutriAgua(250)" style="flex:2;padding:5px 0;border-radius:8px;border:none;background:${C.ok};color:#0f1a00;font-size:12px;font-weight:800;cursor:pointer;">+ copo</button></div></div>
+    </div>
+    <div style="margin-top:12px;font-size:11px;color:${C.mut};">Aderência dos últimos 7 dias</div>
+    <div style="display:flex;gap:4px;align-items:flex-end;height:44px;margin:4px 0;">${dias || `<span style="font-size:11.5px;color:${C.mut};">Marque suas refeições para ver a evolução.</span>`}</div>
+    <div style="font-size:11.5px;color:${C.mut};">${ad.media != null ? 'Média: <b style="color:' + C.txt + ';">' + Math.round(ad.media * 100) + '%</b>' : 'Ainda sem dados'}${seq > 0 ? ' · Sequência: <b style="color:' + C.txt + ';">' + seq + (seq === 1 ? ' dia' : ' dias') + '</b>' : ''}</div>
+    ${pesoHtml}
+  </div>`;
+}
+
+function _nutriSeletorHtml() {
+  const C = _nutriCores();
+  const b = (v, rot) => `<button onclick="nutriVisao('${v}')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ${_nutri.visao === v ? C.ok : C.borda};background:${_nutri.visao === v ? 'var(--marca-fraca,rgba(127,255,0,.12))' : 'transparent'};color:${_nutri.visao === v ? C.ok : C.mut};">${rot}</button>`;
+  return `<div style="display:flex;gap:6px;margin-bottom:12px;">${b('hoje', 'Hoje')}${b('prato', 'Prato')}${b('semana', 'Semana')}</div>`;
+}
+
+// A. Linha do dia
+function _nutriHojeHtml() {
+  const N = API.nutri, C = _nutriCores(), plano = _nutri.plano, hoje = N.hojeIso(), dia = _nutriDiaIso();
+  const refs = N.refeicoes(plano), regs = _nutriRegsDoDia(dia);
+  const prox = dia === hoje ? N.proximaRefeicao(plano, regs) : null;
+  const tgl = (d, rot) => `<button onclick="nutriDia('${d}')" style="padding:5px 12px;border-radius:99px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;border:1px solid ${_nutri.dia === d ? C.ok : C.borda};background:${_nutri.dia === d ? 'var(--marca-fraca,rgba(127,255,0,.12))' : 'transparent'};color:${_nutri.dia === d ? C.ok : C.mut};">${rot}</button>`;
+  const linhas = refs.map((r, i) => {
+    const x = regs.find(g => g.refeicao === r.chave), si = x ? _nutriStatusInfo(x.status) : null;
+    const eProx = prox && prox.chave === r.chave, aberta = _nutri.aberta === r.chave;
+    const substs = Array.isArray(r.refeicoes_substitutas) ? r.refeicoes_substitutas.filter(sb => sb && (sb.itens_estruturados || []).length) : [];
+    const op = Math.min(_nutri.opcao[i] || 0, substs.length);
+    const itens = op === 0 ? (r.itens_estruturados || []) : (substs[op - 1].itens_estruturados || []);
+    const s = N.somaItens(itens);
+    const marca = si ? `<span style="width:22px;height:22px;border-radius:50%;background:${si.bg};border:1.5px solid ${si.cor};color:${si.cor};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;">${si.ic}</span>`
+      : `<span style="width:22px;height:22px;border-radius:50%;border:1.5px solid ${eProx ? C.ok : C.borda};flex-shrink:0;"></span>`;
+    let detalhe = '';
+    if (aberta) {
+      const abas = substs.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${[['Principal', 0], ...substs.map((sb, k) => [sb.nome || 'Opção ' + (k + 2), k + 1])].map(([l, o]) => `<button onclick="event.stopPropagation();nutriOpcao(${i},${o})" style="padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${o === op ? C.ok : C.borda};background:${o === op ? 'var(--marca-fraca,rgba(127,255,0,.12))' : 'transparent'};color:${o === op ? C.ok : C.mut};">${esc(l)}</button>`).join('')}</div>` : '';
+      const botoes = ['feito', 'parcial', 'fora'].map(st => { const inf = _nutriStatusInfo(st), on = x && x.status === st; return `<button onclick="nutriStatus(${i},'${st}')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;border:1.5px solid ${on ? inf.cor : C.borda};background:${on ? inf.bg : 'transparent'};color:${on ? inf.cor : C.txt};">${inf.ic} ${inf.rot}</button>`; }).join('');
+      const foto = x && x.foto ? `<div style="position:relative;display:inline-block;margin-top:8px;"><img src="${esc(x.foto)}" style="height:70px;border-radius:8px;display:block;" alt=""/><span onclick="nutriFotoRemover(${i})" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#222;color:#fff;border:1.5px solid #fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>` : '';
+      const resp = x && x.resposta_nutri ? `<div style="margin-top:8px;padding:8px 10px;border-left:3px solid ${C.ok};background:var(--sup,rgba(128,128,128,.08));border-radius:0 8px 8px 0;font-size:12px;"><b>Sua nutri respondeu:</b> ${esc(x.resposta_nutri)}</div>` : '';
+      detalhe = `<div style="padding:0 12px 12px;" onclick="event.stopPropagation()">
+        ${abas}${itens.length ? itens.map(_nutriItemHtml).join('') : `<p style="font-size:12px;color:${C.mut};">Nenhum alimento nesta opção.</p>`}
+        <div style="display:flex;gap:6px;margin-top:10px;">${botoes}</div>
+        <textarea placeholder="Observação (opcional): o que mudou, como se sentiu..." maxlength="300" onchange="nutriObs(${i},this.value)" style="width:100%;margin-top:8px;min-height:44px;padding:8px 10px;border-radius:10px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:12px;font-family:inherit;resize:vertical;">${esc((_nutri.obs[r.chave] != null ? _nutri.obs[r.chave] : (x && x.obs)) || '')}</textarea>
+        <button onclick="nutriFotoPick(${i})" style="margin-top:8px;padding:8px 12px;border-radius:10px;border:1px dashed ${C.borda};background:transparent;color:${C.mut};font-size:12px;font-weight:700;cursor:pointer;">📷 ${x && x.foto ? 'Trocar foto' : 'Adicionar foto do prato'}</button>
+        ${foto}${resp}
+      </div>`;
+    }
+    return `<div style="background:${eProx ? 'var(--marca-fraca,rgba(127,255,0,.07))' : C.card};border:1px solid ${eProx ? C.ok : C.borda};border-radius:12px;margin-bottom:8px;overflow:hidden;">
+      <div onclick="nutriAbrir(${i})" style="padding:11px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;">
+        ${marca}
+        <div style="flex:1;min-width:0;"><div style="font-size:13.5px;font-weight:800;">${esc((r.horario || '') + (r.horario ? ' ' : '') + (r.nome || 'Refeição'))}${eProx ? ` <span style="font-size:10px;color:${C.ok};font-weight:800;">AGORA</span>` : ''}</div><div style="font-size:11.5px;color:${C.mut};">${itens.length} ite${itens.length === 1 ? 'm' : 'ns'} · ${Math.round(s.kcal)} kcal${x && x.foto ? ' · 📷' : ''}${x && x.resposta_nutri ? ' · 💬' : ''}</div></div>
+        <span style="color:${C.mut};font-size:12px;">${aberta ? '▲' : '▼'}</span>
+      </div>${detalhe}</div>`;
+  }).join('');
+  return `<div style="display:flex;gap:6px;margin-bottom:10px;">${tgl('hoje', 'Hoje')}${tgl('ontem', 'Ontem')}</div>${linhas || `<p style="font-size:12px;color:${C.mut};">Nenhuma refeição cadastrada ainda.</p>`}`;
+}
+
+// B. Prato e macros
+function _nutriPratoHtml() {
+  const N = API.nutri, C = _nutriCores(), refs = N.refeicoes(_nutri.plano);
+  if (!refs.length) return `<p style="font-size:12px;color:${C.mut};">Nenhuma refeição cadastrada ainda.</p>`;
+  const i = Math.min(_nutri.prato, refs.length - 1), r = refs[i], s = N.somaItens(r.itens_estruturados);
+  const kP = s.prot * 4, kC = s.carb * 4, kG = s.gord * 9, kT = (kP + kC + kG) || 1;
+  const anel = (v, m, cor, rot) => { const f = m ? Math.min(1, v / m) : 0; return `<div style="text-align:center;"><svg width="64" height="64" viewBox="0 0 52 52"><circle cx="26" cy="26" r="21" fill="none" stroke="${C.trilho}" stroke-width="6"/><circle cx="26" cy="26" r="21" fill="none" stroke="${cor}" stroke-width="6" stroke-linecap="round" stroke-dasharray="131.9" stroke-dashoffset="${(131.9 * (1 - f)).toFixed(1)}" transform="rotate(-90 26 26)"/></svg><div style="font-size:13px;font-weight:800;">${Math.round(v)} g</div><div style="font-size:10.5px;color:${C.mut};">${rot}</div></div>`; };
+  const metaP = Number(_nutri.plano.proteina) || 0, metaC = Number(_nutri.plano.carboidrato) || 0, metaG = Number(_nutri.plano.gordura) || 0;
+  const chips = refs.map((x, k) => `<button onclick="nutriPrato(${k})" style="padding:6px 12px;border-radius:99px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;border:1px solid ${k === i ? C.ok : C.borda};background:${k === i ? 'var(--marca-fraca,rgba(127,255,0,.12))' : 'transparent'};color:${k === i ? C.ok : C.mut};">${esc(x.nome || 'Refeição')}</button>`).join('');
+  return `<div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;">
+    <div style="font-size:11px;color:${C.mut};margin-bottom:8px;">Esta refeição contra a meta do dia</div>
+    <div style="display:flex;justify-content:space-around;margin-bottom:12px;">${anel(s.prot, metaP, C.prot, 'proteína')}${anel(s.carb, metaC, C.carb, 'carbo')}${anel(s.gord, metaG, C.gord, 'gordura')}</div>
+    <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:8px;">${chips}</div>
+    <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin-bottom:6px;"><i style="width:${(kP / kT * 100).toFixed(1)}%;background:${C.prot};"></i><i style="width:${(kC / kT * 100).toFixed(1)}%;background:${C.carb};"></i><i style="width:${(kG / kT * 100).toFixed(1)}%;background:${C.gord};"></i></div>
+    <div style="font-size:11.5px;color:${C.mut};margin-bottom:8px;">${esc(r.nome || 'Refeição')}: ${Math.round(kP / kT * 100)}% proteína, ${Math.round(kC / kT * 100)}% carbo, ${Math.round(kG / kT * 100)}% gordura · ${Math.round(s.kcal)} kcal</div>
+    ${(r.itens_estruturados || []).map(_nutriItemHtml).join('')}
+  </div>`;
+}
+
+// C. Semana: aderência dia a dia e lista de compras
+function _nutriSemanaHtml() {
+  const N = API.nutri, C = _nutriCores(), plano = _nutri.plano, hoje = N.hojeIso();
+  const refs = N.refeicoes(plano);
+  const dias = []; for (let k = 6; k >= 0; k--) dias.push(N.addDias(hoje, -k));
+  const ini = plano.dtinicio ? String(plano.dtinicio).slice(0, 10) : null;
+  const letra = d => 'DSTQQSS'[new Date(d + 'T12:00:00').getDay()];
+  const ad = N.aderencia(plano, _nutri.regs, dias[0], hoje);
+  const cabeca = '<span></span>' + dias.map(d => `<span style="text-align:center;font-size:11px;color:${d === hoje ? C.ok : C.mut};font-weight:${d === hoje ? 800 : 400};">${letra(d)}</span>`).join('');
+  const linhas = refs.map((r, i) => `<span style="font-size:11px;color:${C.mut};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;align-self:center;">${esc(r.nome || 'Refeição')}</span>` + dias.map(d => {
+    const x = _nutri.regs.find(g => String(g.data).slice(0, 10) === d && g.refeicao === r.chave), si = x ? _nutriStatusInfo(x.status) : null;
+    const fora = ini && d < ini;
+    return `<button onclick="nutriCelula(${i},'${d}')" aria-label="${esc(r.nome)} ${d}" style="height:24px;border-radius:5px;cursor:pointer;padding:0;border:${si ? '1px solid ' + si.cor : '1px dashed ' + C.borda};background:${si ? si.bg : 'transparent'};color:${si ? si.cor : C.mut};font-size:11px;font-weight:800;opacity:${fora ? .35 : 1};">${si ? si.ic : ''}</button>`;
+  }).join('')).join('');
+  const pctDia = '<span></span>' + dias.map(d => { const x = ad.dias.find(a => a.data === d); return `<span style="text-align:center;font-size:10.5px;color:${C.mut};">${x ? Math.round(x.score * 100) + '%' : '·'}</span>`; }).join('');
+  const lista = N.listaCompras(plano, 7);
+  return `<div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;margin-bottom:12px;">
+    <div style="font-weight:800;font-size:14px;margin-bottom:8px;">Sua semana</div>
+    <div style="display:grid;grid-template-columns:78px repeat(7,1fr);gap:4px;">${cabeca}${linhas}${pctDia}</div>
+    <div style="display:flex;gap:12px;margin-top:10px;font-size:11px;color:${C.mut};flex-wrap:wrap;"><span><b style="color:${C.ok};">✓</b> Feito</span><span><b style="color:#f59e0b;">◐</b> Parcial</span><span><b style="color:#ef4444;">✕</b> Fora</span><span>Toque em hoje ou ontem para registrar</span></div>
+  </div>
+  <div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;">
+    <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Lista de compras da semana</div>
+    <div style="font-size:11.5px;color:${C.mut};margin-bottom:8px;">Soma do plano por 7 dias. Confira o que já tem em casa.</div>
+    ${lista.length ? lista.map(x => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid ${C.borda};font-size:13px;"><span>${esc(x.nome)}</span><span style="color:${C.mut};">${esc(_nutriQtd(x))}</span></div>`).join('') : `<p style="font-size:12px;color:${C.mut};">Sem alimentos cadastrados no plano.</p>`}
+    ${lista.length ? `<div style="display:flex;gap:8px;margin-top:10px;"><button onclick="nutriCopiarLista()" style="flex:1;padding:10px;border-radius:10px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:12.5px;font-weight:700;cursor:pointer;">Copiar</button><button onclick="nutriWhatsLista()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#25D366;color:#0b3d20;font-size:12.5px;font-weight:800;cursor:pointer;">Enviar no WhatsApp</button></div>` : ''}
+  </div>`;
+}
+
+function _nutriRender() {
+  const box = document.getElementById('v-nutricao');
+  if (!box || !_nutri.plano) return;
+  const C = _nutriCores(), plano = _nutri.plano;
+  const y = window.scrollY;
+  const corpo = _nutri.visao === 'prato' ? _nutriPratoHtml() : (_nutri.visao === 'semana' ? _nutriSemanaHtml() : _nutriHojeHtml());
+  box.innerHTML = `<div style="padding:16px 0;">
+    ${telaHeader('🥗 ' + esc(plano.titulo || 'Meu Plano Alimentar'))}
+    ${plano.objetivo ? `<p style="font-size:12px;color:${C.mut};margin:-4px 0 12px;">${esc(plano.objetivo)}</p>` : ''}
+    ${plano.comentario_inicio ? `<div style="background:${C.card};border-left:3px solid ${C.ok};border-radius:0 10px 10px 0;padding:10px 12px;margin-bottom:12px;font-size:12.5px;">${esc(plano.comentario_inicio)}</div>` : ''}
+    ${_nutriDashHtml()}
+    ${_nutriSeletorHtml()}
+    ${corpo}
+    ${plano.comentario_fim ? `<div style="background:${C.card};border-left:3px solid ${C.ok};border-radius:0 10px 10px 0;padding:10px 12px;margin:14px 0;font-size:12.5px;">${esc(plano.comentario_fim)}</div>` : ''}
+    ${plano.observacao ? `<p style="font-size:11.5px;color:${C.mut};margin-top:10px;">${esc(plano.observacao)}</p>` : ''}
+  </div>${getFooterHtml()}`;
+  window.scrollTo(0, y);
+}
 
 async function renderNutricaoAluno() {
   const container = document.getElementById('v-nutricao');
   const isLight = document.body.classList.contains('tema-claro');
   container.innerHTML = `${telaHeader('🥗 Nutrição')}<div style="text-align:center;padding:60px 20px;"><div class="spinner"></div></div>`;
-
-  let planos = [];
-  try { planos = await API.listarPlanosNutricionais(idAtleta); } catch { planos = []; }
-  if (!Array.isArray(planos)) planos = [];
-  const plano = planos.find(p => Number(p.ativo) === 1) || planos[0] || null;
-
+  await _nutriEnviarPendentes();
+  await _nutriCarregar();
+  const muted = isLight ? '#666' : '#888';
   const bgCard = isLight ? '#fff' : '#1a1a1a';
   const borderC = isLight ? '#e5e5e5' : '#2a2a2a';
-  const muted = isLight ? '#666' : '#888';
-
-  if (!plano) {
+  if (!_nutri.plano) {
     container.innerHTML = `
       <div style="padding:16px 0;">
         ${telaHeader('🥗 Nutrição')}
@@ -15065,8 +15394,8 @@ async function renderNutricaoAluno() {
           ${[
             ['🎯','Suas metas diárias de calorias e macros'],
             ['🍽️','Cada refeição, com horário e quantidade certa'],
-            ['↔️','Opções de substituição pra quando faltar um alimento'],
-            ['📝','Recomendações escritas pela sua nutricionista'],
+            ['✅','Marcar o que você comeu e acompanhar sua aderência'],
+            ['🛒','Lista de compras da semana'],
           ].map(([ic,txt]) => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;font-size:12.5px;"><span>${ic}</span><span>${txt}</span></div>`).join('')}
         </div>
         <button class="btn btn-prim btn-full" onclick="abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')">💬 Falar sobre meu plano alimentar</button>
@@ -15075,99 +15404,7 @@ async function renderNutricaoAluno() {
     `;
     return;
   }
-
-  const refeicoes = Array.isArray(plano.refeicoes) ? [...plano.refeicoes].sort((a,b) => String(a.horario||'').localeCompare(String(b.horario||''))) : [];
-
-  const somaRefeicao = (ref) => (ref.itens_estruturados || []).reduce((acc, it) => {
-    const n = it.nutrientes || {};
-    acc.kcal += Number(n.energia_kcal) || 0;
-    acc.prot += Number(n.proteina_g) || 0;
-    acc.carb += Number(n.carboidrato_g) || 0;
-    acc.gord += Number(n.lipidio_g) || 0;
-    return acc;
-  }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
-
-  const totalDia = refeicoes.reduce((acc, r) => {
-    const s = somaRefeicao(r);
-    acc.kcal += s.kcal; acc.prot += s.prot; acc.carb += s.carb; acc.gord += s.gord;
-    return acc;
-  }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
-
-  const chip = (valor, meta, label, cor) => `
-    <div style="flex:1;text-align:center;">
-      <div style="font-size:18px;font-weight:800;color:${cor};">${Math.round(valor)}${meta ? '<span style="font-size:11px;color:'+muted+';font-weight:600;"> / '+Math.round(meta)+'</span>' : ''}</div>
-      <div style="font-size:9.5px;color:${muted};text-transform:uppercase;letter-spacing:.03em;">${label}</div>
-    </div>`;
-
-  const itemHTML = (it) => {
-    const n = it.nutrientes || {};
-    const qtd = it.medida_id === 'g' || !it.medida_nome ? `${it.quantidade}g` : `${it.quantidade} ${it.medida_nome}`;
-    const subs = (it.substitutos || []).filter(s => s && s.nome);
-    return `
-      <div style="padding:8px 0;border-top:1px solid ${borderC};">
-        <div style="display:flex;justify-content:space-between;gap:8px;">
-          <span style="font-size:13px;font-weight:600;">${esc(it.nome)} <span style="color:${muted};font-weight:400;">— ${esc(qtd)}</span></span>
-          <span style="font-size:11px;color:${muted};white-space:nowrap;">${Math.round(n.energia_kcal||0)} kcal</span>
-        </div>
-        ${subs.length ? `<div style="font-size:10.5px;color:var(--link-ex,#7FFF00);margin-top:2px;">↔ substitutos: ${subs.map(s => esc(s.nome)).join(', ')}</div>` : ''}
-      </div>`;
-  };
-
-  // Refeição substituta (opção completa alternativa, ex. "Café da manhã
-  // vegetariano") — não é o substituto de 1 alimento (esse já existia,
-  // ver itemHTML acima). O aluno escolhe entre a principal e a(s)
-  // substituta(s) só pra CONSULTA; as metas do dia continuam batendo com
-  // a refeição principal, que é o que a nutricionista de fato prescreveu.
-  const refeicaoHTML = (r, idx) => {
-    const substs = Array.isArray(r.refeicoes_substitutas) ? r.refeicoes_substitutas.filter(sb => sb && (sb.itens_estruturados||[]).length) : [];
-    const opcaoAtual = Math.min(_nutriOpcaoSelecionada[idx] || 0, substs.length);
-    const itensAtuais = opcaoAtual === 0 ? (r.itens_estruturados || []) : (substs[opcaoAtual - 1].itens_estruturados || []);
-    const s = somaRefeicao({ itens_estruturados: itensAtuais });
-    const aberta = _nutriPlanoAberto === idx;
-    const abasHtml = substs.length ? `
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-        ${[['Principal', 0], ...substs.map((sb, i) => [sb.nome || 'Opção ' + (i+2), i+1])].map(([lbl, op]) => `
-          <button onclick="event.stopPropagation();_nutriOpcaoSelecionada[${idx}]=${op};renderNutricaoAluno();" style="padding:5px 11px;border-radius:99px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${op===opcaoAtual?'var(--link-ex,#7FFF00)':borderC};background:${op===opcaoAtual?'rgba(127,255,0,.1)':'transparent'};color:${op===opcaoAtual?'var(--link-ex,#7FFF00)':muted};">${esc(lbl)}</button>
-        `).join('')}
-      </div>` : '';
-    return `
-      <div style="background:${bgCard};border:1px solid ${borderC};border-radius:12px;margin-bottom:10px;overflow:hidden;">
-        <div style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="_nutriPlanoAberto=${aberta ? 'null' : idx};renderNutricaoAluno();">
-          <div>
-            <div style="font-size:13px;font-weight:700;">${esc(r.nome || 'Refeição')}${substs.length ? ` <span style="font-size:10px;color:#60a5fa;font-weight:700;">↔ ${substs.length} substituição${substs.length>1?'ões':''}</span>` : ''}</div>
-            <div style="font-size:11px;color:${muted};">${esc(r.horario || '')} · ${itensAtuais.length} item${itensAtuais.length!==1?'s':''} · ${Math.round(s.kcal)} kcal</div>
-          </div>
-          <div style="color:${muted};font-size:12px;">${aberta ? '▲' : '▼'}</div>
-        </div>
-        ${aberta ? `<div style="padding:0 14px 12px;">
-          ${abasHtml}
-          ${itensAtuais.length ? itensAtuais.map(itemHTML).join('') : `<p style="font-size:12px;color:${muted};padding-top:8px;">Nenhum alimento cadastrado nesta opção.</p>`}
-        </div>` : ''}
-      </div>`;
-  };
-
-  container.innerHTML = `
-    <div style="padding:16px 0;">
-      ${telaHeader('🥗 ' + esc(plano.titulo || 'Meu Plano Alimentar'))}
-      ${plano.objetivo ? `<p style="font-size:12px;color:${muted};margin:-4px 0 12px;">${esc(plano.objetivo)}</p>` : ''}
-
-      <div style="background:${bgCard};border:1px solid ${borderC};border-radius:12px;padding:14px;margin-bottom:16px;display:flex;gap:6px;">
-        ${chip(totalDia.kcal, plano.calorias, 'kcal', isLight?'#b45309':'#ffcf4d')}
-        ${chip(totalDia.prot, plano.proteina, 'proteína g', '#60a5fa')}
-        ${chip(totalDia.carb, plano.carboidrato, 'carbo g', 'var(--link-ex,#7FFF00)')}
-        ${chip(totalDia.gord, plano.gordura, 'gordura g', '#f87171')}
-      </div>
-
-      ${plano.comentario_inicio ? `<div style="background:${bgCard};border-left:3px solid var(--link-ex,#7FFF00);border-radius:0 10px 10px 0;padding:10px 12px;margin-bottom:14px;font-size:12.5px;">${esc(plano.comentario_inicio)}</div>` : ''}
-
-      <h3 style="font-size:13px;font-weight:700;margin:0 0 10px;color:${muted};text-transform:uppercase;letter-spacing:.03em;">Refeições do dia</h3>
-      ${refeicoes.length === 0 ? `<p style="font-size:12px;color:${muted};">Nenhuma refeição cadastrada ainda.</p>` : refeicoes.map(refeicaoHTML).join('')}
-
-      ${plano.comentario_fim ? `<div style="background:${bgCard};border-left:3px solid var(--link-ex,#7FFF00);border-radius:0 10px 10px 0;padding:10px 12px;margin:14px 0;font-size:12.5px;">${esc(plano.comentario_fim)}</div>` : ''}
-      ${plano.observacao ? `<p style="font-size:11.5px;color:${muted};margin-top:10px;">${esc(plano.observacao)}</p>` : ''}
-    </div>
-    ${getFooterHtml()}
-  `;
+  _nutriRender();
 }
 
 // ═══════════════ PERFIL ═══════════════
@@ -16222,7 +16459,7 @@ document.addEventListener('input', (e) => {
 // Linha de notificação, usada na aba Notificações da Central. Medalha e
 // distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
-  const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️' };
+  const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', nutri_resposta: '🥗' };
   const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
@@ -16232,11 +16469,12 @@ function _notifLinhaHtml(n, isLight) {
     comentario: noMural ? 'respondeu seu comentário no mural' : 'comentou no seu post',
     resposta: 'respondeu seu comentário',
     mencao: noMural ? 'mencionou você no mural' : 'mencionou você',
+    nutri_resposta: 'respondeu ao seu registro de refeição',
   }[n.tipo] || 'interagiu com você';
   const principal = ehSistema
     ? '<b>' + esc(n.texto || '') + '</b>'
     : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acao;
-  const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || (n.tipo === 'curtida' && noMural);
+  const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || n.tipo === 'nutri_resposta' || (n.tipo === 'curtida' && noMural);
   const trecho = comTrecho && n.texto
     ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“' + esc(n.texto) + '”</div>' : '';
   const dt = new Date(String(n.quando).replace(' ', 'T'));
@@ -16325,6 +16563,7 @@ function _notifAbrir(el) {
   if (tipo === 'medalha') { abrirQuadroMedalhas(); return; }
   if (tipo === 'distintivo') { navegar('perfil'); return; }
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
+  if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
   if (el.dataset.alvotipo === 'resultado') { navegar('resultados'); return; }
   if (el.dataset.alvotipo === 'mural') {
     abrirRanking();
