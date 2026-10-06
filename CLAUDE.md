@@ -745,3 +745,25 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
 que tinha as funções `_share*`/`_publicarPostFeed` em `aluno.html`, e elas **nunca estiveram no
 git**. Por isso o `funcoes.js` acusa perda. Ou esse trabalho local ainda não foi publicado, ou a
 linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js gravar`.
+
+## 20. Nutrição completa (06/10/2026)
+
+- **Aluno (`aluno.html`, `renderNutricaoAluno`)**: dashboard do dia (anel de kcal estimadas, macros, próxima refeição,
+  água com copo de 250 ml, aderência 7 dias, peso das avaliações) e 3 visões: **Hoje** (linha do dia), **Prato**
+  (anéis e proporção por refeição) e **Semana** (grade 7 dias e lista de compras). Marca cada refeição como
+  feita/parcial/fora, com observação e foto opcionais; registro sem internet fica em `intus-nutri-pend-<id>` e é
+  reenviado (`_nutriEnviarPendentes`). Só dá para registrar hoje ou ontem. Na web já vale; no app nativo exige rebuild.
+- **Painel (`nutricao.html`)**: abas **Dashboard** (KPIs, tabela de quem precisa de atenção, gaveta por aluno com
+  grade de 14 dias, fotos, resposta ao aluno e remoção de foto) e **Planos** (a tela antiga, intacta).
+- **Regras (fonte única, `api.js` → `API.nutri`, teste `testes/nutri.js`)**: aderência (feito 1, parcial 0,5, fora 0,
+  refeição sem registro em dia encerrado 0, hoje só conta refeição cujo horário já passou), consumo estimado pelo
+  plano, sequência, meta de água (35 ml/kg), alertas (sem registro 3+ dias, aderência < 50%, plano vencendo/vencido,
+  proteína baixa só se o plano entrega a meta, peso parado 3 semanas, sem plano) e lista de compras. A chave da
+  refeição no registro é `horario|nome` em minúsculas: **renomear ou mudar o horário de uma refeição do plano
+  desvincula os registros antigos dela.**
+- **Banco (só tabelas novas)**: `intus_nutri_registro` (um por aluno, dia e refeição; foto, observação, resposta da
+  nutri) e `intus_nutri_dia` (água). Endpoints em `catalogo.php`: `nutri_registro`, `nutri_dia`, `nutri_painel`.
+  Fotos em `app/img/nutri/` (só o aluno e a equipe responsável veem; remover pelo painel apaga a referência, o
+  arquivo continua no disco). Resposta da nutri vira aviso no sino do aluno (`nutri_resposta`).
+- **Limites conhecidos**: o plano é igual todos os dias (não há cardápio por dia); as calorias "consumidas" são
+  estimativa do plano, não pesagem.
