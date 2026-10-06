@@ -2544,7 +2544,7 @@ function abrirQuemCurtiu(idpost) {
   if (!lista.length) return;
   const isLight = document.body.classList.contains('tema-claro');
   const itens = lista.map(r =>
-    '<div style="display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid ' + (isLight ? '#f0f0f0' : '#1e1e1e') + ';">' +
+    '<div ' + (r.autor_tipo === 'aluno' ? 'onclick="closeModal();abrirPerfilAluno(' + Number(r.autor_id) + ')" ' : '') + 'style="display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid ' + (isLight ? '#f0f0f0' : '#1e1e1e') + ';' + (r.autor_tipo === 'aluno' ? 'cursor:pointer;' : '') + '">' +
       '<div style="width:34px;height:34px;border-radius:50%;background:' + (isLight ? '#f0f0f0' : '#1e1e1e') + ';display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">' + esc(r.emoji || '❤️') + '</div>' +
       '<div style="flex:1;min-width:0;font-size:13.5px;font-weight:700;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(r.autor_nome || 'Alguém') + (r.meu ? ' <span style="font-weight:600;color:' + (isLight ? '#888' : '#888') + ';">(você)</span>' : '') + '</div>' +
     '</div>'
@@ -2763,11 +2763,12 @@ function _comentariosHtml(idpost, isLight) {
       '<span style="font-size:14px;line-height:1;">' + (curtiu ? '❤️' : '🤍') + '</span>' +
       (curtidas.length ? '<span style="font-size:10px;font-weight:700;color:' + (curtiu ? acento : corMuted) + ';">' + curtidas.length + '</span>' : '') +
     '</div>';
+    const _abre = c.autor_tipo === 'aluno' ? ' onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;' : null;
     return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
-      avatarMini(c) +
+      (_abre ? '<span onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;display:flex;flex-shrink:0;">' + avatarMini(c) + '</span>' : avatarMini(c)) +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12px;line-height:1.4;">' +
-          '<b style="color:' + cor + ';">' + esc(c.autor_nome || 'Alguém') + '</b>' + selo + ' ' +
+          '<b' + (_abre ? _abre + 'color:' + cor + ';"' : ' style="color:' + cor + ';"') + '>' + esc(c.autor_nome || 'Alguém') + '</b>' + selo + ' ' +
           '<span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:14px;margin-top:2px;">' +
@@ -2962,9 +2963,9 @@ function _feedCardHtml(post, isLight) {
     : '<div style="width:34px;height:34px;border-radius:50%;background:' + (isLight?'#e5e5e5':'#2a2a2a') + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:' + (isLight?'#666':'#aaa') + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
   return '<div data-feed-card="' + post.idpost + '" data-dono="' + Number(post.idatleta) + '" style="background:' + (isLight?'#fff':'#161616') + ';border:1px solid ' + (isLight?'#e5e5e5':'#2a2a2a') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
     '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
-      avatarEl +
+      '<span onclick="abrirPerfilAluno(' + Number(post.idatleta) + ')" style="cursor:pointer;display:flex;flex-shrink:0;">' + avatarEl + '</span>' +
       '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+        '<div onclick="abrirPerfilAluno(' + Number(post.idatleta) + ')" style="cursor:pointer;font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
         '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
           // data-loc (não o texto embutido no onclick) porque localizacao é
           // texto livre digitado pelo aluno — cair dentro de um onclick como
@@ -11224,13 +11225,14 @@ function abrirPerfilRanking(id) {
   const data = _rankingData || {};
   const isLight = document.body.classList.contains('tema-claro');
   const st = _perfilRankingStats(id);
-  const avatar = (data.avatars || {})[String(id)] || '';
+  const avatar = (data.avatars || {})[String(id)] || _feedAvatarsMap[String(id)] || (_resultadosAvatars || {})[String(id)] || '';
   const cidade = (data.cidades || {})[String(id)] || ''; // exibido se o backend fornecer
   const estado = (data.estados || {})[String(id)] || '';
   const pais = (data.paises || {})[String(id)] || '';
   const localParts = [cidade, estado].filter(Boolean).join(', ');
   const localCompleto = [localParts, pais].filter(Boolean).join(' · ');
-  const nome = st.nome;
+  const participa = _pkParticipa(id);   // só quem participa do ranking tem treinos, medalhas e distintivos visíveis
+  const nome = st.nome !== 'Membro' ? st.nome : (_feedAtletasMap[String(id)] || (_resultadosNomes || {})[String(id)] || 'Membro');
   const isMe = Number(id) === Number(idAtleta);
   const accent = isLight ? '#5cb800' : '#7FFF00';
   const bg = isLight ? '#fff' : '#141414';
@@ -11310,10 +11312,13 @@ function abrirPerfilRanking(id) {
       // Corpo rolável
       '<div style="overflow-y:auto;padding:18px 20px 28px;">' +
         '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;">' +
-          avatarBig +
-          '<div style="font-size:19px;font-weight:900;color:' + (isLight?'#111':'#f5f5f5') + ';margin-top:10px;">' + esc(nome) + (isMe ? ' <span style="color:' + accent + ';">(você)</span>' : '') + '</div>' +
+          '<div id="pk-avatar" style="display:flex;justify-content:center;">' + avatarBig + '</div>' +
+          '<div style="font-size:19px;font-weight:900;color:' + (isLight?'#111':'#f5f5f5') + ';margin-top:10px;" id="pk-nome">' + esc(nome) + (isMe ? ' <span style="color:' + accent + ';">(você)</span>' : '') + '</div>' +
           (localCompleto ? '<div style="font-size:13px;color:' + (isLight?'#666':'#999') + ';">📍 ' + esc(localCompleto) + '</div>' : '') +
         '</div>' +
+        _pkCabecalhoHtml(id, isLight, participa) +
+        '<div data-pk="posts"><div id="perfil-rk-posts" style="min-height:60px;"></div></div>' +
+        '<div data-pk="sem" style="display:none;">' +
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:20px 0;">' +
           _perfStat('🏆', st.top5week, 'vezes no Top 5 da semana', isLight, '#f59e0b', 'desde ' + st.desdeLabel) +
           _perfStat('📆', st.top10month, 'vezes no Top 10 do mês', isLight, '#818cf8', 'desde ' + st.desdeLabel) +
@@ -11323,18 +11328,142 @@ function abrirPerfilRanking(id) {
         // As medalhas vêm antes das atividades da semana: são a conquista que
         // dura, e a lista de atividades é o dia a dia. Quem abre o perfil de
         // alguém quer ver primeiro o que a pessoa já conquistou.
-        _medalhasPerfilHtml(id, isLight) +
         '<div style="font-size:11px;font-weight:800;color:' + (isLight?'#888':'#888') + ';text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px;">Atividades de cardio e musculação desta semana (em andamento)</div>' +
         '<div style="display:flex;flex-direction:column;gap:6px;">' + cardHtml + '</div>' +
         _perfilSemanaAnteriorHtml(id, st, isLight, isMe, nome) +
         '<div style="font-size:10.5px;color:' + (isLight?'#999':'#666') + ';line-height:1.5;margin-top:10px;padding:8px 10px;background:' + (isLight?'#f6f6f6':'#161616') + ';border-radius:9px;">🔒 ' + (isMe ? 'Seu <b>histórico completo</b> de treinos só você vê. Os outros membros enxergam apenas as suas atividades <b>desta semana</b>' + (st.anterior ? ' e, por você ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '.' : 'Aqui aparecem as atividades <b>desta semana</b>' + (st.anterior ? ' e, por ter ficado no Top 5, as da <b>semana passada</b> até ' + _fmtDiaSemana(st.anterior.expira) : '') + '. O histórico completo de treinos é privado, só ' + esc((nome||'o membro').split(' ')[0]) + ' vê o próprio.') + '</div>' +
-        _conquistasStripHtml(id, isLight) +
-        '<div id="perfil-rk-resultados"></div>' +
+        '</div>' +
+        '<div data-pk="conq" style="display:none;">' + (participa ? _pkMarcasHtml(id, isLight) + _medalhasPerfilHtml(id, isLight) + _conquistasStripHtml(id, isLight) : '') + '</div>' +
+        '<div data-pk="res" style="display:none;"><div id="perfil-rk-resultados"></div></div>' +
         '<button onclick="document.getElementById(\'overlay-perfil-rk\').remove();" style="margin-top:22px;width:100%;padding:13px;border-radius:12px;border:none;background:' + (isLight?'#f0f0f0':'#222') + ';color:' + (isLight?'#333':'#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(ov);
   _carregarResultadosNoPerfilRk(id);
+  _pkCarregarPosts(id);
+}
+
+// ═══════════════ PERFIL SOCIAL ═══════════════
+// Tocar no nome ou na foto de um aluno (post, comentário, curtidas) abre o perfil dele: posts, conquistas
+// e marcas pessoais, resultados e a semana. O perfil é o overlay de abrirPerfilRanking (já existia no ranking)
+// com abas. Quem não participa do ranking só mostra posts e resultados (treinos e medalhas ficam privados).
+var _pkPosts = [];
+function _pkParticipa(id) { return !!(((_rankingData || {}).atletas || {})[String(id)]); }
+
+async function abrirPerfilAluno(id) {
+  id = Number(id);
+  if (!id) return;
+  if (!_rankingData) {
+    _busyMostrar('Abrindo o perfil...', null, '');
+    try { await Promise.all([_ensureRankingData(), _ensureConquistasConfig()]); } catch (e) {}
+    _busyFim();
+  }
+  document.getElementById('pk-post-ov')?.remove();
+  document.getElementById('overlay-perfil-rk')?.remove();
+  abrirPerfilRanking(id);
+}
+
+function _pkContadorHtml(idEl, valor, rotulo, isLight) {
+  return '<div style="flex:1;text-align:center;"><div id="' + idEl + '" style="font-size:19px;font-weight:900;color:' + (isLight ? '#111' : '#f5f5f5') + ';line-height:1;">' + valor + '</div><div style="font-size:11px;color:' + (isLight ? '#777' : '#999') + ';margin-top:3px;">' + rotulo + '</div></div>';
+}
+function _pkCabecalhoHtml(id, isLight, participa) {
+  let dist = '—';
+  try { if (participa) { const cq = _computeConquistas(id); dist = cq.unlockedCount; } } catch (e) {}
+  const abas = [['posts', '📸 Posts'], ['conq', '🏅 Conquistas'], ['res', '🌟 Resultados'], ['sem', '📆 Semana']].filter(a => participa || a[0] === 'posts' || a[0] === 'res');
+  const accent = isLight ? '#2d8a00' : '#7FFF00';
+  return '<div style="display:flex;gap:6px;margin:16px 0 4px;padding:12px 4px;border-top:1px solid ' + (isLight ? '#eee' : '#222') + ';border-bottom:1px solid ' + (isLight ? '#eee' : '#222') + ';">' +
+      _pkContadorHtml('pk-n-posts', '…', 'posts', isLight) + _pkContadorHtml('pk-n-dist', dist, 'distintivos', isLight) + _pkContadorHtml('pk-n-res', '…', 'resultados', isLight) +
+    '</div>' +
+    '<div style="display:flex;gap:4px;margin:10px 0 14px;overflow-x:auto;">' +
+      abas.map(a => '<button data-pk-btn="' + a[0] + '" onclick="_pkAba(\'' + a[0] + '\')" style="flex:1 0 auto;padding:9px 12px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;border:1px solid ' + (a[0] === 'posts' ? accent : 'transparent') + ';background:' + (a[0] === 'posts' ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (a[0] === 'posts' ? accent : (isLight ? '#777' : '#888')) + ';">' + a[1] + '</button>').join('') +
+    '</div>';
+}
+function _pkAba(nome) {
+  const ov = document.getElementById('overlay-perfil-rk'); if (!ov) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const accent = isLight ? '#2d8a00' : '#7FFF00';
+  ov.querySelectorAll('[data-pk]').forEach(el => { el.style.display = el.getAttribute('data-pk') === nome ? 'block' : 'none'; });
+  ov.querySelectorAll('[data-pk-btn]').forEach(b => {
+    const on = b.getAttribute('data-pk-btn') === nome;
+    b.style.borderColor = on ? accent : 'transparent';
+    b.style.background = on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent';
+    b.style.color = on ? accent : (isLight ? '#777' : '#888');
+  });
+}
+// Marcas pessoais: números públicos do ranking (o treino em si, com cargas, continua privado).
+function _pkMarcasHtml(id, isLight) {
+  let m = null;
+  try { m = _conquistaMetrics(id); } catch (e) { return ''; }
+  const accent = isLight ? '#5cb800' : '#7FFF00';
+  return '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:4px 0 8px;">Marcas pessoais</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">' +
+      _perfStat('💪', m.treinos, 'treinos de musculação', isLight, accent) +
+      _perfStat('🏃', m.cardios, 'cardios', isLight, '#22d3ee') +
+      _perfStat('⏱️', m.horas + 'h', 'de treino no total', isLight, '#a78bfa') +
+      _perfStat('⚡', m.streak, 'semanas seguidas', isLight, '#fbbf24') +
+      _perfStat('🏆', m.top5, 'vezes no Top 5', isLight, '#f59e0b') +
+      _perfStat('📅', m.maxSemana, 'atividades na melhor semana', isLight, '#f472b6') +
+    '</div>';
+}
+
+async function _pkCarregarPosts(id) {
+  const isLight = document.body.classList.contains('tema-claro');
+  const box = () => document.getElementById('perfil-rk-posts');
+  if (!box()) return;
+  box().innerHTML = '<div style="text-align:center;padding:24px;color:' + (isLight ? '#888' : '#777') + ';font-size:12.5px;">Carregando posts...</div>';
+  let posts = [], temMais = false, falhou = false;
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts&limite=60&idatleta=' + Number(id) + '&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' }, 15000);
+    if (!r.ok) throw new Error('erro');
+    const j = await r.json();
+    posts = Array.isArray(j.posts) ? j.posts : [];
+    temMais = !!j.temMais;
+    // Nomes e fotos de perfil entram nos mapas do Feed (sem trocar a lista do Feed que está na tela).
+    Object.keys(j.atletas || {}).forEach(k => { if (!_feedAtletasMap[k]) _feedAtletasMap[k] = j.atletas[k]; });
+    Object.keys(j.avatars || {}).forEach(k => { if (!_feedAvatarsMap[k]) _feedAvatarsMap[k] = j.avatars[k]; });
+  } catch (e) { falhou = true; }
+  if (!box()) return;   // fechou o perfil enquanto carregava
+  _pkPosts = posts;
+  // Quem não está no ranking só é conhecido por esta resposta: completa nome e foto do cabeçalho.
+  const nEl = document.getElementById('pk-nome'), idK = String(id);
+  if (nEl && /^Membro/.test(nEl.textContent) && _feedAtletasMap[idK]) nEl.textContent = _feedAtletasMap[idK];
+  const aEl = document.getElementById('pk-avatar');
+  if (aEl && !aEl.querySelector('img') && _feedAvatarsMap[idK]) {
+    aEl.innerHTML = '<img src="' + esc(_feedAvatarsMap[idK]) + '" style="width:96px;height:96px;border-radius:50%;object-fit:cover;border:3px solid ' + (document.body.classList.contains('tema-claro') ? '#5cb800' : '#7FFF00') + ';"/>';
+  } else if (aEl && !aEl.querySelector('img') && _feedAtletasMap[idK]) {
+    const ini = aEl.firstElementChild; if (ini) ini.textContent = _feedAtletasMap[idK].charAt(0).toUpperCase();
+  }
+  const el = document.getElementById('pk-n-posts'); if (el) el.textContent = falhou ? '—' : (posts.length + (temMais ? '+' : ''));
+  if (falhou) { box().innerHTML = '<div style="text-align:center;padding:24px;color:#888;font-size:12.5px;">Não consegui carregar os posts agora.</div>'; return; }
+  if (!posts.length) {
+    const ehEu = Number(id) === Number(idAtleta);
+    box().innerHTML = '<div style="text-align:center;padding:30px 16px;"><div style="font-size:34px;margin-bottom:8px;">📸</div><div style="font-size:13px;font-weight:700;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' + (ehEu ? 'Você ainda não postou' : 'Nenhum post por aqui ainda') + '</div>' +
+      (ehEu ? '<button class="btn btn-prim" onclick="document.getElementById(\'overlay-perfil-rk\').remove();abrirNovoPostFeed()" style="margin-top:12px;">📸 Novo post</button>' : '') + '</div>';
+    return;
+  }
+  box().innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;">' +
+    posts.map(p => {
+      const ms = _midiasDoPost(p);
+      const icone = ms.some(x => x.tipo === 'video') ? '▶' : (ms.length > 1 ? '⧉' : '');
+      const capa = (ms[0] && ms[0].tipo === 'video' && ms[0].poster) ? ms[0].poster : p.imagem;
+      return '<div onclick="_pkAbrirPost(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight ? '#eee' : '#222') + ';"><img src="' + esc(capa) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' +
+        (icone ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + icone + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+}
+
+// Abre o post inteiro (com curtir e comentar) por cima do perfil.
+async function _pkAbrirPost(idpost) {
+  const post = _pkPosts.find(p => Number(p.idpost) === Number(idpost));
+  if (!post) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  try { await Promise.all([carregarReacoesFeed([idpost]), carregarComentariosFeed([idpost])]); } catch (e) {}
+  document.getElementById('pk-post-ov')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'pk-post-ov';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';overflow-y:auto;';
+  ov.innerHTML = '<div style="position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';border-bottom:1px solid ' + (isLight ? '#e5e5e5' : '#222') + ';"><button onclick="document.getElementById(\'pk-post-ov\').remove()" style="background:none;border:none;color:' + (isLight ? '#555' : '#aaa') + ';font-size:14px;font-weight:700;cursor:pointer;">← Voltar</button></div>' +
+    '<div style="max-width:460px;margin:0 auto;padding:12px;">' + _feedCardHtml(post, isLight) + '</div>';
+  document.body.appendChild(ov);
 }
 
 // ═══════════════ QUADRO DE RESULTADOS ═══════════════
@@ -11536,6 +11665,9 @@ async function _carregarResultadosNoPerfilRk(id) {
   if (!el) return;
   const res = await carregarResultados({ idatleta: id, limite: 5 });
   const el2 = document.getElementById('perfil-rk-resultados');
+  const cnt = document.getElementById('pk-n-res');
+  if (cnt) cnt.textContent = res.erro ? '—' : String(Math.max(res.lista.length, Number(((_rankingData || {}).resultados || {})[String(id)]) || 0));
+  if (el2 && !res.erro && !res.lista.length) el2.innerHTML = '<div style="text-align:center;padding:30px 16px;font-size:13px;color:#888;">Nenhum resultado compartilhado ainda.</div>';
   if (!el2 || res.erro || !res.lista.length) return;   // sem resultado, a seção nem aparece
   el2.innerHTML = '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 10px;">🌟 Quadro de Resultados</div>' +
     res.lista.map(r => _resultadoCardHtml(r, isLight)).join('');
@@ -12280,7 +12412,7 @@ function _muralThreadHtml(idm, isLight) {
     return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
       '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>' +
       '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:12px;line-height:1.4;"><b style="color:' + cor + ';">' + esc(nome) + '</b>' + selo + ' <span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span></div>' +
+        '<div style="font-size:12px;line-height:1.4;"><b' + (c.autor_tipo === 'aluno' ? ' onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;color:' + cor + ';"' : ' style="color:' + cor + ';"') + '>' + esc(nome) + '</b>' + selo + ' <span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span></div>' +
         '<div style="display:flex;gap:14px;margin-top:2px;"><span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' + responder + excluir + '</div>' +
       '</div>' + coracao +
     '</div>';
