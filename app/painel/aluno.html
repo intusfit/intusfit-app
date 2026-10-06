@@ -6251,7 +6251,9 @@ function renderHome() {
     const _fAtiva = fichas.find(f => f.divisoes && Object.keys(f.divisoes).length) || null;
     if (_fAtiva) {
       const _divs = API.ordenarDivisoes(Object.keys(_fAtiva.divisoes), _fAtiva);
-      const _ult = SessoesTreino.listarDoAtleta(idAtleta).find(x => x.divisao && _divs.includes(x.divisao));
+      // Só musculação: o servidor grava todo cardio com divisao 'C', e isso fazia o cartão dizer
+      // "Último: Treino C" para todo mundo (e sugerir a divisão seguinte errada).
+      const _ult = SessoesTreino.listarDoAtleta(idAtleta).find(x => x.divisao && (x.tipo || 'musculacao') !== 'cardio' && !x.cardio_tipo && _divs.includes(x.divisao));
       _ultimoTreino = _ult || null;
       const _ix = _ult ? (_divs.indexOf(_ult.divisao) + 1) % _divs.length : 0;
       const _dv = _divs[_ix];
@@ -6597,8 +6599,18 @@ async function abrirMeusTreinos() {
   // "onde eu parei" — sem pular a tela de escolha, só ajudando a decidir.
   let _ultDiv = null;
   try {
-    const _s = SessoesTreino.listarDoAtleta(idAtleta).find(x => x.divisao);
-    if (_s) _ultDiv = { idficha: Number(_s.idficha), divisao: String(_s.divisao) };
+    const _musc = SessoesTreino.listarDoAtleta(idAtleta).filter(x => x.divisao && (x.tipo || 'musculacao') !== 'cardio' && !x.cardio_tipo);
+    // 1) a última sessão de uma ficha que ainda está valendo; 2) se a ficha foi renovada (outro id),
+    // a última sessão cuja divisão (A, B, C...) existe na ficha atual. Antes só o 1) existia e o
+    // aviso "ÚLTIMO TREINO" sumia quando a última sessão era cardio ou de uma ficha antiga.
+    let _s = _musc.find(x => fichas.some(f => Number(f.idficha) === Number(x.idficha) && f.divisoes && f.divisoes[x.divisao]));
+    let _fid = _s ? Number(_s.idficha) : 0;
+    if (!_s) {
+      const _fa = fichas.find(f => f.divisoes && Object.keys(f.divisoes).length);
+      _s = _fa ? _musc.find(x => _fa.divisoes[x.divisao]) : null;
+      _fid = _fa ? Number(_fa.idficha) : 0;
+    }
+    if (_s) _ultDiv = { idficha: _fid, divisao: String(_s.divisao), dtsessao: _s.dtsessao };
   } catch (e) {}
 
   let html = telaHeader('🏋️ Escolha seu treino');
@@ -6614,7 +6626,7 @@ async function abrirMeusTreinos() {
         const _ehUltima = _ultDiv && _ultDiv.idficha === Number(f.idficha) && _ultDiv.divisao === d;
         return `
         <div class="card card-click" onclick="selecionarTreino(${f.idficha},'${d}')" style="${_ehUltima ? 'border-color:rgba(127,255,0,.5);background:' + (isLight ? 'rgba(127,255,0,.06)' : 'rgba(127,255,0,.05)') + ';' : ''}">
-          ${_ehUltima ? `<div style="display:inline-block;background:#7FFF00;color:#0a0a0a;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:6px;letter-spacing:.03em;margin-bottom:8px;">ÚLTIMO TREINO</div>` : ''}
+          ${_ehUltima ? `<div style="display:inline-block;background:#7FFF00;color:#0a0a0a;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:6px;letter-spacing:.03em;margin-bottom:8px;">ÚLTIMO TREINO${_ultDiv.dtsessao ? ' · ' + _diasAtrasTxt(_ultDiv.dtsessao) : ''}</div>` : ''}
           <div class="div-row">
             <div class="div-badge" style="background:${divColors[i % divColors.length]};color:#000;font-size:20px;font-weight:900;">${esc(_divisaoBadgeLetra(divLabel, d))}</div>
             <div class="div-info">
