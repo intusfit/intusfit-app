@@ -814,6 +814,11 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   (`intus_perfil_config.fotos_visib`), então mudar o padrão afeta só os posts ainda não ajustados. O filtro é feito na
   consulta de `feed_posts` (Feed e perfil); só o dono recebe o campo `visib` de volta. Post que não é de "todos" não
   gera aviso de @menção. A equipe enxerga tudo.
+- **Compartilhar conquista**: a tela de conquista desbloqueada e o detalhe de uma conquista já desbloqueada têm a
+  logo da Intus e o botão "Compartilhar conquista" (`abrirCompartilharConquista`). Gera um cartão 1080x1350 em canvas
+  (medalha, nome, descrição, logo e @intusfit) e abre a folha com: Feed da Intus, só no perfil (com a privacidade da
+  publicação), WhatsApp, Instagram (pelo menu de compartilhar do aparelho, Web Share API), copiar e salvar. Aviso
+  (toast), "aguarde" e as folhas ficam acima das telas (z-index 100000+).
 - **Rolagem**: perfil, post aberto e tela de privacidade travam a rolagem da página de trás (`_pkTravarFundo`).
 
 ## 22. Planos alimentares ativos e inativos (06/10/2026)

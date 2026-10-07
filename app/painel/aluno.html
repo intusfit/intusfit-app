@@ -595,7 +595,7 @@
          mensagem que precisa ser lida na hora, então fica acima de qualquer
          chrome flutuante (mas abaixo dos modais de verdade, tipo o de
          confirmar esforço do cardio, 9999). */
-      z-index: 1200; pointer-events: none; border: 1px solid #252525;
+      z-index: 100050; pointer-events: none; border: 1px solid #252525;   /* acima das folhas de perfil, comunidade e conquistas (100000+) */
       box-shadow: 0 8px 32px rgba(0,0,0,.5);
     }
     .toast-ov.show { opacity: 1; }
@@ -1999,7 +1999,7 @@ function _shareMostrarParaSalvar(blob, fname) {
   document.getElementById('share-save-overlay')?.remove();
   const ov = document.createElement('div');
   ov.id = 'share-save-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px));gap:16px;';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100020;background:rgba(0,0,0,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px));gap:16px;';
   ov.innerHTML =
     '<img src="' + url + '" style="max-width:min(80vw,300px);max-height:50vh;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);"/>' +
     // Botão de baixar em destaque em vez de link discreto — no Android costuma
@@ -2170,7 +2170,7 @@ function _busyMostrar(txt, pct, sub) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'busy-ov';
-    el.style.cssText = 'position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px;touch-action:none;';
+    el.style.cssText = 'position:fixed;inset:0;z-index:100030;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px;touch-action:none;';
     el.innerHTML = '<div style="background:#161616;border:1px solid #2a2a2a;border-radius:18px;padding:24px 20px;width:100%;max-width:310px;text-align:center;color:#f0f0f0;">' +
       '<div style="width:34px;height:34px;margin:0 auto 14px;border-radius:50%;border:3px solid #2a2a2a;border-top-color:#7FFF00;animation:busyGira .9s linear infinite;"></div>' +
       '<div data-t style="font-size:15px;font-weight:800;margin-bottom:12px;line-height:1.3;"></div>' +
@@ -11727,13 +11727,13 @@ function _comMsg(e, padrao) {
 }
 
 // Folha por cima da tela (ids: com-turma, com-desafio, com-novo-turma, ...). Cada uma trava a rolagem de trás.
-function _comSheet(id, titulo, corpoHtml) {
+function _comSheet(id, titulo, corpoHtml, zBase) {
   const isLight = document.body.classList.contains('tema-claro');
   document.getElementById(id)?.remove();
   const n = document.querySelectorAll('.com-sheet').length;
   const ov = document.createElement('div');
   ov.id = id; ov.className = 'com-sheet pk-trava';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:' + (100000 + n) + ';background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain;';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:' + (zBase || (100000 + n)) + ';background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain;';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   ov.addEventListener('touchmove', function (e) { if (e.target === ov) e.preventDefault(); }, { passive: false });
   const linha = isLight ? '#eee' : '#262626';
@@ -12953,15 +12953,168 @@ function abrirDetalheConquista(conqId, perfilId) {
   ) : '';
   ov.innerHTML =
     '<div style="background:' + bg + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#2a2a2a') + ';border-radius:20px;padding:24px 22px;max-width:320px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);">' +
+      '<img src="' + _shareLogoSrc(isLight) + '" alt="Intus" style="height:20px;width:auto;display:block;margin:0 auto 14px;opacity:.9;"/>' +
       '<div style="width:88px;height:88px;margin:0 auto;border-radius:50%;background:' + (isLight ? '#fff' : '#1c1a12') + ';border:3px solid ' + (on || !ehMeu ? (isLight ? '#eab308' : '#a16207') : (isLight ? '#ddd' : '#333')) + ';display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px ' + (isLight ? 'rgba(234,179,8,.3)' : 'rgba(0,0,0,.4)') + ';">' +
         '<span style="font-size:46px;line-height:1;' + (ehMeu && !on ? 'filter:grayscale(1);opacity:.5;' : 'filter:drop-shadow(0 2px 3px rgba(0,0,0,.3));') + '">' + def.e + '</span>' +
       '</div>' +
       '<div style="font-size:19px;font-weight:900;color:' + (isLight ? '#1a1a1a' : '#f5f5f5') + ';margin-top:14px;">' + esc(def.nome) + '</div>' +
       '<div style="font-size:13px;color:' + (isLight ? '#555' : '#bbb') + ';line-height:1.6;margin-top:8px;">' + esc(def.desc) + '</div>' +
       progresso +
-      '<button onclick="document.getElementById(\'conq-detail-overlay\').remove()" style="margin-top:20px;width:100%;padding:12px;border-radius:12px;border:none;background:' + (isLight ? '#f0f0f0' : '#222') + ';color:' + (isLight ? '#333' : '#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>' +
+      (ehMeu && on ? '<button onclick="abrirCompartilharConquista(\'' + def.id + '\')" style="margin-top:16px;width:100%;padding:12px;border-radius:12px;border:1.5px solid ' + gold + ';background:transparent;color:' + gold + ';font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">📤 Compartilhar conquista</button>' : '') +
+      '<button onclick="document.getElementById(\'conq-detail-overlay\').remove()" style="margin-top:' + (ehMeu && on ? '10' : '20') + 'px;width:100%;padding:12px;border-radius:12px;border:none;background:' + (isLight ? '#f0f0f0' : '#222') + ';color:' + (isLight ? '#333' : '#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>' +
     '</div>';
   document.body.appendChild(ov);
+}
+
+// ═══════════ COMPARTILHAR CONQUISTA ═══════════
+// Gera um cartão (1080x1350, proporção do feed do Instagram) com a conquista e a logo da Intus e abre a folha de
+// compartilhamento: Feed da Intus, só no perfil, WhatsApp, Instagram (pelo menu de compartilhar do aparelho), copiar e salvar.
+var _cqShare = { dataUrl: null, def: null, visib: null };
+var _cqPublicando = false;
+function _cqQuebrar(ctx, texto, maxW, maxLinhas) {
+  const palavras = String(texto || '').split(/\s+/).filter(Boolean);
+  const linhas = []; let atual = '';
+  for (let i = 0; i < palavras.length; i++) {
+    const t = atual ? atual + ' ' + palavras[i] : palavras[i];
+    if (ctx.measureText(t).width > maxW && atual) { linhas.push(atual); atual = palavras[i]; } else atual = t;
+  }
+  if (atual) linhas.push(atual);
+  if (linhas.length > maxLinhas) { const cortado = linhas.slice(0, maxLinhas); cortado[maxLinhas - 1] = cortado[maxLinhas - 1].replace(/\s*\S*$/, '') + '...'; return cortado; }
+  return linhas;
+}
+function _cqCarregarImg(src) {
+  return new Promise(function (resolve) { const im = new Image(); im.onload = function () { resolve(im); }; im.onerror = function () { resolve(null); }; im.src = src; });
+}
+async function _conqCartaoDataUrl(def) {
+  try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) {}
+  const W = 1080, H = 1350;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const fonte = 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  const emoji = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  const fundo = ctx.createRadialGradient(W / 2, H * 0.34, 40, W / 2, H * 0.34, H * 0.85);
+  fundo.addColorStop(0, '#2b2412'); fundo.addColorStop(1, '#080808');
+  ctx.fillStyle = fundo; ctx.fillRect(0, 0, W, H);
+  // confete fixo (sempre o mesmo desenho)
+  const cores = ['#fbbf24', '#f59e0b', '#7FFF00', '#22d3ee', '#f472b6', '#a78bfa', '#ffffff'];
+  let seed = 7; const rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 46; i++) {
+    ctx.save(); ctx.translate(rnd() * W, rnd() * H * 0.88); ctx.rotate(rnd() * Math.PI);
+    ctx.globalAlpha = 0.5 + rnd() * 0.4; ctx.fillStyle = cores[i % cores.length];
+    const w = 10 + rnd() * 12; ctx.fillRect(-w / 2, -w * 0.8, w, w * 1.6); ctx.restore();
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  // topo: logo
+  const logo = await _cqCarregarImg('logo-intus-dark.png');
+  if (logo) { const lw = 300, lh = lw * (logo.height / logo.width); ctx.globalAlpha = 0.95; ctx.drawImage(logo, (W - lw) / 2, 90, lw, lh); ctx.globalAlpha = 1; }
+  // legenda do topo
+  ctx.fillStyle = '#fbbf24'; ctx.font = '800 38px ' + fonte;
+  try { ctx.letterSpacing = '7px'; } catch (e) {}
+  ctx.fillText('CONQUISTA DESBLOQUEADA', W / 2, 300);
+  try { ctx.letterSpacing = '0px'; } catch (e) {}
+  // medalha
+  const cx = W / 2, cy = 585, r = 215;
+  ctx.save(); ctx.shadowColor = 'rgba(251,191,36,.65)'; ctx.shadowBlur = 90;
+  const med = ctx.createRadialGradient(cx, cy - 60, 20, cx, cy, r);
+  med.addColorStop(0, '#fff8e1'); med.addColorStop(0.55, '#fbbf24'); med.addColorStop(1, '#d97706');
+  ctx.fillStyle = med; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.font = '235px ' + emoji; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000';
+  ctx.fillText(def.e, cx, cy + 14);
+  ctx.textBaseline = 'alphabetic';
+  // nome e descrição
+  ctx.fillStyle = '#ffffff'; ctx.font = '800 80px ' + fonte;
+  const titulo = _cqQuebrar(ctx, def.nome, 900, 2);
+  let y = 915;
+  titulo.forEach(function (l) { ctx.fillText(l, W / 2, y); y += 90; });
+  ctx.fillStyle = '#dcd6c4'; ctx.font = '500 36px ' + fonte;
+  _cqQuebrar(ctx, def.desc, 900, 4).forEach(function (l) { ctx.fillText(l, W / 2, y + 14); y += 49; });
+  // rodapé
+  ctx.fillStyle = '#a89a6a'; ctx.font = '600 34px ' + fonte;
+  ctx.fillText('@intusfit', W / 2, H - 48);
+  return cv.toDataURL('image/jpeg', 0.92);
+}
+async function abrirCompartilharConquista(arg) {
+  const def = (typeof arg === 'string') ? _conquistasDefs().find(c => c.id === arg) : arg;
+  if (!def) return;
+  _busyMostrar('Preparando seu cartão...', null, '');
+  let dataUrl;
+  try { dataUrl = await _conqCartaoDataUrl(def); }
+  catch (e) { _busyFim(); toast('Não consegui gerar o cartão agora.'); return; }
+  _busyFim();
+  _cqShare = { dataUrl: dataUrl, def: def, visib: null };
+  _cqShareSheet();
+}
+function _cqShareSheet() {
+  const isLight = document.body.classList.contains('tema-claro');
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0', borda = isLight ? '#ddd' : '#333', cardBg = isLight ? '#f6f6f6' : '#1a1a1a', muted = isLight ? '#666' : '#999';
+  if (!_composeVisibPadrao() && !_cqShare.padraoBuscado) {
+    _cqShare.padraoBuscado = true;
+    _pkConfig(idAtleta).then(function () { if (document.getElementById('cq-share') && !_cqShare.visib) _cqShareSheet(); }).catch(function () {});
+  }
+  const sel = _cqShare.visib || _composeVisibPadrao() || 'todos';
+  const chip = (v, rot) => '<button onclick="_cqSetVisib(\'' + v + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;background:' + (sel === v ? 'rgba(127,255,0,.1)' : cardBg) + ';border:1px solid ' + (sel === v ? '#7FFF00' : borda) + ';color:' + txt + ';">' + rot + '</button>';
+  const html =
+    '<img src="' + _cqShare.dataUrl + '" alt="Cartão da conquista" style="display:block;width:58%;max-width:230px;margin:2px auto 14px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);"/>' +
+    '<div style="font-size:11px;font-weight:800;color:' + muted + ';text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px;">🔒 Quem pode ver (Feed e perfil)</div>' +
+    '<div style="display:flex;gap:8px;margin-bottom:12px;">' + chip('todos', '🌎 Todos') + chip('amigos', '👥 Amigos') + chip('eu', '🙋 Só eu') + '</div>' +
+    '<button onclick="_travarEExecutar(event, function(){ return _cqPostar(\'feed\'); })" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">📣 Postar no Feed da Intus</button>' +
+    '<button onclick="_travarEExecutar(event, function(){ return _cqPostar(\'perfil\'); })" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">👤 Postar só no meu perfil</button>' +
+    '<div style="font-size:11px;font-weight:800;color:' + muted + ';text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px;">Compartilhar fora do app</div>' +
+    '<div style="display:flex;justify-content:space-around;">' +
+      _shareSocialBtn(_shareIconSvgSolido('whatsapp', 24), 'WhatsApp', '_cqExterno(\'whatsapp\')', '#25D366', '#fff', txt) +
+      _shareSocialBtn(_shareIconSvgSolido('instagram', 20), 'Instagram', '_cqExterno(\'instagram\')', 'radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%)', '#fff', txt) +
+      _shareActionBtn(_shareIconSvg('copiar'), 'Copiar', '_cqExterno(\'copiar\')', cardBg, borda, txt) +
+      _shareActionBtn(_shareIconSvg('salvar'), 'Salvar', '_cqExterno(\'salvar\')', cardBg, borda, txt) +
+    '</div>';
+  _comSheet('cq-share', '📤 Compartilhar conquista', html, 100010);
+}
+function _cqSetVisib(v) { _cqShare.visib = v; _cqShareSheet(); }
+async function _cqPostar(destino) {
+  if (_cqPublicando || !_cqShare.dataUrl) return;
+  _cqPublicando = true;
+  _busyMostrar('Publicando sua conquista...', null, '');
+  try {
+    const def = _cqShare.def;
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
+      body: JSON.stringify({ imagem: _cqShare.dataUrl, legenda: '🎉 Conquista desbloqueada: ' + def.nome + '. ' + def.desc, destino: destino, visib: _cqShare.visib || undefined })
+    }, 60000);
+    if (!r.ok) throw new Error('erro ' + r.status);
+    _busyFim();
+    document.getElementById('cq-share')?.remove();
+    toast(destino === 'feed' ? 'Publicado no Feed da Intus! 🎉' : 'Publicado no seu perfil! 🎉');
+    if (window._viewAtual === 'feed') renderFeedCompleto();
+  } catch (e) {
+    _busyFim();
+    toast('Não consegui publicar. Tente de novo.');
+  } finally { _cqPublicando = false; }
+}
+async function _cqExterno(tipo) {
+  try {
+    const blob = await _dataUrlParaBlob(_cqShare.dataUrl);
+    const fname = 'intus-conquista-' + dataHojeLocal() + '.jpg';
+    if (tipo === 'copiar') {
+      if (!navigator.clipboard || !window.ClipboardItem) { toast('Seu navegador não suporta copiar imagem. Tente Salvar.'); return; }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': blob })]);
+      toast('Imagem copiada! ✅');
+      return;
+    }
+    if (tipo === 'whatsapp' || tipo === 'instagram') {
+      // Só a Web Share API entrega a imagem a outro app: abre o menu de compartilhar do aparelho, onde
+      // aparecem o WhatsApp e o Instagram (inclusive Stories).
+      const file = new File([blob], fname, { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'Minha conquista na Intus' }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }
+      }
+    }
+    _shareMostrarParaSalvar(blob, fname);
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    toast('Não consegui gerar a imagem agora.');
+  }
 }
 
 // Garante que os dados do ranking (fonte das conquistas) estejam carregados
@@ -13040,6 +13193,7 @@ function _renderComemoracao() {
   ov.innerHTML =
     _cqConfettiHtml() +
     '<div style="position:relative;z-index:2;max-width:340px;width:100%;text-align:center;color:#fff;">' +
+      '<img src="logo-intus-dark.png" alt="Intus" style="height:24px;width:auto;display:block;margin:0 auto 18px;opacity:.95;"/>' +
       '<div style="font-size:13px;font-weight:800;letter-spacing:2.5px;color:#fbbf24;text-transform:uppercase;">🎉 Conquista desbloqueada</div>' +
       (total > 1 ? '<div style="font-size:11px;color:#c9a83a;margin-top:5px;font-weight:700;">' + (_cqIdx + 1) + ' de ' + total + '</div>' : '') +
       '<div style="margin:24px auto 0;width:132px;height:132px;border-radius:50%;background:radial-gradient(circle at 50% 38%,#fff8e1,#fbbf24 55%,#d97706);display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,.25);animation:cqPop .55s ease-out both,cqGlow 2s ease-in-out infinite;">' +
@@ -13047,7 +13201,8 @@ function _renderComemoracao() {
       '</div>' +
       '<div style="font-size:25px;font-weight:900;margin-top:22px;letter-spacing:-.3px;">' + esc(c.nome) + '</div>' +
       '<div style="font-size:13.5px;color:#dcd6c4;line-height:1.55;margin-top:10px;">' + esc(c.desc) + '</div>' +
-      '<button onclick="' + (last ? '_fecharComemoracao()' : '_proximaComemoracao()') + '" style="margin-top:28px;width:100%;padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#3a2a00;font-size:15px;font-weight:900;cursor:pointer;font-family:inherit;box-shadow:0 6px 22px rgba(251,191,36,.45);">' + (last ? 'Continuar 💪' : 'Próxima conquista →') + '</button>' +
+      '<button onclick="abrirCompartilharConquista(_cqDefs[_cqIdx])" style="margin-top:26px;width:100%;padding:14px;border-radius:14px;border:1.5px solid #fbbf24;background:transparent;color:#fbbf24;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;">📤 Compartilhar conquista</button>' +
+      '<button onclick="' + (last ? '_fecharComemoracao()' : '_proximaComemoracao()') + '" style="margin-top:12px;width:100%;padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#3a2a00;font-size:15px;font-weight:900;cursor:pointer;font-family:inherit;box-shadow:0 6px 22px rgba(251,191,36,.45);">' + (last ? 'Continuar 💪' : 'Próxima conquista →') + '</button>' +
     '</div>';
 }
 function _proximaComemoracao() { _cqIdx++; _renderComemoracao(); try { if (navigator && navigator.vibrate) navigator.vibrate(30); } catch (e) {} }
