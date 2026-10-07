@@ -828,3 +828,11 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   automático (diferente das fichas): o alerta de plano vencido continua só avisando a nutri.
 - **O aluno só recebe plano ativo**: `catalogo.php?action=nutricao` filtra `ativo = 1` para aluno e o app não cai mais
   no primeiro plano da lista. Inativar o único plano de um aluno deixa a Nutrição dele sem plano.
+
+## 23. Tela sempre vertical (07/10/2026)
+
+- App nativo travado em retrato: `mobile/android/app/src/main/AndroidManifest.xml` (`screenOrientation="portrait"` na
+  MainActivity) e `mobile/ios/App/App/Info.plist` (iPhone só retrato; iPad retrato e retrato invertido com
+  `UIRequiresFullScreen`, exigido pela Apple quando o iPad não aceita todas as orientações). **Só vale depois de novo
+  build e envio às lojas.** O `manifest.json` do app web já pedia retrato e o `aluno.html` tenta `screen.orientation.lock`
+  (reforço que só funciona em PWA ou tela cheia no Android).
