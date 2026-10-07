@@ -2551,15 +2551,13 @@ async function carregarReacoesFeed(ids) {
 }
 
 // ── Reações do post ──
-// Dois botões sempre visíveis: o da esquerda curte (ou, se você já reagiu, mostra a sua reação e TIRA ao tocar); o
-// "Reagir" abre as outras reações, com nome. Uma reação por pessoa: escolher outra troca a anterior. Acima dos botões,
-// uma linha diz quem reagiu e abre a lista. A tela muda na hora e volta atrás se o servidor recusar.
-const _RX_LISTA = [['❤️', 'Amei'], ['🔥', 'Fogo'], ['💪', 'Força'], ['👏', 'Parabéns'], ['😮', 'Uau'], ['😂', 'Haha']];
-const _RX_ROTULO = { '❤️': 'Curtiu', '🔥': 'Fogo', '💪': 'Força', '👏': 'Parabéns', '😮': 'Uau', '😂': 'Haha' };
+// Linha: as reações já feitas (com o total, toque abre quem reagiu), a sua reação (🤍 se ainda não reagiu; tocar curte,
+// ou tira a que você deu) e o "＋" com as outras reações. Uma reação por pessoa: escolher outra troca a anterior.
+// A tela muda na hora e volta atrás se o servidor recusar.
+const _REACOES_POST = ['❤️', '🔥', '💪', '👏', '😮', '😂'];
 function _rxMinha(idpost) { return (_reacoesFeed[String(idpost)] || []).find(r => r.meu) || null; }
 function _rxRedesenhar(idpost) {
   document.querySelectorAll('[data-feed-kudos="' + idpost + '"]').forEach(el => { el.outerHTML = _kudosHtml(idpost); });
-  document.querySelectorAll('[data-feed-rxres="' + idpost + '"]').forEach(el => { el.outerHTML = _rxResumoHtml(idpost); });
 }
 // emoji = null remove a reação; senão deixa só esta.
 async function reagirPost(idpost, emoji) {
@@ -2590,9 +2588,8 @@ function _rxToque(idpost) { reagirPost(idpost, _rxMinha(idpost) ? null : '❤️
 function _rxEscolher(idpost, emoji) {
   fecharReacoesPost();
   const m = _rxMinha(idpost);
-  reagirPost(idpost, (m && m.emoji === emoji) ? null : emoji);
+  reagirPost(idpost, (m && m.emoji === emoji) ? null : emoji);   // tocar na que já é sua tira
 }
-function _rxRemover(idpost) { fecharReacoesPost(); reagirPost(idpost, null); }
 function fecharReacoesPost() { document.getElementById('rx-bar')?.remove(); document.getElementById('rx-fundo')?.remove(); }
 function abrirReacoesPost(idpost, ev) {
   fecharReacoesPost();
@@ -2606,47 +2603,21 @@ function abrirReacoesPost(idpost, ev) {
   fundo.onclick = fecharReacoesPost;
   const bar = document.createElement('div');
   bar.id = 'rx-bar';
-  const txt = isLight ? '#1a1a1a' : '#f0f0f0', mut = isLight ? '#777' : '#999';
-  bar.style.cssText = 'position:fixed;z-index:100060;left:8px;top:0;visibility:hidden;display:flex;flex-direction:column;gap:4px;padding:8px 6px 6px;border-radius:20px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 12px 34px rgba(0,0,0,.5);';
-  bar.innerHTML = '<div style="display:flex;gap:2px;">' + _RX_LISTA.map(function (par) {
-    const sel = minha && minha.emoji === par[0];
-    return '<button onclick="_rxEscolher(' + Number(idpost) + ',\'' + par[0] + '\')" style="display:flex;flex-direction:column;align-items:center;gap:3px;width:54px;padding:7px 0 6px;border:none;border-radius:14px;background:' + (sel ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)') : 'transparent') + ';color:' + txt + ';cursor:pointer;font-family:inherit;">' +
-      '<span style="font-size:27px;line-height:1;">' + par[0] + '</span><span style="font-size:10.5px;font-weight:' + (sel ? '800' : '600') + ';color:' + (sel ? (isLight ? '#2d8a00' : '#7FFF00') : mut) + ';">' + par[1] + '</span></button>';
-  }).join('') + '</div>' +
-  (minha ? '<button onclick="_rxRemover(' + Number(idpost) + ')" style="border:none;background:transparent;color:#f87171;font-size:12.5px;font-weight:800;padding:8px 0 4px;cursor:pointer;font-family:inherit;border-top:1px solid ' + (isLight ? '#eee' : '#2c2c2c') + ';">Remover minha reação</button>' : '');
+  const largura = _REACOES_POST.length * 46 + 16;
+  bar.style.cssText = 'position:fixed;z-index:100060;left:' + Math.max(8, Math.min(rc.left, window.innerWidth - largura - 8)) + 'px;top:' + Math.max(8, rc.top - 60) + 'px;display:flex;gap:2px;padding:6px 8px;border-radius:30px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 10px 30px rgba(0,0,0,.45);';
+  bar.innerHTML = _REACOES_POST.map(e => '<button onclick="_rxEscolher(' + Number(idpost) + ',\'' + e + '\')" style="width:42px;height:42px;border:none;border-radius:50%;background:' + (minha && minha.emoji === e ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)') : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;">' + e + '</button>').join('');
   document.body.appendChild(fundo); document.body.appendChild(bar);
-  const h = bar.offsetHeight, w = bar.offsetWidth;
-  const acima = rc.top - h - 8;
-  bar.style.top = Math.max(8, acima >= 8 ? acima : rc.bottom + 8) + 'px';
-  bar.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - w - 8)) + 'px';
-  bar.style.visibility = 'visible';
-}
-// Linha acima dos botões: "🔥❤️ Você, Maria e mais 3" (toque abre a lista de quem reagiu).
-function _rxResumoHtml(idpost) {
-  const lista = _reacoesFeed[String(idpost)] || [];
-  if (!lista.length) return '<div data-feed-rxres="' + idpost + '"></div>';
-  const isLight = document.body.classList.contains('tema-claro');
-  const cont = {}; lista.forEach(r => { cont[r.emoji] = (cont[r.emoji] || 0) + 1; });
-  const top = Object.keys(cont).sort((a, b) => cont[b] - cont[a]).slice(0, 3).join('');
-  const nomes = [];
-  if (lista.some(r => r.meu)) nomes.push('Você');
-  lista.filter(r => !r.meu).forEach(r => { const n = String(r.autor_nome || 'Alguém').split(' ')[0]; if (nomes.length < 2 && nomes.indexOf(n) < 0) nomes.push(n); });
-  let txt;
-  if (lista.length <= nomes.length) txt = nomes.length > 1 ? nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1] : nomes[0];
-  else txt = nomes.join(', ') + ' e mais ' + (lista.length - nomes.length);
-  return '<div data-feed-rxres="' + idpost + '" onclick="abrirQuemCurtiu(' + idpost + ')" style="display:flex;align-items:center;gap:7px;cursor:pointer;margin:6px 0 2px;font-size:12.5px;color:' + (isLight ? '#666' : '#999') + ';">' +
-    '<span style="font-size:15px;letter-spacing:1px;">' + top + '</span><span>' + esc(txt) + '</span></div>';
 }
 function _kudosHtml(idpost) {
-  const isLight = document.body.classList.contains('tema-claro');
+  const lista = _reacoesFeed[String(idpost)] || [];
   const minha = _rxMinha(idpost);
-  const acento = isLight ? '#2d8a00' : '#7FFF00';
-  const base = 'display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:17px;font-size:13.5px;font-weight:800;font-family:inherit;cursor:pointer;line-height:1;-webkit-tap-highlight-color:transparent;';
-  const neutro = 'border:1px solid ' + (isLight ? '#d0d0d0' : '#3a3a3a') + ';background:transparent;color:' + (isLight ? '#444' : '#d0d0d0') + ';';
-  const ativo = 'border:1px solid ' + acento + ';background:' + (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') + ';color:' + acento + ';';
-  return '<span data-feed-kudos="' + idpost + '" style="display:inline-flex;align-items:center;gap:8px;">' +
-    '<button onclick="_rxToque(' + idpost + ')" aria-pressed="' + (minha ? 'true' : 'false') + '" title="' + (minha ? 'Toque para tirar sua reação' : 'Curtir') + '" style="' + base + (minha ? ativo : neutro) + '"><span style="font-size:17px;">' + (minha ? minha.emoji : '🤍') + '</span>' + (minha ? (_RX_ROTULO[minha.emoji] || 'Reagiu') : 'Curtir') + '</button>' +
-    '<button onclick="abrirReacoesPost(' + idpost + ',event)" aria-label="Escolher outra reação" style="' + base + neutro + '"><span style="font-size:17px;">😊</span>Reagir</button>' +
+  const cor = minha ? '#7FFF00' : 'inherit';
+  const cont = {}; lista.forEach(r => { cont[r.emoji] = (cont[r.emoji] || 0) + 1; });
+  const top = Object.keys(cont).sort((a, b) => cont[b] - cont[a]).slice(0, 3).join('');
+  return '<span data-feed-kudos="' + idpost + '" style="display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:15px;">' +
+    (lista.length ? '<span onclick="abrirQuemCurtiu(' + idpost + ')" title="Ver quem reagiu" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-weight:' + (minha ? '800' : '600') + ';color:' + cor + ';"><span style="font-size:17px;">' + top + '</span>' + lista.length + '</span>' : '') +
+    '<button onclick="_rxToque(' + idpost + ')" title="' + (minha ? 'Toque para tirar sua reação' : 'Curtir') + '" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;">' + (minha ? minha.emoji : '🤍') + '</button>' +
+    '<button onclick="abrirReacoesPost(' + idpost + ',event)" title="Mais reações" aria-label="Mais reações" style="border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer;padding:0;width:22px;height:22px;border-radius:50%;font-size:15px;line-height:1;font-family:inherit;">＋</button>' +
   '</span>';
 }
 
@@ -3093,8 +3064,7 @@ function _feedCardHtml(post, isLight) {
     _carrosselHtml(_midiasDoPost(post), isLight) +
     '<div style="padding:11px 12px;">' +
       _feedLegendaHtml(post, nome.split(' ')[0], isLight) +
-      _rxResumoHtml(post.idpost) +
-      '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
+      '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
       _comentariosHtml(post.idpost, isLight) +
     '</div>' +
   '</div>';
@@ -11525,8 +11495,8 @@ async function abrirPerfilRanking(id, social) {
   ov.innerHTML =
     '<div style="background:' + bg + ';border-radius:22px 22px 0 0;width:100%;max-width:460px;max-height:88vh;max-height:88dvh;display:flex;flex-direction:column;">' +
       // Cabeçalho fixo com a logo e o botão de fechar sempre visíveis
-      '<div style="flex-shrink:0;position:relative;box-sizing:border-box;min-height:50px;padding:12px 16px 8px;border-bottom:1px solid ' + (isLight?'#eee':'#222') + ';">' +
-        '<img src="' + _shareLogoSrc(isLight) + '" alt="Intus" style="position:absolute;top:50%;left:16px;transform:translateY(-50%);height:16px;width:auto;max-width:90px;object-fit:contain;opacity:.9;"/>' +
+      '<div style="flex-shrink:0;position:relative;padding:12px 16px 8px;">' +
+        '<img src="' + _shareLogoSrc(isLight) + '" alt="Intus" style="position:absolute;top:15px;left:16px;height:15px;width:auto;opacity:.85;"/>' +
         '<div style="width:40px;height:4px;border-radius:2px;background:' + (isLight?'#ddd':'#333') + ';margin:0 auto;"></div>' +
         '<button onclick="document.getElementById(\'overlay-perfil-rk\').remove();" aria-label="Fechar" style="position:absolute;top:8px;right:12px;width:34px;height:34px;border-radius:50%;border:none;background:' + (isLight?'#eee':'#2a2a2a') + ';color:' + (isLight?'#555':'#ccc') + ';font-size:22px;line-height:1;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;">×</button>' +
       '</div>' +
@@ -11731,7 +11701,7 @@ function _amzVazio(emoji, titulo, texto, isLight) {
 function _amzAbaAmigosHtml(isLight) {
   const par = _pcDados.parceiros || [], env = _pcDados.enviados || [], rec = _pcDados.recebidos || [];
   const cheio = par.length >= (_pcDados.limite || 3);
-  let html = '<input id="amz-busca" type="search" placeholder="Buscar aluno pelo nome" oninput="_amzBuscar(this.value)" style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:12px;font-size:14px;margin-bottom:6px;"/>' +
+  let html = '<input id="amz-busca" type="search" placeholder="Buscar aluno pelo nome" oninput="_amzBuscar(this.value)" style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:12px;font-size:14px;margin-bottom:6px;font-family:inherit;outline:none;background:' + (isLight ? '#fff' : '#1a1a1a') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';border:1px solid ' + (isLight ? '#ddd' : '#2e2e2e') + ';"/>' +
     '<div id="amz-busca-res"></div>';
   const lista = _amzDados.amigos || [];
   if (!lista.length) return html + _amzVazio('🤝', 'Você ainda não tem amigos por aqui', 'Busque um aluno pelo nome acima, ou toque no nome de alguém no Feed ou nos comentários para adicionar.', isLight);
@@ -11819,7 +11789,7 @@ function _amzAbaParceirosHtml(isLight) {
 // sincronizados no aparelho (intus-usuarios).
 function _feedBuscaHtml(isLight) {
   return '<div style="margin:0 0 12px;"><div style="position:relative;"><span style="position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none;">🔎</span>' +
-    '<input id="feed-busca" type="search" placeholder="Buscar alunos ou equipe" oninput="_feedBuscar(this.value)" autocomplete="off" style="width:100%;box-sizing:border-box;padding:11px 14px 11px 38px;border-radius:12px;font-size:14px;"/></div>' +
+    '<input id="feed-busca" type="search" placeholder="Buscar alunos ou equipe" oninput="_feedBuscar(this.value)" autocomplete="off" style="width:100%;box-sizing:border-box;padding:11px 14px 11px 38px;border-radius:12px;font-size:14px;font-family:inherit;outline:none;background:' + (isLight ? '#fff' : '#1a1a1a') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';border:1px solid ' + (isLight ? '#ddd' : '#2e2e2e') + ';"/></div>' +
     '<div id="feed-busca-res"></div></div>';
 }
 function _equipeLista() {

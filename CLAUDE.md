@@ -867,3 +867,8 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   linha "Você, Maria e mais 3" acima. A tela muda na hora e volta atrás se o servidor recusar.
 - **Atalhos da Home**: Conquistas, Evoluções, Avaliações e "Ver mais" têm a mesma estrutura (ícone, título e legenda) e o
   conteúdo centralizado na vertical; os cartões Treinos e Cardio também centralizam o conteúdo.
+- **Reações, desenho final (07/10/2026)**: a linha do post é "reações já feitas + total" (toque abre quem reagiu),
+  a sua reação (🤍 ou o emoji que você deu; tocar curte ou tira) e o "＋" com as outras reações. Os botões com texto e a
+  linha de nomes foram descartados a pedido. Ficam os consertos: lista esvaziada quando o servidor omite o post,
+  ações `definir`/`remover` no servidor e atualização imediata na tela.
+- **Perfil social**: o cabeçalho não tem mais a linha de baixo (era ela que cortava a logo); a logo ficou na posição original.
