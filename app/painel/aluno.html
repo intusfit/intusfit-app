@@ -6391,6 +6391,11 @@ function renderHome() {
   let _diffPts = null;
   let _proximoPts = null;
   let _ultimoTreino = null; // { dtsessao, divisao } — pro cartão "Treinos" mostrar o que já foi feito
+  let _ultimoCardio = null; // texto "ontem" / "há 3 dias" — pro cartão "Cardio"
+  try {
+    const _uc = SessoesTreino.listarDoAtleta(idAtleta).find(x => ((x.tipo || 'musculacao') === 'cardio' || x.cardio_tipo) && Number(x.nao_contar) !== 1);
+    if (_uc) _ultimoCardio = _cardioDiasTxt(_uc.dtsessao);
+  } catch (e) {}
   try {
     // Proxima divisao: a seguinte a da ultima sessao registrada. Sem sessao
     // nenhuma, comeca pela primeira divisao da ficha.
@@ -6561,6 +6566,7 @@ function renderHome() {
           <div class="tt">Cardio</div>
         </div>
         <div class="sb">Caminhada, bike e corrida</div>
+        ${_ultimoCardio ? `<div style="margin-top:7px;font-size:11.5px;font-weight:800;color:${isLight?'#0e7490':'#67e8f9'};">⏱ Último cardio: ${_ultimoCardio}</div>` : ''}
       </div>
     </div>
 
@@ -13682,6 +13688,15 @@ function _medalhaDesde() {
 // Nao e aleatorio a cada render de proposito: dentro do mesmo dia ele fica
 // estavel, senao mudaria de cor toda vez que a tela redesenha.
 // "Último: Treino B · há 2 dias" no cartão de Treinos da home.
+// "hoje", "ontem" ou "há N dias" (sem virar data), para o cartão de Cardio da Home.
+function _cardioDiasTxt(dtsessao) {
+  const d = new Date(String(dtsessao).slice(0, 10) + 'T00:00:00');
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const dias = Math.round((hoje - d) / 86400000);
+  if (dias <= 0) return 'hoje';
+  if (dias === 1) return 'ontem';
+  return 'há ' + dias + ' dias';
+}
 function _diasAtrasTxt(dtsessao) {
   const d = new Date(String(dtsessao).slice(0, 10) + 'T00:00:00');
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
