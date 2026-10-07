@@ -843,3 +843,15 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   vídeo gira pelo player do sistema: **conferir num iPhone de verdade**; se não girar, será preciso liberar as
   orientações horizontais no `Info.plist` e travar o retrato por plugin. No Android também vale só depois de novo
   build.
+
+## 24. Feed: busca, reações e Cardio (07/10/2026)
+
+- **Home**: o título "Feed dos Alunos" é um link para a tela do Feed.
+- **Busca no Feed** (`_feedBuscar`): alunos que participam do Feed ou do ranking (nomes já carregados no app) e equipe
+  (professores e nutricionistas de `intus-usuarios`, no aparelho, com o nome público do Luiz). Aluno abre o perfil
+  social; equipe abre uma folha (`abrirPerfilEquipe`) com cargo, bio, Instagram e atalho para o chat.
+- **Reações no post**: além do coração (❤️ 🔥 💪 👏 😮 😂). Toque no botão curte ou tira a sua reação; segurar o botão
+  ou tocar no "＋" abre a barra. **Uma reação por pessoa**: o POST de `reacoes` aceita `unica: true`, que troca a
+  anterior. O sino diz "reagiu 🔥 ao seu post" quando não é coração.
+- **Cardio**: "Registrar manualmente" e "Histórico de cardios" viraram cartões em destaque (ícone, descrição e seta),
+  no lugar do texto cinza. O texto do Cardio ao vivo agora só diz que dá para monitorar e já registrar pelo app.

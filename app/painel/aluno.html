@@ -600,6 +600,9 @@
     .comment-box textarea:focus { border-color: #7FFF00; outline: none; }
     .comment-box textarea::placeholder { color: #444; }
 
+    .cd-sum::-webkit-details-marker { display: none; }
+    .cd-sum { -webkit-tap-highlight-color: transparent; }
+    details[open] > .cd-sum .cd-chev { transform: rotate(180deg); }
     .toast-ov {
       position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
       background: #1a1a1a; color: #fff; padding: 14px 22px; border-radius: 12px;
@@ -2542,12 +2545,12 @@ async function carregarReacoesFeed(ids) {
   } catch (e) {}
 }
 
-async function reagirPost(idpost) {
+async function reagirPost(idpost, emoji) {
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alvo_tipo: 'feed_post', alvo_id: Number(idpost), emoji: '❤️' }),
+      body: JSON.stringify({ alvo_tipo: 'feed_post', alvo_id: Number(idpost), emoji: emoji || '❤️', unica: true }),
     });
     if (!r.ok) throw new Error('falhou');
   } catch (e) { toast('Não deu para registrar sua reação.'); return; }
@@ -2558,13 +2561,52 @@ async function reagirPost(idpost) {
 // Coração = curtir (alterna a própria reação); o número = ver quem curtiu
 // (abrirQuemCurtiu), estilo rede social. Sem número (0 curtidas) o clique
 // no número também curte, pra nunca ser um toque morto.
+// Reações do post: toque no botão curte (ou tira a reação que você já deu), segurar o botão ou tocar no "＋" abre a
+// barra com as outras reações. Uma reação por pessoa: escolher outra troca a anterior.
+const _REACOES_POST = ['❤️', '🔥', '💪', '👏', '😮', '😂'];
+var _rxTimer = null, _rxLongo = false;
+function _rxPressStart(id, ev) {
+  _rxLongo = false; clearTimeout(_rxTimer);
+  const btn = ev.currentTarget;
+  _rxTimer = setTimeout(function () { _rxLongo = true; abrirReacoesPost(id, null, btn); }, 450);
+}
+function _rxPressEnd() { clearTimeout(_rxTimer); }
+function _rxClick(id, ev) {
+  if (_rxLongo) { _rxLongo = false; if (ev) ev.preventDefault(); return; }
+  const minha = (_reacoesFeed[String(id)] || []).find(r => r.meu);
+  reagirPost(id, minha ? minha.emoji : '❤️');
+}
+function fecharReacoesPost() { document.getElementById('rx-bar')?.remove(); document.getElementById('rx-fundo')?.remove(); }
+function abrirReacoesPost(idpost, ev, btnEl) {
+  fecharReacoesPost();
+  const ancora = btnEl || (ev && ev.currentTarget); if (!ancora) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const minha = (_reacoesFeed[String(idpost)] || []).find(r => r.meu);
+  const rc = ancora.getBoundingClientRect();
+  const fundo = document.createElement('div');
+  fundo.id = 'rx-fundo';
+  fundo.style.cssText = 'position:fixed;inset:0;z-index:100059;pointer-events:none;';
+  fundo.onclick = fecharReacoesPost;
+  const bar = document.createElement('div');
+  bar.id = 'rx-bar';
+  const largura = _REACOES_POST.length * 46 + 16;
+  bar.style.cssText = 'position:fixed;z-index:100060;left:' + Math.max(8, Math.min(rc.left, window.innerWidth - largura - 8)) + 'px;top:' + Math.max(8, rc.top - 60) + 'px;display:flex;gap:2px;padding:6px 8px;border-radius:30px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 10px 30px rgba(0,0,0,.45);';
+  bar.innerHTML = _REACOES_POST.map(e => '<button onclick="fecharReacoesPost();reagirPost(' + Number(idpost) + ',\'' + e + '\')" style="width:42px;height:42px;border:none;border-radius:50%;background:' + (minha && minha.emoji === e ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)') : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;">' + e + '</button>').join('');
+  document.body.appendChild(fundo); document.body.appendChild(bar);
+  setTimeout(function () { fundo.style.pointerEvents = 'auto'; }, 500);   // só depois de soltar o dedo do toque longo
+}
 function _kudosHtml(idpost) {
   const lista = _reacoesFeed[String(idpost)] || [];
-  const meu = lista.some(r => r.meu);
-  const cor = meu ? '#7FFF00' : 'inherit';
+  const minha = lista.find(r => r.meu);
+  const cor = minha ? '#7FFF00' : 'inherit';
+  const cont = {}; lista.forEach(r => { cont[r.emoji] = (cont[r.emoji] || 0) + 1; });
+  const top = Object.keys(cont).sort((a, b) => cont[b] - cont[a]).slice(0, 3).join('');
   return '<span data-feed-kudos style="display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:15px;">' +
-    '<button onclick="reagirPost(' + idpost + ')" title="Curtir" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;">' + (meu ? '❤️' : '🤍') + '</button>' +
-    '<span onclick="' + (lista.length ? 'abrirQuemCurtiu(' + idpost + ')' : 'reagirPost(' + idpost + ')') + '" title="' + (lista.length ? 'Ver quem curtiu' : 'Curtir') + '" style="cursor:pointer;font-weight:' + (meu ? '800' : '600') + ';color:' + cor + ';">' + lista.length + '</span>' +
+    '<button onclick="_rxClick(' + idpost + ',event)" ontouchstart="_rxPressStart(' + idpost + ',event)" ontouchend="_rxPressEnd()" ontouchmove="_rxPressEnd()" ontouchcancel="_rxPressEnd()" onmousedown="_rxPressStart(' + idpost + ',event)" onmouseup="_rxPressEnd()" onmouseleave="_rxPressEnd()" oncontextmenu="return false" title="Curtir (segure para escolher outra reação)" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;-webkit-touch-callout:none;user-select:none;">' + (minha ? minha.emoji : '🤍') + '</button>' +
+    '<button onclick="abrirReacoesPost(' + idpost + ',event)" title="Mais reações" aria-label="Mais reações" style="border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer;padding:0;width:22px;height:22px;border-radius:50%;font-size:15px;line-height:1;font-family:inherit;">＋</button>' +
+    (lista.length
+      ? '<span onclick="abrirQuemCurtiu(' + idpost + ')" title="Ver quem reagiu" style="cursor:pointer;font-weight:' + (minha ? '800' : '600') + ';color:' + cor + ';">' + top + ' ' + lista.length + '</span>'
+      : '<span onclick="reagirPost(' + idpost + ')" title="Curtir" style="cursor:pointer;font-weight:600;">0</span>') +
   '</span>';
 }
 
@@ -2582,7 +2624,7 @@ function abrirQuemCurtiu(idpost) {
   ).join('');
   openModalGenerico(
     '<div style="padding:6px 20px 4px;">' +
-      '<div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:8px;">❤️ ' + lista.length + ' curtida' + (lista.length > 1 ? 's' : '') + '</div>' +
+      '<div style="font-size:15px;font-weight:800;color:var(--texto);margin-bottom:8px;">😀 ' + lista.length + ' reaç' + (lista.length > 1 ? 'ões' : 'ão') + '</div>' +
       '<div style="max-height:50vh;overflow-y:auto;">' + itens + '</div>' +
     '</div>'
   );
@@ -3186,7 +3228,7 @@ function renderFeedHomePreview() {
   // vazio), levando o botão junto.
   const headerHtml =
     '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px;">' +
-      '<span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';">📣 Feed dos Alunos</span>' +
+      '<span onclick="navegar(\'feed\')" role="link" style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:' + (isLight?'#8a8f96':'#7d838a') + ';cursor:pointer;padding:6px 0;">📣 Feed dos Alunos <span style="color:' + (isLight?'#2d8a00':'#7FFF00') + ';">›</span></span>' +
       '<button onclick="abrirNovoPostFeed()" style="display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:20px;border:none;background:#7FFF00;color:#0f1a00;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;">📸 Novo post</button>' +
     '</div>';
   _feedModo = 'home';
@@ -3256,6 +3298,7 @@ async function renderFeedCompleto() {
   await carregarReacoesFeed(posts.map(p => p.idpost));
   await carregarComentariosFeed(posts.map(p => p.idpost));
   let html = telaHeader('📣 Feed dos Alunos');
+  html += _feedBuscaHtml(isLight);
   html += _feedChipsAmigosHtml(isLight);
   html += '<button class="btn btn-prim" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button>';
   if (!posts.length) {
@@ -9562,16 +9605,21 @@ function renderCardio() {
       <div style="width:58px;height:58px;border-radius:16px;background:linear-gradient(135deg,#7FFF00,#40c000);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;">📍</div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:17.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Monitore seu cardio ao vivo</div>
-        <div style="font-size:13px;color:${isLight?'#555':'#999'};margin-top:3px;">Corrida, caminhada ou bike rastreados por GPS — distância e ritmo calculados na hora</div>
-        <div style="font-size:11.5px;font-weight:700;color:${isLight?'#0e7490':'#67e8f9'};margin-top:6px;">🔴 +1 ponto extra no ranking a cada hora feita ao vivo na semana</div>
+        <div style="font-size:13px;color:${isLight?'#555':'#999'};margin-top:3px;line-height:1.45;">Use para monitorar sua atividade e já registrar direto pelo app, com distância, tempo, ritmo e mais, na hora.</div>
       </div>
       <div style="font-size:24px;color:${isLight?'#2d8a00':'#7FFF00'};">▶</div>
     </div>
 
-    <details id="cardio-manual-details" style="background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:14px;padding:18px 20px;margin-bottom:20px;">
-      <summary style="font-size:15px;font-weight:800;color:${isLight?'#666':'#999'};cursor:pointer;list-style:none;">✍️ Prefiro registrar manualmente</summary>
-      <div style="margin-top:14px;">
-
+    <details id="cardio-manual-details" style="background:${isLight?'#ecfeff':'rgba(6,182,212,.08)'};border:1.5px solid ${isLight?'#67e8f9':'rgba(6,182,212,.45)'};border-radius:16px;padding:0;margin-bottom:14px;overflow:hidden;">
+      <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer;list-style:none;">
+        <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#06b6d4,#0ea5e9);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">✍️</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:16.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Registrar manualmente</div>
+          <div style="font-size:12px;color:${isLight?'#0e7490':'#67e8f9'};margin-top:2px;line-height:1.4;">Natação, esteira, escada e outras atividades sem GPS</div>
+        </div>
+        <span class="cd-chev" style="font-size:20px;color:${isLight?'#0e7490':'#22d3ee'};transition:transform .2s;">▾</span>
+      </summary>
+      <div style="padding:0 20px 20px;">
       <div style="margin-bottom:12px;">
         <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Atividade</label>
         <select id="cardio-tipo" onchange="onCardioTipoChange()"
@@ -9629,9 +9677,16 @@ function renderCardio() {
       </div>
     </details>
 
-    <details id="cardio-historico-details" style="background:${isLight?'#fafafa':'#111'};border:1px solid ${isLight?'#e5e5e5':'#1e1e1e'};border-radius:14px;padding:18px 20px;margin-bottom:20px;">
-      <summary style="font-size:15px;font-weight:800;color:${isLight?'#666':'#999'};cursor:pointer;list-style:none;">📋 Histórico de cardios${_cardioHistorico.length ? ' (' + _cardioHistorico.length + ')' : ''}</summary>
-      <div style="margin-top:14px;">
+    <details id="cardio-historico-details" style="background:${isLight?'#f5f3ff':'rgba(129,140,248,.08)'};border:1.5px solid ${isLight?'#c4b5fd':'rgba(129,140,248,.45)'};border-radius:16px;padding:0;margin-bottom:20px;overflow:hidden;">
+      <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer;list-style:none;">
+        <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#818cf8,#6366f1);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">📋</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:16.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Histórico de cardios${_cardioHistorico.length ? ' <span style="font-size:12px;font-weight:800;color:#fff;background:#6366f1;border-radius:999px;padding:2px 9px;vertical-align:2px;">' + _cardioHistorico.length + '</span>' : ''}</div>
+          <div style="font-size:12px;color:${isLight?'#4f46e5':'#a5b4fc'};margin-top:2px;line-height:1.4;">Veja, confira e acompanhe tudo o que você já registrou</div>
+        </div>
+        <span class="cd-chev" style="font-size:20px;color:${isLight?'#4f46e5':'#a5b4fc'};transition:transform .2s;">▾</span>
+      </summary>
+      <div style="padding:0 20px 20px;">
       ${_cardioHistorico.length === 0
         ? `<div style="text-align:center;padding:24px;color:${isLight?'#aaa':'#555'};font-size:13px;">Nenhum cardio registrado ainda.</div>`
         : `<div style="display:flex;flex-direction:column;gap:8px;">` +
@@ -11689,6 +11744,50 @@ function _amzAbaParceirosHtml(isLight) {
       '<div style="flex:1;min-width:0;font-size:15px;font-weight:800;color:' + txt + ';">' + esc(p.nome) + '</div>' +
       _amzBtn('Desfazer', 'pcDesfazer(' + id + ')', false, isLight) + '</div>' + corpo + '</div>';
   }).join('') + '<div style="font-size:11.5px;color:' + sub + ';line-height:1.5;padding:4px;">A sequência conta as semanas, de domingo a sábado, em que os dois fizeram pelo menos um treino. Só aparece quem participa do ranking.</div>';
+}
+
+// ═══════════════ BUSCA NO FEED (alunos e equipe) ═══════════════
+// Alunos: quem participa do Feed ou do ranking (nomes já carregados no app). Equipe: professores e nutricionistas
+// sincronizados no aparelho (intus-usuarios).
+function _feedBuscaHtml(isLight) {
+  return '<div style="margin:0 0 12px;"><div style="position:relative;"><span style="position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none;">🔎</span>' +
+    '<input id="feed-busca" type="search" placeholder="Buscar alunos ou equipe" oninput="_feedBuscar(this.value)" autocomplete="off" style="width:100%;box-sizing:border-box;padding:11px 14px 11px 38px;border-radius:12px;font-size:14px;"/></div>' +
+    '<div id="feed-busca-res"></div></div>';
+}
+function _equipeLista() {
+  try { return (JSON.parse(localStorage.getItem('intus-usuarios') || '[]') || []).filter(u => u && u.ativo !== false && u.nome); } catch (e) { return []; }
+}
+function _equipeNomePublico(u) { return Number(u.idusuario) === 1 ? 'Luiz Nunes - Treinador' : u.nome; }
+function _feedBuscar(q) {
+  const el = document.getElementById('feed-busca-res'); if (!el) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const termo = _amzNorm(q).trim();
+  if (termo.length < 2) { el.innerHTML = ''; return; }
+  const eu = String(idAtleta);
+  const alunos = Object.assign({}, ((_rankingData || {}).atletas) || {}, _feedAtletasMap || {});
+  const achAlunos = Object.keys(alunos).filter(k => k !== eu && _amzNorm(alunos[k]).indexOf(termo) >= 0).slice(0, 12);
+  const achEquipe = _equipeLista().filter(u => _amzNorm(_equipeNomePublico(u)).indexOf(termo) >= 0).slice(0, 6);
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0', sub = isLight ? '#777' : '#999', linha = isLight ? '#eee' : '#222';
+  const tit = (t) => '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 2px;">' + t + '</div>';
+  const linhaHtml = (clique, av, nome, sub2) => '<div onclick="' + clique + '" style="display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid ' + linha + ';cursor:pointer;">' + av +
+    '<div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:800;color:' + txt + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome) + '</div>' + (sub2 ? '<div style="font-size:11.5px;color:' + sub + ';">' + esc(sub2) + '</div>' : '') + '</div><span style="color:' + sub + ';font-size:18px;">›</span></div>';
+  let h = '';
+  if (achEquipe.length) h += tit('Equipe') + achEquipe.map(u => linhaHtml('abrirPerfilEquipe(' + Number(u.idusuario) + ')', _amzAvHtml({ nome: u.nome, avatar: '' }, isLight), _equipeNomePublico(u), u.cargo || 'Equipe')).join('');
+  if (achAlunos.length) h += tit('Alunos') + achAlunos.map(k => linhaHtml('abrirPerfilAluno(' + Number(k) + ')', _amzAvHtml({ nome: alunos[k], avatar: (_feedAvatarsMap || {})[k] || ((_rankingData || {}).avatars || {})[k] || '' }, isLight), alunos[k], '')).join('');
+  el.innerHTML = h || '<div style="padding:14px 4px;font-size:12.5px;color:' + sub + ';">Ninguém encontrado com esse nome.</div>';
+}
+function abrirPerfilEquipe(id) {
+  const u = _equipeLista().find(x => Number(x.idusuario) === Number(id)); if (!u) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0', sub = isLight ? '#666' : '#999', cor = isLight ? '#2d8a00' : '#7FFF00';
+  const ig = String(u.instagram || '').replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/\/$/, '');
+  const html = '<div style="text-align:center;padding:6px 0 4px;">' + userAvatarHtml(u.idusuario, u.nome, 80) +
+    '<div style="font-size:18px;font-weight:900;color:' + txt + ';margin-top:12px;">' + esc(_equipeNomePublico(u)) + '</div>' +
+    '<div style="font-size:13px;color:' + sub + ';margin-top:3px;">' + esc(u.cargo || 'Equipe Intus') + '</div>' +
+    (ig ? '<a href="https://instagram.com/' + esc(ig) + '" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:13px;font-weight:700;color:' + cor + ';text-decoration:none;">📸 @' + esc(ig) + '</a>' : '') +
+    (u.bio ? '<div style="font-size:13px;color:' + sub + ';line-height:1.6;margin-top:14px;text-align:left;white-space:pre-wrap;">' + esc(u.bio) + '</div>' : '') +
+    '<button class="btn btn-prim" style="width:100%;margin-top:18px;" onclick="document.getElementById(\'com-equipe\').remove();_centralTab=\'chat\';navegar(\'mensagens\')">💬 Falar pelo chat</button></div>';
+  _comSheet('com-equipe', esc(_equipeNomePublico(u)), html);
 }
 
 // ═══════════════ TURMAS E DESAFIOS ENTRE ALUNOS ═══════════════
@@ -17593,7 +17692,7 @@ function _notifLinhaHtml(n, isLight) {
   const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
-    curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Mural' : 'curtiu seu post'),
+    curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Mural' : ((n.texto && n.texto !== '❤️') ? 'reagiu ' + n.texto + ' ao seu post' : 'curtiu seu post')),
     curtida_comentario: noMural ? 'curtiu sua resposta no mural' : 'curtiu seu comentário',
     curtida_chat: 'curtiu sua mensagem',
     comentario: noMural ? 'respondeu seu comentário no mural' : 'comentou no seu post',

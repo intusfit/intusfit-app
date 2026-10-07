@@ -2259,6 +2259,10 @@ if ($action === 'reacoes') {
         // Nome de quem reagiu, buscado no servidor — nao aceita o que o cliente diz.
         [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
 
+        // "unica": uma reação por pessoa neste alvo. Escolher outro emoji troca o anterior em vez de somar.
+        if (!empty($b['unica'])) {
+            $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id = ? AND autor_tipo = ? AND autor_id = ? AND emoji <> ?")->execute([$tipo, $alvo, $_autorTipo, $_autorId, $emoji]);
+        }
         $st = $pdo->prepare("SELECT idreacao FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id = ? AND autor_tipo = ? AND autor_id = ? AND emoji = ? LIMIT 1");
         $st->execute([$tipo, $alvo, $_autorTipo, $_autorId, $emoji]);
         $existe = $st->fetchColumn();
