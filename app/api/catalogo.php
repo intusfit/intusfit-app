@@ -315,6 +315,15 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Privacidade de cada publicação (todos | amigos | eu). Sem linha, vale o padrão do perfil (intus_perfil_config).
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_post_visib (
+            idpost     INT PRIMARY KEY,
+            visib      VARCHAR(10) NOT NULL DEFAULT 'todos',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // ── Conexões entre alunos: ESTRUTURAS PRONTAS, DESLIGADAS ──────────────────────────────────
     // Nada abaixo é usado enquanto INTUS_CONEXOES_ATIVO for false (ver a constante mais adiante).
     // As tabelas existem para a ativação ser só ligar a chave, sem migração na hora.
@@ -576,6 +585,18 @@ function _pessoasMapa(PDO $pdo, array $ids): array {
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) { $k = (int)$r['idatleta']; if (isset($out[$k])) $out[$k]['avatar'] = $r['avatar']; }
     } catch (Throwable $e) {}
     return $out;
+}
+
+// Privacidade efetiva de uma publicação: a dela, ou o padrão do perfil do dono, ou 'todos'.
+function _visibPost(PDO $pdo, int $idpost): string {
+    try {
+        $st = $pdo->prepare("SELECT COALESCE(v.visib, c.fotos_visib, 'todos') FROM intus_feed_post p
+                             LEFT JOIN intus_post_visib v ON v.idpost = p.idpost
+                             LEFT JOIN intus_perfil_config c ON c.idatleta = p.idatleta WHERE p.idpost = ?");
+        $st->execute([$idpost]);
+        $v = (string)$st->fetchColumn();
+        return in_array($v, ['todos', 'amigos', 'eu'], true) ? $v : 'todos';
+    } catch (Throwable $e) { return 'todos'; }
 }
 
 // Turmas ativas em que o aluno está.
@@ -2585,30 +2606,8 @@ if ($action === 'feed_posts') {
         }
 
         $visiveis = array_values(array_diff($optinIds, $ocultarDeles, $meOcultaram));
-        // Privacidade das fotos: quem escolheu "só amigos" ou "só eu" some do feed e do perfil para os
-        // outros alunos. O próprio dono sempre se vê; a equipe (professor) enxerga tudo, como moderação.
-        $restritoPor = [];
-        if ($_autorTipo === 'aluno' && count($visiveis)) {
-            try {
-                $rp = $pdo->query("SELECT idatleta, fotos_visib FROM intus_perfil_config WHERE fotos_visib IN ('amigos','eu')")->fetchAll(PDO::FETCH_ASSOC);
-                if ($rp) {
-                    $meusAmigos = _amigosDe($pdo, $_autorId);
-                    foreach ($rp as $r) {
-                        $ida = (int)$r['idatleta'];
-                        if ($ida === $_autorId) continue;
-                        if ($r['fotos_visib'] === 'amigos' && in_array($ida, $meusAmigos, true)) continue;
-                        $restritoPor[$ida] = $r['fotos_visib'];
-                    }
-                    $visiveis = array_values(array_diff($visiveis, array_keys($restritoPor)));
-                }
-            } catch (Throwable $e) {}
-        }
-        // Autor sempre vê os próprios posts, mesmo se saiu do feed depois ou
-        // bloqueou/foi bloqueado por si mesmo (não deveria acontecer, mas não
-        // custa garantir) — sem isso "meus posts" no perfil ficaria vazio
-        // assim que a pessoa desligasse o feed_optin.
-        // (só aluno: o id de um professor não pode virar "autor visível" de aluno)
-        if ($_autorTipo === 'aluno' && !in_array($_autorId, $visiveis, true)) $visiveis[] = $_autorId;
+        // Privacidade: cada publicação tem a sua (intus_post_visib); sem ela vale o padrão do perfil do dono.
+        // O filtro é feito na consulta, mais abaixo. O próprio dono sempre se vê; a equipe (professor) enxerga tudo.
         // Filtro "Amigos" do Feed (só com as conexões ligadas): os amigos e o próprio aluno.
         if (INTUS_CONEXOES_ATIVO && $_autorTipo === 'aluno' && ($_GET['so_amigos'] ?? '') === '1' && (int)($_GET['idatleta'] ?? 0) <= 0) {
             $visiveis = array_values(array_intersect($visiveis, array_merge(_amigosDe($pdo, $_autorId), [$_autorId])));
@@ -2618,7 +2617,7 @@ if ($action === 'feed_posts') {
 
         if (!count($visiveis)) {
             // Perfil de alguém que deixou as fotos privadas: avisa o app para mostrar "fotos privadas" em vez de "sem posts".
-            echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false, 'restrito' => ($somenteAutor > 0 && isset($restritoPor[$somenteAutor])) ? $restritoPor[$somenteAutor] : null]);
+            echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false, 'restrito' => null]);
             exit;
         }
         $ph = implode(',', array_fill(0, count($visiveis), '?'));
@@ -2629,12 +2628,20 @@ if ($action === 'feed_posts') {
         // Sem filtro de atleta = feed geral: só posts com destino 'feed'. Com
         // filtro (perfil de alguém, inclusive o próprio) mostra os dois — é
         // a grade do perfil, que é o único lugar onde um post 'perfil' aparece.
-        $filtroDestino = $somenteAutor > 0 ? '' : " AND destino = 'feed'";
-        $filtroCursor = $antesDe > 0 ? " AND idpost < $antesDe" : "";
+        $filtroDestino = $somenteAutor > 0 ? '' : " AND p.destino = 'feed'";
+        $filtroCursor = $antesDe > 0 ? " AND p.idpost < $antesDe" : "";
+        $ef = "COALESCE(v.visib, c.fotos_visib, 'todos')";
+        $filtroPriv = '';
+        if ($_autorTipo === 'aluno') {
+            $amigosIn = implode(',', array_map('intval', _amigosDe($pdo, $_autorId))) ?: '0';
+            $filtroPriv = " AND (p.idatleta = " . (int)$_autorId . " OR $ef = 'todos' OR ($ef = 'amigos' AND p.idatleta IN ($amigosIn)))";
+        }
         // Busca um a mais que o pedido só pra saber se tem mais página depois
         // desta, sem precisar de um COUNT(*) separado.
-        $st = $pdo->prepare("SELECT idpost, idatleta, imagem, legenda, destino, localizacao, created_at FROM intus_feed_post
-                             WHERE ativo = 1 AND idatleta IN ($ph)$filtroDestino$filtroCursor ORDER BY created_at DESC, idpost DESC LIMIT " . ($limite + 1));
+        $st = $pdo->prepare("SELECT p.idpost, p.idatleta, p.imagem, p.legenda, p.destino, p.localizacao, p.created_at, $ef AS visib FROM intus_feed_post p
+                             LEFT JOIN intus_post_visib v ON v.idpost = p.idpost
+                             LEFT JOIN intus_perfil_config c ON c.idatleta = p.idatleta
+                             WHERE p.ativo = 1 AND p.idatleta IN ($ph)$filtroDestino$filtroCursor$filtroPriv ORDER BY p.created_at DESC, p.idpost DESC LIMIT " . ($limite + 1));
         $st->execute($visiveis);
         $posts = $st->fetchAll(PDO::FETCH_ASSOC);
         $temMais = count($posts) > $limite;
@@ -2642,12 +2649,21 @@ if ($action === 'feed_posts') {
         $_midiasMap = _midiasDosPosts($pdo, 'feed_post', array_column($posts, 'idpost'));
         foreach ($posts as &$p) {
             $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta'];
+            if (!($_autorTipo === 'aluno' && $p['idatleta'] === $_autorId)) unset($p['visib']);   // só o dono vê a privacidade da própria publicação
             $p['midias'] = $_midiasMap[$p['idpost']] ?? [['tipo' => 'imagem', 'url' => $p['imagem'], 'poster' => null]];
             foreach ($p['midias'] as &$_mm) { if ($_mm['tipo'] === 'video' && empty($_mm['poster'])) $_mm['poster'] = $p['imagem']; }
             unset($_mm);
         }
         unset($p);
-        echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => $temMais], JSON_UNESCAPED_UNICODE);
+        $restritoAgora = null;
+        if (!$posts && $somenteAutor > 0 && $_autorTipo === 'aluno' && $somenteAutor !== $_autorId) {
+            try {
+                $sq = $pdo->prepare("SELECT COUNT(*) FROM intus_feed_post WHERE idatleta = ? AND ativo = 1");
+                $sq->execute([$somenteAutor]);
+                if ((int)$sq->fetchColumn() > 0) $restritoAgora = 'privado';
+            } catch (Throwable $e) {}
+        }
+        echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => $temMais, 'restrito' => $restritoAgora], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -2698,10 +2714,13 @@ if ($action === 'feed_posts') {
         // interpretar a resposta como JSON. A imagem ja tinha sido salva em
         // disco nesse ponto, entao o aluno perdia so o registro do post, nao
         // a foto. Mesmo padrao de log+referencia ja usado na conexao do banco.
+        $visibNovo = (string)($b['visib'] ?? '');
+        if (!in_array($visibNovo, ['todos', 'amigos', 'eu'], true)) $visibNovo = ($_autorTipo === 'aluno') ? _perfilConfig($pdo, $_autorId)['fotos_visib'] : 'todos';
         try {
             $st = $pdo->prepare("INSERT INTO intus_feed_post (idatleta, imagem, legenda, destino, localizacao, ativo) VALUES (?,?,?,?,?,?)");
             $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino, $localizacao !== '' ? $localizacao : null, $ativoNovo]);
             $novoPost = (int)$pdo->lastInsertId();
+            try { $pdo->prepare("INSERT INTO intus_post_visib (idpost, visib) VALUES (?,?) ON DUPLICATE KEY UPDATE visib = VALUES(visib)")->execute([$novoPost, $visibNovo]); } catch (Throwable $e) {}
             if (!$capaDeVideo) {
                 try {
                     $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('feed_post', ?, 0, 'imagem', ?)")->execute([$novoPost, $url]);
@@ -2709,12 +2728,26 @@ if ($action === 'feed_posts') {
             }
             // @menções na legenda avisam as pessoas marcadas (não em post só do perfil).
             // Em carrossel isso espera o "finalizar", quando o post de fato aparece.
-            if ($ativoNovo === 1 && $legenda !== '' && $destino === 'feed') _notificarMencoes($pdo, $legenda, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $novoPost);
+            if ($ativoNovo === 1 && $legenda !== '' && $destino === 'feed' && $visibNovo === 'todos') _notificarMencoes($pdo, $legenda, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $novoPost);
             echo json_encode(['ok' => true, 'idpost' => $novoPost, 'imagem' => $url, 'destino' => $destino, 'pendente' => $ativoNovo === 2]);
         } catch (Throwable $e) {
             http_response_code(500);
             echo json_encode(['error' => 'falha ao gravar o post', 'detalhe' => _intusLogErro($e)]);
         }
+        exit;
+    }
+
+    if ($method === 'PUT') {
+        $b = jsonBody();
+        $id = (int)($b['idpost'] ?? 0);
+        $v = (string)($b['visib'] ?? '');
+        if ($id <= 0 || !in_array($v, ['todos', 'amigos', 'eu'], true)) { http_response_code(400); echo json_encode(['error' => 'dados invalidos']); exit; }
+        $st = $pdo->prepare("SELECT idatleta FROM intus_feed_post WHERE idpost = ? AND ativo > 0");
+        $st->execute([$id]);
+        $dono = (int)$st->fetchColumn();
+        if (!$dono || $_autorTipo !== 'aluno' || $dono !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'so o dono altera a privacidade']); exit; }
+        $pdo->prepare("INSERT INTO intus_post_visib (idpost, visib) VALUES (?,?) ON DUPLICATE KEY UPDATE visib = VALUES(visib)")->execute([$id, $v]);
+        echo json_encode(['ok' => true, 'visib' => $v]);
         exit;
     }
 
@@ -2764,7 +2797,7 @@ if ($action === 'perfil_config') {
         $out = [
             'meu'                => $meu,
             'fotos_visib'        => $meu ? $cfg['fotos_visib'] : null,
-            'ver_fotos'          => $verFotos,
+            'ver_fotos'          => true,   // quem decide é cada publicação (feed_posts filtra); o padrão do perfil só vale para as sem ajuste
             'mostrar_conquistas' => ($meu || $equipe || $cfg['mostrar_conquistas']) ? true : false,
             'mostrar_resultados' => ($meu || $equipe || $cfg['mostrar_resultados']) ? true : false,
             'mostrar_semana'     => ($meu || $equipe || $cfg['mostrar_semana']) ? true : false,
@@ -3178,7 +3211,7 @@ if ($action === 'feed_midia' && $method === 'POST') {
         if ((int)$post['ativo'] === 2) {
             $pdo->prepare("UPDATE intus_feed_post SET ativo = 1 WHERE idpost = ? AND ativo = 2")->execute([$idpost]);
             $leg = (string)($post['legenda'] ?? '');
-            if ($leg !== '' && $post['destino'] === 'feed') _notificarMencoes($pdo, $leg, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $idpost);
+            if ($leg !== '' && $post['destino'] === 'feed' && _visibPost($pdo, $idpost) === 'todos') _notificarMencoes($pdo, $leg, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $idpost);
         }
         echo json_encode(['ok' => true, 'idpost' => $idpost, 'midias' => $qtd]);
         exit;

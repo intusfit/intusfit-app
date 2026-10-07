@@ -1284,6 +1284,7 @@ function abrirCompartilharTreino(info) {
   _feedComposeLocal = '';
   _feedComposeCaption = _shareLegendaAuto(info);
   _composeDestino = 'feed';
+  _composeVisib = null; _composeVisibCarregado = false;
   _renderComposeFeed();
   // A câmera já abria sozinha, embutida, assim que a tela aparecia — sem
   // foto nenhuma escolhida ainda, é sempre a câmera que faz mais sentido
@@ -1756,6 +1757,19 @@ function _shareInfoAjuda(tipo) {
 }
 // Confirmação antes de publicar de verdade — feito uma vez lá fora (feed) ou
 // gravado no próprio perfil não é algo pra sair sem querer com um toque só.
+// Quem pode ver a publicação: escolhido aqui e editável depois, na tela do próprio post.
+function _composeVisibPadrao() { return (((_pkCfgCache[Number(idAtleta)] || {}).cfg || {}).cfg || {}).fotos_visib || null; }
+function _composeSetVisib(v) { _composeVisib = v; _renderComposeFeed(); }
+function _composeVisibHtml(cardBg, borda, txt, muted) {
+  if (!_composeVisibPadrao() && !_composeVisibCarregado) {
+    _composeVisibCarregado = true;   // busca o padrão do perfil uma vez e redesenha
+    _pkConfig(idAtleta).then(function () { if (!_composeVisib && document.getElementById('feed-compose-legenda')) _renderComposeFeed(); }).catch(function () {});
+  }
+  const sel = _composeVisib || _composeVisibPadrao() || 'todos';
+  const chip = (v, rot) => '<button onclick="_composeSetVisib(\'' + v + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;background:' + (sel === v ? 'rgba(127,255,0,.1)' : cardBg) + ';border:1px solid ' + (sel === v ? '#7FFF00' : borda) + ';color:' + txt + ';">' + rot + '</button>';
+  return '<div style="font-size:11px;font-weight:800;color:' + muted + ';text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px;">🔒 Quem pode ver</div>' +
+    '<div style="display:flex;gap:8px;">' + chip('todos', '🌎 Todos') + chip('amigos', '👥 Amigos') + chip('eu', '🙋 Só eu') + '</div>';
+}
 function _shareConfirmarPublicar(destino) {
   const titulo = destino === 'feed' ? 'Publicar no Feed da Intus?' : 'Publicar só no seu perfil?';
   const texto = destino === 'feed'
@@ -1896,7 +1910,7 @@ async function _composePublicarInterno(destino) {
     const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
       method: 'POST',
       headers: hdrs,
-      body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, total_midias: Math.max(1, total), capa_de_video: capaDeVideo ? 1 : 0 }),
+      body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, visib: _composeVisib || undefined, total_midias: Math.max(1, total), capa_de_video: capaDeVideo ? 1 : 0 }),
     });
     if (!r.ok) throw new Error(await motivoDe(r));
     if (itens.length) {
@@ -3081,7 +3095,7 @@ function _abrirMenuPost(idpost, idatletaDono) {
   const souDono = Number(idatletaDono) === Number(idAtleta);
   const nome = _feedAtletasMap[String(idatletaDono)] || 'esta pessoa';
   const opcoes = souDono
-    ? [['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']]
+    ? [['🔒 Privacidade desta publicação', 'abrirPostPorId(' + idpost + ')'], ['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']]
     : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')']];
   const html = opcoes.map(([rot, fn]) =>
     '<div onclick="closeModal();' + fn + '" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + rot + '</div>'
@@ -3335,6 +3349,8 @@ let _composeIncluirFig = true;
 let _composeIncluirRecorde = true; // ver _shareRecordeBadgeHtml — só importa quando _composeInfo.recordes tem algo
 let _composeUltimoEscolha = ''; // '' | 'treino' | 'cardio' — só relevante quando _composeInfo nasceu vazio
 let _composeDestino = 'feed';   // 'feed' | 'perfil'
+let _composeVisib = null;       // 'todos' | 'amigos' | 'eu'; null = padrão do perfil
+let _composeVisibCarregado = false;
 // Dimensão escolhida ANTES de tirar/escolher a foto — mesmas chaves de
 // FEED_EDITOR_RATIOS (ver ~linha 2789), só usada aqui pra: (1) recortar
 // visualmente a prévia ao vivo da câmera, e (2) virar o ponto de partida do
@@ -3365,6 +3381,7 @@ function abrirNovoPostFeed() {
   _feedComposeCaption = '';
   _mencoesLimpar('post');
   _composeDestino = 'feed';
+  _composeVisib = null; _composeVisibCarregado = false;
   _renderComposeFeed();
   _composeIniciarCamera(); // ver comentário em abrirCompartilharTreino
 }
@@ -3587,6 +3604,7 @@ function _renderComposeFeed() {
         '<button onclick="_composeEscolherDestino(\'feed\')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + (_composeDestino==='feed'?'rgba(127,255,0,.1)':cardBg) + ';border:1px solid ' + (_composeDestino==='feed'?'#7FFF00':borda) + ';color:' + txt + ';">📣 Feed da Intus</button>' +
         '<button onclick="_composeEscolherDestino(\'perfil\')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + (_composeDestino==='perfil'?'rgba(127,255,0,.1)':cardBg) + ';border:1px solid ' + (_composeDestino==='perfil'?'#7FFF00':borda) + ';color:' + txt + ';">👤 Só meu perfil</button>' +
       '</div>' +
+      _composeVisibHtml(cardBg, borda, txt, muted) +
       '<button onclick="if(!_feedComposeImg){toast(\'Escolha uma foto primeiro.\');}else{_travarEExecutar(event, function(){ return _composeAcao(\'' + _composeDestino + '\'); })}" style="width:100%;margin-top:10px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Publicar</button>' +
 
       (_feedComposeImg
@@ -11356,7 +11374,7 @@ async function abrirPerfilRanking(id, social) {
   } else {
     corpo = cabecalho +
       _pkCabecalhoHtml(id, isLight, participa, ok('mostrar_conquistas')) +
-      '<div data-pk="posts"><div id="perfil-rk-posts" style="min-height:60px;"></div></div>' +
+      '<div data-pk="posts"><div id="perfil-rk-posts" data-dono="' + Number(id) + '" style="min-height:60px;"></div></div>' +
       '<div data-pk="sem" style="display:none;">' + (ok('mostrar_semana') ? statsGrid + pontosSemHtml + atividadesHtml : aviso(primeiro + ' mantém a semana privada.')) + '</div>' +
       '<div data-pk="conq" style="display:none;">' + (!ok('mostrar_conquistas') ? aviso(primeiro + ' mantém as conquistas privadas.') : (participa ? _pkMarcasHtml(id, isLight) + _medalhasPerfilHtml(id, isLight) + _conquistasStripHtml(id, isLight) : '')) + '</div>' +
       '<div data-pk="res" style="display:none;">' + (ok('mostrar_resultados') ? '<div id="perfil-rk-resultados"></div>' : aviso(primeiro + ' mantém o mural de resultados privado.')) + '</div>';
@@ -12082,10 +12100,11 @@ async function abrirPrivacidadePerfil() {
     '<div style="flex-shrink:0;padding:14px 18px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ' + linha + ';"><b style="font-size:16px;color:' + txt + ';">🔒 Privacidade do perfil</b>' +
     '<button onclick="document.getElementById(\'pk-priv-ov\').remove()" aria-label="Fechar" style="width:34px;height:34px;border-radius:50%;border:none;background:' + (isLight ? '#eee' : '#2a2a2a') + ';color:' + mut + ';font-size:22px;line-height:1;cursor:pointer;">×</button></div>' +
     '<div style="overflow-y:auto;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:6px 18px 22px;">' +
-      '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px;">Quem vê minhas fotos</div>' +
+      '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px;">Padrão das minhas fotos</div>' +
       opt('todos', 'Todos os alunos', 'Suas fotos aparecem no Feed e no seu perfil.') +
-      opt('amigos', 'Só amigos', 'As amizades entre alunos ainda não foram liberadas. Por enquanto, esta opção funciona como Só eu.') +
+      opt('amigos', 'Só amigos', 'Só os seus amigos veem.') +
       opt('eu', 'Só eu', 'Suas fotos ficam escondidas dos outros alunos, no Feed e no perfil.') +
+      '<div style="font-size:11.5px;color:' + mut + ';line-height:1.5;margin-top:10px;">Cada publicação pode ter a própria privacidade: abra a publicação e escolha. Este padrão vale para as novas e para as antigas que você ainda não ajustou.</div>' +
       '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 2px;">O que aparece no meu perfil</div>' +
       tog('pk-pv-conq', 'Conquistas e marcas pessoais', 'Medalhas, distintivos e números do seu histórico.', c.mostrar_conquistas) +
       tog('pk-pv-res', 'Mural de resultados', 'Seus depoimentos e resultados compartilhados.', c.mostrar_resultados) +
@@ -12205,15 +12224,61 @@ async function _pkCarregarPosts(id, cfg) {
       const ms = _midiasDoPost(p);
       const icone = ms.some(x => x.tipo === 'video') ? '▶' : (ms.length > 1 ? '⧉' : '');
       const capa = (ms[0] && ms[0].tipo === 'video' && ms[0].poster) ? ms[0].poster : p.imagem;
-      return '<div onclick="_pkAbrirPost(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight ? '#eee' : '#222') + ';"><img src="' + esc(capa) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' +
+      return '<div onclick="_pkAbrirPost(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight ? '#eee' : '#222') + ';"><img src="' + esc(capa) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + _visibSeloHtml(p) +
         (icone ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + icone + '</span>' : '') + '</div>';
     }).join('') + '</div>';
 }
 
 // Abre o post inteiro (com curtir e comentar) por cima do perfil.
-async function _pkAbrirPost(idpost) {
+function _pkAbrirPost(idpost) {
   const post = _pkPosts.find(p => Number(p.idpost) === Number(idpost));
-  if (!post) return;
+  if (post) abrirPostTela(post);
+}
+var _perfilPostsLista = [];
+// Selo no canto da miniatura para publicação que não é de todos (só o dono recebe esse dado).
+function _visibSeloHtml(p) {
+  if (!p.visib || p.visib === 'todos') return '';
+  return '<span style="position:absolute;bottom:4px;left:5px;font-size:11px;background:rgba(0,0,0,.55);color:#fff;border-radius:8px;padding:1px 5px;">' + (p.visib === 'eu' ? '🙋' : '👥') + '</span>';
+}
+function _perfilAbrirPost(idpost) {
+  const post = _perfilPostsLista.find(p => Number(p.idpost) === Number(idpost));
+  if (post) abrirPostTela(post);
+}
+// Procura a publicação nas listas já carregadas (menu do post, grades do perfil e Feed).
+function _acharPost(idpost) {
+  const k = Number(idpost);
+  return _pkPosts.find(p => Number(p.idpost) === k) || _perfilPostsLista.find(p => Number(p.idpost) === k) || (_feedPosts || []).find(p => Number(p.idpost) === k) || null;
+}
+function abrirPostPorId(idpost) { const p = _acharPost(idpost); if (p) abrirPostTela(p); else toast('Abra a publicação pelo seu perfil.'); }
+var _VISIB_INFO = { todos: 'Todos os alunos podem ver esta publicação.', amigos: 'Só os seus amigos veem esta publicação.', eu: 'Só você vê. A publicação fica guardada no seu perfil.' };
+function _postPrivHtml(post, isLight) {
+  if (Number(post.idatleta) !== Number(idAtleta)) return '';
+  const atual = post.visib || 'todos';
+  const cor = isLight ? '#2d8a00' : '#7FFF00';
+  const chip = (v, rot) => '<button onclick="_postSetVisib(' + Number(post.idpost) + ',\'' + v + '\')" style="flex:1;padding:10px 4px;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (atual === v ? cor : (isLight ? '#ddd' : '#333')) + ';background:' + (atual === v ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (atual === v ? cor : (isLight ? '#555' : '#bbb')) + ';">' + rot + '</button>';
+  return '<div id="post-priv" style="margin-bottom:12px;padding:12px;border-radius:14px;background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#262626') + ';">' +
+    '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🔒 Quem pode ver esta publicação</div>' +
+    '<div style="display:flex;gap:6px;">' + chip('todos', '🌎 Todos') + chip('amigos', '👥 Amigos') + chip('eu', '🙋 Só eu') + '</div>' +
+    '<div style="font-size:12px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin-top:8px;">' + _VISIB_INFO[atual] + (post.destino === 'perfil' ? ' Ela não aparece no Feed, só no seu perfil.' : '') + '</div></div>';
+}
+async function _postSetVisib(idpost, v) {
+  const post = _acharPost(idpost); if (!post) return;
+  const antes = post.visib || 'todos';
+  if (antes === v) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const redesenhar = () => { const el = document.getElementById('post-priv'); if (el) el.outerHTML = _postPrivHtml(post, isLight); };
+  post.visib = v; redesenhar();   // mostra já; volta atrás se o servidor recusar
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, body: JSON.stringify({ idpost: Number(idpost), visib: v }) }, 12000);
+    if (!r.ok) throw new Error('falhou');
+    toast('Privacidade atualizada');
+    if (document.getElementById('perfil-posts')) _carregarPerfilPosts();
+    if (document.getElementById('perfil-rk-posts') && Number(document.getElementById('perfil-rk-posts').dataset.dono || 0) === Number(idAtleta)) _pkCarregarPosts(idAtleta, { ver_fotos: true });
+    if (window._viewAtual === 'feed') renderFeedCompleto();
+  } catch (e) { post.visib = antes; redesenhar(); toast('Não consegui salvar. Tente de novo.'); }
+}
+async function abrirPostTela(post) {
+  const idpost = post.idpost;
   const isLight = document.body.classList.contains('tema-claro');
   try { await Promise.all([carregarReacoesFeed([idpost]), carregarComentariosFeed([idpost])]); } catch (e) {}
   document.getElementById('pk-post-ov')?.remove();
@@ -12221,7 +12286,7 @@ async function _pkAbrirPost(idpost) {
   ov.id = 'pk-post-ov';
   ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;';
   ov.innerHTML = '<div style="position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';border-bottom:1px solid ' + (isLight ? '#e5e5e5' : '#222') + ';"><button onclick="document.getElementById(\'pk-post-ov\').remove()" style="background:none;border:none;color:' + (isLight ? '#555' : '#aaa') + ';font-size:14px;font-weight:700;cursor:pointer;">← Voltar</button></div>' +
-    '<div style="max-width:460px;margin:0 auto;padding:12px;min-height:calc(100% + 2px);">' + _feedCardHtml(post, isLight) + '</div>';
+    '<div style="max-width:460px;margin:0 auto;padding:12px;min-height:calc(100% + 2px);">' + _postPrivHtml(post, isLight) + _feedCardHtml(post, isLight) + '</div>';
   document.body.appendChild(ov);
   _pkTravarFundo();
 }
@@ -16515,6 +16580,7 @@ async function _carregarPerfilPosts() {
   const posts = await carregarFeedPosts(60, idAtleta);
   const el = document.getElementById('perfil-posts');
   if (!el) return;
+  _perfilPostsLista = posts;
   if (!posts.length) {
     el.innerHTML = '<div style="text-align:center;padding:34px 20px;">' +
       '<div style="font-size:38px;margin-bottom:10px;">📸</div>' +
@@ -16525,7 +16591,7 @@ async function _carregarPerfilPosts() {
     return;
   }
   el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;">' +
-    posts.map(p => '<div onclick="navegar(\'feed\')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + (_midiasDoPost(p).length > 1 || _midiasDoPost(p).some(x => x.tipo === 'video') ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + (_midiasDoPost(p).some(x => x.tipo === 'video') ? '▶' : '⧉') + '</span>' : '') + '</div>').join('') +
+    posts.map(p => '<div onclick="_perfilAbrirPost(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + _visibSeloHtml(p) + (_midiasDoPost(p).length > 1 || _midiasDoPost(p).some(x => x.tipo === 'video') ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + (_midiasDoPost(p).some(x => x.tipo === 'video') ? '▶' : '⧉') + '</span>' : '') + '</div>').join('') +
   '</div>';
 }
 

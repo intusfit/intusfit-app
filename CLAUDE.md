@@ -807,6 +807,13 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
     propósito. Não criar nada com os nomes antigos no `catalogo.php`.
   - Progresso e pontos saem das sessões do ranking (`_rankingData`): quem não participa do ranking aparece sem
     números. Com as conexões ligadas, "Só amigos" nas fotos funciona de verdade.
+- **Privacidade por publicação (07/10/2026)**: cada post tem a sua (`intus_post_visib`: todos, amigos ou eu). O aluno
+  escolhe ao publicar (campo `visib` no POST de `feed_posts`; sem ele vale o padrão do perfil naquele momento) e muda
+  depois na **tela do post** (`abrirPostTela`; PUT `feed_posts {idpost, visib}`, só o dono), aberta pela grade do
+  perfil (próprio ou de outro aluno) e pelo menu do post. Post sem linha usa o padrão do perfil
+  (`intus_perfil_config.fotos_visib`), então mudar o padrão afeta só os posts ainda não ajustados. O filtro é feito na
+  consulta de `feed_posts` (Feed e perfil); só o dono recebe o campo `visib` de volta. Post que não é de "todos" não
+  gera aviso de @menção. A equipe enxerga tudo.
 - **Rolagem**: perfil, post aberto e tela de privacidade travam a rolagem da página de trás (`_pkTravarFundo`).
 
 ## 22. Planos alimentares ativos e inativos (06/10/2026)
