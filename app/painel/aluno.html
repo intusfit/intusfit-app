@@ -17,7 +17,21 @@
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261006d"></script>
-  <script>try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(function () {}); } catch (e) {}</script>
+  <script>
+  // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
+  (function () {
+    function girar(livre) {
+      try { if (window.IntusNativo && IntusNativo.telaCheia) { IntusNativo.telaCheia(!!livre); return; } } catch (e) {}   // app nativo Android
+      try { if (screen.orientation) { if (livre) screen.orientation.unlock(); else if (screen.orientation.lock) screen.orientation.lock('portrait').catch(function () {}); } } catch (e) {}
+    }
+    function emTelaCheia() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+    girar(false);
+    document.addEventListener('fullscreenchange', function () { girar(emTelaCheia()); });
+    document.addEventListener('webkitfullscreenchange', function () { girar(emTelaCheia()); });
+    document.addEventListener('webkitbeginfullscreen', function () { girar(true); }, true);    // iOS: player de vídeo do sistema
+    document.addEventListener('webkitendfullscreen', function () { girar(false); }, true);
+  })();
+</script>
   <!-- Só usada pra transformar o cartão de "Compartilhar treino" em imagem
        (Salvar/Copiar/Story). Carregada fixa numa versão; se cair um dia, a
        tela de compartilhar mostra erro em vez de travar o app inteiro. -->

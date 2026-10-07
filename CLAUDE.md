@@ -836,3 +836,10 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   `UIRequiresFullScreen`, exigido pela Apple quando o iPad não aceita todas as orientações). **Só vale depois de novo
   build e envio às lojas.** O `manifest.json` do app web já pedia retrato e o `aluno.html` tenta `screen.orientation.lock`
   (reforço que só funciona em PWA ou tela cheia no Android).
+- **Exceção: vídeo em tela cheia pode girar para horizontal (07/10/2026).** O `aluno.html` escuta a tela cheia
+  (`fullscreenchange`, e `webkitbeginfullscreen` no iOS) e libera a rotação só enquanto durar. No Android nativo a
+  ponte é `IntusNativo.telaCheia(bool)` em `MainActivity.java` (libera com `SCREEN_ORIENTATION_USER`, ou seja, segue o
+  giro automático do aparelho, e volta ao retrato ao sair). No iOS o app continua só em retrato no `Info.plist` e o
+  vídeo gira pelo player do sistema: **conferir num iPhone de verdade**; se não girar, será preciso liberar as
+  orientações horizontais no `Info.plist` e travar o retrato por plugin. No Android também vale só depois de novo
+  build.
