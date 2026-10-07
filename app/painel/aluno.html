@@ -4884,19 +4884,38 @@ window.addEventListener('scroll', _scrollIndAtualizar, { passive: true });
 // nenhuma — foi exatamente essa sobra visual que fez o Luiz tirar a barra
 // flutuante antiga (ver comentário do indicador lateral, acima).
 let _btnInicioTicking = false;
+// Subida animada até o topo (450 a 1100 ms, suave). Animação própria porque a rolagem suave nativa não existe ou
+// engasga em alguns WebViews. Tocar na tela ou girar a roda interrompe, para não brigar com o dedo.
+var _topoAnimando = false, _topoCancelar = false;
+['touchstart', 'wheel', 'keydown', 'mousedown'].forEach(function (ev) { window.addEventListener(ev, function () { if (_topoAnimando) _topoCancelar = true; }, { passive: true }); });
+function _rolarAoTopo() {
+  const ini = window.scrollY || document.documentElement.scrollTop || 0;
+  if (ini <= 0 || _topoAnimando) return;
+  _topoAnimando = true; _topoCancelar = false;
+  const dur = Math.min(1100, Math.max(450, ini * 0.35));
+  const t0 = performance.now();
+  const suave = function (t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; };
+  const fim = function () { _topoAnimando = false; };
+  setTimeout(fim, dur + 1500);   // segurança: nunca fica travado
+  (function passo(agora) {
+    if (_topoCancelar) { fim(); return; }
+    const t = Math.min(1, ((agora || performance.now()) - t0) / dur);
+    window.scrollTo(0, Math.round(ini * (1 - suave(t))));
+    if (t < 1) requestAnimationFrame(passo); else fim();
+  })(t0);
+}
 function _btnInicioEl() {
   let el = document.getElementById('btn-inicio-flutuante');
   if (!el) {
     el = document.createElement('button');
     el.id = 'btn-inicio-flutuante';
     el.type = 'button';
-    el.setAttribute('aria-label', 'Voltar ao início');
+    el.setAttribute('aria-label', 'Voltar ao topo');
     el.style.cssText = 'display:none;position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:80;width:46px;height:46px;border-radius:50%;border:none;align-items:center;justify-content:center;font-size:19px;line-height:1;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35);';
     el.textContent = '🏠';
-    el.onclick = function () {
-      trocarView('home'); renderHome();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+    // Sobe rolando pela própria tela (Início ou Feed) em vez de recarregar a tela e piscar no topo: assim o aluno
+    // vê o caminho de volta e tem noção de onde está dentro do app.
+    el.onclick = _rolarAoTopo;
     document.body.appendChild(el);
   }
   return el;
@@ -4904,13 +4923,16 @@ function _btnInicioEl() {
 function _btnInicioAtualizar() {
   if (_btnInicioTicking) return;
   _btnInicioTicking = true;
+  setTimeout(function () { _btnInicioTicking = false; }, 1000);   // se o quadro de animação não vier (app em segundo plano), não fica travado
   requestAnimationFrame(function () {
     _btnInicioTicking = false;
     const view = window._viewAtual;
     const jaExiste = document.getElementById('btn-inicio-flutuante');
     let mostra = false;
     if (view === 'home' || view === 'feed') {
-      const cards = document.querySelectorAll('[data-feed-card]');
+      // Só os posts da tela que está aberta. Início e Feed ficam montados ao mesmo tempo (a outra escondida), e os
+      // posts escondidos medem 0 de altura: os três primeiros da página inteira nunca "passavam" e o botão não aparecia.
+      const cards = (document.getElementById('v-' + view) || document).querySelectorAll('[data-feed-card]');
       if (cards.length >= 4) {
         const passouTres = cards[2].getBoundingClientRect().bottom < 0;
         const pertoDoUltimo = cards[cards.length - 1].getBoundingClientRect().bottom <= window.innerHeight + 60;

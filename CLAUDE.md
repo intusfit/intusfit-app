@@ -855,3 +855,7 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   anterior. O sino diz "reagiu 🔥 ao seu post" quando não é coração.
 - **Cardio**: "Registrar manualmente" e "Histórico de cardios" viraram cartões em destaque (ícone, descrição e seta),
   no lugar do texto cinza. O texto do Cardio ao vivo agora só diz que dá para monitorar e já registrar pelo app.
+- **Botão flutuante 🏠 do Feed e da Home (07/10/2026)**: não aparecia porque contava os 3 primeiros posts do documento
+  inteiro, e Início e Feed ficam montados ao mesmo tempo (a que não está aberta fica escondida, com posts de altura 0).
+  Agora conta só os posts da tela aberta (`#v-<view>`). O clique não troca mais de tela: sobe rolando até o topo
+  (`_rolarAoTopo`, animação própria de 450 a 1100 ms, interrompida por toque).
