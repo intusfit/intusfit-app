@@ -936,7 +936,9 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
 - **O que cada coisa é de fato**: foto de feed fica no disco da hospedagem (`app/img/feed`) e uma cópia no Drive
   (`gdriveBackup`, nome do arquivo); vídeo de post e feedback ficam SÓ no Drive; fotos de avaliação e avatares ficam em
   `app/uploads` e entram no zip diário de backup (zip completo a cada mudança). O backup do banco é diário.
-- **Estudo: versões menores de conteúdo com mais de 30 dias** (nada disso foi aplicado, depende do Luiz):
+- **Decisão do Luiz (07/10/2026):** limite de 40 gravações por professor mantido. Fotos e posts antigos NÃO precisam de otimização
+  (não pesam o bastante). Retenção de backup ficou como está (45 dias, mínimo 10 cópias) até ele pedir mudança.
+- **Estudo: versões menores de conteúdo com mais de 30 dias** (nada disso foi aplicado nem será por ora):
   - Foto: dá para regerar em 1080 px a 80% com GD, no mesmo nome de arquivo, por botão do painel com prévia da economia
     (corta uns 60 a 70% da foto antiga). Troca o arquivo original, então precisa de confirmação. A cópia no Drive teria que
     ser substituída ou apagada.
