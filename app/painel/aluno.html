@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261006d"></script>
+  <script src="api.js?v=20261007a"></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   (function () {
@@ -1296,7 +1296,7 @@ function abrirCompartilharTreino(info) {
   _composeFig = info.fig || _figPick(_figurinhasList());
   _composeIncluirFig = true;
   _composeIncluirRecorde = true;
-  _composeInfoLayoutIdx = 0;
+  _composeInfoLayoutIdx = 0; _composeInfoReset();
   _composeUltimoEscolha = '';
   _composeRatioPre = 'retrato';
   _feedComposeImg = null;
@@ -1877,7 +1877,7 @@ async function _compositarInfoNaFoto(dataUrl) {
     canvas.width = img.width; canvas.height = img.height;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
-    ctx.drawImage(infoCanvas, 0, 0, img.width, img.height);
+    _ovDesenhar(ctx, infoCanvas, _composeInfoT, img.width, img.height);   // na posição e no tamanho que o aluno ajustou
     return canvas.toDataURL('image/jpeg', 0.94);
   } finally {
     host.remove();
@@ -3168,7 +3168,7 @@ function _abrirMenuPost(idpost, idatletaDono) {
   const souDono = Number(idatletaDono) === Number(idAtleta);
   const nome = _feedAtletasMap[String(idatletaDono)] || 'esta pessoa';
   const opcoes = souDono
-    ? [['🔒 Privacidade desta publicação', 'abrirPostPorId(' + idpost + ')'], ['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']]
+    ? [['🔒 Privacidade desta publicação', 'abrirPostPorId(' + idpost + ')'], ['⬇️ Baixar', 'baixarPost(' + idpost + ')'], ['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']]
     : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')']];
   const html = opcoes.map(([rot, fn]) =>
     '<div onclick="closeModal();' + fn + '" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + rot + '</div>'
@@ -3418,6 +3418,9 @@ let _composeOrigem = 'post'; // 'post' | 'treino' | 'cardio'
 let _composeInfo = null;
 let _composeInfoOn = false;
 let _composeInfoLayoutIdx = 0;
+let _composeInfoT = { x: 0, y: 0, s: 1 };   // posição e tamanho da figurinha na foto (ver _ovGestos)
+let _composeAjustando = false;              // modo de ajuste ligado: a figurinha recebe o dedo em vez de a tela rolar
+function _composeInfoReset() { _composeInfoT.x = 0; _composeInfoT.y = 0; _composeInfoT.s = 1; _composeAjustando = false; }
 let _composeFig = null;
 let _composeIncluirFig = true;
 let _composeIncluirRecorde = true; // ver _shareRecordeBadgeHtml — só importa quando _composeInfo.recordes tem algo
@@ -3444,7 +3447,7 @@ function abrirNovoPostFeed() {
   _composeOrigem = 'post';
   _composeInfo = null;
   _composeInfoOn = false;
-  _composeInfoLayoutIdx = 0;
+  _composeInfoLayoutIdx = 0; _composeInfoReset();
   _composeFig = null;
   _composeIncluirFig = true;
   _composeIncluirRecorde = true;
@@ -3476,6 +3479,27 @@ function _composeInfoDisponivel() {
   return { treino, cardio };
 }
 
+// Gestos de arrastar e pinça na figurinha da foto. Só recebe o dedo no modo "Ajustar figurinha": fora dele a tela
+// rola normalmente (a figurinha cobre a foto toda e roubaria a rolagem).
+var _composeGestos = null;
+function _composeAtivarGestosInfo() {
+  const camada = document.getElementById('feed-compose-info-layer');
+  const moldura = document.getElementById('feed-compose-preview');
+  _composeGestos = null;
+  if (!camada || !moldura || !_feedComposeImg) return;
+  _composeGestos = _ovGestos(moldura, camada, _composeInfoT);
+  _composeAplicarAjuste();
+}
+function _composeAplicarAjuste() {
+  const camada = document.getElementById('feed-compose-info-layer');
+  if (camada) { camada.style.pointerEvents = _composeAjustando ? 'auto' : 'none'; camada.style.outline = _composeAjustando ? '2px dashed #7FFF00' : 'none'; }
+  const b = document.getElementById('feed-ajustar-btn'); if (b) b.textContent = _composeAjustando ? '✓ Pronto' : '✋ Ajustar figurinha';
+  const r = document.getElementById('feed-ajustar-reset'); if (r) r.style.display = _composeAjustando ? 'inline-block' : 'none';
+  const d = document.getElementById('feed-ajustar-dica'); if (d) d.style.display = _composeAjustando ? 'block' : 'none';
+}
+function _composeToggleAjuste() { _composeAjustando = !_composeAjustando; _composeAplicarAjuste(); }
+function _composeCentralizarInfo() { if (_composeGestos) _composeGestos.reiniciar(); }
+
 function _composeToggleInfo() {
   _composeInfoOn = !_composeInfoOn;
   _renderComposeFeed();
@@ -3490,7 +3514,7 @@ function _composeEscolherUltimo(tipo) {
   _composeFig = info.fig || _figPick(_figurinhasList());
   _composeIncluirFig = true;
   _composeIncluirRecorde = true;
-  _composeInfoLayoutIdx = 0;
+  _composeInfoLayoutIdx = 0; _composeInfoReset();
   if (!_feedComposeCaption.trim()) _feedComposeCaption = _shareLegendaAuto(info);
   _renderComposeFeed();
 }
@@ -3525,6 +3549,7 @@ function _composeEscolherDestino(d) {
 }
 
 function _composeTrocarFoto() {
+  _composeInfoReset();   // foto nova: a figurinha volta ao centro
   if (_composeVideoCapa) { _composeExtras.shift(); _composeVideoCapa = false; } // trocar a capa de um post de vídeo = recomeçar sem o vídeo
   _feedComposeImg = null;
   _renderComposeFeed();
@@ -3563,7 +3588,7 @@ function _renderComposeFeed() {
     // é a MESMA proporção que o quadro da prévia vai ocupar na tela.
     const ratioAtual = _feedComposeImg ? _composeImgRatio : (1 / (FEED_EDITOR_RATIOS[_composeRatioPre] || FEED_EDITOR_RATIOS.retrato));
     const escalaPrev = _shareEscalaComAltura(Math.min(window.innerWidth - 32, 340), ratioAtual);
-    infoPreviewHtml = '<div style="position:absolute;inset:0;pointer-events:none;">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev) + '</div>';
+    infoPreviewHtml = '<div id="feed-compose-info-layer" style="position:absolute;inset:0;pointer-events:none;transform-origin:50% 50%;transform:' + _ovTransformCss(_composeInfoT) + ';">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev) + '</div>';
   }
 
   // Dimensão da prévia (foto OU câmera ao vivo, ver _composeRatioPre) — as
@@ -3598,6 +3623,7 @@ function _renderComposeFeed() {
       '<div id="feed-compose-preview" style="width:100%;border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;' + (_feedComposeImg ? '' : 'aspect-ratio:' + ratioPreCss + ';') + '">' +
         (_feedComposeImg
           ? '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:auto;max-height:420px;object-fit:cover;"/>' + infoPreviewHtml + '<img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
+            ((_composeInfoOn && _composeInfo) ? '<div style="position:absolute;bottom:8px;left:8px;display:flex;gap:6px;z-index:3;"><button id="feed-ajustar-btn" onclick="_composeToggleAjuste()" style="padding:7px 11px;border-radius:9px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;"></button><button id="feed-ajustar-reset" onclick="_composeCentralizarInfo()" style="padding:7px 10px;border-radius:9px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;display:none;">↺ Centralizar</button></div><div id="feed-ajustar-dica" style="position:absolute;top:44px;left:8px;right:8px;text-align:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none;display:none;z-index:3;">Arraste a figurinha. Com dois dedos, aumente ou diminua.</div>' : '') +
             '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>' +
             '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">🔄 Trocar</button>'
           : (camAtiva
@@ -3691,6 +3717,7 @@ function _renderComposeFeed() {
         : '') +
     '</div>';
   document.body.appendChild(ov);
+  _composeAtivarGestosInfo();
   // O <video> nunca é recriado aqui — só MOVIDO pro slot da prévia (mesmo
   // elemento que a tela cheia usa, ver _renderCameraTelaCheia), sem soltar
   // o srcObject nem piscar.
@@ -4224,74 +4251,124 @@ function _vtMotivoErro(v) {
   return 'Não consegui abrir esse vídeo.';
 }
 
+// Editor de vídeo no estilo do Instagram: prévia com a faixa de quadros do vídeo embaixo, bordas verdes arrastáveis
+// (e a faixa toda, para deslizar o trecho), linha branca que acompanha a reprodução, filtros e figurinhas que se movem
+// e mudam de tamanho com os dedos. O corte usa API.trecho (regras testadas em testes/trecho.js).
+var _vtTimer = null;
+function _vtFiltroSuportado() { try { return 'filter' in document.createElement('canvas').getContext('2d'); } catch (e) { return false; } }
+function _vtFiltroCss(id) { return (FEED_EDITOR_FILTROS.find(function (f) { return f.id === id; }) || {}).css || ''; }
+function _vtCores() {
+  const isLight = document.body.classList.contains('tema-claro');
+  return { isLight: isLight, bg: isLight ? '#f5f5f5' : '#0a0a0a', cardBg: isLight ? '#fff' : '#161616', borda: isLight ? '#e5e5e5' : '#2a2a2a', txt: isLight ? '#1a1a1a' : '#f0f0f0', muted: isLight ? '#777' : '#888', acento: isLight ? '#5cb800' : '#7FFF00' };
+}
+
 function _vtAbrir(f, resolve) {
   _vtFechar(true);
-  const isLight = document.body.classList.contains('tema-claro');
-  const bg = isLight ? '#f5f5f5' : '#0a0a0a';
-  const cardBg = isLight ? '#fff' : '#161616';
-  const borda = isLight ? '#e5e5e5' : '#2a2a2a';
-  const txt = isLight ? '#1a1a1a' : '#f0f0f0';
-  const muted = isLight ? '#777' : '#888';
+  const k = _vtCores();
   const url = URL.createObjectURL(f);
-  _vt = { url: url, file: f, video: null, dur: 0, ini: 0, fim: 0, resolve: resolve, cancelado: false, codificando: false, pronto: false };
+  // Vindo de "Compartilhar treino/cardio" (figurinha já ligada no compositor), o vídeo começa com a mesma figurinha.
+  const doCompositor = (_composeInfoOn && _composeInfo);
+  _vt = {
+    url: url, file: f, video: null, dur: 0, ini: 0, fim: 0, resolve: resolve, cancelado: false, codificando: false, pronto: false,
+    filtro: '', aba: 'cortar', ajustando: false, vw: 0, vh: 0, filtroOk: _vtFiltroSuportado(), ultSeek: 0, poster: '',
+    T: doCompositor ? { x: _composeInfoT.x, y: _composeInfoT.y, s: _composeInfoT.s } : { x: 0, y: 0, s: 1 },
+    info: doCompositor
+      ? { on: true, dados: _composeInfo, layoutIdx: _composeInfoLayoutIdx, incluirFig: _composeIncluirFig, recorde: _composeIncluirRecorde, fig: _composeFig }
+      : { on: false, dados: null, layoutIdx: 0, incluirFig: true, recorde: true, fig: null },
+  };
   const ov = document.createElement('div');
-  ov.id = 'vt-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:' + bg + ';overflow-y:auto;';
+  ov.id = 'vt-overlay'; ov.className = 'pk-trava';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:' + k.bg + ';overflow-y:auto;overscroll-behavior:contain;';
   ov.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
-      '<button onclick="_vtCancelar()" style="background:none;border:none;color:' + muted + ';font-size:13px;font-weight:700;cursor:pointer;padding:6px 2px;">Cancelar</button>' +
-      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">Ajustar vídeo</span>' +
-      '<span style="width:56px;"></span>' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + k.borda + ';position:sticky;top:0;background:' + k.bg + ';z-index:5;">' +
+      '<button onclick="_vtCancelar()" style="background:none;border:none;color:' + k.muted + ';font-size:13px;font-weight:700;cursor:pointer;padding:6px 2px;">Cancelar</button>' +
+      '<span style="font-size:15px;font-weight:800;color:' + k.txt + ';">Editar vídeo</span>' +
+      '<button id="vt-topo-usar" onclick="_vtUsar()" style="background:none;border:none;color:' + k.acento + ';font-size:13.5px;font-weight:800;cursor:pointer;padding:6px 2px;visibility:hidden;">Pronto</button>' +
     '</div>' +
     '<div style="max-width:420px;margin:0 auto;padding:16px;">' +
-      '<div style="position:relative;background:#000;border-radius:14px;overflow:hidden;">' +
-        '<video id="vt-video" src="' + url + '" playsinline preload="auto" style="width:100%;max-height:52vh;display:block;background:#000;"></video>' +
-        '<div id="vt-play" onclick="_vtPlayPause()" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;"><span id="vt-play-ico" style="width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:24px;display:flex;align-items:center;justify-content:center;">▶</span></div>' +
+      '<div id="vt-frame" style="position:relative;background:#000;border-radius:14px;overflow:hidden;margin:0 auto;width:100%;aspect-ratio:9/16;max-height:50vh;" onclick="_vtToqueFrame()">' +
+        '<video id="vt-video" src="' + url + '" playsinline preload="auto" style="position:absolute;inset:0;width:100%;height:100%;display:block;background:#000;object-fit:fill;"></video>' +
+        '<div id="vt-camada" style="position:absolute;inset:0;display:none;pointer-events:none;"></div>' +
+        '<div id="vt-play" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;"><span id="vt-play-ico" style="width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;padding-left:4px;">▶</span></div>' +
+        '<div id="vt-dica" style="position:absolute;top:8px;left:8px;right:8px;text-align:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none;display:none;">Arraste a figurinha. Com dois dedos, aumente ou diminua.</div>' +
         '<div id="vt-carregando" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;background:rgba(0,0,0,.6);padding:16px;text-align:center;">Abrindo o vídeo...</div>' +
       '</div>' +
       '<div id="vt-controles" style="display:none;margin-top:14px;">' +
-        '<div id="vt-resumo" style="font-size:13px;font-weight:800;color:' + txt + ';margin-bottom:10px;"></div>' +
-        '<div style="font-size:11.5px;color:' + muted + ';margin-bottom:4px;">Início</div>' +
-        '<input id="vt-ini" type="range" min="0" max="1" step="0.1" value="0" oninput="_vtMover(\'ini\',this.value)" style="width:100%;accent-color:#7FFF00;"/>' +
-        '<div style="font-size:11.5px;color:' + muted + ';margin:8px 0 4px;">Fim</div>' +
-        '<input id="vt-fim" type="range" min="0" max="1" step="0.1" value="1" oninput="_vtMover(\'fim\',this.value)" style="width:100%;accent-color:#7FFF00;"/>' +
-        '<p id="vt-aviso" style="font-size:11.5px;color:' + muted + ';line-height:1.5;margin:12px 0 0;"></p>' +
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:2px;"><div id="vt-resumo" style="font-size:14px;font-weight:800;color:' + k.txt + ';"></div><div id="vt-dur" style="font-size:11.5px;color:' + k.muted + ';"></div></div>' +
+        '<div style="padding:0 16px;"><div id="vt-trilho" style="position:relative;height:58px;margin:12px 0 6px;touch-action:none;user-select:none;-webkit-user-select:none;">' +
+          '<div id="vt-tiras" style="position:absolute;inset:0;display:flex;border-radius:8px;overflow:hidden;background:#161616;"></div>' +
+          '<div id="vt-sombra-e" style="position:absolute;top:0;bottom:0;left:0;width:0;background:rgba(0,0,0,.62);border-radius:8px 0 0 8px;pointer-events:none;"></div>' +
+          '<div id="vt-sombra-d" style="position:absolute;top:0;bottom:0;right:0;width:0;background:rgba(0,0,0,.62);border-radius:0 8px 8px 0;pointer-events:none;"></div>' +
+          '<div id="vt-sel" data-h="mov" style="position:absolute;top:-3px;bottom:-3px;left:0;width:100%;box-sizing:border-box;border-top:3px solid #7FFF00;border-bottom:3px solid #7FFF00;cursor:grab;">' +
+            '<div data-h="ini" style="position:absolute;top:-3px;bottom:-3px;left:-16px;width:16px;background:#7FFF00;border-radius:8px 0 0 8px;display:flex;align-items:center;justify-content:center;cursor:ew-resize;"><span style="width:3px;height:22px;border-radius:2px;background:#0f1a00;opacity:.7;pointer-events:none;"></span></div>' +
+            '<div data-h="fim" style="position:absolute;top:-3px;bottom:-3px;right:-16px;width:16px;background:#7FFF00;border-radius:0 8px 8px 0;display:flex;align-items:center;justify-content:center;cursor:ew-resize;"><span style="width:3px;height:22px;border-radius:2px;background:#0f1a00;opacity:.7;pointer-events:none;"></span></div>' +
+          '</div>' +
+          '<div id="vt-cabeca" style="position:absolute;top:-6px;bottom:-6px;left:0;width:3px;margin-left:-1px;background:#fff;border-radius:2px;box-shadow:0 0 4px rgba(0,0,0,.6);pointer-events:none;"></div>' +
+        '</div></div>' +
+        '<div style="font-size:11.5px;color:' + k.muted + ';text-align:center;margin:2px 0 12px;">Arraste as bordas verdes ou a faixa para escolher o trecho</div>' +
+        '<div id="vt-abas" style="display:flex;gap:6px;margin-bottom:12px;"></div>' +
+        '<div id="vt-painel"></div>' +
+        '<p id="vt-aviso" style="font-size:11.5px;color:' + k.muted + ';line-height:1.5;margin:12px 0 0;"></p>' +
         '<div id="vt-acao"><button onclick="_vtUsar()" style="width:100%;margin-top:14px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Usar este trecho</button></div>' +
         '<div id="vt-prog" style="display:none;margin-top:14px;text-align:center;">' +
-          '<div id="vt-prog-txt" style="font-size:13px;font-weight:800;color:' + txt + ';margin-bottom:8px;">Preparando o vídeo...</div>' +
-          '<div style="height:8px;border-radius:6px;background:' + borda + ';overflow:hidden;"><div id="vt-prog-bar" style="height:100%;width:0;background:#7FFF00;transition:width .2s;"></div></div>' +
-          '<div style="font-size:11px;color:' + muted + ';margin-top:8px;">Mantenha o app aberto até terminar.</div>' +
+          '<div id="vt-prog-txt" style="font-size:13px;font-weight:800;color:' + k.txt + ';margin-bottom:8px;">Preparando o vídeo...</div>' +
+          '<div style="height:8px;border-radius:6px;background:' + k.borda + ';overflow:hidden;"><div id="vt-prog-bar" style="height:100%;width:0;background:#7FFF00;transition:width .2s;"></div></div>' +
+          '<div style="font-size:11px;color:' + k.muted + ';margin-top:8px;">Mantenha o app aberto até terminar.</div>' +
         '</div>' +
       '</div>' +
     '</div>';
   document.body.appendChild(ov);
+  _pkTravarFundo();
   const v = document.getElementById('vt-video');
   _vt.video = v;
   v.onerror = function () {
     const c = document.getElementById('vt-carregando');
     if (c) { c.style.display = 'flex'; c.textContent = _vtMotivoErro(v); }
   };
-  v.onloadedmetadata = function () {
+  v.onloadedmetadata = async function () {
+    // Alguns vídeos (gravados por navegadores, por exemplo) chegam sem duração. Pular para o fim força o cálculo.
+    if (!isFinite(v.duration)) {
+      await new Promise(function (res) { const f = function () { v.removeEventListener('durationchange', f); res(); }; v.addEventListener('durationchange', f); try { v.currentTime = 1e101; } catch (e) { res(); } setTimeout(res, 3000); });
+      try { v.currentTime = 0; } catch (e) {}
+    }
     if (!isFinite(v.duration) || v.duration <= 0) { v.onerror(); return; }
-    _vt.dur = v.duration;
-    _vt.ini = 0;
-    _vt.fim = Math.min(v.duration, COMPOSE_VIDEO_MAX_SEG);
-    ['vt-ini', 'vt-fim'].forEach(function (id) { const r = document.getElementById(id); r.max = String(v.duration); });
-    document.getElementById('vt-ini').value = String(_vt.ini);
-    document.getElementById('vt-fim').value = String(_vt.fim);
+    const s0 = _vt; if (!s0) return;
+    s0.dur = v.duration; s0.vw = v.videoWidth || 640; s0.vh = v.videoHeight || 360;
+    const t0 = API.trecho.inicial(v.duration, COMPOSE_VIDEO_MAX_SEG);
+    s0.ini = t0.ini; s0.fim = t0.fim;
+    _vtMedirFrame();
     document.getElementById('vt-carregando').style.display = 'none';
     document.getElementById('vt-controles').style.display = 'block';
+    document.getElementById('vt-topo-usar').style.visibility = 'visible';
+    document.getElementById('vt-dur').textContent = 'Vídeo de ' + _vtFmt(v.duration);
     document.getElementById('vt-aviso').textContent = (v.duration > COMPOSE_VIDEO_MAX_SEG
       ? 'O vídeo tem ' + _vtFmt(v.duration) + '. Escolha um trecho de até ' + COMPOSE_VIDEO_MAX_SEG + ' segundos. '
       : '') + 'O vídeo é otimizado para ficar leve (até 720p), e a preparação leva cerca do tempo do trecho.';
-    _vtResumo();
-    try { v.currentTime = 0.05; } catch (e) {}
+    _vtLigarTrilho();
+    _vtPosicionar();
+    _vtAbas();
+    _vtMontarCamada();
+    _vtFaixaDeQuadros();
+    try { v.currentTime = Math.min(0.05, v.duration / 2); } catch (e) {}
+    clearInterval(_vtTimer);
+    _vtTimer = setInterval(_vtAtualizarCabeca, 80);
   };
   v.ontimeupdate = function () {
-    if (_vt && !_vt.codificando && !v.paused && v.currentTime >= _vt.fim) { v.pause(); try { v.currentTime = _vt.ini; } catch (e) {} }
+    // Reproduz o trecho em repetição, como no Instagram: ao chegar no fim, volta ao início e continua.
+    if (_vt && !_vt.codificando && !v.paused && v.currentTime >= _vt.fim) { try { v.currentTime = _vt.ini; } catch (e) {} }
   };
   v.onplay = function () { const i = document.getElementById('vt-play-ico'); if (i) i.style.display = 'none'; };
   v.onpause = function () { const i = document.getElementById('vt-play-ico'); if (i) i.style.display = 'flex'; };
+  window.addEventListener('resize', _vtMedirFrame);
+}
+
+// A moldura toma exatamente a proporção do vídeo, para a figurinha ficar no mesmo lugar do vídeo gravado.
+function _vtMedirFrame() {
+  const s = _vt, fr = document.getElementById('vt-frame'); if (!s || !fr || !s.vw) return;
+  const maxW = Math.min(388, window.innerWidth - 32), maxH = window.innerHeight * 0.5;
+  let w = maxW, h = w * s.vh / s.vw;
+  if (h > maxH) { h = maxH; w = h * s.vw / s.vh; }
+  fr.style.width = Math.round(w) + 'px'; fr.style.height = Math.round(h) + 'px'; fr.style.aspectRatio = 'auto'; fr.style.maxHeight = 'none';
 }
 
 function _vtResumo() {
@@ -4299,28 +4376,202 @@ function _vtResumo() {
   const el = document.getElementById('vt-resumo');
   if (el) el.textContent = _vtFmt(_vt.ini) + ' a ' + _vtFmt(_vt.fim) + '  ·  ' + Math.round(_vt.fim - _vt.ini) + ' s';
 }
-
-function _vtMover(qual, valor) {
-  if (!_vt || _vt.codificando) return;
-  let ini = _vt.ini, fim = _vt.fim;
-  const x = parseFloat(valor);
-  const max = COMPOSE_VIDEO_MAX_SEG, dur = _vt.dur;
-  if (qual === 'ini') {
-    ini = Math.min(x, dur - 1);
-    if (fim - ini < 1) fim = Math.min(dur, ini + 1);
-    if (fim - ini > max) fim = ini + max;
-  } else {
-    fim = Math.max(x, 1);
-    if (fim - ini < 1) ini = Math.max(0, fim - 1);
-    if (fim - ini > max) ini = fim - max;
-  }
-  _vt.ini = Math.max(0, ini); _vt.fim = Math.min(dur, fim);
-  document.getElementById('vt-ini').value = String(_vt.ini);
-  document.getElementById('vt-fim').value = String(_vt.fim);
+// Posiciona a faixa verde, as sombras fora do trecho e a linha branca de reprodução.
+function _vtPosicionar() {
+  const s = _vt; if (!s || !s.dur) return;
+  const sel = document.getElementById('vt-sel'); if (!sel) return;
+  const a = API.trecho.posicao(s.ini, s.dur) * 100, b = API.trecho.posicao(s.fim, s.dur) * 100;
+  sel.style.left = a + '%'; sel.style.width = (b - a) + '%';
+  document.getElementById('vt-sombra-e').style.width = a + '%';
+  document.getElementById('vt-sombra-d').style.width = (100 - b) + '%';
   _vtResumo();
-  const v = _vt.video;
-  try { v.pause(); v.currentTime = qual === 'ini' ? _vt.ini : Math.max(_vt.ini, _vt.fim - 0.3); } catch (e) {}
+  _vtAtualizarCabeca();
 }
+function _vtAtualizarCabeca() {
+  const s = _vt; if (!s || !s.video || !s.dur) return;
+  const h = document.getElementById('vt-cabeca'); if (!h) return;
+  const t = Math.min(s.fim, Math.max(s.ini, s.video.currentTime || 0));
+  h.style.left = (API.trecho.posicao(t, s.dur) * 100) + '%';
+}
+function _vtSeek(t) {
+  const s = _vt; if (!s) return;
+  const agora = performance.now();
+  if (agora - s.ultSeek < 50) return;   // não afoga o aparelho durante o arrasto
+  s.ultSeek = agora;
+  try { s.video.currentTime = Math.max(0, Math.min(s.dur, t)); } catch (e) {}
+}
+
+// Arrastar as bordas (início e fim) ou a faixa inteira. A prévia mostra o quadro da borda que está sendo movida.
+function _vtLigarTrilho() {
+  const trilho = document.getElementById('vt-trilho'); if (!trilho) return;
+  let arr = null;
+  trilho.addEventListener('pointerdown', function (e) {
+    const h = e.target.closest('[data-h]');
+    if (!h || !_vt || _vt.codificando) return;
+    arr = { h: h.getAttribute('data-h'), x0: e.clientX, ini0: _vt.ini, fim0: _vt.fim, pid: e.pointerId };
+    try { h.setPointerCapture(e.pointerId); } catch (x) {}
+    try { _vt.video.pause(); } catch (x) {}
+    e.preventDefault();
+  });
+  trilho.addEventListener('pointermove', function (e) {
+    if (!arr || e.pointerId !== arr.pid || !_vt) return;
+    const w = trilho.getBoundingClientRect().width || 1;
+    const dt = (e.clientX - arr.x0) / w * _vt.dur;
+    const r = arr.h === 'mov'
+      ? API.trecho.deslocar(arr.ini0, arr.fim0, _vt.dur, dt)
+      : API.trecho.janela(arr.ini0, arr.fim0, _vt.dur, COMPOSE_VIDEO_MAX_SEG, arr.h, (arr.h === 'ini' ? arr.ini0 : arr.fim0) + dt);
+    _vt.ini = r.ini; _vt.fim = r.fim;
+    _vtPosicionar();
+    _vtSeek(arr.h === 'fim' ? Math.max(r.ini, r.fim - 0.2) : r.ini);
+    e.preventDefault();
+  });
+  const solta = function (e) {
+    if (!arr || e.pointerId !== arr.pid) return;
+    arr = null;
+    try { if (_vt) _vt.video.currentTime = _vt.ini; } catch (x) {}
+  };
+  trilho.addEventListener('pointerup', solta);
+  trilho.addEventListener('pointercancel', solta);
+}
+
+// Faixa de quadros: busca alguns instantes do vídeo (num <video> à parte, para não mexer na prévia) e desenha miniaturas.
+async function _vtFaixaDeQuadros() {
+  const s = _vt; if (!s) return;
+  const tiras = document.getElementById('vt-tiras'); if (!tiras) return;
+  const n = 10;
+  const tv = document.createElement('video');
+  tv.muted = true; tv.setAttribute('playsinline', ''); tv.preload = 'auto'; tv.src = s.url;
+  s.tv = tv;
+  await new Promise(function (res) { tv.onloadedmetadata = res; tv.onerror = res; setTimeout(res, 6000); });
+  if (_vt !== s || !tv.videoWidth) return;
+  const cw = 64, ch = 116;
+  for (let i = 0; i < n; i++) {
+    if (_vt !== s) return;
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+    cv.style.cssText = 'flex:1;min-width:0;height:100%;display:block;object-fit:cover;';
+    tiras.appendChild(cv);
+    await new Promise(function (res) {
+      let ok = false; const fim = function () { if (!ok) { ok = true; tv.onseeked = null; res(); } };
+      tv.onseeked = fim; setTimeout(fim, 2500);
+      try { tv.currentTime = Math.min(s.dur - 0.05, (i + 0.5) * s.dur / n); } catch (e) { fim(); }
+    });
+    try {
+      const sc = Math.max(cw / tv.videoWidth, ch / tv.videoHeight), dw = tv.videoWidth * sc, dh = tv.videoHeight * sc;
+      cv.getContext('2d').drawImage(tv, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+      if (i === 0 || !s.poster) {
+        // Um quadro maior serve de amostra para os filtros.
+        const pc = document.createElement('canvas'); pc.width = 96; pc.height = Math.round(96 * tv.videoHeight / tv.videoWidth);
+        pc.getContext('2d').drawImage(tv, 0, 0, pc.width, pc.height);
+        s.poster = pc.toDataURL('image/jpeg', 0.7);
+        if (s.aba === 'filtros') _vtAbas();
+      }
+    } catch (e) {}
+  }
+  try { tv.removeAttribute('src'); tv.load(); } catch (e) {}
+  s.tv = null;
+}
+
+// Abas: Cortar (o trecho), Filtros e Figurinhas.
+function _vtAba(nome) { if (!_vt || _vt.codificando) return; _vt.aba = nome; if (nome !== 'figurinhas') _vtAjustar(false); _vtAbas(); }
+function _vtAbas() {
+  const s = _vt; if (!s) return;
+  const k = _vtCores();
+  const abas = [['cortar', '✂️ Cortar'], ['filtros', '🎨 Filtros'], ['figurinhas', '✨ Figurinhas']];
+  document.getElementById('vt-abas').innerHTML = abas.map(function (a) {
+    const on = s.aba === a[0];
+    return '<button onclick="_vtAba(\'' + a[0] + '\')" style="flex:1;padding:10px 4px;border-radius:12px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (on ? k.acento : 'transparent') + ';background:' + (on ? (k.isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : (k.isLight ? '#eee' : '#1c1c1c')) + ';color:' + (on ? (k.isLight ? '#2d8a00' : '#7FFF00') : k.muted) + ';">' + a[1] + '</button>';
+  }).join('');
+  const el = document.getElementById('vt-painel');
+  if (s.aba === 'cortar') {
+    el.innerHTML = '<div style="font-size:12.5px;color:' + k.muted + ';line-height:1.5;text-align:center;padding:4px 0;">Toque no vídeo para ver o trecho em repetição.</div>';
+  } else if (s.aba === 'filtros') {
+    if (!s.filtroOk) { el.innerHTML = '<div style="font-size:12.5px;color:' + k.muted + ';line-height:1.5;padding:6px 0;">Este aparelho não aplica filtro dentro do vídeo. Os filtros continuam disponíveis para fotos.</div>'; return; }
+    el.innerHTML = '<div style="display:flex;gap:10px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none;">' + FEED_EDITOR_FILTROS.map(function (f) {
+      const on = s.filtro === f.id;
+      return '<div onclick="_vtEscolherFiltro(\'' + f.id + '\')" style="flex:0 0 auto;text-align:center;cursor:pointer;width:62px;">' +
+        '<div style="width:62px;height:62px;border-radius:10px;overflow:hidden;background:#111;border:2px solid ' + (on ? '#7FFF00' : 'transparent') + ';"><div style="width:100%;height:100%;background-image:url(\'' + (s.poster || '') + '\');background-size:cover;background-position:center;' + (f.css ? 'filter:' + f.css + ';' : '') + '"></div></div>' +
+        '<div style="font-size:10.5px;margin-top:4px;font-weight:700;color:' + (on ? (k.isLight ? '#2d8a00' : '#7FFF00') : k.muted) + ';">' + f.nome + '</div></div>';
+    }).join('') + '</div>';
+  } else {
+    el.innerHTML = _vtPainelFigurinhas(k);
+  }
+}
+function _vtEscolherFiltro(id) {
+  if (!_vt || _vt.codificando) return;
+  _vt.filtro = id;
+  const v = _vt.video; if (v) v.style.filter = _vtFiltroCss(id) || 'none';
+  _vtAbas();
+}
+
+// Figurinhas: as mesmas informações do último treino ou cardio que a foto usa (INFO_LAYOUTS), agora sobre o vídeo.
+function _vtPainelFigurinhas(k) {
+  const s = _vt;
+  const disp = _composeInfoDisponivel();
+  if (!disp.treino && !disp.cardio && !s.info.on) {
+    return '<div style="font-size:12.5px;color:' + k.muted + ';line-height:1.5;padding:6px 0;">Finalize um treino ou um cardio para usar a figurinha com as informações no vídeo.</div>';
+  }
+  const botao = function (rot, fn, on) {
+    return '<button onclick="' + fn + '" style="flex:1;padding:10px 6px;border-radius:12px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (on ? k.acento : (k.isLight ? '#ddd' : '#333')) + ';background:' + (on ? (k.isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + k.txt + ';">' + rot + '</button>';
+  };
+  const tipoAtual = s.info.on && s.info.dados ? (s.info.dados.tipo === 'cardio' ? 'cardio' : 'treino') : '';
+  let h = '<div style="display:flex;gap:8px;margin-bottom:10px;">' +
+    botao('Sem', "_vtInfo('')", !s.info.on) +
+    (disp.treino ? botao('💪 Último treino', "_vtInfo('treino')", tipoAtual === 'treino' && s.info.on) : '') +
+    (disp.cardio ? botao('🏃 Último cardio', "_vtInfo('cardio')", tipoAtual === 'cardio' && s.info.on) : '') + '</div>';
+  if (s.info.on) {
+    h += '<div style="display:flex;gap:8px;margin-bottom:10px;">' + INFO_LAYOUTS.map(function (l, i) {
+      const on = i === s.info.layoutIdx;
+      return '<div onclick="_vtLayout(' + i + ')" title="' + esc(l.nome) + '" style="flex:1;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;border:1px solid ' + (on ? k.acento : (k.isLight ? '#ddd' : '#333')) + ';background:' + (on ? (k.isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';">' + l.emoji + '</div>';
+    }).join('') + '</div>' +
+    '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:' + k.txt + ';margin-bottom:10px;cursor:pointer;"><input type="checkbox" ' + (s.info.incluirFig ? 'checked' : '') + ' onchange="_vtToggleFig(this.checked)" style="width:16px;height:16px;accent-color:#7FFF00;"/> Incluir a figurinha de hoje</label>' +
+    '<div style="display:flex;gap:8px;">' +
+      '<button onclick="_vtAjustar()" style="flex:1;padding:11px;border-radius:12px;border:none;background:' + (s.ajustando ? '#7FFF00' : (k.isLight ? '#eee' : '#222')) + ';color:' + (s.ajustando ? '#0f1a00' : k.txt) + ';font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;">' + (s.ajustando ? '✓ Pronto' : '✋ Ajustar figurinha') + '</button>' +
+      '<button onclick="_vtCentralizar()" style="padding:11px 14px;border-radius:12px;border:none;background:' + (k.isLight ? '#eee' : '#222') + ';color:' + k.txt + ';font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;">↺ Centralizar</button>' +
+    '</div>' +
+    '<div style="font-size:11.5px;color:' + k.muted + ';margin-top:8px;line-height:1.5;">Toque em "Ajustar figurinha" e arraste no vídeo. Com dois dedos você aumenta ou diminui.</div>';
+  }
+  return h;
+}
+function _vtInfo(tipo) {
+  const s = _vt; if (!s || s.codificando) return;
+  if (!tipo) { s.info.on = false; _vtAjustar(false); }
+  else {
+    const disp = _composeInfoDisponivel();
+    const dados = tipo === 'cardio' ? disp.cardio : disp.treino;
+    if (!dados) return;
+    s.info = { on: true, dados: dados, layoutIdx: 0, incluirFig: true, recorde: true, fig: dados.fig || _figPick(_figurinhasList()) };
+    s.T.x = 0; s.T.y = 0; s.T.s = 1;
+  }
+  _vtMontarCamada(); _vtAbas();
+}
+function _vtLayout(i) { if (!_vt || _vt.codificando) return; _vt.info.layoutIdx = i; _vtMontarCamada(); _vtAbas(); }
+function _vtToggleFig(on) { if (!_vt || _vt.codificando) return; _vt.info.incluirFig = !!on; _vtMontarCamada(); }
+function _vtCentralizar() { if (_vt && _vt.gestos) _vt.gestos.reiniciar(); }
+function _vtAjustar(forcar) {
+  const s = _vt; if (!s) return;
+  s.ajustando = (forcar === undefined) ? !s.ajustando : !!forcar;
+  const cam = document.getElementById('vt-camada');
+  if (cam) { cam.style.pointerEvents = s.ajustando && s.info.on ? 'auto' : 'none'; cam.style.outline = s.ajustando && s.info.on ? '2px dashed #7FFF00' : 'none'; }
+  const d = document.getElementById('vt-dica'); if (d) d.style.display = s.ajustando && s.info.on ? 'block' : 'none';
+  if (forcar === undefined) _vtAbas();
+}
+// Desenha a figurinha sobre a prévia (o mesmo layout da foto) e liga os gestos uma única vez.
+function _vtMontarCamada() {
+  const s = _vt, cam = document.getElementById('vt-camada'), fr = document.getElementById('vt-frame');
+  if (!s || !cam || !fr) return;
+  if (!s.info.on || !s.info.dados) { cam.innerHTML = ''; cam.style.display = 'none'; return; }
+  const k = _vtCores();
+  const layout = INFO_LAYOUTS[s.info.layoutIdx] || INFO_LAYOUTS[0];
+  const w = fr.clientWidth, h = fr.clientHeight;
+  const dados = s.info.dados;
+  const info = (s.info.recorde || !dados.recordes || !dados.recordes.length) ? dados : (function () { const c2 = Object.assign({}, dados); delete c2.recordes; return c2; })();
+  cam.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(w, h / w));
+  cam.style.display = 'block';
+  if (!s.gestos) s.gestos = _ovGestos(fr, cam, s.T);
+  else s.gestos.aplicar();
+  _vtAjustar(s.ajustando);
+}
+function _vtToqueFrame() { if (_vt && !_vt.ajustando) _vtPlayPause(); }
 
 function _vtPlayPause() {
   if (!_vt || _vt.codificando) return;
@@ -4336,12 +4587,35 @@ function _vtCancelar() {
   _vtFechar(false);
 }
 function _vtFechar(silencioso) {
+  clearInterval(_vtTimer); _vtTimer = null;
+  window.removeEventListener('resize', _vtMedirFrame);
   document.getElementById('vt-overlay')?.remove();
   const s = _vt; _vt = null;
   if (!s) return;
   try { if (s.video) { s.video.pause(); s.video.removeAttribute('src'); s.video.load(); } } catch (e) {}
+  try { if (s.tv) { s.tv.removeAttribute('src'); s.tv.load(); } } catch (e) {}
   try { URL.revokeObjectURL(s.url); } catch (e) {}
   if (!s.pronto && s.resolve) { const r = s.resolve; s.resolve = null; r(null); }
+}
+
+// Camada de figurinha como imagem, no tamanho do vídeo gravado (a mesma técnica da foto: html2canvas).
+async function _vtCamadaCanvas(s, w, h) {
+  if (!s.info.on || !s.info.dados) return null;
+  if (typeof html2canvas === 'undefined') return null;
+  const k = _vtCores();
+  const layout = INFO_LAYOUTS[s.info.layoutIdx] || INFO_LAYOUTS[0];
+  const dados = s.info.dados;
+  const info = (s.info.recorde || !dados.recordes || !dados.recordes.length) ? dados : (function () { const c2 = Object.assign({}, dados); delete c2.recordes; return c2; })();
+  const cssW = Math.min(340, w), cssH = cssW * h / w;
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + cssW + 'px;height:' + cssH + 'px;pointer-events:none;';
+  host.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(cssW, h / w));
+  document.body.appendChild(host);
+  try {
+    const node = host.querySelector('.share-card');
+    return await html2canvas(node, { scale: w / cssW, backgroundColor: null, useCORS: true });
+  } catch (e) { return null; }
+  finally { host.remove(); }
 }
 
 // Uma tentativa de gravar o trecho. Devolve {item} | {erro} | {travou} | {cancelado}.
@@ -4375,6 +4649,11 @@ async function _vtGravar(s, modo) {
     const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d');
     const stream = canvas.captureStream(30);
+    // Filtro, figurinha (na posição e tamanho ajustados) e a logo da Intus entram no vídeo, quadro a quadro.
+    const filtroCss = s.filtroOk ? _vtFiltroCss(s.filtro) : '';
+    let camadaImg = null;
+    if (s.info && s.info.on) { prog(0, 'Preparando a figurinha...'); camadaImg = await _vtCamadaCanvas(s, w, h); }
+    const logoImg = await _cqCarregarImg(document.body.classList.contains('tema-claro') ? 'logo-icon-light.png' : 'logo-icon-dark.png');
     const ac = s.ac;
     if (ac && modo !== 'mudo' && ac.state !== 'running') await Promise.race([ac.resume(), new Promise(function (r) { setTimeout(r, 1500); })]);
     const acOk = !!ac && ac.state === 'running';
@@ -4434,8 +4713,13 @@ async function _vtGravar(s, modo) {
       let ultimoT = v.currentTime, ultimoQuando = Date.now();
       const quadro = function () {
         if (s.cancelado) { res('cancelado'); return; }
-        try { ctx.drawImage(v, 0, 0, w, h); } catch (e) {}
-        if (!poster) { try { poster = canvas.toDataURL('image/jpeg', 0.85); } catch (e) {} }
+        try { ctx.filter = filtroCss || 'none'; ctx.drawImage(v, 0, 0, w, h); ctx.filter = 'none'; } catch (e) {}
+        if (camadaImg) { try { _ovDesenhar(ctx, camadaImg, s.T, w, h); } catch (e) {} }
+        if (!poster) { try { poster = canvas.toDataURL('image/jpeg', 0.85); } catch (e) {} }   // capa: já com filtro e figurinha, sem a logo (ela entra ao publicar)
+        if (logoImg) {
+          const lh = Math.round(h * 0.035), lw = lh * (logoImg.width / logoImg.height), mg = w * 0.03;
+          ctx.globalAlpha = 0.9; ctx.drawImage(logoImg, w - lw - mg, h - lh - mg, lw, lh); ctx.globalAlpha = 1;
+        }
         const t = v.currentTime;
         if (t > ultimoT + 0.01) { ultimoT = t; ultimoQuando = Date.now(); }
         else if (Date.now() - ultimoQuando > 5000) { res('travou'); return; }
@@ -4495,7 +4779,8 @@ async function _vtUsar() {
   s.codificando = true;
   document.getElementById('vt-acao').style.display = 'none';
   document.getElementById('vt-prog').style.display = 'block';
-  document.getElementById('vt-ini').disabled = true; document.getElementById('vt-fim').disabled = true;
+  _vtAjustar(false);
+  const topo = document.getElementById('vt-topo-usar'); if (topo) topo.style.visibility = 'hidden';
   try { s.video.pause(); } catch (e) {}
   // O AudioContext nasce AGORA, dentro do toque do aluno: no iPhone ele só liga assim.
   try {
@@ -4528,7 +4813,7 @@ async function _vtUsar() {
   s.codificando = false;
   const a = document.getElementById('vt-acao'); if (a) a.style.display = 'block';
   const p = document.getElementById('vt-prog'); if (p) p.style.display = 'none';
-  const i1 = document.getElementById('vt-ini'), i2 = document.getElementById('vt-fim'); if (i1) i1.disabled = false; if (i2) i2.disabled = false;
+  const topo2 = document.getElementById('vt-topo-usar'); if (topo2) topo2.style.visibility = 'visible';
   toast(r.travou ? 'O vídeo não andou durante a preparação. Tente de novo ou escolha outro vídeo.' : (r.erro || 'Não consegui preparar o vídeo.'));
 }
 
@@ -11809,6 +12094,128 @@ function _amzAbaParceirosHtml(isLight) {
   }).join('') + '<div style="font-size:11.5px;color:' + sub + ';line-height:1.5;padding:4px;">A sequência conta as semanas, de domingo a sábado, em que os dois fizeram pelo menos um treino. Só aparece quem participa do ranking.</div>';
 }
 
+// ═══════════════ GESTOS SOBRE A MÍDIA (arrastar e pinça) ═══════════════
+// Move e muda o tamanho de uma camada (a figurinha com as informações) sobre uma foto ou um vídeo. `estado` é
+// {x, y, s}: x e y são a distância do centro da moldura, em fração da largura e da altura; s é a escala (1 = tamanho
+// original). O mesmo estado vira o desenho final (foto: _compositarInfoNaFoto; vídeo: _vtGravar), então o que o aluno
+// vê é o que sai. Um dedo arrasta; dois dedos fazem a pinça (aumentar, diminuir e mover juntos); no computador, a roda
+// do mouse muda o tamanho.
+var _ESCALA_MIN = 0.35, _ESCALA_MAX = 3;
+function _ovLimitar(v, a, b) { return Math.min(b, Math.max(a, v)); }
+function _ovTransformCss(e) { return 'translate(' + (e.x * 100) + '%,' + (e.y * 100) + '%) scale(' + e.s + ')'; }
+function _ovGestos(moldura, camada, estado, aoMudar) {
+  const ptrs = new Map();
+  let gesto = null;
+  const aplicar = function () { camada.style.transform = _ovTransformCss(estado); };
+  const dist = function (a, b) { return Math.hypot(a.x - b.x, a.y - b.y); };
+  const centro = function (pts) { return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }; };
+  const iniciar = function () {
+    const pts = Array.from(ptrs.values());
+    if (pts.length === 1) gesto = { tipo: 'arrasto', px: pts[0].x, py: pts[0].y, x0: estado.x, y0: estado.y };
+    else if (pts.length >= 2) gesto = { tipo: 'pinca', d0: Math.max(1, dist(pts[0], pts[1])), s0: estado.s, c0: centro(pts), x0: estado.x, y0: estado.y };
+    else gesto = null;
+  };
+  camada.style.touchAction = 'none';
+  camada.style.transformOrigin = '50% 50%';
+  aplicar();
+  camada.addEventListener('pointerdown', function (e) {
+    try { camada.setPointerCapture(e.pointerId); } catch (x) {}
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    iniciar();
+    e.preventDefault();
+  });
+  camada.addEventListener('pointermove', function (e) {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const r = moldura.getBoundingClientRect();
+    if (!r.width || !r.height || !gesto) return;
+    const pts = Array.from(ptrs.values());
+    if (gesto.tipo === 'arrasto' && pts.length === 1) {
+      estado.x = _ovLimitar(gesto.x0 + (pts[0].x - gesto.px) / r.width, -0.8, 0.8);
+      estado.y = _ovLimitar(gesto.y0 + (pts[0].y - gesto.py) / r.height, -0.8, 0.8);
+    } else if (gesto.tipo === 'pinca' && pts.length >= 2) {
+      estado.s = _ovLimitar(gesto.s0 * dist(pts[0], pts[1]) / gesto.d0, _ESCALA_MIN, _ESCALA_MAX);
+      const c = centro(pts);
+      estado.x = _ovLimitar(gesto.x0 + (c.x - gesto.c0.x) / r.width, -0.8, 0.8);
+      estado.y = _ovLimitar(gesto.y0 + (c.y - gesto.c0.y) / r.height, -0.8, 0.8);
+    }
+    aplicar();
+    if (aoMudar) aoMudar(estado);
+    e.preventDefault();
+  });
+  const fim = function (e) {
+    ptrs.delete(e.pointerId);
+    try { camada.releasePointerCapture(e.pointerId); } catch (x) {}
+    iniciar();   // se sobrou um dedo, vira arrasto a partir de onde ele está
+  };
+  camada.addEventListener('pointerup', fim);
+  camada.addEventListener('pointercancel', fim);
+  camada.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    estado.s = _ovLimitar(estado.s * (e.deltaY < 0 ? 1.06 : 0.94), _ESCALA_MIN, _ESCALA_MAX);
+    aplicar();
+    if (aoMudar) aoMudar(estado);
+  }, { passive: false });
+  return { aplicar: aplicar, reiniciar: function () { estado.x = 0; estado.y = 0; estado.s = 1; aplicar(); if (aoMudar) aoMudar(estado); } };
+}
+// Desenha a camada (um canvas do tamanho da moldura) com o mesmo deslocamento e escala que o aluno ajustou.
+function _ovDesenhar(ctx, camadaCanvas, estado, W, H) {
+  ctx.save();
+  ctx.translate(W / 2 + estado.x * W, H / 2 + estado.y * H);
+  ctx.scale(estado.s, estado.s);
+  ctx.drawImage(camadaCanvas, -W / 2, -H / 2, W, H);
+  ctx.restore();
+}
+
+// ═══════════════ BAIXAR POST ═══════════════
+// O dono baixa a foto ou o vídeo do próprio post. A logo da Intus já está dentro da mídia (aplicada ao publicar), então o
+// arquivo baixado sai sempre com ela. Vídeos publicados antes da logo existir nos vídeos saem como foram enviados.
+// No celular abre o menu de compartilhar do aparelho ("Salvar imagem" ou "Salvar vídeo", que vai para a galeria).
+async function baixarPost(idpost) {
+  const post = _acharPost(idpost);
+  if (!post) { toast('Abra a publicação pelo seu perfil para baixar.'); return; }
+  const midias = _midiasDoPost(post).filter(m => m && m.url);
+  if (!midias.length) { toast('Não achei a mídia deste post.'); return; }
+  _busyMostrar('Preparando o download...', null, '');
+  const arquivos = [];
+  try {
+    for (let i = 0; i < midias.length; i++) {
+      const m = midias[i];
+      let r;
+      if (m.tipo === 'video') r = await _fetchT(m.url, {}, 180000);
+      else r = await _fetchT(API_BASE + '/catalogo.php?action=feed_baixar&idpost=' + Number(idpost) + '&url=' + encodeURIComponent(m.url), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') } }, 60000);
+      if (!r.ok) throw new Error('http ' + r.status);
+      const blob = await r.blob();
+      const tipo = blob.type || (m.tipo === 'video' ? 'video/mp4' : 'image/jpeg');
+      const ext = /webm/.test(tipo) ? 'webm' : /mp4|quicktime/.test(tipo) ? 'mp4' : /png/.test(tipo) ? 'png' : /webp/.test(tipo) ? 'webp' : (m.tipo === 'video' ? 'mp4' : 'jpg');
+      arquivos.push(new File([blob], 'intus-' + Number(idpost) + (midias.length > 1 ? '-' + (i + 1) : '') + '.' + ext, { type: tipo }));
+    }
+  } catch (e) {
+    _busyFim();
+    toast('Não consegui baixar agora. Tente de novo.');
+    return;
+  }
+  _busyFim();
+  await _baixarArquivos(arquivos);
+}
+async function _baixarArquivos(arquivos) {
+  // 1) Menu de compartilhar do aparelho (iPhone e Android): leva para a galeria.
+  try {
+    if (navigator.canShare && navigator.canShare({ files: arquivos })) { await navigator.share({ files: arquivos, title: 'Intus Fit' }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  // 2) Sem menu de compartilhar: foto abre para salvar (toque e segure); vídeo e navegador baixam direto.
+  if (arquivos.length === 1 && /^image\//.test(arquivos[0].type)) { _shareMostrarParaSalvar(arquivos[0], arquivos[0].name); return; }
+  arquivos.forEach(function (f, i) {
+    setTimeout(function () {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(f); a.download = f.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 15000);
+    }, i * 500);
+  });
+  toast(arquivos.length > 1 ? 'Baixando ' + arquivos.length + ' arquivos' : 'Download iniciado');
+}
+
 // ═══════════════ BUSCA NO FEED (alunos e equipe) ═══════════════
 // Alunos: quem participa do Feed ou do ranking (nomes já carregados no app). Equipe: professores e nutricionistas
 // sincronizados no aparelho (intus-usuarios).
@@ -12436,7 +12843,8 @@ function _postPrivHtml(post, isLight) {
   return '<div id="post-priv" style="margin-bottom:12px;padding:12px;border-radius:14px;background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#262626') + ';">' +
     '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🔒 Quem pode ver esta publicação</div>' +
     '<div style="display:flex;gap:6px;">' + chip('todos', '🌎 Todos') + chip('amigos', '👥 Amigos') + chip('eu', '🙋 Só eu') + '</div>' +
-    '<div style="font-size:12px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin-top:8px;">' + _VISIB_INFO[atual] + (post.destino === 'perfil' ? ' Ela não aparece no Feed, só no seu perfil.' : '') + '</div></div>';
+    '<div style="font-size:12px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin-top:8px;">' + _VISIB_INFO[atual] + (post.destino === 'perfil' ? ' Ela não aparece no Feed, só no seu perfil.' : '') + '</div>' +
+    '<button onclick="baixarPost(' + Number(post.idpost) + ')" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:' + (isLight ? '#333' : '#e5e5e5') + ';font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">⬇️ Baixar ' + (_midiasDoPost(post).length > 1 ? 'as ' + _midiasDoPost(post).length + ' mídias' : (_midiasDoPost(post)[0] && _midiasDoPost(post)[0].tipo === 'video' ? 'o vídeo' : 'a foto')) + '</button></div>';
 }
 async function _postSetVisib(idpost, v) {
   const post = _acharPost(idpost); if (!post) return;

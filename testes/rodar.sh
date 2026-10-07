@@ -17,6 +17,7 @@ passo "pontuação do ranking (unidade)"     node pontos.js
 passo "nutrição: aderência, alertas e compras" node nutri.js
 passo "parceria: sequência da dupla"      node parceria.js
 passo "comunidade: turmas e desafios"      node comunidade.js
+passo "corte de vídeo: pontas e trecho"    node trecho.js
 passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
 
 # Os testes de navegador precisam de um servidor HTTP: o cache-buster "?v=" não

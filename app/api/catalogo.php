@@ -3201,6 +3201,40 @@ if ($action === 'desafios_aluno') {
     }
 }
 
+// ── Baixar a foto de um post ──────────────────────────────────────────────
+// GET ?idpost=ID&url=URL_DA_FOTO. Só o dono do post. O app nativo não consegue buscar a imagem direto da pasta pública
+// (sem CORS), então ela passa por aqui. A foto já sai com a logo da Intus, que é aplicada ao publicar. Vídeo não passa
+// por aqui: o app busca em midia.php, que já tem CORS.
+if ($action === 'feed_baixar' && $method === 'GET') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    $idp = (int)($_GET['idpost'] ?? 0);
+    $urlF = (string)($_GET['url'] ?? '');
+    $st = $pdo->prepare("SELECT idatleta, imagem FROM intus_feed_post WHERE idpost = ? AND ativo > 0");
+    $st->execute([$idp]);
+    $po = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$po || $_autorTipo !== 'aluno' || (int)$po['idatleta'] !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'so o dono baixa o proprio post']); exit; }
+    // A foto pedida precisa ser mesmo deste post (a capa ou uma das mídias dele).
+    $ok = ($urlF !== '' && $urlF === (string)$po['imagem']);
+    if (!$ok) {
+        $sm = $pdo->prepare("SELECT 1 FROM intus_midia WHERE dono_tipo = 'feed_post' AND dono_id = ? AND url = ? LIMIT 1");
+        $sm->execute([$idp, $urlF]);
+        $ok = (bool)$sm->fetchColumn();
+    }
+    $nome = basename((string)parse_url($urlF, PHP_URL_PATH));
+    $arq = __DIR__ . '/../img/feed/' . $nome;
+    if (!$ok || strpos($urlF, '/img/feed/') === false || !preg_match('/^[A-Za-z0-9_.-]+\.(jpg|jpeg|png|webp)$/i', $nome) || !is_file($arq)) {
+        http_response_code(404); echo json_encode(['error' => 'foto nao encontrada']); exit;
+    }
+    $ext = strtolower(pathinfo($nome, PATHINFO_EXTENSION));
+    $mime = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
+    header('Content-Type: ' . $mime);
+    header('Content-Disposition: attachment; filename="intus-post-' . $idp . '.' . ($ext === 'jpeg' ? 'jpg' : $ext) . '"');
+    header('Content-Length: ' . filesize($arq));
+    readfile($arq);
+    exit;
+}
+
 // ── Carrossel: foto extra de um post (uma por requisição) e finalização ────
 // O dono envia o post com a capa (feed_posts POST, total_midias > 1), manda cada
 // foto extra aqui e por fim chama com finalizar=1, que torna o post visível.

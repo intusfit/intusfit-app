@@ -2909,6 +2909,37 @@ const API = {
     return { chave: chave, refeicoes: refeicoes, somaItens: somaItens, aderencia: aderencia, consumo: consumo, proximaRefeicao: proximaRefeicao,
              sequencia: sequencia, metaAguaMl: metaAguaMl, listaCompras: listaCompras, alertas: alertas, hojeIso: hojeIso, addDias: addDias };
   })(),
+  // Corte de vídeo (editor de vídeo do aluno): trecho de no mínimo 1 s e no máximo `max` s dentro de um vídeo de `dur` s.
+  trecho: (function () {
+    const MIN = 1;
+    // Move uma das pontas para `valor` (s). Se o trecho ficaria curto demais ou longo demais, a outra ponta acompanha.
+    function janela(ini, fim, dur, max, qual, valor) {
+      let i = ini, f = fim;
+      const x = Number(valor);
+      if (qual === 'ini') {
+        i = Math.min(Math.max(0, x), dur - MIN);
+        if (f - i < MIN) f = Math.min(dur, i + MIN);
+        if (f - i > max) f = i + max;
+      } else {
+        f = Math.min(dur, Math.max(x, MIN));
+        if (f - i < MIN) i = Math.max(0, f - MIN);
+        if (f - i > max) i = f - max;
+      }
+      return { ini: Math.max(0, i), fim: Math.min(dur, f) };
+    }
+    // Desliza o trecho inteiro (mesma duração) por `delta` s, sem sair do vídeo.
+    function deslocar(ini, fim, dur, delta) {
+      const len = fim - ini;
+      let i = ini + delta;
+      if (i < 0) i = 0;
+      if (i + len > dur) i = Math.max(0, dur - len);
+      return { ini: i, fim: i + len };
+    }
+    function inicial(dur, max) { return { ini: 0, fim: Math.min(dur, max) }; }
+    // Posição de um instante na linha do tempo, de 0 a 1.
+    function posicao(t, dur) { return dur > 0 ? Math.max(0, Math.min(1, t / dur)) : 0; }
+    return { janela: janela, deslocar: deslocar, inicial: inicial, posicao: posicao };
+  })(),
   // Treino em parceria: sequência da dupla e treinos no mesmo dia, a partir das sessões de cada um.
   // Semana = domingo a sábado (mesma regra das sequências do app). Sessão marcada como "não contar" fica de fora.
   parceria: (function () {

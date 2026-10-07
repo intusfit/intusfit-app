@@ -880,3 +880,25 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   real (`idsessao` maior é o mais novo; sessão ainda sem `idsessao` é a mais nova). A Home e a tela "Escolha seu
   treino" passaram a usar a mesma função, `_ultimaSessaoMusculacao(fichas)` (cardio não conta: o servidor grava o
   cardio com divisão 'C'), em vez de dois filtros separados.
+
+## 26. Edição de vídeo, figurinhas com gestos e download (07/10/2026)
+
+- **Editor de vídeo estilo Instagram** (`_vtAbrir` e funções `_vt*`, `aluno.html`): prévia na proporção do vídeo, faixa de
+  quadros embaixo (10 miniaturas), bordas verdes arrastáveis e a faixa inteira para deslizar o trecho, linha branca que
+  acompanha a reprodução, trecho em repetição, e abas **Cortar / Filtros / Figurinhas**. As regras do corte (mínimo 1 s,
+  máximo 60 s, deslizar) estão em `API.trecho` (`testes/trecho.js`). Vídeo sem duração (comum em webm gravado por
+  navegador) é tratado pulando para o fim.
+- **Filtros no vídeo**: os mesmos 8 filtros da foto (`FEED_EDITOR_FILTROS`), aplicados quadro a quadro com `ctx.filter`
+  ao gravar. Se o aparelho não suporta `ctx.filter` (iOS antigo), a aba avisa e o vídeo sai sem filtro.
+- **Figurinha (informações do último treino ou cardio, `INFO_LAYOUTS`) sobre foto e vídeo**: um dedo arrasta, dois
+  dedos fazem a pinça (tamanho e posição), a roda do mouse muda o tamanho. Só recebe o dedo no modo "Ajustar figurinha"
+  (fora dele a tela rola). O motor é `_ovGestos` (estado `{x, y, s}` em fração da moldura) e `_ovDesenhar` desenha o mesmo
+  estado na foto final (`_compositarInfoNaFoto`) e em cada quadro do vídeo (`_vtGravar`).
+- **Logo da Intus em todo vídeo novo**: entra no canto, igual às fotos. A capa do vídeo sai com filtro e figurinha, sem
+  logo (ela entra ao publicar). Vídeos publicados antes disso não têm a logo gravada.
+- **Baixar post** (`baixarPost`): o dono baixa a foto ou o vídeo do próprio post (tela do post e menu ⋯). Foto passa por
+  `catalogo.php?action=feed_baixar` (só o dono; o app nativo não tem CORS na pasta pública); vídeo vem de `midia.php`.
+  No celular abre o menu de compartilhar do aparelho (Salvar imagem/vídeo); sem ele, foto abre para salvar e vídeo baixa.
+- **Cuidado ao editar**: `val.js` só confere sintaxe. Uma chamada de função colocada numa linha de declaração `let`
+  derrubou o script inteiro em teste (erro de inicialização). Depois de editar `aluno.html`, abra a página e olhe o
+  console.
