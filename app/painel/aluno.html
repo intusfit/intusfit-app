@@ -5609,11 +5609,34 @@ function _fetchT(url, opts, ms) {
     function (e) { clearTimeout(t); throw (e && e.name === 'AbortError') ? new Error('A conexão está lenta e o servidor não respondeu a tempo.') : e; }
   );
 }
+// Última sessão de MUSCULAÇÃO (cardio não conta; o servidor grava o cardio com divisão 'C'). Fonte única da tela
+// inicial e da tela "Escolha seu treino": 1) a última de uma ficha que ainda vale; 2) se a ficha foi renovada, a última
+// cuja divisão (A, B, C...) existe na ficha atual.
+function _ultimaSessaoMusculacao(fichasLista) {
+  const musc = SessoesTreino.listarDoAtleta(idAtleta).filter(x => x.divisao && (x.tipo || 'musculacao') !== 'cardio' && !x.cardio_tipo);
+  let s = musc.find(x => fichasLista.some(f => Number(f.idficha) === Number(x.idficha) && f.divisoes && f.divisoes[x.divisao]));
+  let fid = s ? Number(s.idficha) : 0;
+  if (!s) {
+    const fa = fichasLista.find(f => f.divisoes && Object.keys(f.divisoes).length);
+    s = fa ? musc.find(x => fa.divisoes[x.divisao]) : null;
+    fid = fa ? Number(fa.idficha) : 0;
+  }
+  return s ? { sessao: s, idficha: fid } : null;
+}
 const SessoesTreino = {
   KEY: 'intus-sessoes-treino',
   load() { try { return JSON.parse(localStorage.getItem(this.KEY)||'[]'); } catch { return []; } },
   save(l) { localStorage.setItem(this.KEY, JSON.stringify(l)); },
-  listarDoAtleta(id) { return this.load().filter(s=>Number(s.idatleta)===Number(id)).sort((a,b)=>(b.dtsessao||'').localeCompare(a.dtsessao||'')); },
+  // Mais recente primeiro. Na mesma data (dois treinos no mesmo dia) vale a ordem real: idsessao maior é o mais novo, e
+  // sessão ainda sem idsessao (ainda não enviada) é a mais nova de todas. Sem esse desempate o "último treino" podia
+  // ser o primeiro do dia em vez do segundo.
+  listarDoAtleta(id) {
+    return this.load().filter(s=>Number(s.idatleta)===Number(id)).sort((a,b)=>{
+      const c = (b.dtsessao||'').localeCompare(a.dtsessao||''); if (c) return c;
+      const ia = a.idsessao==null ? Infinity : Number(a.idsessao), ib = b.idsessao==null ? Infinity : Number(b.idsessao);
+      return ia === ib ? 0 : (ib > ia ? 1 : -1);
+    });
+  },
   async criar(s) {
     const token = localStorage.getItem('mx-token') || '';
     let resposta;
@@ -6376,9 +6399,10 @@ function renderHome() {
       const _divs = API.ordenarDivisoes(Object.keys(_fAtiva.divisoes), _fAtiva);
       // Só musculação: o servidor grava todo cardio com divisao 'C', e isso fazia o cartão dizer
       // "Último: Treino C" para todo mundo (e sugerir a divisão seguinte errada).
-      const _ult = SessoesTreino.listarDoAtleta(idAtleta).find(x => x.divisao && (x.tipo || 'musculacao') !== 'cardio' && !x.cardio_tipo && _divs.includes(x.divisao));
+      const _ur = _ultimaSessaoMusculacao(fichas);
+      const _ult = _ur ? _ur.sessao : null;
       _ultimoTreino = _ult || null;
-      const _ix = _ult ? (_divs.indexOf(_ult.divisao) + 1) % _divs.length : 0;
+      const _ix = (_ult && _divs.includes(_ult.divisao)) ? (_divs.indexOf(_ult.divisao) + 1) % _divs.length : 0;
       const _dv = _divs[_ix];
       const _exs = _fAtiva.divisoes[_dv] || [];
       _hoje = {
@@ -6724,18 +6748,8 @@ async function abrirMeusTreinos() {
   // "onde eu parei" — sem pular a tela de escolha, só ajudando a decidir.
   let _ultDiv = null;
   try {
-    const _musc = SessoesTreino.listarDoAtleta(idAtleta).filter(x => x.divisao && (x.tipo || 'musculacao') !== 'cardio' && !x.cardio_tipo);
-    // 1) a última sessão de uma ficha que ainda está valendo; 2) se a ficha foi renovada (outro id),
-    // a última sessão cuja divisão (A, B, C...) existe na ficha atual. Antes só o 1) existia e o
-    // aviso "ÚLTIMO TREINO" sumia quando a última sessão era cardio ou de uma ficha antiga.
-    let _s = _musc.find(x => fichas.some(f => Number(f.idficha) === Number(x.idficha) && f.divisoes && f.divisoes[x.divisao]));
-    let _fid = _s ? Number(_s.idficha) : 0;
-    if (!_s) {
-      const _fa = fichas.find(f => f.divisoes && Object.keys(f.divisoes).length);
-      _s = _fa ? _musc.find(x => _fa.divisoes[x.divisao]) : null;
-      _fid = _fa ? Number(_fa.idficha) : 0;
-    }
-    if (_s) _ultDiv = { idficha: _fid, divisao: String(_s.divisao), dtsessao: _s.dtsessao };
+    const _ur = _ultimaSessaoMusculacao(fichas);
+    if (_ur) _ultDiv = { idficha: _ur.idficha, divisao: String(_ur.sessao.divisao), dtsessao: _ur.sessao.dtsessao };
   } catch (e) {}
 
   let html = telaHeader('🏋️ Escolha seu treino');

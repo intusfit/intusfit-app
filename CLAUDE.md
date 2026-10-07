@@ -872,3 +872,11 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   linha de nomes foram descartados a pedido. Ficam os consertos: lista esvaziada quando o servidor omite o post,
   ações `definir`/`remover` no servidor e atualização imediata na tela.
 - **Perfil social**: o cabeçalho não tem mais a linha de baixo (era ela que cortava a logo); a logo ficou na posição original.
+
+## 25. Último treino (07/10/2026)
+
+- A Home dizia "Último: Treino C" quando o último tinha sido o D. Causa: `SessoesTreino.listarDoAtleta` ordenava só pela
+  data, e com dois treinos no mesmo dia a ordem entre eles dependia da ordem de gravação. Agora desempata pela ordem
+  real (`idsessao` maior é o mais novo; sessão ainda sem `idsessao` é a mais nova). A Home e a tela "Escolha seu
+  treino" passaram a usar a mesma função, `_ultimaSessaoMusculacao(fichas)` (cardio não conta: o servidor grava o
+  cardio com divisão 'C'), em vez de dois filtros separados.
