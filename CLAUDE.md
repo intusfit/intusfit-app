@@ -844,6 +844,11 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   orientações horizontais no `Info.plist` e travar o retrato por plugin. No Android também vale só depois de novo
   build.
 
+- **Cortina de giro (07/10/2026)**: onde a trava não funciona (Safari no iPhone, navegador comum no Android, PWA do iOS, ou app nativo antigo),
+  o `aluno.html` mostra uma tela "Gire o celular para a vertical" (`#giro-aviso`) quando o aparelho está em paisagem e não há vídeo em
+  tela cheia. Usa a orientação FÍSICA (`screen.orientation.type` / `window.orientation`), não a forma da janela, para o teclado aberto não
+  acender a cortina. A trava também é reaplicada a cada `resize`, `orientationchange` e volta da aba. O treino segue rodando por trás.
+
 ## 24. Feed: busca, reações e Cardio (07/10/2026)
 
 - **Home**: o título "Feed dos Alunos" é um link para a tela do Feed.

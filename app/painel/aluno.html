@@ -19,17 +19,57 @@
   <script src="api.js?v=20261007a"></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
+  // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
+  // 2) Nem todo lugar deixa travar (Safari no iPhone, navegador comum no Android, PWA do iOS). Nesses casos o celular
+  //    gira mesmo, então, em paisagem e fora de vídeo em tela cheia, uma cortina pede para voltar à vertical. O treino
+  //    segue rodando por trás (cronômetro e séries não são afetados).
   (function () {
+    var iosTelaCheia = false;
     function girar(livre) {
       try { if (window.IntusNativo && IntusNativo.telaCheia) { IntusNativo.telaCheia(!!livre); return; } } catch (e) {}   // app nativo Android
       try { if (screen.orientation) { if (livre) screen.orientation.unlock(); else if (screen.orientation.lock) screen.orientation.lock('portrait').catch(function () {}); } } catch (e) {}
     }
-    function emTelaCheia() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+    function emTelaCheia() { return iosTelaCheia || !!(document.fullscreenElement || document.webkitFullscreenElement); }
+    function celularEmPaisagem() {
+      try {
+        // Orientação FÍSICA do aparelho, não a forma da janela: com o teclado aberto a janela fica mais larga que alta
+        // mesmo com o celular em pé, e isso não pode acender a cortina.
+        var fisica;
+        if (screen.orientation && screen.orientation.type) fisica = /landscape/.test(screen.orientation.type);
+        else if (typeof window.orientation === 'number') fisica = Math.abs(window.orientation) === 90;
+        else fisica = screen.width > screen.height;
+        return fisica && window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(hover: none)').matches;
+      } catch (e) { return false; }
+    }
+    function cortina() {
+      var el = document.getElementById('giro-aviso');
+      if (el) return el;
+      if (!document.body) return null;
+      el = document.createElement('div');
+      el.id = 'giro-aviso';
+      el.style.cssText = 'display:none;position:fixed;inset:0;z-index:2147483000;background:#0a0a0a;color:#fff;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-family:Inter,system-ui,sans-serif;touch-action:none;';
+      el.innerHTML = '<svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#7FFF00" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M11 18.5h2"/></svg>' +
+        '<div style="font-size:17px;font-weight:800;">Gire o celular para a vertical</div>' +
+        '<div style="font-size:13px;opacity:.7;max-width:280px;line-height:1.5;">O Intus Fit funciona só em pé. Seu treino continua de onde parou.</div>';
+      document.body.appendChild(el);
+      return el;
+    }
+    function ajustar() {
+      var mostrar = celularEmPaisagem() && !emTelaCheia();
+      var el = cortina();
+      if (el) el.style.display = mostrar ? 'flex' : 'none';
+      if (!mostrar && !emTelaCheia()) girar(false);   // reforça a trava toda vez que a tela mexe
+    }
     girar(false);
-    document.addEventListener('fullscreenchange', function () { girar(emTelaCheia()); });
-    document.addEventListener('webkitfullscreenchange', function () { girar(emTelaCheia()); });
-    document.addEventListener('webkitbeginfullscreen', function () { girar(true); }, true);    // iOS: player de vídeo do sistema
-    document.addEventListener('webkitendfullscreen', function () { girar(false); }, true);
+    document.addEventListener('DOMContentLoaded', ajustar);
+    window.addEventListener('resize', ajustar);
+    window.addEventListener('orientationchange', function () { setTimeout(ajustar, 200); });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) ajustar(); });
+    function tela(e) { girar(emTelaCheia()); ajustar(); }
+    document.addEventListener('fullscreenchange', tela);
+    document.addEventListener('webkitfullscreenchange', tela);
+    document.addEventListener('webkitbeginfullscreen', function () { iosTelaCheia = true; girar(true); ajustar(); }, true);    // iOS: player de vídeo do sistema
+    document.addEventListener('webkitendfullscreen', function () { iosTelaCheia = false; girar(false); ajustar(); }, true);
   })();
 </script>
   <!-- Só usada pra transformar o cartão de "Compartilhar treino" em imagem
