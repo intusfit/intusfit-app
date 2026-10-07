@@ -720,11 +720,39 @@ function renderLayout(activePage) {
   _syncThemeBtn();
   _updateLogosForTheme();
   ntfSinoIniciar();
+  armazAvisoIniciar();
   // Fecha sidebar ao clicar em qualquer link de navegação (mobile)
   document.querySelectorAll('.sidebar-nav .nav-link').forEach(a => {
     a.addEventListener('click', () => closeSidebar());
   });
   loadAvatars();
+}
+
+// Aviso de armazenamento do Google Drive (só administrador). Consulta uma vez por abertura do painel; o servidor mede o Drive
+// no máximo uma vez por dia. Aparece só a partir de "atenção" (60% do 1 TB, ou o limite chegando em menos de 1 ano no ritmo
+// atual) e pode ser dispensado por 24 horas. Detalhes em Configurações > Servidor.
+async function armazAvisoIniciar() {
+  try {
+    if (!isAdmin() || document.getElementById('armaz-aviso')) return;
+    let dispensado = 0;
+    try { dispensado = Number(localStorage.getItem('intus-armaz-dispensado') || 0); } catch (e) {}
+    if (Date.now() < dispensado) return;
+    const r = await fetch(_ntfSinoBase() + '/catalogo.php?action=armazenamento_alerta&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j || !j.nivel || j.nivel === 'ok') return;
+    const gb = b => (b / 1073741824).toFixed(b >= 107374182400 ? 0 : 1).replace('.', ',') + ' GB';
+    const cor = j.nivel === 'critico' ? '#ef4444' : j.nivel === 'alerta' ? '#f59e0b' : '#eab308';
+    const quando = j.dias_ate_limite != null && j.dias_ate_limite < 730 ? ' No ritmo de hoje o limite chega em cerca de ' + (j.dias_ate_limite < 60 ? j.dias_ate_limite + ' dias' : Math.round(j.dias_ate_limite / 30) + ' meses') + '.' : '';
+    const txt = (j.nivel === 'critico' ? 'Armazenamento quase cheio: ' : 'Atenção ao armazenamento do Drive: ') + gb(j.total_bytes) + ' de ' + gb(j.limite_bytes) + ' (' + String(j.pct).replace('.', ',') + '%).' + quando;
+    const el = document.createElement('div');
+    el.id = 'armaz-aviso';
+    el.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px;font-size:13px;font-weight:600;border-bottom:2px solid ' + cor + ';background:' + cor + '22;color:inherit;';
+    el.innerHTML = '<span style="flex:1;min-width:200px;">⚠️ ' + txt + '</span><a href="configuracoes.html#servidor" style="font-weight:800;color:' + cor + ';">Ver detalhes</a><button type="button" style="background:none;border:none;color:inherit;font-size:18px;cursor:pointer;opacity:.7;" aria-label="Dispensar por 24 horas">×</button>';
+    el.querySelector('button').onclick = function () { try { localStorage.setItem('intus-armaz-dispensado', String(Date.now() + 86400000)); } catch (e) {} el.remove(); };
+    const topo = document.querySelector('.main-wrap .topbar');
+    if (topo && topo.parentNode) topo.parentNode.insertBefore(el, topo.nextSibling);
+  } catch (e) {}
 }
 
 function openSidebar()  { document.body.classList.add('sidebar-open'); }

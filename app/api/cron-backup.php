@@ -452,13 +452,15 @@ function _backupEnviarEmail(string $arquivo, int $tamanho, int $enviados, int $f
  */
 function _backupLimparAntigos(int $dias, int $minimo): int
 {
-    $key = json_decode((string)@file_get_contents(_gdriveConfigPath()), true);
+    // 07/10/2026: aqui chamava _gdriveConfigPath(), função que não existe mais (a chave passou para o banco em 06/09).
+    // O erro era engolido pelo try/catch de quem chama, então a retenção nunca rodou e as cópias só se acumulavam.
+    $key = _gdriveKey();
     if (!is_array($key) || empty($key['folder_id'])) return 0;
     $token = _gdriveToken($key);
     if (!$token) return 0;
 
     $q = rawurlencode("'{$key['folder_id']}' in parents and trashed = false and name contains 'intus-backup-'");
-    $url = "https://www.googleapis.com/drive/v3/files?q={$q}&fields=files(id,name,createdTime)&pageSize=1000";
+    $url = "https://www.googleapis.com/drive/v3/files?q={$q}&fields=files(id,name,createdTime)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true";
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -479,7 +481,7 @@ function _backupLimparAntigos(int $dias, int $minimo): int
 
     $n = 0;
     foreach ($velhos as $f) {
-        $c = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode($f['id']));
+        $c = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode($f['id']) . '?supportsAllDrives=true');
         curl_setopt_array($c, [
             CURLOPT_CUSTOMREQUEST => 'DELETE',
             CURLOPT_RETURNTRANSFER => true,

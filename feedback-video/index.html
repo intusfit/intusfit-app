@@ -323,6 +323,14 @@ input,textarea{font-family:inherit}
   <!-- lista -->
   <div class="card">
     <div class="secao-titulo">Minhas gravações <span class="dir" id="espaco-total"></span></div>
+    <div id="cota-box" hidden style="border:1px solid var(--borda);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <b id="cota-txt" style="font-size:13px;"></b>
+        <button class="btn-mini perigo" id="btn-limpar-vistos" hidden style="margin-left:auto;"></button>
+      </div>
+      <div class="progresso" style="margin-top:8px;"><div id="cota-barra" style="width:0"></div></div>
+      <div id="cota-aviso" style="font-size:12px;margin-top:8px;line-height:1.5;"></div>
+    </div>
     <div class="lista" id="lista"><p class="lista-vazia">Carregando...</p></div>
   </div>
 
@@ -340,9 +348,10 @@ input,textarea{font-family:inherit}
 
 var API_BASE = '/app/api';
 var DURACAO_MAX = 600;          // segundos; o servidor confirma em action=eu
-var VIDEO_BPS = 1200000;        // ~10 MB por minuto somando o áudio
-var AUDIO_BPS = 96000;
-var LARGURA_MAX = 1920;         // teto de resolução (tela 4K gravada inteira só pesaria mais)
+var VIDEO_BPS = 650000;         // 07/10/2026: era 1,2 Mbps. ~5,5 MB por minuto somando o áudio (tela com pouco movimento aguenta bem)
+var AUDIO_BPS = 64000;
+var LARGURA_MAX = 1280;         // teto de resolução (era 1920): tela cheia gravada em 1280 ainda lê bem e pesa bem menos
+var FPS = 15;                   // tela e voz de professor não precisam de 30 quadros por segundo
 
 var gravacao = null;            // estado da gravação em andamento
 var blobFinal = null, mimeFinal = '', duracaoFinal = 0;
@@ -458,6 +467,7 @@ function entrarNaFerramenta(){
       document.getElementById('lbl-max').textContent = Math.round(DURACAO_MAX / 60) + ' minutos';
       document.getElementById('tempo-max').textContent = '/ ' + fmtTempo(DURACAO_MAX);
     }
+    if (data.cota) mostrarCota(data.cota, null);
     if (!data.drive_ok) erro('erro-gravar', 'Atenção: o Google Drive não está configurado no servidor, então a gravação não vai conseguir ser salva.');
   }).catch(function(){});
   carregarLista();
@@ -622,6 +632,7 @@ function abrirMicCamera(querMic, querCam){
 document.getElementById('btn-comecar').addEventListener('click', comecar);
 
 function comecar(){
+  if (cotaCheia) { erroHtml('Você chegou ao limite de gravações guardadas. Apague as que o aluno já assistiu (lista abaixo) e depois grave de novo.'); return; }
   erroHtml('');
   var querMic = document.getElementById('chk-mic').checked;
   var querCam = modo !== 'tela';
@@ -666,7 +677,7 @@ function comecar(){
     g.etapa = 'tela';
     passo('Escolha o que mostrar (tela inteira, uma janela ou uma aba) e clique em "Compartilhar".');
     return navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { max: 30 }, width: { max: LARGURA_MAX }, height: { max: 1080 } },
+      video: { frameRate: { max: FPS }, width: { max: LARGURA_MAX }, height: { max: 720 } },
       audio: querSom, systemAudio: querSom ? 'include' : 'exclude',
       selfBrowserSurface: 'exclude', surfaceSwitching: 'include', monitorTypeSurfaces: 'include'
     });
@@ -752,7 +763,7 @@ function prepararPalco(g){
   mostrarEtapa('etapa-gravando');
   document.getElementById('etapa-gravando').scrollIntoView({ behavior: 'smooth', block: 'start' });
   var n = 0;
-  g.relogio = criarRelogio(30, function(){
+  g.relogio = criarRelogio(FPS, function(){
     // o professor pode trocar o que compartilha no meio (botão do navegador)
     if (g.tela && ++n % 15 === 0) { var sup = superficie(g); if (sup !== g.superficie) { g.superficie = sup; aplicarSuperficie(g); } }
     desenharQuadro(g);
@@ -840,7 +851,7 @@ function contagem(g){
 }
 
 function iniciarGravacao(g){
-  var trackVideo = g.recCanvas.captureStream(30).getVideoTracks()[0];
+  var trackVideo = g.recCanvas.captureStream(FPS).getVideoTracks()[0];
   var fontes = [];
   if (g.tela && g.tela.getAudioTracks().length) fontes.push(g.tela);
   if (g.cam && g.cam.getAudioTracks().length) fontes.push(g.cam);
@@ -1226,7 +1237,11 @@ document.getElementById('btn-copiar-link').addEventListener('click', function(){
 function copiar(txt){
   (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function(){ toast('Link copiado'); }, function(){ prompt('Copie o link:', txt); });
 }
-document.getElementById('btn-nova').addEventListener('click', function(){ mostrarEtapa('etapa-escolher'); });
+var cotaCheia = false;
+document.getElementById('btn-nova').addEventListener('click', function(){
+  if (cotaCheia) { alert('Você chegou ao limite de gravações guardadas. Apague as que o aluno já assistiu e depois grave de novo.'); return; }
+  mostrarEtapa('etapa-escolher');
+});
 
 // ---------- lista ----------
 function carregarLista(){
@@ -1234,6 +1249,7 @@ function carregarLista(){
     var wrap = document.getElementById('lista');
     if (!data.ok) { wrap.innerHTML = '<p class="lista-vazia">Não consegui carregar a lista.</p>'; return; }
     document.getElementById('espaco-total').textContent = data.feedbacks.length ? ('Espaço ocupado no Drive: ' + fmtMB(data.espaco_bytes || 0)) : '';
+    if (data.cota) mostrarCota(data.cota, data.feedbacks);
     wrap.innerHTML = '';
     if (!data.feedbacks.length) { wrap.innerHTML = '<p class="lista-vazia">Nenhuma gravação ainda.</p>'; return; }
     data.feedbacks.forEach(function(f){
@@ -1266,6 +1282,39 @@ function carregarLista(){
       wrap.appendChild(item);
     });
   }).catch(function(){});
+}
+
+// Cota de gravações guardadas: barra, aviso ao chegar perto do limite e atalho para apagar as já assistidas há 30+ dias.
+function mostrarCota(c, lista){
+  var box = document.getElementById('cota-box');
+  box.hidden = false;
+  cotaCheia = c.nivel === 'cheio';
+  var cor = c.nivel === 'cheio' ? '#f87171' : c.nivel === 'aviso' ? '#fbbf24' : 'var(--accent)';
+  document.getElementById('cota-txt').textContent = c.usados + ' de ' + c.limite + ' gravações guardadas · ' + fmtMB(c.bytes || 0);
+  var b = document.getElementById('cota-barra');
+  b.style.width = Math.min(100, c.pct) + '%'; b.style.background = cor;
+  var av = document.getElementById('cota-aviso');
+  av.style.color = cor;
+  av.textContent = c.nivel === 'cheio' ? 'Limite atingido: apague gravações que o aluno já assistiu para poder gravar de novo.'
+    : c.nivel === 'aviso' ? 'Você está perto do limite. Apague as gravações que o aluno já assistiu para liberar espaço no Drive.' : '';
+  var btn = document.getElementById('btn-limpar-vistos');
+  var corte = Date.now() - 30 * 86400000;
+  var antigas = (lista || []).filter(function(f){ return f.status === 'pronto' && f.visto_em && new Date(String(f.visto_em).replace(' ', 'T')).getTime() < corte; });
+  btn.hidden = !antigas.length;
+  if (antigas.length) {
+    btn.textContent = 'Apagar ' + antigas.length + ' já assistida' + (antigas.length > 1 ? 's' : '') + ' há mais de 30 dias';
+    btn.onclick = function(){ excluirVarias(antigas); };
+  }
+}
+function excluirVarias(fs){
+  if (!confirm('Apagar ' + fs.length + ' gravação(ões) que o aluno já assistiu há mais de 30 dias?\n\nOs vídeos são apagados do Google Drive e os links deixam de funcionar. Não dá para desfazer.')) return;
+  var falhas = 0;
+  fs.reduce(function(p, f){
+    return p.then(function(){ return apiPost('/feedbacks.php?action=excluir', { id: f.id }).then(function(d){ if (!d.ok) falhas++; }).catch(function(){ falhas++; }); });
+  }, Promise.resolve()).then(function(){
+    toast(falhas ? ('Apaguei ' + (fs.length - falhas) + '; ' + falhas + ' falharam') : 'Gravações apagadas');
+    carregarLista();
+  });
 }
 
 function excluir(f, itemEl){

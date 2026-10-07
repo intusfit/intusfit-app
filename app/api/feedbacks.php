@@ -43,11 +43,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 define('FB_DURACAO_MAX_SEG', 600);            // 10 min (decisão do Luiz, 25/09/2026)
 define('FB_TAMANHO_MAX', 250 * 1024 * 1024);  // folga para 10 min mesmo em navegador que ignora o bitrate pedido
 define('FB_FAIXA_VIDEO', 4 * 1024 * 1024);    // quanto o player recebe por pedido
+// Cota de gravações guardadas por professor (07/10/2026, para o Drive não crescer sem controle). Ao chegar em
+// FB_AVISO_PCT % a ferramenta avisa para apagar; ao chegar no limite, novas gravações são recusadas até apagar alguma.
+define('FB_LIMITE_VIDEOS', 40);
+define('FB_AVISO_PCT', 80);
 
 function _intusLogErro(Throwable $e): string {
     $ref = substr(hash('crc32b', $e->getMessage() . '|' . $e->getFile() . '|' . $e->getLine()), 0, 8);
     @error_log('[intus feedbacks ' . $ref . '] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     return 'ref ' . $ref;
+}
+
+// Quanto o professor já tem guardado no Drive (gravações prontas + envios em andamento recentes).
+function _fbCota(PDO $pdo, int $idprofessor): array {
+    $st = $pdo->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes FROM intus_feedback
+                         WHERE idprofessor = ? AND (status = 'pronto' OR (status = 'enviando' AND criado_em > (NOW() - INTERVAL 1 DAY)))");
+    $st->execute([$idprofessor]);
+    $r = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+    $n = (int)($r['n'] ?? 0);
+    $pct = (int)round($n * 100 / FB_LIMITE_VIDEOS);
+    return ['usados' => $n, 'limite' => FB_LIMITE_VIDEOS, 'bytes' => (int)($r['bytes'] ?? 0), 'pct' => $pct,
+            'nivel' => $n >= FB_LIMITE_VIDEOS ? 'cheio' : ($pct >= FB_AVISO_PCT ? 'aviso' : 'ok')];
 }
 
 function _fbResponder($codigo, $dados) {
@@ -250,7 +266,7 @@ try {
 
     if ($action === 'eu') {
         echo json_encode(['ok' => true, 'idprofessor' => $idprofessor, 'admin' => $ehAdmin, 'nome' => $ctx['nmusuario'] ?? '',
-            'drive_ok' => gdriveDisponivel(), 'duracao_max_seg' => FB_DURACAO_MAX_SEG]);
+            'drive_ok' => gdriveDisponivel(), 'duracao_max_seg' => FB_DURACAO_MAX_SEG, 'cota' => _fbCota($pdo, $idprofessor)]);
         exit;
     }
 
@@ -268,7 +284,7 @@ try {
         }
         $lista = array_map(function ($r) { return _fbResumo($r, true); }, $st->fetchAll(PDO::FETCH_ASSOC));
         $total = 0; foreach ($lista as $f) if ($f['status'] === 'pronto') $total += $f['tamanho_bytes'];
-        echo json_encode(['ok' => true, 'feedbacks' => $lista, 'espaco_bytes' => $total]);
+        echo json_encode(['ok' => true, 'feedbacks' => $lista, 'espaco_bytes' => $total, 'cota' => _fbCota($pdo, $idprofessor)]);
         exit;
     }
 
@@ -280,6 +296,8 @@ try {
         if (!$podeVerAluno($idatleta)) _fbResponder(403, ['ok' => false, 'erro' => 'Esse aluno não está na sua carteira.']);
         $titulo = mb_substr(trim((string)($b['titulo'] ?? '')), 0, 150);
         if ($titulo === '') _fbResponder(400, ['ok' => false, 'erro' => 'Dê um título ao feedback.']);
+        $cota = _fbCota($pdo, $idprofessor);
+        if ($cota['nivel'] === 'cheio') _fbResponder(409, ['ok' => false, 'cota' => $cota, 'erro' => 'Você chegou ao limite de ' . FB_LIMITE_VIDEOS . ' gravações guardadas. Apague as que o aluno já assistiu (botão na lista) e grave de novo.']);
         $mime = strtolower(trim((string)($b['mime'] ?? '')));
         $mime = preg_replace('/;.*$/', '', $mime);
         if (!in_array($mime, ['video/webm', 'video/mp4'], true)) _fbResponder(400, ['ok' => false, 'erro' => 'formato de video nao suportado']);

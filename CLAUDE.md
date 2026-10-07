@@ -903,15 +903,45 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   derrubou o script inteiro em teste (erro de inicialização). Depois de editar `aluno.html`, abra a página e olhe o
   console.
 
-## 27. Vídeo de 30 s e espaço no Google Drive (07/10/2026)
+## 27. Vídeo de 30 s e armazenamento do Google Drive (07/10/2026)
 
-- **Limite de vídeo de post: 30 s** (era 60). Cliente: `COMPOSE_VIDEO_MAX_SEG` em `aluno.html` (o editor e os textos
-  seguem a constante). Servidor: `MD_DURACAO_MAX_SEG = 30` e `MD_TAMANHO_MAX = 60 MB` em `midia.php`. App já instalado com
-  a versão de 60 s recebe erro do servidor ao enviar vídeo maior que 30 s até atualizar.
-- **Relatório de uso do Drive**: `catalogo.php?action=drive_uso` (GET, só admin, só leitura, números do banco, sem chamar o
-  Drive) e cartão "Espaço no Google Drive (vídeos)" na aba Servidor de `configuracoes.html` (`verUsoDrive`). Mostra total de
-  vídeos de posts e feedbacks, feedbacks já assistidos ou sem ver há mais de 30 dias e envios abandonados. Não entram backups
-  (`cron-backup.php`) nem as cópias de fotos (`gdriveBackup`), que não ficam registrados no banco.
-- Apagar arquivo do Drive continua só pelo painel, com confirmação (regra do projeto). Ideias de economia ainda não aplicadas:
-  bitrate menor na gravação do app (2,5 Mbps), menos vídeos por post (`MD_MAX_VIDEOS`), retenção/bitrate dos feedbacks,
-  retenção dos backups, limpeza de envios abandonados.
+**Meta: o Drive não passar de 1 TB.** Decisões do Luiz em 07/10/2026 e o que foi feito:
+
+- **Vídeo de post: 30 s** (era 60), **no máximo 2 vídeos por post** (era 3; vale também para o Quadro de Resultados, que usa
+  o mesmo `midia.php`). Cliente: `COMPOSE_VIDEO_MAX_SEG` e os dois limites de 2 em `aluno.html`. Servidor: `MD_DURACAO_MAX_SEG`,
+  `MD_TAMANHO_MAX` (60 MB) e `MD_MAX_VIDEOS` em `midia.php`. App já instalado com a versão antiga recebe erro do servidor ao
+  passar do limite até atualizar.
+- **Gravação do vídeo do post: 1,8 Mbps** (era 2,5), áudio 80 kbps.
+- **Fotos menores**: o app exporta no máximo 1440 px a 86% (era 1920 px a 94%, uns 1,5 MB por foto, agora uns 400 KB). O
+  servidor também reduz sozinho qualquer foto grande que chegue (`_otimizarFotoBin` em `catalogo.php`, usa GD, só JPEG,
+  guarda o original se algo falhar), o que cobre apps antigos.
+- **Feedbacks em vídeo** (`feedback-video/index.html`): 650 kbps (era 1,2 Mbps), 15 quadros por segundo, largura máxima 1280
+  (era 1920), áudio 64 kbps. Fica perto de 5,5 MB por minuto. O limite de 10 min continua.
+- **Cota por professor** (`feedbacks.php`: `FB_LIMITE_VIDEOS = 40`, `FB_AVISO_PCT = 80`): `action=eu` e `action=listar`
+  devolvem `cota`; `iniciar` recusa com 409 ao chegar no limite. A ferramenta mostra barra, aviso a partir de 80%, bloqueia
+  "Começar a gravar" quando cheio e tem o botão "Apagar N já assistidas há mais de 30 dias" (confirmação, uma exclusão por
+  vez pela rota `excluir` que já existia).
+- **Painel de armazenamento** (Configurações > Servidor, `verUsoDrive`; também abre por `configuracoes.html#servidor`):
+  `catalogo.php?action=drive_uso` (só admin) mede a pasta REAL do Drive (soma por nome: `feedvideo_` posts, `feedback_`
+  feedbacks, `intus-backup-` backups, imagens = fotos), mostra por tipo, projeta quando chega a 1 TB em 3 cenários (ritmo de
+  hoje, 5x e 20x) e grava uma medida por dia em `intus_armazenamento_hist` (tabela nova, aditiva). Níveis: atenção 60%, alerta
+  80%, crítico 90% do limite, ou limite chegando em menos de 1 ano (atenção) / 90 dias (alerta) no ritmo atual. O aviso
+  aparece no topo de todas as telas do painel para admin (`armazAvisoIniciar` em `_mock.js`, consulta
+  `action=armazenamento_alerta`, no máximo uma medição por dia, dispensável por 24 h).
+- `action=drive_limpar_envios` (POST, admin, botão com confirmação): apaga só o REGISTRO de envios de vídeo travados há mais
+  de 1 dia. Envio retomável incompleto não vira arquivo no Drive, então isso não libera espaço dele.
+- **Bug achado em `cron-backup.php`**: a retenção chamava `_gdriveConfigPath()`, que não existe desde que a chave foi para o
+  banco (06/09). O erro era engolido e **nenhum backup antigo foi apagado até 07/10**. Corrigido (`_gdriveKey()`, mais
+  `supportsAllDrives` na listagem e na exclusão). A partir daí vale a regra de `MANTER_DIAS = 45` e `MINIMO_COPIAS = 10`.
+- **O que cada coisa é de fato**: foto de feed fica no disco da hospedagem (`app/img/feed`) e uma cópia no Drive
+  (`gdriveBackup`, nome do arquivo); vídeo de post e feedback ficam SÓ no Drive; fotos de avaliação e avatares ficam em
+  `app/uploads` e entram no zip diário de backup (zip completo a cada mudança). O backup do banco é diário.
+- **Estudo: versões menores de conteúdo com mais de 30 dias** (nada disso foi aplicado, depende do Luiz):
+  - Foto: dá para regerar em 1080 px a 80% com GD, no mesmo nome de arquivo, por botão do painel com prévia da economia
+    (corta uns 60 a 70% da foto antiga). Troca o arquivo original, então precisa de confirmação. A cópia no Drive teria que
+    ser substituída ou apagada.
+  - Vídeo: depois de enviado não dá para recomprimir, a hospedagem não tem ffmpeg (o painel mostra se mudar). Alternativas:
+    prazo de validade do vídeo (apagar o vídeo e manter a capa), ou deixar como está porque agora são ~7 MB por vídeo.
+  - Feedback: apagar os já assistidos há 30+ dias (botão já existe).
+  - Backup: guardar 14 diários + 1 por semana em vez de 45 dias seguidos, e zip de uploads só a cada 7 dias.
+- Apagar arquivo do Drive continua só pelo painel, com confirmação (regra do projeto).

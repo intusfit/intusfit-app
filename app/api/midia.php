@@ -32,10 +32,10 @@ header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(204); exit; }
 
 define('MD_DURACAO_MAX_SEG', 30);   // 07/10/2026: de 60 para 30 s, para poupar espaço no Drive
-define('MD_TAMANHO_MAX', 60 * 1024 * 1024);   // 30 s a ~2,5 Mbps dão uns 10 MB; 60 MB cobre navegador que ignora o bitrate pedido
+define('MD_TAMANHO_MAX', 60 * 1024 * 1024);   // 30 s a ~1,8 Mbps dão uns 7 MB; 60 MB cobre navegador que ignora o bitrate pedido
 define('MD_FAIXA_VIDEO', 4 * 1024 * 1024);
 define('MD_MAX_MIDIAS', 10);
-define('MD_MAX_VIDEOS', 3);
+define('MD_MAX_VIDEOS', 2);   // 07/10/2026: de 3 para 2 por post (espaço no Drive)
 
 function _intusLogErro(Throwable $e): string {
     $ref = substr(hash('crc32b', $e->getMessage() . '|' . $e->getFile() . '|' . $e->getLine()), 0, 8);

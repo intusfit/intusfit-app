@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Configurações — Intus</title>
-  <script src="_mock.js?v=20261003e"></script>
+  <script src="_mock.js?v=20261007a"></script>
   <script src="api.js?v=20261006b"></script>
   <style>
     .cfg-tabs { display: flex; gap: 4px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
@@ -408,9 +408,9 @@ function render() {
         </div>
       </div>
       <div class="cfg-card">
-        <h3>Espaço no Google Drive (vídeos)</h3>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Quanto espaço os vídeos dos alunos (posts) e os feedbacks em vídeo ocupam, e o que dá para liberar. Só leitura: nada é apagado por aqui. Backups do banco e cópias de fotos não entram nesta conta.</p>
-        <button class="cfg-save" onclick="verUsoDrive()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">📊 Ver uso do Drive</button>
+        <h3>Armazenamento do Google Drive (limite de 1 TB)</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Quanto espaço está ocupado, onde ele está, em quanto tempo o limite seria atingido e o que dá para liberar. Só leitura: nada é apagado por aqui, exceto o botão de limpar registros de envio, que pede confirmação. Quando o uso passa de 60%, 80% e 90% do limite, ou quando o limite chega em menos de um ano no ritmo atual, aparece um aviso no topo do painel.</p>
+        <button class="cfg-save" onclick="verUsoDrive()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">📊 Ver armazenamento</button>
         <div id="drive-uso" style="margin-top:14px;"></div>
       </div>
     </div>
@@ -500,6 +500,7 @@ function render() {
     });
   });
 
+  if (location.hash === '#servidor') { const t = mc.querySelector('.cfg-tab[data-tab="servidor"]'); if (t) { t.click(); if (isAdmin()) verUsoDrive(); } }
   checkServerUsage();
 }
 
@@ -672,41 +673,88 @@ async function checkServerUsage() {
 // Uso do Google Drive pelos vídeos (relatório de leitura, vem do banco; ver catalogo.php?action=drive_uso).
 function _fmtBytes(b) {
   b = Number(b) || 0;
+  if (b >= 1099511627776) return (b / 1099511627776).toFixed(2).replace('.', ',') + ' TB';
   if (b >= 1073741824) return (b / 1073741824).toFixed(2).replace('.', ',') + ' GB';
   if (b >= 1048576) return (b / 1048576).toFixed(1).replace('.', ',') + ' MB';
   return Math.round(b / 1024) + ' KB';
 }
+function _fmtPrazo(dias) {
+  if (dias == null) return 'sem crescimento medido';
+  if (dias >= 36500) return 'mais de 100 anos';
+  if (dias < 60) return dias + ' dias';
+  if (dias < 730) return Math.round(dias / 30) + ' meses';
+  return (dias / 365).toFixed(1).replace('.', ',') + ' anos';
+}
 async function verUsoDrive() {
   const box = document.getElementById('drive-uso');
-  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Calculando...</p>';
+  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Medindo a pasta do Drive. Pode levar alguns segundos...</p>';
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=drive_uso&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
     if (!r.ok) throw new Error(r.status === 403 ? 'Só o administrador vê este relatório.' : 'Não consegui calcular agora.');
     const d = await r.json();
-    const card = (titulo, valor, sub) => '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">' + titulo + '</div><div style="font-size:20px;font-weight:800;color:var(--text);margin-top:4px;">' + valor + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">' + sub + '</div></div>';
-    const linha = (rot, n, bytes, dica) => '<tr><td style="padding:6px 0;color:var(--text);">' + rot + (dica ? '<div style="font-size:10.5px;color:var(--text-muted);">' + dica + '</div>' : '') + '</td><td style="text-align:right;color:var(--text);white-space:nowrap;">' + n + '</td><td style="text-align:right;font-weight:700;color:#7FFF00;white-space:nowrap;padding-left:12px;">' + _fmtBytes(bytes) + '</td></tr>';
-    const total = d.posts.bytes + d.feedbacks.bytes;
-    let h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">' +
-      card('Total em vídeos', _fmtBytes(total), (d.posts.n + d.feedbacks.n) + ' vídeos') +
-      card('Vídeos de posts', _fmtBytes(d.posts.bytes), d.posts.n + ' vídeos, média ' + _fmtBytes(d.posts.media)) +
-      card('Feedbacks em vídeo', _fmtBytes(d.feedbacks.bytes), d.feedbacks.n + ' vídeos, média ' + _fmtBytes(d.feedbacks.media)) + '</div>';
-    h += '<div style="font-size:12px;font-weight:700;color:var(--text);margin:6px 0 4px;">O que dá para liberar</div><table style="width:100%;font-size:12px;border-collapse:collapse;">' +
-      linha('Feedbacks já assistidos há mais de 30 dias', d.feedbacks_vistos_30d.n, d.feedbacks_vistos_30d.bytes, 'Apague pela ferramenta Feedback em Vídeo, se quiser') +
+    const cor = d.nivel === 'critico' ? '#ef4444' : d.nivel === 'alerta' ? '#f59e0b' : d.nivel === 'atencao' ? '#eab308' : '#7FFF00';
+    const rotNivel = { ok: 'Tudo certo', atencao: 'Atenção', alerta: 'Alerta', critico: 'Crítico' }[d.nivel] || '';
+    const linha = (rot, n, bytes, dica, extra) => '<tr><td style="padding:6px 0;color:var(--text);">' + rot + (dica ? '<div style="font-size:10.5px;color:var(--text-muted);">' + dica + '</div>' : '') + '</td><td style="text-align:right;color:var(--text);white-space:nowrap;">' + (n == null ? '' : n) + '</td><td style="text-align:right;font-weight:700;color:' + (extra ? 'var(--text)' : '#7FFF00') + ';white-space:nowrap;padding-left:12px;">' + (extra ? extra : (bytes == null ? '' : _fmtBytes(bytes))) + '</td></tr>';
+    const h3 = t => '<div style="font-size:12px;font-weight:700;color:var(--text);margin:16px 0 4px;">' + t + '</div>';
+    const f = d.faixas || { atencao: 60, alerta: 80, critico: 90 };
+    let h = '';
+    h += '<div style="margin-bottom:6px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><span style="font-size:22px;font-weight:800;color:var(--text);">' + _fmtBytes(d.total_bytes) + '</span><span style="font-size:12px;color:var(--text-muted);">de ' + _fmtBytes(d.limite_bytes) + ' (' + String(d.pct).replace('.', ',') + '%)</span><span style="margin-left:auto;font-size:12px;font-weight:800;color:' + cor + ';">' + rotNivel + '</span></div>';
+    h += '<div style="position:relative;height:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;"><div style="height:100%;width:' + Math.max(0.5, Math.min(100, d.pct)) + '%;background:' + cor + ';"></div>' +
+      [f.atencao, f.alerta, f.critico].map(m => '<div style="position:absolute;top:0;bottom:0;left:' + m + '%;width:1px;background:var(--text-muted);opacity:.6;"></div>').join('') + '</div>';
+    h += '<div style="font-size:10.5px;color:var(--text-muted);margin-top:4px;">Avisos em ' + f.atencao + '%, ' + f.alerta + '% e ' + f.critico + '% do limite. ' + (d.origem === 'drive' ? 'Medido somando os arquivos da pasta do Drive' + (d.arquivos_drive != null ? ' (' + d.arquivos_drive + ' arquivos)' : '') + '.' : 'O Drive não respondeu, então o total é uma estimativa pelos números do banco.') + '</div>';
+
+    const p = d.partes || {};
+    const pc = b => d.total_bytes > 0 ? Math.round(b * 100 / d.total_bytes) + '%' : '0%';
+    h += h3('Onde o espaço está') + '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+      linha('Vídeos de posts dos alunos', pc(p.videos_posts || 0), p.videos_posts || 0, d.posts.n + ' vídeos, média ' + _fmtBytes(d.posts.media)) +
+      linha('Feedbacks em vídeo', pc(p.videos_feedback || 0), p.videos_feedback || 0, d.feedbacks.n + ' vídeos, média ' + _fmtBytes(d.feedbacks.media)) +
+      linha('Fotos (cópias no Drive)', pc(p.fotos || 0), p.fotos || 0, '') +
+      linha('Backups (banco e uploads)', pc(p.backups || 0), p.backups || 0, 'Gerados todo dia pelo servidor') +
+      linha('Outros arquivos', pc(p.outros || 0), p.outros || 0, '') + '</table>';
+
+    h += h3('Projeção até o limite') +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px;">Entrada média de ' + _fmtBytes(d.ritmo_bytes_dia) + ' por dia (' + (d.ritmo_de === 'historico' ? 'medido pelo histórico diário' : 'estimado pelo que entrou nos últimos 28 dias') + '), com ' + d.alunos_ativos_28d + ' alunos publicando.</div>' +
+      '<table style="width:100%;font-size:12px;border-collapse:collapse;">' + d.cenarios.map(x => linha(x.nome, _fmtBytes(x.bytes_dia) + '/dia', null, '', _fmtPrazo(x.dias))).join('') + '</table>';
+
+    h += h3('O que dá para liberar (você decide)') + '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+      linha('Feedbacks já assistidos há mais de 30 dias', d.feedbacks_vistos_30d.n, d.feedbacks_vistos_30d.bytes, 'O professor apaga pela tela Feedback em Vídeo, que tem um botão para isso') +
       linha('Feedbacks nunca assistidos, com mais de 30 dias', d.feedbacks_sem_ver_30d.n, d.feedbacks_sem_ver_30d.bytes, 'Vale conferir antes: o aluno pode não ter visto') +
-      linha('Envios de vídeo de aluno que não terminaram (mais de 1 dia)', d.abandonados.posts.n, d.abandonados.posts.bytes, 'Arquivos parciais que ficaram no Drive') +
-      linha('Envios de feedback que não terminaram (mais de 1 dia)', d.abandonados.feedbacks.n, d.abandonados.feedbacks.bytes, 'Arquivos parciais que ficaram no Drive') + '</table>';
+      linha('Fotos com mais de 30 dias na hospedagem', d.fotos_disco.antigas_n, d.fotos_disco.antigas_bytes, 'Candidatas a uma versão menor (espaço da hospedagem, não do Drive)') + '</table>';
+    const pend = (d.registros_pendentes.posts || 0) + (d.registros_pendentes.feedbacks || 0);
+    h += '<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span style="font-size:12px;color:var(--text);">Registros de envio de vídeo que não terminaram há mais de 1 dia: <b>' + pend + '</b></span>' +
+      (pend ? '<button class="cfg-save" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);" onclick="limparEnviosDrive(' + d.registros_pendentes.posts + ',' + d.registros_pendentes.feedbacks + ')">Limpar registros</button>' : '') +
+      '</div><div style="font-size:10.5px;color:var(--text-muted);margin-top:3px;">Só limpa a linha do banco: um envio incompleto não chega a virar arquivo no Drive, então isso não libera espaço dele.</div>';
+
+    h += h3('O que o servidor consegue fazer sozinho') + '<div style="font-size:12px;color:var(--text);line-height:1.7;">' +
+      (d.recursos.gd ? '✅' : '❌') + ' Reduzir fotos (biblioteca de imagem disponível)<br>' +
+      (d.recursos.ffmpeg ? '✅' : '❌') + ' Reduzir vídeos antigos (' + (d.recursos.ffmpeg ? 'ffmpeg disponível' : 'a hospedagem não tem ffmpeg, então vídeo não dá para recomprimir depois de enviado') + ')</div>';
+
     if (d.posts_por_mes.length) {
-      h += '<div style="font-size:12px;font-weight:700;color:var(--text);margin:14px 0 4px;">Vídeos de posts por mês</div><table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+      h += h3('Vídeos de posts por mês') + '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
         d.posts_por_mes.map(m => linha(m.mes.slice(5) + '/' + m.mes.slice(0, 4), m.n + (m.n === 1 ? ' vídeo' : ' vídeos'), m.bytes, '')).join('') + '</table>';
     }
     if (d.maiores_feedbacks.length) {
-      h += '<div style="font-size:12px;font-weight:700;color:var(--text);margin:14px 0 4px;">Maiores feedbacks em vídeo</div><table style="width:100%;font-size:12px;border-collapse:collapse;">' +
-        d.maiores_feedbacks.map(f => linha(esc(f.titulo || 'Sem título') + ' · ' + esc(f.aluno || ''), Math.round(f.seg / 60) + ' min', f.bytes, (f.criado_em || '').slice(0, 10) + (f.visto_em ? ', assistido' : ', não assistido'))).join('') + '</table>';
+      h += h3('Maiores feedbacks em vídeo') + '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+        d.maiores_feedbacks.map(x => linha(esc(x.titulo || 'Sem título') + ' · ' + esc(x.aluno || ''), Math.round(x.seg / 60) + ' min', x.bytes, (x.criado_em || '').slice(0, 10) + (x.visto_em ? ', assistido' : ', não assistido'))).join('') + '</table>';
+    }
+    if (d.historico && d.historico.length > 1) {
+      h += h3('Histórico de medidas') + '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+        d.historico.slice(-10).reverse().map(x => linha(x.dia.slice(8) + '/' + x.dia.slice(5, 7), null, x.bytes, '')).join('') + '</table>';
     }
     box.innerHTML = h;
   } catch (e) {
     box.innerHTML = '<p style="font-size:12px;color:#f87171;">' + esc(e.message || 'Não consegui calcular agora.') + '</p>';
   }
+}
+async function limparEnviosDrive(nPosts, nFb) {
+  if (!confirm('Limpar ' + (nPosts + nFb) + ' registro(s) de envio de vídeo que não terminaram há mais de 1 dia?\n\nSão ' + nPosts + ' de posts e ' + nFb + ' de feedbacks. Nenhum vídeo concluído é tocado. Não dá para desfazer.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=drive_limpar_envios', { method: 'POST', headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' }, body: '{}' });
+    if (!r.ok) throw new Error('falhou');
+    const j = await r.json();
+    toast('Registros limpos: ' + ((j.posts || 0) + (j.feedbacks || 0)) + ' ✓');
+    verUsoDrive();
+  } catch (e) { toast('Não consegui limpar agora.'); }
 }
 
 function verificarServidor() {

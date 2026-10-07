@@ -663,6 +663,30 @@ require_once __DIR__ . '/_notificacoes.php';   // helpers do sino (_criarNotific
 
 // Salva uma imagem base64 (data URI) em app/img/feed e devolve a URL pública.
 // Lança Exception com mensagem curta se for inválida. Mesma regra do POST do Feed.
+// Reduz uma foto para o tamanho que a tela do celular realmente mostra. Devolve os bytes originais se não der ou não compensar.
+function _otimizarFotoBin(string $bin, string $ext, int $maxLado = 1440, int $qualidade = 86): string {
+    try {
+        if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg') || $ext === 'webp') return $bin;
+        $info = @getimagesizefromstring($bin);
+        if (!$info || empty($info[0]) || empty($info[1])) return $bin;
+        $w = (int)$info[0]; $h = (int)$info[1];
+        if ($w * $h > 40000000) return $bin;            // evita estourar a memória do PHP com foto gigante
+        $png = ($ext === 'png');
+        if ($png && ($info['channels'] ?? 3) == 4) return $bin;   // PNG com transparência fica como está
+        if (max($w, $h) <= $maxLado && strlen($bin) < 600 * 1024) return $bin;   // já é pequena
+        $src = @imagecreatefromstring($bin);
+        if (!$src) return $bin;
+        $f = min(1, $maxLado / max($w, $h));
+        $nw = max(1, (int)round($w * $f)); $nh = max(1, (int)round($h * $f));
+        $dst = imagecreatetruecolor($nw, $nh);
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+        imagedestroy($src);
+        ob_start(); imagejpeg($dst, null, $qualidade); $novo = (string)ob_get_clean();
+        imagedestroy($dst);
+        return ($novo !== '' && strlen($novo) < strlen($bin) && !$png) ? $novo : $bin;
+    } catch (Throwable $e) { return $bin; }
+}
+
 function _salvarImagemFeedB64(string $raw, int $autorId, string $pasta = 'feed', string $prefixo = 'feed'): string {
     if (!preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $raw, $m)) throw new Exception('formato de imagem invalido');
     if (!preg_match('/^[a-z]{3,12}$/', $pasta)) $pasta = 'feed';
@@ -671,6 +695,10 @@ function _salvarImagemFeedB64(string $raw, int $autorId, string $pasta = 'feed',
     $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
     $bin = base64_decode($m[2], true);
     if ($bin === false || strlen($bin) > 8 * 1024 * 1024) throw new Exception('imagem invalida ou grande demais');
+    // 07/10/2026: foto grande demais (app antigo manda até 1920 px a 94%) é reduzida no servidor antes de guardar:
+    // lado maior 1440 px, JPEG 86%. Só mexe em JPEG/PNG sem transparência quando a GD existe e só se o resultado ficar
+    // menor; qualquer falha guarda o original, como sempre foi.
+    $bin = _otimizarFotoBin($bin, $ext);
     if (!is_dir($dir) || !is_writable($dir)) throw new Exception('sem permissao de escrita');
     try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }
     $fname = preg_replace('/[^a-z]/', '', $prefixo) . '_' . $autorId . '_' . time() . '_' . $rand . '.' . $ext;
@@ -3201,38 +3229,235 @@ if ($action === 'desafios_aluno') {
     }
 }
 
-// ── Uso do Google Drive pelos vídeos (relatório só de leitura, só administrador) ──
-// Os números vêm do que o sistema já guarda no banco (tamanho de cada vídeo), sem chamar o Drive. Backups e cópias de
-// fotos não entram aqui: não ficam registrados no banco.
-if ($action === 'drive_uso' && $method === 'GET') {
-    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
-    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+// ── Armazenamento do Google Drive: relatório, projeção e alertas (só administrador) ──────────────────────────────
+// Orçamento total de 1 TB. O relatório mede a pasta REAL do Drive (soma dos arquivos que a conta de serviço enxerga) e
+// separa por tipo pelo nome do arquivo; se o Drive não responder, cai para os números do banco. Guarda uma medida por
+// dia (intus_armazenamento_hist) para calcular o ritmo de crescimento e estimar quando o limite seria atingido.
+// Só lê. Nunca apaga nada do Drive (apagar é sempre pelos botões do painel, com confirmação).
+define('ARMAZ_LIMITE_BYTES', 1099511627776);    // 1 TB
+define('ARMAZ_ATENCAO_PCT', 60);
+define('ARMAZ_ALERTA_PCT', 80);
+define('ARMAZ_CRITICO_PCT', 90);
+
+function _armazGarantirTabela(PDO $pdo): void {
+    static $ok = false;
+    if ($ok) return;
+    $pdo->exec("CREATE TABLE IF NOT EXISTS intus_armazenamento_hist (
+        dia DATE NOT NULL PRIMARY KEY,
+        total_bytes BIGINT NOT NULL DEFAULT 0,
+        videos_posts BIGINT NOT NULL DEFAULT 0,
+        videos_feedback BIGINT NOT NULL DEFAULT 0,
+        fotos BIGINT NOT NULL DEFAULT 0,
+        backups BIGINT NOT NULL DEFAULT 0,
+        origem VARCHAR(10) NOT NULL DEFAULT 'drive',
+        nivel VARCHAR(10) NOT NULL DEFAULT 'ok',
+        dias_limite INT NULL,
+        medido_em DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $ok = true;
+}
+
+// Soma os arquivos da pasta do Drive por tipo. Devolve null se o Drive não responder.
+function _armazEscanearDrive(): ?array {
+    try {
+        if (!function_exists('_gdriveKey') || !function_exists('_gdriveToken')) return null;
+        $key = _gdriveKey();
+        if (!is_array($key) || empty($key['folder_id'])) return null;
+        $token = _gdriveToken($key);
+        if (!$token) return null;
+        $r = ['total' => 0, 'arquivos' => 0, 'videos_posts' => 0, 'videos_feedback' => 0, 'backups' => 0, 'fotos' => 0, 'outros' => 0, 'maior' => 0, 'cobertura' => 'pasta'];
+        $q = rawurlencode("'" . $key['folder_id'] . "' in parents and trashed = false");
+        $pagina = '';
+        for ($i = 0; $i < 30; $i++) {
+            $url = 'https://www.googleapis.com/drive/v3/files?q=' . $q . '&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true'
+                 . '&fields=nextPageToken,files(name,size,mimeType)' . ($pagina !== '' ? '&pageToken=' . rawurlencode($pagina) : '');
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 25, CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token]]);
+            $resp = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($code !== 200 || !$resp) return $i === 0 ? null : $r;
+            $j = json_decode($resp, true);
+            foreach (($j['files'] ?? []) as $f) {
+                $tam = (int)($f['size'] ?? 0);
+                $nome = (string)($f['name'] ?? '');
+                $r['arquivos']++; $r['total'] += $tam;
+                if ($tam > $r['maior']) $r['maior'] = $tam;
+                if (strpos($nome, 'intus-backup-') === 0) $r['backups'] += $tam;
+                elseif (strpos($nome, 'feedvideo_') === 0) $r['videos_posts'] += $tam;
+                elseif (strpos($nome, 'feedback_') === 0) $r['videos_feedback'] += $tam;
+                elseif (preg_match('/\.(jpe?g|png|webp)$/i', $nome)) $r['fotos'] += $tam;
+                else $r['outros'] += $tam;
+            }
+            $pagina = (string)($j['nextPageToken'] ?? '');
+            if ($pagina === '') break;
+        }
+        return $r;
+    } catch (Throwable $e) { return null; }
+}
+
+// Fotos que ficam no disco da hospedagem (img/feed etc.): total, as com mais de 30 dias e o que entrou nos últimos 28 dias.
+function _armazFotosDisco(): array {
+    $r = ['n' => 0, 'bytes' => 0, 'antigas_n' => 0, 'antigas_bytes' => 0, 'ultimos28d_bytes' => 0];
+    try {
+        $base = __DIR__ . '/../img';
+        if (!is_dir($base)) return $r;
+        $agora = time();
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS));
+        foreach ($it as $f) {
+            if (!$f->isFile() || !preg_match('/\.(jpe?g|png|webp)$/i', $f->getFilename())) continue;
+            $t = $f->getSize(); $m = $f->getMTime();
+            $r['n']++; $r['bytes'] += $t;
+            if ($m < $agora - 30 * 86400) { $r['antigas_n']++; $r['antigas_bytes'] += $t; }
+            if ($m >= $agora - 28 * 86400) $r['ultimos28d_bytes'] += $t;
+        }
+    } catch (Throwable $e) {}
+    return $r;
+}
+
+// Calcula o quadro completo e grava a medida do dia. $forcar = true ignora a medida de hoje já guardada.
+function _armazCalcular(PDO $pdo, bool $forcar = true): array {
+    _armazGarantirTabela($pdo);
     $um = function ($sql) use ($pdo) { try { return $pdo->query($sql)->fetch(PDO::FETCH_ASSOC) ?: []; } catch (Throwable $e) { return []; } };
     $varios = function ($sql) use ($pdo) { try { return $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: []; } catch (Throwable $e) { return []; } };
-    $posts = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho),0) AS bytes, COALESCE(AVG(tamanho),0) AS media, COALESCE(MAX(tamanho),0) AS maior, COALESCE(SUM(duracao_seg),0) AS seg
+
+    $posts = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho),0) AS bytes, COALESCE(AVG(tamanho),0) AS media, COALESCE(MAX(tamanho),0) AS maior
                   FROM intus_midia WHERE tipo = 'video' AND status = 'pronto' AND drive_id IS NOT NULL");
-    $fb = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes, COALESCE(AVG(tamanho_bytes),0) AS media, COALESCE(MAX(tamanho_bytes),0) AS maior, COALESCE(SUM(duracao_seg),0) AS seg
+    $fb = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes, COALESCE(AVG(tamanho_bytes),0) AS media, COALESCE(MAX(tamanho_bytes),0) AS maior
                FROM intus_feedback WHERE status = 'pronto' AND drive_file_id IS NOT NULL");
     $fbVistos = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes FROM intus_feedback
                      WHERE status = 'pronto' AND drive_file_id IS NOT NULL AND visto_em IS NOT NULL AND visto_em < (NOW() - INTERVAL 30 DAY)");
     $fbSemVer = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes FROM intus_feedback
                      WHERE status = 'pronto' AND drive_file_id IS NOT NULL AND visto_em IS NULL AND criado_em < (NOW() - INTERVAL 30 DAY)");
-    $abPosts = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho),0) AS bytes FROM intus_midia WHERE tipo = 'video' AND status = 'enviando' AND created_at < (NOW() - INTERVAL 1 DAY)");
-    $abFb = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes FROM intus_feedback WHERE status = 'enviando' AND criado_em < (NOW() - INTERVAL 1 DAY)");
+    $abPosts = $um("SELECT COUNT(*) AS n FROM intus_midia WHERE tipo = 'video' AND status = 'enviando' AND created_at < (NOW() - INTERVAL 1 DAY)");
+    $abFb = $um("SELECT COUNT(*) AS n FROM intus_feedback WHERE status = 'enviando' AND criado_em < (NOW() - INTERVAL 1 DAY)");
     $porMes = $varios("SELECT DATE_FORMAT(created_at, '%Y-%m') AS mes, COUNT(*) AS n, COALESCE(SUM(tamanho),0) AS bytes FROM intus_midia
                        WHERE tipo = 'video' AND status = 'pronto' AND drive_id IS NOT NULL GROUP BY mes ORDER BY mes DESC LIMIT 6");
     $maioresFb = $varios("SELECT id, titulo, aluno_nome, tamanho_bytes, duracao_seg, criado_em, visto_em FROM intus_feedback
                           WHERE status = 'pronto' AND drive_file_id IS NOT NULL ORDER BY tamanho_bytes DESC LIMIT 8");
+    $novos28 = $um("SELECT
+        (SELECT COALESCE(SUM(tamanho),0) FROM intus_midia WHERE tipo = 'video' AND status = 'pronto' AND drive_id IS NOT NULL AND created_at >= (NOW() - INTERVAL 28 DAY)) AS vp,
+        (SELECT COALESCE(SUM(tamanho_bytes),0) FROM intus_feedback WHERE status = 'pronto' AND drive_file_id IS NOT NULL AND criado_em >= (NOW() - INTERVAL 28 DAY)) AS vf");
+    $alunos = $um("SELECT COUNT(DISTINCT idatleta) AS n FROM intus_feed_post WHERE ativo = 1 AND created_at >= (NOW() - INTERVAL 28 DAY)");
+
+    $driveReal = _armazEscanearDrive();
+    $fotos = _armazFotosDisco();
     $n = function ($a) { return ['n' => (int)($a['n'] ?? 0), 'bytes' => (int)($a['bytes'] ?? 0)]; };
-    echo json_encode([
-        'posts' => ['n' => (int)($posts['n'] ?? 0), 'bytes' => (int)($posts['bytes'] ?? 0), 'media' => (int)($posts['media'] ?? 0), 'maior' => (int)($posts['maior'] ?? 0), 'seg' => (int)($posts['seg'] ?? 0)],
-        'feedbacks' => ['n' => (int)($fb['n'] ?? 0), 'bytes' => (int)($fb['bytes'] ?? 0), 'media' => (int)($fb['media'] ?? 0), 'maior' => (int)($fb['maior'] ?? 0), 'seg' => (int)($fb['seg'] ?? 0)],
-        'feedbacks_vistos_30d' => $n($fbVistos),
-        'feedbacks_sem_ver_30d' => $n($fbSemVer),
-        'abandonados' => ['posts' => $n($abPosts), 'feedbacks' => $n($abFb)],
+
+    $vpBytes = (int)($posts['bytes'] ?? 0); $vfBytes = (int)($fb['bytes'] ?? 0);
+    if ($driveReal) {
+        $total = $driveReal['total'];
+        $parte = ['videos_posts' => $driveReal['videos_posts'], 'videos_feedback' => $driveReal['videos_feedback'], 'fotos' => $driveReal['fotos'], 'backups' => $driveReal['backups'], 'outros' => $driveReal['outros']];
+        $origem = 'drive';
+    } else {
+        $total = $vpBytes + $vfBytes + $fotos['bytes'];   // aproximação: vídeos do banco + fotos (cópias) estimadas pelo disco
+        $parte = ['videos_posts' => $vpBytes, 'videos_feedback' => $vfBytes, 'fotos' => $fotos['bytes'], 'backups' => 0, 'outros' => 0];
+        $origem = 'banco';
+    }
+
+    // Histórico (dias anteriores) + a medida de hoje, que entra no fim desta função.
+    $hist = $varios("SELECT dia, total_bytes FROM intus_armazenamento_hist WHERE dia < CURDATE() ORDER BY dia DESC LIMIT 60");
+    array_unshift($hist, ['dia' => date('Y-m-d'), 'total_bytes' => $total]);
+
+    // Ritmo de crescimento por dia: pelo histórico (quando já cobre 7+ dias do mesmo tipo de medida); senão pelo que entrou
+    // nos últimos 28 dias (vídeos pelo banco + fotos pelo disco).
+    $ritmo = null; $ritmoDe = 'entradas';
+    if (count($hist) >= 2) {
+        $ult = $hist[0]; $ant = end($hist);
+        $dias = (strtotime($ult['dia']) - strtotime($ant['dia'])) / 86400;
+        if ($dias >= 7) { $ritmo = max(0, ((int)$ult['total_bytes'] - (int)$ant['total_bytes']) / $dias); $ritmoDe = 'historico'; }
+    }
+    if ($ritmo === null) $ritmo = (((int)($novos28['vp'] ?? 0) + (int)($novos28['vf'] ?? 0) + $fotos['ultimos28d_bytes'])) / 28;
+
+    $livre = max(0, ARMAZ_LIMITE_BYTES - $total);
+    $cenarios = [];
+    foreach ([['x1', 'Ritmo de hoje', 1], ['x5', '5 vezes mais uso', 5], ['x20', '20 vezes mais uso', 20]] as $c) {
+        $r = $ritmo * $c[2];
+        $cenarios[] = ['id' => $c[0], 'nome' => $c[1], 'bytes_dia' => (int)$r, 'dias' => $r > 0 ? (int)min(36500, floor($livre / $r)) : null];
+    }
+    $pct = $total > 0 ? round($total * 100 / ARMAZ_LIMITE_BYTES, 2) : 0;
+    $nivel = $pct >= ARMAZ_CRITICO_PCT ? 'critico' : ($pct >= ARMAZ_ALERTA_PCT ? 'alerta' : ($pct >= ARMAZ_ATENCAO_PCT ? 'atencao' : 'ok'));
+    $diasRitmo = $cenarios[0]['dias'];
+    // Alerta também pelo ritmo: se no ritmo de hoje o limite chega em menos de 1 ano, avisa mesmo com pouco espaço usado.
+    if ($nivel === 'ok' && $diasRitmo !== null && $diasRitmo < 365) $nivel = 'atencao';
+    if (in_array($nivel, ['ok', 'atencao'], true) && $diasRitmo !== null && $diasRitmo < 90) $nivel = 'alerta';
+
+    try {
+        $pdo->prepare("INSERT INTO intus_armazenamento_hist (dia, total_bytes, videos_posts, videos_feedback, fotos, backups, origem, nivel, dias_limite) VALUES (CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON DUPLICATE KEY UPDATE total_bytes = VALUES(total_bytes), videos_posts = VALUES(videos_posts), videos_feedback = VALUES(videos_feedback),
+                       fotos = VALUES(fotos), backups = VALUES(backups), origem = VALUES(origem), nivel = VALUES(nivel), dias_limite = VALUES(dias_limite), medido_em = NOW()")
+            ->execute([$total, $parte['videos_posts'], $parte['videos_feedback'], $parte['fotos'], $parte['backups'], $origem, $nivel, $diasRitmo]);
+    } catch (Throwable $e) {}
+
+    $ffmpeg = false;
+    try {
+        $dis = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+        if (function_exists('shell_exec') && !in_array('shell_exec', $dis, true)) $ffmpeg = stripos((string)@shell_exec('ffmpeg -version 2>&1'), 'ffmpeg version') !== false;
+    } catch (Throwable $e) {}
+
+    return [
+        'limite_bytes' => ARMAZ_LIMITE_BYTES, 'total_bytes' => $total, 'pct' => $pct, 'nivel' => $nivel, 'origem' => $origem,
+        'faixas' => ['atencao' => ARMAZ_ATENCAO_PCT, 'alerta' => ARMAZ_ALERTA_PCT, 'critico' => ARMAZ_CRITICO_PCT],
+        'partes' => $parte, 'arquivos_drive' => $driveReal ? $driveReal['arquivos'] : null,
+        'ritmo_bytes_dia' => (int)$ritmo, 'ritmo_de' => $ritmoDe, 'cenarios' => $cenarios,
+        'alunos_ativos_28d' => (int)($alunos['n'] ?? 0),
+        'posts' => ['n' => (int)($posts['n'] ?? 0), 'bytes' => $vpBytes, 'media' => (int)($posts['media'] ?? 0), 'maior' => (int)($posts['maior'] ?? 0)],
+        'feedbacks' => ['n' => (int)($fb['n'] ?? 0), 'bytes' => $vfBytes, 'media' => (int)($fb['media'] ?? 0), 'maior' => (int)($fb['maior'] ?? 0)],
+        'feedbacks_vistos_30d' => $n($fbVistos), 'feedbacks_sem_ver_30d' => $n($fbSemVer),
+        'registros_pendentes' => ['posts' => (int)($abPosts['n'] ?? 0), 'feedbacks' => (int)($abFb['n'] ?? 0)],
+        'fotos_disco' => $fotos,
+        'recursos' => ['gd' => function_exists('imagecreatefromstring'), 'ffmpeg' => $ffmpeg],
         'posts_por_mes' => array_map(function ($r) { return ['mes' => $r['mes'], 'n' => (int)$r['n'], 'bytes' => (int)$r['bytes']]; }, $porMes),
         'maiores_feedbacks' => array_map(function ($r) { return ['id' => (int)$r['id'], 'titulo' => $r['titulo'], 'aluno' => $r['aluno_nome'], 'bytes' => (int)$r['tamanho_bytes'], 'seg' => (int)$r['duracao_seg'], 'criado_em' => $r['criado_em'], 'visto_em' => $r['visto_em']]; }, $maioresFb),
-    ], JSON_UNESCAPED_UNICODE);
+        'historico' => array_reverse(array_map(function ($r) { return ['dia' => $r['dia'], 'bytes' => (int)$r['total_bytes']]; }, $hist)),
+    ];
+}
+
+// GET: relatório completo (mede o Drive agora). Só administrador.
+if ($action === 'drive_uso' && $method === 'GET') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    echo json_encode(_armazCalcular($pdo, true), JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// GET: só o nível de alerta, para o aviso no topo do painel. Usa a medida de hoje se já existir; senão mede (uma vez por dia).
+if ($action === 'armazenamento_alerta' && $method === 'GET') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    $resumo = null;
+    try {
+        _armazGarantirTabela($pdo);
+        $h = $pdo->query("SELECT total_bytes, nivel, dias_limite FROM intus_armazenamento_hist WHERE dia = CURDATE()")->fetch(PDO::FETCH_ASSOC);
+        if ($h) {
+            $total = (int)$h['total_bytes'];
+            $resumo = ['total_bytes' => $total, 'limite_bytes' => ARMAZ_LIMITE_BYTES, 'pct' => round($total * 100 / ARMAZ_LIMITE_BYTES, 2), 'nivel' => $h['nivel'], 'dias_ate_limite' => $h['dias_limite'] === null ? null : (int)$h['dias_limite']];
+        }
+    } catch (Throwable $e) {}
+    if ($resumo === null) {
+        // Primeira abertura do dia por um administrador: mede e guarda (as seguintes só leem).
+        $q = _armazCalcular($pdo, true);
+        $resumo = ['total_bytes' => $q['total_bytes'], 'limite_bytes' => $q['limite_bytes'], 'pct' => $q['pct'], 'nivel' => $q['nivel'], 'dias_ate_limite' => $q['cenarios'][0]['dias']];
+    }
+    echo json_encode($resumo, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// POST: limpa só o REGISTRO de envios de vídeo que não terminaram há mais de 1 dia (nunca chegaram a virar arquivo no Drive;
+// o Google descarta sessão de envio incompleta sozinho). Não toca em vídeo concluído. Só administrador, pelo botão do painel.
+if ($action === 'drive_limpar_envios' && $method === 'POST') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    $a = 0; $b = 0;
+    try {
+        $s1 = $pdo->prepare("DELETE FROM intus_midia WHERE tipo = 'video' AND status = 'enviando' AND drive_id IS NULL AND created_at < (NOW() - INTERVAL 1 DAY)");
+        $s1->execute(); $a = $s1->rowCount();
+    } catch (Throwable $e) {}
+    try {
+        $s2 = $pdo->prepare("DELETE FROM intus_feedback WHERE status = 'enviando' AND drive_file_id IS NULL AND criado_em < (NOW() - INTERVAL 1 DAY)");
+        $s2->execute(); $b = $s2->rowCount();
+    } catch (Throwable $e) {}
+    echo json_encode(['ok' => true, 'posts' => $a, 'feedbacks' => $b]);
     exit;
 }
 
