@@ -4389,13 +4389,20 @@ function _vtAbrir(f, resolve) {
     _vtAbas();
     _vtMontarCamada();
     _vtFaixaDeQuadros();
-    try { v.currentTime = Math.min(0.05, v.duration / 2); } catch (e) {}
+    // O iPhone só carrega os quadros depois do primeiro play: um play mudo e já pausado deixa buscar posições e mostrar o quadro certo.
+    try { v.muted = true; await v.play(); v.pause(); } catch (e) {}
+    v.muted = false;
+    if (_vt !== s0) return;
+    try { v.currentTime = Math.max(s0.ini, Math.min(0.05, v.duration / 2)); } catch (e) {}
     clearInterval(_vtTimer);
     _vtTimer = setInterval(_vtAtualizarCabeca, 80);
   };
   v.ontimeupdate = function () {
     // Reproduz o trecho em repetição, como no Instagram: ao chegar no fim, volta ao início e continua.
-    if (_vt && !_vt.codificando && !v.paused && v.currentTime >= _vt.fim) { try { v.currentTime = _vt.ini; } catch (e) {} }
+    if (_vt && !_vt.codificando && !v.paused && (v.currentTime >= _vt.fim || v.currentTime < _vt.ini - 0.3)) { try { v.currentTime = _vt.ini; } catch (e) {} }
+  };
+  v.onplaying = function () {
+    if (_vt && !_vt.codificando && (v.currentTime < _vt.ini - 0.3 || v.currentTime >= _vt.fim)) { try { v.currentTime = _vt.ini; } catch (e) {} }
   };
   v.onplay = function () { const i = document.getElementById('vt-play-ico'); if (i) i.style.display = 'none'; };
   v.onpause = function () { const i = document.getElementById('vt-play-ico'); if (i) i.style.display = 'flex'; };
@@ -4484,6 +4491,7 @@ async function _vtFaixaDeQuadros() {
   s.tv = tv;
   await new Promise(function (res) { tv.onloadedmetadata = res; tv.onerror = res; setTimeout(res, 6000); });
   if (_vt !== s || !tv.videoWidth) return;
+  try { tv.muted = true; await tv.play(); tv.pause(); } catch (e) {}
   const cw = 64, ch = 116;
   for (let i = 0; i < n; i++) {
     if (_vt !== s) return;
@@ -4617,7 +4625,8 @@ function _vtPlayPause() {
   if (!_vt || _vt.codificando) return;
   const v = _vt.video;
   if (v.paused) {
-    if (v.currentTime < _vt.ini || v.currentTime >= _vt.fim - 0.1) { try { v.currentTime = _vt.ini; } catch (e) {} }
+    v.muted = false;
+    if (v.currentTime < _vt.ini - 0.05 || v.currentTime >= _vt.fim - 0.1) { try { v.currentTime = _vt.ini; } catch (e) {} }
     const p = v.play(); if (p && p.catch) p.catch(function () { toast('Não consegui reproduzir a prévia.'); });
   } else { v.pause(); }
 }

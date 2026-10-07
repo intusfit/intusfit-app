@@ -904,6 +904,10 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
 - **Baixar post** (`baixarPost`): o dono baixa a foto ou o vídeo do próprio post (tela do post e menu ⋯). Foto passa por
   `catalogo.php?action=feed_baixar` (só o dono; o app nativo não tem CORS na pasta pública); vídeo vem de `midia.php`.
   No celular abre o menu de compartilhar do aparelho (Salvar imagem/vídeo); sem ele, foto abre para salvar e vídeo baixa.
+- **iPhone, prévia do corte (07/10/2026)**: o Safari só decodifica o vídeo depois do primeiro play, então buscar posição antes disso
+  era ignorado (o play saía do começo do arquivo e a faixa de miniaturas ficava preta). Agora o editor dá um play mudo e já pausa ao
+  abrir (também no vídeo das miniaturas), e `onplaying`/`ontimeupdate` puxam para o início do trecho se tocar fora dele. **Conferir num
+  iPhone de verdade.**
 - **Cuidado ao editar**: `val.js` só confere sintaxe. Uma chamada de função colocada numa linha de declaração `let`
   derrubou o script inteiro em teste (erro de inicialização). Depois de editar `aluno.html`, abra a página e olhe o
   console.
