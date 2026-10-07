@@ -886,7 +886,7 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
 - **Editor de vídeo estilo Instagram** (`_vtAbrir` e funções `_vt*`, `aluno.html`): prévia na proporção do vídeo, faixa de
   quadros embaixo (10 miniaturas), bordas verdes arrastáveis e a faixa inteira para deslizar o trecho, linha branca que
   acompanha a reprodução, trecho em repetição, e abas **Cortar / Filtros / Figurinhas**. As regras do corte (mínimo 1 s,
-  máximo 60 s, deslizar) estão em `API.trecho` (`testes/trecho.js`). Vídeo sem duração (comum em webm gravado por
+  máximo 30 s, deslizar) estão em `API.trecho` (`testes/trecho.js`). Vídeo sem duração (comum em webm gravado por
   navegador) é tratado pulando para o fim.
 - **Filtros no vídeo**: os mesmos 8 filtros da foto (`FEED_EDITOR_FILTROS`), aplicados quadro a quadro com `ctx.filter`
   ao gravar. Se o aparelho não suporta `ctx.filter` (iOS antigo), a aba avisa e o vídeo sai sem filtro.
@@ -902,3 +902,16 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
 - **Cuidado ao editar**: `val.js` só confere sintaxe. Uma chamada de função colocada numa linha de declaração `let`
   derrubou o script inteiro em teste (erro de inicialização). Depois de editar `aluno.html`, abra a página e olhe o
   console.
+
+## 27. Vídeo de 30 s e espaço no Google Drive (07/10/2026)
+
+- **Limite de vídeo de post: 30 s** (era 60). Cliente: `COMPOSE_VIDEO_MAX_SEG` em `aluno.html` (o editor e os textos
+  seguem a constante). Servidor: `MD_DURACAO_MAX_SEG = 30` e `MD_TAMANHO_MAX = 60 MB` em `midia.php`. App já instalado com
+  a versão de 60 s recebe erro do servidor ao enviar vídeo maior que 30 s até atualizar.
+- **Relatório de uso do Drive**: `catalogo.php?action=drive_uso` (GET, só admin, só leitura, números do banco, sem chamar o
+  Drive) e cartão "Espaço no Google Drive (vídeos)" na aba Servidor de `configuracoes.html` (`verUsoDrive`). Mostra total de
+  vídeos de posts e feedbacks, feedbacks já assistidos ou sem ver há mais de 30 dias e envios abandonados. Não entram backups
+  (`cron-backup.php`) nem as cópias de fotos (`gdriveBackup`), que não ficam registrados no banco.
+- Apagar arquivo do Drive continua só pelo painel, com confirmação (regra do projeto). Ideias de economia ainda não aplicadas:
+  bitrate menor na gravação do app (2,5 Mbps), menos vídeos por post (`MD_MAX_VIDEOS`), retenção/bitrate dos feedbacks,
+  retenção dos backups, limpeza de envios abandonados.

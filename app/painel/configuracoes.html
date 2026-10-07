@@ -407,6 +407,12 @@ function render() {
           <button class="cfg-save" onclick="verificarServidor()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">🔄 Verificar agora</button>
         </div>
       </div>
+      <div class="cfg-card">
+        <h3>Espaço no Google Drive (vídeos)</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Quanto espaço os vídeos dos alunos (posts) e os feedbacks em vídeo ocupam, e o que dá para liberar. Só leitura: nada é apagado por aqui. Backups do banco e cópias de fotos não entram nesta conta.</p>
+        <button class="cfg-save" onclick="verUsoDrive()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">📊 Ver uso do Drive</button>
+        <div id="drive-uso" style="margin-top:14px;"></div>
+      </div>
     </div>
 
     <!-- HISTÓRICO (Alterações + Eventos unificados) -->
@@ -661,6 +667,46 @@ async function checkServerUsage() {
       }
     }
   } catch {}
+}
+
+// Uso do Google Drive pelos vídeos (relatório de leitura, vem do banco; ver catalogo.php?action=drive_uso).
+function _fmtBytes(b) {
+  b = Number(b) || 0;
+  if (b >= 1073741824) return (b / 1073741824).toFixed(2).replace('.', ',') + ' GB';
+  if (b >= 1048576) return (b / 1048576).toFixed(1).replace('.', ',') + ' MB';
+  return Math.round(b / 1024) + ' KB';
+}
+async function verUsoDrive() {
+  const box = document.getElementById('drive-uso');
+  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Calculando...</p>';
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=drive_uso&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 403 ? 'Só o administrador vê este relatório.' : 'Não consegui calcular agora.');
+    const d = await r.json();
+    const card = (titulo, valor, sub) => '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">' + titulo + '</div><div style="font-size:20px;font-weight:800;color:var(--text);margin-top:4px;">' + valor + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">' + sub + '</div></div>';
+    const linha = (rot, n, bytes, dica) => '<tr><td style="padding:6px 0;color:var(--text);">' + rot + (dica ? '<div style="font-size:10.5px;color:var(--text-muted);">' + dica + '</div>' : '') + '</td><td style="text-align:right;color:var(--text);white-space:nowrap;">' + n + '</td><td style="text-align:right;font-weight:700;color:#7FFF00;white-space:nowrap;padding-left:12px;">' + _fmtBytes(bytes) + '</td></tr>';
+    const total = d.posts.bytes + d.feedbacks.bytes;
+    let h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">' +
+      card('Total em vídeos', _fmtBytes(total), (d.posts.n + d.feedbacks.n) + ' vídeos') +
+      card('Vídeos de posts', _fmtBytes(d.posts.bytes), d.posts.n + ' vídeos, média ' + _fmtBytes(d.posts.media)) +
+      card('Feedbacks em vídeo', _fmtBytes(d.feedbacks.bytes), d.feedbacks.n + ' vídeos, média ' + _fmtBytes(d.feedbacks.media)) + '</div>';
+    h += '<div style="font-size:12px;font-weight:700;color:var(--text);margin:6px 0 4px;">O que dá para liberar</div><table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+      linha('Feedbacks já assistidos há mais de 30 dias', d.feedbacks_vistos_30d.n, d.feedbacks_vistos_30d.bytes, 'Apague pela ferramenta Feedback em Vídeo, se quiser') +
+      linha('Feedbacks nunca assistidos, com mais de 30 dias', d.feedbacks_sem_ver_30d.n, d.feedbacks_sem_ver_30d.bytes, 'Vale conferir antes: o aluno pode não ter visto') +
+      linha('Envios de vídeo de aluno que não terminaram (mais de 1 dia)', d.abandonados.posts.n, d.abandonados.posts.bytes, 'Arquivos parciais que ficaram no Drive') +
+      linha('Envios de feedback que não terminaram (mais de 1 dia)', d.abandonados.feedbacks.n, d.abandonados.feedbacks.bytes, 'Arquivos parciais que ficaram no Drive') + '</table>';
+    if (d.posts_por_mes.length) {
+      h += '<div style="font-size:12px;font-weight:700;color:var(--text);margin:14px 0 4px;">Vídeos de posts por mês</div><table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+        d.posts_por_mes.map(m => linha(m.mes.slice(5) + '/' + m.mes.slice(0, 4), m.n + (m.n === 1 ? ' vídeo' : ' vídeos'), m.bytes, '')).join('') + '</table>';
+    }
+    if (d.maiores_feedbacks.length) {
+      h += '<div style="font-size:12px;font-weight:700;color:var(--text);margin:14px 0 4px;">Maiores feedbacks em vídeo</div><table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+        d.maiores_feedbacks.map(f => linha(esc(f.titulo || 'Sem título') + ' · ' + esc(f.aluno || ''), Math.round(f.seg / 60) + ' min', f.bytes, (f.criado_em || '').slice(0, 10) + (f.visto_em ? ', assistido' : ', não assistido'))).join('') + '</table>';
+    }
+    box.innerHTML = h;
+  } catch (e) {
+    box.innerHTML = '<p style="font-size:12px;color:#f87171;">' + esc(e.message || 'Não consegui calcular agora.') + '</p>';
+  }
 }
 
 function verificarServidor() {

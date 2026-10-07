@@ -3201,6 +3201,41 @@ if ($action === 'desafios_aluno') {
     }
 }
 
+// ── Uso do Google Drive pelos vídeos (relatório só de leitura, só administrador) ──
+// Os números vêm do que o sistema já guarda no banco (tamanho de cada vídeo), sem chamar o Drive. Backups e cópias de
+// fotos não entram aqui: não ficam registrados no banco.
+if ($action === 'drive_uso' && $method === 'GET') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    $um = function ($sql) use ($pdo) { try { return $pdo->query($sql)->fetch(PDO::FETCH_ASSOC) ?: []; } catch (Throwable $e) { return []; } };
+    $varios = function ($sql) use ($pdo) { try { return $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: []; } catch (Throwable $e) { return []; } };
+    $posts = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho),0) AS bytes, COALESCE(AVG(tamanho),0) AS media, COALESCE(MAX(tamanho),0) AS maior, COALESCE(SUM(duracao_seg),0) AS seg
+                  FROM intus_midia WHERE tipo = 'video' AND status = 'pronto' AND drive_id IS NOT NULL");
+    $fb = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes, COALESCE(AVG(tamanho_bytes),0) AS media, COALESCE(MAX(tamanho_bytes),0) AS maior, COALESCE(SUM(duracao_seg),0) AS seg
+               FROM intus_feedback WHERE status = 'pronto' AND drive_file_id IS NOT NULL");
+    $fbVistos = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes FROM intus_feedback
+                     WHERE status = 'pronto' AND drive_file_id IS NOT NULL AND visto_em IS NOT NULL AND visto_em < (NOW() - INTERVAL 30 DAY)");
+    $fbSemVer = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes FROM intus_feedback
+                     WHERE status = 'pronto' AND drive_file_id IS NOT NULL AND visto_em IS NULL AND criado_em < (NOW() - INTERVAL 30 DAY)");
+    $abPosts = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho),0) AS bytes FROM intus_midia WHERE tipo = 'video' AND status = 'enviando' AND created_at < (NOW() - INTERVAL 1 DAY)");
+    $abFb = $um("SELECT COUNT(*) AS n, COALESCE(SUM(tamanho_bytes),0) AS bytes FROM intus_feedback WHERE status = 'enviando' AND criado_em < (NOW() - INTERVAL 1 DAY)");
+    $porMes = $varios("SELECT DATE_FORMAT(created_at, '%Y-%m') AS mes, COUNT(*) AS n, COALESCE(SUM(tamanho),0) AS bytes FROM intus_midia
+                       WHERE tipo = 'video' AND status = 'pronto' AND drive_id IS NOT NULL GROUP BY mes ORDER BY mes DESC LIMIT 6");
+    $maioresFb = $varios("SELECT id, titulo, aluno_nome, tamanho_bytes, duracao_seg, criado_em, visto_em FROM intus_feedback
+                          WHERE status = 'pronto' AND drive_file_id IS NOT NULL ORDER BY tamanho_bytes DESC LIMIT 8");
+    $n = function ($a) { return ['n' => (int)($a['n'] ?? 0), 'bytes' => (int)($a['bytes'] ?? 0)]; };
+    echo json_encode([
+        'posts' => ['n' => (int)($posts['n'] ?? 0), 'bytes' => (int)($posts['bytes'] ?? 0), 'media' => (int)($posts['media'] ?? 0), 'maior' => (int)($posts['maior'] ?? 0), 'seg' => (int)($posts['seg'] ?? 0)],
+        'feedbacks' => ['n' => (int)($fb['n'] ?? 0), 'bytes' => (int)($fb['bytes'] ?? 0), 'media' => (int)($fb['media'] ?? 0), 'maior' => (int)($fb['maior'] ?? 0), 'seg' => (int)($fb['seg'] ?? 0)],
+        'feedbacks_vistos_30d' => $n($fbVistos),
+        'feedbacks_sem_ver_30d' => $n($fbSemVer),
+        'abandonados' => ['posts' => $n($abPosts), 'feedbacks' => $n($abFb)],
+        'posts_por_mes' => array_map(function ($r) { return ['mes' => $r['mes'], 'n' => (int)$r['n'], 'bytes' => (int)$r['bytes']]; }, $porMes),
+        'maiores_feedbacks' => array_map(function ($r) { return ['id' => (int)$r['id'], 'titulo' => $r['titulo'], 'aluno' => $r['aluno_nome'], 'bytes' => (int)$r['tamanho_bytes'], 'seg' => (int)$r['duracao_seg'], 'criado_em' => $r['criado_em'], 'visto_em' => $r['visto_em']]; }, $maioresFb),
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // ── Baixar a foto de um post ──────────────────────────────────────────────
 // GET ?idpost=ID&url=URL_DA_FOTO. Só o dono do post. O app nativo não consegue buscar a imagem direto da pasta pública
 // (sem CORS), então ela passa por aqui. A foto já sai com a logo da Intus, que é aplicada ao publicar. Vídeo não passa
