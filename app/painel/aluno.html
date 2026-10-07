@@ -517,7 +517,8 @@
     .h-mini .cab { font-size:10px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
     .h-mini .num { font-size:25px; font-weight:900; color:var(--texto); line-height:1; font-variant-numeric:tabular-nums; }
     .h-mini .pe { font-size:11.5px; color:var(--muted); margin-top:3px; }
-    .h-dest { background:var(--sup); border:1px solid var(--sup-bd); border-radius:16px; padding:10px 12px; cursor:pointer; transition:transform .08s; touch-action:manipulation; }
+    .h-dest { background:var(--sup); border:1px solid var(--sup-bd); border-radius:16px; padding:10px 12px; cursor:pointer; transition:transform .08s; touch-action:manipulation;
+            display:flex; flex-direction:column; justify-content:center; }
     /* Icone e titulo lado a lado (antes empilhados) — cabe melhor em telas
        estreitas e cada peca encolhe do seu jeito: o icone nunca perde o
        tamanho, o titulo corta em "..." se faltar espaço de verdade. */
@@ -555,7 +556,7 @@
 
     .h-atalhos { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-bottom:7px; }
     .h-at { background:var(--card-bg); border:1px solid var(--borda); border-radius:14px; padding:7px 5px;
-            display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; min-height:58px; transition:transform .08s; }
+            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; cursor:pointer; min-height:58px; transition:transform .08s; }
     .h-at .ic { width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; }
     .h-at .tt { font-size:10.5px; font-weight:700; color:var(--texto); text-align:center; line-height:1.2; }
     .h-hoje:active, .h-sem:active, .h-mini:active, .h-dest:active, .h-at:active { transform:scale(.985); }
@@ -2540,73 +2541,112 @@ async function carregarReacoesFeed(ids) {
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=feed_post&ids=' + ids.join(',') + '&_=' + Date.now(),
       { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
-    const j = r.ok ? (await r.json()) : {};
-    Object.assign(_reacoesFeed, (j && typeof j === 'object') ? j : {});
+    if (!r.ok) return;
+    const j = await r.json();
+    const obj = (j && typeof j === 'object') ? j : {};
+    // O servidor só devolve os posts que têm reação. Quem ficou sem nenhuma (por exemplo, a última foi removida)
+    // precisa ser esvaziado aqui; somar por cima deixava a reação antiga na tela, como se não tivesse saído.
+    ids.forEach(function (id) { const k = String(id); _reacoesFeed[k] = Array.isArray(obj[k]) ? obj[k] : []; });
   } catch (e) {}
 }
 
+// ── Reações do post ──
+// Dois botões sempre visíveis: o da esquerda curte (ou, se você já reagiu, mostra a sua reação e TIRA ao tocar); o
+// "Reagir" abre as outras reações, com nome. Uma reação por pessoa: escolher outra troca a anterior. Acima dos botões,
+// uma linha diz quem reagiu e abre a lista. A tela muda na hora e volta atrás se o servidor recusar.
+const _RX_LISTA = [['❤️', 'Amei'], ['🔥', 'Fogo'], ['💪', 'Força'], ['👏', 'Parabéns'], ['😮', 'Uau'], ['😂', 'Haha']];
+const _RX_ROTULO = { '❤️': 'Curtiu', '🔥': 'Fogo', '💪': 'Força', '👏': 'Parabéns', '😮': 'Uau', '😂': 'Haha' };
+function _rxMinha(idpost) { return (_reacoesFeed[String(idpost)] || []).find(r => r.meu) || null; }
+function _rxRedesenhar(idpost) {
+  document.querySelectorAll('[data-feed-kudos="' + idpost + '"]').forEach(el => { el.outerHTML = _kudosHtml(idpost); });
+  document.querySelectorAll('[data-feed-rxres="' + idpost + '"]').forEach(el => { el.outerHTML = _rxResumoHtml(idpost); });
+}
+// emoji = null remove a reação; senão deixa só esta.
 async function reagirPost(idpost, emoji) {
+  const k = String(idpost);
+  const antes = (_reacoesFeed[k] || []).slice();
+  const lista = antes.filter(r => !r.meu);
+  if (emoji) lista.push({ emoji: emoji, autor_tipo: 'aluno', autor_id: Number(idAtleta), autor_nome: 'Você', meu: true });
+  _reacoesFeed[k] = lista;
+  _rxRedesenhar(idpost);
   try {
+    const corpo = { alvo_tipo: 'feed_post', alvo_id: Number(idpost) };
+    if (emoji) { corpo.emoji = emoji; corpo.definir = true; } else { corpo.emoji = '❤️'; corpo.remover = true; }
     const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alvo_tipo: 'feed_post', alvo_id: Number(idpost), emoji: emoji || '❤️', unica: true }),
+      body: JSON.stringify(corpo),
     });
     if (!r.ok) throw new Error('falhou');
-  } catch (e) { toast('Não deu para registrar sua reação.'); return; }
-  await carregarReacoesFeed([idpost]);
-  document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-kudos]').forEach(el => { el.outerHTML = _kudosHtml(idpost); });
+  } catch (e) {
+    _reacoesFeed[k] = antes; _rxRedesenhar(idpost);
+    toast('Não deu para registrar sua reação.');
+    return;
+  }
+  await carregarReacoesFeed([idpost]);   // confere com o servidor (contagem real de todo mundo)
+  _rxRedesenhar(idpost);
 }
-
-// Coração = curtir (alterna a própria reação); o número = ver quem curtiu
-// (abrirQuemCurtiu), estilo rede social. Sem número (0 curtidas) o clique
-// no número também curte, pra nunca ser um toque morto.
-// Reações do post: toque no botão curte (ou tira a reação que você já deu), segurar o botão ou tocar no "＋" abre a
-// barra com as outras reações. Uma reação por pessoa: escolher outra troca a anterior.
-const _REACOES_POST = ['❤️', '🔥', '💪', '👏', '😮', '😂'];
-var _rxTimer = null, _rxLongo = false;
-function _rxPressStart(id, ev) {
-  _rxLongo = false; clearTimeout(_rxTimer);
-  const btn = ev.currentTarget;
-  _rxTimer = setTimeout(function () { _rxLongo = true; abrirReacoesPost(id, null, btn); }, 450);
-}
-function _rxPressEnd() { clearTimeout(_rxTimer); }
-function _rxClick(id, ev) {
-  if (_rxLongo) { _rxLongo = false; if (ev) ev.preventDefault(); return; }
-  const minha = (_reacoesFeed[String(id)] || []).find(r => r.meu);
-  reagirPost(id, minha ? minha.emoji : '❤️');
-}
-function fecharReacoesPost() { document.getElementById('rx-bar')?.remove(); document.getElementById('rx-fundo')?.remove(); }
-function abrirReacoesPost(idpost, ev, btnEl) {
+function _rxToque(idpost) { reagirPost(idpost, _rxMinha(idpost) ? null : '❤️'); }
+function _rxEscolher(idpost, emoji) {
   fecharReacoesPost();
-  const ancora = btnEl || (ev && ev.currentTarget); if (!ancora) return;
+  const m = _rxMinha(idpost);
+  reagirPost(idpost, (m && m.emoji === emoji) ? null : emoji);
+}
+function _rxRemover(idpost) { fecharReacoesPost(); reagirPost(idpost, null); }
+function fecharReacoesPost() { document.getElementById('rx-bar')?.remove(); document.getElementById('rx-fundo')?.remove(); }
+function abrirReacoesPost(idpost, ev) {
+  fecharReacoesPost();
+  const ancora = ev && ev.currentTarget; if (!ancora) return;
   const isLight = document.body.classList.contains('tema-claro');
-  const minha = (_reacoesFeed[String(idpost)] || []).find(r => r.meu);
+  const minha = _rxMinha(idpost);
   const rc = ancora.getBoundingClientRect();
   const fundo = document.createElement('div');
   fundo.id = 'rx-fundo';
-  fundo.style.cssText = 'position:fixed;inset:0;z-index:100059;pointer-events:none;';
+  fundo.style.cssText = 'position:fixed;inset:0;z-index:100059;';
   fundo.onclick = fecharReacoesPost;
   const bar = document.createElement('div');
   bar.id = 'rx-bar';
-  const largura = _REACOES_POST.length * 46 + 16;
-  bar.style.cssText = 'position:fixed;z-index:100060;left:' + Math.max(8, Math.min(rc.left, window.innerWidth - largura - 8)) + 'px;top:' + Math.max(8, rc.top - 60) + 'px;display:flex;gap:2px;padding:6px 8px;border-radius:30px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 10px 30px rgba(0,0,0,.45);';
-  bar.innerHTML = _REACOES_POST.map(e => '<button onclick="fecharReacoesPost();reagirPost(' + Number(idpost) + ',\'' + e + '\')" style="width:42px;height:42px;border:none;border-radius:50%;background:' + (minha && minha.emoji === e ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)') : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;">' + e + '</button>').join('');
+  const txt = isLight ? '#1a1a1a' : '#f0f0f0', mut = isLight ? '#777' : '#999';
+  bar.style.cssText = 'position:fixed;z-index:100060;left:8px;top:0;visibility:hidden;display:flex;flex-direction:column;gap:4px;padding:8px 6px 6px;border-radius:20px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 12px 34px rgba(0,0,0,.5);';
+  bar.innerHTML = '<div style="display:flex;gap:2px;">' + _RX_LISTA.map(function (par) {
+    const sel = minha && minha.emoji === par[0];
+    return '<button onclick="_rxEscolher(' + Number(idpost) + ',\'' + par[0] + '\')" style="display:flex;flex-direction:column;align-items:center;gap:3px;width:54px;padding:7px 0 6px;border:none;border-radius:14px;background:' + (sel ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)') : 'transparent') + ';color:' + txt + ';cursor:pointer;font-family:inherit;">' +
+      '<span style="font-size:27px;line-height:1;">' + par[0] + '</span><span style="font-size:10.5px;font-weight:' + (sel ? '800' : '600') + ';color:' + (sel ? (isLight ? '#2d8a00' : '#7FFF00') : mut) + ';">' + par[1] + '</span></button>';
+  }).join('') + '</div>' +
+  (minha ? '<button onclick="_rxRemover(' + Number(idpost) + ')" style="border:none;background:transparent;color:#f87171;font-size:12.5px;font-weight:800;padding:8px 0 4px;cursor:pointer;font-family:inherit;border-top:1px solid ' + (isLight ? '#eee' : '#2c2c2c') + ';">Remover minha reação</button>' : '');
   document.body.appendChild(fundo); document.body.appendChild(bar);
-  setTimeout(function () { fundo.style.pointerEvents = 'auto'; }, 500);   // só depois de soltar o dedo do toque longo
+  const h = bar.offsetHeight, w = bar.offsetWidth;
+  const acima = rc.top - h - 8;
+  bar.style.top = Math.max(8, acima >= 8 ? acima : rc.bottom + 8) + 'px';
+  bar.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - w - 8)) + 'px';
+  bar.style.visibility = 'visible';
 }
-function _kudosHtml(idpost) {
+// Linha acima dos botões: "🔥❤️ Você, Maria e mais 3" (toque abre a lista de quem reagiu).
+function _rxResumoHtml(idpost) {
   const lista = _reacoesFeed[String(idpost)] || [];
-  const minha = lista.find(r => r.meu);
-  const cor = minha ? '#7FFF00' : 'inherit';
+  if (!lista.length) return '<div data-feed-rxres="' + idpost + '"></div>';
+  const isLight = document.body.classList.contains('tema-claro');
   const cont = {}; lista.forEach(r => { cont[r.emoji] = (cont[r.emoji] || 0) + 1; });
   const top = Object.keys(cont).sort((a, b) => cont[b] - cont[a]).slice(0, 3).join('');
-  return '<span data-feed-kudos style="display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:15px;">' +
-    '<button onclick="_rxClick(' + idpost + ',event)" ontouchstart="_rxPressStart(' + idpost + ',event)" ontouchend="_rxPressEnd()" ontouchmove="_rxPressEnd()" ontouchcancel="_rxPressEnd()" onmousedown="_rxPressStart(' + idpost + ',event)" onmouseup="_rxPressEnd()" onmouseleave="_rxPressEnd()" oncontextmenu="return false" title="Curtir (segure para escolher outra reação)" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;-webkit-touch-callout:none;user-select:none;">' + (minha ? minha.emoji : '🤍') + '</button>' +
-    '<button onclick="abrirReacoesPost(' + idpost + ',event)" title="Mais reações" aria-label="Mais reações" style="border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer;padding:0;width:22px;height:22px;border-radius:50%;font-size:15px;line-height:1;font-family:inherit;">＋</button>' +
-    (lista.length
-      ? '<span onclick="abrirQuemCurtiu(' + idpost + ')" title="Ver quem reagiu" style="cursor:pointer;font-weight:' + (minha ? '800' : '600') + ';color:' + cor + ';">' + top + ' ' + lista.length + '</span>'
-      : '<span onclick="reagirPost(' + idpost + ')" title="Curtir" style="cursor:pointer;font-weight:600;">0</span>') +
+  const nomes = [];
+  if (lista.some(r => r.meu)) nomes.push('Você');
+  lista.filter(r => !r.meu).forEach(r => { const n = String(r.autor_nome || 'Alguém').split(' ')[0]; if (nomes.length < 2 && nomes.indexOf(n) < 0) nomes.push(n); });
+  let txt;
+  if (lista.length <= nomes.length) txt = nomes.length > 1 ? nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1] : nomes[0];
+  else txt = nomes.join(', ') + ' e mais ' + (lista.length - nomes.length);
+  return '<div data-feed-rxres="' + idpost + '" onclick="abrirQuemCurtiu(' + idpost + ')" style="display:flex;align-items:center;gap:7px;cursor:pointer;margin:6px 0 2px;font-size:12.5px;color:' + (isLight ? '#666' : '#999') + ';">' +
+    '<span style="font-size:15px;letter-spacing:1px;">' + top + '</span><span>' + esc(txt) + '</span></div>';
+}
+function _kudosHtml(idpost) {
+  const isLight = document.body.classList.contains('tema-claro');
+  const minha = _rxMinha(idpost);
+  const acento = isLight ? '#2d8a00' : '#7FFF00';
+  const base = 'display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:17px;font-size:13.5px;font-weight:800;font-family:inherit;cursor:pointer;line-height:1;-webkit-tap-highlight-color:transparent;';
+  const neutro = 'border:1px solid ' + (isLight ? '#d0d0d0' : '#3a3a3a') + ';background:transparent;color:' + (isLight ? '#444' : '#d0d0d0') + ';';
+  const ativo = 'border:1px solid ' + acento + ';background:' + (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') + ';color:' + acento + ';';
+  return '<span data-feed-kudos="' + idpost + '" style="display:inline-flex;align-items:center;gap:8px;">' +
+    '<button onclick="_rxToque(' + idpost + ')" aria-pressed="' + (minha ? 'true' : 'false') + '" title="' + (minha ? 'Toque para tirar sua reação' : 'Curtir') + '" style="' + base + (minha ? ativo : neutro) + '"><span style="font-size:17px;">' + (minha ? minha.emoji : '🤍') + '</span>' + (minha ? (_RX_ROTULO[minha.emoji] || 'Reagiu') : 'Curtir') + '</button>' +
+    '<button onclick="abrirReacoesPost(' + idpost + ',event)" aria-label="Escolher outra reação" style="' + base + neutro + '"><span style="font-size:17px;">😊</span>Reagir</button>' +
   '</span>';
 }
 
@@ -3053,7 +3093,8 @@ function _feedCardHtml(post, isLight) {
     _carrosselHtml(_midiasDoPost(post), isLight) +
     '<div style="padding:11px 12px;">' +
       _feedLegendaHtml(post, nome.split(' ')[0], isLight) +
-      '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
+      _rxResumoHtml(post.idpost) +
+      '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
       _comentariosHtml(post.idpost, isLight) +
     '</div>' +
   '</div>';
@@ -6578,20 +6619,22 @@ function renderHome() {
         <div class="h-at" onclick="renderPerfil();trocarView('perfil');" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
           <div class="tt">Conquistas</div>
-          <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Distintivos</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Distintivos</div>
         </div>
         <div class="h-at" onclick="renderHistorico();trocarView('historico');" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
           <div class="tt">Evoluções</div>
-          <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Histórico</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Histórico</div>
         </div>
         <div class="h-at" onclick="navegar('avaliacoes')" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
           <div class="tt">Avaliações</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Medidas</div>
         </div>
-        <div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" style="border-radius:14px;border:1px solid var(--borda);background:var(--card-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;padding:6px 5px;">
-          <div style="font-size:18px;color:var(--muted);line-height:1;">⋯</div>
-          <div id="h-maisatalhos-label" style="font-size:10px;font-weight:800;color:var(--muted);">Ver mais</div>
+        <div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" style="border-radius:14px;border:1px solid var(--borda);background:var(--card-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:7px 5px;margin:0;">
+          <div class="h-at-ic" style="width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;line-height:1;background:var(--borda);color:var(--muted);">⋯</div>
+          <div id="h-maisatalhos-label" style="font-size:10.5px;font-weight:700;color:var(--texto);text-align:center;line-height:1.2;">Ver mais</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Mais atalhos</div>
         </div>
       </div>
     </div>
@@ -6604,12 +6647,12 @@ function renderHome() {
       <div class="h-at" onclick="navegar('mensagens')">
         <div class="ic" style="background:linear-gradient(135deg,#5a2a5e,#c060d0);">💬</div>
         <div class="tt">Central</div>
-        <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Mensagens</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Mensagens</div>
       </div>
       <div class="h-at" onclick="abrirPerfilDados()">
         <div class="ic" style="background:linear-gradient(135deg,#3a3a3a,#8a8a8a);">👤</div>
         <div class="tt">Perfil</div>
-        <div style="font-size:8.5px;color:var(--muted);margin-top:1px;">Matrícula</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Matrícula</div>
       </div>
     </div>
 

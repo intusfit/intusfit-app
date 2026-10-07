@@ -859,3 +859,11 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   inteiro, e Início e Feed ficam montados ao mesmo tempo (a que não está aberta fica escondida, com posts de altura 0).
   Agora conta só os posts da tela aberta (`#v-<view>`). O clique não troca mais de tela: sobe rolando até o topo
   (`_rolarAoTopo`, animação própria de 450 a 1100 ms, interrompida por toque).
+- **Reações v2 (07/10/2026)**: o bug de não conseguir remover era do app: `carregarReacoesFeed` só somava o que o servidor
+  devolvia, e o servidor omite o post que ficou sem reação, então a reação antiga continuava na tela. Agora cada post
+  pedido é esvaziado se não vier. O servidor ganhou ações explícitas em `reacoes`: `definir` (deixa só esta reação) e
+  `remover` (tira todas as da pessoa no alvo); `unica` continua para apps antigos. Visual: botão "Curtir" (vira a
+  reação escolhida, e tocar nele tira) + botão "Reagir" (barra com nome de cada reação e "Remover minha reação") +
+  linha "Você, Maria e mais 3" acima. A tela muda na hora e volta atrás se o servidor recusar.
+- **Atalhos da Home**: Conquistas, Evoluções, Avaliações e "Ver mais" têm a mesma estrutura (ícone, título e legenda) e o
+  conteúdo centralizado na vertical; os cartões Treinos e Cardio também centralizam o conteúdo.

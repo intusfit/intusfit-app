@@ -2259,9 +2259,22 @@ if ($action === 'reacoes') {
         // Nome de quem reagiu, buscado no servidor — nao aceita o que o cliente diz.
         [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
 
-        // "unica": uma reação por pessoa neste alvo. Escolher outro emoji troca o anterior em vez de somar.
-        if (!empty($b['unica'])) {
+        // Ações explícitas (não alternam, então repetir o pedido é seguro):
+        //  remover: apaga TODAS as reações da pessoa neste alvo.
+        //  definir: deixa só esta reação (apaga as outras; se já é esta, não faz mais nada).
+        // "unica" (apps antigos): igual a definir, mas pedir a mesma reação de novo ainda remove.
+        if (!empty($b['remover'])) {
+            $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id = ? AND autor_tipo = ? AND autor_id = ?")->execute([$tipo, $alvo, $_autorTipo, $_autorId]);
+            echo json_encode(['ok' => true, 'estado' => 'removida']);
+            exit;
+        }
+        if (!empty($b['unica']) || !empty($b['definir'])) {
             $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id = ? AND autor_tipo = ? AND autor_id = ? AND emoji <> ?")->execute([$tipo, $alvo, $_autorTipo, $_autorId, $emoji]);
+            if (!empty($b['definir'])) {
+                $sj = $pdo->prepare("SELECT 1 FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id = ? AND autor_tipo = ? AND autor_id = ? AND emoji = ? LIMIT 1");
+                $sj->execute([$tipo, $alvo, $_autorTipo, $_autorId, $emoji]);
+                if ($sj->fetchColumn()) { echo json_encode(['ok' => true, 'estado' => 'definida']); exit; }
+            }
         }
         $st = $pdo->prepare("SELECT idreacao FROM intus_reacao_pub WHERE alvo_tipo = ? AND alvo_id = ? AND autor_tipo = ? AND autor_id = ? AND emoji = ? LIMIT 1");
         $st->execute([$tipo, $alvo, $_autorTipo, $_autorId, $emoji]);
