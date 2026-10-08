@@ -20,20 +20,25 @@
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
-  // 2) Nem todo lugar deixa travar (Safari no iPhone, navegador comum no Android, PWA do iOS). Nesses casos o celular
-  //    gira mesmo, então, em paisagem e fora de vídeo em tela cheia, uma cortina pede para voltar à vertical. O treino
-  //    segue rodando por trás (cronômetro e séries não são afetados).
+  // 2) Onde a trava não funciona (Safari no iPhone, navegador comum no Android, PWA do iOS) o aparelho gira mesmo. Nesses
+  //    casos o app se desenha girado no sentido contrário (mesma coisa que a trava nativa faz): a tela continua em pé, sem
+  //    aviso nenhum, qualquer que seja a posição em que o aluno segura o celular. Nada é perdido: o treino segue de onde parou.
   (function () {
-    var iosTelaCheia = false;
+    var iosTelaCheia = false, ativo = false;
     function girar(livre) {
       try { if (window.IntusNativo && IntusNativo.telaCheia) { IntusNativo.telaCheia(!!livre); return; } } catch (e) {}   // app nativo Android
       try { if (screen.orientation) { if (livre) screen.orientation.unlock(); else if (screen.orientation.lock) screen.orientation.lock('portrait').catch(function () {}); } } catch (e) {}
     }
     function emTelaCheia() { return iosTelaCheia || !!(document.fullscreenElement || document.webkitFullscreenElement); }
+    function angulo() {
+      if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
+      if (typeof window.orientation === 'number') return (window.orientation + 360) % 360;
+      return 0;
+    }
     function celularEmPaisagem() {
       try {
         // Orientação FÍSICA do aparelho, não a forma da janela: com o teclado aberto a janela fica mais larga que alta
-        // mesmo com o celular em pé, e isso não pode acender a cortina.
+        // mesmo com o celular em pé, e isso não pode girar a tela.
         var fisica;
         if (screen.orientation && screen.orientation.type) fisica = /landscape/.test(screen.orientation.type);
         else if (typeof window.orientation === 'number') fisica = Math.abs(window.orientation) === 90;
@@ -41,31 +46,57 @@
         return fisica && window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(hover: none)').matches;
       } catch (e) { return false; }
     }
-    function cortina() {
-      var el = document.getElementById('giro-aviso');
-      if (el) return el;
-      if (!document.body) return null;
-      el = document.createElement('div');
-      el.id = 'giro-aviso';
-      el.style.cssText = 'display:none;position:fixed;inset:0;z-index:2147483000;background:#0a0a0a;color:#fff;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-family:Inter,system-ui,sans-serif;touch-action:none;';
-      el.innerHTML = '<svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#7FFF00" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M11 18.5h2"/></svg>' +
-        '<div style="font-size:17px;font-weight:800;">Gire o celular para a vertical</div>' +
-        '<div style="font-size:13px;opacity:.7;max-width:280px;line-height:1.5;">O Intus Fit funciona só em pé. Seu treino continua de onde parou.</div>';
-      document.body.appendChild(el);
-      return el;
-    }
+    // O <html> vira uma caixa em pé (largura = altura da janela, altura = largura da janela) girada 90 graus para o lado
+    // contrário do giro do aparelho. A rolagem passa para o <body> (a janela não rola mais), e scrollTo/scrollY seguem o body.
+    var css = document.createElement('style');
+    css.textContent =
+      'html.giro-fixo{position:fixed!important;left:0;top:0;width:var(--gf-w);height:var(--gf-h);min-height:0!important;overflow:hidden;transform-origin:0 0;}' +
+      'html.giro-90{transform:translateY(var(--gf-w)) rotate(-90deg);}' +
+      'html.giro-270{transform:translateX(var(--gf-h)) rotate(90deg);}' +
+      'html.giro-fixo body{height:100%;min-height:0!important;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;}';
+    (document.head || document.documentElement).appendChild(css);
+    var scrollToOrig = window.scrollTo;
+    window.scrollTo = function (a, b) {
+      if (ativo) {
+        var x = (a && typeof a === 'object') ? a.left : a, y = (a && typeof a === 'object') ? a.top : b;
+        try { document.body.scrollTo(x || 0, y || 0); } catch (e) {}
+        return;
+      }
+      return scrollToOrig.apply(window, arguments);
+    };
+    ['scrollY', 'pageYOffset'].forEach(function (nome) {
+      try {
+        var d = Object.getOwnPropertyDescriptor(window, nome);
+        if (!d || !d.get || !d.configurable) return;
+        Object.defineProperty(window, nome, { configurable: true, get: function () { return ativo ? document.body.scrollTop : d.get.call(window); } });
+      } catch (e) {}
+    });
     function ajustar() {
-      var mostrar = celularEmPaisagem() && !emTelaCheia();
-      var el = cortina();
-      if (el) el.style.display = mostrar ? 'flex' : 'none';
-      if (!mostrar && !emTelaCheia()) girar(false);   // reforça a trava toda vez que a tela mexe
+      var html = document.documentElement;
+      var ang = angulo();
+      var girado = celularEmPaisagem() && !emTelaCheia() && (ang === 90 || ang === 270);
+      if (girado) {
+        var W = window.innerWidth, H = window.innerHeight;
+        if (!W || !H) return;   // janela ainda sem medida: espera o próximo resize
+        html.style.setProperty('--gf-w', H + 'px'); html.style.setProperty('--gf-h', W + 'px');
+        html.classList.add('giro-fixo'); html.classList.toggle('giro-90', ang === 90); html.classList.toggle('giro-270', ang === 270);
+        ativo = true;
+      } else if (ativo) {
+        html.classList.remove('giro-fixo', 'giro-90', 'giro-270');
+        html.style.removeProperty('--gf-w'); html.style.removeProperty('--gf-h');
+        ativo = false;
+      }
+      if (!girado && !emTelaCheia()) girar(false);   // reforça a trava toda vez que a tela mexe
     }
     girar(false);
-    document.addEventListener('DOMContentLoaded', ajustar);
+    document.addEventListener('DOMContentLoaded', function () {
+      ajustar();
+      document.body.addEventListener('scroll', function () { if (ativo) window.dispatchEvent(new Event('scroll')); }, { passive: true });
+    });
     window.addEventListener('resize', ajustar);
     window.addEventListener('orientationchange', function () { setTimeout(ajustar, 200); });
     document.addEventListener('visibilitychange', function () { if (!document.hidden) ajustar(); });
-    function tela(e) { girar(emTelaCheia()); ajustar(); }
+    function tela() { girar(emTelaCheia()); ajustar(); }
     document.addEventListener('fullscreenchange', tela);
     document.addEventListener('webkitfullscreenchange', tela);
     document.addEventListener('webkitbeginfullscreen', function () { iosTelaCheia = true; girar(true); ajustar(); }, true);    // iOS: player de vídeo do sistema
@@ -3520,7 +3551,8 @@ function _feedAtualizarPaginacao() {
 function _feedChecarScrollFeed() {
   if (window._viewAtual !== _feedContainerIds().view) return; // tela trocou; o listener só se remove sozinho na próxima _feedAtualizarPaginacao
   if (_feedCarregandoMais || !_feedTemMais || _feedPosts.length >= FEED_LIMITE_AUTO_SCROLL) return;
-  const pertoDoFim = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 400);
+  const girada = document.documentElement.classList.contains('giro-fixo');   // tela girada: quem rola é o body
+  const pertoDoFim = girada ? (document.body.scrollTop + document.body.clientHeight >= document.body.scrollHeight - 400) : ((window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 400));
   if (pertoDoFim) _feedCarregarMais();
 }
 

@@ -844,11 +844,13 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   orientações horizontais no `Info.plist` e travar o retrato por plugin. No Android também vale só depois de novo
   build.
 
-- **Cortina de giro (07/10/2026)**: onde a trava não funciona (Safari no iPhone, navegador comum no Android, PWA do iOS, ou app nativo antigo),
-  o `aluno.html` mostra uma tela "Gire o celular para a vertical" (`#giro-aviso`) quando o aparelho está em paisagem e não há vídeo em
-  tela cheia. Usa a orientação FÍSICA (`screen.orientation.type` / `window.orientation`), não a forma da janela, para o teclado aberto não
-  acender a cortina. A trava também é reaplicada a cada `resize`, `orientationchange` e volta da aba. O treino segue rodando por trás.
-
+- **Giro de tela (07/10/2026, substitui a cortina)**: o aluno segura o celular de qualquer jeito durante o treino, então NÃO há aviso
+  para girar. Onde a trava não funciona (Safari no iPhone, navegador comum no Android, PWA do iOS), com o aparelho em paisagem e fora de
+  vídeo em tela cheia, o `<html>` recebe `giro-fixo` e é desenhado em pé, girado 90° para o lado contrário (`giro-90` / `giro-270`, pelo
+  `screen.orientation.angle` ou `window.orientation`), igual ao efeito da trava nativa. A rolagem passa para o `<body>`; `window.scrollTo`,
+  `scrollY` e `pageYOffset` foram redirecionados e o evento `scroll` é repassado. Detecta a orientação FÍSICA (não a forma da janela), para
+  o teclado aberto não girar nada. Limites conhecidos: `vh`/`innerHeight` continuam medindo a janela horizontal e as margens de área
+  segura (notch) ficam do lado errado. **Testado só no Chrome simulando; conferir num iPhone de verdade.**
 ## 24. Feed: busca, reações e Cardio (07/10/2026)
 
 - **Home**: o título "Feed dos Alunos" é um link para a tela do Feed.
