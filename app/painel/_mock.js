@@ -1272,21 +1272,54 @@ function fmtData(d) {
 // Recebe o resultado de API.gerarParcelas e devolve o HTML da previa: ou o erro, ou a lista de parcelas com a data de cobranca.
 const PARC_MESES = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
 function parcMesesDe(rec) { return PARC_MESES[String(rec || '').toLowerCase()] || 0; }
-function parcPrevHtml(r, forma) {
+// Valores combinados parcela a parcela, por tela (prefixo 'mat' ou 'nm'). Cada posicao e o liquido digitado da parcela i+1, ou vazio.
+const PARC_ED = {};
+function parcEstado(p) { return PARC_ED[p] || (PARC_ED[p] = { valores: [] }); }
+function parcReset(p) { PARC_ED[p] = { valores: [] }; }
+function parcEditar(p, i, v) {
+  parcEstado(p).valores[i] = (v === '' || v == null) ? null : v;
+  const f = window['parcAtualizar_' + p]; if (typeof f === 'function') f(true);   // atualiza so a ultima linha, sem tirar o foco do campo
+}
+function parcIgualar(p) { parcReset(p); const f = window['parcAtualizar_' + p]; if (typeof f === 'function') f(false); }
+function parcPrevHtml(r, forma, p) {
   const brl = (v) => 'R$ ' + Number(v || 0).toFixed(2).replace('.', ',');
   const dm = (iso) => String(iso).slice(8, 10) + '/' + String(iso).slice(5, 7) + '/' + String(iso).slice(0, 4);
+  const aviso = (t) => '<div id="' + p + '-pv-err" style="font-size:11.5px;color:#f87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:8px 10px;margin-top:6px;">' + t + '</div>';
   if (!r || !r.ok) {
-    return '<div style="font-size:11.5px;color:#f87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:8px 10px;">' + ((r && r.erro) || '') + '</div>';
+    // erro de valor digitado: mantem os campos para a pessoa corrigir; erro de plano (meses, parcelas): so a mensagem
+    const temEd = parcEstado(p).valores.some(function (v) { return v != null && v !== ''; });
+    return aviso((r && r.erro) || '') + (temEd ? '<a href="#" onclick="parcIgualar(\'' + p + '\');return false;" style="font-size:10.5px;color:var(--text-muted);text-decoration:underline;display:inline-block;margin-top:4px;">dividir igualmente</a>' : '');
   }
   const nomes = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', eduzz: 'Eduzz' };
-  const l = r.linhas;
+  const l = r.linhas, n = l.length, ed = parcEstado(p).valores;
+  const liquido = (x) => x.vlpagar - x.vldesconto;
+  const cab = r.personalizado ? n + ' parcelas com valores combinados' : n + ' parcelas de ' + brl(r.valorParcela);
   return '<div style="border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:10px 12px;background:rgba(127,255,0,.04);">' +
-    '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">' + l.length + ' parcelas de ' + brl(r.valorParcela) + (nomes[forma] ? ' · ' + nomes[forma] : '') + '</div>' +
-    l.map(function (x) {
-      return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--text-muted);padding:2px 0;"><span>' + x.parcela_num + '/' + l.length + ' · cobrança em ' + dm(x.dtinicio) + '</span><b style="color:var(--text);">' + brl(x.vlpagar - x.vldesconto) + '</b></div>';
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;"><div style="font-size:12px;font-weight:700;color:var(--text);">' + cab + (nomes[forma] ? ' · ' + nomes[forma] : '') + '</div>' +
+    (r.personalizado ? '<a href="#" onclick="parcIgualar(\'' + p + '\');return false;" style="font-size:10.5px;color:var(--text-muted);text-decoration:underline;">dividir igualmente</a>' : '') + '</div>' +
+    l.map(function (x, i) {
+      const ultima = i === n - 1;
+      const valor = ultima
+        ? '<b id="' + p + '-pv-last" style="color:var(--text);">' + brl(liquido(x)) + '</b>'
+        : '<input id="' + p + '-pv-' + i + '" type="number" min="0.01" step="0.01" value="' + liquido(x).toFixed(2) + '" oninput="parcEditar(\'' + p + '\',' + i + ',this.value)" title="Valor desta parcela" ' +
+          'style="width:96px;text-align:right;padding:3px 6px;border-radius:6px;background:var(--bg3,#161616);color:var(--text);font-weight:700;font-size:11.5px;border:1px solid ' + (ed[i] != null && ed[i] !== '' ? '#7FFF00' : 'var(--border,#2a2a2a)') + ';"/>';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;color:var(--text-muted);padding:2px 0;"><span>' + x.parcela_num + '/' + n + ' · cobrança em ' + dm(x.dtinicio) + (ultima ? ' · saldo' : '') + '</span>' + valor + '</div>';
     }).join('') +
-    '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;border-top:1px solid var(--border,#2a2a2a);padding-top:6px;">Cobertura até ' + dm(r.fim) + ' · total ' + brl(r.liquido) + '. O plano não renova sozinho: depois da última parcela aparece o aviso para renovar.</div>' +
+    '<div id="' + p + '-pv-err"></div>' +
+    '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;border-top:1px solid var(--border,#2a2a2a);padding-top:6px;">Cobertura até ' + dm(r.fim) + ' · total ' + brl(r.liquido) + '. Dá para mudar o valor de cada parcela (menos a última, que é o saldo). O plano não renova sozinho: depois da última parcela aparece o aviso para renovar.</div>' +
   '</div>';
+}
+// Atualizacao enxuta enquanto a pessoa digita: so o saldo da ultima parcela e o aviso de erro (o resto da previa nao e redesenhado).
+function parcAtualizarLeve(p, r) {
+  const last = document.getElementById(p + '-pv-last'), err = document.getElementById(p + '-pv-err');
+  if (r && r.ok) {
+    const x = r.linhas[r.linhas.length - 1];
+    if (last) last.textContent = 'R$ ' + (x.vlpagar - x.vldesconto).toFixed(2).replace('.', ',');
+    if (err) { err.style.cssText = ''; err.textContent = ''; }
+  } else if (err) {
+    err.style.cssText = 'font-size:11.5px;color:#f87171;margin-top:6px;';
+    err.textContent = (r && r.erro) || '';
+  }
 }
 
 function openModal(html, extraClass) {

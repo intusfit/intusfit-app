@@ -1848,23 +1848,62 @@ const API = {
     }
     if (!(total > 0)) return R('Informe o valor do plano.');
     if (!(desc >= 0) || desc >= total) return R('O desconto precisa ser menor que o valor do plano.');
-    const tc = Math.round(total * 100), dc = Math.round(desc * 100);
+    const tc = Math.round(total * 100), dc = Math.round(desc * 100), liqC = tc - dc;
     const baseV = Math.floor(tc / Nn), baseD = Math.floor(dc / Nn);
     const nome = String(o.descricao || 'Mensalidade').trim() || 'Mensalidade';
     const fim = API._somarMeses(inicio, P);
+    // Valores combinados parcela a parcela (ex.: R$ 700 de entrada e o resto no mes seguinte). `valores[i]` e o LIQUIDO (depois do
+    // desconto) da parcela i+1; a ultima parcela nunca e informada: ela e sempre o saldo, para a soma fechar com o plano.
+    const valIn = Array.isArray(o.valores) ? o.valores : [];
+    const fixoC = [];
+    let somaFixos = 0, personalizado = false;
+    for (let i = 0; i < Nn - 1; i++) {
+      const v = valIn[i];
+      if (v !== undefined && v !== null && v !== '' && isFinite(Number(v))) {
+        const cc = Math.round(Number(v) * 100);
+        if (cc <= 0) return R('O valor da parcela ' + (i + 1) + ' precisa ser maior que zero.');
+        fixoC[i] = cc; somaFixos += cc; personalizado = true;
+      } else fixoC[i] = null;
+    }
+    fixoC[Nn - 1] = null;
+    if (personalizado && somaFixos >= liqC) {
+      return R('As parcelas informadas somam R$ ' + (somaFixos / 100).toFixed(2).replace('.', ',') + ', que é o valor do plano ou mais. A última parcela precisa ter saldo.');
+    }
+    // liquido de cada parcela (centavos)
+    const liq = [];
+    if (personalizado) {
+      const livres = fixoC.filter(x => x === null).length;
+      const baseL = Math.floor((liqC - somaFixos) / livres);
+      let usado = 0;
+      for (let i = 0; i < Nn; i++) {
+        if (i === Nn - 1) liq.push(liqC - usado);
+        else { const v = fixoC[i] !== null ? fixoC[i] : baseL; liq.push(v); usado += v; }
+      }
+    }
     const linhas = [];
+    let descUsado = 0;
     for (let i = 1; i <= Nn; i++) {
       const ultima = i === Nn;
+      let vlpagar, vldesconto;
+      if (personalizado) {
+        // desconto repartido na proporcao de cada parcela; o centavo que sobra fica na ultima
+        vldesconto = ultima ? dc - descUsado : Math.floor(dc * liq[i - 1] / liqC);
+        descUsado += vldesconto;
+        vlpagar = liq[i - 1] + vldesconto;
+      } else {
+        vlpagar = ultima ? tc - baseV * (Nn - 1) : baseV;
+        vldesconto = ultima ? dc - baseD * (Nn - 1) : baseD;
+      }
       linhas.push({
         parcela_num: i, parcela_total: Nn,
         dshistorico: nome + ' (' + i + '/' + Nn + ')',
         dtinicio: API._somarMeses(inicio, (i - 1) * I),
         dtvencimento: ultima ? fim : API._somarMeses(inicio, i * I),
-        vlpagar: (ultima ? tc - baseV * (Nn - 1) : baseV) / 100,
-        vldesconto: (ultima ? dc - baseD * (Nn - 1) : baseD) / 100,
+        vlpagar: vlpagar / 100,
+        vldesconto: vldesconto / 100,
       });
     }
-    return { ok: true, erro: '', linhas: linhas, fim: fim, total: total, desconto: desc, liquido: (tc - dc) / 100, valorParcela: baseV / 100 };
+    return { ok: true, erro: '', linhas: linhas, fim: fim, total: total, desconto: desc, liquido: liqC / 100, valorParcela: personalizado ? null : baseV / 100, personalizado: personalizado };
   },
 
   // Cria o plano parcelado inteiro. Se algo falhar no meio, desfaz as parcelas criadas NESTA operacao (nao toca em mais nada).
@@ -1946,6 +1985,7 @@ const API = {
       idatleta: m.idatleta, inicio: fim, meses: meses, parcelas: Number(primeira.parcela_total), intervalo: 1,
       valor: +serie.reduce((s, x) => s + parseFloat(x.vlpagar || 0), 0).toFixed(2),
       desconto: +serie.reduce((s, x) => s + parseFloat(x.vldesconto || 0), 0).toFixed(2),
+      valores: serie.slice(0, -1).map(x => +(parseFloat(x.vlpagar || 0) - parseFloat(x.vldesconto || 0)).toFixed(2)),   // mesmos valores da serie anterior
       descricao: API.descricaoBase(primeira), forma: primeira.forma_pgto || 'pix', tipo_plano: primeira.tipo_plano || null, professor: primeira.professor || null,
     };
   },

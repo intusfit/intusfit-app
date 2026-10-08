@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
-  <script src="_mock.js?v=20261008a"></script>
-  <script src="api.js?v=20261008a"></script>
+  <script src="_mock.js?v=20261008b"></script>
+  <script src="api.js?v=20261008b"></script>
   <style>
     .th-sort { cursor: pointer; user-select: none; white-space: nowrap; transition: color .15s; }
     .th-sort:hover { color: var(--green, #7FFF00); }
@@ -1398,16 +1398,22 @@ function nmParcOpcoes() {
     desconto: parseFloat((g('nm-desconto') && g('nm-desconto').value) || 0) || 0,
     descricao: ((g('nm-desc') && g('nm-desc').value) || '').trim() || 'Mensalidade',
     forma: (g('nm-forma') && g('nm-forma').value) || '',
+    valores: parcEstado('nm').valores,
   };
 }
-function nmParcMudou() {
+// leve = true: so atualiza o saldo da ultima parcela (a pessoa esta digitando o valor de uma delas)
+function nmParcMudou(leve, trocouParcelas) {
   const prev = document.getElementById('nm-parc-prev'); if (!prev) return;
+  if (trocouParcelas) parcReset('nm');
   const o = nmParcOpcoes();
   const forma = document.getElementById('nm-forma');
   if (o.parcelas > 1 && forma && !forma.value) { forma.value = 'pix'; o.forma = 'pix'; }
   if (o.parcelas <= 1) { prev.innerHTML = ''; return; }
-  prev.innerHTML = parcPrevHtml(API.gerarParcelas(o), o.forma);
+  const r = API.gerarParcelas(o);
+  if (leve === true) parcAtualizarLeve('nm', r);
+  else prev.innerHTML = parcPrevHtml(r, o.forma, 'nm');
 }
+window.parcAtualizar_nm = (leve) => nmParcMudou(leve);
 
 async function abrirNovaMatricula(idatleta) {
   const box = document.getElementById('mini-tab-content');
@@ -1419,6 +1425,7 @@ async function abrirNovaMatricula(idatleta) {
 
   const planoOpts = await buildPlanoOptionsAlunos();
   window._planoOptsAlunos = planoOpts;
+  parcReset('nm');
 
   const oficiais = planoOpts.filter(o => o.oficial);
   const pessoais = planoOpts.filter(o => o.pessoal);
@@ -1496,7 +1503,7 @@ async function abrirNovaMatricula(idatleta) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="form-group">
           <label class="label">Parcelas</label>
-          <select id="nm-parcelas" class="input" onchange="nmParcMudou()">
+          <select id="nm-parcelas" class="input" onchange="nmParcMudou(false, true)">
             <option value="1">1x (à vista)</option>
             ${Array.from({length:11},(_,i)=>i+2).map(n=>`<option value="${n}">${n}x</option>`).join('')}
           </select>
@@ -1513,7 +1520,7 @@ async function abrirNovaMatricula(idatleta) {
         </div>
       </div>
       <div id="nm-parc-prev"></div>
-      <div style="font-size:10px;color:var(--text-muted);margin-top:-6px;">Parcelar vale para planos de 2 meses ou mais: a <b>recorrência</b> define a duração do plano (Trimestral = 3 meses). O valor é o do plano inteiro, dividido nas parcelas. Com status "Paga", a 1ª parcela já entra como recebida.</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:-6px;">Parcelar vale para planos de 2 meses ou mais: a <b>recorrência</b> define a duração do plano (Trimestral = 3 meses). O valor é o do plano inteiro, dividido em partes iguais; você pode mudar o valor de cada parcela na prévia (ex.: R$ 700 de entrada e o resto no mês seguinte). Com status "Paga", a 1ª parcela já entra como recebida.</div>
 
       ${canCreatePresets ? `
       <div style="border-top:1px solid var(--border,#2a2a2a);padding-top:10px;margin-top:4px;">

@@ -1038,6 +1038,10 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   parcela (nas três telas que dão baixa) não gera ciclo novo e mostra quanto falta. Cancelar, trancar, destrancar e mover a data valem para as
   parcelas em aberto. ↻ em plano parcelado abre o mesmo parcelamento de novo a partir do fim do anterior. `financeiro.html` conta como recebida
   a parcela paga mesmo depois do plano acabar. O app ("Minha Matrícula") mostra pagas, restantes e a próxima cobrança.
+- **Valores diferentes por parcela (08/10/2026)**: na prévia, cada parcela (menos a última, que é sempre o saldo) tem um campo de valor, para
+  casos como R$ 700 de entrada e o resto no mês seguinte. `API.gerarParcelas` aceita `valores: [700]` (líquido da parcela, depois do desconto);
+  o desconto é repartido na proporção, a soma sempre fecha com o plano e a renovação repete os valores da série anterior. Estado da edição em
+  `PARC_ED` (`_mock.js`, `parcEditar`/`parcReset`); mudar a quantidade de parcelas zera os valores combinados.
 - **Cópias que ganharam a mesma guarda** (parcela numerada nunca é "sobra"): `_cobrancaSuperada` em `mensalidades.html` e `_superada` em
   `index.html`. **Aviso**: parcelamentos feitos antes pelo modal antigo (sem ligação) passam a ser lidos pelas regras novas; o status deles pode
   mudar para o correto.

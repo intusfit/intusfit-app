@@ -39,6 +39,31 @@ console.log('\n── Gerar parcelas ──');
   eq('semestral em 3x a cada 2 meses', API.gerarParcelas({ inicio: '2026-10-01', meses: 6, parcelas: 3, intervalo: 2, valor: 600, descricao: 'S' }).linhas.map(l => l.dtinicio), ['2026-10-01', '2026-12-01', '2027-02-01']);
 }
 
+console.log('\n── Valores combinados por parcela ──');
+{
+  const API = carregar({ hoje: '2026-10-05' });
+  const t = { inicio: '2026-10-05', meses: 3, parcelas: 2, valor: 1497, descricao: 'Treino + Dieta', valores: [700] };
+  const g = API.gerarParcelas(t);
+  eq('R$ 700 de entrada e o resto na 2ª: 700 e 797', g.linhas.map(l => l.vlpagar), [700, 797]);
+  eq('datas continuam mensais', g.linhas.map(l => l.dtinicio), ['2026-10-05', '2026-11-05']);
+  eq('marcada como personalizada e sem valor único de parcela', [g.personalizado, g.valorParcela], [true, null]);
+  eq('a soma fecha com o plano', +g.linhas.reduce((s, l) => s + l.vlpagar, 0).toFixed(2), 1497);
+  const g3 = API.gerarParcelas({ inicio: '2026-10-05', meses: 3, parcelas: 3, valor: 900, descricao: 'X', valores: [500] });
+  eq('3x com a 1ª combinada: as outras dividem o resto igualmente', g3.linhas.map(l => l.vlpagar), [500, 200, 200]);
+  const g4 = API.gerarParcelas({ inicio: '2026-10-05', meses: 3, parcelas: 3, valor: 900, descricao: 'X', valores: [500, 300] });
+  eq('1ª e 2ª combinadas, a 3ª é o saldo', g4.linhas.map(l => l.vlpagar), [500, 300, 100]);
+  const gd = API.gerarParcelas({ inicio: '2026-10-05', meses: 3, parcelas: 2, valor: 1000, desconto: 100, descricao: 'X', valores: [400] });
+  eq('com desconto, o valor combinado é o líquido da parcela', gd.linhas.map(l => +(l.vlpagar - l.vldesconto).toFixed(2)), [400, 500]);
+  eq('o desconto total continua o mesmo', +gd.linhas.reduce((s, l) => s + l.vldesconto, 0).toFixed(2), 100);
+  eq('sem valores informados nada muda', API.gerarParcelas({ inicio: '2026-10-05', meses: 3, parcelas: 2, valor: 1497, descricao: 'X', valores: [null] }).linhas.map(l => l.vlpagar), [748.5, 748.5]);
+  eq('valor da 1ª igual ao plano inteiro: erro', API.gerarParcelas(Object.assign({}, t, { valores: [1497] })).ok, false);
+  eq('valor da 1ª maior que o plano: erro', API.gerarParcelas(Object.assign({}, t, { valores: [2000] })).ok, false);
+  eq('valor zero: erro', API.gerarParcelas(Object.assign({}, t, { valores: [0] })).ok, false);
+  const L = linhas(API, t, [1, 2]);
+  const R = API.dadosRenovacaoParcelada(L[1], L);
+  eq('renovação repete os valores da série anterior', API.gerarParcelas(R).linhas.map(l => l.vlpagar), [700, 797]);
+}
+
 console.log('\n── Validação ──');
 {
   const API = carregar({ hoje: '2026-10-05' });
