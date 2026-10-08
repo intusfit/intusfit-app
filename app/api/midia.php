@@ -28,6 +28,7 @@ require_once __DIR__ . '/_cors.php';
 require_once __DIR__ . '/_gdrive.php';
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control, Range');
+header('Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges');   // o app nativo precisa ler o tamanho total ao baixar o vídeo em partes
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(204); exit; }
 

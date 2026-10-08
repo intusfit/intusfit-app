@@ -893,6 +893,12 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   diagnóstico entre parênteses (modo, estado do áudio, pico): peça o texto ao usuário. No feed, tocar no play de propósito liga o som
   (o início automático continua mudo). Testado só no Chrome (os dois modos captam som); **iPhone não testado**.
 
+- **Baixar vídeo de post saía com ~3 s (07/10/2026)**: `midia.php?action=video` sem cabeçalho Range devolve só o 1º megabyte (para o
+  player começar logo). `baixarPost` agora usa `_baixarVideoEmPartes` (faixas de 4 MB até 416 ou fim) e `midia.php` expõe
+  `Content-Range` por CORS. Qualquer novo código que baixe vídeo por esse endpoint precisa pedir por faixas.
+- **Som no iPhone, 2ª rodada**: quando o modo não capta o som (áudio suspenso, decode falhou etc.) o editor passa ao próximo
+  (antes só o modo `elemento` fazia isso), e o diagnóstico lista a falha de cada modo no aviso.
+
 ## 25. Último treino (07/10/2026)
 
 - A Home dizia "Último: Treino C" quando o último tinha sido o D. Causa: `SessoesTreino.listarDoAtleta` ordenava só pela

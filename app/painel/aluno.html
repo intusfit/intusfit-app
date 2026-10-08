@@ -4860,7 +4860,7 @@ async function _vtGravar(s, modo) {
         src.connect(dest);
         dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
         comSom = true;
-      } catch (e) { comSom = false; }
+      } catch (e) { comSom = false; if (s.diag) s.diag.push('elemento falhou: ' + (e && e.message ? e.message : e)); }
     } else if (modo === 'buffer' && acOk) {
       try {
         if (s.file && s.file.size <= 200 * 1024 * 1024) {
@@ -4877,9 +4877,10 @@ async function _vtGravar(s, modo) {
           dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
           comSom = true;
         }
-      } catch (e) { comSom = false; bufferAudio = null; }
+      } catch (e) { comSom = false; bufferAudio = null; if (s.diag) s.diag.push('buffer falhou: ' + (e && e.message ? e.message : e)); }
     }
-    if (modo === 'elemento' && !comSom) return { travou: true };   // não deu pra captar o som do elemento: próximo modo
+    // Não deu para captar o som neste modo: tenta o próximo (a menos que o vídeo nem tenha som).
+    if (modo !== 'mudo' && !comSom && !s.fonteSilenciosa) return { travou: true };
     const candidatos = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
     const tipo = candidatos.find(function (t) { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
     rec = new MediaRecorder(stream, Object.assign(tipo ? { mimeType: tipo } : {}, { videoBitsPerSecond: 1800000, audioBitsPerSecond: 80000 }));
@@ -12393,10 +12394,10 @@ async function baixarPost(idpost) {
     for (let i = 0; i < midias.length; i++) {
       const m = midias[i];
       let r;
-      if (m.tipo === 'video') r = await _fetchT(m.url, {}, 180000);
+      if (m.tipo === 'video') r = null;   // o vídeo vem em partes (ver _baixarVideoEmPartes): sem Range o servidor entrega só o 1º megabyte
       else r = await _fetchT(API_BASE + '/catalogo.php?action=feed_baixar&idpost=' + Number(idpost) + '&url=' + encodeURIComponent(m.url), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') } }, 60000);
-      if (!r.ok) throw new Error('http ' + r.status);
-      const blob = await r.blob();
+      if (r && !r.ok) throw new Error('http ' + r.status);
+      const blob = r ? await r.blob() : await _baixarVideoEmPartes(m.url);
       const tipo = blob.type || (m.tipo === 'video' ? 'video/mp4' : 'image/jpeg');
       const ext = /webm/.test(tipo) ? 'webm' : /mp4|quicktime/.test(tipo) ? 'mp4' : /png/.test(tipo) ? 'png' : /webp/.test(tipo) ? 'webp' : (m.tipo === 'video' ? 'mp4' : 'jpg');
       arquivos.push(new File([blob], 'intus-' + Number(idpost) + (midias.length > 1 ? '-' + (i + 1) : '') + '.' + ext, { type: tipo }));
@@ -12408,6 +12409,26 @@ async function baixarPost(idpost) {
   }
   _busyFim();
   await _baixarArquivos(arquivos);
+}
+// O servidor entrega o vídeo por faixas (o 1º pedido sem Range devolve só 1 MB, o suficiente para tocar). Para baixar, pede faixa por
+// faixa até acabar (416 ou faixa vazia) e junta tudo. Sem isso o arquivo baixado saía com só uns 3 segundos.
+async function _baixarVideoEmPartes(url) {
+  const FAIXA = 4 * 1024 * 1024;
+  const partes = []; let ini = 0, total = null, tipo = '';
+  for (let i = 0; i < 400; i++) {
+    const r = await _fetchT(url, { headers: { 'Range': 'bytes=' + ini + '-' + (ini + FAIXA - 1) } }, 120000);
+    if (r.status === 416) break;
+    if (!r.ok) throw new Error('http ' + r.status);
+    const b = await r.blob();
+    if (r.status === 200) return b;   // quem entregou o arquivo inteiro de uma vez
+    if (!b.size) break;
+    tipo = tipo || b.type;
+    partes.push(b); ini += b.size;
+    try { const mm = (r.headers.get('Content-Range') || '').match(/\/(\d+)$/); if (mm) total = parseInt(mm[1], 10); } catch (e) {}
+    if (total !== null && ini >= total) break;
+  }
+  if (!partes.length) throw new Error('vazio');
+  return new Blob(partes, { type: tipo || 'video/mp4' });
 }
 async function _baixarArquivos(arquivos) {
   // 1) Menu de compartilhar do aparelho (iPhone e Android): leva para a galeria.
