@@ -899,6 +899,9 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
 - **Som no iPhone, 2ª rodada**: quando o modo não capta o som (áudio suspenso, decode falhou etc.) o editor passa ao próximo
   (antes só o modo `elemento` fazia isso), e o diagnóstico lista a falha de cada modo no aviso.
 
+- **Avisos (toast) do aluno (07/10/2026)**: o tempo na tela agora cresce com o texto (2,2 s + 55 ms por letra, máximo 12 s; o segundo
+  parâmetro só pode aumentar), a caixa vai até 420 px de largura e tocar no aviso fecha na hora. Vale para todos os `toast()` do `aluno.html`.
+
 ## 25. Último treino (07/10/2026)
 
 - A Home dizia "Último: Treino C" quando o último tinha sido o D. Causa: `SessoesTreino.listarDoAtleta` ordenava só pela

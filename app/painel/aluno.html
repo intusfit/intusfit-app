@@ -657,7 +657,8 @@
       z-index: 100050; pointer-events: none; border: 1px solid #252525;   /* acima das folhas de perfil, comunidade e conquistas (100000+) */
       box-shadow: 0 8px 32px rgba(0,0,0,.5);
     }
-    .toast-ov.show { opacity: 1; }
+    .toast-ov { width: max-content; max-width: min(92vw, 420px); box-sizing: border-box; text-align: center; line-height: 1.45; }
+    .toast-ov.show { opacity: 1; pointer-events: auto; cursor: pointer; }   /* toque no aviso para fechar */
 
     .coming-soon { text-align: center; padding: 50px 20px; color: #666; }
     .coming-soon .icon { font-size: 48px; margin-bottom: 12px; }
@@ -5582,7 +5583,15 @@ function _canaisOficiaisHtml(isLight, comSuporte) {
 function sair() { localStorage.removeItem('mx-token'); localStorage.removeItem('mx-user'); location.href = 'login.html'; }
 // Uma mensagem de erro precisa de mais tempo na tela do que um "salvo!".
 // 2,2s e curto demais para ler uma explicacao e decidir o que fazer.
-function toast(msg, ms) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'), ms || 2200); }
+// O tempo na tela cresce com o tamanho do texto (2,2 s + 55 ms por letra, até 12 s) para dar tempo de ler com calma; quem chama
+// pode pedir mais. Tocar no aviso fecha na hora.
+function toast(msg, ms) {
+  const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t);
+  const lido = Math.min(12000, 2200 + String(msg || '').length * 55);
+  toast._t = setTimeout(() => t.classList.remove('show'), Math.max(ms || 0, lido));
+  if (!t._toqueFecha) { t._toqueFecha = true; t.addEventListener('click', () => { clearTimeout(toast._t); t.classList.remove('show'); }); }
+}
 function trocarView(v) {
   // Feedback em vídeo (Avaliações) não pode continuar tocando por baixo de outra tela.
   if (v !== 'avaliacoes' && typeof _fbLiberarVideo === 'function') _fbLiberarVideo();
