@@ -1609,24 +1609,26 @@ function _shareFigMini(fig, escala) {
 // o mesmo cartão serve pra Compartilhar treino E Compartilhar cardio, sem
 // duplicar layout (ver abrirCompartilharCardio).
 function _shareStatsRow(info, escala) {
-  const cell = (v,l,peso) => `<div style="flex:${peso||1};min-width:0;text-align:center;"><div style="font-size:${_sPx(16,escala)};font-weight:900;color:#fff;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${v}</div><div style="font-size:${_sPx(9.5,escala)};color:#ccc;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;">${l}</div></div>`;
+  // Tamanho da fonte pelo total de caracteres dos números (sem as tags): números longos encolhem em vez de virar "...".
+  const cells = [];
+  const cell = (v, l) => { cells.push({ v: v, l: l }); };
   const tempo = info.min + ':' + String(info.sec).padStart(2, '0');
   if (info.tipo === 'cardio') {
-    // Só 3 células (tempo/distância/kcal), não 4 — "ritmo" (mm:ss/km) é
-    // comprido demais pra dividir espaço com as outras num cartão estreito
-    // sem cortar; as 3 pedidas cabem bem com mais folga cada uma.
+    // Só 3 células (tempo/distância/kcal), não 4: "ritmo" (mm:ss/km) é comprido demais para dividir espaço num cartão estreito.
     const temDist = info.distKm != null && info.distKm > 0;
-    return `<div style="display:flex;gap:${_sPx(5,escala)};margin-top:${_sPx(10,escala)};">
-      ${cell(tempo,'tempo',1)}
-      ${temDist ? cell(info.distKm.toFixed(2).replace('.',','),'km',1) : ''}
-      ${info.kcal != null ? cell(Math.round(info.kcal),'kcal',1) : ''}
-    </div>`;
+    cell(tempo, 'tempo');
+    if (temDist) cell(info.distKm.toFixed(2).replace('.', ','), 'km');
+    if (info.kcal != null) cell(Math.round(info.kcal), 'kcal');
+  } else {
+    cell(tempo, 'tempo');
+    if (info.volume) cell(info.volume.toLocaleString('pt-BR'), 'kg');
+    cell(info.seriesFeitas + '/' + info.seriesTotal, 'séries');
+    cell('<span style="color:#7FFF00;">' + info.pctCompleto + '%</span>', 'completo');
   }
-  return `<div style="display:flex;gap:${_sPx(5,escala)};margin-top:${_sPx(10,escala)};">
-    ${cell(tempo,'tempo',1.15)}
-    ${info.volume ? cell(info.volume.toLocaleString('pt-BR'),'kg',1.6) : ''}
-    ${cell(info.seriesFeitas+'/'+info.seriesTotal,'séries',1.05)}
-    ${cell('<span style="color:#7FFF00;">'+info.pctCompleto+'%</span>','completo',1)}
+  const total = cells.reduce((a, c) => a + String(c.v).replace(/<[^>]*>/g, '').length, 0);
+  const fonte = _sPx(16 * Math.min(1, 17 / Math.max(total, 1)), escala);
+  return `<div style="display:flex;justify-content:space-between;gap:${_sPx(8,escala)};margin-top:${_sPx(10,escala)};">
+    ${cells.map(c => `<div style="flex:1 1 auto;min-width:0;text-align:center;"><div style="font-size:${fonte};font-weight:900;color:#fff;line-height:1.15;white-space:nowrap;">${c.v}</div><div style="font-size:${_sPx(9.5,escala)};color:#ccc;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;">${c.l}</div></div>`).join('')}
   </div>`;
 }
 // Bloco de informações: figurinha + nome + treino + estatísticas. Fica no
@@ -1660,7 +1662,7 @@ function _shareBarraInferior(info, fig, nivel, escala) {
     html += `<div style="display:flex;align-items:center;gap:${_sPx(12,escala)};">
       ${_shareFigMini(fig, escala)}
       <div style="flex:1;min-width:0;text-align:left;">
-        <div style="font-size:${_sPx(13,escala)};color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
+        <div style="font-size:${_sPx(13,escala)};color:#ddd;line-height:1.2;overflow-wrap:anywhere;">${esc(info.nomeAluno)}</div>
         <div style="font-size:${_sPx(17,escala)};font-weight:900;color:#fff;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${esc(info.nomeTreino)}</div>
       </div>
     </div>`;
@@ -1688,41 +1690,41 @@ function _shareLogoRodape(isLight, escala) {
 const SHARE_INFO_FUNDO = '20%';  // onde o bloco de nome/treino/estatísticas termina embaixo
 const SHARE_LOGO_TOPO = '9%';    // logo virou selo no canto superior direito
 const SHARE_LADO = '5%';         // margem lateral — 7% deixava pouca largura pras 4 células de estatística
-function _tplTransparenteHtml(info, fig, bgImg, isLight, nivel, escala) {
+function _tplTransparenteHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   return `<div class="share-card" style="${bg}">
     ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
       ${_shareBarraInferior(info, fig, nivel, escala)}
     </div>` : ''}
-    ${_shareLogoRodape(isLight, escala)}
+    ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
-function _tplFotoHtml(info, fig, bgImg, isLight, nivel, escala) {
+function _tplFotoHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
   return `<div class="share-card" style="${bg}">
     ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.6);border-radius:${_sPx(16,escala)};">
       <div style="font-size:${_sPx(12.5,escala)};color:#7FFF00;font-weight:800;margin-bottom:${_sPx(6,escala)};">${info.tipo==='cardio' ? esc(info.nomeTreino) : info.pctCompleto+'% COMPLETO'}</div>
       ${_shareBarraInferior(info, fig, nivel, escala)}
     </div>` : ''}
-    ${_shareLogoRodape(isLight, escala)}
+    ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
-function _tplStoryHtml(info, fig, bgImg, isLight, nivel, escala) {
+function _tplStoryHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:#0a0a0a;`;
   const n = nivel || 0;
   return `<div class="share-card" style="${bg}">
-    <div style="position:absolute;inset:${_sPx(14,escala)};border:1.5px solid rgba(127,255,0,.4);border-radius:${_sPx(16,escala)};pointer-events:none;"></div>
+    ${soBloco ? '' : _infoMolduraHtml('story', escala)}
     ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(17,escala)};background:rgba(10,10,10,.75);border:1px solid rgba(127,255,0,.3);border-radius:${_sPx(15,escala)};">
       ${n < 2 ? `<div style="display:flex;align-items:center;gap:${_sPx(9,escala)};margin-bottom:${_sPx(7,escala)};">
         ${_shareFigMini(fig, escala)}
         <div style="font-size:${_sPx(12,escala)};color:#bbb;letter-spacing:.05em;">HOJE EU TREINEI</div>
       </div>` : ''}
-      ${n < 1 ? `<div style="display:flex;align-items:baseline;gap:${_sPx(10,escala)};">
+      ${n < 1 ? `<div style="display:flex;align-items:center;gap:${_sPx(10,escala)};">
         <div style="font-size:${_sPx(34,escala)};font-weight:900;color:#7FFF00;flex-shrink:0;">${info.tipo==='cardio' ? (info.distKm||0).toFixed(1)+'km' : info.pctCompleto+'%'}</div>
-        <div style="font-size:${_sPx(15,escala)};color:#fff;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeTreino)}${info.tipo==='cardio' ? (info.kcal!=null?' · '+Math.round(info.kcal)+'kcal':'') : (info.volume ? ' · ' + info.volume.toLocaleString('pt-BR') + 'kg' : '')}</div>
+        <div style="flex:1;min-width:0;"><div style="font-size:${_sPx(15,escala)};font-weight:800;color:#fff;line-height:1.15;overflow-wrap:anywhere;">${esc(info.nomeTreino)}</div>${(info.tipo==='cardio' ? (info.kcal!=null) : !!info.volume) ? `<div style="font-size:${_sPx(12,escala)};color:#ccc;margin-top:${_sPx(2,escala)};">${info.tipo==='cardio' ? Math.round(info.kcal)+' kcal' : info.volume.toLocaleString('pt-BR')+' kg'}</div>` : ''}</div>
       </div>` : ''}
     </div>` : ''}
-    ${_shareLogoRodape(isLight, escala)}
+    ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
 // Cor "Dourado/Frio/Vibrante" — hoje só filtros de cor comuns (ver
@@ -1735,7 +1737,7 @@ const _FILTRO_VIBRANTE = 'saturate(1.55) contrast(1.2) brightness(1.03)';
 // Figurinha em destaque, centralizada acima do bloco de informações — maior
 // que a versão mini usada nos outros templates. A figurinha só some no
 // último nível (junto com o fundo do cartão) — é a protagonista aqui.
-function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala) {
+function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   const n = nivel || 0;
   const temFig = fig && n < 3;
@@ -1749,21 +1751,21 @@ function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala) {
         ${_shareRecordeBadgeHtml(info, escala)}
         ${n < 2 ? `<div style="display:flex;align-items:center;justify-content:center;text-align:center;">
           <div style="min-width:0;">
-            <div style="font-size:${_sPx(13,escala)};color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(info.nomeAluno)}</div>
+            <div style="font-size:${_sPx(13,escala)};color:#ddd;line-height:1.2;overflow-wrap:anywhere;">${esc(info.nomeAluno)}</div>
             <div style="font-size:${_sPx(17,escala)};font-weight:900;color:#fff;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${esc(info.nomeTreino)}</div>
           </div>
         </div>` : ''}
         ${n < 1 ? `<div style="display:flex;justify-content:center;">${_shareStatsRow(info, escala)}</div>` : ''}
       </div>
     </div>` : ''}
-    ${_shareLogoRodape(isLight, escala)}
+    ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
 // A frase de fim de treino (a mesma sorteada na tela de Finalização, salva em
 // info.mensagem) vira o elemento principal — fallback sorteia uma na hora
 // pra registros antigos salvos antes desse campo existir. A frase segura até
 // o penúltimo nível, junto da figurinha — só some no último, com o resto.
-function _tplFraseHtml(info, fig, bgImg, isLight, nivel, escala) {
+function _tplFraseHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
   const frase = info.mensagem || (typeof getMensagemFinal === 'function' ? getMensagemFinal() : '');
   const n = nivel || 0;
@@ -1776,7 +1778,7 @@ function _tplFraseHtml(info, fig, bgImg, isLight, nivel, escala) {
         ${_shareBarraInferior(info, fig, nivel, escala)}
       </div>
     </div>` : ''}
-    ${_shareLogoRodape(isLight, escala)}
+    ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
 
@@ -1787,6 +1789,28 @@ function _tplFraseHtml(info, fig, bgImg, isLight, nivel, escala) {
 // a camada de informação com fundo transparente (mesma convenção que o
 // vídeo ao vivo usava) — por isso dá pra reaproveitar render() sem tocar
 // nas funções _tplXHtml.
+// Peças que NÃO acompanham a figurinha quando ela é movida ou redimensionada: a logo da Intus e a moldura do layout
+// "Moldura". O bloco da figurinha (render com soBloco = true) vai por cima delas. Mesmas medidas na prévia (CSS) e no
+// arquivo final (canvas), para o que o aluno vê ser o que sai.
+function _infoMolduraAtiva(idx) { return (INFO_LAYOUTS[idx] || {}).id === 'story'; }
+function _infoMolduraHtml(idOuIdx, escala) {
+  const ok = (idOuIdx === 'story') || _infoMolduraAtiva(idOuIdx);
+  return ok ? `<div style="position:absolute;inset:${_sPx(14,escala)};border:1.5px solid rgba(127,255,0,.4);border-radius:${_sPx(16,escala)};pointer-events:none;"></div>` : '';
+}
+function _infoMolduraDesenhar(ctx, idx, W, H) {
+  if (!_infoMolduraAtiva(idx)) return;
+  const e = _shareEscalaComAltura(W, H / W), m = 14 * e, r = 16 * e;
+  const x = m, y = m, w = W - 2 * m, h = H - 2 * m;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(127,255,0,.4)'; ctx.lineWidth = Math.max(1.5, 1.5 * e);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath(); ctx.stroke();
+  ctx.restore();
+}
 const INFO_LAYOUTS = [
   { id: 'transparente', nome: 'Clássico', emoji: '🎬', render: _tplTransparenteHtml },
   { id: 'foto',         nome: 'Destaque', emoji: '✨', render: _tplFotoHtml },
@@ -1908,7 +1932,7 @@ async function _compositarInfoNaFoto(dataUrl) {
   const escala = _shareEscalaComAltura(cssW, img.height / img.width);
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + cssW + 'px;height:' + cssH + 'px;pointer-events:none;';
-  host.innerHTML = layout.render(_composeInfoParaRender(), fig, 'LIVE', isLight, 0, escala);
+  host.innerHTML = layout.render(_composeInfoParaRender(), fig, 'LIVE', isLight, 0, escala, true);
   document.body.appendChild(host);
   try {
     const node = host.querySelector('.share-card');
@@ -1917,6 +1941,7 @@ async function _compositarInfoNaFoto(dataUrl) {
     canvas.width = img.width; canvas.height = img.height;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
+    _infoMolduraDesenhar(ctx, _composeInfoLayoutIdx, img.width, img.height);   // moldura fixa, não acompanha a figurinha
     _ovDesenhar(ctx, infoCanvas, _composeInfoT, img.width, img.height);   // na posição e no tamanho que o aluno ajustou
     return canvas.toDataURL('image/jpeg', 0.88);
   } finally {
@@ -3628,7 +3653,7 @@ function _renderComposeFeed() {
     // é a MESMA proporção que o quadro da prévia vai ocupar na tela.
     const ratioAtual = _feedComposeImg ? _composeImgRatio : (1 / (FEED_EDITOR_RATIOS[_composeRatioPre] || FEED_EDITOR_RATIOS.retrato));
     const escalaPrev = _shareEscalaComAltura(Math.min(window.innerWidth - 32, 340), ratioAtual);
-    infoPreviewHtml = '<div id="feed-compose-info-layer" style="position:absolute;inset:0;pointer-events:none;transform-origin:50% 50%;transform:' + _ovTransformCss(_composeInfoT) + ';">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev) + '</div>';
+    infoPreviewHtml = _infoMolduraHtml(_composeInfoLayoutIdx, escalaPrev) + '<div id="feed-compose-info-layer" style="position:absolute;inset:0;pointer-events:none;transform-origin:50% 50%;transform:' + _ovTransformCss(_composeInfoT) + ';">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev, true) + '</div>';
   }
 
   // Dimensão da prévia (foto OU câmera ao vivo, ver _composeRatioPre) — as
@@ -4329,6 +4354,7 @@ function _vtAbrir(f, resolve) {
       '<div id="vt-frame" style="position:relative;background:#000;border-radius:14px;overflow:hidden;margin:0 auto;width:100%;aspect-ratio:9/16;max-height:50vh;" onclick="_vtToqueFrame()">' +
         '<video id="vt-video" src="' + url + '" playsinline preload="auto" style="position:absolute;inset:0;width:100%;height:100%;display:block;background:#000;object-fit:fill;"></video>' +
         '<div id="vt-camada" style="position:absolute;inset:0;display:none;pointer-events:none;"></div>' +
+        '<div id="vt-fixos" style="position:absolute;inset:0;pointer-events:none;"></div>' +
         '<div id="vt-play" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;"><span id="vt-play-ico" style="width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;padding-left:4px;">▶</span></div>' +
         '<div id="vt-dica" style="position:absolute;top:8px;left:8px;right:8px;text-align:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none;display:none;">Arraste a figurinha. Com dois dedos, aumente ou diminua.</div>' +
         '<div id="vt-carregando" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;background:rgba(0,0,0,.6);padding:16px;text-align:center;">Abrindo o vídeo...</div>' +
@@ -4416,6 +4442,7 @@ function _vtMedirFrame() {
   let w = maxW, h = w * s.vh / s.vw;
   if (h > maxH) { h = maxH; w = h * s.vw / s.vh; }
   fr.style.width = Math.round(w) + 'px'; fr.style.height = Math.round(h) + 'px'; fr.style.aspectRatio = 'auto'; fr.style.maxHeight = 'none';
+  _vtMontarFixos();
 }
 
 function _vtResumo() {
@@ -4604,16 +4631,27 @@ function _vtAjustar(forcar) {
   if (forcar === undefined) _vtAbas();
 }
 // Desenha a figurinha sobre a prévia (o mesmo layout da foto) e liga os gestos uma única vez.
+// Logo da Intus (canto inferior direito, igual ao que é gravado no vídeo) e moldura: fixas, não acompanham a figurinha.
+function _vtMontarFixos() {
+  const s = _vt, fx = document.getElementById('vt-fixos'), fr = document.getElementById('vt-frame');
+  if (!s || !fx || !fr) return;
+  const w = fr.clientWidth, h = fr.clientHeight; if (!w || !h) return;
+  const lh = Math.round(h * 0.035), mg = w * 0.03;
+  const claro = document.body.classList.contains('tema-claro');
+  fx.innerHTML = (s.info.on ? _infoMolduraHtml(s.info.layoutIdx, _shareEscalaComAltura(w, h / w)) : '') +
+    '<img src="' + (claro ? 'logo-icon-light.png' : 'logo-icon-dark.png') + '" alt="" style="position:absolute;right:' + mg.toFixed(1) + 'px;bottom:' + mg.toFixed(1) + 'px;height:' + lh + 'px;width:auto;opacity:.9;"/>';
+}
 function _vtMontarCamada() {
   const s = _vt, cam = document.getElementById('vt-camada'), fr = document.getElementById('vt-frame');
   if (!s || !cam || !fr) return;
+  _vtMontarFixos();
   if (!s.info.on || !s.info.dados) { cam.innerHTML = ''; cam.style.display = 'none'; return; }
   const k = _vtCores();
   const layout = INFO_LAYOUTS[s.info.layoutIdx] || INFO_LAYOUTS[0];
   const w = fr.clientWidth, h = fr.clientHeight;
   const dados = s.info.dados;
   const info = (s.info.recorde || !dados.recordes || !dados.recordes.length) ? dados : (function () { const c2 = Object.assign({}, dados); delete c2.recordes; return c2; })();
-  cam.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(w, h / w));
+  cam.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(w, h / w), true);
   cam.style.display = 'block';
   if (!s.gestos) s.gestos = _ovGestos(fr, cam, s.T);
   else s.gestos.aplicar();
@@ -4658,7 +4696,7 @@ async function _vtCamadaCanvas(s, w, h) {
   const cssW = Math.min(340, w), cssH = cssW * h / w;
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + cssW + 'px;height:' + cssH + 'px;pointer-events:none;';
-  host.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(cssW, h / w));
+  host.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(cssW, h / w), true);
   document.body.appendChild(host);
   try {
     const node = host.querySelector('.share-card');
@@ -4763,6 +4801,7 @@ async function _vtGravar(s, modo) {
       const quadro = function () {
         if (s.cancelado) { res('cancelado'); return; }
         try { ctx.filter = filtroCss || 'none'; ctx.drawImage(v, 0, 0, w, h); ctx.filter = 'none'; } catch (e) {}
+        if (s.info && s.info.on) { try { _infoMolduraDesenhar(ctx, s.info.layoutIdx, w, h); } catch (e) {} }   // moldura fixa
         if (camadaImg) { try { _ovDesenhar(ctx, camadaImg, s.T, w, h); } catch (e) {} }
         if (!poster) { try { poster = canvas.toDataURL('image/jpeg', 0.85); } catch (e) {} }   // capa: já com filtro e figurinha, sem a logo (ela entra ao publicar)
         if (logoImg) {
@@ -4913,7 +4952,7 @@ async function _composeProcessarExtra(src) {
   const sx = (img.naturalWidth - cw) / 2, sy = (img.naturalHeight - ch) / 2;
   let ow = cw, oh = ch;
   const maior = Math.max(ow, oh);
-  if (maior > 1920) { const f = 1920 / maior; ow *= f; oh *= f; }
+  if (maior > 1440) { const f = 1440 / maior; ow *= f; oh *= f; }
   ow = Math.round(ow); oh = Math.round(oh);
   const c = document.createElement('canvas'); c.width = ow; c.height = oh;
   const x = c.getContext('2d');

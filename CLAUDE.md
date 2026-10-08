@@ -908,6 +908,12 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   era ignorado (o play saía do começo do arquivo e a faixa de miniaturas ficava preta). Agora o editor dá um play mudo e já pausa ao
   abrir (também no vídeo das miniaturas), e `onplaying`/`ontimeupdate` puxam para o início do trecho se tocar fora dele. **Conferir num
   iPhone de verdade.**
+- **Figurinha: o que se move e o que fica fixo (07/10/2026)**: os 5 layouts (`INFO_LAYOUTS`) aceitam um 7º parâmetro `soBloco`. Com
+  `true` desenham só o bloco (nome, estatísticas, recorde), SEM a logo e SEM a moldura do layout Moldura. Foto e vídeo usam sempre
+  `soBloco = true` na camada movível; a logo (canto inferior direito) e a moldura (`_infoMolduraHtml` na prévia,
+  `_infoMolduraDesenhar` no canvas, `_vtMontarFixos` no editor de vídeo) ficam fixas, em qualquer posição ou tamanho da figurinha.
+  Sem `soBloco` (telas antigas de compartilhar) tudo sai junto como antes. Os textos não usam mais "...": a fonte das estatísticas
+  encolhe pelo total de caracteres (`_shareStatsRow`) e nome do treino/aluno quebram em linhas.
 - **Cuidado ao editar**: `val.js` só confere sintaxe. Uma chamada de função colocada numa linha de declaração `let`
   derrubou o script inteiro em teste (erro de inicialização). Depois de editar `aluno.html`, abra a página e olhe o
   console.
