@@ -1138,3 +1138,6 @@ Substituições:
 
 Testes: `testes/alimentos.js` (ids, resolução de plano antigo, medidas, catálogo conferido com a TACO; falha de verdade contra o código
 antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equivalência, arredondamento).
+
+- **Plano (painel, `nutricao.html`)**: botões "🖨 Imprimir / PDF" (`imprimirPlano`: abre uma versão limpa com quantidades em medida caseira, substitutos e totais e chama a impressão) e "⧉ Duplicar para outro aluno" (`duplicarPlano`: copia refeições, quantidades e substitutos; nasce INATIVA por padrão, para o aluno só ver depois de a nutri revisar e ativar).
+- **Pendências da Nutrição** (precisam de decisão do Luiz): (1) gestão de receitas e vídeos pelo painel, que exige uma tabela nova (`intus_nutri_conteudo`) e um endpoint; (2) ampliar o banco de alimentos com IBGE/POF e USDA (download dos arquivos) ou licença da TBCA; (3) várias medidas caseiras por "Meu alimento" (coluna nova em `intus_alimento_personalizado`); (4) "Meus alimentos" hoje é por profissional, não compartilhado na equipe.

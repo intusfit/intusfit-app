@@ -574,11 +574,95 @@ function verPlano(id) {
     </div>
     <div class="modal-footer">
       ${hasPerm('nt_excluir') ? `<button class="btn btn-danger" onclick="excluirPlano(${pl.idplano})">Excluir</button>` : ''}
+      <button class="btn btn-secondary" onclick="imprimirPlano(${pl.idplano})" title="Abre uma versão para imprimir ou salvar em PDF">🖨 Imprimir / PDF</button>
+      ${hasPerm('nt_incluir') ? `<button class="btn btn-secondary" onclick="abrirDuplicarPlano(${pl.idplano})" title="Cria uma cópia deste plano para outro aluno">⧉ Duplicar para outro aluno</button>` : ''}
       ${hasPerm('nt_editar') ? `<button class="btn btn-secondary" onclick="alternarAtivoPlano(${pl.idplano})">${planoAtivo(pl) ? '⛔ Inativar plano' : '✅ Ativar plano'}</button>` : ''}
       ${hasPerm('nt_editar') ? `<button class="btn btn-primary" onclick="closeModal();abrirModalForm(${pl.idplano})">Editar</button>` : ''}
       <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
     </div>
   `, 'wide');
+}
+
+// ── Duplicar plano para outro aluno ──
+// A cópia leva todas as refeições, quantidades, substitutos e metas, e nasce INATIVA por padrão: o aluno só vê quando a nutri revisar e ativar.
+function abrirDuplicarPlano(idplano) {
+  const pl = planos.find(x => Number(x.idplano) === Number(idplano));
+  if (!pl) return;
+  const lista = atletas.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
+  closeModal();
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Duplicar plano para outro aluno</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Cria uma cópia de "${esc(pl.titulo)}" com todas as refeições, quantidades e substitutos. Depois é só ajustar o que muda para o novo aluno.</p>
+      <div class="form-group"><label class="label">Aluno que vai receber a cópia *</label>
+        <select id="dup-atleta" class="input"><option value="">Selecione...</option>${lista.map(a => `<option value="${a.idatleta}">${esc(a.nome)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="label">Título</label><input id="dup-titulo" class="input" value="${esc((pl.titulo || 'Plano Alimentar') + ' (cópia)')}"/></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input id="dup-inativo" type="checkbox" checked/> Criar inativo (o aluno só vê depois que eu ativar)</label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal();verPlano(${pl.idplano})">Voltar</button>
+      <button class="btn btn-primary" onclick="duplicarPlano(${pl.idplano})">Duplicar</button>
+    </div>
+  `);
+}
+async function duplicarPlano(idplano) {
+  const pl = planos.find(x => Number(x.idplano) === Number(idplano));
+  const idatleta = Number(document.getElementById('dup-atleta')?.value);
+  if (!pl) return;
+  if (!idatleta) return showToast('Escolha o aluno que vai receber a cópia', 'error');
+  const inativo = !!document.getElementById('dup-inativo')?.checked;
+  const copia = JSON.parse(JSON.stringify(pl.refeicoes || []));
+  try {
+    await API.criarPlanoNutricional({
+      idatleta, titulo: document.getElementById('dup-titulo')?.value?.trim() || (pl.titulo + ' (cópia)'), objetivo: pl.objetivo || '',
+      calorias: pl.calorias, proteina: pl.proteina, carboidrato: pl.carboidrato, gordura: pl.gordura, refeicoes: copia,
+      observacao: pl.observacao || '', comentario_inicio: pl.comentario_inicio || '', comentario_fim: pl.comentario_fim || '',
+      ativo: inativo ? 0 : 1, dtinicio: new Date().toISOString().slice(0, 10), dtfim: null,
+    });
+    showToast('Plano duplicado' + (inativo ? ' (inativo)' : '') + ' para ' + getNomeAtleta(idatleta));
+    closeModal();
+    await carregar();
+  } catch (e) {
+    showToast('Erro ao duplicar: ' + e.message, 'error');
+  }
+}
+
+// ── Imprimir / salvar em PDF ──
+function imprimirPlano(idplano) {
+  const pl = planos.find(x => Number(x.idplano) === Number(idplano));
+  if (!pl) return;
+  const w = window.open('', '_blank');
+  if (!w) return showToast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'error');
+  const linhasItens = (itens) => (itens || []).map(it => {
+    const n = it.nutrientes || {};
+    const qtd = API.nutri.rotuloQtd(it) + (it.medida_id && it.medida_id !== 'g' && it.gramas ? ' (' + Math.round(it.gramas) + ' g)' : '');
+    const subs = (it.substitutos || []).map(sb => esc(sb.nome) + (sb.medida_id ? ' (' + esc(API.nutri.rotuloQtd(sb)) + ')' : (sb.quantidade ? ' (' + esc(String(sb.quantidade)) + ' ' + esc(sb.medida || 'g') + ')' : ''))).join(' · ');
+    return `<tr><td>${esc(it.nome)}${subs ? `<div class="sub">pode trocar por: ${subs}</div>` : ''}</td><td>${esc(qtd)}</td><td class="n">${Math.round(n.energia_kcal || 0)}</td><td class="n">${n.proteina_g || 0}</td><td class="n">${n.carboidrato_g || 0}</td><td class="n">${n.lipidio_g || 0}</td></tr>`;
+  }).join('');
+  const tabela = (itens, rot) => {
+    const t = calcTotaisRefeicao(itens || []);
+    return `<table><thead><tr><th>Alimento</th><th>Quantidade</th><th class="n">kcal</th><th class="n">P</th><th class="n">C</th><th class="n">G</th></tr></thead><tbody>${linhasItens(itens)}<tr class="tot"><td colspan="2">${rot}</td><td class="n">${t.kcal}</td><td class="n">${t.prot}</td><td class="n">${t.carb}</td><td class="n">${t.gord}</td></tr></tbody></table>`;
+  };
+  const refs = (pl.refeicoes || []).map(r => `<div class="ref"><h3>${esc(r.horario || '')} ${esc(r.nome || '')}</h3>${(r.itens_estruturados || []).length ? tabela(r.itens_estruturados, 'Total da refeição') : `<p>${esc(r.itens || '')}</p>`}
+    ${(r.refeicoes_substitutas || []).filter(x => (x.itens_estruturados || []).length).map(sb => `<h4>Opção: ${esc(sb.nome || 'Substituição')}</h4>${tabela(sb.itens_estruturados, 'Total da opção')}`).join('')}</div>`).join('');
+  const todos = (pl.refeicoes || []).flatMap(r => r.itens_estruturados || []);
+  const dia = calcTotaisRefeicao(todos);
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(pl.titulo)}</title><style>
+    body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;font-size:13px}h1{font-size:22px;margin:0 0 2px}h3{font-size:15px;margin:18px 0 6px;border-bottom:2px solid #7FFF00;padding-bottom:3px}h4{font-size:13px;margin:12px 0 4px;color:#2563eb}
+    .meta{color:#555;margin-bottom:10px}.macros{display:flex;gap:10px;margin:10px 0}.macros span{border:1px solid #ccc;border-radius:8px;padding:6px 10px}
+    table{width:100%;border-collapse:collapse;margin-bottom:4px}th,td{border-bottom:1px solid #ddd;padding:5px 6px;text-align:left}th{font-size:11px;text-transform:uppercase;color:#555}.n{text-align:right;white-space:nowrap}.tot td{font-weight:700;border-top:2px solid #999}.sub{font-size:11px;color:#2563eb;margin-top:2px}
+    .box{background:#f4f4f4;border-left:3px solid #7FFF00;padding:8px 12px;margin:10px 0;white-space:pre-wrap}.ref{page-break-inside:avoid}@media print{body{margin:10mm}}</style></head><body>
+    <h1>${esc(pl.titulo)}</h1><div class="meta">${esc(getNomeAtleta(pl.idatleta))}${pl.objetivo ? ' · ' + esc(pl.objetivo) : ''}${pl.dtinicio ? ' · desde ' + fmtDate(pl.dtinicio) : ''}${pl.dtfim ? ' até ' + fmtDate(pl.dtfim) : ''}</div>
+    <div class="macros">${pl.calorias ? `<span><b>${pl.calorias}</b> kcal/dia</span>` : ''}${pl.proteina ? `<span>Proteína <b>${pl.proteina} g</b></span>` : ''}${pl.carboidrato ? `<span>Carboidrato <b>${pl.carboidrato} g</b></span>` : ''}${pl.gordura ? `<span>Gordura <b>${pl.gordura} g</b></span>` : ''}</div>
+    ${pl.comentario_inicio ? `<div class="box">${esc(pl.comentario_inicio)}</div>` : ''}${refs}
+    <h3>Total do dia (refeições principais)</h3><div class="macros"><span><b>${dia.kcal}</b> kcal</span><span>P <b>${dia.prot} g</b></span><span>C <b>${dia.carb} g</b></span><span>G <b>${dia.gord} g</b></span><span>Fibra <b>${dia.fibra} g</b></span></div>
+    ${pl.comentario_fim ? `<div class="box">${esc(pl.comentario_fim)}</div>` : ''}${pl.observacao ? `<p>${esc(pl.observacao)}</p>` : ''}
+    <p style="color:#888;font-size:11px;margin-top:20px">Intus Fit · valores da TACO e de alimentos cadastrados pela equipe. As porções são individualizadas conforme este plano.</p>
+    <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`);
+  w.document.close();
 }
 
 function renderMacroDistBar(prot, carb, gord) {
