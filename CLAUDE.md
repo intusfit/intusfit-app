@@ -1052,3 +1052,32 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   mudar para o correto.
 - **Observação (não alterada)**: no `financeiro.html`, linha paga de plano NÃO parcelado em estado `renovar`, `encerrada` ou `cancelada` não entra
   em "recebido". Parece o mesmo defeito que corrigi só para parcelas; precisa de decisão do Luiz antes de mexer.
+
+## 30. Atendimento por WhatsApp com Claude (08/10/2026)
+
+Projeto de atendimento e follow-up de leads pelo número da Intus (5545991156006), na **API oficial da Meta**. Decisões do Luiz: autonomia
+**híbrida** (sequências automáticas, robô responde dúvidas, passa para uma pessoa em preço da Premium, lesão/dor/doença, reclamação, pedido de
+humano e vídeo de exercício); todo lead vai para a **Consultoria Premium** por enquanto (o CDD entra depois, então o destino tem de ser
+configurável); modelo do robô **Claude Opus 5.5** (`claude-opus-5-5`); atendente chama **Cora** ("assistente virtual da Intus"), nome guardado
+em ajuste, não fixo no código.
+
+**Pronto e testado (Base):**
+- `app/api/_wa.php`: biblioteca com TODA a regra (horário 8h-21h em America/Sao_Paulo, janela de 24h, consentimento, no máximo 1 mensagem proativa
+  por dia, pedido de saída "SAIR", normalização de telefone BR, agenda do teste de 7 passos, assinatura da Meta, envio de texto/template, registro).
+  SQL portável de propósito (sem `ON DUPLICATE KEY`, sem `NOW()`; horário gravado pelo PHP) para rodar igual em SQLite nos testes e no MySQL 5.6.
+- `app/api/whatsapp_webhook.php`: GET responde o desafio da Meta, POST exige `X-Hub-Signature-256` válido, é idempotente pelo `wa_id`. Erro nosso no
+  processamento responde 200 (a Meta desativa webhook que falha muito) e registra um código no log. Sem chave configurada responde 503.
+- `admin/whatsapp-keys.php` (login do admin): grava no banco (`intus_secrets`: `whatsapp_config`, `anthropic_config`, `cron_config`, `wa_ajustes`).
+  Nunca mostra uma chave salva de volta, tem token CSRF e botão "Testar conexão com a Meta". **O Claude Code nunca vê esses valores.**
+- Tabelas novas (criadas na primeira abertura da tela de chaves ou do webhook, com autorização do Luiz de 08/10/2026): `intus_wa_contato`,
+  `intus_wa_mensagem`, `intus_wa_agenda`. Nenhuma tabela existente foi alterada.
+- Testes: `testes/wa.php` (133 conferências). **Neste computador o PHP 8.2 foi instalado pelo winget** e fica fora do PATH da sessão; chame pelo caminho
+  completo e passe um `php.ini` com as extensões `mbstring, openssl, curl, pdo_sqlite, sqlite3` (`php -c <ini> testes/wa.php`). Foram feitas quebras
+  de propósito na biblioteca (horário, ordem de status, cancelamento de agenda, saída por trecho, janela) e os testes acusaram todas.
+  Armadilhas já pagas: o PHP troca o ponto por sublinhado nos parâmetros (`hub.mode` vira `hub_mode`); `Set-Content -Encoding UTF8` do PowerShell 5
+  grava BOM e isso quebra cabeçalhos HTTP em arquivo PHP.
+
+**Falta (nesta ordem):** aceite de mensagens por WhatsApp na landing gravando o consentimento (`optin_em`) e disparando a agenda; sequência do teste
+(worker por CronJob da KingHost, que é pago e por HTTP com `X-Cron-Auth`, a "carona" não serve para hora marcada) e os 7 templates na Meta; robô de
+conversa (Claude, com manual de vendas e transferência para pessoa); tela "Funil de Leads" no painel. Texto de todas as mensagens segue o skill de
+oferta (sem prometer resultado, prazo ou número; o teste é só de treino, sem dieta) e a regra de escrita do Luiz: sem travessão e sem "não é X, é Y".
