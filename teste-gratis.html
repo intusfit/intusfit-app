@@ -58,7 +58,13 @@ h1 em{font-style:normal;color:var(--accent)}
 .microcopy-fora{font-size:11px;color:var(--muted-d);text-align:center;margin-top:16px}
 
 .campo{margin-bottom:14px}
-.campo label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.campo label,.campo .rotulo{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.generos{display:flex;gap:10px}
+.generos label{position:relative;flex:1;margin:0;cursor:pointer}
+.generos input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.generos span{display:flex;align-items:center;justify-content:center;min-height:46px;border-radius:10px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:15px;font-weight:600;text-transform:none;letter-spacing:0;transition:border-color .15s,background .15s,color .15s}
+.generos input:checked + span{border-color:var(--accent);background:var(--accent-fraca);color:var(--accent)}
+.generos input:focus-visible + span{border-color:var(--accent);box-shadow:0 0 0 3px rgba(127,255,0,.14)}
 .campo input,.campo select{
   width:100%;padding:13px 14px;border-radius:10px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);
   font-size:15px;font-family:inherit;outline:none;transition:border .15s,box-shadow .15s;
@@ -168,6 +174,13 @@ h1 em{font-style:normal;color:var(--accent)}
         <div class="campo">
           <label for="lead-email">E-mail</label>
           <input id="lead-email" name="email" type="email" inputmode="email" autocomplete="email" required placeholder="seu@email.com">
+        </div>
+        <div class="campo">
+          <div class="rotulo" id="rotulo-genero">Gênero</div>
+          <div class="generos" role="radiogroup" aria-labelledby="rotulo-genero">
+            <label><input type="radio" name="genero" value="M"><span>Masculino</span></label>
+            <label><input type="radio" name="genero" value="F"><span>Feminino</span></label>
+          </div>
         </div>
         <div class="campo">
           <label for="lead-objetivo">Seu objetivo</label>
@@ -309,6 +322,7 @@ document.getElementById('btn-continuar').addEventListener('click', function () {
   if (!nome) { aviso1.textContent = 'Digite seu nome.'; aviso1.classList.add('on'); return; }
   if (whatsappNumeros.length < 10) { aviso1.textContent = 'Digite um WhatsApp válido, com DDD.'; aviso1.classList.add('on'); return; }
   if (!email) { aviso1.textContent = 'Digite seu e-mail.'; aviso1.classList.add('on'); return; }
+  if (!document.querySelector('input[name="genero"]:checked')) { aviso1.textContent = 'Escolha o seu gênero.'; aviso1.classList.add('on'); return; }
   document.getElementById('step-1').style.display = 'none';
   document.getElementById('step-2').style.display = 'block';
   document.getElementById('dot-1').classList.remove('on');
@@ -372,6 +386,8 @@ document.getElementById('form-lead').addEventListener('submit', async function (
   const whatsappNumeros = whatsappDigitado.replace(/\D/g, '');
   const email = document.getElementById('lead-email').value.trim();
   const objetivo = document.getElementById('lead-objetivo').value;
+  const generoEl = document.querySelector('input[name="genero"]:checked');
+  const genero = generoEl ? generoEl.value : '';
   const senha = document.getElementById('lead-senha').value;
   const senhaConfirma = document.getElementById('lead-senha-confirma').value;
   const honeypot = document.getElementById('lead-site').value;
@@ -400,6 +416,7 @@ document.getElementById('form-lead').addEventListener('submit', async function (
       body: JSON.stringify({
         nome, email, senha,
         telefone: whatsappNumeros,
+        genero,
         objetivos: objetivo ? [objetivo] : [],
         plano: 'teste',
         origem: 'landing-teste-gratis',
@@ -424,6 +441,7 @@ document.getElementById('form-lead').addEventListener('submit', async function (
       nome: criado.nome,
       email: criado.email,
       telefone: whatsappNumeros,
+      genero: genero || criado.genero || '',
       tipo: 'aluno',
       admin: false,
       permissoes: {},
