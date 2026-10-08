@@ -18572,7 +18572,11 @@ function _notifAbrir(el) {
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
   if (/^(amizade|parceria|turma|desafio)_/.test(tipo) || tipo === 'parceiro') { navegar('amigos'); return; }
-  if (el.dataset.alvotipo === 'resultado') { navegar('resultados'); return; }
+  if (el.dataset.alvotipo === 'resultado') {
+    navegar('resultados');
+    setTimeout(() => { const cr = document.querySelector('[data-resultado-card="' + alvo + '"]'); if (cr) cr.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 1200);
+    return;
+  }
   if (el.dataset.alvotipo === 'mural') {
     abrirRanking();
     // O comentário do mural só está na tela depois que o ranking carrega.
@@ -18584,17 +18588,33 @@ function _notifAbrir(el) {
     }, 1400);
     return;
   }
-  navegar('feed');
-  // O post só está na tela se já foi carregado no Feed; senão fica no topo.
-  setTimeout(() => {
-    const card = document.querySelector('[data-feed-card="' + alvo + '"]');
-    if (!card) return;
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario' || tipo === 'mencao') {
-      _comentariosAbertos[alvo] = true;
-      carregarComentariosFeed([alvo]).then(() => _atualizarLinhaComentarios(alvo));
-    }
-  }, 900);
+  // Publicação do Feed (curtida, reação, comentário, resposta, menção): abre a própria publicação, com os comentários à mostra
+  // quando a notificação é de comentário, em vez de largar o aluno no topo do Feed.
+  const comComentarios = tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario' || tipo === 'mencao';
+  _abrirPostPorNotificacao(alvo, comComentarios);
+}
+
+// Abre a publicação pelo número. Se ela ainda não está na memória do app (post antigo, de outra pessoa, fora da página carregada
+// do Feed), busca só essa publicação no servidor, que aplica a privacidade de sempre.
+async function _abrirPostPorNotificacao(idpost, comComentarios) {
+  if (!idpost) { navegar('feed'); return; }
+  let post = _acharPost(idpost);
+  if (!post) {
+    _busyMostrar('Abrindo a publicação...', null, '');
+    try {
+      const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts&idpost=' + Number(idpost) + '&_=' + Date.now(), { headers: _notifHeaders(), cache: 'no-store' }, 20000);
+      if (r.ok) {
+        const j = await r.json();
+        _feedAtletasMap = Object.assign({}, _feedAtletasMap, (j && j.atletas) || {});
+        _feedAvatarsMap = Object.assign({}, _feedAvatarsMap, (j && j.avatars) || {});
+        post = (j && j.posts && j.posts[0]) || null;
+      }
+    } catch (e) {}
+    _busyFim();
+  }
+  if (!post) { toast('Esta publicação não está mais disponível.'); return; }
+  if (comComentarios) _comentariosAbertos[Number(idpost)] = true;
+  await abrirPostTela(post);
 }
 
 // ── Medalha e distintivo: calculados AQUI no app (o servidor não tem evento

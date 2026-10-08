@@ -906,6 +906,13 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
 - **Avisos (toast) do aluno (07/10/2026)**: o tempo na tela agora cresce com o texto (2,2 s + 55 ms por letra, máximo 12 s; o segundo
   parâmetro só pode aumentar), a caixa vai até 420 px de largura e tocar no aviso fecha na hora. Vale para todos os `toast()` do `aluno.html`.
 
+- **Notificação abre a publicação certa (07/10/2026)**: `_notifAbrir` (lista do sino e aba Notificações da Central) abre a própria
+  publicação com `abrirPostTela`, via `_abrirPostPorNotificacao`: usa o post já em memória ou busca só ele em
+  `catalogo.php?action=feed_posts&idpost=N` (mesma privacidade de sempre; o dono sempre se vê). Notificação de comentário, resposta ou
+  menção abre com os comentários à mostra; post apagado ou invisível mostra "Esta publicação não está mais disponível". Antes ia sempre
+  para o topo do Feed, porque só rolava até o card se ele já estivesse na página carregada. Resultado rola até o card; mural, amizade,
+  parceria, turma, desafio, nutrição, medalha e distintivo seguem para as telas deles.
+
 ## 25. Último treino (07/10/2026)
 
 - A Home dizia "Último: Treino C" quando o último tinha sido o D. Causa: `SessoesTreino.listarDoAtleta` ordenava só pela

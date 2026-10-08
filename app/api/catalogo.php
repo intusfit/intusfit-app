@@ -2659,6 +2659,9 @@ if ($action === 'feed_posts') {
         }
         $somenteAutor = (int)($_GET['idatleta'] ?? 0);
         if ($somenteAutor > 0) $visiveis = (($_autorTipo === 'aluno' && $somenteAutor === $_autorId) || in_array($somenteAutor, $visiveis, true)) ? [$somenteAutor] : [];
+        // Uma publicação só (notificação que abre o post): vale a mesma privacidade de sempre; o próprio dono sempre se vê.
+        $umPost = (int)($_GET['idpost'] ?? 0);
+        if ($umPost > 0 && $_autorTipo === 'aluno' && !in_array($_autorId, $visiveis, true)) $visiveis[] = $_autorId;
 
         if (!count($visiveis)) {
             // Perfil de alguém que deixou as fotos privadas: avisa o app para mostrar "fotos privadas" em vez de "sem posts".
@@ -2673,8 +2676,8 @@ if ($action === 'feed_posts') {
         // Sem filtro de atleta = feed geral: só posts com destino 'feed'. Com
         // filtro (perfil de alguém, inclusive o próprio) mostra os dois — é
         // a grade do perfil, que é o único lugar onde um post 'perfil' aparece.
-        $filtroDestino = $somenteAutor > 0 ? '' : " AND p.destino = 'feed'";
-        $filtroCursor = $antesDe > 0 ? " AND p.idpost < $antesDe" : "";
+        $filtroDestino = ($somenteAutor > 0 || $umPost > 0) ? '' : " AND p.destino = 'feed'";
+        $filtroCursor = $umPost > 0 ? " AND p.idpost = $umPost" : ($antesDe > 0 ? " AND p.idpost < $antesDe" : "");
         $ef = "COALESCE(v.visib, c.fotos_visib, 'todos')";
         $filtroPriv = '';
         if ($_autorTipo === 'aluno') {
