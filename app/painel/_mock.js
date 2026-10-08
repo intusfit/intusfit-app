@@ -1268,6 +1268,27 @@ function fmtData(d) {
   if (!d) return '—';
   return new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR');
 }
+// ── Previa do plano parcelado (usada por mensalidades.html e alunos.html) ───────────────────────────────────────────
+// Recebe o resultado de API.gerarParcelas e devolve o HTML da previa: ou o erro, ou a lista de parcelas com a data de cobranca.
+const PARC_MESES = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
+function parcMesesDe(rec) { return PARC_MESES[String(rec || '').toLowerCase()] || 0; }
+function parcPrevHtml(r, forma) {
+  const brl = (v) => 'R$ ' + Number(v || 0).toFixed(2).replace('.', ',');
+  const dm = (iso) => String(iso).slice(8, 10) + '/' + String(iso).slice(5, 7) + '/' + String(iso).slice(0, 4);
+  if (!r || !r.ok) {
+    return '<div style="font-size:11.5px;color:#f87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:8px 10px;">' + ((r && r.erro) || '') + '</div>';
+  }
+  const nomes = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', eduzz: 'Eduzz' };
+  const l = r.linhas;
+  return '<div style="border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:10px 12px;background:rgba(127,255,0,.04);">' +
+    '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">' + l.length + ' parcelas de ' + brl(r.valorParcela) + (nomes[forma] ? ' · ' + nomes[forma] : '') + '</div>' +
+    l.map(function (x) {
+      return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--text-muted);padding:2px 0;"><span>' + x.parcela_num + '/' + l.length + ' · cobrança em ' + dm(x.dtinicio) + '</span><b style="color:var(--text);">' + brl(x.vlpagar - x.vldesconto) + '</b></div>';
+    }).join('') +
+    '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;border-top:1px solid var(--border,#2a2a2a);padding-top:6px;">Cobertura até ' + dm(r.fim) + ' · total ' + brl(r.liquido) + '. O plano não renova sozinho: depois da última parcela aparece o aviso para renovar.</div>' +
+  '</div>';
+}
+
 function openModal(html, extraClass) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Matrículas — Intus</title>
-  <script src="_mock.js?v=20261007a"></script>
-  <script src="api.js?v=20261006b"></script>
+  <script src="_mock.js?v=20261008a"></script>
+  <script src="api.js?v=20261008a"></script>
   <style>
     /* ── MODAL EXTRA WIDTH ── */
     .modal-box.wide { max-width: 560px; }
@@ -613,6 +613,8 @@ function _matKey(m) {
 // precisam contar a mesma historia sobre a mesma matricula.)
 function _cobrancaSuperada(c, ciclos) {
   if (!c || c.stpgto === 'S') return false;
+  // Parcela numerada nunca e "sobra": as parcelas tem o mesmo valor, e a 2a nao pode sumir da conta porque a 3a foi paga antes.
+  if (_ehParc(c)) return false;
   // Ciclo cujo dinheiro entrou na linha de cima NAO e sobra: ele e o ciclo em
   // curso, e a etiqueta verde ja explica onde a baixa foi parar. Chamar de
   // sobra convidava a apagar justamente o ciclo recem-criado.
@@ -721,6 +723,18 @@ function _statusPill(m) {
 
 // Resumo para o cabecalho da matricula: ha sinal de baixa no ciclo errado?
 
+// ── Plano parcelado: etiqueta da parcela e acoes que valem para a serie ───────────────────────────────────────────────
+function _formaRot(f) { return { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', eduzz: 'Eduzz' }[String(f || '').toLowerCase()] || ''; }
+function _ehParc(m) { return typeof API !== 'undefined' && API.ehParcelada && API.ehParcelada(m); }
+function _pillParcela(m, curta) {
+  if (!_ehParc(m)) return '';
+  const r = API.resumoParcelas(m, mensalidades);
+  const forma = _formaRot(m.forma_pgto);
+  const tip = r ? (r.pagas + ' de ' + r.total + ' parcelas pagas. Restam R$ ' + r.valorRestante.toFixed(2).replace('.', ',')) : '';
+  return ` <span class="pill" title="${esc(tip)}" style="background:rgba(251,191,36,.14);color:#fbbf24;font-size:9px;padding:1px 6px;">${esc(API.rotuloParcela(m))}${forma ? ' · ' + esc(forma) : ''}</span>` +
+    (curta || !r ? '' : ` <span style="font-size:10px;color:var(--text-muted);">${r.pagas} de ${r.total} pagas</span>`);
+}
+
 function renderMatricula(mat, podeVerValores, isAdmin) {
   const m = mat.atual;
   const nCiclos = mat.cycles.length;
@@ -739,7 +753,7 @@ function renderMatricula(mat, podeVerValores, isAdmin) {
   let _semPeriodo = false;
   try {
     const _ehTeste = (typeof API !== 'undefined' && API.ehTestePlano) ? API.ehTestePlano(m) : false;
-    if (!_ehTeste && _pago(m) && !rec && !_recDoPlano(m) && m.stmatricula !== 'encerrada' && m.stmatricula !== 'cancelada') {
+    if (!_ehTeste && !_ehParc(m) && _pago(m) && !rec && !_recDoPlano(m) && m.stmatricula !== 'encerrada' && m.stmatricula !== 'cancelada') {
       const _v = String(m.dtvencimento || '').slice(0, 10);
       if (_v) {
         const _d = Math.round((new Date(_v + 'T00:00:00') - new Date(_hojeStr() + 'T00:00:00')) / 86400000);
@@ -771,7 +785,7 @@ function renderMatricula(mat, podeVerValores, isAdmin) {
     ${hasPerm('mt_excluir') ? `<button class="btn btn-danger btn-sm" onclick="excluirMensalidade(${m.idmensalidade})" title="Excluir este ciclo">✕</button>` : ''}`;
   let html = `<tr>
     <td class="td-name"><div style="display:flex;align-items:center;gap:8px;">${chev}${avatarHtml(m.idatleta, m.nmathleta, 24)}<span ${nCiclos > 1 ? `onclick="toggleMatExp('${keyEsc}')" style="cursor:pointer;" title="Ver ciclos/pagamentos"` : ''}>${esc(m.nmathleta || '—')}</span></div></td>
-    <td style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || '')}${m.tipo_plano ? ` <span class="pill" style="background:rgba(127,255,0,.1);color:#7FFF00;font-size:9px;padding:1px 6px;">${esc(m.tipo_plano)}</span>` : ''}${rec ? ` <span class="pill" style="background:rgba(56,189,248,.12);color:#38bdf8;font-size:9px;padding:1px 6px;${nCiclos > 1 ? 'cursor:pointer;' : ''}" ${nCiclos > 1 ? `onclick="toggleMatExp('${keyEsc}')" title="Ver ciclos/pagamentos"` : ''}>🔁 ${esc(rec.charAt(0).toUpperCase() + rec.slice(1))}</span>` : ''}${nCiclos > 1 ? ` <span class="pill" style="background:rgba(148,163,184,.12);color:var(--text-muted);font-size:9px;padding:1px 6px;cursor:pointer;" onclick="toggleMatExp('${keyEsc}')">${nCiclos} ciclos</span>` : ''}${pillSemPeriodo}${pillCicloTorto}</td>
+    <td style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || '')}${_pillParcela(m)}${m.tipo_plano ? ` <span class="pill" style="background:rgba(127,255,0,.1);color:#7FFF00;font-size:9px;padding:1px 6px;">${esc(m.tipo_plano)}</span>` : ''}${rec ? ` <span class="pill" style="background:rgba(56,189,248,.12);color:#38bdf8;font-size:9px;padding:1px 6px;${nCiclos > 1 ? 'cursor:pointer;' : ''}" ${nCiclos > 1 ? `onclick="toggleMatExp('${keyEsc}')" title="Ver ciclos/pagamentos"` : ''}>🔁 ${esc(rec.charAt(0).toUpperCase() + rec.slice(1))}</span>` : ''}${nCiclos > 1 ? ` <span class="pill" style="background:rgba(148,163,184,.12);color:var(--text-muted);font-size:9px;padding:1px 6px;cursor:pointer;" onclick="toggleMatExp('${keyEsc}')">${nCiclos} ciclos</span>` : ''}${pillSemPeriodo}${pillCicloTorto}</td>
     ${podeVerValores ? `<td style="text-align:right;font-weight:700;color:var(--text);">${fmtMoedaV(m.vlpagar)}</td>` : ''}
     <td class="td-date">${mat.inicio ? fmtData(mat.inicio) : '—'}</td>
     <td class="${vencida ? '' : 'td-date'}" style="${vencida ? 'color:#f87171;font-size:12px;font-weight:600;' : ''}">${fmtData(m.dtvencimento)}</td>
@@ -790,7 +804,7 @@ function renderMatricula(mat, podeVerValores, isAdmin) {
   if (exp && nCiclos > 1) {
     html += mat.cycles.map(c => `<tr style="background:${_cobrancaSuperada(c, mat.cycles) ? 'rgba(250,204,21,.07)' : 'rgba(255,255,255,.02)'};">
       <td style="padding-left:44px;font-size:11px;color:var(--text-muted);">↳ pagamento${(typeof API !== 'undefined' && API.cicloJaPago && API.cicloJaPago(c, mensalidades)) ? ` <span class="pill" title="A baixa deste ciclo foi lançada na linha do ciclo anterior, cujo vencimento é o dia em que este começa. O dinheiro entrou — está no lugar errado, não em falta. Para arrumar o histórico, mova a data de pagamento pelo ✎ Editar." style="background:rgba(52,211,153,.15);color:#34d399;font-size:9px;padding:1px 6px;">\u2713 pago na linha anterior</span>` : ''}${_cobrancaSuperada(c, mat.cycles) ? ` <span class="pill" title="Cobrança em aberto de um período que já foi pago depois, por outro ciclo. Não é dívida — é sobra. Pode excluir com o ✕." style="background:rgba(250,204,21,.15);color:#facc15;font-size:9px;padding:1px 6px;">⚠ sobra</span>` : ''}${(typeof API !== 'undefined' && API.pagamentoDoProximoCiclo && API.pagamentoDoProximoCiclo(c)) ? ` <span class="pill" title="Esta baixa tem data de ${c.dtpagamento ? fmtData(c.dtpagamento) : '—'}, que é quando o ciclo seguinte começa. Pela regra da Intus o aluno paga no início do ciclo, então este dinheiro é do ciclo de baixo — foi lançado aqui. Não precisa mexer: o sistema já entendeu. Se quiser arrumar o histórico, mova a data pelo ✎ Editar." style="background:rgba(148,163,184,.18);color:#94a3b8;font-size:9px;padding:1px 6px;">↓ baixa do ciclo seguinte</span>` : ''}</td>
-      <td style="font-size:11px;color:var(--text-muted);">${esc(c.dshistorico || '')}</td>
+      <td style="font-size:11px;color:var(--text-muted);">${esc(c.dshistorico || '')}${_pillParcela(c, true)}</td>
       ${podeVerValores ? `<td style="text-align:right;font-size:11px;color:var(--text-muted);">${fmtMoedaV(c.vlpagar)}</td>` : ''}
       <td class="td-date" style="font-size:11px;">${c.dtinicio ? fmtData(c.dtinicio) : '—'}</td>
       <td class="td-date" style="font-size:11px;">${fmtData(c.dtvencimento)}</td>
@@ -807,9 +821,26 @@ function renderMatricula(mat, podeVerValores, isAdmin) {
 }
 
 // Renovar = registrar o próximo ciclo (novo pagamento) da MESMA matrícula
+// Renovar um plano PARCELADO = abrir de novo o mesmo parcelamento a partir do fim do anterior (mesmo valor, mesmas parcelas).
+async function renovarPlanoParcelado(m) {
+  if (API.parcelasAbertas(m, mensalidades).length) return showToast('Este plano ainda tem parcelas em aberto. Receba ou cancele antes de renovar.', 'error');
+  const d = API.dadosRenovacaoParcelada(m, mensalidades);
+  if (!d) return showToast('Não consegui montar a renovação deste plano.', 'error');
+  const g = API.gerarParcelas(d);
+  if (!g.ok) return showToast(g.erro, 'error');
+  if (!confirm('Renovar o plano parcelado de ' + (m.nmathleta || 'aluno') + '?\n\n' + g.linhas.length + ' parcelas de R$ ' + g.valorParcela.toFixed(2).replace('.', ',') + (_formaRot(d.forma) ? ' (' + _formaRot(d.forma) + ')' : '') +
+    '\nPeríodo: ' + fmtData(d.inicio) + ' a ' + fmtData(g.fim) + '\n1ª parcela com cobrança em ' + fmtData(g.linhas[0].dtinicio))) return;
+  try {
+    await API.criarPlanoParcelado(d);
+    showToast('Plano renovado: ' + g.linhas.length + ' parcelas geradas.');
+    await carregar();
+  } catch (e) { showToast(e.message || 'Erro ao renovar', 'error'); }
+}
+
 async function renovarCiclo(idmens) {
   const m = mensalidades.find(x => Number(x.idmensalidade) === Number(idmens));
   if (!m) return;
+  if (_ehParc(m)) return renovarPlanoParcelado(m);
   const prox = _proxCicloDe(m);
   if (!prox) return showToast('Defina a periodicidade desta matrícula no Editar para gerar o próximo ciclo.', 'error');
   if (_temCicloAberto(m, m.idmensalidade)) return showToast('Esta matrícula já tem um ciclo em aberto.', 'error');
@@ -972,11 +1003,17 @@ async function confirmarPagamento(id) {
         });
         showToast('Próximo ciclo gerado: ' + fmtData(_prox.dtinicio) + ' a ' + fmtData(_prox.dtvencimento) + '.');
       } catch (e) { showToast('Pagamento salvo, mas o próximo ciclo não foi gerado: ' + e.message, 'error'); }
-    } else if (!_prox && !_encerrada) {
+    } else if (!_prox && !_encerrada && !_ehParc(m)) {
       showToast('Pagamento salvo. Defina a periodicidade no Editar para o próximo ciclo nascer sozinho.');
     }
 
     await carregar();
+    if (_ehParc(m)) {
+      // Parcela: nenhum ciclo novo nasce (as parcelas ja existem). Diz em que ponto o plano esta.
+      const r = API.resumoParcelas(mensalidades.find(x => Number(x.idmensalidade) === Number(m.idmensalidade)) || m, mensalidades);
+      if (r) showToast(r.quitado ? 'Última parcela recebida. Plano quitado: R$ ' + r.valorPago.toFixed(2).replace('.', ',') + '.' :
+        API.rotuloParcela(m) + ' recebida. Faltam ' + r.abertas + ' (R$ ' + r.valorRestante.toFixed(2).replace('.', ',') + ')' + (r.proxima ? ', a próxima com cobrança em ' + fmtData(r.proxima.cobranca) : '') + '.');
+    }
   } catch (e) {
     showToast('Erro ao marcar como paga: ' + e.message, 'error');
   }
@@ -985,7 +1022,9 @@ async function confirmarPagamento(id) {
 // ── Excluir ───────────────────────────────────────────────────────────────
 async function excluirMensalidade(id) {
   if (!hasPerm('mt_excluir')) return showToast('Sem permissão para excluir mensalidades.', 'error');
-  if (!confirm('Excluir esta mensalidade? Essa ação não pode ser desfeita.')) return;
+  const _mx = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
+  const _aviso = _ehParc(_mx) ? '\n\nEsta é a ' + API.rotuloParcela(_mx).toLowerCase() + ' do plano. As outras parcelas continuam.' : '';
+  if (!confirm('Excluir esta mensalidade? Essa ação não pode ser desfeita.' + _aviso)) return;
   try {
     await API.excluirMensalidade(id);
     showToast('Mensalidade excluída.');
@@ -1157,7 +1196,8 @@ async function trancarMatricula(id) {
   const fim = resp.trim() ? resp.trim().slice(0,10) : null;
   const motivo = _escolherMotivo('Motivo do trancamento:', MOTIVOS_TRANCAMENTO) || null;
   try {
-    await API.editarMensalidade(id, { stmatricula: 'trancada', dt_tranca_inicio: _hojeStr(), dt_tranca_fim: fim, motivo_encerramento: motivo });
+    if (_ehParc(m)) await API.trancarParcelas(m, mensalidades, _hojeStr(), fim, motivo);   // todas as parcelas em aberto
+    else await API.editarMensalidade(id, { stmatricula: 'trancada', dt_tranca_inicio: _hojeStr(), dt_tranca_fim: fim, motivo_encerramento: motivo });
     showToast('Matrícula trancada' + (fim ? ' até ' + fim : ' (indeterminado)') + (motivo ? ' — ' + motivo : '') + '.');
     await carregar();
   } catch (e) { showToast('Erro ao trancar: ' + e.message, 'error'); }
@@ -1178,7 +1218,8 @@ async function destrancarMatricula(id) {
   }
   const acum = (parseInt(m.dias_trancado || 0) || 0) + dias;
   try {
-    await API.editarMensalidade(id, { stmatricula: 'ativa', dt_tranca_inicio: null, dt_tranca_fim: null, dias_trancado: acum, dtvencimento: novoVenc });
+    if (_ehParc(m)) await API.destrancarParcelas(m, mensalidades, dias);   // empurra a janela de cada parcela em aberto
+    else await API.editarMensalidade(id, { stmatricula: 'ativa', dt_tranca_inicio: null, dt_tranca_fim: null, dias_trancado: acum, dtvencimento: novoVenc });
     showToast('Reativada. Vencimento empurrado ' + dias + ' dia(s)' + (novoVenc ? ' → ' + fmtData(novoVenc) : '') + '.');
     await carregar();
   } catch (e) { showToast('Erro ao reativar: ' + e.message, 'error'); }
@@ -1208,8 +1249,13 @@ async function cancelarMatricula(id) {
   const motivo = _escolherMotivo('Cancelar matrícula de ' + (m.nmathleta || 'cliente') + '.', MOTIVOS_CANCELAMENTO);
   if (motivo === null) return;
   try {
-    await API.editarMensalidade(id, { stmatricula: 'cancelada', motivo_encerramento: motivo });
-    showToast('Matrícula cancelada (' + motivo + ').');
+    if (_ehParc(m)) {
+      const n = await API.cancelarParcelas(m, mensalidades, motivo);   // as parcelas em aberto deixam de ser cobradas
+      showToast('Plano cancelado (' + motivo + '). ' + n + ' parcela(s) em aberto canceladas; as já pagas ficam no histórico.');
+    } else {
+      await API.editarMensalidade(id, { stmatricula: 'cancelada', motivo_encerramento: motivo });
+      showToast('Matrícula cancelada (' + motivo + ').');
+    }
     await carregar();
   } catch (e) { showToast('Erro ao cancelar: ' + e.message, 'error'); }
 }
@@ -1249,6 +1295,19 @@ async function alterarVencimento(id) {
   const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
   if (!m) return;
   const atual = m.dtvencimento ? String(m.dtvencimento).slice(0,10) : '';
+  if (_ehParc(m)) {
+    // Parcela: a data que se move e a da COBRANCA; as parcelas seguintes andam junto, o mesmo tanto.
+    const cob = API.dtCobranca(m);
+    const novaCob = (prompt('Nova data de cobrança da ' + API.rotuloParcela(m).toLowerCase() + ' de ' + (m.nmathleta || 'cliente') + ' (AAAA-MM-DD).\nAs parcelas seguintes andam junto.', cob) || '').trim();
+    if (!novaCob || novaCob === cob) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(novaCob)) return showToast('Data inválida. Use AAAA-MM-DD.', 'error');
+    try {
+      const n = await API.moverParcelas(m, mensalidades, novaCob);
+      showToast('Cobrança movida para ' + fmtData(novaCob) + ' (' + n + ' parcela' + (n > 1 ? 's' : '') + ').');
+      await carregar();
+    } catch (e) { showToast('Erro ao alterar a data: ' + e.message, 'error'); }
+    return;
+  }
   const nova = (prompt('Novo vencimento (AAAA-MM-DD) para ' + (m.nmathleta || 'cliente') + ':', atual) || '').trim();
   if (!nova) return;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(nova)) return showToast('Data inválida. Use AAAA-MM-DD.', 'error');
@@ -1342,6 +1401,7 @@ function _recDoPlano(m) {
 // comecando em 15/08 e vencendo em 15/09. O ciclo pago fica intacto no
 // historico, com as datas que sempre teve — nunca mais e reescrito.
 function _proxCicloDe(m) {
+  if (_ehParc(m)) return null;                 // as parcelas seguintes ja existem; depois da ultima a renovacao e uma acao (↻)
   const rec = _recDoPlano(m);
   if (!rec) return null;                       // sem periodicidade: so o botao ↻
   const meses = _RECMESES_MT[rec];
@@ -1520,6 +1580,11 @@ function aplicarPlano(selectEl) {
   const venc = new Date(hoje);
   venc.setMonth(venc.getMonth() + (opt.meses || 1));
   document.getElementById('mat-dtvenc').value = venc.toISOString().slice(0,10);
+  // A duracao do plano vira a recorrencia (e e dela que o parcelamento tira os meses do plano).
+  const _recP = { 1: 'mensal', 3: 'trimestral', 6: 'semestral', 12: 'anual' }[opt.meses || 1];
+  const _selRec = document.getElementById('mat-recorrencia');
+  if (_recP && _selRec) _selRec.value = _recP;
+  if (typeof matParcMudou === 'function') matParcMudou();
 }
 
 function getAutoDetectedPlanos() {
@@ -1804,7 +1869,7 @@ function abrirModalMatricula(editId) {
       <!-- Descrição -->
       <div class="form-group">
         <label class="label">Descrição</label>
-        <input class="input" type="text" id="mat-hist" maxlength="80"
+        <input class="input" type="text" id="mat-hist" maxlength="80" oninput="matParcMudou()"
                placeholder="Ex.: Treino — Trimestral"
                value="${isEdit ? esc(dados?.dshistorico || '') : ''}">
       </div>
@@ -1823,7 +1888,7 @@ function abrirModalMatricula(editId) {
       <!-- Recorrência: planos recorrentes geram a próxima cobrança automaticamente ao receber -->
       <div class="form-group">
         <label class="label">Recorrência</label>
-        <select class="input" id="mat-recorrencia">
+        <select class="input" id="mat-recorrencia" onchange="matParcMudou()">
           ${(() => { const _r = isEdit ? String(dados?.recorrencia||'') : 'mensal';
             const _op = (v,l) => `<option value="${v}" ${_r===v?'selected':''}>${l}</option>`;
             return _op('', '— Avulso (não renova) —') + _op('mensal','Mensal') + _op('trimestral','Trimestral') + _op('semestral','Semestral') + _op('anual','Anual'); })()}
@@ -1835,7 +1900,7 @@ function abrirModalMatricula(editId) {
       <div class="form-2col">
         <div class="form-group">
           <label class="label">Data Início</label>
-          <input class="input" type="date" id="mat-dtinicio" value="${isEdit ? (dados?.dtinicio || hoje).slice(0,10) : hoje}">
+          <input class="input" type="date" id="mat-dtinicio" onchange="matParcMudou()" value="${isEdit ? (dados?.dtinicio || hoje).slice(0,10) : hoje}">
         </div>
         <div class="form-group">
           <label class="label">Data Vencimento</label>
@@ -1845,12 +1910,12 @@ function abrirModalMatricula(editId) {
       <div class="form-2col">
         <div class="form-group">
           <label class="label">Valor (R$)</label>
-          <input class="input" type="number" id="mat-valor" min="0" step="0.01" placeholder="0.00"
+          <input class="input" type="number" id="mat-valor" min="0" step="0.01" oninput="matParcMudou()" placeholder="0.00"
                  value="${isEdit ? parseFloat(dados?.vlpagar||0).toFixed(2) : ''}">
         </div>
         <div class="form-group">
           <label class="label">Desconto (R$)</label>
-          <input class="input" type="number" id="mat-desc" min="0" step="0.01" placeholder="0.00"
+          <input class="input" type="number" id="mat-desc" min="0" step="0.01" oninput="matParcMudou()" placeholder="0.00"
                  value="${isEdit ? parseFloat(dados?.vldesconto||0).toFixed(2) : '0.00'}">
         </div>
       </div>
@@ -1877,26 +1942,28 @@ function abrirModalMatricula(editId) {
       </div>
 
       ${!isEdit ? `
-      <!-- Parcelamento (só na criação): gera N cobranças mensais dividindo o valor -->
+      <!-- Parcelamento (só na criação): o valor do plano é dividido em N parcelas; cada uma é uma cobrança com a sua data -->
       <div class="form-2col">
         <div class="form-group">
           <label class="label">Parcelas</label>
-          <select class="input" id="mat-parcelas">
-            ${Array.from({length:12},(_,i)=>i+1).map(n=>`<option value="${n}">${n}x</option>`).join('')}
+          <select class="input" id="mat-parcelas" onchange="matParcMudou()">
+            <option value="1">1x (à vista)</option>
+            ${Array.from({length:11},(_,i)=>i+2).map(n=>`<option value="${n}">${n}x</option>`).join('')}
           </select>
         </div>
         <div class="form-group">
           <label class="label">Forma de recebimento</label>
-          <select class="input" id="mat-forma">
+          <select class="input" id="mat-forma" onchange="matParcMudou()">
             <option value="">—</option>
-            <option value="cartao">Cartão</option>
-            <option value="pix">PIX</option>
+            <option value="pix">Pix</option>
             <option value="dinheiro">Dinheiro</option>
+            <option value="cartao">Cartão</option>
             <option value="eduzz">Eduzz</option>
           </select>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--text-muted);margin-top:-2px;">Parcelas &gt; 1 gera N cobranças mensais dividindo o valor (cartão/PIX, até 12x).</div>
+      <div id="mat-parc-prev" style="margin-bottom:8px;"></div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:-2px;">Parcelar vale para planos de 2 meses ou mais: a <b>recorrência</b> define a duração do plano (Trimestral = 3 meses). O valor informado é o do plano inteiro; ele é dividido nas parcelas, e com status "Paga" a 1ª parcela já entra como recebida.</div>
       ` : `
       <div class="form-group">
         <label class="label">Forma de recebimento</label>
@@ -1917,6 +1984,28 @@ function abrirModalMatricula(editId) {
     </div>
   `);
 
+}
+
+// Previa e validacao do parcelamento (modal de nova matricula)
+function matParcOpcoes() {
+  const g = (i) => document.getElementById(i);
+  return {
+    inicio: (g('mat-dtinicio') && g('mat-dtinicio').value) || _hojeStr(),
+    meses: parcMesesDe(g('mat-recorrencia') && g('mat-recorrencia').value),
+    parcelas: parseInt((g('mat-parcelas') && g('mat-parcelas').value) || '1', 10) || 1,
+    valor: parseFloat((g('mat-valor') && g('mat-valor').value) || 0) || 0,
+    desconto: parseFloat((g('mat-desc') && g('mat-desc').value) || 0) || 0,
+    descricao: ((g('mat-hist') && g('mat-hist').value) || '').trim() || 'Mensalidade',
+    forma: (g('mat-forma') && g('mat-forma').value) || '',
+  };
+}
+function matParcMudou() {
+  const prev = document.getElementById('mat-parc-prev'); if (!prev) return;
+  const o = matParcOpcoes();
+  const forma = document.getElementById('mat-forma');
+  if (o.parcelas > 1 && forma && !forma.value) { forma.value = 'pix'; o.forma = 'pix'; }
+  if (o.parcelas <= 1) { prev.innerHTML = ''; return; }
+  prev.innerHTML = parcPrevHtml(API.gerarParcelas(o), o.forma);
 }
 
 // Seleção visual de aluno
@@ -1990,35 +2079,24 @@ async function salvarMatricula() {
   const payload = lerFormulario();
   if (!payload) return;
 
-  // Parcelamento: gera N cobranças mensais dividindo o valor (até 12x, cartão/PIX)
+  // Parcelamento: um plano de P meses dividido em N parcelas (a regra e a criacao moram no api.js)
   const nParc = parseInt(document.getElementById('mat-parcelas')?.value || '1') || 1;
   if (nParc > 1) {
+    const o = matParcOpcoes();
+    const g = API.gerarParcelas(o);
+    if (!g.ok) return showToast(g.erro, 'error');
+    if (!o.forma) return showToast('Escolha a forma de recebimento (Pix, dinheiro...).', 'error');
+    const dtpgto = document.getElementById('mat-dtpgto')?.value || '';
     try {
-      const total = payload.vlpagar;
-      const base = Math.floor((total / nParc) * 100) / 100;
-      const dtBase = new Date(String(payload.dtvencimento).slice(0,10) + 'T00:00:00');
-      const diaVenc = dtBase.getDate();
-      for (let i = 0; i < nParc; i++) {
-        const val = (i === nParc - 1) ? +(total - base * (nParc - 1)).toFixed(2) : base;
-        const dv = new Date(dtBase.getFullYear(), dtBase.getMonth() + i, diaVenc);
-        const lastDay = new Date(dv.getFullYear(), dv.getMonth() + 1, 0).getDate();
-        dv.setDate(Math.min(diaVenc, lastDay));
-        await API.criarMensalidade({
-          ...payload,
-          stpgto: 'N',
-          recorrencia: null,
-          dshistorico: (payload.dshistorico || 'Mensalidade') + ' (' + (i + 1) + '/' + nParc + ')',
-          dtvencimento: dv.toISOString().slice(0, 10),
-          vlpagar: val,
-          parcela_num: i + 1,
-          parcela_total: nParc,
-        });
-      }
+      await API.criarPlanoParcelado(Object.assign({}, o, {
+        idatleta: payload.idatleta, tipo_plano: payload.tipo_plano, forma: o.forma,
+        primeiraPaga: payload.stpgto === 'S' ? { data: dtpgto || _hojeStr() } : null,
+      }));
       closeModal();
-      showToast(nParc + ' parcelas criadas!');
+      showToast(nParc + ' parcelas criadas (' + (_formaRot(o.forma) || o.forma) + ')' + (payload.stpgto === 'S' ? ', 1ª já recebida.' : '.'));
       await carregar();
     } catch (e) {
-      showToast('Erro ao criar parcelas: ' + e.message, 'error');
+      showToast(e.message || 'Erro ao criar parcelas', 'error');
     }
     return;
   }

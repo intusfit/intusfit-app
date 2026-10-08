@@ -1019,3 +1019,27 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   Quando uma regra do app mudar, atualize a pergunta correspondente em `FAQ`.
 - **Aluno novo**: `renderWelcome` ganhou o cartão "Fazer o tour" no lugar da grade de cartões. A bolinha do "?" volta uma vez para quem só tinha visto o
   tutorial antigo (`intus-ajuda-v2-visto`). Estado em `localStorage['intus-ajuda-v2']`.
+
+## 29. Plano parcelado: Pix, dinheiro, cartão (08/10/2026)
+
+- **Sem migração de banco**: as colunas `parcela_num`, `parcela_total`, `forma_pgto` e `idmatricula_origem` já existiam em `intus_mensalidade`.
+- **Modelo** (regras e criação em `api.js`, seção "PLANO PARCELADO"): um plano de P meses pago em N parcelas (2 a 12) vira N linhas. Cada
+  parcela é uma janela que obedece à regra de cobrança de sempre (paga no início, vencimento = fim da cobertura): `dtinicio` = quando a parcela
+  é cobrada, `dtvencimento` = quando a seguinte começa (a última vai até o fim do plano). `idmatricula_origem` das parcelas 2..N aponta para a
+  parcela 1; `recorrencia` fica vazia (o plano não gera ciclo novo sozinho; depois da última aparece o estado "renovar").
+- **API**: `gerarParcelas` (só calcula; centavos, o resto vai para a última), `criarPlanoParcelado` (cria, e desfaz o que criou se falhar no
+  meio), `serieParcelas`, `resumoParcelas`, `parcelasAbertas`, `dadosRenovacaoParcelada`, `ehParcelada`, `rotuloParcela`, e as ações da série
+  inteira `cancelarParcelas`, `trancarParcelas`, `destrancarParcelas`, `moverParcelas`. Testes em `testes/parcelas.js` (51 casos).
+- **Regras ajustadas no `api.js`**: `mesesDoPlano` de uma parcela é a janela dela (antes lia "trimestral" da descrição e a parcela 2 aparecia
+  vencida e a baixa gerava um ciclo de 3 meses); `pagamentoDoProximoCiclo` ignora parcela numerada; `_normalizarPlano` ignora o "(2/6)";
+  `situacaoPlano` não deixa parcela que ainda não começou manter o aluno ativo enquanto ele deve a anterior.
+- **Telas**: Nova matrícula em `mensalidades.html` e na ficha do aluno (`alunos.html`) ganharam Parcelas, Forma de recebimento e a prévia (a
+  prévia mora em `_mock.js`, `parcPrevHtml`); com status "Paga" a 1ª parcela já entra recebida. Etiqueta "Parcela 2/6 · Pix" nas listas. Baixa de
+  parcela (nas três telas que dão baixa) não gera ciclo novo e mostra quanto falta. Cancelar, trancar, destrancar e mover a data valem para as
+  parcelas em aberto. ↻ em plano parcelado abre o mesmo parcelamento de novo a partir do fim do anterior. `financeiro.html` conta como recebida
+  a parcela paga mesmo depois do plano acabar. O app ("Minha Matrícula") mostra pagas, restantes e a próxima cobrança.
+- **Cópias que ganharam a mesma guarda** (parcela numerada nunca é "sobra"): `_cobrancaSuperada` em `mensalidades.html` e `_superada` em
+  `index.html`. **Aviso**: parcelamentos feitos antes pelo modal antigo (sem ligação) passam a ser lidos pelas regras novas; o status deles pode
+  mudar para o correto.
+- **Observação (não alterada)**: no `financeiro.html`, linha paga de plano NÃO parcelado em estado `renovar`, `encerrada` ou `cancelada` não entra
+  em "recebido". Parece o mesmo defeito que corrigi só para parcelas; precisa de decisão do Luiz antes de mexer.

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Financeiro — Intus</title>
-  <script src="_mock.js?v=20261007a"></script>
-  <script src="api.js?v=20261006b"></script>
+  <script src="_mock.js?v=20261008a"></script>
+  <script src="api.js?v=20261008a"></script>
 </head>
 <body>
 <script>
@@ -308,6 +308,10 @@ function carregarDados() {
       : { estado: (m.stpgto === 'S' ? 'paga' : 'pendente'), dias: null, ehDivida: m.stpgto !== 'S' };
     let status = 'encerrado';
     if (sit.estado === 'paga' || sit.estado === 'renovada') status = 'pago';
+    // Parcela de plano parcelado que JA FOI PAGA entra no recebido do mes em que o dinheiro entrou, mesmo que depois o plano termine,
+    // seja cancelado, trancado ou encerrado. Sem isto a receita do mes diminuia sozinha quando o plano acabava.
+    else if (m.stpgto === 'S' && typeof API !== 'undefined' && API.ehParcelada && API.ehParcelada(m) &&
+             (sit.estado === 'renovar' || sit.estado === 'encerrada' || sit.estado === 'cancelada' || sit.estado === 'trancada')) status = 'pago';
     else if (sit.estado === 'vencida' || sit.estado === 'inativa') status = 'atrasado';
     else if (sit.estado === 'pendente' || sit.estado === 'programada') status = 'pendente';
     // 'paga_no_anterior' fica em 'encerrado' de proposito: o dinheiro entrou,
@@ -2175,14 +2179,18 @@ async function confirmarPgto(idmensalidade) {
   const mens = JSON.parse(localStorage.getItem('intus-mensalidades') || '[]');
   const m = mens.find(x => Number(x.idmensalidade) === Number(idmensalidade));
   if (!m) return;
-  if (!confirm(`Confirmar pagamento de ${brl(m.vlpagar)} de ${m.nmathleta || 'cliente'}?`)) return;
+  // Parcela de plano parcelado: o valor a receber e o liquido (com o desconto dividido) e nao ha renovacao automatica a gerar,
+  // porque as parcelas seguintes ja existem.
+  const _parc = typeof API !== 'undefined' && API.ehParcelada && API.ehParcelada(m);
+  const _liq = _parc ? +(parseFloat(m.vlpagar || 0) - parseFloat(m.vldesconto || 0)).toFixed(2) : m.vlpagar;
+  if (!confirm(`Confirmar pagamento de ${brl(_liq)} de ${m.nmathleta || 'cliente'}${_parc ? ' (' + API.rotuloParcela(m).toLowerCase() + ')' : ''}?`)) return;
   const hoje = new Date().toISOString().slice(0,10);
   try {
-    await _finPut(idmensalidade, { stpgto: 'S', dtpagamento: hoje, vlpagamento: m.vlpagar, dspagamento: 'Pagamento registrado' });
+    await _finPut(idmensalidade, { stpgto: 'S', dtpagamento: hoje, vlpagamento: _liq, dspagamento: 'Pagamento registrado' });
     showToast('Pagamento confirmado!');
 
     // Auto-gerar renovação se o plano tem período definido (dtinicio + dtvencimento)
-    if (m.dtinicio && m.dtvencimento) {
+    if (!_parc && m.dtinicio && m.dtvencimento) {
       const d1 = new Date(m.dtinicio + 'T00:00:00');
       const d2 = new Date(m.dtvencimento + 'T00:00:00');
       const durMeses = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
@@ -2226,6 +2234,22 @@ async function renovarPlano(idmensalidade) {
   const mens = JSON.parse(localStorage.getItem('intus-mensalidades') || '[]');
   const m = mens.find(x => Number(x.idmensalidade) === Number(idmensalidade));
   if (!m) return;
+
+  // Plano parcelado: renovar = abrir o mesmo parcelamento de novo, a partir do fim do anterior (mesmas parcelas e valor).
+  if (typeof API !== 'undefined' && API.ehParcelada && API.ehParcelada(m)) {
+    if (API.parcelasAbertas(m, mens).length) { showToast('Este plano ainda tem parcelas em aberto. Receba ou cancele antes de renovar.'); return; }
+    const d = API.dadosRenovacaoParcelada(m, mens);
+    const g = d ? API.gerarParcelas(d) : null;
+    if (!g || !g.ok) { showToast((g && g.erro) || 'Não consegui montar a renovação.'); return; }
+    if (!confirm(`Renovar o plano parcelado de ${m.nmathleta || 'cliente'}?\n\n${g.linhas.length} parcelas de ${brl(g.valorParcela)}\nPeríodo: ${new Date(d.inicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(g.fim + 'T00:00:00').toLocaleDateString('pt-BR')}`)) return;
+    try {
+      await API.criarPlanoParcelado(d);
+      showToast('Plano renovado: ' + g.linhas.length + ' parcelas geradas.');
+      _syncBackendDone = false;
+      await syncDoBackend(true);
+    } catch (e) { showToast('Erro ao renovar: ' + (e.message || 'falha')); }
+    return;
+  }
 
   // Detecta duração em meses do plano atual
   let mesesDefault = 1;

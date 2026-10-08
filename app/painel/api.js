@@ -1532,6 +1532,17 @@ const API = {
   mesesDoPlano: (m) => {
     if (!m) return null;
     if (API.ehTestePlano(m)) return null;
+    // Linha de plano PARCELADO: ela cobre so a janela dela (da data de inicio ate o inicio da parcela seguinte), e nao o plano
+    // inteiro que a descricao cita ("Trimestral (1/3)" e uma parcela de UM mes). Ler "trimestral" da descricao fazia a cobranca
+    // recuar tres meses, a parcela 2 aparecer vencida e a baixa gerar um ciclo novo de tres meses.
+    if (API.ehParcelada(m)) {
+      const i = String(m.dtinicio || '').slice(0, 10), v = String(m.dtvencimento || '').slice(0, 10);
+      if (i && v) {
+        const dias = Math.round((new Date(v + 'T00:00:00') - new Date(i + 'T00:00:00')) / 86400000);
+        return Math.max(1, Math.round(dias / 30.44));
+      }
+      return 1;
+    }
     const rec = String(m.recorrencia || '').toLowerCase();
     if (rec === 'avulso') return null;
     if (API._RECMESES[rec]) return API._RECMESES[rec];
@@ -1578,6 +1589,7 @@ const API = {
   // ciclo — a Vanessa pagou 30/07 o ciclo 30/07–30/08 e nada muda para ela.
   pagamentoDoProximoCiclo: (c) => {
     if (!c || c.stpgto !== 'S') return false;
+    if (API.ehParcelada(c)) return false;   // parcela numerada: o dinheiro e DELA, nao do ciclo seguinte
     const i = String(c.dtinicio || '').slice(0, 10);
     const v = String(c.dtvencimento || '').slice(0, 10);
     const p = String(c.dtpagamento || '').slice(0, 10);
@@ -1607,6 +1619,7 @@ const API = {
   _normalizarPlano: (t) => String(t || '').toLowerCase()
     .replace(/\b(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/g, ' ')
     .replace(/\bde\b/g, ' ').replace(/\b20\d{2}\b/g, ' ')
+    .replace(/\(\s*\d+\s*\/\s*\d+\s*\)/g, ' ')            // "(2/6)": parcela do mesmo plano, nao outro plano
     .replace(/[—–-]+/g, ' ').replace(/\s+/g, ' ').trim(),
 
   _construirMapaMat: (lista) => {
@@ -1798,6 +1811,201 @@ const API = {
     return d != null && d > API.COBRANCA_TOLERANCIA_DIAS;
   },
 
+  // ══ PLANO PARCELADO ════════════════════════════════════════════════════════
+  // Um plano de P meses pago em N parcelas (Pix, dinheiro, cartão...). Cada parcela é UMA linha de intus_mensalidade com a janela
+  // que ela paga: da data em que vence ate o dia em que a seguinte vence (a ultima vai ate o fim do plano). Isso encaixa o
+  // parcelado na regra de cobranca de sempre (paga no inicio do ciclo, vencimento = fim da cobertura), sem regra especial:
+  //   • parcela_num / parcela_total identificam a linha (a coluna ja existia);
+  //   • idmatricula_origem das parcelas 2..N aponta para a parcela 1, que e o que as mantem na MESMA matricula;
+  //   • recorrencia fica vazia: o plano NAO gera ciclo novo sozinho, a renovacao e uma acao (estado "renovar" depois da ultima).
+  // Exemplo: Trimestral de R$ 600 em 3x a partir de 01/10 → 3 linhas de R$ 200: 01/10→01/11, 01/11→01/12, 01/12→01/01.
+  ehParcelada: (m) => !!m && Number(m.parcela_total) > 1,
+
+  // Soma meses a uma data ISO, contando sempre a partir da data-base (sem acumular desvio de mes curto).
+  _somarMeses: (iso, n) => API._recuarMeses(iso, -n),
+
+  // "Plano X (2/6)" → "Plano X"
+  descricaoBase: (m) => String((m && m.dshistorico) || 'Mensalidade').replace(/\s*\(\s*\d+\s*\/\s*\d+\s*\)\s*$/, '').trim() || 'Mensalidade',
+
+  rotuloParcela: (m) => API.ehParcelada(m) ? ('Parcela ' + (Number(m.parcela_num) || '?') + '/' + Number(m.parcela_total)) : '',
+
+  // Calcula as parcelas SEM gravar nada (a tela usa para mostrar a previa e para validar).
+  //   o = { inicio:'AAAA-MM-DD', meses:P, parcelas:N, intervalo:1, valor:total, desconto:total, descricao }
+  // Valores em centavos: o resto da divisao vai para a ultima parcela, e a soma sempre fecha com o total.
+  gerarParcelas: (o) => {
+    o = o || {};
+    const R = (erro) => ({ ok: false, erro: erro, linhas: [] });
+    const inicio = String(o.inicio || '').slice(0, 10);
+    const P = parseInt(o.meses, 10), Nn = parseInt(o.parcelas, 10), I = parseInt(o.intervalo || 1, 10);
+    const total = Number(o.valor), desc = Number(o.desconto || 0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio)) return R('Informe a data de início.');
+    if (!(Nn >= 2 && Nn <= 12)) return R('Escolha de 2 a 12 parcelas.');
+    if (!(P >= 2)) return R('Para parcelar, o plano precisa ter pelo menos 2 meses. Escolha a recorrência trimestral, semestral ou anual.');
+    if (!(I >= 1)) return R('Intervalo entre parcelas inválido.');
+    if (Nn * I > P) {
+      const max = Math.floor(P / I);
+      return R('Um plano de ' + P + ' meses comporta no máximo ' + max + ' parcelas' + (I === 1 ? ' mensais' : ' a cada ' + I + ' meses') + '.');
+    }
+    if (!(total > 0)) return R('Informe o valor do plano.');
+    if (!(desc >= 0) || desc >= total) return R('O desconto precisa ser menor que o valor do plano.');
+    const tc = Math.round(total * 100), dc = Math.round(desc * 100);
+    const baseV = Math.floor(tc / Nn), baseD = Math.floor(dc / Nn);
+    const nome = String(o.descricao || 'Mensalidade').trim() || 'Mensalidade';
+    const fim = API._somarMeses(inicio, P);
+    const linhas = [];
+    for (let i = 1; i <= Nn; i++) {
+      const ultima = i === Nn;
+      linhas.push({
+        parcela_num: i, parcela_total: Nn,
+        dshistorico: nome + ' (' + i + '/' + Nn + ')',
+        dtinicio: API._somarMeses(inicio, (i - 1) * I),
+        dtvencimento: ultima ? fim : API._somarMeses(inicio, i * I),
+        vlpagar: (ultima ? tc - baseV * (Nn - 1) : baseV) / 100,
+        vldesconto: (ultima ? dc - baseD * (Nn - 1) : baseD) / 100,
+      });
+    }
+    return { ok: true, erro: '', linhas: linhas, fim: fim, total: total, desconto: desc, liquido: (tc - dc) / 100, valorParcela: baseV / 100 };
+  },
+
+  // Cria o plano parcelado inteiro. Se algo falhar no meio, desfaz as parcelas criadas NESTA operacao (nao toca em mais nada).
+  //   o = gerarParcelas + { idatleta, forma, tipo_plano, professor, primeiraPaga: { data } }
+  criarPlanoParcelado: async (o) => {
+    const g = API.gerarParcelas(o);
+    if (!g.ok) throw new Error(g.erro);
+    const criados = [];
+    try {
+      let raiz = null;
+      for (const l of g.linhas) {
+        const corpo = {
+          idatleta: o.idatleta, dshistorico: l.dshistorico, tipo_plano: o.tipo_plano || null,
+          dtinicio: l.dtinicio, dtvencimento: l.dtvencimento, vlpagar: l.vlpagar, vldesconto: l.vldesconto, vljuro: 0,
+          stpgto: 'N', professor: o.professor || null, forma_pgto: o.forma || null, recorrencia: null,
+          parcela_num: l.parcela_num, parcela_total: l.parcela_total,
+        };
+        if (raiz) corpo.idmatricula_origem = raiz;
+        const r = await API.criarMensalidade(corpo);
+        criados.push(Number(r.idmensalidade));
+        if (!raiz) raiz = Number(r.idmensalidade);
+      }
+      if (o.primeiraPaga) {
+        const l = g.linhas[0];
+        await API.editarMensalidade(criados[0], {
+          stpgto: 'S', dtpagamento: (o.primeiraPaga.data || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)),
+          vlpagamento: +(l.vlpagar - l.vldesconto).toFixed(2), dspagamento: 'Pagamento registrado', forma_pgto: o.forma || null,
+        });
+      }
+    } catch (e) {
+      for (const id of criados.slice().reverse()) { try { await API.excluirMensalidade(id); } catch (x) {} }
+      throw new Error('Não consegui criar o parcelamento' + (criados.length ? ' (as ' + criados.length + ' parcelas já criadas foram desfeitas)' : '') + ': ' + ((e && e.message) || e));
+    }
+    return { ids: criados, linhas: g.linhas, fim: g.fim };
+  },
+
+  // As parcelas da MESMA serie (mesmo plano parcelado), em ordem. Linha antiga sem ligacao vira uma serie de uma parcela so.
+  serieParcelas: (m, lista) => {
+    if (!API.ehParcelada(m)) return [];
+    const raiz = (x) => Number(x.idmatricula_origem || x.idmensalidade);
+    const r = raiz(m);
+    return (Array.isArray(lista) ? lista : []).filter(x => API.ehParcelada(x) && Number(x.idatleta) === Number(m.idatleta) && raiz(x) === r)
+      .sort((a, b) => Number(a.parcela_num) - Number(b.parcela_num));
+  },
+
+  // Quanto ja foi pago, quanto falta e qual a proxima parcela de um plano parcelado.
+  resumoParcelas: (m, lista) => {
+    const serie = API.serieParcelas(m, lista);
+    if (!serie.length) return null;
+    const liquido = (x) => +(parseFloat(x.vlpagar || 0) - parseFloat(x.vldesconto || 0)).toFixed(2);
+    const validas = serie.filter(x => x.stmatricula !== 'cancelada');
+    const pagas = validas.filter(x => x.stpgto === 'S');
+    const abertas = validas.filter(x => x.stpgto !== 'S' && x.stmatricula !== 'encerrada');
+    const proximaLinha = abertas.slice().sort((a, b) => String(a.dtinicio || a.dtvencimento).localeCompare(String(b.dtinicio || b.dtvencimento)))[0] || null;
+    return {
+      total: Number(serie[0].parcela_total), pagas: pagas.length, abertas: abertas.length,
+      valorTotal: +validas.reduce((s, x) => s + liquido(x), 0).toFixed(2),
+      valorPago: +pagas.reduce((s, x) => s + parseFloat(x.vlpagamento != null && x.vlpagamento !== '' ? x.vlpagamento : liquido(x)), 0).toFixed(2),
+      valorRestante: +abertas.reduce((s, x) => s + liquido(x), 0).toFixed(2),
+      quitado: abertas.length === 0 && pagas.length > 0,
+      proxima: proximaLinha ? { idmensalidade: proximaLinha.idmensalidade, parcela: Number(proximaLinha.parcela_num), cobranca: API.dtCobranca(proximaLinha), valor: liquido(proximaLinha) } : null,
+    };
+  },
+
+  // Parcelas ainda nao pagas e nao canceladas da serie (e as que vem DEPOIS de uma dada parcela, se `aPartirDe` vier).
+  parcelasAbertas: (m, lista, aPartirDe) => API.serieParcelas(m, lista).filter(x =>
+    x.stpgto !== 'S' && x.stmatricula !== 'cancelada' && x.stmatricula !== 'encerrada' &&
+    (aPartirDe == null || Number(x.parcela_num) >= Number(aPartirDe))),
+
+  // Dados para renovar um plano parcelado: mesmo numero de parcelas, mesmo valor, comecando onde o anterior terminou.
+  dadosRenovacaoParcelada: (m, lista) => {
+    const serie = API.serieParcelas(m, lista).filter(x => x.stmatricula !== 'cancelada');
+    if (!serie.length) return null;
+    const primeira = serie[0], ultima = serie[serie.length - 1];
+    const ini = String(primeira.dtinicio || '').slice(0, 10), fim = String(ultima.dtvencimento || '').slice(0, 10);
+    if (!ini || !fim) return null;
+    const meses = Math.max(2, Math.round((new Date(fim + 'T00:00:00') - new Date(ini + 'T00:00:00')) / 86400000 / 30.44));
+    return {
+      idatleta: m.idatleta, inicio: fim, meses: meses, parcelas: Number(primeira.parcela_total), intervalo: 1,
+      valor: +serie.reduce((s, x) => s + parseFloat(x.vlpagar || 0), 0).toFixed(2),
+      desconto: +serie.reduce((s, x) => s + parseFloat(x.vldesconto || 0), 0).toFixed(2),
+      descricao: API.descricaoBase(primeira), forma: primeira.forma_pgto || 'pix', tipo_plano: primeira.tipo_plano || null, professor: primeira.professor || null,
+    };
+  },
+
+  // ── Acoes que valem para a SERIE inteira de um plano parcelado ─────────────────────────────────────────────────────
+  // Cancelar, trancar, destrancar e mover a data mexem em todas as parcelas que ainda nao foram pagas (as pagas ficam como
+  // estao, e o historico delas nao muda). Ficam aqui para o painel de matriculas e a ficha do aluno fazerem exatamente igual.
+  _deslocarDias: (iso, dias) => {
+    const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+    if (isNaN(d)) return iso;
+    d.setDate(d.getDate() + Math.round(Number(dias) || 0));
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  },
+
+  // Cancela as parcelas em aberto (e a propria linha, se vier). Devolve quantas linhas mudaram.
+  cancelarParcelas: async (m, lista, motivo) => {
+    const alvos = API.parcelasAbertas(m, lista);
+    if (!alvos.some(x => Number(x.idmensalidade) === Number(m.idmensalidade))) alvos.push(m);
+    for (const x of alvos) await API.editarMensalidade(x.idmensalidade, { stmatricula: 'cancelada', motivo_encerramento: motivo || null });
+    return alvos.length;
+  },
+
+  trancarParcelas: async (m, lista, hojeISO, fimISO, motivo) => {
+    const alvos = API.parcelasAbertas(m, lista);
+    if (!alvos.some(x => Number(x.idmensalidade) === Number(m.idmensalidade))) alvos.push(m);
+    for (const x of alvos) await API.editarMensalidade(x.idmensalidade, { stmatricula: 'trancada', dt_tranca_inicio: hojeISO, dt_tranca_fim: fimISO || null, motivo_encerramento: motivo || null });
+    return alvos.length;
+  },
+
+  // Reativa e empurra as datas das parcelas em aberto pelos dias parados (janela inteira: inicio e fim).
+  destrancarParcelas: async (m, lista, dias) => {
+    const alvos = API.serieParcelas(m, lista).filter(x => x.stmatricula === 'trancada');
+    if (!alvos.some(x => Number(x.idmensalidade) === Number(m.idmensalidade))) alvos.push(m);
+    const acum = (parseInt(m.dias_trancado || 0) || 0) + (dias || 0);
+    for (const x of alvos) {
+      const corpo = { stmatricula: 'ativa', dt_tranca_inicio: null, dt_tranca_fim: null, dias_trancado: acum };
+      if (dias > 0 && x.stpgto !== 'S') {
+        if (x.dtinicio) corpo.dtinicio = API._deslocarDias(x.dtinicio, dias);
+        if (x.dtvencimento) corpo.dtvencimento = API._deslocarDias(x.dtvencimento, dias);
+      }
+      await API.editarMensalidade(x.idmensalidade, corpo);
+    }
+    return alvos.length;
+  },
+
+  // Muda a data de cobranca desta parcela e leva junto as seguintes (a janela de cada uma anda o mesmo tanto).
+  moverParcelas: async (m, lista, novaCobrancaISO) => {
+    const atual = API.dtCobranca(m);
+    const delta = Math.round((new Date(novaCobrancaISO + 'T00:00:00') - new Date(atual + 'T00:00:00')) / 86400000);
+    if (!delta) return 0;
+    const alvos = API.parcelasAbertas(m, lista, m.parcela_num);
+    for (const x of alvos) {
+      const corpo = {};
+      if (x.dtinicio) corpo.dtinicio = API._deslocarDias(x.dtinicio, delta);
+      if (x.dtvencimento) corpo.dtvencimento = API._deslocarDias(x.dtvencimento, delta);
+      await API.editarMensalidade(x.idmensalidade, corpo);
+    }
+    return alvos.length;
+  },
+
   // Contas modelo do sistema (usadas no teste gratis) nunca sao bloqueadas.
   _ehModelo: (a) => !!a && (a.email === 'modelo.masculino@intusfit.local' || a.email === 'modelo.feminino@intusfit.local'),
 
@@ -1842,8 +2050,11 @@ const API = {
     // continuava "ativo" ate o fim do periodo mais a carencia. Era por isso que
     // a matricula do Luiz aparecia vencida no painel e ativa no app ao mesmo
     // tempo — cada tela olhava uma metade da verdade.
+    // Parcela cuja janela AINDA NAO COMECOU nao da cobertura: parcelas 3, 4, 5... em aberto nao podem manter ativo quem esta devendo
+    // a parcela 2. So conta a parcela que ja esta valendo.
     const vigente = validas.some(m => m.stmatricula !== 'encerrada' && m.dtvencimento &&
-      String(m.dtvencimento).slice(0, 10) >= hojeStr && !API.cobrancaVencida(m, todas));
+      String(m.dtvencimento).slice(0, 10) >= hojeStr && !API.cobrancaVencida(m, todas) &&
+      (!API.ehParcelada(m) || String(m.dtinicio || '').slice(0, 10) <= hojeStr));
     if (vigente) return R('ativo', '', 0);
 
     // Cobertura correndo, mas a cobranca deste periodo passou da tolerancia.

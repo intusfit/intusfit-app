@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261007a"></script>
+  <script src="api.js?v=20261008a"></script>
   <script src="ajuda.js?v=20261008a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -15720,8 +15720,10 @@ async function renderMatricula() {
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   mens.sort((a,b) => (b.dtvencimento || '').localeCompare(a.dtvencimento || ''));
 
-  const ativa = mens.find(m => m.stpgto !== 'S' && new Date(m.dtvencimento + 'T00:00:00') >= hoje)
-    || mens.find(m => m.stpgto !== 'S');
+  // A lista vem do vencimento mais novo para o mais antigo. Com plano parcelado ha varias parcelas em aberto, e a que interessa e a
+  // PROXIMA a vencer (a de vencimento mais proximo), nao a ultima da fila.
+  const _abertas = mens.filter(m => m.stpgto !== 'S' && m.stmatricula !== 'cancelada').slice().sort((a, b) => (a.dtvencimento || '').localeCompare(b.dtvencimento || ''));
+  const ativa = _abertas.find(m => new Date(m.dtvencimento + 'T00:00:00') >= hoje) || _abertas[_abertas.length - 1] || null;
   const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
   const fmtV = v => 'R$ ' + parseFloat(v||0).toFixed(2).replace('.',',');
 
@@ -15746,6 +15748,17 @@ async function renderMatricula() {
           <span style="font-size:11px;padding:3px 8px;border-radius:6px;background:rgba(127,255,0,.15);color:#7FFF00;font-weight:600;white-space:nowrap;">Ativa</span>
         </div>
         <div style="font-size:16px;font-weight:700;color:var(--texto,#fff);margin-bottom:8px;overflow-wrap:anywhere;line-height:1.35;">${esc(ativa.dshistorico || 'Mensalidade')}</div>
+        ${(() => {
+          // Plano parcelado: mostra em que ponto o aluno esta (pagas, restantes e a proxima cobranca)
+          if (!API.ehParcelada(ativa)) return '';
+          const r = API.resumoParcelas(ativa, mens);
+          if (!r) return '';
+          const forma = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', eduzz: 'Eduzz' }[String(ativa.forma_pgto || '').toLowerCase()] || '';
+          return '<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted,#888);line-height:1.6;">' +
+            '<b style="color:#fbbf24;">Plano parcelado</b>' + (forma ? ' · ' + forma : '') + '<br>' +
+            '<b style="color:var(--texto,#fff);">' + r.pagas + ' de ' + r.total + ' parcelas pagas</b>' + (r.abertas ? ' · restam ' + fmtV(r.valorRestante) : '') +
+            (r.proxima ? '<br>Próxima cobrança: <b style="color:var(--texto,#fff);">' + fmtD(r.proxima.cobranca) + '</b> (' + fmtV(r.proxima.valor) + ')' : '') + '</div>';
+        })()}
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px;">
           <div style="background:rgba(127,255,0,.06);border:1px solid rgba(127,255,0,.15);border-radius:8px;padding:10px;">
@@ -15792,6 +15805,14 @@ async function renderMatricula() {
     let badge = '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(250,204,21,.15);color:#facc15;font-weight:600;">Pendente</span>';
     if (isPago) badge = '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(127,255,0,.15);color:#7FFF00;font-weight:600;">Paga</span>';
     else if (isVenc) badge = '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(248,113,113,.15);color:#f87171;font-weight:600;">Vencida</span>';
+    // Parcela: o estado vem da regra unica (cobranca no inicio da janela), e uma parcela que ainda nao chegou nao e "pendente".
+    if (!isPago && API.ehParcelada(m)) {
+      const _st = API.situacaoCobranca(m, mens).estado;
+      if (_st === 'programada') badge = '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(148,163,184,.15);color:#94a3b8;font-weight:600;">A vencer</span>';
+      else if (_st === 'vencida' || _st === 'inativa') badge = '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(248,113,113,.15);color:#f87171;font-weight:600;">Vencida</span>';
+      else if (_st === 'cancelada') badge = '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(148,163,184,.15);color:#94a3b8;font-weight:600;">Cancelada</span>';
+      else badge = '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(250,204,21,.15);color:#facc15;font-weight:600;">Pendente</span>';
+    }
 
     html += `
       <div style="background:var(--card-bg,#1a1a1a);border:1px solid var(--borda,#2a2a2a);border-radius:10px;padding:12px 14px;margin-bottom:8px;">
@@ -15801,7 +15822,7 @@ async function renderMatricula() {
         </div>
         <div style="font-size:11.5px;color:var(--muted,#888);display:flex;flex-wrap:wrap;gap:4px 12px;line-height:1.6;">
           ${m.dtinicio ? `<span>Início <b style="color:var(--texto,#fff);font-weight:600;">${fmtD(m.dtinicio)}</b></span>` : ''}
-          <span>Venc. <b style="color:var(--texto,#fff);font-weight:600;">${fmtD(m.dtvencimento)}</b></span>
+          ${API.ehParcelada(m) ? `<span>Cobrança <b style="color:var(--texto,#fff);font-weight:600;">${fmtD(API.dtCobranca(m))}</b></span>` : `<span>Venc. <b style="color:var(--texto,#fff);font-weight:600;">${fmtD(m.dtvencimento)}</b></span>`}
           <span>${fmtV(m.vlpagar)}${parseFloat(m.vldesconto||0) > 0 ? ' <span style="opacity:.8;">(desc. ' + fmtV(m.vldesconto) + ')</span>' : ''}</span>
         </div>
       </div>`;

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
-  <script src="_mock.js?v=20261007a"></script>
-  <script src="api.js?v=20261006b"></script>
+  <script src="_mock.js?v=20261008a"></script>
+  <script src="api.js?v=20261008a"></script>
   <style>
     .th-sort { cursor: pointer; user-select: none; white-space: nowrap; transition: color .15s; }
     .th-sort:hover { color: var(--green, #7FFF00); }
@@ -852,7 +852,7 @@ function carregarMiniMatriculas(id) {
     <div style="padding:10px 12px;background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="min-width:0;">
-          <div style="font-size:12px;font-weight:600;color:var(--text);">${esc(m.dshistorico || 'Mensalidade')}${rec ? ` <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(56,189,248,.12);color:#38bdf8;">🔁 ${esc(recLabel)}</span>` : ''}${m.forma_pgto ? ` <span style="font-size:9px;color:var(--text-muted);">· ${esc(String(m.forma_pgto))}</span>` : ''}</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text);">${esc(m.dshistorico || 'Mensalidade')}${(typeof API !== 'undefined' && API.ehParcelada(m)) ? ` <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(251,191,36,.14);color:#fbbf24;" title="${esc((() => { const r = API.resumoParcelas(m, mensalidades); return r ? r.pagas + ' de ' + r.total + ' parcelas pagas. Restam R$ ' + r.valorRestante.toFixed(2).replace('.', ',') : ''; })())}">${esc(API.rotuloParcela(m))}${_formaRotAl(m.forma_pgto) ? ' · ' + _formaRotAl(m.forma_pgto) : ''}</span>` : ''}${rec ? ` <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(56,189,248,.12);color:#38bdf8;">🔁 ${esc(recLabel)}</span>` : ''}${m.forma_pgto ? ` <span style="font-size:9px;color:var(--text-muted);">· ${esc(String(m.forma_pgto))}</span>` : ''}</div>
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${_dtFmt(m.dtinicio)} → ${_dtFmt(m.dtvencimento)}${m.dtpagamento ? ' · pago em ' + _dtFmt(m.dtpagamento) : ''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0;">
@@ -1380,6 +1380,33 @@ function aplicarPlanoAlunos(selectEl) {
   const venc = new Date(hoje);
   venc.setMonth(venc.getMonth() + (opt.meses || 1));
   document.getElementById('nm-venc').value = venc.toISOString().slice(0,10);
+  const _recP = { 1: 'mensal', 3: 'trimestral', 6: 'semestral', 12: 'anual' }[opt.meses || 1];
+  const _selRec = document.getElementById('nm-recorrencia');
+  if (_recP && _selRec) _selRec.value = _recP;
+  nmParcMudou();
+}
+
+// ── Plano parcelado ────────────────────────────────────────────────────────────────────────────────────────────────
+function _formaRotAl(f) { return { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', eduzz: 'Eduzz' }[String(f || '').toLowerCase()] || ''; }
+function nmParcOpcoes() {
+  const g = (i) => document.getElementById(i);
+  return {
+    inicio: (g('nm-ini') && g('nm-ini').value) || new Date().toISOString().slice(0, 10),
+    meses: parcMesesDe(g('nm-recorrencia') && g('nm-recorrencia').value),
+    parcelas: parseInt((g('nm-parcelas') && g('nm-parcelas').value) || '1', 10) || 1,
+    valor: parseFloat((g('nm-valor') && g('nm-valor').value) || 0) || 0,
+    desconto: parseFloat((g('nm-desconto') && g('nm-desconto').value) || 0) || 0,
+    descricao: ((g('nm-desc') && g('nm-desc').value) || '').trim() || 'Mensalidade',
+    forma: (g('nm-forma') && g('nm-forma').value) || '',
+  };
+}
+function nmParcMudou() {
+  const prev = document.getElementById('nm-parc-prev'); if (!prev) return;
+  const o = nmParcOpcoes();
+  const forma = document.getElementById('nm-forma');
+  if (o.parcelas > 1 && forma && !forma.value) { forma.value = 'pix'; o.forma = 'pix'; }
+  if (o.parcelas <= 1) { prev.innerHTML = ''; return; }
+  prev.innerHTML = parcPrevHtml(API.gerarParcelas(o), o.forma);
 }
 
 async function abrirNovaMatricula(idatleta) {
@@ -1415,12 +1442,12 @@ async function abrirNovaMatricula(idatleta) {
 
       <div class="form-group">
         <label class="label">Descrição</label>
-        <input id="nm-desc" class="input" value="Mensalidade ${mesNome}" placeholder="Ex.: Mensalidade Maio"/>
+        <input id="nm-desc" class="input" oninput="nmParcMudou()" value="Mensalidade ${mesNome}" placeholder="Ex.: Mensalidade Maio"/>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="form-group">
           <label class="label">Data Início</label>
-          <input id="nm-ini" class="input" type="date" value="${hoje}"/>
+          <input id="nm-ini" class="input" type="date" onchange="nmParcMudou()" value="${hoje}"/>
         </div>
         <div class="form-group">
           <label class="label">Vencimento</label>
@@ -1430,11 +1457,11 @@ async function abrirNovaMatricula(idatleta) {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
         <div class="form-group">
           <label class="label">Valor (R$)</label>
-          <input id="nm-valor" class="input" type="number" min="0" step="0.01" value="150.00"/>
+          <input id="nm-valor" class="input" type="number" min="0" step="0.01" oninput="nmParcMudou()" value="150.00"/>
         </div>
         <div class="form-group">
           <label class="label">Desconto (R$)</label>
-          <input id="nm-desconto" class="input" type="number" min="0" step="0.01" placeholder="0.00" value="0.00"/>
+          <input id="nm-desconto" class="input" type="number" min="0" step="0.01" oninput="nmParcMudou()" placeholder="0.00" value="0.00"/>
         </div>
         <div class="form-group">
           <label class="label">Dia Pagamento</label>
@@ -1456,7 +1483,7 @@ async function abrirNovaMatricula(idatleta) {
       </div>
       <div class="form-group">
         <label class="label">Recorrência</label>
-        <select id="nm-recorrencia" class="input">
+        <select id="nm-recorrencia" class="input" onchange="nmParcMudou()">
           <option value="mensal" selected>Mensal</option>
           <option value="trimestral">Trimestral</option>
           <option value="semestral">Semestral</option>
@@ -1465,6 +1492,28 @@ async function abrirNovaMatricula(idatleta) {
         </select>
         <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Plano recorrente gera a próxima cobrança automaticamente ao receber.</div>
       </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group">
+          <label class="label">Parcelas</label>
+          <select id="nm-parcelas" class="input" onchange="nmParcMudou()">
+            <option value="1">1x (à vista)</option>
+            ${Array.from({length:11},(_,i)=>i+2).map(n=>`<option value="${n}">${n}x</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="label">Forma de recebimento</label>
+          <select id="nm-forma" class="input" onchange="nmParcMudou()">
+            <option value="">—</option>
+            <option value="pix">Pix</option>
+            <option value="dinheiro">Dinheiro</option>
+            <option value="cartao">Cartão</option>
+            <option value="eduzz">Eduzz</option>
+          </select>
+        </div>
+      </div>
+      <div id="nm-parc-prev"></div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:-6px;">Parcelar vale para planos de 2 meses ou mais: a <b>recorrência</b> define a duração do plano (Trimestral = 3 meses). O valor é o do plano inteiro, dividido nas parcelas. Com status "Paga", a 1ª parcela já entra como recebida.</div>
 
       ${canCreatePresets ? `
       <div style="border-top:1px solid var(--border,#2a2a2a);padding-top:10px;margin-top:4px;">
@@ -1488,6 +1537,28 @@ async function salvarNovaMatricula(idatleta) {
   const dtpgto = document.getElementById('nm-dtpgto')?.value || '';
   const diaPgto = document.getElementById('nm-diapgto')?.value || '';
   const recorrencia = document.getElementById('nm-recorrencia')?.value || '';
+  const nParc = parseInt(document.getElementById('nm-parcelas')?.value || '1') || 1;
+  const forma = document.getElementById('nm-forma')?.value || '';
+
+  if (nParc > 1) {
+    // Plano parcelado: o valor e o do plano inteiro; a regra e a criacao moram no api.js
+    const o = nmParcOpcoes();
+    const g = API.gerarParcelas(o);
+    if (!desc) return showToast('Informe a descrição.', 'error');
+    if (!g.ok) return showToast(g.erro, 'error');
+    if (!o.forma) return showToast('Escolha a forma de recebimento (Pix, dinheiro...).', 'error');
+    try {
+      await API.criarPlanoParcelado(Object.assign({}, o, {
+        idatleta, forma: o.forma, primeiraPaga: status === 'S' ? { data: dtpgto || new Date().toISOString().slice(0, 10) } : null,
+      }));
+      showToast(nParc + ' parcelas criadas (' + _formaRotAl(o.forma) + ')' + (status === 'S' ? ', 1ª já recebida.' : '.'));
+      try { mensalidades = await API.listarMensalidades(); } catch {}
+      miniTab('matriculas', idatleta);
+    } catch (e) {
+      showToast(e.message || 'Erro ao criar parcelas', 'error');
+    }
+    return;
+  }
 
   if (!desc) return showToast('Informe a descrição.', 'error');
   if (!venc) return showToast('Informe a data de vencimento.', 'error');
@@ -1512,6 +1583,7 @@ async function salvarNovaMatricula(idatleta) {
     vljuro: 0,
     stpgto: status,
     recorrencia: recorrencia || null,
+    forma_pgto: forma || null,
     dtpagamento: status === 'S' ? (dtpgto || new Date().toISOString().slice(0, 10)) : null,
   };
 
@@ -1543,6 +1615,7 @@ function _proxVencAl(baseStr, meses, diaVenc) {
 async function _gerarRenovacaoAl(m, opts) {
   opts = opts || {};
   if (!m.dtvencimento) return null;
+  if (typeof API !== 'undefined' && API.ehParcelada(m)) return null;   // as parcelas seguintes ja existem
   const rec = String(m.recorrencia || '').toLowerCase();
   const d2 = new Date(m.dtvencimento + 'T00:00:00');
   const diaVenc = d2.getDate();
@@ -1624,6 +1697,11 @@ async function confirmarPagamentoMini(idmens, idatleta) {
     const nv = await _gerarRenovacaoAl(m, { perguntar: !recKnown });
     showToast('Pagamento registrado!' + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
     try { mensalidades = await API.listarMensalidades(); } catch {}
+    if (API.ehParcelada(m)) {
+      const r = API.resumoParcelas(mensalidades.find(x => Number(x.idmensalidade) === Number(m.idmensalidade)) || m, mensalidades);
+      if (r) showToast(r.quitado ? 'Última parcela recebida. Plano quitado: R$ ' + r.valorPago.toFixed(2).replace('.', ',') + '.' :
+        API.rotuloParcela(m) + ' recebida. Faltam ' + r.abertas + ' (R$ ' + r.valorRestante.toFixed(2).replace('.', ',') + ')' + (r.proxima ? ', a próxima com cobrança em ' + new Date(r.proxima.cobranca + 'T00:00:00').toLocaleDateString('pt-BR') : '') + '.');
+    }
     miniTab('matriculas', idatleta);
   } catch (e) {
     showToast(e.message || 'Erro ao registrar pagamento', 'error');
@@ -1690,6 +1768,22 @@ async function salvarEdicaoMatricula(idmens, idatleta) {
 // ── Renovar (gerar próxima cobrança) ──
 async function renovarMatriculaMini(idmens, idatleta) {
   const m = _mAtual(idmens, idatleta); if (!m) return;
+  if (API.ehParcelada(m)) {
+    // Plano parcelado: renovar = abrir o mesmo parcelamento de novo, a partir do fim do anterior
+    if (API.parcelasAbertas(m, mensalidades).length) return showToast('Este plano ainda tem parcelas em aberto. Receba ou cancele antes de renovar.', 'error');
+    const d = API.dadosRenovacaoParcelada(m, mensalidades);
+    const g = d ? API.gerarParcelas(d) : null;
+    if (!g || !g.ok) return showToast((g && g.erro) || 'Não consegui montar a renovação deste plano.', 'error');
+    const dt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR');
+    if (!confirm('Renovar o plano parcelado?\n\n' + g.linhas.length + ' parcelas de R$ ' + g.valorParcela.toFixed(2).replace('.', ',') + (_formaRotAl(d.forma) ? ' (' + _formaRotAl(d.forma) + ')' : '') + '\nPeríodo: ' + dt(d.inicio) + ' a ' + dt(g.fim))) return;
+    try {
+      await API.criarPlanoParcelado(d);
+      showToast('Plano renovado: ' + g.linhas.length + ' parcelas geradas.');
+      try { mensalidades = await API.listarMensalidades(); } catch {}
+      miniTab('matriculas', idatleta);
+    } catch (e) { showToast(e.message || 'Erro ao renovar', 'error'); }
+    return;
+  }
   try {
     const nv = await _gerarRenovacaoAl(m, { perguntar: true, fallbackMensal: true });
     if (nv) {
@@ -1705,6 +1799,20 @@ async function renovarMatriculaMini(idmens, idatleta) {
 // ── Alterar vencimento ──
 async function alterarVencMini(idmens, idatleta) {
   const m = _mAtual(idmens, idatleta); if (!m) return;
+  if (API.ehParcelada(m)) {
+    // Parcela: move a data de COBRANCA, e as parcelas seguintes andam junto, o mesmo tanto
+    const cob = API.dtCobranca(m);
+    const novaCob = (prompt('Nova data de cobrança da ' + API.rotuloParcela(m).toLowerCase() + ' (AAAA-MM-DD).\nAs parcelas seguintes andam junto.', cob) || '').trim();
+    if (!novaCob || novaCob === cob) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(novaCob)) return showToast('Data inválida. Use AAAA-MM-DD.', 'error');
+    try {
+      const n = await API.moverParcelas(m, mensalidades, novaCob);
+      showToast('Cobrança movida (' + n + ' parcela' + (n > 1 ? 's' : '') + ').');
+      try { mensalidades = await API.listarMensalidades(); } catch {}
+      miniTab('matriculas', idatleta);
+    } catch (e) { showToast(e.message || 'Erro ao alterar a data', 'error'); }
+    return;
+  }
   const atual = String(m.dtvencimento || '').slice(0, 10);
   const nova = prompt('Novo vencimento (AAAA-MM-DD):', atual);
   if (!nova || nova === atual) return;
@@ -1722,7 +1830,9 @@ async function alterarVencMini(idmens, idatleta) {
 // ── Excluir ──
 async function excluirMatriculaMini(idmens, idatleta) {
   if (!hasPerm('mt_excluir')) return showToast('Sem permissão para excluir.', 'error');
-  if (!confirm('Excluir esta matrícula? Essa ação não pode ser desfeita.')) return;
+  const _mx = _mAtual(idmens, idatleta);
+  const _aviso = (_mx && API.ehParcelada(_mx)) ? '\n\nEsta é a ' + API.rotuloParcela(_mx).toLowerCase() + ' do plano. As outras parcelas continuam.' : '';
+  if (!confirm('Excluir esta matrícula? Essa ação não pode ser desfeita.' + _aviso)) return;
   try {
     await API.excluirMensalidade(idmens);
     showToast('Matrícula excluída.');
