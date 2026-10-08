@@ -882,6 +882,17 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   `localStorage['intus-rx-tom']`). A reação gravada leva o modificador (💪🏽, 2 caracteres, cabe nos 8 do servidor e nos 16 da coluna);
   o resumo do post soma os tons do mesmo emoji (`_rxBase`). Só o 💪 tem tom. Servidor sem mudança (aceita qualquer emoji até 8 caracteres).
 
+- **Tom do 💪 (07/10/2026)**: sem tabela de cores. Tocar no 💪 reage com o tom guardado; **segurar** abre uma fileira com os 6 tons
+  (`_rxLigarSegurar`), soltar o dedo sobre um tom (ou tocar nele) guarda como padrão e já reage.
+- **Última tela antes de postar, post de vídeo (07/10/2026)**: mostra o próprio vídeo (com som e controles), na proporção real dele
+  (o item guarda `w` e `h`), com "Baixar vídeo" (`_composeBaixarVideo`, também um ⬇ em cada vídeo da lista) e "Editar capa". A prévia de
+  foto também segue a proporção da foto (antes cortava tudo em ~4:5 por causa de `max-height`). A capa do vídeo não leva figurinha de
+  novo (já vem no quadro) e o painel de informações fica oculto nesse caso.
+- **Som do vídeo (07/10/2026)**: o editor agora confere o áudio do arquivo gravado (decodifica e mede o pico). Se o original tem som e o
+  resultado saiu mudo, tenta o próximo modo. No iPhone a ordem é buffer, elemento, mudo. Quando sai sem som, o aviso traz um
+  diagnóstico entre parênteses (modo, estado do áudio, pico): peça o texto ao usuário. No feed, tocar no play de propósito liga o som
+  (o início automático continua mudo). Testado só no Chrome (os dois modos captam som); **iPhone não testado**.
+
 ## 25. Último treino (07/10/2026)
 
 - A Home dizia "Último: Treino C" quando o último tinha sido o D. Causa: `SessoesTreino.listarDoAtleta` ordenava só pela

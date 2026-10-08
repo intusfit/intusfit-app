@@ -1955,7 +1955,8 @@ async function _compositarInfoNaFoto(dataUrl) {
 // duas únicas coisas que ainda "colam" pixel em cima da foto.
 async function _composeImagemFinal() {
   let dataUrl = _feedComposeImg;
-  if (_composeInfoOn && _composeInfo) dataUrl = await _compositarInfoNaFoto(dataUrl);
+  // Post de vídeo: a capa é um quadro do vídeo e já traz a figurinha, então não leva outra por cima.
+  if (_composeInfoOn && _composeInfo && !_composeVideoCapa) dataUrl = await _compositarInfoNaFoto(dataUrl);
   dataUrl = await _compositarLogoNaFoto(dataUrl);
   return dataUrl;
 }
@@ -2348,7 +2349,12 @@ function _busyFim() {
   function ligar(v) {
     if (v._autoLigado) return; v._autoLigado = true;
     v.addEventListener('pause', function () { if (v._pausandoAuto) v._pausandoAuto = false; else if (!v.ended) v._pausadoPeloUsuario = true; });
-    v.addEventListener('play', function () { if (v._tocandoAuto) v._tocandoAuto = false; else v._pausadoPeloUsuario = false; });
+    v.addEventListener('play', function () {
+      if (v._tocandoAuto) { v._tocandoAuto = false; return; }
+      v._pausadoPeloUsuario = false;
+      // Quem toca o vídeo de propósito quer ouvir: o som liga (o início automático continua mudo).
+      if (v.muted) { try { v.muted = false; } catch (e) {} }
+    });
     v.addEventListener('volumechange', function () { v._somLigado = !v.muted; });
     io.observe(v);
   }
@@ -2628,7 +2634,7 @@ function _rxTom() { try { const t = localStorage.getItem('intus-rx-tom') || ''; 
 function _rxComTom(e) { return e === '💪' ? '💪' + _rxTom() : e; }
 function _rxEscolherTom(idpost, tom) {
   try { localStorage.setItem('intus-rx-tom', tom); } catch (e) {}
-  abrirReacoesPost(idpost, window.__rxAncora);   // redesenha a janela com o tom novo
+  _rxEscolher(idpost, '💪' + tom);   // o tom escolhido segurando o 💪 vira o padrão e a reação já é dada
 }
 function _rxMinha(idpost) { return (_reacoesFeed[String(idpost)] || []).find(r => r.meu) || null; }
 function _rxRedesenhar(idpost) {
@@ -2665,11 +2671,10 @@ function _rxEscolher(idpost, emoji) {
   const m = _rxMinha(idpost);
   reagirPost(idpost, (m && m.emoji === emoji) ? null : emoji);   // tocar na que já é sua tira
 }
-function fecharReacoesPost() { document.getElementById('rx-bar')?.remove(); document.getElementById('rx-fundo')?.remove(); }
+function fecharReacoesPost() { document.getElementById('rx-bar')?.remove(); document.getElementById('rx-fundo')?.remove(); document.getElementById('rx-tons')?.remove(); }
 function abrirReacoesPost(idpost, ev) {
   fecharReacoesPost();
   const ancora = (ev && ev.currentTarget) || (ev && ev.nodeType === 1 ? ev : null); if (!ancora) return;
-  window.__rxAncora = ancora;
   const isLight = document.body.classList.contains('tema-claro');
   const minha = _rxMinha(idpost);
   const rc = ancora.getBoundingClientRect();
@@ -2680,25 +2685,73 @@ function abrirReacoesPost(idpost, ev) {
   const bar = document.createElement('div');
   bar.id = 'rx-bar';
   const colunas = 7, largura = Math.min(window.innerWidth - 16, colunas * 46 + 20);
-  const tom = _rxTom();
   const brilho = isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)';
-  const botoes = _REACOES_POST.map(function (base) {
+  bar.style.cssText = 'position:fixed;z-index:100060;width:' + largura + 'px;box-sizing:border-box;padding:8px 10px;border-radius:22px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 10px 30px rgba(0,0,0,.45);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;';
+  const grade = document.createElement('div');
+  grade.style.cssText = 'display:grid;grid-template-columns:repeat(' + colunas + ',1fr);gap:2px;';
+  _REACOES_POST.forEach(function (base) {
     const e = _rxComTom(base);
-    return '<button onclick="_rxEscolher(' + Number(idpost) + ',\'' + e + '\')" style="height:42px;border:none;border-radius:50%;background:' + (minha && minha.emoji === e ? brilho : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;">' + e + '</button>';
-  }).join('');
-  const tons = _RX_TONS.map(function (t) {
-    const cores = ['#f5c518', '#f7d7c4', '#e0b896', '#c68c5d', '#8d5524', '#4a2c17'];
-    const k = _RX_TONS.indexOf(t);
-    return '<button onclick="_rxEscolherTom(' + Number(idpost) + ',\'' + t + '\')" aria-label="Tom de pele ' + k + '" style="width:26px;height:26px;border-radius:50%;background:' + cores[k] + ';cursor:pointer;padding:0;border:2px solid ' + (tom === t ? (isLight ? '#1a1a1a' : '#7FFF00') : 'transparent') + ';"></button>';
-  }).join('');
-  bar.style.cssText = 'position:fixed;z-index:100060;width:' + largura + 'px;box-sizing:border-box;padding:8px 10px 10px;border-radius:22px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 10px 30px rgba(0,0,0,.45);';
-  bar.innerHTML = '<div style="display:grid;grid-template-columns:repeat(' + colunas + ',1fr);gap:2px;">' + botoes + '</div>' +
-    '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid ' + (isLight ? '#eee' : '#2c2c2c') + ';"><span style="font-size:11px;font-weight:700;color:' + (isLight ? '#777' : '#999') + ';flex-shrink:0;">Tom do 💪</span><div style="display:flex;gap:7px;flex:1;justify-content:space-between;">' + tons + '</div></div>';
+    const b = document.createElement('button');
+    b.textContent = e;
+    b.style.cssText = 'height:42px;border:none;border-radius:50%;background:' + (minha && minha.emoji === e ? brilho : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation;';
+    b.oncontextmenu = function (x) { x.preventDefault(); };
+    if (base === '💪') _rxLigarSegurar(b, idpost, isLight);   // segurar o 💪 abre os tons de pele
+    else b.onclick = function () { _rxEscolher(idpost, e); };
+    grade.appendChild(b);
+  });
+  bar.appendChild(grade);
   document.body.appendChild(fundo); document.body.appendChild(bar);
   const alt = bar.offsetHeight;
   const topo = rc.top - alt - 8 >= 8 ? rc.top - alt - 8 : Math.min(window.innerHeight - alt - 8, rc.bottom + 8);
   bar.style.top = Math.max(8, topo) + 'px';
   bar.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - largura - 8)) + 'px';
+}
+// Tocar no 💪 reage com o tom guardado; segurar abre uma fileira com os 6 tons (como no teclado do celular). Soltar o dedo
+// sobre um tom, ou tocar nele, escolhe esse tom, guarda como padrão e já reage.
+function _rxLigarSegurar(btn, idpost, isLight) {
+  let timer = null, aberto = false;
+  const abrirTons = function () {
+    aberto = true;
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
+    document.getElementById('rx-tons')?.remove();
+    const rc = btn.getBoundingClientRect();
+    const box = document.createElement('div');
+    box.id = 'rx-tons';
+    const larg = Math.min(window.innerWidth - 16, _RX_TONS.length * 44 + 16);
+    box.style.cssText = 'position:fixed;z-index:100061;display:flex;gap:2px;padding:6px 8px;border-radius:26px;background:' + (isLight ? '#fff' : '#2a2a2a') + ';border:1px solid ' + (isLight ? '#ddd' : '#444') + ';box-shadow:0 12px 32px rgba(0,0,0,.55);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;width:' + larg + 'px;box-sizing:border-box;';
+    _RX_TONS.forEach(function (t) {
+      const o = document.createElement('button');
+      o.setAttribute('data-tom', t);
+      o.textContent = '💪' + t;
+      o.style.cssText = 'flex:1;height:40px;border:none;border-radius:50%;background:' + (_rxTom() === t ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)') : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;';
+      o.oncontextmenu = function (x) { x.preventDefault(); };
+      o.onclick = function () { _rxEscolherTom(idpost, t); };
+      box.appendChild(o);
+    });
+    document.body.appendChild(box);
+    const alt = box.offsetHeight;
+    box.style.top = Math.max(8, rc.top - alt - 6) + 'px';
+    box.style.left = Math.max(8, Math.min(rc.left + rc.width / 2 - larg / 2, window.innerWidth - larg - 8)) + 'px';
+  };
+  const cancelar = function () { clearTimeout(timer); timer = null; };
+  btn.addEventListener('pointerdown', function () { aberto = false; cancelar(); timer = setTimeout(abrirTons, 380); });
+  btn.addEventListener('pointerup', function (e) {
+    cancelar();
+    if (aberto) {
+      // dedo arrastado até um tom e solto lá: escolhe
+      const alvo = document.elementFromPoint(e.clientX, e.clientY);
+      const o = alvo && alvo.closest ? alvo.closest('[data-tom]') : null;
+      if (o) _rxEscolherTom(idpost, o.getAttribute('data-tom'));
+      e.preventDefault();
+    }
+  });
+  btn.addEventListener('pointercancel', function () { cancelar(); });
+  btn.addEventListener('pointerleave', function () { if (!aberto) cancelar(); });
+  btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  btn.addEventListener('click', function (e) {
+    if (aberto) { aberto = false; e.preventDefault(); e.stopPropagation(); return; }   // foi segurar, não tocar
+    _rxEscolher(idpost, _rxComTom('💪'));
+  });
 }
 function _kudosHtml(idpost) {
   const lista = _reacoesFeed[String(idpost)] || [];
@@ -3665,6 +3718,15 @@ function _renderComposeFeed() {
   // vivo na própria caixa de prévia (ver _composeIniciarCamera), não uma
   // tela pedindo pra escolher a fonte.
   const camAtiva = !!_camStream && !_feedComposeImg;
+  // Post de vídeo: o 1º item da lista é o vídeo, e a prévia mostra ELE (com som e botão de baixar), na proporção dele.
+  const itemVideo = (_composeVideoCapa && _composeExtras[0] && _composeExtras[0].tipo === 'video') ? _composeExtras[0] : null;
+  if (itemVideo && !itemVideo._url) { try { itemVideo._url = URL.createObjectURL(itemVideo.file); } catch (e) {} }
+  // Proporção (altura/largura) do que aparece na prévia: a do vídeo, ou a da foto já recortada. A moldura toma essa proporção
+  // inteira e só encolhe a largura se ficar alta demais para a tela, em vez de cortar a imagem num 4:5 fixo.
+  const ratioHW = itemVideo ? ((itemVideo.w && itemVideo.h) ? itemVideo.h / itemVideo.w : 16 / 9) : (_feedComposeImg ? (_composeImgRatio || 1.25) : 0);
+  const larguraDisp = Math.min(window.innerWidth - 32, 340);
+  const larguraPrev = ratioHW ? Math.round(Math.min(larguraDisp, window.innerHeight * 0.62 / ratioHW)) : 0;
+  const larguraPrevCss = larguraPrev ? 'width:' + larguraPrev + 'px;margin:0 auto;aspect-ratio:' + (1 / ratioHW).toFixed(4) + ';' : 'width:100%;';
 
   // Prévia (só visual, não é o que vira pixel — isso é _composeImagemFinal
   // na hora de publicar/salvar) da camada de informação por cima da foto
@@ -3679,7 +3741,7 @@ function _renderComposeFeed() {
     // formato escolhido no seletor (story/quadrado/retrato) — nos dois casos
     // é a MESMA proporção que o quadro da prévia vai ocupar na tela.
     const ratioAtual = _feedComposeImg ? _composeImgRatio : (1 / (FEED_EDITOR_RATIOS[_composeRatioPre] || FEED_EDITOR_RATIOS.retrato));
-    const escalaPrev = _shareEscalaComAltura(Math.min(window.innerWidth - 32, 340), ratioAtual);
+    const escalaPrev = _shareEscalaComAltura(_feedComposeImg ? Math.min(Math.min(window.innerWidth - 32, 340), window.innerHeight * 0.62 / ratioAtual) : Math.min(window.innerWidth - 32, 340), ratioAtual);
     infoPreviewHtml = _infoMolduraHtml(_composeInfoLayoutIdx, escalaPrev) + '<div id="feed-compose-info-layer" style="position:absolute;inset:0;pointer-events:none;transform-origin:50% 50%;transform:' + _ovTransformCss(_composeInfoT) + ';">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev, true) + '</div>';
   }
 
@@ -3712,12 +3774,15 @@ function _renderComposeFeed() {
       // mostra a foto inteira, sem cortar — retrato, paisagem ou quadrado,
       // do jeito que a pessoa escolheu — com um teto de altura só pra uma
       // foto muito alta não esticar a tela.
-      '<div id="feed-compose-preview" style="width:100%;border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;' + (_feedComposeImg ? '' : 'aspect-ratio:' + ratioPreCss + ';') + '">' +
+      '<div id="feed-compose-preview" style="' + larguraPrevCss + 'border-radius:14px;overflow:hidden;background:' + cardBg + ';border:1px solid ' + borda + ';display:flex;align-items:center;justify-content:center;position:relative;' + (_feedComposeImg ? '' : 'aspect-ratio:' + ratioPreCss + ';') + '">' +
         (_feedComposeImg
-          ? '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:auto;max-height:420px;object-fit:cover;"/>' + infoPreviewHtml + '<img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
+          ? (itemVideo
+            ? '<video id="feed-compose-video" src="' + (itemVideo._url || '') + '" poster="' + _feedComposeImg + '" controls playsinline preload="metadata" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;"></video>' +
+              '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;z-index:3;">🔄 Trocar</button>'
+            : '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:100%;object-fit:cover;"/>' + infoPreviewHtml + '<img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
             ((_composeInfoOn && _composeInfo) ? '<div style="position:absolute;bottom:8px;left:8px;display:flex;gap:6px;z-index:3;"><button id="feed-ajustar-btn" onclick="_composeToggleAjuste()" style="padding:7px 11px;border-radius:9px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;"></button><button id="feed-ajustar-reset" onclick="_composeCentralizarInfo()" style="padding:7px 10px;border-radius:9px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;display:none;">↺ Centralizar</button></div><div id="feed-ajustar-dica" style="position:absolute;top:44px;left:8px;right:8px;text-align:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none;display:none;z-index:3;">Arraste a figurinha. Com dois dedos, aumente ou diminua.</div>' : '') +
             '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>' +
-            '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">🔄 Trocar</button>'
+            '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">🔄 Trocar</button>')
           : (camAtiva
               // Câmera já embutida e ao vivo dentro da própria caixa — o
               // <video> é MOVIDO pra cá depois do appendChild mais abaixo
@@ -3742,12 +3807,16 @@ function _renderComposeFeed() {
         // recorte depois de capturar, sem perguntar a mesma coisa duas vezes.
         '<div style="display:flex;gap:6px;margin-top:8px;">' + ratioBtnsPre + '</div>' +
         '<button onclick="_composeEscolherVideoCapa()" style="width:100%;margin-top:8px;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🎬 Postar um vídeo (até 30 s)</button>') +
+      (itemVideo ? '<div style="display:flex;gap:8px;margin-top:10px;">' +
+        '<button onclick="_composeBaixarVideo(0)" style="flex:1;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">⬇️ Baixar vídeo</button>' +
+        '<button onclick="_reabrirEditorFotoFeed()" style="flex:1;padding:11px 6px;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Editar capa</button>' +
+        '</div>' : '') +
       (_feedComposeImg ? _composeExtrasHtml(cardBg, borda, txt, muted) : '') +
       '<input type="file" id="feed-compose-file-video-capa" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" style="display:none;" onchange="_composeVideoCapaEscolhido(this)"/>' +
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
 
       // ── Informações do treino/cardio ──────────────────────────────────
-      '<div style="margin-top:16px;padding:12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';">' +
+      '<div style="margin-top:16px;padding:12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';' + (itemVideo ? 'display:none;' : '') + '">' +
         '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:' + txt + ';cursor:pointer;" onclick="event.preventDefault();_composeToggleInfo()">' +
           '<input type="checkbox" ' + (_composeInfoOn?'checked':'') + ' style="width:16px;height:16px;accent-color:#7FFF00;" onclick="event.stopPropagation();_composeToggleInfo()"/>' +
           '📊 Mostrar informações do treino/cardio' +
@@ -4219,7 +4288,7 @@ function _edConcluir() {
   _renderComposeFeed();
 }
 
-function _fecharComposeFeed() { _pararCamera(); _composeExtras = []; _composeVideoCapa = false; _composeVideoCapaPend = false; document.getElementById('feed-compose-overlay')?.remove(); }
+function _fecharComposeFeed() { _pararCamera(); _composeExtras.forEach(function (x) { try { if (x && x._url) URL.revokeObjectURL(x._url); } catch (e) {} }); _composeExtras = []; _composeVideoCapa = false; _composeVideoCapaPend = false; document.getElementById('feed-compose-overlay')?.remove(); }
 
 // ── Carrossel no composer: fotos e vídeos extras ────────────────────────────
 // Itens: {tipo:'imagem', src} | {tipo:'video', file, mime, dur, poster}.
@@ -4248,7 +4317,8 @@ function _composeExtrasHtml(cardBg, borda, txt, muted) {
     const src = eVideo ? it.poster : it.src;
     h += '<div style="position:relative;flex-shrink:0;">' +
       (src ? '<img src="' + src + '" style="' + thumb + 'border:1px solid ' + borda + ';"/>' : '<div style="' + thumb + 'background:#222;border:1px solid ' + borda + ';"></div>') +
-      (eVideo ? '<span style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);color:#fff;border-radius:0 0 7px 7px;padding:1px 0;">▶ ' + Math.round(it.dur) + 's</span>' : '') +
+      (eVideo ? '<span style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);color:#fff;border-radius:0 0 7px 7px;padding:1px 0;">▶ ' + Math.round(it.dur) + 's</span>' +
+        '<span onclick="_composeBaixarVideo(' + i + ')" title="Baixar o vídeo" style="position:absolute;top:-5px;left:-5px;width:20px;height:20px;border-radius:50%;background:#222;border:1.5px solid #fff;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;">⬇</span>' : '') +
       '<span onclick="_composeExtraRemover(' + i + ')" style="position:absolute;top:-5px;right:-5px;width:20px;height:20px;border-radius:50%;background:#222;border:1.5px solid #fff;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>';
   });
   if (total < COMPOSE_MAX_MIDIAS) {
@@ -4257,6 +4327,14 @@ function _composeExtrasHtml(cardBg, borda, txt, muted) {
   h += '</div></div>' +
     '<input type="file" id="feed-compose-file-extra" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" multiple style="display:none;" onchange="_composeExtraEscolhidas(this)"/>';
   return h;
+}
+// Baixa o vídeo já pronto (com filtro, figurinha e logo). No celular abre "Salvar vídeo" do aparelho.
+async function _composeBaixarVideo(i) {
+  const it = _composeExtras[i];
+  if (!it || it.tipo !== 'video' || !it.file) { toast('Não achei o vídeo.'); return; }
+  const ext = /webm/.test(it.mime || '') ? 'webm' : 'mp4';
+  try { await _baixarArquivos([new File([it.file], 'intus-video' + (i ? '-' + (i + 1) : '') + '.' + ext, { type: it.mime || it.file.type || 'video/mp4' })]); }
+  catch (e) { toast('Não consegui baixar agora. Tente de novo.'); }
 }
 function _composeExtraRemover(i) {
   if (_composeVideoCapa && i === 0) _composeVideoCapa = false;
@@ -4769,8 +4847,11 @@ async function _vtGravar(s, modo) {
     if (s.info && s.info.on) { prog(0, 'Preparando a figurinha...'); camadaImg = await _vtCamadaCanvas(s, w, h); }
     const logoImg = await _cqCarregarImg(document.body.classList.contains('tema-claro') ? 'logo-icon-light.png' : 'logo-icon-dark.png');
     const ac = s.ac;
+    // Vídeo sem faixa de áudio (quando o navegador informa): não há som a captar, então não precisa tentar outros modos.
+    try { if ((v.audioTracks && v.audioTracks.length === 0) || v.mozHasAudio === false) s.fonteSilenciosa = true; } catch (e) {}
     if (ac && modo !== 'mudo' && ac.state !== 'running') await Promise.race([ac.resume(), new Promise(function (r) { setTimeout(r, 1500); })]);
     const acOk = !!ac && ac.state === 'running';
+    if (s.diag) s.diag.push(modo + ': áudio ' + (ac ? ac.state : 'indisponível'));
     let comSom = false, bufferAudio = null, dest = null;
     if (modo === 'elemento' && acOk) {
       try {
@@ -4790,6 +4871,8 @@ async function _vtGravar(s, modo) {
             if (p && p.catch) p.catch(rej);
           });
           ab = null;
+          // Se o som do próprio vídeo é silencioso (vídeo sem áudio), não adianta tentar outro modo depois.
+          try { let pico = 0; for (let ch = 0; ch < bufferAudio.numberOfChannels; ch++) { const d = bufferAudio.getChannelData(ch); for (let i = 0; i < d.length; i += 200) { const a = Math.abs(d[i]); if (a > pico) pico = a; } } s.fonteSilenciosa = pico < 0.002; } catch (e) {}
           dest = ac.createMediaStreamDestination();
           dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
           comSom = true;
@@ -4858,8 +4941,19 @@ async function _vtGravar(s, modo) {
     const blob = new Blob(pedacos, { type: base });
     if (!blob.size) return { erro: 'Não consegui preparar o vídeo. Tente outro trecho ou outro vídeo.' };
     if (blob.size > 100 * 1024 * 1024) return { erro: 'O vídeo ficou grande demais. Escolha um trecho mais curto.' };
+    // Confere se o som entrou mesmo no arquivo: se o vídeo original tem som e o resultado saiu mudo, tenta o próximo modo.
+    if (comSom && ac && ac.state !== 'closed' && modo !== 'mudo') {
+      try {
+        const ab2 = await blob.arrayBuffer();
+        const buf2 = await new Promise(function (res, rej) { const pr = ac.decodeAudioData(ab2, res, rej); if (pr && pr.catch) pr.catch(rej); });
+        let pico2 = 0;
+        for (let ch = 0; ch < buf2.numberOfChannels; ch++) { const d = buf2.getChannelData(ch); for (let i = 0; i < d.length; i += 100) { const a = Math.abs(d[i]); if (a > pico2) pico2 = a; } }
+        if (s.diag) s.diag.push(modo + ': pico ' + pico2.toFixed(3));
+        if (pico2 < 0.002 && !s.fonteSilenciosa) return { travou: true };
+      } catch (e) { if (s.diag) s.diag.push(modo + ': sem conferência'); }
+    }
     const arq = new File([blob], 'video.' + (base === 'video/mp4' ? 'mp4' : 'webm'), { type: base });
-    return { item: { tipo: 'video', file: arq, mime: base, dur: dur, poster: poster, semSom: !comSom } };
+    return { item: { tipo: 'video', file: arq, mime: base, dur: dur, poster: poster, semSom: !comSom, w: w, h: h } };
   } catch (e) {
     limpar();
     return { erro: 'Não consegui preparar o vídeo neste aparelho' + (e && e.message ? ' (' + e.message + ')' : '') + '.' };
@@ -4907,7 +5001,8 @@ async function _vtUsar() {
       z.buffer = b; z.connect(s.ac.destination); z.start(0);
     }
   } catch (e) { s.ac = null; }
-  const modos = _vtEhIOS() ? ['buffer', 'mudo'] : ['elemento', 'buffer', 'mudo'];
+  s.diag = [];
+  const modos = _vtEhIOS() ? ['buffer', 'elemento', 'mudo'] : ['elemento', 'buffer', 'mudo'];
   let r = null;
   for (let i = 0; i < modos.length; i++) {
     if (i > 0) await _vtRecriarVideo(s);
@@ -4917,7 +5012,7 @@ async function _vtUsar() {
   try { if (s.ac) s.ac.close(); } catch (e) {}
   if (s.cancelado || _vt !== s) return;
   if (r.item) {
-    if (r.item.semSom) toast('Vídeo preparado sem som: este aparelho não permitiu captar o áudio.');
+    if (r.item.semSom && !s.fonteSilenciosa) toast('Vídeo preparado sem som. Se o original tem som, este aparelho não deixou captar o áudio.' + (s.diag && s.diag.length ? ' (' + s.diag.join('; ') + ')' : ''));
     s.pronto = true;
     const res = s.resolve; s.resolve = null;
     _vtFechar(true);
