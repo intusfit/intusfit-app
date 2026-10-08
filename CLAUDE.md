@@ -913,6 +913,11 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   para o topo do Feed, porque só rolava até o card se ele já estivesse na página carregada. Resultado rola até o card; mural, amizade,
   parceria, turma, desafio, nutrição, medalha e distintivo seguem para as telas deles.
 
+- **Respostas em qualquer nível (07/10/2026)**: todo comentário (e toda resposta) tem "Responder", no Feed e no Mural do app e no
+  `feed.html` do painel. Os comentários formam uma árvore pelo `resposta_a`; o recuo cresce 26 px por nível até 3 e, do 4º nível em
+  diante, aparece "↳ Nome" dizendo a quem responde. Comentário cujo pai foi apagado vira de nível 1. No servidor, excluir um
+  comentário leva a cadeia inteira de respostas (`catalogo.php`, DELETE de `comentarios_pub`, desce até 30 níveis).
+
 ## 25. Último treino (07/10/2026)
 
 - A Home dizia "Último: Treino C" quando o último tinha sido o D. Causa: `SessoesTreino.listarDoAtleta` ordenava só pela

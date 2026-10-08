@@ -287,13 +287,13 @@ async function carregar(maisAntesDe) {
 }
 
 // ── tela ──
-function comentarioHtml(idpost, c, ehResp) {
+function comentarioHtml(idpost, c, nivel) {
   const lk = reacCom[c.idcomentario] || [], curtiu = lk.some(x => x.meu);
   const selo = c.autor_tipo === 'prof' || c.autor_tipo === 'professor' ? ' <span class="fd-selo">professor</span>' : '';
-  return '<div class="fd-com' + (ehResp ? ' resp' : '') + '">' + avatar(c.autor_tipo === 'aluno' ? 'aluno' : 'prof', c.autor_id, c.autor_nome) +
+  return '<div class="fd-com"' + (nivel > 0 ? ' style="margin-left:' + (Math.min(nivel, 3) * 26) + 'px;"' : '') + '>' + avatar(c.autor_tipo === 'aluno' ? 'aluno' : 'prof', c.autor_id, c.autor_nome) +
     '<div style="flex:1;min-width:0;"><div class="fd-com-txt"><b>' + esc(c.autor_nome || 'Alguém') + '</b>' + selo + ' ' + textoMen(c.texto) + '</div>' +
     '<div class="fd-com-sub"><span>' + quando(c.created_at) + '</span>' +
-    (ehResp ? '' : '<span class="a" onclick="responder(' + idpost + ',' + c.idcomentario + ')">Responder</span>') +
+    '<span class="a" onclick="responder(' + idpost + ',' + c.idcomentario + ')">Responder</span>' +
     '<span class="a" onclick="excluirCom(' + idpost + ',' + c.idcomentario + ')">Excluir</span></div></div>' +
     '<div style="flex-shrink:0;cursor:pointer;text-align:center;font-size:14px;min-width:22px;" onclick="curtirCom(' + c.idcomentario + ')" title="Curtir comentário">' + (curtiu ? '❤️' : '🤍') +
     (lk.length ? '<div style="font-size:10px;font-weight:700;color:var(--text-muted);">' + lk.length + '</div>' : '') + '</div></div>';
@@ -301,9 +301,12 @@ function comentarioHtml(idpost, c, ehResp) {
 function comentariosHtml(p) {
   const id = p.idpost, lista = comPost[id] || [];
   if (!abertos[id]) return '';
+  // Respostas em qualquer nível (cada comentário pode ser respondido); pai apagado volta a ser comentário de nível 1.
+  const porId = {}; lista.forEach(c => { porId[c.idcomentario] = c; });
   const porPai = {}, raizes = [];
-  lista.forEach(c => { if (c.resposta_a) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
-  const itens = raizes.map(c => comentarioHtml(id, c, false) + (porPai[c.idcomentario] || []).map(r => comentarioHtml(id, r, true)).join('')).join('');
+  lista.forEach(c => { if (c.resposta_a && porId[c.resposta_a]) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
+  const arvore = (c, nivel) => comentarioHtml(id, c, nivel) + (porPai[c.idcomentario] || []).map(r => arvore(r, nivel + 1)).join('');
+  const itens = raizes.map(c => arvore(c, 0)).join('');
   const resp = respondendo[id];
   return (itens ? '<div class="fd-lista-com">' + itens + '</div>' : '') +
     (resp ? '<div class="fd-chip">Respondendo a <b>' + esc(resp.nome) + '</b> <span style="cursor:pointer;font-weight:800;" onclick="cancelarResp(' + id + ')">✕</span></div>' : '') +

@@ -2971,8 +2971,7 @@ async function enviarComentarioFeed(idpost) {
   }
 }
 
-// "Responder": guarda a quem o próximo envio responde (só 1 nível — responder
-// a uma resposta ainda responde ao comentário-pai original, igual Instagram).
+// "Responder": guarda a quem o próximo envio responde. Vale para qualquer comentário, inclusive respostas, em qualquer nível.
 // Lê nome/id de data-* no elemento clicado, não do onclick, pelo mesmo motivo
 // do mapa de localização: nome de comentário é texto de terceiro.
 function _responderComentarioFeed(idpost, el) {
@@ -3015,10 +3014,14 @@ function _comentariosHtml(idpost, isLight) {
   const divisor = isLight ? '#f0f0f0' : '#1e1e1e';
   const souDonoDoPost = _donoDoPostFeedLocal(idpost) === Number(idAtleta);
 
+  // Respostas em qualquer nível: cada comentário pode ser respondido, inclusive as respostas. Comentário cujo pai não existe mais
+  // (apagado) volta a ser de nível 1 em vez de sumir.
+  const porId = {};
+  lista.forEach(c => { porId[c.idcomentario] = c; });
   const porPai = {};
   const raizes = [];
   lista.forEach(c => {
-    if (c.resposta_a) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c);
+    if (c.resposta_a && porId[c.resposta_a]) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c);
     else raizes.push(c);
   });
 
@@ -3030,12 +3033,13 @@ function _comentariosHtml(idpost, isLight) {
       : '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>';
   }
 
-  function linha(c, ehResposta) {
+  function linha(c, nivel) {
     const dt = new Date(String(c.created_at).replace(' ', 'T'));
     const selo = (c.autor_tipo === 'professor' || c.autor_tipo === 'prof')
       ? ' <span style="color:' + acento + ';font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.03em;">professor</span>'
       : '';
-    const responder = ehResposta ? '' :
+    const paiDe = (nivel > 3 && c.resposta_a && porId[c.resposta_a]) ? porId[c.resposta_a] : null;   // recuo para de crescer no 4º nível: diz a quem responde
+    const responder =
       '<span data-id="' + c.idcomentario + '" data-nome="' + esc(c.autor_nome || 'Alguém') + '" onclick="_responderComentarioFeed(' + idpost + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Responder</span>';
     // Excluir: o autor do comentário, ou o dono do post (modera o próprio post).
     const podeExcluir = !!c.meu || souDonoDoPost;
@@ -3049,11 +3053,12 @@ function _comentariosHtml(idpost, isLight) {
       (curtidas.length ? '<span style="font-size:10px;font-weight:700;color:' + (curtiu ? acento : corMuted) + ';">' + curtidas.length + '</span>' : '') +
     '</div>';
     const _abre = c.autor_tipo === 'aluno' ? ' onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;' : null;
-    return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
+    return '<div style="display:flex;gap:8px;padding:7px 0;' + (nivel > 0 ? 'margin-left:' + (Math.min(nivel, 3) * 26) + 'px;' : '') + '">' +
       (_abre ? '<span onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;display:flex;flex-shrink:0;">' + avatarMini(c) + '</span>' : avatarMini(c)) +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12px;line-height:1.4;">' +
           '<b' + (_abre ? _abre + 'color:' + cor + ';"' : ' style="color:' + cor + ';"') + '>' + esc(c.autor_nome || 'Alguém') + '</b>' + selo + ' ' +
+          (paiDe ? '<span style="color:' + corMuted + ';font-size:11px;">↳ ' + esc(paiDe.autor_nome || 'Alguém') + '</span> ' : '') +
           '<span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:14px;margin-top:2px;">' +
@@ -3066,7 +3071,8 @@ function _comentariosHtml(idpost, isLight) {
     '</div>';
   }
 
-  const itens = raizes.map(c => linha(c, false) + (porPai[c.idcomentario] || []).map(r => linha(r, true)).join('')).join('');
+  const arvore = (c, nivel) => linha(c, nivel) + (porPai[c.idcomentario] || []).map(r => arvore(r, nivel + 1)).join('');
+  const itens = raizes.map(c => arvore(c, 0)).join('');
 
   const resp = _comentarioRespondendoA[idpost];
   const chipResposta = resp
@@ -14248,15 +14254,16 @@ function _muralThreadHtml(idm, isLight) {
   if (!aberto) return '<div data-mural-thread style="margin-top:6px;">' + gatilho + '</div>';
 
   const souDono = _muralDonos[idm] === Number(idAtleta);
+  const porId = {}; lista.forEach(c => { porId[c.idcomentario] = c; });
   const porPai = {}; const raizes = [];
-  lista.forEach(c => { if (c.resposta_a) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
+  lista.forEach(c => { if (c.resposta_a && porId[c.resposta_a]) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
 
-  function linha(c, ehResposta) {
+  function linha(c, nivel) {
     const nome = c.autor_nome || 'Alguém';
     const dt = new Date(String(c.created_at).replace(' ', 'T'));
     const selo = (c.autor_tipo === 'professor' || c.autor_tipo === 'prof')
       ? ' <span style="color:' + acento + ';font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.03em;">professor</span>' : '';
-    const responder = ehResposta ? '' :
+    const responder =
       '<span data-id="' + c.idcomentario + '" data-nome="' + esc(nome) + '" onclick="muralResponder(' + idm + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Responder</span>';
     const excluir = (c.meu || souDono)
       ? '<span data-id="' + c.idcomentario + '" onclick="muralExcluir(' + idm + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Excluir</span>' : '';
@@ -14266,7 +14273,7 @@ function _muralThreadHtml(idm, isLight) {
       '<span style="font-size:14px;line-height:1;">' + (curtiu ? '❤️' : '🤍') + '</span>' +
       (curtidas.length ? '<span style="font-size:10px;font-weight:700;color:' + (curtiu ? acento : corMuted) + ';">' + curtidas.length + '</span>' : '') +
     '</div>';
-    return '<div style="display:flex;gap:8px;padding:7px 0;' + (ehResposta ? 'margin-left:34px;' : '') + '">' +
+    return '<div style="display:flex;gap:8px;padding:7px 0;' + (nivel > 0 ? 'margin-left:' + (Math.min(nivel, 3) * 26) + 'px;' : '') + '">' +
       '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>' +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12px;line-height:1.4;"><b' + (c.autor_tipo === 'aluno' ? ' onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;color:' + cor + ';"' : ' style="color:' + cor + ';"') + '>' + esc(nome) + '</b>' + selo + ' <span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span></div>' +
@@ -14274,7 +14281,8 @@ function _muralThreadHtml(idm, isLight) {
       '</div>' + coracao +
     '</div>';
   }
-  const itens = raizes.map(c => linha(c, false) + (porPai[c.idcomentario] || []).map(r => linha(r, true)).join('')).join('');
+  const arvore = (c, nivel) => linha(c, nivel) + (porPai[c.idcomentario] || []).map(r => arvore(r, nivel + 1)).join('');
+  const itens = raizes.map(c => arvore(c, 0)).join('');
   const resp = _muralRespondendoA[idm];
   const chip = resp
     ? '<div style="display:flex;align-items:center;gap:6px;margin:8px 0 0;font-size:11px;color:' + corMuted + ';">Respondendo a <b style="color:' + cor + ';">' + esc(resp.nome) + '</b><span onclick="muralCancelar(' + idm + ')" style="cursor:pointer;font-weight:800;padding:2px 5px;">✕</span></div>' : '';

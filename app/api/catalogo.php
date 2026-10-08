@@ -2454,9 +2454,17 @@ if ($action === 'comentarios_pub') {
         // Apagar um comentário leva junto as respostas dele e as curtidas de
         // ambos: sem isso as respostas ficariam órfãs (somem da tela mas
         // continuam contando em "Ver N comentários").
-        $stIds = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE idcomentario = ? OR resposta_a = ?");
-        $stIds->execute([$id, $id]);
-        $idsApagar = array_map('intval', $stIds->fetchAll(PDO::FETCH_COLUMN));
+        // Respostas podem ter respostas, em qualquer nível: desce a cadeia inteira (com teto de segurança).
+        $idsApagar = [$id];
+        $fronteira = [$id];
+        for ($nivel = 0; $nivel < 30 && count($fronteira); $nivel++) {
+            $phF = implode(',', array_fill(0, count($fronteira), '?'));
+            $stF = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE resposta_a IN ($phF)");
+            $stF->execute($fronteira);
+            $filhos = array_values(array_diff(array_map('intval', $stF->fetchAll(PDO::FETCH_COLUMN)), $idsApagar));
+            $idsApagar = array_merge($idsApagar, $filhos);
+            $fronteira = $filhos;
+        }
         if (count($idsApagar)) {
             $phA = implode(',', array_fill(0, count($idsApagar), '?'));
             $pdo->prepare("DELETE FROM intus_comentario_pub WHERE idcomentario IN ($phA)")->execute($idsApagar);
