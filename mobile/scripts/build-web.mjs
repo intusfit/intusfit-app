@@ -8,8 +8,8 @@ const webRoot = join(mobileRoot, 'www');
 
 // Apenas o runtime acessível ao aluno. Páginas de gestão não entram no binário.
 const files = [
-  'aluno.html', 'login.html', 'privacidade.html',
-  'api.js', '_mock.js', 'alimentos-db.js',
+  'aluno.html', 'login.html', 'privacidade.html', 'termos.html',
+  'api.js', '_mock.js', 'alimentos-db.js', 'ajuda.js',
   'manifest.json', 'sw.js',
   'favicon.ico', 'favicon-192.png',
   'logo-icon-dark.png', 'logo-icon-light.png',

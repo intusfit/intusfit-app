@@ -1002,3 +1002,20 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   - Feedback: apagar os já assistidos há 30+ dias (botão já existe).
   - Backup: guardar 14 diários + 1 por semana em vez de 45 dias seguidos, e zip de uploads só a cada 7 dias.
 - Apagar arquivo do Drive continua só pelo painel, com confirmação (regra do projeto).
+
+## 28. Ajuda e tour interativo (08/10/2026)
+
+- **`app/painel/ajuda.js`** (novo, carregado por `aluno.html` com `defer`) substitui o tutorial em histórias do botão "?". Cria as próprias camadas
+  (`#ax-tour`, `#ax-help`) e não altera nenhuma tela do app. **Entrou na lista de arquivos do build nativo** (`mobile/scripts/build-web.mjs`) e no
+  `sw.js` (cache v33): arquivo novo precisa entrar nas duas listas, senão o app das lojas fica sem ele.
+- **API**: `Ajuda.abrir()` (central de ajuda), `Ajuda.tour(i)` (capítulo i, ou abertura), `Ajuda.bemVindo()`, `Ajuda.fechar()`. `abrirTutorial()` chama
+  `Ajuda.abrir()` e só cai no tutorial antigo se o módulo não carregou.
+- **Tour**: 9 capítulos (Treino, Cardio, Ranking, Conquistas, Feed, Amigos, Nutrição, Evolução, Central), 37 telas. Cada capítulo é um celular
+  de demonstração em que o aluno toca nos botões que pulsam (`data-ir` = tela seguinte, `data-hint` = pulsa). As telas são funções em `capitulos()`;
+  para adicionar um passo basta acrescentar um item em `telas`. Os textos de pontos usam `API.regrasRanking()` e as conquistas usam
+  `CONQUISTAS_DEF`, então acompanham as regras reais.
+- **Central de ajuda**: cartão do tour (continua de onde parou), "Sobre esta tela" (capítulo do `window._viewAtual`), busca (perguntas e
+  mini-aulas, sem acento), primeiros passos (treino e cardio vêm das sessões, mensagem do `Store`, post do servidor) e 25 perguntas em `FAQ`.
+  Quando uma regra do app mudar, atualize a pergunta correspondente em `FAQ`.
+- **Aluno novo**: `renderWelcome` ganhou o cartão "Fazer o tour" no lugar da grade de cartões. A bolinha do "?" volta uma vez para quem só tinha visto o
+  tutorial antigo (`intus-ajuda-v2-visto`). Estado em `localStorage['intus-ajuda-v2']`.
