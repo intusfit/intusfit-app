@@ -1851,7 +1851,21 @@ const API = {
     const tc = Math.round(total * 100), dc = Math.round(desc * 100), liqC = tc - dc;
     const baseV = Math.floor(tc / Nn), baseD = Math.floor(dc / Nn);
     const nome = String(o.descricao || 'Mensalidade').trim() || 'Mensalidade';
-    const fim = API._somarMeses(inicio, P);
+    // Datas combinadas parcela a parcela: `datas[i]` e o dia em que a parcela i+1 e COBRADA (o inicio da janela dela). A janela vai ate
+    // a cobranca da seguinte (a ultima, ate o fim do plano), entao nunca ha buraco nem sobreposicao. A data da 1a parcela e o inicio
+    // do plano. Sem `datas`, as cobrancas caem de mes em mes.
+    const datasIn = Array.isArray(o.datas) ? o.datas : [];
+    const dOk = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '').slice(0, 10)) && !isNaN(new Date(String(d).slice(0, 10) + 'T00:00:00'));
+    const inicioBase = dOk(datasIn[0]) ? String(datasIn[0]).slice(0, 10) : inicio;
+    const fim = API._somarMeses(inicioBase, P);
+    const inis = [];
+    let datasPersonalizadas = false;
+    for (let i = 0; i < Nn; i++) {
+      if (dOk(datasIn[i])) { inis.push(String(datasIn[i]).slice(0, 10)); if (i > 0) datasPersonalizadas = true; }
+      else inis.push(API._somarMeses(inicioBase, i * I));
+      if (i > 0 && inis[i] <= inis[i - 1]) return R('A data da parcela ' + (i + 1) + ' precisa ser depois da data da parcela ' + i + '.');
+    }
+    if (inis[Nn - 1] >= fim) return R('A data da parcela ' + Nn + ' precisa ser antes do fim do plano (' + fim.slice(8, 10) + '/' + fim.slice(5, 7) + '/' + fim.slice(0, 4) + ').');
     // Valores combinados parcela a parcela (ex.: R$ 700 de entrada e o resto no mes seguinte). `valores[i]` e o LIQUIDO (depois do
     // desconto) da parcela i+1; a ultima parcela nunca e informada: ela e sempre o saldo, para a soma fechar com o plano.
     const valIn = Array.isArray(o.valores) ? o.valores : [];
@@ -1897,13 +1911,13 @@ const API = {
       linhas.push({
         parcela_num: i, parcela_total: Nn,
         dshistorico: nome + ' (' + i + '/' + Nn + ')',
-        dtinicio: API._somarMeses(inicio, (i - 1) * I),
-        dtvencimento: ultima ? fim : API._somarMeses(inicio, i * I),
+        dtinicio: inis[i - 1],
+        dtvencimento: ultima ? fim : inis[i],
         vlpagar: vlpagar / 100,
         vldesconto: vldesconto / 100,
       });
     }
-    return { ok: true, erro: '', linhas: linhas, fim: fim, total: total, desconto: desc, liquido: liqC / 100, valorParcela: personalizado ? null : baseV / 100, personalizado: personalizado };
+    return { ok: true, erro: '', linhas: linhas, fim: fim, total: total, desconto: desc, liquido: liqC / 100, valorParcela: personalizado ? null : baseV / 100, personalizado: personalizado, datasPersonalizadas: datasPersonalizadas };
   },
 
   // Cria o plano parcelado inteiro. Se algo falhar no meio, desfaz as parcelas criadas NESTA operacao (nao toca em mais nada).

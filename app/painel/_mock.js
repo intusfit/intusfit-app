@@ -1274,8 +1274,18 @@ const PARC_MESES = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
 function parcMesesDe(rec) { return PARC_MESES[String(rec || '').toLowerCase()] || 0; }
 // Valores combinados parcela a parcela, por tela (prefixo 'mat' ou 'nm'). Cada posicao e o liquido digitado da parcela i+1, ou vazio.
 const PARC_ED = {};
-function parcEstado(p) { return PARC_ED[p] || (PARC_ED[p] = { valores: [] }); }
-function parcReset(p) { PARC_ED[p] = { valores: [] }; }
+function parcEstado(p) { return PARC_ED[p] || (PARC_ED[p] = { valores: [], datas: [] }); }
+// soDatas = true: so esquece as datas combinadas (mudou a data de inicio do plano); senao zera valores e datas
+function parcReset(p, soDatas) {
+  if (soDatas && PARC_ED[p]) PARC_ED[p].datas = [];
+  else PARC_ED[p] = { valores: [], datas: [] };
+}
+function parcEditarData(p, i, v) {
+  // Digitando o ano à mão o navegador avisa valores parciais (0002, 0020, 0202...): só vale data com ano plausível
+  if (v) { const y = parseInt(String(v).slice(0, 4), 10); if (!(y >= 2020 && y <= 2100)) return; }
+  parcEstado(p).datas[i] = v || null;
+  const f = window['parcAtualizar_' + p]; if (typeof f === 'function') f(false);   // redesenha: a data muda a cobertura e a validade
+}
 function parcEditar(p, i, v) {
   parcEstado(p).valores[i] = (v === '' || v == null) ? null : v;
   const f = window['parcAtualizar_' + p]; if (typeof f === 'function') f(true);   // atualiza so a ultima linha, sem tirar o foco do campo
@@ -1287,26 +1297,28 @@ function parcPrevHtml(r, forma, p) {
   const aviso = (t) => '<div id="' + p + '-pv-err" style="font-size:11.5px;color:#f87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:8px 10px;margin-top:6px;">' + t + '</div>';
   if (!r || !r.ok) {
     // erro de valor digitado: mantem os campos para a pessoa corrigir; erro de plano (meses, parcelas): so a mensagem
-    const temEd = parcEstado(p).valores.some(function (v) { return v != null && v !== ''; });
-    return aviso((r && r.erro) || '') + (temEd ? '<a href="#" onclick="parcIgualar(\'' + p + '\');return false;" style="font-size:10.5px;color:var(--text-muted);text-decoration:underline;display:inline-block;margin-top:4px;">dividir igualmente</a>' : '');
+    const temEd = parcEstado(p).valores.some(function (v) { return v != null && v !== ''; }) || parcEstado(p).datas.some(function (v) { return !!v; });
+    return aviso((r && r.erro) || '') + (temEd ? '<a href="#" onclick="parcIgualar(\'' + p + '\');return false;" style="font-size:10.5px;color:var(--text-muted);text-decoration:underline;display:inline-block;margin-top:4px;">restaurar padrão</a>' : '');
   }
   const nomes = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', eduzz: 'Eduzz' };
-  const l = r.linhas, n = l.length, ed = parcEstado(p).valores;
+  const l = r.linhas, n = l.length, ed = parcEstado(p).valores, eds = parcEstado(p).datas;
   const liquido = (x) => x.vlpagar - x.vldesconto;
   const cab = r.personalizado ? n + ' parcelas com valores combinados' : n + ' parcelas de ' + brl(r.valorParcela);
   return '<div style="border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:10px 12px;background:rgba(127,255,0,.04);">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;"><div style="font-size:12px;font-weight:700;color:var(--text);">' + cab + (nomes[forma] ? ' · ' + nomes[forma] : '') + '</div>' +
-    (r.personalizado ? '<a href="#" onclick="parcIgualar(\'' + p + '\');return false;" style="font-size:10.5px;color:var(--text-muted);text-decoration:underline;">dividir igualmente</a>' : '') + '</div>' +
+    ((r.personalizado || r.datasPersonalizadas) ? '<a href="#" onclick="parcIgualar(\'' + p + '\');return false;" style="font-size:10.5px;color:var(--text-muted);text-decoration:underline;">restaurar padrão</a>' : '') + '</div>' +
     l.map(function (x, i) {
       const ultima = i === n - 1;
       const valor = ultima
         ? '<b id="' + p + '-pv-last" style="color:var(--text);">' + brl(liquido(x)) + '</b>'
         : '<input id="' + p + '-pv-' + i + '" type="number" min="0.01" step="0.01" value="' + liquido(x).toFixed(2) + '" oninput="parcEditar(\'' + p + '\',' + i + ',this.value)" title="Valor desta parcela" ' +
           'style="width:96px;text-align:right;padding:3px 6px;border-radius:6px;background:var(--bg3,#161616);color:var(--text);font-weight:700;font-size:11.5px;border:1px solid ' + (ed[i] != null && ed[i] !== '' ? '#7FFF00' : 'var(--border,#2a2a2a)') + ';"/>';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;color:var(--text-muted);padding:2px 0;"><span>' + x.parcela_num + '/' + n + ' · cobrança em ' + dm(x.dtinicio) + (ultima ? ' · saldo' : '') + '</span>' + valor + '</div>';
+      const data = '<input id="' + p + '-pd-' + i + '" type="date" value="' + x.dtinicio + '" onchange="parcEditarData(\'' + p + '\',' + i + ',this.value)" title="' + (i === 0 ? 'A 1ª parcela é cobrada na data de início do plano' : 'Data de cobrança desta parcela') + '"' + (i === 0 ? ' disabled' : '') + ' ' +
+        'style="padding:3px 6px;border-radius:6px;background:var(--bg3,#161616);color:var(--text);font-size:11.5px;border:1px solid ' + (eds[i] ? '#7FFF00' : 'var(--border,#2a2a2a)') + ';"/>';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;color:var(--text-muted);padding:2px 0;"><span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + x.parcela_num + '/' + n + ' ' + data + (ultima ? ' <span>saldo</span>' : '') + '</span>' + valor + '</div>';
     }).join('') +
     '<div id="' + p + '-pv-err"></div>' +
-    '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;border-top:1px solid var(--border,#2a2a2a);padding-top:6px;">Cobertura até ' + dm(r.fim) + ' · total ' + brl(r.liquido) + '. Dá para mudar o valor de cada parcela (menos a última, que é o saldo). O plano não renova sozinho: depois da última parcela aparece o aviso para renovar.</div>' +
+    '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;border-top:1px solid var(--border,#2a2a2a);padding-top:6px;">Cobertura até ' + dm(r.fim) + ' · total ' + brl(r.liquido) + '. Dá para mudar a data e o valor de cada parcela (menos o valor da última, que é o saldo). O plano não renova sozinho: depois da última parcela aparece o aviso para renovar.</div>' +
   '</div>';
 }
 // Atualizacao enxuta enquanto a pessoa digita: so o saldo da ultima parcela e o aviso de erro (o resto da previa nao e redesenhado).

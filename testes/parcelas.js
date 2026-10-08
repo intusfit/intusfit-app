@@ -145,6 +145,26 @@ console.log('\n── Resumo e renovação ──');
   eq('descrição base sem o sufixo', API.descricaoBase({ dshistorico: 'Trimestral Treino (2/3)' }), 'Trimestral Treino');
 }
 
+console.log('\n── Data de cada parcela ──');
+{
+  const API = carregar({ hoje: '2026-10-05' });
+  const d = API.gerarParcelas(Object.assign({}, base, { datas: ['2026-10-01', '2026-11-15', '2026-12-10'] }));
+  eq('datas combinadas viram o início de cada janela', d.linhas.map(l => l.dtinicio), ['2026-10-01', '2026-11-15', '2026-12-10']);
+  eq('janelas contíguas, a última vai até o fim do plano', d.linhas.map(l => l.dtvencimento), ['2026-11-15', '2026-12-10', '2027-01-01']);
+  eq('marca datas personalizadas', d.datasPersonalizadas, true);
+  eq('sem datas não marca', API.gerarParcelas(base).datasPersonalizadas, false);
+  eq('valores continuam iguais com datas novas', d.linhas.map(l => l.vlpagar), [200, 200, 200]);
+  const v = API.gerarParcelas({ inicio: '2026-10-05', meses: 2, parcelas: 2, valor: 1400, descricao: 'Bimestral', valores: [700], datas: ['2026-10-05', '2026-11-05'] });
+  eq('caso da Ana: 700 no dia 5 e o resto no mês seguinte', v.linhas.map(l => [l.dtinicio, l.vlpagar]), [['2026-10-05', 700], ['2026-11-05', 700]]);
+  eq('data vazia cai no padrão mensal', API.gerarParcelas(Object.assign({}, base, { datas: [null, null, '2026-12-20'] })).linhas.map(l => l.dtinicio), ['2026-10-01', '2026-11-01', '2026-12-20']);
+  eq('data igual à anterior é recusada', API.gerarParcelas(Object.assign({}, base, { datas: [null, '2026-10-01'] })).ok, false);
+  eq('data antes da anterior é recusada', API.gerarParcelas(Object.assign({}, base, { datas: [null, '2026-12-15', '2026-12-01'] })).ok, false);
+  eq('última parcela no fim do plano é recusada', API.gerarParcelas(Object.assign({}, base, { datas: [null, null, '2027-01-01'] })).ok, false);
+  eq('data da 1ª parcela vira o início do plano', API.gerarParcelas(Object.assign({}, base, { datas: ['2026-10-10'] })).fim, '2027-01-10');
+  const L = linhas(API, Object.assign({}, base, { datas: [null, '2026-11-15', null] }), [1]);
+  eq('parcela com data adiada ainda não vence antes dela', API.situacaoCobranca(L[1], L).estado, 'programada');
+}
+
 console.log('\n── Não muda o que já funcionava ──');
 {
   const API = carregar({ hoje: '2026-10-05' });

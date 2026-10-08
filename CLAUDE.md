@@ -1029,7 +1029,7 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   parcela 1; `recorrencia` fica vazia (o plano não gera ciclo novo sozinho; depois da última aparece o estado "renovar").
 - **API**: `gerarParcelas` (só calcula; centavos, o resto vai para a última), `criarPlanoParcelado` (cria, e desfaz o que criou se falhar no
   meio), `serieParcelas`, `resumoParcelas`, `parcelasAbertas`, `dadosRenovacaoParcelada`, `ehParcelada`, `rotuloParcela`, e as ações da série
-  inteira `cancelarParcelas`, `trancarParcelas`, `destrancarParcelas`, `moverParcelas`. Testes em `testes/parcelas.js` (51 casos).
+  inteira `cancelarParcelas`, `trancarParcelas`, `destrancarParcelas`, `moverParcelas`. Testes em `testes/parcelas.js` (76 casos).
 - **Regras ajustadas no `api.js`**: `mesesDoPlano` de uma parcela é a janela dela (antes lia "trimestral" da descrição e a parcela 2 aparecia
   vencida e a baixa gerava um ciclo de 3 meses); `pagamentoDoProximoCiclo` ignora parcela numerada; `_normalizarPlano` ignora o "(2/6)";
   `situacaoPlano` não deixa parcela que ainda não começou manter o aluno ativo enquanto ele deve a anterior.
@@ -1042,6 +1042,11 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   casos como R$ 700 de entrada e o resto no mês seguinte. `API.gerarParcelas` aceita `valores: [700]` (líquido da parcela, depois do desconto);
   o desconto é repartido na proporção, a soma sempre fecha com o plano e a renovação repete os valores da série anterior. Estado da edição em
   `PARC_ED` (`_mock.js`, `parcEditar`/`parcReset`); mudar a quantidade de parcelas zera os valores combinados.
+- **Data de cada parcela (08/10/2026)**: na mesma prévia, cada parcela tem um campo de data (a 1ª fica travada: é a data de início do plano).
+  `API.gerarParcelas` aceita `datas: [...]` (dia em que a parcela é COBRADA; vazio = padrão mensal). As janelas continuam contíguas (cada uma vai até
+  a cobrança da seguinte, a última até o fim do plano), e a data tem de ser depois da anterior e antes do fim. Mudar a data de início ou a
+  quantidade de parcelas esquece as datas combinadas ("restaurar padrão" volta tudo). Anos fora de 2020 a 2100 são ignorados na digitação
+  (o navegador avisa valores parciais enquanto se digita o ano). Testes em `testes/parcelas.js` (76 casos).
 - **Cópias que ganharam a mesma guarda** (parcela numerada nunca é "sobra"): `_cobrancaSuperada` em `mensalidades.html` e `_superada` em
   `index.html`. **Aviso**: parcelamentos feitos antes pelo modal antigo (sem ligação) passam a ser lidos pelas regras novas; o status deles pode
   mudar para o correto.
