@@ -845,12 +845,14 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   build.
 
 - **Giro de tela (07/10/2026, substitui a cortina)**: o aluno segura o celular de qualquer jeito durante o treino, então NÃO há aviso
-  para girar. Onde a trava não funciona (Safari no iPhone, navegador comum no Android, PWA do iOS), com o aparelho em paisagem e fora de
-  vídeo em tela cheia, o `<html>` recebe `giro-fixo` e é desenhado em pé, girado 90° para o lado contrário (`giro-90` / `giro-270`, pelo
-  `screen.orientation.angle` ou `window.orientation`), igual ao efeito da trava nativa. A rolagem passa para o `<body>`; `window.scrollTo`,
-  `scrollY` e `pageYOffset` foram redirecionados e o evento `scroll` é repassado. Detecta a orientação FÍSICA (não a forma da janela), para
-  o teclado aberto não girar nada. Limites conhecidos: `vh`/`innerHeight` continuam medindo a janela horizontal e as margens de área
-  segura (notch) ficam do lado errado. **Testado só no Chrome simulando; conferir num iPhone de verdade.**
+  para girar. Onde a trava não funciona (Safari no iPhone, navegador comum no Android, PWA do iOS) o `<html>` é desenhado em pé, girado
+  90° para o lado contrário, por **CSS puro** (`@media (orientation: landscape) and (pointer: coarse) and (hover: none)`), o que vale no
+  mesmo quadro em que o navegador gira, sem piscar a tela horizontal (a 1ª versão decidia por JS depois do evento e piscava ~0,3 s). O JS
+  só informa: `data-gd` (90 ou 270, pelo ângulo; guarda o último em `localStorage['intus-gd']` para o 1º quadro), `--gf-w/--gf-h` (medidas
+  exatas da janela) e as classes `teclado` (campo focado com o aparelho em pé: janela larga não pode girar nada) e `tela-cheia` (vídeo),
+  que desligam o giro. A rolagem passa para o `<body>`; `window.scrollTo`, `scrollY` e `pageYOffset` foram redirecionados e o evento
+  `scroll` é repassado; `window._giroAtivo()` diz se está girado. Limites: `vh`/`innerHeight` medem a janela horizontal e as margens de
+  área segura (notch) ficam do lado errado. **Testado só no Chrome simulando; conferir num iPhone e num Android de verdade.**
 ## 24. Feed: busca, reações e Cardio (07/10/2026)
 
 - **Home**: o título "Feed dos Alunos" é um link para a tela do Feed.
