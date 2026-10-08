@@ -878,6 +878,10 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
   ações `definir`/`remover` no servidor e atualização imediata na tela.
 - **Perfil social**: o cabeçalho não tem mais a linha de baixo (era ela que cortava a logo); a logo ficou na posição original.
 
+- **Reações do Feed (07/10/2026)**: 13 emojis (`_REACOES_POST`) numa grade de 7 colunas, mais o seletor "Tom do 💪" (6 tons, guardado em
+  `localStorage['intus-rx-tom']`). A reação gravada leva o modificador (💪🏽, 2 caracteres, cabe nos 8 do servidor e nos 16 da coluna);
+  o resumo do post soma os tons do mesmo emoji (`_rxBase`). Só o 💪 tem tom. Servidor sem mudança (aceita qualquer emoji até 8 caracteres).
+
 ## 25. Último treino (07/10/2026)
 
 - A Home dizia "Último: Treino C" quando o último tinha sido o D. Causa: `SessoesTreino.listarDoAtleta` ordenava só pela

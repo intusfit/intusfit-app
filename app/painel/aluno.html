@@ -2619,7 +2619,17 @@ async function carregarReacoesFeed(ids) {
 // Linha: as reações já feitas (com o total, toque abre quem reagiu), a sua reação (🤍 se ainda não reagiu; tocar curte,
 // ou tira a que você deu) e o "＋" com as outras reações. Uma reação por pessoa: escolher outra troca a anterior.
 // A tela muda na hora e volta atrás se o servidor recusar.
-const _REACOES_POST = ['❤️', '🔥', '💪', '👏', '😮', '😂'];
+const _REACOES_POST = ['❤️', '🔥', '💪', '🦾', '👏', '✅', '💥', '👀', '😮', '😂', '🥹', '😤', '🥲'];
+// Tom de pele do 💪 (escolha guardada no aparelho). A reação gravada é o emoji com o modificador (💪🏽); para contar, os tons
+// do mesmo emoji somam juntos. Só o 💪 aceita tom aqui.
+const _RX_TONS = ['', '\u{1F3FB}', '\u{1F3FC}', '\u{1F3FD}', '\u{1F3FE}', '\u{1F3FF}'];
+function _rxBase(e) { return String(e || '').replace(/[\u{1F3FB}-\u{1F3FF}]/gu, ''); }
+function _rxTom() { try { const t = localStorage.getItem('intus-rx-tom') || ''; return _RX_TONS.indexOf(t) >= 0 ? t : ''; } catch (e) { return ''; } }
+function _rxComTom(e) { return e === '💪' ? '💪' + _rxTom() : e; }
+function _rxEscolherTom(idpost, tom) {
+  try { localStorage.setItem('intus-rx-tom', tom); } catch (e) {}
+  abrirReacoesPost(idpost, window.__rxAncora);   // redesenha a janela com o tom novo
+}
 function _rxMinha(idpost) { return (_reacoesFeed[String(idpost)] || []).find(r => r.meu) || null; }
 function _rxRedesenhar(idpost) {
   document.querySelectorAll('[data-feed-kudos="' + idpost + '"]').forEach(el => { el.outerHTML = _kudosHtml(idpost); });
@@ -2658,7 +2668,8 @@ function _rxEscolher(idpost, emoji) {
 function fecharReacoesPost() { document.getElementById('rx-bar')?.remove(); document.getElementById('rx-fundo')?.remove(); }
 function abrirReacoesPost(idpost, ev) {
   fecharReacoesPost();
-  const ancora = ev && ev.currentTarget; if (!ancora) return;
+  const ancora = (ev && ev.currentTarget) || (ev && ev.nodeType === 1 ? ev : null); if (!ancora) return;
+  window.__rxAncora = ancora;
   const isLight = document.body.classList.contains('tema-claro');
   const minha = _rxMinha(idpost);
   const rc = ancora.getBoundingClientRect();
@@ -2668,18 +2679,34 @@ function abrirReacoesPost(idpost, ev) {
   fundo.onclick = fecharReacoesPost;
   const bar = document.createElement('div');
   bar.id = 'rx-bar';
-  const largura = _REACOES_POST.length * 46 + 16;
-  bar.style.cssText = 'position:fixed;z-index:100060;left:' + Math.max(8, Math.min(rc.left, window.innerWidth - largura - 8)) + 'px;top:' + Math.max(8, rc.top - 60) + 'px;display:flex;gap:2px;padding:6px 8px;border-radius:30px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 10px 30px rgba(0,0,0,.45);';
-  bar.innerHTML = _REACOES_POST.map(e => '<button onclick="_rxEscolher(' + Number(idpost) + ',\'' + e + '\')" style="width:42px;height:42px;border:none;border-radius:50%;background:' + (minha && minha.emoji === e ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)') : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;">' + e + '</button>').join('');
+  const colunas = 7, largura = Math.min(window.innerWidth - 16, colunas * 46 + 20);
+  const tom = _rxTom();
+  const brilho = isLight ? '#e8f7d8' : 'rgba(127,255,0,.18)';
+  const botoes = _REACOES_POST.map(function (base) {
+    const e = _rxComTom(base);
+    return '<button onclick="_rxEscolher(' + Number(idpost) + ',\'' + e + '\')" style="height:42px;border:none;border-radius:50%;background:' + (minha && minha.emoji === e ? brilho : 'transparent') + ';font-size:26px;line-height:1;cursor:pointer;">' + e + '</button>';
+  }).join('');
+  const tons = _RX_TONS.map(function (t) {
+    const cores = ['#f5c518', '#f7d7c4', '#e0b896', '#c68c5d', '#8d5524', '#4a2c17'];
+    const k = _RX_TONS.indexOf(t);
+    return '<button onclick="_rxEscolherTom(' + Number(idpost) + ',\'' + t + '\')" aria-label="Tom de pele ' + k + '" style="width:26px;height:26px;border-radius:50%;background:' + cores[k] + ';cursor:pointer;padding:0;border:2px solid ' + (tom === t ? (isLight ? '#1a1a1a' : '#7FFF00') : 'transparent') + ';"></button>';
+  }).join('');
+  bar.style.cssText = 'position:fixed;z-index:100060;width:' + largura + 'px;box-sizing:border-box;padding:8px 10px 10px;border-radius:22px;background:' + (isLight ? '#fff' : '#1f1f1f') + ';border:1px solid ' + (isLight ? '#ddd' : '#333') + ';box-shadow:0 10px 30px rgba(0,0,0,.45);';
+  bar.innerHTML = '<div style="display:grid;grid-template-columns:repeat(' + colunas + ',1fr);gap:2px;">' + botoes + '</div>' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid ' + (isLight ? '#eee' : '#2c2c2c') + ';"><span style="font-size:11px;font-weight:700;color:' + (isLight ? '#777' : '#999') + ';flex-shrink:0;">Tom do 💪</span><div style="display:flex;gap:7px;flex:1;justify-content:space-between;">' + tons + '</div></div>';
   document.body.appendChild(fundo); document.body.appendChild(bar);
+  const alt = bar.offsetHeight;
+  const topo = rc.top - alt - 8 >= 8 ? rc.top - alt - 8 : Math.min(window.innerHeight - alt - 8, rc.bottom + 8);
+  bar.style.top = Math.max(8, topo) + 'px';
+  bar.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - largura - 8)) + 'px';
 }
 function _kudosHtml(idpost) {
   const lista = _reacoesFeed[String(idpost)] || [];
   const minha = _rxMinha(idpost);
   const isLight = document.body.classList.contains('tema-claro');
   const acento = isLight ? '#2d8a00' : '#7FFF00';
-  const cont = {}; lista.forEach(r => { cont[r.emoji] = (cont[r.emoji] || 0) + 1; });
-  const top = Object.keys(cont).sort((a, b) => cont[b] - cont[a]).slice(0, 3).join('');
+  const cont = {}, mostra = {}; lista.forEach(r => { const b = _rxBase(r.emoji); cont[b] = (cont[b] || 0) + 1; if (!mostra[b] || r.meu) mostra[b] = r.emoji; });
+  const top = Object.keys(cont).sort((a, b) => cont[b] - cont[a]).slice(0, 3).map(b => mostra[b]).join('');
   // Sem reação nenhuma: um 🤍 para curtir. Com reações: o próprio grupo de emojis é o botão de curtir (fica
   // destacado quando a reação é sua; tocar nele curte ou tira) e o número abre a lista de quem reagiu.
   const botao = lista.length
