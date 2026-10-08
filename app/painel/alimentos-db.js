@@ -15,6 +15,20 @@ const AlimentosDB = (() => {
 
   const DATA_PATH = '../data/';
   let _customFoods = [];
+  // Medidas caseiras por alimento da TACO (unidades.json). Chave = id da TACO, conferido pelo nome na geracao do arquivo.
+  let _unidades = {};
+
+  // Os "Meus Alimentos" vêm do servidor com id 1, 2, 3... e a TACO também usa 1..597. Antes isso fazia o 1º alimento
+  // cadastrado esconder o "Arroz integral cozido", o 2º esconder o "Arroz integral cru" e assim por diante (e os planos
+  // já montados passavam a usar os nutrientes do alimento errado). Agora o id de um "Meu alimento" no app é 1.000.000 + id
+  // do servidor (dbid guarda o id do servidor) e nunca colide com a TACO.
+  const CUSTOM_BASE = 1000000;
+  function _prepCustom(f) {
+    const dbid = Number(f.dbid != null ? f.dbid : f.id);
+    return Object.assign({}, f, { dbid: dbid, id: CUSTOM_BASE + dbid, custom: true });
+  }
+  function _nsId(id) { id = Number(id); return id >= CUSTOM_BASE ? id : CUSTOM_BASE + id; }
+  function _dbidDe(id) { id = Number(id); return id >= CUSTOM_BASE ? id - CUSTOM_BASE : id; }
 
   async function load() {
     if (_loaded) return;
@@ -30,11 +44,13 @@ const AlimentosDB = (() => {
         if (!r.ok) throw new Error(`HTTP ${r.status} ao buscar ${url}`);
         return r.json();
       };
-      const [tacoResp, medidasResp, gruposResp] = await Promise.all([
+      const [tacoResp, medidasResp, gruposResp, unidResp] = await Promise.all([
         fetchJson(DATA_PATH + 'taco.json'),
         fetchJson(DATA_PATH + 'medidas-caseiras.json'),
         fetchJson(DATA_PATH + 'grupos-equivalencia.json'),
+        fetchJson(DATA_PATH + 'unidades.json?v=20261008a').catch(() => ({ itens: {} })),
       ]);
+      _unidades = (unidResp && unidResp.itens) || {};
       _taco = Array.isArray(tacoResp) ? tacoResp : [];
       _medidasPadrao = medidasResp.medidas_padrao || [];
       _medidas = medidasResp.alimentos_medidas || {};
@@ -47,7 +63,7 @@ const AlimentosDB = (() => {
       try {
         const remotos = (typeof API !== 'undefined' && API.listarAlimentosPersonalizados)
           ? await API.listarAlimentosPersonalizados() : [];
-        _customFoods = Array.isArray(remotos) ? remotos : [];
+        _customFoods = Array.isArray(remotos) ? remotos.map(_prepCustom) : [];
       } catch (e) {
         console.error('[AlimentosDB] Erro ao carregar Meus Alimentos do servidor:', e);
         _customFoods = [];
@@ -139,9 +155,24 @@ const AlimentosDB = (() => {
 
   function getById(id) {
     const numId = Number(id);
-    const custom = _customFoods.find(f => f.id === numId);
-    if (custom) return custom;
+    if (numId >= CUSTOM_BASE) return _customFoods.find(f => f.id === numId) || null;
     return _taco.find(f => f.id === numId) || null;
+  }
+
+  // Acha o alimento de um item de plano salvo. Plano antigo guardava só o número, que podia ser de um "Meu alimento" ou da
+  // TACO com o mesmo número; o nome do item resolve a dúvida. Devolve null se não existe mais (o item segue com os valores
+  // que foram salvos nele).
+  function resolver(item) {
+    if (!item) return null;
+    const id = Number(item.food_id);
+    const nome = normalizar(item.nome || item.description || '');
+    if (id >= CUSTOM_BASE) return getById(id);
+    const t = _taco.find(f => f.id === id);
+    if (t && (!nome || normalizar(t.description) === nome)) return t;
+    const c = _customFoods.find(f => f.dbid === id && (!nome || normalizar(f.description) === nome));
+    if (c) return c;
+    if (nome) return _customFoods.find(f => normalizar(f.description) === nome) || _taco.find(f => normalizar(f.description) === nome) || null;
+    return t || null;
   }
 
   function getCategories() {
@@ -160,67 +191,59 @@ const AlimentosDB = (() => {
     return isNaN(n) ? 0 : n;
   }
 
+  // [chave de saída, campo da TACO, casas decimais do resultado]
+  const _NUT = [
+    ['energia_kcal', 'energy_kcal', 1], ['proteina_g', 'protein_g', 1], ['carboidrato_g', 'carbohydrate_g', 1], ['lipidio_g', 'lipid_g', 1],
+    ['fibra_g', 'fiber_g', 1], ['colesterol_mg', 'cholesterol_mg', 1], ['sodio_mg', 'sodium_mg', 1], ['calcio_mg', 'calcium_mg', 1],
+    ['ferro_mg', 'iron_mg', 1], ['potassio_mg', 'potassium_mg', 1], ['magnesio_mg', 'magnesium_mg', 1], ['fosforo_mg', 'phosphorus_mg', 1],
+    ['zinco_mg', 'zinc_mg', 1], ['vitamina_c_mg', 'vitaminC_mg', 1], ['tiamina_mg', 'thiamine_mg', 2], ['riboflavina_mg', 'riboflavin_mg', 2],
+    ['niacina_mg', 'niacin_mg', 1], ['saturados_g', 'saturated_g', 1], ['monoinsaturados_g', 'monounsaturated_g', 1], ['poliinsaturados_g', 'polyunsaturated_g', 1],
+  ];
+  // Tabela nutricional de 100 g do alimento, já nas chaves usadas pelos itens do plano.
+  function nutrientesPor100(food) {
+    const o = {};
+    _NUT.forEach(function (n) { o[n[0]] = Math.round(parseNumeric(food[n[1]]) * 10000) / 10000; });
+    return o;
+  }
+  // Escala uma tabela de 100 g para uma quantidade em gramas.
+  function escalar(por100, gramas) {
+    const fator = (Number(gramas) || 0) / 100, o = {};
+    _NUT.forEach(function (n) { const m = n[2] === 2 ? 100 : 10; o[n[0]] = Math.round((Number(por100 && por100[n[0]]) || 0) * fator * m) / m; });
+    return o;
+  }
   function calcNutrientes(foodId, quantidadeGramas) {
     const food = getById(foodId);
     if (!food) return null;
-    const fator = quantidadeGramas / 100;
-    return {
-      energia_kcal: Math.round(parseNumeric(food.energy_kcal) * fator * 10) / 10,
-      proteina_g: Math.round(parseNumeric(food.protein_g) * fator * 10) / 10,
-      carboidrato_g: Math.round(parseNumeric(food.carbohydrate_g) * fator * 10) / 10,
-      lipidio_g: Math.round(parseNumeric(food.lipid_g) * fator * 10) / 10,
-      fibra_g: Math.round(parseNumeric(food.fiber_g) * fator * 10) / 10,
-      colesterol_mg: Math.round(parseNumeric(food.cholesterol_mg) * fator * 10) / 10,
-      sodio_mg: Math.round(parseNumeric(food.sodium_mg) * fator * 10) / 10,
-      calcio_mg: Math.round(parseNumeric(food.calcium_mg) * fator * 10) / 10,
-      ferro_mg: Math.round(parseNumeric(food.iron_mg) * fator * 10) / 10,
-      potassio_mg: Math.round(parseNumeric(food.potassium_mg) * fator * 10) / 10,
-      magnesio_mg: Math.round(parseNumeric(food.magnesium_mg) * fator * 10) / 10,
-      fosforo_mg: Math.round(parseNumeric(food.phosphorus_mg) * fator * 10) / 10,
-      zinco_mg: Math.round(parseNumeric(food.zinc_mg) * fator * 10) / 10,
-      vitamina_c_mg: Math.round(parseNumeric(food.vitaminC_mg) * fator * 10) / 10,
-      tiamina_mg: Math.round(parseNumeric(food.thiamine_mg) * fator * 100) / 100,
-      riboflavina_mg: Math.round(parseNumeric(food.riboflavin_mg) * fator * 100) / 100,
-      niacina_mg: Math.round(parseNumeric(food.niacin_mg) * fator * 10) / 10,
-      saturados_g: Math.round(parseNumeric(food.saturated_g) * fator * 10) / 10,
-      monoinsaturados_g: Math.round(parseNumeric(food.monounsaturated_g) * fator * 10) / 10,
-      poliinsaturados_g: Math.round(parseNumeric(food.polyunsaturated_g) * fator * 10) / 10,
-    };
+    return escalar(nutrientesPor100(food), quantidadeGramas);
   }
 
+  // Medidas caseiras do alimento, com gramas por 1 medida. Só entra o que é conhecido para aquele alimento: antes valia uma
+  // lista genérica (unidade = 100 g, fatia = 30 g...) que dava 1 ovo = 143 kcal. Sem medida cadastrada, o alimento fica em gramas.
   function getMedidasAlimento(foodId) {
     const numId = Number(foodId);
-    const customFood = _customFoods.find(f => f.id === numId);
-    if (customFood) {
-      const medidas = [{ id: 'g', nome: 'gramas', abrev: 'g', gramas: 1 }];
-      if (customFood.medida_padrao && customFood.medida_padrao !== 'g') {
-        medidas.unshift({
-          id: 'custom_porcao',
-          nome: customFood.medida_padrao,
-          abrev: customFood.medida_padrao,
-          gramas: customFood.porcao_padrao || 100,
-        });
+    if (numId >= CUSTOM_BASE) {
+      const c = _customFoods.find(f => f.id === numId);
+      if (!c) return [];
+      const medidas = [];
+      if (c.medida_padrao && c.medida_padrao !== 'g') {
+        medidas.push({ id: 'custom_porcao', nome: c.medida_padrao, abrev: c.medida_padrao, gramas: c.porcao_padrao || 100 });
       }
       return medidas;
     }
-    const especificas = _medidas[String(foodId)];
-    if (especificas && especificas.medidas) {
-      return especificas.medidas.map(m => {
-        const def = _medidasPadrao.find(mp => mp.id === m.medida);
-        return {
-          id: m.medida,
-          nome: def?.nome || m.medida,
-          abrev: def?.abrev || m.medida,
-          gramas: m.gramas,
-        };
-      });
-    }
-    return _medidasPadrao.slice(0, 10).map(mp => ({
-      id: mp.id,
-      nome: mp.nome,
-      abrev: mp.abrev,
-      gramas: mp.gramas_padrao,
-    }));
+    const u = _unidades[String(numId)];
+    if (!u || !Array.isArray(u.m)) return [];
+    return u.m.map(m => ({ id: m[0], nome: m[1], abrev: m[1], gramas: m[2] }));
+  }
+
+  // Medida e quantidade sugeridas ao incluir o alimento num plano (ex.: ovo = 2 unidades). null = usar 100 g.
+  function getUnidadePadrao(foodId) {
+    const meds = getMedidasAlimento(foodId);
+    if (!meds.length) return null;
+    const numId = Number(foodId);
+    const u = numId < CUSTOM_BASE ? _unidades[String(numId)] : null;
+    const alvo = u && u.p ? meds.find(m => m.id === u.p[0]) : null;
+    const m = alvo || meds[0];
+    return { medida_id: m.id, medida_nome: m.nome, medida_g: m.gramas, quantidade: (u && u.p && alvo) ? u.p[1] : 1 };
   }
 
   function getMedidasPadrao() {
@@ -748,22 +771,24 @@ const AlimentosDB = (() => {
       porcao_padrao: food.porcao_padrao || 100,
       medida_padrao: food.medida_padrao || 'g',
     });
-    const novo = { ...salvo, custom: true };
+    const novo = _prepCustom(salvo);
     _customFoods.push(novo);
     return novo;
   }
 
   async function editCustomFood(id, updates) {
-    await API.editarAlimentoPersonalizado(id, updates);
-    const idx = _customFoods.findIndex(f => f.id === id);
+    const nid = _nsId(id);
+    await API.editarAlimentoPersonalizado(_dbidDe(nid), updates);
+    const idx = _customFoods.findIndex(f => f.id === nid);
     if (idx < 0) return null;
     Object.assign(_customFoods[idx], updates);
     return _customFoods[idx];
   }
 
   async function deleteCustomFood(id) {
-    await API.excluirAlimentoPersonalizado(id);
-    _customFoods = _customFoods.filter(f => f.id !== id);
+    const nid = _nsId(id);
+    await API.excluirAlimentoPersonalizado(_dbidDe(nid));
+    _customFoods = _customFoods.filter(f => f.id !== nid);
   }
 
   // ─── UTILIDADES ────────────────────────────────────────────────────────
@@ -781,10 +806,15 @@ const AlimentosDB = (() => {
     buscar,
     buscarOnline,
     getById,
+    resolver,
     getCategories,
     getByCategory,
     calcNutrientes,
+    nutrientesPor100,
+    escalar,
     getMedidasAlimento,
+    getUnidadePadrao,
+    CUSTOM_BASE,
     getMedidasPadrao,
     getGrupos,
     getGrupo,

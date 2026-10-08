@@ -1081,3 +1081,60 @@ em ajuste, não fixo no código.
 (worker por CronJob da KingHost, que é pago e por HTTP com `X-Cron-Auth`, a "carona" não serve para hora marcada) e os 7 templates na Meta; robô de
 conversa (Claude, com manual de vendas e transferência para pessoa); tela "Funil de Leads" no painel. Texto de todas as mensagens segue o skill de
 oferta (sem prometer resultado, prazo ou número; o teste é só de treino, sem dieta) e a regra de escrita do Luiz: sem travessão e sem "não é X, é Y".
+
+## 30. Nutrição do aluno: tela inicial, receitas, vídeos e dicas (08/10/2026)
+
+- **Tela inicial da Nutrição** (`aluno.html`, `_nutriHomeHtml`): vale para TODOS os alunos, com ou sem plano ativo. Tem o controle de água
+  (meta de 35 ml/kg do último peso, `API.nutri.metaAguaMl`; 2,5 L sem peso), atalhos (Meu plano, Receitas, Vídeos, Dicas), sugestões de
+  receita pelo horário e a dica do dia. A água também continua DENTRO do plano alimentar: os dois botões gravam no mesmo registro do dia
+  (`nutri_dia`); na tela inicial é sempre hoje (`nutriAgua(delta, true)`), no plano segue o dia escolhido (hoje ou ontem).
+- **Navegação**: `_nutri.tela` = home | plano | receitas | receita | videos | dicas, trocada por `nutriTela(t, id)`. Entrar em Nutrição
+  (`renderNutricaoAluno`) sempre cai na tela inicial. O "Voltar" das subtelas volta para a tela inicial (`_nutriHeaderSub`).
+- **Conteúdo** vem de `app/painel/nutri-conteudo.json` (`categorias`, `receitas`, `dicas`, `videos`), buscado no site (no app nativo, em
+  `https://intusfit.com.br/app/painel/`, então mudar o JSON vale sem rebuild) e guardado em `localStorage['intus-nutri-conteudo']` para
+  funcionar offline. As fotos ficam em `app/painel/receitas/*.jpg` (fora de `app/img/`, que o git ignora).
+- **Receitas**: 47 receitas do e-book "Nutri Rô: Receitas práticas" (café da manhã, lanche da tarde, café sem ovo, bebidas proteicas,
+  saladas, molho, strogonoff e almoços e jantares), transcritas e com as fotos recortadas do PDF. Busca por nome ou ingrediente, categorias,
+  favoritas (`intus-nutri-fav-<idatleta>`), ingredientes marcáveis, envio por WhatsApp e cópia. Campos de uma receita: `id`, `titulo`, `cat`,
+  `tempo`, `porcoes`, `ingredientes[]`, `preparo[]`, `foto`, e opcionais `proteina`, `dica`, `descricao`, `dificuldade`, `nutricao{}`,
+  `variacao{}`, `acompanhamentos[]`, `outras_opcoes[]`. O texto "Whey Nutrata Havanna" e "Rap10" vêm do material da nutri, sem mudança.
+- **Vídeos**: lista `videos[]` com `id`, `titulo`, `url` (YouTube abre no player do app; outro link abre fora), `duracao`, `descricao`,
+  `capa` opcional e `receita` (id de uma receita: aparece o botão "Ver o vídeo desta receita"). Hoje a lista está vazia: a tela mostra
+  "Os vídeos estão chegando". Para publicar vídeos sem mexer em arquivo é preciso uma área de gestão no painel (ver pendências).
+- **Ajuda** (`ajuda.js`): FAQ nova "Onde ficam as receitas, os vídeos e as dicas?" e textos de água atualizados.
+
+## 31. Banco de alimentos e editor de plano (08/10/2026)
+
+Defeitos de dados achados e corrigidos (todos confirmados no navegador):
+- **Colisão de ids**: os "Meus alimentos" vêm do servidor com id 1, 2, 3... e a TACO usa 1..597. O 1º alimento cadastrado escondia o "Arroz
+  integral cozido", e assim por diante, e os planos já montados recalculavam com o alimento errado. Agora o id de um "Meu alimento" no app é
+  `AlimentosDB.CUSTOM_BASE (1.000.000) + id do servidor` (`dbid` guarda o do servidor). Plano antigo guardava o número cru:
+  `AlimentosDB.resolver(item)` decide pelo NOME quando o número é ambíguo.
+- **Medidas caseiras ligadas a alimentos errados**: 14 das 15 entradas de `medidas-caseiras.json` apontavam para outro alimento da TACO
+  (as da "Banana prata" caíam em "Maracujá, suco concentrado"; a aveia herdava as do arroz). Esse arquivo deixou de ser fonte de medidas.
+- **Unidade genérica de 100 g**: toda unidade valia 100 g (1 ovo = 143 kcal, o dobro do real). O catálogo novo é `app/data/unidades.json`:
+  467 dos 597 alimentos da TACO com medidas caseiras de referência (ovo de galinha 1 unidade = 50 g, clara 33 g, gema 17 g, ovo de
+  codorna 10 g, fatia de pão de forma 25 g...), gerado por script que CONFERE cada id pelo nome da TACO (não se repete o erro de ligação).
+  Alimento sem medida cadastrada fica só em gramas, sem inventar. São valores de referência (média de tabelas brasileiras de medidas
+  caseiras, parte comestível): a nutri pode ajustar a medida de um item e o plano guarda o que foi prescrito.
+
+Como o item de plano é gravado agora (`itens_estruturados[]`): `food_id`, `nome`, `quantidade`, `medida_id`, `medida_nome`, `medida_g`
+(gramas de 1 medida), `gramas`, `nutrientes` (20 nutrientes da porção), `substitutos[]` e, só para "Meus alimentos", `por100` (tabela de
+100 g, porque outro profissional não enxerga o alimento). O item se recalcula sozinho ao mudar quantidade ou medida
+(`_recalcItem` no `nutricao.html`, `AlimentosDB.escalar`). Plano antigo é "hidratado" ao abrir (`_hidratarItem`): acha o alimento, recupera
+quanto valia 1 medida pelo que foi calculado na época e marca com ⚠ a medida antiga que não bate com o catálogo (ex.: unidade de ovo
+com 100 g); a nutri decide se atualiza.
+
+Substituições:
+- **Substituto de alimento** (↔): item completo com quantidade, medida, kcal e macros. Ao escolher o substituto ele chega na quantidade
+  EQUIVALENTE ao original, mantendo iguais calorias, proteína, carboidrato ou gordura (`API.nutri.gramasEquivalentes`), arredondada para
+  meia unidade ou 5 g (`arredondarQtd`). Botão ⚖ refaz a conta; a diferença para o original aparece na linha. Substituto digitado à
+  mão fica como texto, marcado "sem tabela nutricional".
+- **Refeição substituta** (opção alternativa inteira): ganhou "Copiar da principal", "Igualar kcal" (multiplica todas as quantidades pelo
+  mesmo fator) e a comparação de kcal e macros com a principal.
+- O app do aluno mostra "2 unidades (100 g)" e os substitutos com quantidade (`API.nutri.rotuloQtd`).
+- **Tabela nutricional** (ℹ): rótulo de 100 g e da porção para qualquer alimento da busca, item do plano ou substituto.
+- **Cadastro rápido** (na busca) aceita fibra, sódio e uma medida caseira (ex.: 1 scoop = 30 g); sem kcal, calcula 4/4/9 kcal/g.
+
+Testes: `testes/alimentos.js` (ids, resolução de plano antigo, medidas, catálogo conferido com a TACO; falha de verdade contra o código
+antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equivalência, arredondamento).

@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261008c"></script>
+  <script src="api.js?v=20261008d"></script>
   <script src="ajuda.js?v=20261008b" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -17243,11 +17243,14 @@ function _nutriStatusInfo(st) {
 }
 function _nutriItemHtml(it) {
   const C = _nutriCores(); const n = it.nutrientes || {};
-  const qtd = it.medida_id === 'g' || !it.medida_nome ? `${it.quantidade}g` : `${it.quantidade} ${it.medida_nome}`;
+  // Quantidade na medida do plano ("2 unidades"), com os gramas ao lado quando há medida caseira.
+  const emMedida = it.medida_id && it.medida_id !== 'g' && it.medida_nome;
+  const qtd = API.nutri.rotuloQtd(it) + (emMedida && it.gramas ? ' (' + Math.round(it.gramas) + ' g)' : '');
   const subs = (it.substitutos || []).filter(s => s && s.nome);
+  const subTxt = s => esc(s.nome) + (s.medida_id ? ' (' + esc(API.nutri.rotuloQtd(s)) + ')' : (s.quantidade ? ' (' + esc(String(s.quantidade)) + ' ' + esc(s.medida || 'g') + ')' : ''));
   return `<div style="padding:8px 0;border-top:1px solid ${C.borda};">
     <div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-size:13px;font-weight:600;">${esc(it.nome)} <span style="color:${C.mut};font-weight:400;">· ${esc(qtd)}</span></span><span style="font-size:11px;color:${C.mut};white-space:nowrap;">${Math.round(n.energia_kcal || 0)} kcal</span></div>
-    ${subs.length ? `<div style="font-size:10.5px;color:${C.ok};margin-top:2px;">↔ pode trocar por: ${subs.map(s => esc(s.nome)).join(', ')}</div>` : ''}
+    ${subs.length ? `<div style="font-size:10.5px;color:${C.ok};margin-top:2px;">↔ pode trocar por: ${subs.map(subTxt).join(', ')}</div>` : ''}
   </div>`;
 }
 

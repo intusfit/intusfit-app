@@ -3116,6 +3116,53 @@ const API = {
       if (!p) return 2500;
       return Math.max(1500, Math.min(5000, Math.round(p * 35 / 50) * 50));
     }
+    // ── Quantidades de um item de plano: gramas, rótulo em medida caseira e equivalência para substituição ──
+    // Item: { quantidade, medida_id ('g' ou id da medida), medida_nome, medida_g (gramas de 1 medida), gramas }.
+    function gramasItem(it) {
+      if (!it) return 0;
+      if (num(it.gramas) > 0) return num(it.gramas);
+      var q = num(it.quantidade);
+      if (!it.medida_id || it.medida_id === 'g') return q;
+      return num(it.medida_g) > 0 ? q * num(it.medida_g) : 0;
+    }
+    function _pluralPrimeira(p) {
+      if (/ão$/.test(p)) return p.slice(0, -2) + 'ões';
+      if (/r$/.test(p)) return p + 'es';
+      if (/s$/.test(p)) return p;
+      return p + 's';
+    }
+    // "Colher de sopa" + 3 => "colheres de sopa"; "Unidade" + 1 => "unidade"
+    function pluralMedida(nome, q) {
+      nome = String(nome || '').trim();
+      if (!nome) return '';
+      var partes = nome.split(' ');
+      if (num(q) > 1) partes[0] = _pluralPrimeira(partes[0]);
+      var t = partes.join(' ');
+      return t.charAt(0).toLowerCase() + t.slice(1);
+    }
+    // "2 unidades", "150 g", "1,5 xícara de chá"
+    function rotuloQtd(it) {
+      var q = num(it && it.quantidade);
+      var f = String(Math.round(q * 100) / 100).replace('.', ',');
+      if (!it || !it.medida_id || it.medida_id === 'g' || !it.medida_nome) return f + ' g';
+      return f + ' ' + pluralMedida(it.medida_nome, q);
+    }
+    // Quantidade de um alimento substituto que mantém iguais as kcal (ou a proteína, o carboidrato, a gordura) do original.
+    // orig = nutrientes do item original; por100 = tabela de 100 g do substituto. Devolve gramas (0 se não dá para calcular).
+    var _CHAVE_EQUIV = { kcal: 'energia_kcal', prot: 'proteina_g', carb: 'carboidrato_g', gord: 'lipidio_g' };
+    function gramasEquivalentes(orig, por100, modo) {
+      var k = _CHAVE_EQUIV[modo] || 'energia_kcal';
+      var alvo = num(orig && orig[k]), base = num(por100 && por100[k]);
+      if (!(alvo > 0) || !(base > 0)) return 0;
+      return alvo / base * 100;
+    }
+    // Arredonda uma quantidade para algo que se consegue medir: meia unidade quando há medida caseira, 5 g em gramas.
+    function arredondarQtd(gramas, medidaG) {
+      gramas = num(gramas);
+      if (!(gramas > 0)) return 0;
+      if (num(medidaG) > 1) return Math.max(0.5, Math.round(gramas / num(medidaG) * 2) / 2);
+      return Math.max(5, Math.round(gramas / 5) * 5);
+    }
     // Lista de compras para N dias: soma por alimento (gramas quando a medida é g; senão unidades da medida).
     function listaCompras(plano, dias) {
       dias = dias || 7;
@@ -3172,7 +3219,8 @@ const API = {
       return out;
     }
     return { chave: chave, refeicoes: refeicoes, somaItens: somaItens, aderencia: aderencia, consumo: consumo, proximaRefeicao: proximaRefeicao,
-             sequencia: sequencia, metaAguaMl: metaAguaMl, listaCompras: listaCompras, alertas: alertas, hojeIso: hojeIso, addDias: addDias };
+             sequencia: sequencia, metaAguaMl: metaAguaMl, listaCompras: listaCompras, alertas: alertas, hojeIso: hojeIso, addDias: addDias,
+             gramasItem: gramasItem, pluralMedida: pluralMedida, rotuloQtd: rotuloQtd, gramasEquivalentes: gramasEquivalentes, arredondarQtd: arredondarQtd };
   })(),
   // Corte de vídeo (editor de vídeo do aluno): trecho de no mínimo 1 s e no máximo `max` s dentro de um vídeo de `dur` s.
   trecho: (function () {

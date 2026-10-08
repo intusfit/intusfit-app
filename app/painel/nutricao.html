@@ -6,8 +6,8 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
   <script src="_mock.js?v=20261008c"></script>
-  <script src="api.js?v=20261008c"></script>
-  <script src="alimentos-db.js?v=20260917b"></script>
+  <script src="api.js?v=20261008d"></script>
+  <script src="alimentos-db.js?v=20261008a"></script>
   <style>
     .modal-box.wide { max-width: 820px; }
     .modal-box.full { max-width: 95vw; width: 1100px; }
@@ -142,7 +142,7 @@
 
     /* Meal item row */
     .meal-item-row {
-      display: grid; grid-template-columns: 24px 1fr 70px 130px 50px 50px 50px 50px 30px;
+      display: grid; grid-template-columns: 24px 1fr 70px 130px 50px 50px 50px 50px 78px;
       gap: 4px; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.05);
       font-size: 14px; transition: opacity .2s, background .15s;
     }
@@ -212,7 +212,7 @@
     .custom-food-badge { font-size: 10px; font-weight: 700; background: rgba(127,255,0,.12); color: #7FFF00; padding: 2px 6px; border-radius: 4px; margin-left: 8px; }
 
     .meal-totals {
-      display: grid; grid-template-columns: 24px 1fr 70px 130px 50px 50px 50px 50px 30px;
+      display: grid; grid-template-columns: 24px 1fr 70px 130px 50px 50px 50px 50px 78px;
       gap: 4px; padding: 8px 0 4px; border-top: 1px solid var(--border); margin-top: 6px;
       font-size: 14px; font-weight: 700;
     }
@@ -291,12 +291,12 @@
     @media (max-width: 768px) {
       .form-2col, .form-3col, .form-4col, .form-5col { grid-template-columns: 1fr; }
       .meal-item-row {
-        grid-template-columns: 20px 1fr 50px 90px 40px 40px 40px 40px 24px;
+        grid-template-columns: 20px 1fr 50px 90px 40px 40px 40px 40px 66px;
         font-size: 12px; gap: 2px;
       }
       .meal-item-row.header { font-size: 10px; }
       .meal-totals {
-        grid-template-columns: 20px 1fr 50px 90px 40px 40px 40px 40px 24px;
+        grid-template-columns: 20px 1fr 50px 90px 40px 40px 40px 40px 66px;
         font-size: 12px; gap: 2px;
       }
       .calc-info-grid { grid-template-columns: 1fr; }
@@ -459,15 +459,16 @@ function verPlano(id) {
       const n = it.nutrientes || {};
       let substHtml = '';
       if (it.substitutos && it.substitutos.length > 0) {
-        substHtml = it.substitutos.map(s =>
-          `<div class="view-substitutos">${esc(s.nome)}${s.quantidade ? ' — ' + s.quantidade + (s.medida || 'g') : ''}</div>`
-        ).join('');
+        substHtml = it.substitutos.map(s => {
+          const sn = s.nutrientes || null;
+          const qtd = s.medida_id ? API.nutri.rotuloQtd(s) : (s.quantidade ? s.quantidade + ' ' + (s.medida || 'g') : '');
+          return `<div class="view-substitutos">${esc(s.nome)}${qtd ? ' · ' + esc(qtd) : ''}${sn ? ' <span style="color:#facc15;">' + (sn.energia_kcal || 0) + ' kcal</span> · P ' + (sn.proteina_g || 0) + ' · C ' + (sn.carboidrato_g || 0) + ' · G ' + (sn.lipidio_g || 0) : ''}</div>`;
+        }).join('');
       }
       return `<div class="meal-item-row">
         <span></span>
         <span class="meal-item-name">${esc(it.nome)}</span>
-        <span class="meal-item-val">${it.quantidade || ''}${it.medida_id === 'g' ? 'g' : ''}</span>
-        <span class="meal-item-val">${esc(it.medida_nome || '')}</span>
+        <span class="meal-item-val" style="grid-column:span 2;text-align:left;">${esc(API.nutri.rotuloQtd(it))}${it.medida_id && it.medida_id !== 'g' && it.gramas ? ' <span style="font-size:10px;">(' + it.gramas + ' g)</span>' : ''}</span>
         <span class="meal-item-val kcal">${n.energia_kcal || 0}</span>
         <span class="meal-item-val prot">${n.proteina_g || 0}</span>
         <span class="meal-item-val carb">${n.carboidrato_g || 0}</span>
@@ -697,6 +698,9 @@ function abrirModalForm(idplano) {
   _formRefeicoes = pl?.refeicoes ? JSON.parse(JSON.stringify(pl.refeicoes)) : [];
   _collapsedMeals = new Set();
   _openSubstPanel = null;
+  // Itens salvos precisam do banco de alimentos para recuperar medidas e tabelas; se ainda carrega, prepara quando terminar.
+  if (AlimentosDB.isLoaded()) _hidratarPlano();
+  else AlimentosDB.load().then(() => { _hidratarPlano(); const ed = document.getElementById('refeicoes-editor'); if (ed) { ed.innerHTML = renderRefeicaoEditors(); recalcTotaisDiarios(); } });
 
   openModal(`
     <div class="modal-header">
@@ -935,27 +939,6 @@ function updateMetasDist() {
 
 // ── Refeição editors (with drag-and-drop, collapse, move) ──
 
-const GENERIC_MEASURES = [
-  { id: 'colher_sopa', nome: 'Colher de sopa', gramas: 15 },
-  { id: 'colher_cha', nome: 'Colher de chá', gramas: 5 },
-  { id: 'xicara', nome: 'Xícara', gramas: 240 },
-  { id: 'unidade', nome: 'Unidade', gramas: 100 },
-  { id: 'fatia', nome: 'Fatia', gramas: 30 },
-  { id: 'concha', nome: 'Concha', gramas: 120 },
-  { id: 'escumadeira', nome: 'Escumadeira', gramas: 80 },
-  { id: 'pegador', nome: 'Pegador', gramas: 60 },
-];
-
-function getMergedMedidas(foodId) {
-  const specific = AlimentosDB.getMedidasAlimento ? AlimentosDB.getMedidasAlimento(foodId) : [];
-  const specificIds = new Set(specific.map(m => m.id));
-  const merged = [...specific];
-  for (const gm of GENERIC_MEASURES) {
-    if (!specificIds.has(gm.id)) merged.push(gm);
-  }
-  return merged;
-}
-
 function renderRefeicaoEditors() {
   if (_formRefeicoes.length === 0) {
     return `<div style="text-align:center;padding:12px;color:var(--text-muted);font-size:12px;">Nenhuma refeição. Clique "+ Refeição" para adicionar.</div>`;
@@ -997,27 +980,294 @@ function renderRefeicaoEditors() {
   `}).join('');
 }
 
-// ── Refeições substitutas (opção completa alternativa, não só 1 alimento) ──
-// Diferente do substituto de alimento (↔ por item, troca 1 coisa), isso
-// troca a refeição inteira — pedido explícito pra igualar o que o Dietbox
-// já oferece: o aluno escolhe entre a opção principal e a(s) substituta(s)
-// já com café da manhã/almoço/etc. completos, não alimento por alimento.
-// Editor simplificado de propósito (sem arrastar pra reordenar, sem
-// substituto-de-alimento dentro dela): é uma opção alternativa inteira,
-// não precisa repetir cada recurso do editor principal.
+// ── Itens do plano: alimento + quantidade + medida caseira ───────────────────────────────────────
+// Cada item guarda o que precisa para se recalcular sozinho: gramas, medida_g (gramas de 1 medida) e, para "Meus
+// alimentos" (que outro profissional não enxerga), a tabela de 100 g (por100). A quantidade pode estar em gramas ou
+// numa medida caseira do alimento (2 unidades de ovo, 1 fatia de pão...). As medidas vêm de AlimentosDB.getMedidasAlimento.
+const ANTIGAS_G = { colher_sopa: 15, colher_cha: 5, colher_sobremesa: 10, colher_cafe: 2.5, colher_servir: 30, xicara: 240, xicara_cafe: 50,
+  copo_americano: 165, copo_requeijao: 250, copo_duplo: 350, unidade: 100, fatia: 30, concha: 120, concha_media: 100, escumadeira: 80, pegador: 60 };
+const MEDIDAS_GENERICAS_ANTIGAS = ['unidade', 'fatia', 'concha', 'escumadeira', 'pegador'];
+const r1 = v => Math.round((Number(v) || 0) * 10) / 10;
+let _equivModo = 'kcal';       // o que o substituto mantém igual ao original
+let _ultimoTermo = '';         // termo digitado na busca (para "cadastrar como novo"), sem passar por atributo HTML
+
+function _medidasDoItem(it) {
+  const f = AlimentosDB.resolver(it);
+  const lista = f ? AlimentosDB.getMedidasAlimento(f.id).slice() : [];
+  if (it.medida_id && it.medida_id !== 'g' && !lista.some(m => m.id === it.medida_id) && it.medida_g > 0) {
+    lista.push({ id: it.medida_id, nome: it.medida_nome || it.medida_id, gramas: it.medida_g, antiga: true });
+  }
+  return lista;
+}
+
+function _recalcItem(it) {
+  const q = parseFloat(it.quantidade) || 0;
+  it.gramas = r1(it.medida_id && it.medida_id !== 'g' ? q * (it.medida_g || 0) : q);
+  if (it.por100) it.nutrientes = AlimentosDB.escalar(it.por100, it.gramas);
+  return it;
+}
+
+// Item novo a partir de um alimento da base: já entra na medida caseira mais comum dele (ex.: ovo = 2 unidades).
+function _novoItem(food) {
+  const u = AlimentosDB.getUnidadePadrao(food.id);
+  const it = { food_id: food.id, nome: food.description, por100: AlimentosDB.nutrientesPor100(food), substitutos: [], _ok: true };
+  if (u) { it.quantidade = u.quantidade; it.medida_id = u.medida_id; it.medida_nome = u.medida_nome; it.medida_g = u.medida_g; }
+  else { it.quantidade = 100; it.medida_id = 'g'; it.medida_nome = 'gramas'; it.medida_g = 1; }
+  return _recalcItem(it);
+}
+
+// Prepara um item vindo de um plano já salvo: acha o alimento certo, recupera quanto vale 1 medida (pelo que foi
+// calculado na época) e marca com ⚠ a medida antiga que não bate com a tabela de medidas atual.
+function _hidratarItem(it) {
+  if (!it || it._ok) return it;
+  const f = AlimentosDB.resolver(it);
+  if (f) it.food_id = f.id;
+  if (!it.por100 && f) it.por100 = AlimentosDB.nutrientesPor100(f);
+  const q = parseFloat(it.quantidade) || 0;
+  if (!it.medida_id || it.medida_id === 'g') {
+    it.medida_id = 'g'; it.medida_nome = 'gramas'; it.medida_g = 1; it.gramas = q;
+  } else {
+    if (!(it.medida_g > 0)) {
+      let g = 0;
+      if (it.por100 && it.nutrientes && it.por100.energia_kcal > 0 && it.nutrientes.energia_kcal > 0 && q > 0) {
+        g = (it.nutrientes.energia_kcal / it.por100.energia_kcal * 100) / q;
+      }
+      if (!(g > 0)) { const m = _medidasDoItem(it).find(x => x.id === it.medida_id); g = m ? m.gramas : (ANTIGAS_G[it.medida_id] || 0); }
+      it.medida_g = r1(g);
+    }
+    it.gramas = r1(q * it.medida_g);
+    const cat = f ? AlimentosDB.getMedidasAlimento(f.id).find(m => m.id === it.medida_id) : null;
+    if (cat) { if (Math.abs(cat.gramas - it.medida_g) > Math.max(2, cat.gramas * 0.15)) it._revisar = cat.gramas; }
+    else if (MEDIDAS_GENERICAS_ANTIGAS.indexOf(it.medida_id) >= 0) it._revisar = -1;
+  }
+  if (!it.por100 && it.nutrientes && it.gramas > 0) {
+    it.por100 = {};
+    Object.keys(it.nutrientes).forEach(k => { it.por100[k] = Math.round((Number(it.nutrientes[k]) || 0) / it.gramas * 10000) / 100; });
+  }
+  (it.substitutos || []).forEach(_hidratarSubst);
+  it._ok = true;
+  return it;
+}
+
+// Substituto de alimento: formato novo = item completo; formato antigo = só nome, quantidade e texto da medida.
+function _hidratarSubst(s) {
+  if (!s || s._ok) return s;
+  if (s.manual) { s._ok = true; return s; }
+  if (s.por100 || s.medida_id) { _hidratarItem(s); return s; }
+  const f = AlimentosDB.resolver({ food_id: s.food_id, nome: s.nome });
+  const q = Number(s.quantidade) || 0;
+  if (f && q > 0 && (!s.medida || s.medida === 'g' || s.medida === 'gramas')) {
+    s.food_id = f.id; s.por100 = AlimentosDB.nutrientesPor100(f);
+    s.medida_id = 'g'; s.medida_nome = 'gramas'; s.medida_g = 1; s.quantidade = q;
+    _recalcItem(s);
+  } else if (f) {
+    s.food_id = f.id;
+  }
+  if (!s.por100) s.manual = true;   // sem tabela nutricional: fica como texto
+  s._ok = true;
+  return s;
+}
+
+function _hidratarPlano() {
+  _formRefeicoes.forEach(r => {
+    (r.itens_estruturados || []).forEach(_hidratarItem);
+    (r.refeicoes_substitutas || []).forEach(sb => (sb.itens_estruturados || []).forEach(_hidratarItem));
+  });
+}
+
+// Item pronto para gravar: sem campos de tela (_algo) e sem a tabela de 100 g quando o alimento é da TACO (todos resolvem).
+function _limparItem(it) {
+  if (it.manual) return { nome: it.nome, quantidade: it.quantidade, medida: it.medida || 'g', food_id: it.food_id || null, manual: true };
+  const f = AlimentosDB.resolver(it);
+  const o = {
+    food_id: f ? f.id : (it.food_id || null), nome: it.nome, quantidade: it.quantidade,
+    medida_id: it.medida_id || 'g', medida_nome: it.medida_nome || 'gramas', medida_g: it.medida_g || 1, gramas: it.gramas || 0,
+    nutrientes: it.nutrientes || null,
+  };
+  if (it.medida && !it.medida_id) o.medida = it.medida;
+  if (it.por100 && (!f || f.custom)) o.por100 = it.por100;
+  if (it.substitutos && it.substitutos.length) o.substitutos = it.substitutos.map(_limparItem);
+  else o.substitutos = [];
+  return o;
+}
+
+function _lista(refIdx, substIdx) {
+  const r = _formRefeicoes[refIdx]; if (!r) return null;
+  if (substIdx == null || substIdx < 0) return (r.itens_estruturados = r.itens_estruturados || []);
+  const s = (r.refeicoes_substitutas || [])[substIdx]; if (!s) return null;
+  return (s.itens_estruturados = s.itens_estruturados || []);
+}
+function _redesenhar(refIdx, substIdx) {
+  if (substIdx == null || substIdx < 0) {
+    const el = document.getElementById('ref-itens-' + refIdx); if (el) el.innerHTML = renderItensRefeicao(refIdx);
+    const sb = document.getElementById('ref-subst-' + refIdx); if (sb && (_formRefeicoes[refIdx].refeicoes_substitutas || []).length) sb.innerHTML = renderSubstituicoes(refIdx);
+  } else {
+    const el = document.getElementById('ref-subst-itens-' + refIdx + '-' + substIdx); if (el) el.innerHTML = renderItensSubstituicao(refIdx, substIdx);
+  }
+  recalcTotaisDiarios();
+}
+
+const _CAB_ITENS = `<div class="meal-item-row header">
+    <span></span><span>Alimento</span><span>Qtd</span><span>Medida</span>
+    <span style="text-align:center">Kcal</span><span style="text-align:center">P</span><span style="text-align:center">C</span><span style="text-align:center">G</span><span></span>
+  </div>`;
+
+// Uma linha editável (alimento principal ou de uma refeição substituta).
+function _linhaItemHtml(it, refIdx, substIdx, itemIdx, comArrastar, comSubst) {
+  const n = it.nutrientes || {};
+  const medidas = _medidasDoItem(it);
+  const a = refIdx + ',' + substIdx + ',' + itemIdx;
+  const emMedida = it.medida_id && it.medida_id !== 'g';
+  const aviso = it._revisar
+    ? `<span title="${it._revisar > 0 ? 'Medida salva: 1 ' + esc(it.medida_nome) + ' = ' + it.medida_g + ' g. Na tabela atual vale ' + it._revisar + ' g. Toque para revisar.' : 'Medida genérica: confira o peso. Toque para revisar.'}" onclick="itemRevisar(${a})" style="color:#f59e0b;cursor:pointer;margin-right:4px;">⚠</span>` : '';
+  const drag = comArrastar ? ` draggable="true" data-ref="${refIdx}" data-item="${itemIdx}" ondragstart="onItemDragStart(event,${refIdx},${itemIdx})" ondragend="onItemDragEnd(event)" ondragover="onItemDragOver(event,${refIdx},${itemIdx})" ondragleave="onItemDragLeave(event)" ondrop="onItemDrop(event,${refIdx},${itemIdx})"` : '';
+  let h = `<div class="meal-item-row"${drag}>
+      <span class="drag-handle" title="${comArrastar ? 'Arrastar' : ''}">${comArrastar ? '⋮⋮' : ''}</span>
+      <span class="meal-item-name" title="${esc(it.nome)}">${aviso}${esc(it.nome)}</span>
+      <span><input class="meal-item-qty input" type="number" min="0" step="${emMedida ? 0.5 : 5}" value="${it.quantidade || ''}" onchange="itemQtd(${a},this.value)"/></span>
+      <span><select class="meal-item-measure input" onchange="itemMedida(${a},this.value)">
+        <option value="g" ${!emMedida ? 'selected' : ''}>gramas</option>
+        ${medidas.map(m => `<option value="${esc(m.id)}" ${it.medida_id === m.id ? 'selected' : ''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
+      </select></span>
+      <span class="meal-item-val kcal">${n.energia_kcal || 0}</span>
+      <span class="meal-item-val prot">${n.proteina_g || 0}</span>
+      <span class="meal-item-val carb">${n.carboidrato_g || 0}</span>
+      <span class="meal-item-val gord">${n.lipidio_g || 0}</span>
+      <span class="meal-item-actions">
+        ${comSubst ? `<button class="btn-subst" onclick="toggleSubstPanel(${refIdx},${itemIdx})" title="Substitutos deste alimento">↔${(it.substitutos || []).length ? '<sup style="font-size:9px;">' + it.substitutos.length + '</sup>' : ''}</button>` : ''}
+        <button class="btn-subst" onclick="verTabelaItem(${a})" title="Tabela nutricional">ℹ</button>
+        <button class="meal-item-remove" onclick="itemRemover(${a})" title="Remover">✕</button>
+      </span>
+    </div>`;
+  if (emMedida && it.gramas) h += `<div class="portion-equiv" style="padding-left:28px;font-size:10px;color:var(--text-muted);">≈ ${it.gramas}g</div>`;
+  return h;
+}
+
+function _totaisHtml(rotulo, itens) {
+  const t = calcTotaisRefeicao(itens);
+  return `<div class="meal-totals">
+    <span></span><span class="lbl">${rotulo}</span><span></span><span></span>
+    <span class="meal-item-val kcal">${t.kcal}</span><span class="meal-item-val prot">${t.prot}g</span>
+    <span class="meal-item-val carb">${t.carb}g</span><span class="meal-item-val gord">${t.gord}g</span><span></span></div>`;
+}
+
+function renderItensRefeicao(refIdx) {
+  const itens = _formRefeicoes[refIdx].itens_estruturados || [];
+  if (itens.length === 0) return `<div style="font-size:11px;color:var(--text-muted);padding:6px 0;">Nenhum alimento adicionado. Use a busca abaixo.</div>`;
+  let html = _CAB_ITENS;
+  itens.forEach((it, itemIdx) => {
+    html += _linhaItemHtml(it, refIdx, -1, itemIdx, true, true);
+    if (_openSubstPanel && _openSubstPanel.refIdx === refIdx && _openSubstPanel.itemIdx === itemIdx) html += renderSubstPanel(refIdx, itemIdx, it);
+  });
+  return html + _totaisHtml('Total refeição', itens);
+}
+
+// ── Ações sobre um item (principal ou de refeição substituta) ──
+function itemQtd(refIdx, substIdx, itemIdx, value) {
+  const it = (_lista(refIdx, substIdx) || [])[itemIdx]; if (!it) return;
+  it.quantidade = Math.max(0, parseFloat(String(value).replace(',', '.')) || 0);
+  delete it._revisar;
+  _recalcItem(it);
+  _redesenhar(refIdx, substIdx);
+}
+function itemMedida(refIdx, substIdx, itemIdx, medidaId) {
+  const it = (_lista(refIdx, substIdx) || [])[itemIdx]; if (!it) return;
+  const antes = it.gramas || 0;
+  if (medidaId === 'g') {
+    it.medida_id = 'g'; it.medida_nome = 'gramas'; it.medida_g = 1; it.quantidade = antes > 0 ? Math.round(antes) : 100;
+  } else {
+    const m = _medidasDoItem(it).find(x => x.id === medidaId); if (!m) return;
+    it.medida_id = m.id; it.medida_nome = m.nome; it.medida_g = m.gramas;
+    const q = antes / m.gramas;
+    it.quantidade = (q > 0 && Math.abs(q * 2 - Math.round(q * 2)) < 0.01) ? q : 1;
+  }
+  delete it._revisar;
+  _recalcItem(it);
+  _redesenhar(refIdx, substIdx);
+}
+function itemRemover(refIdx, substIdx, itemIdx) {
+  const lista = _lista(refIdx, substIdx); if (!lista) return;
+  lista.splice(itemIdx, 1);
+  if (_openSubstPanel && _openSubstPanel.refIdx === refIdx && (substIdx < 0 && _openSubstPanel.itemIdx >= itemIdx)) _openSubstPanel = null;
+  _redesenhar(refIdx, substIdx);
+}
+function itemRevisar(refIdx, substIdx, itemIdx) {
+  const it = (_lista(refIdx, substIdx) || [])[itemIdx]; if (!it || !it._revisar) return;
+  if (it._revisar > 0) {
+    if (!confirm('A medida salva neste item vale 1 ' + it.medida_nome.toLowerCase() + ' = ' + it.medida_g + ' g, e a tabela de medidas atual diz ' + it._revisar + ' g.\n\nAtualizar para ' + it._revisar + ' g? As calorias e macros do item mudam junto.')) { delete it._revisar; _redesenhar(refIdx, substIdx); return; }
+    it.medida_g = it._revisar;
+  } else {
+    if (!confirm('"' + it.medida_nome + '" é uma medida genérica e o peso dela muda de alimento para alimento (' + it.medida_g + ' g neste item).\n\nConverter o item para gramas, mantendo ' + it.gramas + ' g? As calorias e macros não mudam.')) { delete it._revisar; _redesenhar(refIdx, substIdx); return; }
+    it.medida_id = 'g'; it.medida_nome = 'gramas'; it.medida_g = 1; it.quantidade = Math.round(it.gramas);
+  }
+  delete it._revisar;
+  _recalcItem(it);
+  _redesenhar(refIdx, substIdx);
+}
+
+// ── Tabela nutricional (rótulo) ──
+const _ROTULO = [
+  ['Valor energético', 'energia_kcal', 'kcal', 0], ['Carboidratos', 'carboidrato_g', 'g', 0], ['Proteínas', 'proteina_g', 'g', 0], ['Gorduras totais', 'lipidio_g', 'g', 0],
+  ['Gorduras saturadas', 'saturados_g', 'g', 1], ['Gorduras monoinsaturadas', 'monoinsaturados_g', 'g', 1], ['Gorduras poliinsaturadas', 'poliinsaturados_g', 'g', 1],
+  ['Colesterol', 'colesterol_mg', 'mg', 0], ['Fibra alimentar', 'fibra_g', 'g', 0], ['Sódio', 'sodio_mg', 'mg', 0], ['Cálcio', 'calcio_mg', 'mg', 0],
+  ['Ferro', 'ferro_mg', 'mg', 0], ['Potássio', 'potassio_mg', 'mg', 0], ['Magnésio', 'magnesio_mg', 'mg', 0], ['Fósforo', 'fosforo_mg', 'mg', 0],
+  ['Zinco', 'zinco_mg', 'mg', 0], ['Vitamina C', 'vitamina_c_mg', 'mg', 0], ['Tiamina (B1)', 'tiamina_mg', 'mg', 0], ['Riboflavina (B2)', 'riboflavina_mg', 'mg', 0], ['Niacina (B3)', 'niacina_mg', 'mg', 0],
+];
+function _abrirRotulo(titulo, subtitulo, por100, gramas) {
+  const fmt = v => (Math.round((Number(v) || 0) * 100) / 100).toString().replace('.', ',');
+  const porPorcao = AlimentosDB.escalar(por100, gramas);
+  const linhas = _ROTULO.map(r => `<tr style="border-top:1px solid var(--border);"><td style="padding:5px 0 5px ${r[3] ? 16 : 0}px;${r[3] ? 'color:var(--text-muted);' : ''}">${r[0]}</td><td style="text-align:right;">${fmt(por100[r[1]])} ${r[2]}</td><td style="text-align:right;font-weight:700;">${fmt(porPorcao[r[1]])} ${r[2]}</td></tr>`).join('');
+  const antigo = document.getElementById('nt-rotulo'); if (antigo) antigo.remove();
+  const d = document.createElement('div');
+  d.id = 'nt-rotulo';
+  d.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+  d.onclick = e => { if (e.target === d) d.remove(); };
+  d.innerHTML = `<div style="background:var(--bg2,#1a1a1a);color:var(--text);border:1px solid var(--border);border-radius:12px;width:100%;max-width:460px;max-height:86vh;overflow:auto;padding:16px 18px;">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:4px;"><div style="font-size:15px;font-weight:800;line-height:1.3;">${esc(titulo)}</div><button class="modal-close" onclick="document.getElementById('nt-rotulo').remove()" style="flex-shrink:0;">×</button></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">${esc(subtitulo)}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="color:var(--text-muted);font-size:11px;text-transform:uppercase;"><th style="text-align:left;padding-bottom:4px;">Informação nutricional</th><th style="text-align:right;">100 g</th><th style="text-align:right;">Porção (${fmt(gramas)} g)</th></tr></thead><tbody>${linhas}</tbody></table>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;">Valores da TACO ou do que foi cadastrado em Meus Alimentos. Item sem valor aparece como 0.</div></div>`;
+  document.body.appendChild(d);
+}
+function verTabelaItem(refIdx, substIdx, itemIdx, si) {
+  // substIdx -2 = substituto de um alimento (si = posição do substituto)
+  const it = substIdx === -2 ? ((_itemOrig(refIdx, itemIdx) || {}).substitutos || [])[si] : (_lista(refIdx, substIdx) || [])[itemIdx];
+  if (!it) return;
+  if (!it.por100) return showToast('Este item não tem tabela nutricional guardada.', 'error');
+  _abrirRotulo(it.nome, 'Porção do plano: ' + API.nutri.rotuloQtd(it) + (it.medida_id !== 'g' ? ' (' + it.gramas + ' g)' : ''), it.por100, it.gramas || 100);
+}
+function verTabelaAlimento(foodId) {
+  const f = AlimentosDB.getById(foodId); if (!f) return;
+  const u = AlimentosDB.getUnidadePadrao(foodId);
+  _abrirRotulo(f.description, u ? 'Porção sugerida: ' + u.quantidade + ' ' + API.nutri.pluralMedida(u.medida_nome, u.quantidade) + ' (' + r1(u.quantidade * u.medida_g) + ' g)' : 'Porção de 100 g', AlimentosDB.nutrientesPor100(f), u ? u.quantidade * u.medida_g : 100);
+}
+
+// ── Refeições substitutas (opção completa alternativa) ──
+// Opção alternativa inteira: o aluno escolhe entre a principal e a(s) substituta(s). Aqui dá para copiar a principal,
+// ajustar as calorias para ficarem iguais e comparar os macros com a principal.
+function _compararHtml(refIdx, substIdx) {
+  const r = _formRefeicoes[refIdx], sb = (r.refeicoes_substitutas || [])[substIdx];
+  const a = calcTotaisRefeicao(r.itens_estruturados || []), b = calcTotaisRefeicao((sb && sb.itens_estruturados) || []);
+  if (!(a.kcal > 0) || !(b.kcal > 0)) return '';
+  const d = (x, y, u) => { const v = Math.round((y - x) * 10) / 10; return (v > 0 ? '+' : '') + String(v).replace('.', ',') + u; };
+  const chip = (rot, x, y, u, cor) => `<span style="padding:2px 7px;border-radius:99px;background:var(--bg3);font-size:11px;color:${Math.abs(y - x) < (u === ' kcal' ? 25 : 3) ? '#7FFF00' : cor};">${rot} ${d(x, y, u)}</span>`;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;"><span style="font-size:11px;color:var(--text-muted);">Comparada com a principal:</span>${chip('kcal', a.kcal, b.kcal, ' kcal', '#facc15')}${chip('P', a.prot, b.prot, ' g', '#60a5fa')}${chip('C', a.carb, b.carb, ' g', '#7FFF00')}${chip('G', a.gord, b.gord, ' g', '#f87171')}</div>`;
+}
 function renderSubstituicoes(refIdx) {
   const lista = _formRefeicoes[refIdx].refeicoes_substitutas || [];
   return lista.map((s, si) => `
     <div class="ref-subst-editor" style="margin-top:10px;padding:10px;border:1px dashed var(--border);border-radius:8px;background:var(--bg2);">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="font-size:11px;color:#60a5fa;font-weight:700;">↔ SUBSTITUIÇÃO</span>
         <input class="input" placeholder="Nome (ex: Opção vegetariana)" value="${esc(s.nome || '')}"
-               onchange="_formRefeicoes[${refIdx}].refeicoes_substitutas[${si}].nome=this.value" style="flex:1;font-size:12px;padding:5px 8px;"/>
+               onchange="_formRefeicoes[${refIdx}].refeicoes_substitutas[${si}].nome=this.value" style="flex:1;min-width:150px;font-size:12px;padding:5px 8px;"/>
+        <button class="btn btn-sm btn-secondary" onclick="copiarPrincipal(${refIdx},${si})" title="Copia os alimentos da refeição principal para esta opção" style="font-size:11px;padding:4px 8px;">⧉ Copiar da principal</button>
+        <button class="btn btn-sm btn-secondary" onclick="igualarKcalSubst(${refIdx},${si})" title="Ajusta as quantidades para as calorias ficarem iguais às da principal" style="font-size:11px;padding:4px 8px;">⚖ Igualar kcal</button>
         <button class="ref-remove" onclick="removeSubstituicao(${refIdx},${si})" title="Remover substituição">✕</button>
       </div>
       <div id="ref-subst-itens-${refIdx}-${si}">${renderItensSubstituicao(refIdx, si)}</div>
       <div class="food-search-wrap">
-        <input class="input food-search-input" placeholder="Buscar alimento para esta opção..." oninput="buscarAlimentoSubst(this,${refIdx},${si})" id="food-search-${refIdx}-s${si}"/>
+        <input class="input food-search-input" placeholder="Buscar alimento para esta opção..." oninput="buscarAlimento(this,${refIdx},${si})" onfocus="buscarAlimento(this,${refIdx},${si})" id="food-search-${refIdx}-s${si}"/>
         <div class="food-results" id="food-results-${refIdx}-s${si}"></div>
       </div>
     </div>
@@ -1025,7 +1275,6 @@ function renderSubstituicoes(refIdx) {
     <button class="btn btn-sm btn-secondary" onclick="addSubstituicao(${refIdx})" style="margin-top:10px;font-size:11.5px;">+ Adicionar substituição</button>
   `;
 }
-
 function addSubstituicao(refIdx) {
   const r = _formRefeicoes[refIdx];
   if (!r.refeicoes_substitutas) r.refeicoes_substitutas = [];
@@ -1033,7 +1282,6 @@ function addSubstituicao(refIdx) {
   document.getElementById('ref-subst-' + refIdx).innerHTML = renderSubstituicoes(refIdx);
   recalcTotaisDiarios();
 }
-
 function removeSubstituicao(refIdx, substIdx) {
   const r = _formRefeicoes[refIdx];
   if (!r.refeicoes_substitutas) return;
@@ -1042,316 +1290,184 @@ function removeSubstituicao(refIdx, substIdx) {
   document.getElementById('ref-subst-' + refIdx).innerHTML = renderSubstituicoes(refIdx);
   recalcTotaisDiarios();
 }
-
 function renderItensSubstituicao(refIdx, substIdx) {
   const s = (_formRefeicoes[refIdx].refeicoes_substitutas || [])[substIdx];
   const itens = (s && s.itens_estruturados) || [];
-  if (itens.length === 0) return `<div style="font-size:11px;color:var(--text-muted);padding:4px 0;">Nenhum alimento adicionado ainda.</div>`;
-  let html = `<div class="meal-item-row header">
-    <span></span><span>Alimento</span><span>Qtd</span><span>Medida</span>
-    <span style="text-align:center">Kcal</span><span style="text-align:center">P</span><span style="text-align:center">C</span><span style="text-align:center">G</span><span></span>
-  </div>`;
-  itens.forEach((it, itemIdx) => {
-    const n = it.nutrientes || {};
-    const medidas = it._medidas || getMergedMedidas(it.food_id);
-    html += `<div class="meal-item-row">
-      <span></span>
-      <span class="meal-item-name" title="${esc(it.nome)}">${esc(it.nome)}</span>
-      <span><input class="meal-item-qty input" type="number" step="0.5" value="${it.quantidade || ''}" onchange="updateItemQtdSubst(${refIdx},${substIdx},${itemIdx},this.value)"/></span>
-      <span><select class="meal-item-measure input" onchange="updateItemMedidaSubst(${refIdx},${substIdx},${itemIdx},this.value)">
-        <option value="g" ${!it.medida_id || it.medida_id==='g' ? 'selected' : ''}>gramas</option>
-        ${medidas.map(m => `<option value="${m.id}" ${it.medida_id===m.id?'selected':''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
-      </select></span>
-      <span class="meal-item-val kcal">${n.energia_kcal || 0}</span>
-      <span class="meal-item-val prot">${n.proteina_g || 0}</span>
-      <span class="meal-item-val carb">${n.carboidrato_g || 0}</span>
-      <span class="meal-item-val gord">${n.lipidio_g || 0}</span>
-      <span class="meal-item-actions"><button class="meal-item-remove" onclick="removeItemSubst(${refIdx},${substIdx},${itemIdx})">✕</button></span>
-    </div>`;
+  if (itens.length === 0) return `<div style="font-size:11px;color:var(--text-muted);padding:4px 0;">Nenhum alimento adicionado ainda. Use a busca abaixo ou copie a refeição principal.</div>`;
+  let html = _CAB_ITENS;
+  itens.forEach((it, itemIdx) => { html += _linhaItemHtml(it, refIdx, substIdx, itemIdx, false, false); });
+  return html + _totaisHtml('Total da opção', itens) + _compararHtml(refIdx, substIdx);
+}
+function copiarPrincipal(refIdx, substIdx) {
+  const r = _formRefeicoes[refIdx], s = (r.refeicoes_substitutas || [])[substIdx];
+  const origem = r.itens_estruturados || [];
+  if (!s || !origem.length) return showToast('A refeição principal ainda não tem alimentos.', 'error');
+  if ((s.itens_estruturados || []).length && !confirm('Esta opção já tem alimentos. Substituir pelos da refeição principal?')) return;
+  s.itens_estruturados = JSON.parse(JSON.stringify(origem)).map(it => { it.substitutos = []; return it; });
+  _redesenhar(refIdx, substIdx);
+}
+// Multiplica todas as quantidades da opção pelo mesmo fator até as calorias ficarem iguais às da principal.
+function igualarKcalSubst(refIdx, substIdx) {
+  const r = _formRefeicoes[refIdx], s = (r.refeicoes_substitutas || [])[substIdx];
+  const alvo = calcTotaisRefeicao(r.itens_estruturados || []).kcal, atual = calcTotaisRefeicao((s && s.itens_estruturados) || []).kcal;
+  if (!(alvo > 0)) return showToast('A refeição principal precisa ter calorias para servir de referência.', 'error');
+  if (!(atual > 0)) return showToast('Esta opção ainda não tem alimentos.', 'error');
+  const fator = alvo / atual;
+  s.itens_estruturados.forEach(it => {
+    if (!it.por100) return;
+    const g = (it.gramas || 0) * fator;
+    it.quantidade = API.nutri.arredondarQtd(g, it.medida_id !== 'g' ? it.medida_g : 1) || it.quantidade;
+    _recalcItem(it);
   });
-  const totals = calcTotaisRefeicao(itens);
-  html += `<div class="meal-totals">
-    <span></span><span class="lbl">Total da opção</span><span></span><span></span>
-    <span class="meal-item-val kcal">${totals.kcal}</span>
-    <span class="meal-item-val prot">${totals.prot}g</span>
-    <span class="meal-item-val carb">${totals.carb}g</span>
-    <span class="meal-item-val gord">${totals.gord}g</span>
-    <span></span>
-  </div>`;
-  return html;
+  _redesenhar(refIdx, substIdx);
+  const nova = calcTotaisRefeicao(s.itens_estruturados).kcal;
+  showToast('Calorias da opção: ' + nova + ' kcal (principal: ' + alvo + '). As quantidades foram arredondadas para medidas fáceis.');
 }
 
-function buscarAlimentoSubst(input, refIdx, substIdx) {
-  clearTimeout(_searchTimeout);
-  const termo = input.value.trim();
-  const resultsEl = document.getElementById('food-results-' + refIdx + '-s' + substIdx);
-  if (!resultsEl) return;
-  if (termo.length < 2) { resultsEl.classList.remove('show'); return; }
-  _searchTimeout = setTimeout(async () => {
-    if (!AlimentosDB.isLoaded()) {
-      resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Carregando banco de alimentos...</div>`;
-      resultsEl.classList.add('show');
-      await AlimentosDB.load();
-    }
-    const foods = AlimentosDB.buscar(termo, 15);
-    resultsEl.innerHTML = (foods.length === 0
-      ? `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>`
-      : foods.map(f => `
-        <div class="food-result-item" onclick="addAlimentoSubst(${refIdx},${substIdx},${f.id})">
-          <div>
-            <div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}</div>
-            <div class="food-cat">${esc(f.category || '')}</div>
-          </div>
-          <div class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</div>
-        </div>
-      `).join(''));
-    resultsEl.classList.add('show');
-  }, 200);
-}
-
-function addAlimentoSubst(refIdx, substIdx, foodId) {
-  const food = AlimentosDB.getById(foodId);
-  if (!food) return;
-  const medidas = getMergedMedidas(foodId);
-  const defaultQtd = 100;
-  const nutrientes = AlimentosDB.calcNutrientes(foodId, defaultQtd);
-  const s = _formRefeicoes[refIdx].refeicoes_substitutas[substIdx];
-  if (!s.itens_estruturados) s.itens_estruturados = [];
-  s.itens_estruturados.push({ food_id: foodId, nome: food.description, quantidade: defaultQtd, medida_id: 'g', medida_nome: 'gramas', nutrientes, _medidas: medidas });
-  const searchInput = document.getElementById('food-search-' + refIdx + '-s' + substIdx);
-  const resultsEl = document.getElementById('food-results-' + refIdx + '-s' + substIdx);
-  if (searchInput) searchInput.value = '';
-  if (resultsEl) resultsEl.classList.remove('show');
-  document.getElementById('ref-subst-itens-' + refIdx + '-' + substIdx).innerHTML = renderItensSubstituicao(refIdx, substIdx);
-  recalcTotaisDiarios();
-}
-
-function updateItemQtdSubst(refIdx, substIdx, itemIdx, value) {
-  const item = _formRefeicoes[refIdx]?.refeicoes_substitutas?.[substIdx]?.itens_estruturados?.[itemIdx];
-  if (!item) return;
-  let gramas;
-  const medidas = item._medidas || getMergedMedidas(item.food_id);
-  if (item.medida_id && item.medida_id !== 'g') {
-    const medida = medidas.find(m => m.id === item.medida_id);
-    gramas = medida ? parseFloat(value) * medida.gramas : parseFloat(value);
-    item.quantidade = parseFloat(value);
-  } else {
-    gramas = parseFloat(value) || 0;
-    item.quantidade = gramas;
-  }
-  item.nutrientes = AlimentosDB.calcNutrientes(item.food_id, gramas);
-  document.getElementById('ref-subst-itens-' + refIdx + '-' + substIdx).innerHTML = renderItensSubstituicao(refIdx, substIdx);
-  recalcTotaisDiarios();
-}
-
-function updateItemMedidaSubst(refIdx, substIdx, itemIdx, medidaId) {
-  const item = _formRefeicoes[refIdx]?.refeicoes_substitutas?.[substIdx]?.itens_estruturados?.[itemIdx];
-  if (!item) return;
-  const medidas = item._medidas || getMergedMedidas(item.food_id);
-  item.medida_id = medidaId;
-  if (medidaId === 'g') {
-    item.medida_nome = 'gramas';
-    item.nutrientes = AlimentosDB.calcNutrientes(item.food_id, item.quantidade || 100);
-  } else {
-    const medida = medidas.find(m => m.id === medidaId);
-    if (medida) {
-      item.medida_nome = medida.nome;
-      item.quantidade = 1;
-      item.nutrientes = AlimentosDB.calcNutrientes(item.food_id, medida.gramas);
-    }
-  }
-  document.getElementById('ref-subst-itens-' + refIdx + '-' + substIdx).innerHTML = renderItensSubstituicao(refIdx, substIdx);
-  recalcTotaisDiarios();
-}
-
-function removeItemSubst(refIdx, substIdx, itemIdx) {
-  _formRefeicoes[refIdx].refeicoes_substitutas[substIdx].itens_estruturados.splice(itemIdx, 1);
-  document.getElementById('ref-subst-itens-' + refIdx + '-' + substIdx).innerHTML = renderItensSubstituicao(refIdx, substIdx);
-  recalcTotaisDiarios();
-}
-
-function renderItensRefeicao(refIdx) {
-  const r = _formRefeicoes[refIdx];
-  const itens = r.itens_estruturados || [];
-  if (itens.length === 0) return `<div style="font-size:11px;color:var(--text-muted);padding:6px 0;">Nenhum alimento adicionado. Use a busca abaixo.</div>`;
-
-  let html = `<div class="meal-item-row header">
-    <span></span><span>Alimento</span><span>Qtd</span><span>Medida</span>
-    <span style="text-align:center">Kcal</span><span style="text-align:center">P</span><span style="text-align:center">C</span><span style="text-align:center">G</span><span></span>
-  </div>`;
-
-  itens.forEach((it, itemIdx) => {
-    const n = it.nutrientes || {};
-    const medidas = it._medidas || getMergedMedidas(it.food_id);
-    const gramasEquiv = calcGramasEquiv(it, medidas);
-    const isSubstOpen = _openSubstPanel && _openSubstPanel.refIdx === refIdx && _openSubstPanel.itemIdx === itemIdx;
-
-    html += `<div class="meal-item-row" draggable="true" data-ref="${refIdx}" data-item="${itemIdx}"
-                  ondragstart="onItemDragStart(event,${refIdx},${itemIdx})" ondragend="onItemDragEnd(event)"
-                  ondragover="onItemDragOver(event,${refIdx},${itemIdx})" ondragleave="onItemDragLeave(event)"
-                  ondrop="onItemDrop(event,${refIdx},${itemIdx})">
-      <span class="drag-handle" title="Arrastar">⋮⋮</span>
-      <span class="meal-item-name" title="${esc(it.nome)}">${esc(it.nome)}</span>
-      <span><input class="meal-item-qty input" type="number" step="0.5" value="${it.quantidade || ''}" onchange="updateItemQtd(${refIdx},${itemIdx},this.value)"/></span>
-      <span><select class="meal-item-measure input" onchange="updateItemMedida(${refIdx},${itemIdx},this.value)">
-        <option value="g" ${!it.medida_id || it.medida_id==='g' ? 'selected' : ''}>gramas</option>
-        ${medidas.map(m => `<option value="${m.id}" ${it.medida_id===m.id?'selected':''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
-      </select></span>
-      <span class="meal-item-val kcal">${n.energia_kcal || 0}</span>
-      <span class="meal-item-val prot">${n.proteina_g || 0}</span>
-      <span class="meal-item-val carb">${n.carboidrato_g || 0}</span>
-      <span class="meal-item-val gord">${n.lipidio_g || 0}</span>
-      <span class="meal-item-actions">
-        <button class="btn-subst" onclick="toggleSubstPanel(${refIdx},${itemIdx})" title="Substitutos">↔</button>
-        <button class="meal-item-remove" onclick="removeItem(${refIdx},${itemIdx})">✕</button>
-      </span>
-    </div>`;
-
-    // Portion equivalence
-    if (it.medida_id && it.medida_id !== 'g' && gramasEquiv) {
-      html += `<div class="portion-equiv" style="grid-column:1/-1;padding-left:28px;font-size:10px;color:var(--text-muted);">≈ ${gramasEquiv}g</div>`;
-    }
-
-    // Substitutos panel
-    if (isSubstOpen) {
-      html += renderSubstPanel(refIdx, itemIdx, it);
-    }
-  });
-
-  const totals = calcTotaisRefeicao(itens);
-  html += `<div class="meal-totals">
-    <span></span><span class="lbl">Total refeição</span><span></span><span></span>
-    <span class="meal-item-val kcal">${totals.kcal}</span>
-    <span class="meal-item-val prot">${totals.prot}g</span>
-    <span class="meal-item-val carb">${totals.carb}g</span>
-    <span class="meal-item-val gord">${totals.gord}g</span>
-    <span></span>
-  </div>`;
-
-  return html;
-}
-
-function calcGramasEquiv(item, medidas) {
-  if (!item.medida_id || item.medida_id === 'g') return null;
-  const medida = medidas.find(m => m.id === item.medida_id);
-  if (!medida) return null;
-  return Math.round((item.quantidade || 1) * medida.gramas);
-}
-
-// ── Substitutos Panel ──
-
+// ── Substitutos de um alimento (troca 1 por 1, com macros e quantidade equivalente) ──
 function toggleSubstPanel(refIdx, itemIdx) {
-  if (_openSubstPanel && _openSubstPanel.refIdx === refIdx && _openSubstPanel.itemIdx === itemIdx) {
-    _openSubstPanel = null;
-  } else {
-    _openSubstPanel = { refIdx, itemIdx };
-  }
+  if (_openSubstPanel && _openSubstPanel.refIdx === refIdx && _openSubstPanel.itemIdx === itemIdx) _openSubstPanel = null;
+  else _openSubstPanel = { refIdx, itemIdx };
   document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
 }
-
+function _deltaHtml(orig, sub) {
+  const o = orig || {}, s = sub || {};
+  const d = (k, u) => { const v = Math.round(((s[k] || 0) - (o[k] || 0)) * 10) / 10; return (v > 0 ? '+' : '') + String(v).replace('.', ',') + u; };
+  return `<span style="font-size:11px;color:var(--text-muted);">vs original: <b style="color:#facc15;">${d('energia_kcal', ' kcal')}</b> · P ${d('proteina_g', '')} · C ${d('carboidrato_g', '')} · G ${d('lipidio_g', '')}</span>`;
+}
 function renderSubstPanel(refIdx, itemIdx, item) {
-  const substitutos = item.substitutos || [];
+  const subs = item.substitutos || [], n = item.nutrientes || {};
   const sugestao = AlimentosDB.getSugestaoSubstituicao ? AlimentosDB.getSugestaoSubstituicao(item.nome) : null;
-
+  const modos = [['kcal', 'Calorias'], ['prot', 'Proteína'], ['carb', 'Carboidrato'], ['gord', 'Gordura']];
+  const chipModo = modos.map(m => `<button class="btn btn-sm ${_equivModo === m[0] ? 'btn-primary' : 'btn-secondary'}" onclick="substModo('${m[0]}',${refIdx},${itemIdx})" style="font-size:11px;padding:3px 9px;">${m[1]}</button>`).join(' ');
   let sugHtml = '';
   if (sugestao && sugestao.alternativas && sugestao.alternativas.length > 0) {
-    sugHtml = `<div class="subst-suggestion">
-      <strong>Sugestões (${esc(sugestao.grupo || '')}):</strong><br/>
-      ${sugestao.alternativas.slice(0, 6).map(alt =>
-        `<span onclick="addSubstFromSuggestion(${refIdx},${itemIdx},'${esc(alt.alimento)}','${esc(alt.porcao || '')}')">${esc(alt.alimento)} (${esc(alt.porcao || '')})</span>`
-      ).join('')}
-    </div>`;
+    sugHtml = `<div class="subst-suggestion"><strong>Sugestões (${esc(sugestao.grupo || '')}):</strong> toque para buscar na tabela<br/>
+      ${sugestao.alternativas.slice(0, 8).map((alt, k) => `<span onclick="substSugestao(${refIdx},${itemIdx},${k})">${esc(alt.alimento)}</span>`).join('')}</div>`;
   }
-
+  const linhas = subs.map((s, si) => {
+    if (s.manual || (!s.por100 && !s.medida_id)) {
+      // Substituto antigo ou digitado à mão: só nome e texto, sem tabela nutricional.
+      return `<div class="subst-item"><span style="flex:1;">${esc(s.nome)}${s.quantidade ? ' · ' + s.quantidade + ' ' + esc(s.medida || 'g') : ''} <span style="font-size:10.5px;color:#f59e0b;">sem tabela nutricional</span></span><button class="subst-remove" onclick="substRemover(${refIdx},${itemIdx},${si})">✕</button></div>`;
+    }
+    const medidas = _medidasDoItem(s), emMedida = s.medida_id && s.medida_id !== 'g', sn = s.nutrientes || {};
+    return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span style="flex:1;min-width:130px;font-size:13px;font-weight:600;">${esc(s.nome)}</span>
+        <input class="meal-item-qty input" type="number" min="0" step="${emMedida ? 0.5 : 5}" value="${s.quantidade || ''}" onchange="substQtd(${refIdx},${itemIdx},${si},this.value)" style="width:64px;"/>
+        <select class="meal-item-measure input" onchange="substMedida(${refIdx},${itemIdx},${si},this.value)" style="width:150px;">
+          <option value="g" ${!emMedida ? 'selected' : ''}>gramas</option>
+          ${medidas.map(m => `<option value="${esc(m.id)}" ${s.medida_id === m.id ? 'selected' : ''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
+        </select>
+        <span class="meal-item-val kcal" style="min-width:42px;">${sn.energia_kcal || 0}</span><span class="meal-item-val prot" style="min-width:32px;">${sn.proteina_g || 0}</span><span class="meal-item-val carb" style="min-width:32px;">${sn.carboidrato_g || 0}</span><span class="meal-item-val gord" style="min-width:32px;">${sn.lipidio_g || 0}</span>
+        <button class="btn-subst" onclick="substEqualizar(${refIdx},${itemIdx},${si})" title="Ajustar a quantidade para manter igual: ${modos.find(m => m[0] === _equivModo)[1].toLowerCase()}">⚖</button>
+        <button class="btn-subst" onclick="verTabelaItem(${refIdx},-2,${itemIdx},${si})" title="Tabela nutricional">ℹ</button>
+        <button class="subst-remove" onclick="substRemover(${refIdx},${itemIdx},${si})" title="Remover">✕</button>
+      </div>
+      <div style="margin-top:2px;">${_deltaHtml(n, sn)}${emMedida && s.gramas ? ` <span style="font-size:10px;color:var(--text-muted);">· ≈ ${s.gramas} g</span>` : ''}</div>
+    </div>`;
+  }).join('');
   return `<div class="subst-panel">
-    <h5>Substitutos para ${esc(item.nome)}</h5>
-    <div class="subst-list">
-      ${substitutos.length === 0 ? '<div style="font-size:11px;color:var(--text-muted);">Nenhum substituto adicionado.</div>' :
-        substitutos.map((s, si) => `
-          <div class="subst-item">
-            <span style="flex:1;">${esc(s.nome)}${s.quantidade ? ' — ' + s.quantidade + (s.medida || 'g') : ''}</span>
-            <button class="subst-remove" onclick="removeSubstituto(${refIdx},${itemIdx},${si})">✕</button>
-          </div>
-        `).join('')}
-    </div>
-    <div class="subst-add-row">
-      <input class="input" id="subst-nome-${refIdx}-${itemIdx}" placeholder="Nome do substituto" style="font-size:12px;padding:6px 8px;"/>
-      <input class="input" id="subst-qtd-${refIdx}-${itemIdx}" type="number" placeholder="Qtd" style="width:60px;font-size:12px;padding:6px 8px;"/>
-      <input class="input" id="subst-medida-${refIdx}-${itemIdx}" placeholder="Medida (g, colher...)" style="width:100px;font-size:12px;padding:6px 8px;"/>
-      <button class="btn btn-sm btn-primary" onclick="addSubstitutoManual(${refIdx},${itemIdx})" style="font-size:11px;padding:4px 8px;">+ Adicionar</button>
-    </div>
-    <div class="food-search-wrap" style="margin-top:8px;">
-      <input class="input food-search-input" placeholder="Buscar no TACO para substituto..." oninput="buscarSubstituto(this,${refIdx},${itemIdx})" style="font-size:11px;padding:6px 8px;"/>
+    <h5>Substitutos para ${esc(item.nome)} <span style="text-transform:none;font-weight:600;"> · ${API.nutri.rotuloQtd(item)} = ${n.energia_kcal || 0} kcal · P ${n.proteina_g || 0} · C ${n.carboidrato_g || 0} · G ${n.lipidio_g || 0}</span></h5>
+    <div class="subst-list">${linhas || '<div style="font-size:11px;color:var(--text-muted);">Nenhum substituto adicionado.</div>'}</div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;"><span style="font-size:11px;color:var(--text-muted);">Ao adicionar, manter igual:</span>${chipModo}</div>
+    <div class="food-search-wrap" style="margin-top:4px;">
+      <input class="input food-search-input" id="subst-busca-${refIdx}-${itemIdx}" placeholder="Buscar alimento substituto (TACO e Meus Alimentos)..." oninput="buscarSubstituto(this,${refIdx},${itemIdx})" onfocus="buscarSubstituto(this,${refIdx},${itemIdx})" style="font-size:12px;padding:6px 8px;"/>
       <div class="food-results" id="subst-results-${refIdx}-${itemIdx}"></div>
+    </div>
+    <div class="subst-add-row" style="margin-top:8px;">
+      <input class="input" id="subst-nome-${refIdx}-${itemIdx}" placeholder="Ou digite um nome (sem tabela nutricional)" style="font-size:12px;padding:6px 8px;"/>
+      <input class="input" id="subst-qtd-${refIdx}-${itemIdx}" type="number" placeholder="Qtd" style="width:60px;font-size:12px;padding:6px 8px;flex:none;min-width:60px;"/>
+      <input class="input" id="subst-medida-${refIdx}-${itemIdx}" placeholder="Medida (g, colher...)" style="width:110px;font-size:12px;padding:6px 8px;flex:none;min-width:110px;"/>
+      <button class="btn btn-sm btn-secondary" onclick="addSubstitutoManual(${refIdx},${itemIdx})" style="font-size:11px;padding:4px 8px;">+ Adicionar</button>
     </div>
     ${sugHtml}
   </div>`;
 }
+function _itemOrig(refIdx, itemIdx) { return _formRefeicoes[refIdx]?.itens_estruturados?.[itemIdx]; }
+function _repintarItem(refIdx) { document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx); }
+function substModo(modo, refIdx, itemIdx) { _equivModo = modo; _repintarItem(refIdx); }
 
+// Ajusta a quantidade do substituto para manter igual o que o profissional escolheu (calorias, proteína...).
+function _equalizarSubst(orig, sub) {
+  const g = API.nutri.gramasEquivalentes(orig.nutrientes, sub.por100, _equivModo);
+  if (!(g > 0)) return false;
+  sub.quantidade = API.nutri.arredondarQtd(g, sub.medida_id !== 'g' ? sub.medida_g : 1);
+  _recalcItem(sub);
+  return true;
+}
+function substEqualizar(refIdx, itemIdx, si) {
+  const it = _itemOrig(refIdx, itemIdx), s = it && it.substitutos[si]; if (!s || !s.por100) return;
+  if (!_equalizarSubst(it, s)) showToast('Não dá para equalizar: o original ou o substituto não tem esse nutriente.', 'error');
+  _repintarItem(refIdx);
+}
+function substQtd(refIdx, itemIdx, si, value) {
+  const it = _itemOrig(refIdx, itemIdx), s = it && it.substitutos[si]; if (!s) return;
+  s.quantidade = Math.max(0, parseFloat(String(value).replace(',', '.')) || 0);
+  _recalcItem(s); _repintarItem(refIdx);
+}
+function substMedida(refIdx, itemIdx, si, medidaId) {
+  const it = _itemOrig(refIdx, itemIdx), s = it && it.substitutos[si]; if (!s) return;
+  const antes = s.gramas || 0;
+  if (medidaId === 'g') { s.medida_id = 'g'; s.medida_nome = 'gramas'; s.medida_g = 1; s.quantidade = antes > 0 ? Math.round(antes) : 100; }
+  else {
+    const m = _medidasDoItem(s).find(x => x.id === medidaId); if (!m) return;
+    s.medida_id = m.id; s.medida_nome = m.nome; s.medida_g = m.gramas;
+    const q = antes / m.gramas; s.quantidade = (q > 0 && Math.abs(q * 2 - Math.round(q * 2)) < 0.01) ? q : 1;
+  }
+  _recalcItem(s); _repintarItem(refIdx);
+}
+function substRemover(refIdx, itemIdx, si) {
+  const it = _itemOrig(refIdx, itemIdx); if (!it || !it.substitutos) return;
+  it.substitutos.splice(si, 1); _repintarItem(refIdx);
+}
 function addSubstitutoManual(refIdx, itemIdx) {
   const nome = document.getElementById(`subst-nome-${refIdx}-${itemIdx}`)?.value?.trim();
   if (!nome) return showToast('Informe o nome do substituto', 'error');
   const quantidade = document.getElementById(`subst-qtd-${refIdx}-${itemIdx}`)?.value || '';
   const medida = document.getElementById(`subst-medida-${refIdx}-${itemIdx}`)?.value || 'g';
-
-  const item = _formRefeicoes[refIdx]?.itens_estruturados?.[itemIdx];
-  if (!item) return;
+  const item = _itemOrig(refIdx, itemIdx); if (!item) return;
   if (!item.substitutos) item.substitutos = [];
-  item.substitutos.push({ nome, quantidade: quantidade ? Number(quantidade) : null, medida });
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
+  item.substitutos.push({ nome, quantidade: quantidade ? Number(quantidade) : null, medida, manual: true, _ok: true });
+  _repintarItem(refIdx);
 }
-
-function addSubstFromSuggestion(refIdx, itemIdx, nome, porcao) {
-  const item = _formRefeicoes[refIdx]?.itens_estruturados?.[itemIdx];
-  if (!item) return;
-  if (!item.substitutos) item.substitutos = [];
-  item.substitutos.push({ nome, quantidade: null, medida: porcao });
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
+function substSugestao(refIdx, itemIdx, k) {
+  const it = _itemOrig(refIdx, itemIdx); if (!it) return;
+  const sug = AlimentosDB.getSugestaoSubstituicao(it.nome); if (!sug || !sug.alternativas[k]) return;
+  const inp = document.getElementById(`subst-busca-${refIdx}-${itemIdx}`); if (!inp) return;
+  inp.value = String(sug.alternativas[k].alimento).split(/[ ,(]+/).slice(0, 2).join(' ');
+  inp.focus(); buscarSubstituto(inp, refIdx, itemIdx);
 }
-
-function removeSubstituto(refIdx, itemIdx, substIdx) {
-  const item = _formRefeicoes[refIdx]?.itens_estruturados?.[itemIdx];
-  if (!item || !item.substitutos) return;
-  item.substitutos.splice(substIdx, 1);
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
-}
-
 function buscarSubstituto(input, refIdx, itemIdx) {
   clearTimeout(_searchTimeout);
   const termo = input.value.trim();
   const resultsEl = document.getElementById(`subst-results-${refIdx}-${itemIdx}`);
   if (!resultsEl) return;
   if (termo.length < 2) { resultsEl.classList.remove('show'); return; }
-
   _searchTimeout = setTimeout(async () => {
     if (!AlimentosDB.isLoaded()) {
       resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Carregando banco de alimentos...</div>`;
       resultsEl.classList.add('show');
       await AlimentosDB.load();
     }
-    const foods = AlimentosDB.buscar(termo, 10);
-    if (foods.length === 0) {
-      resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>`;
-    } else {
-      resultsEl.innerHTML = foods.map(f => `
-        <div class="food-result-item" onclick="addSubstFromSearch(${refIdx},${itemIdx},${f.id})">
-          <div><div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}</div></div>
-          <div class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</div>
-        </div>
-      `).join('');
-    }
+    const foods = AlimentosDB.buscar(termo, 12);
+    resultsEl.innerHTML = foods.length === 0
+      ? `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>`
+      : foods.map(f => `<div class="food-result-item" onclick="addSubstFromSearch(${refIdx},${itemIdx},${f.id})">
+          <div><div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}</div><div class="food-cat">${esc(f.category || '')}</div></div>
+          <div class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</div></div>`).join('');
     resultsEl.classList.add('show');
   }, 200);
 }
-
 function addSubstFromSearch(refIdx, itemIdx, foodId) {
-  const food = AlimentosDB.getById(foodId);
-  if (!food) return;
-  const item = _formRefeicoes[refIdx]?.itens_estruturados?.[itemIdx];
-  if (!item) return;
+  const food = AlimentosDB.getById(foodId), item = _itemOrig(refIdx, itemIdx);
+  if (!food || !item) return;
   if (!item.substitutos) item.substitutos = [];
-  item.substitutos.push({ nome: food.description, quantidade: 100, medida: 'g', food_id: foodId });
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
+  const sub = _novoItem(food);
+  // Chega já na quantidade equivalente ao original (mesmas calorias, ou o que estiver escolhido).
+  _equalizarSubst(item, sub);
+  item.substitutos.push(sub);
+  _repintarItem(refIdx);
 }
 
 // ── Meal Collapse/Expand ──
@@ -1545,12 +1661,17 @@ function removeRefeicao(idx) {
   recalcTotaisDiarios();
 }
 
-// ── Food search & add ──
+// ── Busca e inclusão de alimentos ──
+function _idsBusca(refIdx, substIdx) {
+  const suf = (substIdx != null && substIdx >= 0) ? refIdx + '-s' + substIdx : String(refIdx);
+  return { busca: 'food-search-' + suf, res: 'food-results-' + suf };
+}
 
-function buscarAlimento(input, refIdx) {
+function buscarAlimento(input, refIdx, substIdx) {
   clearTimeout(_searchTimeout);
   const termo = input.value.trim();
-  const resultsEl = document.getElementById('food-results-' + refIdx);
+  const si = (substIdx == null) ? -1 : substIdx;
+  const resultsEl = document.getElementById(_idsBusca(refIdx, si).res);
   if (!resultsEl) return;
 
   if (termo.length < 2) { resultsEl.classList.remove('show'); return; }
@@ -1561,46 +1682,46 @@ function buscarAlimento(input, refIdx) {
       resultsEl.classList.add('show');
       await AlimentosDB.load();
     }
+    _ultimoTermo = termo;
     const foods = AlimentosDB.buscar(termo, 15);
-    // Não achou? Em vez de um beco sem saída, oferece cadastrar na hora — sem
-    // isso o nutricionista tinha que abandonar a refeição, ir em "Meus
-    // Alimentos" à parte, cadastrar, e voltar pra achar de novo.
-    const cadastrarNovo = `<div class="food-result-item" style="color:var(--green);font-weight:700;" onclick="_iniciarCadastroRapido(${refIdx}, '${esc(termo).replace(/'/g,"\\'")}')">+ Cadastrar "${esc(termo)}" como novo alimento</div>`;
-    // A TACO não tem produto de marca (whey, barrinha, suplemento) — esse
-    // botão busca ao vivo no Open Food Facts só quando o profissional pedir,
-    // pra não disparar uma chamada de rede a cada letra digitada.
-    const buscarMarca = `<div class="food-result-item" style="color:var(--text-muted);font-style:italic;" onclick="_buscarOnlineAlimento(${refIdx}, '${esc(termo).replace(/'/g,"\\'")}')">🌐 Buscar em produtos de marca (Open Food Facts)</div>`;
+    // Não achou? Em vez de um beco sem saída, oferece cadastrar na hora, sem abandonar a refeição.
+    const cadastrarNovo = `<div class="food-result-item" style="color:var(--green);font-weight:700;" onclick="_iniciarCadastroRapido(${refIdx}, ${si})">+ Cadastrar "${esc(termo)}" como novo alimento</div>`;
+    // A TACO não tem produto de marca (whey, barrinha, suplemento): busca ao vivo no Open Food Facts só quando o profissional pedir.
+    const buscarMarca = `<div class="food-result-item" style="color:var(--text-muted);font-style:italic;" onclick="_buscarOnlineAlimento(${refIdx}, ${si})">🌐 Buscar em produtos de marca (Open Food Facts)</div>`;
     if (foods.length === 0) {
       resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>` + cadastrarNovo + buscarMarca;
     } else {
-      resultsEl.innerHTML = foods.map(f => `
-        <div class="food-result-item" onclick="addAlimento(${refIdx}, ${f.id})">
+      resultsEl.innerHTML = foods.map(f => {
+        const u = AlimentosDB.getUnidadePadrao(f.id);
+        const dica = u ? ' · ' + u.quantidade + ' ' + API.nutri.pluralMedida(u.medida_nome, u.quantidade) + ' = ' + r1(u.quantidade * u.medida_g) + ' g' : '';
+        return `<div class="food-result-item" onclick="addAlimento(${refIdx}, ${f.id}, ${si})">
           <div>
             <div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}</div>
-            <div class="food-cat">${esc(f.category || '')}</div>
+            <div class="food-cat">${esc(f.category || '')}${esc(dica)}</div>
           </div>
-          <div class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</div>
-        </div>
-      `).join('') + cadastrarNovo + buscarMarca;
+          <div style="display:flex;align-items:center;gap:8px;"><span class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</span><span onclick="event.stopPropagation();verTabelaAlimento(${f.id})" title="Tabela nutricional" style="cursor:pointer;color:var(--text-muted);">ℹ</span></div>
+        </div>`;
+      }).join('') + cadastrarNovo + buscarMarca;
     }
     resultsEl.classList.add('show');
   }, 200);
 }
 
 // ── Busca online (Open Food Facts) sob demanda ─────────────────────────────
-async function _buscarOnlineAlimento(refIdx, termo) {
-  const resultsEl = document.getElementById('food-results-' + refIdx);
+async function _buscarOnlineAlimento(refIdx, substIdx) {
+  const resultsEl = document.getElementById(_idsBusca(refIdx, substIdx).res);
   if (!resultsEl) return;
+  const termo = _ultimoTermo;
   resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Buscando em produtos de marca...</div>`;
   resultsEl.classList.add('show');
   const online = await AlimentosDB.buscarOnline(termo, 8);
   if (!online.length) {
     resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Nada encontrado em produtos de marca. Tente "+ Cadastrar" com os valores do rótulo.</div>
-      <div class="food-result-item" style="color:var(--green);font-weight:700;" onclick="_iniciarCadastroRapido(${refIdx}, '${esc(termo).replace(/'/g,"\\'")}')">+ Cadastrar "${esc(termo)}" como novo alimento</div>`;
+      <div class="food-result-item" style="color:var(--green);font-weight:700;" onclick="_iniciarCadastroRapido(${refIdx}, ${substIdx})">+ Cadastrar "${esc(termo)}" como novo alimento</div>`;
     return;
   }
   resultsEl.innerHTML = online.map((f, i) => `
-    <div class="food-result-item" onclick='_adicionarAlimentoOnline(${refIdx}, ${i})'>
+    <div class="food-result-item" onclick="_adicionarAlimentoOnline(${refIdx}, ${substIdx}, ${i})">
       <div>
         <div>${esc(f.description)}<span class="custom-food-badge" style="background:rgba(96,165,250,.15);color:#60a5fa;">MARCA</span></div>
         <div class="food-cat">${esc(f.category)}</div>
@@ -1609,163 +1730,96 @@ async function _buscarOnlineAlimento(refIdx, termo) {
     </div>
   `).join('');
   resultsEl.classList.add('show');
-  window._offResultadosTemp = window._offResultadosTemp || {};
-  window._offResultadosTemp[refIdx] = online;
+  window._offResultadosTemp = online;
 }
 
-// O produto do Open Food Facts vira um alimento personalizado normal ao ser
-// escolhido — a partir daí funciona offline como qualquer outro "Meu
-// Alimento", sem depender de a busca online continuar disponível depois.
-async function _adicionarAlimentoOnline(refIdx, idx) {
-  const item = (window._offResultadosTemp && window._offResultadosTemp[refIdx] || [])[idx];
+// O produto do Open Food Facts vira um "Meu alimento" normal ao ser escolhido: a partir daí funciona como qualquer outro.
+async function _adicionarAlimentoOnline(refIdx, substIdx, idx) {
+  const item = (window._offResultadosTemp || [])[idx];
   if (!item) return;
   try {
     const novo = await AlimentosDB.addCustomFood({
-      description: item.description,
-      category: item.category,
-      energy_kcal: item.energy_kcal,
-      protein_g: item.protein_g,
-      carbohydrate_g: item.carbohydrate_g,
-      lipid_g: item.lipid_g,
-      fiber_g: item.fiber_g,
-      sodium_mg: item.sodium_mg,
-      saturated_g: item.saturated_g,
+      description: item.description, category: item.category, energy_kcal: item.energy_kcal, protein_g: item.protein_g,
+      carbohydrate_g: item.carbohydrate_g, lipid_g: item.lipid_g, fiber_g: item.fiber_g, sodium_mg: item.sodium_mg, saturated_g: item.saturated_g,
     });
     showToast('Produto adicionado ao seu banco de alimentos!');
-    addAlimento(refIdx, novo.id);
+    addAlimento(refIdx, novo.id, substIdx);
   } catch (e) {
     showToast('Não consegui salvar no servidor: ' + e.message, 'error');
   }
 }
 
-function addAlimento(refIdx, foodId) {
+function addAlimento(refIdx, foodId, substIdx) {
+  const si = (substIdx == null) ? -1 : substIdx;
   const food = AlimentosDB.getById(foodId);
   if (!food) return;
-
-  const medidas = getMergedMedidas(foodId);
-  const defaultQtd = 100;
-  const nutrientes = AlimentosDB.calcNutrientes(foodId, defaultQtd);
-
-  if (!_formRefeicoes[refIdx].itens_estruturados) {
-    _formRefeicoes[refIdx].itens_estruturados = [];
-  }
-
-  _formRefeicoes[refIdx].itens_estruturados.push({
-    food_id: foodId,
-    nome: food.description,
-    quantidade: defaultQtd,
-    medida_id: 'g',
-    medida_nome: 'gramas',
-    nutrientes: nutrientes,
-    _medidas: medidas,
-    substitutos: [],
-  });
-
-  const searchInput = document.getElementById('food-search-' + refIdx);
-  const resultsEl = document.getElementById('food-results-' + refIdx);
+  const lista = _lista(refIdx, si);
+  if (!lista) return;
+  lista.push(_novoItem(food));
+  const ids = _idsBusca(refIdx, si);
+  const searchInput = document.getElementById(ids.busca);
+  const resultsEl = document.getElementById(ids.res);
   if (searchInput) searchInput.value = '';
   if (resultsEl) resultsEl.classList.remove('show');
-
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
-  recalcTotaisDiarios();
+  _redesenhar(refIdx, si);
 }
 
 // ── Cadastro rápido de alimento direto da busca ────────────────────────────
-// Fica dentro do próprio dropdown de busca (não abre um modal por cima do
-// modal do plano — os dois juntos não convivem bem aqui). Só os campos
-// essenciais; fibra e o resto dos micronutrientes ficam pra completar depois
-// em "Meus Alimentos", se o nutricionista quiser.
-function _iniciarCadastroRapido(refIdx, termo) {
-  const resultsEl = document.getElementById('food-results-' + refIdx);
+// Fica dentro do próprio dropdown (não abre modal por cima do modal do plano). Valores por 100 g; fibra, sódio e uma
+// medida caseira (ex.: 1 scoop = 30 g) são opcionais. O resto da tabela nutricional se completa depois em "Meus Alimentos".
+function _iniciarCadastroRapido(refIdx, substIdx) {
+  const si = (substIdx == null) ? -1 : substIdx;
+  const resultsEl = document.getElementById(_idsBusca(refIdx, si).res);
   if (!resultsEl) return;
+  const k = refIdx + '-' + si;
   resultsEl.innerHTML = `
     <div class="food-result-item" style="display:block;cursor:default;">
-      <div style="font-weight:700;margin-bottom:8px;">Novo alimento — valores por 100g</div>
-      <input id="qc-nome-${refIdx}" class="input" style="margin-bottom:6px;width:100%;" value="${esc(termo || '')}" placeholder="Nome do alimento"/>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:8px;">
-        <input id="qc-kcal-${refIdx}" type="number" step="0.1" class="input" placeholder="kcal"/>
-        <input id="qc-prot-${refIdx}" type="number" step="0.1" class="input" placeholder="Prot g"/>
-        <input id="qc-carb-${refIdx}" type="number" step="0.1" class="input" placeholder="Carb g"/>
-        <input id="qc-gord-${refIdx}" type="number" step="0.1" class="input" placeholder="Gord g"/>
+      <div style="font-weight:700;margin-bottom:8px;">Novo alimento: valores por 100 g</div>
+      <input id="qc-nome-${k}" class="input" style="margin-bottom:6px;width:100%;" value="${esc(_ultimoTermo || '')}" placeholder="Nome do alimento"/>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px;">
+        <input id="qc-kcal-${k}" type="number" step="0.1" class="input" placeholder="kcal"/>
+        <input id="qc-prot-${k}" type="number" step="0.1" class="input" placeholder="Prot g"/>
+        <input id="qc-carb-${k}" type="number" step="0.1" class="input" placeholder="Carb g"/>
+        <input id="qc-gord-${k}" type="number" step="0.1" class="input" placeholder="Gord g"/>
       </div>
-      <div style="font-size:10.5px;color:var(--text-muted);margin-bottom:8px;">Fibra e micronutrientes podem ser completados depois, em "🍎 Meus Alimentos".</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+        <input id="qc-fibra-${k}" type="number" step="0.1" class="input" placeholder="Fibra g (opcional)"/>
+        <input id="qc-sodio-${k}" type="number" step="0.1" class="input" placeholder="Sódio mg (opcional)"/>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Medida caseira (opcional): 1 unidade vale quantos gramas?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+        <input id="qc-medida-${k}" class="input" placeholder="Nome (ex.: scoop, fatia)"/>
+        <input id="qc-medg-${k}" type="number" step="0.1" class="input" placeholder="Gramas (ex.: 30)"/>
+      </div>
+      <div style="font-size:10.5px;color:var(--text-muted);margin-bottom:8px;">Sem kcal, calculo por 4 kcal/g de proteína e carboidrato e 9 kcal/g de gordura. O restante da tabela nutricional você completa em "🍎 Meus Alimentos".</div>
       <div style="display:flex;gap:6px;">
-        <button class="btn btn-sm btn-secondary" style="flex:1;" onclick="buscarAlimento(document.getElementById('food-search-${refIdx}'), ${refIdx})">Cancelar</button>
-        <button class="btn btn-sm btn-primary" style="flex:1;" onclick="_salvarCadastroRapido(${refIdx})">Cadastrar e adicionar</button>
+        <button class="btn btn-sm btn-secondary" style="flex:1;" onclick="document.getElementById('${_idsBusca(refIdx, si).busca}').dispatchEvent(new Event('input'))">Cancelar</button>
+        <button class="btn btn-sm btn-primary" style="flex:1;" onclick="_salvarCadastroRapido(${refIdx}, ${si})">Cadastrar e adicionar</button>
       </div>
     </div>
   `;
   resultsEl.classList.add('show');
 }
 
-async function _salvarCadastroRapido(refIdx) {
-  const nome = document.getElementById('qc-nome-' + refIdx)?.value?.trim();
+async function _salvarCadastroRapido(refIdx, substIdx) {
+  const k = refIdx + '-' + substIdx;
+  const v = id => parseFloat(document.getElementById(id + '-' + k)?.value) || 0;
+  const nome = document.getElementById('qc-nome-' + k)?.value?.trim();
   if (!nome) return showToast('Informe o nome do alimento', 'error');
+  const prot = v('qc-prot'), carb = v('qc-carb'), gord = v('qc-gord');
+  const kcal = v('qc-kcal') || Math.round((prot * 4 + carb * 4 + gord * 9) * 10) / 10;
+  const medNome = document.getElementById('qc-medida-' + k)?.value?.trim() || '', medG = v('qc-medg');
   try {
     const novo = await AlimentosDB.addCustomFood({
-      description: nome,
-      category: 'Meus Alimentos',
-      energy_kcal: parseFloat(document.getElementById('qc-kcal-' + refIdx)?.value) || 0,
-      protein_g: parseFloat(document.getElementById('qc-prot-' + refIdx)?.value) || 0,
-      carbohydrate_g: parseFloat(document.getElementById('qc-carb-' + refIdx)?.value) || 0,
-      lipid_g: parseFloat(document.getElementById('qc-gord-' + refIdx)?.value) || 0,
+      description: nome, category: 'Meus Alimentos', energy_kcal: kcal, protein_g: prot, carbohydrate_g: carb, lipid_g: gord,
+      fiber_g: v('qc-fibra'), sodium_mg: v('qc-sodio'),
+      medida_padrao: (medNome && medG > 0) ? medNome : 'g', porcao_padrao: (medNome && medG > 0) ? medG : 100,
     });
     showToast('Alimento cadastrado e adicionado à refeição!');
-    addAlimento(refIdx, novo.id);
+    addAlimento(refIdx, novo.id, substIdx);
   } catch (e) {
     showToast('Não consegui salvar no servidor: ' + e.message, 'error');
   }
-}
-
-function updateItemQtd(refIdx, itemIdx, value) {
-  const item = _formRefeicoes[refIdx]?.itens_estruturados?.[itemIdx];
-  if (!item) return;
-
-  let gramas;
-  const medidas = item._medidas || getMergedMedidas(item.food_id);
-  if (item.medida_id && item.medida_id !== 'g') {
-    const medida = medidas.find(m => m.id === item.medida_id);
-    gramas = medida ? parseFloat(value) * medida.gramas : parseFloat(value);
-    item.quantidade = parseFloat(value);
-  } else {
-    gramas = parseFloat(value) || 0;
-    item.quantidade = gramas;
-  }
-
-  item.nutrientes = AlimentosDB.calcNutrientes(item.food_id, gramas);
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
-  recalcTotaisDiarios();
-}
-
-function updateItemMedida(refIdx, itemIdx, medidaId) {
-  const item = _formRefeicoes[refIdx]?.itens_estruturados?.[itemIdx];
-  if (!item) return;
-
-  const medidas = item._medidas || getMergedMedidas(item.food_id);
-  item.medida_id = medidaId;
-  if (medidaId === 'g') {
-    item.medida_nome = 'gramas';
-    item.nutrientes = AlimentosDB.calcNutrientes(item.food_id, item.quantidade || 100);
-  } else {
-    const medida = medidas.find(m => m.id === medidaId);
-    if (medida) {
-      item.medida_nome = medida.nome;
-      item.quantidade = 1;
-      item.nutrientes = AlimentosDB.calcNutrientes(item.food_id, medida.gramas);
-    }
-  }
-
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
-  recalcTotaisDiarios();
-}
-
-function removeItem(refIdx, itemIdx) {
-  _formRefeicoes[refIdx].itens_estruturados.splice(itemIdx, 1);
-  if (_openSubstPanel && _openSubstPanel.refIdx === refIdx && _openSubstPanel.itemIdx === itemIdx) {
-    _openSubstPanel = null;
-  }
-  document.getElementById('ref-itens-' + refIdx).innerHTML = renderItensRefeicao(refIdx);
-  recalcTotaisDiarios();
 }
 
 // Barrinha comparando o total já montado com a meta digitada na aba "Metas &
@@ -2222,23 +2276,9 @@ async function salvarPlano(idplano) {
   const comentario_inicio = document.getElementById('nt-comentario-inicio')?.value || '';
   const comentario_fim = document.getElementById('nt-comentario-fim')?.value || '';
 
-  // Reaproveitada pra limpar tanto os itens da refeição principal quanto os
-  // de cada refeição substituta — mesmo formato salvo nos dois casos, sem
-  // repetir o mapeamento campo a campo duas vezes.
-  const limparItens = (lista) => (lista || []).map(it => ({
-    food_id: it.food_id,
-    nome: it.nome,
-    quantidade: it.quantidade,
-    medida_id: it.medida_id,
-    medida_nome: it.medida_nome,
-    nutrientes: it.nutrientes,
-    substitutos: (it.substitutos || []).map(s => ({
-      nome: s.nome,
-      quantidade: s.quantidade,
-      medida: s.medida,
-      food_id: s.food_id || null,
-    })),
-  }));
+  // Mesmo formato para os itens da refeição principal, de cada refeição substituta e de cada substituto de alimento
+  // (ver _limparItem). Guarda gramas, medida caseira e a tabela nutricional do que foi prescrito.
+  const limparItens = (lista) => (lista || []).map(_limparItem);
 
   const refeicoes = _formRefeicoes.filter(r => r.nome || (r.itens_estruturados && r.itens_estruturados.length > 0)).map(r => {
     const itensClean = limparItens(r.itens_estruturados);
@@ -2355,9 +2395,11 @@ function renderCustomFoodList(foods) {
           <span class="carb">${f.carbohydrate_g}g C</span>
           <span class="gord">${f.lipid_g}g G</span>
           <span>${f.fiber_g}g Fibra</span>
+          ${f.medida_padrao && f.medida_padrao !== 'g' ? `<span>1 ${esc(f.medida_padrao)} = ${f.porcao_padrao} g</span>` : ''}
         </div>
       </div>
       <div class="custom-food-actions">
+        <button class="btn btn-sm btn-secondary" onclick="verTabelaAlimento(${f.id})" title="Tabela nutricional">ℹ</button>
         <button class="btn btn-sm btn-secondary" onclick="abrirFormAlimentoCustom(${f.id})">Editar</button>
         <button class="btn btn-sm btn-danger" onclick="excluirAlimentoCustom(${f.id})">✕</button>
       </div>
@@ -2478,15 +2520,16 @@ function abrirFormAlimentoCustom(editId) {
         </div>
       </div>
 
-      <div class="modal-section-title">Porção Padrão</div>
+      <div class="modal-section-title">Medida caseira (opcional)</div>
+      <div style="font-size:12px;color:var(--text-muted);margin:-4px 0 8px;">Para montar o plano em unidades e não só em gramas. Ex.: nome "scoop" pesando 30 g, ou "fatia" pesando 25 g.</div>
       <div class="form-2col">
         <div class="form-group">
-          <label class="label">Quantidade (g)</label>
-          <input id="cf-porcao" type="number" class="input" placeholder="100" value="${food?.porcao_padrao || 100}"/>
+          <label class="label">Nome da medida</label>
+          <input id="cf-medida" class="input" placeholder="Ex: scoop, fatia, unidade, colher" value="${esc(food?.medida_padrao && food.medida_padrao !== 'g' ? food.medida_padrao : '')}"/>
         </div>
         <div class="form-group">
-          <label class="label">Medida caseira</label>
-          <input id="cf-medida" class="input" placeholder="Ex: 1 scoop, 1 fatia, 1 colher..." value="${esc(food?.medida_padrao || '')}"/>
+          <label class="label">Quanto pesa 1 (gramas)</label>
+          <input id="cf-porcao" type="number" step="0.1" class="input" placeholder="Ex: 30" value="${food?.medida_padrao && food.medida_padrao !== 'g' ? (food?.porcao_padrao || '') : ''}"/>
         </div>
       </div>
     </div>
@@ -2524,8 +2567,9 @@ function salvarAlimentoCustom(editId) {
     thiamine_mg: parseFloat(document.getElementById('cf-tiamina')?.value) || 0,
     riboflavin_mg: parseFloat(document.getElementById('cf-riboflavina')?.value) || 0,
     niacin_mg: parseFloat(document.getElementById('cf-niacina')?.value) || 0,
-    porcao_padrao: parseInt(document.getElementById('cf-porcao')?.value) || 100,
-    medida_padrao: document.getElementById('cf-medida')?.value?.trim() || 'g',
+    // Medida caseira: só vale se tiver nome E peso; senão o alimento fica só em gramas.
+    porcao_padrao: ((document.getElementById('cf-medida')?.value?.trim()) && parseFloat(document.getElementById('cf-porcao')?.value) > 0) ? parseFloat(document.getElementById('cf-porcao').value) : 100,
+    medida_padrao: ((document.getElementById('cf-medida')?.value?.trim()) && parseFloat(document.getElementById('cf-porcao')?.value) > 0) ? document.getElementById('cf-medida').value.trim() : 'g',
   };
 
   (async () => {

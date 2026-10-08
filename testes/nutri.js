@@ -109,5 +109,28 @@ console.log('\n── 4. Água e lista de compras ──');
   eq('ordem alfabética', l.map(x => x.nome), ['Aveia', 'Arroz', 'Frango', 'Ovo'].sort((a, b) => a.localeCompare(b, 'pt')));
 }
 
+console.log('\n── 8. Quantidades: medida caseira, plural e equivalência ──');
+{
+  eq('1 ovo em unidade (singular)', A.rotuloQtd({ quantidade: 1, medida_id: 'unidade', medida_nome: 'Unidade' }), '1 unidade');
+  eq('2 ovos em unidades (plural)', A.rotuloQtd({ quantidade: 2, medida_id: 'unidade', medida_nome: 'Unidade' }), '2 unidades');
+  eq('colher de sopa no plural muda só a 1a palavra', A.rotuloQtd({ quantidade: 3, medida_id: 'cs', medida_nome: 'Colher de sopa' }), '3 colheres de sopa');
+  eq('meia unidade fica no singular', A.rotuloQtd({ quantidade: 0.5, medida_id: 'u', medida_nome: 'Unidade' }), '0,5 unidade');
+  eq('1,5 fatia no plural', A.rotuloQtd({ quantidade: 1.5, medida_id: 'f', medida_nome: 'Fatia' }), '1,5 fatias');
+  eq('em gramas', A.rotuloQtd({ quantidade: 150, medida_id: 'g' }), '150 g');
+  eq('item antigo sem medida_id', A.rotuloQtd({ quantidade: 80 }), '80 g');
+  eq('porção no plural vira porções', A.pluralMedida('Porção', 2), 'porções');
+  eq('gramas pela medida', A.gramasItem({ quantidade: 2, medida_id: 'unidade', medida_g: 50 }), 100);
+  eq('gramas gravadas valem mais', A.gramasItem({ quantidade: 2, medida_id: 'unidade', medida_g: 50, gramas: 96 }), 96);
+  eq('em gramas direto', A.gramasItem({ quantidade: 120, medida_id: 'g' }), 120);
+  // 214,7 kcal de ovo trocados por queijo (264 kcal/100 g): 81,3 g
+  eq('equivalência por calorias', Math.round(A.gramasEquivalentes({ energia_kcal: 214.7 }, { energia_kcal: 264 }, 'kcal') * 10) / 10, 81.3);
+  eq('equivalência por proteína', Math.round(A.gramasEquivalentes({ proteina_g: 19.5 }, { proteina_g: 17.4 }, 'prot')), 112);
+  eq('sem o nutriente no substituto, 0', A.gramasEquivalentes({ proteina_g: 10 }, { proteina_g: 0 }, 'prot'), 0);
+  eq('arredonda em meia unidade quando há medida', A.arredondarQtd(81, 30), 2.5);
+  eq('arredonda em 5 g quando em gramas', A.arredondarQtd(81.3, 1), 80);
+  eq('nunca zera: mínimo de meia unidade', A.arredondarQtd(3, 50), 0.5);
+  eq('nunca zera: mínimo de 5 g', A.arredondarQtd(1, 1), 5);
+}
+
 console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
 process.exit(ruim ? 1 : 0);

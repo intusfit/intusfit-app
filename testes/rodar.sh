@@ -20,6 +20,7 @@ passo "comunidade: turmas e desafios"      node comunidade.js
 passo "corte de vídeo: pontas e trecho"    node trecho.js
 passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
 passo "plano parcelado: parcelas e cobrança" node parcelas.js
+passo "alimentos: ids, medidas caseiras e plano antigo" node alimentos.js
 
 # Os testes de navegador precisam de um servidor HTTP: o cache-buster "?v=" não
 # funciona em file:// e as telas nem chegam a carregar os scripts.
