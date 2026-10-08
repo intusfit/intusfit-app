@@ -17063,7 +17063,7 @@ async function salvarAutoAvaliacao() {
 // (aderência, consumo estimado, sequência, lista de compras) vêm de API.nutri (api.js).
 // Registro feito sem internet fica numa fila e é enviado sozinho depois.
 var _nutri = { plano: null, regs: [], agua: [], pesos: [], visao: 'hoje', dia: 'hoje', aberta: null, opcao: {}, obs: {}, prato: 0, carregado: false,
-               tela: 'home', cat: 'todas', busca: '', receita: null, marcados: {} };
+               tela: 'home', pai: 'home', hist: 0, cat: 'todas', busca: '', receita: null, marcados: {} };
 
 function _nutriHdr() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
 function _nutriPendKey() { return 'intus-nutri-pend-' + idAtleta; }
@@ -17451,12 +17451,33 @@ async function _nutriConteudoCarregar() {
   }
 }
 
+// Cada passo para dentro (receitas, uma receita, vídeos, dicas, plano) entra no histórico do navegador. Assim o botão/gesto de voltar do
+// celular volta um passo dentro da Nutrição (popstate central chama _nutriVoltarGesto) em vez de pular para a tela inicial do app.
 function nutriTela(t, id) {
-  _nutri.tela = t;
-  if (t === 'receita') _nutri.receita = id;
+  if (t === 'home') { _nutri.tela = 'home'; _nutri.pai = 'home'; window.scrollTo(0, 0); _nutriRender(); return; }
+  _nutri.pai = (_nutri.tela === 'receita' || _nutri.tela === 'home' || _nutri.tela === 'receitas') ? _nutri.tela : 'home';
+  if (t === 'receita') { _nutri.receita = id; if (_nutri.tela === 'receita') _nutri.pai = 'receitas'; }
   if (t === 'receitas' && id) _nutri.cat = id;
+  _nutri.tela = t;
+  try { history.pushState({ view: 'nutricao' }, '', ''); _nutri.hist++; } catch (e) {}
   window.scrollTo(0, 0);
   _nutriRender();
+}
+// "Voltar" do cabeçalho: usa o histórico quando ele tem os passos da Nutrição (assim os dois jeitos de voltar andam juntos).
+function nutriVoltar() {
+  if (_nutri.hist > 0) { history.back(); return; }
+  nutriTela(_nutri.tela === 'receita' ? (_nutri.pai || 'home') : 'home');
+}
+// Chamado pelo popstate central. Devolve true quando tratou o voltar dentro da Nutrição.
+function _nutriVoltarGesto() {
+  if (_nutri.tela === 'home' || _nutri.hist <= 0) { _nutri.hist = 0; return false; }
+  _nutri.hist--;
+  const destino = (_nutri.tela === 'receita') ? (_nutri.pai || 'home') : 'home';
+  _nutri.tela = destino;
+  _nutri.pai = 'home';
+  window.scrollTo(0, 0);
+  _nutriRender();
+  return true;
 }
 function nutriCat(c) { _nutri.cat = c; _nutriRender(); }
 function nutriBusca(v) { _nutri.busca = v; _nutriAtualizarGrade(); }
@@ -17468,7 +17489,7 @@ function _nutriAtualizarGrade() {
 // ── Peças ──
 function _nutriHeaderSub(titulo) {
   // Mesmo cabeçalho das outras telas, com o "Voltar" levando para a tela inicial da Nutrição.
-  return telaHeader(titulo).replace("trocarView('home')", "nutriTela('home')");
+  return telaHeader(titulo).replace("trocarView('home')", "nutriVoltar()");
 }
 function _nutriChip(ativo, js, rot) {
   const C = _nutriCores();
@@ -17689,7 +17710,7 @@ function _nutriDicasHtml() {
 
 async function renderNutricaoAluno() {
   const container = document.getElementById('v-nutricao');
-  _nutri.tela = 'home';
+  _nutri.tela = 'home'; _nutri.pai = 'home'; _nutri.hist = 0;
   container.innerHTML = `${telaHeader('🥗 Nutrição')}<div style="text-align:center;padding:60px 20px;"><div class="spinner"></div></div>`;
   await _nutriEnviarPendentes();
   await Promise.all([_nutriCarregar(), _nutriConteudoCarregar()]);
@@ -19061,6 +19082,7 @@ window.addEventListener('popstate', function(e) {
     history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
     return;
   }
+  if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
   if (viewStack.length > 1) {
     viewStack.pop();
     const prevView = viewStack[viewStack.length - 1] || 'home';
