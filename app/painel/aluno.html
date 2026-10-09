@@ -654,13 +654,6 @@
     .h-at .ic { width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; }
     .h-at .tt { font-size:10.5px; font-weight:700; color:var(--texto); text-align:center; line-height:1.2; }
     .h-hoje:active, .h-sem:active, .h-mini:active, .h-dest:active, .h-at:active { transform:scale(.985); }
-    /* Nutrição em destaque na tela inicial: faixa inteira logo abaixo de Treinos e Cardio */
-    .h-nutri { margin-bottom:8px; border-color:rgba(224,86,124,.45)!important; background:linear-gradient(160deg,rgba(224,86,124,.10),var(--sup))!important; }
-    .h-nutri .head { margin-bottom:6px; }
-    .h-nutri .seta { margin-left:auto; color:var(--muted); font-size:20px; line-height:1; }
-    .h-nutri .corpo { display:flex; align-items:center; gap:10px; }
-    .h-nutri .agua-bt { flex-shrink:0; border:1px solid var(--sup-bd); background:var(--card-bg); color:var(--texto); border-radius:12px; padding:8px 11px; font-size:12px; font-weight:800; cursor:pointer; font-family:inherit; white-space:nowrap; }
-    .h-nutri .agua-bt:active { transform:scale(.96); }
 
     .prev-box {
       font-size: 11px; color: #666; background: #0d0d0d; border: 1px solid #1a1a1a;
@@ -6763,35 +6756,6 @@ function mostrarNovidadePontos() {
 }
 
 // ═══════════════ HOME ═══════════════
-// Faixa de Nutrição da tela inicial: próxima refeição e água do dia quando o plano já foi carregado; senão, o convite.
-// O carregamento acontece em segundo plano depois de a tela pintar (ver _homeNutriGarantir).
-let _homeNutriCarregando = false;
-function _homeNutriHtml() {
-  if (!_nutri.carregado) return '<div class="sb">Plano alimentar, água, receitas e dicas</div>';
-  const N = API.nutri, hoje = N.hojeIso();
-  const ml = _nutriAguaDoDia(hoje), meta = N.metaAguaMl(_nutriUltimoPeso()) || 2500;
-  const pct = Math.min(100, Math.round(ml / meta * 100));
-  const lt = v => (v / 1000).toFixed(1).replace('.', ',');
-  let linha = 'Receitas, vídeos e dicas para o dia a dia';
-  if (_nutri.plano) {
-    const prox = N.proximaRefeicao(_nutri.plano, _nutriRegsDoDia(hoje));
-    linha = prox ? 'Próxima: <b style="color:var(--texto);">' + esc(prox.nome || 'Refeição') + '</b>' + (prox.horario ? ' · ' + esc(String(prox.horario).slice(0, 5)) : '') : 'Refeições de hoje em dia ✓';
-  }
-  return '<div class="corpo"><div style="flex:1;min-width:0;"><div class="sb">' + linha + '</div>' +
-    '<div class="h-barra" style="height:4px;margin-top:6px;"><i style="width:' + pct + '%;background:linear-gradient(90deg,#1d8fe0,#5bd0ff);"></i></div>' +
-    '<div style="font-size:10.5px;color:var(--muted);margin-top:3px;">💧 ' + lt(ml) + ' de ' + lt(meta) + ' L hoje</div></div>' +
-    '<button class="agua-bt" onclick="event.stopPropagation();nutriAgua(250,true);setTimeout(_homeNutriAtualizar,60);">+ 💧 copo</button></div>';
-}
-function _homeNutriAtualizar() {
-  const el = document.getElementById('h-nutri-corpo');
-  if (el) el.innerHTML = _homeNutriHtml();
-}
-function _homeNutriGarantir() {
-  if (_nutri.carregado || _homeNutriCarregando || typeof _nutriCarregar !== 'function') return;
-  _homeNutriCarregando = true;
-  _nutriCarregar().then(_homeNutriAtualizar).catch(() => {}).finally(() => { _homeNutriCarregando = false; });
-}
-
 function renderHome() {
   document.getElementById('nome-top').textContent = user?.nome || 'Aluno';
   const fichas = carregarFicha();
@@ -7193,15 +7157,6 @@ function renderHome() {
       </div>
     </div>
 
-    <div class="h-dest h-nutri" onclick="navegar('nutricao')">
-      <div class="head">
-        <div class="ic" style="background:linear-gradient(135deg,#7a1f3d,#e0567c);">🥗</div>
-        <div class="tt">Nutrição</div>
-        <span class="seta">›</span>
-      </div>
-      <div id="h-nutri-corpo">${_homeNutriHtml()}</div>
-    </div>
-
     <div class="h-sem" onclick="_abrirHistoricoCalendario()">
       <div style="display:flex;align-items:baseline;gap:8px;">
         <span class="cab">Sua semana</span>
@@ -7256,30 +7211,35 @@ function renderHome() {
         </div>
       </div>
       <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-        <div class="h-at" onclick="renderPerfil();trocarView('perfil');" style="margin:0;">
-          <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
-          <div class="tt">Conquistas</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Distintivos</div>
+        <div class="h-at" onclick="navegar('nutricao')" style="margin:0;">
+          <div class="ic" style="background:linear-gradient(135deg,#7a1f3d,#e0567c);">🥗</div>
+          <div class="tt">Nutrição</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Plano e água</div>
         </div>
         <div class="h-at" onclick="renderHistorico();trocarView('historico');" style="margin:0;">
           <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
           <div class="tt">Evoluções</div>
           <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Histórico</div>
         </div>
-        <div class="h-at" onclick="navegar('avaliacoes')" style="margin:0;">
-          <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
-          <div class="tt">Avaliações</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Medidas</div>
+        <div class="h-at" onclick="renderPerfil();trocarView('perfil');" style="margin:0;">
+          <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
+          <div class="tt">Conquistas</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Distintivos</div>
         </div>
         <div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" style="border-radius:14px;border:1px solid var(--borda);background:var(--card-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:7px 5px;margin:0;">
           <div class="h-at-ic" style="width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;line-height:1;background:var(--borda);color:var(--muted);">⋯</div>
           <div id="h-maisatalhos-label" style="font-size:10.5px;font-weight:700;color:var(--texto);text-align:center;line-height:1.2;">Ver mais</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Mais atalhos</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;line-height:1.25;">Avaliações, Central, Perfil</div>
         </div>
       </div>
     </div>
 
-    <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:10px;">
+    <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;">
+      <div class="h-at" onclick="navegar('avaliacoes')">
+        <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
+        <div class="tt">Avaliações</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Medidas</div>
+      </div>
       <div class="h-at" onclick="navegar('mensagens')">
         <div class="ic" style="background:linear-gradient(135deg,#5a2a5e,#c060d0);">💬</div>
         <div class="tt">Central</div>
@@ -7320,7 +7280,6 @@ function renderHome() {
   // Prioriza a novidade da nova pontuação; evita empilhar dois overlays.
   setTimeout(function(){ verificarNovidadePontos(); if (!_novidadePtsSessao) verificarNovidadeRanking(); }, 700);
   verificarConquistasHome();
-  _homeNutriGarantir();
 }
 
 // A letra do selo colorido (A/B/C...) vinha sempre da CHAVE interna da

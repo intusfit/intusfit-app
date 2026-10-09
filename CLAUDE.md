@@ -1259,8 +1259,8 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 
 ## 38. App do aluno: Nutrição na tela inicial, logo na figurinha e ranking mais compacto (09/10/2026)
 
-- **Nutrição em destaque na Home** (`aluno.html`, `renderHome`): faixa inteira logo abaixo de Treinos e Cardio (`.h-nutri`), com a próxima refeição, a barra de água do dia e o botão "+ 💧 copo" (`nutriAgua(250, true)`).
-  Carrega o plano em segundo plano depois de pintar a tela (`_homeNutriGarantir`, uma vez por sessão, reaproveita `_nutriCarregar`) e atualiza só a faixa (`_homeNutriAtualizar`). Saiu do "Ver mais".
+- **Nutrição na Home** (`aluno.html`, `renderHome`): a faixa larga de Nutrição foi tirada (decisão do Luiz, 09/10/2026). Os atalhos ao lado do Ranking ficaram: Nutrição, Evoluções, Conquistas e "Ver mais" (subtítulo
+  "Avaliações, Central, Perfil", que são o que está dentro dele). Avaliações foi para o "Ver mais".
 - **Logo da Intus dentro da figurinha** (`_shareBarraInferior`): selo pequeno à direita do nome do treino, dentro da caixa que se move; vale nos layouts que usam a barra (Clássico, Destaque, Mascote), na prévia e na
   foto/vídeo final (a camada vem do mesmo HTML). A logo fixa do canto continua como estava.
 - **Ranking**: cartão "Sua posição" com o título na mesma linha da posição, comparação com a semana (ou mês) passada em UMA linha (fonte `clamp`) e folga vertical menor. `telaHeader` (Voltar / título / logo) ficou
