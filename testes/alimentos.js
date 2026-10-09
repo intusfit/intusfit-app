@@ -84,6 +84,26 @@ function carregar(meusAlimentos) {
   eq('tem os 20 nutrientes', Object.keys(DB.calcNutrientes(489, 100)).length, 20);
   eq('alimento inexistente = null', DB.calcNutrientes(99999, 100), null);
 
+  console.log('\n── 6. Alimentos extras (IBGE POF 2008-2009 e USDA SR Legacy) ──');
+  const extra = JSON.parse(fs.readFileSync(path.join(DATA, 'alimentos-extra.json'), 'utf8'));
+  const ex = extra.alimentos;
+  eq('mais de mil alimentos extras', ex.length > 1000, true);
+  eq('ids únicos, entre a TACO e os Meus alimentos', [new Set(ex.map(f => f.id)).size === ex.length, ex.every(f => f.id >= DB.EXTRA_BASE && f.id < DB.CUSTOM_BASE)], [true, true]);
+  eq('todo item tem fonte, categoria e calorias', ex.filter(f => !f.source || !f.category || !(f.energy_kcal >= 0)).length, 0);
+  eq('nenhum valor negativo', ex.filter(f => Object.keys(f).some(k => typeof f[k] === 'number' && f[k] < 0 && k !== 'id')).length, 0);
+  // Se a leitura do PDF tivesse deslocado colunas, as calorias deixariam de bater com os macros (4 P + 4 C + 9 G).
+  const fora = ex.filter(f => f.energy_kcal > 20 && Math.abs(f.energy_kcal - (4 * (f.protein_g || 0) + 4 * (f.carbohydrate_g || 0) + 9 * (f.lipid_g || 0))) / f.energy_kcal > 0.35);
+  eq('calorias batem com os macros em 97% ou mais (o resto é álcool, fibra e adoçante)', fora.length / ex.length < 0.03, true);
+  eq('busca por "quinoa" acha o USDA traduzido', DB.buscar('quinoa cozida', 3).map(f => f.description)[0], 'Quinoa, cozida');
+  const q = DB.buscar('quinoa cozida', 1)[0];
+  eq('quinoa tem medida caseira (xícara)', DB.getMedidasAlimento(q.id).map(m => m.id), ['xicara']);
+  eq('a TACO continua na frente quando os dois têm o alimento', DB.buscar('arroz integral', 2)[0].id < DB.EXTRA_BASE, true);
+  eq('alimento do IBGE entra na busca', DB.buscar('mucilon', 3).length > 0, true);
+  eq('resolver acha extra pelo número e pelo nome', [DB.resolver({ food_id: q.id, nome: 'Quinoa, cozida' }).id, DB.resolver({ food_id: 1, nome: 'Quinoa, cozida' }).id], [q.id, q.id]);
+  eq('escalar um extra', DB.calcNutrientes(q.id, 100).energia_kcal, 120);
+  eq('o catálogo de medidas dos extras só aponta para extras', Object.keys(extra.medidas).filter(id => !ex.some(f => String(f.id) === id)), []);
+  eq('alimento com id de extra e nome diferente não é confundido', DB.resolver({ food_id: q.id, nome: 'Arroz, integral, cozido' }).id, 1);
+
   console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
   process.exit(ruim ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

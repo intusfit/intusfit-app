@@ -1145,3 +1145,30 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **Voltar dentro da Nutrição (08/10/2026)**: cada passo para dentro (`nutriTela`) entra no histórico (`history.pushState`); o popstate central do `aluno.html` chama `_nutriVoltarGesto()` antes de desfazer a pilha de telas do app, então o botão/gesto de voltar do celular anda um passo na Nutrição (receita volta para a lista, lista volta para a tela inicial da Nutrição) e só da tela inicial da Nutrição sai para o início do app. O "Voltar" do cabeçalho (`nutriVoltar`) usa o mesmo histórico, para os dois caminhos andarem juntos.
 
 - **Unidade como padrão e busca com porção (08/10/2026)**: na busca de alimentos cada resultado mostra kcal e P/C/G da PORÇÃO PADRÃO do alimento (ex.: ovo cru = 2 unidades, 100 g, 143 kcal), e não mais por 100 g (`_porcaoPadrao`, `_resultadoBuscaHtml`). Alimento com medida caseira entra no plano nela (ovo = 2 unidades) e sempre dá para trocar para gramas ou outra medida no seletor. Item que já estava em gramas mostra "≈ 2 unidades · usar unidades" (`itemUsarUnidade`), e o botão "⇄ Usar unidades onde der" (`converterTodosParaUnidade`) converte de uma vez os que fecham em meia unidade exata, sem mudar kcal. A opção "+ Definir outra medida..." do seletor cria uma medida própria do item (nome e gramas, id `pers_*`) para qualquer alimento, mesmo sem medida no catálogo.
+
+## 32. Receitas, vídeos e dicas pelo painel; banco de alimentos ampliado (08/10/2026)
+
+**Gestão de receitas, vídeos e dicas (autorizada pelo Luiz em 08/10/2026):**
+- **Tabela nova `intus_nutri_conteudo`** (criada no bootstrap do `catalogo.php`; nenhum dado de aluno): `tipo` (receita | video | dica), `slug` (id público,
+  único por tipo), `titulo`, `cat`, `ordem`, `ativo`, `foto`, `dados` (JSON com o resto). Rota `catalogo.php?action=nutri_conteudo`: GET (aluno só vê `ativo = 1`;
+  equipe vê tudo), POST/PUT/DELETE só equipe, `foto_base64` vira arquivo em `/img/receitas`, e `POST {subacao:'importar'}` copia as 47 receitas e 8 dicas do
+  `nutri-conteudo.json` (idempotente, por tipo + slug). Só entram campos conhecidos de cada tipo, com tamanho limitado (`_nutriLimparDados`).
+- **Painel**: aba **Receitas e vídeos** em Nutrição (`nutricao.html`: `conteudoHtml`, `abrirFormConteudo`, `salvarConteudo`): formulários, foto com redução no navegador, ativar/inativar,
+  ordem (▲▼), excluir e o botão de importar. A aba não depende da lista de planos.
+- **App do aluno**: `_nutriConteudoCarregar` lê o arquivo e depois o servidor; para cada tipo, se o servidor tem algum item ativo, a lista do servidor SUBSTITUI a do arquivo
+  (receitas importadas e editadas no painel passam a valer; sem nada no banco, vale o arquivo). Atualiza no máximo a cada minuto.
+- **Teste em PHP de verdade**: `testes/conteudo.php` (20 conferências, SQLite, extrai o bloco do endpoint do `catalogo.php`). PHP deste computador: `php.exe` do winget
+  (`...\WinGet\Packages\PHP.PHP.8.2_...\php.exe`), com `php.ini` que ligue `mbstring, openssl, pdo_sqlite, sqlite3` (`php -c <ini> testes/conteudo.php`). Já registrado em `rodar.sh` (só roda se houver php com as extensões).
+  O arquivo deve ser deployado sem o botão de importar ter sido usado: a tabela só nasce na 1ª chamada autenticada depois do deploy.
+
+**Banco de alimentos ampliado** (`app/data/alimentos-extra.json`, 1.143 alimentos, 620 KB, carregado por `AlimentosDB` depois da TACO):
+- **IBGE, POF 2008-2009, Tabelas de Composição Nutricional dos Alimentos Consumidos no Brasil (2011)**, 1.020 itens. As 4 tabelas do PDF (macros e fibra, gorduras e açúcar, minerais,
+  vitaminas) foram lidas por script e juntadas por alimento e preparo; o que a TACO já cobre (nome contido no nome da TACO) ficou de fora e preparos com macros iguais viraram um item só.
+  Limite conhecido do IBGE: vários preparos repetem os mesmos valores do alimento cru, e a fonte mistura TACO, NDSR (EUA) e rótulos. Valor aproximado, não pesagem.
+- **USDA FoodData Central, SR Legacy (2018)**, 126 itens escolhidos a dedo (quinoa, tilápia, cottage, tahine, whey, chia, kefir...), nome em português escrito por nós, com as medidas
+  caseiras do USDA (xícara, colher, filé, fatia...). A página de download do USDA não traz o texto da licença; os dados do USDA são do governo dos EUA, mas **confirme antes de qualquer uso comercial fora do app**.
+- **TBCA (USP)** NÃO foi usada: a consulta é aberta, mas usar a base dentro de outra ferramenta exige licença paga (tbca.contato@usp.br).
+- **Ids**: de 100.000 em diante, entre a TACO (1..597) e "Meus alimentos" (1.000.000+). **Nunca reordenar nem reaproveitar** (planos guardam o id); alimento novo entra no fim. Na busca a TACO vem
+  antes quando os dois têm o alimento; cada resultado mostra a etiqueta IBGE ou USDA. Teste: seção 6 de `testes/alimentos.js` (inclui a conferência calorias x macros, que acusaria colunas deslocadas na leitura do PDF).
+- **Como regenerar**: os scripts ficaram na pasta temporária da sessão (não versionados). Em resumo: `pymupdf` lê as páginas 36-96, 97-157, 158-218 e 219-279 do PDF (linhas de 7 dígitos de código + preparo + valores);
+  o USDA vem de `food.csv`, `food_nutrient.csv` e `food_portion.csv` do zip `FoodData_Central_sr_legacy_food_csv_2018-04.zip`. Alimentos que a TACO já cobre bem foram retirados da lista do USDA para não duplicar.

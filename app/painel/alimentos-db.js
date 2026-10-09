@@ -17,6 +17,10 @@ const AlimentosDB = (() => {
   let _customFoods = [];
   // Medidas caseiras por alimento da TACO (unidades.json). Chave = id da TACO, conferido pelo nome na geracao do arquivo.
   let _unidades = {};
+  // Alimentos extras (alimentos-extra.json): IBGE (POF 2008-2009) e USDA SR Legacy traduzido. Ids a partir de 100.000, entre a TACO
+  // (1..597) e os "Meus alimentos" (1.000.000+). Entram na busca depois da TACO.
+  let _extra = [];
+  const EXTRA_BASE = 100000;
 
   // Os "Meus Alimentos" vêm do servidor com id 1, 2, 3... e a TACO também usa 1..597. Antes isso fazia o 1º alimento
   // cadastrado esconder o "Arroz integral cozido", o 2º esconder o "Arroz integral cru" e assim por diante (e os planos
@@ -44,13 +48,15 @@ const AlimentosDB = (() => {
         if (!r.ok) throw new Error(`HTTP ${r.status} ao buscar ${url}`);
         return r.json();
       };
-      const [tacoResp, medidasResp, gruposResp, unidResp] = await Promise.all([
+      const [tacoResp, medidasResp, gruposResp, unidResp, extraResp] = await Promise.all([
         fetchJson(DATA_PATH + 'taco.json'),
         fetchJson(DATA_PATH + 'medidas-caseiras.json'),
         fetchJson(DATA_PATH + 'grupos-equivalencia.json'),
         fetchJson(DATA_PATH + 'unidades.json?v=20261008a').catch(() => ({ itens: {} })),
+        fetchJson(DATA_PATH + 'alimentos-extra.json?v=20261008a').catch(() => ({ alimentos: [], medidas: {} })),
       ]);
-      _unidades = (unidResp && unidResp.itens) || {};
+      _unidades = Object.assign({}, (unidResp && unidResp.itens) || {}, (extraResp && extraResp.medidas) || {});
+      _extra = Array.isArray(extraResp && extraResp.alimentos) ? extraResp.alimentos : [];
       _taco = Array.isArray(tacoResp) ? tacoResp : [];
       _medidasPadrao = medidasResp.medidas_padrao || [];
       _medidas = medidasResp.alimentos_medidas || {};
@@ -68,7 +74,7 @@ const AlimentosDB = (() => {
         console.error('[AlimentosDB] Erro ao carregar Meus Alimentos do servidor:', e);
         _customFoods = [];
       }
-      console.log(`[AlimentosDB] Carregado: ${_taco.length} TACO + ${_customFoods.length} personalizados`);
+      console.log(`[AlimentosDB] Carregado: ${_taco.length} TACO + ${_extra.length} extras + ${_customFoods.length} personalizados`);
     } catch (e) {
       console.error('[AlimentosDB] Erro ao carregar dados:', e);
       _taco = [];
@@ -87,7 +93,7 @@ const AlimentosDB = (() => {
     const termoN = normalizar(termo);
     const palavras = termoN.split(/\s+/);
 
-    const allFoods = [..._customFoods, ..._taco];
+    const allFoods = [..._customFoods, ..._taco, ..._extra];
 
     const resultados = allFoods
       .map(food => {
@@ -111,6 +117,7 @@ const AlimentosDB = (() => {
         }
         if (!allMatch) return null;
         if (food.custom) score += 10;
+        else if (food.id >= EXTRA_BASE) score -= 3;   // a TACO vem antes quando os dois têm o alimento
         return { food, score };
       })
       .filter(Boolean)
@@ -156,6 +163,7 @@ const AlimentosDB = (() => {
   function getById(id) {
     const numId = Number(id);
     if (numId >= CUSTOM_BASE) return _customFoods.find(f => f.id === numId) || null;
+    if (numId >= EXTRA_BASE) return _extra.find(f => f.id === numId) || null;
     return _taco.find(f => f.id === numId) || null;
   }
 
@@ -167,17 +175,23 @@ const AlimentosDB = (() => {
     const id = Number(item.food_id);
     const nome = normalizar(item.nome || item.description || '');
     if (id >= CUSTOM_BASE) return getById(id);
+    if (id >= EXTRA_BASE) {
+      const e = _extra.find(f => f.id === id);
+      if (e && (!nome || normalizar(e.description) === nome)) return e;
+      return nome ? (_customFoods.find(f => normalizar(f.description) === nome) || _taco.find(f => normalizar(f.description) === nome) || _extra.find(f => normalizar(f.description) === nome) || null) : null;
+    }
     const t = _taco.find(f => f.id === id);
     if (t && (!nome || normalizar(t.description) === nome)) return t;
     const c = _customFoods.find(f => f.dbid === id && (!nome || normalizar(f.description) === nome));
     if (c) return c;
-    if (nome) return _customFoods.find(f => normalizar(f.description) === nome) || _taco.find(f => normalizar(f.description) === nome) || null;
+    if (nome) return _customFoods.find(f => normalizar(f.description) === nome) || _taco.find(f => normalizar(f.description) === nome) || _extra.find(f => normalizar(f.description) === nome) || null;
     return t || null;
   }
 
   function getCategories() {
     const cats = new Set();
     _taco.forEach(f => { if (f.category) cats.add(f.category); });
+    _extra.forEach(f => { if (f.category) cats.add(f.category); });
     return [...cats].sort();
   }
 
@@ -794,7 +808,7 @@ const AlimentosDB = (() => {
   // ─── UTILIDADES ────────────────────────────────────────────────────────
 
   function isLoaded() { return _loaded; }
-  function totalAlimentos() { return _taco.length + _customFoods.length; }
+  function totalAlimentos() { return _taco.length + _extra.length + _customFoods.length; }
 
   // ─── MÓDULO EXPORTADO ──────────────────────────────────────────────────
 
@@ -806,6 +820,7 @@ const AlimentosDB = (() => {
     buscar,
     buscarOnline,
     getById,
+    EXTRA_BASE,
     resolver,
     getCategories,
     getByCategory,
