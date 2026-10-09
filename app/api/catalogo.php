@@ -302,6 +302,28 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Nutrição: receitas, vídeos e dicas que a nutri publica para os alunos (área Nutrição do app). Uma linha por item:
+    // tipo + slug (id público) + título/categoria/ordem/ativo/foto e o resto dos campos em JSON (dados).
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_nutri_conteudo (
+            idconteudo INT AUTO_INCREMENT PRIMARY KEY,
+            tipo       VARCHAR(10)  NOT NULL,
+            slug       VARCHAR(80)  NOT NULL,
+            titulo     VARCHAR(200) NOT NULL,
+            cat        VARCHAR(40)  NULL,
+            ordem      INT          NOT NULL DEFAULT 0,
+            ativo      TINYINT(1)   NOT NULL DEFAULT 1,
+            foto       VARCHAR(500) NULL,
+            dados      LONGTEXT     NULL,
+            created_by INT          NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_conteudo (tipo, slug),
+            INDEX idx_tipo_ordem (tipo, ativo, ordem)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_nutri_conteudo', ['titulo', 'dados']);
+
     // Privacidade do perfil social: quem vê as fotos (todos | amigos | eu) e quais partes do perfil
     // ficam à mostra. Sem linha = tudo visível para todos (o comportamento de antes).
     $pdo->exec("
@@ -1061,7 +1083,7 @@ $_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste']
 // configuracoes que o app do aluno precisa ler para desenhar as telas.
 $_LEITURA_ALUNO = ['alongamentos', 'frases_config', 'figurinhas_config', 'conquistas_config',
                    'cardio_regras', 'ranking_regras', 'notif_config', 'planos_config',
-                   'planos_admin', 'avatars'];
+                   'planos_admin', 'avatars', 'nutri_conteudo'];
 
 // Porta de entrada unica.
 if (!in_array($action, $_PUBLICAS, true)) {
@@ -3889,6 +3911,149 @@ if ($action === 'nutri_dia') {
         $ml = max(0, min(10000, (int)($b['agua_ml'] ?? 0)));
         $pdo->prepare("INSERT INTO intus_nutri_dia (idatleta, data, agua_ml) VALUES (?,?,?) ON DUPLICATE KEY UPDATE agua_ml = VALUES(agua_ml)")->execute([$_autorId, $data, $ml]);
         echo json_encode(['ok' => true, 'agua_ml' => $ml]);
+        exit;
+    }
+}
+
+// ═══════════════ NUTRIÇÃO: receitas, vídeos e dicas (conteúdo que a nutri publica) ═══════════════
+// GET: o aluno recebe só o que está ativo; a equipe recebe tudo (ou ?ativos=1). POST/PUT/DELETE: só a equipe.
+// POST {subacao:'importar'} copia para a tabela as receitas e dicas do arquivo nutri-conteudo.json (sem repetir o que já existe).
+function _nutriSlug(string $t): string {
+    $t = mb_strtolower(trim($t), 'UTF-8');
+    $t = strtr($t, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','ä'=>'a','é'=>'e','è'=>'e','ê'=>'e','ë'=>'e','í'=>'i','ì'=>'i','î'=>'i','ï'=>'i',
+                    'ó'=>'o','ò'=>'o','ô'=>'o','õ'=>'o','ö'=>'o','ú'=>'u','ù'=>'u','û'=>'u','ü'=>'u','ç'=>'c','ñ'=>'n']);
+    $t = trim((string)preg_replace('/[^a-z0-9]+/', '-', $t), '-');
+    return substr($t !== '' ? $t : 'item', 0, 60);
+}
+function _nutriTxt($v, int $max): string { return mb_substr(trim((string)$v), 0, $max); }
+function _nutriLista($v, int $max = 60, int $maxTxt = 400): array {
+    $out = [];
+    if (is_array($v)) foreach ($v as $x) { $t = _nutriTxt(is_scalar($x) ? $x : '', $maxTxt); if ($t !== '') $out[] = $t; if (count($out) >= $max) break; }
+    return $out;
+}
+// Só entram os campos conhecidos de cada tipo, com tamanho limitado.
+function _nutriLimparDados(string $tipo, $d): array {
+    if (!is_array($d)) $d = [];
+    $o = [];
+    if ($tipo === 'receita') {
+        foreach (['tempo' => 60, 'porcoes' => 60, 'proteina' => 60, 'dificuldade' => 40, 'descricao' => 600, 'dica' => 600] as $k => $m) { $t = _nutriTxt($d[$k] ?? '', $m); if ($t !== '') $o[$k] = $t; }
+        $o['ingredientes'] = _nutriLista($d['ingredientes'] ?? []);
+        $o['preparo'] = _nutriLista($d['preparo'] ?? [], 40, 800);
+        foreach (['acompanhamentos', 'outras_opcoes'] as $k) { $l = _nutriLista($d[$k] ?? [], 20); if ($l) $o[$k] = $l; }
+        if (!empty($d['variacao']) && is_array($d['variacao'])) {
+            $vt = _nutriTxt($d['variacao']['titulo'] ?? '', 120); $vx = _nutriTxt($d['variacao']['texto'] ?? '', 1500);
+            if ($vt !== '' || $vx !== '') $o['variacao'] = ['titulo' => $vt, 'texto' => $vx];
+        }
+        if (!empty($d['nutricao']) && is_array($d['nutricao'])) {
+            $n = ['porcao' => _nutriTxt($d['nutricao']['porcao'] ?? '', 80)];
+            foreach (['kcal', 'proteina', 'carboidrato', 'gordura', 'saturada', 'fibra'] as $k) { if (isset($d['nutricao'][$k]) && is_numeric($d['nutricao'][$k])) $n[$k] = (float)$d['nutricao'][$k]; }
+            $o['nutricao'] = $n;
+        }
+    } elseif ($tipo === 'video') {
+        foreach (['url' => 500, 'duracao' => 20, 'descricao' => 600, 'capa' => 500, 'receita' => 80] as $k => $m) { $t = _nutriTxt($d[$k] ?? '', $m); if ($t !== '') $o[$k] = $t; }
+    } elseif ($tipo === 'dica') {
+        foreach (['icone' => 16, 'texto' => 1200] as $k => $m) { $t = _nutriTxt($d[$k] ?? '', $m); if ($t !== '') $o[$k] = $t; }
+    }
+    return $o;
+}
+function _nutriConteudoLinha(array $r): array {
+    $d = json_decode((string)($r['dados'] ?? ''), true);
+    if (!is_array($d)) $d = [];
+    return array_merge($d, [
+        'idconteudo' => (int)$r['idconteudo'], 'id' => $r['slug'], 'titulo' => $r['titulo'], 'cat' => $r['cat'],
+        'ordem' => (int)$r['ordem'], 'ativo' => (int)$r['ativo'], 'foto' => $r['foto'],
+    ]);
+}
+
+if ($action === 'nutri_conteudo') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    $_tiposOk = ['receita', 'video', 'dica'];
+    if ($method === 'GET') {
+        $sql = "SELECT idconteudo, tipo, slug, titulo, cat, ordem, ativo, foto, dados FROM intus_nutri_conteudo"
+             . (($_ehAluno || !empty($_GET['ativos'])) ? " WHERE ativo = 1" : "") . " ORDER BY ordem, idconteudo";
+        $out = ['receitas' => [], 'videos' => [], 'dicas' => []];
+        $chave = ['receita' => 'receitas', 'video' => 'videos', 'dica' => 'dicas'];
+        foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $r) { if (isset($chave[$r['tipo']])) $out[$chave[$r['tipo']]][] = _nutriConteudoLinha($r); }
+        echo json_encode($out, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($_ehAluno) { http_response_code(403); echo json_encode(['error' => 'somente a equipe']); exit; }
+    $_autorEquipe = (int)($_ctx['idusuario'] ?? 0);
+
+    if ($method === 'POST' || $method === 'PUT') {
+        $b = jsonBody();
+
+        // Importar do arquivo (receitas e dicas do e-book). Idempotente: o que já existe (mesmo tipo e slug) não é tocado.
+        if ($method === 'POST' && (($b['subacao'] ?? '') === 'importar')) {
+            $arq = __DIR__ . '/../painel/nutri-conteudo.json';
+            $json = is_file($arq) ? json_decode((string)file_get_contents($arq), true) : null;
+            if (!is_array($json)) { http_response_code(500); echo json_encode(['error' => 'arquivo de conteudo nao encontrado']); exit; }
+            $ins = $pdo->prepare("INSERT IGNORE INTO intus_nutri_conteudo (tipo, slug, titulo, cat, ordem, ativo, foto, dados, created_by) VALUES (?,?,?,?,?,1,?,?,?)");
+            $novos = 0; $ja = 0;
+            foreach ([['receita', 'receitas'], ['dica', 'dicas'], ['video', 'videos']] as [$tp, $kk]) {
+                $i = 0;
+                foreach (is_array($json[$kk] ?? null) ? $json[$kk] : [] as $it) {
+                    if (!is_array($it) || empty($it['id']) || empty($it['titulo'])) continue;
+                    $i++;
+                    $dados = _nutriLimparDados($tp, $it);
+                    $ins->execute([$tp, _nutriSlug((string)$it['id']), _nutriTxt($it['titulo'], 200), $tp === 'receita' ? _nutriTxt($it['cat'] ?? '', 40) : null,
+                                   $i * 10, !empty($it['foto']) ? _nutriTxt($it['foto'], 500) : null, json_encode($dados, JSON_UNESCAPED_UNICODE), $_autorEquipe]);
+                    if ($ins->rowCount() > 0) $novos++; else $ja++;
+                }
+            }
+            echo json_encode(['ok' => true, 'novos' => $novos, 'ja_existiam' => $ja]);
+            exit;
+        }
+
+        $tipo = (string)($b['tipo'] ?? '');
+        $id = (int)($b['idconteudo'] ?? 0);
+        if ($method === 'PUT' && $id > 0) {
+            $st = $pdo->prepare("SELECT tipo FROM intus_nutri_conteudo WHERE idconteudo = ?");
+            $st->execute([$id]);
+            $tipoAtual = $st->fetchColumn();
+            if ($tipoAtual === false) { http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
+            $tipo = (string)$tipoAtual;
+        }
+        if (!in_array($tipo, $_tiposOk, true)) { http_response_code(400); echo json_encode(['error' => 'tipo invalido']); exit; }
+        $titulo = _nutriTxt($b['titulo'] ?? '', 200);
+        if ($titulo === '') { http_response_code(400); echo json_encode(['error' => 'titulo obrigatorio']); exit; }
+        $cat = $tipo === 'receita' ? _nutriTxt($b['cat'] ?? '', 40) : null;
+        $ordem = (int)($b['ordem'] ?? 0);
+        $ativo = isset($b['ativo']) ? (empty($b['ativo']) ? 0 : 1) : 1;
+        $dados = json_encode(_nutriLimparDados($tipo, $b['dados'] ?? []), JSON_UNESCAPED_UNICODE);
+        if (strlen((string)$dados) > 60000) { http_response_code(400); echo json_encode(['error' => 'conteudo grande demais']); exit; }
+        // Foto: nova (data URL) vira arquivo em /img/receitas; senão mantém o texto enviado (caminho ou link já existente).
+        $foto = isset($b['foto']) ? _nutriTxt($b['foto'], 500) : null;
+        if (!empty($b['foto_base64'])) {
+            try { $foto = _salvarImagemFeedB64((string)$b['foto_base64'], $_autorEquipe, 'receitas', 'receita'); }
+            catch (Exception $e) { http_response_code(400); echo json_encode(['error' => $e->getMessage()]); exit; }
+        }
+        try {
+            if ($method === 'PUT' && $id > 0) {
+                $pdo->prepare("UPDATE intus_nutri_conteudo SET titulo = ?, cat = ?, ordem = ?, ativo = ?, foto = ?, dados = ? WHERE idconteudo = ?")
+                    ->execute([$titulo, $cat, $ordem, $ativo, ($foto !== null && $foto !== '') ? $foto : null, $dados, $id]);
+                echo json_encode(['ok' => true, 'idconteudo' => $id, 'foto' => $foto]);
+                exit;
+            }
+            $slug = _nutriSlug((string)($b['slug'] ?? '') !== '' ? (string)$b['slug'] : $titulo);
+            $base = $slug; $n = 1;
+            $chk = $pdo->prepare("SELECT COUNT(*) FROM intus_nutri_conteudo WHERE tipo = ? AND slug = ?");
+            while (true) { $chk->execute([$tipo, $slug]); if ((int)$chk->fetchColumn() === 0) break; $n++; $slug = substr($base, 0, 55) . '-' . $n; }
+            $pdo->prepare("INSERT INTO intus_nutri_conteudo (tipo, slug, titulo, cat, ordem, ativo, foto, dados, created_by) VALUES (?,?,?,?,?,?,?,?,?)")
+                ->execute([$tipo, $slug, $titulo, $cat, $ordem, $ativo, ($foto !== null && $foto !== '') ? $foto : null, $dados, $_autorEquipe]);
+            echo json_encode(['ok' => true, 'idconteudo' => (int)$pdo->lastInsertId(), 'id' => $slug, 'foto' => $foto]);
+        } catch (Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => 'falha ao gravar o conteudo', 'detalhe' => _intusLogErro($e)]);
+        }
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $pdo->prepare("DELETE FROM intus_nutri_conteudo WHERE idconteudo = ?")->execute([$id]);
+        echo json_encode(['ok' => true]);
         exit;
     }
 }

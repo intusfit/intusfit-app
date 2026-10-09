@@ -3385,6 +3385,11 @@ const API = {
   criarAlimentoPersonalizado: (data) => apiFetch('/catalogo.php?action=meus_alimentos', { method: 'POST', body: JSON.stringify(data) }),
   editarAlimentoPersonalizado: (id, data) => apiFetch('/catalogo.php?action=meus_alimentos', { method: 'PUT', body: JSON.stringify({ ...data, id }) }),
   excluirAlimentoPersonalizado: (id) => apiFetch('/catalogo.php?action=meus_alimentos&id=' + id, { method: 'DELETE' }),
+  // Conteúdo da área Nutrição do aluno (receitas, vídeos e dicas) publicado pela equipe.
+  listarNutriConteudo: (soAtivos) => apiFetch('/catalogo.php?action=nutri_conteudo' + (soAtivos ? '&ativos=1' : '')),
+  salvarNutriConteudo: (obj) => apiFetch('/catalogo.php?action=nutri_conteudo', { method: obj.idconteudo ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
+  excluirNutriConteudo: (id) => apiFetch('/catalogo.php?action=nutri_conteudo&id=' + id, { method: 'DELETE' }),
+  importarNutriConteudo: () => apiFetch('/catalogo.php?action=nutri_conteudo', { method: 'POST', body: JSON.stringify({ subacao: 'importar' }) }),
 
   // Caixa (financeiro.html mantém seu próprio cache local em localStorage e
   // decide quando chamar cada uma destas; aqui é só a chamada de rede crua —

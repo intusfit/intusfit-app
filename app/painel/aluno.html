@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261008d"></script>
+  <script src="api.js?v=20261008e"></script>
   <script src="ajuda.js?v=20261008b" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -17431,17 +17431,26 @@ function nutriFav(id) {
 }
 
 async function _nutriConteudoCarregar() {
-  if (_nutriCont.carregado) return;
+  if (_nutriCont.carregado && Date.now() - (_nutriCont.t || 0) < 60000) return;   // atualiza do servidor a cada minuto, no máximo
+  _nutriCont.t = Date.now();
   let dados = null;
   try {
     const r = await _fetchT(_NUTRI_BASE + 'nutri-conteudo.json?_=' + Math.floor(Date.now() / 600000), { cache: 'no-cache' }, 12000);
     if (r.ok) dados = await r.json();
   } catch (e) {}
-  if (dados && Array.isArray(dados.receitas)) {
-    try { localStorage.setItem('intus-nutri-conteudo', JSON.stringify(dados)); } catch (e) {}
-  } else {
+  if (!(dados && Array.isArray(dados.receitas))) {
     try { dados = JSON.parse(localStorage.getItem('intus-nutri-conteudo') || 'null'); } catch (e) { dados = null; }
   }
+  // O que a nutri publica pelo painel (Nutrição > Receitas e vídeos) vale mais que o arquivo: para cada tipo (receitas, vídeos,
+  // dicas), se o servidor tem algum item ativo, a lista do servidor substitui a do arquivo.
+  try {
+    const srv = await _nutriGet('nutri_conteudo');
+    if (srv && typeof srv === 'object') {
+      dados = dados || { receitas: [], videos: [], dicas: [], categorias: [] };
+      ['receitas', 'videos', 'dicas'].forEach(k => { if (Array.isArray(srv[k]) && srv[k].length) dados[k] = srv[k]; });
+    }
+  } catch (e) {}
+  if (dados && Array.isArray(dados.receitas)) { try { localStorage.setItem('intus-nutri-conteudo', JSON.stringify(dados)); } catch (e) {} }
   if (dados) {
     _nutriCont.receitas = Array.isArray(dados.receitas) ? dados.receitas : [];
     _nutriCont.categorias = Array.isArray(dados.categorias) ? dados.categorias : [];

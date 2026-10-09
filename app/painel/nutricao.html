@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
   <script src="_mock.js?v=20261008c"></script>
-  <script src="api.js?v=20261008d"></script>
+  <script src="api.js?v=20261008e"></script>
   <script src="alimentos-db.js?v=20261008a"></script>
   <style>
     .modal-box.wide { max-width: 820px; }
@@ -366,11 +366,12 @@ function getAtletaDados(id) {
 }
 
 function abasHtml() {
-  return `<div class="nt-tabs"><button class="nt-tab ${aba === 'dashboard' ? 'on' : ''}" onclick="trocarAba('dashboard')">Dashboard</button><button class="nt-tab ${aba === 'planos' ? 'on' : ''}" onclick="trocarAba('planos')">Planos</button></div>`;
+  return `<div class="nt-tabs"><button class="nt-tab ${aba === 'dashboard' ? 'on' : ''}" onclick="trocarAba('dashboard')">Dashboard</button><button class="nt-tab ${aba === 'planos' ? 'on' : ''}" onclick="trocarAba('planos')">Planos</button><button class="nt-tab ${aba === 'conteudo' ? 'on' : ''}" onclick="trocarAba('conteudo')">Receitas e vídeos</button></div>`;
 }
-function trocarAba(a) { aba = a; if (a === 'dashboard') carregarPainel(); render(); }
+function trocarAba(a) { aba = a; if (a === 'dashboard') carregarPainel(); if (a === 'conteudo' && !cont.carregado) { carregarConteudo(); return; } render(); }
 
 function render() {
+  if (aba === 'conteudo') { main.innerHTML = abasHtml() + conteudoHtml(); return; }   // não depende da lista de planos
   if (loading) {
     main.innerHTML = `<div class="empty-state"><p>Carregando planos...</p></div>`;
     return;
@@ -2755,6 +2756,233 @@ async function excluirAlimentoCustom(id) {
   } catch (e) {
     showToast('Não consegui excluir no servidor: ' + e.message, 'error');
   }
+}
+
+// ═══════════════ CONTEÚDO PARA O ALUNO: receitas, vídeos e dicas ═══════════════
+// O que a nutri publica aqui aparece na área Nutrição do app do aluno (Receitas, Vídeos e Dicas). Fica na tabela
+// intus_nutri_conteudo (catalogo.php?action=nutri_conteudo). Enquanto uma lista estiver vazia, o app usa o arquivo
+// nutri-conteudo.json (as 47 receitas do e-book); o botão "Importar" copia esse arquivo para o banco para poder editar.
+const CONT_CATS = [
+  { id: 'cafe', nome: 'Café da manhã' }, { id: 'lanche', nome: 'Lanche da tarde' }, { id: 'sem-ovo', nome: 'Café sem ovo' },
+  { id: 'bebidas', nome: 'Bebidas proteicas' }, { id: 'saladas', nome: 'Saladas proteicas' }, { id: 'almoco', nome: 'Almoços e jantares' },
+];
+let cont = { receitas: [], videos: [], dicas: [], carregado: false, carregando: false, erro: '', sub: 'receitas' };
+
+async function carregarConteudo() {
+  cont.carregando = true; cont.erro = '';
+  render();
+  try {
+    const r = await API.listarNutriConteudo(false);
+    cont.receitas = Array.isArray(r.receitas) ? r.receitas : [];
+    cont.videos = Array.isArray(r.videos) ? r.videos : [];
+    cont.dicas = Array.isArray(r.dicas) ? r.dicas : [];
+    cont.carregado = true;
+  } catch (e) {
+    cont.erro = e.message || 'Não consegui carregar o conteúdo.';
+  }
+  cont.carregando = false;
+  render();
+}
+
+function _contFoto(it) {
+  const f = it && it.foto ? String(it.foto) : '';
+  return f ? (/^https?:/.test(f) ? f : f) : '';
+}
+function _contPodeEditar() { return hasPerm('nt_editar') || hasPerm('nt_incluir'); }
+
+function conteudoHtml() {
+  if (cont.carregando && !cont.carregado) return `<div class="empty-state"><p>Carregando conteúdo...</p></div>`;
+  if (cont.erro) return `<div class="empty-state"><p>${esc(cont.erro)}</p><button class="btn btn-secondary" style="margin-top:10px;" onclick="carregarConteudo()">Tentar de novo</button></div>`;
+  const sub = cont.sub, lista = cont[sub] || [], pode = _contPodeEditar();
+  const rotulo = { receitas: 'Receitas', videos: 'Vídeos', dicas: 'Dicas' };
+  const singular = { receitas: 'receita', videos: 'vídeo', dicas: 'dica' };
+  const tipo = { receitas: 'receita', videos: 'video', dicas: 'dica' }[sub];
+  const botoes = ['receitas', 'videos', 'dicas'].map(k => `<button class="btn btn-sm ${sub === k ? 'btn-primary' : 'btn-secondary'}" onclick="cont.sub='${k}';render();">${rotulo[k]} (${cont[k].length})</button>`).join(' ');
+  const importar = (sub === 'receitas' && cont.receitas.length === 0 && pode) ? `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="font-weight:700;margin-bottom:4px;">As 47 receitas do e-book da Nutri Rô ainda não estão no banco</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">Os alunos já veem essas receitas no app (vêm de um arquivo). Importe para o banco para poder editar, trocar foto, inativar ou apagar cada uma. Nada se repete se você importar de novo.</div>
+      <button class="btn btn-primary" onclick="importarConteudo()">Importar receitas e dicas do e-book</button></div>` : '';
+  const linhas = lista.map((it, i) => {
+    const foto = _contFoto(it);
+    const thumb = sub === 'dicas' ? `<div style="width:54px;height:54px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;">${esc(it.icone || '💡')}</div>`
+      : `<div style="width:84px;height:54px;border-radius:8px;background:var(--bg3);overflow:hidden;flex-shrink:0;">${foto ? `<img src="${esc(foto)}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'"/>` : ''}</div>`;
+    const cat = sub === 'receitas' ? (CONT_CATS.find(c => c.id === it.cat) || {}).nome || '' : (sub === 'videos' ? (it.duracao || '') : '');
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;${it.ativo ? '' : 'opacity:.55;'}">
+      ${thumb}
+      <div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(it.titulo)}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${esc(cat)}${cat && it.tempo ? ' · ' : ''}${esc(it.tempo || '')}${!it.ativo ? ' · <b>inativa: o aluno não vê</b>' : ''}</div></div>
+      ${pode ? `<div style="display:flex;gap:4px;flex-shrink:0;">
+        <button class="btn btn-sm btn-secondary" onclick="moverConteudo('${sub}',${i},-1)" ${i === 0 ? 'disabled' : ''} title="Subir">▲</button>
+        <button class="btn btn-sm btn-secondary" onclick="moverConteudo('${sub}',${i},1)" ${i === lista.length - 1 ? 'disabled' : ''} title="Descer">▼</button>
+        <button class="btn btn-sm btn-secondary" onclick="alternarConteudo('${sub}',${i})">${it.ativo ? 'Inativar' : 'Ativar'}</button>
+        <button class="btn btn-sm btn-primary" onclick="abrirFormConteudo('${tipo}',${it.idconteudo})">Editar</button>
+        <button class="btn btn-sm btn-danger" onclick="excluirConteudo('${sub}',${i})">✕</button></div>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="filtros-bar">${botoes}${pode ? `<button class="btn btn-primary" style="margin-left:auto;" onclick="abrirFormConteudo('${tipo}',0)">+ Nova ${singular[sub]}</button>` : ''}</div>
+    <div style="padding:20px;max-width:980px;">${importar}${linhas || (importar ? '' : `<div class="empty-state"><p>Nenhum${sub === 'dicas' ? 'a' : ''} ${singular[sub]} cadastrad${sub === 'dicas' ? 'a' : 'o'} no banco.</p>${sub === 'videos' ? '<p style="margin-top:8px;">Cadastre um vídeo do YouTube e ele aparece na área Vídeos do app.</p>' : ''}</div>`)}</div>`;
+}
+
+// Monta o que o servidor espera a partir de um item já carregado (usado para ativar/inativar e reordenar).
+function _payloadConteudo(it, tipo) {
+  const dados = {};
+  ['tempo', 'porcoes', 'proteina', 'dificuldade', 'descricao', 'dica', 'ingredientes', 'preparo', 'acompanhamentos', 'outras_opcoes', 'variacao', 'nutricao', 'url', 'duracao', 'capa', 'receita', 'icone', 'texto']
+    .forEach(k => { if (it[k] != null) dados[k] = it[k]; });
+  return { idconteudo: it.idconteudo, tipo, titulo: it.titulo, cat: it.cat || '', ordem: it.ordem || 0, ativo: it.ativo ? 1 : 0, foto: it.foto || '', dados };
+}
+const _TIPO_DE = { receitas: 'receita', videos: 'video', dicas: 'dica' };
+
+async function alternarConteudo(sub, i) {
+  const it = cont[sub][i]; if (!it) return;
+  try {
+    const p = _payloadConteudo(it, _TIPO_DE[sub]); p.ativo = it.ativo ? 0 : 1;
+    await API.salvarNutriConteudo(p);
+    it.ativo = p.ativo; render();
+    showToast(p.ativo ? 'Publicado para os alunos.' : 'Inativado: os alunos não veem mais.');
+  } catch (e) { showToast('Erro: ' + e.message, 'error'); }
+}
+async function moverConteudo(sub, i, dir) {
+  const lista = cont[sub], j = i + dir;
+  if (!lista[i] || !lista[j]) return;
+  lista.forEach((x, k) => { x.ordem = (k + 1) * 10; });
+  const a = lista[i], b = lista[j];
+  const t = a.ordem; a.ordem = b.ordem; b.ordem = t;
+  try {
+    await API.salvarNutriConteudo(_payloadConteudo(a, _TIPO_DE[sub]));
+    await API.salvarNutriConteudo(_payloadConteudo(b, _TIPO_DE[sub]));
+    lista.sort((x, y) => x.ordem - y.ordem); render();
+  } catch (e) { showToast('Erro ao reordenar: ' + e.message, 'error'); carregarConteudo(); }
+}
+async function excluirConteudo(sub, i) {
+  const it = cont[sub][i]; if (!it) return;
+  if (!confirm('Excluir "' + it.titulo + '"? Os alunos deixam de ver. Se quiser só esconder, use Inativar.')) return;
+  try { await API.excluirNutriConteudo(it.idconteudo); cont[sub].splice(i, 1); render(); showToast('Excluído.'); }
+  catch (e) { showToast('Erro ao excluir: ' + e.message, 'error'); }
+}
+async function importarConteudo() {
+  if (!confirm('Copiar para o banco as receitas e dicas do e-book? Itens que já existirem não são alterados.')) return;
+  try {
+    const r = await API.importarNutriConteudo();
+    showToast((r.novos || 0) + ' itens importados' + (r.ja_existiam ? ' (' + r.ja_existiam + ' já existiam)' : '') + '.');
+    await carregarConteudo();
+  } catch (e) { showToast('Erro ao importar: ' + e.message, 'error'); }
+}
+
+// Reduz a foto no navegador (lado maior 1280 px) antes de enviar.
+function _contReduzirFoto(file, max) {
+  return new Promise((ok, falha) => {
+    const fr = new FileReader();
+    fr.onerror = () => falha(new Error('Não consegui ler a foto.'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => falha(new Error('Arquivo de imagem inválido.'));
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        ok(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+let _contFotoNova = null;
+function contFotoEscolhida(input) {
+  const f = input.files && input.files[0]; if (!f) return;
+  _contReduzirFoto(f, 1280).then(d => {
+    _contFotoNova = d;
+    const p = document.getElementById('ct-foto-prev'); if (p) { p.src = d; p.style.display = 'block'; }
+  }).catch(e => showToast(e.message, 'error'));
+}
+
+function abrirFormConteudo(tipo, idconteudo) {
+  const sub = { receita: 'receitas', video: 'videos', dica: 'dicas' }[tipo];
+  const it = idconteudo ? cont[sub].find(x => Number(x.idconteudo) === Number(idconteudo)) : null;
+  _contFotoNova = null;
+  const v = k => esc(it && it[k] != null ? it[k] : '');
+  const linhas = a => esc((a || []).join('\n'));
+  let corpo = '';
+  if (tipo === 'receita') {
+    corpo = `
+      <div class="form-group"><label class="label">Título *</label><input id="ct-titulo" class="input" value="${v('titulo')}"/></div>
+      <div class="form-2col">
+        <div class="form-group"><label class="label">Categoria</label><select id="ct-cat" class="input">${CONT_CATS.map(c => `<option value="${c.id}" ${(it ? it.cat : 'cafe') === c.id ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="label">Tempo de preparo</label><input id="ct-tempo" class="input" placeholder="Ex: 10 minutos" value="${v('tempo')}"/></div>
+      </div>
+      <div class="form-3col">
+        <div class="form-group"><label class="label">Porções</label><input id="ct-porcoes" class="input" placeholder="Ex: 1 porção" value="${v('porcoes')}"/></div>
+        <div class="form-group"><label class="label">Proteína (opcional)</label><input id="ct-proteina" class="input" placeholder="Ex: ≈ 22 g de proteína" value="${v('proteina')}"/></div>
+        <div class="form-group"><label class="label">Dificuldade (opcional)</label><input id="ct-dificuldade" class="input" placeholder="Ex: Fácil" value="${v('dificuldade')}"/></div>
+      </div>
+      <div class="form-group"><label class="label">Descrição curta (opcional)</label><input id="ct-descricao" class="input" value="${v('descricao')}"/></div>
+      <div class="form-group"><label class="label">Ingredientes (um por linha)</label><textarea id="ct-ing" class="input" rows="7" placeholder="Banana (70 g)&#10;Ovo (2 unidades)">${linhas(it && it.ingredientes)}</textarea></div>
+      <div class="form-group"><label class="label">Modo de preparo (um passo por linha)</label><textarea id="ct-prep" class="input" rows="6">${linhas(it && it.preparo)}</textarea></div>
+      <div class="form-group"><label class="label">Dica de acompanhamento (opcional)</label><input id="ct-dica" class="input" value="${v('dica')}"/></div>
+      <div class="form-group"><label class="label">Foto do prato</label>
+        <input type="file" accept="image/*" onchange="contFotoEscolhida(this)"/>
+        <img id="ct-foto-prev" alt="" src="${esc(_contFoto(it))}" style="display:${_contFoto(it) ? 'block' : 'none'};max-width:220px;max-height:150px;margin-top:8px;border-radius:8px;"/></div>`;
+  } else if (tipo === 'video') {
+    corpo = `
+      <div class="form-group"><label class="label">Título *</label><input id="ct-titulo" class="input" value="${v('titulo')}"/></div>
+      <div class="form-group"><label class="label">Link do vídeo *</label><input id="ct-url" class="input" placeholder="https://www.youtube.com/watch?v=... (YouTube abre dentro do app)" value="${v('url')}"/></div>
+      <div class="form-2col">
+        <div class="form-group"><label class="label">Duração (opcional)</label><input id="ct-duracao" class="input" placeholder="Ex: 4:30" value="${v('duracao')}"/></div>
+        <div class="form-group"><label class="label">Receita relacionada (opcional)</label><select id="ct-receita" class="input"><option value="">Nenhuma</option>${cont.receitas.map(r => `<option value="${esc(r.id)}" ${it && it.receita === r.id ? 'selected' : ''}>${esc(r.titulo)}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-group"><label class="label">Descrição (opcional)</label><textarea id="ct-descricao" class="input" rows="3">${v('descricao')}</textarea></div>
+      <div class="form-group"><label class="label">Foto de capa (opcional; sem ela usa a capa do YouTube)</label>
+        <input type="file" accept="image/*" onchange="contFotoEscolhida(this)"/>
+        <img id="ct-foto-prev" alt="" src="${esc(_contFoto(it))}" style="display:${_contFoto(it) ? 'block' : 'none'};max-width:220px;max-height:130px;margin-top:8px;border-radius:8px;"/></div>`;
+  } else {
+    corpo = `
+      <div class="form-2col">
+        <div class="form-group"><label class="label">Ícone (emoji)</label><input id="ct-icone" class="input" maxlength="4" value="${v('icone') || '💡'}"/></div>
+        <div class="form-group"><label class="label">Título *</label><input id="ct-titulo" class="input" value="${v('titulo')}"/></div>
+      </div>
+      <div class="form-group"><label class="label">Texto *</label><textarea id="ct-texto" class="input" rows="5">${v('texto')}</textarea></div>`;
+  }
+  openModal(`
+    <div class="modal-header"><div class="modal-title">${it ? 'Editar' : 'Nova'} ${{ receita: 'receita', video: 'vídeo', dica: 'dica' }[tipo]}</div><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="max-height:74vh;overflow-y:auto;">${corpo}
+      <div class="form-group"><label class="label">Situação</label><select id="ct-ativo" class="input"><option value="1" ${!it || it.ativo ? 'selected' : ''}>Ativa: o aluno vê no app</option><option value="0" ${it && !it.ativo ? 'selected' : ''}>Inativa: só a equipe vê</option></select></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="salvarConteudo('${tipo}',${Number(idconteudo) || 0})">Salvar</button></div>
+  `, 'wide');
+}
+
+async function salvarConteudo(tipo, idconteudo) {
+  const sub = { receita: 'receitas', video: 'videos', dica: 'dicas' }[tipo];
+  const it = idconteudo ? cont[sub].find(x => Number(x.idconteudo) === Number(idconteudo)) : null;
+  const g = id => (document.getElementById(id)?.value || '').trim();
+  const lista = id => g(id).split('\n').map(x => x.trim()).filter(Boolean);
+  const titulo = g('ct-titulo');
+  if (!titulo) return showToast('Informe o título.', 'error');
+  const p = { tipo, titulo, ativo: g('ct-ativo') === '0' ? 0 : 1, ordem: it ? (it.ordem || 0) : ((cont[sub].reduce((m, x) => Math.max(m, x.ordem || 0), 0)) + 10), foto: it ? (it.foto || '') : '', dados: {} };
+  if (it) p.idconteudo = it.idconteudo;
+  if (tipo === 'receita') {
+    p.cat = g('ct-cat');
+    const ing = lista('ct-ing'), prep = lista('ct-prep');
+    if (!ing.length || !prep.length) return showToast('Informe os ingredientes e o modo de preparo.', 'error');
+    p.dados = { tempo: g('ct-tempo'), porcoes: g('ct-porcoes'), proteina: g('ct-proteina'), dificuldade: g('ct-dificuldade'), descricao: g('ct-descricao'), dica: g('ct-dica'), ingredientes: ing, preparo: prep };
+    // campos que este formulário não edita (informação nutricional, variação...) seguem como estavam
+    if (it) ['acompanhamentos', 'outras_opcoes', 'variacao', 'nutricao'].forEach(k => { if (it[k] != null) p.dados[k] = it[k]; });
+  } else if (tipo === 'video') {
+    const url = g('ct-url');
+    if (!/^https?:\/\//i.test(url)) return showToast('Informe o link completo do vídeo (começa com https://).', 'error');
+    p.dados = { url, duracao: g('ct-duracao'), descricao: g('ct-descricao'), receita: g('ct-receita') };
+  } else {
+    const texto = g('ct-texto');
+    if (!texto) return showToast('Informe o texto da dica.', 'error');
+    p.dados = { icone: g('ct-icone') || '💡', texto };
+  }
+  if (_contFotoNova) p.foto_base64 = _contFotoNova;
+  try {
+    await API.salvarNutriConteudo(p);
+    closeModal();
+    showToast('Salvo. Os alunos veem no app' + (p.ativo ? '.' : ' (item inativo: só a equipe vê).'));
+    await carregarConteudo();
+  } catch (e) { showToast('Erro ao salvar: ' + e.message, 'error'); }
 }
 
 // ═══════════════ DASHBOARD DA NUTRI ═══════════════
