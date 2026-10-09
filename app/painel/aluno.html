@@ -1385,6 +1385,7 @@ function abrirCompartilharTreino(info) {
   // foi salvo em renderFim); pra cardio é a primeira vez que fica salvo.
   try { localStorage.setItem(info.tipo === 'cardio' ? 'intus-ultimo-cardio-share' : 'intus-ultimo-treino-share', JSON.stringify(info)); } catch (e) {}
   _composeOrigem = info.tipo === 'cardio' ? 'cardio' : 'treino';
+  _composeFotoCaptura = false;
   _composeInfo = info;
   // BUG real (achado testando a camada de recorde): faltava ligar isso —
   // vindo de Compartilhar treino/cardio a camada de informações (figurinha+
@@ -3638,6 +3639,14 @@ let _composeAjustando = false;              // modo de ajuste ligado: a figurinh
 function _composeInfoReset() { _composeInfoT.x = 0; _composeInfoT.y = 0; _composeInfoT.s = 1; _composeAjustando = false; }
 let _composeFig = null;
 let _composeIncluirFig = true;
+// Foto escolhida que parece CAPTURA DE TELA (proporção de celular, 2:1 ou mais alta). Print da tela de conquista, do ranking, do app: não leva
+// figurinha nem informações do treino por cima, e o aluno nem vê essa opção. Câmera e fotos comuns (até 16:9) não entram aqui.
+let _composeFotoCaptura = false;
+function _ehCapturaDeTela(img) {
+  const w = img && img.naturalWidth, h = img && img.naturalHeight;
+  if (!w || !h) return false;
+  return Math.max(w, h) / Math.min(w, h) >= 1.95;
+}
 let _composeIncluirRecorde = true; // ver _shareRecordeBadgeHtml — só importa quando _composeInfo.recordes tem algo
 let _composeUltimoEscolha = ''; // '' | 'treino' | 'cardio' — só relevante quando _composeInfo nasceu vazio
 let _composeDestino = 'feed';   // 'feed' | 'perfil'
@@ -3660,6 +3669,7 @@ let _composeFiltroCss = '';
 
 function abrirNovoPostFeed() {
   _composeOrigem = 'post';
+  _composeFotoCaptura = false;
   _composeInfo = null;
   _composeInfoOn = false;
   _composeInfoLayoutIdx = 0; _composeInfoReset();
@@ -3716,6 +3726,7 @@ function _composeToggleAjuste() { _composeAjustando = !_composeAjustando; _compo
 function _composeCentralizarInfo() { if (_composeGestos) _composeGestos.reiniciar(); }
 
 function _composeToggleInfo() {
+  if (_composeFotoCaptura) return;
   _composeInfoOn = !_composeInfoOn;
   _renderComposeFeed();
 }
@@ -3886,7 +3897,10 @@ function _renderComposeFeed() {
       '<input type="file" id="feed-compose-file-galeria" accept="image/*" style="display:none;" onchange="_composeFeedArquivoEscolhido(this)"/>' +
 
       // ── Informações do treino/cardio ──────────────────────────────────
-      '<div style="margin-top:16px;padding:12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';' + (itemVideo ? 'display:none;' : '') + '">' +
+      (_composeFotoCaptura && !itemVideo
+        ? '<div style="margin-top:16px;padding:11px 12px;border-radius:12px;border:1px dashed ' + borda + ';font-size:12px;color:' + muted + ';line-height:1.5;">📱 Esta imagem parece uma captura de tela, então ela vai sem figurinha e sem as informações do treino.</div>'
+        : '') +
+      '<div style="margin-top:16px;padding:12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';' + ((itemVideo || _composeFotoCaptura) ? 'display:none;' : '') + '">' +
         '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:' + txt + ';cursor:pointer;" onclick="event.preventDefault();_composeToggleInfo()">' +
           '<input type="checkbox" ' + (_composeInfoOn?'checked':'') + ' style="width:16px;height:16px;accent-color:#7FFF00;" onclick="event.stopPropagation();_composeToggleInfo()"/>' +
           '📊 Mostrar informações do treino/cardio' +
@@ -4017,6 +4031,12 @@ function _abrirEditorFotoFeed(dataUrl) {
   const img = new Image();
   img.onload = () => {
     _feedEdImg = img;
+    _composeFotoCaptura = _ehCapturaDeTela(img);
+    if (_composeFotoCaptura) {
+      _composeInfoOn = false;
+      // Legenda automática de treino não combina com um print de outra coisa (ex.: "Treino X concluído" sobre a tela de conquista).
+      try { if (_composeInfo && _feedComposeCaption === _shareLegendaAuto(_composeInfo)) _feedComposeCaption = ''; } catch (e) {}
+    }
     // Começa na proporção que o aluno já tinha escolhido na prévia ao vivo
     // (ver _composeRatioPre), pra não pedir a mesma decisão duas vezes —
     // continua ajustável aqui, é só o ponto de partida.
@@ -14132,6 +14152,7 @@ function _renderComemoracao() {
       '<div style="font-size:25px;font-weight:900;margin-top:22px;letter-spacing:-.3px;">' + esc(c.nome) + '</div>' +
       '<div style="font-size:13.5px;color:#dcd6c4;line-height:1.55;margin-top:10px;">' + esc(c.desc) + '</div>' +
       '<button onclick="abrirCompartilharConquista(_cqDefs[_cqIdx])" style="margin-top:26px;width:100%;padding:14px;border-radius:14px;border:1.5px solid #fbbf24;background:transparent;color:#fbbf24;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;">📤 Compartilhar conquista</button>' +
+      '<div style="font-size:11px;color:#c9a83a;margin-top:7px;line-height:1.4;">Em vez de tirar print, compartilhe por aqui: o cartão já sai pronto.</div>' +
       '<button onclick="' + (last ? '_fecharComemoracao()' : '_proximaComemoracao()') + '" style="margin-top:12px;width:100%;padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#3a2a00;font-size:15px;font-weight:900;cursor:pointer;font-family:inherit;box-shadow:0 6px 22px rgba(251,191,36,.45);">' + (last ? 'Continuar 💪' : 'Próxima conquista →') + '</button>' +
     '</div>';
 }

@@ -1265,3 +1265,7 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   foto/vídeo final (a camada vem do mesmo HTML). A logo fixa do canto continua como estava.
 - **Ranking**: cartão "Sua posição" com o título na mesma linha da posição, comparação com a semana (ou mês) passada em UMA linha (fonte `clamp`) e folga vertical menor. `telaHeader` (Voltar / título / logo) ficou
   mais baixo em todas as telas que o usam (ranking, medalhas, evoluções, conquistas...): menos espaço em branco antes do conteúdo.
+- **Print de tela não leva figurinha (09/10/2026)**: o caso visto no Feed foi o print da tela de "Conquista desbloqueada" (com o botão Continuar aparecendo) escolhido na galeria dentro de "Compartilhar treino", que liga
+  a figurinha e a legenda "Treino X concluído" por padrão. Agora, ao abrir uma foto no editor (`_abrirEditorFotoFeed`), imagem com proporção de celular (2:1 ou mais alta, `_ehCapturaDeTela`) desliga as informações do
+  treino, esconde a opção e limpa a legenda automática, com um aviso na tela; câmera e fotos comuns não são afetadas. O compartilhamento da própria conquista (`_cqShareSheet`) nunca teve figurinha; o popup de
+  conquista ganhou o convite "em vez de tirar print, compartilhe por aqui".
