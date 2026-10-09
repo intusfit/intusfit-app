@@ -1256,3 +1256,12 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   Qualquer tela adota assim: `VerModo.barra(...)` + um renderizador por modo, e `ComboBusca.html({...})` no lugar do `<select>`.
 - **Onde já está**: Nutrição > Planos (padrão Compacto, 4 por linha em tela larga; Miniaturas 8; Lista com totais), Nutrição > Fotos (Grandes/Pequenas), Treinos > fichas (padrão Cartões, como era), e os campos de aluno
   (filtro de planos, filtro de fotos, aluno do plano, aluna do importador) agora aceitam digitar. **Próximos candidatos**: Matrículas, Clientes (`alunos.html`), Avaliações, Mensagens, Usuários.
+
+## 38. App do aluno: Nutrição na tela inicial, logo na figurinha e ranking mais compacto (09/10/2026)
+
+- **Nutrição em destaque na Home** (`aluno.html`, `renderHome`): faixa inteira logo abaixo de Treinos e Cardio (`.h-nutri`), com a próxima refeição, a barra de água do dia e o botão "+ 💧 copo" (`nutriAgua(250, true)`).
+  Carrega o plano em segundo plano depois de pintar a tela (`_homeNutriGarantir`, uma vez por sessão, reaproveita `_nutriCarregar`) e atualiza só a faixa (`_homeNutriAtualizar`). Saiu do "Ver mais".
+- **Logo da Intus dentro da figurinha** (`_shareBarraInferior`): selo pequeno à direita do nome do treino, dentro da caixa que se move; vale nos layouts que usam a barra (Clássico, Destaque, Mascote), na prévia e na
+  foto/vídeo final (a camada vem do mesmo HTML). A logo fixa do canto continua como estava.
+- **Ranking**: cartão "Sua posição" com o título na mesma linha da posição, comparação com a semana (ou mês) passada em UMA linha (fonte `clamp`) e folga vertical menor. `telaHeader` (Voltar / título / logo) ficou
+  mais baixo em todas as telas que o usam (ranking, medalhas, evoluções, conquistas...): menos espaço em branco antes do conteúdo.
