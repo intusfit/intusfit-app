@@ -1269,3 +1269,6 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   a figurinha e a legenda "Treino X concluído" por padrão. Agora, ao abrir uma foto no editor (`_abrirEditorFotoFeed`), imagem com proporção de celular (2:1 ou mais alta, `_ehCapturaDeTela`) desliga as informações do
   treino, esconde a opção e limpa a legenda automática, com um aviso na tela; câmera e fotos comuns não são afetadas. O compartilhamento da própria conquista (`_cqShareSheet`) nunca teve figurinha; o popup de
   conquista ganhou o convite "em vez de tirar print, compartilhe por aqui".
+- **"Plano" da nutrição sempre como "plano alimentar" para o aluno (09/10/2026)**: para não confundir com o plano da matrícula, todo texto do app e da central de ajuda que fala do plano da Nutrição diz "plano alimentar" ("Meu plano alimentar",
+  "Sem plano alimentar ativo", "Fora do plano alimentar", "Soma do plano alimentar por 7 dias", FAQ e tour). "Plano" sozinho continua só para a matrícula ("Seu plano terminou", "Plano Ativo" na Minha Matrícula). Texto novo de
+  Nutrição para o aluno deve seguir a mesma regra.
