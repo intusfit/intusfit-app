@@ -861,6 +861,7 @@ function abrirModalForm(idplano) {
         <div class="toolbar-row">
           <button class="btn btn-sm btn-primary" onclick="addRefeicao()">+ Refeição</button>
           <button class="btn btn-sm btn-secondary" onclick="addRefeicoesPadrao()">Preencher Padrão (6 ref)</button>
+          <button class="btn btn-sm btn-secondary" onclick="converterTodosParaUnidade()" title="Passa para unidade (ovo, fatia, banana...) os itens que estão em gramas e fecham em meia unidade exata">⇄ Usar unidades onde der</button>
         </div>
         <!-- Antes isto ficava depois de todas as refeições — pra ver "bati quanto
              % da meta" era preciso rolar a tela toda. Fica no topo, sempre à
@@ -1191,6 +1192,29 @@ function _redesenhar(refIdx, substIdx) {
   recalcTotaisDiarios();
 }
 
+// Porção padrão de um alimento: a medida caseira mais comum dele (ex.: 2 unidades de ovo = 100 g) ou, sem medida, 100 g.
+function _porcaoPadrao(f) {
+  const u = AlimentosDB.getUnidadePadrao(f.id);
+  const gramas = u ? r1(u.quantidade * u.medida_g) : 100;
+  const rotulo = u ? API.nutri.rotuloQtd({ quantidade: u.quantidade, medida_id: u.medida_id, medida_nome: u.medida_nome }) + ' (' + gramas + ' g)' : '100 g';
+  return { gramas, rotulo, nut: AlimentosDB.calcNutrientes(f.id, gramas) || {} };
+}
+function _resultadoBuscaHtml(f, js) {
+  const p = _porcaoPadrao(f), n = p.nut, fm = v => String(Math.round((v || 0) * 10) / 10).replace('.', ',');
+  return `<div class="food-result-item" onclick="${js}">
+    <div style="min-width:0;">
+      <div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}</div>
+      <div class="food-cat">${esc(f.category || '')}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Porção: ${esc(p.rotulo)}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;text-align:right;flex-shrink:0;">
+      <div><div class="food-kcal">${Math.round(n.energia_kcal || 0)} kcal</div>
+        <div style="font-size:10.5px;color:var(--text-muted);white-space:nowrap;"><span style="color:#60a5fa;">P ${fm(n.proteina_g)}</span> · <span style="color:#7FFF00;">C ${fm(n.carboidrato_g)}</span> · <span style="color:#f87171;">G ${fm(n.lipidio_g)}</span></div></div>
+      <span onclick="event.stopPropagation();verTabelaAlimento(${f.id})" title="Tabela nutricional" style="cursor:pointer;color:var(--text-muted);">ℹ</span>
+    </div>
+  </div>`;
+}
+
 const _CAB_ITENS = `<div class="meal-item-row header">
     <span></span><span>Alimento</span><span>Qtd</span><span>Medida</span>
     <span style="text-align:center">Kcal</span><span style="text-align:center">P</span><span style="text-align:center">C</span><span style="text-align:center">G</span><span></span>
@@ -1212,6 +1236,7 @@ function _linhaItemHtml(it, refIdx, substIdx, itemIdx, comArrastar, comSubst) {
       <span><select class="meal-item-measure input" onchange="itemMedida(${a},this.value)">
         <option value="g" ${!emMedida ? 'selected' : ''}>gramas</option>
         ${medidas.map(m => `<option value="${esc(m.id)}" ${it.medida_id === m.id ? 'selected' : ''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
+        <option value="__nova__">+ Definir outra medida...</option>
       </select></span>
       <span class="meal-item-val kcal">${n.energia_kcal || 0}</span>
       <span class="meal-item-val prot">${n.proteina_g || 0}</span>
@@ -1224,6 +1249,13 @@ function _linhaItemHtml(it, refIdx, substIdx, itemIdx, comArrastar, comSubst) {
       </span>
     </div>`;
   if (emMedida && it.gramas) h += `<div class="portion-equiv" style="padding-left:28px;font-size:10px;color:var(--text-muted);">≈ ${it.gramas}g</div>`;
+  else if (!emMedida && it.gramas) {
+    const f = AlimentosDB.resolver(it), u = f ? AlimentosDB.getUnidadePadrao(f.id) : null;
+    if (u && u.medida_g > 0) {
+      const q = Math.round(it.gramas / u.medida_g * 10) / 10;
+      h += `<div class="portion-equiv" style="padding-left:28px;font-size:10px;color:var(--text-muted);">≈ ${String(q).replace('.', ',')} ${API.nutri.pluralMedida(u.medida_nome, q)} · <a href="#" onclick="itemUsarUnidade(${a});return false;" style="color:#60a5fa;">usar ${API.nutri.pluralMedida(u.medida_nome, 2)}</a></div>`;
+    }
+  }
   return h;
 }
 
@@ -1254,9 +1286,61 @@ function itemQtd(refIdx, substIdx, itemIdx, value) {
   _recalcItem(it);
   _redesenhar(refIdx, substIdx);
 }
+// Medida própria do item (ex.: "concha" de 80 g, "pote" de 170 g) para qualquer alimento, mesmo sem medida no catálogo.
+function _perguntarMedida(it) {
+  const nome = (prompt('Nome da medida (ex.: concha, pote, scoop):') || '').trim();
+  if (!nome) return false;
+  const g = parseFloat(String(prompt('Quantos gramas pesa 1 ' + nome.toLowerCase() + '?') || '').replace(',', '.'));
+  if (!(g > 0)) { showToast('Informe um peso em gramas maior que zero.', 'error'); return false; }
+  it.medida_id = 'pers_' + nome.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '_');
+  it.medida_nome = nome.charAt(0).toUpperCase() + nome.slice(1);
+  it.medida_g = g;
+  it.quantidade = 1;
+  return true;
+}
+// Converte um item em gramas para a medida padrão do alimento (ex.: 100 g de ovo = 2 unidades), arredondando em meia unidade.
+function _usarUnidadePadrao(it) {
+  const f = AlimentosDB.resolver(it), u = f ? AlimentosDB.getUnidadePadrao(f.id) : null;
+  if (!u || !(u.medida_g > 0) || !(it.gramas > 0)) return false;
+  const q = Math.max(0.5, Math.round(it.gramas / u.medida_g * 2) / 2);
+  it.medida_id = u.medida_id; it.medida_nome = u.medida_nome; it.medida_g = u.medida_g; it.quantidade = q;
+  return true;
+}
+function itemUsarUnidade(refIdx, substIdx, itemIdx) {
+  const it = (_lista(refIdx, substIdx) || [])[itemIdx]; if (!it) return;
+  const antes = it.gramas;
+  if (!_usarUnidadePadrao(it)) return;
+  _recalcItem(it);
+  _redesenhar(refIdx, substIdx);
+  if (Math.abs(it.gramas - antes) > 0.5) showToast('Convertido para ' + API.nutri.rotuloQtd(it) + ' (' + it.gramas + ' g, eram ' + antes + ' g). As calorias foram recalculadas.');
+}
+// Passa para unidade todos os itens em gramas cujo peso é múltiplo exato de meia unidade; os demais ficam como estão.
+function converterTodosParaUnidade() {
+  let n = 0;
+  const tenta = (it) => {
+    if (!it || (it.medida_id && it.medida_id !== 'g') || !(it.gramas > 0)) return;
+    const f = AlimentosDB.resolver(it), u = f ? AlimentosDB.getUnidadePadrao(f.id) : null;
+    if (!u || !(u.medida_g > 0)) return;
+    const q = it.gramas / u.medida_g;
+    if (Math.abs(q * 2 - Math.round(q * 2)) > 0.02 || q < 0.5) return;
+    if (_usarUnidadePadrao(it)) { _recalcItem(it); n++; }
+  };
+  _formRefeicoes.forEach(r => {
+    (r.itens_estruturados || []).forEach(it => { tenta(it); (it.substitutos || []).forEach(tenta); });
+    (r.refeicoes_substitutas || []).forEach(sb => (sb.itens_estruturados || []).forEach(tenta));
+  });
+  document.getElementById('refeicoes-editor').innerHTML = renderRefeicaoEditors();
+  recalcTotaisDiarios();
+  showToast(n ? n + (n === 1 ? ' item passou' : ' itens passaram') + ' para unidade, sem mudar calorias nem macros.' : 'Nenhum item em gramas fecha em meia unidade exata. Use o link "usar unidades" em cada item.');
+}
+
 function itemMedida(refIdx, substIdx, itemIdx, medidaId) {
   const it = (_lista(refIdx, substIdx) || [])[itemIdx]; if (!it) return;
   const antes = it.gramas || 0;
+  if (medidaId === '__nova__') {
+    if (!_perguntarMedida(it)) { _redesenhar(refIdx, substIdx); return; }
+    delete it._revisar; _recalcItem(it); _redesenhar(refIdx, substIdx); return;
+  }
   if (medidaId === 'g') {
     it.medida_id = 'g'; it.medida_nome = 'gramas'; it.medida_g = 1; it.quantidade = antes > 0 ? Math.round(antes) : 100;
   } else {
@@ -1442,6 +1526,7 @@ function renderSubstPanel(refIdx, itemIdx, item) {
         <select class="meal-item-measure input" onchange="substMedida(${refIdx},${itemIdx},${si},this.value)" style="width:150px;">
           <option value="g" ${!emMedida ? 'selected' : ''}>gramas</option>
           ${medidas.map(m => `<option value="${esc(m.id)}" ${s.medida_id === m.id ? 'selected' : ''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
+          <option value="__nova__">+ Definir outra medida...</option>
         </select>
         <span class="meal-item-val kcal" style="min-width:42px;">${sn.energia_kcal || 0}</span><span class="meal-item-val prot" style="min-width:32px;">${sn.proteina_g || 0}</span><span class="meal-item-val carb" style="min-width:32px;">${sn.carboidrato_g || 0}</span><span class="meal-item-val gord" style="min-width:32px;">${sn.lipidio_g || 0}</span>
         <button class="btn-subst" onclick="substEqualizar(${refIdx},${itemIdx},${si})" title="Ajustar a quantidade para manter igual: ${modos.find(m => m[0] === _equivModo)[1].toLowerCase()}">⚖</button>
@@ -1493,6 +1578,7 @@ function substQtd(refIdx, itemIdx, si, value) {
 function substMedida(refIdx, itemIdx, si, medidaId) {
   const it = _itemOrig(refIdx, itemIdx), s = it && it.substitutos[si]; if (!s) return;
   const antes = s.gramas || 0;
+  if (medidaId === '__nova__') { if (_perguntarMedida(s)) _recalcItem(s); _repintarItem(refIdx); return; }
   if (medidaId === 'g') { s.medida_id = 'g'; s.medida_nome = 'gramas'; s.medida_g = 1; s.quantidade = antes > 0 ? Math.round(antes) : 100; }
   else {
     const m = _medidasDoItem(s).find(x => x.id === medidaId); if (!m) return;
@@ -1537,9 +1623,7 @@ function buscarSubstituto(input, refIdx, itemIdx) {
     const foods = AlimentosDB.buscar(termo, 12);
     resultsEl.innerHTML = foods.length === 0
       ? `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>`
-      : foods.map(f => `<div class="food-result-item" onclick="addSubstFromSearch(${refIdx},${itemIdx},${f.id})">
-          <div><div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}</div><div class="food-cat">${esc(f.category || '')}</div></div>
-          <div class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</div></div>`).join('');
+      : foods.map(f => _resultadoBuscaHtml(f, `addSubstFromSearch(${refIdx},${itemIdx},${f.id})`)).join('');
     resultsEl.classList.add('show');
   }, 200);
 }
@@ -1775,17 +1859,7 @@ function buscarAlimento(input, refIdx, substIdx) {
     if (foods.length === 0) {
       resultsEl.innerHTML = `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>` + cadastrarNovo + buscarMarca;
     } else {
-      resultsEl.innerHTML = foods.map(f => {
-        const u = AlimentosDB.getUnidadePadrao(f.id);
-        const dica = u ? ' · ' + u.quantidade + ' ' + API.nutri.pluralMedida(u.medida_nome, u.quantidade) + ' = ' + r1(u.quantidade * u.medida_g) + ' g' : '';
-        return `<div class="food-result-item" onclick="addAlimento(${refIdx}, ${f.id}, ${si})">
-          <div>
-            <div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}</div>
-            <div class="food-cat">${esc(f.category || '')}${esc(dica)}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;"><span class="food-kcal">${Math.round(AlimentosDB.parseNumeric(f.energy_kcal))} kcal/100g</span><span onclick="event.stopPropagation();verTabelaAlimento(${f.id})" title="Tabela nutricional" style="cursor:pointer;color:var(--text-muted);">ℹ</span></div>
-        </div>`;
-      }).join('') + cadastrarNovo + buscarMarca;
+      resultsEl.innerHTML = foods.map(f => _resultadoBuscaHtml(f, `addAlimento(${refIdx}, ${f.id}, ${si})`)).join('') + cadastrarNovo + buscarMarca;
     }
     resultsEl.classList.add('show');
   }, 200);
