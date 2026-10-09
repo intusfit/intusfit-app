@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
-  <script src="_mock.js?v=20261009a"></script>
+  <script src="_mock.js?v=20261009b"></script>
   <script src="api.js?v=20261008f"></script>
-  <script src="alimentos-db.js?v=20261008c"></script>
+  <script src="alimentos-db.js?v=20261009a"></script>
+  <script src="importar-pdf.js?v=20261009a"></script>
   <style>
     /* Cores dos macros e das calorias, usadas em TODA a tela. Antes o amarelo, o verde-limão e o azul claro
        sumiam no tema claro. Aqui cada tema tem o seu tom (escuros no claro, vivos no escuro), sempre com o
@@ -82,9 +83,36 @@
     #ed-dirty { margin-right: auto; font-size: 12px; font-weight: 700; color: var(--mc-kcal); display: none; align-items: center; gap: 6px; }
     #ed-dirty.on { display: inline-flex; }
     /* Lista de planos e visualização do plano */
-    .plano-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
-    @media (max-width: 520px) { .plano-lista { grid-template-columns: minmax(0, 1fr); } }
-    .plano-lista .plano-card { margin-bottom: 0; display: flex; flex-direction: column; gap: 12px; }
+    .vm-grid .plano-card { margin-bottom: 0; display: flex; flex-direction: column; gap: 12px; }
+    /* Compacto: 4 por linha em tela larga */
+    .plano-card.pc-cp { padding: 12px 14px; gap: 9px; border-radius: 12px; }
+    .pc-cp .pc-top { gap: 10px; align-items: center; }
+    .pc-cp .plano-title { font-size: 14px; }
+    .pc-cp .plano-subtitle { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pc-cp .mt-pills { margin: 0; gap: 5px; }
+    .pc-cp .mt-pill { font-size: 11.5px; padding: 1px 8px; }
+    .pc-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+    .pc-dot.on { background: var(--green); } .pc-dot.off { background: var(--text-dim); }
+    /* Miniaturas */
+    .plano-card.pc-mini { padding: 12px 8px; gap: 6px; align-items: center; text-align: center; border-radius: 12px; }
+    .pc-mini .nm { font-size: 12.5px; font-weight: 800; color: var(--text); width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pc-mini .pl { font-size: 11px; color: var(--text-muted); width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -3px; }
+    .pc-mini .kc { font-size: 19px; font-weight: 800; color: var(--mc-kcal); font-variant-numeric: tabular-nums; line-height: 1; }
+    .pc-mini .kc small { font-size: 10.5px; font-weight: 700; margin-left: 2px; }
+    .pc-mini .mm { font-size: 10.5px; font-weight: 800; display: flex; gap: 6px; justify-content: center; }
+    .pc-mini .mm .p { color: var(--mc-prot); } .pc-mini .mm .c { color: var(--mc-carb); } .pc-mini .mm .g { color: var(--mc-gord); }
+    /* Lista */
+    .pl-tab { width: 100%; border-collapse: collapse; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .pl-tab th { text-align: left; font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; padding: 9px 12px; background: var(--bg3); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .pl-tab td { padding: 8px 12px; font-size: 13px; color: var(--text); border-top: 1px solid var(--border); vertical-align: middle; }
+    .pl-tab tr.lin { cursor: pointer; } .pl-tab tr.lin:hover td { background: var(--bg3); }
+    .pl-tab tr.off td { opacity: .6; }
+    .pl-tab .num { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .pl-tab .num.k { color: var(--mc-kcal); } .pl-tab .num.p { color: var(--mc-prot); } .pl-tab .num.c { color: var(--mc-carb); } .pl-tab .num.g { color: var(--mc-gord); }
+    .pl-nome { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .pl-nome b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; display: block; }
+    .pl-nome span { font-size: 11.5px; color: var(--text-muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+    .nt-tab-wrap { overflow-x: auto; }
     .pc-top { display: flex; gap: 12px; align-items: flex-start; }
     .pc-txt { flex: 1; min-width: 0; }
     .pc-txt .plano-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -133,6 +161,9 @@
     .pv-callout { font-size: 13.5px; color: var(--text); white-space: pre-wrap; line-height: 1.55; padding: 12px 14px; background: var(--bg3); border-radius: 10px; border-left: 3px solid var(--green); }
     /* Galeria de fotos das refeições */
     .ft-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+    .ft-grid.peq { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .ft-grid.peq .ft-info { padding: 7px 9px 9px; } .ft-grid.peq .ft-info b { font-size: 12px; } .ft-grid.peq .ft-info span { font-size: 11px; } .ft-grid.peq .ft-info i { display: none; }
+    .ft-grid.peq .ft-badge, .ft-grid.peq .ft-resp { font-size: 10px; padding: 2px 7px; }
     .ft-dia { font-size: 12px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 8px; }
     .ft-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
     .ft-card:hover { border-color: var(--green); transform: translateY(-2px); }
@@ -503,20 +534,19 @@ function render() {
   if (filtroAtleta > 0) lista = lista.filter(pl => Number(pl.idatleta) === filtroAtleta);
   const nAtivos = lista.filter(planoAtivo).length, nInativos = lista.length - nAtivos;
   lista = lista.filter(pl => planoAtivo(pl) === filtroPlanoAtivo);
+  const modoPlanos = VerModo.get('nutricao-planos', 'compacto');
 
   main.innerHTML = abasHtml() + `
     <div class="filtros-bar">
-      <select class="input" onchange="filtroAtleta=Number(this.value);render();">
-        <option value="0">Todos os alunos</option>
-        ${atletas.sort((a,b) => (a.nome||'').localeCompare(b.nome||'')).map(a =>
-          `<option value="${a.idatleta}" ${Number(a.idatleta)===filtroAtleta?'selected':''}>${esc(a.nome)}</option>`
-        ).join('')}
-      </select>
+      ${ComboBusca.html({ id: 'nt-f-aluno', opcoes: atletas.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(a => ({ v: a.idatleta, t: a.nome })), valor: filtroAtleta || '', vazio: 'Todos os alunos', placeholder: 'Buscar aluno (digite o nome)', onChange: 'filtroAtleta=Number(v)||0;render();' })}
       <button class="btn ${filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=true;render();">Ativos (${nAtivos})</button>
       <button class="btn ${!filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=false;render();">Inativos (${nInativos})</button>
       ${hasPerm('nt_incluir') ? `<button class="btn btn-primary" onclick="abrirModalNovo()">+ Novo Plano</button>` : ''}
       ${hasPerm('nt_incluir') ? `<button class="btn btn-secondary" onclick="abrirImportarPlano()" title="Cria um plano a partir de um arquivo .json no formato do Intus (migração de plano feito em outro lugar)">⬆ Importar plano</button>` : ''}
-      <button class="btn btn-secondary" onclick="abrirMeusAlimentos()" style="margin-left:auto;">🍎 Alimentos da equipe</button>
+      <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        ${VerModo.barra('nutricao-planos', [['cartoes', 'Cartões', '▦'], ['compacto', 'Compacto', '▤'], ['miniaturas', 'Miniaturas', '▪'], ['lista', 'Lista', '☰']], 'mudarModoPlanos', modoPlanos)}
+        <button class="btn btn-secondary" onclick="abrirMeusAlimentos()">🍎 Alimentos da equipe</button>
+      </span>
       <button class="btn btn-secondary" onclick="abrirCalculadoraGET()">Calculadora GEB/GET</button>
     </div>
 
@@ -527,12 +557,12 @@ function render() {
           <p>${filtroPlanoAtivo ? 'Nenhum plano nutricional ativo' : 'Nenhum plano nutricional inativo'}${filtroAtleta > 0 ? ' para este aluno' : ''}.</p>
           <p style="margin-top:8px;">${filtroPlanoAtivo ? 'Crie um plano alimentar com refeições estruturadas e metas de macros.' : 'Planos inativos ficam aqui e o aluno não os vê no app. Dá para ativar de novo quando quiser.'}</p>
         </div>
-      ` : '<div class="plano-lista">' + lista.map(pl => renderPlanoCard(pl)).join('') + '</div>'}
+      ` : (modoPlanos === 'lista' ? _planosLista(lista) : '<div class="vm-grid m-' + modoPlanos + '">' + lista.map(pl => renderPlanoCard(pl, modoPlanos)).join('') + '</div>')}
     </div>
   `;
 }
 
-function renderPlanoCard(pl) {
+function _planoCartaoGrande(pl) {
   const nome = getNomeAtleta(pl.idatleta);
   const refs = pl.refeicoes || [];
   const nSub = refs.reduce((t, r) => t + (r.refeicoes_substitutas || []).length, 0);
@@ -563,6 +593,58 @@ function renderPlanoCard(pl) {
     </div>
   `;
 }
+
+
+// Totais do plano para os cartões menores: o que as refeições entregam (ou a meta, se ainda não há alimentos).
+function _totaisPlano(pl) {
+  const refs = pl.refeicoes || [];
+  const t = calcTotaisRefeicao(refs.flatMap(r => r.itens_estruturados || []));
+  const tem = t.kcal > 0;
+  return { kcal: tem ? t.kcal : (pl.calorias || 0), prot: tem ? t.prot : (pl.proteina || 0), carb: tem ? t.carb : (pl.carboidrato || 0), gord: tem ? t.gord : (pl.gordura || 0), nRef: refs.length,
+           nSub: refs.reduce((n, r) => n + (r.refeicoes_substitutas || []).length, 0) };
+}
+function _planoCartaoCompacto(pl) {
+  const nome = getNomeAtleta(pl.idatleta), t = _totaisPlano(pl), ativo = planoAtivo(pl);
+  return `<div class="plano-card pc-cp ${ativo ? '' : 'inativo'}" onclick="verPlano(${pl.idplano})">
+    <div class="pc-top">
+      ${avatarHtml(pl.idatleta, nome, 36)}
+      <div class="pc-txt"><div class="plano-title" title="${esc(pl.titulo)}">${esc(pl.titulo)}</div><div class="plano-subtitle" title="${esc(nome)}">${esc(nome)}</div></div>
+      <span class="pc-dot ${ativo ? 'on' : 'off'}" title="${ativo ? 'Ativo' : 'Inativo'}"></span>
+    </div>
+    ${t.kcal ? `<div class="mt-pills"><span class="mt-pill kcal">${t.kcal} kcal</span><span class="mt-pill prot">P ${t.prot}</span><span class="mt-pill carb">C ${t.carb}</span><span class="mt-pill gord">G ${t.gord}</span></div>` : '<div style="font-size:12px;color:var(--text-muted);">Sem alimentos ainda</div>'}
+    <div style="font-size:11.5px;color:var(--text-muted);font-weight:700;">${t.nRef} refeições${t.nSub ? ' · ' + t.nSub + ' substituições' : ''}${pl.dtinicio ? ' · desde ' + fmtDate(pl.dtinicio) : ''}</div>
+  </div>`;
+}
+function _planoCartaoMini(pl) {
+  const nome = getNomeAtleta(pl.idatleta), t = _totaisPlano(pl), ativo = planoAtivo(pl);
+  return `<div class="plano-card pc-mini ${ativo ? '' : 'inativo'}" onclick="verPlano(${pl.idplano})" title="${esc(pl.titulo)}">
+    <div style="position:relative;">${avatarHtml(pl.idatleta, nome, 52)}<span class="pc-dot ${ativo ? 'on' : 'off'}" style="position:absolute;right:0;bottom:2px;border:2px solid var(--bg2);width:13px;height:13px;" title="${ativo ? 'Ativo' : 'Inativo'}"></span></div>
+    <div class="nm">${esc(nome)}</div>
+    <div class="pl">${esc(pl.titulo)}</div>
+    ${t.kcal ? `<div class="kc">${t.kcal}<small>kcal</small></div><div class="mm"><span class="p">P ${t.prot}</span><span class="c">C ${t.carb}</span><span class="g">G ${t.gord}</span></div>` : '<div class="pl">sem alimentos</div>'}
+  </div>`;
+}
+function _planosLista(lista) {
+  const edita = hasPerm('nt_editar');
+  return `<div class="nt-tab-wrap"><table class="pl-tab"><thead><tr><th>Aluno</th><th>Situação</th><th>Período</th><th style="text-align:right;">kcal</th><th style="text-align:right;">P</th><th style="text-align:right;">C</th><th style="text-align:right;">G</th><th style="text-align:right;">Refeições</th><th></th></tr></thead><tbody>` +
+    lista.map(pl => {
+      const nome = getNomeAtleta(pl.idatleta), t = _totaisPlano(pl), ativo = planoAtivo(pl);
+      return `<tr class="lin ${ativo ? '' : 'off'}" onclick="verPlano(${pl.idplano})">
+        <td><div class="pl-nome">${avatarHtml(pl.idatleta, nome, 30)}<div style="min-width:0;"><b title="${esc(nome)}">${esc(nome)}</b><span title="${esc(pl.titulo)}">${esc(pl.titulo)}${pl.objetivo ? ' · ' + esc(pl.objetivo) : ''}</span></div></div></td>
+        <td><span class="plano-status ${ativo ? 'ativo' : 'inativo'}">${ativo ? 'Ativo' : 'Inativo'}</span></td>
+        <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${pl.dtinicio ? fmtDate(pl.dtinicio) : '—'}${pl.dtfim ? ' → ' + fmtDate(pl.dtfim) : ''}</td>
+        <td class="num k">${t.kcal || '—'}</td><td class="num p">${t.kcal ? t.prot + ' g' : '—'}</td><td class="num c">${t.kcal ? t.carb + ' g' : '—'}</td><td class="num g">${t.kcal ? t.gord + ' g' : '—'}</td>
+        <td class="num" style="color:var(--text);">${t.nRef}${t.nSub ? '<span style="color:var(--text-muted);font-weight:600;"> · ' + t.nSub + ' subst.</span>' : ''}</td>
+        <td style="text-align:right;white-space:nowrap;">${edita ? `<button class="btn btn-secondary btn-sm" onclick="alternarAtivoPlano(${pl.idplano}, event)">${ativo ? 'Inativar' : 'Ativar'}</button>` : ''}</td>
+      </tr>`;
+    }).join('') + `</tbody></table></div>`;
+}
+function renderPlanoCard(pl, modo) {
+  if (modo === 'compacto') return _planoCartaoCompacto(pl);
+  if (modo === 'miniaturas') return _planoCartaoMini(pl);
+  return _planoCartaoGrande(pl);
+}
+function mudarModoPlanos() { render(); }
 
 // ── View Plan ──
 
@@ -752,8 +834,8 @@ function abrirImportarPlano() {
   openModal(`
     <div class="modal-header"><div class="modal-title">Importar plano alimentar</div><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Escolha o arquivo do plano (.json). Você confere o resumo e a aluna antes de gravar. Depois é só editar como qualquer plano.</p>
-      <div class="form-group"><label class="label">Arquivo do plano *</label><input id="imp-arq" type="file" accept=".json,application/json" class="input" onchange="_importarLer(this)"/></div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Escolha o <b>PDF</b> do plano (o que sai do sistema de dieta) ou um arquivo <b>.json</b> do Intus. O PDF é lido aqui no seu computador e não é enviado a lugar nenhum. Você confere o resumo e a aluna antes de gravar, e depois edita como qualquer plano.</p>
+      <div class="form-group"><label class="label">Arquivo do plano (PDF ou JSON) *</label><input id="imp-arq" type="file" accept=".pdf,application/pdf,.json,application/json" class="input" onchange="_importarLer(this)"/></div>
       <div id="imp-resumo"></div>
     </div>
     <div class="modal-footer">
@@ -762,11 +844,47 @@ function abrirImportarPlano() {
     </div>
   `);
 }
+
+// pdf.js (vendor/pdfjs, Mozilla, Apache 2.0) só é carregado quando alguém escolhe um PDF.
+let _pdfjsPromessa = null;
+function _carregarPdfjs() {
+  if (window.pdfjsLib) { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js'; return Promise.resolve(window.pdfjsLib); }
+  if (!_pdfjsPromessa) _pdfjsPromessa = new Promise((ok, erro) => {
+    const sc = document.createElement('script');
+    sc.src = 'vendor/pdfjs/pdf.min.js?v=3.11.174';
+    sc.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js'; ok(window.pdfjsLib); };
+    sc.onerror = () => { _pdfjsPromessa = null; erro(new Error('Não consegui carregar o leitor de PDF.')); };
+    document.head.appendChild(sc);
+  });
+  return _pdfjsPromessa;
+}
+const _catalogoImport = () => ({
+  todos: () => AlimentosDB.todos(), medidas: f => AlimentosDB.getMedidasAlimento(f.id),
+  por100: f => AlimentosDB.nutrientesPor100(f), escalar: (p, g) => AlimentosDB.escalar(p, g),
+});
+async function _importarLerPdf(f, box, ok) {
+  box.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Lendo o PDF e casando os alimentos com a base do Intus...</p>';
+  try {
+    const [lib] = await Promise.all([_carregarPdfjs(), AlimentosDB.isLoaded() ? null : AlimentosDB.load()]);
+    const itens = await ImportarPDF.lerItens(await f.arrayBuffer(), lib);
+    const estr = ImportarPDF.interpretar(itens);
+    if (!estr.refeicoes.length || !estr.refeicoes.some(r => r.principal.itens.length)) {
+      box.innerHTML = '<p style="color:#f87171;font-size:13px;">Não consegui reconhecer refeições neste PDF. Ele precisa ser o "Plano Alimentar" exportado do sistema de dieta (com as colunas Kcal e Grupo).</p>'; return;
+    }
+    const r = ImportarPDF.montarPlano(estr, _catalogoImport());
+    if (r.plano.refeicoes.some(x => !x.itens_estruturados.length)) r.plano.refeicoes = r.plano.refeicoes.filter(x => x.itens_estruturados.length);
+    _importarMostrar(r.plano, r);
+  } catch (e) {
+    console.error(e);
+    box.innerHTML = '<p style="color:#f87171;font-size:13px;">Não consegui ler este PDF: ' + esc(e.message || 'erro desconhecido') + '</p>';
+  }
+}
 function _importarLer(inp) {
   const f = inp.files && inp.files[0];
   const box = document.getElementById('imp-resumo'), ok = document.getElementById('imp-ok');
   _imp = null; ok.disabled = true;
   if (!f) { box.innerHTML = ''; return; }
+  if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') { _importarLerPdf(f, box, ok); return; }
   const rd = new FileReader();
   rd.onerror = () => { box.innerHTML = '<p style="color:#f87171;font-size:13px;">Não consegui ler o arquivo.</p>'; };
   rd.onload = () => {
@@ -777,39 +895,56 @@ function _importarLer(inp) {
     }
     const ruim = p.refeicoes.findIndex(r => !r || !String(r.nome || '').trim() || !Array.isArray(r.itens_estruturados) || !r.itens_estruturados.length);
     if (ruim >= 0) { box.innerHTML = '<p style="color:#f87171;font-size:13px;">A refeição ' + (ruim + 1) + ' do arquivo está sem nome ou sem alimentos.</p>'; return; }
-    _imp = p;
-    // Sugere a aluna pelo nome do arquivo (nome do cadastro parecido); a nutri confirma ou troca.
-    const alvo = _normNome(p.aluno_nome).split(' ').filter(Boolean);
-    let melhor = null, pts = 0;
-    atletas.forEach(a => {
-      const t = _normNome(a.nome).split(' ');
-      const n = alvo.filter(w => t.includes(w)).length;
-      if (n > pts) { pts = n; melhor = a; }
-    });
-    const tot = calcTotaisRefeicao(p.refeicoes.flatMap(r => r.itens_estruturados || []));
-    const nSub = p.refeicoes.reduce((s, r) => s + (r.refeicoes_substitutas || []).length, 0);
-    const nOu = p.refeicoes.reduce((s, r) => s + (r.itens_estruturados || []).reduce((q, it) => q + (it.substitutos || []).length, 0), 0);
-    const semMacro = p.refeicoes.flatMap(r => [r.itens_estruturados || [], ...(r.refeicoes_substitutas || []).map(x => x.itens_estruturados || [])].flat()).filter(it => it.por100 && !(it.por100.proteina_g || it.por100.carboidrato_g || it.por100.lipidio_g)).length;
-    box.innerHTML = `
-      <div class="form-group"><label class="label">Aluna que recebe o plano *</label>
-        <select id="imp-atleta" class="input" onchange="_importarAvisoAtivo()">
-          <option value="">Selecione...</option>
-          ${atletas.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(a => `<option value="${a.idatleta}" ${melhor && pts >= 2 && a.idatleta === melhor.idatleta ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}
-        </select>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Nome no arquivo: ${esc(p.aluno_nome || '—')}${melhor && pts >= 2 ? '' : '. Nenhum cadastro bateu com o nome: escolha a aluna na lista.'}</div></div>
-      <div class="form-group"><label class="label">Título</label><input id="imp-titulo" class="input" value="${esc(p.titulo || 'Plano Alimentar')}"/></div>
-      <div style="padding:10px 12px;background:var(--bg3);border-radius:8px;font-size:12.5px;line-height:1.7;margin-bottom:10px;">
-        <b>${p.refeicoes.length}</b> refeições · <b>${nSub}</b> refeições substitutas · <b>${nOu}</b> alimentos com opções de troca (OU)<br>
-        Total do dia (refeições principais): <b>${tot.kcal} kcal</b> · P ${tot.prot} g · C ${tot.carb} g · G ${tot.gord} g
-        ${semMacro ? `<br><span style="color:#facc15;">⚠ ${semMacro} alimento(s) só têm as calorias do PDF, sem proteína, carboidrato e gordura. Complete na edição.</span>` : ''}
-        ${p.origem ? `<br><span style="color:var(--text-muted);">Origem: ${esc(p.origem)}</span>` : ''}
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input id="imp-inativo" type="checkbox" checked onchange="_importarAvisoAtivo()"/> Criar inativo (a aluna só vê depois que a nutri revisar e ativar)</label>
-      <div id="imp-aviso" style="font-size:12px;color:#facc15;margin-top:8px;"></div>`;
-    ok.disabled = false;
-    _importarAvisoAtivo();
+    _importarMostrar(p, null);
   };
   rd.readAsText(f, 'utf-8');
+}
+// Resumo, escolha da aluna e (para PDF) a conferência alimento por alimento. Serve aos dois tipos de arquivo.
+function _importarMostrar(p, pdf) {
+  const box = document.getElementById('imp-resumo'), ok = document.getElementById('imp-ok');
+  if (!box) return;
+  _imp = p;
+  // Sugere a aluna pelo nome do arquivo (nome do cadastro parecido); a nutri confirma ou troca.
+  const alvo = _normNome(p.aluno_nome).split(' ').filter(w => w && w !== 'de' && w !== 'da' && w !== 'do');
+  let melhor = null, pts = 0;
+  atletas.forEach(a => {
+    const t = _normNome(a.nome).split(' ');
+    const n = alvo.filter(w => t.includes(w)).length;
+    if (n > pts) { pts = n; melhor = a; }
+  });
+  const tot = calcTotaisRefeicao(p.refeicoes.flatMap(r => r.itens_estruturados || []));
+  const nSub = p.refeicoes.reduce((s, r) => s + (r.refeicoes_substitutas || []).length, 0);
+  const nOu = p.refeicoes.reduce((s, r) => s + (r.itens_estruturados || []).reduce((q, it) => q + (it.substitutos || []).length, 0), 0);
+  const semMacro = p.refeicoes.flatMap(r => [r.itens_estruturados || [], ...(r.refeicoes_substitutas || []).map(x => x.itens_estruturados || [])].flat()).filter(it => it.por100 && !(it.por100.proteina_g || it.por100.carboidrato_g || it.por100.lipidio_g)).length;
+  let conf = '';
+  if (pdf) {
+    const rel = pdf.relatorio, cont = t => rel.filter(x => x.tipo === t).length;
+    const linhas = rel.map(x => {
+      const dev = (x.kcalPdf && x.kcal != null) ? Math.round((x.kcal - x.kcalPdf) / x.kcalPdf * 100) : null;
+      const tipo = { catalogo: '✓ base do Intus', so_calorias: '⚠ só calorias', texto: '✎ só texto' }[x.tipo];
+      return `<tr><td>${esc(x.nome)}</td><td style="text-align:right;">${x.kcalPdf != null ? String(x.kcalPdf).replace('.', ',') : '—'}</td><td style="text-align:right;">${x.kcal != null ? String(x.kcal).replace('.', ',') : '—'}${dev != null && Math.abs(dev) >= 20 ? ` <b style="color:var(--mc-gord);">(${dev > 0 ? '+' : ''}${dev}%)</b>` : ''}</td><td>${tipo}${x.alimento ? ' · ' + esc(x.alimento) : ''}</td></tr>`;
+    }).join('');
+    conf = `<details style="margin-bottom:10px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:800;">Conferência dos alimentos: ${cont('catalogo')} da base do Intus, ${cont('so_calorias')} só com calorias, ${cont('texto')} como texto</summary>
+      <div style="max-height:260px;overflow:auto;margin-top:8px;"><table class="nt-tb" style="font-size:12px;"><tr><th>No PDF</th><th style="text-align:right;">kcal PDF</th><th style="text-align:right;">kcal Intus</th><th>Como entrou</th></tr>${linhas}</table></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Diferença de calorias entre o PDF e a base do Intus é normal (tabelas diferentes); as marcadas passam de 20%. "Só calorias" entram com as calorias do PDF e sem proteína, carboidrato e gordura. "Só texto" aparece para o aluno como texto, sem nutrientes.</div></details>`;
+  }
+  box.innerHTML = `
+    ${pdf && pdf.avisos && pdf.avisos.length ? `<div style="color:#facc15;font-size:12px;margin-bottom:8px;">⚠ ${pdf.avisos.map(esc).join('<br>')}</div>` : ''}
+    <div class="form-group"><label class="label">Aluna que recebe o plano *</label>
+      ${ComboBusca.html({ id: 'imp-atleta', opcoes: atletas.slice().sort((x, y) => (x.nome || '').localeCompare(y.nome || '', 'pt')).map(x => ({ v: x.idatleta, t: x.nome })), valor: (melhor && pts >= 2) ? melhor.idatleta : '', placeholder: 'Digite o nome da aluna', onChange: '_importarAvisoAtivo()' })}
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Nome no arquivo: ${esc(p.aluno_nome || '—')}${melhor && pts >= 2 ? '' : '. Nenhum cadastro bateu com o nome: escolha a aluna na lista.'}</div></div>
+    <div class="form-group"><label class="label">Título</label><input id="imp-titulo" class="input" value="${esc(p.titulo || 'Plano Alimentar')}"/></div>
+    <div style="padding:10px 12px;background:var(--bg3);border-radius:8px;font-size:12.5px;line-height:1.7;margin-bottom:10px;">
+      <b>${p.refeicoes.length}</b> refeições · <b>${nSub}</b> refeições substitutas · <b>${nOu}</b> alimentos com opções de troca (OU)<br>
+      Total do dia (refeições principais): <b>${tot.kcal} kcal</b> · P ${tot.prot} g · C ${tot.carb} g · G ${tot.gord} g
+      ${semMacro ? `<br><span style="color:var(--mc-kcal);">⚠ ${semMacro} alimento(s) só têm as calorias do PDF, sem proteína, carboidrato e gordura. Complete na edição.</span>` : ''}
+      ${p.origem ? `<br><span style="color:var(--text-muted);">Origem: ${esc(p.origem)}</span>` : ''}
+    </div>
+    ${conf}
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input id="imp-inativo" type="checkbox" checked onchange="_importarAvisoAtivo()"/> Criar inativo (a aluna só vê depois que a nutri revisar e ativar)</label>
+    <div id="imp-aviso" style="font-size:12px;color:var(--mc-kcal);margin-top:8px;"></div>`;
+  ok.disabled = false;
+  _importarAvisoAtivo();
 }
 function _importarAvisoAtivo() {
   const el = document.getElementById('imp-aviso'); if (!el) return;
@@ -1018,12 +1153,7 @@ function abrirModalForm(idplano) {
         <div class="form-2col">
           <div class="form-group">
             <label class="label">Aluno *</label>
-            <select id="nt-atleta" class="input" ${isEdit ? 'disabled' : ''}>
-              <option value="">Selecione...</option>
-              ${atletas.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(a =>
-                `<option value="${a.idatleta}" ${Number(a.idatleta)===Number(pl?.idatleta||filtroAtleta)?'selected':''}>${esc(a.nome)}</option>`
-              ).join('')}
-            </select>
+            ${ComboBusca.html({ id: 'nt-atleta', opcoes: atletas.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(a => ({ v: a.idatleta, t: a.nome })), valor: Number(pl?.idatleta || filtroAtleta) || '', placeholder: 'Digite o nome do aluno', disabled: isEdit })}
           </div>
           <div class="form-group">
             <label class="label">Título</label>
@@ -3520,6 +3650,7 @@ function _faixaFotosHtml() {
     <div class="ft-faixa">${f.slice(0, 12).map(r => `<img loading="lazy" class="${r.resposta_nutri ? '' : 'pend'}" src="${esc(r.foto)}" alt="" title="${esc(_nomeAluno(r.idatleta))} · ${esc(_refNome(r))}" onclick="abrirFoto(${r.idregistro})"/>`).join('')}</div>
   </div>`;
 }
+function mudarModoFotos() { render(); }
 function fotosHtml() {
   if (painelCarregando && !painel) return `<div class="nt-wrap"><div class="empty-state"><p>Carregando as fotos...</p></div></div>`;
   if (painelErro || !painel) return `<div class="nt-wrap"><div class="empty-state"><p>Não consegui carregar as fotos agora.</p><button class="btn btn-secondary" style="margin-top:12px;" onclick="carregarPainel()">Tentar de novo</button></div></div>`;
@@ -3529,11 +3660,12 @@ function fotosHtml() {
   const lista = todas.filter(r => (!fotosFiltro.aluno || Number(r.idatleta) === fotosFiltro.aluno) && (!fotosFiltro.status || r.status === fotosFiltro.status) && (!fotosFiltro.semResp || !r.resposta_nutri));
   _fotosLista = lista.map(r => r.idregistro);
   const pend = todas.filter(r => !r.resposta_nutri).length;
+  const modoFotos = VerModo.get('nutricao-fotos', 'pequena');
   const chip = (v, rot) => `<button class="nt-chip ${fotosFiltro.status === v ? 'on' : ''}" onclick="fotosFiltro.status='${v}';render();">${rot}</button>`;
   let corpo = '', diaAtual = null;
   lista.forEach(r => {
     const dia = String(r.data).slice(0, 10);
-    if (dia !== diaAtual) { if (diaAtual !== null) corpo += '</div>'; corpo += `<div class="ft-dia">${esc(_diaRotulo(dia))}</div><div class="ft-grid">`; diaAtual = dia; }
+    if (dia !== diaAtual) { if (diaAtual !== null) corpo += '</div>'; corpo += `<div class="ft-dia">${esc(_diaRotulo(dia))}</div><div class="ft-grid ${modoFotos === 'pequena' ? 'peq' : ''}">`; diaAtual = dia; }
     corpo += `<div class="ft-card" onclick="abrirFoto(${r.idregistro})">
       <div class="ft-img"><img loading="lazy" src="${esc(r.foto)}" alt=""/><span class="ft-badge ${esc(r.status)}">${esc(_ST_FOTO[r.status] || r.status)}</span><span class="ft-resp ${r.resposta_nutri ? '' : 'pend'}">${r.resposta_nutri ? '✓ respondida' : 'responder'}</span></div>
       <div class="ft-info"><b>${esc(_nomeAluno(r.idatleta))}</b><span>${esc(_refHora(r))} ${esc(_refNome(r))}</span>${r.obs ? `<i>“${esc(r.obs)}”</i>` : ''}</div>
@@ -3548,10 +3680,11 @@ function fotosHtml() {
       <div class="nt-kpi"><b>${todas.filter(r => r.status === 'fora').length}</b><span>refeições fora do plano</span></div>
     </div>
     <div class="nt-tools">
-      <select class="input" style="width:auto;min-width:170px;" onchange="fotosFiltro.aluno=Number(this.value);render();"><option value="0">Todos os alunos</option>${alunos.map(([id, nome]) => `<option value="${id}" ${fotosFiltro.aluno === id ? 'selected' : ''}>${esc(nome)}</option>`).join('')}</select>
+      ${ComboBusca.html({ id: 'ft-f-aluno', opcoes: alunos.map(([id, nome]) => ({ v: id, t: nome })), valor: fotosFiltro.aluno || '', vazio: 'Todos os alunos', placeholder: 'Buscar aluno (digite o nome)', onChange: 'fotosFiltro.aluno=Number(v)||0;render();' })}
       ${chip('', 'Todas')}${chip('feito', 'Feito')}${chip('parcial', 'Parcial')}${chip('fora', 'Fora do plano')}
       <button class="nt-chip ${fotosFiltro.semResp ? 'on' : ''}" onclick="fotosFiltro.semResp=!fotosFiltro.semResp;render();">${fotosFiltro.semResp ? '✓ ' : ''}Só sem resposta</button>
       <button class="nt-chip" onclick="painel=null;carregarPainel();render();">Atualizar</button>
+      <span style="margin-left:auto;">${VerModo.barra('nutricao-fotos', [['grande', 'Grandes', '▦'], ['pequena', 'Pequenas', '▪']], 'mudarModoFotos', modoFotos)}</span>
     </div>
     ${lista.length ? corpo : `<div class="empty-state"><p>Nenhuma foto para os filtros escolhidos.</p></div>`}
   </div>`;

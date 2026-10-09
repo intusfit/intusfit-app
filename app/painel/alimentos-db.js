@@ -171,6 +171,9 @@ const AlimentosDB = (() => {
     }
   }
 
+  // Todos os alimentos (equipe, TACO, IBGE e USDA), para quem precisa casar nomes de fora (importador de plano em PDF).
+  function todos() { return [..._customFoods, ..._taco, ..._extra]; }
+
   function getById(id) {
     const numId = Number(id);
     if (numId >= CUSTOM_BASE) return _customFoods.find(f => f.id === numId) || null;
@@ -865,6 +868,7 @@ const AlimentosDB = (() => {
     totalAlimentos,
     buscar,
     buscarOnline,
+    todos,
     getById,
     EXTRA_BASE,
     resolver,

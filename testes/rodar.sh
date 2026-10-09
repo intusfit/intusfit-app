@@ -22,6 +22,7 @@ passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
 passo "plano parcelado: parcelas e cobrança" node parcelas.js
 passo "alimentos: ids, medidas caseiras e plano antigo" node alimentos.js
 passo "dashboard: dica dos graficos e curva de crescimento" node dashboard.js
+passo "plano em PDF: leitura do layout e casamento com a base" node pdf_plano.js
 # Endpoint em PHP de verdade (SQLite): só roda se houver php com mbstring, pdo_sqlite e sqlite3.
 if command -v php >/dev/null && php -r 'exit(extension_loaded("pdo_sqlite") && extension_loaded("mbstring") ? 0 : 1);'; then passo "conteúdo da Nutrição (PHP)" php conteudo.php; passo "alimentos e medidas da equipe (PHP)" php equipe.php; else echo "!! php com pdo_sqlite ausente: teste do endpoint de conteúdo pulado."; echo; fi
 

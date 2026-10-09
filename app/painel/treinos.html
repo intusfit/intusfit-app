@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Treinos — Intus</title>
-  <script src="_mock.js?v=20261009a"></script>
+  <script src="_mock.js?v=20261009b"></script>
   <script src="api.js?v=20261008f"></script>
   <style>
     /* COMBO (autocomplete dropdown) */
@@ -64,6 +64,28 @@
     .ficha-card .sub { font-size:12px; color:var(--text-muted); margin-top:4px; }
     .ficha-card .badges { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
 
+    /* Modos de visualização da lista de fichas (compacto, miniaturas, lista) */
+    .fc-cp, .fc-mini { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; cursor: pointer; transition: border-color .15s, transform .08s; }
+    .fc-cp:hover, .fc-mini:hover { border-color: rgba(127,255,0,.4); }
+    .fc-cp { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .fc-cp .top { display: flex; align-items: center; gap: 10px; }
+    .fc-cp .nm { font-size: 14px; font-weight: 800; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fc-cp .fi { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fc-cp .bd { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+    .fc-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--bg3); color: var(--text-muted); white-space: nowrap; }
+    .fc-pill.v { background: rgba(248,113,113,.14); color: #f87171; } body.theme-light .fc-pill.v { color: #b91c1c; }
+    .fc-pill.a { background: rgba(250,204,21,.14); color: #facc15; } body.theme-light .fc-pill.a { color: #92400e; }
+    .fc-mini { padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; min-width: 0; }
+    .fc-mini .nm { font-size: 12.5px; font-weight: 800; color: var(--text); width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fc-mini .fi { font-size: 11px; color: var(--text-muted); width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fc-tab { width: 100%; border-collapse: collapse; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .fc-tab th { text-align: left; font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; padding: 9px 12px; background: var(--bg3); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .fc-tab td { padding: 8px 12px; font-size: 13px; color: var(--text); border-top: 1px solid var(--border); vertical-align: middle; }
+    .fc-tab tr.lin { cursor: pointer; } .fc-tab tr.lin:hover td { background: var(--bg3); }
+    .fc-tab .num { text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; }
+    .fc-nome { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .fc-nome b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+    .fc-nome span { display: block; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
     /* EXERCÍCIO CARD */
     .ex-card {
       background:var(--bg2, #151515); border:1px solid var(--border, #2a2a2a);
@@ -397,6 +419,7 @@ function renderLista() {
   })();
   const _tipPrescritos = Tip.historico({ titulo: 'Fichas prescritas', rotulos: _serie12.rot, valores: _serie12.val, i: 11, sufixo: 'neste mês', anteriores: 5 });
 
+  const modoFichas = VerModo.get('treinos-fichas', 'cartoes');
   main.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -491,6 +514,7 @@ function renderLista() {
           </div>`;
         })() : ''}
         <span style="font-size:12px;color:var(--text-muted);">${fichasComInfo.length} ficha${fichasComInfo.length!==1?'s':''}</span>
+        <span style="margin-left:auto;">${VerModo.barra('treinos-fichas', [['cartoes', 'Cartões', '▦'], ['compacto', 'Compacto', '▤'], ['miniaturas', 'Miniaturas', '▪'], ['lista', 'Lista', '☰']], 'mudarModoFichas', modoFichas)}</span>
       </div>
       ${fichasComInfo.length === 0 ? `
         <div class="card" style="padding:50px 20px;text-align:center;color:var(--text-muted);">
@@ -498,7 +522,7 @@ function renderLista() {
           <p>Nenhuma ficha de treino ainda.</p>
           ${podeIncluir ? '<p style="margin-top:8px;">Clique em <b>+ Adicionar Treino</b> para criar a primeira.</p>' : ''}
         </div>
-      ` : fichasComInfo.map(f => {
+      ` : _fichasPorModo(fichasComInfo, modoFichas, podeIncluir, f => {
         const _profs = (() => {
           if (!f.aluno || !f.aluno.professores_responsaveis) return '';
           const allU = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
@@ -530,9 +554,63 @@ function renderLista() {
             ${_profs ? `<span class="pill" style="background:rgba(250,204,21,.08);color:#facc15;border:1px solid rgba(250,204,21,.2);padding:2px 8px;font-size:11px;">👤 ${esc(_profs)}</span>` : ''}
           </div>
         </div>`;
-      }).join('')}
+      })}
     </div>
   `;
+}
+
+function mudarModoFichas() { render(); }
+function _profsDe(f) {
+  if (!f.aluno || !f.aluno.professores_responsaveis) return '';
+  const allU = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+  return f.aluno.professores_responsaveis.map(id => { const u = allU.find(x => Number(x.idusuario) === Number(id)); return u ? (u.nome || '').split(' ')[0] : ''; }).filter(Boolean).join(', ');
+}
+function _fichaSituacao(f) {
+  if (!f.dtfim) return '';
+  const hoje = new Date().toISOString().slice(0, 10), d = String(f.dtfim).slice(0, 10);
+  const dias = Math.round((new Date(d + 'T00:00:00') - new Date(hoje + 'T00:00:00')) / 86400000);
+  if (dias < 0) return `<span class="fc-pill v" title="Venceu em ${fmtDataBR(d)}">venceu há ${-dias}d</span>`;
+  if (dias <= 7) return `<span class="fc-pill a" title="Vence em ${fmtDataBR(d)}">vence em ${dias}d</span>`;
+  return `<span class="fc-pill" title="Vence em ${fmtDataBR(d)}">até ${fmtDataBR(d).slice(0, 5)}</span>`;
+}
+function fmtDataBR(d) { return d ? new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') : ''; }
+// Lista de fichas em cada modo; "grande" é o cartão completo de sempre (um por linha).
+function _fichasPorModo(lista, modo, podeIncluir, grande) {
+  if (modo === 'compacto') {
+    return '<div class="vm-grid m-compacto">' + lista.map(f => {
+      const nome = f.aluno ? f.aluno.nome : 'Aluno removido';
+      return `<div class="fc-cp" onclick="abrirFicha(${f.idficha})" title="${esc(nome)} · ${esc(f.nmficha || 'Ficha')}">
+        <div class="top">${f.aluno ? avatarHtml(f.idatleta, nome, 34) : ''}<div style="min-width:0;flex:1;"><div class="nm">${esc(nome)}</div><div class="fi">${esc(f.nmficha || 'Ficha sem nome')}</div></div>
+          <button class="btn-icon-sm" onclick="event.stopPropagation();verHistorico(${f.idatleta})" title="Histórico do aluno">📊</button></div>
+        <div class="bd"><span class="fc-pill">${f.divs.length} divisões</span><span class="fc-pill">${f.exs.length} exercícios</span>${_fichaSituacao(f)}<span style="font-size:11px;color:var(--text-muted);margin-left:auto;">${f.dtinicio ? fmtDataBR(f.dtinicio).slice(0, 5) : ''}</span></div>
+      </div>`;
+    }).join('') + '</div>';
+  }
+  if (modo === 'miniaturas') {
+    return '<div class="vm-grid m-miniaturas">' + lista.map(f => {
+      const nome = f.aluno ? f.aluno.nome : 'Aluno removido';
+      return `<div class="fc-mini" onclick="abrirFicha(${f.idficha})" title="${esc(nome)} · ${esc(f.nmficha || 'Ficha')}">
+        ${f.aluno ? avatarHtml(f.idatleta, nome, 50) : ''}<div class="nm">${esc(nome)}</div><div class="fi">${esc(f.nmficha || 'Ficha sem nome')}</div>
+        <div class="bd" style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;"><span class="fc-pill">${f.divs.length} div · ${f.exs.length} ex</span>${_fichaSituacao(f)}</div>
+      </div>`;
+    }).join('') + '</div>';
+  }
+  if (modo === 'lista') {
+    return `<div style="overflow-x:auto;"><table class="fc-tab"><thead><tr><th>Aluno</th><th>Ficha</th><th>Início</th><th>Validade</th><th style="text-align:center;">Divisões</th><th style="text-align:center;">Exercícios</th><th>Professor</th><th></th></tr></thead><tbody>` +
+      lista.map(f => {
+        const nome = f.aluno ? f.aluno.nome : 'Aluno removido';
+        return `<tr class="lin" onclick="abrirFicha(${f.idficha})">
+          <td><div class="fc-nome">${f.aluno ? avatarHtml(f.idatleta, nome, 28) : ''}<div style="min-width:0;"><b title="${esc(nome)}">${esc(nome)}</b></div></div></td>
+          <td><div class="fc-nome"><div style="min-width:0;"><b title="${esc(f.nmficha || '')}">${esc(f.nmficha || 'Ficha sem nome')}</b>${f.observacao ? `<span title="${esc(f.observacao)}">${esc(f.observacao.slice(0, 60))}</span>` : ''}</div></div></td>
+          <td style="white-space:nowrap;color:var(--text-muted);font-size:12px;">${fmtDataBR(f.dtinicio)}</td>
+          <td>${_fichaSituacao(f) || '<span style="color:var(--text-muted);font-size:12px;">sem prazo</span>'}</td>
+          <td class="num">${f.divs.length}</td><td class="num">${f.exs.length}</td>
+          <td style="font-size:12px;color:var(--text-muted);">${esc(_profsDe(f))}</td>
+          <td style="text-align:right;white-space:nowrap;"><button class="btn-icon-sm" onclick="event.stopPropagation();verHistorico(${f.idatleta})" title="Histórico do aluno">📊</button>${podeIncluir ? ` <button class="btn-icon-sm" onclick="event.stopPropagation();duplicarFicha(${f.idficha})" title="Duplicar para outro aluno">⧉</button>` : ''}</td>
+        </tr>`;
+      }).join('') + '</tbody></table></div>';
+  }
+  return lista.map(grande).join('');
 }
 
 function toggleFiltroProf(id) {

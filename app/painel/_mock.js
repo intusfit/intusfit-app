@@ -1364,6 +1364,136 @@ window.Tip = (function () {
   }
   return { attr: html => ' data-tip="' + esc(html) + '"', historico, esconder };
 })();
+
+// ── VerModo: escolha de visualização (cartões, compacto, miniaturas, lista) lembrada por tela ────────────────────────
+// Cada tela desenha o próprio conteúdo para cada modo; aqui ficam só o botão, a memória da escolha e a grade.
+//   VerModo.get('nutricao-planos', 'compacto')            -> modo atual (ou o padrão)
+//   VerModo.barra('nutricao-planos', [['cartoes','Cartões','▦'],...], 'minhaFuncao')  -> HTML do seletor; ao clicar chama minhaFuncao(modo)
+//   <div class="vm-grid m-compacto"> ... </div>            -> grade responsiva (cartoes 3/linha, compacto 4+, miniaturas 6+); m-lista vira coluna
+window.VerModo = (function () {
+  const K = 'intus-vista-';
+  function get(chave, padrao) { try { return localStorage.getItem(K + chave) || padrao; } catch (e) { return padrao; } }
+  function set(chave, v) { try { localStorage.setItem(K + chave, v); } catch (e) {} }
+  function barra(chave, modos, fn, atual) {
+    const cur = atual || get(chave, modos[0][0]);
+    return '<span class="vm-bar" role="group" aria-label="Modo de visualização">' + modos.map(m =>
+      '<button type="button" class="' + (m[0] === cur ? 'on' : '') + '" title="' + m[1] + '" aria-pressed="' + (m[0] === cur) + '" onclick="VerModo.set(\'' + chave + '\',\'' + m[0] + '\');' + fn + '(\'' + m[0] + '\')">' +
+      '<span aria-hidden="true">' + (m[2] || '') + '</span><span class="vm-t">' + m[1] + '</span></button>').join('') + '</span>';
+  }
+  if (!document.getElementById('intus-vm-css')) {
+    const st = document.createElement('style');
+    st.id = 'intus-vm-css';
+    st.textContent = `
+      .vm-bar { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--bg2); }
+      .vm-bar button { border: none; background: transparent; color: var(--text-muted); padding: 6px 11px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; display: inline-flex; gap: 6px; align-items: center; }
+      .vm-bar button + button { border-left: 1px solid var(--border); }
+      .vm-bar button:hover { color: var(--text); }
+      .vm-bar button.on { background: var(--green-dim, rgba(127,255,0,.12)); color: var(--green); }
+      @media (max-width: 640px) { .vm-bar .vm-t { display: none; } }
+      .vm-grid { display: grid; gap: 14px; }
+      .vm-grid.m-cartoes { grid-template-columns: repeat(auto-fill, minmax(min(100%, 430px), 1fr)); }
+      .vm-grid.m-compacto { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; }
+      .vm-grid.m-miniaturas { grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 10px; }
+      .vm-grid.m-lista { display: block; }`;
+    document.head.appendChild(st);
+  }
+  return { get, set, barra };
+})();
+
+// ── ComboBusca: lista suspensa em que dá para DIGITAR para filtrar (nome sem acento, em qualquer parte) ─────────────────
+// Substitui o <select> de alunos. Mantém um <input type="hidden" id="..."> com o valor, então o código antigo que lê
+// document.getElementById(id).value continua valendo.
+//   ComboBusca.html({ id, opcoes: [{v, t, s}], valor, vazio: 'Todos os alunos', placeholder, onChange: 'filtro=v;render();', disabled })
+//   ComboBusca.valor(id)
+window.ComboBusca = (function () {
+  const dados = {};
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const norm = s => String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  function rotulo(id) { const d = dados[id]; if (!d) return ''; const o = d.opcoes.find(x => String(x.v) === String(d.valor)); return o ? o.t : (d.valor === '' || d.valor == null ? '' : ''); }
+  function html(o) {
+    dados[o.id] = { opcoes: o.opcoes || [], valor: o.valor == null ? '' : String(o.valor), vazio: o.vazio || '', onChange: o.onChange || '', ativo: -1 };
+    const sel = dados[o.id].opcoes.find(x => String(x.v) === dados[o.id].valor);
+    return '<div class="cbx" data-cbx="' + esc(o.id) + '"' + (o.largura ? ' style="min-width:' + o.largura + 'px;"' : '') + '>' +
+      '<input type="hidden" id="' + esc(o.id) + '" value="' + esc(dados[o.id].valor) + '"/>' +
+      '<input type="text" class="input cbx-in" data-cbx-in="' + esc(o.id) + '" autocomplete="off" role="combobox" aria-expanded="false" placeholder="' + esc(o.placeholder || o.vazio || 'Digite para buscar') + '" value="' + esc(sel ? sel.t : '') + '"' + (o.disabled ? ' disabled' : '') + '/>' +
+      (o.disabled ? '' : '<button type="button" class="cbx-x" data-cbx-x="' + esc(o.id) + '" aria-label="Limpar" tabindex="-1" style="' + (dados[o.id].valor === '' ? 'display:none;' : '') + '">×</button>') +
+      '<div class="cbx-lista" data-cbx-lista="' + esc(o.id) + '" role="listbox"></div></div>';
+  }
+  function raiz(id) { return document.querySelector('.cbx[data-cbx="' + id + '"]'); }
+  function filtrar(id, termo) {
+    const d = dados[id]; if (!d) return [];
+    const t = norm(termo).trim();
+    const lista = d.opcoes.filter(o => !t || norm(o.t + ' ' + (o.s || '')).indexOf(t) >= 0);
+    return (d.vazio && (!t || norm(d.vazio).indexOf(t) >= 0)) ? [{ v: '', t: d.vazio, vazio: true }].concat(lista) : lista;
+  }
+  function desenhar(id, termo) {
+    const r = raiz(id); if (!r) return;
+    const box = r.querySelector('.cbx-lista'), d = dados[id];
+    const itens = filtrar(id, termo);
+    d.visiveis = itens; d.ativo = itens.length ? Math.max(0, Math.min(d.ativo, itens.length - 1)) : -1;
+    box.innerHTML = itens.length ? itens.map((o, i) =>
+      '<div class="cbx-op' + (i === d.ativo ? ' on' : '') + (String(o.v) === d.valor ? ' sel' : '') + (o.vazio ? ' vz' : '') + '" role="option" data-cbx-op="' + i + '">' + esc(o.t) + (o.s ? '<small>' + esc(o.s) + '</small>' : '') + '</div>').join('')
+      : '<div class="cbx-vazio">Nenhum resultado para "' + esc(termo) + '"</div>';
+  }
+  function abrir(id) {
+    const r = raiz(id); if (!r) return;
+    document.querySelectorAll('.cbx.on').forEach(x => { if (x !== r) fechar(x.getAttribute('data-cbx')); });
+    delete r.dataset.digitou; r.classList.add('on'); r.querySelector('.cbx-in').setAttribute('aria-expanded', 'true');
+    dados[id].ativo = Math.max(0, filtrar(id, '').findIndex(o => String(o.v) === dados[id].valor));
+    desenhar(id, '');                                           // ao abrir mostra tudo; ao digitar, filtra
+    const a = r.querySelector('.cbx-op.on'); if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest' });
+  }
+  function fechar(id) {
+    const r = raiz(id); if (!r) return;
+    delete r.dataset.digitou; r.classList.remove('on'); const i = r.querySelector('.cbx-in'); i.setAttribute('aria-expanded', 'false');
+    i.value = rotulo(id);                                       // texto digitado e não escolhido volta ao que estava
+  }
+  function escolher(id, v) {
+    const d = dados[id], r = raiz(id); if (!d || !r) return;
+    d.valor = String(v == null ? '' : v);
+    r.querySelector('input[type=hidden]').value = d.valor;
+    const x = r.querySelector('.cbx-x'); if (x) x.style.display = d.valor === '' ? 'none' : '';
+    fechar(id);
+    if (d.onChange) { try { (new Function('v', d.onChange))(d.valor === '' ? '' : d.valor); } catch (e) { console.error(e); } }
+  }
+  document.addEventListener('focusin', e => { const i = e.target.closest && e.target.closest('.cbx-in'); if (i && !i.disabled) { abrir(i.getAttribute('data-cbx-in')); try { i.select(); } catch (x) {} } });
+  document.addEventListener('input', e => { const i = e.target.closest && e.target.closest('.cbx-in'); if (!i) return; const id = i.getAttribute('data-cbx-in'); const r = raiz(id); if (r && !r.classList.contains('on')) abrir(id); r.dataset.digitou = '1'; dados[id].ativo = 0; desenhar(id, i.value); });
+  document.addEventListener('mousedown', e => {
+    const op = e.target.closest && e.target.closest('.cbx-op');
+    if (op) { e.preventDefault(); const r = op.closest('.cbx'), id = r.getAttribute('data-cbx'); const o = dados[id].visiveis[Number(op.getAttribute('data-cbx-op'))]; if (o) escolher(id, o.v); return; }
+    const x = e.target.closest && e.target.closest('.cbx-x');
+    if (x) { e.preventDefault(); escolher(x.getAttribute('data-cbx-x'), ''); return; }
+    if (!(e.target.closest && e.target.closest('.cbx'))) document.querySelectorAll('.cbx.on').forEach(r => fechar(r.getAttribute('data-cbx')));
+  });
+  document.addEventListener('keydown', e => {
+    const i = e.target.closest && e.target.closest('.cbx-in'); if (!i) return;
+    const id = i.getAttribute('data-cbx-in'), d = dados[id], r = raiz(id);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!r.classList.contains('on')) abrir(id); const n = (d.visiveis || []).length; if (n) { d.ativo = (d.ativo + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; desenhar(id, r.dataset.digitou ? i.value : ''); const a = r.querySelector('.cbx-op.on'); if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest' }); } }
+    else if (e.key === 'Enter') { if (r.classList.contains('on') && d.visiveis && d.visiveis[d.ativo]) { e.preventDefault(); escolher(id, d.visiveis[d.ativo].v); } }
+    else if (e.key === 'Escape') { fechar(id); i.blur(); }
+    else if (e.key === 'Tab') { fechar(id); }
+  });
+  if (!document.getElementById('intus-cbx-css')) {
+    const st = document.createElement('style');
+    st.id = 'intus-cbx-css';
+    st.textContent = `
+      .cbx { position: relative; display: inline-block; min-width: 230px; }
+      .cbx-in { width: 100%; padding-right: 28px !important; }
+      .cbx-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: none; background: transparent; color: var(--text-muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+      .cbx-x:hover { color: var(--text); }
+      .cbx-lista { display: none; position: absolute; z-index: 300; left: 0; right: 0; top: 100%; margin-top: 4px; min-width: 240px; max-height: 300px; overflow-y: auto;
+        background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.35); padding: 4px; }
+      .cbx.on .cbx-lista { display: block; }
+      .cbx-op { padding: 8px 10px; border-radius: 7px; font-size: 13px; color: var(--text); cursor: pointer; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+      .cbx-op small { color: var(--text-muted); font-size: 11px; }
+      .cbx-op.on { background: var(--bg3); }
+      .cbx-op.sel { font-weight: 800; color: var(--green); }
+      .cbx-op.vz { color: var(--text-muted); font-style: italic; }
+      .cbx-vazio { padding: 12px; font-size: 12.5px; color: var(--text-muted); text-align: center; }`;
+    document.head.appendChild(st);
+  }
+  return { html, valor: id => (document.getElementById(id) || {}).value, escolher };
+})();
 // ── Previa do plano parcelado (usada por mensalidades.html e alunos.html) ───────────────────────────────────────────
 // Recebe o resultado de API.gerarParcelas e devolve o HTML da previa: ou o erro, ou a lista de parcelas com a data de cobranca.
 const PARC_MESES = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };

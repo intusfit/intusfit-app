@@ -1240,3 +1240,19 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **Editor** (`abrirModalForm`): cabeçalho fixo com as abas numeradas (1 Informações, 2 Refeições com contador, 3 Metas e cálculos) e a barra "Total do dia" sempre à vista (kcal, P, C, G, % da meta, distribuição),
   abre direto em Refeições quando o plano já tem refeições, atalhos por refeição, Recolher/Expandir tudo, tela inicial convidativa para plano vazio, legenda explicando a diferença entre trocar um alimento (↔ na
   linha) e trocar a refeição inteira, painel completo de totais recolhível, **aviso de alterações não salvas** (X, Cancelar, clique fora; `closeModal` é envolvido neste arquivo) e Ctrl+S para salvar.
+
+## 37. Importar plano direto do PDF, modos de visualização e busca digitável (09/10/2026)
+
+- **Importador em PDF** (`nutricao.html` > Planos > ⬆ Importar plano): aceita o PDF "Plano Alimentar" exportado do sistema de dieta da nutri (ou o `.json` `intus-plano-v1`). Tudo no navegador: `vendor/pdfjs/`
+  (pdf.js 3.11.174, Mozilla, Apache 2.0, de cdnjs; só é carregado quando se escolhe um PDF) lê os trechos de texto com posição; `importar-pdf.js` (`ImportarPDF.interpretar` e `montarPlano`) reconhece
+  cabeçalho, refeições (`HH:MM - Nome`), alimentos (`Nome (Medida: qtd)` + `kcal`), "OU", "Substituição N" e observações (texto à esquerda dos alimentos, x≈60 contra x≈72). O PDF não sai do computador.
+  Layout lido: nome a x≈72, Kcal a x≈345, Grupo a x≈436 (as colunas são lidas do próprio arquivo). Se o sistema de dieta mudar o layout, o importador avisa que não reconheceu refeições.
+- **Como cada alimento entra**: casado com a base do Intus por nome (palavras, sem acento, com sinônimos como "arroz branco" = "arroz tipo 1") e conferido pelas calorias do PDF (aceita até 50% de diferença quando o
+  nome bate por inteiro, 25% quando bate em parte). Medida caseira que o catálogo não tem usa o peso que reproduz as calorias do PDF (só quando o alimento é único; senão não chuta). Sem alimento parecido, entra
+  só com as calorias do PDF ("só calorias"); troca "OU" sem quantidade ou sem alimento conhecido vira texto. "Peito de galinha OU frango" no meio do nome é um alimento só. O resumo traz uma **conferência
+  alimento por alimento** (kcal do PDF, kcal do Intus, como entrou). O plano nasce inativo. `AlimentosDB.todos()` foi criado para isso. Teste: `testes/pdf_plano.js` (33 conferências).
+- **Componentes compartilhados em `_mock.js`**: `VerModo` (seletor Cartões / Compacto / Miniaturas / Lista, lembrado por tela em `localStorage['intus-vista-<tela>']`, grade `.vm-grid.m-*`) e `ComboBusca` (lista suspensa em
+  que se DIGITA para filtrar, sem acento e em qualquer parte do nome, com setas, Enter, Esc e botão ×; mantém um `<input type=hidden id=...>` com o valor, então o código que lia o `<select>` continua valendo).
+  Qualquer tela adota assim: `VerModo.barra(...)` + um renderizador por modo, e `ComboBusca.html({...})` no lugar do `<select>`.
+- **Onde já está**: Nutrição > Planos (padrão Compacto, 4 por linha em tela larga; Miniaturas 8; Lista com totais), Nutrição > Fotos (Grandes/Pequenas), Treinos > fichas (padrão Cartões, como era), e os campos de aluno
+  (filtro de planos, filtro de fotos, aluno do plano, aluna do importador) agora aceitam digitar. **Próximos candidatos**: Matrículas, Clientes (`alunos.html`), Avaliações, Mensagens, Usuários.
