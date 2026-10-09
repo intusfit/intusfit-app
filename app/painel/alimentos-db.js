@@ -21,6 +21,9 @@ const AlimentosDB = (() => {
   // (1..597) e os "Meus alimentos" (1.000.000+). Entram na busca depois da TACO.
   let _extra = [];
   const EXTRA_BASE = 100000;
+  // Medidas caseiras cadastradas pela equipe (intus_alimento_medida), por número de alimento: { 489: [{ id: 'eq_12', nome, gramas, idmedida, meu }] }.
+  // Valem para qualquer alimento (TACO, extras ou Meus alimentos) e para toda a equipe. Medida da equipe com o mesmo nome de uma do catálogo a substitui.
+  let _medidasEquipe = {};
 
   // Os "Meus Alimentos" vêm do servidor com id 1, 2, 3... e a TACO também usa 1..597. Antes isso fazia o 1º alimento
   // cadastrado esconder o "Arroz integral cozido", o 2º esconder o "Arroz integral cru" e assim por diante (e os planos
@@ -74,7 +77,15 @@ const AlimentosDB = (() => {
         console.error('[AlimentosDB] Erro ao carregar Meus Alimentos do servidor:', e);
         _customFoods = [];
       }
-      console.log(`[AlimentosDB] Carregado: ${_taco.length} TACO + ${_extra.length} extras + ${_customFoods.length} personalizados`);
+      try {
+        const lista = (typeof API !== 'undefined' && API.listarMedidasEquipe) ? await API.listarMedidasEquipe() : [];
+        _medidasEquipe = {};
+        (Array.isArray(lista) ? lista : []).forEach(_guardarMedidaEquipe);
+      } catch (e) {
+        console.warn('[AlimentosDB] medidas da equipe indisponíveis:', e);
+        _medidasEquipe = {};
+      }
+      console.log(`[AlimentosDB] Carregado: ${_taco.length} TACO + ${_extra.length} extras + ${_customFoods.length} da equipe`);
     } catch (e) {
       console.error('[AlimentosDB] Erro ao carregar dados:', e);
       _taco = [];
@@ -231,22 +242,45 @@ const AlimentosDB = (() => {
     return escalar(nutrientesPor100(food), quantidadeGramas);
   }
 
-  // Medidas caseiras do alimento, com gramas por 1 medida. Só entra o que é conhecido para aquele alimento: antes valia uma
-  // lista genérica (unidade = 100 g, fatia = 30 g...) que dava 1 ovo = 143 kcal. Sem medida cadastrada, o alimento fica em gramas.
+  function _guardarMedidaEquipe(m) {
+    const fid = Number(m.food_id);
+    const lista = _medidasEquipe[fid] || (_medidasEquipe[fid] = []);
+    const item = { id: 'eq_' + m.idmedida, nome: m.nome, abrev: m.nome, gramas: Number(m.gramas), idmedida: Number(m.idmedida), meu: m.meu !== false, equipe: true };
+    const k = lista.findIndex(x => x.idmedida === item.idmedida);
+    if (k >= 0) lista[k] = item; else lista.push(item);
+  }
+  function getMedidasEquipe(foodId) { return (_medidasEquipe[Number(foodId)] || []).slice(); }
+
+  // Medidas caseiras do alimento, com gramas por 1 medida: as do catálogo (só o que é conhecido para aquele alimento; antes valia uma lista
+  // genérica em que unidade = 100 g e 1 ovo dava 143 kcal) mais as que a equipe cadastrou. Sem nenhuma, o alimento fica em gramas.
   function getMedidasAlimento(foodId) {
     const numId = Number(foodId);
+    const equipe = getMedidasEquipe(numId);
+    let base = [];
     if (numId >= CUSTOM_BASE) {
       const c = _customFoods.find(f => f.id === numId);
-      if (!c) return [];
-      const medidas = [];
-      if (c.medida_padrao && c.medida_padrao !== 'g') {
-        medidas.push({ id: 'custom_porcao', nome: c.medida_padrao, abrev: c.medida_padrao, gramas: c.porcao_padrao || 100 });
+      if (c && c.medida_padrao && c.medida_padrao !== 'g') {
+        base.push({ id: 'custom_porcao', nome: c.medida_padrao, abrev: c.medida_padrao, gramas: c.porcao_padrao || 100 });
       }
-      return medidas;
+    } else {
+      const u = _unidades[String(numId)];
+      if (u && Array.isArray(u.m)) base = u.m.map(m => ({ id: m[0], nome: m[1], abrev: m[1], gramas: m[2] }));
     }
-    const u = _unidades[String(numId)];
-    if (!u || !Array.isArray(u.m)) return [];
-    return u.m.map(m => ({ id: m[0], nome: m[1], abrev: m[1], gramas: m[2] }));
+    if (!equipe.length) return base;
+    const nomes = new Set(equipe.map(m => normalizar(m.nome)));
+    return base.filter(m => !nomes.has(normalizar(m.nome))).concat(equipe);
+  }
+
+  // Cria (ou atualiza o peso de) uma medida da equipe para um alimento.
+  async function addMedida(foodId, nome, gramas) {
+    const r = await API.salvarMedidaEquipe({ food_id: Number(foodId), nome: String(nome).trim(), gramas: Number(gramas) });
+    _guardarMedidaEquipe({ food_id: Number(foodId), idmedida: r.idmedida, nome: r.nome, gramas: r.gramas, meu: r.meu });
+    return getMedidasEquipe(foodId).find(m => m.idmedida === Number(r.idmedida));
+  }
+  async function removerMedida(foodId, idmedida) {
+    await API.excluirMedidaEquipe(idmedida);
+    const fid = Number(foodId);
+    _medidasEquipe[fid] = (_medidasEquipe[fid] || []).filter(m => m.idmedida !== Number(idmedida));
   }
 
   // Medida e quantidade sugeridas ao incluir o alimento num plano (ex.: ovo = 2 unidades). null = usar 100 g.
@@ -255,7 +289,12 @@ const AlimentosDB = (() => {
     if (!meds.length) return null;
     const numId = Number(foodId);
     const u = numId < CUSTOM_BASE ? _unidades[String(numId)] : null;
-    const alvo = u && u.p ? meds.find(m => m.id === u.p[0]) : null;
+    // A medida padrão do catálogo pode ter sido substituída por uma da equipe com o mesmo nome (outro peso): vale a da equipe.
+    let alvo = u && u.p ? meds.find(m => m.id === u.p[0]) : null;
+    if (!alvo && u && u.p && Array.isArray(u.m)) {
+      const cat = u.m.find(m => m[0] === u.p[0]);
+      if (cat) alvo = meds.find(m => normalizar(m.nome) === normalizar(cat[1])) || null;
+    }
     const m = alvo || meds[0];
     return { medida_id: m.id, medida_nome: m.nome, medida_g: m.gramas, quantidade: (u && u.p && alvo) ? u.p[1] : 1 };
   }
@@ -758,7 +797,8 @@ const AlimentosDB = (() => {
     return _customFoods;
   }
 
-  async function addCustomFood(food) {
+  // medidas = [{ nome, gramas }]: medidas caseiras do alimento novo, gravadas já para a equipe.
+  async function addCustomFood(food, medidas) {
     const salvo = await API.criarAlimentoPersonalizado({
       description: food.description || 'Alimento personalizado',
       category: food.category || 'Meus Alimentos',
@@ -787,6 +827,11 @@ const AlimentosDB = (() => {
     });
     const novo = _prepCustom(salvo);
     _customFoods.push(novo);
+    for (const m of (medidas || [])) {
+      if (m && String(m.nome || '').trim() && Number(m.gramas) > 0) {
+        try { await addMedida(novo.id, m.nome, m.gramas); } catch (e) { console.warn('[AlimentosDB] medida não gravada:', e); novo._medidaFalhou = true; }
+      }
+    }
     return novo;
   }
 
@@ -803,6 +848,7 @@ const AlimentosDB = (() => {
     const nid = _nsId(id);
     await API.excluirAlimentoPersonalizado(_dbidDe(nid));
     _customFoods = _customFoods.filter(f => f.id !== nid);
+    delete _medidasEquipe[nid];
   }
 
   // ─── UTILIDADES ────────────────────────────────────────────────────────
@@ -828,6 +874,9 @@ const AlimentosDB = (() => {
     nutrientesPor100,
     escalar,
     getMedidasAlimento,
+    getMedidasEquipe,
+    addMedida,
+    removerMedida,
     getUnidadePadrao,
     CUSTOM_BASE,
     getMedidasPadrao,

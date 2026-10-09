@@ -9,7 +9,9 @@ function eq(rot, obtido, esperado) {
   else { ruim++; console.log('  FALHA ' + rot + '\n          esperado ' + b + '\n          obtido   ' + a); }
 }
 
-function carregar(meusAlimentos) {
+function carregar(meusAlimentos, medidasServidor) {
+  const MEDIDAS_SERVIDOR = medidasServidor || [];
+  let SEQ_MEDIDA = 10;
   const sandbox = {
     console, setTimeout, clearTimeout, Promise, JSON, Math, Number, String, Object, Array, Set, Map, Error,
     fetch: async (url) => {
@@ -23,6 +25,14 @@ function carregar(meusAlimentos) {
       criarAlimentoPersonalizado: async (d) => Object.assign({ id: 7 }, d),
       editarAlimentoPersonalizado: async () => ({ ok: true }),
       excluirAlimentoPersonalizado: async () => ({ ok: true }),
+      // medidas da equipe (em memória, no formato do servidor)
+      listarMedidasEquipe: async () => JSON.parse(JSON.stringify(MEDIDAS_SERVIDOR)),
+      salvarMedidaEquipe: async (d) => {
+        let m = MEDIDAS_SERVIDOR.find(x => x.food_id === d.food_id && x.nome.toLowerCase() === d.nome.toLowerCase());
+        if (m) m.gramas = d.gramas; else { m = { idmedida: ++SEQ_MEDIDA, food_id: d.food_id, nome: d.nome, gramas: d.gramas, idprofessor: 1, meu: true }; MEDIDAS_SERVIDOR.push(m); }
+        return Object.assign({ ok: true }, m);
+      },
+      excluirMedidaEquipe: async (id) => { const i = MEDIDAS_SERVIDOR.findIndex(x => x.idmedida === id); if (i >= 0) MEDIDAS_SERVIDOR.splice(i, 1); return { ok: true }; },
     },
   };
   sandbox.window = sandbox;
@@ -103,6 +113,29 @@ function carregar(meusAlimentos) {
   eq('escalar um extra', DB.calcNutrientes(q.id, 100).energia_kcal, 120);
   eq('o catálogo de medidas dos extras só aponta para extras', Object.keys(extra.medidas).filter(id => !ex.some(f => String(f.id) === id)), []);
   eq('alimento com id de extra e nome diferente não é confundido', DB.resolver({ food_id: q.id, nome: 'Arroz, integral, cozido' }).id, 1);
+
+  console.log('\n── 7. Medidas da equipe e alimentos compartilhados ──');
+  const DB2 = carregar(meus, [{ idmedida: 1, food_id: 489, nome: 'Ovo grande', gramas: 60, idprofessor: 2, meu: false }, { idmedida: 2, food_id: 489, nome: 'Unidade', gramas: 55, idprofessor: 2, meu: false }]);
+  await DB2.load();
+  eq('medida da equipe aparece no ovo da TACO, junto das do catálogo', DB2.getMedidasAlimento(489).map(m => m.nome + '=' + m.gramas), ['Ovo grande=60', 'Unidade=55']);
+  eq('medida da equipe com o mesmo nome do catálogo substitui o peso (Unidade 50 g vira 55 g)', DB2.getMedidasAlimento(489).find(m => m.nome === 'Unidade').gramas, 55);
+  eq('a sugestão do ovo continua sendo 2 unidades, agora com o peso da equipe', [DB2.getUnidadePadrao(489).medida_nome, DB2.getUnidadePadrao(489).quantidade, DB2.getUnidadePadrao(489).medida_g], ['Unidade', 2, 55]);
+  eq('o id da medida da equipe é eq_<idmedida>', DB2.getMedidasAlimento(489).map(m => m.id), ['eq_1', 'eq_2']);
+  const outro = DB2.getCustomFoods().find(f => f.description === 'Barrinha Teste');
+  const nm = await DB2.addMedida(outro.id, 'Barra', 45);
+  eq('adiciona uma medida da equipe a um Meu alimento', [nm.id.startsWith('eq_'), nm.gramas, DB2.getMedidasAlimento(outro.id).map(m => m.nome + '=' + m.gramas)], [true, 45, ['Barra=45']]);
+  await DB2.addMedida(outro.id, 'barra', 48);
+  eq('mesmo nome atualiza o peso, sem duplicar', DB2.getMedidasAlimento(outro.id).map(m => m.gramas), [48]);
+  await DB2.addMedida(outro.id, 'Metade da barra', 24);
+  eq('um alimento pode ter várias medidas', DB2.getMedidasAlimento(outro.id).length, 2);
+  await DB2.removerMedida(outro.id, nm.idmedida);
+  eq('apagar a medida tira da lista', DB2.getMedidasAlimento(outro.id).map(m => m.nome), ['Metade da barra']);
+  const comMed = await DB2.addCustomFood({ description: 'Pasta nova', energy_kcal: 500 }, [{ nome: 'Colher', gramas: 15 }, { nome: 'Pote', gramas: 170 }, { nome: 'sem peso', gramas: 0 }]);
+  eq('alimento novo já nasce com as medidas (e ignora linha sem peso)', DB2.getMedidasAlimento(comMed.id).map(m => m.nome + '=' + m.gramas), ['Colher=15', 'Pote=170']);
+  eq('a primeira medida vira a sugestão ao prescrever', DB2.getUnidadePadrao(comMed.id).medida_nome, 'Colher');
+  eq('alimento de outro profissional continua utilizável', DB2.getById(outro.id).description, 'Barrinha Teste');
+  await DB2.deleteCustomFood(comMed.id);
+  eq('apagar o alimento leva as medidas dele', DB2.getMedidasEquipe(comMed.id).length, 0);
 
   console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
   process.exit(ruim ? 1 : 0);

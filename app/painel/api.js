@@ -3390,6 +3390,10 @@ const API = {
   salvarNutriConteudo: (obj) => apiFetch('/catalogo.php?action=nutri_conteudo', { method: obj.idconteudo ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
   excluirNutriConteudo: (id) => apiFetch('/catalogo.php?action=nutri_conteudo&id=' + id, { method: 'DELETE' }),
   importarNutriConteudo: () => apiFetch('/catalogo.php?action=nutri_conteudo', { method: 'POST', body: JSON.stringify({ subacao: 'importar' }) }),
+  // Medidas caseiras que a equipe cadastra para qualquer alimento (ex.: 1 pote = 170 g).
+  listarMedidasEquipe: () => apiFetch('/catalogo.php?action=alimento_medidas'),
+  salvarMedidaEquipe: (d) => apiFetch('/catalogo.php?action=alimento_medidas', { method: 'POST', body: JSON.stringify(d) }),
+  excluirMedidaEquipe: (id) => apiFetch('/catalogo.php?action=alimento_medidas&id=' + id, { method: 'DELETE' }),
 
   // Caixa (financeiro.html mantém seu próprio cache local em localStorage e
   // decide quando chamar cada uma destas; aqui é só a chamada de rede crua —

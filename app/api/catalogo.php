@@ -509,6 +509,21 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_alimento_personalizado', ['description', 'category', 'medida_padrao']);
+
+    // Medidas caseiras que a equipe cadastra para qualquer alimento do banco (ex.: "pote" de 170 g de um iogurte, "concha" de 80 g do feijão).
+    // food_id é o número do alimento no app: TACO (1 a 597), extras (a partir de 100000) ou Meus alimentos (1000000 + id). Só tabela nova.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_alimento_medida (
+            idmedida    INT AUTO_INCREMENT PRIMARY KEY,
+            food_id     INT NOT NULL,
+            nome        VARCHAR(60) NOT NULL,
+            gramas      DECIMAL(8,2) NOT NULL,
+            idprofessor INT NOT NULL,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_food (food_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_alimento_medida', ['nome']);
 }
 // A checagem de tabelas/colunas (dezenas de comandos no banco) rodava em TODO pedido, inclusive nos
 // avisos do sino que cada app aberto faz a cada 45 s. Agora roda uma vez por versão deste arquivo
@@ -1077,7 +1092,7 @@ $_PUBLICAS = [
 ];
 
 // Rotas que so professor/admin acessa, em qualquer metodo.
-$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste'];
+$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas'];
 
 // Leitura liberada para aluno logado; escrita so professor. Catalogos e
 // configuracoes que o app do aluno precisa ler para desenhar as telas.
@@ -1404,8 +1419,8 @@ if ($action === 'nutricao') {
 }
 
 // ═══════════════ MEUS ALIMENTOS (banco de alimentos personalizado) ═══════════════
-// Ferramenta do profissional (quem monta o plano), nunca do aluno — cada um
-// só ve e mexe no proprio catalogo (idprofessor = quem esta logado).
+// Ferramenta do profissional (quem monta o plano), nunca do aluno. Desde 08/10/2026 o catalogo e DA EQUIPE: todo profissional ve e usa os alimentos de
+// todos (cada um sabe quem criou pelo campo meu), mas so quem criou (ou o admin) edita e apaga.
 if ($action === 'meus_alimentos') {
     if ($_ehAluno) { $_negar(403, 'apenas o profissional usa o catalogo de alimentos'); }
     $idprofessor = (int)($_ctx['idusuario'] ?? 0);
@@ -1418,10 +1433,11 @@ if ($action === 'meus_alimentos') {
         'porcao_padrao',
     ];
 
-    $montarSaida = function($r) {
+    $montarSaida = function($r) use ($idprofessor) {
         $out = [
             'id' => (int)$r['id'], 'description' => $r['description'], 'category' => $r['category'] ?? '',
             'medida_padrao' => $r['medida_padrao'] ?? 'g', 'custom' => true,
+            'idprofessor' => (int)($r['idprofessor'] ?? 0), 'meu' => ((int)($r['idprofessor'] ?? 0) === $idprofessor),
         ];
         foreach ([
             'energy_kcal','protein_g','carbohydrate_g','lipid_g','fiber_g','sodium_mg','calcium_mg',
@@ -1433,8 +1449,7 @@ if ($action === 'meus_alimentos') {
     };
 
     if ($method === 'GET') {
-        $st = $pdo->prepare("SELECT * FROM intus_alimento_personalizado WHERE idprofessor = ? ORDER BY description");
-        $st->execute([$idprofessor]);
+        $st = $pdo->query("SELECT * FROM intus_alimento_personalizado ORDER BY description");
         echo json_encode(array_map($montarSaida, $st->fetchAll(PDO::FETCH_ASSOC)));
         exit;
     }
@@ -1457,12 +1472,12 @@ if ($action === 'meus_alimentos') {
         $b = jsonBody();
         $id = (int)($b['id'] ?? $_GET['id'] ?? 0);
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
-        // Confere dono antes de alterar — sem isso um profissional editaria o catalogo de outro so trocando o id.
+        // Confere dono antes de alterar: o alimento e da equipe, mas so quem criou (ou o admin) muda o que ja existe.
         $stD = $pdo->prepare("SELECT idprofessor FROM intus_alimento_personalizado WHERE id = ?");
         $stD->execute([$id]);
         $dono = $stD->fetchColumn();
         if ($dono === false) { http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
-        if ((int)$dono !== $idprofessor) { $_negar(403, 'alimento de outro profissional'); }
+        if ((int)$dono !== $idprofessor && empty($_ctx['admin'])) { $_negar(403, 'alimento criado por outro profissional: so ele ou o admin altera'); }
         $sets = []; $vals = [];
         if (array_key_exists('description', $b) && trim($b['description']) !== '') { $sets[] = 'description = ?'; $vals[] = trim($b['description']); }
         if (array_key_exists('category', $b)) { $sets[] = 'category = ?'; $vals[] = $b['category']; }
@@ -1482,8 +1497,60 @@ if ($action === 'meus_alimentos') {
         $stD->execute([$id]);
         $dono = $stD->fetchColumn();
         if ($dono === false) { echo json_encode(['ok' => true]); exit; }
-        if ((int)$dono !== $idprofessor) { $_negar(403, 'alimento de outro profissional'); }
+        if ((int)$dono !== $idprofessor && empty($_ctx['admin'])) { $_negar(403, 'alimento criado por outro profissional: so ele ou o admin apaga'); }
         $pdo->prepare("DELETE FROM intus_alimento_personalizado WHERE id = ?")->execute([$id]);
+        $pdo->prepare("DELETE FROM intus_alimento_medida WHERE food_id = ?")->execute([1000000 + $id]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ═══════════════ MEDIDAS CASEIRAS DA EQUIPE (qualquer alimento) ═══════════════
+// GET: todas as medidas cadastradas pela equipe. POST {food_id, nome, gramas}: cria (ou atualiza o peso se o alimento ja tem uma medida com esse nome).
+// DELETE ?id=: so quem criou ou o admin. Plano ja prescrito guarda a medida no proprio item, entao apagar aqui nao muda plano nenhum.
+if ($action === 'alimento_medidas') {
+    if ($_ehAluno) { $_negar(403, 'apenas a equipe'); }
+    $idprof = (int)($_ctx['idusuario'] ?? 0);
+    if ($idprof <= 0) { $_negar(401, 'sessao sem identidade'); }
+    $saida = function($r) use ($idprof) {
+        return ['idmedida' => (int)$r['idmedida'], 'food_id' => (int)$r['food_id'], 'nome' => $r['nome'], 'gramas' => (float)$r['gramas'],
+                'idprofessor' => (int)$r['idprofessor'], 'meu' => ((int)$r['idprofessor'] === $idprof)];
+    };
+    if ($method === 'GET') {
+        $rows = $pdo->query("SELECT idmedida, food_id, nome, gramas, idprofessor FROM intus_alimento_medida ORDER BY food_id, nome")->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(array_map($saida, $rows), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $food = (int)($b['food_id'] ?? 0);
+        $nome = mb_substr(trim((string)($b['nome'] ?? '')), 0, 60);
+        $gramas = round((float)($b['gramas'] ?? 0), 2);
+        if ($food <= 0 || $nome === '' || !($gramas > 0) || $gramas > 5000) { http_response_code(400); echo json_encode(['error' => 'informe alimento, nome e gramas (maior que zero)']); exit; }
+        $st = $pdo->prepare("SELECT idmedida, idprofessor FROM intus_alimento_medida WHERE food_id = ? AND LOWER(nome) = ?");
+        $st->execute([$food, mb_strtolower($nome, 'UTF-8')]);
+        $ex = $st->fetch(PDO::FETCH_ASSOC);
+        if ($ex) {
+            $pdo->prepare("UPDATE intus_alimento_medida SET gramas = ? WHERE idmedida = ?")->execute([$gramas, (int)$ex['idmedida']]);
+            $id = (int)$ex['idmedida'];
+        } else {
+            $pdo->prepare("INSERT INTO intus_alimento_medida (food_id, nome, gramas, idprofessor) VALUES (?,?,?,?)")->execute([$food, $nome, $gramas, $idprof]);
+            $id = (int)$pdo->lastInsertId();
+        }
+        $st = $pdo->prepare("SELECT idmedida, food_id, nome, gramas, idprofessor FROM intus_alimento_medida WHERE idmedida = ?");
+        $st->execute([$id]);
+        echo json_encode(['ok' => true] + $saida($st->fetch(PDO::FETCH_ASSOC)), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $st = $pdo->prepare("SELECT idprofessor FROM intus_alimento_medida WHERE idmedida = ?");
+        $st->execute([$id]);
+        $dono = $st->fetchColumn();
+        if ($dono === false) { echo json_encode(['ok' => true]); exit; }
+        if ((int)$dono !== $idprof && empty($_ctx['admin'])) { $_negar(403, 'medida criada por outro profissional: so ele ou o admin apaga'); }
+        $pdo->prepare("DELETE FROM intus_alimento_medida WHERE idmedida = ?")->execute([$id]);
         echo json_encode(['ok' => true]);
         exit;
     }

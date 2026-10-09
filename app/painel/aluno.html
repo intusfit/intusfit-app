@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261008e"></script>
+  <script src="api.js?v=20261008f"></script>
   <script src="ajuda.js?v=20261008b" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -17241,6 +17241,25 @@ function _nutriStatusInfo(st) {
            parcial: { ic: '◐', cor: '#f59e0b', bg: 'rgba(245,158,11,.14)', rot: 'Parcial' },
            fora: { ic: '✕', cor: '#ef4444', bg: 'rgba(239,68,68,.12)', rot: 'Fora do plano' } }[st] || null;
 }
+// A mesma quantidade nas outras medidas do alimento (a nutri guarda a lista em it.medidas): "≈ 1 xícara · 3 colheres de sopa".
+function _nutriEquiv(it) {
+  const g = Number(it.gramas) || 0, ms = Array.isArray(it.medidas) ? it.medidas : [];
+  if (!(g > 0) || !ms.length) return '';
+  const emG = !it.medida_id || it.medida_id === 'g';
+  const f = v => String(v).replace('.', ',');
+  const partes = [];
+  if (!emG) partes.push(f(Math.round(g)) + ' g');
+  ms.forEach(m => {
+    if (partes.length >= 3 || !(m.g > 0)) return;
+    if (!emG && it.medida_nome && m.n === it.medida_nome) return;
+    const q = g / m.g;
+    if (q < 0.5 || q > 40) return;
+    const r = q >= 3 ? Math.round(q * 2) / 2 : Math.round(q * 4) / 4;   // medida de cozinha: meia colher, não 6,75
+    partes.push(f(r) + ' ' + API.nutri.pluralMedida(m.n, r));
+  });
+  return partes.length ? '≈ ' + partes.join(' · ') : '';
+}
+
 function _nutriItemHtml(it) {
   const C = _nutriCores(); const n = it.nutrientes || {};
   // Quantidade na medida do plano ("2 unidades"), com os gramas ao lado quando há medida caseira.
@@ -17250,6 +17269,7 @@ function _nutriItemHtml(it) {
   const subTxt = s => esc(s.nome) + (s.medida_id ? ' (' + esc(API.nutri.rotuloQtd(s)) + ')' : (s.quantidade ? ' (' + esc(String(s.quantidade)) + ' ' + esc(s.medida || 'g') + ')' : ''));
   return `<div style="padding:8px 0;border-top:1px solid ${C.borda};">
     <div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-size:13px;font-weight:600;">${esc(it.nome)} <span style="color:${C.mut};font-weight:400;">· ${esc(qtd)}</span></span><span style="font-size:11px;color:${C.mut};white-space:nowrap;">${Math.round(n.energia_kcal || 0)} kcal</span></div>
+    ${_nutriEquiv(it) ? `<div style="font-size:10.5px;color:${C.mut};margin-top:2px;">${esc(_nutriEquiv(it))}</div>` : ''}
     ${subs.length ? `<div style="font-size:10.5px;color:${C.ok};margin-top:2px;">↔ pode trocar por: ${subs.map(subTxt).join(', ')}</div>` : ''}
   </div>`;
 }

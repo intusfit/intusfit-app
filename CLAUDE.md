@@ -1172,3 +1172,20 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   antes quando os dois têm o alimento; cada resultado mostra a etiqueta IBGE ou USDA. Teste: seção 6 de `testes/alimentos.js` (inclui a conferência calorias x macros, que acusaria colunas deslocadas na leitura do PDF).
 - **Como regenerar**: os scripts ficaram na pasta temporária da sessão (não versionados). Em resumo: `pymupdf` lê as páginas 36-96, 97-157, 158-218 e 219-279 do PDF (linhas de 7 dígitos de código + preparo + valores);
   o USDA vem de `food.csv`, `food_nutrient.csv` e `food_portion.csv` do zip `FoodData_Central_sr_legacy_food_csv_2018-04.zip`. Alimentos que a TACO já cobre bem foram retirados da lista do USDA para não duplicar.
+
+## 33. Alimentos da equipe, cadastro durante a prescrição e várias medidas (08/10/2026)
+
+- **"Meus alimentos" virou "Alimentos da equipe"** (autorizado pelo Luiz): `catalogo.php?action=meus_alimentos` devolve o catálogo de TODOS os profissionais (campo `meu` diz quem
+  criou); só quem criou ou o admin edita e apaga. Os alimentos antigos de cada profissional passaram a valer para a equipe sem mudança nos dados. Na busca a etiqueta é MEU ou EQUIPE.
+  Plano antigo não muda: o item já guarda a tabela de 100 g do alimento personalizado (`por100`).
+- **Tabela nova `intus_alimento_medida`** (`food_id`, `nome`, `gramas`, `idprofessor`): medidas caseiras que a equipe cadastra para QUALQUER alimento (TACO, extras ou da equipe; `food_id` é o número do
+  alimento no app). Rota `catalogo.php?action=alimento_medidas` (só equipe; criar atualiza o peso se o nome já existe; apagar só quem criou ou o admin). Apagar um alimento da equipe leva as medidas dele.
+  **Medida da equipe com o mesmo nome de uma do catálogo SUBSTITUI o peso dela** (ex.: "Unidade" do ovo de 50 g para 55 g), e a sugestão padrão do alimento acompanha (`getUnidadePadrao`).
+  Id no app: `eq_<idmedida>`. Um alimento pode ter quantas medidas quiser; a coluna antiga `medida_padrao`/`porcao_padrao` de `intus_alimento_personalizado` ficou só como legado (novos ficam em gramas).
+- **Cadastrar alimento durante a prescrição**: botão visível "➕ Novo alimento" ao lado de TODA busca do editor (refeição principal, opção substituta e substituto de um alimento). O formulário abre no dropdown
+  (kcal/macros por 100 g, fibra, sódio e quantas medidas quiser), grava para a equipe e já inclui o alimento. `_iniciarCadastroRapido(refIdx, substIdx, itemIdx)`.
+- **Várias medidas ao prescrever**: o seletor de medida do item lista todas as do alimento (catálogo + equipe) e "+ Definir outra medida...", que agora pergunta se a medida fica guardada para a equipe ou vale só
+  para o item (`_perguntarMedida`). Janela "📏 Medidas caseiras" (`abrirMedidasAlimento`) pelo ℹ de qualquer alimento e na lista de Alimentos da equipe; o formulário do alimento tem as medidas em linhas.
+- **O aluno vê**: o item gravado leva `medidas` (lista `{n, g}` do alimento na hora da prescrição) e o app mostra a quantidade prescrita e, embaixo, as equivalentes ("≈ 100 g · 7 colheres de sopa · 0,5 xícara de chá")
+  (`_nutriEquiv`, arredondando como medida de cozinha). Plano antigo sem `medidas` continua como era.
+- **Testes**: seção 7 de `testes/alimentos.js` e `testes/equipe.php` (21 conferências em PHP real: compartilhamento entre profissionais, quem edita e apaga, validações das medidas). Quebrar a permissão de edição de propósito faz o teste acusar.

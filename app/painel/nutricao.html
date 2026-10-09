@@ -6,8 +6,8 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
   <script src="_mock.js?v=20261008c"></script>
-  <script src="api.js?v=20261008e"></script>
-  <script src="alimentos-db.js?v=20261008b"></script>
+  <script src="api.js?v=20261008f"></script>
+  <script src="alimentos-db.js?v=20261008c"></script>
   <style>
     .modal-box.wide { max-width: 820px; }
     .modal-box.full { max-width: 95vw; width: 1100px; }
@@ -397,7 +397,7 @@ function render() {
       <button class="btn ${filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=true;render();">Ativos (${nAtivos})</button>
       <button class="btn ${!filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=false;render();">Inativos (${nInativos})</button>
       ${hasPerm('nt_incluir') ? `<button class="btn btn-primary" onclick="abrirModalNovo()">+ Novo Plano</button>` : ''}
-      <button class="btn btn-secondary" onclick="abrirMeusAlimentos()" style="margin-left:auto;">🍎 Meus Alimentos</button>
+      <button class="btn btn-secondary" onclick="abrirMeusAlimentos()" style="margin-left:auto;">🍎 Alimentos da equipe</button>
       <button class="btn btn-secondary" onclick="abrirCalculadoraGET()">Calculadora GEB/GET</button>
     </div>
 
@@ -1056,9 +1056,12 @@ function renderRefeicaoEditors() {
         <div id="ref-itens-${i}">
           ${renderItensRefeicao(i)}
         </div>
-        <div class="food-search-wrap">
+        <div style="display:flex;gap:6px;align-items:flex-start;">
+        <div class="food-search-wrap" style="flex:1;min-width:0;">
           <input class="input food-search-input" placeholder="Buscar alimento (ex: arroz, frango, banana)..." oninput="buscarAlimento(this, ${i})" onfocus="buscarAlimento(this, ${i})" id="food-search-${i}"/>
           <div class="food-results" id="food-results-${i}"></div>
+        </div>
+        <button type="button" class="btn btn-secondary food-novo-btn" onclick="_iniciarCadastroRapido(${i}, -1)" title="Cadastrar um alimento que não está no banco e já usar aqui; fica disponível para a equipe toda" style="white-space:nowrap;flex-shrink:0;">➕ Novo alimento</button>
         </div>
         <div id="ref-subst-${i}">${renderSubstituicoes(i)}</div>
       </div>
@@ -1172,6 +1175,9 @@ function _limparItem(it) {
   };
   if (it.medida && !it.medida_id) o.medida = it.medida;
   if (it.por100 && (!f || f.custom)) o.por100 = it.por100;
+  // Medidas do alimento na hora da prescrição: o app do aluno mostra a quantidade também nas outras medidas ("1 xícara", "3 colheres de sopa").
+  const ms = _medidasDoItem(it).filter(m => m.gramas > 0).slice(0, 8).map(m => ({ n: m.nome, g: m.gramas }));
+  if (ms.length) o.medidas = ms;
   if (it.substitutos && it.substitutos.length) o.substitutos = it.substitutos.map(_limparItem);
   else o.substitutos = [];
   return o;
@@ -1204,7 +1210,7 @@ function _resultadoBuscaHtml(f, js) {
   const p = _porcaoPadrao(f), n = p.nut, fm = v => String(Math.round((v || 0) * 10) / 10).replace('.', ',');
   return `<div class="food-result-item" onclick="${js}">
     <div style="min-width:0;">
-      <div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">MEU</span>' : ''}${f.source ? `<span class="custom-food-badge" style="background:rgba(148,163,184,.18);color:#94a3b8;" title="${esc(f.source)}">${/^IBGE/.test(f.source) ? 'IBGE' : 'USDA'}</span>` : ''}</div>
+      <div>${esc(f.description)}${f.custom ? '<span class="custom-food-badge">' + (f.meu === false ? 'EQUIPE' : 'MEU') + '</span>' : ''}${f.source ? `<span class="custom-food-badge" style="background:rgba(148,163,184,.18);color:#94a3b8;" title="${esc(f.source)}">${/^IBGE/.test(f.source) ? 'IBGE' : 'USDA'}</span>` : ''}</div>
       <div class="food-cat">${esc(f.category || '')}</div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Porção: ${esc(p.rotulo)}</div>
     </div>
@@ -1287,14 +1293,24 @@ function itemQtd(refIdx, substIdx, itemIdx, value) {
   _recalcItem(it);
   _redesenhar(refIdx, substIdx);
 }
-// Medida própria do item (ex.: "concha" de 80 g, "pote" de 170 g) para qualquer alimento, mesmo sem medida no catálogo.
-function _perguntarMedida(it) {
+// Medida própria do item (ex.: "concha" de 80 g, "pote" de 170 g) para qualquer alimento, mesmo sem medida no catálogo. O profissional pode
+// guardá-la para o alimento (vale para a equipe toda nos próximos planos) ou usá-la só neste item.
+async function _perguntarMedida(it) {
   const nome = (prompt('Nome da medida (ex.: concha, pote, scoop):') || '').trim();
   if (!nome) return false;
   const g = parseFloat(String(prompt('Quantos gramas pesa 1 ' + nome.toLowerCase() + '?') || '').replace(',', '.'));
   if (!(g > 0)) { showToast('Informe um peso em gramas maior que zero.', 'error'); return false; }
+  const nomeFmt = nome.charAt(0).toUpperCase() + nome.slice(1);
+  const f = AlimentosDB.resolver(it);
+  if (f && confirm('Guardar "' + nomeFmt + '" (' + g + ' g) como medida deste alimento, para a equipe toda usar nos próximos planos?\n\nOK = guardar para a equipe\nCancelar = usar só neste item')) {
+    try {
+      const m = await AlimentosDB.addMedida(f.id, nomeFmt, g);
+      it.medida_id = m.id; it.medida_nome = m.nome; it.medida_g = m.gramas; it.quantidade = 1;
+      return true;
+    } catch (e) { showToast('Não consegui guardar para a equipe (' + (e.message || 'erro') + '). Vou usar só neste item.', 'error'); }
+  }
   it.medida_id = 'pers_' + nome.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '_');
-  it.medida_nome = nome.charAt(0).toUpperCase() + nome.slice(1);
+  it.medida_nome = nomeFmt;
   it.medida_g = g;
   it.quantidade = 1;
   return true;
@@ -1335,11 +1351,11 @@ function converterTodosParaUnidade() {
   showToast(n ? n + (n === 1 ? ' item passou' : ' itens passaram') + ' para unidade, sem mudar calorias nem macros.' : 'Nenhum item em gramas fecha em meia unidade exata. Use o link "usar unidades" em cada item.');
 }
 
-function itemMedida(refIdx, substIdx, itemIdx, medidaId) {
+async function itemMedida(refIdx, substIdx, itemIdx, medidaId) {
   const it = (_lista(refIdx, substIdx) || [])[itemIdx]; if (!it) return;
   const antes = it.gramas || 0;
   if (medidaId === '__nova__') {
-    if (!_perguntarMedida(it)) { _redesenhar(refIdx, substIdx); return; }
+    if (!(await _perguntarMedida(it))) { _redesenhar(refIdx, substIdx); return; }
     delete it._revisar; _recalcItem(it); _redesenhar(refIdx, substIdx); return;
   }
   if (medidaId === 'g') {
@@ -1382,7 +1398,7 @@ const _ROTULO = [
   ['Ferro', 'ferro_mg', 'mg', 0], ['Potássio', 'potassio_mg', 'mg', 0], ['Magnésio', 'magnesio_mg', 'mg', 0], ['Fósforo', 'fosforo_mg', 'mg', 0],
   ['Zinco', 'zinco_mg', 'mg', 0], ['Vitamina C', 'vitamina_c_mg', 'mg', 0], ['Tiamina (B1)', 'tiamina_mg', 'mg', 0], ['Riboflavina (B2)', 'riboflavina_mg', 'mg', 0], ['Niacina (B3)', 'niacina_mg', 'mg', 0],
 ];
-function _abrirRotulo(titulo, subtitulo, por100, gramas) {
+function _abrirRotulo(titulo, subtitulo, por100, gramas, foodId) {
   const fmt = v => (Math.round((Number(v) || 0) * 100) / 100).toString().replace('.', ',');
   const porPorcao = AlimentosDB.escalar(por100, gramas);
   const linhas = _ROTULO.map(r => `<tr style="border-top:1px solid var(--border);"><td style="padding:5px 0 5px ${r[3] ? 16 : 0}px;${r[3] ? 'color:var(--text-muted);' : ''}">${r[0]}</td><td style="text-align:right;">${fmt(por100[r[1]])} ${r[2]}</td><td style="text-align:right;font-weight:700;">${fmt(porPorcao[r[1]])} ${r[2]}</td></tr>`).join('');
@@ -1395,7 +1411,8 @@ function _abrirRotulo(titulo, subtitulo, por100, gramas) {
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:4px;"><div style="font-size:15px;font-weight:800;line-height:1.3;">${esc(titulo)}</div><button class="modal-close" onclick="document.getElementById('nt-rotulo').remove()" style="flex-shrink:0;">×</button></div>
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">${esc(subtitulo)}</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="color:var(--text-muted);font-size:11px;text-transform:uppercase;"><th style="text-align:left;padding-bottom:4px;">Informação nutricional</th><th style="text-align:right;">100 g</th><th style="text-align:right;">Porção (${fmt(gramas)} g)</th></tr></thead><tbody>${linhas}</tbody></table>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;">Valores da TACO ou do que foi cadastrado em Meus Alimentos. Item sem valor aparece como 0.</div></div>`;
+    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;">Valores da TACO, do IBGE, do USDA ou do que foi cadastrado pela equipe. Item sem valor aparece como 0.</div>
+    ${foodId ? `<button class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="abrirMedidasAlimento(${foodId})">📏 Medidas caseiras deste alimento</button>` : ''}</div>`;
   document.body.appendChild(d);
 }
 function verTabelaItem(refIdx, substIdx, itemIdx, si) {
@@ -1403,12 +1420,70 @@ function verTabelaItem(refIdx, substIdx, itemIdx, si) {
   const it = substIdx === -2 ? ((_itemOrig(refIdx, itemIdx) || {}).substitutos || [])[si] : (_lista(refIdx, substIdx) || [])[itemIdx];
   if (!it) return;
   if (!it.por100) return showToast('Este item não tem tabela nutricional guardada.', 'error');
-  _abrirRotulo(it.nome, 'Porção do plano: ' + API.nutri.rotuloQtd(it) + (it.medida_id !== 'g' ? ' (' + it.gramas + ' g)' : ''), it.por100, it.gramas || 100);
+  const fi = AlimentosDB.resolver(it);
+  _abrirRotulo(it.nome, 'Porção do plano: ' + API.nutri.rotuloQtd(it) + (it.medida_id !== 'g' ? ' (' + it.gramas + ' g)' : ''), it.por100, it.gramas || 100, fi ? fi.id : 0);
 }
 function verTabelaAlimento(foodId) {
   const f = AlimentosDB.getById(foodId); if (!f) return;
   const u = AlimentosDB.getUnidadePadrao(foodId);
-  _abrirRotulo(f.description, u ? 'Porção sugerida: ' + u.quantidade + ' ' + API.nutri.pluralMedida(u.medida_nome, u.quantidade) + ' (' + r1(u.quantidade * u.medida_g) + ' g)' : 'Porção de 100 g', AlimentosDB.nutrientesPor100(f), u ? u.quantidade * u.medida_g : 100);
+  _abrirRotulo(f.description, u ? 'Porção sugerida: ' + u.quantidade + ' ' + API.nutri.pluralMedida(u.medida_nome, u.quantidade) + ' (' + r1(u.quantidade * u.medida_g) + ' g)' : 'Porção de 100 g', AlimentosDB.nutrientesPor100(f), u ? u.quantidade * u.medida_g : 100, f.id);
+}
+
+// ── Medidas caseiras (várias por alimento, da equipe) ──
+// Cada alimento pode ter quantas medidas forem úteis (colher, concha, pote, scoop...). As do catálogo vêm prontas; as que a equipe cadastra
+// valem para todos os profissionais, em qualquer plano novo, e o aluno vê a quantidade na medida prescrita e nas equivalentes.
+function _medidaRowHtml(m) {
+  return `<div class="mr" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;"><input class="input mr-n" placeholder="Nome (ex.: colher, pote, scoop)" value="${esc(m && m.nome || '')}" style="flex:2;min-width:0;"/><input class="input mr-g" type="number" step="0.1" min="0" placeholder="Gramas" value="${m && m.gramas ? m.gramas : ''}" style="flex:1;min-width:0;"/><button type="button" class="btn btn-sm btn-secondary" onclick="this.parentNode.remove()" title="Remover esta medida">✕</button></div>`;
+}
+function _medidasRowsHtml(idp, lista) {
+  return `<div id="${idp}-medidas">${(lista || []).map(_medidaRowHtml).join('')}</div><button type="button" class="btn btn-sm btn-secondary" onclick="_medidasRowAdd('${idp}')" style="margin-top:2px;">+ Outra medida</button>`;
+}
+function _medidasRowAdd(idp) { const c = document.getElementById(idp + '-medidas'); if (c) c.insertAdjacentHTML('beforeend', _medidaRowHtml(null)); }
+function _medidasRowsLer(idp) {
+  const out = [];
+  document.querySelectorAll('#' + idp + '-medidas .mr').forEach(r => {
+    const nome = (r.querySelector('.mr-n')?.value || '').trim(), g = parseFloat(String(r.querySelector('.mr-g')?.value || '').replace(',', '.'));
+    if (nome && g > 0) out.push({ nome, gramas: g });
+  });
+  return out;
+}
+function _atualizarTelasDeMedidas() {
+  const ed = document.getElementById('refeicoes-editor');
+  if (ed) { ed.innerHTML = renderRefeicaoEditors(); recalcTotaisDiarios(); }
+  const l = document.getElementById('custom-food-list');
+  if (l) l.innerHTML = renderCustomFoodList(AlimentosDB.getCustomFoods());
+}
+function abrirMedidasAlimento(foodId) {
+  const f = AlimentosDB.getById(foodId); if (!f) return;
+  const equipe = AlimentosDB.getMedidasEquipe(foodId), idsEq = new Set(equipe.map(m => m.id));
+  const linhas = AlimentosDB.getMedidasAlimento(foodId).map(m => {
+    const eq = idsEq.has(m.id);
+    const pode = eq && (m.meu !== false || (typeof isAdmin === 'function' && isAdmin()));
+    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border);font-size:13px;"><span style="flex:1;">1 ${esc(String(m.nome).toLowerCase())}</span><b>${m.gramas} g</b><span style="font-size:10.5px;color:${eq ? '#60a5fa' : 'var(--text-muted)'};width:50px;">${eq ? 'equipe' : 'padrão'}</span>${pode ? `<button class="btn btn-sm btn-danger" onclick="removerMedidaAlimento(${foodId},${m.idmedida})" title="Apagar esta medida">✕</button>` : '<span style="width:30px;"></span>'}</div>`;
+  }).join('');
+  const antigo = document.getElementById('nt-medidas'); if (antigo) antigo.remove();
+  const d = document.createElement('div');
+  d.id = 'nt-medidas';
+  d.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+  d.onclick = e => { if (e.target === d) d.remove(); };
+  d.innerHTML = `<div style="background:var(--bg2,#1a1a1a);color:var(--text);border:1px solid var(--border);border-radius:12px;width:100%;max-width:460px;max-height:86vh;overflow:auto;padding:16px 18px;">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:4px;"><div style="font-size:15px;font-weight:800;line-height:1.3;">Medidas caseiras: ${esc(f.description)}</div><button class="modal-close" onclick="document.getElementById('nt-medidas').remove()">×</button></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">O profissional escolhe qualquer uma delas ao prescrever, e o aluno vê a quantidade na medida prescrita e nas equivalentes. Medida que você cadastra aqui vale para toda a equipe.</div>
+    ${linhas || '<div style="font-size:12.5px;color:var(--text-muted);padding:10px 0;">Este alimento só tem gramas por enquanto.</div>'}
+    <div style="margin-top:12px;font-size:12px;font-weight:700;">Nova medida</div>
+    <div style="display:flex;gap:6px;margin-top:6px;"><input id="nm-nome" class="input" placeholder="Nome (ex.: concha, pote)" style="flex:2;min-width:0;"/><input id="nm-g" type="number" step="0.1" min="0" class="input" placeholder="Gramas" style="flex:1;min-width:0;"/><button class="btn btn-primary btn-sm" onclick="adicionarMedidaAlimento(${foodId})">Adicionar</button></div></div>`;
+  document.body.appendChild(d);
+}
+async function adicionarMedidaAlimento(foodId) {
+  const nome = (document.getElementById('nm-nome')?.value || '').trim(), g = parseFloat(String(document.getElementById('nm-g')?.value || '').replace(',', '.'));
+  if (!nome || !(g > 0)) return showToast('Informe o nome e o peso em gramas (maior que zero).', 'error');
+  try { await AlimentosDB.addMedida(foodId, nome.charAt(0).toUpperCase() + nome.slice(1), g); showToast('Medida guardada para a equipe.'); abrirMedidasAlimento(foodId); _atualizarTelasDeMedidas(); }
+  catch (e) { showToast('Não consegui guardar: ' + (e.message || 'erro'), 'error'); }
+}
+async function removerMedidaAlimento(foodId, idmedida) {
+  if (!confirm('Apagar esta medida? Planos já prescritos não mudam; ela só deixa de aparecer para novas prescrições.')) return;
+  try { await AlimentosDB.removerMedida(foodId, idmedida); abrirMedidasAlimento(foodId); _atualizarTelasDeMedidas(); }
+  catch (e) { showToast('Não consegui apagar: ' + (e.message || 'erro'), 'error'); }
 }
 
 // ── Refeições substitutas (opção completa alternativa) ──
@@ -1435,9 +1510,12 @@ function renderSubstituicoes(refIdx) {
         <button class="ref-remove" onclick="removeSubstituicao(${refIdx},${si})" title="Remover substituição">✕</button>
       </div>
       <div id="ref-subst-itens-${refIdx}-${si}">${renderItensSubstituicao(refIdx, si)}</div>
-      <div class="food-search-wrap">
+      <div style="display:flex;gap:6px;align-items:flex-start;">
+      <div class="food-search-wrap" style="flex:1;min-width:0;">
         <input class="input food-search-input" placeholder="Buscar alimento para esta opção..." oninput="buscarAlimento(this,${refIdx},${si})" onfocus="buscarAlimento(this,${refIdx},${si})" id="food-search-${refIdx}-s${si}"/>
         <div class="food-results" id="food-results-${refIdx}-s${si}"></div>
+      </div>
+      <button type="button" class="btn btn-secondary food-novo-btn" onclick="_iniciarCadastroRapido(${refIdx}, ${si})" title="Cadastrar um alimento que não está no banco e já usar aqui; fica disponível para a equipe toda" style="white-space:nowrap;flex-shrink:0;">➕ Novo alimento</button>
       </div>
     </div>
   `).join('') + `
@@ -1541,9 +1619,12 @@ function renderSubstPanel(refIdx, itemIdx, item) {
     <h5>Substitutos para ${esc(item.nome)} <span style="text-transform:none;font-weight:600;"> · ${API.nutri.rotuloQtd(item)} = ${n.energia_kcal || 0} kcal · P ${n.proteina_g || 0} · C ${n.carboidrato_g || 0} · G ${n.lipidio_g || 0}</span></h5>
     <div class="subst-list">${linhas || '<div style="font-size:11px;color:var(--text-muted);">Nenhum substituto adicionado.</div>'}</div>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;"><span style="font-size:11px;color:var(--text-muted);">Ao adicionar, manter igual:</span>${chipModo}</div>
-    <div class="food-search-wrap" style="margin-top:4px;">
+    <div style="display:flex;gap:6px;align-items:flex-start;margin-top:4px;">
+    <div class="food-search-wrap" style="flex:1;min-width:0;">
       <input class="input food-search-input" id="subst-busca-${refIdx}-${itemIdx}" placeholder="Buscar alimento substituto (TACO e Meus Alimentos)..." oninput="buscarSubstituto(this,${refIdx},${itemIdx})" onfocus="buscarSubstituto(this,${refIdx},${itemIdx})" style="font-size:12px;padding:6px 8px;"/>
       <div class="food-results" id="subst-results-${refIdx}-${itemIdx}"></div>
+    </div>
+    <button type="button" class="btn btn-secondary food-novo-btn" onclick="_iniciarCadastroRapido(${refIdx}, -1, ${itemIdx})" title="Cadastrar um alimento que não está no banco e já usar aqui; fica disponível para a equipe toda" style="white-space:nowrap;flex-shrink:0;">➕ Novo alimento</button>
     </div>
     <div class="subst-add-row" style="margin-top:8px;">
       <input class="input" id="subst-nome-${refIdx}-${itemIdx}" placeholder="Ou digite um nome (sem tabela nutricional)" style="font-size:12px;padding:6px 8px;"/>
@@ -1576,10 +1657,10 @@ function substQtd(refIdx, itemIdx, si, value) {
   s.quantidade = Math.max(0, parseFloat(String(value).replace(',', '.')) || 0);
   _recalcItem(s); _repintarItem(refIdx);
 }
-function substMedida(refIdx, itemIdx, si, medidaId) {
+async function substMedida(refIdx, itemIdx, si, medidaId) {
   const it = _itemOrig(refIdx, itemIdx), s = it && it.substitutos[si]; if (!s) return;
   const antes = s.gramas || 0;
-  if (medidaId === '__nova__') { if (_perguntarMedida(s)) _recalcItem(s); _repintarItem(refIdx); return; }
+  if (medidaId === '__nova__') { if (await _perguntarMedida(s)) _recalcItem(s); _repintarItem(refIdx); return; }
   if (medidaId === 'g') { s.medida_id = 'g'; s.medida_nome = 'gramas'; s.medida_g = 1; s.quantidade = antes > 0 ? Math.round(antes) : 100; }
   else {
     const m = _medidasDoItem(s).find(x => x.id === medidaId); if (!m) return;
@@ -1621,10 +1702,13 @@ function buscarSubstituto(input, refIdx, itemIdx) {
       resultsEl.classList.add('show');
       await AlimentosDB.load();
     }
+    _ultimoTermo = termo;
     const foods = AlimentosDB.buscar(termo, 12);
+    const cadastrar = `<div class="food-result-item" style="color:var(--green);font-weight:700;" onclick="_iniciarCadastroRapido(${refIdx}, -1, ${itemIdx})">+ Cadastrar "${esc(termo)}" como novo alimento</div>`;
     resultsEl.innerHTML = foods.length === 0
       ? `<div class="food-result-item" style="color:var(--text-muted);">Nenhum alimento encontrado</div>`
       : foods.map(f => _resultadoBuscaHtml(f, `addSubstFromSearch(${refIdx},${itemIdx},${f.id})`)).join('');
+    resultsEl.innerHTML += cadastrar;
     resultsEl.classList.add('show');
   }, 200);
 }
@@ -1831,7 +1915,8 @@ function removeRefeicao(idx) {
 }
 
 // ── Busca e inclusão de alimentos ──
-function _idsBusca(refIdx, substIdx) {
+function _idsBusca(refIdx, substIdx, itemIdx) {
+  if (itemIdx != null && itemIdx >= 0) return { busca: 'subst-busca-' + refIdx + '-' + itemIdx, res: 'subst-results-' + refIdx + '-' + itemIdx };
   const suf = (substIdx != null && substIdx >= 0) ? refIdx + '-s' + substIdx : String(refIdx);
   return { busca: 'food-search-' + suf, res: 'food-results-' + suf };
 }
@@ -1924,58 +2009,58 @@ function addAlimento(refIdx, foodId, substIdx) {
 }
 
 // ── Cadastro rápido de alimento direto da busca ────────────────────────────
-// Fica dentro do próprio dropdown (não abre modal por cima do modal do plano). Valores por 100 g; fibra, sódio e uma
-// medida caseira (ex.: 1 scoop = 30 g) são opcionais. O resto da tabela nutricional se completa depois em "Meus Alimentos".
-function _iniciarCadastroRapido(refIdx, substIdx) {
-  const si = (substIdx == null) ? -1 : substIdx;
-  const resultsEl = document.getElementById(_idsBusca(refIdx, si).res);
+// Fica dentro do próprio dropdown (não abre modal por cima do modal do plano). Valores por 100 g; fibra, sódio e quantas medidas
+// caseiras quiser (ex.: 1 scoop = 30 g, 1 colher = 10 g) são opcionais. Depois de salvo o alimento é DA EQUIPE (todos os profissionais
+// o encontram na busca) e entra direto na refeição, na opção substituta ou como substituto, conforme de onde a busca foi aberta.
+function _iniciarCadastroRapido(refIdx, substIdx, itemIdx) {
+  const si = (substIdx == null) ? -1 : substIdx, it = (itemIdx == null) ? -1 : itemIdx;
+  const resultsEl = document.getElementById(_idsBusca(refIdx, si, it).res);
   if (!resultsEl) return;
-  const k = refIdx + '-' + si;
+  const k = refIdx + '_' + si + '_' + it;
+  const termo = (document.getElementById(_idsBusca(refIdx, si, it).busca)?.value || _ultimoTermo || '').trim();
   resultsEl.innerHTML = `
     <div class="food-result-item" style="display:block;cursor:default;">
-      <div style="font-weight:700;margin-bottom:8px;">Novo alimento: valores por 100 g</div>
-      <input id="qc-nome-${k}" class="input" style="margin-bottom:6px;width:100%;" value="${esc(_ultimoTermo || '')}" placeholder="Nome do alimento"/>
+      <div style="font-weight:700;margin-bottom:8px;">Novo alimento (valores por 100 g)</div>
+      <input id="qc-nome-${k}" class="input" style="margin-bottom:6px;width:100%;" value="${esc(termo)}" placeholder="Nome do alimento"/>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px;">
         <input id="qc-kcal-${k}" type="number" step="0.1" class="input" placeholder="kcal"/>
         <input id="qc-prot-${k}" type="number" step="0.1" class="input" placeholder="Prot g"/>
         <input id="qc-carb-${k}" type="number" step="0.1" class="input" placeholder="Carb g"/>
         <input id="qc-gord-${k}" type="number" step="0.1" class="input" placeholder="Gord g"/>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
         <input id="qc-fibra-${k}" type="number" step="0.1" class="input" placeholder="Fibra g (opcional)"/>
         <input id="qc-sodio-${k}" type="number" step="0.1" class="input" placeholder="Sódio mg (opcional)"/>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Medida caseira (opcional): 1 unidade vale quantos gramas?</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
-        <input id="qc-medida-${k}" class="input" placeholder="Nome (ex.: scoop, fatia)"/>
-        <input id="qc-medg-${k}" type="number" step="0.1" class="input" placeholder="Gramas (ex.: 30)"/>
-      </div>
-      <div style="font-size:10.5px;color:var(--text-muted);margin-bottom:8px;">Sem kcal, calculo por 4 kcal/g de proteína e carboidrato e 9 kcal/g de gordura. O restante da tabela nutricional você completa em "🍎 Meus Alimentos".</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Medidas caseiras (opcional): quanto pesa 1 de cada?</div>
+      ${_medidasRowsHtml('qc' + k, [])}
+      <div style="font-size:10.5px;color:var(--text-muted);margin:8px 0;">Sem kcal, calculo por 4 kcal/g de proteína e carboidrato e 9 kcal/g de gordura. O resto da tabela nutricional você completa depois em "🍎 Alimentos da equipe".</div>
       <div style="display:flex;gap:6px;">
-        <button class="btn btn-sm btn-secondary" style="flex:1;" onclick="document.getElementById('${_idsBusca(refIdx, si).busca}').dispatchEvent(new Event('input'))">Cancelar</button>
-        <button class="btn btn-sm btn-primary" style="flex:1;" onclick="_salvarCadastroRapido(${refIdx}, ${si})">Cadastrar e adicionar</button>
+        <button class="btn btn-sm btn-secondary" style="flex:1;" onclick="document.getElementById('${_idsBusca(refIdx, si, it).res}').classList.remove('show')">Cancelar</button>
+        <button class="btn btn-sm btn-primary" style="flex:1;" onclick="_salvarCadastroRapido(${refIdx}, ${si}, ${it})">Cadastrar e adicionar</button>
       </div>
     </div>
   `;
   resultsEl.classList.add('show');
+  document.getElementById('qc-nome-' + k)?.focus();
 }
 
-async function _salvarCadastroRapido(refIdx, substIdx) {
-  const k = refIdx + '-' + substIdx;
+async function _salvarCadastroRapido(refIdx, substIdx, itemIdx) {
+  const k = refIdx + '_' + substIdx + '_' + itemIdx;
   const v = id => parseFloat(document.getElementById(id + '-' + k)?.value) || 0;
   const nome = document.getElementById('qc-nome-' + k)?.value?.trim();
   if (!nome) return showToast('Informe o nome do alimento', 'error');
   const prot = v('qc-prot'), carb = v('qc-carb'), gord = v('qc-gord');
   const kcal = v('qc-kcal') || Math.round((prot * 4 + carb * 4 + gord * 9) * 10) / 10;
-  const medNome = document.getElementById('qc-medida-' + k)?.value?.trim() || '', medG = v('qc-medg');
+  if (!(kcal > 0) && !(prot + carb + gord > 0)) return showToast('Informe as calorias ou os macros por 100 g.', 'error');
   try {
     const novo = await AlimentosDB.addCustomFood({
-      description: nome, category: 'Meus Alimentos', energy_kcal: kcal, protein_g: prot, carbohydrate_g: carb, lipid_g: gord,
+      description: nome, category: 'Alimentos da equipe', energy_kcal: kcal, protein_g: prot, carbohydrate_g: carb, lipid_g: gord,
       fiber_g: v('qc-fibra'), sodium_mg: v('qc-sodio'),
-      medida_padrao: (medNome && medG > 0) ? medNome : 'g', porcao_padrao: (medNome && medG > 0) ? medG : 100,
-    });
-    showToast('Alimento cadastrado e adicionado à refeição!');
-    addAlimento(refIdx, novo.id, substIdx);
+    }, _medidasRowsLer('qc' + k));
+    showToast('Alimento cadastrado para a equipe e adicionado' + (novo._medidaFalhou ? ' (uma medida não foi gravada)' : '') + '.');
+    if (itemIdx >= 0) addSubstFromSearch(refIdx, itemIdx, novo.id);
+    else addAlimento(refIdx, novo.id, substIdx);
   } catch (e) {
     showToast('Não consegui salvar no servidor: ' + e.message, 'error');
   }
@@ -2511,7 +2596,7 @@ async function excluirPlano(id) {
 
 // ── Close food results on outside click ──
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.food-search-wrap')) {
+  if (!e.target.closest('.food-search-wrap') && !e.target.closest('.food-novo-btn')) {
     document.querySelectorAll('.food-results').forEach(el => el.classList.remove('show'));
   }
 });
@@ -2522,12 +2607,12 @@ function abrirMeusAlimentos() {
   const foods = AlimentosDB.getCustomFoods();
   openModal(`
     <div class="modal-header">
-      <div class="modal-title">🍎 Meus Alimentos</div>
+      <div class="modal-title">🍎 Alimentos da equipe</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
-        Cadastre alimentos personalizados com tabela nutricional manual. Eles aparecerão nas buscas do plano alimentar com prioridade.
+        Alimentos cadastrados pela equipe, com tabela nutricional e quantas medidas caseiras quiser. Todos os profissionais encontram e usam os alimentos de todos nas buscas do plano; só quem cadastrou (ou o admin) edita ou apaga o alimento.
       </p>
       <button class="btn btn-primary" onclick="abrirFormAlimentoCustom()" style="margin-bottom:14px;">+ Novo Alimento</button>
       <div class="custom-food-list" id="custom-food-list">
@@ -2542,28 +2627,32 @@ function abrirMeusAlimentos() {
 
 function renderCustomFoodList(foods) {
   if (!foods || foods.length === 0) {
-    return `<div class="empty-state" style="padding:24px;">Nenhum alimento personalizado cadastrado ainda.</div>`;
+    return `<div class="empty-state" style="padding:24px;">Nenhum alimento cadastrado pela equipe ainda.</div>`;
   }
-  return foods.map(f => `
+  return foods.map(f => {
+    const pode = f.meu !== false || (typeof isAdmin === 'function' && isAdmin());
+    const meds = AlimentosDB.getMedidasAlimento(f.id);
+    return `
     <div class="custom-food-card">
       <div class="custom-food-info">
-        <div class="custom-food-name">${esc(f.description)}</div>
+        <div class="custom-food-name">${esc(f.description)}${f.meu === false ? ' <span class="custom-food-badge">EQUIPE</span>' : ''}</div>
         <div class="custom-food-macros">
           <span class="kcal">${f.energy_kcal} kcal</span>
           <span class="prot">${f.protein_g}g P</span>
           <span class="carb">${f.carbohydrate_g}g C</span>
           <span class="gord">${f.lipid_g}g G</span>
           <span>${f.fiber_g}g Fibra</span>
-          ${f.medida_padrao && f.medida_padrao !== 'g' ? `<span>1 ${esc(f.medida_padrao)} = ${f.porcao_padrao} g</span>` : ''}
+          ${meds.map(m => `<span>1 ${esc(String(m.nome).toLowerCase())} = ${m.gramas} g</span>`).join('')}
         </div>
       </div>
       <div class="custom-food-actions">
         <button class="btn btn-sm btn-secondary" onclick="verTabelaAlimento(${f.id})" title="Tabela nutricional">ℹ</button>
-        <button class="btn btn-sm btn-secondary" onclick="abrirFormAlimentoCustom(${f.id})">Editar</button>
-        <button class="btn btn-sm btn-danger" onclick="excluirAlimentoCustom(${f.id})">✕</button>
+        <button class="btn btn-sm btn-secondary" onclick="abrirMedidasAlimento(${f.id})" title="Medidas caseiras">📏</button>
+        ${pode ? `<button class="btn btn-sm btn-secondary" onclick="abrirFormAlimentoCustom(${f.id})">Editar</button>
+        <button class="btn btn-sm btn-danger" onclick="excluirAlimentoCustom(${f.id})">✕</button>` : ''}
       </div>
     </div>
-  `).join('');
+  `; }).join('');
 }
 
 function abrirFormAlimentoCustom(editId) {
@@ -2679,18 +2768,9 @@ function abrirFormAlimentoCustom(editId) {
         </div>
       </div>
 
-      <div class="modal-section-title">Medida caseira (opcional)</div>
-      <div style="font-size:12px;color:var(--text-muted);margin:-4px 0 8px;">Para montar o plano em unidades e não só em gramas. Ex.: nome "scoop" pesando 30 g, ou "fatia" pesando 25 g.</div>
-      <div class="form-2col">
-        <div class="form-group">
-          <label class="label">Nome da medida</label>
-          <input id="cf-medida" class="input" placeholder="Ex: scoop, fatia, unidade, colher" value="${esc(food?.medida_padrao && food.medida_padrao !== 'g' ? food.medida_padrao : '')}"/>
-        </div>
-        <div class="form-group">
-          <label class="label">Quanto pesa 1 (gramas)</label>
-          <input id="cf-porcao" type="number" step="0.1" class="input" placeholder="Ex: 30" value="${food?.medida_padrao && food.medida_padrao !== 'g' ? (food?.porcao_padrao || '') : ''}"/>
-        </div>
-      </div>
+      <div class="modal-section-title">Medidas caseiras (opcional, quantas quiser)</div>
+      <div style="font-size:12px;color:var(--text-muted);margin:-4px 0 8px;">Para prescrever em unidades e não só em gramas, e para o aluno ver a quantidade nas medidas do dia a dia. Ex.: "scoop" de 30 g, "colher" de 10 g, "fatia" de 25 g.</div>
+      ${_medidasRowsHtml('cf', food ? AlimentosDB.getMedidasAlimento(food.id) : [{ nome: '', gramas: '' }])}
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="abrirMeusAlimentos()">← Voltar</button>
@@ -2699,6 +2779,16 @@ function abrirFormAlimentoCustom(editId) {
   `, 'wide');
 }
 
+// Deixa as medidas do alimento iguais às da lista do formulário: apaga as que sumiram, cria ou atualiza as demais.
+async function _sincronizarMedidas(foodId, rows) {
+  const norm = t => String(t).trim().toLowerCase();
+  const atuais = AlimentosDB.getMedidasEquipe(foodId);
+  for (const m of atuais) { if (!rows.some(r => norm(r.nome) === norm(m.nome))) { try { await AlimentosDB.removerMedida(foodId, m.idmedida); } catch (e) { showToast('Não consegui apagar a medida "' + m.nome + '": ' + (e.message || 'erro'), 'error'); } } }
+  for (const r of rows) {
+    const ja = atuais.find(m => norm(m.nome) === norm(r.nome));
+    if (!ja || Number(ja.gramas) !== Number(r.gramas)) await AlimentosDB.addMedida(foodId, r.nome, r.gramas);
+  }
+}
 function salvarAlimentoCustom(editId) {
   const nome = document.getElementById('cf-nome')?.value?.trim();
   if (!nome) return showToast('Informe o nome do alimento', 'error');
@@ -2726,19 +2816,21 @@ function salvarAlimentoCustom(editId) {
     thiamine_mg: parseFloat(document.getElementById('cf-tiamina')?.value) || 0,
     riboflavin_mg: parseFloat(document.getElementById('cf-riboflavina')?.value) || 0,
     niacin_mg: parseFloat(document.getElementById('cf-niacina')?.value) || 0,
-    // Medida caseira: só vale se tiver nome E peso; senão o alimento fica só em gramas.
-    porcao_padrao: ((document.getElementById('cf-medida')?.value?.trim()) && parseFloat(document.getElementById('cf-porcao')?.value) > 0) ? parseFloat(document.getElementById('cf-porcao').value) : 100,
-    medida_padrao: ((document.getElementById('cf-medida')?.value?.trim()) && parseFloat(document.getElementById('cf-porcao')?.value) > 0) ? document.getElementById('cf-medida').value.trim() : 'g',
+    // As medidas caseiras agora são uma lista da equipe (intus_alimento_medida); a coluna antiga de uma medida só fica em "gramas".
+    porcao_padrao: 100,
+    medida_padrao: 'g',
   };
 
+  const medidasForm = _medidasRowsLer('cf');
   (async () => {
     try {
       if (editId) {
         await AlimentosDB.editCustomFood(editId, dados);
+        await _sincronizarMedidas(editId, medidasForm);
         showToast('Alimento atualizado!');
       } else {
-        await AlimentosDB.addCustomFood(dados);
-        showToast('Alimento cadastrado!');
+        await AlimentosDB.addCustomFood(dados, medidasForm);
+        showToast('Alimento cadastrado para a equipe!');
       }
       abrirMeusAlimentos();
     } catch (e) {
