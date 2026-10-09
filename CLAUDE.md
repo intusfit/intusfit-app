@@ -1228,3 +1228,15 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **Cores dos macros (09/10/2026, `nutricao.html`)**: paleta única `--mc-kcal/prot/carb/gord` (e `-bg`) em todo o CSS, com tom vivo no tema escuro e tom escuro no claro (contraste medido: mínimo 5,7:1 nos dois),
   valores em negrito (800) e rótulo em letra ao lado. Cada refeição no modal do plano mostra os totais (kcal, P, C, G) logo abaixo do nome; o total da refeição no editor também fica sempre visível no cabeçalho.
   A barra de distribuição de macros estava com altura zero (encolhida pelo flex do modal) e passou a aparecer. **Cor nova de macro: usar as variáveis, nunca hex.**
+
+## 36. Nutrição: fotos das refeições, visualização e editor do plano (09/10/2026)
+
+- **Aba "📷 Fotos das refeições"** (`nutricao.html`, `fotosHtml`): galeria das fotos que os alunos mandam ao marcar a refeição (últimos 14 dias, da carteira da nutri, vindas de `nutri_painel`), agrupadas por dia, com
+  filtros (aluno, feito/parcial/fora, só sem resposta), contador de "aguardando resposta" na aba e no cartão, visualização grande com anterior/próxima (`abrirFoto`), resposta com atalhos prontos e remoção da foto.
+  O Dashboard ganhou a faixa "Fotos recentes dos alunos". Reaproveita `API.nutriResponder` e a remoção que já existiam.
+- **Lista de planos**: cartões em grade com foto/inicial da aluna, título, objetivo, período, totais calculados do plano (kcal e macros), quantidade de refeições e substituições e a linha do dia (horários).
+- **Visualização do plano** (`verPlano`): cabeçalho com a aluna, total do dia em quatro cartões com barra e % da meta quando há meta, barra de distribuição, atalhos por refeição (rolam só o corpo do modal) e
+  "Recolher/Expandir tudo"; cada refeição é um bloco recolhível com horário, nome e totais, as substituições ficam em "↔ N opções de substituição" (recolhidas) e os micronutrientes em seção recolhida.
+- **Editor** (`abrirModalForm`): cabeçalho fixo com as abas numeradas (1 Informações, 2 Refeições com contador, 3 Metas e cálculos) e a barra "Total do dia" sempre à vista (kcal, P, C, G, % da meta, distribuição),
+  abre direto em Refeições quando o plano já tem refeições, atalhos por refeição, Recolher/Expandir tudo, tela inicial convidativa para plano vazio, legenda explicando a diferença entre trocar um alimento (↔ na
+  linha) e trocar a refeição inteira, painel completo de totais recolhível, **aviso de alterações não salvas** (X, Cancelar, clique fora; `closeModal` é envolvido neste arquivo) e Ctrl+S para salvar.
