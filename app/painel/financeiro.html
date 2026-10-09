@@ -306,12 +306,12 @@ function carregarDados() {
     const sit = (typeof API !== 'undefined' && API.situacaoCobranca)
       ? API.situacaoCobranca(m, mensalidades)
       : { estado: (m.stpgto === 'S' ? 'paga' : 'pendente'), dias: null, ehDivida: m.stpgto !== 'S' };
-    let status = 'encerrado';
+    let status = 'encerrado', pagoEncerrado = false;
     if (sit.estado === 'paga' || sit.estado === 'renovada') status = 'pago';
-    // Parcela de plano parcelado que JA FOI PAGA entra no recebido do mes em que o dinheiro entrou, mesmo que depois o plano termine,
-    // seja cancelado, trancado ou encerrado. Sem isto a receita do mes diminuia sozinha quando o plano acabava.
-    else if (m.stpgto === 'S' && typeof API !== 'undefined' && API.ehParcelada && API.ehParcelada(m) &&
-             (sit.estado === 'renovar' || sit.estado === 'encerrada' || sit.estado === 'cancelada' || sit.estado === 'trancada')) status = 'pago';
+    // Linha que JA FOI PAGA entra no recebido do mes em que o dinheiro entrou, mesmo que depois o plano termine (renovar), seja
+    // encerrado, cancelado ou trancado. Vale para parcela e para plano comum: sem isto a receita do mes diminuia sozinha quando o
+    // plano acabava. _pagoEncerrado marca essas linhas para as contas que so olham quem esta com plano em pe (retencao).
+    else if (m.stpgto === 'S' && (sit.estado === 'renovar' || sit.estado === 'encerrada' || sit.estado === 'cancelada' || sit.estado === 'trancada')) { status = 'pago'; pagoEncerrado = true; }
     else if (sit.estado === 'vencida' || sit.estado === 'inativa') status = 'atrasado';
     else if (sit.estado === 'pendente' || sit.estado === 'programada') status = 'pendente';
     // 'paga_no_anterior' fica em 'encerrado' de proposito: o dinheiro entrou,
@@ -323,7 +323,7 @@ function carregarDados() {
     const _dias = (status === 'pago' || sit.estado === 'renovar')
       ? (sit.proxima ? diasAte(sit.proxima) : null)
       : (sit.dias == null ? null : -sit.dias);
-    return { ...m, _status: status, _sit: sit, _dias: _dias,
+    return { ...m, _status: status, _pagoEncerrado: pagoEncerrado, _sit: sit, _dias: _dias,
              valor: parseFloat(m.vlpagar || 0) };
   });
 
@@ -1518,7 +1518,7 @@ function renderAnalytics(box, d) {
   const maxReceita = Math.max(...meses.map(m => m.receita), 1);
 
   // Churn: alunos que tinham plano ativo e não renovaram (estimativa simples)
-  const atletasAtivos = new Set(d.categorizadas.filter(m => m._status === 'pago' || m._status === 'pendente').map(m => Number(m.idatleta)));
+  const atletasAtivos = new Set(d.categorizadas.filter(m => (m._status === 'pago' && !m._pagoEncerrado) || m._status === 'pendente').map(m => Number(m.idatleta)));
   const atletasAtrasados = new Set(d.categorizadas.filter(m => m._status === 'atrasado').map(m => Number(m.idatleta)));
   const churnEstimado = atletasAtrasados.size;
   const retencao = atletasAtivos.size > 0 ? (((atletasAtivos.size - churnEstimado) / atletasAtivos.size) * 100) : 100;

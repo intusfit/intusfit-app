@@ -1050,8 +1050,8 @@ linha de base precisa ser refeita. Confira antes de rodar `node funcoes.js grava
 - **Cópias que ganharam a mesma guarda** (parcela numerada nunca é "sobra"): `_cobrancaSuperada` em `mensalidades.html` e `_superada` em
   `index.html`. **Aviso**: parcelamentos feitos antes pelo modal antigo (sem ligação) passam a ser lidos pelas regras novas; o status deles pode
   mudar para o correto.
-- **Observação (não alterada)**: no `financeiro.html`, linha paga de plano NÃO parcelado em estado `renovar`, `encerrada` ou `cancelada` não entra
-  em "recebido". Parece o mesmo defeito que corrigi só para parcelas; precisa de decisão do Luiz antes de mexer.
+- **Corrigido em 09/10/2026**: no `financeiro.html`, linha PAGA de plano comum em estado `renovar`, `encerrada`, `cancelada` ou `trancada` agora entra em "recebido" (e no Caixa, no LTV e nos
+  melhores clientes), como já valia para parcelas. A linha fica marcada `_pagoEncerrado` e não conta como aluno com plano em pé na retenção da aba Analytics.
 
 ## 30. Atendimento por WhatsApp com Claude (08/10/2026)
 
