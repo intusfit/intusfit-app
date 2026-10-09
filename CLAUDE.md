@@ -1211,3 +1211,17 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   texto branco sobre o verde-limão nos botões ativos (ilegível no tema escuro).
 - **`--brand` nunca tinha sido declarada**: dezenas de telas usam `var(--brand)` (avatar, links, bordas). Sem valor, o avatar ficava transparente com a inicial preta sobre fundo escuro. `_mock.js` agora declara
   `--brand` igual à cor de destaque do tema (nos dois temas). O app do aluno (`aluno.html`) continua na versão antiga do `_mock.js`, sem mudança.
+
+## 35. Importar plano alimentar e observações por refeição (09/10/2026)
+
+- **Observação da refeição e da substituição**: `refeicoes[i].nota` e `refeicoes[i].refeicoes_substitutas[j].nota` (texto livre, dentro do JSON do plano, sem coluna nova). Editor da nutri: caixa de texto em cada
+  refeição e em cada substituição; aparece no modal do plano, na impressão e no app do aluno (visão Hoje, embaixo dos alimentos da opção escolhida). Serve para receita, "fruta é sugestão" etc.
+- **Total do dia no modal do plano** (`verPlano`): soma das refeições principais (kcal, proteína, carboidrato, gordura e barra de distribuição) aparece sempre, com ou sem metas; as metas, quando existem, vêm
+  logo abaixo com o título "Metas do plano".
+- **Importar plano** (`nutricao.html`, aba Planos, botão "⬆ Importar plano"): lê um `.json` no formato `intus-plano-v1` (`aluno_nome`, `titulo`, `objetivo`, `dtinicio`, `refeicoes[]` já no formato salvo, com
+  `itens_estruturados`, `substitutos` por alimento e `refeicoes_substitutas`), sugere a aluna pelo nome, mostra o resumo (refeições, substituições, total do dia, itens só com calorias) e só grava ao clicar em
+  Importar. Nasce INATIVO por padrão e avisa se a aluna já tem plano ativo. O arquivo é escolhido do computador: **plano de aluna não fica em pasta pública do site** (a pasta local `importar-local/` está no `.gitignore`).
+- **Como o PDF vira o formato**: alimento da TACO/IBGE/USDA entra ligado ao catálogo (nome do catálogo, macros e medidas reais); alimento de marca ou prato (Oakberry, sanduíches, iogurte grego Vigor) entra
+  como item próprio só com as calorias do PDF, ou com a tabela de um alimento parecido quando a caloria de 100 g fica a menos de 12% dela; "OU" vira `substitutos` do alimento (com a quantidade do PDF) e, sem
+  quantidade ("OU outro pão disponível"), vira substituto manual só de texto; "Substituição N" vira `refeicoes_substitutas`. Medida caseira que o PDF só dá pelo nome (copo americano, colher de sopa) usa o peso
+  que reproduz as calorias do PDF.

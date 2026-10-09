@@ -397,6 +397,7 @@ function render() {
       <button class="btn ${filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=true;render();">Ativos (${nAtivos})</button>
       <button class="btn ${!filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=false;render();">Inativos (${nInativos})</button>
       ${hasPerm('nt_incluir') ? `<button class="btn btn-primary" onclick="abrirModalNovo()">+ Novo Plano</button>` : ''}
+      ${hasPerm('nt_incluir') ? `<button class="btn btn-secondary" onclick="abrirImportarPlano()" title="Cria um plano a partir de um arquivo .json no formato do Intus (migração de plano feito em outro lugar)">⬆ Importar plano</button>` : ''}
       <button class="btn btn-secondary" onclick="abrirMeusAlimentos()" style="margin-left:auto;">🍎 Alimentos da equipe</button>
       <button class="btn btn-secondary" onclick="abrirCalculadoraGET()">Calculadora GEB/GET</button>
     </div>
@@ -489,6 +490,8 @@ function verPlano(id) {
     return html;
   };
 
+  // Observação escrita pela nutri na refeição ou na substituição (receita, sugestão, "fruta é sugestão"...).
+  const notaHtml = t => t ? `<div style="font-size:12px;color:var(--text-muted);margin:6px 0 0;padding:8px 10px;border-left:3px solid #60a5fa;background:var(--bg3);border-radius:0 8px 8px 0;white-space:pre-wrap;line-height:1.5;">${esc(t)}</div>` : '';
   let refHtml = '';
   if (pl.refeicoes && pl.refeicoes.length > 0) {
     refHtml = `
@@ -510,6 +513,7 @@ function verPlano(id) {
           <div style="margin-top:10px;padding:10px;border:1px dashed var(--border);border-radius:8px;background:var(--bg2);">
             <div style="font-size:11px;color:#60a5fa;font-weight:700;margin-bottom:6px;">↔ SUBSTITUIÇÃO — ${esc(s.nome || '')}</div>
             ${montarItensHtml(s.itens_estruturados || [], 'Total da opção')}
+            ${notaHtml(s.nota)}
           </div>
         `).join('');
         return `
@@ -519,6 +523,7 @@ function verPlano(id) {
               ${r.horario ? `<span class="refeicao-horario">${esc(r.horario)}</span>` : ''}
             </div>
             ${itensHtml}
+            ${notaHtml(r.nota)}
             ${substsHtml}
           </div>
         `;
@@ -539,6 +544,17 @@ function verPlano(id) {
       ${pl.objetivo ? `<div style="font-size:13px;color:var(--text);margin-bottom:8px;"><strong>Objetivo:</strong> ${esc(pl.objetivo)}</div>` : ''}
       ${pl.dtinicio ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Período: ${fmtDate(pl.dtinicio)}${pl.dtfim ? ' → ' + fmtDate(pl.dtfim) : ' (sem fim definido)'}</div>` : ''}
 
+      ${(() => {
+        // Total do dia somado das refeições principais: aparece sempre, com ou sem metas cadastradas.
+        const dia = calcTotaisRefeicao((pl.refeicoes || []).flatMap(r => r.itens_estruturados || []));
+        if (!(dia.kcal > 0)) return '';
+        const chip = (cls, v, rot) => `<div class="macro-chip ${cls}"><span class="macro-chip-value">${v}</span><span class="macro-chip-label">${rot}</span></div>`;
+        return `<div class="modal-section-title">Total do dia <span style="font-weight:500;color:var(--text-muted);font-size:11px;text-transform:none;letter-spacing:0;">· soma das refeições principais</span></div>
+          <div class="macros-bar" style="margin-bottom:10px;">${chip('cal', dia.kcal, 'kcal/dia')}${chip('prot', dia.prot + 'g', 'Proteína')}${chip('carb', dia.carb + 'g', 'Carboidrato')}${chip('gord', dia.gord + 'g', 'Gordura')}</div>
+          ${renderMacroDistBar(dia.prot, dia.carb, dia.gord)}`;
+      })()}
+
+      ${pl.calorias || pl.proteina || pl.carboidrato || pl.gordura ? '<div class="modal-section-title" style="margin-top:14px;">Metas do plano</div>' : ''}
       <div class="macros-bar" style="margin-bottom:14px;">
         ${pl.calorias ? `<div class="macro-chip cal"><span class="macro-chip-value">${pl.calorias}</span><span class="macro-chip-label">kcal/dia</span></div>` : ''}
         ${pl.proteina ? `<div class="macro-chip prot"><span class="macro-chip-value">${pl.proteina}g</span><span class="macro-chip-label">Proteína</span></div>` : ''}
@@ -631,6 +647,108 @@ async function duplicarPlano(idplano) {
   }
 }
 
+// ── Importar plano de arquivo ──
+// Migra um plano feito fora (PDF de outro sistema) já convertido para o formato do Intus (.json, "intus-plano-v1": refeições, alimentos
+// com quantidade, medida e nutrientes, substituições de alimento e de refeição, observações). Nada é gravado até a nutri escolher a
+// aluna, ver o resumo e clicar em Importar. O plano nasce INATIVO por padrão para ser revisado antes de a aluna ver.
+let _imp = null;
+function _normNome(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+function abrirImportarPlano() {
+  _imp = null;
+  openModal(`
+    <div class="modal-header"><div class="modal-title">Importar plano alimentar</div><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Escolha o arquivo do plano (.json). Você confere o resumo e a aluna antes de gravar. Depois é só editar como qualquer plano.</p>
+      <div class="form-group"><label class="label">Arquivo do plano *</label><input id="imp-arq" type="file" accept=".json,application/json" class="input" onchange="_importarLer(this)"/></div>
+      <div id="imp-resumo"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button id="imp-ok" class="btn btn-primary" onclick="importarPlano()" disabled>Importar</button>
+    </div>
+  `);
+}
+function _importarLer(inp) {
+  const f = inp.files && inp.files[0];
+  const box = document.getElementById('imp-resumo'), ok = document.getElementById('imp-ok');
+  _imp = null; ok.disabled = true;
+  if (!f) { box.innerHTML = ''; return; }
+  const rd = new FileReader();
+  rd.onerror = () => { box.innerHTML = '<p style="color:#f87171;font-size:13px;">Não consegui ler o arquivo.</p>'; };
+  rd.onload = () => {
+    let p;
+    try { p = JSON.parse(rd.result); } catch (e) { box.innerHTML = '<p style="color:#f87171;font-size:13px;">Arquivo inválido: não é um JSON.</p>'; return; }
+    if (!p || p.formato !== 'intus-plano-v1' || !Array.isArray(p.refeicoes) || !p.refeicoes.length) {
+      box.innerHTML = '<p style="color:#f87171;font-size:13px;">Este arquivo não é um plano no formato do Intus (intus-plano-v1).</p>'; return;
+    }
+    const ruim = p.refeicoes.findIndex(r => !r || !String(r.nome || '').trim() || !Array.isArray(r.itens_estruturados) || !r.itens_estruturados.length);
+    if (ruim >= 0) { box.innerHTML = '<p style="color:#f87171;font-size:13px;">A refeição ' + (ruim + 1) + ' do arquivo está sem nome ou sem alimentos.</p>'; return; }
+    _imp = p;
+    // Sugere a aluna pelo nome do arquivo (nome do cadastro parecido); a nutri confirma ou troca.
+    const alvo = _normNome(p.aluno_nome).split(' ').filter(Boolean);
+    let melhor = null, pts = 0;
+    atletas.forEach(a => {
+      const t = _normNome(a.nome).split(' ');
+      const n = alvo.filter(w => t.includes(w)).length;
+      if (n > pts) { pts = n; melhor = a; }
+    });
+    const tot = calcTotaisRefeicao(p.refeicoes.flatMap(r => r.itens_estruturados || []));
+    const nSub = p.refeicoes.reduce((s, r) => s + (r.refeicoes_substitutas || []).length, 0);
+    const nOu = p.refeicoes.reduce((s, r) => s + (r.itens_estruturados || []).reduce((q, it) => q + (it.substitutos || []).length, 0), 0);
+    const semMacro = p.refeicoes.flatMap(r => [r.itens_estruturados || [], ...(r.refeicoes_substitutas || []).map(x => x.itens_estruturados || [])].flat()).filter(it => it.por100 && !(it.por100.proteina_g || it.por100.carboidrato_g || it.por100.lipidio_g)).length;
+    box.innerHTML = `
+      <div class="form-group"><label class="label">Aluna que recebe o plano *</label>
+        <select id="imp-atleta" class="input" onchange="_importarAvisoAtivo()">
+          <option value="">Selecione...</option>
+          ${atletas.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(a => `<option value="${a.idatleta}" ${melhor && pts >= 2 && a.idatleta === melhor.idatleta ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Nome no arquivo: ${esc(p.aluno_nome || '—')}${melhor && pts >= 2 ? '' : '. Nenhum cadastro bateu com o nome: escolha a aluna na lista.'}</div></div>
+      <div class="form-group"><label class="label">Título</label><input id="imp-titulo" class="input" value="${esc(p.titulo || 'Plano Alimentar')}"/></div>
+      <div style="padding:10px 12px;background:var(--bg3);border-radius:8px;font-size:12.5px;line-height:1.7;margin-bottom:10px;">
+        <b>${p.refeicoes.length}</b> refeições · <b>${nSub}</b> refeições substitutas · <b>${nOu}</b> alimentos com opções de troca (OU)<br>
+        Total do dia (refeições principais): <b>${tot.kcal} kcal</b> · P ${tot.prot} g · C ${tot.carb} g · G ${tot.gord} g
+        ${semMacro ? `<br><span style="color:#facc15;">⚠ ${semMacro} alimento(s) só têm as calorias do PDF, sem proteína, carboidrato e gordura. Complete na edição.</span>` : ''}
+        ${p.origem ? `<br><span style="color:var(--text-muted);">Origem: ${esc(p.origem)}</span>` : ''}
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input id="imp-inativo" type="checkbox" checked onchange="_importarAvisoAtivo()"/> Criar inativo (a aluna só vê depois que a nutri revisar e ativar)</label>
+      <div id="imp-aviso" style="font-size:12px;color:#facc15;margin-top:8px;"></div>`;
+    ok.disabled = false;
+    _importarAvisoAtivo();
+  };
+  rd.readAsText(f, 'utf-8');
+}
+function _importarAvisoAtivo() {
+  const el = document.getElementById('imp-aviso'); if (!el) return;
+  const id = Number(document.getElementById('imp-atleta')?.value);
+  const ativos = planos.filter(pl => Number(pl.idatleta) === id && planoAtivo(pl)).length;
+  const inativo = !!document.getElementById('imp-inativo')?.checked;
+  el.textContent = (id && ativos && !inativo) ? 'Esta aluna já tem ' + ativos + ' plano(s) ativo(s). Com dois ativos ao mesmo tempo o app pode mostrar o plano antigo: prefira criar inativo e trocar na hora certa.' : '';
+}
+async function importarPlano() {
+  const p = _imp;
+  const idatleta = Number(document.getElementById('imp-atleta')?.value);
+  if (!p) return showToast('Escolha o arquivo do plano', 'error');
+  if (!idatleta) return showToast('Escolha a aluna que recebe o plano', 'error');
+  const inativo = !!document.getElementById('imp-inativo')?.checked;
+  const btn = document.getElementById('imp-ok'); if (btn) btn.disabled = true;
+  try {
+    await API.criarPlanoNutricional({
+      idatleta, titulo: (document.getElementById('imp-titulo')?.value || '').trim() || p.titulo || 'Plano Alimentar', objetivo: p.objetivo || '',
+      calorias: p.calorias || null, proteina: p.proteina || null, carboidrato: p.carboidrato || null, gordura: p.gordura || null,
+      refeicoes: JSON.parse(JSON.stringify(p.refeicoes)), observacao: p.observacao || '', comentario_inicio: p.comentario_inicio || '', comentario_fim: p.comentario_fim || '',
+      ativo: inativo ? 0 : 1, dtinicio: p.dtinicio || new Date().toISOString().slice(0, 10), dtfim: p.dtfim || null,
+    });
+    showToast('Plano importado' + (inativo ? ' (inativo)' : '') + ' para ' + getNomeAtleta(idatleta));
+    closeModal();
+    _imp = null;
+    await carregar();
+    filtroAtleta = idatleta; filtroPlanoAtivo = !inativo; aba = 'planos'; render();
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    showToast('Erro ao importar: ' + e.message, 'error');
+  }
+}
+
 // ── Imprimir / salvar em PDF ──
 function imprimirPlano(idplano) {
   const pl = planos.find(x => Number(x.idplano) === Number(idplano));
@@ -647,8 +765,8 @@ function imprimirPlano(idplano) {
     const t = calcTotaisRefeicao(itens || []);
     return `<table><thead><tr><th>Alimento</th><th>Quantidade</th><th class="n">kcal</th><th class="n">P</th><th class="n">C</th><th class="n">G</th></tr></thead><tbody>${linhasItens(itens)}<tr class="tot"><td colspan="2">${rot}</td><td class="n">${t.kcal}</td><td class="n">${t.prot}</td><td class="n">${t.carb}</td><td class="n">${t.gord}</td></tr></tbody></table>`;
   };
-  const refs = (pl.refeicoes || []).map(r => `<div class="ref"><h3>${esc(r.horario || '')} ${esc(r.nome || '')}</h3>${(r.itens_estruturados || []).length ? tabela(r.itens_estruturados, 'Total da refeição') : `<p>${esc(r.itens || '')}</p>`}
-    ${(r.refeicoes_substitutas || []).filter(x => (x.itens_estruturados || []).length).map(sb => `<h4>Opção: ${esc(sb.nome || 'Substituição')}</h4>${tabela(sb.itens_estruturados, 'Total da opção')}`).join('')}</div>`).join('');
+  const refs = (pl.refeicoes || []).map(r => `<div class="ref"><h3>${esc(r.horario || '')} ${esc(r.nome || '')}</h3>${(r.itens_estruturados || []).length ? tabela(r.itens_estruturados, 'Total da refeição') : `<p>${esc(r.itens || '')}</p>`}${r.nota ? `<div class="box">${esc(r.nota)}</div>` : ''}
+    ${(r.refeicoes_substitutas || []).filter(x => (x.itens_estruturados || []).length).map(sb => `<h4>Opção: ${esc(sb.nome || 'Substituição')}</h4>${tabela(sb.itens_estruturados, 'Total da opção')}${sb.nota ? `<div class="box">${esc(sb.nota)}</div>` : ''}`).join('')}</div>`).join('');
   const todos = (pl.refeicoes || []).flatMap(r => r.itens_estruturados || []);
   const dia = calcTotaisRefeicao(todos);
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(pl.titulo)}</title><style>
@@ -1056,6 +1174,7 @@ function renderRefeicaoEditors() {
         <div id="ref-itens-${i}">
           ${renderItensRefeicao(i)}
         </div>
+        <textarea class="input" rows="2" placeholder="Observação desta refeição (ex.: a fruta é uma sugestão, modo de preparo...). O aluno vê junto com os alimentos." onchange="_formRefeicoes[${i}].nota=this.value" style="width:100%;margin:6px 0 8px;font-size:12px;resize:vertical;">${esc(r.nota || '')}</textarea>
         <div style="display:flex;gap:6px;align-items:flex-start;">
         <div class="food-search-wrap" style="flex:1;min-width:0;">
           <input class="input food-search-input" placeholder="Buscar alimento (ex: arroz, frango, banana)..." oninput="buscarAlimento(this, ${i})" onfocus="buscarAlimento(this, ${i})" id="food-search-${i}"/>
@@ -1510,6 +1629,7 @@ function renderSubstituicoes(refIdx) {
         <button class="ref-remove" onclick="removeSubstituicao(${refIdx},${si})" title="Remover substituição">✕</button>
       </div>
       <div id="ref-subst-itens-${refIdx}-${si}">${renderItensSubstituicao(refIdx, si)}</div>
+      <textarea class="input" rows="2" placeholder="Observação desta substituição (receita, sugestão...)" onchange="_formRefeicoes[${refIdx}].refeicoes_substitutas[${si}].nota=this.value" style="width:100%;margin:6px 0 8px;font-size:12px;resize:vertical;">${esc(s.nota || '')}</textarea>
       <div style="display:flex;gap:6px;align-items:flex-start;">
       <div class="food-search-wrap" style="flex:1;min-width:0;">
         <input class="input food-search-input" placeholder="Buscar alimento para esta opção..." oninput="buscarAlimento(this,${refIdx},${si})" onfocus="buscarAlimento(this,${refIdx},${si})" id="food-search-${refIdx}-s${si}"/>
@@ -2530,13 +2650,14 @@ async function salvarPlano(idplano) {
     return {
       nome: r.nome,
       horario: r.horario,
+      ...(r.nota && String(r.nota).trim() ? { nota: String(r.nota).trim() } : {}),
       itens: legacyText || r.itens || '',
       itens_estruturados: itensClean,
       // Refeição substituta completa (opção alternativa inteira) — ver
       // renderSubstituicoes. Só entra quem tiver alimento de verdade.
       refeicoes_substitutas: (r.refeicoes_substitutas || [])
         .filter(s => s.itens_estruturados && s.itens_estruturados.length > 0)
-        .map(s => ({ nome: s.nome, itens_estruturados: limparItens(s.itens_estruturados) })),
+        .map(s => ({ nome: s.nome, ...(s.nota && String(s.nota).trim() ? { nota: String(s.nota).trim() } : {}), itens_estruturados: limparItens(s.itens_estruturados) })),
     };
   });
 
