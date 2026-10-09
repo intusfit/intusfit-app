@@ -1225,3 +1225,6 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   como item próprio só com as calorias do PDF, ou com a tabela de um alimento parecido quando a caloria de 100 g fica a menos de 12% dela; "OU" vira `substitutos` do alimento (com a quantidade do PDF) e, sem
   quantidade ("OU outro pão disponível"), vira substituto manual só de texto; "Substituição N" vira `refeicoes_substitutas`. Medida caseira que o PDF só dá pelo nome (copo americano, colher de sopa) usa o peso
   que reproduz as calorias do PDF.
+- **Cores dos macros (09/10/2026, `nutricao.html`)**: paleta única `--mc-kcal/prot/carb/gord` (e `-bg`) em todo o CSS, com tom vivo no tema escuro e tom escuro no claro (contraste medido: mínimo 5,7:1 nos dois),
+  valores em negrito (800) e rótulo em letra ao lado. Cada refeição no modal do plano mostra os totais (kcal, P, C, G) logo abaixo do nome; o total da refeição no editor também fica sempre visível no cabeçalho.
+  A barra de distribuição de macros estava com altura zero (encolhida pelo flex do modal) e passou a aparecer. **Cor nova de macro: usar as variáveis, nunca hex.**

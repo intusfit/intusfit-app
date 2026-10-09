@@ -9,6 +9,13 @@
   <script src="api.js?v=20261008f"></script>
   <script src="alimentos-db.js?v=20261008c"></script>
   <style>
+    /* Cores dos macros e das calorias, usadas em TODA a tela. Antes o amarelo, o verde-limão e o azul claro
+       sumiam no tema claro. Aqui cada tema tem o seu tom (escuros no claro, vivos no escuro), sempre com o
+       rótulo em letra (kcal, P, C, G) ao lado, para a cor nunca ser a única pista. */
+    :root { --mc-kcal: #fbbf24; --mc-prot: #60a5fa; --mc-carb: #a3e635; --mc-gord: #fb7185;
+            --mc-kcal-bg: rgba(251,191,36,.14); --mc-prot-bg: rgba(96,165,250,.14); --mc-carb-bg: rgba(163,230,53,.14); --mc-gord-bg: rgba(251,113,133,.14); }
+    body.theme-light { --mc-kcal: #92400e; --mc-prot: #1d4ed8; --mc-carb: #3f6212; --mc-gord: #b91c1c;
+            --mc-kcal-bg: rgba(217,119,6,.12); --mc-prot-bg: rgba(37,99,235,.10); --mc-carb-bg: rgba(77,124,15,.12); --mc-gord-bg: rgba(220,38,38,.10); }
     .modal-box.wide { max-width: 820px; }
     .modal-box.full { max-width: 95vw; width: 1100px; }
     .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -70,16 +77,21 @@
     .plano-status.inativo { background: rgba(248,113,113,.12); color: #f87171; }
     .macros-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
     .macro-chip {
-      display: flex; align-items: center; gap: 6px;
-      background: var(--bg3); border-radius: 8px; padding: 6px 12px;
+      display: flex; align-items: baseline; gap: 6px;
+      background: var(--bg3); border-radius: 10px; padding: 7px 14px; border: 1px solid transparent;
     }
-    .macro-chip-value { font-size: 16px; font-weight: 700; color: var(--text); }
-    .macro-chip-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
-    .macro-chip.cal .macro-chip-value { color: #facc15; }
-    .macro-chip.prot .macro-chip-value { color: #60a5fa; }
-    .macro-chip.carb .macro-chip-value { color: #7FFF00; }
-    .macro-chip.gord .macro-chip-value { color: #f87171; }
-    .refeicao-block { background: var(--bg3); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+    .macro-chip-value { font-size: 18px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+    .macro-chip-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px; }
+    .macro-chip.cal { background: var(--mc-kcal-bg); border-color: var(--mc-kcal); } .macro-chip.cal .macro-chip-value, .macro-chip.cal .macro-chip-label { color: var(--mc-kcal); }
+    .macro-chip.prot { background: var(--mc-prot-bg); border-color: var(--mc-prot); } .macro-chip.prot .macro-chip-value, .macro-chip.prot .macro-chip-label { color: var(--mc-prot); }
+    .macro-chip.carb { background: var(--mc-carb-bg); border-color: var(--mc-carb); } .macro-chip.carb .macro-chip-value, .macro-chip.carb .macro-chip-label { color: var(--mc-carb); }
+    .macro-chip.gord { background: var(--mc-gord-bg); border-color: var(--mc-gord); } .macro-chip.gord .macro-chip-value, .macro-chip.gord .macro-chip-label { color: var(--mc-gord); }
+    /* Totais da refeição logo abaixo do nome, para ver sem rolar a tabela */
+    .mt-pills { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
+    .mt-pill { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; border: 1px solid transparent; }
+    .mt-pill.kcal { color: var(--mc-kcal); background: var(--mc-kcal-bg); } .mt-pill.prot { color: var(--mc-prot); background: var(--mc-prot-bg); }
+    .mt-pill.carb { color: var(--mc-carb); background: var(--mc-carb-bg); } .mt-pill.gord { color: var(--mc-gord); background: var(--mc-gord-bg); }
+    .refeicao-block { background: var(--bg3); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; border: 1px solid var(--border); }
     .refeicao-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
     .refeicao-nome { font-size: 15px; font-weight: 700; color: var(--text); }
     .refeicao-horario { font-size: 13px; color: var(--text-muted); }
@@ -107,12 +119,12 @@
     .ref-collapse-arrow.collapsed { transform: rotate(-90deg); }
     .ref-body { overflow: visible; transition: max-height .3s ease; }
     .ref-body.collapsed { max-height: 0 !important; padding: 0; overflow: hidden; }
-    .ref-header-macros { font-size: 12px; color: var(--text-muted); margin-left: 10px; }
-    .ref-header-macros span { margin-right: 8px; }
-    .ref-header-macros .kcal { color: #facc15; }
-    .ref-header-macros .prot { color: #60a5fa; }
-    .ref-header-macros .carb { color: #7FFF00; }
-    .ref-header-macros .gord { color: #f87171; }
+    .ref-header-macros { font-size: 12px; color: var(--text-muted); margin-left: 10px; white-space: nowrap; }
+    .ref-header-macros span { margin-right: 8px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .ref-header-macros .kcal { color: var(--mc-kcal); }
+    .ref-header-macros .prot { color: var(--mc-prot); }
+    .ref-header-macros .carb { color: var(--mc-carb); }
+    .ref-header-macros .gord { color: var(--mc-gord); }
 
     /* Move arrows */
     .ref-move-btn {
@@ -138,7 +150,7 @@
     .food-result-item:last-child { border-bottom: none; }
     .food-result-item:hover { background: var(--bg3); }
     .food-result-item .food-cat { font-size: 11px; color: var(--text-muted); }
-    .food-result-item .food-kcal { font-size: 11px; color: #facc15; font-weight: 600; }
+    .food-result-item .food-kcal { font-size: 11px; color: var(--mc-kcal); font-weight: 800; }
 
     /* Meal item row */
     .meal-item-row {
@@ -153,11 +165,12 @@
       border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 4px;
     }
     .meal-item-name { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .meal-item-val { text-align: center; color: var(--text-muted); }
-    .meal-item-val.kcal { color: #facc15; }
-    .meal-item-val.prot { color: #60a5fa; }
-    .meal-item-val.carb { color: #7FFF00; }
-    .meal-item-val.gord { color: #f87171; }
+    .meal-item-val { text-align: center; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .meal-item-val.kcal, .meal-item-val.prot, .meal-item-val.carb, .meal-item-val.gord { font-weight: 800; }
+    .meal-item-val.kcal { color: var(--mc-kcal); }
+    .meal-item-val.prot { color: var(--mc-prot); }
+    .meal-item-val.carb { color: var(--mc-carb); }
+    .meal-item-val.gord { color: var(--mc-gord); }
     .meal-item-remove { background: none; border: none; color: #f87171; cursor: pointer; font-size: 14px; padding: 2px; }
     .meal-item-qty { width: 100%; text-align: center; padding: 4px; font-size: 14px; }
     .meal-item-measure { width: 100%; font-size: 13px; padding: 4px; }
@@ -204,19 +217,20 @@
     .custom-food-name { font-size: 15px; font-weight: 600; color: var(--text); }
     .custom-food-macros { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
     .custom-food-macros span { margin-right: 10px; }
-    .custom-food-macros .kcal { color: #facc15; }
-    .custom-food-macros .prot { color: #60a5fa; }
-    .custom-food-macros .carb { color: #7FFF00; }
-    .custom-food-macros .gord { color: #f87171; }
+    .custom-food-macros span { font-weight: 800; }
+    .custom-food-macros .kcal { color: var(--mc-kcal); }
+    .custom-food-macros .prot { color: var(--mc-prot); }
+    .custom-food-macros .carb { color: var(--mc-carb); }
+    .custom-food-macros .gord { color: var(--mc-gord); }
     .custom-food-actions { display: flex; gap: 6px; margin-left: 12px; }
     .custom-food-badge { font-size: 10px; font-weight: 700; background: rgba(127,255,0,.12); color: #7FFF00; padding: 2px 6px; border-radius: 4px; margin-left: 8px; }
 
     .meal-totals {
       display: grid; grid-template-columns: 24px 1fr 70px 130px 50px 50px 50px 50px 78px;
-      gap: 4px; padding: 8px 0 4px; border-top: 1px solid var(--border); margin-top: 6px;
-      font-size: 14px; font-weight: 700;
+      gap: 4px; padding: 9px 4px; margin-top: 8px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      font-size: 15px; font-weight: 800;
     }
-    .meal-totals .lbl { color: var(--text-muted); }
+    .meal-totals .lbl { color: var(--text); text-transform: uppercase; font-size: 11px; letter-spacing: .5px; align-self: center; }
 
     /* GEB/GET calculator */
     .calc-card {
@@ -247,13 +261,13 @@
     .plan-tab-content.active { display: block; }
 
     /* Macro dist bar */
-    .macro-dist-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 8px; }
-    .macro-dist-bar .seg-prot { background: #60a5fa; }
-    .macro-dist-bar .seg-carb { background: #7FFF00; }
-    .macro-dist-bar .seg-gord { background: #f87171; }
-    .macro-dist-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+    .macro-dist-bar { display: flex; height: 10px; min-height: 10px; flex-shrink: 0; border-radius: 5px; overflow: hidden; margin-top: 8px; }
+    .macro-dist-bar .seg-prot { background: var(--mc-prot); }
+    .macro-dist-bar .seg-carb { background: var(--mc-carb); }
+    .macro-dist-bar .seg-gord { background: var(--mc-gord); }
+    .macro-dist-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 12px; font-weight: 700; color: var(--text); }
     .macro-dist-legend span { display: flex; align-items: center; gap: 4px; }
-    .macro-dist-legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .macro-dist-legend .dot { width: 10px; height: 10px; border-radius: 50%; }
 
     /* Equivalence panel */
     .equiv-panel { background: var(--bg3); border-radius: 8px; padding: 10px 12px; margin-top: 8px; font-size: 14px; }
@@ -456,7 +470,7 @@ function verPlano(id) {
     if (!itens || itens.length === 0) return '';
     let html = `<div class="meal-item-row header">
       <span></span><span>Alimento</span><span>Qtd</span><span>Medida</span>
-      <span style="text-align:center">Kcal</span><span style="text-align:center">P</span><span style="text-align:center">C</span><span style="text-align:center">G</span><span></span>
+      <span class="meal-item-val kcal">Kcal</span><span class="meal-item-val prot">P</span><span class="meal-item-val carb">C</span><span class="meal-item-val gord">G</span><span></span>
     </div>` + itens.map(it => {
       const n = it.nutrientes || {};
       let substHtml = '';
@@ -464,7 +478,7 @@ function verPlano(id) {
         substHtml = it.substitutos.map(s => {
           const sn = s.nutrientes || null;
           const qtd = s.medida_id ? API.nutri.rotuloQtd(s) : (s.quantidade ? s.quantidade + ' ' + (s.medida || 'g') : '');
-          return `<div class="view-substitutos">${esc(s.nome)}${qtd ? ' · ' + esc(qtd) : ''}${sn ? ' <span style="color:#facc15;">' + (sn.energia_kcal || 0) + ' kcal</span> · P ' + (sn.proteina_g || 0) + ' · C ' + (sn.carboidrato_g || 0) + ' · G ' + (sn.lipidio_g || 0) : ''}</div>`;
+          return `<div class="view-substitutos">${esc(s.nome)}${qtd ? ' · ' + esc(qtd) : ''}${sn ? ' <span style="color:var(--mc-kcal);font-weight:800;">' + (sn.energia_kcal || 0) + ' kcal</span> · P ' + (sn.proteina_g || 0) + ' · C ' + (sn.carboidrato_g || 0) + ' · G ' + (sn.lipidio_g || 0) : ''}</div>`;
         }).join('');
       }
       return `<div class="meal-item-row">
@@ -522,6 +536,7 @@ function verPlano(id) {
               <span class="refeicao-nome">${esc(r.nome)}</span>
               ${r.horario ? `<span class="refeicao-horario">${esc(r.horario)}</span>` : ''}
             </div>
+            ${itens.length ? (() => { const t = calcTotaisRefeicao(itens); return `<div class="mt-pills"><span class="mt-pill kcal">${t.kcal} kcal</span><span class="mt-pill prot">P ${t.prot} g</span><span class="mt-pill carb">C ${t.carb} g</span><span class="mt-pill gord">G ${t.gord} g</span></div>`; })() : ''}
             ${itensHtml}
             ${notaHtml(r.nota)}
             ${substsHtml}
@@ -799,9 +814,9 @@ function renderMacroDistBar(prot, carb, gord) {
       <div class="seg-gord" style="width:${gp}%"></div>
     </div>
     <div class="macro-dist-legend">
-      <span><span class="dot" style="background:#60a5fa;"></span>Prot ${pp}%</span>
-      <span><span class="dot" style="background:#7FFF00;"></span>Carb ${cp}%</span>
-      <span><span class="dot" style="background:#f87171;"></span>Gord ${gp}%</span>
+      <span><span class="dot" style="background:var(--mc-prot);"></span>Prot ${pp}%</span>
+      <span><span class="dot" style="background:var(--mc-carb);"></span>Carb ${cp}%</span>
+      <span><span class="dot" style="background:var(--mc-gord);"></span>Gord ${gp}%</span>
     </div>
   `;
 }
@@ -1164,7 +1179,7 @@ function renderRefeicaoEditors() {
                  onchange="_formRefeicoes[${i}].nome=this.value" onclick="event.stopPropagation()"/>
         </div>
         <input class="input" type="time" style="width:100px;" value="${esc(r.horario || '')}" onchange="_formRefeicoes[${i}].horario=this.value"/>
-        ${hasTotals && isCollapsed ? `<span class="ref-header-macros"><span class="kcal">${totals.kcal}kcal</span> <span class="prot">${totals.prot}P</span> <span class="carb">${totals.carb}C</span> <span class="gord">${totals.gord}G</span></span>` : ''}
+        ${hasTotals ? `<span class="ref-header-macros"><span class="kcal">${totals.kcal}kcal</span> <span class="prot">${totals.prot}P</span> <span class="carb">${totals.carb}C</span> <span class="gord">${totals.gord}G</span></span>` : ''}
         <button class="ref-move-btn" onclick="moveMeal(${i},-1)" ${i===0?'disabled':''} title="Mover para cima">▲</button>
         <button class="ref-move-btn" onclick="moveMeal(${i},1)" ${i===_formRefeicoes.length-1?'disabled':''} title="Mover para baixo">▼</button>
         <button class="btn btn-sm btn-secondary" onclick="duplicarRefeicao(${i})" title="Duplicar refeição" style="font-size:11px;padding:3px 6px;">⧉</button>
@@ -1343,7 +1358,7 @@ function _resultadoBuscaHtml(f, js) {
 
 const _CAB_ITENS = `<div class="meal-item-row header">
     <span></span><span>Alimento</span><span>Qtd</span><span>Medida</span>
-    <span style="text-align:center">Kcal</span><span style="text-align:center">P</span><span style="text-align:center">C</span><span style="text-align:center">G</span><span></span>
+    <span class="meal-item-val kcal">Kcal</span><span class="meal-item-val prot">P</span><span class="meal-item-val carb">C</span><span class="meal-item-val gord">G</span><span></span>
   </div>`;
 
 // Uma linha editável (alimento principal ou de uma refeição substituta).
