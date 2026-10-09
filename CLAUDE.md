@@ -1189,3 +1189,25 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **O aluno vê**: o item gravado leva `medidas` (lista `{n, g}` do alimento na hora da prescrição) e o app mostra a quantidade prescrita e, embaixo, as equivalentes ("≈ 100 g · 7 colheres de sopa · 0,5 xícara de chá")
   (`_nutriEquiv`, arredondando como medida de cozinha). Plano antigo sem `medidas` continua como era.
 - **Testes**: seção 7 de `testes/alimentos.js` e `testes/equipe.php` (21 conferências em PHP real: compartilhamento entre profissionais, quem edita e apaga, validações das medidas). Quebrar a permissão de edição de propósito faz o teste acusar.
+
+## 34. Dashboard, links diretos, dicas nos gráficos e Frequência (09/10/2026)
+
+- **Links diretos (nome clicável leva ao registro exato)**: `mensalidades.html?m=<idmensalidade>` limpa os filtros, busca pelo aluno, abre os ciclos da matrícula, rola até a linha e a destaca (`aplicarFoco`, faixa
+  "Mostrando a matrícula de X · Ver todas as matrículas"); `treinos.html?ficha=<idficha>` abre a ficha no editor. No dashboard (`index.html`) o nome (com foto) de cada linha das quatro listas de atenção, o "Revisar"
+  e a tarefa automática "Trocar treino de X" do checklist usam esses links. Nos cartões de insight de Treinos as linhas também abrem a ficha. Link que não existe mais avisa por toast e não quebra a tela.
+- **Dashboard**: os cartões duplicados (KPIs) saíram; os 11 números da visão geral são links (cadastros, alunos, ativos e leads vão para Clientes; treinos ativos para Treinos; mensagens para Mensagens; vencidas e a vencer
+  descem até a lista certa, com cor quando maior que zero). As listas de atenção vêm logo depois dos números, em duas colunas, em linhas de grade (foto, nome, plano ou ficha, data, selo, valor): nada quebra em duas linhas
+  e no celular o valor desce para baixo do selo. Crescimento com botões 6, 12 e 24 meses (guardado em `localStorage['intus-viz-meses']`), gráficos sem distorção (o SVG mantém a proporção) e nota dizendo quantos
+  cadastros ficam fora da curva por não terem nenhuma data. "Alunos ativos" do gráfico virou "Alunos com plano pago" (conta quem teve ciclo pago cobrindo o mês); o cartão "Ativos" do topo é a situação de HOJE
+  (`API.situacaoPlano`), por isso os dois podem diferir e a dica do gráfico explica isso.
+- **`Tip` (`_mock.js`)**: dica flutuante compartilhada. Qualquer elemento com `data-tip="<html>"` (use `Tip.attr(html)`, que escapa) mostra a dica ao passar o mouse ou tocar, sem ligar evento nenhum. `Tip.historico({titulo,
+  rotulos[], valores[], i, sufixo, fmt, anteriores})` monta o miolo padrão: o mês sob o mouse, a variação contra o anterior e os meses anteriores com barrinha. Usada em: Crescimento do dashboard (guia vertical e ponto
+  acendem por CSS, `.viz-hit:hover`), Gestão (`_tipMes`, substituiu o tooltip próprio), Financeiro (receita mensal agora de 12 meses, `Tip` por barra, valores mascarados com "Esconder valores"), cartões de
+  Matrículas Ativas e Recebido (série de 12 meses calculada na própria tela), "Últimos prescritos" em Treinos (fichas por mês) e cartão de sessões da Frequência. O `IntusEvolucao` (`api.js`) já tinha cruzamento e
+  dica próprios e ficou como está. Teste: `testes/dashboard.js` (Tip.historico e `calcCrescimento`, com quebra de propósito acusada).
+- **Frequência e Ranking, visão Calendário (`frequencia.html`)**: resumo do mês (sessões com comparação contra o mesmo trecho do mês anterior, alunos que treinaram, dias com treino, dia mais forte) no lugar do
+  resumo do período, calendário com células baixas pintadas pela intensidade (4 níveis, relativos ao dia mais cheio do mês), dica com quem treinou no dia, e uma coluna ao lado com quem treinou (barra, sessões, último
+  treino) e quem não treinou (recolhido quando passa de 12). Calendário e detalhe do dia contam as mesmas sessões (`_sessoesValidas`: fora as marcadas "não contar" e as excluídas na tela). Também foi corrigido o
+  texto branco sobre o verde-limão nos botões ativos (ilegível no tema escuro).
+- **`--brand` nunca tinha sido declarada**: dezenas de telas usam `var(--brand)` (avatar, links, bordas). Sem valor, o avatar ficava transparente com a inicial preta sobre fundo escuro. `_mock.js` agora declara
+  `--brand` igual à cor de destaque do tema (nos dois temas). O app do aluno (`aluno.html`) continua na versão antiga do `_mock.js`, sem mudança.

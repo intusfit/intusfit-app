@@ -767,6 +767,9 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
 
     /* ── DARK (default) ── */
     :root {
+      /* --brand era usada em dezenas de telas (avatar, links, bordas de destaque) mas nunca foi declarada: o avatar ficava transparente
+         com a inicial preta sobre fundo escuro. Passa a valer a cor de destaque do tema. */
+      --brand: var(--green);
       --green: #7FFF00;
       --green-dark: #5ecc00;
       --green-dim: rgba(127,255,0,.12);
@@ -781,6 +784,7 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
 
     /* ── LIGHT ── */
     body.theme-light {
+      --brand: #3a9900;
       --green: #3a9900;
       --green-dark: #2d7a00;
       --green-dim: rgba(58,153,0,.1);
@@ -1268,6 +1272,98 @@ function fmtData(d) {
   if (!d) return '—';
   return new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR');
 }
+
+// ── Tip: dica flutuante ao passar o mouse (ou tocar) em qualquer elemento com data-tip ─────────────
+// Uma engine so para os graficos e cartoes de todas as telas. Quem desenha o grafico escreve data-tip="<html>"
+// (use Tip.attr(html), que ja escapa) no alvo; nao precisa ligar evento nenhum. Tip.historico monta o miolo
+// padrao: o mes passado com o dado em destaque e os meses anteriores logo abaixo.
+window.Tip = (function () {
+  let el = null, atual = null, timer = null;
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function criar() {
+    if (el) return el;
+    if (!document.getElementById('intus-tip-css')) {
+      const st = document.createElement('style');
+      st.id = 'intus-tip-css';
+      st.textContent = `
+        #intus-tip { position: fixed; z-index: 100000; pointer-events: none; max-width: 280px; min-width: 150px; padding: 10px 12px;
+          background: var(--bg2, #1a1a1a); color: var(--text, #f0f0f0); border: 1px solid var(--border, #2a2a2a); border-radius: 10px;
+          box-shadow: 0 10px 30px rgba(0,0,0,.35); font-size: 12px; line-height: 1.45; opacity: 0; transition: opacity .1s; }
+        #intus-tip.on { opacity: 1; }
+        #intus-tip .tip-t { font-size: 11px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; color: var(--text-muted, #888); margin-bottom: 4px; }
+        #intus-tip .tip-v { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+        #intus-tip .tip-v small { font-size: 11px; font-weight: 600; color: var(--text-muted, #888); margin-left: 4px; }
+        #intus-tip .tip-d { font-size: 11px; font-weight: 700; margin-left: 6px; }
+        #intus-tip .tip-d.up { color: #4ade80; } #intus-tip .tip-d.down { color: #f87171; } #intus-tip .tip-d.eq { color: var(--text-muted, #888); }
+        #intus-tip .tip-h { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border, #2a2a2a); display: grid; gap: 2px; }
+        #intus-tip .tip-r { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted, #888); font-variant-numeric: tabular-nums; }
+        #intus-tip .tip-r b { margin-left: auto; color: var(--text, #f0f0f0); font-weight: 700; }
+        #intus-tip .tip-r i { flex: 0 0 56px; height: 4px; border-radius: 2px; background: var(--border, #2a2a2a); overflow: hidden; display: block; }
+        #intus-tip .tip-r i u { display: block; height: 100%; background: var(--green, #7FFF00); opacity: .75; }
+        #intus-tip .tip-n { margin-top: 6px; font-size: 10.5px; color: var(--text-muted, #888); }
+        body.theme-light #intus-tip { box-shadow: 0 10px 30px rgba(0,0,0,.14); }
+        @media (prefers-reduced-motion: reduce) { #intus-tip { transition: none; } }`;
+      document.head.appendChild(st);
+    }
+    el = document.createElement('div');
+    el.id = 'intus-tip';
+    el.setAttribute('role', 'tooltip');
+    document.body.appendChild(el);
+    return el;
+  }
+  function posicionar(x, y) {
+    if (!el) return;
+    const r = el.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
+    let l = x + 16, t = y + 16;
+    if (l + r.width > W - 8) l = x - r.width - 16;
+    if (t + r.height > H - 8) t = y - r.height - 16;
+    el.style.left = Math.max(8, l) + 'px';
+    el.style.top = Math.max(8, t) + 'px';
+  }
+  function mostrar(alvo, x, y) {
+    const html = alvo.getAttribute('data-tip');
+    if (!html) return esconder();
+    criar();
+    if (atual !== alvo) { el.innerHTML = html; atual = alvo; }
+    el.classList.add('on');
+    posicionar(x, y);
+  }
+  function esconder() {
+    atual = null;
+    if (el) el.classList.remove('on');
+  }
+  function alvoDe(e) { return e.target && e.target.closest ? e.target.closest('[data-tip]') : null; }
+  document.addEventListener('mouseover', e => { const a = alvoDe(e); if (a) mostrar(a, e.clientX, e.clientY); else if (atual) esconder(); });
+  document.addEventListener('mousemove', e => { if (atual) { const a = alvoDe(e); if (a && a !== atual) mostrar(a, e.clientX, e.clientY); else posicionar(e.clientX, e.clientY); } });
+  document.addEventListener('mouseout', e => { if (atual && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('[data-tip]'))) esconder(); });
+  document.addEventListener('touchstart', e => {
+    const a = alvoDe(e), p = e.touches && e.touches[0];
+    clearTimeout(timer);
+    if (a && p) { mostrar(a, p.clientX, p.clientY); timer = setTimeout(esconder, 3200); } else esconder();
+  }, { passive: true });
+  window.addEventListener('scroll', esconder, { passive: true, capture: true });
+
+  // Miolo padrao de um grafico mensal. o = { titulo, rotulos[], valores[], i, sufixo, fmt(v), anteriores (padrao 5), cor }.
+  // Mostra o mes sob o mouse (valor e variacao contra o mes anterior) e os N meses anteriores com uma barrinha de proporcao.
+  function historico(o) {
+    const fmt = o.fmt || (v => String(v));
+    const v = o.valores, i = o.i, n = o.anteriores == null ? 5 : o.anteriores;
+    const ant = i > 0 ? v[i] - v[i - 1] : null;
+    const d = ant == null ? '' : ant === 0 ? '<span class="tip-d eq">igual ao mês anterior</span>'
+      : '<span class="tip-d ' + (ant > 0 ? 'up' : 'down') + '">' + (ant > 0 ? '▲ +' : '▼ ') + fmt(ant) + ' vs mês anterior</span>';
+    const de = Math.max(0, i - n);
+    const maxv = Math.max(1e-9, ...v.slice(de, i + 1).map(Math.abs));
+    const linhas = [];
+    for (let k = i - 1; k >= de; k--) {
+      linhas.push('<div class="tip-r"><span>' + esc(o.rotulos[k]) + '</span><i><u style="width:' + Math.round(Math.abs(v[k]) / maxv * 100) + '%"></u></i><b>' + esc(fmt(v[k])) + '</b></div>');
+    }
+    return '<div class="tip-t">' + esc(o.titulo ? o.titulo + ' · ' + o.rotulos[i] : o.rotulos[i]) + '</div>' +
+      '<div class="tip-v">' + esc(fmt(v[i])) + (o.sufixo ? '<small>' + esc(o.sufixo) + '</small>' : '') + '</div>' + d +
+      (linhas.length ? '<div class="tip-h">' + linhas.join('') + '</div>' : '') +
+      (de > 0 ? '<div class="tip-n">e ' + de + ' mês(es) antes destes</div>' : '');
+  }
+  return { attr: html => ' data-tip="' + esc(html) + '"', historico, esconder };
+})();
 // ── Previa do plano parcelado (usada por mensalidades.html e alunos.html) ───────────────────────────────────────────
 // Recebe o resultado de API.gerarParcelas e devolve o HTML da previa: ou o erro, ou a lista de parcelas com a data de cobranca.
 const PARC_MESES = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };

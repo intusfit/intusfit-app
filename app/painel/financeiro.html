@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Financeiro — Intus</title>
-  <script src="_mock.js?v=20261008c"></script>
+  <script src="_mock.js?v=20261009a"></script>
   <script src="api.js?v=20261008f"></script>
 </head>
 <body>
@@ -1500,11 +1500,11 @@ function excluirVenda(id) {
 function renderAnalytics(box, d) {
   const hoje = new Date(); hoje.setHours(0,0,0,0);
 
-  // Receita mensal dos últimos 6 meses
+  // Receita mensal dos últimos 12 meses (a dica ao passar o mouse mostra o mês e os anteriores)
   const meses = [];
-  for (let i = 5; i >= 0; i--) {
+  for (let i = 11; i >= 0; i--) {
     const ref = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
-    const label = ref.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+    const label = ref.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(ref.getFullYear()).slice(2);
     const key = ref.getFullYear() + '-' + String(ref.getMonth() + 1).padStart(2, '0');
     const pagosNoMes = d.categorizadas.filter(m => {
       if (m._status !== 'pago') return false;
@@ -1586,13 +1586,18 @@ function renderAnalytics(box, d) {
 
       <!-- Gráfico de receita mensal (barras) -->
       <div class="card" style="padding:16px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:14px;text-transform:uppercase;letter-spacing:.5px;">Receita Mensal (últimos 6 meses)</div>
-        <div style="display:flex;align-items:flex-end;gap:8px;height:140px;padding-bottom:24px;position:relative;">
-          ${meses.map(m => {
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Receita Mensal (últimos 12 meses)</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">Passe o mouse (ou o dedo) sobre um mês para ver o valor e os meses anteriores.</div>
+        <style>.barra-mes:hover .barra-mes-b { filter: brightness(1.25) saturate(1.1); }</style>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:160px;padding-bottom:24px;position:relative;">
+          ${meses.map((m, mi) => {
             const h = maxReceita > 0 ? Math.max((m.receita / maxReceita) * 100, 4) : 4;
-            return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">' +
-              '<div style="font-size:10px;font-weight:700;color:var(--text);margin-bottom:4px;">' + brlV(m.receita) + '</div>' +
-              '<div style="width:100%;max-width:48px;height:' + h + '%;background:linear-gradient(180deg,rgba(127,255,0,.8),rgba(127,255,0,.3));border-radius:6px 6px 0 0;min-height:4px;"></div>' +
+            const tip = Tip.historico({ titulo: 'Receita', rotulos: meses.map(x => x.label), valores: meses.map(x => x.receita), i: mi, fmt: v => _hideValues ? 'R$ •••' : brl(v), anteriores: 5 }) +
+              '<div class="tip-n" style="color:var(--text);">' + m.count + ' pagamento' + (m.count === 1 ? '' : 's') + ' recebido' + (m.count === 1 ? '' : 's') + ' no mês</div>';
+            const curto = v => v >= 1000 ? 'R$ ' + (v / 1000).toFixed(1).replace('.', ',') + 'k' : 'R$ ' + Math.round(v);
+            return '<div class="barra-mes"' + Tip.attr(tip) + ' style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;cursor:default;">' +
+              '<div style="font-size:9.5px;font-weight:700;color:var(--text);margin-bottom:4px;white-space:nowrap;">' + (_hideValues ? '<span class="valor-hidden">' + curto(m.receita) + '</span>' : curto(m.receita)) + '</div>' +
+              '<div class="barra-mes-b" style="width:100%;max-width:48px;height:' + h + '%;background:linear-gradient(180deg,rgba(127,255,0,.8),rgba(127,255,0,.3));border-radius:6px 6px 0 0;min-height:4px;transition:filter .12s;"></div>' +
               '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;text-transform:uppercase;">' + esc(m.label) + '</div>' +
             '</div>';
           }).join('')}

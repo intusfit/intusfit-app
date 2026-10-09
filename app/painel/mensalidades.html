@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Matrículas — Intus</title>
-  <script src="_mock.js?v=20261008c"></script>
+  <script src="_mock.js?v=20261009a"></script>
   <script src="api.js?v=20261008f"></script>
   <style>
     /* ── MODAL EXTRA WIDTH ── */
@@ -71,6 +71,9 @@
     }
     .plano-selector select:focus { border-color: var(--green); outline: none; }
     .plano-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    /* Linha aberta por link direto (?m=): pisca uma vez para o olho achar. */
+    @keyframes linhaFoco { 0%, 60% { background: rgba(127,255,0,.22); } 100% { background: transparent; } }
+    tr.linha-foco > td { animation: linhaFoco 3.5s ease-out 1; box-shadow: inset 0 1px 0 rgba(127,255,0,.55), inset 0 -1px 0 rgba(127,255,0,.55); }
   </style>
 </head>
 <body>
@@ -92,6 +95,38 @@ let customDe  = '2026-04-15';
 let customAte = new Date().toISOString().slice(0,10);
 let loading = true;
 let erro = null;
+
+// Link direto vindo de outra tela (dashboard, alunos): mensalidades.html?m=<idmensalidade>.
+// Abre já na matrícula certa: limpa os filtros, busca pelo aluno, abre os ciclos, rola até a linha e a destaca.
+let _foco = (function () {
+  try {
+    const n = parseInt(new URLSearchParams(location.search).get('m'), 10);
+    return n > 0 ? { id: n, nome: '', feito: false } : null;
+  } catch (e) { return null; }
+})();
+function aplicarFoco() {
+  if (!_foco || _foco.feito) return;
+  _foco.feito = true;
+  const alvo = mensalidades.find(x => Number(x.idmensalidade) === _foco.id);
+  if (!alvo) { showToast('Essa matrícula não está mais na lista.', 'error'); _foco = null; return; }
+  _foco.nome = alvo.nmathleta || '';
+  filtroStatus = 'todos'; filtroPeriodo = 'tudo'; filtroProfessor = new Set();
+  filtroBusca = _foco.nome;
+  try { _matExpandido.add(_matKey(alvo)); } catch (e) {}
+  render();
+  setTimeout(() => {
+    const tr = document.querySelector('tr[data-mats*=",' + _foco.id + ',"]');
+    if (!tr) return;
+    tr.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+    tr.classList.add('linha-foco');
+    setTimeout(() => tr.classList.remove('linha-foco'), 3500);
+  }, 60);
+}
+function sairDoFoco() {
+  _foco = null; filtroBusca = '';
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  render();
+}
 
 let _hideValues = localStorage.getItem('intus-hide-values') === '1';
 function fmtMoedaV(v) {
@@ -155,6 +190,7 @@ async function carregar() {
     loading = false;
     _carregando = false;
     render();
+    if (!erro) aplicarFoco();
     // A QUARTA rotina automatica saiu daqui em 21/08/2026: autoInativarVencidas.
     // Ela inativava sozinha, sem avisar, toda matricula com mais de 30 dias de
     // atraso — assim que a tela abria. Mudar o cadastro de um cliente e uma
@@ -348,15 +384,47 @@ function render() {
       </div>
     </div>` : '';
 
+  // Historico mensal para a dica dos cartoes (passar o mouse): recebido por mes (pela data de pagamento) e
+  // matriculas ativas no fim de cada mes (ciclo pago que cobria aquele dia). Ultimos 12 meses.
+  const _serieMeses = (() => {
+    const out = { rotulos: [], recebido: [], ativas: [], pagamentos: [] };
+    for (let i = 11; i >= 0; i--) {
+      const ref = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+      const fim = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
+      const chave = ref.getFullYear() + '-' + String(ref.getMonth() + 1).padStart(2, '0');
+      const fimStr = fim.getFullYear() + '-' + String(fim.getMonth() + 1).padStart(2, '0') + '-' + String(fim.getDate()).padStart(2, '0');
+      out.rotulos.push(ref.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(ref.getFullYear()).slice(2));
+      const pagas = mensalidades.filter(m => m.stpgto === 'S' && String(m.dtpagamento || '').slice(0, 7) === chave);
+      out.recebido.push(pagas.reduce((t, m) => t + num(m.vlpagar), 0));
+      out.pagamentos.push(pagas.length);
+      const vivos = new Set();
+      mensalidades.forEach(m => {
+        if (m.stpgto !== 'S' || m.stmatricula === 'cancelada') return;
+        const ini = String(m.dtinicio || '').slice(0, 10), v = String(m.dtvencimento || '').slice(0, 10);
+        if (ini && v && ini <= fimStr && v >= fimStr) vivos.add(Number(m.idatleta));
+      });
+      out.ativas.push(vivos.size);
+    }
+    return out;
+  })();
+  const _tipAtivas = Tip.historico({ titulo: 'Alunos com plano pago', rotulos: _serieMeses.rotulos, valores: _serieMeses.ativas, i: 11, sufixo: 'no fim do mês', anteriores: 5 }) +
+    '<div class="tip-n">Conta quem tinha um ciclo pago cobrindo o último dia de cada mês.</div>';
+  const _tipRecebido = Tip.historico({ titulo: 'Recebido', rotulos: _serieMeses.rotulos, valores: _serieMeses.recebido, i: 11, fmt: v => _hideValues ? 'R$ •••' : fmtMoeda(v), anteriores: 5 }) +
+    '<div class="tip-n">' + _serieMeses.pagamentos[11] + ' pagamento(s) este mês. Por data de pagamento, sem filtro de período.</div>';
+
   main.innerHTML = `
     ${faixaSobras}
     ${_bannerInativar()}
+    ${_foco && _foco.nome ? `<div style="margin:0 0 14px;padding:10px 14px;border-radius:10px;background:rgba(127,255,0,.07);border:1px solid rgba(127,255,0,.28);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:var(--text);">Mostrando a matrícula de <b>${esc(_foco.nome)}</b></span>
+      <button class="btn btn-secondary btn-sm" onclick="sairDoFoco()">Ver todas as matrículas</button>
+    </div>` : ''}
     <!-- Resumo financeiro -->
     ${podeVerValores ? (() => {
       const matAtivas = mensalidades.filter(isAtiva);
       const alunosAtivos = new Set(matAtivas.map(m => Number(m.idatleta))).size;
       return `<div class="fin-summary" style="grid-template-columns:repeat(4,1fr);">
-      <div class="fin-card">
+      <div class="fin-card"${Tip.attr(_tipAtivas)} style="cursor:default;">
         <div class="fin-label">Matrículas Ativas</div>
         <div class="fin-value green">${matAtivas.length}</div>
         <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${alunosAtivos} aluno${alunosAtivos!==1?'s':''} com matrícula ativa</div>
@@ -366,7 +434,7 @@ function render() {
         <div class="fin-value yellow">${fmtMoedaV(totalReceber)}</div>
         <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${naoPagei.length} pendente${naoPagei.length!==1?'s':''} + ${renovPrevistas.length} renovaç${renovPrevistas.length!==1?'ões':'ão'}${programadas.length ? ` · ${programadas.length} programada${programadas.length!==1?'s':''} fora da conta` : ''}</div>
       </div>
-      <div class="fin-card">
+      <div class="fin-card"${Tip.attr(_tipRecebido)} style="cursor:default;">
         <div class="fin-label">Recebido</div>
         <div class="fin-value green">${fmtMoedaV(totalRecebido)}</div>
         <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">fluxo de caixa pela data de pagamento</div>
@@ -783,7 +851,7 @@ function renderMatricula(mat, podeVerValores, isAdmin) {
     ${hasPerm('mt_editar') && m.stmatricula !== 'encerrada' && m.stmatricula !== 'cancelada' ? `<button class="btn btn-secondary btn-sm" onclick="encerrarMatricula(${m.idmensalidade})" title="Encerrar matrícula (aluno concluiu e não continua)">🏁</button>` : ''}
     ${hasPerm('mt_editar') && m.stmatricula !== 'cancelada' && m.stmatricula !== 'encerrada' ? `<button class="btn btn-secondary btn-sm" onclick="cancelarMatricula(${m.idmensalidade})" title="Cancelar matrícula">⊘</button>` : ''}
     ${hasPerm('mt_excluir') ? `<button class="btn btn-danger btn-sm" onclick="excluirMensalidade(${m.idmensalidade})" title="Excluir este ciclo">✕</button>` : ''}`;
-  let html = `<tr>
+  let html = `<tr data-mats=",${mat.cycles.map(c => c.idmensalidade).join(',')},">
     <td class="td-name"><div style="display:flex;align-items:center;gap:8px;">${chev}${avatarHtml(m.idatleta, m.nmathleta, 24)}<span ${nCiclos > 1 ? `onclick="toggleMatExp('${keyEsc}')" style="cursor:pointer;" title="Ver ciclos/pagamentos"` : ''}>${esc(m.nmathleta || '—')}</span></div></td>
     <td style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || '')}${_pillParcela(m)}${m.tipo_plano ? ` <span class="pill" style="background:rgba(127,255,0,.1);color:#7FFF00;font-size:9px;padding:1px 6px;">${esc(m.tipo_plano)}</span>` : ''}${rec ? ` <span class="pill" style="background:rgba(56,189,248,.12);color:#38bdf8;font-size:9px;padding:1px 6px;${nCiclos > 1 ? 'cursor:pointer;' : ''}" ${nCiclos > 1 ? `onclick="toggleMatExp('${keyEsc}')" title="Ver ciclos/pagamentos"` : ''}>🔁 ${esc(rec.charAt(0).toUpperCase() + rec.slice(1))}</span>` : ''}${nCiclos > 1 ? ` <span class="pill" style="background:rgba(148,163,184,.12);color:var(--text-muted);font-size:9px;padding:1px 6px;cursor:pointer;" onclick="toggleMatExp('${keyEsc}')">${nCiclos} ciclos</span>` : ''}${pillSemPeriodo}${pillCicloTorto}</td>
     ${podeVerValores ? `<td style="text-align:right;font-weight:700;color:var(--text);">${fmtMoedaV(m.vlpagar)}</td>` : ''}

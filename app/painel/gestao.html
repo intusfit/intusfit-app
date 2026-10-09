@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Gestão — Intus</title>
-  <script src="_mock.js?v=20261008c"></script>
+  <script src="_mock.js?v=20261009a"></script>
   <script src="api.js?v=20261008f"></script>
 </head>
 <body>
@@ -262,6 +262,13 @@ function _temaClaro() { return document.body.classList.contains('theme-light'); 
 function _corDisp() { return _temaClaro() ? COR_DISP.claro : COR_DISP.escuro; }
 function _corRet()  { return _temaClaro() ? COR_RET.claro  : COR_RET.escuro; }
 
+// Dica do mes: total vendido, variacao contra o mes anterior e os meses anteriores (engine Tip, _mock.js).
+function _tipMes(dados, i) {
+  const d = dados[i];
+  return Tip.historico({ titulo: 'Vendas', rotulos: dados.map(x => x.mesAno), valores: dados.map(x => x.disponivel + x.retido), i: i, fmt: v => _hide ? 'R$ •••' : brl(v), anteriores: 5 }) +
+    '<div class="tip-n" style="color:var(--text);">' + (_hide ? 'Valores escondidos' : 'Disponível ' + brl(d.disponivel) + ' · Retido ' + brl(d.retido)) + '</div>';
+}
+
 function grafico(dados) {
   const cDisp = _corDisp(), cRet = _corRet();
   const maxi = Math.max(1, ...dados.map(d => d.disponivel + d.retido));
@@ -278,7 +285,7 @@ function grafico(dados) {
     const hRet = Math.max(0, yBase - yMeio);
     // 2px de folga entre as fatias: sem isso elas se tocam e viram um bloco so.
     const hDisp = Math.max(0, yMeio - yTopo - (d.retido > 0 && d.disponivel > 0 ? 2 : 0));
-    return `<g class="g-barra" data-i="${i}" style="cursor:default;">
+    return `<g class="g-barra" data-i="${i}"${Tip.attr(_tipMes(dados, i))} style="cursor:default;">
         <rect x="${x - 6}" y="${T}" width="${bw + 12}" height="${H - T - B + 6}" fill="transparent"/>
         ${d.retido > 0 ? `<rect x="${x}" y="${yMeio}" width="${bw}" height="${hRet}" fill="${cRet}"/>` : ''}
         ${d.disponivel > 0 ? `<rect x="${x}" y="${yTopo}" width="${bw}" height="${hDisp}" rx="4" fill="${cDisp}"/>` : ''}
@@ -302,7 +309,6 @@ function grafico(dados) {
     <div style="overflow-x:auto;">
       <svg viewBox="0 0 ${larg} ${H}" width="100%" height="${H}" style="min-width:${larg}px;display:block;" role="img" aria-label="Vendas por mês, separadas entre já disponível e ainda retido">${linhas}${barras}${rotulos}</svg>
     </div>
-    <div id="g-tooltip" style="display:none;position:fixed;z-index:60;background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-size:12px;color:var(--text);pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35);"></div>
     ${explica('tabela-grafico', 'Ver os números do gráfico em tabela', `
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr style="color:var(--text);"><th style="text-align:left;padding:4px 0;">Mês</th><th style="text-align:right;">Disponível</th><th style="text-align:right;">Retido</th><th style="text-align:right;">Total</th></tr></thead>
@@ -449,20 +455,6 @@ function render() {
         Cuidado com períodos curtos: num mês com poucos vencimentos, um único aluno mexe muito no
         percentual. Para ler tendência, use "3 meses" ou "este ano".`)}
     </div>`;
-
-  const tip = document.getElementById('g-tooltip');
-  main.querySelectorAll('.g-barra').forEach(g => {
-    g.addEventListener('mousemove', (ev) => {
-      const d = serie[Number(g.dataset.i)];
-      tip.innerHTML = '<b>' + esc(d.mesAno) + '</b><br>Disponível: ' + brl(d.disponivel) +
-        '<br>Retido: ' + brl(d.retido) +
-        '<br><span style="color:var(--text-muted);">Total: ' + brl(d.disponivel + d.retido) + '</span>';
-      tip.style.display = 'block';
-      tip.style.left = Math.min(window.innerWidth - 190, ev.clientX + 14) + 'px';
-      tip.style.top = (ev.clientY - 10) + 'px';
-    });
-    g.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
-  });
 }
 
 if (!document.getElementById('hide-val-style')) {

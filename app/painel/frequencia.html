@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Frequência e Ranking — Intus</title>
-  <script src="_mock.js?v=20261008c"></script>
+  <script src="_mock.js?v=20261009a"></script>
   <script src="api.js?v=20261008f"></script>
   <style>
     .freq-toolbar {
@@ -26,7 +26,8 @@
     }
     .freq-view-toggle button:first-child { border-radius: 8px 0 0 8px; }
     .freq-view-toggle button:last-child { border-radius: 0 8px 8px 0; }
-    .freq-view-toggle button.active { background: var(--green); color: #fff; border-color: var(--green); }
+    .freq-view-toggle button.active { background: var(--green); color: #0b1a02; border-color: var(--green); }
+    body.theme-light .freq-view-toggle button.active, body.theme-light .ranking-period-btn.active { color: #fff; }
 
     .freq-summary {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;
@@ -57,30 +58,83 @@
     body.theme-light .freq-badge.medium { background: rgba(202,138,4,.1); color: #ca8a04; }
     body.theme-light .freq-badge.low { background: rgba(220,38,38,.1); color: #dc2626; }
 
-    .freq-calendar-wrap { margin-top: 8px; }
-    .freq-cal-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-    .freq-cal-nav button {
-      background: var(--bg2); border: 1px solid var(--border); color: var(--text);
-      border-radius: 8px; width: 32px; height: 32px; font-size: 16px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .freq-cal-nav button:hover { background: var(--bg3); }
-    .freq-cal-nav .cal-month-label { font-size: 15px; font-weight: 700; color: var(--text); }
-    .freq-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-    .freq-cal-header { text-align: center; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; padding: 6px 0; }
+    /* ── CALENDÁRIO ──────────────────────────────────────────────────────────────
+       Duas colunas em tela larga: o mês de um lado, quem treinou do outro. Cada dia
+       é uma célula baixa (não um quadrado) pintada pela intensidade do dia. */
+    :root { --heat: 127,255,0; }
+    body.theme-light { --heat: 58,153,0; }
+    .cal-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .cal-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; }
+    .cal-stat[data-tip] { cursor: help; }
+    .cal-stat-l { font-size: 10px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+    .cal-stat-v { font-size: 24px; font-weight: 800; color: var(--text); line-height: 1.2; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .cal-stat-v.green { color: var(--green); }
+    .cal-stat-v small { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-left: 4px; }
+    .cal-stat-s { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .cal-stat-s .up { color: #4ade80; font-weight: 700; } .cal-stat-s .down { color: #f87171; font-weight: 700; }
+    body.theme-light .cal-stat-s .up { color: #15803d; } body.theme-light .cal-stat-s .down { color: #dc2626; }
+
+    .cal-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 18px; align-items: start; }
+    .cal-card, .cal-side-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .freq-cal-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .freq-cal-nav button.nav { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 8px; width: 32px; height: 32px; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .freq-cal-nav button.nav:hover { border-color: var(--green); }
+    .freq-cal-nav .cal-month-label { font-size: 17px; font-weight: 800; color: var(--text); min-width: 150px; text-align: center; }
+    .freq-cal-nav .cal-hoje { margin-left: auto; background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .freq-cal-nav .cal-hoje:hover { border-color: var(--green); color: var(--text); }
+    .freq-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+    .freq-cal-header { text-align: center; font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; padding: 4px 0 6px; }
     .freq-cal-day {
-      aspect-ratio: 1; border-radius: 8px; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; font-size: 12px; color: var(--text-muted);
-      background: var(--bg2); border: 1px solid transparent; position: relative;
-      min-height: 44px; cursor: pointer; transition: all .12s;
+      height: 76px; border-radius: 10px; padding: 7px 8px; display: flex; flex-direction: column; justify-content: space-between;
+      background: var(--bg3); border: 1px solid transparent; position: relative; cursor: pointer; transition: border-color .12s, transform .12s;
+      font-variant-numeric: tabular-nums; overflow: hidden;
     }
     .freq-cal-day.empty { background: transparent; cursor: default; }
-    .freq-cal-day.today { border-color: var(--green); }
-    .freq-cal-day:not(.empty):hover { border-color: var(--brand); transform: scale(1.05); }
-    .freq-cal-day .cal-day-num { font-weight: 600; font-size: 12px; }
-    .freq-cal-day .cal-day-count { font-size: 9px; font-weight: 700; margin-top: 2px; border-radius: 4px; padding: 1px 5px; }
-    .freq-cal-day.has-sessions { background: rgba(34,197,94,.08); border-color: rgba(34,197,94,.3); }
-    .freq-cal-day.has-sessions .cal-day-count { background: var(--green); color: #fff; }
+    .freq-cal-day.futuro { opacity: .38; cursor: default; }
+    .freq-cal-day.today { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+    .freq-cal-day:not(.empty):not(.futuro):hover { border-color: var(--green); transform: translateY(-1px); }
+    .freq-cal-day .cal-day-num { font-size: 12px; font-weight: 700; color: var(--text-muted); line-height: 1; }
+    .freq-cal-day .cal-day-count { font-size: 21px; font-weight: 800; color: var(--text); line-height: 1; }
+    .freq-cal-day .cal-day-alunos { font-size: 10px; color: var(--text-muted); line-height: 1.2; display: block; margin-top: 3px; font-weight: 600; }
+    .freq-cal-day.h1 { background: rgba(var(--heat), .12); }
+    .freq-cal-day.h2 { background: rgba(var(--heat), .26); }
+    .freq-cal-day.h3 { background: rgba(var(--heat), .44); }
+    .freq-cal-day.h4 { background: rgba(var(--heat), .66); }
+    .freq-cal-day.h3 .cal-day-num, .freq-cal-day.h3 .cal-day-alunos, .freq-cal-day.h4 .cal-day-num, .freq-cal-day.h4 .cal-day-alunos { color: rgba(0,0,0,.7); }
+    .freq-cal-day.h3 .cal-day-count, .freq-cal-day.h4 .cal-day-count { color: #06210a; }
+    .cal-legenda { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 12px; font-size: 11px; color: var(--text-muted); }
+    .cal-legenda i { width: 16px; height: 16px; border-radius: 4px; display: inline-block; background: var(--bg3); }
+    .cal-legenda i.h1 { background: rgba(var(--heat), .12); } .cal-legenda i.h2 { background: rgba(var(--heat), .26); }
+    .cal-legenda i.h3 { background: rgba(var(--heat), .44); } .cal-legenda i.h4 { background: rgba(var(--heat), .66); }
+
+    .cal-side-card h3 { font-size: 14px; font-weight: 800; color: var(--text); margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .cal-side-card h3 span { font-size: 11px; font-weight: 700; color: var(--text-muted); background: var(--bg3); border-radius: 999px; padding: 2px 9px; }
+    .cal-quem { max-height: 520px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+    .cal-aluno { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; padding: 8px 6px; border-radius: 9px; cursor: pointer; }
+    .cal-aluno:hover { background: var(--bg3); }
+    .cal-aluno .n { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+    .cal-aluno .n span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-aluno .c { font-size: 12px; font-weight: 800; color: var(--green); white-space: nowrap; text-align: right; }
+    .cal-aluno .b { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--bg3); overflow: hidden; }
+    .cal-aluno .b i { display: block; height: 100%; border-radius: 3px; background: var(--green); }
+    .cal-aluno .u { grid-column: 1 / -1; font-size: 10.5px; color: var(--text-muted); }
+    .cal-sem { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .cal-sem summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-muted); list-style: none; display: flex; align-items: center; justify-content: space-between; }
+    .cal-sem summary::-webkit-details-marker { display: none; }
+    .cal-sem summary::after { content: '▾'; font-size: 12px; }
+    .cal-sem[open] summary::after { content: '▴'; }
+    .cal-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; max-height: 190px; overflow-y: auto; }
+    .cal-chip { font-size: 12px; padding: 4px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); cursor: pointer; }
+    .cal-chip:hover { border-color: var(--green); color: var(--text); }
+    @media (max-width: 1100px) { .cal-layout { grid-template-columns: minmax(0, 1fr); } .cal-quem { max-height: none; } }
+    @media (max-width: 640px) {
+      .cal-card, .cal-side-card { padding: 12px; }
+      .freq-cal-grid { gap: 4px; }
+      .freq-cal-day { height: 56px; padding: 5px 5px; border-radius: 8px; }
+      .freq-cal-day .cal-day-count { font-size: 16px; }
+      .freq-cal-day .cal-day-alunos { display: none; }
+      .freq-cal-nav .cal-month-label { min-width: 0; flex: 1; font-size: 15px; }
+    }
 
     .freq-athlete-bars { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 16px; }
     .freq-athlete-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
@@ -103,7 +157,7 @@
     /* RANKING VIEW */
     .ranking-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
     .ranking-period-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .12s; }
-    .ranking-period-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+    .ranking-period-btn.active { background: var(--green); color: #0b1a02; border-color: var(--green); }
     .ranking-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; margin-bottom: 6px; transition: background .12s; }
     .ranking-row:hover { background: var(--bg2); }
     .ranking-pos { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
@@ -146,7 +200,6 @@
       .freq-summary { grid-template-columns: repeat(2, 1fr); }
       .freq-list-table { font-size: 12px; }
       .freq-list-table th, .freq-list-table td { padding: 8px 8px; }
-      .freq-cal-day { min-height: 36px; }
       .ranking-bar-wrap { display: none; }
     }
   </style>
@@ -315,12 +368,12 @@ function render() {
       </div>
     </div>
 
-    <div class="freq-summary">
+    ${view === 'calendar' ? '' : `<div class="freq-summary">
       <div class="freq-stat"><div class="freq-stat-label">Sessões no período</div><div class="freq-stat-value green">${totalSessoes}</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Alunos ativos</div><div class="freq-stat-value">${atletasAtivos}</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Média por aluno</div><div class="freq-stat-value">${mediaPorAluno} treinos</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Total carteira</div><div class="freq-stat-value">${atletasFiltrados.length}</div></div>
-    </div>
+    </div>`}
 
     ${view === 'ranking' ? renderRankingView(atletasFiltrados) : view === 'list' ? renderListView(atletasFiltrados, atletaMap, dias) : renderCalendarView(sessFiltradas, atletasFiltrados)}
     ${view === 'list' ? renderAlertaSessoes() : ''}
@@ -628,7 +681,7 @@ function renderListView(atletasFiltrados, atletaMap, dias) {
       <div class="freq-athlete-card-header"><span class="freq-athlete-card-name">${esc(a.nome)}</span><span class="freq-badge ${badge.cls}">${badge.label}</span></div>
       <div class="freq-bar-track"><div class="freq-bar-fill${barCls}" style="width:${pct}%"></div></div>
       <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--text-muted);">
-        <span>${info.count} sessão${info.count!==1?'ões':''}</span><span>Último: ${lastStr}</span>
+        <span>${info.count} ${info.count!==1?'sessões':'sessão'}</span><span>Último: ${lastStr}</span>
       </div>
     </div>`;
   });
@@ -654,82 +707,153 @@ function renderListView(atletasFiltrados, atletaMap, dias) {
 }
 
 // ═══════════════ CALENDAR VIEW ═══════════════
+const _MESES_CAL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const _MESES_CURTOS = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const _DIAS_SEM = ['dom','seg','ter','qua','qui','sex','sáb'];
+
+// Sessões que valem para a frequência: fora as marcadas "não contar" (teste do professor) e as excluídas na tela.
+function _sessoesValidas() {
+  const ex = new Set(getExcluidas());
+  return sessoes.filter(s => !s.nao_contar && !ex.has(Number(s.idsessao)));
+}
+
 function renderCalendarView(sessFiltradas, atletasFiltrados) {
-  const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const dayNames = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const firstDay = new Date(calYear, calMonth, 1);
   const lastDay = new Date(calYear, calMonth + 1, 0);
   const startDow = firstDay.getDay();
   const daysInMonth = lastDay.getDate();
-  const monthStr = String(calYear) + '-' + String(calMonth + 1).padStart(2, '0');
+  const pad = n => String(n).padStart(2, '0');
+  const monthStr = calYear + '-' + pad(calMonth + 1);
 
   const atletaIds = new Set(atletasFiltrados.map(a => Number(a.idatleta)));
-  const allSessoesMonth = sessoes.filter(s => atletaIds.has(Number(s.idatleta)) && (s.dtsessao||'').startsWith(monthStr));
-  const dayCountsAll = {};
-  allSessoesMonth.forEach(s => { const day = parseInt((s.dtsessao||'').slice(8,10)); dayCountsAll[day] = (dayCountsAll[day]||0) + 1; });
+  const nomeDe = {};
+  atletasFiltrados.forEach(a => { nomeDe[Number(a.idatleta)] = a.nome; });
+  const validas = _sessoesValidas().filter(s => atletaIds.has(Number(s.idatleta)));
+  const doMes = validas.filter(s => (s.dtsessao || '').startsWith(monthStr));
 
-  const today = new Date();
-  const isThisMonth = today.getFullYear() === calYear && today.getMonth() === calMonth;
+  // por dia: sessões e alunos distintos (com quantas sessões cada um)
+  const dias = {};
+  doMes.forEach(s => {
+    const d = parseInt((s.dtsessao || '').slice(8, 10), 10);
+    if (!dias[d]) dias[d] = { n: 0, alunos: {} };
+    dias[d].n++;
+    const id = Number(s.idatleta);
+    dias[d].alunos[id] = (dias[d].alunos[id] || 0) + 1;
+  });
+  const maxDia = Math.max(1, ...Object.values(dias).map(x => x.n));
 
-  let calHtml = `<div class="freq-calendar-wrap">
-    <div class="freq-cal-nav">
-      <button onclick="calMonth--;if(calMonth<0){calMonth=11;calYear--;}render()">‹</button>
-      <span class="cal-month-label">${monthNames[calMonth]} ${calYear}</span>
-      <button onclick="calMonth++;if(calMonth>11){calMonth=0;calYear++;}render()">›</button>
-    </div>
-    <div class="freq-cal-grid">`;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const isThisMonth = hoje.getFullYear() === calYear && hoje.getMonth() === calMonth;
+  const hojeStr = hoje.getFullYear() + '-' + pad(hoje.getMonth() + 1) + '-' + pad(hoje.getDate());
 
-  dayNames.forEach(d => { calHtml += `<div class="freq-cal-header">${d}</div>`; });
-  for (let i = 0; i < startDow; i++) calHtml += '<div class="freq-cal-day empty"></div>';
+  // ── resumo do mês (e comparação com o mês anterior) ──
+  const mesAnt = new Date(calYear, calMonth - 1, 1);
+  const chaveAnt = mesAnt.getFullYear() + '-' + pad(mesAnt.getMonth() + 1);
+  // Mês em curso compara com o mesmo trecho do mês anterior (até o dia de hoje), senão sempre parece queda.
+  const limiteDia = isThisMonth ? hoje.getDate() : 99;
+  const nAnt = validas.filter(s => (s.dtsessao || '').startsWith(chaveAnt) && parseInt((s.dtsessao || '').slice(8, 10), 10) <= limiteDia).length;
+  const nMes = doMes.length;
+  const alunosMes = new Set(doMes.map(s => Number(s.idatleta))).size;
+  const diasComTreino = Object.keys(dias).length;
+  const diasPassados = isThisMonth ? hoje.getDate() : (new Date(calYear, calMonth, 1) > hoje ? 0 : daysInMonth);
+  const melhor = Object.entries(dias).sort((a, b) => b[1].n - a[1].n)[0];
+  const deltaMes = nMes - nAnt;
+  const deltaTxt = nAnt === 0 && nMes === 0 ? 'sem registros nos dois meses'
+    : deltaMes === 0 ? 'igual a ' + _MESES_CURTOS[mesAnt.getMonth()] + (isThisMonth ? ' (até o dia ' + limiteDia + ')' : '')
+    : '<span class="' + (deltaMes > 0 ? 'up' : 'down') + '">' + (deltaMes > 0 ? '▲ +' : '▼ ') + deltaMes + '</span> vs ' + _MESES_CURTOS[mesAnt.getMonth()] + ' ' + (isThisMonth ? 'até o dia ' + limiteDia + ' ' : '') + '(' + nAnt + ')';
 
+  // histórico de 12 meses (mês visto em destaque) para a dica do cartão de sessões
+  const hist = { rot: [], val: [], i: 11 };
+  for (let k = 11; k >= 0; k--) {
+    const ref = new Date(calYear, calMonth - k, 1);
+    const ch = ref.getFullYear() + '-' + pad(ref.getMonth() + 1);
+    hist.rot.push(_MESES_CURTOS[ref.getMonth()] + '/' + String(ref.getFullYear()).slice(2));
+    hist.val.push(validas.filter(s => (s.dtsessao || '').startsWith(ch)).length);
+  }
+  const tipSess = Tip.historico({ titulo: 'Sessões', rotulos: hist.rot, valores: hist.val, i: 11, sufixo: 'no mês', anteriores: 5 });
+
+  const cartoes = '<div class="cal-resumo">' +
+    '<div class="cal-stat"' + Tip.attr(tipSess) + '><div class="cal-stat-l">Sessões em ' + _MESES_CAL[calMonth] + '</div><div class="cal-stat-v green">' + nMes + '</div><div class="cal-stat-s">' + deltaTxt + '</div></div>' +
+    '<div class="cal-stat"><div class="cal-stat-l">Alunos que treinaram</div><div class="cal-stat-v">' + alunosMes + '<small>de ' + atletasFiltrados.length + '</small></div><div class="cal-stat-s">' + (atletasFiltrados.length ? Math.round(alunosMes / atletasFiltrados.length * 100) : 0) + '% da carteira</div></div>' +
+    '<div class="cal-stat"><div class="cal-stat-l">Dias com treino</div><div class="cal-stat-v">' + diasComTreino + '<small>de ' + diasPassados + '</small></div><div class="cal-stat-s">' + (alunosMes ? (nMes / alunosMes).toFixed(1).replace('.', ',') + ' sessões por aluno ativo' : 'nenhum aluno ativo') + '</div></div>' +
+    '<div class="cal-stat"><div class="cal-stat-l">Dia mais forte</div><div class="cal-stat-v">' + (melhor ? 'dia ' + melhor[0] : '—') + '</div><div class="cal-stat-s">' + (melhor ? melhor[1].n + ' sessões · ' + Object.keys(melhor[1].alunos).length + ' alunos' : 'sem treinos no mês') + '</div></div>' +
+  '</div>';
+
+  // ── grade do mês ──
+  let grade = '';
+  dayNames.forEach(d => { grade += '<div class="freq-cal-header">' + d + '</div>'; });
+  for (let i = 0; i < startDow; i++) grade += '<div class="freq-cal-day empty"></div>';
   for (let d = 1; d <= daysInMonth; d++) {
-    const count = dayCountsAll[d] || 0;
-    const isToday = isThisMonth && today.getDate() === d;
+    const info = dias[d];
+    const dateStr = monthStr + '-' + pad(d);
+    const futuro = dateStr > hojeStr;
+    const nivel = info ? Math.max(1, Math.min(4, Math.ceil(info.n / maxDia * 4))) : 0;
     const cls = ['freq-cal-day'];
-    if (count > 0) cls.push('has-sessions');
-    if (isToday) cls.push('today');
-    const dateStr = monthStr + '-' + String(d).padStart(2, '0');
-    calHtml += `<div class="${cls.join(' ')}" onclick="abrirDetalheDia('${dateStr}')">
-      <span class="cal-day-num">${d}</span>
-      ${count > 0 ? `<span class="cal-day-count">${count}</span>` : ''}
-    </div>`;
+    if (nivel) cls.push('h' + nivel);
+    if (dateStr === hojeStr) cls.push('today');
+    if (futuro) cls.push('futuro');
+    let tip = '';
+    if (info) {
+      const nomes = Object.entries(info.alunos).sort((a, b) => b[1] - a[1]);
+      const dow = _DIAS_SEM[new Date(calYear, calMonth, d).getDay()];
+      tip = Tip.attr('<div class="tip-t">' + dow + ', ' + pad(d) + '/' + pad(calMonth + 1) + '</div>' +
+        '<div class="tip-v">' + info.n + '<small>' + (info.n === 1 ? 'sessão' : 'sessões') + ' · ' + nomes.length + ' aluno' + (nomes.length === 1 ? '' : 's') + '</small></div>' +
+        '<div class="tip-h">' + nomes.slice(0, 8).map(([id, c]) => '<div class="tip-r"><span>' + esc(nomeDe[id] || ('Aluno #' + id)) + '</span><b>' + (c > 1 ? c + 'x' : '') + '</b></div>').join('') + '</div>' +
+        (nomes.length > 8 ? '<div class="tip-n">e mais ' + (nomes.length - 8) + ' aluno(s). Clique para ver todos.</div>' : '<div class="tip-n">Clique para ver os detalhes.</div>'));
+    }
+    grade += '<div class="' + cls.join(' ') + '"' + tip + (info ? ' onclick="abrirDetalheDia(\'' + dateStr + '\')"' : '') + '>' +
+      '<span class="cal-day-num">' + d + '</span>' +
+      (info ? '<span><span class="cal-day-count">' + info.n + '</span><span class="cal-day-alunos">' + Object.keys(info.alunos).length + ' aluno' + (Object.keys(info.alunos).length === 1 ? '' : 's') + '</span></span>' : '') +
+    '</div>';
   }
 
-  calHtml += '</div></div>';
+  const calendario = '<div class="cal-card">' +
+    '<div class="freq-cal-nav">' +
+      '<button class="nav" onclick="calMonth--;if(calMonth<0){calMonth=11;calYear--;}render()" aria-label="Mês anterior">‹</button>' +
+      '<span class="cal-month-label">' + _MESES_CAL[calMonth] + ' ' + calYear + '</span>' +
+      '<button class="nav" onclick="calMonth++;if(calMonth>11){calMonth=0;calYear++;}render()" aria-label="Próximo mês">›</button>' +
+      (isThisMonth ? '' : '<button class="cal-hoje" onclick="calYear=new Date().getFullYear();calMonth=new Date().getMonth();render()">Mês atual</button>') +
+    '</div>' +
+    '<div class="freq-cal-grid">' + grade + '</div>' +
+    '<div class="cal-legenda">Menos <i></i><i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i> Mais <span style="margin-left:8px;">· a cor segue o dia mais cheio do mês (' + maxDia + ')</span></div>' +
+  '</div>';
 
-  // Monthly summary below calendar
-  const atletaMonthMap = {};
-  allSessoesMonth.forEach(s => { const id = Number(s.idatleta); atletaMonthMap[id] = (atletaMonthMap[id]||0) + 1; });
-  const atletasComSessao = atletasFiltrados.filter(a => atletaMonthMap[a.idatleta]).sort((a,b) => (atletaMonthMap[b.idatleta]||0) - (atletaMonthMap[a.idatleta]||0));
-  const atletasSemSessao = atletasFiltrados.filter(a => !atletaMonthMap[a.idatleta]);
+  // ── lateral: quem treinou e quem não treinou ──
+  const porAluno = {}, ultimo = {};
+  doMes.forEach(s => { const id = Number(s.idatleta); porAluno[id] = (porAluno[id] || 0) + 1; if ((s.dtsessao || '') > (ultimo[id] || '')) ultimo[id] = s.dtsessao; });
+  const treinaram = atletasFiltrados.filter(a => porAluno[a.idatleta]).sort((a, b) => porAluno[b.idatleta] - porAluno[a.idatleta] || (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  const semTreino = atletasFiltrados.filter(a => !porAluno[a.idatleta]).sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  const maxM = Math.max(1, ...treinaram.map(a => porAluno[a.idatleta]));
 
-  if (atletasComSessao.length > 0) {
-    const maxM = Math.max(...atletasComSessao.map(a => atletaMonthMap[a.idatleta]||0), 1);
-    calHtml += `<h3 style="margin-top:24px;font-size:14px;color:var(--text);font-weight:700;">Treinaram em ${monthNames[calMonth]} (${atletasComSessao.length})</h3>`;
-    calHtml += '<div class="freq-athlete-bars" style="margin-top:12px">';
-    atletasComSessao.forEach(a => {
-      const count = atletaMonthMap[a.idatleta] || 0;
-      const pct = Math.round((count / maxM) * 100);
-      calHtml += `<div class="freq-athlete-card" style="cursor:pointer;" onclick="abrirDetalheAluno(${a.idatleta})">
-        <div class="freq-athlete-card-header"><span class="freq-athlete-card-name">${esc(a.nome)}</span><span class="freq-athlete-card-count">${count} sessão${count!==1?'ões':''}</span></div>
-        <div class="freq-bar-track"><div class="freq-bar-fill" style="width:${pct}%"></div></div>
-      </div>`;
-    });
-    calHtml += '</div>';
+  let lateral = '<div class="cal-side-card"><h3>Treinaram em ' + _MESES_CAL[calMonth] + ' <span>' + treinaram.length + '</span></h3>';
+  if (!treinaram.length) {
+    lateral += '<div class="freq-empty" style="padding:24px 8px;">Ninguém registrou treino neste mês.</div>';
+  } else {
+    lateral += '<div class="cal-quem">' + treinaram.map(a => {
+      const c = porAluno[a.idatleta];
+      const u = ultimo[a.idatleta] ? 'último treino em ' + ultimo[a.idatleta].slice(8, 10) + '/' + ultimo[a.idatleta].slice(5, 7) : '';
+      return '<div class="cal-aluno" onclick="abrirDetalheAluno(' + a.idatleta + ')" title="Ver o histórico de ' + esc(a.nome) + '">' +
+        '<span class="n">' + avatarHtml(a.idatleta, a.nome, 26) + '<span>' + esc(a.nome) + '</span></span>' +
+        '<span class="c">' + c + (c === 1 ? ' sessão' : ' sessões') + '</span>' +
+        '<span class="b"><i style="width:' + Math.round(c / maxM * 100) + '%"></i></span>' +
+        (u ? '<span class="u">' + u + '</span>' : '') +
+      '</div>';
+    }).join('') + '</div>';
   }
-  if (atletasSemSessao.length > 0) {
-    calHtml += `<h3 style="margin-top:20px;font-size:14px;color:var(--text-muted);font-weight:600;">Sem treinos em ${monthNames[calMonth]} (${atletasSemSessao.length})</h3>`;
-    calHtml += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">';
-    atletasSemSessao.forEach(a => { calHtml += `<span style="font-size:12px;padding:4px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text-muted)">${esc(a.nome)}</span>`; });
-    calHtml += '</div>';
+  if (semTreino.length) {
+    lateral += '<details class="cal-sem"' + (semTreino.length <= 12 ? ' open' : '') + '><summary><span>Sem treinos em ' + _MESES_CAL[calMonth] + ' (' + semTreino.length + ')</span></summary>' +
+      '<div class="cal-chips">' + semTreino.map(a => '<span class="cal-chip" onclick="abrirDetalheAluno(' + a.idatleta + ')">' + esc(a.nome) + '</span>').join('') + '</div></details>';
   }
-  return calHtml;
+  lateral += '</div>';
+
+  return cartoes + '<div class="cal-layout">' + calendario + lateral + '</div>';
 }
 
 // ═══════════════ DAY DETAIL MODAL ═══════════════
 function abrirDetalheDia(dateStr) {
   const atletaIds = new Set(atletas.map(a => Number(a.idatleta)));
-  const sessDia = sessoes.filter(s => atletaIds.has(Number(s.idatleta)) && s.dtsessao === dateStr);
+  const sessDia = _sessoesValidas().filter(s => atletaIds.has(Number(s.idatleta)) && s.dtsessao === dateStr);
   if (sessDia.length === 0) { showToast('Nenhum treino neste dia.'); return; }
 
   const dataFmt = new Date(dateStr+'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });

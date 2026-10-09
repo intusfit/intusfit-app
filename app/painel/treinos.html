@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Treinos — Intus</title>
-  <script src="_mock.js?v=20261008c"></script>
+  <script src="_mock.js?v=20261009a"></script>
   <script src="api.js?v=20261008f"></script>
   <style>
     /* COMBO (autocomplete dropdown) */
@@ -165,6 +165,8 @@
       .ex-card .ex-header { flex-wrap:wrap; }
       .along-card .along-fields { grid-template-columns:1fr 1fr; }
     }
+    .linha-link:hover { background: rgba(127,255,0,.07); }
+    .linha-link:hover > div > div:first-child { color: var(--brand); }
   </style>
 </head>
 <body>
@@ -212,6 +214,10 @@ function _ordenar(lista, chave, campoFn) {
 const _CAIXA = 'max-height:230px;overflow-y:auto;';
 let view = 'lista';
 let editFichaId = null;
+let _fichaLink = (function () {
+  try { const n = parseInt(new URLSearchParams(location.search).get('ficha'), 10); return n > 0 ? { id: n, feito: false } : null; }
+  catch (e) { return null; }
+})();
 
 // ── CARREGAMENTO: SEIS CHAMADAS, UMA FALHA, TELA EM BRANCO ──────────────────
 // Promise.all rejeita inteiro se UMA das seis falhar. Sem try/catch a excecao
@@ -249,6 +255,12 @@ async function carregar() {
   if (!Sessao.atual()?.admin) {
     const _idsVisiveis = new Set(atletas.map(a => Number(a.idatleta)));
     fichas = fichas.filter(f => _idsVisiveis.has(Number(f.idatleta)));
+  }
+  // Link direto de outra tela (treinos.html?ficha=<idficha>): abre a ficha certa, uma vez so.
+  if (_fichaLink && !_fichaLink.feito) {
+    _fichaLink.feito = true;
+    if (fichas.some(f => Number(f.idficha) === _fichaLink.id)) { editFichaId = _fichaLink.id; view = 'editor'; }
+    else showToast('Esse treino não está mais na lista.', 'error');
   }
   render();
 }
@@ -372,6 +384,19 @@ function renderLista() {
     && a.email !== 'modelo.masculino@intusfit.local' && a.email !== 'modelo.feminino@intusfit.local'
     && alunoAtivo(a));
 
+  // Fichas prescritas por mes (data de inicio), ultimos 12 meses: dica ao passar o mouse em "Ultimos prescritos".
+  const _serie12 = (() => {
+    const rot = [], val = [], h = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const ref = new Date(h.getFullYear(), h.getMonth() - i, 1);
+      const chave = ref.getFullYear() + '-' + String(ref.getMonth() + 1).padStart(2, '0');
+      rot.push(ref.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(ref.getFullYear()).slice(2));
+      val.push(fichas.filter(f => String(f.dtinicio || '').slice(0, 7) === chave).length);
+    }
+    return { rot, val };
+  })();
+  const _tipPrescritos = Tip.historico({ titulo: 'Fichas prescritas', rotulos: _serie12.rot, valores: _serie12.val, i: 11, sufixo: 'neste mês', anteriores: 5 });
+
   main.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -393,12 +418,12 @@ function renderLista() {
         <div class="card" style="padding:14px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
             <span style="font-size:18px;">📋</span>
-            <span style="font-size:12px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.5px;">Últimos prescritos</span>
+            <span${Tip.attr(_tipPrescritos)} style="font-size:12px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.5px;cursor:help;border-bottom:1px dotted var(--text-dim);">Últimos prescritos</span>
             ${_btnOrdem('ult','data')}
           </div>
           ${ultPrescritos.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Nenhuma ficha recente.</p>' : '<div style="'+_CAIXA+'">' + _ordenar(ultPrescritos,'ult',f => f.dtinicio||'').map(f => {
             const al = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
+            return `<div class="linha-link" onclick="abrirFicha(${f.idficha})" title="Abrir este treino" style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer;">
               <div style="min-width:0;">
                 <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(al?.nome || '—')}</div>
                 <div style="font-size:11px;color:var(--text-muted);">${esc(f.nmficha || 'Ficha')}</div>
@@ -419,7 +444,7 @@ function renderLista() {
           ${aVencer.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Nenhum treino perto de vencer. 👍</p>' : '<div style="'+_CAIXA+'">' + _ordenar(aVencer,'venc',f => f.dtfim||'').map(f => {
             const al = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
             const vencido = f.dtfim < hoje;
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
+            return `<div class="linha-link" onclick="abrirFicha(${f.idficha})" title="Abrir este treino" style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer;">
               <div style="min-width:0;">
                 <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(al?.nome || '—')}</div>
                 <div style="font-size:11px;color:var(--text-muted);">${esc(f.nmficha || 'Ficha')}</div>
