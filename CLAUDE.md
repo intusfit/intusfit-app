@@ -1272,3 +1272,12 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **"Plano" da nutrição sempre como "plano alimentar" para o aluno (09/10/2026)**: para não confundir com o plano da matrícula, todo texto do app e da central de ajuda que fala do plano da Nutrição diz "plano alimentar" ("Meu plano alimentar",
   "Sem plano alimentar ativo", "Fora do plano alimentar", "Soma do plano alimentar por 7 dias", FAQ e tour). "Plano" sozinho continua só para a matrícula ("Seu plano terminou", "Plano Ativo" na Minha Matrícula). Texto novo de
   Nutrição para o aluno deve seguir a mesma regra.
+
+## 39. Conquistas: evidências por semana/mês e fim das comemorações fora de hora (10/10/2026)
+- **Evidência**: conquista de semanas ou períodos (Top 5, Tricampeão e afins, Top 10 do mês, semanas seguidas, semana cheia/perfeita, equilíbrio) mostra QUAIS semanas/meses e a colocação (`_conqEvidencia(def, alvo)`:
+  `{titulo, itens:[{t,v}]}`), no cartão compartilhável (`_conqCartaoDataUrl`, até 5 caixas + "+N"), na legenda do post, no popup de comemoração e no detalhe da conquista própria. Mesmas regras de
+  `_weeklyTop5Flags` e `_perfilRankingStats`; Top 5 e Top 10 usam a primeira janela que bateu a meta. `_conqSessoesAtleta` é o merge servidor+local usado por `_conquistaMetrics` e pelas evidências.
+- **Bug das comemorações antigas** (pódio de semanas atrás, 50 h, Maratonista chegando juntos numa sexta à noite): `_ensureRankingData` guardava falha de rede como "ranking vazio de verdade" e `_ensureConquistasConfig`
+  guardava `{}`; o baseline (`intus-conq-seen-<id>`) era gravado com poucas conquistas e, na abertura seguinte, tudo o que o aluno já tinha virava "novo" (comemoração + aviso no sino). Além disso, ao aparecer uma
+  conquista nova o "já visto" era SUBSTITUÍDO pelo conjunto atual (encolhia se algo sumia por um instante). Agora: falha fica marcada (`_falhou`) e é tentada de novo; `_conqDadosCompletos()` barra baseline e
+  detecção sem ranking e configuração inteiros; o "já visto" só cresce (`seen.concat(novos)`). Aviso já criado no servidor não é desfeito por script (exclusão só pelo painel).

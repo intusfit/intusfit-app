@@ -13641,7 +13641,7 @@ async function _ensureConquistasConfig() {
   try {
     const c = await _fetchConfigDireto('conquistas_config');
     _conquistasConfig = (c && typeof c === 'object') ? c : {};
-  } catch (e) { _conquistasConfig = {}; }
+  } catch (e) { return {}; }   // não guarda: a próxima tentativa busca de novo, e as metas/desativadas do admin não somem por uma falha de rede
   return _conquistasConfig;
 }
 
@@ -13673,9 +13673,10 @@ function _weeklyTop5Flags(alvo) {
   return flags;
 }
 
-function _conquistaMetrics(id) {
+// Sessões válidas e sem repetição de um atleta (servidor + as locais do próprio aluno). Usada pelas métricas das conquistas e pelas evidências.
+function _conqSessoesAtleta(alvoId) {
   const data = _rankingData || {};
-  const alvo = Number(id);
+  const alvo = Number(alvoId);
   const raw = (data.sessoes || [])
     .filter(s => Number(s.idatleta) === alvo)
     .map(s => ({
@@ -13704,6 +13705,13 @@ function _conquistaMetrics(id) {
   // Deduplica (server + local podem repetir a mesma sessão) e descarta datas inválidas
   const vistos = {}; const ss = [];
   raw.forEach(s => { if (isNaN(s.dt)) return; if (vistos[s.key]) return; vistos[s.key] = 1; ss.push(s); });
+  return ss;
+}
+
+function _conquistaMetrics(id) {
+  const data = _rankingData || {};
+  const alvo = Number(id);
+  const ss = _conqSessoesAtleta(alvo);
   const total = ss.length;
   const cardios = ss.filter(s => s.tipo === 'cardio').length;
   const treinos = ss.filter(s => s.tipo === 'musculacao').length;
@@ -13736,6 +13744,125 @@ function _conquistaMetrics(id) {
     if (data.resultados) resultados = Number(data.resultados[alvo]) || 0;   // contagem do Quadro de Resultados (servidor)
   } catch (e) {}
   return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas, resultados };
+}
+
+
+// ── EVIDÊNCIAS DAS CONQUISTAS ───────────────────────────────────────────────────────────────────────────────
+// Conquista de semanas ou períodos mostra QUAIS foram e a colocação. Mesmas regras de _weeklyTop5Flags (semanas fechadas desde 17/05/2026,
+// pertencer ao Top 5 pelo corte do índice) e de _perfilRankingStats (meses fechados, Top 10 com empate dividindo o lugar).
+const _MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+function _fmtDM(d) { return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'); }
+function _fmtSemanaCurta(dom, sab) { return _fmtDM(dom) + ' a ' + _fmtDM(sab); }
+function _conqSessoesRanking() {
+  return ((_rankingData || {}).sessoes || []).map(s => ({
+    dt: new Date(String(s.dtsessao).slice(0, 10) + 'T00:00:00'),
+    idatleta: Number(s.idatleta),
+    tipo: (s.tipo || 'musculacao'),
+    duracao_seg: parseFloat(s.duracao_seg || 0) || 0,
+    nao_contar: Number(s.nao_contar) || 0,
+    pontos: parseFloat(s.pontos || 0)
+  })).filter(s => !isNaN(s.dt));
+}
+function _conqSemanasRanking(alvo) {
+  const sessoes = _conqSessoesRanking();
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const INICIO = new Date('2026-05-17T00:00:00');
+  const domAtual = new Date(hoje); domAtual.setDate(domAtual.getDate() - domAtual.getDay());
+  const doms = [];
+  let cur = new Date(domAtual); cur.setDate(cur.getDate() - 7);
+  while (cur >= INICIO) { doms.push(new Date(cur)); cur.setDate(cur.getDate() - 7); }
+  doms.reverse();
+  return doms.map(dom => {
+    const sab = new Date(dom); sab.setDate(dom.getDate() + 6);
+    const ag = _agregarPontosPorAtleta(sessoes.filter(s => s.dt >= dom && s.dt <= sab));
+    const lista = Object.values(ag).map(a => ({ id: a.id, pts: a.total })).sort((x, y) => y.pts - x.pts);
+    const top5 = lista.slice(0, 5).some(x => x.id === Number(alvo));
+    const eu = posicionarDenso(lista.map(x => ({ id: x.id, pts: x.pts }))).find(x => x.id === Number(alvo));
+    return { dom, sab, top5, pos: eu ? eu.pos : 0, pts: eu ? eu.pts : 0 };
+  });
+}
+function _conqMesesRanking(alvo) {
+  const sessoes = _conqSessoesRanking();
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const out = [];
+  let ano = 2026, mes = 4;
+  while (ano < hoje.getFullYear() || (ano === hoje.getFullYear() && mes < hoje.getMonth())) {
+    const di = new Date(ano, mes, 1), df = new Date(ano, mes + 1, 0);
+    const ag = _agregarPontosPorAtleta(sessoes.filter(s => s.dt >= di && s.dt <= df));
+    const rk = posicionarDenso(Object.values(ag).map(a => ({ id: a.id, pts: a.total })).sort((x, y) => y.pts - x.pts));
+    const eu = rk.find(x => x.id === Number(alvo));
+    out.push({ di, pos: eu ? eu.pos : 0, top10: !!eu && eu.pos <= 10 });
+    mes++; if (mes > 11) { mes = 0; ano++; }
+  }
+  return out;
+}
+function _conqSemanasAtividade(alvo) {
+  const wk = {};
+  _conqSessoesAtleta(alvo).forEach(s => {
+    const x = new Date(s.dt); x.setDate(x.getDate() - x.getDay()); x.setHours(0, 0, 0, 0);
+    const k = x.getTime(); const w = (wk[k] = wk[k] || { dom: x, n: 0, mus: 0, car: 0 });
+    w.n++; if (s.tipo === 'cardio') w.car++; else w.mus++;
+  });
+  return Object.values(wk).sort((a, b) => a.dom - b.dom);
+}
+// { titulo, itens: [{ t: 'quando', v: 'colocação ou resultado' }] } ou null quando a conquista não é de semanas/períodos.
+function _conqEvidencia(def, alvo) {
+  try {
+    const m = def.metric, g = def.goal, ord = p => p + 'º lugar';
+    if (m === 'top5' || m === 'top5consec') {
+      const sem = _conqSemanasRanking(alvo);
+      let esc_ = [];
+      if (m === 'top5') esc_ = sem.filter(x => x.top5).slice(0, g);
+      else { let run = []; for (const x of sem) { if (x.top5) { run.push(x); if (run.length >= g) { esc_ = run.slice(-g); break; } } else run = []; } }
+      return esc_.length ? { titulo: 'Semanas no Top 5', itens: esc_.map(x => ({ t: _fmtSemanaCurta(x.dom, x.sab), v: ord(x.pos) })) } : null;
+    }
+    if (m === 'top10') {
+      const mm = _conqMesesRanking(alvo).filter(x => x.top10).slice(0, g);
+      return mm.length ? { titulo: 'Meses no Top 10', itens: mm.map(x => ({ t: _MESES_ABREV[x.di.getMonth()] + '/' + String(x.di.getFullYear()).slice(2), v: ord(x.pos) })) } : null;
+    }
+    if (m === 'streak') {
+      const sem = _conqSemanasAtividade(alvo);
+      if (!sem.length) return null;
+      // primeira sequência de semanas consecutivas que chegou à meta
+      let run = [], jan = null;
+      for (const x of sem) {
+        run = (run.length && Math.round((x.dom - run[run.length - 1].dom) / 86400000) === 7) ? run.concat(x) : [x];
+        if (run.length >= g) { jan = run.slice(-g); break; }
+      }
+      if (!jan) return null;
+      if (g <= 5) return { titulo: 'Semanas seguidas treinando', itens: jan.map(x => { const sab = new Date(x.dom); sab.setDate(sab.getDate() + 6); return { t: _fmtSemanaCurta(x.dom, sab), v: x.n + (x.n === 1 ? ' atividade' : ' atividades') }; }) };
+      const ult = new Date(jan[jan.length - 1].dom); ult.setDate(ult.getDate() + 6);
+      return { titulo: 'Semanas seguidas treinando', itens: [{ t: _fmtDM(jan[0].dom) + ' a ' + _fmtDM(ult), v: g + ' semanas' }] };
+    }
+    if (m === 'maxSemana') {
+      const w = _conqSemanasAtividade(alvo).find(x => x.n >= g);
+      if (!w) return null;
+      const sab = new Date(w.dom); sab.setDate(sab.getDate() + 6);
+      return { titulo: 'Semana da conquista', itens: [{ t: _fmtSemanaCurta(w.dom, sab), v: w.n + ' atividades' }] };
+    }
+    if (m === 'equilibrio') {
+      const w = _conqSemanasAtividade(alvo).find(x => x.mus > 0 && x.car > 0);
+      if (!w) return null;
+      const sab = new Date(w.dom); sab.setDate(sab.getDate() + 6);
+      return { titulo: 'Semana da conquista', itens: [{ t: _fmtSemanaCurta(w.dom, sab), v: 'musculação e cardio' }] };
+    }
+  } catch (e) { console.warn('[conquistas] evidência:', e); }
+  return null;
+}
+function _conqEvidenciaTexto(ev) {
+  if (!ev || !ev.itens.length) return '';
+  return ' ' + ev.titulo + ': ' + ev.itens.slice(0, 5).map(i => i.t + ' (' + i.v + ')').join(', ') + (ev.itens.length > 5 ? ' e mais ' + (ev.itens.length - 5) : '') + '.';
+}
+// Caixinhas para o popup e para o detalhe. claro = tema claro.
+function _conqEvidenciaHtml(def, alvo, claro) {
+  const ev = _conqEvidencia(def, alvo);
+  if (!ev) return '';
+  const cor = claro ? '#8a5a00' : '#fbbf24', sub = claro ? '#6b5a2a' : '#dcd6c4', fundo = claro ? 'rgba(234,179,8,.12)' : 'rgba(251,191,36,.12)', borda = claro ? 'rgba(234,179,8,.5)' : 'rgba(251,191,36,.4)';
+  const mostrar = ev.itens.slice(0, 10), extra = ev.itens.length - mostrar.length;
+  return '<div style="margin-top:14px;"><div style="font-size:10.5px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:' + (claro ? '#8a7a4a' : '#a89a6a') + ';margin-bottom:7px;">' + esc(ev.titulo) + '</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">' + mostrar.map(i =>
+      '<div style="min-width:92px;padding:7px 9px;border-radius:11px;background:' + fundo + ';border:1px solid ' + borda + ';"><div style="font-size:11px;color:' + sub + ';font-weight:600;">' + esc(i.t) + '</div><div style="font-size:14px;font-weight:900;color:' + cor + ';margin-top:1px;">' + esc(i.v) + '</div></div>').join('') +
+    (extra > 0 ? '<div style="align-self:center;font-size:11px;color:' + sub + ';">+' + extra + '</div>' : '') + '</div></div>';
 }
 
 function _computeConquistas(id) {
@@ -13868,6 +13995,7 @@ function abrirDetalheConquista(conqId, perfilId) {
       '</div>' +
       '<div style="font-size:19px;font-weight:900;color:' + (isLight ? '#1a1a1a' : '#f5f5f5') + ';margin-top:14px;">' + esc(def.nome) + '</div>' +
       '<div style="font-size:13px;color:' + (isLight ? '#555' : '#bbb') + ';line-height:1.6;margin-top:8px;">' + esc(def.desc) + '</div>' +
+      (ehMeu && on ? _conqEvidenciaHtml(def, idAtleta, isLight) : '') +
       progresso +
       (ehMeu && on ? '<button onclick="abrirCompartilharConquista(\'' + def.id + '\')" style="margin-top:16px;width:100%;padding:12px;border-radius:12px;border:1.5px solid ' + gold + ';background:transparent;color:' + gold + ';font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">📤 Compartilhar conquista</button>' : '') +
       '<button onclick="document.getElementById(\'conq-detail-overlay\').remove()" style="margin-top:' + (ehMeu && on ? '10' : '20') + 'px;width:100%;padding:12px;border-radius:12px;border:none;background:' + (isLight ? '#f0f0f0' : '#222') + ';color:' + (isLight ? '#333' : '#ccc') + ';font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Fechar</button>' +
@@ -13891,12 +14019,17 @@ function _cqQuebrar(ctx, texto, maxW, maxLinhas) {
   if (linhas.length > maxLinhas) { const cortado = linhas.slice(0, maxLinhas); cortado[maxLinhas - 1] = cortado[maxLinhas - 1].replace(/\s*\S*$/, '') + '...'; return cortado; }
   return linhas;
 }
+function _cqRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+}
 function _cqCarregarImg(src) {
   return new Promise(function (resolve) { const im = new Image(); im.onload = function () { resolve(im); }; im.onerror = function () { resolve(null); }; im.src = src; });
 }
 async function _conqCartaoDataUrl(def) {
   try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) {}
   const W = 1080, H = 1350;
+  const ev = _conqEvidencia(def, idAtleta);          // semanas/meses e colocações, quando a conquista é desse tipo
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
   const fonte = 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -13937,7 +14070,23 @@ async function _conqCartaoDataUrl(def) {
   let y = 915;
   titulo.forEach(function (l) { ctx.fillText(l, W / 2, y); y += 90; });
   ctx.fillStyle = '#dcd6c4'; ctx.font = '500 36px ' + fonte;
-  _cqQuebrar(ctx, def.desc, 900, 4).forEach(function (l) { ctx.fillText(l, W / 2, y + 14); y += 49; });
+  _cqQuebrar(ctx, def.desc, 900, ev ? 3 : 4).forEach(function (l) { ctx.fillText(l, W / 2, y + 14); y += 49; });
+  if (ev && ev.itens.length) {
+    const itens = ev.itens.slice(0, 5), n = itens.length, extra = ev.itens.length - n, gap = 18;
+    const w = Math.min(270, Math.floor((900 - gap * (n - 1)) / n)), h = n > 3 ? 100 : 116;
+    const x0 = (W - (n * w + gap * (n - 1))) / 2, yb = Math.min(y + 40, 1262 - h);
+    ctx.fillStyle = '#a89a6a'; ctx.font = '700 23px ' + fonte;
+    try { ctx.letterSpacing = '4px'; } catch (e) {}
+    ctx.fillText(ev.titulo.toUpperCase() + (extra > 0 ? '  (+' + extra + ')' : ''), W / 2, yb - 12);
+    try { ctx.letterSpacing = '0px'; } catch (e) {}
+    itens.forEach(function (it, i) {
+      const x = x0 + i * (w + gap);
+      ctx.fillStyle = 'rgba(251,191,36,.12)'; ctx.strokeStyle = 'rgba(251,191,36,.5)'; ctx.lineWidth = 3;
+      _cqRect(ctx, x, yb, w, h, 18); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#dcd6c4'; ctx.font = '600 ' + (n > 3 ? 22 : 29) + 'px ' + fonte; ctx.fillText(it.t, x + w / 2, yb + (n > 3 ? 38 : 44));
+      ctx.fillStyle = '#fbbf24'; ctx.font = '800 ' + (n > 3 ? 30 : 38) + 'px ' + fonte; ctx.fillText(it.v, x + w / 2, yb + h - 20);
+    });
+  }
   // rodapé
   ctx.fillStyle = '#a89a6a'; ctx.font = '600 34px ' + fonte;
   ctx.fillText('@intusfit', W / 2, H - 48);
@@ -13988,7 +14137,7 @@ async function _cqPostar(destino) {
     const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
-      body: JSON.stringify({ imagem: _cqShare.dataUrl, legenda: '🎉 Conquista desbloqueada: ' + def.nome + '. ' + def.desc, destino: destino, visib: _cqShare.visib || undefined })
+      body: JSON.stringify({ imagem: _cqShare.dataUrl, legenda: '🎉 Conquista desbloqueada: ' + def.nome + '. ' + def.desc + _conqEvidenciaTexto(_conqEvidencia(def, idAtleta)), destino: destino, visib: _cqShare.visib || undefined })
     }, 60000);
     if (!r.ok) throw new Error('erro ' + r.status);
     _busyFim();
@@ -14028,14 +14177,18 @@ async function _cqExterno(tipo) {
 
 // Garante que os dados do ranking (fonte das conquistas) estejam carregados
 async function _ensureRankingData() {
-  if (_rankingData) return _rankingData;
+  if (_rankingData && !_rankingData._falhou) return _rankingData;
   try {
     const token = localStorage.getItem('mx-token') || '';
     const r = await fetch(API_BASE + '/treinos.php?action=ranking', { headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }, cache: 'no-store' });
-    _rankingData = r.ok ? await r.json() : { atletas:{}, sessoes:[], comentarios:[] };
-  } catch { _rankingData = { atletas:{}, sessoes:[], comentarios:[] }; }
+    const j = r.ok ? await r.json() : null;
+    // Falha ou resposta estranha NÃO vira ranking vazio de verdade: fica marcada e será buscada de novo na próxima vez.
+    _rankingData = (j && Array.isArray(j.sessoes)) ? j : { atletas:{}, sessoes:[], comentarios:[], _falhou: true };
+  } catch { _rankingData = { atletas:{}, sessoes:[], comentarios:[], _falhou: true }; }
   return _rankingData;
 }
+// Os dados que decidem as conquistas chegaram inteiros? Sem isso, nada de baseline nem de comemoração (ver _detectarConquistasNovas).
+function _conqDadosCompletos() { return !!(_rankingData && !_rankingData._falhou && _conquistasConfig); }
 
 async function _carregarConquistasPerfil() {
   const box = document.getElementById('perfil-conquistas'); if (!box) return;
@@ -14054,6 +14207,7 @@ async function _ensureConquistaBaseline() {
   const key = 'intus-conq-seen-' + idAtleta;
   if (localStorage.getItem(key) != null) return;
   await Promise.all([_ensureRankingData(), _ensureConquistasConfig()]);
+  if (!_conqDadosCompletos()) return;   // dados incompletos gravariam um baseline pequeno e, depois, tudo o que já era seu viraria "novo"
   try { localStorage.setItem(key, JSON.stringify(_conqUnlockedIds(idAtleta))); } catch (e) {}
 }
 
@@ -14110,6 +14264,7 @@ function _renderComemoracao() {
       '</div>' +
       '<div style="font-size:25px;font-weight:900;margin-top:22px;letter-spacing:-.3px;">' + esc(c.nome) + '</div>' +
       '<div style="font-size:13.5px;color:#dcd6c4;line-height:1.55;margin-top:10px;">' + esc(c.desc) + '</div>' +
+      _conqEvidenciaHtml(c, idAtleta, false) +
       '<button onclick="abrirCompartilharConquista(_cqDefs[_cqIdx])" style="margin-top:26px;width:100%;padding:14px;border-radius:14px;border:1.5px solid #fbbf24;background:transparent;color:#fbbf24;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;">📤 Compartilhar conquista</button>' +
       '<div style="font-size:11px;color:#c9a83a;margin-top:7px;line-height:1.4;">Em vez de tirar print, compartilhe por aqui: o cartão já sai pronto.</div>' +
       '<button onclick="' + (last ? '_fecharComemoracao()' : '_proximaComemoracao()') + '" style="margin-top:12px;width:100%;padding:15px;border-radius:14px;border:none;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#3a2a00;font-size:15px;font-weight:900;cursor:pointer;font-family:inherit;box-shadow:0 6px 22px rgba(251,191,36,.45);">' + (last ? 'Continuar 💪' : 'Próxima conquista →') + '</button>' +
@@ -14122,6 +14277,9 @@ function _fecharComemoracao() { const ov = document.getElementById('cq-overlay')
 // Retorna a lista de definições novas (para comemorar). Idempotente: cada conquista comemora uma vez.
 async function _detectarConquistasNovas() {
   await Promise.all([_ensureRankingData(), _ensureConquistasConfig()]);
+  // Ranking ou configuração que não carregou inteiro mostra MENOS conquistas do que o aluno tem; comparar assim criaria um "já visto"
+  // pequeno demais, e na vez seguinte tudo o que ele já tinha (pódio de semanas atrás, horas, maratona) apareceria como novo.
+  if (!_conqDadosCompletos()) return [];
   let unlocked;
   try { unlocked = _conqUnlockedIds(idAtleta); } catch (e) { return []; }
   const key = 'intus-conq-seen-' + idAtleta;
@@ -14129,7 +14287,8 @@ async function _detectarConquistasNovas() {
   try { seen = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { seen = null; }
   if (!Array.isArray(seen)) { try { localStorage.setItem(key, JSON.stringify(unlocked)); } catch (e) {} return []; }
   const novos = unlocked.filter(x => seen.indexOf(x) === -1);
-  if (novos.length) { try { localStorage.setItem(key, JSON.stringify(unlocked)); } catch (e) {} }
+  // O "já visto" só cresce: se uma conquista sumiu por um momento (meta mudada pelo admin, pausa no ranking) e volta, não é nova.
+  if (novos.length) { try { localStorage.setItem(key, JSON.stringify(seen.concat(novos))); } catch (e) {} }
   const defsNovas = novos.map(idc => _conquistasDefs().find(c => c.id === idc)).filter(Boolean);
   try { defsNovas.forEach(d => _notifRegistrar({ tipo: 'distintivo', chave: String(d.id), texto: 'Distintivo desbloqueado: ' + d.nome })); } catch (e) {}
   return defsNovas;
