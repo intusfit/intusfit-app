@@ -1281,3 +1281,9 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   guardava `{}`; o baseline (`intus-conq-seen-<id>`) era gravado com poucas conquistas e, na abertura seguinte, tudo o que o aluno já tinha virava "novo" (comemoração + aviso no sino). Além disso, ao aparecer uma
   conquista nova o "já visto" era SUBSTITUÍDO pelo conjunto atual (encolhia se algo sumia por um instante). Agora: falha fica marcada (`_falhou`) e é tentada de novo; `_conqDadosCompletos()` barra baseline e
   detecção sem ranking e configuração inteiros; o "já visto" só cresce (`seen.concat(novos)`). Aviso já criado no servidor não é desfeito por script (exclusão só pelo painel).
+
+## 40. Tela sempre ligada no treino e no cardio ao vivo (10/10/2026)
+- Antes o pedido de Wake Lock era feito UMA vez ao iniciar o treino; se o sistema recusasse (economia de bateria) ou soltasse (ligação, troca de app), a tela voltava a apagar sozinha. Agora `requestWakeLock()`
+  é idempotente (sem pedidos duplicados que deixavam a trava presa), só age com treino ou cardio rodando (`_wakePrecisa()`), renova quando o sistema solta (`release`), ao voltar ao app (`visibilitychange`, `focus`,
+  `pageshow`), ao tocar na tela e a cada 10 s. Sem o recurso (iOS/WebView antigos) ou após 2 recusas, usa um vídeo mudo em loop gerado na hora pelo canvas (`_wakeVideoLigar`, truque do NoSleep.js).
+  Só o botão de bloqueio do celular apaga a tela. O app das lojas leva `aluno.html` empacotado: vale após novo envio; plugin nativo de keep-awake do Capacitor seria a camada extra se algum aparelho ainda falhar.

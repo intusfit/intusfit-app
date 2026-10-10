@@ -6118,24 +6118,84 @@ let treinoTimer = null, treinoStart = 0, restTimer = null, restStart = 0;
 let _treinoStartSaved = 0;
 let wakeLockSentinel = null;
 
+// ── TELA SEMPRE LIGADA DURANTE TREINO E CARDIO AO VIVO ─────────────────────────────────────────────────────
+// Só o botão de bloqueio do celular deve apagar a tela. O pedido de "tela ligada" ao navegador (Wake Lock) é recusado ou
+// solto em vários momentos (economia de bateria, ligação, troca de app, WebView/iOS antigos) e antes era feito UMA vez, sem
+// tentar de novo. Agora o app mantém o pedido enquanto houver treino ou cardio rodando: renova ao voltar para o app,
+// quando o sistema solta, ao tocar na tela e a cada 10 s, e, onde o recurso não existe ou falha, usa um vídeo mudo em loop
+// (o truque do NoSleep.js), gerado na hora.
+let _wakeTentando = false, _wakeFalhas = 0, _wakeVideo = null, _wakeVideoPronto = null;
+function _wakePrecisa() { try { return !!(treinoTimer || _cardioLiveRodando); } catch (e) { return !!treinoTimer; } }
 async function requestWakeLock() {
-  try {
-    if ('wakeLock' in navigator) {
-      wakeLockSentinel = await navigator.wakeLock.request('screen');
-      wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
-    }
-  } catch (e) {}
+  if (!_wakePrecisa()) return;
+  if (document.visibilityState !== 'visible') return;
+  const comApi = 'wakeLock' in navigator;
+  if (comApi && !wakeLockSentinel && !_wakeTentando) {
+    _wakeTentando = true;
+    try {
+      const sent = await navigator.wakeLock.request('screen');
+      if (!_wakePrecisa()) { try { sent.release(); } catch (e) {} }   // o treino acabou enquanto o pedido estava no ar: não deixa a trava presa
+      else {
+        wakeLockSentinel = sent; _wakeFalhas = 0;
+        sent.addEventListener('release', () => {
+          if (wakeLockSentinel === sent) wakeLockSentinel = null;
+          if (_wakePrecisa()) setTimeout(requestWakeLock, 300);    // o sistema soltou, mas o treino segue
+        });
+      }
+    } catch (e) { _wakeFalhas++; }
+    _wakeTentando = false;
+  }
+  // Sem o recurso, ou sem conseguir depois de algumas tentativas: vídeo em loop mantém a tela acesa
+  if (!comApi || (!wakeLockSentinel && _wakeFalhas >= 2)) _wakeVideoLigar();
 }
 function releaseWakeLock() {
-  if (wakeLockSentinel) { wakeLockSentinel.release(); wakeLockSentinel = null; }
+  if (wakeLockSentinel) { try { wakeLockSentinel.release(); } catch (e) {} wakeLockSentinel = null; }
+  _wakeVideoDesligar();
 }
-document.addEventListener('visibilitychange', () => {
-  // O navegador solta o wake lock sozinho sempre que a aba fica invisivel
-  // (troca de app, tela apagando) — sem reativar aqui, a tela volta a
-  // conseguir dormir na proxima vez, mesmo com um treino ou cardio ao vivo
-  // ainda rodando.
-  if (document.visibilityState === 'visible' && (treinoTimer || _cardioLiveRodando)) requestWakeLock();
-});
+// Vídeo mudo de 1 quadro gravado do próprio canvas (sem arquivo externo); só é criado se o fallback for preciso.
+function _wakeVideoCriar() {
+  if (_wakeVideoPronto) return _wakeVideoPronto;
+  _wakeVideoPronto = new Promise(resolve => {
+    try {
+      const cv = document.createElement('canvas'); cv.width = 16; cv.height = 16;
+      const ctx = cv.getContext('2d');
+      if (!cv.captureStream || typeof MediaRecorder === 'undefined') return resolve(null);
+      const rec = new MediaRecorder(cv.captureStream(5)), partes = [];
+      rec.ondataavailable = e => { if (e.data && e.data.size) partes.push(e.data); };
+      rec.onstop = () => {
+        try {
+          const v = document.createElement('video');
+          v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); v.muted = true; v.loop = true;
+          v.style.cssText = 'position:fixed;left:-10px;top:-10px;width:2px;height:2px;opacity:.01;pointer-events:none;';
+          v.src = URL.createObjectURL(new Blob(partes, { type: rec.mimeType || 'video/webm' }));
+          resolve(v);
+        } catch (e) { resolve(null); }
+      };
+      rec.start(); let n = 0;
+      const t = setInterval(() => { ctx.fillStyle = (n++ % 2) ? '#000' : '#010101'; ctx.fillRect(0, 0, 16, 16); if (n > 8) { clearInterval(t); rec.stop(); } }, 200);
+    } catch (e) { resolve(null); }
+  });
+  return _wakeVideoPronto;
+}
+async function _wakeVideoLigar() {
+  try {
+    if (!_wakePrecisa()) return;
+    const v = _wakeVideo || (_wakeVideo = await _wakeVideoCriar());
+    if (!v) return;
+    if (!v.isConnected) document.body.appendChild(v);
+    if (v.paused) await v.play();
+  } catch (e) {}
+}
+function _wakeVideoDesligar() { try { if (_wakeVideo) { _wakeVideo.pause(); _wakeVideo.remove(); } } catch (e) {} }
+// Reforços: voltar para o app, tocar na tela e checagem periódica (só age se o treino/cardio estiver rodando)
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') requestWakeLock(); });
+window.addEventListener('focus', () => requestWakeLock());
+window.addEventListener('pageshow', () => requestWakeLock());
+document.addEventListener('touchstart', () => { if (_wakePrecisa() && !wakeLockSentinel) requestWakeLock(); }, { passive: true });
+setInterval(() => {
+  if (!_wakePrecisa()) { if (wakeLockSentinel || (_wakeVideo && _wakeVideo.isConnected)) releaseWakeLock(); return; }
+  if (!wakeLockSentinel || (_wakeVideo && _wakeVideo.isConnected && _wakeVideo.paused)) requestWakeLock();
+}, 10000);
 
 function startTreinoTimer(resume) {
   if (resume && _treinoStartSaved > 0) {
