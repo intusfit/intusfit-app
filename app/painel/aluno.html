@@ -14160,9 +14160,12 @@ async function abrirCompartilharConquista(arg) {
   try { dataUrl = await _conqCartaoDataUrl(def); }
   catch (e) { _busyFim(); toast('Não consegui gerar o cartão agora.'); return; }
   _busyFim();
-  _cqShare = { dataUrl: dataUrl, def: def, visib: null };
+  _cqShare = { dataUrl: dataUrl, def: def, visib: null, legenda: _cqLegendaPadrao(def) };
   _cqShareSheet();
 }
+// Legenda sugerida do post da conquista (o aluno pode editar antes de publicar)
+function _cqLegendaPadrao(def) { return '🎉 Conquista desbloqueada: ' + def.nome + (/[.!?]$/.test(def.nome) ? ' ' : '. ') + def.desc + _conqEvidenciaTexto(_conqEvidencia(def, idAtleta)); }
+function _cqSetLegenda(v) { _cqShare.legenda = v; }
 function _cqShareSheet() {
   const isLight = document.body.classList.contains('tema-claro');
   const txt = isLight ? '#1a1a1a' : '#f0f0f0', borda = isLight ? '#ddd' : '#333', cardBg = isLight ? '#f6f6f6' : '#1a1a1a', muted = isLight ? '#666' : '#999';
@@ -14174,6 +14177,8 @@ function _cqShareSheet() {
   const chip = (v, rot) => '<button onclick="_cqSetVisib(\'' + v + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;background:' + (sel === v ? 'rgba(127,255,0,.1)' : cardBg) + ';border:1px solid ' + (sel === v ? '#7FFF00' : borda) + ';color:' + txt + ';">' + rot + '</button>';
   const html =
     '<img src="' + _cqShare.dataUrl + '" alt="Cartão da conquista" style="display:block;width:58%;max-width:230px;margin:2px auto 14px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);"/>' +
+    '<div style="font-size:11px;font-weight:800;color:' + muted + ';text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px;">✏️ Legenda do post</div>' +
+    '<textarea id="cq-legenda" maxlength="1000" rows="4" oninput="_cqSetLegenda(this.value)" placeholder="Escreva algo sobre sua conquista" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + txt + ';font-size:14px;line-height:1.45;font-family:inherit;resize:vertical;margin-bottom:12px;">' + esc(_cqShare.legenda != null ? _cqShare.legenda : _cqLegendaPadrao(_cqShare.def)) + '</textarea>' +
     '<div style="font-size:11px;font-weight:800;color:' + muted + ';text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px;">🔒 Quem pode ver (Feed e perfil)</div>' +
     '<div style="display:flex;gap:8px;margin-bottom:12px;">' + chip('todos', '🌎 Todos') + chip('amigos', '👥 Amigos') + chip('eu', '🙋 Só eu') + '</div>' +
     '<button onclick="_travarEExecutar(event, function(){ return _cqPostar(\'feed\'); })" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">📣 Postar no Feed da Intus</button>' +
@@ -14197,7 +14202,7 @@ async function _cqPostar(destino) {
     const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
-      body: JSON.stringify({ imagem: _cqShare.dataUrl, legenda: '🎉 Conquista desbloqueada: ' + def.nome + '. ' + def.desc + _conqEvidenciaTexto(_conqEvidencia(def, idAtleta)), destino: destino, visib: _cqShare.visib || undefined })
+      body: JSON.stringify({ imagem: _cqShare.dataUrl, legenda: String(_cqShare.legenda != null ? _cqShare.legenda : _cqLegendaPadrao(def)).trim().slice(0, 1000), destino: destino, visib: _cqShare.visib || undefined })
     }, 60000);
     if (!r.ok) throw new Error('erro ' + r.status);
     _busyFim();
@@ -14224,7 +14229,7 @@ async function _cqExterno(tipo) {
       // aparecem o WhatsApp e o Instagram (inclusive Stories).
       const file = new File([blob], fname, { type: 'image/jpeg' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: 'Minha conquista na Intus' }); return; }
+        try { await navigator.share({ files: [file], title: 'Minha conquista na Intus', text: String(_cqShare.legenda || '').trim() || undefined }); return; }
         catch (e) { if (e && e.name === 'AbortError') return; }
       }
     }

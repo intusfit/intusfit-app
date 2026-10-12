@@ -1287,3 +1287,7 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   é idempotente (sem pedidos duplicados que deixavam a trava presa), só age com treino ou cardio rodando (`_wakePrecisa()`), renova quando o sistema solta (`release`), ao voltar ao app (`visibilitychange`, `focus`,
   `pageshow`), ao tocar na tela e a cada 10 s. Sem o recurso (iOS/WebView antigos) ou após 2 recusas, usa um vídeo mudo em loop gerado na hora pelo canvas (`_wakeVideoLigar`, truque do NoSleep.js).
   Só o botão de bloqueio do celular apaga a tela. O app das lojas leva `aluno.html` empacotado: vale após novo envio; plugin nativo de keep-awake do Capacitor seria a camada extra se algum aparelho ainda falhar.
+
+## 41. Compartilhar conquista: legenda visível e editável (12/10/2026)
+- A folha "Compartilhar conquista" (`_cqShareSheet`) ganhou o campo "Legenda do post" (até 1000 caracteres, igual ao limite do servidor), já preenchido com `_cqLegendaPadrao(def)` (nome, descrição e as semanas/colocações da
+  seção 39). O texto digitado fica em `_cqShare.legenda` (sobrevive à troca de "Quem pode ver"), vai no post do Feed/perfil (`_cqPostar`) e como `text` no compartilhamento do aparelho (WhatsApp/Instagram).
