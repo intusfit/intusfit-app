@@ -1295,3 +1295,6 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 ## 42. Cartão da conquista: emoji centralizado pelos pixels (12/10/2026)
 - No iPhone o emoji do cartão (canvas) saía deslocado para a direita e para baixo da medalha, porque cada aparelho mede o emoji de um jeito. `_cqEmojiCentrado` desenha o emoji numa tela à parte, mede os pixels
   visíveis e o posiciona pelo centro real (erro de 0,5 px para qualquer emoji testado). Cartões já publicados continuam com a imagem antiga.
+
+## 43. Conquistas: total de distintivos em destaque (12/10/2026)
+- No placar de "Minhas Conquistas" (`_conquistasGridHtml`) o total virou um bloco próprio, no topo: número grande de desbloqueados, "de N distintivos desbloqueados", barra de progresso e "X ainda para conquistar" (antes era um "18/34" pequeno no canto).
