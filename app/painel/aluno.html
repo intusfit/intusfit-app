@@ -17708,7 +17708,7 @@ function _nutriRender() {
   let t = _nutri.tela;
   if (t === 'plano' && !_nutri.plano) t = 'home';
   box.innerHTML = t === 'plano' ? _nutriPlanoHtml() : (t === 'receitas' ? _nutriReceitasHtml() : (t === 'receita' ? _nutriReceitaHtml()
-    : (t === 'videos' ? _nutriVideosHtml() : (t === 'dicas' ? _nutriDicasHtml() : _nutriHomeHtml()))));
+    : (t === 'videos' ? _nutriVideosHtml() : (t === 'dicas' ? _nutriDicasHtml() : (t === 'agua' ? _nutriAguaHistHtml() : _nutriHomeHtml())))));
   window.scrollTo(0, y);
 }
 
@@ -17768,6 +17768,7 @@ function nutriTela(t, id) {
   _nutri.pai = (_nutri.tela === 'receita' || _nutri.tela === 'home' || _nutri.tela === 'receitas') ? _nutri.tela : 'home';
   if (t === 'receita') { _nutri.receita = id; if (_nutri.tela === 'receita') _nutri.pai = 'receitas'; }
   if (t === 'receitas' && id) _nutri.cat = id;
+  if (t === 'agua') _nutriAguaHistCarregar();
   _nutri.tela = t;
   try { history.pushState({ view: 'nutricao' }, '', ''); _nutri.hist++; } catch (e) {}
   window.scrollTo(0, 0);
@@ -17828,7 +17829,8 @@ function _nutriAguaCardHtml() {
   const litros = v => (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
   const icones = Array.from({ length: copos }, (_, i) => `<span style="flex:1;min-width:0;height:34px;border-radius:5px 5px 9px 9px;border:1.5px solid ${i < cheios ? '#38bdf8' : C.borda};background:${i < cheios ? 'rgba(56,189,248,.28)' : 'transparent'};transition:.25s;"></span>`).join('');
   const bateu = ml >= meta;
-  return `<div style="background:${C.card};border:1px solid ${bateu ? '#38bdf8' : C.borda};border-radius:16px;padding:14px;margin-bottom:12px;">
+  return `<div style="position:relative;background:${C.card};border:1px solid ${bateu ? '#38bdf8' : C.borda};border-radius:16px;padding:14px;margin-bottom:12px;">
+    <div onclick="nutriTela('agua')" style="position:absolute;top:10px;right:10px;padding:5px 10px;border-radius:99px;border:1px solid ${C.borda};font-size:11px;font-weight:800;color:${C.mut};cursor:pointer;">📅 Histórico ›</div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:8px;">
       <div><div style="font-size:11px;font-weight:800;color:${C.mut};letter-spacing:.04em;text-transform:uppercase;">💧 Água de hoje</div>
         <div style="font-size:26px;font-weight:900;line-height:1.1;margin-top:2px;">${litros(ml)} <span style="font-size:13px;font-weight:700;color:${C.mut};">de ${litros(meta)} L</span></div></div>
@@ -17842,6 +17844,78 @@ function _nutriAguaCardHtml() {
     </div>
     <div style="font-size:11px;color:${C.mut};margin-top:8px;line-height:1.4;">${bateu ? '🎉 Meta de hoje batida. Continue se hidratando.' : (peso ? 'Meta de ' + litros(meta) + ' L calculada pelo seu último peso (' + String(peso).replace('.', ',') + ' kg).' : 'Meta padrão de 2,5 L. Quando você fizer uma avaliação com peso, ela passa a ser calculada para você.')}</div>
   </div>`;
+}
+
+
+// ── Histórico de água ──
+// Tela própria (a tela da Nutrição não cresce). A água de cada dia vem de intus_nutri_dia; busca 90 dias ao abrir e usa o que já
+// está na memória enquanto isso. Os dias seguem o mesmo formato AAAA-MM-DD do resto da Nutrição, para o futuro "Diário do dia"
+// (treino, cardio, refeições e água de uma data) poder reaproveitar _nutriAguaDoDia(data).
+_nutri.aguaPer = 30; _nutri.aguaHist = null;
+async function _nutriAguaHistCarregar() {
+  const d = await _nutriGet('nutri_registro&desde=' + API.nutri.addDias(API.nutri.hojeIso(), -89));
+  if (d && Array.isArray(d.agua)) {
+    _nutri.aguaHist = d.agua;
+    d.agua.forEach(a => { const x = _nutri.agua.find(y => String(y.data).slice(0, 10) === String(a.data).slice(0, 10)); if (!x) _nutri.agua.push(a); });
+  }
+  if (_nutri.tela === 'agua') _nutriRender();
+}
+function nutriAguaPer(n) { _nutri.aguaPer = n; _nutriRender(); }
+function _nutriAguaDiasHist(n) {
+  const N = API.nutri, hoje = N.hojeIso(), out = [];
+  const ml = d => {
+    const base = _nutriAguaDoDia(d);
+    if (base) return base;
+    const h = (_nutri.aguaHist || []).find(x => String(x.data).slice(0, 10) === d);
+    return h ? Number(h.agua_ml) || 0 : 0;
+  };
+  for (let i = 0; i < n; i++) { const d = N.addDias(hoje, -i); out.push({ data: d, ml: ml(d) }); }
+  return out;   // do mais recente para o mais antigo
+}
+function _nutriAguaHistHtml() {
+  const N = API.nutri, C = _nutriCores(), per = _nutri.aguaPer || 30, meta = N.metaAguaMl(_nutriUltimoPeso());
+  const dias = _nutriAguaDiasHist(per);
+  const litros = v => (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+  const comReg = dias.filter(d => d.ml > 0), bateu = dias.filter(d => d.ml >= meta);
+  const media = comReg.length ? Math.round(comReg.reduce((a, d) => a + d.ml, 0) / comReg.length) : 0;
+  const melhor = comReg.reduce((m, d) => d.ml > m.ml ? d : m, { ml: 0, data: '' });
+  const SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const fmt = d => { const [y, m, dd] = d.split('-').map(Number); return SEM[new Date(y, m - 1, dd).getDay()] + ', ' + String(dd).padStart(2, '0') + '/' + String(m).padStart(2, '0'); };
+  const stat = (v, l, cor) => `<div style="flex:1;text-align:center;"><div style="font-size:19px;font-weight:900;color:${cor};line-height:1.1;">${v}</div><div style="font-size:10px;color:${C.mut};margin-top:4px;text-transform:uppercase;letter-spacing:.3px;line-height:1.25;">${l}</div></div>`;
+  const div = `<div style="width:1px;align-self:stretch;background:${C.borda};"></div>`;
+  const topo = Math.max(meta, ...dias.map(d => d.ml), 1);
+  const barras = dias.slice().reverse().map(d => {
+    const h = d.ml ? Math.max(4, Math.round(d.ml / topo * 100)) : 2;
+    return `<div title="${fmt(d.data)}: ${litros(d.ml)} L" style="flex:1;min-width:0;height:100%;display:flex;align-items:flex-end;"><div style="width:100%;height:${h}%;border-radius:3px 3px 1px 1px;background:${d.ml >= meta ? '#38bdf8' : (d.ml ? 'rgba(56,189,248,.45)' : C.trilho)};"></div></div>`;
+  }).join('');
+  const linhaMeta = Math.round(meta / topo * 100);
+  const linhas = dias.map((d, i) => {
+    const pct = meta ? Math.round(d.ml / meta * 100) : 0, ok = d.ml >= meta;
+    const rot = i === 0 ? 'Hoje' : (i === 1 ? 'Ontem' : fmt(d.data));
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid ${C.borda};">
+      <div style="width:84px;font-size:12.5px;font-weight:700;${d.ml ? '' : 'color:' + C.mut + ';'}">${rot}</div>
+      <div style="flex:1;height:8px;border-radius:5px;background:${C.trilho};overflow:hidden;"><div style="height:100%;width:${Math.min(100, pct)}%;background:${ok ? '#38bdf8' : 'rgba(56,189,248,.55)'};border-radius:5px;"></div></div>
+      <div style="width:84px;text-align:right;font-size:12.5px;font-weight:800;${d.ml ? '' : 'color:' + C.mut + ';font-weight:600;'}">${d.ml ? litros(d.ml) + ' L' + (ok ? ' ✓' : '') : 'sem registro'}</div>
+    </div>`;
+  }).join('');
+  const chips = [7, 30, 90].map(n => _nutriChip(per === n, 'nutriAguaPer(' + n + ')', n + ' dias')).join('');
+  return `<div style="padding:16px 0;">
+    ${_nutriHeaderSub('💧 Histórico de água')}
+    <div style="display:flex;gap:6px;margin-bottom:12px;">${chips}</div>
+    <div style="background:${C.card};border:1px solid ${C.borda};border-radius:16px;padding:14px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${stat(comReg.length ? litros(media) + ' L' : '—', 'Média por dia registrado', '#38bdf8')}${div}
+        ${stat(bateu.length + '/' + per, 'Dias com a meta batida', C.ok)}${div}
+        ${stat(melhor.ml ? litros(melhor.ml) + ' L' : '—', melhor.ml ? 'Melhor dia (' + melhor.data.slice(8, 10) + '/' + melhor.data.slice(5, 7) + ')' : 'Melhor dia', '#a78bfa')}
+      </div>
+      <div style="position:relative;height:92px;margin-top:14px;display:flex;align-items:flex-end;gap:${per > 30 ? 1 : 3}px;">
+        <div style="position:absolute;left:0;right:0;bottom:${linhaMeta}%;border-top:1px dashed ${C.mut};opacity:.6;pointer-events:none;"></div>${barras}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:${C.mut};margin-top:5px;"><span>${fmt(dias[dias.length - 1].data).split(', ')[1]}</span><span>meta ${litros(meta)} L (linha tracejada)</span><span>hoje</span></div>
+    </div>
+    <div style="background:${C.card};border:1px solid ${C.borda};border-radius:16px;padding:6px 14px 8px;">${linhas}</div>
+    <div style="font-size:10.5px;color:${C.mut};text-align:center;margin-top:12px;line-height:1.5;">A meta usa o seu último peso (${_nutriUltimoPeso() ? String(_nutriUltimoPeso()).replace('.', ',') + ' kg' : 'padrão de 2,5 L'}). Para corrigir um dia, só hoje e ontem podem ser alterados.</div>
+  </div>${getFooterHtml()}`;
 }
 
 function _nutriSugestoes() {

@@ -1298,3 +1298,10 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 
 ## 43. Conquistas: total de distintivos em destaque (12/10/2026)
 - No placar de "Minhas Conquistas" (`_conquistasGridHtml`) o total virou um bloco próprio, no topo: número grande de desbloqueados, "de N distintivos desbloqueados", barra de progresso e "X ainda para conquistar" (antes era um "18/34" pequeno no canto).
+
+## 44. Nutrição: histórico de água (12/10/2026)
+- O cartão "Água de hoje" ganhou o atalho "📅 Histórico ›" no canto (posição absoluta, a tela não cresce). Ele abre a tela `nutriTela('agua')` (`_nutriAguaHistHtml`): períodos de 7/30/90 dias, média por dia registrado,
+  dias com a meta batida, melhor dia, gráfico de barras com a linha da meta e a lista dia a dia (barra + litros, "sem registro" nos dias vazios). Dados de `intus_nutri_dia` (busca 90 dias ao abrir; `nutri_registro` já devolve
+  `agua`). Somente leitura; corrigir um dia continua só para hoje e ontem.
+- **Direção futura (pedido do Luiz)**: um "Diário do dia" que reúna treino, cardio, refeições e água de uma data escolhida, mais uma visão macro (semanas/meses). Os dias já usam o formato AAAA-MM-DD e
+  `_nutriAguaDoDia(data)`, `_nutriRegsDoDia(data)` e as sessões do ranking têm essa chave, então a tela de data pode reaproveitá-los em vez de nova fonte de dados.
