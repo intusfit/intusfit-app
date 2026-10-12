@@ -1291,3 +1291,7 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 ## 41. Compartilhar conquista: legenda visível e editável (12/10/2026)
 - A folha "Compartilhar conquista" (`_cqShareSheet`) ganhou o campo "Legenda do post" (até 1000 caracteres, igual ao limite do servidor), já preenchido com `_cqLegendaPadrao(def)` (nome, descrição e as semanas/colocações da
   seção 39). O texto digitado fica em `_cqShare.legenda` (sobrevive à troca de "Quem pode ver"), vai no post do Feed/perfil (`_cqPostar`) e como `text` no compartilhamento do aparelho (WhatsApp/Instagram).
+
+## 42. Cartão da conquista: emoji centralizado pelos pixels (12/10/2026)
+- No iPhone o emoji do cartão (canvas) saía deslocado para a direita e para baixo da medalha, porque cada aparelho mede o emoji de um jeito. `_cqEmojiCentrado` desenha o emoji numa tela à parte, mede os pixels
+  visíveis e o posiciona pelo centro real (erro de 0,5 px para qualquer emoji testado). Cartões já publicados continuam com a imagem antiga.

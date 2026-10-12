@@ -14079,6 +14079,23 @@ function _cqQuebrar(ctx, texto, maxW, maxLinhas) {
   if (linhas.length > maxLinhas) { const cortado = linhas.slice(0, maxLinhas); cortado[maxLinhas - 1] = cortado[maxLinhas - 1].replace(/\s*\S*$/, '') + '...'; return cortado; }
   return linhas;
 }
+// Desenha o emoji com o CENTRO DA IMAGEM no ponto (cx, cy). Cada aparelho mede o emoji de um jeito (no iPhone ele saía deslocado
+// para a direita e para baixo da medalha), então o emoji é desenhado numa tela à parte, os pixels visíveis são medidos e só
+// então ele é colocado, sem depender das métricas da fonte.
+function _cqEmojiCentrado(ctx, e, cx, cy, tam, familia) {
+  try {
+    const L = Math.ceil(tam * 2), off = document.createElement('canvas'); off.width = L; off.height = L;
+    const o = off.getContext('2d', { willReadFrequently: true });
+    o.font = tam + 'px ' + familia; o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillText(e, L / 2, L / 2);
+    const d = o.getImageData(0, 0, L, L).data;
+    let x0 = L, y0 = L, x1 = -1, y1 = -1;
+    for (let y = 0; y < L; y++) for (let x = 0; x < L; x++) if (d[(y * L + x) * 4 + 3] > 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    if (x1 < 0) throw new Error('vazio');
+    ctx.drawImage(off, Math.round(cx - (x0 + x1 + 1) / 2), Math.round(cy - (y0 + y1 + 1) / 2));
+  } catch (err) {
+    ctx.save(); ctx.font = tam + 'px ' + familia; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e, cx, cy + 14); ctx.restore();
+  }
+}
 function _cqRect(ctx, x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
   ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
@@ -14121,8 +14138,7 @@ async function _conqCartaoDataUrl(def) {
   med.addColorStop(0, '#fff8e1'); med.addColorStop(0.55, '#fbbf24'); med.addColorStop(1, '#d97706');
   ctx.fillStyle = med; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
   ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-  ctx.font = '235px ' + emoji; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000';
-  ctx.fillText(def.e, cx, cy + 14);
+  _cqEmojiCentrado(ctx, def.e, cx, cy, 235, emoji);
   ctx.textBaseline = 'alphabetic';
   // nome e descrição
   ctx.fillStyle = '#ffffff'; ctx.font = '800 80px ' + fonte;
