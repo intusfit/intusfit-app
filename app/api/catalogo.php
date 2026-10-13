@@ -324,6 +324,20 @@ function ensureCatalogoTables(PDO $pdo) {
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_nutri_conteudo', ['titulo', 'dados']);
 
+    // Posts colaborativos: o autor convida amigos (quem treinou junto); o convite é uma solicitação. Só depois que o convidado ACEITA o
+    // post passa a aparecer como colaborativo, no perfil dele e para quem vê. Recusada fica gravada para não gerar convite repetido.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_post_colab (
+            idpost             INT NOT NULL,
+            idatleta_convidado INT NOT NULL,
+            status             VARCHAR(10) NOT NULL DEFAULT 'pendente',
+            criado_em          DATETIME DEFAULT CURRENT_TIMESTAMP,
+            respondido_em      DATETIME NULL,
+            PRIMARY KEY (idpost, idatleta_convidado),
+            INDEX idx_convidado (idatleta_convidado, status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Nutrição: favorito, nota (1 a 5) e "eu fiz" de cada receita, por aluno. A média, o total e quem fez ficam visíveis para os outros alunos.
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS intus_nutri_avaliacao (
@@ -590,6 +604,31 @@ function _amigosDe(PDO $pdo, int $idatleta): array {
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = ((int)$r['de_id'] === $idatleta) ? (int)$r['para_id'] : (int)$r['de_id'];
         return array_values(array_unique($out));
     } catch (Throwable $e) { return []; }
+}
+
+// Convida amigos para um post (colaboração). Só entram amigos de verdade do autor (até 4); quem já foi convidado não é convidado de novo.
+// Devolve os ids registrados. O aviso só sai quando o post fica visível (_colabNotificar).
+function _colabConvidar(PDO $pdo, int $idpost, int $autorId, array $ids): array {
+    $ok = [];
+    if ($idpost <= 0 || $autorId <= 0) return $ok;
+    $amigos = _amigosDe($pdo, $autorId);
+    foreach (array_slice(array_values(array_unique(array_map('intval', $ids))), 0, 4) as $i) {
+        if ($i <= 0 || $i === $autorId || !in_array($i, $amigos, true)) continue;
+        try {
+            $q = $pdo->prepare("SELECT 1 FROM intus_post_colab WHERE idpost = ? AND idatleta_convidado = ?");
+            $q->execute([$idpost, $i]);
+            if (!$q->fetchColumn()) { $pdo->prepare("INSERT INTO intus_post_colab (idpost, idatleta_convidado, status) VALUES (?,?, 'pendente')")->execute([$idpost, $i]); $ok[] = $i; }
+        } catch (Throwable $e) {}
+    }
+    return $ok;
+}
+// Avisa quem foi convidado (sem repetir). Chamado quando o post passa a valer (publicação direta ou depois do "finalizar").
+function _colabNotificar(PDO $pdo, int $idpost, int $autorId, string $autorNome): void {
+    try {
+        $q = $pdo->prepare("SELECT idatleta_convidado FROM intus_post_colab WHERE idpost = ? AND status = 'pendente'");
+        $q->execute([$idpost]);
+        foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $cid) _criarNotificacao($pdo, 'aluno', (int)$cid, 'colab_convite', 'aluno', $autorId, $autorNome, 'feed_post', $idpost, '', true);
+    } catch (Throwable $e) {}
 }
 
 // Parceiros de treino de $idatleta (convite aceito, nos dois sentidos).
@@ -2803,6 +2842,7 @@ if ($action === 'feed_posts') {
         }
 
         $visiveis = array_values(array_diff($optinIds, $ocultarDeles, $meOcultaram));
+        $autoresOk = $visiveis;   // quem pode aparecer para mim (Feed liberado, sem bloqueio nos dois sentidos)
         // Privacidade: cada publicação tem a sua (intus_post_visib); sem ela vale o padrão do perfil do dono.
         // O filtro é feito na consulta, mais abaixo. O próprio dono sempre se vê; a equipe (professor) enxerga tudo.
         // Filtro "Amigos" do Feed (só com as conexões ligadas): os amigos e o próprio aluno.
@@ -2834,21 +2874,52 @@ if ($action === 'feed_posts') {
         $filtroPriv = '';
         if ($_autorTipo === 'aluno') {
             $amigosIn = implode(',', array_map('intval', _amigosDe($pdo, $_autorId))) ?: '0';
-            $filtroPriv = " AND (p.idatleta = " . (int)$_autorId . " OR $ef = 'todos' OR ($ef = 'amigos' AND p.idatleta IN ($amigosIn)))";
+            // quem foi colaborador aceito do post sempre o vê
+            $filtroPriv = " AND (p.idatleta = " . (int)$_autorId . " OR $ef = 'todos' OR ($ef = 'amigos' AND p.idatleta IN ($amigosIn)) OR p.idpost IN (SELECT idpost FROM intus_post_colab WHERE idatleta_convidado = " . (int)$_autorId . " AND status = 'aceita'))";
+        }
+        // Perfil de alguém: entram também os posts em que ele é colaborador ACEITO (o autor precisa estar visível para mim).
+        $orColab = '';
+        if ($somenteAutor > 0) {
+            $okIds = array_values(array_unique(array_merge($autoresOk, $_autorTipo === 'aluno' ? [$_autorId] : [])));
+            $inOk = implode(',', array_map('intval', $okIds)) ?: '0';
+            $orColab = " OR (p.idpost IN (SELECT idpost FROM intus_post_colab WHERE idatleta_convidado = " . (int)$somenteAutor . " AND status = 'aceita') AND p.idatleta IN ($inOk))";
         }
         // Busca um a mais que o pedido só pra saber se tem mais página depois
         // desta, sem precisar de um COUNT(*) separado.
         $st = $pdo->prepare("SELECT p.idpost, p.idatleta, p.imagem, p.legenda, p.destino, p.localizacao, p.created_at, $ef AS visib FROM intus_feed_post p
                              LEFT JOIN intus_post_visib v ON v.idpost = p.idpost
                              LEFT JOIN intus_perfil_config c ON c.idatleta = p.idatleta
-                             WHERE p.ativo = 1 AND p.idatleta IN ($ph)$filtroDestino$filtroCursor$filtroPriv ORDER BY p.created_at DESC, p.idpost DESC LIMIT " . ($limite + 1));
+                             WHERE p.ativo = 1 AND (p.idatleta IN ($ph)$orColab)$filtroDestino$filtroCursor$filtroPriv ORDER BY p.created_at DESC, p.idpost DESC LIMIT " . ($limite + 1));
         $st->execute($visiveis);
         $posts = $st->fetchAll(PDO::FETCH_ASSOC);
         $temMais = count($posts) > $limite;
         if ($temMais) $posts = array_slice($posts, 0, $limite);
+        $_nomeExtra = [];
         $_midiasMap = _midiasDosPosts($pdo, 'feed_post', array_column($posts, 'idpost'));
+        // Colaboradores (aceitos) de cada post; o autor também recebe os convites ainda pendentes dos próprios posts.
+        $_colabMap = []; $_pendMap = [];
+        if ($posts) {
+            try {
+                $inP = implode(',', array_map('intval', array_column($posts, 'idpost')));
+                $rowsC = $pdo->query("SELECT idpost, idatleta_convidado AS cid, status FROM intus_post_colab WHERE idpost IN ($inP) AND status IN ('aceita','pendente')")->fetchAll(PDO::FETCH_ASSOC);
+                $semNome = [];
+                foreach ($rowsC as $rc) { if (!isset($nomeMap[(int)$rc['cid']])) $semNome[(int)$rc['cid']] = 1; }
+                if ($semNome && $tbl) {
+                    $inN = implode(',', array_keys($semNome));
+                    foreach ($pdo->query("SELECT idatleta, nome FROM `$tbl` WHERE idatleta IN ($inN)")->fetchAll(PDO::FETCH_ASSOC) as $rn) $_nomeExtra[(int)$rn['idatleta']] = $rn['nome'];
+                }
+                foreach ($rowsC as $rc) {
+                    $cid = (int)$rc['cid']; $ip = (int)$rc['idpost'];
+                    $nm = $nomeMap[$cid] ?? ($_nomeExtra[$cid] ?? '');
+                    if ($rc['status'] === 'aceita') $_colabMap[$ip][] = ['id' => $cid, 'nome' => $nm];
+                    else $_pendMap[$ip][] = ['id' => $cid, 'nome' => $nm];
+                }
+            } catch (Throwable $e) {}
+        }
         foreach ($posts as &$p) {
             $p['idpost'] = (int)$p['idpost']; $p['idatleta'] = (int)$p['idatleta'];
+            $p['colaboradores'] = $_colabMap[$p['idpost']] ?? [];
+            if ($_autorTipo === 'aluno' && $p['idatleta'] === $_autorId && !empty($_pendMap[$p['idpost']])) $p['colab_pendentes'] = $_pendMap[$p['idpost']];
             if (!($_autorTipo === 'aluno' && $p['idatleta'] === $_autorId)) unset($p['visib']);   // só o dono vê a privacidade da própria publicação
             $p['midias'] = $_midiasMap[$p['idpost']] ?? [['tipo' => 'imagem', 'url' => $p['imagem'], 'poster' => null]];
             foreach ($p['midias'] as &$_mm) { if ($_mm['tipo'] === 'video' && empty($_mm['poster'])) $_mm['poster'] = $p['imagem']; }
@@ -2929,7 +3000,13 @@ if ($action === 'feed_posts') {
             // @menções na legenda avisam as pessoas marcadas (não em post só do perfil).
             // Em carrossel isso espera o "finalizar", quando o post de fato aparece.
             if ($ativoNovo === 1 && $legenda !== '' && $destino === 'feed' && $visibNovo === 'todos') _notificarMencoes($pdo, $legenda, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $novoPost);
-            echo json_encode(['ok' => true, 'idpost' => $novoPost, 'imagem' => $url, 'destino' => $destino, 'pendente' => $ativoNovo === 2]);
+            // Colaboradores: só amigos do autor (até 4). O convite é uma solicitação; o aviso sai quando o post passa a valer.
+            $convidados = [];
+            if ($_autorTipo === 'aluno' && !empty($b['colaboradores']) && is_array($b['colaboradores'])) {
+                $convidados = _colabConvidar($pdo, $novoPost, $_autorId, $b['colaboradores']);
+                if ($ativoNovo === 1 && $convidados) _colabNotificar($pdo, $novoPost, $_autorId, (string)$_autorNome);
+            }
+            echo json_encode(['ok' => true, 'idpost' => $novoPost, 'imagem' => $url, 'destino' => $destino, 'pendente' => $ativoNovo === 2, 'convidados' => count($convidados)]);
         } catch (Throwable $e) {
             http_response_code(500);
             echo json_encode(['error' => 'falha ao gravar o post', 'detalhe' => _intusLogErro($e)]);
@@ -2972,9 +3049,66 @@ if ($action === 'feed_posts') {
         // Notificações do post (curtida, comentário, resposta) só fazem sentido
         // enquanto ele existe; são derivadas, então apagar é seguro.
         try { $pdo->prepare("DELETE FROM intus_notificacao WHERE alvo_tipo = 'feed_post' AND alvo_id = ?")->execute([$id]); } catch (Throwable $e) {}
+        try { $pdo->prepare("DELETE FROM intus_post_colab WHERE idpost = ?")->execute([$id]); } catch (Throwable $e) {}
         echo json_encode(['ok' => true]);
         exit;
     }
+}
+
+// ═══════════════ POSTS COLABORATIVOS: convites, aceite, recusa e saída ═══════════════
+// GET: convites pendentes que EU recebi (com a miniatura do post). PUT {idpost, aceitar}: o convidado aceita ou recusa (aceitar avisa o autor).
+// DELETE ?idpost=N[&idatleta=M]: o autor tira um colaborador (idatleta=M) ou o colaborador sai do post (sem idatleta). Só alunos.
+if ($action === 'post_colab') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_pcTipo, $_pcId, $_pcNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_pcId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    if ($_pcTipo !== 'aluno') { http_response_code(403); echo json_encode(['error' => 'somente alunos']); exit; }
+
+    if ($method === 'GET') {
+        $st = $pdo->prepare("SELECT c.idpost, c.criado_em, p.idatleta AS autor_id, p.imagem, p.legenda, p.destino FROM intus_post_colab c
+                             JOIN intus_feed_post p ON p.idpost = c.idpost
+                             WHERE c.idatleta_convidado = ? AND c.status = 'pendente' AND p.ativo = 1 ORDER BY c.criado_em DESC LIMIT 50");
+        $st->execute([$_pcId]);
+        $convites = [];
+        $tblA = _feedDetectarTabelaAtleta($pdo);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $nm = '';
+            if ($tblA) { try { $q = $pdo->prepare("SELECT nome FROM `$tblA` WHERE idatleta = ?"); $q->execute([(int)$r['autor_id']]); $nm = (string)$q->fetchColumn(); } catch (Throwable $e) {} }
+            $convites[] = ['idpost' => (int)$r['idpost'], 'autor_id' => (int)$r['autor_id'], 'autor_nome' => $nm, 'imagem' => $r['imagem'], 'legenda' => $r['legenda'], 'destino' => $r['destino'], 'criado_em' => $r['criado_em']];
+        }
+        echo json_encode(['convites' => $convites], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'PUT') {
+        $b = jsonBody();
+        $idpost = (int)($b['idpost'] ?? 0);
+        $aceitar = !empty($b['aceitar']);
+        $st = $pdo->prepare("SELECT c.status, p.idatleta FROM intus_post_colab c JOIN intus_feed_post p ON p.idpost = c.idpost WHERE c.idpost = ? AND c.idatleta_convidado = ? AND p.ativo = 1");
+        $st->execute([$idpost, $_pcId]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) { http_response_code(404); echo json_encode(['error' => 'convite nao encontrado']); exit; }
+        if ($row['status'] !== 'pendente') { echo json_encode(['ok' => true, 'status' => $row['status']]); exit; }
+        $novo = $aceitar ? 'aceita' : 'recusada';
+        $pdo->prepare("UPDATE intus_post_colab SET status = ?, respondido_em = ? WHERE idpost = ? AND idatleta_convidado = ?")->execute([$novo, date('Y-m-d H:i:s'), $idpost, $_pcId]);
+        if ($aceitar) _criarNotificacao($pdo, 'aluno', (int)$row['idatleta'], 'colab_aceito', 'aluno', $_pcId, (string)$_pcNome, 'feed_post', $idpost);
+        echo json_encode(['ok' => true, 'status' => $novo]);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $idpost = (int)($_GET['idpost'] ?? 0);
+        $alvo = (int)($_GET['idatleta'] ?? 0);
+        $st = $pdo->prepare("SELECT idatleta FROM intus_feed_post WHERE idpost = ?");
+        $st->execute([$idpost]);
+        $autor = (int)$st->fetchColumn();
+        if ($idpost <= 0 || !$autor) { http_response_code(404); echo json_encode(['error' => 'post nao encontrado']); exit; }
+        if ($alvo > 0 && $autor === $_pcId) { $quem = $alvo; }                 // o autor tira um colaborador
+        elseif ($alvo <= 0) { $quem = $_pcId; }                                  // o colaborador sai do post
+        else { http_response_code(403); echo json_encode(['error' => 'sem permissao']); exit; }
+        $pdo->prepare("DELETE FROM intus_post_colab WHERE idpost = ? AND idatleta_convidado = ?")->execute([$idpost, $quem]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    http_response_code(405); echo json_encode(['error' => 'metodo nao suportado']); exit;
 }
 
 // ── Privacidade do perfil social ──────────────────────────────────────────
@@ -3678,6 +3812,7 @@ if ($action === 'feed_midia' && $method === 'POST') {
             $pdo->prepare("UPDATE intus_feed_post SET ativo = 1 WHERE idpost = ? AND ativo = 2")->execute([$idpost]);
             $leg = (string)($post['legenda'] ?? '');
             if ($leg !== '' && $post['destino'] === 'feed' && _visibPost($pdo, $idpost) === 'todos') _notificarMencoes($pdo, $leg, $_autorTipo, $_autorId, (string)$_autorNome, 'feed_post', $idpost);
+            _colabNotificar($pdo, $idpost, $_autorId, (string)$_autorNome);
         }
         echo json_encode(['ok' => true, 'idpost' => $idpost, 'midias' => $qtd]);
         exit;

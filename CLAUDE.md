@@ -1355,3 +1355,13 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   (`_mock.js`) mostra "escreveu no mural de dicas/de um vídeo" com link para lá. **`_mock.js?v=20261013a` em todas as 19 telas.**
 - Testes: `testes/mural_nutri.php` (16 conferências em PHP real, registrado em `rodar.sh`; tirar a trava do plano é acusado). Os testes `avaliacao.php` e `mural_nutri.php` precisam ser salvos com fim de linha LF (gravar com Python em modo texto no Windows
   os transforma em CRLF e quebra a extração do bloco).
+
+## 51. Posts colaborativos: servidor (13/10/2026)
+- **Tabela nova `intus_post_colab`** (`idpost`, `idatleta_convidado`, `status` pendente|aceita|recusada, `criado_em`, `respondido_em`; única por post e convidado; aditiva, criada no bootstrap do `catalogo.php`).
+- `feed_posts` POST aceita `colaboradores: [ids]`: só **amigos aceitos do autor**, até 4 (`_colabConvidar`); o aviso `colab_convite` sai quando o post passa a valer (publicação direta ou no `finalizar` do carrossel/vídeo, `_colabNotificar`, sem repetir).
+  `action=post_colab` (só aluno): GET = convites pendentes que recebi (com miniatura), PUT `{idpost, aceitar}` (aceitar avisa o autor com `colab_aceito`; recusar fica gravado e não avisa), DELETE `?idpost=N[&idatleta=M]` (o autor tira um colaborador ou o colaborador sai).
+- **Regra**: o post só é colaborativo para o público depois do ACEITE. `feed_posts` GET devolve `colaboradores: [{id, nome}]` (aceitos) e, só ao autor, `colab_pendentes`. No perfil do colaborador (`?idatleta=`) entram também os posts em que ele
+  é colaborador aceito, se o autor estiver visível para quem pede; a privacidade do post (`intus_post_visib`) é a do autor e vale para os dois perfis; o colaborador sempre vê o post. No Feed geral o post aparece uma vez só.
+  Excluir o post apaga as colaborações.
+- `treinos.php?action=ranking` devolve `colab` por aluno (posts no Feed com colaboração aceita, contados para o autor e para cada colaborador aceito) para o distintivo "Dupla Dinâmica".
+- Testes: `testes/colab.php` (29 conferências em PHP real; quebrar a regra "só amigos" ou "só aceitos" é acusado). O app (compositor, cartões, pedidos, distintivo) vem no passo seguinte.

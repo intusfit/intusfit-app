@@ -1103,6 +1103,23 @@ try {
                 } catch (Throwable $e) {}
             }
 
+            // Posts colaborativos publicados NO FEED com colaboração aceita (distintivo "Dupla Dinâmica"): conta para o autor e para cada
+            // colaborador que aceitou. As tabelas só existem depois do 1º uso do catalogo.php.
+            $colabMap = [];
+            if (count($ids) > 0) {
+                try {
+                    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                    $cq = $pdo->prepare("SELECT p.idatleta AS i, COUNT(*) AS n FROM intus_feed_post p WHERE p.ativo = 1 AND p.destino = 'feed' AND p.idatleta IN ($placeholders)
+                                         AND EXISTS (SELECT 1 FROM intus_post_colab c WHERE c.idpost = p.idpost AND c.status = 'aceita') GROUP BY p.idatleta");
+                    $cq->execute($ids);
+                    foreach ($cq->fetchAll(PDO::FETCH_ASSOC) as $rr) { $colabMap[(int)$rr['i']] = ($colabMap[(int)$rr['i']] ?? 0) + (int)$rr['n']; }
+                    $cq = $pdo->prepare("SELECT c.idatleta_convidado AS i, COUNT(*) AS n FROM intus_post_colab c JOIN intus_feed_post p ON p.idpost = c.idpost
+                                         WHERE c.status = 'aceita' AND p.ativo = 1 AND p.destino = 'feed' AND c.idatleta_convidado IN ($placeholders) GROUP BY c.idatleta_convidado");
+                    $cq->execute($ids);
+                    foreach ($cq->fetchAll(PDO::FETCH_ASSOC) as $rr) { $colabMap[(int)$rr['i']] = ($colabMap[(int)$rr['i']] ?? 0) + (int)$rr['n']; }
+                } catch (Throwable $e) {}
+            }
+
             echo json_encode([
                 'atletas' => $nomeMap,
                 'sessoes' => $sessoes,
@@ -1114,6 +1131,7 @@ try {
                 'indicacoes' => $indicacoesMap,
                 'indicacoesAtivas' => $indicacoesAtivasMap,
                 'resultados' => $resultadosMap,
+                'colab' => $colabMap,
             ]);
             exit;
         }
