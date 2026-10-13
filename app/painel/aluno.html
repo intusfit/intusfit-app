@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261013a"></script>
+  <script src="api.js?v=20261013b"></script>
   <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -1168,6 +1168,7 @@
   <section class="view" id="v-ranking"></section>
   <section class="view" id="v-cardio"></section>
   <section class="view" id="v-cardio-live"></section>
+  <section class="view" id="v-cardio-prog"></section>
   <section class="view" id="v-quemsomos"></section>
   <section class="view" id="v-feed"></section>
   <section class="view" id="v-resultados"></section>
@@ -2783,6 +2784,11 @@ function abrirReacoesPost(idpost, ev) {
     else b.onclick = function () { _rxEscolher(idpost, e); };
     grade.appendChild(b);
   });
+  const mais = document.createElement('button');
+  mais.textContent = '＋'; mais.title = 'Mais emojis';
+  mais.style.cssText = 'height:42px;border:none;border-radius:50%;background:' + (isLight ? '#eee' : '#2d2d2d') + ';color:' + (isLight ? '#444' : '#ddd') + ';font-size:22px;line-height:1;cursor:pointer;';
+  mais.onclick = function () { fecharReacoesPost(); abrirSeletorEmoji(function (e) { reagirPost(idpost, (minha && minha.emoji === e) ? null : e); }, 'Reagir ao post'); };
+  grade.appendChild(mais);
   bar.appendChild(grade);
   document.body.appendChild(fundo); document.body.appendChild(bar);
   const alt = bar.offsetHeight;
@@ -2906,6 +2912,84 @@ async function carregarReacoesComentariosFeed(idsC) {
     idsC.forEach(id => { _reacoesComentFeed[String(id)] = []; });
     Object.assign(_reacoesComentFeed, (j && typeof j === 'object') ? j : {});
   } catch (e) {}
+}
+
+// ── Seletor de emojis (reações de posts e de comentários) ──
+// Variedade como a do teclado do celular: rostos, gestos, corações e símbolos, esporte, comida e natureza. A reação gravada é o emoji
+// (o servidor aceita até 8 caracteres); os mais usados ficam em "Recentes" (guardados no aparelho).
+const _EMOJI_CATS = [
+  ['😀', 'Rostos', '😀 😃 😄 😁 😆 😅 😂 🤣 🥲 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫣 🤭 🫢 🤫 🤥 😶 😐 😑 😬 🫠 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👻 💀 👽 🤖 💩 😺 😹 😻 🙀'],
+  ['👍', 'Gestos', '👍 👎 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖖 👋 🤝 🙏 👏 🙌 🫶 👐 🤲 💪 🦾 🦵 🦶 ✍️ 🫡 🫵 👀 👁️ 🧠 🫀 🦷 👅 👄'],
+  ['❤️', 'Corações', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💬 ✨ ⭐ 🌟 ⚡ 🔥 🌈 ☀️ 🌙 🎉 🎊 🎈 🎁 🏆 🥇 🥈 🥉 🏅 🎖️ 👑 💎 ✅ ❌ ❗ ❓ ⚠️ 🆗 🆒 🔝 ➕ ♾️'],
+  ['🏋️', 'Esporte', '🏋️ 🤸 🤾 🚴 🚵 🏃 🚶 🧘 🏊 🤽 🚣 🧗 ⛹️ 🏌️ 🏄 🤺 🥊 🥋 ⚽ 🏀 🏈 ⚾ 🎾 🏐 🏉 🎱 🏓 🏸 🏒 ⛳ 🏹 🎣 🛹 🛼 🏂 ⛷️ 🥅 🎯 🎽 👟 🩳 ⏱️ ⏰ 🧴 🩹 🧊 🔋'],
+  ['🍎', 'Comida', '🍎 🍏 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🥦 🥕 🌽 🥔 🍠 🥐 🍞 🥖 🧀 🥚 🍳 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🌮 🌯 🥗 🍝 🍜 🍣 🍱 🍚 🍩 🍪 🎂 🍰 🍫 🍬 🍭 ☕ 🍵 🥤 🧃 💧 🍺 🍷 🥂'],
+  ['🐶', 'Natureza', '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🦅 🦉 🦋 🐢 🐍 🐙 🐬 🐳 🦈 🦍 🐎 🦄 🌵 🌴 🌳 🌸 🌹 🌻 🍀 🌎 🔥 🌊 ⛰️ 🏖️'],
+  ['🚀', 'Objetos', '🚀 ✈️ 🚗 🏠 📱 💻 ⌚ 📸 🎧 🎵 🎶 🎤 🎮 📚 ✏️ 📌 📍 🔔 🔑 💡 🧭 🗺️ 🎬 🏁 🚩 💰 🛒 🎓 🩺 💊 🧬 🔬'],
+];
+function _emojiRecentes() { try { const r = JSON.parse(localStorage.getItem('intus-emoji-recentes') || '[]'); return Array.isArray(r) ? r.slice(0, 16) : []; } catch (e) { return []; } }
+function _emojiLembrar(e) { try { const r = [e].concat(_emojiRecentes().filter(x => x !== e)).slice(0, 16); localStorage.setItem('intus-emoji-recentes', JSON.stringify(r)); } catch (err) {} }
+var _emojiCb = null;
+// onPick(emoji) é chamado ao escolher; a folha fecha sozinha.
+function abrirSeletorEmoji(onPick, titulo) {
+  _emojiCb = onPick;
+  const isLight = document.body.classList.contains('tema-claro');
+  const rec = _emojiRecentes();
+  const cats = (rec.length ? [['🕘', 'Recentes', rec.join(' ')]] : []).concat(_EMOJI_CATS);
+  const abas = cats.map((c, i) => '<button type="button" id="ej-aba-' + i + '" onclick="_emojiAba(' + i + ')" title="' + c[1] + '" style="flex:1;min-width:40px;padding:8px 0;border:none;border-radius:10px;background:transparent;font-size:20px;cursor:pointer;">' + c[0] + '</button>').join('');
+  const corpo = '<div style="display:flex;gap:2px;overflow-x:auto;margin-bottom:8px;">' + abas + '</div><div id="ej-nome" style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;"></div><div id="ej-grade" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;"></div>';
+  _comSheet('emoji-sheet', titulo || 'Escolha uma reação', corpo, 100400);
+  window._emojiCatsAtual = cats;
+  _emojiAba(0);
+}
+function _emojiAba(i) {
+  const c = (window._emojiCatsAtual || [])[i]; if (!c) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  (window._emojiCatsAtual || []).forEach((_, k) => { const b = document.getElementById('ej-aba-' + k); if (b) b.style.background = k === i ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.15)') : 'transparent'; });
+  const nome = document.getElementById('ej-nome'); if (nome) nome.textContent = c[1];
+  const g = document.getElementById('ej-grade');
+  if (g) g.innerHTML = c[2].split(' ').filter(Boolean).map(e => '<button type="button" data-e="' + e + '" onclick="_emojiEscolhido(this.getAttribute(\'data-e\'))" style="height:44px;border:none;border-radius:10px;background:transparent;font-size:26px;line-height:1;cursor:pointer;">' + e + '</button>').join('');
+}
+function _emojiEscolhido(e) {
+  _emojiLembrar(e);
+  document.getElementById('emoji-sheet')?.remove();
+  const cb = _emojiCb; _emojiCb = null;
+  if (cb) cb(e);
+}
+
+// ── Reações dos comentários ──
+// Toque no ícone: curte (❤️) ou tira a sua reação. O "＋" abre o seletor e deixa só a reação escolhida. O ícone mostra a sua reação
+// (ou a mais usada) e o número soma todas.
+function _cxIcone(lista) {
+  if (!lista || !lista.length) return '🤍';
+  const meu = lista.find(x => x.meu); if (meu) return meu.emoji;
+  const cont = {}; lista.forEach(r => { cont[r.emoji] = (cont[r.emoji] || 0) + 1; });
+  return Object.keys(cont).sort((a, b) => cont[b] - cont[a])[0];
+}
+function _cxMaisHtml(idc, kind, a, b) {
+  return '<span onclick="event.stopPropagation();_cxMais(' + Number(idc) + ',\'' + kind + '\',' + JSON.stringify(a).replace(/"/g, '&quot;') + (b !== undefined ? ',' + JSON.stringify(b).replace(/"/g, '&quot;') : '') + ')" title="Mais reações" style="font-size:10px;line-height:1;color:#888;opacity:.75;padding:2px 3px;cursor:pointer;">＋</span>';
+}
+async function _cxEnviar(idc, emoji) {   // emoji = null tira a reação; senão deixa só esta
+  const corpo = { alvo_tipo: 'feed_comentario', alvo_id: Number(idc) };
+  if (emoji) { corpo.emoji = emoji; corpo.definir = true; } else { corpo.emoji = '❤️'; corpo.remover = true; }
+  const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', { method: 'POST', headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+  if (!r.ok) throw new Error('falhou');
+  await carregarReacoesComentariosFeed([Number(idc)]);
+}
+function _cxRedesenhar(kind, a, b) {
+  if (kind === 'feed') _atualizarLinhaComentarios(a);
+  else if (kind === 'mural') _muralAtualizar(a);
+  else if (kind === 'nm') _nmRepintar(a, b);
+}
+async function _cxToque(idc, kind, a, b) {
+  const tem = (_reacoesComentFeed[String(idc)] || []).some(x => x.meu);
+  try { await _cxEnviar(idc, tem ? null : '❤️'); } catch (e) { toast('Não deu para registrar sua reação.'); return; }
+  _cxRedesenhar(kind, a, b);
+}
+function _cxMais(idc, kind, a, b) {
+  abrirSeletorEmoji(async function (e) {
+    try { await _cxEnviar(idc, e); } catch (err) { toast('Não deu para registrar sua reação.'); return; }
+    _cxRedesenhar(kind, a, b);
+  }, 'Reagir ao comentário');
 }
 
 async function curtirComentarioFeed(idpost, el) {
@@ -3099,9 +3183,10 @@ function _comentariosHtml(idpost, isLight) {
       : '';
     const curtidas = _reacoesComentFeed[String(c.idcomentario)] || [];
     const curtiu = curtidas.some(x => x.meu);
-    const coracao = '<div data-id="' + c.idcomentario + '" onclick="curtirComentarioFeed(' + idpost + ',this)" title="Curtir comentário" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;padding:2px 2px 0 4px;min-width:22px;">' +
-      '<span style="font-size:14px;line-height:1;">' + (curtiu ? '❤️' : '🤍') + '</span>' +
+    const coracao = '<div data-id="' + c.idcomentario + '" onclick="_cxToque(' + c.idcomentario + ',\'feed\',' + idpost + ')" title="Reagir ao comentário" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;padding:2px 2px 0 4px;min-width:22px;">' +
+      '<span style="font-size:14px;line-height:1;">' + _cxIcone(curtidas) + '</span>' +
       (curtidas.length ? '<span style="font-size:10px;font-weight:700;color:' + (curtiu ? acento : corMuted) + ';">' + curtidas.length + '</span>' : '') +
+      _cxMaisHtml(c.idcomentario, 'feed', idpost) +
     '</div>';
     const _abre = c.autor_tipo === 'aluno' ? ' onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;' : null;
     return '<div style="display:flex;gap:8px;padding:7px 0;' + (nivel > 0 ? 'margin-left:' + (Math.min(nivel, 3) * 26) + 'px;' : '') + '">' +
@@ -6192,7 +6277,7 @@ let wakeLockSentinel = null;
 // quando o sistema solta, ao tocar na tela e a cada 10 s, e, onde o recurso não existe ou falha, usa um vídeo mudo em loop
 // (o truque do NoSleep.js), gerado na hora.
 let _wakeTentando = false, _wakeFalhas = 0, _wakeVideo = null, _wakeVideoPronto = null;
-function _wakePrecisa() { try { return !!(treinoTimer || _cardioLiveRodando); } catch (e) { return !!treinoTimer; } }
+function _wakePrecisa() { try { return !!(treinoTimer || _cardioLiveRodando || (typeof _prog !== 'undefined' && _prog.rodando)); } catch (e) { return !!treinoTimer; } }
 async function requestWakeLock() {
   if (!_wakePrecisa()) return;
   if (document.visibilityState !== 'visible') return;
@@ -7556,8 +7641,95 @@ async function abrirMeusTreinos() {
       }).join('')}
     </div>`;
   });
+  html += `<div onclick="abrirTreinoForaProtocolo()" style="display:flex;align-items:center;gap:12px;padding:14px 16px;margin:4px 0 14px;border-radius:14px;cursor:pointer;border:1.5px dashed ${isLight ? '#bbb' : '#444'};">
+    <div style="font-size:24px;">📝</div>
+    <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:800;">Marcar treino fora do protocolo</div>
+    <div style="font-size:12px;color:#888;margin-top:2px;line-height:1.4;">Treinou com outra pessoa ou trocou exercícios da ficha? Registre à mão e ganhe ${API.PONTOS_FORA_PROTOCOLO} pontos.</div></div>
+    <div style="font-size:20px;color:#888;">›</div></div>`;
   document.getElementById('v-treinos').innerHTML = html;
   trocarView('treinos');
+}
+
+// ═══════════════ TREINO FORA DO PROTOCOLO ═══════════════
+// Quando o aluno treinou com outra pessoa ou trocou os exercícios da ficha, ele marca o treino à mão (data, duração, exercícios) e ganha
+// 5 pontos fixos (API.PONTOS_FORA_PROTOCOLO). Sessão de musculação com divisao 'F', sem ficha. O servidor aceita 1 por dia, de 15 min a 4 h,
+// de hoje ou de ontem. Não entra na ordem do dia (o treino da ficha continua valendo como o 1º).
+var _fp = { motivo: 'outra', dia: 'hoje', ex: [{ n: '', s: '3', r: '12', c: '' }], salvando: false };
+const _FP_MOTIVOS = [['outra', '👥 Treinei com outra pessoa'], ['troca', '🔁 Troquei exercícios da ficha'], ['outro', '✍️ Outro motivo']];
+function abrirTreinoForaProtocolo() {
+  _fp = { motivo: 'outra', dia: 'hoje', ex: [{ n: '', s: '3', r: '12', c: '' }], salvando: false };
+  _fpDesenhar(true);
+}
+function _fpLer() {   // guarda o que está nos campos antes de redesenhar
+  const g = id => document.getElementById(id);
+  if (!g('fp-desc')) return;
+  _fp.desc = g('fp-desc').value; _fp.dur = g('fp-dur').value;
+  _fp.ex = _fp.ex.map((e, i) => ({ n: (g('fp-n-' + i) || {}).value || '', s: (g('fp-s-' + i) || {}).value || '', r: (g('fp-r-' + i) || {}).value || '', c: (g('fp-c-' + i) || {}).value || '' }));
+}
+function _fpDesenhar(abrir) {
+  _fpLer();
+  const isLight = document.body.classList.contains('tema-claro');
+  const acento = isLight ? '#2d8a00' : '#7FFF00', borda = isLight ? '#ddd' : '#333', campo = isLight ? '#fff' : '#1a1a1a', txt = isLight ? '#1a1a1a' : '#f0f0f0';
+  const inp = 'width:100%;box-sizing:border-box;padding:10px 11px;border-radius:10px;border:1px solid ' + borda + ';background:' + campo + ';color:' + txt + ';font-size:14px;font-family:inherit;';
+  const chip = (on, js, rot) => '<button type="button" onclick="' + js + '" style="padding:9px 13px;border-radius:99px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1.5px solid ' + (on ? acento : borda) + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (on ? acento : (isLight ? '#444' : '#ccc')) + ';">' + rot + '</button>';
+  const rot = t => '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px;">' + t + '</div>';
+  const exs = _fp.ex.map((e, i) =>
+    '<div style="display:grid;grid-template-columns:1fr 54px 54px 62px 26px;gap:5px;margin-bottom:6px;align-items:center;">' +
+      '<input id="fp-n-' + i + '" value="' + esc(e.n) + '" placeholder="Exercício" style="' + inp + '"/>' +
+      '<input id="fp-s-' + i + '" value="' + esc(e.s) + '" inputmode="numeric" placeholder="Séries" style="' + inp + 'padding:10px 4px;text-align:center;"/>' +
+      '<input id="fp-r-' + i + '" value="' + esc(e.r) + '" inputmode="numeric" placeholder="Reps" style="' + inp + 'padding:10px 4px;text-align:center;"/>' +
+      '<input id="fp-c-' + i + '" value="' + esc(e.c) + '" inputmode="decimal" placeholder="kg" style="' + inp + 'padding:10px 4px;text-align:center;"/>' +
+      (_fp.ex.length > 1 ? '<span onclick="_fpRemover(' + i + ')" style="color:#f87171;font-size:18px;text-align:center;cursor:pointer;">✕</span>' : '<span></span>') +
+    '</div>').join('');
+  const corpo =
+    '<div style="font-size:12.5px;color:#888;line-height:1.5;margin-bottom:4px;">Use quando você treinou com outra pessoa ou trocou os exercícios da sua ficha. Vale <b>' + API.PONTOS_FORA_PROTOCOLO + ' pontos</b>, 1 treino por dia.</div>' +
+    rot('O que aconteceu?') + '<div style="display:flex;flex-wrap:wrap;gap:6px;">' + _FP_MOTIVOS.map(m => chip(_fp.motivo === m[0], "_fpSet('motivo','" + m[0] + "')", m[1])).join('') + '</div>' +
+    rot('Quando?') + '<div style="display:flex;gap:6px;">' + chip(_fp.dia === 'hoje', "_fpSet('dia','hoje')", 'Hoje') + chip(_fp.dia === 'ontem', "_fpSet('dia','ontem')", 'Ontem') + '</div>' +
+    rot('Descrição (opcional)') + '<input id="fp-desc" value="' + esc(_fp.desc || '') + '" maxlength="120" placeholder="Ex: Treino de peito com o João" style="' + inp + '"/>' +
+    rot('Duração (minutos)') + '<input id="fp-dur" value="' + esc(_fp.dur || '') + '" inputmode="numeric" placeholder="Ex: 60 (mínimo 15)" style="' + inp + '"/>' +
+    rot('Exercícios') + '<div style="display:grid;grid-template-columns:1fr 54px 54px 62px 26px;gap:5px;font-size:10px;color:#888;margin-bottom:4px;"><span>Nome</span><span style="text-align:center;">Séries</span><span style="text-align:center;">Reps</span><span style="text-align:center;">Carga</span><span></span></div>' + exs +
+    '<button type="button" onclick="_fpAdd()" style="margin-top:2px;padding:8px 12px;border-radius:10px;border:1px dashed ' + borda + ';background:transparent;color:' + acento + ';font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;">+ Adicionar exercício</button>' +
+    '<button class="btn btn-prim btn-full" style="margin-top:18px;padding:14px;" onclick="_fpSalvar()">Registrar treino (+' + API.PONTOS_FORA_PROTOCOLO + ' pts)</button>';
+  if (abrir) _comSheet('fp-sheet', '📝 Treino fora do protocolo', corpo, 100300);
+  else { const b = document.getElementById('fp-sheet-corpo'); if (b) b.innerHTML = corpo; }
+}
+function _fpSet(k, v) { _fp[k] = v; _fpDesenhar(false); }
+function _fpAdd() { _fpLer(); _fp.ex.push({ n: '', s: '3', r: '12', c: '' }); _fpDesenhar(false); }
+function _fpRemover(i) { _fpLer(); _fp.ex.splice(i, 1); _fpDesenhar(false); }
+async function _fpSalvar() {
+  if (_fp.salvando) return;
+  _fpLer();
+  const min = parseInt(_fp.dur, 10) || 0;
+  if (min < 15) { toast('Informe a duração do treino (mínimo 15 minutos).'); return; }
+  if (min > 240) { toast('A duração máxima é de 4 horas.'); return; }
+  const exs = _fp.ex.filter(e => String(e.n).trim());
+  if (!exs.length) { toast('Informe pelo menos um exercício.'); return; }
+  const dia = new Date(); if (_fp.dia === 'ontem') dia.setDate(dia.getDate() - 1);
+  const dt = dia.getFullYear() + '-' + String(dia.getMonth() + 1).padStart(2, '0') + '-' + String(dia.getDate()).padStart(2, '0');
+  const motivo = { outra: 'treino com outra pessoa', troca: 'exercícios trocados', outro: 'outro motivo' }[_fp.motivo] || '';
+  const itens = exs.map(e => {
+    const n = Math.max(1, Math.min(12, parseInt(e.s, 10) || 1)), reps = String(e.r || '').trim(), peso = String(e.c || '').trim().replace(',', '.');
+    return { idexercicio: null, nmexercicio: String(e.n).trim().slice(0, 80), series: Array.from({ length: n }, () => ({ peso: peso, reps: reps })) };
+  });
+  const sessao = {
+    idatleta: idAtleta, idficha: null, divisao: 'F', dtsessao: dt, duracao_seg: min * 60,
+    hora_conclusao: new Date().toTimeString().slice(0, 5), nao_contar: 0, marcado_como_feito: false,
+    comentario: 'Fora do protocolo (' + motivo + ')' + (String(_fp.desc || '').trim() ? ': ' + String(_fp.desc).trim().slice(0, 120) : ''),
+    itens: itens,
+  };
+  _fp.salvando = true; _busyMostrar('Salvando o seu treino...', null, 'Estamos registrando seus pontos. Não feche o app.');
+  try {
+    await SessoesTreino.criar(sessao);
+    _busyFim(); _fp.salvando = false;
+    document.getElementById('fp-sheet')?.remove();
+    _rankingData = null; _rkUltimaBusca = 0;
+    toast('Treino registrado! +' + API.PONTOS_FORA_PROTOCOLO + ' pontos 💪');
+    _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
+    navegar('home');
+  } catch (e) {
+    _busyFim(); _fp.salvando = false;
+    toast(e && e.status === 409 ? 'Você já registrou um treino fora do protocolo neste dia.' : ('Não consegui registrar: ' + ((e && e.message) || 'tente de novo') + '.'));
+  }
 }
 
 // ═══════════════ STATE ═══════════════
@@ -10445,6 +10617,15 @@ function renderCardio() {
       <div style="font-size:24px;color:${isLight?'#2d8a00':'#7FFF00'};">▶</div>
     </div>
 
+    <div onclick="abrirProgramasCardio()" style="display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:14px;border-radius:18px;cursor:pointer;background:${isLight?'#fff7ed':'rgba(249,115,22,.08)'};border:1.5px solid rgba(249,115,22,.4);">
+      <div style="width:50px;height:50px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px;background:linear-gradient(135deg,#f97316,#ef4444);">🔥</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Programas de cardio</div>
+        <div style="font-size:12.5px;color:${isLight?'#555':'#999'};margin-top:2px;line-height:1.4;">${(typeof _prog !== 'undefined' && _prog.rodando) ? '▶ Você tem um programa em andamento. Toque para voltar.' : 'HIIT, Tabata, 12-5-30 e outros, guiados passo a passo. Concluir dá distintivos e +1 ponto extra por dia.'}</div>
+      </div>
+      <div style="font-size:22px;color:${isLight?'#c2410c':'#fb923c'};">›</div>
+    </div>
+
     <details id="cardio-manual-details" style="background:${isLight?'#ecfeff':'rgba(6,182,212,.08)'};border:1.5px solid ${isLight?'#67e8f9':'rgba(6,182,212,.45)'};border-radius:16px;padding:0;margin-bottom:14px;overflow:hidden;">
       <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer;list-style:none;">
         <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#06b6d4,#0ea5e9);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">✍️</div>
@@ -10859,7 +11040,7 @@ async function salvarCardio(opts) {
     // opts.aoVivo:true); 0 = registro manual. Alimenta o selo "ao vivo" no
     // histórico e o bônus semanal de horas ao vivo em API.agregarPontosRank.
     ao_vivo: opts.aoVivo ? 1 : 0,
-    comentario: tipo + ' · esforço ' + rpe + '/10 · ' + min + 'min' + (extra ? ' · ' + extra : ''),
+    comentario: opts.comentario || (tipo + ' · esforço ' + rpe + '/10 · ' + min + 'min' + (extra ? ' · ' + extra : '')),   // programas de cardio gravam "Programa: <titulo>"
   };
   // Save locally (sem a foto, para não estourar o localStorage)
   const localItem = { ...payload }; delete localItem.cardio_foto;
@@ -10936,6 +11117,246 @@ async function _atualizarEsforcoCardio(idsessao, novoRpe, tipo, min, motivo, fot
   if (item) { item.cardio_rpe = novoRpe; if (!motivo) item.pontos = pts; if (foto) item.tem_foto = 1; }
   _rankingData = null; _rkUltimaBusca = 0;
   return true;
+}
+
+// ═══════════════ PROGRAMAS DE CARDIO (guiados) ═══════════════
+// Programas fixos (HIIT, Tabata, 12-5-30...) definidos em API.PROGRAMAS_CARDIO (api.js). Tela própria (#v-cardio-prog) com o cronômetro
+// de cada etapa, avisos sonoros e vibração na troca, pausa, pular etapa e encerrar. Para quem tem matrícula ativa.
+// Registro: sessão de cardio comum (os pontos do tempo seguem a regra de sempre) com comentario "Programa: <titulo>"; concluir (90% da
+// duração) dá +1 ponto extra por dia (API.agregarPontosRank) e conta para os distintivos de programas.
+var _prog = { id: null, ativ: '', i: 0, fimMs: 0, restMs: 0, pausado: false, acumSeg: 0, timer: null, ctx: null, iniMs: 0, rodando: false, tela: 'lista' };
+const _PROG_ATIVO_KEY = 'intus-prog-ativo';
+const _PROG_FASE = {
+  aq:    { cor: '#22c55e', rot: 'Aquecimento' },
+  forte: { cor: '#f97316', rot: 'FORTE' },
+  leve:  { cor: '#38bdf8', rot: 'Leve' },
+  cont:  { cor: '#a78bfa', rot: 'Contínuo' },
+  calma: { cor: '#2dd4bf', rot: 'Volta à calma' },
+};
+function _progMin(seg) { const m = Math.floor(seg / 60), s = seg % 60; return m === 0 ? s + ' s' : (s ? m + ' min ' + s + ' s' : m + ' min'); }
+function _progMMSS(ms) { const t = Math.max(0, Math.ceil(ms / 1000)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); }
+function _progPermitido() {
+  if (verificarInadimplencia()) { toast('Acesso bloqueado, regularize seu pagamento'); return false; }
+  if (verificarSemMatricula()) { toast('Os programas de cardio são para quem tem plano ativo. Ative sua matrícula para usar.'); return false; }
+  return true;
+}
+function abrirProgramasCardio() {
+  if (!_progPermitido()) return;
+  if (_prog.rodando) { _renderProgExecucao(); trocarView('cardio-prog'); return; }
+  _progCarregarAtivo();
+  _prog.tela = 'lista'; _renderProgLista(); trocarView('cardio-prog');
+}
+function _progCartaoPrograma(p, isLight) {
+  const concl = _progConcluidos(p.id);
+  return '<div onclick="abrirProgramaCardio(\'' + p.id + '\')" style="display:flex;align-items:center;gap:12px;padding:14px;margin-bottom:10px;border-radius:16px;cursor:pointer;background:' + (isLight ? '#fff' : '#141414') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#262626') + ';">' +
+    '<div style="width:50px;height:50px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px;background:' + (isLight ? '#f0f7e6' : 'rgba(127,255,0,.08)') + ';">' + p.emoji + '</div>' +
+    '<div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:800;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' + esc(p.titulo) + '</div>' +
+    '<div style="font-size:12px;color:#888;margin-top:2px;">' + esc(p.sub) + ' · ' + _progMin(API.programaDuracao(p)) + '</div>' +
+    '<div style="font-size:11px;margin-top:4px;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';font-weight:700;">' + esc(p.nivel) + (concl ? ' · ✓ ' + concl + 'x concluído' : '') + '</div></div>' +
+    '<div style="font-size:22px;color:#888;">›</div></div>';
+}
+function _progConcluidos(id) {
+  try { return (_conqSessoesAtleta(Number(idAtleta)) || []).filter(s => s.tipo === 'cardio').filter(s => { const p = API.programaDaSessao({ tipo: 'cardio', comentario: s.comentario, duracao_seg: s.dur }); return p && p.id === id; }).length; } catch (e) { return 0; }
+}
+function _renderProgLista() {
+  const box = document.getElementById('v-cardio-prog'); if (!box) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  box.innerHTML = telaHeader('🔥 Programas de cardio', 'cardio') +
+    '<div style="font-size:13px;color:' + (isLight ? '#555' : '#aaa') + ';line-height:1.55;margin:4px 2px 14px;">Treinos de cardio prontos, guiados passo a passo com cronômetro e avisos de troca. Concluir um programa dá <b>distintivos</b> e <b>+1 ponto extra por dia</b>, além dos pontos do tempo.</div>' +
+    (_prog.id && !_prog.rodando && _progTemAtivoSalvo() ? '<div onclick="_progRetomar()" style="padding:12px 14px;margin-bottom:12px;border-radius:14px;cursor:pointer;background:rgba(127,255,0,.1);border:1px solid rgba(127,255,0,.4);font-size:13px;font-weight:800;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">▶ Continuar o programa que você começou</div>' : '') +
+    API.PROGRAMAS_CARDIO.map(p => _progCartaoPrograma(p, isLight)).join('') +
+    '<div style="font-size:11px;color:#888;line-height:1.5;margin:6px 2px 14px;">Aqueça antes e pare se sentir tontura, dor ou mal-estar. Os programas são guias de treino e não substituem a orientação do seu professor.</div>' +
+    getFooterHtml();
+}
+function abrirProgramaCardio(id) {
+  const p = API.programaPorId(id); if (!p) return;
+  _prog.id = id; _prog.ativ = p.atividades[0]; _prog.tela = 'detalhe';
+  _renderProgDetalhe();
+}
+function _progEscolherAtiv(a) { _prog.ativ = a; _renderProgDetalhe(); }
+function _renderProgDetalhe() {
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  const box = document.getElementById('v-cardio-prog'); if (!box) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const acento = isLight ? '#2d8a00' : '#7FFF00', borda = isLight ? '#e5e5e5' : '#262626';
+  const chips = p.atividades.length > 1
+    ? '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px;">Em qual atividade?</div><div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+      p.atividades.map(a => '<button onclick="_progEscolherAtiv(\'' + a + '\')" style="padding:9px 14px;border-radius:99px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;border:1.5px solid ' + (_prog.ativ === a ? acento : borda) + ';background:' + (_prog.ativ === a ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (_prog.ativ === a ? acento : (isLight ? '#444' : '#ccc')) + ';">' + (CARDIO_LIVE_EMOJI[a] || '🏃') + ' ' + a + '</button>').join('') + '</div>'
+    : '<div style="font-size:12.5px;color:#888;margin-top:12px;">Atividade: <b>' + (CARDIO_LIVE_EMOJI[p.atividades[0]] || '🏃') + ' ' + p.atividades[0] + '</b></div>';
+  const etapas = p.etapas.map((e, k) => '<div style="display:flex;gap:8px;padding:6px 0;border-top:1px solid ' + borda + ';font-size:12.5px;"><span style="width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;background:' + _PROG_FASE[e.f].cor + ';"></span><span style="flex:1;">' + (k + 1) + '. <b>' + esc(e.n) + '</b>' + (e.d ? ' <span style="color:#888;">' + esc(e.d) + '</span>' : '') + '</span><span style="color:#888;white-space:nowrap;">' + _progMin(e.s) + '</span></div>').join('');
+  box.innerHTML = '<button class="btn-back" onclick="abrirProgramasCardio()">← Voltar</button>' +
+    '<div style="text-align:center;margin:6px 0 4px;font-size:46px;line-height:1;">' + p.emoji + '</div>' +
+    '<h2 class="sect-title" style="text-align:center;margin-bottom:2px;">' + esc(p.titulo) + '</h2>' +
+    '<div style="text-align:center;font-size:12.5px;color:#888;">' + esc(p.sub) + ' · ' + _progMin(API.programaDuracao(p)) + ' · ' + esc(p.nivel) + '</div>' +
+    '<p style="font-size:13.5px;line-height:1.55;margin:14px 2px 0;color:' + (isLight ? '#444' : '#ccc') + ';">' + esc(p.resumo) + '</p>' +
+    '<div style="margin:12px 0 0;padding:11px 13px;border-radius:12px;font-size:12px;line-height:1.5;background:' + (isLight ? '#fff7ed' : 'rgba(249,115,22,.08)') + ';border:1px solid rgba(249,115,22,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ ' + esc(p.aviso) + '</div>' +
+    chips +
+    '<div style="font-size:12px;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';font-weight:700;margin-top:14px;">🏅 Concluir dá distintivos e +1 ponto extra por dia. O tempo também pontua como cardio.</div>' +
+    '<button class="btn btn-prim btn-full" style="margin-top:14px;padding:15px;font-size:15px;" onclick="_progIniciar()">▶ Começar programa</button>' +
+    '<details style="margin-top:16px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#888;">Ver todas as etapas (' + p.etapas.length + ')</summary><div style="margin-top:6px;">' + etapas + '</div></details>' +
+    getFooterHtml();
+}
+
+// ── Execução ──
+function _progBip(freq, ms, vol) {
+  try {
+    const c = _prog.ctx; if (!c) return;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.value = freq; g.gain.value = vol || 0.25;
+    o.connect(g); g.connect(c.destination);
+    const t = c.currentTime; o.start(t); g.gain.setValueAtTime(vol || 0.25, t + ms / 1000 - 0.03); g.gain.linearRampToValueAtTime(0, t + ms / 1000); o.stop(t + ms / 1000 + 0.02);
+  } catch (e) {}
+}
+function _progAviso(fase) {   // bip e vibração na troca de etapa
+  try {
+    if (fase === 'forte') { _progBip(990, 160); setTimeout(() => _progBip(990, 160), 240); if (navigator.vibrate) navigator.vibrate([200, 80, 200]); }
+    else if (fase === 'fim') { _progBip(784, 180); setTimeout(() => _progBip(988, 180), 230); setTimeout(() => _progBip(1319, 380), 460); if (navigator.vibrate) navigator.vibrate([250, 100, 250, 100, 400]); }
+    else { _progBip(660, 220); if (navigator.vibrate) navigator.vibrate(180); }
+  } catch (e) {}
+}
+function _progSalvarAtivo() {
+  try { if (!_prog.rodando) { localStorage.removeItem(_PROG_ATIVO_KEY); return; } localStorage.setItem(_PROG_ATIVO_KEY, JSON.stringify({ id: _prog.id, ativ: _prog.ativ, i: _prog.i, fimMs: _prog.fimMs, restMs: _prog.restMs, pausado: _prog.pausado, acumSeg: _prog.acumSeg, iniMs: _prog.iniMs, salvoEm: Date.now() })); } catch (e) {}
+}
+function _progLerAtivo() { try { const st = JSON.parse(localStorage.getItem(_PROG_ATIVO_KEY) || 'null'); if (st && API.programaPorId(st.id) && Date.now() - (st.salvoEm || 0) < 3 * 3600 * 1000) return st; } catch (e) {} return null; }
+function _progTemAtivoSalvo() { return !!_progLerAtivo(); }
+function _progCarregarAtivo() { const st = _progLerAtivo(); if (st) { _prog.id = st.id; } }
+function _progRetomar() {
+  const st = _progLerAtivo(); if (!st) { toast('Esse programa já passou do tempo de retomada.'); _renderProgLista(); return; }
+  Object.assign(_prog, { id: st.id, ativ: st.ativ, i: st.i, fimMs: st.fimMs, restMs: st.restMs, pausado: st.pausado, acumSeg: st.acumSeg, iniMs: st.iniMs, rodando: true });
+  _progIniciarRelogio(); _renderProgExecucao(); trocarView('cardio-prog');
+}
+function _progIniciar() {
+  if (!_progPermitido()) return;
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um programa.'); return; }
+  if (_cardioLiveInicioMs) { toast('Finalize o cardio ao vivo em andamento antes de começar um programa.'); return; }
+  try { _prog.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (_prog.ctx.state === 'suspended') _prog.ctx.resume(); } catch (e) { _prog.ctx = null; }
+  Object.assign(_prog, { i: 0, fimMs: Date.now() + p.etapas[0].s * 1000, restMs: 0, pausado: false, acumSeg: 0, iniMs: Date.now(), rodando: true });
+  _progBip(660, 200);
+  _progIniciarRelogio(); _progSalvarAtivo();
+  try { requestWakeLock(); } catch (e) {}
+  _renderProgExecucao(); trocarView('cardio-prog');
+}
+function _progIniciarRelogio() { if (_prog.timer) clearInterval(_prog.timer); _prog.timer = setInterval(_progTick, 250); if (!_prog.ctx) { try { _prog.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } try { requestWakeLock(); } catch (e) {} }
+function _progTick() {
+  if (!_prog.rodando || _prog.pausado) return;
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  let mudou = false;
+  while (Date.now() >= _prog.fimMs) {   // alcança etapas passadas se a tela ficou parada
+    _prog.acumSeg += p.etapas[_prog.i].s;
+    if (_prog.i >= p.etapas.length - 1) { _progConcluir(true); return; }
+    _prog.i++; mudou = true;
+    _prog.fimMs += p.etapas[_prog.i].s * 1000;
+  }
+  if (mudou) { _progAviso(p.etapas[_prog.i].f); _progSalvarAtivo(); _renderProgExecucao(); }
+  else _progAtualizarRelogio();
+}
+function _progDecorridoSeg() {
+  const p = API.programaPorId(_prog.id); if (!p) return 0;
+  const e = p.etapas[_prog.i], rest = _prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now());
+  return Math.round(_prog.acumSeg + e.s - rest / 1000);
+}
+function _progAtualizarRelogio() {
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  const e = p.etapas[_prog.i], rest = _prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now());
+  const t = document.getElementById('pg-tempo'); if (t) t.textContent = _progMMSS(rest);
+  const b = document.getElementById('pg-barra-etapa'); if (b) b.style.width = Math.min(100, Math.round((1 - rest / (e.s * 1000)) * 100)) + '%';
+  const total = API.programaDuracao(p), gt = document.getElementById('pg-barra-total'); if (gt) gt.style.width = Math.min(100, Math.round(_progDecorridoSeg() / total * 100)) + '%';
+  const rt = document.getElementById('pg-restante-total'); if (rt) rt.textContent = _progMMSS((total - _progDecorridoSeg()) * 1000) + ' restantes';
+}
+function _renderProgExecucao() {
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  const box = document.getElementById('v-cardio-prog'); if (!box) return;
+  const e = p.etapas[_prog.i], prox = p.etapas[_prog.i + 1], fase = _PROG_FASE[e.f];
+  const isLight = document.body.classList.contains('tema-claro');
+  const total = API.programaDuracao(p);
+  box.innerHTML = '<button class="btn-back" onclick="_progSair()">← Sair do programa</button>' +
+    '<div style="text-align:center;font-size:12.5px;font-weight:800;color:#888;margin:2px 0 8px;">' + p.emoji + ' ' + esc(p.titulo) + ' · ' + (CARDIO_LIVE_EMOJI[_prog.ativ] || '🏃') + ' ' + esc(_prog.ativ) + ' · etapa ' + (_prog.i + 1) + ' de ' + p.etapas.length + '</div>' +
+    '<div style="border-radius:22px;padding:26px 16px 22px;text-align:center;background:' + fase.cor + ';color:#0a0a0a;">' +
+      '<div style="font-size:15px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">' + esc(e.n === fase.rot || e.f === 'forte' || e.f === 'leve' ? fase.rot : e.n) + '</div>' +
+      '<div id="pg-tempo" style="font-size:92px;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;margin:6px 0;">' + _progMMSS(_prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now())) + '</div>' +
+      '<div style="font-size:14px;font-weight:700;line-height:1.4;min-height:20px;">' + esc(e.d || '') + '</div>' +
+      '<div style="height:8px;border-radius:6px;background:rgba(0,0,0,.2);margin-top:16px;overflow:hidden;"><div id="pg-barra-etapa" style="height:100%;width:0%;background:rgba(0,0,0,.55);"></div></div>' +
+    '</div>' +
+    '<div style="margin:14px 2px 4px;font-size:12.5px;color:#888;">' + (prox ? 'A seguir: <b style="color:' + (isLight ? '#222' : '#eee') + ';">' + esc(_PROG_FASE[prox.f].rot === 'FORTE' || prox.f === 'leve' ? _PROG_FASE[prox.f].rot : prox.n) + ' · ' + _progMin(prox.s) + '</b>' : 'Última etapa. Falta pouco!') + '</div>' +
+    '<div style="height:6px;border-radius:5px;background:' + (isLight ? '#e5e5e5' : '#242424') + ';overflow:hidden;margin:6px 2px 4px;"><div id="pg-barra-total" style="height:100%;width:0%;background:linear-gradient(90deg,#7FFF00,#40c000);"></div></div>' +
+    '<div id="pg-restante-total" style="font-size:11.5px;color:#888;text-align:right;margin:0 2px 14px;"></div>' +
+    '<div style="display:flex;gap:8px;">' +
+      '<button onclick="_progPausar()" class="btn btn-sec" style="flex:2;padding:15px;font-size:15px;font-weight:800;">' + (_prog.pausado ? '▶ Continuar' : '⏸ Pausar') + '</button>' +
+      '<button onclick="_progPular()" class="btn btn-sec" style="flex:1;padding:15px;" title="Pular etapa">⏭</button>' +
+      '<button onclick="_progEncerrar()" class="btn btn-sec" style="flex:1;padding:15px;color:#f87171;border-color:rgba(248,113,113,.4);" title="Encerrar">⏹</button>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#888;text-align:center;margin:14px 6px 0;line-height:1.5;">Mantenha esta tela aberta: ela fica ligada e avisa com som e vibração a cada troca.</div>';
+  _progAtualizarRelogio();
+}
+function _progPausar() {
+  if (_prog.pausado) { _prog.fimMs = Date.now() + _prog.restMs; _prog.pausado = false; }
+  else { _prog.restMs = Math.max(0, _prog.fimMs - Date.now()); _prog.pausado = true; }
+  _progSalvarAtivo(); _renderProgExecucao();
+}
+function _progPular() {
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  _prog.acumSeg += Math.round(p.etapas[_prog.i].s - (_prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now())) / 1000);   // só conta o tempo realmente feito
+  if (_prog.i >= p.etapas.length - 1) { _progConcluir(true); return; }
+  _prog.i++; _prog.fimMs = Date.now() + p.etapas[_prog.i].s * 1000; _prog.pausado = false;
+  _progAviso(p.etapas[_prog.i].f); _progSalvarAtivo(); _renderProgExecucao();
+}
+function _progParar() { if (_prog.timer) { clearInterval(_prog.timer); _prog.timer = null; } _prog.rodando = false; _prog.pausado = false; try { localStorage.removeItem(_PROG_ATIVO_KEY); } catch (e) {} try { releaseWakeLock(); } catch (e) {} }
+function _progSair() {
+  if (!_prog.rodando) { abrirProgramasCardio(); return; }
+  _progEncerrar();
+}
+function _progEncerrar() {
+  const feito = _progDecorridoSeg();
+  const p = API.programaPorId(_prog.id);
+  const podeSalvar = feito >= 5 * 60;
+  document.getElementById('prog-fim-ov')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'prog-fim-ov';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100500;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:24px;';
+  const isLight = document.body.classList.contains('tema-claro');
+  ov.innerHTML = '<div style="background:' + (isLight ? '#fff' : '#141414') + ';border-radius:18px;padding:22px;max-width:340px;width:100%;text-align:center;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' +
+    '<div style="font-size:30px;margin-bottom:6px;">⏹</div><div style="font-size:16px;font-weight:900;margin-bottom:8px;">Encerrar o programa?</div>' +
+    '<div style="font-size:13px;color:#888;line-height:1.55;margin-bottom:16px;">Você fez ' + _progMin(Math.max(0, feito)) + ' de ' + _progMin(API.programaDuracao(p)) + '. ' + (podeSalvar ? 'Dá para registrar o que fez como cardio. Como o programa não foi concluído, ele não vale o ponto extra nem os distintivos.' : 'Com menos de 5 minutos não dá para registrar.') + '</div>' +
+    (podeSalvar ? '<button class="btn btn-prim btn-full" onclick="document.getElementById(\'prog-fim-ov\').remove();_progConcluir(false)">Registrar o que fiz</button>' : '') +
+    '<button class="btn btn-sec btn-full" style="margin-top:8px;" onclick="document.getElementById(\'prog-fim-ov\').remove();_progParar();abrirProgramasCardio()">Encerrar sem registrar</button>' +
+    '<button class="btn btn-sec btn-full" style="margin-top:8px;border:none;" onclick="document.getElementById(\'prog-fim-ov\').remove()">Continuar o programa</button></div>';
+  document.body.appendChild(ov);
+}
+async function _progConcluir(completo) {
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  const seg = completo ? API.programaDuracao(p) : _progDecorridoSeg();
+  const ativ = _prog.ativ;
+  if (completo) _progAviso('fim');
+  _progParar();
+  const min = Math.max(1, Math.round(seg / 60));
+  // Reaproveita o registro de cardio de sempre (limite diário, plausibilidade e pontos continuam sendo decididos como em todo cardio).
+  renderCardio();
+  const selTipo = document.getElementById('cardio-tipo'); if (selTipo) selTipo.value = ativ;
+  if (typeof onCardioTipoChange === 'function') onCardioTipoChange();
+  const inpMin = document.getElementById('cardio-min'); if (inpMin) inpMin.value = min;
+  _cardioRpe = p.rpe;
+  salvarCardio({
+    silencioso: true, comentario: 'Programa: ' + p.titulo,
+    onDone: function (dados) { _progResultado(p, completo, seg, dados); },
+  });
+}
+async function _progResultado(p, completo, seg, dados) {
+  _rankingData = null; _rkUltimaBusca = 0;
+  const box = document.getElementById('v-cardio-prog'); if (!box) return;
+  const isLight = document.body.classList.contains('tema-claro');
+  const valeu = completo && (dados && dados.motivo !== 'limite');
+  box.innerHTML = '<div style="text-align:center;padding:30px 10px 10px;">' +
+    '<div style="font-size:64px;line-height:1;margin-bottom:8px;">' + (completo ? '🎉' : '👏') + '</div>' +
+    '<h2 class="sect-title" style="margin-bottom:6px;">' + (completo ? 'Programa concluído!' : 'Cardio registrado') + '</h2>' +
+    '<div style="font-size:14px;color:#888;">' + p.emoji + ' ' + esc(p.titulo) + ' · ' + _progMin(seg) + '</div>' +
+    '<div style="margin:18px auto 0;max-width:320px;padding:14px;border-radius:14px;text-align:left;font-size:13px;line-height:1.6;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1px solid rgba(127,255,0,.3);">' +
+      '⏱ Pontos do tempo: <b>+' + (dados && dados.ptsExib != null ? dados.ptsExib : 0) + '</b>' + (dados && dados.motivo === 'limite' ? ' <span style="color:#888;">(o limite de cardios do dia já foi atingido)</span>' : '') + '<br>' +
+      (completo ? (valeu ? '⭐ Ponto extra do programa: <b>+1</b> (1 por dia com programa concluído)<br>🏅 Conta para os distintivos de programas' : '🏅 Programa concluído, mas o limite de cardios do dia já foi atingido: sem ponto extra hoje') : 'Programa não concluído: sem ponto extra nem distintivo.') +
+    '</div>' +
+    '<button class="btn btn-prim btn-full" style="margin-top:20px;" onclick="abrirProgramasCardio()">Ver programas</button>' +
+    '<button class="btn btn-sec btn-full" style="margin-top:8px;" onclick="navegar(\'home\')">Ir para o início</button></div>';
+  _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
 }
 
 // ═══════════════ CARDIO AO VIVO (GPS) ═══════════════
@@ -12224,7 +12645,8 @@ async function abrirPerfilRanking(id, social, alvo) {   // alvo: elemento onde o
   const _agrPerf = _agregarPontosPorAtleta(atv.map(x => ({ ...x, idatleta: id })));
   const _meuPerf = _agrPerf[Number(id)] || { base: 0, bonus: 0, total: 0 };
   const _baseSem = Math.round(_meuPerf.base * 10) / 10;
-  const _bonusFreqSem = Math.round((_meuPerf.bonus - (_meuPerf.bonusCardioAoVivo || 0)) * 10) / 10;
+  const _bonusFreqSem = Math.round((_meuPerf.bonus - (_meuPerf.bonusCardioAoVivo || 0) - (_meuPerf.bonusProgramas || 0)) * 10) / 10;
+  const _bonusProgSem = Math.round((_meuPerf.bonusProgramas || 0) * 10) / 10;
   const _bonusCardioSem = Math.round((_meuPerf.bonusCardioAoVivo || 0) * 10) / 10;
   const _musSem = API.diasComMusculacaoRank(atv).length;
   const _totalSem = Math.round(_meuPerf.total * 10) / 10;
@@ -12241,6 +12663,7 @@ async function abrirPerfilRanking(id, social, alvo) {   // alvo: elemento onde o
           ? '<br>🔥 +' + _bonusFreqSem + ' pts de bônus (' + _musSem + ' dias com musculação na semana)'
           : (_musSem > 0 ? (function(){ var f = Math.max(0,_rankReg.bonusDias - _musSem); return '<br>🔥 Falta' + (f>1?'m':'') + ' ' + f + ' dia' + (f>1?'s':'') + ' com musculação pro bônus de +' + _rankReg.bonusPts + ' pts'; })() : '')) +
         (_bonusCardioSem > 0 ? '<br>🔴 +' + _bonusCardioSem.toFixed(1) + ' pts de cardio ao vivo' : '') +
+        (_bonusProgSem > 0 ? '<br>🔥 +' + _bonusProgSem + ' pts de programas de cardio' : '') +
       '</div>' +
     '</div>';
   const cardHtml = atv.length
@@ -14123,6 +14546,10 @@ const CONQUISTAS_DEF = [
   { id:'resultado',   e:'📈', nome:'Prova de Evolução',     desc:'Você compartilhou um resultado no Mural de resultados. Sua evolução inspira quem está começando e mostra que o caminho funciona.', metric:'resultados', goal:1 },
   { id:'colab1',      e:'👥', nome:'Dupla Dinâmica',        desc:'Você publicou um post colaborativo no Feed. Treinar acompanhado vira hábito, e a conquista de um também é do outro.', metric:'colab', goal:1 },
   { id:'colab5',      e:'⛓️', nome:'Parceria de Ferro',     desc:'5 posts colaborativos no Feed. Vocês não só treinam juntos: constroem uma parceria que aguenta o ferro pesado.', metric:'colab', goal:5 },
+  { id:'prog1',       e:'🎯', nome:'Primeiro Programa',     desc:'Você concluiu um programa de cardio guiado do começo ao fim. Seguir o plano até o último segundo é o que separa a vontade do resultado.', metric:'programas', goal:1 },
+  { id:'prog5',       e:'📋', nome:'Cardio Programado',     desc:'5 programas de cardio concluídos. Você já treina com método, e isso aparece na constância.', metric:'programas', goal:5 },
+  { id:'prog15',      e:'🧭', nome:'Mestre dos Programas',  desc:'15 programas de cardio concluídos. Quem chega aqui não depende de motivação, depende de rotina.', metric:'programas', goal:15 },
+  { id:'progtodos',   e:'🧩', nome:'Colecionador de Programas', desc:'Você concluiu os 6 programas de cardio diferentes: 12-5-30, HIIT, Tabata, 4x4, Zona 2 e Pirâmide.', metric:'programasTipos', goal:6 },
   { id:'colab15',     e:'🏟️', nome:'Time Inseparável',      desc:'15 posts colaborativos no Feed. Isso já é um time de verdade, e todo mundo no Feed sabe quem anda junto.', metric:'colab', goal:15 },
   { id:'indicacao5',  e:'🤝', nome:'Recrutador nato',       desc:'5 amigos indicados por você já entraram no app pra valer. Você não treina sozinho, você constrói equipe.', metric:'indicacoesAtivas', goal:5 },
 ];
@@ -14191,6 +14618,7 @@ function _conqSessoesAtleta(alvoId) {
       dt: new Date(String(s.dtsessao).slice(0,10) + 'T00:00:00'),
       tipo: (s.tipo || 'musculacao'),
       dur: parseFloat(s.duracao_seg || 0) || 0,
+      comentario: String(s.comentario || ''),
       cardioTipo: (s.cardio_tipo || '').toString().trim().toLowerCase()
     }));
   // Para o próprio aluno, mescla sessões locais (garante contagem imediata pós-treino)
@@ -14204,6 +14632,7 @@ function _conqSessoesAtleta(alvoId) {
           dt: new Date(String(s.dtsessao).slice(0,10) + 'T00:00:00'),
           tipo: tp,
           dur: parseFloat(s.duracao_seg || 0) || 0,
+          comentario: String(s.comentario || ''),
           cardioTipo: (s.cardio_tipo || '').toString().trim().toLowerCase()
         });
       });
@@ -14225,6 +14654,10 @@ function _conquistaMetrics(id) {
   const horas = Math.floor(ss.reduce((acc, s) => acc + s.dur, 0) / 3600);
   const tiposSet = {}; ss.forEach(s => { if (s.tipo === 'cardio' && s.cardioTipo) tiposSet[s.cardioTipo] = 1; });
   const tiposCardio = Object.keys(tiposSet).length;
+  // Programas de cardio concluídos (regra única: API.programaDaSessao) e quantos programas DIFERENTES.
+  const progSet = {}; let programas = 0;
+  ss.forEach(s => { if (s.tipo !== 'cardio') return; const p = API.programaDaSessao({ tipo: 'cardio', comentario: s.comentario, duracao_seg: s.dur }); if (p) { programas++; progSet[p.id] = 1; } });
+  const programasTipos = Object.keys(progSet).length;
   // Agrupa por semana (chave = domingo à meia-noite)
   const wk = {};
   const domKey = (d) => { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); x.setHours(0,0,0,0); return x.getTime(); };
@@ -14251,7 +14684,7 @@ function _conquistaMetrics(id) {
     if (data.resultados) resultados = Number(data.resultados[alvo]) || 0;   // contagem do Quadro de Resultados (servidor)
     if (data.colab) colab = Number(data.colab[alvo]) || 0;                   // posts colaborativos no Feed com colaboração aceita (servidor)
   } catch (e) {}
-  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas, resultados, colab };
+  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas, resultados, colab, programas, programasTipos };
 }
 
 
@@ -14978,9 +15411,10 @@ function _muralThreadHtml(idm, isLight) {
       ? '<span data-id="' + c.idcomentario + '" onclick="muralExcluir(' + idm + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Excluir</span>' : '';
     const curtidas = _reacoesComentFeed[String(c.idcomentario)] || [];
     const curtiu = curtidas.some(x => x.meu);
-    const coracao = '<div data-id="' + c.idcomentario + '" onclick="muralCurtir(' + idm + ',this)" title="Curtir resposta" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;padding:2px 2px 0 4px;min-width:22px;">' +
-      '<span style="font-size:14px;line-height:1;">' + (curtiu ? '❤️' : '🤍') + '</span>' +
+    const coracao = '<div data-id="' + c.idcomentario + '" onclick="_cxToque(' + c.idcomentario + ',\'mural\',' + idm + ')" title="Reagir" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;padding:2px 2px 0 4px;min-width:22px;">' +
+      '<span style="font-size:14px;line-height:1;">' + _cxIcone(curtidas) + '</span>' +
       (curtidas.length ? '<span style="font-size:10px;font-weight:700;color:' + (curtiu ? acento : corMuted) + ';">' + curtidas.length + '</span>' : '') +
+      _cxMaisHtml(c.idcomentario, 'mural', idm) +
     '</div>';
     return '<div style="display:flex;gap:8px;padding:7px 0;' + (nivel > 0 ? 'margin-left:' + (Math.min(nivel, 3) * 26) + 'px;' : '') + '">' +
       '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>' +
@@ -15579,7 +16013,7 @@ function _renderRankingView() {
   function buildRanking(lista) {
     const ag = _agregarPontosPorAtleta(lista);
     const arr = Object.values(ag)
-      .map(a => ({ id: a.id, nome: nomeMap[a.id] || 'Membro', pts: a.total, base: a.base, bonus: a.bonus, bonusCardioAoVivo: a.bonusCardioAoVivo }))
+      .map(a => ({ id: a.id, nome: nomeMap[a.id] || 'Membro', pts: a.total, base: a.base, bonus: a.bonus, bonusCardioAoVivo: a.bonusCardioAoVivo, bonusProgramas: a.bonusProgramas }))
       .sort((a, b) => b.pts - a.pts);
     // ── EMPATE: MESMA POSICAO, SEM PULAR A SEGUINTE ───────────────────────
     // Antes a posicao era so o indice da lista, entao duas pessoas com pontos
@@ -15985,7 +16419,7 @@ function _renderRankingView() {
       // rastreado por GPS) — são conquistas diferentes, mas o texto sempre
       // dizia "bônus de frequência", mesmo quando o valor era só cardio ao
       // vivo. Isolando aqui pra não anunciar frequência que a pessoa não bateu.
-      const _bonusFreqPeriodo = Math.round((_meuItem.bonus - (_meuItem.bonusCardioAoVivo || 0)) * 10) / 10;
+      const _bonusFreqPeriodo = Math.round((_meuItem.bonus - (_meuItem.bonusCardioAoVivo || 0) - (_meuItem.bonusProgramas || 0)) * 10) / 10;
       if (_bonusFreqPeriodo > 0) {
         _bonusLinha = '<div style="font-size:11px;color:' + (isLight ? '#666' : '#999') + ';margin-top:4px;">🔥 +' + _bonusFreqPeriodo + ' pts de bônus de frequência no período</div>';
       }
@@ -18356,7 +18790,7 @@ function _nutriVoltarGesto() {
   _nutriRender();
   return true;
 }
-function nutriCat(c) { _nutri.cat = c; _nutriRender(); }
+function nutriCat(c) { _nutri.cat = c; _nutri.busca = ''; _nutriRender(); window.scrollTo(0, 0); }
 function nutriBusca(v) { _nutri.busca = v; _nutriAtualizarGrade(); }
 function _nutriAtualizarGrade() {
   const g = document.getElementById('nutri-rec-grid');
@@ -18396,7 +18830,9 @@ function _nutriAguaCardHtml() {
   const pct = meta ? Math.min(100, Math.round(ml / meta * 100)) : 0;
   const copos = Math.max(1, Math.min(14, Math.round(meta / 250))), cheios = Math.min(copos, Math.round(ml / (meta / copos)));
   const litros = v => (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
-  const icones = Array.from({ length: copos }, (_, i) => `<span style="flex:1;min-width:0;height:14px;border-radius:3px 3px 6px 6px;border:1.5px solid ${i < cheios ? '#38bdf8' : C.borda};background:${i < cheios ? 'rgba(56,189,248,.28)' : 'transparent'};transition:.25s;"></span>`).join('');
+  // Cada copo de 250 ml é uma gota (cheia = azul, vazia = só o contorno), no lugar das caixas.
+  const gota = cheia => `<svg viewBox="0 0 24 28" style="flex:1;min-width:0;height:24px;transition:.25s;" aria-hidden="true"><path d="M12 2.2C12 2.2 4.6 10.4 4.6 17a7.4 7.4 0 0 0 14.8 0C19.4 10.4 12 2.2 12 2.2z" fill="${cheia ? '#38bdf8' : 'none'}" fill-opacity="${cheia ? '.9' : '0'}" stroke="${cheia ? '#0ea5e9' : C.borda}" stroke-width="1.6" stroke-linejoin="round"/>${cheia ? '<path d="M8.6 16.2a3.6 3.6 0 0 0 2.4 3.4" fill="none" stroke="#e0f6ff" stroke-width="1.6" stroke-linecap="round" opacity=".85"/>' : ''}</svg>`;
+  const icones = Array.from({ length: copos }, (_, i) => gota(i < cheios)).join('');
   const bateu = ml >= meta, home = _homeAguaAtiva();
   // Cartão compacto (metade da altura anterior): título e histórico na mesma linha, números e % juntos, copos finos, botões e o
   // interruptor do marcador da tela inicial numa linha só.
@@ -18409,7 +18845,7 @@ function _nutriAguaCardHtml() {
       <div style="font-size:20px;font-weight:900;line-height:1.2;">${litros(ml)} <span style="font-size:12px;font-weight:700;color:${C.mut};">de ${litros(meta)} L</span></div>
       <div style="font-size:12.5px;font-weight:900;color:#38bdf8;">${pct}%</div>
     </div>
-    <div style="display:flex;gap:3px;margin-bottom:8px;">${icones}</div>
+    <div style="display:flex;gap:2px;margin-bottom:8px;align-items:flex-end;">${icones}</div>
     <div style="display:flex;gap:6px;">
       <button onclick="nutriAgua(-250,1)" aria-label="Tirar um copo" style="flex:1;padding:7px 0;border-radius:10px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:15px;font-weight:800;cursor:pointer;">−</button>
       <button onclick="nutriAgua(250,1)" style="flex:3;padding:7px 0;border-radius:10px;border:none;background:#38bdf8;color:#04283a;font-size:12.5px;font-weight:900;cursor:pointer;">+ copo (250 ml)</button>
@@ -18604,6 +19040,9 @@ function _nutriRecFiltradas() {
   const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const q = norm(_nutri.busca).trim();
   if ((_nutri.cat || 'destaques') === 'destaques' && !q) return _nutriDestaques();
+  // Com texto na busca, procura em TODAS as receitas, qualquer que seja a aba aberta (antes a aba Destaques ignorava a busca e as
+  // categorias só filtravam dentro delas).
+  if (q) return _nutriCont.receitas.filter(r => norm(r.titulo + ' ' + (r.ingredientes || []).join(' ') + ' ' + (r.descricao || '')).indexOf(q) >= 0);
   return _nutriCont.receitas.filter(r => {
     if (_nutri.cat === 'destaques') return true;
     if (_nutri.cat === 'favoritas') { if (!_nutriEhFav(r.id)) return false; }
@@ -18628,7 +19067,12 @@ function _nutriReceitasHtml() {
     ${catAtual && catAtual.desc ? `<div style="font-size:12px;color:${C.mut};margin:0 2px 10px;">${esc(catAtual.desc)}</div>` : ''}
     ${(_nutri.cat || 'destaques') === 'destaques' && !_nutri.busca ? `<div style="margin:0 2px 10px;font-size:12px;color:${C.mut};line-height:1.4;">As receitas de hoje, uma de cada categoria. Mudam todo dia.</div>` : ''}
     ${_nutriTemPlano() ? '' : _nutriCadeadoFaixa('Você tem <b>1 receita liberada por categoria</b> a cada dia (marcadas com 🎁). As demais são do plano alimentar.')}
+    ${_nutri.busca ? `<div style="font-size:11.5px;color:${C.mut};margin:0 2px 8px;">Resultados da busca em todas as receitas.</div>` : ''}
     <div id="nutri-rec-grid">${_nutriGradeHtml()}</div>
+    <div style="margin-top:18px;">
+      <div style="font-size:11px;font-weight:800;color:${C.mut};text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Outras categorias</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips.filter(c => c[0] !== (_nutri.cat || 'destaques')).map(c => _nutriChip(false, "nutriCat('" + c[0] + "')", c[1])).join('')}</div>
+    </div>
     <div style="font-size:10.5px;color:${C.mut};text-align:center;margin-top:14px;line-height:1.5;">Receitas da Nutri Rô. Use os alimentos do seu plano alimentar e ajuste as porções a ele.</div>
   </div>${getFooterHtml()}`;
 }
@@ -18758,7 +19202,7 @@ function _nmHtml(tipo, id) {
           ${c.meu ? `<span style="cursor:pointer;" data-tipo="${tipo}" data-id="${id}" data-idc="${c.idcomentario}" onclick="_nmExcluir(this)">Excluir</span>` : ''}
         </div>
       </div>
-      <div data-tipo="${tipo}" data-id="${id}" data-idc="${c.idcomentario}" onclick="_nmCurtir(this)" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;min-width:22px;"><span style="font-size:14px;line-height:1;">${eu ? '❤️' : '🤍'}</span>${curt.length ? `<span style="font-size:10px;font-weight:700;color:${eu ? C.ok : C.mut};">${curt.length}</span>` : ''}</div>
+      <div onclick="_cxToque(${c.idcomentario},'nm','${tipo}',${id})" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;min-width:22px;"><span style="font-size:14px;line-height:1;">${_cxIcone(curt)}</span>${curt.length ? `<span style="font-size:10px;font-weight:700;color:${eu ? C.ok : C.mut};">${curt.length}</span>` : ''}${_cxMaisHtml(c.idcomentario, 'nm', tipo, id)}</div>
     </div>` + (porPai[c.idcomentario] || []).map(r => linha(r, nivel + 1)).join('');
   };
   const resp = _nm.resp[chave];

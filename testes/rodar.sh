@@ -13,7 +13,7 @@ passo () { echo "── $1"; shift; "$@" || falhas=$((falhas+1)); echo; }
 
 passo "sintaxe de todos os scripts"        node val.js
 passo "nenhuma função sumiu"               node funcoes.js
-passo "pontuação do ranking (unidade)"     node pontos.js; passo "pontos-base do cardio (api.js)" node cardio_pontos.js
+passo "pontuação do ranking (unidade)"     node pontos.js; passo "pontos-base do cardio (api.js)" node cardio_pontos.js; passo "programas de cardio e treino fora do protocolo" node programas.js
 passo "nutrição: aderência, alertas e compras" node nutri.js
 passo "receitas: ids, fotos e informação nutricional" node receitas.js
 passo "parceria: sequência da dupla"      node parceria.js

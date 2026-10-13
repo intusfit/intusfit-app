@@ -792,6 +792,15 @@ try {
             $stDup->execute([$idat, $dtsessao, $divisao, $idficha, $duracao, $itens, $comentario]);
             $dupId = $stDup->fetchColumn();
             if ($dupId) { echo json_encode(['idsessao' => (int)$dupId, 'ok' => true, 'duplicata' => true]); exit; }
+            // Treino fora do protocolo (divisao 'F', marcado à mão pelo aluno; vale 5 pontos fixos no ranking): 15 min a 4 h, de hoje ou de ontem,
+            // e 1 por dia. Vem DEPOIS da checagem de duplicata para o reenvio do mesmo treino não virar erro.
+            if (strtoupper((string)$divisao) === 'F') {
+                if ($duracao < 900 || $duracao > 14400) { http_response_code(400); echo json_encode(['error' => 'duracao deve ficar entre 15 min e 4 h']); exit; }
+                if ($dtsessao !== date('Y-m-d') && $dtsessao !== date('Y-m-d', strtotime('-1 day'))) { http_response_code(400); echo json_encode(['error' => 'so de hoje ou de ontem']); exit; }
+                $stF = $pdo->prepare("SELECT COUNT(*) FROM intus_sessao WHERE idatleta = ? AND tipo = 'musculacao' AND dtsessao = ? AND divisao = 'F' AND (nao_contar IS NULL OR nao_contar = 0)");
+                $stF->execute([$idat, $dtsessao]);
+                if ((int)$stF->fetchColumn() >= 1) { http_response_code(409); echo json_encode(['error' => 'limite de 1 treino fora do protocolo por dia']); exit; }
+            }
             $st = $pdo->prepare("INSERT INTO intus_sessao (idatleta, idficha, divisao, dtsessao, duracao_seg, comentario, marcado_como_feito, nao_contar, tipo, pontos, itens, hora_conclusao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'musculacao', ?, ?, ?)");
             $st->execute([
                 $idat,

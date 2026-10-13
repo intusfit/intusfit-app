@@ -3649,6 +3649,66 @@ const API = {
     'Outro':      { leve: 3.0, moderada: 5.0, intensa: 7.0 },
   },
   CARDIO_PONTOS: { centro: 6, compressao: 0.5, pesoIntensidade: 0.03 },
+
+  // ── PROGRAMAS DE CARDIO (MVP de 13/10/2026) ──────────────────────────
+  // Seis programas fixos, executados passo a passo na tela de programas (aluno.html). Cada etapa: n = nome, s = segundos, f = fase
+  // (aq aquecimento, forte, leve, cont contínuo, calma volta à calma) e d = dica. Vale para quem tem matrícula ativa.
+  // Pontos: o tempo conta como todo cardio (cardioPontosBase com o esforço padrão `rpe` do programa) e cada DIA com programa concluído
+  // soma +1 ponto extra (PONTOS_PROGRAMA, fora do teto por sessão). Concluído = sessão de cardio com comentario "Programa: <titulo>" e
+  // pelo menos 90% da duração do programa (programaDaSessao). Os distintivos (metrica `programas` e `programasTipos`) usam a mesma regra.
+  PONTOS_PROGRAMA: 1,
+  PROGRAMAS_CARDIO: (() => {
+    const rep = (n, lista) => { let o = []; for (let i = 0; i < n; i++) o = o.concat(lista); return o; };
+    const E = (n, s, f, d) => ({ n: n, s: s, f: f, d: d || '' });
+    const aq = (s, d) => E('Aquecimento', s, 'aq', d || 'Comece leve e vá aumentando o ritmo aos poucos.');
+    const calma = (s, d) => E('Volta à calma', s, 'calma', d || 'Reduza o ritmo e respire fundo até normalizar.');
+    const forte = (s, d) => E('Forte', s, 'forte', d || 'Esforço alto, mas com técnica. Respire.');
+    const leve = (s, d) => E('Leve', s, 'leve', d || 'Ritmo bem leve para recuperar.');
+    const ATIV = ['Corrida', 'Bike', 'Elíptico', 'Pular Corda', 'Escada'];
+    return [
+      { id: '12-5-30', titulo: '12-5-30', sub: 'Esteira inclinada', emoji: '⛰️', rpe: 6, nivel: 'Iniciante a intermediário', atividades: ['Caminhada'],
+        resumo: 'Caminhada na esteira com 12% de inclinação, a 5 km/h, por 30 minutos.',
+        aviso: 'Não segure no corrimão (se precisar, reduza a inclinação). Pare se sentir tontura, dor ou falta de ar fora do normal.',
+        etapas: [aq(180, 'Esteira em 0%, a 4 km/h.'), E('Inclinação 12%', 1800, 'cont', 'Esteira em 12% e 5 km/h, sem se apoiar.'), calma(120, 'Esteira em 0%, a 3 km/h.')] },
+      { id: 'hiit-1-1', titulo: 'HIIT 1:1', sub: '30 s forte, 30 s leve', emoji: '⚡', rpe: 8, nivel: 'Intermediário', atividades: ATIV,
+        resumo: 'Dez tiros de 30 segundos fortes, cada um seguido de 30 segundos leves.',
+        aviso: 'Para quem já treina há algum tempo. Pare se sentir tontura ou dor.',
+        etapas: [aq(300)].concat(rep(10, [forte(30), leve(30)])).concat([calma(300)]) },
+      { id: 'tabata', titulo: 'Tabata', sub: '20 s máximo, 10 s descanso', emoji: '🔥', rpe: 9, nivel: 'Avançado', atividades: ATIV,
+        resumo: 'Dois blocos de 4 minutos: oito tiros de 20 segundos no máximo, com 10 segundos de descanso entre eles.',
+        aviso: 'Avançado: só para quem já treina há bastante tempo. Pare se sentir tontura, dor ou mal-estar.',
+        etapas: [aq(300)].concat(rep(8, [forte(20, 'O mais forte que conseguir.'), leve(10, 'Descanse.')])).concat([E('Descanso entre blocos', 120, 'leve', 'Ritmo bem leve, beba água.')]).concat(rep(8, [forte(20, 'O mais forte que conseguir.'), leve(10, 'Descanse.')])).concat([calma(180)]) },
+      { id: '4x4', titulo: '4x4', sub: '4 min forte, 3 min leve', emoji: '🏔️', rpe: 8, nivel: 'Avançado', atividades: ['Corrida', 'Bike', 'Elíptico'],
+        resumo: 'Quatro blocos de 4 minutos em ritmo forte, com 3 minutos leves entre eles.',
+        aviso: 'Avançado: mantenha um ritmo forte que você consiga repetir nos quatro blocos. Pare se sentir tontura ou dor.',
+        etapas: [aq(600)].concat(rep(3, [forte(240, 'Ritmo forte e constante.'), leve(180)])).concat([forte(240, 'Último bloco, mantenha o ritmo.'), calma(300)]) },
+      { id: 'zona-2', titulo: 'Zona 2', sub: 'Ritmo de conversar', emoji: '🫁', rpe: 4, nivel: 'Todos', atividades: ['Caminhada', 'Corrida', 'Bike', 'Elíptico', 'Natação'],
+        resumo: '40 minutos contínuos em ritmo leve a moderado, em que você ainda consegue conversar.',
+        aviso: 'Se não consegue falar frases inteiras, reduza o ritmo.',
+        etapas: [aq(300), E('Ritmo de conversar', 2400, 'cont', 'Constante e confortável. Você deve conseguir conversar.')] },
+      { id: 'piramide', titulo: 'Pirâmide', sub: '1, 2, 3, 2 e 1 min fortes', emoji: '🔺', rpe: 8, nivel: 'Intermediário', atividades: ATIV,
+        resumo: 'Tiros fortes de 1, 2, 3, 2 e 1 minuto, cada um seguido de descanso leve do mesmo tamanho.',
+        aviso: 'Pare se sentir tontura ou dor.',
+        etapas: [aq(300)].concat([60, 120, 180, 120, 60].reduce((o, t) => o.concat([forte(t), leve(t)]), [])).concat([calma(300)]) },
+    ];
+  })(),
+  programaDuracao: (p) => (p && Array.isArray(p.etapas) ? p.etapas.reduce((a, e) => a + e.s, 0) : 0),
+  programaPorId: (id) => API.PROGRAMAS_CARDIO.find((p) => p.id === id) || null,
+  // Programa concluído de uma sessão de cardio, ou null. Exige o comentário "Programa: <titulo>" e 90% da duração.
+  programaDaSessao: (s) => {
+    if (!s || API.ehMusculacaoRank(s)) return null;
+    const m = /^Programa: (.+)$/.exec(String(s.comentario || '').trim());
+    if (!m) return null;
+    const p = API.PROGRAMAS_CARDIO.find((x) => x.titulo === m[1]);
+    if (!p) return null;
+    return (Number(s.duracao_seg) || 0) >= 0.9 * API.programaDuracao(p) ? p : null;
+  },
+
+  // ── TREINO FORA DO PROTOCOLO ─────────────────────────────────────────
+  // Treino que o aluno marca à mão (fez com outra pessoa ou trocou os exercícios da ficha): sessão de musculação com divisao 'F'.
+  // Vale PONTOS_FORA_PROTOCOLO (fixo, não entra na ordem do dia: não faz o treino da ficha virar "o segundo") e conta como dia de treino.
+  PONTOS_FORA_PROTOCOLO: 5,
+  foraProtocolo: (s) => !!s && String(s.divisao || '').toUpperCase() === 'F' && API.ehMusculacaoRank(s),
   cardioPontosBase: (tipo, rpe, minutos) => {
     const K = API.CARDIO_PONTOS, m = API.CARDIO_METS[tipo] || API.CARDIO_METS['Outro'];
     const esforco = Math.max(1, Math.min(10, Number(rpe) || 5));
@@ -3680,7 +3740,7 @@ const API = {
     }
     const grupos = new Map();
     lista.forEach((s, i) => {
-      if (!API.ehMusculacaoRank(s) || !API.contaNoRank(s)) return;
+      if (!API.ehMusculacaoRank(s) || !API.contaNoRank(s) || API.foraProtocolo(s)) return;
       const g = Number((s && s.idatleta) || 0) + '|' + API.dataRank(s);
       if (!grupos.has(g)) grupos.set(g, []);
       grupos.get(g).push({ s: s, id: Number(s.idsessao) || null, i: i });
@@ -3709,7 +3769,7 @@ const API = {
   },
 
   ordemMusculacaoNoDia: (s, lista) => {
-    if (!API.ehMusculacaoRank(s) || !API.contaNoRank(s)) return 0;
+    if (!API.ehMusculacaoRank(s) || !API.contaNoRank(s) || API.foraProtocolo(s)) return 0;
     const idx = API._indiceOrdemDia(lista);
     if (!idx) return 1;
     const porObj = idx.porObj.get(s);
@@ -3730,6 +3790,7 @@ const API = {
     const dt = API.dtRank(s);
     const legado = !(dt >= new Date(R.vigorApartirDe + 'T00:00:00'));
     if (API.ehMusculacaoRank(s)) {
+      if (API.foraProtocolo(s)) return API.PONTOS_FORA_PROTOCOLO;
       if (legado) return 5.0;
       if (dt >= new Date(R.vigorSegundoDia + 'T00:00:00')) {
         const ordem = API.ordemMusculacaoNoDia(s, lista);
@@ -3762,12 +3823,12 @@ const API = {
     const acc = {};
     (Array.isArray(lista) ? lista : []).forEach((s) => {
       const id = Number(s && s.idatleta);
-      if (!acc[id]) acc[id] = { id: id, base: 0, bonus: 0, bonusCardioAoVivo: 0, _sem: {} };
+      if (!acc[id]) acc[id] = { id: id, base: 0, bonus: 0, bonusCardioAoVivo: 0, bonusProgramas: 0, _sem: {} };
       acc[id].base += API.pontosSessaoRank(s, lista, R);
       const semanaDe = (k) => {
         if (!acc[id]._sem[k]) {
           const ini = new Date(k + 'T00:00:00');
-          acc[id]._sem[k] = { sessoes: 0, dias: {}, vale: ini >= corte, porDia: ini >= corteDia, segAoVivo: 0 };
+          acc[id]._sem[k] = { sessoes: 0, dias: {}, vale: ini >= corte, porDia: ini >= corteDia, segAoVivo: 0, progDias: {} };
         }
         return acc[id]._sem[k];
       };
@@ -3779,6 +3840,8 @@ const API = {
       if (!API.ehMusculacaoRank(s) && API.contaNoRank(s) && Number(s && s.ao_vivo) === 1) {
         semanaDe(API.semanaRank(API.dtRank(s))).segAoVivo += Number(s.duracao_seg) || 0;
       }
+      // +1 ponto por DIA com programa de cardio concluído (aditivo, fora do teto por sessão; sessão antiga não tem o comentário).
+      if (API.contaNoRank(s) && API.programaDaSessao(s)) semanaDe(API.semanaRank(API.dtRank(s))).progDias[API.dataRank(s)] = 1;
     });
     Object.keys(acc).forEach((id) => {
       const a = acc[id];
@@ -3789,6 +3852,8 @@ const API = {
         // pódio já encerrado não mudar de dono retroativamente.
         const quantos = w.porDia ? Object.keys(w.dias).length : w.sessoes;
         if (quantos >= R.bonusDias) a.bonus += R.bonusPts;
+        const nProg = Object.keys(w.progDias || {}).length;
+        if (nProg > 0) { a.bonusProgramas += nProg * API.PONTOS_PROGRAMA; a.bonus += nProg * API.PONTOS_PROGRAMA; }
         if (w.segAoVivo > 0) {
           const ptsAoVivo = API.segAoVivoParaPontos(w.segAoVivo);
           a.bonusCardioAoVivo += ptsAoVivo;
