@@ -4018,6 +4018,8 @@ function _nutriLimparDados(string $tipo, $d): array {
         }
     } elseif ($tipo === 'video') {
         foreach (['url' => 500, 'duracao' => 20, 'descricao' => 600, 'capa' => 500, 'receita' => 80] as $k => $m) { $t = _nutriTxt($d[$k] ?? '', $m); if ($t !== '') $o[$k] = $t; }
+        // Quem vê: 'geral' (todos os alunos, 1 por dia para quem não tem plano) ou 'plano' (só aluno com plano alimentar ativo).
+        $o['visibilidade'] = (($d['visibilidade'] ?? '') === 'plano') ? 'plano' : 'geral';
     } elseif ($tipo === 'dica') {
         foreach (['icone' => 16, 'texto' => 1200] as $k => $m) { $t = _nutriTxt($d[$k] ?? '', $m); if ($t !== '') $o[$k] = $t; }
     }
@@ -4040,7 +4042,23 @@ if ($action === 'nutri_conteudo') {
              . (($_ehAluno || !empty($_GET['ativos'])) ? " WHERE ativo = 1" : "") . " ORDER BY ordem, idconteudo";
         $out = ['receitas' => [], 'videos' => [], 'dicas' => []];
         $chave = ['receita' => 'receitas', 'video' => 'videos', 'dica' => 'dicas'];
-        foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $r) { if (isset($chave[$r['tipo']])) $out[$chave[$r['tipo']]][] = _nutriConteudoLinha($r); }
+        // Aluno sem plano alimentar ativo: vídeo marcado "só plano" vai sem endereço (url e capa), para não ser aberto por fora do app.
+        $temPlano = true;
+        if ($_ehAluno) {
+            $temPlano = false;
+            try {
+                $_resAl = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+                $_idAl = (int)($_resAl[1] ?? 0);
+                if ($_idAl > 0) { $q = $pdo->prepare("SELECT 1 FROM intus_plano_nutricional WHERE idatleta = ? AND ativo = 1 LIMIT 1"); $q->execute([$_idAl]); $temPlano = (bool)$q->fetchColumn(); }
+            } catch (Throwable $e) { $temPlano = false; }
+        }
+        foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (!isset($chave[$r['tipo']])) continue;
+            $linha = _nutriConteudoLinha($r);
+            if ($_ehAluno && !$temPlano && $r['tipo'] === 'video' && (($linha['visibilidade'] ?? '') === 'plano')) { unset($linha['url'], $linha['capa']); $linha['bloqueado'] = 1; }
+            $out[$chave[$r['tipo']]][] = $linha;
+        }
+        if ($_ehAluno) $out['plano_ativo'] = $temPlano ? 1 : 0;
         echo json_encode($out, JSON_UNESCAPED_UNICODE);
         exit;
     }

@@ -3314,7 +3314,7 @@ function conteudoHtml() {
     const foto = _contFoto(it);
     const thumb = sub === 'dicas' ? `<div style="width:54px;height:54px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;">${esc(it.icone || '💡')}</div>`
       : `<div style="width:84px;height:54px;border-radius:8px;background:var(--bg3);overflow:hidden;flex-shrink:0;">${foto ? `<img src="${esc(foto)}" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'"/>` : ''}</div>`;
-    const cat = sub === 'receitas' ? (CONT_CATS.find(c => c.id === it.cat) || {}).nome || '' : (sub === 'videos' ? (it.duracao || '') : '');
+    const cat = sub === 'receitas' ? (CONT_CATS.find(c => c.id === it.cat) || {}).nome || '' : (sub === 'videos' ? ((it.duracao || '') + (it.duracao ? ' · ' : '') + (it.visibilidade === 'plano' ? '🔒 só plano alimentar' : '🌎 geral')) : '');
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;${it.ativo ? '' : 'opacity:.55;'}">
       ${thumb}
       <div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(it.titulo)}</div>
@@ -3327,14 +3327,15 @@ function conteudoHtml() {
         <button class="btn btn-sm btn-danger" onclick="excluirConteudo('${sub}',${i})">✕</button></div>` : ''}
     </div>`;
   }).join('');
-  return `<div class="filtros-bar">${botoes}${pode ? `<button class="btn btn-primary" style="margin-left:auto;" onclick="abrirFormConteudo('${tipo}',0)">+ Nova ${singular[sub]}</button>` : ''}</div>
+  const reimportar = (sub === 'receitas' && cont.receitas.length > 0 && pode) ? `<button class="btn btn-secondary" style="margin-left:auto;" onclick="importarConteudo()" title="Copia para o banco as receitas do arquivo que ainda não estão nele. Nada do que já existe é alterado.">⬇ Importar receitas novas do arquivo</button>` : '';
+  return `<div class="filtros-bar">${botoes}${reimportar}${pode ? `<button class="btn btn-primary" style="${reimportar ? '' : 'margin-left:auto;'}" onclick="abrirFormConteudo('${tipo}',0)">+ Nova ${singular[sub]}</button>` : ''}</div>
     <div style="padding:20px;max-width:980px;">${importar}${linhas || (importar ? '' : `<div class="empty-state"><p>Nenhum${sub === 'dicas' ? 'a' : ''} ${singular[sub]} cadastrad${sub === 'dicas' ? 'a' : 'o'} no banco.</p>${sub === 'videos' ? '<p style="margin-top:8px;">Cadastre um vídeo do YouTube e ele aparece na área Vídeos do app.</p>' : ''}</div>`)}</div>`;
 }
 
 // Monta o que o servidor espera a partir de um item já carregado (usado para ativar/inativar e reordenar).
 function _payloadConteudo(it, tipo) {
   const dados = {};
-  ['tempo', 'porcoes', 'proteina', 'dificuldade', 'descricao', 'dica', 'ingredientes', 'preparo', 'acompanhamentos', 'outras_opcoes', 'variacao', 'nutricao', 'url', 'duracao', 'capa', 'receita', 'icone', 'texto']
+  ['tempo', 'porcoes', 'proteina', 'dificuldade', 'descricao', 'dica', 'ingredientes', 'preparo', 'acompanhamentos', 'outras_opcoes', 'variacao', 'nutricao', 'url', 'duracao', 'capa', 'receita', 'icone', 'texto', 'visibilidade']
     .forEach(k => { if (it[k] != null) dados[k] = it[k]; });
   return { idconteudo: it.idconteudo, tipo, titulo: it.titulo, cat: it.cat || '', ordem: it.ordem || 0, ativo: it.ativo ? 1 : 0, foto: it.foto || '', dados };
 }
@@ -3438,6 +3439,9 @@ function abrirFormConteudo(tipo, idconteudo) {
         <div class="form-group"><label class="label">Duração (opcional)</label><input id="ct-duracao" class="input" placeholder="Ex: 4:30" value="${v('duracao')}"/></div>
         <div class="form-group"><label class="label">Receita relacionada (opcional)</label><select id="ct-receita" class="input"><option value="">Nenhuma</option>${cont.receitas.map(r => `<option value="${esc(r.id)}" ${it && it.receita === r.id ? 'selected' : ''}>${esc(r.titulo)}</option>`).join('')}</select></div>
       </div>
+      <div class="form-group"><label class="label">Quem pode assistir</label><select id="ct-visib" class="input">
+        <option value="geral" ${!it || it.visibilidade !== 'plano' ? 'selected' : ''}>Visualização geral: todos os alunos (quem não tem plano alimentar vê 1 vídeo por dia)</option>
+        <option value="plano" ${it && it.visibilidade === 'plano' ? 'selected' : ''}>Só alunos com plano alimentar ativo (os demais veem com cadeado, sem acesso ao link)</option></select></div>
       <div class="form-group"><label class="label">Descrição (opcional)</label><textarea id="ct-descricao" class="input" rows="3">${v('descricao')}</textarea></div>
       <div class="form-group"><label class="label">Foto de capa (opcional; sem ela usa a capa do YouTube)</label>
         <input type="file" accept="image/*" onchange="contFotoEscolhida(this)"/>
@@ -3478,7 +3482,7 @@ async function salvarConteudo(tipo, idconteudo) {
   } else if (tipo === 'video') {
     const url = g('ct-url');
     if (!/^https?:\/\//i.test(url)) return showToast('Informe o link completo do vídeo (começa com https://).', 'error');
-    p.dados = { url, duracao: g('ct-duracao'), descricao: g('ct-descricao'), receita: g('ct-receita') };
+    p.dados = { url, duracao: g('ct-duracao'), descricao: g('ct-descricao'), receita: g('ct-receita'), visibilidade: g('ct-visib') === 'plano' ? 'plano' : 'geral' };
   } else {
     const texto = g('ct-texto');
     if (!texto) return showToast('Informe o texto da dica.', 'error');

@@ -19,6 +19,9 @@ if (getenv('CASO_JSON') !== false) {
     $pdo = new PdoTeste('sqlite:' . $db);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec("CREATE TABLE IF NOT EXISTS intus_nutri_conteudo (idconteudo INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT NOT NULL, slug TEXT NOT NULL, titulo TEXT NOT NULL, cat TEXT NULL, ordem INTEGER NOT NULL DEFAULT 0, ativo INTEGER NOT NULL DEFAULT 1, foto TEXT NULL, dados TEXT NULL, created_by INTEGER NULL, created_at TEXT NULL, updated_at TEXT NULL, UNIQUE (tipo, slug))");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS intus_plano_nutricional (idplano INTEGER PRIMARY KEY AUTOINCREMENT, idatleta INTEGER, ativo INTEGER)");
+    if (!empty($caso['plano'])) $pdo->exec("INSERT INTO intus_plano_nutricional (idatleta, ativo) SELECT 7, 1 WHERE NOT EXISTS (SELECT 1 FROM intus_plano_nutricional WHERE idatleta = 7 AND ativo = 1)");
+    function _resolverAutorPub($pdo, $_ctx, $_ehAluno) { return ['aluno', 7, 'Aluno de teste']; }
     $action = 'nutri_conteudo';
     $method = $caso['metodo'];
     $_GET = $caso['get'] ?? [];
@@ -100,6 +103,22 @@ $nova = null; foreach ($g['receitas'] as $x) if ($x['titulo'] === 'Receita com f
 eq('foto enviada vira URL do servidor', $nova['foto'] ?? null, 'https://site/img/receitas/receita_1.jpg');
 eq('linhas vazias da lista saem', $nova['ingredientes'] ?? null, ['a', 'b']);
 eq('sem id, apagar exige id', (rodar(['metodo' => 'DELETE']))['error'] ?? null, 'id obrigatorio');
+
+echo "\n── Vídeo geral x só plano ──\n";
+$vg = rodar(['metodo' => 'POST', 'corpo' => ['tipo' => 'video', 'titulo' => 'Video geral', 'dados' => ['url' => 'https://youtu.be/geral123456', 'capa' => 'capas/g.jpg']]]);
+$vp = rodar(['metodo' => 'POST', 'corpo' => ['tipo' => 'video', 'titulo' => 'Video do plano', 'dados' => ['url' => 'https://youtu.be/plano123456', 'capa' => 'capas/p.jpg', 'visibilidade' => 'plano']]]);
+$vx = rodar(['metodo' => 'POST', 'corpo' => ['tipo' => 'video', 'titulo' => 'Video valor estranho', 'dados' => ['url' => 'https://youtu.be/estr1234567', 'visibilidade' => 'qualquer']]]);
+$ach = function ($r, $t) { foreach ($r['videos'] ?? [] as $x) if ($x['titulo'] === $t) return $x; return []; };
+$gs = rodar(['metodo' => 'GET']);
+eq('sem visibilidade vale geral; valor estranho vira geral', [$ach($gs, 'Video geral')['visibilidade'] ?? null, $ach($gs, 'Video valor estranho')['visibilidade'] ?? null, $ach($gs, 'Video do plano')['visibilidade'] ?? null], ['geral', 'geral', 'plano']);
+eq('equipe vê o endereço do vídeo do plano', $ach($gs, 'Video do plano')['url'] ?? null, 'https://youtu.be/plano123456');
+$sem = rodar(['metodo' => 'GET', 'aluno' => true]);
+$p = $ach($sem, 'Video do plano');
+eq('aluno sem plano: vídeo do plano vem sem url e sem capa, marcado bloqueado', [array_key_exists('url', $p), array_key_exists('capa', $p), $p['bloqueado'] ?? null], [false, false, 1]);
+eq('aluno sem plano: vídeo geral continua com url', $ach($sem, 'Video geral')['url'] ?? null, 'https://youtu.be/geral123456');
+eq('aluno sem plano: plano_ativo = 0', $sem['plano_ativo'] ?? null, 0);
+$com = rodar(['metodo' => 'GET', 'aluno' => true, 'plano' => true]);
+eq('aluno com plano ativo: vídeo do plano com url, sem bloqueio', [$ach($com, 'Video do plano')['url'] ?? null, $ach($com, 'Video do plano')['bloqueado'] ?? null, $com['plano_ativo'] ?? null], ['https://youtu.be/plano123456', null, 1]);
 
 @unlink($tmp);
 echo "\n" . ($ruim ? $ruim . ' FALHA(S), ' : '') . $ok . " ok\n";

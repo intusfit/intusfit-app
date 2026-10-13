@@ -1324,3 +1324,14 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   "Sua semana": litros do dia, meta, barra, "−" e "+ copo" (250 ml, 1 toque, `homeAguaBeber` -> `nutriAgua` -> `_nutriSalvar`, com fila offline). A Home não carrega a Nutrição: `_homeAguaCarregar` busca só a água
   de hoje/ontem depois de pintar (no máximo a cada 60 s; `renderHome` roda várias vezes) e `_homeAguaRepintar` troca só o cartão. O último peso para a meta vem de `intus-nutri-peso-<id>` quando as avaliações não estão carregadas.
 - Parte do plano de 13/10/2026 (posts colaborativos, Nutrição geral x plano, receitas x2, mural): este foi o passo 1.
+
+## 48. Nutrição: acesso geral x plano alimentar ativo (13/10/2026)
+- **Regra** (`aluno.html`, bloco "ACESSO: GERAL x PLANO ALIMENTAR ATIVO", todas as decisões em `_nutriTemPlano()`, `_nutriReceitaLiberada`, `_nutriVideoLiberado`, `_nutriDicaLiberada`): sem plano ativo o aluno tem a água do dia, **1 receita por
+  categoria por dia**, **1 vídeo geral por dia** e **1 dica por dia**, por rodízio do dia (`_nutriDiaN` e `_nutriHash`, igual em todo aparelho, nada guardado no servidor). Com plano ativo, tudo. Itens fechados aparecem com 🔒 e
+  levam ao convite (`nutriConvitePlano`); os do dia levam a etiqueta "🎁 grátis hoje". Receita fechada mostra título, foto desfocada e o convite (sem ingredientes e preparo). Histórico de água: 7 dias sem plano, 30/90 só com plano.
+  Favoritos só com plano (o mecanismo visível e a avaliação vêm no passo 3). Plano ativo fica em `localStorage['intus-nutri-plano-<id>']` para funcionar offline.
+- **Vídeo geral ou só plano**: o painel (Nutrição > Receitas e vídeos > vídeo) escolhe `visibilidade` (`geral` | `plano`, guardada em `dados`, sem coluna nova; `_payloadConteudo` inclui a chave para Ativar/Inativar/reordenar não
+  apagarem). **No servidor** (`catalogo.php`, GET `nutri_conteudo`) o aluno sem plano ativo recebe o vídeo "plano" **sem `url` e sem `capa`** e com `bloqueado: 1`; a resposta do aluno traz `plano_ativo`. Receitas e dicas seguem
+  abertas no JSON público (`nutri-conteudo.json`): o bloqueio delas é de experiência no app, não segredo. Se quiser blindar, mover para o banco só e servir recortado.
+- Painel: botão "⬇ Importar receitas novas do arquivo" sempre disponível quando já há receitas no banco (idempotente por tipo e slug).
+- Testes: `testes/conteudo.php` (26 conferências, inclui vídeo geral x plano; a quebra do `unset` é acusada). PHP deste computador: `php.exe` do winget com `php.ini` cujo `extension_dir` seja caminho de Windows (`cygpath -w`).
