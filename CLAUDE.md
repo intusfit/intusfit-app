@@ -1365,3 +1365,14 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   Excluir o post apaga as colaborações.
 - `treinos.php?action=ranking` devolve `colab` por aluno (posts no Feed com colaboração aceita, contados para o autor e para cada colaborador aceito) para o distintivo "Dupla Dinâmica".
 - Testes: `testes/colab.php` (29 conferências em PHP real; quebrar a regra "só amigos" ou "só aceitos" é acusado). O app (compositor, cartões, pedidos, distintivo) vem no passo seguinte.
+
+## 52. Posts colaborativos: app e distintivo (13/10/2026)
+- **Compositor** (`aluno.html`, bloco "POST COLABORATIVO"): botão "👥 Convidar colaboradores (quem treinou com você)" entre a localização e o destino, só com as conexões ligadas (`_conexoesOn`). A folha lista os amigos (parceiros de treino primeiro, `_amzDados.amigos`
+  e `_pcDados.parceiros`), até 4; os ids vão em `colaboradores` no POST de `feed_posts` (`_composePublicarInterno`) e `_composeColab` zera a cada novo post. Vale para "Novo post" e para "Compartilhar treino/cardio" (mesmo compositor).
+- **Convite = solicitação**: aba Pedidos da Comunidade ganha "Convites para posts colaborativos" (miniatura, Aceitar e Recusar), o badge do menu soma esses convites (`_amzBadge`), e o sino mostra "convidou você para um post colaborativo" e abre a folha
+  do convite (`_colabConviteSheet`); `colab_aceito` ("aceitou colaborar no seu post") abre o post. Aceitar zera `_rankingData` e roda a detecção de conquistas.
+- **Marcação**: o cartão do post mostra "👥 post colaborativo com Fulano e Beltrano" (e, para o autor, "⏳ convite enviado a ..."), a grade do perfil leva o selo 👥, e a tela do post tem o bloco "Post colaborativo" (o autor tira um colaborador, o colaborador
+  sai do post). O post aparece no perfil do colaborador depois do aceite.
+- **Distintivos** (`CONQUISTAS_DEF` e `CONQUISTAS_BASE` em `notificacoes.html`): `colab1` 👥 **Dupla Dinâmica** (1 post colaborativo no Feed), `colab5` ⛓️ **Parceria de Ferro** (5), `colab15` 🏟️ **Time Inseparável** (15); métrica `colab` vem de `treinos.php?action=ranking`
+  (conta para autor e colaboradores aceitos, só posts com destino Feed).
+- Opcional do aluno: o destino já existente. "Só meu perfil" faz o post aparecer só nos perfis dos dois; "Feed da Intus" também no Feed.

@@ -1399,6 +1399,7 @@ function abrirCompartilharTreino(info) {
   _feedComposeLocal = '';
   _feedComposeCaption = _shareLegendaAuto(info);
   _composeDestino = 'feed';
+  _composeColab = [];
   _composeVisib = null; _composeVisibCarregado = false;
   _renderComposeFeed();
   // A câmera já abria sozinha, embutida, assim que a tela aparecia — sem
@@ -2052,7 +2053,7 @@ async function _composePublicarInterno(destino) {
     const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
       method: 'POST',
       headers: hdrs,
-      body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, visib: _composeVisib || undefined, total_midias: Math.max(1, total), capa_de_video: capaDeVideo ? 1 : 0 }),
+      body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, visib: _composeVisib || undefined, total_midias: Math.max(1, total), capa_de_video: capaDeVideo ? 1 : 0, colaboradores: _composeColab.length ? _composeColab.slice() : undefined }),
     });
     if (!r.ok) throw new Error(await motivoDe(r));
     if (itens.length) {
@@ -3295,6 +3296,7 @@ function _feedCardHtml(post, isLight) {
       '<span onclick="abrirPerfilAluno(' + Number(post.idatleta) + ')" style="cursor:pointer;display:flex;flex-shrink:0;">' + avatarEl + '</span>' +
       '<div style="flex:1;min-width:0;">' +
         '<div onclick="abrirPerfilAluno(' + Number(post.idatleta) + ')" style="cursor:pointer;font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+        _colabLinhaPost(post, isLight) +
         '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
           // data-loc (não o texto embutido no onclick) porque localizacao é
           // texto livre digitado pelo aluno — cair dentro de um onclick como
@@ -3707,6 +3709,7 @@ function abrirNovoPostFeed() {
   _feedComposeCaption = '';
   _mencoesLimpar('post');
   _composeDestino = 'feed';
+  _composeColab = [];
   _composeVisib = null; _composeVisibCarregado = false;
   _renderComposeFeed();
   _composeIniciarCamera(); // ver comentário em abrirCompartilharTreino
@@ -3968,6 +3971,7 @@ function _renderComposeFeed() {
             '<span style="font-size:14px;">📍</span> Adicionar localização' +
           '</button>') +
 
+      _colabCompositorHtml(isLight, borda, cardBg, muted, txt) +
       // ── Destino ─────────────────────────────────────────────────────
       '<div style="display:flex;gap:8px;margin-top:14px;">' +
         '<button onclick="_composeEscolherDestino(\'feed\')" style="flex:1;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;background:' + (_composeDestino==='feed'?'rgba(127,255,0,.1)':cardBg) + ';border:1px solid ' + (_composeDestino==='feed'?'#7FFF00':borda) + ';color:' + txt + ';">📣 Feed da Intus</button>' +
@@ -12279,6 +12283,123 @@ async function abrirPerfilRanking(id, social) {
 // Tudo fica escondido enquanto o servidor estiver com as conexões desligadas (INTUS_CONEXOES_ATIVO em catalogo.php).
 // Amizade: pedido e aceite. Parceria de treino: convite só entre amigos, até 3 parceiros; a sequência em dupla e os
 // treinos no mesmo dia saem das sessões do ranking (API.parceria).
+// ═══════════════ POST COLABORATIVO ═══════════════
+// Quem treinou junto convida amigos para o post. O convite é uma SOLICITAÇÃO: só depois que o convidado aceita o post aparece como
+// colaborativo ("com Fulano"), no perfil dele e no Feed. Servidor: catalogo.php (feed_posts com `colaboradores`, action=post_colab).
+var _composeColab = [];     // amigos escolhidos para o post que está sendo montado
+var _colabConvites = [];    // convites de post que EU recebi e ainda não respondi
+function _colabNomes(ids) { return ids.map(i => esc((_amzPessoa(i).nome || 'Aluno').split(' ')[0])); }
+// Botão (ou chips) no compositor, entre localização e destino. Só com as conexões ligadas.
+function _colabCompositorHtml(isLight, borda, cardBg, muted, txt) {
+  if (!_conexoesOn) return '';
+  if (_composeColab.length) {
+    return '<div onclick="_colabEscolher()" style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + (isLight ? 'rgba(92,184,0,.35)' : 'rgba(127,255,0,.3)') + ';background:' + (isLight ? 'rgba(92,184,0,.08)' : 'rgba(127,255,0,.06)') + ';cursor:pointer;">' +
+      '<span style="font-size:14px;flex-shrink:0;">👥</span>' +
+      '<span style="flex:1;min-width:0;font-size:13px;font-weight:700;color:' + txt + ';">com ' + _colabNomes(_composeColab).join(', ') + ' <span style="font-weight:600;color:' + muted + ';">(convite ao publicar)</span></span>' +
+      '<span onclick="event.stopPropagation();_composeColab=[];_renderComposeFeed();" style="flex-shrink:0;color:' + muted + ';font-size:15px;padding:2px 4px;">✕</span></div>';
+  }
+  return '<button onclick="_colabEscolher()" style="width:100%;display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid ' + borda + ';background:' + cardBg + ';color:' + muted + ';font-size:13px;font-weight:700;cursor:pointer;text-align:left;"><span style="font-size:14px;">👥</span> Convidar colaboradores (quem treinou com você)</button>';
+}
+async function _colabEscolher() {
+  if (!(_amzDados.amigos || []).length) { try { await _amzCarregar(); } catch (e) {} }
+  const amigos = _amzDados.amigos || [];
+  if (!amigos.length) { toast('Você ainda não tem amigos no app. Adicione quem treina com você em Comunidade.'); return; }
+  const parc = _pcDados.parceiros || [];
+  const ordenados = parc.filter(i => amigos.indexOf(i) >= 0).concat(amigos.filter(i => parc.indexOf(i) < 0));
+  _comSheet('colab-pick', '👥 Convidar colaboradores', _colabListaHtml(ordenados), 100020);
+}
+function _colabListaHtml(ordenados) {
+  const isLight = document.body.classList.contains('tema-claro');
+  const parc = _pcDados.parceiros || [];
+  const linhas = ordenados.map(id => {
+    const p = _amzPessoa(id), on = _composeColab.indexOf(id) >= 0;
+    return '<div onclick="_colabToggle(' + Number(id) + ')" style="display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid ' + (isLight ? '#eee' : '#222') + ';cursor:pointer;">' +
+      _amzAvHtml(p, isLight) +
+      '<div style="flex:1;min-width:0;font-size:14px;font-weight:700;">' + esc(p.nome) + (parc.indexOf(id) >= 0 ? ' <span style="font-size:10px;font-weight:800;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">parceiro de treino</span>' : '') + '</div>' +
+      '<span style="width:24px;height:24px;border-radius:7px;border:2px solid ' + (on ? '#7FFF00' : (isLight ? '#ccc' : '#444')) + ';background:' + (on ? '#7FFF00' : 'transparent') + ';color:#0f1a00;font-weight:900;text-align:center;line-height:20px;">' + (on ? '✓' : '') + '</span></div>';
+  }).join('');
+  return '<div id="colab-lista">' + '<div style="font-size:12.5px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin-bottom:6px;">Escolha até 4 amigos. Cada um recebe um convite e só aparece no post depois de aceitar. O post vai para o perfil dos dois.</div>' + linhas +
+    '<button onclick="_colabConfirmar()" style="width:100%;margin-top:14px;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Concluir' + (_composeColab.length ? ' (' + _composeColab.length + ')' : '') + '</button></div>';
+}
+function _colabToggle(id) {
+  const i = _composeColab.indexOf(id);
+  if (i >= 0) _composeColab.splice(i, 1);
+  else { if (_composeColab.length >= 4) { toast('No máximo 4 colaboradores.'); return; } _composeColab.push(id); }
+  const amigos = _amzDados.amigos || [], parc = _pcDados.parceiros || [];
+  const ordenados = parc.filter(x => amigos.indexOf(x) >= 0).concat(amigos.filter(x => parc.indexOf(x) < 0));
+  const c = document.getElementById('colab-pick-corpo'); if (c) c.innerHTML = _colabListaHtml(ordenados);
+}
+function _colabConfirmar() { document.getElementById('colab-pick')?.remove(); _renderComposeFeed(); }
+
+// Linha do cartão do post: quem colaborou (aceitos) e, para o autor, quem ainda não respondeu.
+function _colabLinhaPost(post, isLight) {
+  const cs = post.colaboradores || [], pend = post.colab_pendentes || [];
+  if (!cs.length && !pend.length) return '';
+  const cor = isLight ? '#2d8a00' : '#7FFF00', mut = isLight ? '#999' : '#888';
+  const nomes = cs.map(c => '<b onclick="event.stopPropagation();abrirPerfilAluno(' + Number(c.id) + ')" style="cursor:pointer;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' + esc((c.nome || 'Aluno').split(' ')[0]) + '</b>');
+  const juntos = nomes.length === 1 ? nomes[0] : nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1];
+  return '<div style="font-size:10.5px;font-weight:700;color:' + cor + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+    (cs.length ? '👥 post colaborativo com ' + juntos : '') +
+    (pend.length ? (cs.length ? ' · ' : '') + '<span style="color:' + mut + ';font-weight:600;">⏳ convite enviado a ' + pend.map(c => esc((c.nome || 'Aluno').split(' ')[0])).join(', ') + '</span>' : '') + '</div>';
+}
+// Bloco na tela do post: o autor pode tirar colaboradores; o colaborador pode sair do post.
+function _postColabHtml(post, isLight) {
+  const cs = post.colaboradores || [], souAutor = Number(post.idatleta) === Number(idAtleta);
+  const euColab = cs.some(c => Number(c.id) === Number(idAtleta));
+  if (!(souAutor && cs.length) && !euColab) return '';
+  const borda = isLight ? '#e5e5e5' : '#262626';
+  const btn = (txt, js) => '<button onclick="' + js + '" style="padding:7px 12px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:' + (isLight ? '#555' : '#bbb') + ';">' + txt + '</button>';
+  return '<div style="margin-bottom:12px;padding:12px;border-radius:14px;background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + borda + ';">' +
+    '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">👥 Post colaborativo</div>' +
+    (souAutor ? cs.map(c => '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;font-size:13px;"><span>' + esc(c.nome || 'Aluno') + '</span>' + btn('Tirar do post', 'colabRemover(' + Number(post.idpost) + ',' + Number(c.id) + ')') + '</div>').join('')
+              : '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;"><span>Você colabora neste post.</span>' + btn('Sair do post', 'colabRemover(' + Number(post.idpost) + ',0)') + '</div>') +
+    '</div>';
+}
+async function colabRemover(idpost, idatleta) {
+  if (!confirm(idatleta ? 'Tirar esta pessoa do post?' : 'Sair deste post colaborativo? Ele deixa de aparecer no seu perfil.')) return;
+  try { await _conexoesChamar('post_colab', 'DELETE', null, '&idpost=' + Number(idpost) + (idatleta ? '&idatleta=' + Number(idatleta) : '')); }
+  catch (e) { toast('Não consegui agora. Tente de novo.'); return; }
+  toast(idatleta ? 'Colaborador removido.' : 'Você saiu do post.');
+  document.getElementById('pk-post-ov')?.remove();
+  try { _rankingData = null; if (window._viewAtual === 'feed') renderFeedCompleto(); } catch (e) {}
+}
+
+// Convites que recebi
+async function _colabCarregarConvites() {
+  try { const j = await _conexoesChamar('post_colab'); _colabConvites = Array.isArray(j.convites) ? j.convites : []; } catch (e) { _colabConvites = []; }
+  _amzBadge();
+  if (window._viewAtual === 'amigos') { try { _amzDesenhar(); } catch (e) {} }
+}
+async function colabResponder(idpost, aceitar) {
+  try { await _conexoesChamar('post_colab', 'PUT', { idpost: Number(idpost), aceitar: !!aceitar }); }
+  catch (e) { toast('Não consegui responder agora. Tente de novo.'); return; }
+  _colabConvites = _colabConvites.filter(c => Number(c.idpost) !== Number(idpost));
+  document.getElementById('colab-convite')?.remove();
+  _amzBadge();
+  if (window._viewAtual === 'amigos') { try { _amzDesenhar(); } catch (e) {} }
+  if (aceitar) {
+    toast('Você agora colabora neste post. Ele aparece no seu perfil! 👥');
+    _rankingData = null;   // o distintivo "Dupla Dinâmica" depende do aceite
+    try { _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {}); } catch (e) {}
+    try { if (window._viewAtual === 'feed') renderFeedCompleto(); } catch (e) {}
+  } else toast('Convite recusado.');
+}
+// Folha com o convite (aberta pelo sino): miniatura do post, quem convidou e os botões.
+async function _colabConviteSheet(idpost) {
+  if (!_colabConvites.some(c => Number(c.idpost) === Number(idpost))) await _colabCarregarConvites();
+  const c = _colabConvites.find(x => Number(x.idpost) === Number(idpost));
+  if (!c) { toast('Este convite já foi respondido ou o post não existe mais.'); return; }
+  const isLight = document.body.classList.contains('tema-claro');
+  const html = '<div style="text-align:center;">' +
+    '<img src="' + esc(c.imagem) + '" alt="" style="width:62%;max-width:240px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);margin:2px auto 12px;display:block;"/>' +
+    '<div style="font-size:14px;font-weight:800;margin-bottom:4px;">' + esc(c.autor_nome || 'Um amigo') + ' convidou você para colaborar neste post</div>' +
+    (c.legenda ? '<div style="font-size:12.5px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin-bottom:8px;">“' + esc(String(c.legenda).slice(0, 140)) + '”</div>' : '') +
+    '<div style="font-size:12px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin-bottom:14px;">Aceitando, o post aparece no seu perfil com a marca de colaborativo.</div>' +
+    '<button onclick="colabResponder(' + Number(c.idpost) + ',true)" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;cursor:pointer;">Aceitar</button>' +
+    '<button onclick="colabResponder(' + Number(c.idpost) + ',false)" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:inherit;font-size:13.5px;font-weight:800;cursor:pointer;">Recusar</button></div>';
+  _comSheet('colab-convite', '👥 Convite de post', html, 100030);
+}
+
 var _conexoesOn = false;
 var _desafioAlunoCria = false;   // aluno criar desafio: liberado pelo servidor (INTUS_ALUNO_CRIA_DESAFIO), hoje só a equipe cria
 var _feedSoAmigos = false;
@@ -12305,6 +12426,7 @@ async function _conexoesInit() {
     if (it) it.style.display = _conexoesOn ? '' : 'none';
     if (!_conexoesOn) return;
     await _amzCarregar();
+    await _colabCarregarConvites();
     _amzBadge();
     _pcAvisoParceiros();
   } catch (e) {}
@@ -12316,7 +12438,7 @@ async function _amzCarregar() {
   if (par[3]) _dsDados = par[3];
 }
 function _amzBadge() {
-  const n = ((_amzDados.recebidos || []).length) + ((_pcDados.recebidos || []).length);
+  const n = ((_amzDados.recebidos || []).length) + ((_pcDados.recebidos || []).length) + ((_colabConvites || []).length);
   const b = document.getElementById('menu-amigos-badge');
   if (b) { b.textContent = n; b.style.display = n ? '' : 'none'; }
 }
@@ -12499,10 +12621,14 @@ async function _amzBuscar(q) {
   }).join('') + '</div>';
 }
 function _amzAbaPedidosHtml(isLight) {
-  const ar = _amzDados.recebidos || [], ae = _amzDados.enviados || [], pr = _pcDados.recebidos || [], pe = _pcDados.enviados || [];
-  if (!ar.length && !ae.length && !pr.length && !pe.length) return _amzVazio('📭', 'Nenhum pedido por enquanto', 'Pedidos de amizade e convites para treinar em parceria aparecem aqui.', isLight);
+  const ar = _amzDados.recebidos || [], ae = _amzDados.enviados || [], pr = _pcDados.recebidos || [], pe = _pcDados.enviados || [], cv = _colabConvites || [];
+  if (!ar.length && !ae.length && !pr.length && !pe.length && !cv.length) return _amzVazio('📭', 'Nenhum pedido por enquanto', 'Pedidos de amizade, convites para treinar em parceria e convites para posts colaborativos aparecem aqui.', isLight);
   const tit = (t) => '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 2px;">' + t + '</div>';
   let html = '';
+  if (cv.length) html += tit('Convites para posts colaborativos') + cv.map(c => '<div style="display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid ' + (isLight ? '#eee' : '#222') + ';">' +
+    '<img src="' + esc(c.imagem) + '" alt="" onclick="_colabConviteSheet(' + Number(c.idpost) + ')" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0;cursor:pointer;"/>' +
+    '<div style="flex:1;min-width:0;"><div style="font-size:13.5px;font-weight:700;">' + esc(c.autor_nome || 'Um amigo') + '</div><div style="font-size:12px;color:' + (isLight ? '#666' : '#999') + ';">convidou você para colaborar num post</div></div>' +
+    _amzBtn('Aceitar', 'colabResponder(' + Number(c.idpost) + ',true)', true, isLight) + _amzBtn('Recusar', 'colabResponder(' + Number(c.idpost) + ',false)', false, isLight) + '</div>').join('');
   if (ar.length) html += tit('Querem ser seus amigos') + ar.map(id => _amzLinhaHtml(id, '', _amzBtn('Aceitar', 'amzAceitar(' + id + ')', true, isLight) + _amzBtn('Recusar', 'amzRecusar(' + id + ')', false, isLight), isLight)).join('');
   if (pr.length) html += tit('Convites para treinar em parceria') + pr.map(id => _amzLinhaHtml(id, 'Quer treinar em parceria com você', _amzBtn('Aceitar', 'pcAceitar(' + id + ')', true, isLight) + _amzBtn('Recusar', 'pcRecusar(' + id + ')', false, isLight), isLight)).join('');
   if (ae.length) html += tit('Pedidos enviados') + ae.map(id => _amzLinhaHtml(id, 'Aguardando resposta', _amzBtn('Cancelar', 'amzRemover(' + id + ')', false, isLight), isLight)).join('');
@@ -13293,8 +13419,9 @@ function _pkAbrirPost(idpost) {
 var _perfilPostsLista = [];
 // Selo no canto da miniatura para publicação que não é de todos (só o dono recebe esse dado).
 function _visibSeloHtml(p) {
-  if (!p.visib || p.visib === 'todos') return '';
-  return '<span style="position:absolute;bottom:4px;left:5px;font-size:11px;background:rgba(0,0,0,.55);color:#fff;border-radius:8px;padding:1px 5px;">' + (p.visib === 'eu' ? '🙋' : '👥') + '</span>';
+  const colab = (p.colaboradores && p.colaboradores.length) ? '<span style="position:absolute;top:4px;left:5px;font-size:11px;background:rgba(0,0,0,.55);color:#fff;border-radius:8px;padding:1px 5px;">👥</span>' : '';
+  if (!p.visib || p.visib === 'todos') return colab;
+  return colab + '<span style="position:absolute;bottom:4px;left:5px;font-size:11px;background:rgba(0,0,0,.55);color:#fff;border-radius:8px;padding:1px 5px;">' + (p.visib === 'eu' ? '🙋' : '👥') + '</span>';
 }
 function _perfilAbrirPost(idpost) {
   const post = _perfilPostsLista.find(p => Number(p.idpost) === Number(idpost));
@@ -13343,7 +13470,7 @@ async function abrirPostTela(post) {
   ov.id = 'pk-post-ov';
   ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;';
   ov.innerHTML = '<div style="position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';border-bottom:1px solid ' + (isLight ? '#e5e5e5' : '#222') + ';"><button onclick="document.getElementById(\'pk-post-ov\').remove()" style="background:none;border:none;color:' + (isLight ? '#555' : '#aaa') + ';font-size:14px;font-weight:700;cursor:pointer;">← Voltar</button></div>' +
-    '<div style="max-width:460px;margin:0 auto;padding:12px;min-height:calc(100% + 2px);">' + _postPrivHtml(post, isLight) + _feedCardHtml(post, isLight) + '</div>';
+    '<div style="max-width:460px;margin:0 auto;padding:12px;min-height:calc(100% + 2px);">' + _postPrivHtml(post, isLight) + _postColabHtml(post, isLight) + _feedCardHtml(post, isLight) + '</div>';
   document.body.appendChild(ov);
   _pkTravarFundo();
 }
@@ -13765,6 +13892,9 @@ const CONQUISTAS_DEF = [
   { id:'indicacao1',  e:'🎁', nome:'Embaixador',            desc:'Um amigo se cadastrou com o seu link de indicação. Você já está espalhando o movimento!', metric:'indicacoes', goal:1 },
   // ── Quadro de Resultados ──
   { id:'resultado',   e:'📈', nome:'Prova de Evolução',     desc:'Você compartilhou um resultado no Mural de resultados. Sua evolução inspira quem está começando e mostra que o caminho funciona.', metric:'resultados', goal:1 },
+  { id:'colab1',      e:'👥', nome:'Dupla Dinâmica',        desc:'Você publicou um post colaborativo no Feed. Treinar acompanhado vira hábito, e a conquista de um também é do outro.', metric:'colab', goal:1 },
+  { id:'colab5',      e:'⛓️', nome:'Parceria de Ferro',     desc:'5 posts colaborativos no Feed. Vocês não só treinam juntos: constroem uma parceria que aguenta o ferro pesado.', metric:'colab', goal:5 },
+  { id:'colab15',     e:'🏟️', nome:'Time Inseparável',      desc:'15 posts colaborativos no Feed. Isso já é um time de verdade, e todo mundo no Feed sabe quem anda junto.', metric:'colab', goal:15 },
   { id:'indicacao5',  e:'🤝', nome:'Recrutador nato',       desc:'5 amigos indicados por você já entraram no app pra valer. Você não treina sozinho, você constrói equipe.', metric:'indicacoesAtivas', goal:5 },
 ];
 
@@ -13885,13 +14015,14 @@ function _conquistaMetrics(id) {
   const st = _perfilRankingStats(id);
   // Indicações: dado vem do servidor (treinos.php?action=ranking), não de
   // sessão local — sem o dado ainda carregado, conta 0 em vez de quebrar.
-  let indicacoes = 0, indicacoesAtivas = 0, resultados = 0;
+  let indicacoes = 0, indicacoesAtivas = 0, resultados = 0, colab = 0;
   try {
     if (data.indicacoes) indicacoes = Number(data.indicacoes[alvo]) || 0;
     if (data.indicacoesAtivas) indicacoesAtivas = Number(data.indicacoesAtivas[alvo]) || 0;
     if (data.resultados) resultados = Number(data.resultados[alvo]) || 0;   // contagem do Quadro de Resultados (servidor)
+    if (data.colab) colab = Number(data.colab[alvo]) || 0;                   // posts colaborativos no Feed com colaboração aceita (servidor)
   } catch (e) {}
-  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas, resultados };
+  return { total, cardios, treinos, horas, tiposCardio, maxSemana, equilibrio, streak, top5, top5consec, top10: st.top10month, indicacoes, indicacoesAtivas, resultados, colab };
 }
 
 
@@ -19542,7 +19673,7 @@ document.addEventListener('input', (e) => {
 // Linha de notificação, usada na aba Notificações da Central. Medalha e
 // distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
-  const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯' };
+  const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯', colab_convite: '👥', colab_aceito: '👥' };
   const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
@@ -19559,6 +19690,8 @@ function _notifLinhaHtml(n, isLight) {
     parceria_aceita: 'aceitou treinar em parceria com você',
     turma_entrou: 'entrou na sua turma',
     desafio_convite: 'chamou você para um desafio',
+    colab_convite: 'convidou você para um post colaborativo',
+    colab_aceito: 'aceitou colaborar no seu post',
   }[n.tipo] || 'interagiu com você';
   const noNutri = n.alvo_tipo === 'nutri_dica' ? 'no mural de dicas' : (n.alvo_tipo === 'nutri_video' ? 'no mural do vídeo' : '');
   const acaoFinal = (noNutri && (n.tipo === 'resposta' || n.tipo === 'comentario')) ? 'respondeu seu comentário ' + noNutri : acao;
@@ -19655,6 +19788,7 @@ function _notifAbrir(el) {
   if (tipo === 'distintivo') { navegar('perfil'); return; }
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
+  if (tipo === 'colab_convite') { _colabConviteSheet(alvo); return; }
   if (el.dataset.alvotipo === 'nutri_dica' || el.dataset.alvotipo === 'nutri_video') {
     navegar('nutricao');
     setTimeout(() => {
