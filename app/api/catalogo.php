@@ -2558,13 +2558,15 @@ if ($action === 'comentarios_pub') {
         $texto = _mencoesLimitar($texto, 1000);
         // Mural da Nutrição (dicas e vídeos): o aluno precisa ter plano alimentar ativo para escrever; o alvo tem de existir
         // ('nutri_dica' = o mural único de dicas, id 1; 'nutri_video' = um vídeo ativo). A equipe escreve sempre.
-        if ($tipo === 'nutri_dica' || $tipo === 'nutri_video') {
+        if ($tipo === 'nutri_dica' || $tipo === 'nutri_video' || $tipo === 'nutri_receita') {
             if ($_ehAluno && !_nutriAlunoTemPlano($pdo, $_autorId)) { http_response_code(403); echo json_encode(['error' => 'mural do plano alimentar']); exit; }
             if ($tipo === 'nutri_dica' && $alvo !== 1) { http_response_code(404); echo json_encode(['error' => 'mural nao encontrado']); exit; }
-            if ($tipo === 'nutri_video') {
-                $stV = $pdo->prepare("SELECT 1 FROM intus_nutri_conteudo WHERE idconteudo = ? AND tipo = 'video' AND ativo = 1");
-                $stV->execute([$alvo]);
-                if (!$stV->fetchColumn()) { http_response_code(404); echo json_encode(['error' => 'video nao encontrado']); exit; }
+            if ($tipo === 'nutri_video' || $tipo === 'nutri_receita') {
+                // 'nutri_receita' = comentários de uma receita ativa (feitos ao avaliar), mesmo mecanismo do vídeo.
+                $tipoCont = $tipo === 'nutri_video' ? 'video' : 'receita';
+                $stV = $pdo->prepare("SELECT 1 FROM intus_nutri_conteudo WHERE idconteudo = ? AND tipo = ? AND ativo = 1");
+                $stV->execute([$alvo, $tipoCont]);
+                if (!$stV->fetchColumn()) { http_response_code(404); echo json_encode(['error' => $tipoCont . ' nao encontrado']); exit; }
             }
         }
         // Se responde a outro comentário, confirma que o pai é do MESMO alvo —
@@ -2608,7 +2610,7 @@ if ($action === 'comentarios_pub') {
 
         // Mural da Nutrição: quem responde avisa o autor do comentário-pai; o que o aluno escreve avisa a equipe (professores
         // responsáveis + administradores), para a pergunta não ficar sem resposta. Falha de aviso nunca derruba o comentário.
-        if ($tipo === 'nutri_dica' || $tipo === 'nutri_video') {
+        if ($tipo === 'nutri_dica' || $tipo === 'nutri_video' || $tipo === 'nutri_receita') {
             try {
                 $avisados = [];
                 if ($respostaA > 0) {
@@ -4346,7 +4348,7 @@ if ($action === 'nutri_conteudo') {
         $pdo->prepare("DELETE FROM intus_nutri_conteudo WHERE idconteudo = ?")->execute([$id]);
         try { $pdo->prepare("DELETE FROM intus_nutri_avaliacao WHERE idconteudo = ?")->execute([$id]); } catch (Throwable $e) {}
         try {
-            $stC = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE alvo_tipo = 'nutri_video' AND alvo_id = ?");
+            $stC = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE alvo_tipo IN ('nutri_video', 'nutri_receita') AND alvo_id = ?");
             $stC->execute([$id]);
             $cids = array_map('intval', $stC->fetchAll(PDO::FETCH_COLUMN));
             if ($cids) {

@@ -109,6 +109,14 @@ eq('o autor apaga o próprio', rodar(['metodo' => 'DELETE', 'aluno' => true, 'eu
 $g = rodar(['metodo' => 'GET', 'aluno' => true, 'eu' => 8, 'get' => ['alvo_tipo' => 'nutri_dica', 'ids' => '1']]);
 eq('apagar o comentário leva as respostas', count($g['1'] ?? []), 0);
 
+echo "\n── Comentário da receita (ao avaliar) ──\n";
+eq('aluno com plano comenta a receita', escrever(7, true, 'nutri_receita', 12, 'Ficou ótima, fiz com iogurte grego.')['ok'] ?? null, true);
+eq('aluno sem plano não comenta a receita', escrever(8, true, 'nutri_receita', 12, 'x')['error'] ?? null, 'mural do plano alimentar');
+eq('vídeo não tem mural de receita', escrever(7, true, 'nutri_receita', 10, 'x')['error'] ?? null, 'receita nao encontrado');
+eq('receita que não existe', escrever(7, true, 'nutri_receita', 99, 'x')['error'] ?? null, 'receita nao encontrado');
+$gr = rodar(['metodo' => 'GET', 'aluno' => true, 'eu' => 8, 'get' => ['alvo_tipo' => 'nutri_receita', 'ids' => '12']]);
+eq('todos leem os comentários da receita', count($gr['12'] ?? []), 1);
+
 @unlink($tmp);
 echo "\n" . ($ruim ? $ruim . ' FALHA(S), ' : '') . $ok . " ok\n";
 exit($ruim ? 1 : 0);

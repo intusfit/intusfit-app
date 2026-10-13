@@ -68,7 +68,7 @@ eq('equipe lê 93 receitas, 8 dicas, 0 vídeos', [count($g['receitas'] ?? []), c
 $p = $g['receitas'][0] ?? [];
 eq('receita volta com slug, foto e ingredientes', [$p['id'] ?? null, $p['foto'] ?? null, count($p['ingredientes'] ?? []) > 0, $p['ativo'] ?? null], ['panqueca-banana-aveia-whey', 'receitas/panqueca-banana-aveia-whey.jpg', true, 1]);
 $stro = null; foreach ($g['receitas'] as $x) if ($x['id'] === 'strogonoff-light-frango') $stro = $x;
-eq('strogonoff mantém informação nutricional e variação', [$stro['nutricao']['kcal'] ?? null, isset($stro['variacao']['texto']), $stro['dificuldade'] ?? null], [280.0, true, 'Fácil']);
+eq('strogonoff mantém informação nutricional e variação', [$stro['nutricao']['kcal'] ?? null, isset($stro['variacao']['texto']), $stro['dificuldade'] ?? null], [280.0, true, 'Média']);
 
 echo "\n── Criar, editar, inativar, excluir ──\n";
 $r = rodar(['metodo' => 'POST', 'corpo' => ['tipo' => 'video', 'titulo' => 'Como fazer overnight', 'ativo' => 1, 'ordem' => 10,

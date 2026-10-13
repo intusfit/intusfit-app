@@ -25,7 +25,7 @@ passo "alimentos: ids, medidas caseiras e plano antigo" node alimentos.js
 passo "dashboard: dica dos graficos e curva de crescimento" node dashboard.js
 passo "plano em PDF: leitura do layout e casamento com a base" node pdf_plano.js
 # Endpoint em PHP de verdade (SQLite): só roda se houver php com mbstring, pdo_sqlite e sqlite3.
-if command -v php >/dev/null && php -r 'exit(extension_loaded("pdo_sqlite") && extension_loaded("mbstring") ? 0 : 1);'; then passo "conteúdo da Nutrição (PHP)" php conteudo.php; passo "alimentos e medidas da equipe (PHP)" php equipe.php; passo "avaliações das receitas (PHP)" php avaliacao.php; passo "mural da Nutrição (PHP)" php mural_nutri.php; passo "posts colaborativos (PHP)" php colab.php; else echo "!! php com pdo_sqlite ausente: teste do endpoint de conteúdo pulado."; echo; fi
+if command -v php >/dev/null && php -r 'exit(extension_loaded("pdo_sqlite") && extension_loaded("mbstring") ? 0 : 1);'; then passo "conteúdo da Nutrição (PHP)" php conteudo.php; passo "alimentos e medidas da equipe (PHP)" php equipe.php; passo "avaliações das receitas (PHP)" php avaliacao.php; passo "mural da Nutrição (PHP)" php mural_nutri.php; passo "posts colaborativos (PHP)" php colab.php; passo "reação e comentário nos feedbacks em vídeo (PHP)" php feedback_interacao.php; else echo "!! php com pdo_sqlite ausente: teste do endpoint de conteúdo pulado."; echo; fi
 
 # Os testes de navegador precisam de um servidor HTTP: o cache-buster "?v=" não
 # funciona em file:// e as telas nem chegam a carregar os scripts.

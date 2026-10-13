@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
-  <script src="_mock.js?v=20261013a"></script>
+  <script src="_mock.js?v=20261013b"></script>
   <script src="api.js?v=20261008f"></script>
   <script src="alimentos-db.js?v=20261009a"></script>
   <script src="importar-pdf.js?v=20261009a"></script>
@@ -3301,11 +3301,13 @@ async function muralCarregar() {
   cont.muralCarregando = true; render();
   try {
     const vids = cont.videos.filter(v => Number(v.idconteudo) > 0);
-    const [d, v] = await Promise.all([
+    const recs = (cont.receitas || []).filter(v => Number(v.idconteudo) > 0);
+    const [d, v, rc] = await Promise.all([
       apiFetch('/catalogo.php?action=comentarios_pub&alvo_tipo=nutri_dica&ids=1&_=' + Date.now()),
       vids.length ? apiFetch('/catalogo.php?action=comentarios_pub&alvo_tipo=nutri_video&ids=' + vids.map(x => x.idconteudo).join(',') + '&_=' + Date.now()) : Promise.resolve({}),
+      recs.length ? apiFetch('/catalogo.php?action=comentarios_pub&alvo_tipo=nutri_receita&ids=' + recs.map(x => x.idconteudo).join(',') + '&_=' + Date.now()) : Promise.resolve({}),
     ]);
-    cont.mural = { dica: (d && d['1']) || [], videos: v || {} };
+    cont.mural = { dica: (d && d['1']) || [], videos: v || {}, receitas: rc || {} };
   } catch (e) { cont.mural = { erro: e.message || 'Não consegui carregar o mural.' }; }
   cont.muralCarregando = false; render();
 }
@@ -3338,6 +3340,10 @@ function muralHtml() {
   cont.videos.filter(v => Number(v.idconteudo) > 0).forEach(v => {
     const l = cont.mural.videos[String(v.idconteudo)] || [];
     if (l.length) blocos.push(_muralBloco('▶ ' + v.titulo, 'nutri_video', Number(v.idconteudo), l));
+  });
+  (cont.receitas || []).filter(v => Number(v.idconteudo) > 0).forEach(v => {
+    const l = (cont.mural.receitas || {})[String(v.idconteudo)] || [];
+    if (l.length) blocos.push(_muralBloco('🍽️ ' + v.titulo, 'nutri_receita', Number(v.idconteudo), l));
   });
   return `<div style="padding:20px;max-width:980px;"><div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">Tudo o que os alunos escrevem no mural de dicas e nos vídeos do app aparece aqui. Responda como equipe: o aluno recebe o aviso no sino. Só alunos com plano alimentar ativo escrevem.</div>${blocos.join('')}</div>`;
 }

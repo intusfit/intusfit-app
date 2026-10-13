@@ -21,6 +21,11 @@
  *   PÚBLICAS (sem login — quem tem o token do link):
  *     GET  ?action=ver&v=TOKEN                  -> {ok, feedback:{titulo, descricao, aluno_nome, professor_nome, criado_em, duracao_seg, video_url}}
  *     GET  ?action=video&v=TOKEN                -> bytes do vídeo (aceita Range)
+ *     GET  ?action=interacoes&v=TOKEN           -> {ok, reacao, comentarios:[{id, autor_tipo, autor_nome, texto, criado_em, meu}], sou_equipe}
+ *     POST ?action=interagir {v, tipo:'comentario', texto} | {v, tipo:'reacao', emoji} (emoji '' tira) -> {ok}
+ *     POST ?action=apagar_interacao {v, id}      -> {ok}
+ *       (O aluno reage e comenta pelo link OU pelo app: o app manda o mesmo token, então um reflete no outro. Com Bearer de
+ *        professor no cabeçalho, o comentário sai como da equipe; sem ele, como do aluno do feedback.)
  *   ALUNO LOGADO (Bearer de aluno):
  *     GET  ?action=meus                         -> feedbacks prontos do próprio aluno
  *   PROFESSOR (Bearer de professor, mesmo login do painel):
@@ -35,6 +40,8 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
 require_once __DIR__ . '/_charset_fix.php';
 require_once __DIR__ . '/_gdrive.php';
+require_once __DIR__ . '/_notificacoes.php';
+require_once __DIR__ . '/_rate_limit.php';
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control, Range');
 
@@ -146,6 +153,47 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
 _intusGarantirUtf8mb4($pdo, 'intus_feedback', ['professor_nome', 'aluno_nome', 'titulo', 'descricao']);
+// Reação (1 do aluno por feedback, tipo 'reacao', emoji em `texto`) e comentários (aluno e equipe) de cada feedback. Tabela nova, só aditiva.
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS intus_feedback_interacao (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        idfeedback  INT NOT NULL,
+        tipo        VARCHAR(12) NOT NULL DEFAULT 'comentario',
+        autor_tipo  VARCHAR(10) NOT NULL DEFAULT 'aluno',
+        autor_nome  VARCHAR(150) NOT NULL DEFAULT '',
+        texto       VARCHAR(600) NOT NULL DEFAULT '',
+        criado_em   DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_feedback (idfeedback, tipo)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+_intusGarantirUtf8mb4($pdo, 'intus_feedback_interacao', ['autor_nome', 'texto']);
+const FB_REACOES = ['❤️', '🔥', '👏', '💪', '🙏', '👍'];
+
+// Quem está agindo: professor (Bearer do painel) ou o aluno do feedback (link ou app). Devolve [tipo, nome, id, ehEquipe].
+function _fbAtor(PDO $pdo, array $fb): array {
+    if (bearerToken() !== '') {
+        require_once __DIR__ . '/_auth_context.php';
+        $c = getAuthContext($pdo, bearerToken());
+        if ((int)($c['idusuario'] ?? 0) > 0 && empty($c['is_aluno'])) return ['prof', (string)($c['nmusuario'] ?? 'Equipe'), (int)$c['idusuario'], true];
+    }
+    $partes = preg_split('/\s+/', trim($fb['aluno_nome']));
+    return ['aluno', $partes[0] ?? 'Aluno', (int)$fb['idatleta'], false];
+}
+
+// Reação e nº de comentários de cada feedback da lista (professor e aluno).
+function _fbAnexarInteracoes(PDO $pdo, array &$lista) {
+    if (!$lista) return;
+    $ids = array_map(function ($f) { return (int)$f['id']; }, $lista);
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    $reac = []; $nCom = [];
+    try {
+        $st = $pdo->prepare("SELECT idfeedback, tipo, COUNT(*) AS n, MAX(texto) AS t FROM intus_feedback_interacao WHERE idfeedback IN ($ph) GROUP BY idfeedback, tipo");
+        $st->execute($ids);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) { if ($r['tipo'] === 'reacao') $reac[(int)$r['idfeedback']] = $r['t']; else $nCom[(int)$r['idfeedback']] = (int)$r['n']; }
+    } catch (Throwable $e) {}
+    foreach ($lista as &$f) { $f['reacao'] = $reac[(int)$f['id']] ?? ''; $f['n_comentarios'] = $nCom[(int)$f['id']] ?? 0; }
+    unset($f);
+}
 
 function _fbPorToken(PDO $pdo, $token) {
     if (!preg_match('/^[0-9a-f]{32}$/', (string)$token)) return null;
@@ -227,6 +275,70 @@ try {
         exit;
     }
 
+    if ($action === 'interacoes') {
+        $r = _fbPorToken($pdo, $_GET['v'] ?? '');
+        if (!$r) _fbResponder(404, ['ok' => false, 'erro' => 'Este feedback não existe mais ou o link está incompleto.']);
+        [$aTipo, , , $equipe] = _fbAtor($pdo, $r);
+        $st = $pdo->prepare("SELECT id, tipo, autor_tipo, autor_nome, texto, criado_em FROM intus_feedback_interacao WHERE idfeedback = ? ORDER BY id ASC LIMIT 400");
+        $st->execute([(int)$r['id']]);
+        $reacao = ''; $coms = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $x) {
+            if ($x['tipo'] === 'reacao') { $reacao = $x['texto']; continue; }
+            $coms[] = ['id' => (int)$x['id'], 'autor_tipo' => $x['autor_tipo'], 'autor_nome' => $x['autor_nome'], 'texto' => $x['texto'], 'criado_em' => $x['criado_em'], 'meu' => $x['autor_tipo'] === $aTipo];
+        }
+        echo json_encode(['ok' => true, 'reacao' => $reacao, 'comentarios' => $coms, 'sou_equipe' => $equipe]);
+        exit;
+    }
+
+    if ($action === 'interagir' || $action === 'apagar_interacao') {
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') _fbResponder(405, ['ok' => false, 'erro' => 'use POST']);
+        $b = json_decode(file_get_contents('php://input'), true) ?: [];
+        $r = _fbPorToken($pdo, (string)($b['v'] ?? ''));
+        if (!$r) _fbResponder(404, ['ok' => false, 'erro' => 'Este feedback não existe mais ou o link está incompleto.']);
+        [$aTipo, $aNome, $aId, $equipe] = _fbAtor($pdo, $r);
+        $idfb = (int)$r['id'];
+
+        if ($action === 'apagar_interacao') {
+            $idm = (int)($b['id'] ?? 0);
+            $st = $pdo->prepare("SELECT autor_tipo FROM intus_feedback_interacao WHERE id = ? AND idfeedback = ? AND tipo = 'comentario'");
+            $st->execute([$idm, $idfb]);
+            $dono = $st->fetchColumn();
+            if ($dono === false) _fbResponder(404, ['ok' => false, 'erro' => 'comentario nao encontrado']);
+            if ($dono !== $aTipo && !$equipe) _fbResponder(403, ['ok' => false, 'erro' => 'sem permissao']);
+            $pdo->prepare("DELETE FROM intus_feedback_interacao WHERE id = ?")->execute([$idm]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        checkRateLimit($pdo, 'fb_interagir', 40, 600);
+        $tipo = (string)($b['tipo'] ?? '');
+        if ($tipo === 'reacao') {
+            if ($equipe) _fbResponder(403, ['ok' => false, 'erro' => 'so o aluno reage']);
+            $emoji = (string)($b['emoji'] ?? '');
+            if ($emoji !== '' && !in_array($emoji, FB_REACOES, true)) _fbResponder(400, ['ok' => false, 'erro' => 'reacao invalida']);
+            $pdo->prepare("DELETE FROM intus_feedback_interacao WHERE idfeedback = ? AND tipo = 'reacao'")->execute([$idfb]);
+            if ($emoji !== '') $pdo->prepare("INSERT INTO intus_feedback_interacao (idfeedback, tipo, autor_tipo, autor_nome, texto) VALUES (?, 'reacao', 'aluno', ?, ?)")->execute([$idfb, $aNome, $emoji]);
+            echo json_encode(['ok' => true, 'reacao' => $emoji]);
+            exit;
+        }
+        if ($tipo === 'comentario') {
+            $texto = trim((string)($b['texto'] ?? ''));
+            $texto = function_exists('mb_substr') ? mb_substr($texto, 0, 500) : substr($texto, 0, 500);
+            if ($texto === '') _fbResponder(400, ['ok' => false, 'erro' => 'texto obrigatorio']);
+            $st = $pdo->prepare("SELECT COUNT(*) FROM intus_feedback_interacao WHERE idfeedback = ? AND tipo = 'comentario'");
+            $st->execute([$idfb]);
+            if ((int)$st->fetchColumn() >= 300) _fbResponder(400, ['ok' => false, 'erro' => 'limite de comentarios']);
+            $pdo->prepare("INSERT INTO intus_feedback_interacao (idfeedback, tipo, autor_tipo, autor_nome, texto) VALUES (?, 'comentario', ?, ?, ?)")->execute([$idfb, $aTipo, $aNome, $texto]);
+            $novo = (int)$pdo->lastInsertId();
+            // Avisa o outro lado pelo sino: o aluno escreveu -> o professor; a equipe respondeu -> o aluno.
+            if ($aTipo === 'aluno') _criarNotificacao($pdo, 'prof', (int)$r['idprofessor'], 'comentario', 'aluno', (int)$r['idatleta'], $aNome, 'feedback', $idfb, $texto);
+            else _criarNotificacao($pdo, 'aluno', (int)$r['idatleta'], 'resposta', 'prof', $aId, $aNome, 'feedback', $idfb, $texto);
+            echo json_encode(['ok' => true, 'id' => $novo]);
+            exit;
+        }
+        _fbResponder(400, ['ok' => false, 'erro' => 'tipo invalido']);
+    }
+
     // ======================= COM LOGIN =======================
 
     require_once __DIR__ . '/_auth_context.php';
@@ -236,7 +348,9 @@ try {
         if (empty($ctx['is_aluno']) || (int)($ctx['idatleta'] ?? 0) <= 0) _fbResponder(401, ['ok' => false, 'erro' => 'sem sessao de aluno']);
         $st = $pdo->prepare("SELECT * FROM intus_feedback WHERE idatleta = ? AND status = 'pronto' ORDER BY criado_em DESC LIMIT 200");
         $st->execute([(int)$ctx['idatleta']]);
-        echo json_encode(['ok' => true, 'feedbacks' => array_map(function ($r) { return _fbResumo($r, true); }, $st->fetchAll(PDO::FETCH_ASSOC))]);
+        $lista = array_map(function ($r) { return _fbResumo($r, true); }, $st->fetchAll(PDO::FETCH_ASSOC));
+        _fbAnexarInteracoes($pdo, $lista);
+        echo json_encode(['ok' => true, 'feedbacks' => $lista]);
         exit;
     }
 
@@ -283,6 +397,7 @@ try {
             $st->execute([$idprofessor]);
         }
         $lista = array_map(function ($r) { return _fbResumo($r, true); }, $st->fetchAll(PDO::FETCH_ASSOC));
+        _fbAnexarInteracoes($pdo, $lista);
         $total = 0; foreach ($lista as $f) if ($f['status'] === 'pronto') $total += $f['tamanho_bytes'];
         echo json_encode(['ok' => true, 'feedbacks' => $lista, 'espaco_bytes' => $total, 'cota' => _fbCota($pdo, $idprofessor)]);
         exit;

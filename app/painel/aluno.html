@@ -325,6 +325,9 @@
     .menu-panel .menu-header {
       padding: 12px 18px 14px; border-bottom: 1px solid #2a2a2a; text-align: center;
     }
+    .menu-panel .menu-header { position: relative; }
+    .menu-panel .menu-fechar { position: absolute; top: 6px; right: 8px; width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(255,255,255,.08); color: #ccc; font-size: 17px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: inherit; }
+    body.tema-claro .menu-panel .menu-fechar { background: #eee; color: #555; }
     .menu-panel .menu-header img { height: 28px; margin-bottom: 4px; }
     .menu-panel .menu-header .tagline { font-size: 10px; color: #666; font-style: italic; }
     .menu-panel .menu-item {
@@ -1095,6 +1098,7 @@
 <div class="menu-overlay" id="menu-overlay" onclick="fecharMenu(event)">
   <div class="menu-panel" onclick="event.stopPropagation()">
     <div class="menu-header">
+      <button type="button" class="menu-fechar" onclick="fecharMenuDireto()" aria-label="Fechar menu">✕</button>
       <img id="menu-logo" src="logo-intus-light.png" alt="Intus"/>
       <div class="tagline">Te levamos ao próximo nível.</div>
     </div>
@@ -3894,9 +3898,13 @@ function _renderComposeFeed() {
   ov.id = 'feed-compose-overlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:600;background:' + bg + ';overflow-y:auto;';
   ov.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
-      '<span style="font-size:15px;font-weight:800;color:' + txt + ';">' + titulo + '</span>' +
-      '<button onclick="_fecharComposeFeed()" style="background:' + cardBg + ';border:1px solid ' + borda + ';border-radius:10px;width:34px;height:34px;color:' + txt + ';font-size:16px;cursor:pointer;">✕</button>' +
+    // Mesmo cabeçalho das outras telas do app (Voltar, título no centro, logo à direita).
+    '<div style="position:sticky;top:0;z-index:2;background:' + bg + ';padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';">' +
+      '<div style="position:relative;display:flex;align-items:center;min-height:34px;max-width:460px;margin:0 auto;">' +
+        '<button class="btn-back" onclick="_fecharComposeFeed()" style="position:relative;z-index:1;">← Voltar</button>' +
+        '<div style="position:absolute;left:0;right:0;padding:0 82px 0 70px;text-align:center;font-size:18px;font-weight:900;color:' + txt + ';pointer-events:none;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + titulo + '</div>' +
+        '<img src="' + (isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus" style="position:absolute;right:0;height:16px;"/>' +
+      '</div>' +
     '</div>' +
     '<div style="max-width:340px;margin:0 auto;padding:16px;">' +
       // BUG real: a prévia forçava aspect-ratio:1/1 + object-fit:cover — toda
@@ -10499,7 +10507,7 @@ function renderCardio() {
       <div id="cardio-preview" style="text-align:center;padding:12px;background:${isLight?'rgba(6,182,212,.06)':'rgba(6,182,212,.08)'};border:1px solid rgba(6,182,212,.2);border-radius:10px;margin-bottom:10px;"></div>
 
       ${(() => { const usados = _cardiosContadosHoje(); const rest = Math.max(0, _cardioRegras.limiteDia - usados); const cheio = rest === 0;
-        return `<div style="text-align:center;font-size:11.5px;color:${cheio?(isLight?'#9a3412':'#fdba74'):(isLight?'#0e7490':'#67e8f9')};margin-bottom:12px;">${cheio ? '⚠️ Limite diário atingido, novos cardios hoje não somam pontos.' : `Cardios que contam hoje: <b>${usados}/${_cardioRegras.limiteDia}</b> · faltam ${rest}`}</div>`; })()}
+        return `<div style="text-align:center;font-size:11.5px;color:${isLight?'#0e7490':'#67e8f9'};margin-bottom:12px;">Pontuam até <b>${_cardioRegras.limiteDia} cardios por dia</b>.</div>`; })()}
 
       <button onclick="confirmarCardio()" class="btn btn-prim btn-full" style="background:linear-gradient(135deg,#06b6d4,#0ea5e9);border:none;">🏃 Registrar cardio</button>
       </div>
@@ -10960,6 +10968,8 @@ let _cardioLiveTipo = 'Caminhada';
 let _cardioLiveParado = false;
 let _cardioLivePontos = [];      // [{lat, lng, t}]
 let _cardioLiveDistM = 0;
+let _cardioLiveProxPausa = false;   // true entre pausar e a 1ª posição depois de retomar: esse intervalo é pausa, não GPS cego
+let _cardioLiveLacunaS = 0;      // segundos sem posição de GPS (tela bloqueada ou app em segundo plano): a distância desse trecho não foi medida
 let _cardioLiveInicioMs = 0;
 let _cardioLivePausadoDesde = 0;
 let _cardioLiveMsPausado = 0;
@@ -10979,7 +10989,7 @@ function _cardioLiveSalvarAtivo() {
   if (!_cardioLiveInicioMs) return;
   try {
     localStorage.setItem(CARDIO_LIVE_ATIVO_KEY, JSON.stringify({
-      tipo: _cardioLiveTipo, distM: _cardioLiveDistM, inicioMs: _cardioLiveInicioMs,
+      tipo: _cardioLiveTipo, distM: _cardioLiveDistM, lacunaS: _cardioLiveLacunaS, inicioMs: _cardioLiveInicioMs,
       msPausado: _cardioLiveMsPausado, pausadoDesde: _cardioLiveRodando ? 0 : (_cardioLivePausadoDesde || Date.now()),
       rodando: _cardioLiveRodando, salvoEm: Date.now(),
     }));
@@ -11004,6 +11014,7 @@ function _cardioLiveRestaurarSeAtivo() {
   if (!st) return;
   _cardioLiveTipo = st.tipo || 'Corrida';
   _cardioLiveDistM = st.distM || 0;
+  _cardioLiveLacunaS = st.lacunaS || 0;
   _cardioLiveInicioMs = st.inicioMs;
   _cardioLiveMsPausado = st.msPausado || 0;
   _cardioLivePausadoDesde = st.pausadoDesde || Date.now();
@@ -11033,6 +11044,7 @@ function abrirCardioLive() {
     _cardioLiveParado = false;
     _cardioLivePontos = [];
     _cardioLiveDistM = 0;
+    _cardioLiveLacunaS = 0;
     _cardioLiveMsPausado = 0;
     _cardioLiveRodando = false;
   }
@@ -11088,13 +11100,17 @@ function _cardioLiveOnPos(pos) {
   if (accuracy != null && accuracy > 40) return;
   const novo = { lat: latitude, lng: longitude, t: Date.now() };
   const anterior = _cardioLivePontos[_cardioLivePontos.length - 1];
-  if (anterior) {
+  const veioDePausa = _cardioLiveProxPausa; _cardioLiveProxPausa = false;
+  if (anterior && veioDePausa) {
+    novo.novoTrecho = true;   // retomou depois de pausar: não soma o salto e não conta como GPS cego
+  } else if (anterior) {
     const dtS = (novo.t - anterior.t) / 1000;
     if (dtS > CARDIO_LIVE_GAP_S) {
       // Lacuna de GPS grande: não soma a distância do "pulo" (seria uma linha
       // reta que o aluno nunca percorreu) e marca como início de um novo
       // trecho, pro mapa não ligar os dois lados com uma linha reta.
       novo.novoTrecho = true;
+      _cardioLiveLacunaS += dtS;
     } else {
       const d = _haversineM(anterior.lat, anterior.lng, novo.lat, novo.lng);
       // Acima de 10 m/s (36 km/h) sustentado e quase sempre erro de GPS, nao o aluno.
@@ -11150,6 +11166,7 @@ function _cardioLiveIniciarRastreio() {
 
 function _cardioLivePausar() {
   _cardioLiveRodando = false;
+  _cardioLiveProxPausa = true;
   _cardioLivePausadoDesde = Date.now();
   if (_cardioLiveWatchId != null) { navigator.geolocation.clearWatch(_cardioLiveWatchId); _cardioLiveWatchId = null; }
   if (_cardioLiveTimerUi) { clearInterval(_cardioLiveTimerUi); _cardioLiveTimerUi = null; }
@@ -11416,9 +11433,20 @@ function _cardioLiveFinalizar() {
   // silencioso: a foto do cardio ao vivo só pode vir da tela de esforço,
   // depois de finalizar (ver _renderTelaEsforcoCardioLive).
   _cardioFoto = '';
-  const distKm = _cardioLiveKm();
+  let distKm = _cardioLiveKm();
   const min = Math.round(_cardioLiveTempoMs() / 60000);
   const tipo = _cardioLiveTipo;
+  // TEMPORÁRIO até o app sair oficialmente nas lojas: sem o app nativo, o celular para de entregar o GPS com a tela bloqueada ou o app em
+  // segundo plano e a distância sairia menor que a real. Se o GPS ficou "cego" por mais que uma folga pequena, a distância não é registrada
+  // (só o tempo) e o aluno é avisado. Cardio sem GPS (aparelho, escada...) não passa por aqui.
+  let distDescartada = false;
+  if (CARDIO_LIVE_USA_GPS[tipo] && !_cardioLiveParado) {
+    const ult = _cardioLivePontos[_cardioLivePontos.length - 1];
+    const semSinalFinal = (ult && _cardioLiveRodando) ? Math.max(0, (Date.now() - ult.t) / 1000) : 0;
+    const cego = _cardioLiveLacunaS + (semSinalFinal > CARDIO_LIVE_GAP_S ? semSinalFinal : 0);
+    const totalS = _cardioLiveTempoMs() / 1000;
+    if (distKm > 0 && cego > Math.max(20, totalS * 0.08)) { distKm = 0; distDescartada = true; }
+  }
   // Snapshot ANTES de _cardioLivePararTudo/limpar — o array em si não é
   // zerado por essas duas, mas a próxima sessão de cardio zera, e não
   // queremos depender de "ninguém mexeu ainda" pra tela de esforço mostrar
@@ -11439,7 +11467,7 @@ function _cardioLiveFinalizar() {
   salvarCardio({
     silencioso: true,
     aoVivo: true,
-    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos }); },
+    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos, distDescartada: distDescartada }); },
   });
 }
 
@@ -11481,6 +11509,7 @@ function _renderTelaEsforcoCardioLive(dados) {
         <div style="flex:1;">
           <div style="font-size:14px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(dados.tipo)}</div>
           <div style="font-size:12px;color:${isLight?'#666':'#999'};">${dados.min} min${usaGps && dados.distKm>0 ? ' · ' + dados.distKm.toFixed(2) + ' km' : ''}</div>
+          ${dados.distDescartada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante o cardio, então a distância não pôde ser medida com precisão. Registramos só o <b>tempo</b>. Para marcar a distância, mantenha esta tela aberta no app. Isso é temporário até a publicação oficial do app nas lojas.</div>` : ''}
         </div>
       </div>
       <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Como foi o esforço?</label>
@@ -11687,6 +11716,9 @@ function _renderCardioLive() {
       '</div>')
     : '<span id="cl-tempo" style="display:none;">00:00</span>'; // sem GPS o tempo mora só no hero; mantém o id p/ o mesmo updater funcionar
 
+  const avisoTemp = usaGps
+    ? '<div style="font-size:11.5px;line-height:1.5;color:#888;text-align:center;margin:0 4px 14px;">📌 Por enquanto o app registra com certeza só o <b>tempo</b>. A <b>distância</b> só é medida com precisão se esta tela ficar aberta no app (não bloqueie o celular nem troque de app). Se a tela apagar, registramos só o tempo. Isso é temporário até a publicação oficial do app nas lojas.</div>'
+    : '';
   // Antes de começar: cartão comum, escolher atividade. Rastreando: modo
   // imersivo (fundo solido, numero enorme, botão circular), no espírito de
   // apps de corrida de referência.
@@ -11695,6 +11727,7 @@ function _renderCardioLive() {
       '<div class="cl-glow-bg">' +
         '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">' + chips + '</div>' +
         paradoToggleHtml +
+        avisoTemp +
         heroHtml + rotaHtml + statsHtml +
         '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar' + (usaGps ? ' a rastrear' : '') + '</button>' +
       '</div>' +
@@ -11705,6 +11738,7 @@ function _renderCardioLive() {
         // (Escada/Elíptico); corrida/caminhada/bike ficavam sem nenhuma
         // indicação disso durante o rastreio.
         '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.65);margin-bottom:10px;">' + CARDIO_LIVE_EMOJI[_cardioLiveTipo] + ' ' + _cardioLiveTipo + '</div>' +
+        (usaGps ? '<div style="font-size:11px;line-height:1.45;color:rgba(10,10,10,.65);text-align:center;margin:-2px 6px 12px;">Mantenha esta tela aberta: se ela apagar, só o tempo será registrado (temporário até a publicação oficial do app nas lojas).</div>' : '') +
         (usaGps ? '<div style="display:flex;justify-content:space-between;margin-bottom:18px;">' +
           '<div class="cl-stat-top"><div class="n" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0' : '--\'--\'\'') + '</div><div class="l">' + (_cardioLiveTipo === 'Bike' ? 'km/h' : 'Pace') + '</div></div>' +
           '<div class="cl-stat-top"><div class="n">--</div><div class="l">BPM</div></div>' +
@@ -11791,11 +11825,17 @@ function telaHeader(titulo, backView) {
   const bv = backView || 'home';
   return '<div class="tela-header-fixa">' +
     '<div style="position:relative;display:flex;align-items:center;min-height:34px;">' +
-      '<button class="btn-back" onclick="trocarView(\'' + bv + '\')" style="position:relative;z-index:1;">← Voltar</button>' +
+      '<button class="btn-back" onclick="' + (backView ? 'trocarView(\'' + bv + '\')' : 'voltarTela()') + '" style="position:relative;z-index:1;">← Voltar</button>' +
       '<div class="th-titulo" style="position:absolute;left:0;right:0;padding:0 82px 0 60px;text-align:center;font-size:18px;font-weight:900;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';pointer-events:none;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (titulo || '') + '</div>' +
       '<img src="' + (isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus" style="position:absolute;right:0;height:16px;opacity:1;"/>' +
     '</div>' +
   '</div>';
+}
+// "← Voltar" das telas: volta para a tela de onde o aluno veio (a mesma pilha do gesto de voltar do celular), não sempre para o início.
+function voltarTela(fallback) {
+  if (typeof viewStack !== 'undefined' && viewStack.length > 1) { history.back(); return; }
+  trocarView(fallback || 'home');
+  if ((fallback || 'home') === 'home' && typeof renderHome === 'function') renderHome();
 }
 function rankingHeader(titulo) { return telaHeader(titulo || '🥇 Ranking'); }
 
@@ -14392,27 +14432,10 @@ function _conquistasGridHtml(id, isLight) {
         '<div style="font-size:11px;color:' + (isLight ? '#888' : '#999') + ';margin-top:5px;">' + (falt ? falt + ' ainda para conquistar' : 'Todos desbloqueados!') + '</div>' +
       '</div>' +
     '</div>';
-  const scorePanel = '<div style="padding:16px;border-radius:16px;margin-bottom:14px;background:' + (isLight ? 'linear-gradient(160deg,#fafafa,#f2f2f2)' : 'linear-gradient(160deg,#161616,#0f0f0f)') + ';border:1px solid ' + (isLight ? '#e8e8e8' : '#242424') + ';">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
-        '<span style="font-size:11px;font-weight:800;color:' + (isLight ? '#888' : '#888') + ';text-transform:uppercase;letter-spacing:.5px;">Seu placar</span>' +
-      '</div>' +
-      distintivosHtml +
-      '<div style="display:flex;align-items:center;gap:8px;">' +
-        stat(m.treinos, 'Treinos válidos', (isLight ? '#3f6212' : '#a3e635')) + divisor +
-        stat(m.cardios, 'Cardios', (isLight ? '#0e7490' : '#22d3ee')) + divisor +
-        stat(m.horas + 'h', 'Horas totais', (isLight ? '#7c3aed' : '#a78bfa')) +
-      '</div>' +
-      '<div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid ' + (isLight ? '#eaeaea' : '#242424') + ';">' +
-        stat(m.streak, 'Semanas seguidas', (isLight ? '#b45309' : '#fbbf24')) + divisor +
-        stat(m.top5, 'Vezes no Top 5', (isLight ? '#a16207' : '#facc15')) + divisor +
-        stat(m.tiposCardio, 'Tipos de cardio', (isLight ? '#0891b2' : '#67e8f9')) +
-      '</div>' +
-      progressoHtml +
-    '</div>';
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
       '<div style="font-size:15px;font-weight:900;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">🏅 Minhas Conquistas</div>' +
     '</div>' +
-    scorePanel +
+    distintivosHtml +
     '<div style="font-size:11px;color:' + (isLight ? '#888' : '#888') + ';margin-bottom:12px;line-height:1.5;">Toque num distintivo para ver a explicação. Eles aparecem no seu perfil do ranking para todos verem. 💪</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">' + cards + '</div>';
 }
@@ -16696,6 +16719,17 @@ function _fbCarregarPlayer() {
   });
 }
 
+function _fbCarregarInteracao() {
+  if (window.IntusFeedbackInteracao) return Promise.resolve();
+  return new Promise(function(resolve, reject) {
+    const s = document.createElement('script');
+    s.src = String(API_BASE).replace(/\/app\/api\/?$/, '') + '/feedback/interacao.js?v=20261013a';
+    s.onload = resolve;
+    s.onerror = function() { reject(new Error('interacao')); };
+    document.head.appendChild(s);
+  });
+}
+
 function abrirFeedbackVideo(i) {
   const f = _feedbacksAluno[i];
   if (!f) return;
@@ -16710,6 +16744,7 @@ function abrirFeedbackVideo(i) {
     '<p id="fb-status" style="font-size:13px;color:#7FFF00;margin-bottom:10px;" hidden></p>' +
     '<video id="fb-video" controls playsinline preload="metadata" style="width:100%;max-height:70vh;background:#000;border-radius:12px;display:block;"></video>' +
     '<div id="fb-erro" style="font-size:12.5px;color:#f59e0b;margin-top:10px;line-height:1.5;" hidden></div>' +
+    '<div id="fb-interacao"></div>' +
     (f.descricao ? '<div style="margin-top:14px;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;background:' + (isLight ? '#fff' : '#141414') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#1e1e1e') + ';">' + esc(f.descricao) + '</div>' : '') +
     getFooterHtml();
   trocarView('avaliacoes');
@@ -16721,6 +16756,11 @@ function abrirFeedbackVideo(i) {
   }
   const status = document.getElementById('fb-status');
   const erro = document.getElementById('fb-erro');
+  // Reagir e comentar: o mesmo bloco da página do link (o que o aluno faz em um aparece no outro e para o professor).
+  if (token) _fbCarregarInteracao().then(function() {
+    const alvo = document.getElementById('fb-interacao');
+    if (alvo && window.IntusFeedbackInteracao) IntusFeedbackInteracao.montar(alvo, { api: API_BASE + '/feedbacks.php', token: token, claro: isLight });
+  }).catch(function() {});
   _fbCarregarPlayer().then(function() {
     return window.IntusFeedbackPlayer.carregar(document.getElementById('fb-video'),
       API_BASE + '/feedbacks.php?action=video&v=' + token, {
@@ -18114,7 +18154,7 @@ function _nutriRender() {
   if (!box) return;
   const y = window.scrollY;
   let t = _nutri.tela;
-  const _precisaMural = (t === 'dicas') ? ['nutri_dica', 1] : ((t === 'video') ? ['nutri_video', Number(((_nutriCont.videos.find(x => x.id === _nutri.video)) || {}).idconteudo) || 0] : null);
+  const _precisaMural = (t === 'dicas') ? ['nutri_dica', 1] : ((t === 'video') ? ['nutri_video', Number(((_nutriCont.videos.find(x => x.id === _nutri.video)) || {}).idconteudo) || 0] : ((t === 'receita') ? ['nutri_receita', Number(_nutriIdc(_nutriRec(_nutri.receita))) || 0] : null));
   if (t === 'plano' && !_nutri.plano) t = 'home';
   box.innerHTML = t === 'plano' ? _nutriPlanoHtml() : (t === 'receitas' ? _nutriReceitasHtml() : (t === 'receita' ? _nutriReceitaHtml()
     : (t === 'videos' ? _nutriVideosHtml() : (t === 'dicas' ? _nutriDicasHtml() : (t === 'agua' ? _nutriAguaHistHtml() : (t === 'video' ? _nutriVideoHtml() : _nutriHomeHtml()))))));
@@ -18201,7 +18241,15 @@ function nutriFav(id) {
   try { localStorage.setItem(_nutriFavKey(), JSON.stringify(l)); } catch (e) {}
   _nutriAvRender();
 }
-function nutriNota(id, n) { const r = _nutriRec(id); if (!r) return; _nutriMarcar(id, { nota: _nutriMinha(r).nota === n ? 0 : n }); }
+function nutriNota(id, n) {
+  const r = _nutriRec(id); if (!r) return;
+  const nova = _nutriMinha(r).nota === n ? 0 : n;
+  _nutriMarcar(id, { nota: nova });
+  if (nova > 0) {   // avaliou: leva ao campo de comentário da receita
+    toast('Obrigado pela nota! Quer deixar um comentário? Escreva logo abaixo.');
+    setTimeout(() => { const el = document.getElementById(_nmDom('nutri_receita', _nutriIdc(r))), ta = el && el.querySelector('textarea'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); if (ta) setTimeout(() => ta.focus({ preventScroll: true }), 450); }, 350);
+  }
+}
 function nutriFiz(id) { const r = _nutriRec(id); if (!r) return; _nutriMarcar(id, { fez: _nutriMinha(r).fez ? 0 : 1 }); }
 // "≈ 303 kcal · P 18 · C 28 · G 13" por porção, quando a receita tem informação nutricional (calculada ou estimada).
 function _nutriMacrosTxt(r) {
@@ -18251,7 +18299,10 @@ async function _nutriConteudoCarregar() {
     const srv = await _nutriGet('nutri_conteudo');
     if (srv && typeof srv === 'object') {
       dados = dados || { receitas: [], videos: [], dicas: [], categorias: [] };
+      const doArquivo = {}; (dados.receitas || []).forEach(r => { if (r && r.id) doArquivo[r.id] = r; });
       ['receitas', 'videos', 'dicas'].forEach(k => { if (Array.isArray(srv[k]) && srv[k].length) dados[k] = srv[k]; });
+      // Receita importada antes de ganhar dificuldade ou informação nutricional: completa com o que o arquivo já traz (o que a equipe preencheu no painel vale mais).
+      (dados.receitas || []).forEach(r => { const f = r && doArquivo[r.id]; if (f) { if (!r.nutricao && f.nutricao) r.nutricao = f.nutricao; if (!r.dificuldade && f.dificuldade) r.dificuldade = f.dificuldade; } });
     }
   } catch (e) {}
   if (dados && Array.isArray(dados.receitas)) { try { localStorage.setItem('intus-nutri-conteudo', JSON.stringify(dados)); } catch (e) {} }
@@ -18335,28 +18386,30 @@ function _nutriAguaCardHtml() {
   const pct = meta ? Math.min(100, Math.round(ml / meta * 100)) : 0;
   const copos = Math.max(1, Math.min(14, Math.round(meta / 250))), cheios = Math.min(copos, Math.round(ml / (meta / copos)));
   const litros = v => (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
-  const icones = Array.from({ length: copos }, (_, i) => `<span style="flex:1;min-width:0;height:34px;border-radius:5px 5px 9px 9px;border:1.5px solid ${i < cheios ? '#38bdf8' : C.borda};background:${i < cheios ? 'rgba(56,189,248,.28)' : 'transparent'};transition:.25s;"></span>`).join('');
-  const bateu = ml >= meta;
-  return `<div style="position:relative;background:${C.card};border:1px solid ${bateu ? '#38bdf8' : C.borda};border-radius:16px;padding:14px;margin-bottom:12px;">
-    <div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;">
-      <div onclick="nutriTela('agua')" style="padding:5px 9px;border-radius:99px;border:1px solid ${C.borda};font-size:10.5px;font-weight:800;color:${C.mut};cursor:pointer;white-space:nowrap;">📅 Histórico ›</div>
+  const icones = Array.from({ length: copos }, (_, i) => `<span style="flex:1;min-width:0;height:14px;border-radius:3px 3px 6px 6px;border:1.5px solid ${i < cheios ? '#38bdf8' : C.borda};background:${i < cheios ? 'rgba(56,189,248,.28)' : 'transparent'};transition:.25s;"></span>`).join('');
+  const bateu = ml >= meta, home = _homeAguaAtiva();
+  // Cartão compacto (metade da altura anterior): título e histórico na mesma linha, números e % juntos, copos finos, botões e o
+  // interruptor do marcador da tela inicial numa linha só.
+  return `<div style="background:${C.card};border:1px solid ${bateu ? '#38bdf8' : C.borda};border-radius:14px;padding:10px 12px;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <div style="font-size:11px;font-weight:800;color:${C.mut};letter-spacing:.04em;text-transform:uppercase;">💧 Água de hoje</div>
+      <div onclick="nutriTela('agua')" style="padding:3px 9px;border-radius:99px;border:1px solid ${C.borda};font-size:10.5px;font-weight:800;color:${C.mut};cursor:pointer;white-space:nowrap;">📅 Histórico ›</div>
     </div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:8px;">
-      <div><div style="font-size:11px;font-weight:800;color:${C.mut};letter-spacing:.04em;text-transform:uppercase;">💧 Água de hoje</div>
-        <div style="font-size:26px;font-weight:900;line-height:1.1;margin-top:2px;">${litros(ml)} <span style="font-size:13px;font-weight:700;color:${C.mut};">de ${litros(meta)} L</span></div></div>
-      <div style="font-size:13px;font-weight:900;color:#38bdf8;">${pct}%</div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:2px 0 6px;">
+      <div style="font-size:20px;font-weight:900;line-height:1.2;">${litros(ml)} <span style="font-size:12px;font-weight:700;color:${C.mut};">de ${litros(meta)} L</span></div>
+      <div style="font-size:12.5px;font-weight:900;color:#38bdf8;">${pct}%</div>
     </div>
-    <div style="display:flex;gap:3px;margin-bottom:10px;">${icones}</div>
+    <div style="display:flex;gap:3px;margin-bottom:8px;">${icones}</div>
     <div style="display:flex;gap:6px;">
-      <button onclick="nutriAgua(-250,1)" aria-label="Tirar um copo" style="flex:1;padding:11px 0;border-radius:11px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:16px;font-weight:800;cursor:pointer;">−</button>
-      <button onclick="nutriAgua(250,1)" style="flex:3;padding:11px 0;border-radius:11px;border:none;background:#38bdf8;color:#04283a;font-size:13px;font-weight:900;cursor:pointer;">+ copo (250 ml)</button>
-      <button onclick="nutriAgua(500,1)" style="flex:2;padding:11px 0;border-radius:11px;border:1px solid #38bdf8;background:transparent;color:#38bdf8;font-size:12.5px;font-weight:800;cursor:pointer;">+ 500 ml</button>
+      <button onclick="nutriAgua(-250,1)" aria-label="Tirar um copo" style="flex:1;padding:7px 0;border-radius:10px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:15px;font-weight:800;cursor:pointer;">−</button>
+      <button onclick="nutriAgua(250,1)" style="flex:3;padding:7px 0;border-radius:10px;border:none;background:#38bdf8;color:#04283a;font-size:12.5px;font-weight:900;cursor:pointer;">+ copo (250 ml)</button>
+      <button onclick="nutriAgua(500,1)" style="flex:2;padding:7px 0;border-radius:10px;border:1px solid #38bdf8;background:transparent;color:#38bdf8;font-size:12px;font-weight:800;cursor:pointer;">+ 500 ml</button>
     </div>
-    <div onclick="homeAguaLigar(${_homeAguaAtiva() ? 'false' : 'true'})" style="display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid ${_homeAguaAtiva() ? '#38bdf8' : C.borda};background:${_homeAguaAtiva() ? 'rgba(56,189,248,.1)' : 'transparent'};cursor:pointer;">
-      <span style="flex-shrink:0;width:38px;height:22px;border-radius:99px;background:${_homeAguaAtiva() ? '#38bdf8' : 'rgba(128,128,128,.4)'};position:relative;transition:.2s;"><span style="position:absolute;top:2px;left:${_homeAguaAtiva() ? '18px' : '2px'};width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s;"></span></span>
-      <span style="flex:1;font-size:12.5px;font-weight:800;line-height:1.3;">Deixar marcador de água na tela inicial<span style="display:block;font-weight:600;font-size:11px;color:${C.mut};margin-top:1px;">${_homeAguaAtiva() ? 'Ligado: aparece abaixo de "Sua semana", com + copo em um toque.' : 'Desligado: mostra um cartão abaixo de "Sua semana" para marcar cada copo em um toque.'}</span></span>
+    <div onclick="homeAguaLigar(${home ? 'false' : 'true'})" title="${home ? 'Ligado: aparece abaixo de Sua semana, com + copo em um toque.' : 'Desligado: mostra um cartão de água abaixo de Sua semana.'}" style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;">
+      <span style="flex-shrink:0;width:32px;height:18px;border-radius:99px;background:${home ? '#38bdf8' : 'rgba(128,128,128,.4)'};position:relative;transition:.2s;"><span style="position:absolute;top:2px;left:${home ? '16px' : '2px'};width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s;"></span></span>
+      <span style="flex:1;min-width:0;font-size:12px;font-weight:700;">Deixar marcador de água na tela inicial</span>
     </div>
-    <div style="font-size:11px;color:${C.mut};margin-top:8px;line-height:1.4;">${bateu ? '🎉 Meta de hoje batida. Continue se hidratando.' : (peso ? 'Meta de ' + litros(meta) + ' L calculada pelo seu último peso (' + String(peso).replace('.', ',') + ' kg).' : 'Meta padrão de 2,5 L. Quando você fizer uma avaliação com peso, ela passa a ser calculada para você.')}</div>
+    <div style="font-size:10.5px;color:${C.mut};margin-top:6px;line-height:1.35;">${bateu ? '🎉 Meta de hoje batida.' : (peso ? 'Meta de ' + litros(meta) + ' L pelo seu último peso (' + String(peso).replace('.', ',') + ' kg).' : 'Meta padrão de 2,5 L, até você ter um peso nas avaliações.')}</div>
   </div>`;
 }
 
@@ -18645,6 +18698,7 @@ function _nutriReceitaHtml() {
     ${lista('Sugestões de acompanhamento', r.acompanhamentos)}
     ${lista('Outras opções', r.outras_opcoes)}
     <div style="margin-top:14px;">${_nutriAvaliacaoHtml(r)}</div>
+    ${_nutriIdc(r) ? `<div id="${_nmDom('nutri_receita', _nutriIdc(r))}"></div>` : ''}
     <div style="display:flex;gap:8px;margin-top:4px;"><button onclick="nutriReceitaCopiar('${esc(r.id)}')" style="flex:1;padding:12px;border-radius:12px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:13px;font-weight:800;cursor:pointer;">Copiar receita</button><button onclick="nutriReceitaWhats('${esc(r.id)}')" style="flex:1;padding:12px;border-radius:12px;border:none;background:#25D366;color:#0b3d20;font-size:13px;font-weight:900;cursor:pointer;">Enviar no WhatsApp</button></div>
     <div style="font-size:10.5px;color:${C.mut};text-align:center;margin-top:14px;line-height:1.5;">Fotografia ilustrativa do prato pronto. Ajuste as porções ao seu plano alimentar. Valores nutricionais dependem das marcas, do peso dos ingredientes e do rendimento final.</div>
   </div>${getFooterHtml()}`;
@@ -18675,8 +18729,8 @@ function _nmRepintar(tipo, id) {
 }
 function _nmHtml(tipo, id) {
   const C = _nutriCores(), chave = _nmChave(tipo, id), lista = _nm.dados[chave] || [], tem = _nutriTemPlano();
-  const rotulo = tipo === 'nutri_dica' ? 'Mural de dicas e dúvidas' : 'Mural deste vídeo';
-  const convite = tipo === 'nutri_dica' ? 'Tem uma dica para compartilhar ou uma dúvida sobre alimentação? Escreva aqui: a comunidade e a equipe respondem.' : 'Ficou com alguma dúvida ou quer contar como foi? Escreva aqui.';
+  const rotulo = tipo === 'nutri_dica' ? 'Mural de dicas e dúvidas' : (tipo === 'nutri_receita' ? 'Comentários desta receita' : 'Mural deste vídeo');
+  const convite = tipo === 'nutri_dica' ? 'Tem uma dica para compartilhar ou uma dúvida sobre alimentação? Escreva aqui: a comunidade e a equipe respondem.' : (tipo === 'nutri_receita' ? 'Fez esta receita? Conte como ficou, o que trocou ou deixe uma dica.' : 'Ficou com alguma dúvida ou quer contar como foi? Escreva aqui.');
   const porId = {}; lista.forEach(c => { porId[c.idcomentario] = c; });
   const porPai = {}, raizes = [];
   lista.forEach(c => { if (c.resposta_a && porId[c.resposta_a]) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
@@ -18700,7 +18754,7 @@ function _nmHtml(tipo, id) {
   const resp = _nm.resp[chave];
   const compor = tem
     ? `${resp ? `<div style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;font-size:11px;color:${C.mut};">Respondendo a <b style="color:inherit;">${esc(resp.nome)}</b><span data-tipo="${tipo}" data-id="${id}" onclick="_nmCancelar(this)" style="cursor:pointer;font-weight:800;padding:2px 5px;">✕</span></div>` : ''}
-       <div style="display:flex;gap:6px;margin-top:8px;"><textarea maxlength="1000" rows="2" placeholder="${resp ? 'Escreva sua resposta...' : 'Escreva uma dica ou dúvida...'}" style="flex:1;padding:9px 11px;border-radius:12px;border:1px solid ${C.borda};background:${C.card};color:inherit;font-size:13px;font-family:inherit;resize:none;"></textarea>
+       <div style="display:flex;gap:6px;margin-top:8px;"><textarea maxlength="1000" rows="2" placeholder="${resp ? 'Escreva sua resposta...' : (tipo === 'nutri_receita' ? 'Escreva um comentário sobre a receita...' : 'Escreva uma dica ou dúvida...')}" style="flex:1;padding:9px 11px;border-radius:12px;border:1px solid ${C.borda};background:${C.card};color:inherit;font-size:13px;font-family:inherit;resize:none;"></textarea>
        <button data-tipo="${tipo}" data-id="${id}" onclick="_nmEnviar(this)" style="padding:0 14px;border-radius:12px;border:none;background:${C.ok};color:#0f1a00;font-size:12.5px;font-weight:900;cursor:pointer;">Enviar</button></div>`
     : `<div onclick="nutriConvitePlano('Escrever no mural')" style="margin-top:8px;font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">🔒 Escrever e responder no mural é do plano alimentar ›</div>`;
   return `<div id="${_nmDom(tipo, id)}" style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:13px 14px;margin-top:14px;">
@@ -18969,6 +19023,9 @@ function renderPerfil() {
       <div style="margin-top:20px;">
         <button class="btn btn-prim btn-full" onclick="_travarEExecutar(event, salvarPerfil)">💾 Salvar Perfil</button>
       </div>
+      <div style="margin-top:28px;padding-top:16px;border-top:1px solid ${isLight?'#eee':'#222'};">
+        <button class="btn btn-sec btn-full" style="font-size:12px;color:#f87171;border-color:rgba(248,113,113,.35);" onclick="abrirExclusaoConta()">🗑️ Excluir minha conta</button>
+      </div>
     </div>
 
     <!-- ABA MATRÍCULA -->
@@ -19005,7 +19062,6 @@ function renderPerfil() {
         <p style="margin-bottom:8px;"><b>CNPJ:</b> 61.942.499/0001-40</p>
       </div>
       <button class="btn btn-sec btn-full" style="font-size:12px;" onclick="mostrarTermos(false);trocarView('termos');">📄 Ver Termos de Uso</button>
-      <button class="btn btn-sec btn-full" style="font-size:12px;margin-top:8px;color:#f87171;border-color:rgba(248,113,113,.35);" onclick="abrirExclusaoConta()">🗑️ Excluir minha conta</button>
     </div>
     ${getFooterHtml()}`;
 
@@ -19907,7 +19963,7 @@ function _notifLinhaHtml(n, isLight) {
     colab_convite: 'convidou você para um post colaborativo',
     colab_aceito: 'aceitou colaborar no seu post',
   }[n.tipo] || 'interagiu com você';
-  const noNutri = n.alvo_tipo === 'nutri_dica' ? 'no mural de dicas' : (n.alvo_tipo === 'nutri_video' ? 'no mural do vídeo' : '');
+  const noNutri = n.alvo_tipo === 'nutri_dica' ? 'no mural de dicas' : (n.alvo_tipo === 'nutri_video' ? 'no mural do vídeo' : (n.alvo_tipo === 'nutri_receita' ? 'numa receita' : (n.alvo_tipo === 'feedback' ? 'no seu feedback em vídeo' : '')));
   const acaoFinal = (noNutri && (n.tipo === 'resposta' || n.tipo === 'comentario')) ? 'respondeu seu comentário ' + noNutri : acao;
   const principal = ehSistema
     ? '<b>' + esc(n.texto || '') + '</b>'
@@ -20003,10 +20059,15 @@ function _notifAbrir(el) {
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
   if (tipo === 'colab_convite') { _colabConviteSheet(alvo); return; }
-  if (el.dataset.alvotipo === 'nutri_dica' || el.dataset.alvotipo === 'nutri_video') {
+  if (el.dataset.alvotipo === 'feedback') {   // resposta do professor ao comentário no feedback em vídeo: abre a lista de feedbacks
+    navegar('avaliacoes');
+    return;
+  }
+  if (el.dataset.alvotipo === 'nutri_dica' || el.dataset.alvotipo === 'nutri_video' || el.dataset.alvotipo === 'nutri_receita') {
     navegar('nutricao');
     setTimeout(() => {
       if (el.dataset.alvotipo === 'nutri_dica') { nutriTela('dicas'); return; }
+      if (el.dataset.alvotipo === 'nutri_receita') { const rc = _nutriCont.receitas.find(x => Number(x.idconteudo) === alvo); if (rc) nutriTela('receita', rc.id); else nutriTela('receitas'); return; }
       const v = _nutriCont.videos.find(x => Number(x.idconteudo) === alvo);
       if (v) nutriTela('video', v.id); else nutriTela('videos');
     }, 1100);
@@ -20136,9 +20197,10 @@ function _notifMedalhasNovas() {
 // ═══════════════ BACK GESTURE (iOS) ═══════════════
 let viewStack = ['home'];
 const originalTrocarView = trocarView;
+var _pushN = 0;   // quantas entradas de histórico as trocas de tela já criaram (o gesto de voltar usa para não duplicar)
 trocarView = function(v) {
   if (viewStack[viewStack.length - 1] !== v) viewStack.push(v);
-  history.pushState({ view: v }, '', '');
+  history.pushState({ view: v }, '', ''); _pushN++;
   originalTrocarView(v);
   // O cartão de água da Home (ligado na Nutrição) precisa aparecer ao voltar para a Home por qualquer caminho, não só pelo menu.
   try { if (v === 'home' && !!document.getElementById('h-agua-card') !== _homeAguaAtiva()) renderHome(); } catch (e) {}
@@ -20212,6 +20274,18 @@ window.addEventListener('popstate', function(e) {
     return;
   }
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
+  // Subtelas desenhadas DENTRO da mesma tela (um feedback em vídeo, uma avaliação, a anamnese, um desafio aberto...) começam com o
+  // próprio botão "← Voltar". Voltar do celular deve usar esse botão (volta para a lista), não pular da tela inteira para o início.
+  try {
+    const cont = document.getElementById('v-' + window._viewAtual);
+    const bb = cont && cont.firstElementChild;
+    if (bb && bb.classList && bb.classList.contains('btn-back') && !/trocarView|confirmarDesistencia/.test(bb.getAttribute('onclick') || '')) {
+      const n0 = _pushN;
+      bb.click();
+      if (_pushN === n0) history.pushState({ view: window._viewAtual }, '', '');
+      return;
+    }
+  } catch (e) {}
   if (viewStack.length > 1) {
     viewStack.pop();
     const prevView = viewStack[viewStack.length - 1] || 'home';

@@ -1264,7 +1264,7 @@ function carregarLista(){
           '<div class="item-info"><b>' + esc(f.titulo || '(sem título)') + '</b>' +
           '<span>' + esc(f.aluno_nome) + ' · ' + esc(fmtData(f.criado_em)) + ' · ' + fmtTempo(f.duracao_seg) + ' · ' + fmtMB(f.tamanho_bytes) + '</span></div>' +
           selo +
-          (pronto ? '<button class="btn-mini b-play">▶ Assistir</button><button class="btn-mini b-copiar">Copiar link</button>' +
+          (pronto ? '<button class="btn-mini b-play">▶ Assistir</button><button class="btn-mini b-conversa">' + (f.reacao ? esc(f.reacao) + ' ' : '') + '💬 ' + (f.n_comentarios || 0) + '</button><button class="btn-mini b-copiar">Copiar link</button>' +
                     '<a class="btn-mini" target="_blank" rel="noopener" href="' + esc(linkWhats(f.link, f.titulo, '')) + '">WhatsApp</a>' : '') +
           '<button class="btn-mini perigo b-excluir">Excluir</button>' +
         '</div>';
@@ -1277,6 +1277,16 @@ function carregarLista(){
           item.appendChild(v); v.play().catch(function(){});
         });
         item.querySelector('.b-copiar').addEventListener('click', function(){ copiar(f.link); });
+        // Reação e comentários do aluno (a equipe responde aqui; o aluno vê no app e no link).
+        item.querySelector('.b-conversa').addEventListener('click', function(){
+          var box = item.querySelector('.conversa');
+          if (box) { box.remove(); return; }
+          box = document.createElement('div'); box.className = 'conversa'; box.style.cssText = 'padding:4px 2px 8px;'; item.appendChild(box);
+          var m = String(f.link || '').match(/[?&]v=([0-9a-f]{32})/); if (!m) return;
+          var abrir = function(){ IntusFeedbackInteracao.montar(box, { api: API_BASE + '/feedbacks.php', token: m[1], headers: { 'Authorization': 'Bearer ' + getToken() }, claro: false }); };
+          if (window.IntusFeedbackInteracao) abrir();
+          else { var sc = document.createElement('script'); sc.src = '/feedback/interacao.js?v=20261013a'; sc.onload = abrir; document.head.appendChild(sc); }
+        });
       }
       item.querySelector('.b-excluir').addEventListener('click', function(){ excluir(f, item); });
       wrap.appendChild(item);
