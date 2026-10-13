@@ -2931,7 +2931,8 @@ if ($action === 'feed_posts') {
             $p['colaboradores'] = $_colabMap[$p['idpost']] ?? [];
             if ($_autorTipo === 'aluno' && $p['idatleta'] === $_autorId && !empty($_pendMap[$p['idpost']])) $p['colab_pendentes'] = $_pendMap[$p['idpost']];
             if (!($_autorTipo === 'aluno' && $p['idatleta'] === $_autorId)) unset($p['visib']);   // só o dono vê a privacidade da própria publicação
-            $p['midias'] = $_midiasMap[$p['idpost']] ?? [['tipo' => 'imagem', 'url' => $p['imagem'], 'poster' => null]];
+            // Post só de texto não tem imagem: midias vem vazia (o app mostra o texto).
+            $p['midias'] = $_midiasMap[$p['idpost']] ?? (trim((string)$p['imagem']) === '' ? [] : [['tipo' => 'imagem', 'url' => $p['imagem'], 'poster' => null]]);
             foreach ($p['midias'] as &$_mm) { if ($_mm['tipo'] === 'video' && empty($_mm['poster'])) $_mm['poster'] = $p['imagem']; }
             unset($_mm);
         }
@@ -2953,7 +2954,10 @@ if ($action === 'feed_posts') {
         $imagemRaw = (string)($b['imagem'] ?? '');
         $legenda = trim((string)($b['legenda'] ?? ''));
         $legenda = _mencoesLimitar($legenda, 1000);
-        if ($imagemRaw === '') { http_response_code(400); echo json_encode(['error' => 'imagem obrigatoria']); exit; }
+        // Post só de texto (conversa nos comentários): sem imagem, com o texto em `legenda` (aceita a formatação simples do app).
+        $soTexto = !empty($b['so_texto']);
+        if ($soTexto && $legenda === '') { http_response_code(400); echo json_encode(['error' => 'texto obrigatorio']); exit; }
+        if ($imagemRaw === '' && !$soTexto) { http_response_code(400); echo json_encode(['error' => 'imagem obrigatoria']); exit; }
         $destino = (string)($b['destino'] ?? 'feed');
         if (!in_array($destino, ['feed', 'perfil'], true)) $destino = 'feed';
         $localizacao = trim((string)($b['localizacao'] ?? ''));
@@ -2970,7 +2974,9 @@ if ($action === 'feed_posts') {
         // Salva como arquivo (mesmo padrão de _persistirFotos em avaliações):
         // nunca guardamos a imagem inteira em base64 dentro do banco.
         $url = null;
-        if (preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $imagemRaw, $m)) {
+        if ($soTexto) {
+            $url = '';
+        } elseif (preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $imagemRaw, $m)) {
             $dir = __DIR__ . '/../img/feed';
             if (!is_dir($dir)) @mkdir($dir, 0755, true);
             $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
@@ -3002,7 +3008,7 @@ if ($action === 'feed_posts') {
             $st->execute([$_autorId, $url, $legenda !== '' ? $legenda : null, $destino, $localizacao !== '' ? $localizacao : null, $ativoNovo]);
             $novoPost = (int)$pdo->lastInsertId();
             try { $pdo->prepare("INSERT INTO intus_post_visib (idpost, visib) VALUES (?,?) ON DUPLICATE KEY UPDATE visib = VALUES(visib)")->execute([$novoPost, $visibNovo]); } catch (Throwable $e) {}
-            if (!$capaDeVideo) {
+            if (!$capaDeVideo && !$soTexto) {
                 try {
                     $pdo->prepare("INSERT INTO intus_midia (dono_tipo, dono_id, ordem, tipo, url) VALUES ('feed_post', ?, 0, 'imagem', ?)")->execute([$novoPost, $url]);
                 } catch (Throwable $e) {}
@@ -3242,13 +3248,13 @@ if ($action === 'amizades') {
 
 // ── Parcerias de treino (DESLIGADO: ver INTUS_CONEXOES_ATIVO) ─────────────
 // Só entre amigos. GET: parceiros e convites; POST {para_id}: convidar; PUT {de_id, aceitar}: aceitar ou recusar;
-// DELETE ?id=: desfazer. No máximo 3 parceiros por aluno.
+// DELETE ?id=: desfazer. No máximo 30 parceiros por aluno (pessoas com quem já treinou ou pretende treinar).
 if ($action === 'parcerias') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     if (!INTUS_CONEXOES_ATIVO) { http_response_code(403); echo json_encode(['error' => 'recurso ainda nao liberado']); exit; }
     [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
     if ($_autorTipo !== 'aluno' || $_autorId <= 0) { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
-    $LIMITE_PARCEIROS = 3;
+    $LIMITE_PARCEIROS = 30;   // parceiro de treino = quem você já treinou ou pretende treinar junto algum dia
 
     if ($method === 'GET') {
         $st = $pdo->prepare("SELECT de_id FROM intus_parceria WHERE para_id = ? AND status = 'pendente' ORDER BY idparceria DESC LIMIT 50");

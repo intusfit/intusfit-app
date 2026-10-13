@@ -118,6 +118,10 @@
     /* ===== CENTRAL DE AJUDA (acompanha o tema do app) ===== */
     '#ax-help{--h-bg:#0a0a0a;--h-card:#161616;--h-line:#262626;--h-txt:#f0f0f0;--h-mut:#8e8e8e;--h-acc:#7FFF00;--h-accsoft:rgba(127,255,0,.12);--h-accfg:#0b1400;background:var(--h-bg);color:var(--h-txt);}',
     'body.tema-claro #ax-help{--h-bg:#f5f5f5;--h-card:#ffffff;--h-line:#e4e4e4;--h-txt:#1a1a1a;--h-mut:#6b6b6b;--h-acc:#2f8a00;--h-accsoft:rgba(92,184,0,.12);--h-accfg:#fff;}',
+    '#v-ajuda #ax-help{position:static;inset:auto;z-index:auto;display:block;background:transparent;}',
+    '#v-ajuda .ax-h-scroll{overflow:visible;padding:4px 0 10px;}',
+    '#v-ajuda .ax-h-titulo{display:flex;align-items:center;gap:10px;margin:2px 2px 12px;}#v-ajuda .ax-h-titulo h2{font-size:20px;font-weight:900;margin:0;letter-spacing:-.01em;}',
+    '#v-ajuda .ax-voltar{display:block;width:100%;margin:18px 0 6px;padding:13px;border-radius:14px;border:1px solid var(--h-line);background:var(--h-card);color:var(--h-txt);font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;}',
     '.ax-h-top{display:flex;align-items:center;gap:10px;padding:calc(12px + env(safe-area-inset-top,0px)) 14px 10px;flex-shrink:0;border-bottom:1px solid var(--h-line);background:var(--h-bg);}',
     '.ax-h-top h2{font-size:17px;font-weight:900;margin:0;flex:1;letter-spacing:-.01em;}',
     '.ax-h-top .ax-x{background:var(--h-card);border:1px solid var(--h-line);color:var(--h-txt);}',
@@ -514,11 +518,24 @@
     return itens;
   }
 
+  // A Central de Ajuda é uma tela do app (v-ajuda), não uma camada por cima: o cabeçalho (menu, tema, avisos) fica à mostra, o
+  // "Voltar" e o rodapé padrão ficam no fim, e o botão "Ajuda" do menu lateral abre a mesma tela.
+  var VOLTAR = 'home';
+  function emAjuda() { try { return window._viewAtual === 'ajuda'; } catch (e) { return false; } }
+  function sairAjuda() {
+    if (!emAjuda()) return;
+    var v = VOLTAR && VOLTAR !== 'ajuda' ? VOLTAR : 'home';
+    try { trocarView(v); if (v === 'home' && typeof renderHome === 'function') renderHome(); } catch (e) {}
+    var c = document.getElementById('v-ajuda'); if (c) c.innerHTML = '';
+  }
   function raizAjuda() {
+    var sec = document.getElementById('v-ajuda');
+    if (!sec) { sec = document.createElement('section'); sec.className = 'view'; sec.id = 'v-ajuda'; (document.querySelector('.view') || document.body).parentNode.appendChild(sec); }
     var el = document.getElementById('ax-help');
-    if (el) return el;
-    el = document.createElement('div'); el.id = 'ax-help'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Ajuda');
-    document.body.appendChild(el);
+    if (el && el.parentNode === sec) return el;
+    if (el) el.remove();
+    el = document.createElement('div'); el.id = 'ax-help'; el.setAttribute('aria-label', 'Ajuda');
+    sec.appendChild(el);
     return el;
   }
   var H = { itens: [], caps: [] };
@@ -556,14 +573,17 @@
     if (ctxPorView[v]) cap = H.caps.filter(function (c) { return c.id === ctxPorView[v]; })[0];
     var ctx = cap ? '<div class="ax-ctx" onclick="Ajuda.tour(' + H.caps.indexOf(cap) + ')">' + ico(cap.icone) + '<div style="flex:1;"><b>Sobre esta tela: ' + esc(cap.curto) + '</b><span>' + esc(cap.promessa) + '</span></div>' + ico('seta') + '</div>' : '';
     raiz.innerHTML =
-      '<div class="ax-h-top"><button class="ax-x" aria-label="Fechar" onclick="Ajuda.fechar()">' + ico('voltar') + '</button><h2>Ajuda</h2></div>' +
       '<div class="ax-h-scroll"><div class="ax-h-wrap">' +
+        '<div class="ax-h-titulo"><h2>Ajuda</h2></div>' +
         '<div class="ax-hero"><small>Tour interativo</small><h3>' + (estado.tourFim ? 'Rever o tour do app' : 'Aprenda o app em 3 minutos') + '</h3><p>' + (vistos ? vistos + ' de ' + H.caps.length + ' mini-aulas vistas. ' : '') + 'Toque nos botões que pulsam e veja como cada parte funciona.</p><button class="ax-b pri" onclick="Ajuda.tour(' + (vistos && vistos < H.caps.length ? Math.max(0, H.caps.findIndex(function (c) { return !estado.vistos[c.id]; })) : '') + ')">' + (vistos && vistos < H.caps.length ? 'Continuar' : 'Começar') + ' ' + ico('seta') + '</button></div>' +
         ctx +
         '<label class="ax-busca">' + ico('busca') + '<input id="ax-q" type="search" placeholder="Buscar: pontos, cardio, post, água..." autocomplete="off"/></label>' +
         '<div id="ax-corpo"></div>' +
-      '</div></div>';
+        '<button class="ax-voltar" onclick="Ajuda.fechar()">← Voltar</button>' +
+      '</div></div>' + (typeof getFooterHtml === 'function' ? getFooterHtml() : '');
     raiz.classList.add('on');
+    if (!emAjuda()) { try { VOLTAR = window._viewAtual || 'home'; } catch (e) { VOLTAR = 'home'; } }
+    try { trocarView('ajuda'); } catch (e) {}
     corpoPadrao();
     var inp = document.getElementById('ax-q');
     inp.addEventListener('input', function () {
@@ -595,12 +615,12 @@
   /* ───────────────────────────── API pública ───────────────────────────── */
   function fechar() {
     var a = document.getElementById('ax-tour'); if (a) { a.classList.remove('on'); a.innerHTML = ''; }
-    var b = document.getElementById('ax-help'); if (b) { b.classList.remove('on'); b.innerHTML = ''; }
+    sairAjuda();
   }
   window.Ajuda = {
-    abrir: function () { fechar(); ajudaAbrir(); },
+    abrir: function () { var a = document.getElementById('ax-tour'); if (a) { a.classList.remove('on'); a.innerHTML = ''; } ajudaAbrir(); },
     tour: function (i) {
-      var h = document.getElementById('ax-help'); if (h) { h.classList.remove('on'); h.innerHTML = ''; }
+      sairAjuda();   // o tour abre por cima da tela em que o aluno estava
       if (i === undefined || i === '' || isNaN(i)) { tourAbertura(false); return; }
       tourAbrirCap(Number(i));
     },

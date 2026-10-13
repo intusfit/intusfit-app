@@ -1391,3 +1391,14 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **Mural dos Membros (ranking)**: escrever e responder só com plano de treino (matrícula) ativo (`_muralPodeEscrever`, no app; ler é aberto). O mural da Nutrição segue o plano alimentar (servidor). Escrever no mural do ranking não é checado no servidor
   (a regra de matrícula vive em `api.js`, no cliente).
 - Teste novo `testes/receitas.js` (ids, fotos, ingredientes com quantidade, kcal coerente com macros).
+
+## 54. Feed: aba Meu perfil, posts só de texto, parceiros e Ajuda como tela (13/10/2026)
+- **Aba "Meu perfil" no Feed** (`_feedAba`: todos | amigos | meu): mostra só as publicações do próprio aluno, inclusive as "só no meu perfil" (`carregarFeedPosts(60, idAtleta)`, sem paginação).
+- **Post só de texto** (botão "✍️ Escrever" ao lado de "Novo post", `abrirPostTexto`): sem imagem, para a conversa acontecer nos comentários. O POST de `feed_posts` aceita `so_texto: 1` com o texto em `legenda`
+  (obrigatório; `imagem` vai vazia, não cria linha em `intus_midia`, e o GET devolve `midias: []`). Sem `so_texto` a imagem continua obrigatória. A formatação é uma marcação simples dentro da própria legenda (sem coluna nova):
+  `# ` título (21 px), `## ` subtítulo (16 px), texto (14 px), `**negrito**` e, na 1ª linha, `[serif]`, `[mono]` ou `[hand]` para a fonte (`_textoRicoParse/_textoRicoHtml`). O compositor tem botões N, Título, Subtítulo, Texto,
+  4 fontes, prévia ao vivo, privacidade (todos, amigos, só eu) e destino (Feed ou só perfil); o limite é o da legenda (1000 caracteres, marcação inclusa). No cartão o texto longo fecha com "ver mais"; na grade do perfil
+  vira uma miniatura de texto (`_pkTileTexto`, selo ✍️); sem botão "Baixar" (`_ehPostTexto`). O `feed.html` do painel mostra o texto sem a marcação. Reações, comentários e respostas são os de sempre.
+  Teste: `testes/colab.php` (seção "Post só de texto"; tirar a exceção `!$soTexto` é acusado).
+- **Parceiros de treino até 30** (`$LIMITE_PARCEIROS` no `catalogo.php`, `_pcDados.limite`): a lista agora é de quem você já treinou ou pretende treinar junto.
+- **Ajuda como tela do app** (`ajuda.js`): o "?" abre a view `#v-ajuda` com o cabeçalho padrão (menu, tema, notificações), botão Voltar e o rodapé de sempre (`getFooterHtml`); o menu lateral ganhou o item "❓ Ajuda".

@@ -17,7 +17,7 @@
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261008f"></script>
-  <script src="ajuda.js?v=20261009a" defer></script>
+  <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -1125,6 +1125,7 @@
       </div>
     </div>
     <div class="menu-item" onclick="toggleThemeMenu()"><span class="mi-icon" id="menu-theme-icon">🌙</span> <span id="menu-theme-label">Modo Escuro</span></div>
+    <div class="menu-item" onclick="abrirTutorial();fecharMenuDireto()"><span class="mi-icon">❓</span> Ajuda</div>
     <div class="menu-item" onclick="abrirSuporte()"><span class="mi-icon">💬</span> Falar com Suporte</div>
     <div class="menu-item danger" onclick="sair()"><span class="mi-icon">🚪</span> Sair</div>
   </div>
@@ -1167,6 +1168,7 @@
   <section class="view" id="v-feed"></section>
   <section class="view" id="v-resultados"></section>
   <section class="view" id="v-amigos"></section>
+  <section class="view" id="v-ajuda"></section>
 </div>
 
 <div class="toast-ov" id="toast">—</div>
@@ -3218,8 +3220,10 @@ function _feedLegendaHtml(post, nomeCurto, isLight) {
     '@media (hover:hover){.mcar-wrap:hover .mcar-seta{display:flex;}}';
   document.head.appendChild(st);
 })();
+function _ehPostTexto(post) { return !!post && !String(post.imagem || '').trim() && !(Array.isArray(post.midias) && post.midias.some(x => x && x.url)); }
 function _midiasDoPost(post) {
   const m = post && Array.isArray(post.midias) ? post.midias.filter(x => x && x.url) : [];
+  if (!m.length && post && !String(post.imagem || '').trim()) return [];   // post só de texto
   // Vídeo sem miniatura própria usa a capa do post: nunca fica uma tela preta carregando.
   return m.length ? m.map(x => (x.tipo === 'video' && !x.poster && post.imagem) ? Object.assign({}, x, { poster: post.imagem }) : x) : [{ tipo: 'imagem', url: post && post.imagem, poster: null }];
 }
@@ -3265,6 +3269,7 @@ function _videoTentar(box) {
   v.load();
 }
 function _carrosselHtml(midias, isLight) {
+  if (!midias.length) return '';
   if (midias.length <= 1) return _midiaItemHtml(midias[0]);
   const accent = isLight ? '#5cb800' : '#7FFF00';
   return '<div class="mcar-wrap" style="position:relative;">' +
@@ -3316,7 +3321,7 @@ function _feedCardHtml(post, isLight) {
     '</div>' +
     _carrosselHtml(_midiasDoPost(post), isLight) +
     '<div style="padding:11px 12px;">' +
-      _feedLegendaHtml(post, nome.split(' ')[0], isLight) +
+      (_ehPostTexto(post) ? _textoRicoBloco(post, isLight) : _feedLegendaHtml(post, nome.split(' ')[0], isLight)) +
       '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _kudosHtml(post.idpost) + _comentarioGatilhoHtml(post.idpost, isLight) + '</div>' +
       _comentariosHtml(post.idpost, isLight) +
     '</div>' +
@@ -3416,7 +3421,7 @@ function _abrirMenuPost(idpost, idatletaDono) {
   const souDono = Number(idatletaDono) === Number(idAtleta);
   const nome = _feedAtletasMap[String(idatletaDono)] || 'esta pessoa';
   const opcoes = souDono
-    ? [['🔒 Privacidade desta publicação', 'abrirPostPorId(' + idpost + ')'], ['⬇️ Baixar', 'baixarPost(' + idpost + ')'], ['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']]
+    ? [['🔒 Privacidade desta publicação', 'abrirPostPorId(' + idpost + ')'], ].concat(_ehPostTexto(_acharPost(idpost)) ? [] : [['⬇️ Baixar', 'baixarPost(' + idpost + ')']]).concat([['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']])
     : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')']];
   const html = opcoes.map(([rot, fn]) =>
     '<div onclick="closeModal();' + fn + '" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + rot + '</div>'
@@ -3558,22 +3563,25 @@ async function renderFeedCompleto() {
   _feedGlobalIdx = 0;
   _feedProximoExplicativo = 0;
   _feedUltimaVariante = null;
-  const posts = await carregarFeedPosts(FEED_LOTE);
+  const souMeuPerfil = _feedAba === 'meu';
+  const posts = souMeuPerfil ? await carregarFeedPosts(60, idAtleta) : await carregarFeedPosts(FEED_LOTE);
+  if (souMeuPerfil) _perfilPostsLista = posts;   // a tela do post encontra estas publicações
   await carregarReacoesFeed(posts.map(p => p.idpost));
   await carregarComentariosFeed(posts.map(p => p.idpost));
   let html = telaHeader('📣 Feed dos Alunos');
   html += _feedBuscaHtml(isLight);
   html += _feedChipsAmigosHtml(isLight);
-  html += '<button class="btn btn-prim" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button>';
+  html += '<div style="display:flex;gap:8px;margin-bottom:14px;"><button class="btn btn-prim" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button><button class="btn btn-sec" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirPostTexto()">✍️ Escrever</button></div>';
   if (!posts.length) {
     html += '<div style="text-align:center;padding:40px 20px;">' +
       '<div style="font-size:44px;margin-bottom:12px;">📣</div>' +
-      '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">' + (_feedSoAmigos ? 'Seus amigos ainda não postaram' : 'Ainda não há posts por aqui') + '</div>' +
+      '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">' + (souMeuPerfil ? 'Você ainda não publicou' : (_feedSoAmigos ? 'Seus amigos ainda não postaram' : 'Ainda não há posts por aqui')) + '</div>' +
       '<p style="font-size:12.5px;color:' + (isLight?'#666':'#888') + ';max-width:280px;margin:0 auto;">Compartilhe uma foto, uma conquista ou o treino de hoje — toque em "Novo post" acima.</p>' +
     '</div>';
   } else {
     html += '<div id="feed-posts-container">' + _feedPostsHtml(posts, isLight) + '</div>';
     html += '<div id="feed-paginacao"></div>';
+    if (souMeuPerfil) html += '<div style="font-size:11px;color:' + (isLight ? '#999' : '#777') + ';text-align:center;margin:4px 0 12px;">Suas publicações, inclusive as que aparecem só no seu perfil.</div>';
   }
   // Botão também no final — depois de rolar o feed inteiro, o de cima já
   // ficou longe lá em cima; sem esse aqui, quem terminasse de ver os posts
@@ -3582,7 +3590,7 @@ async function renderFeedCompleto() {
   html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
   html += getFooterHtml();
   box.innerHTML = html;
-  if (posts.length) _feedAtualizarPaginacao();
+  if (posts.length && !souMeuPerfil) _feedAtualizarPaginacao();
 }
 
 // IDs dos containers variam conforme _feedModo: a tela cheia do Feed e a
@@ -12410,8 +12418,9 @@ async function _colabConviteSheet(idpost) {
 var _conexoesOn = false;
 var _desafioAlunoCria = false;   // aluno criar desafio: liberado pelo servidor (INTUS_ALUNO_CRIA_DESAFIO), hoje só a equipe cria
 var _feedSoAmigos = false;
+var _feedAba = 'todos';   // 'todos' | 'amigos' | 'meu'
 var _amzDados = { amigos: [], recebidos: [], enviados: [], pessoas: {} };
-var _pcDados = { parceiros: [], recebidos: [], enviados: [], limite: 3, pessoas: {} };
+var _pcDados = { parceiros: [], recebidos: [], enviados: [], limite: 30, pessoas: {} };
 var _amzTab = 'amigos';
 
 async function _conexoesChamar(acao, metodo, corpo, query) {
@@ -12522,11 +12531,12 @@ function _pkConexoesBotoes(id, cfg, isLight, miniBtn) {
 
 // Filtro Todos / Amigos no topo do Feed.
 function _feedChipsAmigosHtml(isLight) {
-  if (!_conexoesOn) return '';
-  const chip = (txt, on) => '<button onclick="_feedFiltroAmigos(' + (txt === 'Amigos') + ')" style="padding:7px 16px;border-radius:18px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (on ? (isLight ? '#2d8a00' : '#7FFF00') : 'transparent') + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : (isLight ? '#eee' : '#1c1c1c')) + ';color:' + (on ? (isLight ? '#2d8a00' : '#7FFF00') : (isLight ? '#777' : '#999')) + ';">' + txt + '</button>';
-  return '<div style="display:flex;gap:8px;margin:0 0 12px;">' + chip('Todos', !_feedSoAmigos) + chip('Amigos', _feedSoAmigos) + '</div>';
+  const chip = (aba, txt) => { const on = _feedAba === aba; return '<button onclick="_feedTrocarAba(\'' + aba + '\')" style="padding:7px 16px;border-radius:18px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (on ? (isLight ? '#2d8a00' : '#7FFF00') : 'transparent') + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : (isLight ? '#eee' : '#1c1c1c')) + ';color:' + (on ? (isLight ? '#2d8a00' : '#7FFF00') : (isLight ? '#777' : '#999')) + ';">' + txt + '</button>'; };
+  return '<div style="display:flex;gap:8px;margin:0 0 12px;">' + chip('todos', 'Todos') + (_conexoesOn ? chip('amigos', 'Amigos') : '') + chip('meu', 'Meu perfil') + '</div>';
 }
-function _feedFiltroAmigos(on) { _feedSoAmigos = !!on; renderFeedCompleto(); }
+// Abas do Feed: Todos, Amigos (com as conexões ligadas) e Meu perfil (só as minhas publicações, inclusive as "só no perfil").
+function _feedTrocarAba(aba) { _feedAba = aba; _feedSoAmigos = aba === 'amigos'; renderFeedCompleto(); }
+function _feedFiltroAmigos(on) { _feedTrocarAba(on ? 'amigos' : 'todos'); }
 
 // ── Tela Amigos e parceiros ──
 function _amzNorm(t) { return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
@@ -12574,7 +12584,7 @@ function _amzDesenhar() {
   const box = document.getElementById('v-amigos'); if (!box) return;
   const cor = isLight ? '#2d8a00' : '#7FFF00';
   const nPed = (_amzDados.recebidos || []).length + (_pcDados.recebidos || []).length;
-  const abas = [['amigos', 'Amigos (' + (_amzDados.amigos || []).length + ')'], ['pedidos', 'Pedidos' + (nPed ? ' (' + nPed + ')' : '')], ['parceiros', 'Parceiros (' + (_pcDados.parceiros || []).length + '/' + (_pcDados.limite || 3) + ')'], ['turmas', 'Turmas (' + (_trDados.turmas || []).length + ')'], ['desafios', 'Desafios']];
+  const abas = [['amigos', 'Amigos (' + (_amzDados.amigos || []).length + ')'], ['pedidos', 'Pedidos' + (nPed ? ' (' + nPed + ')' : '')], ['parceiros', 'Parceiros (' + (_pcDados.parceiros || []).length + ')'], ['turmas', 'Turmas (' + (_trDados.turmas || []).length + ')'], ['desafios', 'Desafios']];
   let html = telaHeader('🤝 Comunidade') +
     '<div style="display:flex;gap:6px;margin:4px 0 14px;overflow-x:auto;scrollbar-width:none;">' +
     abas.map(a => '<button onclick="amzAba(\'' + a[0] + '\')" style="flex:1 0 auto;padding:10px 12px;border-radius:12px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;border:1px solid ' + (_amzTab === a[0] ? cor : 'transparent') + ';background:' + (_amzTab === a[0] ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : (isLight ? '#eee' : '#1c1c1c')) + ';color:' + (_amzTab === a[0] ? cor : (isLight ? '#777' : '#999')) + ';">' + a[1] + '</button>').join('') + '</div>';
@@ -12591,7 +12601,7 @@ function _amzVazio(emoji, titulo, texto, isLight) {
 }
 function _amzAbaAmigosHtml(isLight) {
   const par = _pcDados.parceiros || [], env = _pcDados.enviados || [], rec = _pcDados.recebidos || [];
-  const cheio = par.length >= (_pcDados.limite || 3);
+  const cheio = par.length >= (_pcDados.limite || 30);
   let html = '<input id="amz-busca" type="search" placeholder="Buscar aluno pelo nome" oninput="_amzBuscar(this.value)" style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:12px;font-size:14px;margin-bottom:6px;font-family:inherit;outline:none;background:' + (isLight ? '#fff' : '#1a1a1a') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';border:1px solid ' + (isLight ? '#ddd' : '#2e2e2e') + ';"/>' +
     '<div id="amz-busca-res"></div>';
   const lista = _amzDados.amigos || [];
@@ -12652,7 +12662,7 @@ function _amzDataCurta(iso, hoje) {
 function _amzAbaParceirosHtml(isLight) {
   const par = _pcDados.parceiros || [];
   const sub = isLight ? '#666' : '#999', txt = isLight ? '#1a1a1a' : '#f0f0f0', fundo = isLight ? '#f6f6f6' : '#1a1a1a';
-  if (!par.length) return _amzVazio('🏋️', 'Treine em dupla', 'Convide um amigo para ser seu parceiro de treino. Vocês acompanham a sequência de semanas em que os dois treinam e recebem um aviso quando o outro treina. Até ' + (_pcDados.limite || 3) + ' parceiros.', isLight) +
+  if (!par.length) return _amzVazio('🏋️', 'Treine em dupla', 'Parceiros de treino são as pessoas com quem você já treinou ou pretende treinar junto algum dia. Convide um amigo: vocês acompanham a sequência de semanas em que os dois treinam e recebem um aviso quando o outro treina. Pode ter vários parceiros (até ' + (_pcDados.limite || 30) + ').', isLight) +
     '<div style="text-align:center;"><button class="btn btn-prim" onclick="amzAba(\'amigos\')">Escolher um amigo</button></div>';
   const hoje = _pcHoje();
   const eu = _pcSessoes(idAtleta);
@@ -13412,6 +13422,7 @@ async function _pkCarregarPosts(id, cfg) {
     posts.map(p => {
       const ms = _midiasDoPost(p);
       const icone = ms.some(x => x.tipo === 'video') ? '▶' : (ms.length > 1 ? '⧉' : '');
+      if (_ehPostTexto(p)) return _pkTileTexto(p, isLight, '_pkAbrirPost');
       const capa = (ms[0] && ms[0].tipo === 'video' && ms[0].poster) ? ms[0].poster : p.imagem;
       return '<div onclick="_pkAbrirPost(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight ? '#eee' : '#222') + ';"><img src="' + esc(capa) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + _visibSeloHtml(p) +
         (icone ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + icone + '</span>' : '') + '</div>';
@@ -13450,7 +13461,7 @@ function _postPrivHtml(post, isLight) {
     '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🔒 Quem pode ver esta publicação</div>' +
     '<div style="display:flex;gap:6px;">' + chip('todos', '🌎 Todos') + chip('amigos', '👥 Amigos') + chip('eu', '🙋 Só eu') + '</div>' +
     '<div style="font-size:12px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin-top:8px;">' + _VISIB_INFO[atual] + (post.destino === 'perfil' ? ' Ela não aparece no Feed, só no seu perfil.' : '') + '</div>' +
-    '<button onclick="baixarPost(' + Number(post.idpost) + ')" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:' + (isLight ? '#333' : '#e5e5e5') + ';font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">⬇️ Baixar ' + (_midiasDoPost(post).length > 1 ? 'as ' + _midiasDoPost(post).length + ' mídias' : (_midiasDoPost(post)[0] && _midiasDoPost(post)[0].tipo === 'video' ? 'o vídeo' : 'a foto')) + '</button></div>';
+    (_ehPostTexto(post) ? '' : '<button onclick="baixarPost(' + Number(post.idpost) + ')" style="width:100%;margin-top:10px;padding:11px;border-radius:12px;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:' + (isLight ? '#333' : '#e5e5e5') + ';font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">⬇️ Baixar ' + (_midiasDoPost(post).length > 1 ? 'as ' + _midiasDoPost(post).length + ' mídias' : (_midiasDoPost(post)[0] && _midiasDoPost(post)[0].tipo === 'video' ? 'o vídeo' : 'a foto')) + '</button>') + '</div>';
 }
 async function _postSetVisib(idpost, v) {
   const post = _acharPost(idpost); if (!post) return;
@@ -13480,6 +13491,149 @@ async function abrirPostTela(post) {
     '<div style="max-width:460px;margin:0 auto;padding:12px;min-height:calc(100% + 2px);">' + _postPrivHtml(post, isLight) + _postColabHtml(post, isLight) + _feedCardHtml(post, isLight) + '</div>';
   document.body.appendChild(ov);
   _pkTravarFundo();
+}
+
+// ═══════════════ POST SÓ DE TEXTO (conversa nos comentários) ═══════════════
+// O texto vai em `legenda` com uma marcação simples: "# " título, "## " subtítulo, **negrito**,
+// e uma etiqueta [serif] [mono] [hand] na 1ª linha para a fonte. Sem imagem (`so_texto` no POST).
+var _TXT_FONTES = { serif: "Georgia,'Times New Roman',serif", mono: "ui-monospace,Menlo,Consolas,'Courier New',monospace", hand: "'Segoe Print','Bradley Hand','Comic Sans MS',cursive" };
+var _TXT_FONTE_ROT = { '': 'Padrão', serif: 'Serifada', mono: 'Máquina', hand: 'Manuscrita' };
+var _txt = { fonte: '', visib: 'todos', destino: 'feed' };
+function _textoRicoParse(raw) {
+  let t = String(raw == null ? '' : raw), fonte = '';
+  const m = t.match(/^\[(serif|mono|hand)\]\r?\n?/);
+  if (m) { fonte = m[1]; t = t.slice(m[0].length); }
+  return { fonte: fonte, texto: t };
+}
+function _textoRicoLinhas(texto) {
+  return String(texto).split(/\r?\n/).map(function (l) {
+    if (/^## /.test(l)) return { tipo: 'sub', t: l.slice(3) };
+    if (/^# /.test(l)) return { tipo: 'tit', t: l.slice(2) };
+    return { tipo: 'txt', t: l };
+  });
+}
+function _textoRicoPlano(raw) {   // sem marcação (miniatura)
+  return _textoRicoLinhas(_textoRicoParse(raw).texto).map(function (l) { return l.t.replace(/\*\*/g, ''); }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function _textoRicoHtml(raw, isLight) {
+  const p = _textoRicoParse(raw);
+  const fam = _TXT_FONTES[p.fonte] ? 'font-family:' + _TXT_FONTES[p.fonte] + ';' : '';
+  const cor = isLight ? '#1a1a1a' : '#f0f0f0';
+  const inline = function (t) {
+    return t.split('**').map(function (seg, i) { const h = _textoComMencoes(seg); return i % 2 ? '<b>' + h + '</b>' : h; }).join('');
+  };
+  return '<div style="' + fam + 'color:' + cor + ';word-break:break-word;overflow-wrap:anywhere;">' + _textoRicoLinhas(p.texto).map(function (l) {
+    if (!l.t.trim()) return '<div style="height:.65em;"></div>';
+    if (l.tipo === 'tit') return '<div style="font-size:21px;font-weight:800;line-height:1.25;margin:2px 0 4px;">' + inline(l.t) + '</div>';
+    if (l.tipo === 'sub') return '<div style="font-size:16px;font-weight:700;line-height:1.3;margin:2px 0 3px;opacity:.9;">' + inline(l.t) + '</div>';
+    return '<div style="font-size:14px;line-height:1.55;">' + inline(l.t) + '</div>';
+  }).join('') + '</div>';
+}
+// Bloco do texto dentro do cartão do post (texto longo fecha com "ver mais").
+function _textoRicoBloco(post, isLight) {
+  const raw = String(post.legenda || '');
+  const longo = _textoRicoPlano(raw).length > 380;
+  const corMuted = isLight ? '#999' : '#888';
+  if (!longo) return '<div style="margin-bottom:9px;">' + _textoRicoHtml(raw, isLight) + '</div>';
+  return '<div style="margin-bottom:9px;"><div data-txt-corpo style="max-height:210px;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent);">' + _textoRicoHtml(raw, isLight) + '</div>' +
+    '<b onclick="var c=this.previousElementSibling;c.style.maxHeight=\'none\';c.style.webkitMaskImage=c.style.maskImage=\'none\';this.remove();" style="display:inline-block;margin-top:4px;color:' + corMuted + ';font-size:12.5px;font-weight:700;cursor:pointer;">ver mais</b></div>';
+}
+// Miniatura quadrada na grade do perfil.
+function _pkTileTexto(p, isLight, fn) {
+  const par = _textoRicoParse(p.legenda);
+  const fam = _TXT_FONTES[par.fonte] ? 'font-family:' + _TXT_FONTES[par.fonte] + ';' : '';
+  return '<div onclick="' + fn + '(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight ? 'linear-gradient(135deg,#f1f8e8,#e4eed6)' : 'linear-gradient(135deg,#1d2616,#141a10)') + ';border:1px solid ' + (isLight ? '#dfe8d2' : '#252d1d') + ';box-sizing:border-box;padding:8px;">' +
+    '<div style="' + fam + 'font-size:11px;line-height:1.35;color:' + (isLight ? '#2a3a1a' : '#d6e6c4') + ';display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;word-break:break-word;">' + esc(_textoRicoPlano(p.legenda).slice(0, 220)) + '</div>' +
+    '<span style="position:absolute;top:4px;right:5px;font-size:11px;">✍️</span>' + _visibSeloHtml(p) + '</div>';
+}
+function abrirPostTexto() {
+  _txt = { fonte: '', visib: _composeVisibPadrao() || 'todos', destino: 'feed' };
+  const isLight = document.body.classList.contains('tema-claro');
+  const borda = isLight ? '#ddd' : '#333';
+  const bt = function (rot, on, ttl, extra) { return '<button type="button" onclick="' + on + '" title="' + ttl + '" style="min-width:40px;padding:8px 10px;border-radius:10px;border:1px solid ' + borda + ';background:transparent;color:' + (isLight ? '#222' : '#eee') + ';font-size:13px;cursor:pointer;font-family:inherit;' + (extra || '') + '">' + rot + '</button>'; };
+  const corpo =
+    '<div style="font-size:12.5px;color:' + (isLight ? '#666' : '#999') + ';line-height:1.5;margin:2px 0 10px;">Escreva uma ideia, uma pergunta ou um aviso. Sem foto: a conversa acontece nos comentários.</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">' +
+      bt('<b>N</b>', "_txtFmt('neg')", 'Negrito (selecione o trecho)') +
+      bt('Título', "_txtFmt('tit')", 'Linha como título', 'font-weight:800;') +
+      bt('Subtítulo', "_txtFmt('sub')", 'Linha como subtítulo', 'font-weight:700;') +
+      bt('Texto', "_txtFmt('txt')", 'Linha como texto normal') +
+    '</div>' +
+    '<div id="txt-fontes" style="display:flex;gap:6px;margin-bottom:8px;">' + _txtFontesHtml(isLight) + '</div>' +
+    '<textarea id="txt-campo" maxlength="900" rows="6" placeholder="O que você quer compartilhar?" oninput="_txtAtualizar()" style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;font-size:15px;line-height:1.5;resize:vertical;min-height:130px;border:1px solid ' + borda + ';background:' + (isLight ? '#fff' : '#1a1a1a') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';font-family:inherit;"></textarea>' +
+    '<div id="txt-cont" style="text-align:right;font-size:11px;color:#888;margin:3px 2px 6px;">0/1000</div>' +
+    '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:6px 0;">Prévia</div>' +
+    '<div id="txt-previa" style="padding:12px 14px;border-radius:14px;border:1px dashed ' + borda + ';min-height:46px;"></div>' +
+    '<div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px;">🔒 Quem pode ver</div>' +
+    '<div id="txt-visib" style="display:flex;gap:8px;">' + _txtVisibHtml(isLight) + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:16px;">' +
+      '<button class="btn btn-prim" style="flex:1;" onclick="_txtPublicar(\'feed\')">Publicar no Feed</button>' +
+      '<button class="btn btn-sec" style="flex:1;" onclick="_txtPublicar(\'perfil\')">Só no meu perfil</button>' +
+    '</div>';
+  _comSheet('txt-sheet', '✍️ Escrever um post', corpo, 100200);
+  _txtAtualizar();
+}
+function _txtFontesHtml(isLight) {
+  const cor = isLight ? '#2d8a00' : '#7FFF00', borda = isLight ? '#ddd' : '#333';
+  return ['', 'serif', 'mono', 'hand'].map(function (f) {
+    const on = _txt.fonte === f;
+    return '<button type="button" onclick="_txtFonte(\'' + f + '\')" style="flex:1;padding:8px 2px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;' + (_TXT_FONTES[f] ? 'font-family:' + _TXT_FONTES[f] + ';' : 'font-family:inherit;') + 'border:1px solid ' + (on ? cor : borda) + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (on ? cor : (isLight ? '#444' : '#ccc')) + ';">' + _TXT_FONTE_ROT[f] + '</button>';
+  }).join('');
+}
+function _txtVisibHtml(isLight) {
+  const cor = isLight ? '#2d8a00' : '#7FFF00', borda = isLight ? '#ddd' : '#333';
+  return [['todos', '🌎 Todos'], ['amigos', '👥 Amigos'], ['eu', '🙋 Só eu']].map(function (x) {
+    const on = _txt.visib === x[0];
+    return '<button type="button" onclick="_txtVisib(\'' + x[0] + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;border:1px solid ' + (on ? cor : borda) + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (on ? cor : (isLight ? '#444' : '#ccc')) + ';">' + x[1] + '</button>';
+  }).join('');
+}
+function _txtFonte(f) { _txt.fonte = f; const b = document.getElementById('txt-fontes'); if (b) b.innerHTML = _txtFontesHtml(document.body.classList.contains('tema-claro')); _txtAtualizar(); }
+function _txtVisib(v) { _txt.visib = v; const b = document.getElementById('txt-visib'); if (b) b.innerHTML = _txtVisibHtml(document.body.classList.contains('tema-claro')); }
+function _txtMontar() {   // texto final com a etiqueta de fonte
+  const t = ((document.getElementById('txt-campo') || {}).value || '').replace(/\s+$/, '');
+  return t ? (_txt.fonte ? '[' + _txt.fonte + ']\n' : '') + t : '';
+}
+function _txtAtualizar() {
+  const campo = document.getElementById('txt-campo'); if (!campo) return;
+  const cont = document.getElementById('txt-cont'), prev = document.getElementById('txt-previa');
+  const final = _txtMontar();
+  if (cont) cont.textContent = final.length + '/1000';
+  if (prev) prev.innerHTML = final ? _textoRicoHtml(final, document.body.classList.contains('tema-claro')) : '<span style="font-size:13px;color:#888;">A prévia aparece aqui.</span>';
+}
+// Negrito envolve a seleção; Título/Subtítulo/Texto trocam o prefixo da linha onde está o cursor.
+function _txtFmt(tipo) {
+  const c = document.getElementById('txt-campo'); if (!c) return;
+  const v = c.value, a = c.selectionStart, b = c.selectionEnd;
+  if (tipo === 'neg') {
+    const sel = v.slice(a, b);
+    if (!sel) { toast('Selecione o trecho que vai ficar em negrito.'); c.focus(); return; }
+    const tem = sel.length > 4 && sel.slice(0, 2) === '**' && sel.slice(-2) === '**';
+    const novo = tem ? sel.slice(2, -2) : '**' + sel + '**';
+    c.value = v.slice(0, a) + novo + v.slice(b);
+    c.setSelectionRange(a, a + novo.length);
+  } else {
+    const ini = v.lastIndexOf('\n', a - 1) + 1;
+    let fim = v.indexOf('\n', a); if (fim < 0) fim = v.length;
+    const linha = v.slice(ini, fim).replace(/^#{1,2} /, '');
+    const novo = (tipo === 'tit' ? '# ' : tipo === 'sub' ? '## ' : '') + linha;
+    c.value = v.slice(0, ini) + novo + v.slice(fim);
+    const pos = ini + novo.length; c.setSelectionRange(pos, pos);
+  }
+  c.focus(); _txtAtualizar();
+}
+async function _txtPublicar(destino) {
+  if (_postPublicando) return;
+  const legenda = _txtMontar();
+  if (!legenda.replace(/^\[(serif|mono|hand)\]\s*/, '').trim()) { toast('Escreva algo antes de publicar.'); return; }
+  _postPublicando = true;
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, body: JSON.stringify({ so_texto: 1, imagem: '', legenda: legenda, destino: destino, visib: _txt.visib }) }, 20000);
+    if (!r.ok) { let m = 'erro ' + r.status; try { const j = await r.json(); if (j && (j.error || j.erro)) m = j.error || j.erro; } catch (e) {} throw new Error(m); }
+    document.getElementById('txt-sheet')?.remove();
+    toast(destino === 'feed' ? 'Publicado no feed! 🎉' : 'Publicado no seu perfil! 🎉');
+    if (window._viewAtual === 'feed') renderFeedCompleto(); else navegar('feed');
+  } catch (e) { toast('Não consegui publicar (' + (e.message || 'sem conexão') + ').'); }
+  finally { _postPublicando = false; }
 }
 
 // ═══════════════ QUADRO DE RESULTADOS ═══════════════
@@ -18881,7 +19035,7 @@ async function _carregarPerfilPosts() {
     return;
   }
   el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;">' +
-    posts.map(p => '<div onclick="_perfilAbrirPost(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + _visibSeloHtml(p) + (_midiasDoPost(p).length > 1 || _midiasDoPost(p).some(x => x.tipo === 'video') ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + (_midiasDoPost(p).some(x => x.tipo === 'video') ? '▶' : '⧉') + '</span>' : '') + '</div>').join('') +
+    posts.map(p => _ehPostTexto(p) ? _pkTileTexto(p, isLight, '_perfilAbrirPost') : '<div onclick="_perfilAbrirPost(' + Number(p.idpost) + ')" style="aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;background:' + (isLight?'#eee':'#222') + ';"><img src="' + esc(p.imagem) + '" style="width:100%;height:100%;object-fit:cover;" loading="lazy"/>' + _visibSeloHtml(p) + (_midiasDoPost(p).length > 1 || _midiasDoPost(p).some(x => x.tipo === 'video') ? '<span style="position:absolute;top:4px;right:5px;font-size:12px;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.8);">' + (_midiasDoPost(p).some(x => x.tipo === 'video') ? '▶' : '⧉') + '</span>' : '') + '</div>').join('') +
   '</div>';
 }
 

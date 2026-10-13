@@ -140,6 +140,16 @@ eq('a Bia sai sozinha do outro post', sair(2, $p2)['ok'] ?? null, true);
 eq('depois de sair, o post some do perfil dela', in_array($p2, ids(feed(2, ['idatleta' => 2])), true), false);
 eq('post inexistente', sair(1, 999)['error'] ?? null, 'post nao encontrado');
 
+echo "\n── Post só de texto ──\n";
+$t = rodar(['action' => 'feed_posts', 'metodo' => 'POST', 'eu' => 1, 'corpo' => ['so_texto' => 1, 'imagem' => '', 'legenda' => "[serif]\n# Título\nTexto com **negrito**"]]);
+$pt = $t['idpost'] ?? 0;
+eq('texto sem imagem é aceito', $pt > 0, true);
+eq('sem texto e sem imagem recusa', rodar(['action' => 'feed_posts', 'metodo' => 'POST', 'eu' => 1, 'corpo' => ['so_texto' => 1, 'imagem' => '', 'legenda' => '   ']])['error'] ?? null, 'texto obrigatorio');
+eq('sem so_texto a imagem continua obrigatória', rodar(['action' => 'feed_posts', 'metodo' => 'POST', 'eu' => 1, 'corpo' => ['imagem' => '', 'legenda' => 'oi']])['error'] ?? null, 'imagem obrigatoria');
+$lt = array_values(array_filter(feed(4)['posts'] ?? [], fn($x) => $x['idpost'] == $pt))[0] ?? [];
+eq('o post aparece no Feed com a marcação intacta', $lt['legenda'] ?? null, "[serif]\n# Título\nTexto com **negrito**");
+eq('sem imagem e sem mídias (o app mostra só o texto)', [trim((string)($lt['imagem'] ?? 'x')), $lt['midias'] ?? 'x'], ['', []]);
+
 @unlink($tmp);
 echo "\n" . ($ruim ? $ruim . ' FALHA(S), ' : '') . $ok . " ok\n";
 exit($ruim ? 1 : 0);
