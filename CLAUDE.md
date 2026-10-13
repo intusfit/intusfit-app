@@ -1376,3 +1376,18 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **Distintivos** (`CONQUISTAS_DEF` e `CONQUISTAS_BASE` em `notificacoes.html`): `colab1` 👥 **Dupla Dinâmica** (1 post colaborativo no Feed), `colab5` ⛓️ **Parceria de Ferro** (5), `colab15` 🏟️ **Time Inseparável** (15); métrica `colab` vem de `treinos.php?action=ranking`
   (conta para autor e colaboradores aceitos, só posts com destino Feed).
 - Opcional do aluno: o destino já existente. "Só meu perfil" faz o post aparecer só nos perfis dos dois; "Feed da Intus" também no Feed.
+
+## 53. Receitas novas (46), destaques do dia, macros, toque duplo e mural (13/10/2026)
+- **46 receitas novas** em `nutri-conteudo.json` (93 no total; versão 2026-10-13), no padrão do arquivo, com todos os ingredientes em g/ml e medida caseira (de `unidades.json`) e **informação nutricional por porção calculada pelo banco de alimentos do app**
+  (TACO/IBGE/USDA; valores típicos de rótulo para leite desnatado, whey e goma de tapioca hidratada, documentados no script). Fotos livres da Unsplash redimensionadas para 800x500 em `app/painel/receitas/`, com autor e link em `receitas/LICENCAS.md`.
+  A receita "Carne moída com abobrinha e tomate" ficou de fora por falta de foto correta (está nos arquivos de trabalho em `importar-local/receitas/`, fora do git). Fotos são aproximadas em algumas receitas: trocar pelo painel (Receitas e vídeos > Editar > foto).
+  Para o app usar favoritar, avaliar e mural nas novas, a equipe clica em "⬇ Importar receitas novas do arquivo" (Nutrição > Receitas e vídeos).
+- **Receitas antigas com quantidade em todos os ingredientes** ganharam `nutricao` marcada "Estimativa por porção" (14 receitas; as que já traziam "≈ N g de proteína" do e-book e as sem quantidade ficaram como estavam, para não contradizer a nutri).
+- **Tela Receitas**: primeira aba "✨ Destaques do dia" (sem plano: as receitas liberadas do dia em ordem sorteada; com plano: uma de cada categoria, sorteada; botão "🔀 Sortear outros"), "Todas" por último; cartão e tela da receita mostram
+  "🔥 ≈ N kcal · P · C · G"; a avaliação (favoritar, estrelas, "eu fiz") agora fica no FIM da receita.
+- **Toque duplo**: CSS global `touch-action: manipulation` em `html, body` e controles: dois toques rápidos em + e − (séries, copo de água...) registram dois toques em vez de dar zoom (pinça continua funcionando).
+- **Marcador de água na Home**: o interruptor na Nutrição agora é uma linha própria, "Deixar marcador de água na tela inicial", com explicação; e voltar para a Home por qualquer caminho (botão Voltar incluído) mostra o cartão
+  (`trocarView('home')` confere `_homeAguaAtiva()`).
+- **Mural dos Membros (ranking)**: escrever e responder só com plano de treino (matrícula) ativo (`_muralPodeEscrever`, no app; ler é aberto). O mural da Nutrição segue o plano alimentar (servidor). Escrever no mural do ranking não é checado no servidor
+  (a regra de matrícula vive em `api.js`, no cliente).
+- Teste novo `testes/receitas.js` (ids, fotos, ingredientes com quantidade, kcal coerente com macros).

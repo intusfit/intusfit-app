@@ -60,11 +60,11 @@ function eq($rot, $obtido, $esperado) {
 
 echo "\n── Importar o e-book ──\n";
 $r = rodar(['metodo' => 'POST', 'corpo' => ['subacao' => 'importar']]);
-eq('importa 47 receitas e 8 dicas', [$r['ok'] ?? null, $r['novos'] ?? null, $r['ja_existiam'] ?? null], [true, 55, 0]);
+eq('importa 93 receitas e 8 dicas', [$r['ok'] ?? null, $r['novos'] ?? null, $r['ja_existiam'] ?? null], [true, 101, 0]);
 $r = rodar(['metodo' => 'POST', 'corpo' => ['subacao' => 'importar']]);
-eq('importar de novo não repete nada', [$r['novos'] ?? null, $r['ja_existiam'] ?? null], [0, 55]);
+eq('importar de novo não repete nada', [$r['novos'] ?? null, $r['ja_existiam'] ?? null], [0, 101]);
 $g = rodar(['metodo' => 'GET']);
-eq('equipe lê 47 receitas, 8 dicas, 0 vídeos', [count($g['receitas'] ?? []), count($g['dicas'] ?? []), count($g['videos'] ?? [])], [47, 8, 0]);
+eq('equipe lê 93 receitas, 8 dicas, 0 vídeos', [count($g['receitas'] ?? []), count($g['dicas'] ?? []), count($g['videos'] ?? [])], [93, 8, 0]);
 $p = $g['receitas'][0] ?? [];
 eq('receita volta com slug, foto e ingredientes', [$p['id'] ?? null, $p['foto'] ?? null, count($p['ingredientes'] ?? []) > 0, $p['ativo'] ?? null], ['panqueca-banana-aveia-whey', 'receitas/panqueca-banana-aveia-whey.jpg', true, 1]);
 $stro = null; foreach ($g['receitas'] as $x) if ($x['id'] === 'strogonoff-light-frango') $stro = $x;
@@ -86,7 +86,7 @@ $gAluno = rodar(['metodo' => 'GET', 'aluno' => true]);
 eq('aluno não vê o item inativo', array_map(fn($x) => $x['titulo'], $gAluno['videos'] ?? []), ['Como fazer overnight']);
 $gEq = rodar(['metodo' => 'GET']);
 eq('equipe ainda vê os dois vídeos', count($gEq['videos'] ?? []), 2);
-eq('aluno vê todas as receitas ativas', count($gAluno['receitas'] ?? []), 47);
+eq('aluno vê todas as receitas ativas', count($gAluno['receitas'] ?? []), 93);
 $r = rodar(['metodo' => 'POST', 'corpo' => ['tipo' => 'dica', 'titulo' => 'Dica nova', 'dados' => ['icone' => '💧', 'texto' => 'Beba água']], 'aluno' => true]);
 eq('aluno não grava conteúdo', $r['error'] ?? null, 'somente a equipe');
 $r = rodar(['metodo' => 'DELETE', 'get' => ['id' => $idv]]);

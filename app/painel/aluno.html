@@ -136,6 +136,13 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── DOIS TOQUES RÁPIDOS NÃO DÃO ZOOM ────────────────────────────────
+       No celular, tocar duas vezes seguidas num botão (+ e − das séries, copo de água, curtir...) dava zoom na tela em vez de
+       registrar dois toques. 'manipulation' mantém rolagem e zoom de pinça e tira só o zoom do toque duplo (e o atraso do toque). */
+    html, body { touch-action: manipulation; }
+    button, a, label, select, summary, [onclick], [role="button"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    button, [role="button"] { -webkit-user-select: none; user-select: none; }
+
     /* ── ZOOM DO TECLADO NO IPHONE ────────────────────────────────────────
        O Safari do iOS aplica zoom automático ao focar qualquer campo de texto
        com fonte MENOR que 16px. Sempre foi assim; o que mudou é que antes o
@@ -14684,6 +14691,7 @@ function muralResponder(idm, el) {
 function muralCancelar(idm) { delete _muralRespondendoA[idm]; _muralAtualizar(idm); }
 
 async function muralEnviar(idm) {
+  if (!_muralPodeEscrever()) { toast('Escrever no mural é para quem tem plano de treino ativo.'); return; }
   if (_muralEnviando[idm]) return;
   const input = document.querySelector('[data-mural-card="' + idm + '"] [data-mural-input]');
   const texto = _mencoesCodificar('mural:' + idm, input?.value?.trim());
@@ -14801,7 +14809,8 @@ function _renderComentarios(data, isLight) {
   const inputBorder = isLight ? '#ddd' : '#333';
   let html = '<div style="margin-top:8px;">' +
     '<h2 class="sect-title" style="margin-bottom:12px;">💬 Mural dos Membros</h2>' +
-    '<div style="display:flex;gap:8px;margin-bottom:16px;">' +
+    (_muralPodeEscrever() ? '' : '<div onclick="abrirWhatsAppIntus(\'Quero ativar a minha matrícula\')" style="margin-bottom:16px;padding:11px 13px;border-radius:10px;border:1px dashed ' + inputBorder + ';font-size:12.5px;color:' + textSec + ';cursor:pointer;line-height:1.45;">🔒 Escrever no mural é para quem tem plano de treino ativo. Você pode ler tudo. <b>Ativar matrícula ›</b></div>') +
+    '<div style="display:' + (_muralPodeEscrever() ? 'flex' : 'none') + ';gap:8px;margin-bottom:16px;">' +
       '<input id="ranking-comment-input" data-mencoes="ranking" data-limite="1000" type="text" placeholder="Deixe uma mensagem para a galera..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + textPrim + ';font-size:13px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioRanking();"/>' +
       '<button class="btn btn-prim" style="padding:10px 16px;font-size:13px;" onclick="enviarComentarioRanking()">Enviar</button>' +
     '</div>';
@@ -15919,7 +15928,10 @@ function _renderRankingView() {
   box.innerHTML = html;
 }
 
+// Mural dos Membros: escrever é de quem tem plano de treino (matrícula) ativo; ler é aberto. O mural da Nutrição segue o plano alimentar.
+function _muralPodeEscrever() { try { return !verificarSemMatricula() && !verificarInadimplencia(); } catch (e) { return true; } }
 async function enviarComentarioRanking() {
+  if (!_muralPodeEscrever()) { toast('Escrever no mural é para quem tem plano de treino ativo.'); return; }
   const inp = document.getElementById('ranking-comment-input');
   const texto = _mencoesCodificar('ranking', (inp?.value || '').trim());
   if (!texto) return toast('Digite uma mensagem.');
@@ -17563,7 +17575,7 @@ async function salvarAutoAvaliacao() {
 // (aderência, consumo estimado, sequência, lista de compras) vêm de API.nutri (api.js).
 // Registro feito sem internet fica numa fila e é enviado sozinho depois.
 var _nutri = { plano: null, regs: [], agua: [], pesos: [], visao: 'hoje', dia: 'hoje', aberta: null, opcao: {}, obs: {}, prato: 0, carregado: false,
-               tela: 'home', pai: 'home', hist: 0, cat: 'todas', busca: '', receita: null, marcados: {} };
+               tela: 'home', pai: 'home', hist: 0, cat: 'destaques', destaques: null, busca: '', receita: null, marcados: {} };
 
 function _nutriHdr() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; }
 function _nutriPendKey() { return 'intus-nutri-pend-' + idAtleta; }
@@ -18019,6 +18031,11 @@ function nutriFav(id) {
 }
 function nutriNota(id, n) { const r = _nutriRec(id); if (!r) return; _nutriMarcar(id, { nota: _nutriMinha(r).nota === n ? 0 : n }); }
 function nutriFiz(id) { const r = _nutriRec(id); if (!r) return; _nutriMarcar(id, { fez: _nutriMinha(r).fez ? 0 : 1 }); }
+// "≈ 303 kcal · P 18 · C 28 · G 13" por porção, quando a receita tem informação nutricional (calculada ou estimada).
+function _nutriMacrosTxt(r) {
+  const n = r && r.nutricao; if (!n || n.kcal == null) return '';
+  return '🔥 ≈ ' + Math.round(n.kcal) + ' kcal · P ' + Math.round(n.proteina || 0) + ' · C ' + Math.round(n.carboidrato || 0) + ' · G ' + Math.round(n.gordura || 0);
+}
 function _nutriStatsTxt(r) {
   const st = _nutriAv.stats[String(_nutriIdc(r))]; if (!st) return '';
   const p = [];
@@ -18081,7 +18098,7 @@ function nutriTela(t, id) {
   if (t === 'home') { _nutri.tela = 'home'; _nutri.pai = 'home'; window.scrollTo(0, 0); _nutriRender(); return; }
   _nutri.pai = (_nutri.tela === 'receita' || _nutri.tela === 'home' || _nutri.tela === 'receitas' || _nutri.tela === 'videos') ? _nutri.tela : 'home';
   if (t === 'receita') { _nutri.receita = id; if (_nutri.tela === 'receita') _nutri.pai = 'receitas'; }
-  if (t === 'receitas' && id) _nutri.cat = id;
+  if (t === 'receitas') { if (id) _nutri.cat = id; else { _nutri.cat = 'destaques'; _nutri.destaques = null; } }
   if (t === 'agua') _nutriAguaHistCarregar();
   if (t === 'receita') { const rr = _nutriRec(id); if (rr) _nutriAvNomes(rr); }
   if (t === 'video') _nutri.video = id;
@@ -18134,6 +18151,7 @@ function _nutriMini(r, largura) {
     <div style="padding:9px 10px 11px;">
       <div style="font-size:12.5px;font-weight:800;line-height:1.25;min-height:31px;">${esc(r.titulo)}</div>
       <div style="font-size:10.5px;color:${C.mut};margin-top:5px;">⏱ ${esc(r.tempo || '')}${r.proteina ? ' · 💪 ' + esc(String(r.proteina).replace(/^≈ /, '').replace(' de proteína', '')) : ''}</div>
+      ${_nutriMacrosTxt(r) ? `<div style="font-size:10.5px;font-weight:700;color:${C.mut};margin-top:3px;">${_nutriMacrosTxt(r)}</div>` : ''}
       ${_nutriStatsTxt(r) ? `<div style="font-size:10.5px;font-weight:700;color:${C.mut};margin-top:3px;">${_nutriStatsTxt(r)}</div>` : ''}
     </div>
   </div>`;
@@ -18149,7 +18167,6 @@ function _nutriAguaCardHtml() {
   const bateu = ml >= meta;
   return `<div style="position:relative;background:${C.card};border:1px solid ${bateu ? '#38bdf8' : C.borda};border-radius:16px;padding:14px;margin-bottom:12px;">
     <div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;">
-      <div onclick="homeAguaLigar(${_homeAguaAtiva() ? 'false' : 'true'})" title="Mostrar o marcador de água na tela inicial" style="padding:5px 9px;border-radius:99px;border:1px solid ${_homeAguaAtiva() ? '#38bdf8' : C.borda};background:${_homeAguaAtiva() ? 'rgba(56,189,248,.14)' : 'transparent'};font-size:10.5px;font-weight:800;color:${_homeAguaAtiva() ? '#38bdf8' : C.mut};cursor:pointer;white-space:nowrap;">🏠 Início${_homeAguaAtiva() ? ' ✓' : ''}</div>
       <div onclick="nutriTela('agua')" style="padding:5px 9px;border-radius:99px;border:1px solid ${C.borda};font-size:10.5px;font-weight:800;color:${C.mut};cursor:pointer;white-space:nowrap;">📅 Histórico ›</div>
     </div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:8px;">
@@ -18162,6 +18179,10 @@ function _nutriAguaCardHtml() {
       <button onclick="nutriAgua(-250,1)" aria-label="Tirar um copo" style="flex:1;padding:11px 0;border-radius:11px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:16px;font-weight:800;cursor:pointer;">−</button>
       <button onclick="nutriAgua(250,1)" style="flex:3;padding:11px 0;border-radius:11px;border:none;background:#38bdf8;color:#04283a;font-size:13px;font-weight:900;cursor:pointer;">+ copo (250 ml)</button>
       <button onclick="nutriAgua(500,1)" style="flex:2;padding:11px 0;border-radius:11px;border:1px solid #38bdf8;background:transparent;color:#38bdf8;font-size:12.5px;font-weight:800;cursor:pointer;">+ 500 ml</button>
+    </div>
+    <div onclick="homeAguaLigar(${_homeAguaAtiva() ? 'false' : 'true'})" style="display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid ${_homeAguaAtiva() ? '#38bdf8' : C.borda};background:${_homeAguaAtiva() ? 'rgba(56,189,248,.1)' : 'transparent'};cursor:pointer;">
+      <span style="flex-shrink:0;width:38px;height:22px;border-radius:99px;background:${_homeAguaAtiva() ? '#38bdf8' : 'rgba(128,128,128,.4)'};position:relative;transition:.2s;"><span style="position:absolute;top:2px;left:${_homeAguaAtiva() ? '18px' : '2px'};width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s;"></span></span>
+      <span style="flex:1;font-size:12.5px;font-weight:800;line-height:1.3;">Deixar marcador de água na tela inicial<span style="display:block;font-weight:600;font-size:11px;color:${C.mut};margin-top:1px;">${_homeAguaAtiva() ? 'Ligado: aparece abaixo de "Sua semana", com + copo em um toque.' : 'Desligado: mostra um cartão abaixo de "Sua semana" para marcar cada copo em um toque.'}</span></span>
     </div>
     <div style="font-size:11px;color:${C.mut};margin-top:8px;line-height:1.4;">${bateu ? '🎉 Meta de hoje batida. Continue se hidratando.' : (peso ? 'Meta de ' + litros(meta) + ' L calculada pelo seu último peso (' + String(peso).replace('.', ',') + ' kg).' : 'Meta padrão de 2,5 L. Quando você fizer uma avaliação com peso, ela passa a ser calculada para você.')}</div>
   </div>`;
@@ -18327,12 +18348,28 @@ function _nutriHomeHtml() {
 }
 
 // ── Receitas ──
+// "Destaques do dia": sorteio a cada visita. Sem plano, só as receitas liberadas do dia (as mesmas do acesso geral), em ordem aleatória.
+// Com plano, uma receita sorteada de cada categoria. Muda ao abrir a tela e no botão "Sortear outros".
+function _nutriDestaques() {
+  if (!_nutri.destaques) {
+    const emb = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
+    let lista;
+    if (_nutriTemPlano()) {
+      lista = _nutriCont.categorias.map(c => { const l = _nutriCont.receitas.filter(r => r.cat === c.id); return l.length ? l[Math.floor(Math.random() * l.length)] : null; }).filter(Boolean);
+    } else lista = _nutriCont.receitas.filter(_nutriReceitaLiberada);
+    _nutri.destaques = emb(lista).map(r => r.id);
+  }
+  return _nutri.destaques.map(_nutriRec).filter(Boolean);
+}
+function nutriSortear() { _nutri.destaques = null; _nutriRender(); }
 function _nutriRecFiltradas() {
   const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const q = norm(_nutri.busca).trim();
+  if ((_nutri.cat || 'destaques') === 'destaques' && !q) return _nutriDestaques();
   return _nutriCont.receitas.filter(r => {
+    if (_nutri.cat === 'destaques') return true;
     if (_nutri.cat === 'favoritas') { if (!_nutriEhFav(r.id)) return false; }
-    else if (_nutri.cat && _nutri.cat !== 'todas' && r.cat !== _nutri.cat) return false;
+    else if (_nutri.cat && _nutri.cat !== 'todas' && _nutri.cat !== 'destaques' && r.cat !== _nutri.cat) return false;
     if (!q) return true;
     return norm(r.titulo + ' ' + (r.ingredientes || []).join(' ')).indexOf(q) >= 0;
   });
@@ -18344,13 +18381,14 @@ function _nutriGradeHtml() {
 }
 function _nutriReceitasHtml() {
   const C = _nutriCores();
-  const chips = [['todas', 'Todas']].concat(_nutriTemPlano() ? [['favoritas', '⭐ Favoritas']] : []).concat(_nutriCont.categorias.map(c => [c.id, (c.emoji || '') + ' ' + c.nome]));
+  const chips = [['destaques', '✨ Destaques do dia']].concat(_nutriTemPlano() ? [['favoritas', '⭐ Favoritas']] : []).concat(_nutriCont.categorias.map(c => [c.id, (c.emoji || '') + ' ' + c.nome])).concat([['todas', 'Todas']]);
   const catAtual = _nutriCont.categorias.find(c => c.id === _nutri.cat);
   return `<div style="padding:16px 0;">
     ${_nutriHeaderSub('👩‍🍳 Receitas')}
     <input type="search" value="${esc(_nutri.busca || '')}" oninput="nutriBusca(this.value)" placeholder="Buscar receita ou ingrediente" style="width:100%;padding:11px 13px;border-radius:12px;border:1px solid ${C.borda};background:${C.card};color:inherit;font-size:14px;font-family:inherit;margin-bottom:10px;"/>
-    <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:8px;margin-bottom:4px;">${chips.map(c => _nutriChip((_nutri.cat || 'todas') === c[0], "nutriCat('" + c[0] + "')", c[1])).join('')}</div>
+    <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:8px;margin-bottom:4px;">${chips.map(c => _nutriChip((_nutri.cat || 'destaques') === c[0], "nutriCat('" + c[0] + "')", c[1])).join('')}</div>
     ${catAtual && catAtual.desc ? `<div style="font-size:12px;color:${C.mut};margin:0 2px 10px;">${esc(catAtual.desc)}</div>` : ''}
+    ${(_nutri.cat || 'destaques') === 'destaques' && !_nutri.busca ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 10px;"><div style="font-size:12px;color:${C.mut};line-height:1.4;">${_nutriTemPlano() ? 'Uma sugestão de cada categoria, sorteada agora.' : 'As receitas liberadas de hoje, em ordem sorteada.'}</div><button onclick="nutriSortear()" style="flex-shrink:0;padding:7px 12px;border-radius:99px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:12px;font-weight:800;cursor:pointer;">🔀 Sortear outros</button></div>` : ''}
     ${_nutriTemPlano() ? '' : _nutriCadeadoFaixa('Você tem <b>1 receita liberada por categoria</b> a cada dia (marcadas com 🎁). As demais são do plano alimentar.')}
     <div id="nutri-rec-grid">${_nutriGradeHtml()}</div>
     <div style="font-size:10.5px;color:${C.mut};text-align:center;margin-top:14px;line-height:1.5;">Receitas da Nutri Rô. Use os alimentos do seu plano alimentar e ajuste as porções a ele.</div>
@@ -18415,8 +18453,8 @@ function _nutriReceitaHtml() {
     ${cat ? `<div style="font-size:11px;font-weight:800;color:${C.ok};text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">${esc((cat.emoji || '') + ' ' + cat.nome)}</div>` : ''}
     <div style="font-size:21px;font-weight:900;line-height:1.2;margin-bottom:8px;">${esc(r.titulo)}</div>
     ${r.descricao ? `<div style="font-size:13px;color:${C.mut};line-height:1.5;margin-bottom:10px;">${esc(r.descricao)}</div>` : ''}
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">${chip('⏱', r.tempo || '')}${chip('🍽️', r.porcoes || '')}${r.proteina ? chip('💪', r.proteina) : ''}${r.dificuldade ? chip('👨‍🍳', r.dificuldade) : ''}</div>
-    ${_nutriAvaliacaoHtml(r)}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:${_nutriMacrosTxt(r) ? 6 : 12}px;">${chip('⏱', r.tempo || '')}${chip('🍽️', r.porcoes || '')}${r.proteina && !_nutriMacrosTxt(r) ? chip('💪', r.proteina) : ''}${r.dificuldade ? chip('👨‍🍳', r.dificuldade) : ''}</div>
+    ${_nutriMacrosTxt(r) ? `<div style="font-size:12.5px;font-weight:800;margin-bottom:12px;">${_nutriMacrosTxt(r)} <span style="font-weight:600;color:${C.mut};">${esc(r.nutricao.porcao ? '(' + r.nutricao.porcao.replace(/^Por /, 'por ').replace(/^Estimativa por/, 'estimativa por') + ')' : 'por porção')}</span></div>` : ''}
     ${video ? `<button onclick="nutriVideoAbrir('${esc(video.id)}')" style="width:100%;padding:12px;border-radius:12px;border:none;background:${C.ok};color:#0f1a00;font-size:13.5px;font-weight:900;cursor:pointer;margin-bottom:12px;">▶ Ver o vídeo desta receita</button>` : ''}
     <div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;">
       <div style="font-size:14px;font-weight:900;margin-bottom:2px;">Ingredientes</div><div style="font-size:11px;color:${C.mut};margin-bottom:6px;">Toque para marcar o que você já separou.</div>
@@ -18431,7 +18469,8 @@ function _nutriReceitaHtml() {
     ${r.variacao ? `<div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;margin-top:12px;"><div style="font-size:14px;font-weight:900;margin-bottom:4px;">${esc(r.variacao.titulo)}</div><div style="font-size:12.5px;color:${C.mut};line-height:1.55;">${esc(r.variacao.texto)}</div></div>` : ''}
     ${lista('Sugestões de acompanhamento', r.acompanhamentos)}
     ${lista('Outras opções', r.outras_opcoes)}
-    <div style="display:flex;gap:8px;margin-top:14px;"><button onclick="nutriReceitaCopiar('${esc(r.id)}')" style="flex:1;padding:12px;border-radius:12px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:13px;font-weight:800;cursor:pointer;">Copiar receita</button><button onclick="nutriReceitaWhats('${esc(r.id)}')" style="flex:1;padding:12px;border-radius:12px;border:none;background:#25D366;color:#0b3d20;font-size:13px;font-weight:900;cursor:pointer;">Enviar no WhatsApp</button></div>
+    <div style="margin-top:14px;">${_nutriAvaliacaoHtml(r)}</div>
+    <div style="display:flex;gap:8px;margin-top:4px;"><button onclick="nutriReceitaCopiar('${esc(r.id)}')" style="flex:1;padding:12px;border-radius:12px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:13px;font-weight:800;cursor:pointer;">Copiar receita</button><button onclick="nutriReceitaWhats('${esc(r.id)}')" style="flex:1;padding:12px;border-radius:12px;border:none;background:#25D366;color:#0b3d20;font-size:13px;font-weight:900;cursor:pointer;">Enviar no WhatsApp</button></div>
     <div style="font-size:10.5px;color:${C.mut};text-align:center;margin-top:14px;line-height:1.5;">Fotografia ilustrativa do prato pronto. Ajuste as porções ao seu plano alimentar. Valores nutricionais dependem das marcas, do peso dos ingredientes e do rendimento final.</div>
   </div>${getFooterHtml()}`;
 }
@@ -19926,6 +19965,8 @@ trocarView = function(v) {
   if (viewStack[viewStack.length - 1] !== v) viewStack.push(v);
   history.pushState({ view: v }, '', '');
   originalTrocarView(v);
+  // O cartão de água da Home (ligado na Nutrição) precisa aparecer ao voltar para a Home por qualquer caminho, não só pelo menu.
+  try { if (v === 'home' && !!document.getElementById('h-agua-card') !== _homeAguaAtiva()) renderHome(); } catch (e) {}
   // Cardio ao vivo agora é uma view normal (com cabeçalho/menu de sempre) —
   // navegar pra ela some com a pilula flutuante; navegar pra qualquer outra
   // tela com o rastreio ainda rodando faz a pilula aparecer, avisando que

@@ -15,6 +15,7 @@ passo "sintaxe de todos os scripts"        node val.js
 passo "nenhuma função sumiu"               node funcoes.js
 passo "pontuação do ranking (unidade)"     node pontos.js
 passo "nutrição: aderência, alertas e compras" node nutri.js
+passo "receitas: ids, fotos e informação nutricional" node receitas.js
 passo "parceria: sequência da dupla"      node parceria.js
 passo "comunidade: turmas e desafios"      node comunidade.js
 passo "corte de vídeo: pontas e trecho"    node trecho.js
