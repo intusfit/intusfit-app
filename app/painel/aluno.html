@@ -2221,6 +2221,19 @@ function _shareMostrarParaSalvar(blob, fname) {
 // destruir o resto. O servidor tambem mescla desde 18/08/2026, mas a copia
 // local precisa acompanhar — senao a tela do aluno mostra uma anamnese menor
 // do que a que esta guardada no servidor ate a proxima sincronizacao.
+// Há resposta das perguntas da anamnese principal (campos simples, não as seções comportamental/nutricional/rotina)?
+function _anamnesePrincipalRespondida() {
+  try {
+    var d = JSON.parse(localStorage.getItem('intus-anamnese-' + idAtleta) || 'null');
+    if (!d || typeof d !== 'object') return false;
+    return Object.keys(d).some(function (k) {
+      if (k[0] === '_') return false;
+      var v = d[k];
+      if (v == null || typeof v === 'object') return false;
+      return String(v).trim() !== '';
+    });
+  } catch (e) { return false; }
+}
 function _salvarSecaoAnamnese(chave, dados) {
   var atual = {};
   try { atual = JSON.parse(localStorage.getItem('intus-anamnese-' + idAtleta) || '{}') || {}; } catch (e) { atual = {}; }
@@ -16159,7 +16172,9 @@ async function renderAvaliacoesAluno() {
   html += '<div id="fb-aluno-bloco"></div>';
 
   // Formulários pendentes
-  var anamneseRespondida = localStorage.getItem('intus-anamnese-' + idAtleta);
+  // A anamnese principal só conta como respondida se houver resposta das perguntas dela. A mesma cópia local também guarda as seções
+  // (comportamental, nutricional, rotina): antes bastava uma seção salva para a Anamnese aparecer como "Respondida" sem nunca ter sido preenchida.
+  var anamneseRespondida = _anamnesePrincipalRespondida();
   var rotinaRespondida = localStorage.getItem('intus-rotina-' + idAtleta);
   var comportamentalRespondida = localStorage.getItem('intus-comportamental-' + idAtleta);
   var nutricionalRespondida = localStorage.getItem('intus-nutricional-' + idAtleta);

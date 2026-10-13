@@ -1305,3 +1305,10 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   `agua`). Somente leitura; corrigir um dia continua só para hoje e ontem.
 - **Direção futura (pedido do Luiz)**: um "Diário do dia" que reúna treino, cardio, refeições e água de uma data escolhida, mais uma visão macro (semanas/meses). Os dias já usam o formato AAAA-MM-DD e
   `_nutriAguaDoDia(data)`, `_nutriRegsDoDia(data)` e as sessões do ranking têm essa chave, então a tela de data pode reaproveitá-los em vez de nova fonte de dados.
+
+## 45. Anamnese: "Respondida" só com as perguntas da anamnese (13/10/2026)
+- No app do aluno, o item "Anamnese" da tela Avaliações usava `localStorage['intus-anamnese-<id>']` não vazio como "respondida", mas essa mesma cópia também guarda as seções comportamental, nutricional e rotina
+  (`_salvarSecaoAnamnese`). Quem respondeu só as seções via "Anamnese: Respondida" sem nunca ter preenchido as 16 perguntas, e o painel (que mostra o que está no servidor) exibia só Comportamental e Nutricional (caso da Ana Luisa
+  Mansour, 13/10). Agora `_anamnesePrincipalRespondida()` exige resposta de campo simples (ignora seções e chaves `_`). O painel (`avaliacoes.html`, aba Anamnese) avisa explicitamente quando só chegaram seções:
+  "A anamnese principal ainda não foi respondida".
+- Se a aluna jura que respondeu a principal, a causa possível é o defeito antigo (servidor substituindo a anamnese a cada seção, corrigido em 18/08): o app recupera sozinho a cópia local com `_somente_faltantes`.
