@@ -1312,3 +1312,9 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   Mansour, 13/10). Agora `_anamnesePrincipalRespondida()` exige resposta de campo simples (ignora seções e chaves `_`). O painel (`avaliacoes.html`, aba Anamnese) avisa explicitamente quando só chegaram seções:
   "A anamnese principal ainda não foi respondida".
 - Se a aluna jura que respondeu a principal, a causa possível é o defeito antigo (servidor substituindo a anamnese a cada seção, corrigido em 18/08): o app recupera sozinho a cópia local com `_somente_faltantes`.
+
+## 46. Feed: responder comentário pela notificação (13/10/2026)
+- Sintoma: abrir o post pela notificação, tocar em Responder, escrever e enviar não fazia nada. Causa: a tela do post (`abrirPostTela`, `#pk-post-ov`) fica por cima do Feed, e o mesmo post existe nos dois lugares; o envio
+  usava `document.querySelector` e pegava o campo do cartão do Feed escondido (vazio), então saía em silêncio ("texto vazio"). `_campoComentarioFeed(idpost)` agora escolhe o campo em uso (focado, com texto, ou o da tela
+  de cima), e o rascunho, o foco do Responder e a limpeza pós-envio usam o mesmo critério. Envio com campo vazio agora avisa por toast em vez de não fazer nada. Qualquer código novo que procure o campo de comentário por
+  `data-feed-card` deve passar por essa função (o mural usa outro bloco, `_mural*`, sem esse problema).

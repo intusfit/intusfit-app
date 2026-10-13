@@ -2935,11 +2935,27 @@ function _donoDoPostFeedLocal(idpost) {
   return card ? Number(card.dataset.dono || 0) : 0;
 }
 
+// O mesmo post pode estar na página duas vezes: no Feed (atrás) e na tela do post aberta por cima (notificação, perfil). Pegar o
+// "primeiro campo" da página escolhia o do Feed escondido, vazio, e o envio não fazia nada. Aqui vale o campo que a pessoa está usando:
+// o focado, senão o que tem texto, senão o que está visível (a tela do post por cima), senão o primeiro.
+function _campoComentarioFeed(idpost) {
+  const todos = Array.from(document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comment-input]'));
+  if (todos.length <= 1) return todos[0] || null;
+  const ativo = document.activeElement;
+  if (ativo && todos.indexOf(ativo) >= 0) return ativo;
+  const comTexto = todos.filter(i => i.value && i.value.trim());
+  if (comTexto.length) return comTexto[comTexto.length - 1];
+  const visiveis = todos.filter(i => i.getClientRects().length > 0);
+  const noTopo = visiveis.filter(i => i.closest('#pk-post-ov'));
+  return noTopo[0] || visiveis[visiveis.length - 1] || todos[0];
+}
+
 function _atualizarLinhaComentarios(idpost) {
   const isLight = document.body.classList.contains('tema-claro');
   // Redesenhar o bloco apagava o que a pessoa já tinha digitado no campo.
-  const campo = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
+  const campo = _campoComentarioFeed(idpost);
   const rascunho = campo ? campo.value : '';
+  const noOverlay = !!(campo && campo.closest('#pk-post-ov'));
   document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comentario-gatilho]').forEach(el => {
     el.outerHTML = _comentarioGatilhoHtml(idpost, isLight);
   });
@@ -2947,7 +2963,8 @@ function _atualizarLinhaComentarios(idpost) {
     el.outerHTML = _comentariosHtml(idpost, isLight);
   });
   if (rascunho) {
-    const novo = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
+    const novos = Array.from(document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comment-input]'));
+    const novo = novos.find(i => !!i.closest('#pk-post-ov') === noOverlay) || novos[0];
     if (novo) novo.value = rascunho;
   }
 }
@@ -2963,9 +2980,9 @@ function toggleComentariosFeed(idpost) {
 let _comentarioEnviando = {};
 async function enviarComentarioFeed(idpost) {
   if (_comentarioEnviando[idpost]) return;
-  const input = document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]');
+  const input = _campoComentarioFeed(idpost);
   const texto = _mencoesCodificar('feed:' + idpost, input?.value?.trim());
-  if (!texto) return;
+  if (!texto) { toast('Escreva o comentário antes de enviar.'); return; }
   _comentarioEnviando[idpost] = true;
   const resp = _comentarioRespondendoA[idpost];
   try {
@@ -2977,7 +2994,7 @@ async function enviarComentarioFeed(idpost) {
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('falhou');
-    input.value = '';   // enviado: _atualizarLinhaComentarios preserva rascunho, então limpa aqui
+    document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comment-input]').forEach(i => { i.value = ''; });   // enviado: _atualizarLinhaComentarios preserva rascunho, então limpa aqui
     _mencoesLimpar('feed:' + idpost);
     delete _comentarioRespondendoA[idpost];
     _comentariosAbertos[idpost] = true;
@@ -2999,7 +3016,8 @@ function _responderComentarioFeed(idpost, el) {
   if (!id) return;
   _comentarioRespondendoA[idpost] = { id, nome };
   _atualizarLinhaComentarios(idpost);
-  document.querySelector('[data-feed-card="' + idpost + '"] [data-feed-comment-input]')?.focus();
+  const alvo = Array.from(document.querySelectorAll('[data-feed-card="' + idpost + '"] [data-feed-comment-input]'));
+  (alvo.find(i => i.closest('#pk-post-ov')) || alvo.find(i => i.getClientRects().length > 0) || alvo[0])?.focus();
 }
 
 function _cancelarRespostaFeed(idpost) {
