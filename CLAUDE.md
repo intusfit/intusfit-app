@@ -1393,7 +1393,7 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - Teste novo `testes/receitas.js` (ids, fotos, ingredientes com quantidade, kcal coerente com macros).
 
 ## 54. Feed: aba Meu perfil, posts só de texto, parceiros e Ajuda como tela (13/10/2026)
-- **Aba "Meu perfil" no Feed** (`_feedAba`: todos | amigos | meu): mostra só as publicações do próprio aluno, inclusive as "só no meu perfil" (`carregarFeedPosts(60, idAtleta)`, sem paginação).
+- **Aba "Meu perfil" no Feed** (`_feedAba`: todos | amigos | meu): desenha, dentro da própria tela, o mesmo perfil social que abre ao tocar no nome em um post (foto, contadores, abas Posts, Conquistas, Mural de resultados e Semana, botão de privacidade, posts inclusive os "só no meu perfil"). É `abrirPerfilRanking(id, true, alvo)` com o 3º parâmetro `alvo` (elemento `#feed-meu-perfil`; sem ele abre a folha de sempre), carregado por `_feedMeuPerfilCarregar`. Privacidade e conexões também atualizam essa tela.
 - **Post só de texto** (botão "✍️ Escrever" ao lado de "Novo post", `abrirPostTexto`): sem imagem, para a conversa acontecer nos comentários. O POST de `feed_posts` aceita `so_texto: 1` com o texto em `legenda`
   (obrigatório; `imagem` vai vazia, não cria linha em `intus_midia`, e o GET devolve `midias: []`). Sem `so_texto` a imagem continua obrigatória. A formatação é uma marcação simples dentro da própria legenda (sem coluna nova):
   `# ` título (21 px), `## ` subtítulo (16 px), texto (14 px), `**negrito**` e, na 1ª linha, `[serif]`, `[mono]` ou `[hand]` para a fonte (`_textoRicoParse/_textoRicoHtml`). O compositor tem botões N, Título, Subtítulo, Texto,
