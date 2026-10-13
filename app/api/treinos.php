@@ -387,6 +387,18 @@ require_once __DIR__ . '/_audit_log.php';
 
 // ---------- Roteamento ----------
 $action = $_GET['action'] ?? '';
+// Pontos-base do cardio (espelho de API.cardioPontosBase, em api.js; testes/cardio_pontos.json é a tabela dos dois lados): o tempo manda,
+// o esforço (RPE) pesa -12% a +15% e as atividades são aproximadas pelo "centro". Devolve null se não souber a atividade.
+function _cardioPontosBase($tipo, $rpe, $minutos) {
+    $mod = ['Caminhada' => 3.5, 'Corrida' => 8.0, 'Bike' => 6.8, 'Natação' => 6.0, 'Escada' => 7.0, 'Pular Corda' => 10.0, 'Elíptico' => 6.0,
+            'Tênis' => 7.0, 'Padel' => 7.0, 'Dança' => 5.5, 'Futebol' => 7.0, 'Luta' => 7.8, 'Outro' => 5.0];
+    $tipo = (string)$tipo;
+    $m = $mod[$tipo] ?? $mod['Outro'];
+    $esforco = max(1, min(10, (int)$rpe ?: 5));
+    $base = 6 + 0.5 * ($m - 6);
+    return round($base * (1 + 0.03 * ($esforco - 5)) * (max(0, (float)$minutos) / 30), 1);
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 // Prescricao de treino e do professor. O aplicativo do aluno registra sessao e
@@ -879,6 +891,8 @@ try {
             } catch (Throwable $e) {}
             // Controle de tempo: duração acima do máximo configurado não soma pontos
             if ($duracao_seg > $MAX_MIN_CARDIO * 60) { $naoContar = 1; $pontos = 0; }
+            // O servidor é quem decide o bruto (o app antigo ainda manda a conta velha, com a intensidade pesando mais).
+            if ($pontos > 0 && $duracao_seg > 0 && !empty($b['cardio_tipo'])) $pontos = _cardioPontosBase($b['cardio_tipo'], $rpe ?? 5, $duracao_seg / 60);
             $horaConcl = (isset($b['hora_conclusao']) && $b['hora_conclusao'] !== '') ? substr((string)$b['hora_conclusao'], 0, 5) : null;
             $aoVivo = !empty($b['ao_vivo']) ? 1 : 0;
             $st = $pdo->prepare("INSERT INTO intus_sessao (idatleta, dtsessao, duracao_seg, comentario, nao_contar, tipo, pontos, cardio_tipo, cardio_intensidade, cardio_rpe, cardio_foto, divisao, hora_conclusao, ao_vivo) VALUES (?, ?, ?, ?, ?, 'cardio', ?, ?, ?, ?, ?, 'C', ?, ?)");
@@ -937,7 +951,7 @@ try {
             $b = jsonBody();
             if (!isset($b['cardio_rpe'])) { http_response_code(400); echo json_encode(['error' => 'cardio_rpe obrigatorio']); exit; }
             $rpe = max(1, min(10, (int)$b['cardio_rpe']));
-            $st = $pdo->prepare("SELECT nao_contar FROM intus_sessao WHERE idsessao = ? AND tipo = 'cardio'");
+            $st = $pdo->prepare("SELECT nao_contar, cardio_tipo, duracao_seg FROM intus_sessao WHERE idsessao = ? AND tipo = 'cardio'");
             $st->execute([$id]);
             $row = $st->fetch(PDO::FETCH_ASSOC);
             if (!$row) { http_response_code(404); echo json_encode(['error' => 'sessao nao encontrada']); exit; }
@@ -945,6 +959,7 @@ try {
             // esforço pode mudar mas os pontos continuam zero — não foi o RPE que
             // decidiu não contar, e mudar o RPE não deveria reverter isso.
             $pontos = (int)$row['nao_contar'] ? 0 : (float)($b['pontos'] ?? 0);
+            if ($pontos > 0 && (int)$row['duracao_seg'] > 0 && !empty($row['cardio_tipo'])) $pontos = _cardioPontosBase($row['cardio_tipo'], $rpe, (int)$row['duracao_seg'] / 60);
             $sets = "cardio_rpe = ?, pontos = ?"; $vals = [$rpe, $pontos];
             // Foto anexada DEPOIS de finalizar o Cardio ao vivo — o registro já foi
             // criado sem foto (salvarCardio roda silencioso assim que o GPS para,

@@ -3624,6 +3624,38 @@ const API = {
   },
   // R opcional: passa as regras de um desafio específico (mescladas sobre o
   // padrão via mesclarRegrasRanking) em vez das regras globais do painel.
+  // ── PONTOS-BASE DO CARDIO ────────────────────────────────────────────
+  // É a pontuação "bruta" que fica gravada em `pontos` de cada sessão; depois entram cardioFator e cardioTeto (pontosCardioRank).
+  // Regra de 13/10/2026 (o TEMPO manda, a intensidade pesa pouco e as atividades ficam coerentes entre si):
+  //   base da atividade = centro + compressao x (MET moderado da atividade - centro)   (aproxima caminhada, bike, corrida...)
+  //   multiplicador de esforço = 1 + pesoIntensidade x (RPE - 5)                        (RPE 1 = -12%, RPE 10 = +15%)
+  //   pontos-base = base x multiplicador x (minutos / 30)
+  // Antes, o esforço 10 valia até 58% a mais que o 5 e uma corrida pesava 2,3x uma caminhada; agora são 15% e 1,5x.
+  // Só vale para sessões novas (o servidor guarda o bruto de cada uma, então semana fechada não muda). O servidor repete a conta
+  // (treinos.php, _cardioPontosBase); testes/cardio_pontos.json é a tabela que os dois lados precisam reproduzir.
+  CARDIO_METS: {
+    'Caminhada':  { leve: 2.8, moderada: 3.5, intensa: 4.5 },
+    'Corrida':    { leve: 6.0, moderada: 8.0, intensa: 11.0 },
+    'Bike':       { leve: 4.0, moderada: 6.8, intensa: 10.0 },
+    'Natação':    { leve: 4.5, moderada: 6.0, intensa: 8.0 },
+    'Escada':     { leve: 4.0, moderada: 7.0, intensa: 9.0 },
+    'Pular Corda':{ leve: 8.0, moderada: 10.0, intensa: 12.0 },
+    'Elíptico':   { leve: 4.5, moderada: 6.0, intensa: 8.0 },
+    'Tênis':      { leve: 5.0, moderada: 7.0, intensa: 8.0 },
+    'Padel':      { leve: 5.5, moderada: 7.0, intensa: 8.5 },
+    'Dança':      { leve: 3.5, moderada: 5.5, intensa: 7.8 },
+    'Futebol':    { leve: 5.0, moderada: 7.0, intensa: 10.0 },
+    'Luta':       { leve: 5.3, moderada: 7.8, intensa: 10.3 },
+    'Outro':      { leve: 3.0, moderada: 5.0, intensa: 7.0 },
+  },
+  CARDIO_PONTOS: { centro: 6, compressao: 0.5, pesoIntensidade: 0.03 },
+  cardioPontosBase: (tipo, rpe, minutos) => {
+    const K = API.CARDIO_PONTOS, m = API.CARDIO_METS[tipo] || API.CARDIO_METS['Outro'];
+    const esforco = Math.max(1, Math.min(10, Number(rpe) || 5));
+    const base = K.centro + K.compressao * (m.moderada - K.centro);
+    // + 1e-7: o servidor (PHP round) arredonda 8,05 para 8,1; sem isso o JS dá 8,0 por erro de ponto flutuante e os dois lados divergem.
+    return Math.round(base * (1 + K.pesoIntensidade * (esforco - 5)) * ((Number(minutos) || 0) / 30) * 10 + 1e-7) / 10;
+  },
   pontosCardioRank: (raw, R) => {
     R = R || API.regrasRanking();
     return Math.min(Math.round((Number(raw) || 0) * R.cardioFator * 10) / 10, R.cardioTeto);

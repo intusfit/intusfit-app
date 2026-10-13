@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261008f"></script>
+  <script src="api.js?v=20261013a"></script>
   <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -6870,7 +6870,7 @@ function mostrarNovidadePontos() {
         '<div style="font-size:12.5px;color:' + (isLight?'#555':'#aaa') + ';line-height:1.5;margin-bottom:14px;">Melhoramos como o ranking conta os pontos, pra valorizar o que realmente move seu resultado:</div>' +
         item('💪', 'O <b>treino de musculação do dia vale ' + _rankReg.musBase + ' pts</b>, é a base do resultado e do metabolismo, por isso pesa mais.') +
         item('🔁', 'Treinou <b>duas vezes no mesmo dia</b>? O segundo treino vale <b>+' + _rankReg.musSegundo + ' pts</b>. Vale a pena, mas o que constrói mesmo é voltar amanhã.') +
-        item('🏃', '<b>Cardio</b> continua contando, como <b>complemento</b> (com um teto de ' + _rankReg.cardioTeto + ' pts por sessão). Ótimo pra saúde, sem dominar o ranking.') +
+        item('🏃', '<b>Cardio</b> continua contando, como <b>complemento</b> (com um teto de ' + _rankReg.cardioTeto + ' pts por sessão). O que mais pesa é o <b>tempo</b>; o esforço que você marca muda pouco os pontos.') +
         item('🔥', 'Treinou musculação em <b>' + _rankReg.bonusDias + ' dias diferentes da semana</b>? Ganha um <b>bônus de +' + _rankReg.bonusPts + ' pts</b>. Constância é o que sobe você!') +
         item('🗓️', 'Os campeões das semanas anteriores <b>continuam os mesmos</b>, a nova conta vale <b>a partir desta semana</b>.') +
         '<div style="display:flex;gap:8px;margin-top:18px;">' +
@@ -10227,7 +10227,8 @@ function getWeekNumber(d) {
 
 // ═══════════════ CARDIO ═══════════════
 // MET table (activity → MET value per intensity)
-const CARDIO_METS = {
+const CARDIO_METS = API.CARDIO_METS;   // a tabela mora no api.js (fonte única); abaixo ficam só as notas de onde vieram os valores
+const _CARDIO_METS_NOTAS = {
   'Caminhada':  { leve: 2.8, moderada: 3.5, intensa: 4.5 },
   'Corrida':    { leve: 6.0, moderada: 8.0, intensa: 11.0 },
   'Bike':       { leve: 4.0, moderada: 6.8, intensa: 10.0 },
@@ -10262,9 +10263,8 @@ const CARDIO_METRICA = {
 };
 function cardioMetrica(tipo) { return CARDIO_METRICA[tipo] || null; }
 
-// Pontos = 1ª decimal dos METs × (min / 30), arredondado para 1 casa decimal.
-// Ex: 30min caminhada leve (MET 2.8) = 2.8 × 1 = 2.8 pts
-//     60min corrida moderada (MET 8.0) = 8.0 × 2 = 16.0 pts
+// Pontos-base: ver API.cardioPontosBase (api.js). Tempo é o que mais pesa; o esforço (RPE) muda só uns -12% a +15%.
+// Ex: 30min caminhada, esforço 5 = 4,75 pts-base; 60min corrida, esforço 5 = 14 (depois vêm o fator e o teto do ranking).
 // Escala subjetiva de esforço (RPE 1-10) mapeada aos METs da atividade,
 // mantendo a mesma proporção: RPE 2 ≈ leve, 5 ≈ moderada, 8 ≈ intensa, 10 = esforço máximo (exaustão).
 const RPE_INFO = {
@@ -10294,8 +10294,7 @@ function metForRPE(tipo, rpe) {
   return v;
 }
 function calcCardioPoints(tipo, rpe, minutos) {
-  const mets = metForRPE(tipo, rpe);
-  return Math.round(mets * (minutos / 30) * 10) / 10;
+  return API.cardioPontosBase(tipo, rpe, minutos);   // regra única no api.js: o tempo manda, o esforço pesa pouco
 }
 
 // Regras do cardio (configuráveis no painel; os valores abaixo são só o padrão/fallback).
@@ -11437,15 +11436,25 @@ function _cardioLiveFinalizar() {
   const min = Math.round(_cardioLiveTempoMs() / 60000);
   const tipo = _cardioLiveTipo;
   // TEMPORÁRIO até o app sair oficialmente nas lojas: sem o app nativo, o celular para de entregar o GPS com a tela bloqueada ou o app em
-  // segundo plano e a distância sairia menor que a real. Se o GPS ficou "cego" por mais que uma folga pequena, a distância não é registrada
-  // (só o tempo) e o aluno é avisado. Cardio sem GPS (aparelho, escada...) não passa por aqui.
-  let distDescartada = false;
+  // segundo plano e a distância sairia menor que a real. Se o GPS ficou "cego" por mais que uma folga pequena, a distância do trecho sem
+  // sinal é ESTIMADA pelo ritmo médio do trecho medido (ou, sem base para isso, só o tempo é registrado) e o aluno é avisado.
+  // Cardio sem GPS (aparelho, escada...) não passa por aqui.
+  let distDescartada = false, distEstimada = false;
   if (CARDIO_LIVE_USA_GPS[tipo] && !_cardioLiveParado) {
     const ult = _cardioLivePontos[_cardioLivePontos.length - 1];
     const semSinalFinal = (ult && _cardioLiveRodando) ? Math.max(0, (Date.now() - ult.t) / 1000) : 0;
     const cego = _cardioLiveLacunaS + (semSinalFinal > CARDIO_LIVE_GAP_S ? semSinalFinal : 0);
     const totalS = _cardioLiveTempoMs() / 1000;
-    if (distKm > 0 && cego > Math.max(20, totalS * 0.08)) { distKm = 0; distDescartada = true; }
+    if (cego > Math.max(20, totalS * 0.08)) {
+      // Trecho sem sinal: estima que o aluno manteve o ritmo médio do que foi medido (distância medida / tempo medido). Só estima com base
+      // suficiente (pelo menos 100 m e 60 s medidos, e o GPS ter acompanhado ao menos 40% do tempo); senão registra só o tempo.
+      const medidoS = Math.max(0, totalS - cego);
+      if (_cardioLiveDistM >= 100 && medidoS >= 60 && medidoS >= totalS * 0.4) {
+        distKm = (_cardioLiveDistM + (_cardioLiveDistM / medidoS) * cego) / 1000;
+        distEstimada = true;
+      } else if (distKm > 0) { distKm = 0; distDescartada = true; }
+      else { distDescartada = true; }
+    }
   }
   // Snapshot ANTES de _cardioLivePararTudo/limpar — o array em si não é
   // zerado por essas duas, mas a próxima sessão de cardio zera, e não
@@ -11467,7 +11476,7 @@ function _cardioLiveFinalizar() {
   salvarCardio({
     silencioso: true,
     aoVivo: true,
-    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos, distDescartada: distDescartada }); },
+    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos, distDescartada: distDescartada, distEstimada: distEstimada }); },
   });
 }
 
@@ -11509,7 +11518,8 @@ function _renderTelaEsforcoCardioLive(dados) {
         <div style="flex:1;">
           <div style="font-size:14px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(dados.tipo)}</div>
           <div style="font-size:12px;color:${isLight?'#666':'#999'};">${dados.min} min${usaGps && dados.distKm>0 ? ' · ' + dados.distKm.toFixed(2) + ' km' : ''}</div>
-          ${dados.distDescartada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante o cardio, então a distância não pôde ser medida com precisão. Registramos só o <b>tempo</b>. Para marcar a distância, mantenha esta tela aberta no app. Isso é temporário até a publicação oficial do app nas lojas.</div>` : ''}
+          ${dados.distEstimada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante parte do cardio. A distância do trecho sem sinal foi <b>estimada</b> pelo seu ritmo médio no resto do percurso. Para a distância precisa, mantenha esta tela aberta no app. Isso é temporário até a publicação oficial do app nas lojas.</div>` : ''}
+          ${dados.distDescartada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante o cardio, e o GPS não mediu o suficiente para estimar a distância. Registramos só o <b>tempo</b>. Para marcar a distância, mantenha esta tela aberta no app. Isso é temporário até a publicação oficial do app nas lojas.</div>` : ''}
         </div>
       </div>
       <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Como foi o esforço?</label>
@@ -11717,7 +11727,7 @@ function _renderCardioLive() {
     : '<span id="cl-tempo" style="display:none;">00:00</span>'; // sem GPS o tempo mora só no hero; mantém o id p/ o mesmo updater funcionar
 
   const avisoTemp = usaGps
-    ? '<div style="font-size:11.5px;line-height:1.5;color:#888;text-align:center;margin:0 4px 14px;">📌 Por enquanto o app registra com certeza só o <b>tempo</b>. A <b>distância</b> só é medida com precisão se esta tela ficar aberta no app (não bloqueie o celular nem troque de app). Se a tela apagar, registramos só o tempo. Isso é temporário até a publicação oficial do app nas lojas.</div>'
+    ? '<div style="font-size:11.5px;line-height:1.5;color:#888;text-align:center;margin:0 4px 14px;">📌 Por enquanto a <b>distância</b> só é medida com precisão se esta tela ficar aberta no app (não bloqueie o celular nem troque de app). Se a tela apagar, o trecho sem sinal é estimado pelo seu ritmo médio e o <b>tempo</b> é sempre registrado. Isso é temporário até a publicação oficial do app nas lojas.</div>'
     : '';
   // Antes de começar: cartão comum, escolher atividade. Rastreando: modo
   // imersivo (fundo solido, numero enorme, botão circular), no espírito de
@@ -11738,7 +11748,7 @@ function _renderCardioLive() {
         // (Escada/Elíptico); corrida/caminhada/bike ficavam sem nenhuma
         // indicação disso durante o rastreio.
         '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.65);margin-bottom:10px;">' + CARDIO_LIVE_EMOJI[_cardioLiveTipo] + ' ' + _cardioLiveTipo + '</div>' +
-        (usaGps ? '<div style="font-size:11px;line-height:1.45;color:rgba(10,10,10,.65);text-align:center;margin:-2px 6px 12px;">Mantenha esta tela aberta: se ela apagar, só o tempo será registrado (temporário até a publicação oficial do app nas lojas).</div>' : '') +
+        (usaGps ? '<div style="font-size:11px;line-height:1.45;color:rgba(10,10,10,.65);text-align:center;margin:-2px 6px 12px;">Mantenha esta tela aberta: se ela apagar, a distância desse trecho será estimada pelo seu ritmo (temporário até a publicação oficial do app nas lojas).</div>' : '') +
         (usaGps ? '<div style="display:flex;justify-content:space-between;margin-bottom:18px;">' +
           '<div class="cl-stat-top"><div class="n" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0' : '--\'--\'\'') + '</div><div class="l">' + (_cardioLiveTipo === 'Bike' ? 'km/h' : 'Pace') + '</div></div>' +
           '<div class="cl-stat-top"><div class="n">--</div><div class="l">BPM</div></div>' +
