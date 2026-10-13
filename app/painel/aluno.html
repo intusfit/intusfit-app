@@ -17814,15 +17814,99 @@ var _NUTRI_BASE = (window.INTUS_NATIVE_APP ? 'https://intusfit.com.br/app/painel
 var _nutriCont = { carregado: false, receitas: [], categorias: [], dicas: [], videos: [] };
 
 function _nutriFotoUrl(p) { return p ? (/^https?:/.test(p) ? p : _NUTRI_BASE + p) : ''; }
+// ── FAVORITO, NOTA E "EU FIZ" ───────────────────────────────────────────────────────────────────────────────
+// Guardados no servidor (catalogo.php?action=nutri_avaliacao, tabela intus_nutri_avaliacao), então valem em qualquer aparelho e a média, o total e
+// quem fez aparecem para os outros alunos. Só aluno com plano alimentar ativo marca; qualquer um vê a média e o total. Receita que ainda não está
+// no banco (só no arquivo) não tem avaliação. Os favoritos antigos do aparelho sobem uma vez (_nutriAvMigrar).
+var _nutriAv = { ok: false, stats: {}, minhas: {}, nomes: {} };
 function _nutriFavKey() { return 'intus-nutri-fav-' + idAtleta; }
 function _nutriFavs() { try { return JSON.parse(localStorage.getItem(_nutriFavKey()) || '[]'); } catch (e) { return []; } }
-function _nutriEhFav(id) { return _nutriFavs().indexOf(id) >= 0; }
+function _nutriRec(id) { return _nutriCont.receitas.find(x => x.id === id) || null; }
+function _nutriIdc(r) { return Number(r && r.idconteudo) || 0; }
+function _nutriMinha(r) { return (_nutriAv.minhas[String(_nutriIdc(r))]) || { nota: null, fez: 0, fav: 0 }; }
+function _nutriEhFav(id) {
+  const r = _nutriRec(id);
+  if (r && _nutriIdc(r) && _nutriAv.ok) return !!_nutriMinha(r).fav;
+  return _nutriFavs().indexOf(id) >= 0;
+}
+async function _nutriAvCarregar() {
+  const d = await _nutriGet('nutri_avaliacao');
+  if (d && d.stats) { _nutriAv.stats = d.stats || {}; _nutriAv.minhas = d.minhas || {}; _nutriAv.ok = true; _nutriAvMigrar(); }
+}
+async function _nutriAvNomes(r) {
+  const idc = _nutriIdc(r); if (!idc) return;
+  const d = await _nutriGet('nutri_avaliacao&idconteudo=' + idc);
+  if (d) { _nutriAv.nomes[idc] = d.nomes || []; if (d.stats) _nutriAv.stats = d.stats; if (d.minhas) _nutriAv.minhas = d.minhas; if (_nutri.tela === 'receita' && _nutri.receita === r.id) _nutriRender(); }
+}
+// Favoritos guardados só no aparelho (versão antiga) viram favoritos do servidor, uma vez.
+function _nutriAvMigrar() {
+  const flag = 'intus-nutri-fav-migrado-' + idAtleta;
+  try { if (localStorage.getItem(flag) || !_nutriTemPlano()) return; } catch (e) { return; }
+  const favs = _nutriFavs();
+  const falta = favs.map(_nutriRec).filter(r => r && _nutriIdc(r) && !_nutriMinha(r).fav);
+  if (!_nutriCont.receitas.some(r => _nutriIdc(r))) return;   // conteúdo ainda não está no banco: tenta na próxima
+  Promise.all(falta.map(r => _nutriAvEnviar(r, { fav: 1 }).catch(() => null))).then(() => { try { localStorage.setItem(flag, '1'); } catch (e) {} _nutriAvCarregar(); });
+}
+async function _nutriAvEnviar(r, campos) {
+  const resp = await _fetchT(API_BASE + '/catalogo.php?action=nutri_avaliacao', { method: 'POST', headers: _nutriHdr(), body: JSON.stringify(Object.assign({ idconteudo: _nutriIdc(r) }, campos)) }, 15000);
+  const j = await resp.json().catch(() => ({}));
+  if (!resp.ok || !j.ok) throw new Error(j.error || ('erro ' + resp.status));
+  return j;
+}
+function _nutriAvRender() { if (_nutri.tela === 'receitas') _nutriAtualizarGrade(); else _nutriRender(); }
+async function _nutriMarcar(id, campos, rotuloErro) {
+  if (!_nutriTemPlano()) { nutriConvitePlano('Favoritos, notas e "eu fiz" são do plano alimentar'); return; }
+  const r = _nutriRec(id); if (!r) return;
+  if (!_nutriIdc(r)) { toast('Esta receita ainda não está disponível para avaliação.'); return; }
+  const k = String(_nutriIdc(r)), antes = Object.assign({ nota: null, fez: 0, fav: 0 }, _nutriAv.minhas[k] || {});
+  _nutriAv.minhas[k] = Object.assign({}, antes, campos);   // aparece na hora
+  _nutriAvRender();
+  try {
+    const j = await _nutriAvEnviar(r, campos);
+    _nutriAv.minhas[k] = j.minha || _nutriAv.minhas[k];
+    await _nutriAvCarregar();      // médias e totais novos
+    if (campos.fez !== undefined) _nutriAvNomes(r);
+    _nutriAvRender();
+  } catch (e) {
+    _nutriAv.minhas[k] = antes; _nutriAvRender();
+    toast(rotuloErro || 'Não consegui salvar agora. Tente de novo.');
+  }
+}
 function nutriFav(id) {
   if (!_nutriTemPlano()) { nutriConvitePlano('Favoritos são do plano alimentar'); return; }
-  const l = _nutriFavs(), i = l.indexOf(id);
+  const r = _nutriRec(id); if (!r) return;
+  if (_nutriIdc(r) && _nutriAv.ok) { _nutriMarcar(id, { fav: _nutriMinha(r).fav ? 0 : 1 }); return; }
+  const l = _nutriFavs(), i = l.indexOf(id);   // receita só do arquivo (ainda não importada): guarda no aparelho
   if (i >= 0) l.splice(i, 1); else l.push(id);
   try { localStorage.setItem(_nutriFavKey(), JSON.stringify(l)); } catch (e) {}
-  if (_nutri.tela === 'receita') _nutriRender(); else _nutriAtualizarGrade();
+  _nutriAvRender();
+}
+function nutriNota(id, n) { const r = _nutriRec(id); if (!r) return; _nutriMarcar(id, { nota: _nutriMinha(r).nota === n ? 0 : n }); }
+function nutriFiz(id) { const r = _nutriRec(id); if (!r) return; _nutriMarcar(id, { fez: _nutriMinha(r).fez ? 0 : 1 }); }
+function _nutriStatsTxt(r) {
+  const st = _nutriAv.stats[String(_nutriIdc(r))]; if (!st) return '';
+  const p = [];
+  if (st.n > 0 && st.media != null) p.push('★ ' + String(st.media).replace('.', ',') + ' (' + st.n + ')');
+  if (st.fizeram > 0) p.push('✅ ' + st.fizeram + (st.fizeram === 1 ? ' fez' : ' fizeram'));
+  return p.join(' · ');
+}
+// Bloco de avaliação no topo da receita: favoritar, "eu fiz", estrelas e quem fez.
+function _nutriAvaliacaoHtml(r) {
+  const C = _nutriCores(), idc = _nutriIdc(r);
+  if (!idc) return '';
+  const tem = _nutriTemPlano(), m = _nutriMinha(r), st = _nutriAv.stats[String(idc)] || { n: 0, media: null, fizeram: 0 }, nomes = _nutriAv.nomes[idc] || [];
+  const btn = (on, txtOn, txtOff, js) => `<button onclick="${js}" style="flex:1;padding:11px 8px;border-radius:12px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;border:1.5px solid ${on ? C.ok : C.borda};background:${on ? 'var(--marca-fraca,rgba(127,255,0,.14))' : 'transparent'};color:${on ? C.ok : 'inherit'};">${on ? txtOn : txtOff}</button>`;
+  const estrelas = [1, 2, 3, 4, 5].map(n => `<button onclick="nutriNota('${esc(r.id)}',${n})" aria-label="${n} estrela${n > 1 ? 's' : ''}" style="border:none;background:transparent;padding:2px 3px;font-size:30px;line-height:1;cursor:pointer;color:${(m.nota || 0) >= n ? '#fbbf24' : 'rgba(128,128,128,.45)'};">★</button>`).join('');
+  const quem = nomes.length ? 'Quem fez: ' + nomes.slice(0, 3).map(x => esc(x.nome.split(' ')[0])).join(', ') + (st.fizeram > Math.min(nomes.length, 3) ? ' e mais ' + (st.fizeram - Math.min(nomes.length, 3)) : '') : '';
+  return `<div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:13px 14px;margin-bottom:12px;">
+    <div style="display:flex;gap:8px;">${btn(tem && m.fav, '⭐ Favoritada', '☆ Favoritar', "nutriFav('" + esc(r.id) + "')")}${btn(tem && m.fez, '✅ Eu fiz', '🍳 Eu fiz esta receita', "nutriFiz('" + esc(r.id) + "')")}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;">
+      <div style="font-size:12px;font-weight:800;color:${C.mut};">${tem ? (m.nota ? 'Sua nota' : 'Avalie esta receita') : 'Avaliações dos alunos'}</div>
+      <div style="${tem ? '' : 'opacity:.55;pointer-events:none;'}display:flex;">${tem ? estrelas : [1, 2, 3, 4, 5].map(n => `<span style="font-size:24px;color:${(st.media || 0) >= n - 0.25 ? '#fbbf24' : 'rgba(128,128,128,.45)'};">★</span>`).join('')}</div>
+    </div>
+    <div style="font-size:12px;color:${C.mut};margin-top:6px;line-height:1.5;">${_nutriStatsTxt(r) || 'Seja a primeira pessoa a avaliar.'}${quem ? '<br>' + quem : ''}</div>
+    ${tem ? '' : `<div onclick="nutriConvitePlano('Avaliar e marcar que fez')" style="margin-top:8px;font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">🔒 Favoritar, avaliar e marcar "eu fiz" é do plano alimentar ›</div>`}
+  </div>`;
 }
 
 async function _nutriConteudoCarregar() {
@@ -17863,6 +17947,7 @@ function nutriTela(t, id) {
   if (t === 'receita') { _nutri.receita = id; if (_nutri.tela === 'receita') _nutri.pai = 'receitas'; }
   if (t === 'receitas' && id) _nutri.cat = id;
   if (t === 'agua') _nutriAguaHistCarregar();
+  if (t === 'receita') { const rr = _nutriRec(id); if (rr) _nutriAvNomes(rr); }
   _nutri.tela = t;
   try { history.pushState({ view: 'nutricao' }, '', ''); _nutri.hist++; } catch (e) {}
   window.scrollTo(0, 0);
@@ -17906,12 +17991,13 @@ function _nutriMini(r, largura) {
   return `<div onclick="nutriTela('receita','${esc(r.id)}')" style="${largura ? 'width:' + largura + 'px;flex-shrink:0;' : ''}background:${C.card};border:1px solid ${C.borda};border-radius:14px;overflow:hidden;cursor:pointer;">
     <div style="position:relative;aspect-ratio:4/3;background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(128,128,128,.14));">
       ${foto ? `<img src="${esc(foto)}" loading="lazy" alt="" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;display:block;"/>` : ''}
-      ${_nutriEhFav(r.id) && _nutriTemPlano() ? '<span style="position:absolute;top:6px;right:6px;font-size:15px;text-shadow:0 1px 4px rgba(0,0,0,.6);">⭐</span>' : ''}
+      ${_nutriTemPlano() && _nutriReceitaLiberada(r) ? `<span onclick="event.stopPropagation();nutriFav('${esc(r.id)}')" aria-label="Favoritar" style="position:absolute;top:6px;right:6px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font-size:17px;color:${_nutriEhFav(r.id) ? '#fbbf24' : '#fff'};">${_nutriEhFav(r.id) ? '★' : '☆'}</span>` : ''}
       ${!_nutriReceitaLiberada(r) ? '<span style="position:absolute;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;font-size:26px;">🔒</span>' : (!_nutriTemPlano() ? '<span style="position:absolute;top:6px;left:6px;background:var(--link-ex,#7FFF00);color:#0f1a00;font-size:10px;font-weight:900;padding:2px 7px;border-radius:99px;">🎁 grátis hoje</span>' : '')}
     </div>
     <div style="padding:9px 10px 11px;">
       <div style="font-size:12.5px;font-weight:800;line-height:1.25;min-height:31px;">${esc(r.titulo)}</div>
       <div style="font-size:10.5px;color:${C.mut};margin-top:5px;">⏱ ${esc(r.tempo || '')}${r.proteina ? ' · 💪 ' + esc(String(r.proteina).replace(/^≈ /, '').replace(' de proteína', '')) : ''}</div>
+      ${_nutriStatsTxt(r) ? `<div style="font-size:10.5px;font-weight:700;color:${C.mut};margin-top:3px;">${_nutriStatsTxt(r)}</div>` : ''}
     </div>
   </div>`;
 }
@@ -18116,7 +18202,7 @@ function _nutriRecFiltradas() {
 }
 function _nutriGradeHtml() {
   const C = _nutriCores(), lista = _nutriRecFiltradas();
-  if (!lista.length) return `<div style="text-align:center;padding:36px 16px;color:${C.mut};font-size:13px;">${_nutri.cat === 'favoritas' ? 'Você ainda não favoritou nenhuma receita. Abra uma receita e toque na estrela.' : 'Nenhuma receita encontrada para essa busca.'}</div>`;
+  if (!lista.length) return `<div style="text-align:center;padding:36px 16px;color:${C.mut};font-size:13px;">${_nutri.cat === 'favoritas' ? 'Você ainda não favoritou nenhuma receita. Toque na ☆ do cartão, ou em “Favoritar” dentro da receita.' : 'Nenhuma receita encontrada para essa busca.'}</div>`;
   return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${lista.map(r => _nutriMini(r)).join('')}</div>`;
 }
 function _nutriReceitasHtml() {
@@ -18171,6 +18257,7 @@ function _nutriReceitaHtml() {
       <div style="font-size:21px;font-weight:900;line-height:1.2;margin-bottom:8px;">${esc(r.titulo)}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">${chip('⏱', r.tempo || '')}${chip('🍽️', r.porcoes || '')}${r.proteina ? chip('💪', r.proteina) : ''}</div>
       <div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:16px;text-align:center;">
+        ${_nutriStatsTxt(r) ? `<div style="font-size:12px;font-weight:700;color:${C.mut};margin-bottom:8px;">${_nutriStatsTxt(r)}</div>` : ''}
         <div style="font-size:14px;font-weight:900;margin-bottom:5px;">Receita do plano alimentar</div>
         <div style="font-size:12.5px;color:${C.mut};line-height:1.5;margin-bottom:12px;">Ingredientes, modo de preparo e informação nutricional ficam liberados para quem tem plano alimentar ativo. Hoje a receita liberada desta categoria é outra.</div>
         <button class="btn btn-prim btn-full" onclick="nutriConvitePlano('Receita do plano alimentar')">Liberar todas as receitas</button>
@@ -18187,12 +18274,12 @@ function _nutriReceitaHtml() {
     ${_nutriHeaderSub('👩‍🍳 Receita')}
     <div style="border-radius:16px;overflow:hidden;background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(128,128,128,.14));margin-bottom:12px;position:relative;aspect-ratio:16/10;">
       ${foto ? `<img src="${esc(foto)}" alt="" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;display:block;"/>` : ''}
-      <button onclick="nutriFav('${esc(r.id)}')" aria-label="Favoritar" style="position:absolute;top:10px;right:10px;width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:20px;cursor:pointer;">${_nutriEhFav(r.id) ? '⭐' : '☆'}</button>
     </div>
     ${cat ? `<div style="font-size:11px;font-weight:800;color:${C.ok};text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">${esc((cat.emoji || '') + ' ' + cat.nome)}</div>` : ''}
     <div style="font-size:21px;font-weight:900;line-height:1.2;margin-bottom:8px;">${esc(r.titulo)}</div>
     ${r.descricao ? `<div style="font-size:13px;color:${C.mut};line-height:1.5;margin-bottom:10px;">${esc(r.descricao)}</div>` : ''}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">${chip('⏱', r.tempo || '')}${chip('🍽️', r.porcoes || '')}${r.proteina ? chip('💪', r.proteina) : ''}${r.dificuldade ? chip('👨‍🍳', r.dificuldade) : ''}</div>
+    ${_nutriAvaliacaoHtml(r)}
     ${video ? `<button onclick="nutriVideoAbrir('${esc(video.id)}')" style="width:100%;padding:12px;border-radius:12px;border:none;background:${C.ok};color:#0f1a00;font-size:13.5px;font-weight:900;cursor:pointer;margin-bottom:12px;">▶ Ver o vídeo desta receita</button>` : ''}
     <div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;">
       <div style="font-size:14px;font-weight:900;margin-bottom:2px;">Ingredientes</div><div style="font-size:11px;color:${C.mut};margin-bottom:6px;">Toque para marcar o que você já separou.</div>
@@ -18262,6 +18349,7 @@ async function renderNutricaoAluno() {
   await _nutriEnviarPendentes();
   await Promise.all([_nutriCarregar(), _nutriConteudoCarregar()]);
   _nutriRender();
+  _nutriAvCarregar().then(_nutriAvRender);   // médias, favoritos e "eu fiz": chegam depois e repintam
 }
 
 // ═══════════════ PERFIL ═══════════════

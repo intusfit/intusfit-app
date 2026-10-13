@@ -324,6 +324,20 @@ function ensureCatalogoTables(PDO $pdo) {
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_nutri_conteudo', ['titulo', 'dados']);
 
+    // Nutrição: favorito, nota (1 a 5) e "eu fiz" de cada receita, por aluno. A média, o total e quem fez ficam visíveis para os outros alunos.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_nutri_avaliacao (
+            idconteudo INT NOT NULL,
+            idatleta   INT NOT NULL,
+            nota       TINYINT NULL,
+            fez        TINYINT(1) NOT NULL DEFAULT 0,
+            fav        TINYINT(1) NOT NULL DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (idconteudo, idatleta),
+            INDEX idx_atleta (idatleta)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Privacidade do perfil social: quem vê as fotos (todos | amigos | eu) e quais partes do perfil
     // ficam à mostra. Sem linha = tudo visível para todos (o comportamento de antes).
     $pdo->exec("
@@ -4138,9 +4152,94 @@ if ($action === 'nutri_conteudo') {
         $id = (int)($_GET['id'] ?? 0);
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
         $pdo->prepare("DELETE FROM intus_nutri_conteudo WHERE idconteudo = ?")->execute([$id]);
+        try { $pdo->prepare("DELETE FROM intus_nutri_avaliacao WHERE idconteudo = ?")->execute([$id]); } catch (Throwable $e) {}
         echo json_encode(['ok' => true]);
         exit;
     }
+}
+
+// ═══════════════ NUTRIÇÃO: avaliações das receitas (favorito, nota, "eu fiz") ═══════════════
+// GET: estatísticas de todos os itens (média, total de notas, quantos fizeram), as marcações do próprio aluno e, com ?idconteudo=N, os nomes de quem fez
+// (só alunos que estão no Feed e não estão bloqueados, e nunca quem o aluno ocultou). POST {idconteudo, nota?, fez?, fav?}: só o aluno COM plano alimentar ativo.
+function _nutriAlunoTemPlano(PDO $pdo, int $idatleta): bool {
+    if ($idatleta <= 0) return false;
+    try { $q = $pdo->prepare("SELECT 1 FROM intus_plano_nutricional WHERE idatleta = ? AND ativo = 1 LIMIT 1"); $q->execute([$idatleta]); return (bool)$q->fetchColumn(); }
+    catch (Throwable $e) { return false; }
+}
+if ($action === 'nutri_avaliacao') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    $_naRes = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    $_naId = (int)($_naRes[1] ?? 0);
+    if ($_naId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+
+    if ($method === 'GET') {
+        $stats = [];
+        foreach ($pdo->query("SELECT idconteudo, COUNT(nota) AS n, AVG(nota) AS media, SUM(fez) AS fizeram FROM intus_nutri_avaliacao GROUP BY idconteudo")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $stats[(string)(int)$r['idconteudo']] = ['n' => (int)$r['n'], 'media' => $r['media'] === null ? null : round((float)$r['media'], 1), 'fizeram' => (int)$r['fizeram']];
+        }
+        $minhas = [];
+        if ($_ehAluno) {
+            $st = $pdo->prepare("SELECT idconteudo, nota, fez, fav FROM intus_nutri_avaliacao WHERE idatleta = ?");
+            $st->execute([$_naId]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $minhas[(string)(int)$r['idconteudo']] = ['nota' => $r['nota'] === null ? null : (int)$r['nota'], 'fez' => (int)$r['fez'], 'fav' => (int)$r['fav']];
+        }
+        $nomes = [];
+        $idc = (int)($_GET['idconteudo'] ?? 0);
+        if ($idc > 0) {
+            $ocultos = [];
+            if ($_ehAluno) {
+                try {
+                    $stP = $pdo->prepare("SELECT idalvo AS o FROM intus_feed_pref WHERE idatleta = ? UNION SELECT idatleta AS o FROM intus_feed_pref WHERE idalvo = ?");
+                    $stP->execute([$_naId, $_naId]);
+                    $ocultos = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN));
+                } catch (Throwable $e) {}
+            }
+            $tblA = _feedDetectarTabelaAtleta($pdo);
+            if ($tblA) {
+                try {
+                    $st = $pdo->prepare("SELECT a.idatleta AS i, t.nome AS n FROM intus_nutri_avaliacao a JOIN `$tblA` t ON t.idatleta = a.idatleta WHERE a.idconteudo = ? AND a.fez = 1 AND t.feed_optin = 'S' AND (t.stbloqueio IS NULL OR t.stbloqueio != 'S') ORDER BY a.updated_at DESC LIMIT 40");
+                    $st->execute([$idc]);
+                    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                        $i = (int)$r['i'];
+                        if ($i <= 0 || in_array($i, $ocultos, true) || trim((string)$r['n']) === '') continue;
+                        $nomes[] = ['id' => $i, 'nome' => trim((string)$r['n'])];
+                        if (count($nomes) >= 12) break;
+                    }
+                } catch (Throwable $e) {}
+            }
+        }
+        echo json_encode(['stats' => (object)$stats, 'minhas' => (object)$minhas, 'nomes' => $nomes], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($method === 'POST') {
+        if (!$_ehAluno) { http_response_code(403); echo json_encode(['error' => 'somente o aluno avalia']); exit; }
+        if (!_nutriAlunoTemPlano($pdo, $_naId)) { http_response_code(403); echo json_encode(['error' => 'recurso do plano alimentar']); exit; }
+        $b = jsonBody();
+        $idc = (int)($b['idconteudo'] ?? 0);
+        if ($idc <= 0) { http_response_code(400); echo json_encode(['error' => 'idconteudo obrigatorio']); exit; }
+        $ex = $pdo->prepare("SELECT 1 FROM intus_nutri_conteudo WHERE idconteudo = ? AND ativo = 1 AND tipo IN ('receita','video')");
+        $ex->execute([$idc]);
+        if (!$ex->fetchColumn()) { http_response_code(404); echo json_encode(['error' => 'conteudo nao encontrado']); exit; }
+        $cur = $pdo->prepare("SELECT nota, fez, fav FROM intus_nutri_avaliacao WHERE idconteudo = ? AND idatleta = ?");
+        $cur->execute([$idc, $_naId]);
+        $atual = $cur->fetch(PDO::FETCH_ASSOC);
+        $nota = $atual ? ($atual['nota'] === null ? null : (int)$atual['nota']) : null;
+        $fez = $atual ? (int)$atual['fez'] : 0;
+        $fav = $atual ? (int)$atual['fav'] : 0;
+        if (array_key_exists('nota', $b)) { $n = (int)$b['nota']; $nota = ($n >= 1 && $n <= 5) ? $n : null; }
+        if (array_key_exists('fez', $b)) $fez = !empty($b['fez']) ? 1 : 0;
+        if (array_key_exists('fav', $b)) $fav = !empty($b['fav']) ? 1 : 0;
+        if ($atual) {
+            $pdo->prepare("UPDATE intus_nutri_avaliacao SET nota = ?, fez = ?, fav = ? WHERE idconteudo = ? AND idatleta = ?")->execute([$nota, $fez, $fav, $idc, $_naId]);
+        } elseif ($nota !== null || $fez || $fav) {
+            $pdo->prepare("INSERT INTO intus_nutri_avaliacao (idconteudo, idatleta, nota, fez, fav) VALUES (?,?,?,?,?)")->execute([$idc, $_naId, $nota, $fez, $fav]);
+        }
+        if ($atual && $nota === null && !$fez && !$fav) $pdo->prepare("DELETE FROM intus_nutri_avaliacao WHERE idconteudo = ? AND idatleta = ?")->execute([$idc, $_naId]);
+        echo json_encode(['ok' => true, 'minha' => ['nota' => $nota, 'fez' => $fez, 'fav' => $fav]]);
+        exit;
+    }
+    http_response_code(405); echo json_encode(['error' => 'metodo nao suportado']); exit;
 }
 
 // Painel da nutri: planos ativos + registros, água e peso dos últimos 14 dias da carteira.

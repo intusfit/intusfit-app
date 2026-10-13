@@ -1335,3 +1335,12 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   abertas no JSON público (`nutri-conteudo.json`): o bloqueio delas é de experiência no app, não segredo. Se quiser blindar, mover para o banco só e servir recortado.
 - Painel: botão "⬇ Importar receitas novas do arquivo" sempre disponível quando já há receitas no banco (idempotente por tipo e slug).
 - Testes: `testes/conteudo.php` (26 conferências, inclui vídeo geral x plano; a quebra do `unset` é acusada). PHP deste computador: `php.exe` do winget com `php.ini` cujo `extension_dir` seja caminho de Windows (`cygpath -w`).
+
+## 49. Receitas: favoritar visível, avaliação e "eu fiz" (13/10/2026)
+- **Tabela nova `intus_nutri_avaliacao`** (`idconteudo`, `idatleta`, `nota` 1-5, `fez`, `fav`; única por conteúdo e aluno; criada no bootstrap do `catalogo.php`; aditiva) e rota `action=nutri_avaliacao`: GET devolve `stats` (média, total de notas e quantos
+  fizeram, por item), `minhas` (as marcações de quem pede) e, com `?idconteudo=N`, os nomes de quem fez (só alunos com `feed_optin = 'S'`, não bloqueados e nunca quem o aluno ocultou em `intus_feed_pref`); POST `{idconteudo, nota?, fez?, fav?}` é só do
+  aluno COM plano alimentar ativo (403 `recurso do plano alimentar`), só em receita ou vídeo ativo. Tirar nota, "fiz" e favorito apaga a linha. Excluir o conteúdo no painel apaga as avaliações dele.
+- **App** (`aluno.html`, bloco "FAVORITO, NOTA E EU FIZ"): na receita, dois botões (⭐ Favoritar e 🍳 Eu fiz esta receita), cinco estrelas (tocar na mesma estrela tira a nota), média, total e "Quem fez: Ana, Bia e mais N". No cartão da grade há ☆/★ clicável
+  (só plano) e a linha "★ 4,3 (3) · ✅ 2 fizeram". Sem plano, a média e o total aparecem só para leitura e os botões levam ao convite. A marcação aparece na hora e volta atrás se o servidor recusar. Os favoritos antigos do aparelho
+  (`intus-nutri-fav-<id>`) sobem uma vez para o servidor (`_nutriAvMigrar`). **Receita só do arquivo (ainda sem `idconteudo`) não tem avaliação: use "Importar receitas e dicas do e-book" no painel para levar as receitas ao banco.**
+- Testes: `testes/avaliacao.php` (16 conferências em PHP real; registrado em `rodar.sh`; tirar a trava do plano é acusado).
