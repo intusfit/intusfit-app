@@ -6847,6 +6847,61 @@ function mostrarNovidadePontos() {
 }
 
 // ═══════════════ HOME ═══════════════
+// ── MARCADOR DE ÁGUA NA TELA INICIAL (opcional) ────────────────────────────────────────────────────────────
+// O aluno liga em Nutrição > Água ("🏠 Início"). O cartão fica logo abaixo de "Sua semana" e marca um copo (250 ml) em um toque.
+// A preferência é de exibição e fica no aparelho. A Home não carrega a Nutrição: busca só a água de hoje e ontem, depois de pintar,
+// com tentativa no máximo a cada 60 s (renderHome roda várias vezes), e repinta só este cartão.
+function _homeAguaAtiva() { try { return localStorage.getItem('intus-home-agua-' + idAtleta) === '1'; } catch (e) { return false; } }
+let _homeAguaUltima = 0;
+function _homeAguaHtml() {
+  if (!_homeAguaAtiva() || typeof API === 'undefined' || !API.nutri) return '';
+  if (!_nutri.pesoCache) { try { _nutri.pesoCache = Number(localStorage.getItem('intus-nutri-peso-' + idAtleta)) || 0; } catch (e) {} }
+  if (!_nutri.agua.length) { try { const c = JSON.parse(localStorage.getItem(_nutriCacheKey()) || 'null'); if (c && Array.isArray(c.agua)) _nutri.agua = c.agua; } catch (e) {} }
+  const N = API.nutri, hoje = N.hojeIso(), ml = _nutriAguaDoDia(hoje), meta = N.metaAguaMl(_nutriUltimoPeso());
+  const pct = meta ? Math.min(100, Math.round(ml / meta * 100)) : 0;
+  const litros = v => (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+  const bateu = ml >= meta;
+  return `<div class="h-sem" id="h-agua-card" onclick="navegar('nutricao')">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-size:22px;line-height:1;">💧</div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:baseline;gap:6px;"><span class="cab">Água de hoje</span><span style="flex:1;"></span><span style="font-size:11px;font-weight:800;color:#38bdf8;">${bateu ? 'Meta batida ✓' : pct + '%'}</span></div>
+          <div style="margin-top:1px;"><b style="font-size:17px;font-weight:900;">${litros(ml)}</b> <span style="font-size:12px;font-weight:700;color:var(--muted);">de ${litros(meta)} L</span></div>
+        </div>
+        <button onclick="event.stopPropagation();homeAguaBeber(-250)" aria-label="Tirar um copo" style="width:36px;height:36px;border-radius:11px;border:1px solid var(--borda);background:transparent;color:inherit;font-size:17px;font-weight:800;cursor:pointer;">−</button>
+        <button onclick="event.stopPropagation();homeAguaBeber(250)" style="height:36px;padding:0 13px;border-radius:11px;border:none;background:#38bdf8;color:#04283a;font-size:13px;font-weight:900;cursor:pointer;white-space:nowrap;">+ copo</button>
+      </div>
+      <div class="h-barra" style="height:5px;margin-top:7px;"><i style="width:${pct}%;background:linear-gradient(90deg,#0ea5e9,#38bdf8);"></i></div>
+    </div>`;
+}
+function _homeAguaRepintar() {
+  const el = document.getElementById('h-agua-card'); if (!el) return;
+  const h = _homeAguaHtml(); if (!h) { el.remove(); return; }
+  el.outerHTML = h;
+}
+function homeAguaBeber(delta) {
+  try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
+  nutriAgua(delta, 1);   // grava (e guarda para reenviar sem internet) e repinta o cartão
+}
+function homeAguaLigar(on) {
+  try { localStorage.setItem('intus-home-agua-' + idAtleta, on ? '1' : '0'); } catch (e) {}
+  if (on) toast('Marcador de água ligado na tela inicial 💧');
+  if (_nutri.tela === 'home' && window._viewAtual === 'nutricao') _nutriRender();
+}
+async function _homeAguaCarregar() {
+  if (!_homeAguaAtiva() || _nutri.carregado || Date.now() - _homeAguaUltima < 60000) return;
+  _homeAguaUltima = Date.now();
+  const d = await _nutriGet('nutri_registro&desde=' + API.nutri.addDias(API.nutri.hojeIso(), -1));
+  if (!d || !Array.isArray(d.agua)) return;
+  d.agua.forEach(a => {
+    const dia = String(a.data).slice(0, 10), x = _nutri.agua.find(y => String(y.data).slice(0, 10) === dia);
+    if (x) x.agua_ml = a.agua_ml; else _nutri.agua.push(a);
+  });
+  _nutriPendLer().forEach(p => { if (p.tipo === 'agua') _nutriAplicarLocal(p.tipo, p.corpo); });   // o que foi marcado sem internet vale por cima
+  try { localStorage.setItem(_nutriCacheKey(), JSON.stringify({ regs: _nutri.regs, agua: _nutri.agua })); } catch (e) {}
+  if (window._viewAtual === 'home') _homeAguaRepintar();
+}
+
 function renderHome() {
   document.getElementById('nome-top').textContent = user?.nome || 'Aluno';
   const fichas = carregarFicha();
@@ -7262,6 +7317,7 @@ function renderHome() {
         </div>`).join('')}
       </div>
     </div>
+    ${_homeAguaHtml()}
 
     <!-- Ranking+Medalhas empilhados numa coluna; do lado, os atalhos menos
          usados no dia a dia ficam atrás de "Ver mais" — o objetivo é o feed
@@ -7368,6 +7424,7 @@ function renderHome() {
     });
   }
 
+  _homeAguaCarregar();
   // Prioriza a novidade da nova pontuação; evita empilhar dois overlays.
   setTimeout(function(){ verificarNovidadePontos(); if (!_novidadePtsSessao) verificarNovidadeRanking(); }, 700);
   verificarConquistasHome();
@@ -17385,7 +17442,7 @@ function _nutriPendGravar(l) { try { localStorage.setItem(_nutriPendKey(), JSON.
 function _nutriDiaIso() { return _nutri.dia === 'ontem' ? API.nutri.addDias(API.nutri.hojeIso(), -1) : API.nutri.hojeIso(); }
 function _nutriRegsDoDia(d) { return _nutri.regs.filter(r => String(r.data).slice(0, 10) === d); }
 function _nutriAguaDoDia(d) { const a = _nutri.agua.find(x => String(x.data).slice(0, 10) === d); return a ? Number(a.agua_ml) || 0 : 0; }
-function _nutriUltimoPeso() { const p = _nutri.pesos.filter(x => Number(x.peso) > 0); return p.length ? Number(p[p.length - 1].peso) : 0; }
+function _nutriUltimoPeso() { const p = _nutri.pesos.filter(x => Number(x.peso) > 0); return p.length ? Number(p[p.length - 1].peso) : (Number(_nutri.pesoCache) || 0); }
 
 async function _nutriGet(query) {
   try {
@@ -17413,6 +17470,7 @@ async function _nutriCarregar() {
   }
   _nutri.pesos = (Array.isArray(avs) ? avs : []).filter(a => Number(a.peso) > 0 && a.dtavaliacao)
     .map(a => ({ data: String(a.dtavaliacao).slice(0, 10), peso: Number(a.peso) })).sort((a, b) => a.data.localeCompare(b.data));
+  try { if (_nutri.pesos.length) localStorage.setItem('intus-nutri-peso-' + idAtleta, String(_nutri.pesos[_nutri.pesos.length - 1].peso)); } catch (e) {}
   // Registro feito sem internet entra por cima do que veio do servidor.
   _nutriPendLer().forEach(p => _nutriAplicarLocal(p.tipo, p.corpo));
   _nutri.carregado = true;
@@ -17443,6 +17501,7 @@ async function _nutriEnviar(tipo, corpo) {
 async function _nutriSalvar(tipo, corpo) {
   _nutriAplicarLocal(tipo, corpo);
   _nutriRender();
+  if (tipo === 'agua') _homeAguaRepintar();
   try {
     const j = await _nutriEnviar(tipo, corpo);
     if (tipo === 'registro') {
@@ -17863,7 +17922,10 @@ function _nutriAguaCardHtml() {
   const icones = Array.from({ length: copos }, (_, i) => `<span style="flex:1;min-width:0;height:34px;border-radius:5px 5px 9px 9px;border:1.5px solid ${i < cheios ? '#38bdf8' : C.borda};background:${i < cheios ? 'rgba(56,189,248,.28)' : 'transparent'};transition:.25s;"></span>`).join('');
   const bateu = ml >= meta;
   return `<div style="position:relative;background:${C.card};border:1px solid ${bateu ? '#38bdf8' : C.borda};border-radius:16px;padding:14px;margin-bottom:12px;">
-    <div onclick="nutriTela('agua')" style="position:absolute;top:10px;right:10px;padding:5px 10px;border-radius:99px;border:1px solid ${C.borda};font-size:11px;font-weight:800;color:${C.mut};cursor:pointer;">📅 Histórico ›</div>
+    <div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;">
+      <div onclick="homeAguaLigar(${_homeAguaAtiva() ? 'false' : 'true'})" title="Mostrar o marcador de água na tela inicial" style="padding:5px 9px;border-radius:99px;border:1px solid ${_homeAguaAtiva() ? '#38bdf8' : C.borda};background:${_homeAguaAtiva() ? 'rgba(56,189,248,.14)' : 'transparent'};font-size:10.5px;font-weight:800;color:${_homeAguaAtiva() ? '#38bdf8' : C.mut};cursor:pointer;white-space:nowrap;">🏠 Início${_homeAguaAtiva() ? ' ✓' : ''}</div>
+      <div onclick="nutriTela('agua')" style="padding:5px 9px;border-radius:99px;border:1px solid ${C.borda};font-size:10.5px;font-weight:800;color:${C.mut};cursor:pointer;white-space:nowrap;">📅 Histórico ›</div>
+    </div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:8px;">
       <div><div style="font-size:11px;font-weight:800;color:${C.mut};letter-spacing:.04em;text-transform:uppercase;">💧 Água de hoje</div>
         <div style="font-size:26px;font-weight:900;line-height:1.1;margin-top:2px;">${litros(ml)} <span style="font-size:13px;font-weight:700;color:${C.mut};">de ${litros(meta)} L</span></div></div>

@@ -1318,3 +1318,9 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   usava `document.querySelector` e pegava o campo do cartão do Feed escondido (vazio), então saía em silêncio ("texto vazio"). `_campoComentarioFeed(idpost)` agora escolhe o campo em uso (focado, com texto, ou o da tela
   de cima), e o rascunho, o foco do Responder e a limpeza pós-envio usam o mesmo critério. Envio com campo vazio agora avisa por toast em vez de não fazer nada. Qualquer código novo que procure o campo de comentário por
   `data-feed-card` deve passar por essa função (o mural usa outro bloco, `_mural*`, sem esse problema).
+
+## 47. Marcador de água na tela inicial (13/10/2026)
+- Opcional, ligado pelo aluno em Nutrição > cartão de água ("🏠 Início"; preferência por aparelho em `localStorage['intus-home-agua-<id>']`). Com ele ligado a Home mostra o cartão `#h-agua-card` logo abaixo de
+  "Sua semana": litros do dia, meta, barra, "−" e "+ copo" (250 ml, 1 toque, `homeAguaBeber` -> `nutriAgua` -> `_nutriSalvar`, com fila offline). A Home não carrega a Nutrição: `_homeAguaCarregar` busca só a água
+  de hoje/ontem depois de pintar (no máximo a cada 60 s; `renderHome` roda várias vezes) e `_homeAguaRepintar` troca só o cartão. O último peso para a meta vem de `intus-nutri-peso-<id>` quando as avaliações não estão carregadas.
+- Parte do plano de 13/10/2026 (posts colaborativos, Nutrição geral x plano, receitas x2, mural): este foi o passo 1.
