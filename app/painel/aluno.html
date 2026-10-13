@@ -17799,10 +17799,15 @@ function _nutriRender() {
   if (!box) return;
   const y = window.scrollY;
   let t = _nutri.tela;
+  const _precisaMural = (t === 'dicas') ? ['nutri_dica', 1] : ((t === 'video') ? ['nutri_video', Number(((_nutriCont.videos.find(x => x.id === _nutri.video)) || {}).idconteudo) || 0] : null);
   if (t === 'plano' && !_nutri.plano) t = 'home';
   box.innerHTML = t === 'plano' ? _nutriPlanoHtml() : (t === 'receitas' ? _nutriReceitasHtml() : (t === 'receita' ? _nutriReceitaHtml()
-    : (t === 'videos' ? _nutriVideosHtml() : (t === 'dicas' ? _nutriDicasHtml() : (t === 'agua' ? _nutriAguaHistHtml() : _nutriHomeHtml())))));
+    : (t === 'videos' ? _nutriVideosHtml() : (t === 'dicas' ? _nutriDicasHtml() : (t === 'agua' ? _nutriAguaHistHtml() : (t === 'video' ? _nutriVideoHtml() : _nutriHomeHtml()))))));
   window.scrollTo(0, y);
+  if (_precisaMural && _precisaMural[1]) {
+    const k = _nmChave(_precisaMural[0], _precisaMural[1]);
+    if (_nm.dados[k]) _nmRepintar(_precisaMural[0], _precisaMural[1]); else _nmCarregar(_precisaMural[0], _precisaMural[1]);
+  }
 }
 
 // ═══════════════ NUTRIÇÃO: TELA INICIAL, RECEITAS, VÍDEOS E DICAS ═══════════════
@@ -17943,11 +17948,12 @@ async function _nutriConteudoCarregar() {
 // celular volta um passo dentro da Nutrição (popstate central chama _nutriVoltarGesto) em vez de pular para a tela inicial do app.
 function nutriTela(t, id) {
   if (t === 'home') { _nutri.tela = 'home'; _nutri.pai = 'home'; window.scrollTo(0, 0); _nutriRender(); return; }
-  _nutri.pai = (_nutri.tela === 'receita' || _nutri.tela === 'home' || _nutri.tela === 'receitas') ? _nutri.tela : 'home';
+  _nutri.pai = (_nutri.tela === 'receita' || _nutri.tela === 'home' || _nutri.tela === 'receitas' || _nutri.tela === 'videos') ? _nutri.tela : 'home';
   if (t === 'receita') { _nutri.receita = id; if (_nutri.tela === 'receita') _nutri.pai = 'receitas'; }
   if (t === 'receitas' && id) _nutri.cat = id;
   if (t === 'agua') _nutriAguaHistCarregar();
   if (t === 'receita') { const rr = _nutriRec(id); if (rr) _nutriAvNomes(rr); }
+  if (t === 'video') _nutri.video = id;
   _nutri.tela = t;
   try { history.pushState({ view: 'nutricao' }, '', ''); _nutri.hist++; } catch (e) {}
   window.scrollTo(0, 0);
@@ -17956,13 +17962,13 @@ function nutriTela(t, id) {
 // "Voltar" do cabeçalho: usa o histórico quando ele tem os passos da Nutrição (assim os dois jeitos de voltar andam juntos).
 function nutriVoltar() {
   if (_nutri.hist > 0) { history.back(); return; }
-  nutriTela(_nutri.tela === 'receita' ? (_nutri.pai || 'home') : 'home');
+  nutriTela((_nutri.tela === 'receita' || _nutri.tela === 'video') ? (_nutri.pai || 'home') : 'home');
 }
 // Chamado pelo popstate central. Devolve true quando tratou o voltar dentro da Nutrição.
 function _nutriVoltarGesto() {
   if (_nutri.tela === 'home' || _nutri.hist <= 0) { _nutri.hist = 0; return false; }
   _nutri.hist--;
-  const destino = (_nutri.tela === 'receita') ? (_nutri.pai || 'home') : 'home';
+  const destino = (_nutri.tela === 'receita' || _nutri.tela === 'video') ? (_nutri.pai || 'home') : 'home';
   _nutri.tela = destino;
   _nutri.pai = 'home';
   window.scrollTo(0, 0);
@@ -18299,6 +18305,132 @@ function _nutriReceitaHtml() {
   </div>${getFooterHtml()}`;
 }
 
+// ── MURAL DA NUTRIÇÃO (dicas e vídeos) ─────────────────────────────────────────────────────────────────────
+// Mesmo mecanismo do mural do Feed (catalogo.php?action=comentarios_pub, respostas em qualquer nível, curtida de comentário), com
+// alvo_tipo 'nutri_dica' (um mural só, id 1) e 'nutri_video' (id do vídeo no banco). Todos leem; escrever é do plano alimentar ativo (o servidor
+// também recusa) e a equipe responde com o selo "professor". Estado por chave "tipo:id".
+var _nm = { dados: {}, resp: {}, env: {} };
+function _nmChave(tipo, id) { return tipo + ':' + id; }
+function _nmDom(tipo, id) { return 'nm-' + tipo + '-' + id; }
+async function _nmCarregar(tipo, id) {
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&alvo_tipo=' + encodeURIComponent(tipo) + '&ids=' + Number(id) + '&_=' + Date.now(), { headers: _nutriHdr(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    _nm.dados[_nmChave(tipo, id)] = (j && j[String(id)]) || [];
+    await carregarReacoesComentariosFeed(_nm.dados[_nmChave(tipo, id)].map(c => c.idcomentario));
+  } catch (e) {}
+  _nmRepintar(tipo, id);
+}
+function _nmRepintar(tipo, id) {
+  const el = document.getElementById(_nmDom(tipo, id)); if (!el) return;
+  const ta = el.querySelector('textarea'), rascunho = ta ? ta.value : '';
+  el.outerHTML = _nmHtml(tipo, id);
+  if (rascunho) { const n = document.getElementById(_nmDom(tipo, id)); const t = n && n.querySelector('textarea'); if (t) t.value = rascunho; }
+}
+function _nmHtml(tipo, id) {
+  const C = _nutriCores(), chave = _nmChave(tipo, id), lista = _nm.dados[chave] || [], tem = _nutriTemPlano();
+  const rotulo = tipo === 'nutri_dica' ? 'Mural de dicas e dúvidas' : 'Mural deste vídeo';
+  const convite = tipo === 'nutri_dica' ? 'Tem uma dica para compartilhar ou uma dúvida sobre alimentação? Escreva aqui: a comunidade e a equipe respondem.' : 'Ficou com alguma dúvida ou quer contar como foi? Escreva aqui.';
+  const porId = {}; lista.forEach(c => { porId[c.idcomentario] = c; });
+  const porPai = {}, raizes = [];
+  lista.forEach(c => { if (c.resposta_a && porId[c.resposta_a]) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
+  const linha = (c, nivel) => {
+    const prof = (c.autor_tipo === 'professor' || c.autor_tipo === 'prof');
+    const curt = _reacoesComentFeed[String(c.idcomentario)] || [], eu = curt.some(x => x.meu);
+    const dt = new Date(String(c.created_at).replace(' ', 'T'));
+    return `<div style="display:flex;gap:9px;padding:9px 0;${nivel ? 'margin-left:' + (Math.min(nivel, 3) * 22) + 'px;' : ''}border-top:1px solid ${C.borda};">
+      <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--sup,rgba(128,128,128,.18));display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:${C.mut};">${_iniciaisNomeFeed(c.autor_nome || 'A')}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12.5px;line-height:1.45;"><b>${esc(c.autor_nome || 'Alguém')}</b>${prof ? ` <span style="color:${C.ok};font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.03em;">professor</span>` : ''} <span style="color:${C.mut};">${esc(c.texto)}</span></div>
+        <div style="display:flex;gap:14px;margin-top:3px;font-size:10.5px;font-weight:700;color:${C.mut};">
+          <span>${_tempoRelativoFeed(dt)}</span>
+          ${tem ? `<span style="cursor:pointer;" data-tipo="${tipo}" data-id="${id}" data-idc="${c.idcomentario}" data-nome="${esc(c.autor_nome || 'Alguém')}" onclick="_nmResponder(this)">Responder</span>` : ''}
+          ${c.meu ? `<span style="cursor:pointer;" data-tipo="${tipo}" data-id="${id}" data-idc="${c.idcomentario}" onclick="_nmExcluir(this)">Excluir</span>` : ''}
+        </div>
+      </div>
+      <div data-tipo="${tipo}" data-id="${id}" data-idc="${c.idcomentario}" onclick="_nmCurtir(this)" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;min-width:22px;"><span style="font-size:14px;line-height:1;">${eu ? '❤️' : '🤍'}</span>${curt.length ? `<span style="font-size:10px;font-weight:700;color:${eu ? C.ok : C.mut};">${curt.length}</span>` : ''}</div>
+    </div>` + (porPai[c.idcomentario] || []).map(r => linha(r, nivel + 1)).join('');
+  };
+  const resp = _nm.resp[chave];
+  const compor = tem
+    ? `${resp ? `<div style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;font-size:11px;color:${C.mut};">Respondendo a <b style="color:inherit;">${esc(resp.nome)}</b><span data-tipo="${tipo}" data-id="${id}" onclick="_nmCancelar(this)" style="cursor:pointer;font-weight:800;padding:2px 5px;">✕</span></div>` : ''}
+       <div style="display:flex;gap:6px;margin-top:8px;"><textarea maxlength="1000" rows="2" placeholder="${resp ? 'Escreva sua resposta...' : 'Escreva uma dica ou dúvida...'}" style="flex:1;padding:9px 11px;border-radius:12px;border:1px solid ${C.borda};background:${C.card};color:inherit;font-size:13px;font-family:inherit;resize:none;"></textarea>
+       <button data-tipo="${tipo}" data-id="${id}" onclick="_nmEnviar(this)" style="padding:0 14px;border-radius:12px;border:none;background:${C.ok};color:#0f1a00;font-size:12.5px;font-weight:900;cursor:pointer;">Enviar</button></div>`
+    : `<div onclick="nutriConvitePlano('Escrever no mural')" style="margin-top:8px;font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">🔒 Escrever e responder no mural é do plano alimentar ›</div>`;
+  return `<div id="${_nmDom(tipo, id)}" style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:13px 14px;margin-top:14px;">
+    <div style="font-size:14px;font-weight:900;">💬 ${rotulo}${lista.length ? ' <span style="font-size:11px;font-weight:700;color:' + C.mut + ';">(' + lista.length + ')</span>' : ''}</div>
+    <div style="font-size:12px;color:${C.mut};line-height:1.45;margin:3px 0 4px;">${convite}</div>
+    ${lista.length ? raizes.map(c => linha(c, 0)).join('') : `<div style="font-size:12px;color:${C.mut};padding:10px 0 2px;">Ninguém escreveu ainda. Seja a primeira pessoa!</div>`}
+    ${compor}
+  </div>`;
+}
+async function _nmEnviar(el) {
+  const tipo = el.dataset.tipo, id = Number(el.dataset.id), chave = _nmChave(tipo, id);
+  if (_nm.env[chave]) return;
+  const box = document.getElementById(_nmDom(tipo, id)), ta = box && box.querySelector('textarea');
+  const texto = ta ? ta.value.trim() : '';
+  if (!texto) { toast('Escreva algo antes de enviar.'); return; }
+  _nm.env[chave] = true;
+  try {
+    const body = { alvo_tipo: tipo, alvo_id: id, texto: texto };
+    const rp = _nm.resp[chave]; if (rp && rp.id) body.resposta_a = rp.id;
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub', { method: 'POST', headers: _nutriHdr(), body: JSON.stringify(body) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'falhou'); }
+    if (ta) ta.value = '';
+    delete _nm.resp[chave];
+    await _nmCarregar(tipo, id);
+  } catch (e) { toast(/plano/.test(e.message) ? 'Escrever no mural é do plano alimentar.' : 'Não consegui enviar agora. Tente de novo.'); }
+  _nm.env[chave] = false;
+}
+function _nmResponder(el) {
+  const tipo = el.dataset.tipo, id = Number(el.dataset.id);
+  _nm.resp[_nmChave(tipo, id)] = { id: Number(el.dataset.idc), nome: el.dataset.nome || 'Alguém' };
+  _nmRepintar(tipo, id);
+  const t = document.getElementById(_nmDom(tipo, id)); const ta = t && t.querySelector('textarea'); if (ta) ta.focus();
+}
+function _nmCancelar(el) { delete _nm.resp[_nmChave(el.dataset.tipo, Number(el.dataset.id))]; _nmRepintar(el.dataset.tipo, Number(el.dataset.id)); }
+async function _nmCurtir(el) {
+  const tipo = el.dataset.tipo, id = Number(el.dataset.id), idc = Number(el.dataset.idc);
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', { method: 'POST', headers: _nutriHdr(), body: JSON.stringify({ alvo_tipo: 'feed_comentario', alvo_id: idc, emoji: '❤️' }) });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não deu para registrar sua curtida.'); return; }
+  await carregarReacoesComentariosFeed([idc]); _nmRepintar(tipo, id);
+}
+async function _nmExcluir(el) {
+  const tipo = el.dataset.tipo, id = Number(el.dataset.id), idc = Number(el.dataset.idc);
+  if (!confirm('Excluir este comentário? As respostas dele também serão excluídas.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&id=' + idc, { method: 'DELETE', headers: _nutriHdr() });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { toast('Não consegui excluir.'); return; }
+  const rp = _nm.resp[_nmChave(tipo, id)]; if (rp && rp.id === idc) delete _nm.resp[_nmChave(tipo, id)];
+  await _nmCarregar(tipo, id);
+}
+
+// Tela de um vídeo: capa, descrição, receita relacionada e o mural dele.
+function _nutriVideoHtml() {
+  const C = _nutriCores(), v = _nutriCont.videos.find(x => x.id === _nutri.video);
+  if (!v) return `<div style="padding:16px 0;">${_nutriHeaderSub('▶️ Vídeo')}<p style="color:${C.mut};font-size:13px;text-align:center;padding:30px 0;">Vídeo não encontrado.</p></div>`;
+  const yt = _nutriYtId(v.url), capa = v.capa ? _nutriFotoUrl(v.capa) : (yt ? 'https://img.youtube.com/vi/' + yt + '/hqdefault.jpg' : '');
+  const lib = _nutriVideoLiberado(v) && !!v.url, rec = v.receita ? _nutriRec(v.receita) : null;
+  const idc = Number(v.idconteudo) || 0;
+  return `<div style="padding:16px 0;">
+    ${_nutriHeaderSub('▶️ Vídeo')}
+    <div onclick="nutriVideoAbrir('${esc(v.id)}')" style="position:relative;border-radius:16px;overflow:hidden;aspect-ratio:16/9;background:linear-gradient(135deg,rgba(127,255,0,.16),rgba(128,128,128,.16));cursor:pointer;">
+      ${capa ? `<img src="${esc(capa)}" alt="" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;display:block;${lib ? '' : 'filter:blur(6px) brightness(.7);'}"/>` : ''}
+      <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><span style="width:60px;height:60px;border-radius:50%;background:rgba(0,0,0,.62);color:#fff;font-size:${lib ? 26 : 28}px;display:flex;align-items:center;justify-content:center;${lib ? 'padding-left:4px;' : ''}">${lib ? '▶' : '🔒'}</span></span>
+      ${v.duracao ? `<span style="position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.7);color:#fff;font-size:11px;font-weight:800;padding:2px 7px;border-radius:6px;">${esc(v.duracao)}</span>` : ''}
+    </div>
+    <div style="font-size:20px;font-weight:900;line-height:1.25;margin:12px 0 6px;">${esc(v.titulo)}</div>
+    ${v.descricao ? `<div style="font-size:13px;color:${C.mut};line-height:1.55;">${esc(v.descricao)}</div>` : ''}
+    ${lib ? '' : _nutriCadeadoFaixa(_nutriVideoGeral(v) ? 'Hoje o vídeo liberado é outro. Os demais são do plano alimentar.' : 'Este vídeo é do plano alimentar.')}
+    ${rec ? `<button onclick="nutriTela('receita','${esc(rec.id)}')" style="margin-top:12px;width:100%;padding:12px;border-radius:12px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:13px;font-weight:800;cursor:pointer;">👩‍🍳 Ver a receita: ${esc(rec.titulo)}</button>` : ''}
+    ${idc ? `<div id="${_nmDom('nutri_video', idc)}"></div>` : `<div style="font-size:12px;color:${C.mut};text-align:center;margin-top:16px;">O mural deste vídeo abre assim que a equipe o publica pelo painel.</div>`}
+  </div>${getFooterHtml()}`;
+}
+
 // ── Vídeos ──
 function _nutriYtId(url) {
   const m = String(url || '').match(/(?:youtu\.be\/|[?&]v=|embed\/|shorts\/)([A-Za-z0-9_-]{6,})/);
@@ -18314,7 +18446,7 @@ function _nutriVideosHtml() {
   const card = v => {
     const yt = _nutriYtId(v.url), capa = v.capa ? _nutriFotoUrl(v.capa) : (yt ? 'https://img.youtube.com/vi/' + yt + '/hqdefault.jpg' : '');
     const lib = _nutriVideoLiberado(v);
-    return `<div onclick="nutriVideoAbrir('${esc(v.id)}')" style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;overflow:hidden;cursor:pointer;margin-bottom:12px;">
+    return `<div onclick="nutriTela('video','${esc(v.id)}')" style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;overflow:hidden;cursor:pointer;margin-bottom:12px;">
       <div style="position:relative;aspect-ratio:16/9;background:linear-gradient(135deg,rgba(127,255,0,.16),rgba(128,128,128,.16));">
         ${capa ? `<img src="${esc(capa)}" loading="lazy" alt="" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;display:block;"/>` : ''}
         <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;${lib ? '' : 'background:rgba(0,0,0,.45);'}"><span style="width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:${lib ? 22 : 24}px;display:flex;align-items:center;justify-content:center;${lib ? 'padding-left:4px;' : ''}">${lib ? '▶' : '🔒'}</span></span>
@@ -18339,6 +18471,7 @@ function _nutriDicasHtml() {
     ${_nutriCont.dicas.map(d => { const lib = _nutriDicaLiberada(d); return `<div ${lib ? '' : 'onclick="nutriConvitePlano(\'Dica do plano alimentar\')"'} style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:12px;${lib ? '' : 'cursor:pointer;'}">
       <div style="flex-shrink:0;width:42px;height:42px;border-radius:12px;background:var(--marca-fraca,rgba(127,255,0,.12));font-size:22px;display:flex;align-items:center;justify-content:center;">${lib ? esc(d.icone || '💡') : '🔒'}</div>
       <div><div style="font-size:14px;font-weight:900;margin-bottom:3px;">${esc(d.titulo)}${lib && !_nutriTemPlano() ? ' <span style="font-size:10px;background:var(--link-ex,#7FFF00);color:#0f1a00;padding:2px 7px;border-radius:99px;vertical-align:middle;">🎁 grátis hoje</span>' : ''}</div>${lib ? `<div style="font-size:12.5px;color:${C.mut};line-height:1.55;">${esc(d.texto)}</div>` : `<div style="font-size:12px;color:${C.mut};">Dica do plano alimentar</div>`}</div></div>`; }).join('') || `<p style="text-align:center;color:${C.mut};font-size:13px;padding:30px 0;">Em breve.</p>`}
+    <div id="${_nmDom('nutri_dica', 1)}"></div>
   </div>${getFooterHtml()}`;
 }
 
@@ -19427,9 +19560,11 @@ function _notifLinhaHtml(n, isLight) {
     turma_entrou: 'entrou na sua turma',
     desafio_convite: 'chamou você para um desafio',
   }[n.tipo] || 'interagiu com você';
+  const noNutri = n.alvo_tipo === 'nutri_dica' ? 'no mural de dicas' : (n.alvo_tipo === 'nutri_video' ? 'no mural do vídeo' : '');
+  const acaoFinal = (noNutri && (n.tipo === 'resposta' || n.tipo === 'comentario')) ? 'respondeu seu comentário ' + noNutri : acao;
   const principal = ehSistema
     ? '<b>' + esc(n.texto || '') + '</b>'
-    : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acao;
+    : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acaoFinal;
   const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || n.tipo === 'nutri_resposta' || n.tipo === 'turma_entrou' || n.tipo === 'desafio_convite' || (n.tipo === 'curtida' && noMural);
   const trecho = comTrecho && n.texto
     ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“' + esc(n.texto) + '”</div>' : '';
@@ -19520,6 +19655,15 @@ function _notifAbrir(el) {
   if (tipo === 'distintivo') { navegar('perfil'); return; }
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
+  if (el.dataset.alvotipo === 'nutri_dica' || el.dataset.alvotipo === 'nutri_video') {
+    navegar('nutricao');
+    setTimeout(() => {
+      if (el.dataset.alvotipo === 'nutri_dica') { nutriTela('dicas'); return; }
+      const v = _nutriCont.videos.find(x => Number(x.idconteudo) === alvo);
+      if (v) nutriTela('video', v.id); else nutriTela('videos');
+    }, 1100);
+    return;
+  }
   if (/^(amizade|parceria|turma|desafio)_/.test(tipo) || tipo === 'parceiro') { navegar('amigos'); return; }
   if (el.dataset.alvotipo === 'resultado') {
     navegar('resultados');

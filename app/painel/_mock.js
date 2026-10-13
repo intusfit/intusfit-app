@@ -586,11 +586,13 @@ async function ntfSinoAbrir(ev) {
         curtida_chat: 'curtiu sua mensagem',
       };
       acoes.resultado_novo = 'compartilhou um resultado no Quadro';
+      const nutriM = n.alvo_tipo === 'nutri_dica' || n.alvo_tipo === 'nutri_video';
+      if (nutriM) { acoes.comentario = n.alvo_tipo === 'nutri_dica' ? 'escreveu no mural de dicas da Nutrição' : 'escreveu no mural de um vídeo da Nutrição'; acoes.resposta = acoes.comentario; }
       const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || n.tipo === 'resultado_novo' || (n.tipo === 'curtida' && mural);
       const sub = comTrecho && n.texto ? '<div class="ntfsino-sub">“' + _ntfSinoEsc(n.texto) + '”</div>' : '';
       // Resultado novo é um link: leva ao Quadro de Resultados (e marca como lido).
-      const ehResultado = n.tipo === 'resultado_novo';
-      return '<' + (ehResultado ? 'a href="resultados.html" onclick="_ntfSinoLer(' + Number(n.idnotificacao) + ')" style="text-decoration:none;color:inherit;"' : 'div') + ' class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
+      const ehResultado = n.tipo === 'resultado_novo' || nutriM;
+      return '<' + (ehResultado ? 'a href="' + (nutriM ? 'nutricao.html#mural' : 'resultados.html') + '" onclick="_ntfSinoLer(' + Number(n.idnotificacao) + ')" style="text-decoration:none;color:inherit;"' : 'div') + ' class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
         '<div class="ntfsino-txt"><b>' + _ntfSinoEsc(n.ator_nome || 'Alguém') + '</b> ' + (acoes[n.tipo] || 'interagiu com você') + sub + '</div>' +
         (n.lido ? '' : '<div class="ntfsino-ponto"></div>') + '</' + (ehResultado ? 'a' : 'div') + '>';
     }).join('');

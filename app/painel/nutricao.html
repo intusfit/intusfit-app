@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
-  <script src="_mock.js?v=20261009b"></script>
+  <script src="_mock.js?v=20261013a"></script>
   <script src="api.js?v=20261008f"></script>
   <script src="alimentos-db.js?v=20261009a"></script>
   <script src="importar-pdf.js?v=20261009a"></script>
@@ -3274,7 +3274,9 @@ const CONT_CATS = [
   { id: 'cafe', nome: 'Café da manhã' }, { id: 'lanche', nome: 'Lanche da tarde' }, { id: 'sem-ovo', nome: 'Café sem ovo' },
   { id: 'bebidas', nome: 'Bebidas proteicas' }, { id: 'saladas', nome: 'Saladas proteicas' }, { id: 'almoco', nome: 'Almoços e jantares' },
 ];
-let cont = { receitas: [], videos: [], dicas: [], carregado: false, carregando: false, erro: '', sub: 'receitas' };
+let cont = { receitas: [], videos: [], dicas: [], carregado: false, carregando: false, erro: '', sub: 'receitas', mural: null, muralCarregando: false };
+// Link do sino da equipe: abre direto o mural (carrega o conteúdo primeiro, para os vídeos terem nome).
+if (location.hash === '#mural') { aba = 'conteudo'; cont.sub = 'mural'; setTimeout(() => carregarConteudo(), 0); }
 
 async function carregarConteudo() {
   cont.carregando = true; cont.erro = '';
@@ -3285,11 +3287,80 @@ async function carregarConteudo() {
     cont.videos = Array.isArray(r.videos) ? r.videos : [];
     cont.dicas = Array.isArray(r.dicas) ? r.dicas : [];
     cont.carregado = true;
+    if (cont.sub === 'mural') cont.mural = null;   // recarrega o mural com os vídeos já conhecidos
   } catch (e) {
     cont.erro = e.message || 'Não consegui carregar o conteúdo.';
   }
   cont.carregando = false;
   render();
+}
+
+// ── Mural do app (dicas e vídeos): perguntas e dicas dos alunos, que a equipe responde aqui ──
+// Mesmos comentários que o aluno vê (catalogo.php?action=comentarios_pub, alvo 'nutri_dica' = mural único de dicas e 'nutri_video' = um vídeo).
+async function muralCarregar() {
+  cont.muralCarregando = true; render();
+  try {
+    const vids = cont.videos.filter(v => Number(v.idconteudo) > 0);
+    const [d, v] = await Promise.all([
+      apiFetch('/catalogo.php?action=comentarios_pub&alvo_tipo=nutri_dica&ids=1&_=' + Date.now()),
+      vids.length ? apiFetch('/catalogo.php?action=comentarios_pub&alvo_tipo=nutri_video&ids=' + vids.map(x => x.idconteudo).join(',') + '&_=' + Date.now()) : Promise.resolve({}),
+    ]);
+    cont.mural = { dica: (d && d['1']) || [], videos: v || {} };
+  } catch (e) { cont.mural = { erro: e.message || 'Não consegui carregar o mural.' }; }
+  cont.muralCarregando = false; render();
+}
+function _muralBloco(titulo, tipo, id, lista) {
+  const porId = {}; lista.forEach(c => { porId[c.idcomentario] = c; });
+  const filhos = {}, raizes = [];
+  lista.forEach(c => { if (c.resposta_a && porId[c.resposta_a]) (filhos[c.resposta_a] = filhos[c.resposta_a] || []).push(c); else raizes.push(c); });
+  const linha = (c, n) => {
+    const prof = c.autor_tipo === 'prof' || c.autor_tipo === 'professor';
+    return `<div style="margin-left:${Math.min(n, 3) * 22}px;padding:9px 0;border-top:1px solid var(--border);">
+      <div style="font-size:13px;line-height:1.5;"><b>${esc(c.autor_nome || 'Alguém')}</b>${prof ? ' <span style="color:var(--green);font-size:10px;font-weight:800;text-transform:uppercase;">equipe</span>' : ''} <span style="color:var(--text-muted);font-size:11px;">${esc(String(c.created_at || '').slice(0, 16).replace('T', ' '))}</span><br>${esc(c.texto)}</div>
+      <div style="display:flex;gap:12px;margin-top:4px;font-size:12px;font-weight:700;">
+        <span style="cursor:pointer;color:var(--green);" onclick="muralResponder('${tipo}',${id},${c.idcomentario})">Responder</span>
+        <span style="cursor:pointer;color:var(--text-muted);" onclick="muralExcluir(${c.idcomentario})">Excluir</span></div>
+      <div id="mural-resp-${c.idcomentario}"></div>
+    </div>` + (filhos[c.idcomentario] || []).map(r => linha(r, n + 1)).join('');
+  };
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;"><div style="font-weight:800;font-size:14px;">${esc(titulo)} <span style="color:var(--text-muted);font-weight:600;font-size:12px;">(${lista.length})</span></div>
+      <button class="btn btn-sm btn-secondary" onclick="muralResponder('${tipo}',${id},0)">+ Escrever</button></div>
+    <div id="mural-resp-${tipo}-${id}"></div>
+    ${raizes.length ? raizes.map(c => linha(c, 0)).join('') : '<div style="font-size:12.5px;color:var(--text-muted);padding:8px 0 2px;">Nenhum comentário ainda.</div>'}
+  </div>`;
+}
+function muralHtml() {
+  if (cont.muralCarregando && !cont.mural) return `<div class="empty-state"><p>Carregando o mural...</p></div>`;
+  if (!cont.mural) { muralCarregar(); return `<div class="empty-state"><p>Carregando o mural...</p></div>`; }
+  if (cont.mural.erro) return `<div class="empty-state"><p>${esc(cont.mural.erro)}</p><button class="btn btn-secondary" style="margin-top:10px;" onclick="muralCarregar()">Tentar de novo</button></div>`;
+  const blocos = [_muralBloco('Mural de dicas e dúvidas', 'nutri_dica', 1, cont.mural.dica)];
+  cont.videos.filter(v => Number(v.idconteudo) > 0).forEach(v => {
+    const l = cont.mural.videos[String(v.idconteudo)] || [];
+    if (l.length) blocos.push(_muralBloco('▶ ' + v.titulo, 'nutri_video', Number(v.idconteudo), l));
+  });
+  return `<div style="padding:20px;max-width:980px;"><div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">Tudo o que os alunos escrevem no mural de dicas e nos vídeos do app aparece aqui. Responda como equipe: o aluno recebe o aviso no sino. Só alunos com plano alimentar ativo escrevem.</div>${blocos.join('')}</div>`;
+}
+function muralResponder(tipo, id, idc) {
+  const alvo = document.getElementById(idc ? 'mural-resp-' + idc : 'mural-resp-' + tipo + '-' + id); if (!alvo) return;
+  alvo.innerHTML = `<div style="display:flex;gap:6px;margin-top:6px;"><textarea id="mural-txt" class="input" rows="2" maxlength="1000" placeholder="${idc ? 'Escreva a resposta...' : 'Escreva um comentário...'}" style="flex:1;"></textarea>
+    <button class="btn btn-primary" onclick="muralEnviar('${tipo}',${id},${idc})">Enviar</button></div>`;
+  const t = document.getElementById('mural-txt'); if (t) t.focus();
+}
+async function muralEnviar(tipo, id, idc) {
+  const t = document.getElementById('mural-txt'); const texto = t ? t.value.trim() : '';
+  if (!texto) return showToast('Escreva o texto.', 'error');
+  try {
+    const corpo = { alvo_tipo: tipo, alvo_id: id, texto }; if (idc) corpo.resposta_a = idc;
+    await apiFetch('/catalogo.php?action=comentarios_pub', { method: 'POST', body: JSON.stringify(corpo) });
+    showToast('Publicado no mural.');
+    cont.mural = null; muralCarregar();
+  } catch (e) { showToast('Erro: ' + e.message, 'error'); }
+}
+async function muralExcluir(idc) {
+  if (!confirm('Excluir este comentário? As respostas dele também serão excluídas.')) return;
+  try { await apiFetch('/catalogo.php?action=comentarios_pub&id=' + idc, { method: 'DELETE' }); cont.mural = null; muralCarregar(); }
+  catch (e) { showToast('Erro ao excluir: ' + e.message, 'error'); }
 }
 
 function _contFoto(it) {
@@ -3305,7 +3376,9 @@ function conteudoHtml() {
   const rotulo = { receitas: 'Receitas', videos: 'Vídeos', dicas: 'Dicas' };
   const singular = { receitas: 'receita', videos: 'vídeo', dicas: 'dica' };
   const tipo = { receitas: 'receita', videos: 'video', dicas: 'dica' }[sub];
-  const botoes = ['receitas', 'videos', 'dicas'].map(k => `<button class="btn btn-sm ${sub === k ? 'btn-primary' : 'btn-secondary'}" onclick="cont.sub='${k}';render();">${rotulo[k]} (${cont[k].length})</button>`).join(' ');
+  const botoes = ['receitas', 'videos', 'dicas'].map(k => `<button class="btn btn-sm ${sub === k ? 'btn-primary' : 'btn-secondary'}" onclick="cont.sub='${k}';render();">${rotulo[k]} (${cont[k].length})</button>`).join(' ')
+    + ` <button class="btn btn-sm ${sub === 'mural' ? 'btn-primary' : 'btn-secondary'}" onclick="cont.sub='mural';cont.mural=null;render();">💬 Mural</button>`;
+  if (sub === 'mural') return `<div class="filtros-bar">${botoes}</div>${muralHtml()}`;
   const importar = (sub === 'receitas' && cont.receitas.length === 0 && pode) ? `<div style="background:var(--bg2);border:1px solid var(--green);border-radius:10px;padding:14px;margin-bottom:14px;">
       <div style="font-weight:700;margin-bottom:4px;">As 47 receitas do e-book da Nutri Rô ainda não estão no banco</div>
       <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">Os alunos já veem essas receitas no app (vêm de um arquivo). Importe para o banco para poder editar, trocar foto, inativar ou apagar cada uma. Nada se repete se você importar de novo.</div>

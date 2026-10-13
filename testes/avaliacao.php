@@ -3,11 +3,21 @@
 // Extrai do catalogo.php o bloco do endpoint (sem mexer no arquivo) e executa cada caso num processo próprio, porque o endpoint termina com exit.
 //   php -c <php.ini com mbstring, pdo_sqlite, sqlite3> testes/avaliacao.php
 $SRC = realpath(__DIR__ . '/../app/api/catalogo.php');
-$cod = file_get_contents($SRC);
+$cod = str_replace("
+", "
+", file_get_contents($SRC));   // o arquivo pode estar com fim de linha do Windows
 $i = strpos($cod, '// ═══════════════ NUTRIÇÃO: avaliações das receitas');
 $j = strpos($cod, '// Painel da nutri: planos ativos', $i);
 if ($i === false || $j === false) { fwrite(STDERR, "bloco do endpoint nao encontrado\n"); exit(1); }
 $bloco = substr($cod, $i, $j - $i);
+// A função do plano ativo mora fora do bloco (o mural também a usa): extrai do mesmo arquivo.
+$f1 = strpos($cod, 'function _nutriAlunoTemPlano');
+$f2 = strpos($cod, "
+}
+", $f1);
+if ($f1 === false || $f2 === false) { fwrite(STDERR, "funcao do plano nao encontrada
+"); exit(1); }
+$funcPlano = substr($cod, $f1, $f2 - $f1 + 3);
 
 if (getenv('CASO_JSON') !== false) {
     $caso = json_decode(getenv('CASO_JSON'), true);
@@ -32,6 +42,7 @@ if (getenv('CASO_JSON') !== false) {
     $_ctx = ['idatleta' => $caso['eu'], 'idusuario' => 1];
     $GLOBALS['__corpo'] = $caso['corpo'] ?? [];
     function jsonBody() { return $GLOBALS['__corpo']; }
+    eval($funcPlano);
     function _resolverAutorPub($pdo, $_ctx, $_ehAluno) { return [$_ehAluno ? 'aluno' : 'prof', (int)$_ctx['idatleta'], 'x']; }
     function _feedDetectarTabelaAtleta($pdo) { return 'atleta'; }
     ob_start();

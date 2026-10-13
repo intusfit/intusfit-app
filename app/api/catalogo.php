@@ -794,6 +794,13 @@ function _resultadoDestinatariosProf(PDO $pdo, int $idatleta): array {
     return array_values(array_unique(array_filter($ids)));
 }
 
+// O aluno tem plano alimentar ativo? (libera avaliação das receitas, vídeos do plano e escrever no mural da Nutrição)
+function _nutriAlunoTemPlano(PDO $pdo, int $idatleta): bool {
+    if ($idatleta <= 0) return false;
+    try { $q = $pdo->prepare("SELECT 1 FROM intus_plano_nutricional WHERE idatleta = ? AND ativo = 1 LIMIT 1"); $q->execute([$idatleta]); return (bool)$q->fetchColumn(); }
+    catch (Throwable $e) { return false; }
+}
+
 // Resultado passou a valer (texto puro, ou mídia toda enviada): avisa a equipe.
 function _resultadoPublicar(PDO $pdo, int $idresultado, int $idatleta, string $nome, string $texto): void {
     $trecho = $texto !== '' ? $texto : 'compartilhou um resultado';
@@ -2500,6 +2507,17 @@ if ($action === 'comentarios_pub') {
         $texto = trim((string)($b['texto'] ?? ''));
         if ($tipo === '' || $alvo <= 0 || $texto === '') { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
         $texto = _mencoesLimitar($texto, 1000);
+        // Mural da Nutrição (dicas e vídeos): o aluno precisa ter plano alimentar ativo para escrever; o alvo tem de existir
+        // ('nutri_dica' = o mural único de dicas, id 1; 'nutri_video' = um vídeo ativo). A equipe escreve sempre.
+        if ($tipo === 'nutri_dica' || $tipo === 'nutri_video') {
+            if ($_ehAluno && !_nutriAlunoTemPlano($pdo, $_autorId)) { http_response_code(403); echo json_encode(['error' => 'mural do plano alimentar']); exit; }
+            if ($tipo === 'nutri_dica' && $alvo !== 1) { http_response_code(404); echo json_encode(['error' => 'mural nao encontrado']); exit; }
+            if ($tipo === 'nutri_video') {
+                $stV = $pdo->prepare("SELECT 1 FROM intus_nutri_conteudo WHERE idconteudo = ? AND tipo = 'video' AND ativo = 1");
+                $stV->execute([$alvo]);
+                if (!$stV->fetchColumn()) { http_response_code(404); echo json_encode(['error' => 'video nao encontrado']); exit; }
+            }
+        }
         // Se responde a outro comentário, confirma que o pai é do MESMO alvo —
         // sem isso um id de comentário de outro post viraria resposta aqui.
         $respostaA = (int)($b['resposta_a'] ?? 0);
@@ -2536,6 +2554,29 @@ if ($action === 'comentarios_pub') {
                 if ($dono > 0) $avisados['aluno:' . $dono] = 1;
                 // @menções no texto: avisa cada pessoa marcada que ainda não foi avisada por este comentário.
                 _notificarMencoes($pdo, $texto, $_autorTipo, $_autorId, $nome, $tipo, $alvo, $avisados);
+            } catch (Throwable $e) {}
+        }
+
+        // Mural da Nutrição: quem responde avisa o autor do comentário-pai; o que o aluno escreve avisa a equipe (professores
+        // responsáveis + administradores), para a pergunta não ficar sem resposta. Falha de aviso nunca derruba o comentário.
+        if ($tipo === 'nutri_dica' || $tipo === 'nutri_video') {
+            try {
+                $avisados = [];
+                if ($respostaA > 0) {
+                    $stPai = $pdo->prepare("SELECT autor_tipo, autor_id FROM intus_comentario_pub WHERE idcomentario = ?");
+                    $stPai->execute([$respostaA]);
+                    $pai = $stPai->fetch(PDO::FETCH_ASSOC);
+                    if ($pai) {
+                        $avisados[$pai['autor_tipo'] . ':' . (int)$pai['autor_id']] = 1;
+                        _criarNotificacao($pdo, $pai['autor_tipo'], (int)$pai['autor_id'], 'resposta', $_autorTipo, $_autorId, $nome, $tipo, $alvo, $texto);
+                    }
+                }
+                if ($_ehAluno) {
+                    foreach (_resultadoDestinatariosProf($pdo, $_autorId) as $idprof) {
+                        if (!empty($avisados['prof:' . $idprof])) continue;
+                        _criarNotificacao($pdo, 'prof', $idprof, 'comentario', 'aluno', $_autorId, $nome, $tipo, $alvo, $texto);
+                    }
+                }
             } catch (Throwable $e) {}
         }
 
@@ -4153,6 +4194,16 @@ if ($action === 'nutri_conteudo') {
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
         $pdo->prepare("DELETE FROM intus_nutri_conteudo WHERE idconteudo = ?")->execute([$id]);
         try { $pdo->prepare("DELETE FROM intus_nutri_avaliacao WHERE idconteudo = ?")->execute([$id]); } catch (Throwable $e) {}
+        try {
+            $stC = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE alvo_tipo = 'nutri_video' AND alvo_id = ?");
+            $stC->execute([$id]);
+            $cids = array_map('intval', $stC->fetchAll(PDO::FETCH_COLUMN));
+            if ($cids) {
+                $phC = implode(',', array_fill(0, count($cids), '?'));
+                $pdo->prepare("DELETE FROM intus_comentario_pub WHERE idcomentario IN ($phC)")->execute($cids);
+                $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'feed_comentario' AND alvo_id IN ($phC)")->execute($cids);
+            }
+        } catch (Throwable $e) {}
         echo json_encode(['ok' => true]);
         exit;
     }
@@ -4161,11 +4212,6 @@ if ($action === 'nutri_conteudo') {
 // ═══════════════ NUTRIÇÃO: avaliações das receitas (favorito, nota, "eu fiz") ═══════════════
 // GET: estatísticas de todos os itens (média, total de notas, quantos fizeram), as marcações do próprio aluno e, com ?idconteudo=N, os nomes de quem fez
 // (só alunos que estão no Feed e não estão bloqueados, e nunca quem o aluno ocultou). POST {idconteudo, nota?, fez?, fav?}: só o aluno COM plano alimentar ativo.
-function _nutriAlunoTemPlano(PDO $pdo, int $idatleta): bool {
-    if ($idatleta <= 0) return false;
-    try { $q = $pdo->prepare("SELECT 1 FROM intus_plano_nutricional WHERE idatleta = ? AND ativo = 1 LIMIT 1"); $q->execute([$idatleta]); return (bool)$q->fetchColumn(); }
-    catch (Throwable $e) { return false; }
-}
 if ($action === 'nutri_avaliacao') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     $_naRes = _resolverAutorPub($pdo, $_ctx, $_ehAluno);

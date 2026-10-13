@@ -1344,3 +1344,14 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
   (só plano) e a linha "★ 4,3 (3) · ✅ 2 fizeram". Sem plano, a média e o total aparecem só para leitura e os botões levam ao convite. A marcação aparece na hora e volta atrás se o servidor recusar. Os favoritos antigos do aparelho
   (`intus-nutri-fav-<id>`) sobem uma vez para o servidor (`_nutriAvMigrar`). **Receita só do arquivo (ainda sem `idconteudo`) não tem avaliação: use "Importar receitas e dicas do e-book" no painel para levar as receitas ao banco.**
 - Testes: `testes/avaliacao.php` (16 conferências em PHP real; registrado em `rodar.sh`; tirar a trava do plano é acusado).
+
+## 50. Mural de dicas e de vídeos da Nutrição (13/10/2026)
+- Reaproveita `catalogo.php?action=comentarios_pub` (respostas em qualquer nível, curtida de comentário via `reacoes` `feed_comentario`) com `alvo_tipo` **`nutri_dica`** (um mural só de dicas, `alvo_id` = 1) e **`nutri_video`** (`alvo_id` = `idconteudo` do vídeo ativo). **Todos leem; escrever é só de aluno com
+  plano alimentar ativo (403 `mural do plano alimentar`) e da equipe**, validado no servidor, que também confere o alvo (mural de dicas só com id 1; vídeo precisa existir e estar ativo). Avisos: resposta avisa o autor do comentário original
+  (tipo `resposta`, `alvo_tipo` nutri_*); o que o aluno escreve avisa a equipe (professores responsáveis + administradores, `_resultadoDestinatariosProf`). Excluir um vídeo no painel apaga o mural dele.
+- **App** (`aluno.html`, bloco "MURAL DA NUTRIÇÃO", funções `_nm*`, estado `_nm`): na tela Dicas o mural fica abaixo da lista ("Tem uma dica ou uma dúvida? Escreva aqui"); a lista de vídeos agora abre a **tela do vídeo** (`nutriTela('video', id)`:
+  capa com play, descrição, receita relacionada e o mural dele; sem `idconteudo` mostra aviso). Sem plano aparece a faixa "escrever é do plano alimentar". O sino do aluno diz "respondeu seu comentário no mural de dicas/do vídeo" e leva à tela certa.
+- **Painel** (`nutricao.html`, Receitas e vídeos > 💬 Mural, `muralHtml`; abre direto por `nutricao.html#mural`): lista as conversas do mural de dicas e de cada vídeo com comentário, a equipe responde (selo "equipe" no app) e exclui. O sino da equipe
+  (`_mock.js`) mostra "escreveu no mural de dicas/de um vídeo" com link para lá. **`_mock.js?v=20261013a` em todas as 19 telas.**
+- Testes: `testes/mural_nutri.php` (16 conferências em PHP real, registrado em `rodar.sh`; tirar a trava do plano é acusado). Os testes `avaliacao.php` e `mural_nutri.php` precisam ser salvos com fim de linha LF (gravar com Python em modo texto no Windows
+  os transforma em CRLF e quebra a extração do bloco).
