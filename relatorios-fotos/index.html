@@ -161,6 +161,12 @@ input{font-family:inherit}
 .grade-linha-config input[type=number]{width:38px;padding:4px 2px;border-radius:5px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:11px;text-align:center}
 .grade-linha-config button{background:transparent;border:1px solid var(--borda);color:var(--muted);border-radius:5px;padding:4px 7px;font-size:11px}
 .grade-linha-config .rotulo{font-size:10.5px;color:var(--muted-d)}
+.grade-pop{position:absolute;z-index:60;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--card-bg);border:1px solid var(--borda);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12px;color:var(--texto)}
+.grade-pop[hidden]{display:none}
+.grade-pop .gp-rotulo{font-weight:700;margin-right:2px;white-space:nowrap}
+.grade-pop input[type=color]{width:30px;height:28px;padding:0;border-radius:6px;border:1px solid var(--borda);background:none}
+.grade-pop input[type=number]{width:48px;padding:5px 4px;border-radius:6px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:12px;text-align:center}
+.grade-pop button{background:transparent;border:1px solid var(--borda);color:var(--muted);border-radius:6px;padding:5px 8px;font-size:12px}
 
 .btn-add-linha{width:100%;padding:14px;border-radius:12px;border:1.5px dashed var(--borda);background:transparent;color:var(--muted);font-size:13px;font-weight:700;text-align:center}
 .btn-add-linha:hover{border-color:var(--accent-borda);color:var(--accent)}
@@ -312,6 +318,14 @@ input{font-family:inherit}
 
 </div><!-- /#app -->
 
+<div class="grade-pop" id="grade-pop" hidden>
+  <span class="gp-rotulo" id="gp-rotulo"></span>
+  <input type="color" id="gp-cor" value="#ff3b30" title="Cor desta linha">
+  <input type="number" id="gp-larg" min="0.5" max="5" step="0.5" value="1" title="Espessura desta linha (1 = padrão)">
+  <button type="button" id="gp-reset" title="Voltar essa linha ao padrão">↺</button>
+  <button type="button" id="gp-fechar" title="Fechar">✕</button>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
@@ -378,11 +392,12 @@ function slugify(s){
 
 var SLOTS_MIN = 2;
 var SLOTS_MAX = 4;
+var GRADE_PADRAO = 12; // divisões padrão do simetrógrafo, nos dois sentidos (12 × 12)
 
 function makeSlot(tag){
   return { tag: tag, img: null, naturalW: 0, naturalH: 0, z: 1, panX: .5, panY: .5,
            canvas: null, ctx: null, dragging: false, dragStart: null, imgDirty: false,
-           annotations: [], comment: '', grade: false, gradeV: 2, gradeH: 10, gradeLineOverrides: {}, corAtual: '#ff3b30',
+           annotations: [], comment: '', grade: false, gradeV: GRADE_PADRAO, gradeH: GRADE_PADRAO, gradeLineOverrides: {}, linhaSelecionada: null, corAtual: '#ff3b30',
            tool: null, draft: null, anguloEmProgresso: null };
 }
 
@@ -611,6 +626,42 @@ function drawGrade(ctx, destW, destH, gradeV, gradeH, overrides){
   ctx.restore();
 }
 
+// Só na tela de edição (não vai pro PNG/PDF): contorno tracejado na linha do
+// simetrógrafo que está sendo editada, pra ficar claro qual é.
+function desenharDestaqueLinha(ctx, slot, destW, destH){
+  var m = /^([vh])(\d+)$/.exec(slot.linhaSelecionada || '');
+  if (!m || !slot.grade) return;
+  var n = parseInt(m[2], 10), vertical = m[1] === 'v';
+  var div = Math.max(1, (vertical ? slot.gradeV : slot.gradeH) | 0);
+  if (n < 1 || n >= div) return;
+  var pos = (vertical ? destW : destH) * n / div;
+  ctx.save();
+  ctx.beginPath();
+  if (vertical) { ctx.moveTo(pos, 0); ctx.lineTo(pos, destH); } else { ctx.moveTo(0, pos); ctx.lineTo(destW, pos); }
+  ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.setLineDash([6, 4]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();
+}
+
+// Linha do simetrógrafo sob o clique (até 7 px de distância), ou null. 'v3' = 3ª vertical.
+function linhaGradeNoPonto(slot, canvas, e){
+  if (!slot.grade) return null;
+  var rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  var p = pointFrac(canvas, e);
+  var divV = Math.max(1, slot.gradeV | 0), divH = Math.max(1, slot.gradeH | 0);
+  var melhor = null, melhorDist = 7.01;
+  for (var i = 1; i < divV; i++) {
+    var dx = Math.abs(p.x - i / divV) * rect.width;
+    if (dx < melhorDist) { melhor = 'v' + i; melhorDist = dx; }
+  }
+  for (var j = 1; j < divH; j++) {
+    var dy = Math.abs(p.y - j / divH) * rect.height;
+    if (dy < melhorDist) { melhor = 'h' + j; melhorDist = dy; }
+  }
+  return melhor;
+}
+
 function anguloEntre(vx, vy, ax, ay, bx, by){
   var v1x = ax - vx, v1y = ay - vy, v2x = bx - vx, v2y = by - vy;
   var m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
@@ -676,6 +727,7 @@ function renderSlotPreview(row, idx){
   if (sz.w < 2 || sz.h < 2) return;
   slot.ctx = setupCanvas(slot.canvas, sz.w, sz.h);
   drawSlot(slot.ctx, slot, sz.w, sz.h);
+  desenharDestaqueLinha(slot.ctx, slot, sz.w, sz.h);
 }
 
 function renderSlotPreviewComDraft(row, idx){
@@ -685,6 +737,7 @@ function renderSlotPreviewComDraft(row, idx){
   if (sz.w < 2 || sz.h < 2) return;
   slot.ctx = setupCanvas(slot.canvas, sz.w, sz.h);
   drawSlot(slot.ctx, slot, sz.w, sz.h);
+  desenharDestaqueLinha(slot.ctx, slot, sz.w, sz.h);
   if (slot.draft) desenharAnotacao(slot.ctx, slot.draft, sz.w, sz.h);
   if (slot.anguloEmProgresso) desenharAnguloParcial(slot.ctx, slot.anguloEmProgresso, sz.w, sz.h);
 }
@@ -838,6 +891,11 @@ function popularSeletorLinhas(row, idx){
   for (var j = 1; j < Math.max(1, slot.gradeH | 0); j++) sel.add(new Option('Horizontal ' + j, 'h' + j));
   if (!sel.options.length) { sel.add(new Option('(sem linhas)', '')); sel.disabled = true; }
   else { sel.disabled = false; if (Array.prototype.some.call(sel.options, function(o){ return o.value === atual; })) sel.value = atual; }
+  // Mudou o número de divisões e a linha em destaque deixou de existir.
+  if (slot.linhaSelecionada && !Array.prototype.some.call(sel.options, function(o){ return o.value === slot.linhaSelecionada; })) {
+    slot.linhaSelecionada = null;
+    if (popGrade && popGrade.row === row && popGrade.idx === idx) fecharPopGrade();
+  }
   atualizarControleLinhaSelecionada(row, idx);
 }
 
@@ -920,12 +978,15 @@ function removeSlotImage(row, idx){
   var els = row.els.slots[idx];
   slot.img = null; slot.naturalW = 0; slot.naturalH = 0; slot.z = 1; slot.panX = .5; slot.panY = .5;
   slot.imgDirty = true; row.dirty = true;
-  slot.annotations = []; slot.comment = ''; slot.grade = false; slot.gradeV = 2; slot.gradeH = 10; slot.gradeLineOverrides = {};
+  slot.annotations = []; slot.comment = ''; slot.grade = false; slot.gradeV = GRADE_PADRAO; slot.gradeH = GRADE_PADRAO; slot.gradeLineOverrides = {};
+  slot.linhaSelecionada = null;
+  if (popGrade && popGrade.row === row && popGrade.idx === idx) fecharPopGrade();
   slot.tool = null; slot.draft = null; slot.anguloEmProgresso = null;
   els.comentario.value = '';
   els.chkGrade.checked = false;
-  els.gradeV.value = 2;
-  els.gradeH.value = 10;
+  els.gradeV.value = GRADE_PADRAO;
+  els.gradeH.value = GRADE_PADRAO;
+  popularSeletorLinhas(row, idx);
   els.gradeLinhaConfig.hidden = true;
   els.canvas.classList.remove('modo-anotar');
   els.wrap.querySelectorAll('.btn-tool').forEach(function(b){ b.classList.remove('on'); });
@@ -952,6 +1013,66 @@ function pointFrac(canvas, e){
   if (!rect.width || !rect.height) return { x: .5, y: .5 };
   return { x: clamp((e.clientX - rect.left) / rect.width, 0, 1), y: clamp((e.clientY - rect.top) / rect.height, 0, 1) };
 }
+
+// ---------- Editar uma linha do simetrógrafo clicando nela ----------
+// Popover único que edita cor/espessura da linha clicada. Não grava nada por conta
+// própria: escreve nos mesmos campos da barra da foto (seletor "Linha:", cor,
+// espessura) e dispara os mesmos eventos, então os dois ficam sempre em sincronia.
+var popGrade = null; // { row, idx, key }
+var popEl = document.getElementById('grade-pop');
+var popCor = document.getElementById('gp-cor');
+var popLarg = document.getElementById('gp-larg');
+
+function selecionarLinhaGrade(row, idx, key){
+  var slot = row.slots[idx], els = row.els.slots[idx];
+  slot.linhaSelecionada = key;
+  if (els.gradeLinhaSel.value !== key) els.gradeLinhaSel.value = key;
+  atualizarControleLinhaSelecionada(row, idx);
+  renderSlotPreview(row, idx);
+}
+function atualizarPopGrade(){
+  if (!popGrade) return;
+  var ov = popGrade.row.slots[popGrade.idx].gradeLineOverrides[popGrade.key];
+  popCor.value = ov ? ov.cor : '#ff3b30';
+  popLarg.value = ov ? ov.largura : 1;
+}
+function abrirPopGrade(row, idx, key, clientX, clientY){
+  if (popGrade && (popGrade.row !== row || popGrade.idx !== idx)) fecharPopGrade(true);
+  popGrade = { row: row, idx: idx, key: key };
+  selecionarLinhaGrade(row, idx, key);
+  document.getElementById('gp-rotulo').textContent = (key.charAt(0) === 'v' ? 'Vertical ' : 'Horizontal ') + key.slice(1);
+  atualizarPopGrade();
+  popEl.hidden = false;
+  var largura = document.documentElement.clientWidth;
+  popEl.style.left = (window.pageXOffset + clamp(clientX + 14, 8, largura - popEl.offsetWidth - 8)) + 'px';
+  popEl.style.top = (window.pageYOffset + clamp(clientY + 14, 8, window.innerHeight - popEl.offsetHeight - 8)) + 'px';
+}
+function fecharPopGrade(limparDestaque){
+  popEl.hidden = true;
+  var p = popGrade; popGrade = null;
+  if (p && limparDestaque) { p.row.slots[p.idx].linhaSelecionada = null; renderSlotPreview(p.row, p.idx); }
+}
+function aplicarPopGrade(){
+  if (!popGrade) return;
+  var els = popGrade.row.els.slots[popGrade.idx];
+  els.gradeLinhaCor.value = popCor.value;
+  els.gradeLinhaLarg.value = popLarg.value;
+  els.gradeLinhaCor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+popCor.addEventListener('input', aplicarPopGrade);
+popLarg.addEventListener('input', aplicarPopGrade);
+document.getElementById('gp-reset').addEventListener('click', function(){
+  if (!popGrade) return;
+  popGrade.row.els.slots[popGrade.idx].btnLinhaReset.click();
+  atualizarPopGrade();
+});
+document.getElementById('gp-fechar').addEventListener('click', function(){ fecharPopGrade(true); });
+document.addEventListener('pointerdown', function(e){
+  if (!popGrade || !e.target.closest) return;
+  if (e.target.closest('#grade-pop') || e.target.closest('.slot-canvas')) return;
+  fecharPopGrade(true);
+});
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && popGrade) fecharPopGrade(true); });
 
 function attachDrag(row, idx){
   var slot = row.slots[idx];
@@ -1021,7 +1142,7 @@ function attachDrag(row, idx){
     renderSlotPreview(row, idx);
   });
 
-  function endDrag(){
+  function endDrag(e){
     if (slot.tool === 'draw' && slot.draft){
       if (slot.draft.pontos.length > 1) { slot.annotations.push(slot.draft); row.dirty = true; }
       slot.draft = null;
@@ -1031,7 +1152,17 @@ function attachDrag(row, idx){
       slot.draft = null;
       renderSlotPreview(row, idx);
     } else if (slot.dragging) {
-      row.dirty = true;
+      var moveu = (e && e.type === 'pointerup' && slot.dragStart)
+        ? Math.hypot(e.clientX - slot.dragStart.x, e.clientY - slot.dragStart.y) : Infinity;
+      if (moveu >= 5) {
+        row.dirty = true;
+      } else if (slot.grade) {
+        // Clique (sem arrastar) em cima de uma linha do simetrógrafo: abre a edição
+        // de cor/espessura dela. Clique em outro ponto só tira o destaque.
+        var chave = linhaGradeNoPonto(slot, canvas, e);
+        if (chave) abrirPopGrade(row, idx, chave, e.clientX, e.clientY);
+        else if (slot.linhaSelecionada || (popGrade && popGrade.row === row && popGrade.idx === idx)) { fecharPopGrade(); slot.linhaSelecionada = null; renderSlotPreview(row, idx); }
+      }
     }
     slot.dragging = false;
   }
@@ -1232,9 +1363,9 @@ function buildSlotEl(row, idx){
       '<button class="btn-limpar-anot" title="Apagar todas as marcações desta foto">🗑️ Limpar</button>' +
       '<label class="chk-grade"><input type="checkbox" class="chk-simetrografo"> Simetrógrafo</label>' +
       '<span class="grade-config">' +
-        '<input type="number" class="grade-v-slot" value="2" min="1" max="20" title="Divisões verticais (linhas verticais = divisões − 1)">' +
+        '<input type="number" class="grade-v-slot" value="' + GRADE_PADRAO + '" min="1" max="20" title="Divisões verticais (linhas verticais = divisões − 1)">' +
         '<span class="x">×</span>' +
-        '<input type="number" class="grade-h-slot" value="10" min="1" max="20" title="Divisões horizontais (linhas horizontais = divisões − 1)">' +
+        '<input type="number" class="grade-h-slot" value="' + GRADE_PADRAO + '" min="1" max="20" title="Divisões horizontais (linhas horizontais = divisões − 1)">' +
       '</span>' +
       '<span class="grade-linha-config" hidden>' +
         '<span class="rotulo">Linha:</span>' +
@@ -1308,24 +1439,36 @@ function buildSlotEl(row, idx){
   els.chkGrade.addEventListener('change', function(){
     row.slots[idx].grade = els.chkGrade.checked;
     els.gradeLinhaConfig.hidden = !row.slots[idx].grade;
+    if (!row.slots[idx].grade) {
+      row.slots[idx].linhaSelecionada = null;
+      if (popGrade && popGrade.row === row && popGrade.idx === idx) fecharPopGrade();
+    }
     row.dirty = true;
     renderSlotPreview(row, idx);
   });
   els.gradeV.addEventListener('change', function(){
-    row.slots[idx].gradeV = clamp(parseInt(els.gradeV.value, 10) || 2, 1, 20);
+    row.slots[idx].gradeV = clamp(parseInt(els.gradeV.value, 10) || GRADE_PADRAO, 1, 20);
     els.gradeV.value = row.slots[idx].gradeV;
     row.dirty = true;
     popularSeletorLinhas(row, idx);
     renderSlotPreview(row, idx);
   });
   els.gradeH.addEventListener('change', function(){
-    row.slots[idx].gradeH = clamp(parseInt(els.gradeH.value, 10) || 10, 1, 20);
+    row.slots[idx].gradeH = clamp(parseInt(els.gradeH.value, 10) || GRADE_PADRAO, 1, 20);
     els.gradeH.value = row.slots[idx].gradeH;
     row.dirty = true;
     popularSeletorLinhas(row, idx);
     renderSlotPreview(row, idx);
   });
-  els.gradeLinhaSel.addEventListener('change', function(){ atualizarControleLinhaSelecionada(row, idx); });
+  els.gradeLinhaSel.addEventListener('change', function(){
+    atualizarControleLinhaSelecionada(row, idx);
+    // Escolher a linha na lista também a destaca na foto (e acompanha o popover, se aberto).
+    row.slots[idx].linhaSelecionada = els.gradeLinhaSel.value || null;
+    if (popGrade && popGrade.row === row && popGrade.idx === idx) {
+      if (els.gradeLinhaSel.value) { popGrade.key = els.gradeLinhaSel.value; atualizarPopGrade(); } else fecharPopGrade();
+    }
+    renderSlotPreview(row, idx);
+  });
   function aplicarOverrideLinha(){
     var key = els.gradeLinhaSel.value;
     if (!key) return;
@@ -1410,6 +1553,7 @@ function buildSlotEl(row, idx){
 
 function rebuildRowSlots(row){
   var slotsWrap = row.el.querySelector('.row-slots');
+  if (popGrade && popGrade.row === row) { popEl.hidden = true; popGrade = null; }
   slotsWrap.innerHTML = '';
   row.els.slots = [];
   // O DOM antigo (com a classe .selecionado) acabou de ser descartado — limpa a
@@ -2110,8 +2254,11 @@ function abrirAvaliacao(id){
         if (!slot) return;
         slot.tag = d.tag || slot.tag;
         slot.grade = !!d.grade;
-        slot.gradeV = clamp(parseInt(d.grade_v, 10) || 2, 1, 20);
-        slot.gradeH = clamp(parseInt(d.grade_h, 10) || 10, 1, 20);
+        var gv = parseInt(d.grade_v, 10), gh = parseInt(d.grade_h, 10);
+        // Foto salva sem simetrógrafo guarda o padrão antigo (2 × 10): vira o padrão novo.
+        if (!d.grade && gv === 2 && gh === 10) { gv = GRADE_PADRAO; gh = GRADE_PADRAO; }
+        slot.gradeV = clamp(gv || GRADE_PADRAO, 1, 20);
+        slot.gradeH = clamp(gh || GRADE_PADRAO, 1, 20);
         slot.gradeLineOverrides = (d.grade_line_overrides && typeof d.grade_line_overrides === 'object') ? d.grade_line_overrides : {};
         slot.comment = d.comentario || '';
         slot.annotations = Array.isArray(d.anotacoes) ? d.anotacoes : [];
