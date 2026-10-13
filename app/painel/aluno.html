@@ -18520,20 +18520,23 @@ function _nutriHomeHtml() {
 }
 
 // ── Receitas ──
-// "Destaques do dia": sorteio a cada visita. Sem plano, só as receitas liberadas do dia (as mesmas do acesso geral), em ordem aleatória.
-// Com plano, uma receita sorteada de cada categoria. Muda ao abrir a tela e no botão "Sortear outros".
+// "Destaques do dia": o sistema decide uma vez por dia, igual em todo aparelho e para todo aluno (sem botão de sorteio).
+// São as receitas do acesso geral do dia (uma por categoria, `_nutriReceitaDoDia`), numa ordem embaralhada pelo número do dia.
+// Quem tem plano alimentar vê as mesmas, mais todas as outras na aba "Todas". Combinações novas a cada dia sem guardar nada no servidor.
+function _nutriRng(seed) {   // mulberry32: mesma semente, mesma sequência
+  let a = seed >>> 0;
+  return function () { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
 function _nutriDestaques() {
-  if (!_nutri.destaques) {
-    const emb = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
-    let lista;
-    if (_nutriTemPlano()) {
-      lista = _nutriCont.categorias.map(c => { const l = _nutriCont.receitas.filter(r => r.cat === c.id); return l.length ? l[Math.floor(Math.random() * l.length)] : null; }).filter(Boolean);
-    } else lista = _nutriCont.receitas.filter(_nutriReceitaLiberada);
-    _nutri.destaques = emb(lista).map(r => r.id);
+  const dia = _nutriDiaN(), n = _nutriCont.receitas.length;
+  if (!_nutri.destaques || _nutri.destaquesDia !== dia || _nutri.destaquesN !== n) {
+    const rnd = _nutriRng(dia * 7919 + 13);
+    const lista = _nutriCont.categorias.map(c => _nutriReceitaDoDia(c.id)).filter(Boolean);
+    for (let i = lista.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = lista[i]; lista[i] = lista[j]; lista[j] = t; }
+    _nutri.destaques = lista; _nutri.destaquesDia = dia; _nutri.destaquesN = n;
   }
   return _nutri.destaques.map(_nutriRec).filter(Boolean);
 }
-function nutriSortear() { _nutri.destaques = null; _nutriRender(); }
 function _nutriRecFiltradas() {
   const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const q = norm(_nutri.busca).trim();
@@ -18560,7 +18563,7 @@ function _nutriReceitasHtml() {
     <input type="search" value="${esc(_nutri.busca || '')}" oninput="nutriBusca(this.value)" placeholder="Buscar receita ou ingrediente" style="width:100%;padding:11px 13px;border-radius:12px;border:1px solid ${C.borda};background:${C.card};color:inherit;font-size:14px;font-family:inherit;margin-bottom:10px;"/>
     <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:8px;margin-bottom:4px;">${chips.map(c => _nutriChip((_nutri.cat || 'destaques') === c[0], "nutriCat('" + c[0] + "')", c[1])).join('')}</div>
     ${catAtual && catAtual.desc ? `<div style="font-size:12px;color:${C.mut};margin:0 2px 10px;">${esc(catAtual.desc)}</div>` : ''}
-    ${(_nutri.cat || 'destaques') === 'destaques' && !_nutri.busca ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 10px;"><div style="font-size:12px;color:${C.mut};line-height:1.4;">${_nutriTemPlano() ? 'Uma sugestão de cada categoria, sorteada agora.' : 'As receitas liberadas de hoje, em ordem sorteada.'}</div><button onclick="nutriSortear()" style="flex-shrink:0;padding:7px 12px;border-radius:99px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:12px;font-weight:800;cursor:pointer;">🔀 Sortear outros</button></div>` : ''}
+    ${(_nutri.cat || 'destaques') === 'destaques' && !_nutri.busca ? `<div style="margin:0 2px 10px;font-size:12px;color:${C.mut};line-height:1.4;">As receitas de hoje, uma de cada categoria. Mudam todo dia.</div>` : ''}
     ${_nutriTemPlano() ? '' : _nutriCadeadoFaixa('Você tem <b>1 receita liberada por categoria</b> a cada dia (marcadas com 🎁). As demais são do plano alimentar.')}
     <div id="nutri-rec-grid">${_nutriGradeHtml()}</div>
     <div style="font-size:10.5px;color:${C.mut};text-align:center;margin-top:14px;line-height:1.5;">Receitas da Nutri Rô. Use os alimentos do seu plano alimentar e ajuste as porções a ele.</div>
