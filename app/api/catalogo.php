@@ -983,7 +983,9 @@ function _persistirFotos($fotos) {
         $f = is_string($f) ? $f : (is_array($f) && isset($f['url']) ? $f['url'] : '');
         if ($f === '') continue;
         if (!preg_match('#^data:image/(png|jpe?g|gif|webp);base64,(.+)$#is', $f, $m)) {
-            $out[] = $f; // já é URL/arquivo — mantém
+            // Link assinado de foto do Drive devolvido pelo GET: volta pro formato guardado.
+            $idDrive = function_exists('gdriveIdDeLinkAssinado') ? gdriveIdDeLinkAssinado($f) : null;
+            $out[] = $idDrive ? ('drive:' . $idDrive) : $f; // já é URL/arquivo — mantém
             continue;
         }
         if (!is_dir($dir) || !is_writable($dir)) { $out[] = $f; continue; } // não perde
@@ -1297,6 +1299,14 @@ if ($action === 'avaliacoes') {
             if (!empty($r['medidas'])) { $tmp = json_decode($r['medidas'], true); if (is_array($tmp)) $medidas = $tmp; }
             $fotos = null;
             if (!empty($r['fotos'])) { $tmp = json_decode($r['fotos'], true); if (is_array($tmp)) $fotos = $tmp; }
+            // Foto que está só no Drive (enviada pelo painel) vira link que o navegador consegue abrir.
+            if (is_array($fotos) && function_exists('gdriveFotoUrl')) {
+                $fotos = array_map(function ($f) {
+                    $v = is_string($f) ? $f : (is_array($f) && isset($f['url']) ? (string)$f['url'] : '');
+                    $u = $v !== '' ? gdriveFotoUrl($v) : null;
+                    return $u !== null ? $u : $f;
+                }, $fotos);
+            }
             return [
                 'idavaliacao' => (int)$r['idavaliacao'],
                 'idatleta'    => (int)$r['idatleta'],

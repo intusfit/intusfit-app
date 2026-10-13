@@ -306,3 +306,89 @@ function gdriveExcluirArquivo($fileId) {
     curl_close($ch);
     return $code === 200;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Foto de avaliação que existe SÓ no Drive.
+//
+// O painel (avaliacoes.html) manda a foto direto pro Drive e grava no banco o
+// link que o Drive devolve (webViewLink, uma página HTML privada — não é imagem
+// e só abre logado na conta de serviço). Já a foto enviada pelo aluno pelo app
+// vira arquivo em /app/img/avaliacoes/. Resultado: a miniatura da avaliação e o
+// "importar pro Relatório de Fotos" quebravam pra tudo que veio do painel.
+// Em vez de pedir pro Drive ficar público, o servidor entrega a foto por
+// foto_drive.php, num link assinado (HMAC) que ninguém consegue adivinhar — mesmo
+// nível de proteção dos arquivos de /app/img/avaliacoes/ (nome aleatório).
+// catalogo.php troca o link do Drive por esse link ao LISTAR avaliações; o banco
+// continua guardando o link do Drive (ou "drive:ID").
+// ─────────────────────────────────────────────────────────────────────────────
+
+function gdriveFotoSegredo() {
+    static $cache = null;   // listar avaliações assina várias fotos por requisição
+    if ($cache) return $cache;
+    $pdo = _gdriveConn();
+    if (!$pdo) return null;
+    try {
+        _gdriveEnsureTable($pdo);
+        $le = function () use ($pdo) {
+            $st = $pdo->prepare("SELECT valor FROM intus_secrets WHERE chave = 'foto_drive_segredo' LIMIT 1");
+            $st->execute();
+            $v = $st->fetchColumn();
+            return (is_string($v) && strlen($v) >= 32) ? $v : null;
+        };
+        $v = $le();
+        if (!$v) {
+            $pdo->prepare("INSERT IGNORE INTO intus_secrets (chave, valor) VALUES ('foto_drive_segredo', ?)")
+                ->execute([bin2hex(random_bytes(32))]);
+            $v = $le(); // se outro processo criou primeiro, vale o dele
+        }
+        return $cache = $v;
+    } catch (Throwable $e) { return null; }
+}
+
+function gdriveFotoAssinar($fileId) {
+    $s = gdriveFotoSegredo();
+    return $s ? substr(hash_hmac('sha256', (string)$fileId, $s), 0, 32) : null;
+}
+
+// Id do arquivo no Drive a partir do que o banco guarda ("drive:ID" ou o webViewLink).
+function gdriveIdDeLink($valor) {
+    $valor = (string)$valor;
+    if (preg_match('#^drive:([A-Za-z0-9_-]{10,})$#', $valor, $m)) return $m[1];
+    if (preg_match('#^https?://drive\.google\.com/file/d/([A-Za-z0-9_-]{10,})#', $valor, $m)) return $m[1];
+    if (preg_match('#^https?://drive\.google\.com/(?:open|uc)\?[^\#]*\bid=([A-Za-z0-9_-]{10,})#', $valor, $m)) return $m[1];
+    return null;
+}
+
+// Link (relativo ao site) que entrega a foto do Drive; null se $valor não é do Drive.
+function gdriveFotoUrl($valor) {
+    $id = gdriveIdDeLink($valor);
+    if (!$id) return null;
+    $sig = gdriveFotoAssinar($id);
+    if (!$sig) return null;
+    $dir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/app/api/catalogo.php'), '/');
+    return $dir . '/foto_drive.php?f=' . $id . '&s=' . $sig;
+}
+
+// Faz o caminho de volta: se o cliente reenviar o link assinado ao salvar, o banco
+// continua guardando "drive:ID" e não um link que depende do segredo.
+function gdriveIdDeLinkAssinado($valor) {
+    if (preg_match('#foto_drive\.php\?[^\#]*\bf=([A-Za-z0-9_-]{10,})#', (string)$valor, $m)) return $m[1];
+    return null;
+}
+
+function gdriveBaixarArquivo($fileId, $maxBytes = 12582912) {
+    $token = gdriveTokenAtual();
+    $ch = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode($fileId) . '?alt=media&supportsAllDrives=true');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 60,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token],
+    ]);
+    $corpo = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200) throw new Exception('Drive não entregou a foto (HTTP ' . $code . ')');
+    if (strlen((string)$corpo) > $maxBytes) throw new Exception('foto maior que o limite');
+    return (string)$corpo;
+}
