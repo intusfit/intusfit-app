@@ -3665,7 +3665,27 @@ const API = {
     const forte = (s, d) => E('Forte', s, 'forte', d || 'Esforço alto, mas com técnica. Respire.');
     const leve = (s, d) => E('Leve', s, 'leve', d || 'Ritmo bem leve para recuperar.');
     const ATIV = ['Corrida', 'Bike', 'Elíptico', 'Pular Corda', 'Escada'];
+    // Do sofá aos 5 km: 8 semanas, 3 treinos por semana, alternando corrida e caminhada até correr 30 minutos seguidos. Cada treino é uma
+    // sessão (S<semana>T<treino>): aquecimento de 5 min, os blocos e volta à calma de 5 min. [corre, caminha] em segundos.
+    const corre = (s) => E('Corre', s, 'forte', 'Trote leve, que dê para conversar. Se faltar o ar, caminhe um pouco.');
+    const caminha = (s) => E('Caminha', s, 'leve', 'Caminhada para recuperar o fôlego.');
+    const par = (c, w) => (w > 0 ? [corre(c), caminha(w)] : [corre(c)]);
+    const SEMANAS = [
+      [rep(8, par(60, 90)), rep(8, par(60, 90)), rep(8, par(60, 90))],
+      [rep(6, par(90, 120)), rep(6, par(90, 120)), rep(6, par(90, 120))],
+      [rep(2, par(90, 90).concat(par(180, 180))), rep(2, par(90, 90).concat(par(180, 180))), rep(2, par(90, 90).concat(par(180, 180)))],
+      [par(180, 90).concat(par(300, 150), par(180, 90), par(300, 0)), par(180, 90).concat(par(300, 150), par(180, 90), par(300, 0)), par(180, 90).concat(par(300, 150), par(180, 90), par(300, 0))],
+      [rep(3, par(300, 180)), par(480, 300).concat(par(480, 0)), par(1200, 0)],
+      [par(300, 180).concat(par(480, 180), par(300, 0)), par(600, 180).concat(par(600, 0)), par(1500, 0)],
+      [par(1500, 0), par(1500, 0), par(1500, 0)],
+      [par(1800, 0), par(1800, 0), par(1800, 0)],
+    ];
+    const sessoes5k = [];
+    SEMANAS.forEach((trs, w) => trs.forEach((blocos, t) => sessoes5k.push({ id: 'S' + (w + 1) + 'T' + (t + 1), titulo: 'Semana ' + (w + 1) + ' · Treino ' + (t + 1), etapas: [aq(300, 'Caminhada rápida para aquecer.')].concat(blocos, [calma(300, 'Caminhe devagar e respire fundo.')]) })));
     return [
+      { id: 'sofa-5km', titulo: 'Do sofá aos 5 km', sub: '8 semanas, 3 treinos por semana', emoji: '🛋️', rpe: 6, nivel: 'Iniciante', atividades: ['Corrida'], sessoes: sessoes5k,
+        resumo: 'Um plano de 8 semanas para sair do zero e correr 30 minutos seguidos (cerca de 5 km). Você alterna corrida e caminhada e vai aumentando o trote a cada semana. Faça 3 treinos por semana, com um dia de descanso entre eles.',
+        aviso: 'Em ritmo leve, em que dê para conversar. Se sentir dor, tontura ou falta de ar fora do normal, pare. Se uma semana ficar difícil, repita os treinos dela antes de avançar.' },
       { id: '12-5-30', titulo: '12-5-30', sub: 'Esteira inclinada', emoji: '⛰️', rpe: 6, nivel: 'Iniciante a intermediário', atividades: ['Caminhada'],
         resumo: 'Caminhada na esteira com 12% de inclinação, a 5 km/h, por 30 minutos.',
         aviso: 'Não segure no corrimão (se precisar, reduza a inclinação). Pare se sentir tontura, dor ou falta de ar fora do normal.',
@@ -3692,16 +3712,39 @@ const API = {
         etapas: [aq(300)].concat([60, 120, 180, 120, 60].reduce((o, t) => o.concat([forte(t), leve(t)]), [])).concat([calma(300)]) },
     ];
   })(),
-  programaDuracao: (p) => (p && Array.isArray(p.etapas) ? p.etapas.reduce((a, e) => a + e.s, 0) : 0),
+  // Programa "curso" (Do sofá aos 5 km) tem `sessoes`; os demais têm `etapas`. idx = índice da sessão do curso.
+  programaEtapas: (p, idx) => (!p ? [] : (Array.isArray(p.sessoes) ? ((p.sessoes[idx || 0] || p.sessoes[0]).etapas) : (p.etapas || []))),
+  programaDuracao: (p, idx) => API.programaEtapas(p, idx).reduce((a, e) => a + e.s, 0),
   programaPorId: (id) => API.PROGRAMAS_CARDIO.find((p) => p.id === id) || null,
-  // Programa concluído de uma sessão de cardio, ou null. Exige o comentário "Programa: <titulo>" e 90% da duração.
-  programaDaSessao: (s) => {
+  // Programa concluído de uma sessão de cardio: { p, idx } ou null. Exige o comentário "Programa: <titulo>" (no curso, "Programa: <titulo> · S<semana>T<treino>")
+  // e pelo menos 90% da duração. idx é o índice da sessão do curso (null nos programas de uma sessão só).
+  programaSessaoInfo: (s) => {
     if (!s || API.ehMusculacaoRank(s)) return null;
-    const m = /^Programa: (.+)$/.exec(String(s.comentario || '').trim());
+    const m = /^Programa: (.+?)(?: · (S\d+T\d+))?$/.exec(String(s.comentario || '').trim());
     if (!m) return null;
     const p = API.PROGRAMAS_CARDIO.find((x) => x.titulo === m[1]);
     if (!p) return null;
-    return (Number(s.duracao_seg) || 0) >= 0.9 * API.programaDuracao(p) ? p : null;
+    let idx = null;
+    if (Array.isArray(p.sessoes)) { idx = p.sessoes.findIndex((x) => x.id === m[2]); if (idx < 0) return null; }
+    else if (m[2]) return null;
+    const dur = Number(s.duracao_seg != null ? s.duracao_seg : s.dur) || 0;
+    return dur >= 0.9 * API.programaDuracao(p, idx) ? { p: p, idx: idx } : null;
+  },
+  programaDaSessao: (s) => { const r = API.programaSessaoInfo(s); return r ? r.p : null; },
+  // Métricas dos distintivos (aceita sessões do ranking ou do aluno: duracao_seg ou dur): treinos guiados concluídos, programas
+  // DIFERENTES concluídos (o curso só conta quando os 24 treinos foram feitos) e se o curso completo foi cumprido.
+  metricasProgramas: (sessoes) => {
+    let guiados = 0; const tipos = {}; const curso = {};
+    (Array.isArray(sessoes) ? sessoes : []).forEach((s) => {
+      if (!s || String(s.tipo || 'cardio') !== 'cardio') return;
+      const r = API.programaSessaoInfo(Object.assign({}, s, { tipo: 'cardio' }));
+      if (!r) return;
+      guiados++;
+      if (r.idx == null) tipos[r.p.id] = 1; else (curso[r.p.id] = curso[r.p.id] || {})[r.idx] = 1;
+    });
+    let cursoCompleto = 0;
+    API.PROGRAMAS_CARDIO.forEach((p) => { if (Array.isArray(p.sessoes) && curso[p.id] && Object.keys(curso[p.id]).length >= p.sessoes.length) { tipos[p.id] = 1; cursoCompleto++; } });
+    return { programas: guiados, programasTipos: Object.keys(tipos).length, cursoCompleto: cursoCompleto };
   },
 
   // ── TREINO FORA DO PROTOCOLO ─────────────────────────────────────────

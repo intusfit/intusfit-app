@@ -1,7 +1,7 @@
 # Programas de cardio prontos: estudo e proposta (13/10/2026)
 
 Pedido do Luiz: incluir programas prontos como HIIT e o método 12-3-30 (esteira inclinada) e outros desafiadores e motivantes.
-Este arquivo é só estudo. Nada disso foi construído.
+Estudo de 13/10/2026. **Construído depois (seções 57 e 58 do CLAUDE.md):** o MVP com 6 programas fixos e o curso Do sofá aos 5 km (7 programas), com tela de execução, +1 ponto por dia e distintivos. O resto abaixo continua como roteiro.
 
 ## 1. O que já existe e serve de base
 
