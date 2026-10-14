@@ -6647,6 +6647,7 @@ async function sincronizarDoBackend() {
       const cfgR = await get('/dashboard.php?action=config');
       if (cfgR.ok) { const cfgJ = await cfgR.json(); if (cfgJ && cfgJ.config) localStorage.setItem('intus-config-geral', JSON.stringify(cfgJ.config)); }
     } catch {} })(),
+    _atletaPropriaCarregar(true),
     (async () => { try {
       const uR = await get('/usuarios.php');
       if (uR.ok) { const uJ = await uR.json(); if (uJ && uJ.ok && Array.isArray(uJ.usuarios)) localStorage.setItem('intus-usuarios', JSON.stringify(uJ.usuarios)); }
@@ -6708,6 +6709,21 @@ async function sincronizarDoBackend() {
   }
 }
 
+// O aluno nunca recebia o próprio cadastro completo (a lista de atletas é rota de professor), então "professores_responsaveis" ficava vazio
+// e a Central só mostrava a Equipe Intus. atletas.php?id=<eu> é permitido ao aluno e traz os responsáveis.
+var _atletaPropriaTs = 0;
+async function _atletaPropriaCarregar(forcar) {
+  if (!forcar && Date.now() - _atletaPropriaTs < 300000) return;
+  try {
+    const r = await _fetchT(API_BASE + '/atletas.php?id=' + Number(idAtleta) + '&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' }, 12000);
+    if (!r.ok) return;
+    let a = await r.json(); if (Array.isArray(a)) a = a[0];
+    if (!a || Number(a.idatleta) !== Number(idAtleta)) return;
+    const todos = (JSON.parse(localStorage.getItem('intus-atletas') || '[]') || []).filter(x => Number(x.idatleta) !== Number(idAtleta));
+    todos.push(a); localStorage.setItem('intus-atletas', JSON.stringify(todos));
+    _atletaPropriaTs = Date.now();
+  } catch (e) {}
+}
 function carregarFicha() {
   const fichas = JSON.parse(localStorage.getItem('intus-fichas')||'[]');
   const treinos = JSON.parse(localStorage.getItem('intus-treinos')||'[]');
@@ -22042,6 +22058,8 @@ async function renderMensagensAluno() {
     if (rn.ok) { const jn = await rn.json(); _centralNotifSrv = (jn && Array.isArray(jn.notificacoes)) ? jn.notificacoes : []; _notifPintarBadge(jn && jn.nao_lidas); }
   } catch (e) {}
   await _centralCarregarExtras();   // feedbacks em vídeo e avaliações, para o painel
+  await _atletaPropriaCarregar();   // professores responsáveis (escolha de com quem falar)
+  try { const uR = await _fetchT(API_BASE + '/usuarios.php', { headers: _notifHeaders(), cache: 'no-store' }, 12000); if (uR.ok) { const uJ = await uR.json(); if (uJ && uJ.ok && Array.isArray(uJ.usuarios)) localStorage.setItem('intus-usuarios', JSON.stringify(uJ.usuarios)); } } catch (e) {}
   try { const am = await API.getUserAvatars(); if (am && typeof am === 'object') _userAvatarsMap = am; } catch (e) {}   // fotos dos profissionais
   if (_conexoesOn) {                // amigos e conversas entre alunos
     try { if (!(_amzDados.amigos || []).length) await _amzCarregar(); } catch (e) {}
@@ -22419,8 +22437,8 @@ function _renderChatLista(isLight, bgCard, borderC, brand, muted, txt, profs) {
   // Profissionais responsáveis pelo aluno
   const itens = profs.map(p => ({ p: p, r: resumoMsgs({ tipo: 'prof', id: Number(p.id) }) }));
   itens.sort((a, b) => b.r.ts.localeCompare(a.r.ts) || a.p.nome.localeCompare(b.p.nome));
-  html += titulo(profs.length ? 'Seus profissionais' : 'Equipe', profs.length ? 'Quem acompanha você. Toque para conversar.' : '');
-  html += itens.map(({ p, r }) => linha(userAvatarHtml(p.id, p.nome, 54), esc(p.nome), esc(p.cargo || 'Professor'), r.preview, r.quando, r.nl, "_chatEscolherDestino('" + p.id + "')")).join('');
+  html += titulo(profs.length ? 'Seus profissionais' : 'Equipe', profs.length ? 'Quem acompanha você. Toque para conversar.' : 'Seu cadastro ainda não tem um professor responsável marcado. Fale com a equipe.');
+  html += itens.map(({ p, r }) => linha(userAvatarHtml(p.id, p.nome, 54), esc(p.nome), esc(p.cargo && p.cargo !== 'Professor' ? p.cargo : 'Seu professor'), r.preview, r.quando, r.nl, "_chatEscolherDestino('" + p.id + "')")).join('');
   const re = resumoMsgs({ tipo: 'equipe' });
   html += linha('<div style="width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#1e293b,#334155);display:flex;align-items:center;justify-content:center;font-size:24px;">👥</div>', 'Equipe Intus', 'Dúvidas, suporte e recados para a equipe', re.preview, re.quando, re.nl, "_chatEscolherDestino('group')");
 
