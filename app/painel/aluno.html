@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261013g"></script>
+  <script src="api.js?v=20261013h"></script>
   <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -11300,6 +11300,8 @@ var _PROG_ATIV = {
     forte: { n: 'Polichinelo forte', d: 'Abra e feche braços e pernas em ritmo forte, aterrissando suave na ponta dos pés e com o abdômen firme.', dmax: 'Faça o maior número que conseguir, rápido, com os braços bem acima da cabeça e o abdômen firme.', voz: ['Polichinelo forte! Vamos nessa!', 'Abre e fecha! Você consegue!', 'Bora! Dá tudo de você no polichinelo!'] },
     leve: { n: 'Polichinelo leve ou descansa', d: 'Faça o movimento devagar, sem pular alto, ou ande no lugar e respire fundo.', voz: ['Muito bem! Anda no lugar e respira fundo.', 'Boa! Solta o corpo e recupera o fôlego.'] },
     calma: { d: 'Ande no lugar, balance os braços e respire fundo até normalizar.', voz: ['Excelente! Anda no lugar e respira fundo.'] },
+    cont: { n: 'Polichinelo leve e constante', d: 'Polichinelo em ritmo leve e constante, sem pular alto, com a respiração tranquila. Se perder o fôlego, faça uma pausa curta e volte.', voz: ['Agora é no seu ritmo! Polichinelo leve e constante, dá para conversar.'] },
+    dlongo: 'Mantenha um ritmo forte e constante durante todo o bloco, sem gastar tudo no começo. Se precisar, diminua a altura do pulo, mas continue em movimento.',
   },
   'Corrida estática': {
     aviso: 'Corrida estática: use tênis com amortecimento e piso firme que não escorregue. Pise suave na ponta do pé e mantenha o abdômen firme. Se sentir dor nos joelhos ou nas canelas, diminua o impacto ou escolha outra atividade.',
@@ -11307,6 +11309,8 @@ var _PROG_ATIV = {
     forte: { n: 'Corre no lugar', d: 'Corra parado em ritmo forte, subindo bem os joelhos e movendo os braços junto.', dmax: 'Corra no lugar o mais rápido que conseguir, com os joelhos altos e os braços firmes.', voz: ['Corre no lugar! Joelhos altos, vamos!', 'Agora é forte! Sobe esses joelhos, você consegue!', 'Bora! Dá tudo de você na corrida!'] },
     leve: { n: 'Trota leve no lugar', d: 'Reduza para um trote bem leve no lugar, ou ande no lugar, e respire fundo.', voz: ['Muito bem! Trota leve e respira fundo.', 'Boa! Desacelera e recupera o fôlego.'] },
     calma: { d: 'Ande no lugar, balance os braços e respire fundo até normalizar.', voz: ['Excelente! Anda no lugar e respira fundo.'] },
+    cont: { n: 'Trote leve no lugar', d: 'Trote leve no lugar, em ritmo constante, com a respiração tranquila. Se perder o fôlego, ande no lugar um pouco e volte.', voz: ['Agora é no seu ritmo! Trote leve no lugar, dá para conversar.'] },
+    dlongo: 'Mantenha um ritmo forte e constante durante todo o bloco, sem gastar tudo no começo. Se precisar, reduza a altura dos joelhos, mas continue em movimento.',
   },
   'Pular Corda': {
     aviso: 'Corda: use tênis com amortecimento, pise na ponta do pé em piso firme e com espaço livre. Se sentir dor nas pernas ou nas canelas, pare e escolha outra atividade.',
@@ -11322,12 +11326,14 @@ function _progEt(p) {
   if (!a || !p || !p.atividades || p.atividades.length < 2 || p.atividades.indexOf(_prog.ativ) < 0) return base;
   const k = p.id + '|' + _prog.sessao + '|' + _prog.ativ;
   if (_progEtCache.k === k && _progEtCache.v) return _progEtCache.v;
-  const NOMES = ['Forte', 'Leve', 'Aquecimento', 'Volta à calma', 'Descanso entre blocos'];
-  const DICAS = ['Esforço alto, mas com técnica. Respire.', 'Ritmo bem leve para recuperar.', 'Comece leve e vá aumentando o ritmo aos poucos.', 'Reduza o ritmo e respire fundo até normalizar.', 'Ritmo bem leve, beba água.', 'Descanse.'];
+  const NOMES = ['Forte', 'Leve', 'Aquecimento', 'Volta à calma', 'Descanso entre blocos', 'Ritmo de conversar'];
+  const DICAS = ['Esforço alto, mas com técnica. Respire.', 'Ritmo bem leve para recuperar.', 'Comece leve e vá aumentando o ritmo aos poucos.', 'Reduza o ritmo e respire fundo até normalizar.', 'Ritmo bem leve, beba água.', 'Descanse.', 'Constante e confortável. Você deve conseguir conversar.'];
   const v = base.map(e => {
     const t = a[e.f]; if (!t || NOMES.indexOf(e.n) < 0) return e;
     const maxi = /mais forte que conseguir/i.test(e.d || '');
-    return Object.assign({}, e, { n: (e.f === 'forte' || e.f === 'leve') && e.n !== 'Descanso entre blocos' ? (t.n || e.n) : e.n, d: (maxi ? (t.dmax || t.d) : (DICAS.indexOf(e.d) >= 0 || !e.d ? t.d : e.d)), voz: t.voz });
+    const longo = e.f === 'forte' && e.s >= 120 && t.dlongo;   // bloco forte de vários minutos (4x4): dica de ritmo constante
+    const dica = longo ? (/Último/.test(e.d || '') ? 'Último bloco! Mantenha o ritmo até o fim.' : t.dlongo) : (maxi ? (t.dmax || t.d) : (DICAS.indexOf(e.d) >= 0 || !e.d ? t.d : e.d));
+    return Object.assign({}, e, { n: (e.f === 'forte' || e.f === 'leve' || e.f === 'cont') && e.n !== 'Descanso entre blocos' ? (t.n || e.n) : e.n, d: dica, voz: t.voz });
   });
   _progEtCache = { k: k, v: v };
   return v;
@@ -11476,29 +11482,50 @@ try { if (window.speechSynthesis) speechSynthesis.addEventListener('voiceschange
 // estilo: 'forte' (energia alta), 'leve' (calmo), 'fim' (comemoração) ou nada (neutro e simpático).
 // Voz gravada (voz neural pt-BR gerada uma vez e guardada em /app/painel/voz/): toca na hora, não depende da voz instalada no celular
 // e continua funcionando sem internet depois de carregada. Se faltar o áudio daquela frase, cai na voz do aparelho (acima).
-var _progClipes = { man: null, urls: {}, carregando: false, atual: null };
+var _progClipes = { man: null, bufs: {}, urls: {}, ok: false, carregando: false, atual: null };
 const _PROG_SUFIXO_DUR = / Por (um minuto|\d+ segundos|\d+ minutos?)( e meio)?\.$/;
 async function _progClipesCarregar() {
-  if (_progClipes.man || _progClipes.carregando) return;
+  if (_progClipes.ok || _progClipes.carregando) return;
   _progClipes.carregando = true;
   try {
     const r = await fetch('voz/manifest.json', { cache: 'no-cache' }); if (!r.ok) throw new Error('sem manifesto');
     const man = await r.json(); _progClipes.man = man;
     // Voz ainda provisória (sem licença comercial): no app das lojas não usa os áudios gravados, cai na voz do aparelho. Ver tools/voz/LEIAME.md.
     const nativo = !!(window.Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
-    if (nativo && !(man._meta && man._meta.licenciado === true)) { _progClipes.man = {}; _progClipes.carregando = false; return; }
-    await Promise.all(Object.keys(man).filter(f => f.charAt(0) !== '_').map(async f => {   // baixa todos (cerca de 0,9 MB) de uma vez; depois tocam sem rede
-      try { const rr = await fetch('voz/' + man[f]); if (rr.ok) _progClipes.urls[f] = URL.createObjectURL(await rr.blob()); } catch (e) {}
+    if (nativo && !(man._meta && man._meta.licenciado === true)) { _progClipes.man = {}; _progClipes.ok = true; _progClipes.carregando = false; return; }
+    _progAudio();
+    const ctx = _prog.ctx; let falhas = 0;
+    await Promise.all(Object.keys(man).filter(f => f.charAt(0) !== '_').map(async f => {   // baixa e decodifica todos de uma vez (cerca de 1 MB); depois tocam sem rede
+      try {
+        const rr = await fetch('voz/' + man[f]); if (!rr.ok) throw new Error('falhou');
+        const ab = await rr.arrayBuffer();
+        if (ctx) { try { _progClipes.bufs[f] = await new Promise((res, rej) => { const pr = ctx.decodeAudioData(ab.slice(0), res, rej); if (pr && pr.catch) pr.catch(rej); }); return; } catch (e) {} }
+        _progClipes.urls[f] = URL.createObjectURL(new Blob([ab], { type: 'audio/mpeg' }));
+      } catch (e) { falhas++; }
     }));
-  } catch (e) { _progClipes.man = _progClipes.man || {}; }
+    _progClipes.ok = falhas === 0;   // com falha, tenta de novo na próxima abertura de programa
+  } catch (e) {}
   _progClipes.carregando = false;
 }
+function _progClipesParar() { try { if (_progClipes.atual) { _progClipes.atual.parar(); _progClipes.atual = null; } } catch (e) {} }
 function _progClipeFalar(txt) {
   try {
-    let t = String(txt).trim(); if (!_progClipes.urls[t]) t = t.replace(_PROG_SUFIXO_DUR, '');
+    const tem = k => !!(_progClipes.bufs[k] || _progClipes.urls[k]);
+    let t = String(txt).trim(); if (!tem(t)) t = t.replace(_PROG_SUFIXO_DUR, '');
+    if (!tem(t)) return false;
+    _progClipesParar();
+    const ctx = _prog.ctx;
+    if (_progClipes.bufs[t] && ctx) {
+      try {
+        if (ctx.state === 'suspended') ctx.resume();
+        const src = ctx.createBufferSource(); src.buffer = _progClipes.bufs[t];
+        const g = ctx.createGain(); g.gain.value = 1; src.connect(g); g.connect(ctx.destination); src.start(0);
+        _progClipes.atual = { parar: () => { try { src.stop(); } catch (e) {} } };
+        return true;
+      } catch (e) {}
+    }
     const url = _progClipes.urls[t]; if (!url) return false;
-    if (_progClipes.atual) { try { _progClipes.atual.pause(); } catch (e) {} }
-    const a = new Audio(url); a.volume = 1; _progClipes.atual = a;
+    const a = new Audio(url); a.volume = 1; _progClipes.atual = { parar: () => { try { a.pause(); } catch (e) {} } };
     const pr = a.play(); if (pr && pr.catch) pr.catch(() => { try { _progFalarTts(txt); } catch (e) {} });
     return true;
   } catch (e) { return false; }
@@ -11531,14 +11558,32 @@ function _progFalarTts(txt, estilo) {
 }
 function _progSorteio(a) { return a[Math.floor(Math.random() * a.length)]; }
 function _progFalaDur(s) { if (s < 45) return ''; if (s < 90) return s >= 55 ? ' Por um minuto.' : ' Por ' + s + ' segundos.'; const m = Math.floor(s / 60), r = s % 60; return ' Por ' + (m === 1 ? 'um minuto' : m + ' minutos') + (r >= 25 ? ' e meio' : '') + '.'; }
-function _progFraseBloco(e) {
-  if (e.voz && e.voz.length) return _progSorteio(e.voz) + ((e.f === 'forte' || e.f === 'leve') ? _progFalaDur(e.s) : '');
+// Todas as falas possíveis de um bloco (sem o tempo). Fonte única: _progFraseBloco sorteia daqui e _progVozCobertura confere os áudios.
+function _progFrasesBloco(e) {
+  if (e.voz && e.voz.length) return e.voz;
   const nome = String(e.n).toLowerCase();
-  if (e.f === 'forte') return (nome === 'corre' ? _progSorteio(['Agora corre! Vai com tudo!', 'Bora correr! Você consegue!', 'Corre! Isso aí, vamos!']) : _progSorteio(['Agora é forte! Vamos nessa!', 'Vamos! Acelera! Você consegue!', 'Força total! Esse é o momento!', 'Bora! Dá tudo de você!'])) + _progFalaDur(e.s);
-  if (e.f === 'leve') return (nome === 'caminha' ? _progSorteio(['Muito bem! Agora caminha e respira fundo.', 'Boa! Caminha e recupera o fôlego.']) : _progSorteio(['Muito bem! Agora leve, respira fundo.', 'Boa! Desacelera e recupera o fôlego.', 'Mandou bem! Leve agora, respira.'])) + _progFalaDur(e.s);
-  if (e.f === 'aq') return 'Vamos lá! Começa com o aquecimento, com calma.';
-  if (e.f === 'calma') return 'Excelente! Hora de desacelerar. Volta à calma.';
-  return e.n + '.' + _progFalaDur(e.s);
+  if (e.f === 'forte') return nome === 'corre' ? ['Agora corre! Vai com tudo!', 'Bora correr! Você consegue!', 'Corre! Isso aí, vamos!'] : ['Agora é forte! Vamos nessa!', 'Vamos! Acelera! Você consegue!', 'Força total! Esse é o momento!', 'Bora! Dá tudo de você!'];
+  if (e.f === 'leve') return nome === 'caminha' ? ['Muito bem! Agora caminha e respira fundo.', 'Boa! Caminha e recupera o fôlego.'] : ['Muito bem! Agora leve, respira fundo.', 'Boa! Desacelera e recupera o fôlego.', 'Mandou bem! Leve agora, respira.'];
+  if (e.f === 'aq') return ['Vamos lá! Começa com o aquecimento, com calma.'];
+  if (e.f === 'calma') return ['Excelente! Hora de desacelerar. Volta à calma.'];
+  return [e.n + '.'];
+}
+function _progFraseBloco(e) {
+  const f = _progSorteio(_progFrasesBloco(e));
+  const comTempo = e.voz && e.voz.length ? (e.f === 'forte' || e.f === 'leve') : (e.f !== 'aq' && e.f !== 'calma');
+  return f + (comTempo ? _progFalaDur(e.s) : '');
+}
+// Diagnóstico: lista as falas de todos os programas, atividades e treinos do curso que NÃO têm áudio gravado (deve voltar vazia).
+function _progVozCobertura() {
+  const falta = {}, man = _progClipes.man || {}, tem = f => Object.prototype.hasOwnProperty.call(man, f);
+  ['Prepare-se! Vamos lá!', 'Três', 'Dois', 'Um', 'Faltam dez segundos!', 'Programa concluído! Parabéns, você mandou muito bem!'].forEach(f => { if (!tem(f)) falta[f] = 1; });
+  const salvo = { id: _prog.id, sessao: _prog.sessao, ativ: _prog.ativ };
+  API.PROGRAMAS_CARDIO.forEach(p => (p.atividades || ['']).forEach(a => {
+    _prog.id = p.id; _prog.ativ = a;
+    (p.sessoes ? p.sessoes.map((_, k) => k) : [null]).forEach(k => { _prog.sessao = k; _progEt(p).forEach(e => _progFrasesBloco(e).forEach(f => { if (!tem(f)) falta[f] = 1; })); });
+  }));
+  Object.assign(_prog, salvo);
+  return Object.keys(falta);
 }
 // Sinal da troca de bloco: bip (mais agudo e duplo no forte, grave no leve), vibração, flash colorido na tela inteira, voz e notificação (tela apagada).
 function _progSinal(e, fim) {
@@ -11695,7 +11740,7 @@ function _progPausar() {
   if (_prog.fase === 'pronto' || (_prog.fase === 'ativo' && _prog.pausado)) { _progPlay(); return; }
   if (_prog.fase === 'contagem') return;
   _prog.restMs = Math.max(0, _prog.fimMs - Date.now()); _prog.pausado = true;
-  try { window.speechSynthesis && window.speechSynthesis.cancel(); if (_progClipes.atual) _progClipes.atual.pause(); } catch (e) {}
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); _progClipesParar(); } catch (e) {}
   _progCancelarNativo(); _progMediaAtualizar();
   _progSalvarAtivo(); _renderProgExecucao();
 }
@@ -21300,6 +21345,12 @@ window.addEventListener('popstate', function(e) {
     return;
   }
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
+  // Conversa aberta na Central: voltar do celular fecha a conversa e mostra a lista de mensagens (não pula para o início).
+  if (window._viewAtual === 'mensagens' && typeof _chatAberta !== 'undefined' && _chatAberta) {
+    _chatVoltarLista();
+    history.pushState({ view: 'mensagens' }, '', '');
+    return;
+  }
   // Subtelas desenhadas DENTRO da mesma tela (um feedback em vídeo, uma avaliação, a anamnese, um desafio aberto...) começam com o
   // próprio botão "← Voltar". Voltar do celular deve usar esse botão (volta para a lista), não pular da tela inteira para o início.
   try {
@@ -22283,9 +22334,9 @@ function _renderChatConversa(isLight, bgCard, borderC, brand, muted, txt, profs)
   const dest = _chatDestino();
   const hora = (q) => q ? new Date(String(q).replace(' ', 'T')).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
   const meuBg = isLight ? '#5cb800' : '#7FFF00', meuTxt = isLight ? '#fff' : '#0a0a0a';
-  const outroBg = isLight ? '#f0f0f0' : '#202020';
+  const outroBg = isLight ? '#ffffff' : '#222222';
   const balao = (isMe, corpo, q, extra) =>
-    '<div style="align-self:' + (isMe ? 'flex-end' : 'flex-start') + ';max-width:78%;padding:9px 13px 6px;border-radius:18px;border-bottom-' + (isMe ? 'right' : 'left') + '-radius:5px;font-size:14px;line-height:1.45;word-wrap:break-word;overflow-wrap:anywhere;background:' + (isMe ? meuBg : outroBg) + ';color:' + (isMe ? meuTxt : txt) + ';">' +
+    '<div style="align-self:' + (isMe ? 'flex-end' : 'flex-start') + ';max-width:78%;padding:9px 13px 6px;border-radius:18px;border-bottom-' + (isMe ? 'right' : 'left') + '-radius:5px;font-size:14px;line-height:1.45;word-wrap:break-word;overflow-wrap:anywhere;background:' + (isMe ? meuBg : outroBg) + ';color:' + (isMe ? meuTxt : txt) + ';' + (isMe ? '' : 'box-shadow:0 1px 2px rgba(0,0,0,' + (isLight ? '.10' : '.4') + ');') + '">' +
       corpo + (extra || '') +
       '<div style="font-size:10px;opacity:.65;margin-top:3px;text-align:right;">' + hora(q) + '</div></div>';
   const comDias = (lista) => { let ult = ''; return lista.map(x => { const d = _chatDiaRotulo(x.q); const sep = d && d !== ult ? '<div style="align-self:center;font-size:11px;font-weight:700;color:' + muted + ';padding:8px 0 2px;">' + d + '</div>' : ''; ult = d || ult; return sep + x.html; }).join(''); };
@@ -22306,15 +22357,16 @@ function _renderChatConversa(isLight, bgCard, borderC, brand, muted, txt, profs)
   const verPerfil = dest.tipo === 'prof' ? 'renderPerfilProfissional(' + dest.id + ')' : (dest.tipo === 'amigo' ? 'abrirPerfilAluno(' + dest.id + ')' : '');
   const primeiro = dest.tipo === 'equipe' ? 'a equipe' : dest.nome.split(' ')[0];
   return `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 4px 12px;border-bottom:1px solid ${borderC};position:sticky;top:0;z-index:5;background:var(--bg,${isLight ? '#fff' : '#0a0a0a'});">
-      <button onclick="_chatVoltarLista()" aria-label="Voltar para as conversas" style="width:38px;height:38px;border-radius:50%;border:none;background:transparent;color:${txt};font-size:22px;cursor:pointer;flex-shrink:0;">←</button>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px 10px 10px;margin-bottom:6px;border-radius:18px;background:${isLight ? '#ffffff' : '#171717'};border:1px solid ${borderC};box-shadow:0 2px 10px rgba(0,0,0,${isLight ? '.06' : '.35'});">
+      <button onclick="_chatVoltarLista()" aria-label="Voltar para as mensagens" style="width:40px;height:40px;border-radius:50%;border:none;background:${isLight ? '#eef0f2' : '#2a2a2a'};color:${isLight ? '#111111' : '#f2f2f2'};font-size:20px;font-weight:700;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;">←</button>
       <div ${verPerfil ? 'onclick="' + verPerfil + '"' : ''} style="display:flex;align-items:center;gap:11px;flex:1;min-width:0;${verPerfil ? 'cursor:pointer;' : ''}">
         ${avatar}
         <div style="min-width:0;">
-          <div style="font-size:15px;font-weight:800;color:${txt};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dest.nome)}</div>
-          <div style="font-size:11.5px;color:${muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dest.cargo)}</div>
+          <div style="font-size:15.5px;font-weight:800;color:${isLight ? '#111111' : '#f2f2f2'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dest.nome)}</div>
+          <div style="font-size:12px;font-weight:600;color:${isLight ? '#5f6b76' : '#9aa0a6'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dest.cargo)}</div>
         </div>
       </div>
+      ${verPerfil ? '<span style="font-size:11.5px;font-weight:700;color:' + brand + ';flex-shrink:0;">Perfil ›</span>' : ''}
     </div>
 
     <div id="aluno-chat-body" style="max-height:calc(100vh - 270px);min-height:38vh;overflow-y:auto;padding:12px 2px;display:flex;flex-direction:column;gap:6px;">${corpo}</div>
