@@ -21978,9 +21978,14 @@ async function chatExcluir(el) {
 
 function _chatProfsLista() {
   // Profissionais que acompanham o aluno (nome, foto e função). Sem nenhum cadastrado, a conversa é com a equipe.
-  let profs = getProfsResponsaveis();
-  if (!profs.length) { const p = getProfResponsavel(); if (p && p.id) profs = [p]; }
-  return profs;
+  let usuarios = [];
+  try { usuarios = (JSON.parse(localStorage.getItem('intus-usuarios') || '[]') || []).filter(u => u && u.nome && u.ativo !== false); } catch (e) {}
+  const resp = getProfsResponsaveis().filter(p => usuarios.some(u => Number(u.idusuario) === Number(p.id)));
+  const ids = resp.map(p => Number(p.id));
+  // Responsáveis do aluno primeiro; depois os demais profissionais da Intus (professor, nutricionista...), para ele poder escolher com quem falar.
+  const outros = usuarios.filter(u => ids.indexOf(Number(u.idusuario)) < 0).map(u => ({ id: u.idusuario, nome: u.nome, cargo: u.cargo || 'Profissional', instagram: u.instagram || '', bio: u.bio || '' }));
+  window._chatNResp = resp.length;
+  return resp.concat(outros);
 }
 
 // ── Conversa entre amigos (mensagens diretas entre alunos) ──
@@ -22058,7 +22063,7 @@ function _chatDestino() {
   if (_centralChatTarget === 'group') return { tipo: 'equipe', id: null, nome: 'Equipe Intus', cargo: 'Todos os profissionais que acompanham você' };
   const f = profs.find(p => String(p.id) === String(_centralChatTarget));
   if (f) return { tipo: 'prof', id: Number(f.id), nome: f.nome, cargo: f.cargo || 'Professor', prof: f };
-  if (profs.length >= 1 && (profs.length === 1 || _centralChatTarget === 'main' || String(_centralChatTarget).charAt(0) === 'a')) return { tipo: 'prof', id: Number(profs[0].id), nome: profs[0].nome, cargo: profs[0].cargo || 'Professor', prof: profs[0] };
+  if (profs.length >= 1 && (profs.length === 1 || (_centralChatTarget === 'main' && window._chatNResp > 0))) return { tipo: 'prof', id: Number(profs[0].id), nome: profs[0].nome, cargo: profs[0].cargo || 'Professor', prof: profs[0] };
   return { tipo: 'equipe', id: null, nome: 'Equipe Intus', cargo: profs.length ? 'Todos os profissionais que acompanham você' : 'Fale com a equipe' };
 }
 function _dmIrConversa(id) { _centralTab = 'chat'; _centralChatTarget = 'a:' + Number(id); navegar('mensagens'); }
@@ -22092,7 +22097,7 @@ function renderCentralChat(isLight, bgCard, borderC) {
   const rotulo = (t) => '<div style="font-size:11px;font-weight:800;color:' + muted + ';text-transform:uppercase;letter-spacing:.05em;margin:0 2px 8px;">' + t + '</div>';
   const avEquipe = '<div style="width:36px;height:36px;border-radius:50%;background:' + (isLight ? '#e0e7ff' : '#1e293b') + ';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">👥</div>';
 
-  let seletor = rotulo('Profissionais que acompanham você · escolha para quem enviar') +
+  let seletor = rotulo((window._chatNResp > 0 ? 'Profissionais que acompanham você' : 'Profissionais da Intus') + ' · escolha para quem enviar') +
     '<div style="display:flex;gap:10px;overflow-x:auto;padding:6px 4px 10px 0;margin-bottom:6px;">' +
       profs.map(p => chip(dest.tipo === 'prof' && dest.id === Number(p.id), userAvatarHtml(p.id, p.nome, 36), esc(p.nome), esc(p.cargo || 'Professor'), "_chatEscolherDestino('" + p.id + "')", 0)).join('') +
       (profs.length > 1 ? chip(dest.tipo === 'equipe', avEquipe, 'Todos', 'Equipe completa', "_chatEscolherDestino('group')", 0) : '') +
