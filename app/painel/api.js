@@ -3717,11 +3717,11 @@ const API = {
     // Onde fazer e o que precisa (aparece em destaque na lista e na tela do programa)
     const ONDE = {
       '12-5-30': { aparelho: 'Esteira com inclinação (chega a 12%)', onde: 'Na academia ou em casa, em uma esteira que suba até 12% de inclinação. Não dá para fazer na rua nem na bicicleta.' },
-      'hiit-1-1': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática. Escolha a atividade na tela do programa.' },
-      'tabata': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática: só precisa de espaço livre e piso firme.' },
+      'hiit-1-1': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, na máquina de escada, ou com corda. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática. Escolha a atividade na tela do programa.' },
+      'tabata': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, na máquina de escada, ou com corda. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática: só precisa de espaço livre e piso firme.' },
       '4x4': { aparelho: 'Esteira, bicicleta ou elíptico (ou a rua)', onde: 'Corrida na rua ou na esteira, bicicleta (na rua ou ergométrica) ou elíptico. Escolha um lugar em que dê para manter o ritmo por 4 minutos seguidos.' },
       'zona-2': { aparelho: 'Sem aparelho obrigatório', onde: 'Caminhada ou corrida na rua ou na esteira, bicicleta ou elíptico. Em qualquer lugar em que você consiga manter um ritmo constante por 40 minutos.' },
-      'piramide': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Escolha a atividade na tela do programa.' },
+      'piramide': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, na máquina de escada ou com corda. Escolha a atividade na tela do programa.' },
       'sofa-5km': { aparelho: 'Só um tênis confortável', onde: 'Na rua, em um parque ou pista, ou na esteira. Escolha um trajeto plano para as primeiras semanas.' },
     };
     lista.forEach((p) => Object.assign(p, ONDE[p.id] || {}));
