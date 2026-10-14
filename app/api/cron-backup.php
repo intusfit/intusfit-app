@@ -133,6 +133,9 @@ $logPath = __DIR__ . '/../config/backup.log';
 // Quando este arquivo é incluído por dentro de uma função (a carona do dashboard e o botão "Fazer backup agora"), as variáveis daqui são LOCAIS e blog() e
 // _backupEnviarEmail() leem `global`. Sem estas linhas o registro nunca era gravado e o resumo por e-mail saía sem o log. Publicamos no escopo global.
 $GLOBALS['logPath'] = $logPath;
+// Progresso para a barra do painel (Configurações > Servidor > Backups). Ver _bkProg().
+$GLOBALS['progPath']   = __DIR__ . '/../config/backup-progresso.json';
+$GLOBALS['progInicio'] = time();
 $marcaDia = __DIR__ . '/../config/backup-ultimo.txt';
 
 // ── Trava de um por dia ───────────────────────────────────────────────────
@@ -172,11 +175,43 @@ function blog(string $msg): void {
     @file_put_contents($logPath, $linha . PHP_EOL, FILE_APPEND);
 }
 
+/**
+ * Grava o andamento do backup (o painel consulta a cada poucos segundos e desenha a barra). estado: rodando | ok | falha.
+ * `atualizado` é o sinal de vida: se parar de mudar por minutos com estado "rodando", o servidor matou o processo.
+ */
+function _bkProg(int $pct, string $etapa, string $estado = 'rodando', string $msg = ''): void
+{
+    $p = $GLOBALS['progPath'] ?? null;
+    if (!$p) return;
+    $GLOBALS['progPct'] = $pct;
+    @file_put_contents($p, json_encode(['inicio' => $GLOBALS['progInicio'] ?? time(), 'atualizado' => time(), 'pct' => $pct, 'etapa' => $etapa, 'estado' => $estado, 'msg' => $msg], JSON_UNESCAPED_UNICODE), LOCK_EX);
+}
+
+// Qualquer saída antes do fim (exit(1) de erro, erro fatal, limite de tempo ou de memória) vira "falha" com o motivo, em vez de a barra ficar parada.
+register_shutdown_function(function () {
+    $p = $GLOBALS['progPath'] ?? null;
+    if (!$p || !is_file($p)) return;
+    $j = json_decode((string)@file_get_contents($p), true);
+    if (!is_array($j) || ($j['estado'] ?? '') !== 'rodando') return;
+    $e = error_get_last();
+    $fatal = $e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true);
+    $lin = (array)($GLOBALS['LOG_LINHAS'] ?? []);
+    $ult = $lin ? preg_replace('/^\[[^\]]+\] (ERRO: )?/', '', (string)end($lin)) : '';
+    $msg = $fatal ? 'Erro fatal no servidor: ' . $e['message'] . ' (' . basename((string)$e['file']) . ':' . $e['line'] . ')'
+                  : ($ult !== '' ? 'O backup parou: ' . $ult : 'O backup parou antes do fim.');
+    blog('ERRO: ' . $msg);
+    _bkProg((int)($j['pct'] ?? 0), 'Interrompido', 'falha', $msg);
+});
+_bkProg(1, 'Iniciando');
+
 // ── Conexão: exatamente do mesmo jeito que o resto da API ──────────────────
 // Assim o script nunca precisa saber o nome nem a senha do banco — ele lê a
 // mesma config/db.php que todos os outros arquivos leem. Se um dia a base
 // mudar de nome ou de servidor, o backup acompanha sozinho.
-$cfg = @include __DIR__ . '/../config/db.php';
+// ATENÇÃO (causa de o backup nunca ter rodado pela carona e pelo botão): config/db.php DECLARA a função getDB() e já foi incluído por quem chamou
+// (catalogo.php, dashboard.php). Um `include` simples de novo é erro FATAL ("Cannot redeclare getDB()"), que nenhum try/catch pega e que acontecia
+// antes da primeira linha do registro: nada gravado, nada na tela. include_once só devolve true na segunda vez e as constantes DB_* já estão definidas.
+$cfg = @include_once __DIR__ . '/../config/db.php';
 try {
     if (is_array($cfg) && isset($cfg['host'])) {
         $dbHost = $cfg['host'];
@@ -197,6 +232,7 @@ try {
 }
 $GLOBALS['dbNome'] = $dbNome;
 blog('Banco conectado: ' . $dbNome . ' em ' . $dbHost);
+_bkProg(4, 'Banco conectado');
 
 // ── Export do banco, tabela por tabela, direto para arquivo .gz ────────────
 // Nada é montado inteiro na memória: o pool desta hospedagem dá 85 MB por
@@ -223,6 +259,7 @@ try {
 
     $tabelas = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
     $totalLinhas = 0;
+    $idxTab = 0;
 
     foreach ($tabelas as $t) {
         $criar = $pdo->query("SHOW CREATE TABLE `{$t}`")->fetch(PDO::FETCH_NUM);
@@ -241,12 +278,14 @@ try {
             if (count($lote) >= 200) {
                 gzwrite($gz, "INSERT INTO `{$t}` VALUES\n" . implode(",\n", $lote) . ";\n");
                 $lote = [];
+                if ($n % 5000 < 200) _bkProg((int)($GLOBALS['progPct'] ?? 5), "Copiando o banco: {$t} ({$n} linhas)");
             }
         }
         if ($lote) gzwrite($gz, "INSERT INTO `{$t}` VALUES\n" . implode(",\n", $lote) . ";\n");
         $st->closeCursor();
         $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
         blog("  tabela {$t}: {$n} linhas");
+        _bkProg(5 + (int)floor(50 * (++$idxTab) / max(1, count($tabelas))), "Copiando o banco: {$t}");
     }
 
     gzwrite($gz, "\nSET FOREIGN_KEY_CHECKS=1;\n");
@@ -262,22 +301,18 @@ try {
 // ── Envio para o Google Drive ─────────────────────────────────────────────
 require_once __DIR__ . '/_gdrive.php';
 if (!gdriveDisponivel()) {
-    blog('ERRO: config/gdrive.json ausente ou incompleto — o dump ficou em ' . $tmpSql);
+    blog('ERRO: o Google Drive não está configurado (chave em intus_secrets) ou faltam as extensões curl/openssl neste servidor - o dump ficou em ' . $tmpSql);
     exit(1);
 }
 
 $enviados = 0;
 $falhas   = 0;
 
-$bin = @file_get_contents($tmpSql);
-if ($bin === false) {
-    blog('ERRO: não consegui reler o dump para enviar');
-    exit(1);
-}
-$r = gdriveBackup($bin, "intus-backup-db-{$carimbo}.sql.gz", 'application/gzip');
-unset($bin);
-if ($r) { $enviados++; blog('Banco enviado ao Drive.'); }
-else    { $falhas++;   blog('ERRO: o envio do banco ao Drive falhou.'); }
+_bkProg(56, 'Enviando o banco ao Google Drive');
+// Envio em pedaços lidos do disco (nunca o arquivo inteiro na memória) e com o motivo exato quando falha (o gdriveBackup antigo devolvia null calado).
+[$okDb, $msgDb] = _backupEnviarArquivoDrive($tmpSql, "intus-backup-db-{$carimbo}.sql.gz", 'application/gzip', 56, 68);
+if ($okDb) { $enviados++; blog('Banco enviado ao Drive.'); }
+else       { $falhas++;   blog('ERRO: o envio do banco ao Drive falhou - ' . $msgDb); }
 // NAO apaga aqui: o arquivo ainda vai ser anexado no e-mail do fim. A remocao
 // acontece depois do envio, junto com a do zip de arquivos.
 $tamDump = (int)@filesize($tmpSql);
@@ -287,6 +322,7 @@ $tamDump = (int)@filesize($tmpSql);
 // última vez: foto de avaliação não muda todo dia, e reenviar 200 MB de fotos
 // diariamente encheria o Drive à toa.
 if (class_exists('ZipArchive')) {
+    $iPasta = 0;
     foreach ($PASTAS_ARQUIVOS as $pasta) {
         if (!is_dir($pasta)) continue;
         $nomePasta = basename(dirname($pasta)) . '-' . basename($pasta);
@@ -309,6 +345,8 @@ if (class_exists('ZipArchive')) {
             continue;
         }
 
+        $pctPasta = 70 + 5 * ($iPasta++);
+        _bkProg($pctPasta, "Compactando {$nomePasta}");
         $tmpZip = sys_get_temp_dir() . "/intus-{$nomePasta}-{$carimbo}.zip";
         $zip = new ZipArchive();
         if ($zip->open($tmpZip, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
@@ -319,16 +357,12 @@ if (class_exists('ZipArchive')) {
         }
         $zip->close();
 
-        $binZ = @file_get_contents($tmpZip);
-        if ($binZ !== false) {
-            $rz = gdriveBackup($binZ, "intus-backup-{$nomePasta}-{$carimbo}.zip", 'application/zip');
-            unset($binZ);
-            if ($rz) {
-                $enviados++;
-                @file_put_contents($marca, $assin);
-                blog("Pasta {$nomePasta}: " . count($arquivos) . ' arquivos, ' . round($soma / 1048576, 1) . ' MB, enviada.');
-            } else { $falhas++; blog("ERRO: envio de {$nomePasta} ao Drive falhou."); }
-        }
+        [$okZ, $msgZ] = _backupEnviarArquivoDrive($tmpZip, "intus-backup-{$nomePasta}-{$carimbo}.zip", 'application/zip', $pctPasta, $pctPasta + 4);
+        if ($okZ) {
+            $enviados++;
+            @file_put_contents($marca, $assin);
+            blog("Pasta {$nomePasta}: " . count($arquivos) . ' arquivos, ' . round($soma / 1048576, 1) . ' MB, enviada.');
+        } else { $falhas++; blog("ERRO: envio de {$nomePasta} ao Drive falhou - " . $msgZ); }
         @unlink($tmpZip);
     }
 } else {
@@ -338,6 +372,7 @@ if (class_exists('ZipArchive')) {
 // ── Limpeza de cópias antigas ─────────────────────────────────────────────
 // Só mexe em arquivos criados por este script (prefixo intus-backup-) e que a
 // própria conta de serviço enviou. E nunca abaixo do piso de MINIMO_COPIAS.
+_bkProg(92, 'Limpando cópias antigas');
 if (MANTER_DIAS > 0 && $falhas === 0) {
     try {
         $apagados = _backupLimparAntigos(MANTER_DIAS, MINIMO_COPIAS);
@@ -351,6 +386,7 @@ $seg = round(microtime(true) - $inicio, 1);
 blog("FIM: {$enviados} arquivo(s) no Drive, {$falhas} falha(s), {$seg}s.");
 
 // ── Cópia e aviso por e-mail ──────────────────────────────────────────────
+_bkProg(95, 'Enviando o aviso por e-mail');
 // Roda por último, com o Drive já resolvido, para que uma falha de SMTP nunca
 // derrube o backup em si. O anexo é o mesmo .sql.gz que subiu para o Drive.
 try {
@@ -360,8 +396,46 @@ try {
 }
 @unlink($tmpSql);
 
+_bkProg(100, $falhas > 0 ? 'Terminou com falhas' : 'Concluído', $falhas > 0 ? 'falha' : 'ok',
+    $falhas > 0 ? "{$falhas} envio(s) ao Drive falharam. Veja o registro abaixo." : "{$enviados} arquivo(s) no Drive em {$seg}s.");
 exit($falhas > 0 ? 1 : 0);
 
+
+/**
+ * Envia um arquivo ao Drive por upload retomável, em pedaços de 8 MB lidos do disco (o arquivo inteiro nunca fica na memória, ao contrário do
+ * gdriveBackup antigo, que montava tudo em RAM e tinha limite de 30 s: o zip das fotos passava dos dois). Cada pedaço tem 3 tentativas.
+ * Devolve [ok, motivo do erro].
+ */
+function _backupEnviarArquivoDrive(string $caminho, string $nome, string $mime, int $pctIni, int $pctFim): array
+{
+    try {
+        $total = (int)@filesize($caminho);
+        if ($total <= 0) return [false, 'o arquivo está vazio'];
+        $sessao = gdriveIniciarUploadGrande($nome, $mime, $total);
+        $f = @fopen($caminho, 'rb');
+        if (!$f) return [false, 'não consegui reabrir o arquivo para enviar'];
+        $parte = 8 * 1048576; $pos = 0; $parados = 0;
+        while ($pos < $total) {
+            fseek($f, $pos);
+            $bin = fread($f, $parte);
+            if ($bin === false || $bin === '') break;
+            $r = null;
+            for ($t = 1; $t <= 3; $t++) {
+                try { $r = gdriveEnviarParte($sessao, $bin, $pos, $total); break; }
+                catch (Throwable $e) { if ($t === 3) { fclose($f); return [false, $e->getMessage()]; } sleep(2); }
+            }
+            if (!empty($r['file_id'])) { fclose($f); _bkProg($pctFim, "Enviado: {$nome}"); return [true, '']; }
+            $novo = (int)($r['recebido'] ?? ($pos + strlen($bin)));
+            if ($novo <= $pos) { if (++$parados >= 3) { fclose($f); return [false, 'o Drive não aceitou o envio (parou em ' . round($pos / 1048576, 1) . ' MB)']; } }
+            else { $parados = 0; $pos = min($novo, $pos + strlen($bin)); }
+            _bkProg($pctIni + (int)floor(($pctFim - $pctIni) * $pos / $total), "Enviando {$nome} (" . round($pos / 1048576, 1) . ' de ' . round($total / 1048576, 1) . ' MB)');
+        }
+        fclose($f);
+        return [false, 'o Drive não confirmou o fim do envio'];
+    } catch (Throwable $e) {
+        return [false, $e->getMessage()];
+    }
+}
 
 /**
  * Manda o resumo do backup por e-mail, com o dump do banco anexado quando ele
@@ -374,6 +448,7 @@ exit($falhas > 0 ? 1 : 0);
 function _backupEnviarEmail(string $arquivo, int $tamanho, int $enviados, int $falhas, float $seg): void
 {
     global $LOG_LINHAS, $dbNome;
+    require_once __DIR__ . '/_smtp_seguro.php';
 
     $smtpCfg = @include __DIR__ . '/../config/smtp.php';
     if (!is_array($smtpCfg)) $smtpCfg = [];
@@ -409,13 +484,9 @@ function _backupEnviarEmail(string $arquivo, int $tamanho, int $enviados, int $f
     [$cab, $msg, $anexou] = _backupMontarMensagem($para, $user, $nome, $assunto, $corpo, $anexar ? $arquivo : null);
     $anexar = $anexou;
 
-    // Certificado verificado: a senha do SMTP viaja nesta conexao.
-    $ctx = stream_context_create(['ssl' => [
-        'verify_peer' => true, 'verify_peer_name' => true, 'SNI_enabled' => true,
-    ]]);
-    $sock = @stream_socket_client("ssl://{$host}:465", $errno, $errstr, 15, STREAM_CLIENT_CONNECT, $ctx);
-    if (!$sock) { blog("AVISO: SMTP inacessivel para o aviso de backup ({$errno} {$errstr})."); return; }
-    stream_set_timeout($sock, 30);
+    // Certificado verificado (cadeia e nome real do servidor, ver _smtp_seguro.php): a senha do SMTP viaja nesta conexao. Aqui é sempre estrito.
+    $sock = intusSmtpAbrir($host, $infoSmtp, 12, true);
+    if (!$sock) { blog('AVISO: SMTP inacessivel para o aviso de backup - ' . $infoSmtp['erro']); return; }
 
     $ler = function () use ($sock) {
         $r = '';
@@ -426,7 +497,6 @@ function _backupEnviarEmail(string $arquivo, int $tamanho, int $enviados, int $f
     $codigo = function ($r) { return (int)substr(trim((string)$r), 0, 3); };
 
     $etapas = [];
-    $ler();
     $etapas['EHLO'] = [$cmd('EHLO ' . $host), 250];
     $etapas['AUTH'] = [$cmd('AUTH LOGIN'), 334];
     $etapas['USER'] = [$cmd(base64_encode($user)), 334];

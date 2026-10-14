@@ -1046,11 +1046,11 @@ function _catalogoSendEmail(string $to, string $subject, string $body) {
     $smtpPass = $smtpCfg['pass'] ?? '';
     $fromName = $smtpCfg['from_name'] ?? 'Intus Fit';
 
-    $ctx = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-    $sock = @stream_socket_client("ssl://$smtpHost:465", $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $ctx);
+    require_once __DIR__ . '/_smtp_seguro.php';
+    $sock = intusSmtpAbrir($smtpHost, $infoSmtp, 10);   // conferindo o certificado (ver _smtp_seguro.php)
     if (!$sock) {
         @file_put_contents(__DIR__ . '/../config/email_erros.log',
-            date('c') . " | SMTP inacessivel ($errno $errstr) | para=$to | assunto=$subject\n", FILE_APPEND);
+            date('c') . " | SMTP inacessivel (" . $infoSmtp['erro'] . ") | para=$to | assunto=$subject\n", FILE_APPEND);
         return @mail($to, $subject, $body, "From: $fromName <$smtpUser>\r\n");
     }
 
@@ -1066,7 +1066,6 @@ function _catalogoSendEmail(string $to, string $subject, string $body) {
         @error_log('[intus-email] ' . $linha);
     };
 
-    $read();
     $send("EHLO intusfit.com.br");
     $send("AUTH LOGIN");
     $send(base64_encode($smtpUser));
@@ -3861,12 +3860,14 @@ if ($action === 'drive_uso' && $method === 'GET') {
 
 // ═══════════════ PAINEL DE BACKUPS (só administrador) ═══════════════
 // GET  ?action=backup_status[&resumo=1]  status do último backup, cópias no Drive, onde está o banco; resumo=1 não consulta o Drive (aviso do topo do painel)
-// POST ?action=backup_status {acao: email_teste | salvar_email{email} | rodar_agora | conferir}
+// POST ?action=backup_status {acao: email_teste | email_ambos | smtp_estrito{ligado} | salvar_email{email} | rodar_agora | conferir}
+// GET  ?action=backup_status&progresso=1  só o andamento do backup em curso (a barra do painel consulta a cada poucos segundos)
 if ($action === 'backup_status') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
     require_once __DIR__ . '/_backup_admin.php';
     if ($method === 'GET') {
+        if (!empty($_GET['progresso'])) { echo json_encode(backupProgresso(), JSON_UNESCAPED_UNICODE); exit; }   // só o andamento (barra do painel), sem consultar o Drive
         echo json_encode(backupStatus($pdo, empty($_GET['resumo'])), JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -3876,7 +3877,9 @@ if ($action === 'backup_status') {
         if ($acao === 'email_teste') { [$ok, $msg, $para] = backupEmailTeste(); echo json_encode(['ok' => $ok, 'msg' => $msg, 'para' => $para], JSON_UNESCAPED_UNICODE); exit; }
         if ($acao === 'salvar_email') { $ok = backupSalvarEmail((string)($b['email'] ?? '')); if (!$ok) http_response_code(400); echo json_encode(['ok' => $ok, 'msg' => $ok ? 'E-mail do aviso de backup salvo.' : 'E-mail inválido.']); exit; }
         if ($acao === 'conferir') { echo json_encode(backupConferir($pdo), JSON_UNESCAPED_UNICODE); exit; }
-        if ($acao === 'rodar_agora') { backupRodarAgora(); }
+        if ($acao === 'email_ambos') { echo json_encode(backupEmailTesteAmbos(), JSON_UNESCAPED_UNICODE); exit; }
+        if ($acao === 'smtp_estrito') { $ok = backupSalvarEstrito(!empty($b['ligado'])); if (!$ok) http_response_code(500); echo json_encode(['ok' => $ok, 'msg' => $ok ? (!empty($b['ligado']) ? 'Modo estrito LIGADO: e-mails só saem por conexão com certificado verificado.' : 'Modo estrito desligado.') : 'Não consegui salvar.']); exit; }
+        if ($acao === 'rodar_agora') { backupRodarAgora($pdo); }
         http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit;
     }
 }

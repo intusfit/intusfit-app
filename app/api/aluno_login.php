@@ -66,16 +66,15 @@ function intus_enviar_email($to, $subject, $body, $replyTo = '') {
     $smtpPass = $smtpCfg['pass'] ?? '';
     $fromName = $_lim($smtpCfg['from_name'] ?? 'Intus Fit');
 
-    // Verificar o certificado do servidor de e-mail impede que alguém no caminho capture a senha do SMTP. Fica DESLIGADO até o administrador confirmar,
-    // em Configurações > Servidor > Backups > "Testar o e-mail" (que já verifica), que o certificado é válido: então basta pôr 'verify_tls' => true em config/smtp.php.
-    $_verTls = !empty($smtpCfg['verify_tls']);
-    $ctx = stream_context_create(['ssl' => ['verify_peer' => $_verTls, 'verify_peer_name' => $_verTls, 'SNI_enabled' => true]]);
-    $sock = @stream_socket_client("ssl://$smtpHost:465", $errno, $errstr, 6, STREAM_CLIENT_CONNECT, $ctx);
+    // O certificado do servidor de e-mail é conferido (cadeia e nome REAL do servidor, ver _smtp_seguro.php). Com o modo estrito ligado no painel
+    // (Configurações > Servidor > Backups), conexão não verificada não acontece; desligado, cai para o comportamento antigo e anota no log.
+    require_once __DIR__ . '/_smtp_seguro.php';
+    $sock = intusSmtpAbrir($smtpHost, $infoSmtp, 6);
     // Sem limite de espera, um servidor de e-mail lento prendia um dos poucos processos do servidor por até 60 s por resposta.
     if ($sock) { stream_set_timeout($sock, 8); }
     if (!$sock) {
         @file_put_contents(__DIR__ . '/../config/email_erros.log',
-            date('c') . " | SMTP inacessivel ($errno $errstr) | para=$to | assunto=$subject\n", FILE_APPEND);
+            date('c') . " | SMTP inacessivel (" . $infoSmtp['erro'] . ") | para=$to | assunto=$subject\n", FILE_APPEND);
         $headers = "From: $fromName <$smtpUser>\r\n";
         if ($replyTo) $headers .= "Reply-To: $replyTo\r\n";
         return @mail($to, $subject, $body, $headers);
@@ -93,7 +92,6 @@ function intus_enviar_email($to, $subject, $body, $replyTo = '') {
         @error_log('[intus-email] falha em ' . $etapa . ' para ' . $to);
     };
 
-    $read();
     $send("EHLO intusfit.com.br");
     $send("AUTH LOGIN");
     $send(base64_encode($smtpUser));

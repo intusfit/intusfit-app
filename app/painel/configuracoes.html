@@ -415,12 +415,13 @@ function render() {
       </div>
       <div class="cfg-card" id="card-backups">
         <h3>Backups do banco e dos arquivos</h3>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Mostra se o backup diário está rodando, quais cópias existem no Drive, para onde vai o aviso por e-mail e onde o banco está hospedado. A cópia é feita uma vez por dia, no primeiro acesso ao painel (ou pelo CronJob, se estiver configurado). Só o administrador vê.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Mostra se o backup diário está rodando, quais cópias existem no Drive, para onde vai o aviso por e-mail e onde o banco está hospedado. A cópia é feita uma vez por dia, no primeiro acesso ao painel (ou pelo CronJob, se estiver configurado). Ao fazer o backup agora, uma barra mostra o andamento e o motivo se algo falhar. Só o administrador vê.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="cfg-save" onclick="verBackups()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">💾 Ver backups</button>
           <button class="cfg-save" onclick="backupAcao('conferir')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">✅ Conferir a última cópia</button>
           <button class="cfg-save" onclick="backupAcao('email_teste')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">✉️ Testar o e-mail</button>
-          <button class="cfg-save" onclick="if(confirm('Fazer um backup completo agora? Leva de 1 a 3 minutos.')) backupAcao('rodar_agora')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">▶ Fazer backup agora</button>
+          <button class="cfg-save" onclick="backupAcao('email_ambos')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">📨 Testar os dois e-mails e o DNS</button>
+          <button class="cfg-save" onclick="if(confirm('Fazer um backup completo agora? Leva alguns minutos e você acompanha pela barra de progresso.')) backupAcao('rodar_agora')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">▶ Fazer backup agora</button>
         </div>
         <div id="backups-box" style="margin-top:14px;"></div>
       </div>
@@ -707,18 +708,22 @@ async function verBackups() {
     const r = await fetch(API_BASE + '/catalogo.php?action=backup_status&_=' + Date.now(), { headers: _bkHeaders(), cache: 'no-store' });
     if (!r.ok) throw new Error(r.status === 403 ? 'Só o administrador vê esta área.' : 'Não consegui consultar agora.');
     const d = await r.json();
+    const pg = d.progresso || {};
+    if (pg.estado === 'rodando') { backupAcompanhar(); return; }
     const cor = d.nivel === 'ok' ? '#7FFF00' : (d.nivel === 'alerta' ? '#f59e0b' : '#ef4444');
     const rot = d.nivel === 'ok' ? 'Em dia' : (d.nivel === 'alerta' ? 'Atenção' : 'Sem backup recente');
     const lin = (a, b) => '<tr><td style="padding:5px 0;color:var(--text-muted);width:46%;vertical-align:top;">' + a + '</td><td style="padding:5px 0;color:var(--text);">' + b + '</td></tr>';
     const dr = (d.drive && d.drive.arquivos) || [];
     const bancos = dr.filter(x => x.tipo === 'banco'), outros = dr.filter(x => x.tipo !== 'banco');
     const mb = b => (b / 1048576).toFixed(b >= 10485760 ? 0 : 1).replace('.', ',') + ' MB';
-    let h = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;"><span style="width:12px;height:12px;border-radius:50%;background:' + cor + ';"></span><b style="font-size:15px;color:var(--text);">' + rot + '</b><span style="font-size:12px;color:var(--text-muted);">último backup do banco: ' + _bkQuando(d.ultimo_banco_ok) + (d.dias_sem_backup != null ? ' (há ' + d.dias_sem_backup + ' dia' + (d.dias_sem_backup === 1 ? '' : 's') + ')' : '') + '</span></div>';
+    let h = (pg.estado === 'falha' && (pg.agora - (pg.atualizado || 0)) < 172800 ? '<div style="padding:10px;border:1px solid #ef4444;border-radius:8px;font-size:12.5px;color:var(--text);margin-bottom:12px;">❌ <b>O último backup não terminou.</b> ' + _bkEsc(pg.msg || 'Veja o registro abaixo.') + '</div>' : '') +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;"><span style="width:12px;height:12px;border-radius:50%;background:' + cor + ';"></span><b style="font-size:15px;color:var(--text);">' + rot + '</b><span style="font-size:12px;color:var(--text-muted);">último backup do banco: ' + _bkQuando(d.ultimo_banco_ok) + (d.dias_sem_backup != null ? ' (há ' + d.dias_sem_backup + ' dia' + (d.dias_sem_backup === 1 ? '' : 's') + ')' : '') + '</span></div>';
     const em = d.email || {};
     h += '<table style="width:100%;font-size:12.5px;border-collapse:collapse;">' +
       lin('Banco de dados', d.db_host ? _bkEsc(d.db_nome) + ' em <b>' + _bkEsc(d.db_host) + '</b>' + (d.usa_maximizeapp ? ' <span style="color:#ef4444;font-weight:700;">(ainda no domínio maximizeapp.com.br)</span>' : ' <span style="color:#7FFF00;">(fora do maximizeapp)</span>') : 'não aparece no registro ainda (faça um backup agora)') +
       lin('Servidor de e-mail', d.smtp_host ? _bkEsc(d.smtp_host) + (d.smtp_usa_maximizeapp ? ' <span style="color:#ef4444;font-weight:700;">(usa maximizeapp)</span>' : '') : '—') +
-      lin('Disparo do backup', d.tem_cron ? 'CronJob da KingHost configurado' : 'Carona: roda no primeiro acesso do dia ao painel (sem CronJob)') +
+      lin('Disparo do backup', d.tem_cron ? 'CronJob da KingHost configurado' : (d.fastcgi ? 'Carona: roda no primeiro acesso do dia ao painel (sem CronJob)' : '<span style="color:#f59e0b;">Este servidor não entrega a resposta antes de terminar o trabalho, então a carona automática fica desligada. Use "Fazer backup agora" todo dia ou contrate o CronJob da KingHost.</span>')) +
+      lin('Certificado do servidor de e-mail', d.smtp_estrito ? '<span style="color:#7FFF00;">Verificado e exigido (modo estrito ligado)</span>' : 'Verificado quando possível; sem exigir. Rode "Testar os dois e-mails" e, se passar, ligue o modo estrito.') +
       lin('Aviso por e-mail', (em.destino_configurado ? 'Para <b>' + _bkEsc(em.destino_configurado) + '</b>' : 'Sem destino escolhido (usa o e-mail do servidor de e-mail)') + (em.ultimo_resultado ? '<div style="color:var(--text-muted);font-size:11.5px;margin-top:2px;">' + _bkQuando(em.ultimo_em) + ': ' + _bkEsc(em.ultimo_resultado) + '</div>' : '<div style="color:#f59e0b;font-size:11.5px;margin-top:2px;">Nenhum aviso aparece no registro.</div>')) +
       '</table>';
     h += '<div style="margin:12px 0 6px;font-size:12px;font-weight:700;color:var(--text);">E-mail que recebe o aviso diário</div><div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="bk-email" type="email" placeholder="seu@email.com" value="' + _bkEsc(em.destino_configurado || '') + '" style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);"><button class="cfg-save" onclick="backupSalvarEmail()">Salvar</button></div>';
@@ -733,19 +738,71 @@ async function verBackups() {
     box.innerHTML = h;
   } catch (e) { box.innerHTML = '<p style="font-size:12px;color:#ef4444;">' + _bkEsc(e.message) + '</p>'; }
 }
+let _bkTimer = null, _bkFalhasRede = 0;
+function _bkProgressoHtml(p) {
+  const pct = Math.max(0, Math.min(100, Number(p.pct) || 0));
+  const rodando = p.estado === 'rodando', ok = p.estado === 'ok', falha = p.estado === 'falha';
+  const cor = falha ? '#ef4444' : (ok ? '#7FFF00' : '#38bdf8');
+  const seg = Math.max(0, (Number(p.agora) || 0) - (Number(p.inicio) || 0));
+  const tempo = seg >= 60 ? Math.floor(seg / 60) + ' min ' + (seg % 60) + ' s' : seg + ' s';
+  const titulo = rodando ? '⏳ Fazendo o backup...' : (ok ? '✅ Backup concluído' : (falha ? '❌ O backup não terminou' : 'Nenhum backup em andamento'));
+  let h = '<div style="font-size:14px;font-weight:800;color:' + cor + ';margin-bottom:8px;">' + titulo + (p.estado === 'nenhum' ? '' : ' ' + pct + '%') + '</div>';
+  if (p.estado === 'nenhum') return h;
+  h += '<div style="height:12px;border-radius:99px;background:var(--bg3);border:1px solid var(--border);overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:' + cor + ';transition:width .6s;"></div></div>' +
+    '<div style="font-size:12px;color:var(--text);margin-top:8px;">' + _bkEsc(p.etapa || '') + ' <span style="color:var(--text-muted);">· ' + tempo + (rodando && p.parado_ha > 30 ? ' · sem novidade há ' + p.parado_ha + ' s' : '') + '</span></div>';
+  if (p.msg) h += '<div style="font-size:12.5px;color:' + (falha ? '#ef4444' : 'var(--text-muted)') + ';margin-top:6px;">' + _bkEsc(p.msg) + '</div>';
+  if (rodando) h += '<div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;">Pode sair desta tela: o backup continua no servidor. Volte em "Ver backups" para acompanhar.</div>';
+  if (p.log && p.log.length) h += '<details ' + (falha ? 'open' : '') + ' style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;color:var(--text-muted);">Registro</summary><pre style="white-space:pre-wrap;font-size:11px;color:var(--text-muted);margin-top:6px;">' + _bkEsc(p.log.join('\n')) + '</pre></details>';
+  return h;
+}
+async function backupAcompanhar() {
+  clearTimeout(_bkTimer);
+  const box = document.getElementById('backups-box');
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=backup_status&progresso=1&_=' + Date.now(), { headers: _bkHeaders(), cache: 'no-store' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    const p = await r.json();
+    _bkFalhasRede = 0;
+    box.innerHTML = _bkProgressoHtml(p) + (p.estado !== 'rodando' ? '<div style="margin-top:10px;"><button class="cfg-save" onclick="verBackups()">💾 Ver backups</button></div>' : '');
+    if (p.estado === 'rodando') _bkTimer = setTimeout(backupAcompanhar, 3000);
+  } catch (e) {
+    // O servidor tem poucos processos e um deles está ocupado com o backup: uma consulta pode falhar. Tenta de novo.
+    if (++_bkFalhasRede <= 25) {
+      box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">O servidor está ocupado com o backup. Tentando acompanhar de novo... (' + _bkFalhasRede + ')</p>';
+      _bkTimer = setTimeout(backupAcompanhar, 4000);
+    } else {
+      box.innerHTML = '<p style="font-size:12px;color:#ef4444;">Perdi a conexão com o servidor. O backup pode ter continuado: abra "Ver backups" daqui a alguns minutos.</p>';
+    }
+  }
+}
 async function backupAcao(acao, extra) {
   const box = document.getElementById('backups-box');
-  const rotulos = { conferir: 'Baixando a última cópia do Drive e conferindo (pode levar um minuto)...', email_teste: 'Enviando o e-mail de teste...', rodar_agora: 'Iniciando o backup...' };
+  const rotulos = { conferir: 'Baixando a última cópia do Drive e conferindo (pode levar um minuto)...', email_teste: 'Enviando o e-mail de teste...', email_ambos: 'Enviando os e-mails de teste e consultando o DNS...', rodar_agora: 'Conferindo o servidor, o banco e o Google Drive antes de começar...' };
   box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">' + (rotulos[acao] || 'Aguarde...') + '</p>';
+  const ctl = new AbortController();
+  const corte = acao === 'rodar_agora' ? setTimeout(() => ctl.abort(), 30000) : null;
   try {
-    const r = await fetch(API_BASE + '/catalogo.php?action=backup_status', { method: 'POST', headers: _bkHeaders(true), body: JSON.stringify(Object.assign({ acao: acao }, extra || {})) });
+    const r = await fetch(API_BASE + '/catalogo.php?action=backup_status', { method: 'POST', headers: _bkHeaders(true), body: JSON.stringify(Object.assign({ acao: acao }, extra || {})), signal: ctl.signal });
+    if (corte) clearTimeout(corte);
     const d = await r.json().catch(() => ({}));
     if (acao === 'conferir') {
       box.innerHTML = '<div style="font-size:14px;font-weight:800;color:' + (d.ok ? '#7FFF00' : '#ef4444') + ';margin-bottom:8px;">' + (d.ok ? '✅ A última cópia está íntegra' : '❌ A última cópia tem problema') + '</div>' + (d.etapas || []).map(e => '<div style="font-size:12.5px;padding:3px 0;color:var(--text);">' + (e[1] ? '✅' : '❌') + ' <b>' + _bkEsc(e[0]) + '</b>: ' + _bkEsc(e[2]) + '</div>').join('');
+    } else if (acao === 'rodar_agora') {
+      if (d.ok) { _bkFalhasRede = 0; backupAcompanhar(); return; }
+      box.innerHTML = '<div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:8px;">❌ ' + _bkEsc(d.msg || d.error || 'Sem resposta do servidor.') + '</div>' + (d.etapas || []).map(e => '<div style="font-size:12.5px;padding:3px 0;color:var(--text);">' + (e[1] ? '✅' : '❌') + ' <b>' + _bkEsc(e[0]) + '</b>: ' + _bkEsc(e[2]) + '</div>').join('');
+    } else if (acao === 'email_ambos') {
+      box.innerHTML = '<div style="font-size:14px;font-weight:800;color:' + (d.ok ? '#7FFF00' : '#ef4444') + ';margin-bottom:8px;">' + (d.ok ? '✅ Os e-mails de teste saíram' : '❌ Algum teste falhou') + '</div>' +
+        (d.linhas || []).map(l => '<div style="font-size:12.5px;padding:4px 0;color:var(--text);line-height:1.45;">' + _bkEsc(l) + '</div>').join('') +
+        (d.pode_exigir && !d.estrito ? '<div style="margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;color:var(--text);">A conexão com o servidor de e-mail foi verificada. Ligar o <b>modo estrito</b> faz todo e-mail do app (código de acesso, redefinição de senha, avisos) só sair por uma conexão com certificado verificado, protegendo a senha do e-mail. <div style="margin-top:8px;"><button class="cfg-save" onclick="backupAcao(\'smtp_estrito\', { ligado: true })">🔒 Ligar o modo estrito</button></div></div>' : '') +
+        (d.estrito ? '<div style="margin-top:12px;font-size:12.5px;color:#7FFF00;">🔒 Modo estrito ligado. <button class="cfg-save" onclick="backupAcao(\'smtp_estrito\', { ligado: false })" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">Desligar</button></div>' : '');
     } else {
-      box.innerHTML = '<div style="font-size:13px;color:' + (d.ok ? '#7FFF00' : '#ef4444') + ';">' + (d.ok ? '✅ ' : '❌ ') + _bkEsc(d.msg || d.error || 'Sem resposta do servidor.') + '</div>' + (acao === 'rodar_agora' && d.ok ? '<div style="margin-top:8px;"><button class="cfg-save" onclick="verBackups()">Atualizar</button></div>' : '');
+      box.innerHTML = '<div style="font-size:13px;line-height:1.5;color:' + (d.ok ? '#7FFF00' : '#ef4444') + ';">' + (d.ok ? '✅ ' : '❌ ') + _bkEsc(d.msg || d.error || 'Sem resposta do servidor.') + '</div>';
     }
-  } catch (e) { box.innerHTML = '<p style="font-size:12px;color:#ef4444;">Não consegui falar com o servidor.</p>'; }
+  } catch (e) {
+    if (corte) clearTimeout(corte);
+    if (acao === 'rodar_agora') { box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Não recebi a confirmação, mas o backup pode ter começado. Verificando o andamento...</p>'; _bkFalhasRede = 0; setTimeout(backupAcompanhar, 2500); return; }
+    box.innerHTML = '<p style="font-size:12px;color:#ef4444;">Não consegui falar com o servidor.</p>';
+  }
 }
 function backupSalvarEmail() { const v = (document.getElementById('bk-email') || {}).value || ''; backupAcao('salvar_email', { email: v }).then(() => setTimeout(verBackups, 1200)); }
 

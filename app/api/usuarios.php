@@ -360,12 +360,11 @@ try {
         $corpoEmail .= "Este código expira em 10 minutos.\n";
         $corpoEmail .= "Se você não solicitou isso, ignore este email.\n";
 
-        $ctx = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-        $sock = @stream_socket_client("ssl://$smtpHost:465", $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $ctx);
+        require_once __DIR__ . '/_smtp_seguro.php';
+        $sock = intusSmtpAbrir($smtpHost, $infoSmtp, 10);   // conferindo o certificado (ver _smtp_seguro.php)
         if ($sock) {
             $read = function() use ($sock) { $r = ''; while ($l = fgets($sock, 512)) { $r .= $l; if (strlen($l) >= 4 && $l[3] === ' ') break; } return $r; };
             $send = function($cmd) use ($sock, $read) { fwrite($sock, $cmd . "\r\n"); return $read(); };
-            $read();
             $send("EHLO intusfit.com.br");
             $send("AUTH LOGIN");
             $send(base64_encode($smtpUser));

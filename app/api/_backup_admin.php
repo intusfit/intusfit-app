@@ -6,7 +6,8 @@
  *   backupStatus()        quando foi o último backup, se deu certo, o que o e-mail disse, quais cópias existem no Drive e onde o banco está
  *   backupConferir()      baixa a cópia mais recente do banco no Drive e confere que ela está inteira (gzip válido, estrutura e dados completos)
  *   backupEmailTeste()    manda um e-mail de teste e devolve o erro EXATO do servidor de e-mail, se houver
- *   backupRodarAgora()    dispara um backup completo agora (o mesmo script diário)
+ *   backupRodarAgora()    confere o que o backup precisa e, se estiver tudo certo, dispara um backup completo agora (o mesmo script diário)
+ *   backupProgresso()     andamento do backup (barra do painel), gravado pelo cron-backup.php
  * Nada aqui apaga ou altera dado de aluno. O e-mail de destino fica em intus_secrets ("backup_config").
  */
 
@@ -99,6 +100,9 @@ function backupStatus(PDO $pdo, bool $completo = true): array {
         }
     }
     $st['tabelas_ultimo'] = $dumpTabelas;
+    $st['fastcgi']   = function_exists('fastcgi_finish_request');
+    $st['progresso'] = backupProgresso();
+    $st['smtp_estrito'] = _backupSmtpEstritoLigado();
     $st['usa_maximizeapp'] = $st['db_host'] ? (stripos($st['db_host'], 'maximizeapp') !== false) : false;
     $st['smtp_host'] = null;
     $smtp = @include $cfg . '/smtp.php';
@@ -170,32 +174,123 @@ function backupConferir(PDO $pdo): array {
     return ['ok' => $ok, 'etapas' => $etapas, 'arquivo' => $alvo['nome']];
 }
 
-/** Manda um e-mail pelo SMTP do site e devolve o resultado exato. */
-function backupSmtpEnviar(string $para, string $assunto, string $texto): array {
+/** Andamento do backup em curso (ou do último): lido de config/backup-progresso.json, que o cron-backup.php atualiza a cada etapa. */
+function backupProgresso(): array
+{
+    $arq = _backupPastaConfig() . '/backup-progresso.json';
+    $j = is_file($arq) ? json_decode((string)@file_get_contents($arq), true) : null;
+    if (!is_array($j)) return ['estado' => 'nenhum', 'agora' => time()];
+    $j['agora'] = time();
+    $j['parado_ha'] = max(0, $j['agora'] - (int)($j['atualizado'] ?? $j['agora']));
+    // Sinal de vida parado por 4 minutos: o servidor encerrou o processo no meio (limite de tempo ou de processos da hospedagem).
+    if (($j['estado'] ?? '') === 'rodando' && $j['parado_ha'] > 240) {
+        $j['estado'] = 'falha';
+        $j['msg'] = 'O backup parou de responder em "' . ($j['etapa'] ?? '?') . '" (sem sinal há ' . round($j['parado_ha'] / 60) . ' min). O servidor provavelmente encerrou o processo por limite de tempo ou de processos da hospedagem.';
+    }
+    $j['log'] = array_slice(_backupTail(_backupPastaConfig() . '/backup.log', 12), -8);
+    return $j;
+}
+
+/**
+ * Confere, ANTES de começar, tudo de que o backup precisa e devolve o motivo exato se algo não estiver pronto.
+ * [ok, motivo, etapas[nome, ok, detalhe]]. Antes de 14/10/2026 o botão só dizia "aguarde" e, se algo falhasse depois, não aparecia nada.
+ */
+function backupPreparar(PDO $pdo): array
+{
+    $et = []; $falha = '';
+    $add = function (string $nome, bool $ok, string $det, bool $fatal = true) use (&$et, &$falha) {
+        $et[] = [$nome, $ok, $det];
+        if (!$ok && $fatal && $falha === '') $falha = $nome . ': ' . $det;
+    };
+    $prog = backupProgresso();
+    if (($prog['estado'] ?? '') === 'rodando') {
+        $add('Outro backup em andamento', false, 'já existe um backup rodando (' . ($prog['etapa'] ?? '') . '). Aguarde ele terminar.');
+    }
+    $cfg = _backupPastaConfig(); $t = $cfg . '/.teste-' . bin2hex(random_bytes(3));
+    $okPasta = @file_put_contents($t, 'x') !== false; @unlink($t);
+    $add('Pasta de trabalho', $okPasta, $okPasta ? 'o servidor deixa gravar em app/config' : 'o servidor não deixa gravar em app/config (permissão da pasta)');
+    $add('Compactação gzip', function_exists('gzopen'), function_exists('gzopen') ? 'disponível' : 'a extensão zlib não está ativa neste servidor');
+    $okNet = function_exists('curl_init') && function_exists('openssl_sign');
+    $add('Conexão com o Google (curl e openssl)', $okNet, $okNet ? 'disponíveis' : 'faltam as extensões curl/openssl neste servidor');
+    try {
+        $n = count($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN));
+        $add('Banco de dados', $n > 0, $n . ' tabelas');
+    } catch (Throwable $e) { $add('Banco de dados', false, 'não consegui ler as tabelas: ' . $e->getMessage()); }
+    try {
+        require_once __DIR__ . '/_gdrive.php';
+        if (!gdriveDisponivel()) {
+            $add('Google Drive', false, 'a chave do Drive não está configurada (admin/gdrive-key.php) ou faltam curl/openssl');
+        } else {
+            $tok = _gdriveToken(_gdriveKey());
+            $add('Google Drive', (bool)$tok, $tok ? 'o Google aceitou a chave' : 'o Google recusou a chave da conta de serviço (confira a chave e o acesso à pasta)');
+        }
+    } catch (Throwable $e) { $add('Google Drive', false, $e->getMessage()); }
+    $add('Pastas de fotos (zip)', class_exists('ZipArchive'), class_exists('ZipArchive') ? 'disponível' : 'sem ZipArchive: só o banco será copiado', false);
+    return ['ok' => $falha === '', 'motivo' => $falha, 'etapas' => $et];
+}
+
+function _backupSmtpEstritoLigado(): bool
+{
+    try {
+        $pdo = _gdriveConn(); if (!$pdo) return false;
+        _gdriveEnsureTable($pdo);
+        $st = $pdo->prepare("SELECT valor FROM intus_secrets WHERE chave = 'backup_config' LIMIT 1");
+        $st->execute();
+        $j = json_decode((string)$st->fetchColumn(), true);
+        return is_array($j) && !empty($j['smtp_estrito']);
+    } catch (Throwable $e) { return false; }
+}
+
+/** Liga ou desliga o modo estrito (e-mail só sai por conexão com certificado verificado). Guarda junto do e-mail do aviso. */
+function backupSalvarEstrito(bool $ligado): bool
+{
+    try {
+        require_once __DIR__ . '/_gdrive.php';
+        $pdo = _gdriveConn(); if (!$pdo) return false;
+        _gdriveEnsureTable($pdo);
+        $st = $pdo->prepare("SELECT valor FROM intus_secrets WHERE chave = 'backup_config' LIMIT 1");
+        $st->execute();
+        $v = $st->fetchColumn();
+        $j = $v ? json_decode((string)$v, true) : [];
+        if (!is_array($j)) $j = [];
+        $j['smtp_estrito'] = $ligado;
+        $json = json_encode($j);
+        if ($v !== false && $v !== null) $pdo->prepare("UPDATE intus_secrets SET valor = ? WHERE chave = 'backup_config'")->execute([$json]);
+        else $pdo->prepare("INSERT INTO intus_secrets (chave, valor) VALUES ('backup_config', ?)")->execute([$json]);
+        return true;
+    } catch (Throwable $e) { return false; }
+}
+
+/** Manda um e-mail pelo SMTP do site e devolve [ok, mensagem exata, conexão verificada?]. */
+function backupSmtpEnviar(string $para, string $assunto, string $texto): array
+{
+    require_once __DIR__ . '/_smtp_seguro.php';
     $smtp = @include _backupPastaConfig() . '/smtp.php';
-    if (!is_array($smtp)) return [false, 'config/smtp.php não encontrado no servidor.'];
+    if (!is_array($smtp)) return [false, 'config/smtp.php não encontrado no servidor.', false];
     $host = (string)($smtp['host'] ?? ''); $user = (string)($smtp['user'] ?? ''); $pass = (string)($smtp['pass'] ?? ''); $nome = (string)($smtp['from_name'] ?? 'Intus Fit');
-    if ($host === '' || $user === '' || $pass === '') return [false, 'O SMTP do site está sem host, usuário ou senha (config/smtp.php).'];
-    $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true, 'SNI_enabled' => true]]);
-    $sock = @stream_socket_client("ssl://{$host}:465", $errno, $errstr, 15, STREAM_CLIENT_CONNECT, $ctx);
-    if (!$sock) return [false, "Não consegui conectar ao servidor de e-mail {$host}:465 ({$errno} {$errstr}). Se o erro fala de certificado, o servidor de e-mail não tem certificado válido para esse nome."];
-    stream_set_timeout($sock, 30);
+    if ($host === '' || $user === '' || $pass === '') return [false, 'O SMTP do site está sem host, usuário ou senha (config/smtp.php).', false];
+    // Teste sempre ESTRITO: o objetivo dele é provar que a conexão é verificada.
+    $sock = intusSmtpAbrir($host, $info, 12, true);
+    if (!$sock) return [false, $info['erro'], false];
     $ler = function () use ($sock) { $r = ''; while (($l = fgets($sock, 1024)) !== false) { $r .= $l; if (strlen($l) >= 4 && $l[3] === ' ') break; } return $r; };
     $cmd = function ($c) use ($sock, $ler) { fwrite($sock, $c . "\r\n"); return $ler(); };
     $cod = fn($r) => (int)substr(trim((string)$r), 0, 3);
-    $ler();
-    $passos = ['EHLO' => [$cmd('EHLO ' . $host), 250], 'AUTH' => [$cmd('AUTH LOGIN'), 334], 'USER' => [$cmd(base64_encode($user)), 334], 'PASS' => [$cmd(base64_encode($pass)), 235],
+    $passos = ['EHLO' => [$cmd('EHLO intusfit.com.br'), 250], 'AUTH' => [$cmd('AUTH LOGIN'), 334], 'USER' => [$cmd(base64_encode($user)), 334], 'PASS' => [$cmd(base64_encode($pass)), 235],
                'FROM' => [$cmd("MAIL FROM:<{$user}>"), 250], 'RCPT' => [$cmd("RCPT TO:<{$para}>"), 250], 'DATA' => [$cmd('DATA'), 354]];
     foreach ($passos as $n => $par) {
-        if ($cod($par[0]) !== $par[1]) { @fclose($sock); return [false, "O servidor de e-mail recusou em {$n}: " . trim(substr((string)$par[0], 0, 160))]; }
+        if ($cod($par[0]) !== $par[1]) { @fclose($sock); return [false, "O servidor de e-mail recusou em {$n}: " . trim(substr((string)$par[0], 0, 160)), true]; }
     }
     $cab = "From: {$nome} <{$user}>\r\nTo: {$para}\r\nSubject: =?UTF-8?B?" . base64_encode($assunto) . "?=\r\nDate: " . date('r') . "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n";
     fwrite($sock, $cab . "\r\n" . chunk_split(base64_encode($texto), 76, "\r\n") . "\r\n.\r\n");
     $fim = $ler(); $cmd('QUIT'); @fclose($sock);
-    return $cod($fim) === 250 ? [true, 'O servidor de e-mail aceitou a mensagem para ' . $para . '. Confira também a caixa de spam.'] : [false, 'O servidor recusou a mensagem: ' . trim(substr((string)$fim, 0, 160))];
+    $conn = 'conexão segura verificada (certificado de ' . $info['nome'] . ', porta ' . $info['porta'] . ')';
+    return $cod($fim) === 250
+        ? [true, 'Enviado para ' . $para . ' pelo servidor de e-mail, com ' . $conn . '. Confira também a caixa de spam.', true]
+        : [false, 'O servidor recusou a mensagem para ' . $para . ': ' . trim(substr((string)$fim, 0, 160)), true];
 }
 
-function backupEmailTeste(): array {
+function backupEmailTeste(): array
+{
     $smtp = @include _backupPastaConfig() . '/smtp.php';
     $padrao = is_array($smtp) ? (string)($smtp['user'] ?? '') : '';
     $para = _backupEmailConfigurado() ?: $padrao;
@@ -204,14 +299,71 @@ function backupEmailTeste(): array {
     return [$ok, $msg, $para];
 }
 
-/** Dispara o backup completo agora (mesmo script do diário), depois de entregar a resposta. */
-function backupRodarAgora(): void {
-    @file_put_contents(_backupPastaConfig() . '/backup-ultimo.txt', date('Y-m-d'));
-    echo json_encode(['ok' => true, 'msg' => 'Backup iniciado. Leva de 1 a 3 minutos; atualize esta tela depois.']);
-    if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); }
+/**
+ * Testa os DOIS endereços (o do site, de onde o app envia, e o de destino do aviso) e confere o que o DNS diz sobre o e-mail do domínio.
+ * O que o código NÃO consegue ver: se o encaminhamento do e-mail do site para o Gmail está ligado no painel da KingHost e se o "Enviar como"
+ * está configurado no Gmail. Por isso o teste manda uma mensagem para cada endereço: se a do endereço do site chegar na caixa do Gmail, o
+ * encaminhamento funciona.
+ */
+function backupEmailTesteAmbos(): array
+{
+    $smtp = @include _backupPastaConfig() . '/smtp.php';
+    $site = is_array($smtp) ? strtolower(trim((string)($smtp['user'] ?? ''))) : '';
+    $dest = strtolower(trim(_backupEmailConfigurado()));
+    $alvos = array_values(array_unique(array_filter([$site, $dest])));
+    if (!$alvos) return ['ok' => false, 'linhas' => ['Sem endereços para testar (config/smtp.php sem usuário e sem destino escolhido).']];
+    $linhas = []; $tudo = true; $conexaoOk = false;
+    foreach ($alvos as $a) {
+        [$ok, $msg, $verif] = backupSmtpEnviar($a, 'Teste de e-mail da Intus Fit para ' . $a, "Teste de envio e encaminhamento.\nEnviado pelo servidor do site para: {$a}\n" . date('d/m/Y H:i:s') . "\n\nSe você recebeu esta mensagem na caixa certa, o endereço funciona.");
+        $linhas[] = ($ok ? '✅ ' : '❌ ') . $a . ': ' . $msg;
+        if (!$ok) $tudo = false; if ($ok && $verif) $conexaoOk = true;
+    }
+    if ($site !== '' && $dest !== '' && $site !== $dest) {
+        $linhas[] = 'ℹ️ Agora confira as caixas: a mensagem enviada para ' . $site . ' deve aparecer também em ' . $dest . ' (é o encaminhamento ligado no painel da KingHost). Se só a de ' . $dest . ' chegou, o encaminhamento de ' . $site . ' não está ligado.';
+    }
+    // O que o DNS diz sobre o e-mail do domínio
+    $dom = $site !== '' && strpos($site, '@') !== false ? substr($site, strpos($site, '@') + 1) : '';
+    if ($dom !== '' && function_exists('dns_get_record')) {
+        $mx = @dns_get_record($dom, DNS_MX); $txt = @dns_get_record($dom, DNS_TXT); $dm = @dns_get_record('_dmarc.' . $dom, DNS_TXT);
+        $mxs = is_array($mx) ? array_map(fn($r) => rtrim((string)($r['target'] ?? ''), '.'), $mx) : [];
+        $spf = ''; foreach ((is_array($txt) ? $txt : []) as $r) { if (stripos((string)($r['txt'] ?? ''), 'v=spf1') === 0) $spf = (string)$r['txt']; }
+        $linhas[] = ($mxs ? '✅' : '❌') . ' Onde chega o e-mail de ' . $dom . ' (MX): ' . ($mxs ? implode(', ', $mxs) : 'nenhum registro');
+        $linhas[] = ($spf !== '' ? '✅' : '⚠️') . ' SPF (quem pode enviar em nome do domínio): ' . ($spf !== '' ? $spf : 'não configurado');
+        $linhas[] = (is_array($dm) && $dm ? '✅' : '⚠️') . ' DMARC (política contra falsificação): ' . (is_array($dm) && $dm ? (string)$dm[0]['txt'] : 'não configurado. Recomendado: crie um registro TXT em _dmarc.' . $dom . ' com v=DMARC1; p=none; rua=mailto:' . ($dest ?: $site));
+    }
+    return ['ok' => $tudo, 'linhas' => $linhas, 'pode_exigir' => $conexaoOk, 'estrito' => _backupSmtpEstritoLigado()];
+}
+
+/** Entrega a resposta ao painel e segue trabalhando com a conexão já encerrada (o botão não fica esperando o backup inteiro). */
+function _backupResponderEContinuar(string $json): void
+{
     @ignore_user_abort(true); @set_time_limit(0);
+    @ini_set('zlib.output_compression', '0');
+    if (!headers_sent()) { header('Content-Type: application/json; charset=utf-8'); header('Content-Length: ' . strlen($json)); header('Connection: close'); }
+    echo $json;
+    while (ob_get_level() > 0) { @ob_end_flush(); }
+    @flush();
+    if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); }
+}
+
+/** Confere, responde ao painel e dispara o backup completo agora (mesmo script diário); o painel acompanha pela barra de progresso. */
+function backupRodarAgora(PDO $pdo): void
+{
+    $chk = backupPreparar($pdo);
+    if (!$chk['ok']) {
+        echo json_encode(['ok' => false, 'msg' => 'O backup não começou. ' . $chk['motivo'], 'etapas' => $chk['etapas']], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $cfg = _backupPastaConfig();
+    @file_put_contents($cfg . '/backup-ultimo.txt', date('Y-m-d'));
+    @file_put_contents($cfg . '/backup-progresso.json', json_encode(['inicio' => time(), 'atualizado' => time(), 'pct' => 1, 'etapa' => 'Iniciando', 'estado' => 'rodando', 'msg' => ''], JSON_UNESCAPED_UNICODE), LOCK_EX);
+    @file_put_contents($cfg . '/backup.log', '[' . date('Y-m-d H:i:s') . '] Backup manual pedido pelo painel.' . PHP_EOL, FILE_APPEND);
+    _backupResponderEContinuar(json_encode(['ok' => true, 'msg' => 'Backup iniciado.', 'etapas' => $chk['etapas']], JSON_UNESCAPED_UNICODE));
     if (!defined('BACKUP_CARONA')) define('BACKUP_CARONA', true);
     try { include __DIR__ . '/cron-backup.php'; }
-    catch (Throwable $e) { @file_put_contents(_backupPastaConfig() . '/backup.log', '[' . date('Y-m-d H:i:s') . '] ERRO no backup manual: ' . $e->getMessage() . PHP_EOL, FILE_APPEND); }
+    catch (Throwable $e) {
+        @file_put_contents($cfg . '/backup.log', '[' . date('Y-m-d H:i:s') . '] ERRO no backup manual: ' . $e->getMessage() . PHP_EOL, FILE_APPEND);
+        @file_put_contents($cfg . '/backup-progresso.json', json_encode(['inicio' => time(), 'atualizado' => time(), 'pct' => 0, 'etapa' => 'Erro', 'estado' => 'falha', 'msg' => $e->getMessage()], JSON_UNESCAPED_UNICODE), LOCK_EX);
+    }
     exit;
 }

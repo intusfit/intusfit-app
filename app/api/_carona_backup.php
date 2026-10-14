@@ -27,6 +27,9 @@
     // O dashboard já autenticou antes de chegar aqui; esta é só a garantia de
     // que o include não faz nada se um dia for parar em outro arquivo.
     if (PHP_SAPI === 'cli') return;
+    // Sem fastcgi_finish_request não há como entregar a resposta antes: o painel ficaria esperando o backup inteiro. Nesse caso só o CronJob
+    // ou o botão "Fazer backup agora" (que mostra o andamento) fazem o backup.
+    if (!function_exists('fastcgi_finish_request')) return;
 
     $marca = __DIR__ . '/../config/backup-ultimo.txt';
     $hoje  = date('Y-m-d');
