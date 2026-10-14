@@ -1445,3 +1445,11 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 - **Indicação**: os dois cartões "Indique um amigo" dizem que quem indica ganha um presente especial da Intus Fit (camisetas exclusivas, descontos, suplementos e até meses de graça treinando com acompanhamento).
 - **Distintivos de post colaborativo** (`treinos.php?action=ranking`, `colab`): contam para o autor (1 por post com colaboração aceita) E para cada colaborador que aceitou; agora entram na conta mesmo quem não participa do ranking.
 
+## 59. Correção: marcador do treino fora do protocolo e execução dos programas sem toque (13/10/2026)
+- **Bug (Luiz Nunes, 13/10)**: o treino fora do protocolo era gravado com `divisao = 'F'`, a mesma letra do **Treino F de verdade** das fichas. Todo Treino F real passou a valer 5 pontos (fora da ordem do dia) em vez de 10. Agora o marcador é **`'FORA'`** (a coluna `divisao` tem 4 caracteres) e `API.foraProtocolo`
+  só reconhece `FORA` (e, por compatibilidade, a sessão de teste antiga: divisão F, sem ficha e comentário "Fora do protocolo"). Treino F com ficha volta a valer 10. Painel (Frequência, Clientes) e histórico do aluno mostram "Fora do protocolo". Teste: `testes/programas.js` ("O Treino F de verdade NÃO é fora do protocolo").
+  **Nunca usar uma letra de divisão como marcador.** A sessão de teste antiga continua no banco (remover só pelo painel).
+- **Programas de cardio, execução sem toque** (`aluno.html`, bloco "Execução"): "Começar" abre a tela do programa com o tempo **parado** (fase `pronto`) e o botão ▶ Iniciar; depois, contagem 3, 2, 1 (fase `contagem`) e o programa segue sozinho: bip por intensidade (agudo duplo no forte, grave no leve), vibração, flash colorido de tela cheia com o nome do bloco, voz
+  (pt-BR, liga e desliga) e bips nos 3 últimos segundos de cada bloco. Controles: pausar, ⏮ voltar o bloco (se já passaram mais de 3 s, recomeça o atual), ⏭ avançar, ⏹ encerrar. A tela mostra decorrido, restante e total, uma barra com um segmento por bloco, o bloco atual com contagem e os 3 blocos seguintes. A duração registrada é o tempo
+  realmente em andamento (`ativoMs`), então avançar blocos para acabar cedo não conta como programa concluído. O cartão "Programas de cardio" fica abaixo do cardio manual.
+

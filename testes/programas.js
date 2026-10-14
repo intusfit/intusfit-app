@@ -64,24 +64,34 @@ console.log('\n── Do sofá aos 5 km (curso de 8 semanas, 24 treinos) ──'
   eq('+1 ponto por dia vale para o treino do curso', A.agregarPontosRank([cm('S1T1', A.programaDuracao(c, 0))])[1].bonusProgramas === 1);
 }
 
-console.log('\n── Treino fora do protocolo (divisão F): 5 pontos fixos ──');
+console.log('\n── Treino fora do protocolo (divisão FORA): 5 pontos fixos ──');
 {
-  const f = mus('2026-10-12', 5, { divisao: 'F' }), ficha = mus('2026-10-12', 6, { divisao: 'A', idficha: 3 });
+  const f = mus('2026-10-12', 5, { divisao: 'FORA' }), ficha = mus('2026-10-12', 6, { divisao: 'A', idficha: 3 });
   const l = [f, ficha];
   eq('vale 5 pontos', A.pontosSessaoRank(f, l) === 5);
   eq('o treino da ficha continua valendo como o 1º do dia (10)', A.pontosSessaoRank(ficha, l) === 10);
-  eq('F feito DEPOIS da ficha também vale 5 (e a ficha segue 10)', A.pontosSessaoRank(mus('2026-10-12', 7, { divisao: 'F' }), [ficha, mus('2026-10-12', 7, { divisao: 'F' })]) === 5 && A.pontosSessaoRank(ficha, [ficha, mus('2026-10-12', 7, { divisao: 'F' })]) === 10);
-  eq('F sozinho não ocupa a posição de "1º treino"', A.ordemMusculacaoNoDia(f, l) === 0 && A.ordemMusculacaoNoDia(ficha, l) === 1);
-  eq('F conta como dia com musculação', A.diasComMusculacaoRank([f]).length === 1);
-  eq('F marcado "não contar" vale 0', A.pontosSessaoRank(mus('2026-10-12', 8, { divisao: 'F', nao_contar: 1 }), []) === 0);
-  eq('divisão "f" minúscula também é fora do protocolo', A.foraProtocolo(mus('2026-10-12', 9, { divisao: 'f' })));
-  eq('divisão normal não é', !A.foraProtocolo(mus('2026-10-12', 9, { divisao: 'A' })));
-  eq('cardio com divisão F não é treino fora do protocolo', !A.foraProtocolo(car('2026-10-12', 9, 'x', 1800, { divisao: 'F' })));
-  // o real (id menor) e o F no mesmo dia, na ordem em que o servidor devolve (mais novo primeiro): a ficha não pode cair para 5
-  const doServidor = [mus('2026-10-12', 20, { divisao: 'F' }), mus('2026-10-12', 10, { divisao: 'C', idficha: 3 })];
-  eq('na ordem que o servidor devolve (F primeiro), a ficha continua 10 e o F 5', A.pontosSessaoRank(doServidor[1], doServidor) === 10 && A.pontosSessaoRank(doServidor[0], doServidor) === 5);
-  const semId = [mus('2026-10-12', null, { divisao: 'F', idsessao: undefined }), mus('2026-10-12', null, { divisao: 'C', idficha: 3, idsessao: undefined })];
+  eq('feito DEPOIS da ficha também vale 5 (e a ficha segue 10)', A.pontosSessaoRank(mus('2026-10-12', 7, { divisao: 'FORA' }), [ficha, mus('2026-10-12', 7, { divisao: 'FORA' })]) === 5 && A.pontosSessaoRank(ficha, [ficha, mus('2026-10-12', 7, { divisao: 'FORA' })]) === 10);
+  eq('sozinho não ocupa a posição de "1º treino"', A.ordemMusculacaoNoDia(f, l) === 0 && A.ordemMusculacaoNoDia(ficha, l) === 1);
+  eq('conta como dia com musculação', A.diasComMusculacaoRank([f]).length === 1);
+  eq('marcado "não contar" vale 0', A.pontosSessaoRank(mus('2026-10-12', 8, { divisao: 'FORA', nao_contar: 1 }), []) === 0);
+  eq('cardio com divisão FORA não é treino fora do protocolo', !A.foraProtocolo(car('2026-10-12', 9, 'x', 1800, { divisao: 'FORA' })));
+  const doServidor = [mus('2026-10-12', 20, { divisao: 'FORA' }), mus('2026-10-12', 10, { divisao: 'C', idficha: 3 })];
+  eq('na ordem que o servidor devolve (fora do protocolo primeiro), a ficha continua 10 e o outro 5', A.pontosSessaoRank(doServidor[1], doServidor) === 10 && A.pontosSessaoRank(doServidor[0], doServidor) === 5);
+  const semId = [mus('2026-10-12', null, { divisao: 'FORA', idsessao: undefined }), mus('2026-10-12', null, { divisao: 'C', idficha: 3, idsessao: undefined })];
   eq('mesmo sem idsessao a ficha continua 10', A.pontosSessaoRank(semId[1], semId) === 10);
+}
+
+console.log('\n── O Treino F de verdade (divisão F da ficha) NÃO é fora do protocolo ──');
+{
+  // Bug de 13/10/2026: o marcador era 'F' e o Treino F real do aluno (Luiz Nunes) passou a valer 5 em vez de 10.
+  const realF = mus('2026-10-12', 30, { divisao: 'F', idficha: 3, comentario: '' }), realA = mus('2026-10-11', 29, { divisao: 'A', idficha: 3 });
+  eq('Treino F com ficha vale 10 (1º do dia)', A.pontosSessaoRank(realF, [realF, realA]) === 10);
+  eq('Treino F com ficha NÃO é fora do protocolo', !A.foraProtocolo(realF));
+  const outroA = mus('2026-10-12', 31, { divisao: 'A', idficha: 3 });
+  eq('Treino F com ficha entra na ordem do dia (o 2º treino do dia vale 5)', A.pontosSessaoRank(outroA, [realF, outroA]) === 5);
+  eq('Treino F de ficha com comentário "Fora do protocolo" continua normal', !A.foraProtocolo(mus('2026-10-12', 32, { divisao: 'F', idficha: 3, comentario: 'Fora do protocolo' })));
+  const teste = mus('2026-10-12', 33, { divisao: 'F', idficha: null, comentario: 'Fora do protocolo (outro motivo): viagem' });
+  eq('a sessão de teste antiga (F, sem ficha, comentário "Fora do protocolo") ainda é reconhecida e não derruba o Treino F real', A.foraProtocolo(teste) && A.pontosSessaoRank(teste, [teste, realF]) === 5 && A.pontosSessaoRank(realF, [teste, realF]) === 10);
 }
 console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
 process.exit(ruim ? 1 : 0);

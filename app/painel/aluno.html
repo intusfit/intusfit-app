@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261013c"></script>
+  <script src="api.js?v=20261013d"></script>
   <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -7680,7 +7680,7 @@ async function abrirMeusTreinos() {
 
 // ═══════════════ TREINO FORA DO PROTOCOLO ═══════════════
 // Quando o aluno treinou com outra pessoa ou trocou os exercícios da ficha, ele marca o treino à mão (duração e, por exercício, as séries com
-// carga e repetições) e ganha 5 pontos fixos (API.PONTOS_FORA_PROTOCOLO). Sessão de musculação com divisao 'F', sem ficha, sempre de HOJE. O servidor
+// carga e repetições) e ganha 5 pontos fixos (API.PONTOS_FORA_PROTOCOLO). Sessão de musculação com divisao 'FORA', sem ficha, sempre de HOJE. O servidor
 // aceita 1 por dia, de 15 min a 4 h. Não entra na ordem do dia (o treino da ficha continua valendo como o 1º). Ao digitar o nome do exercício,
 // aparecem os que o aluno já fez e estão cadastrados no sistema: escolher traz as séries da última vez e abre o histórico completo do exercício.
 var _fp = null;
@@ -7780,7 +7780,7 @@ function _fpMontar() {   // valida e devolve { erro } ou { sessao, resumo }
   const motivo = { outra: 'treino com outra pessoa', troca: 'exercícios trocados', outro: 'outro motivo' }[_fp.motivo] || '';
   const dia = new Date(), dt = dia.getFullYear() + '-' + String(dia.getMonth() + 1).padStart(2, '0') + '-' + String(dia.getDate()).padStart(2, '0');
   const sessao = {
-    idatleta: idAtleta, idficha: null, divisao: 'F', dtsessao: dt, duracao_seg: min * 60,
+    idatleta: idAtleta, idficha: null, divisao: 'FORA', dtsessao: dt, duracao_seg: min * 60,
     hora_conclusao: new Date().toTimeString().slice(0, 5), nao_contar: 0, marcado_como_feito: false,
     comentario: 'Fora do protocolo (' + motivo + ')' + (desc ? ': ' + desc.slice(0, 120) : ''), itens: itens,
   };
@@ -9918,7 +9918,7 @@ function _histCardHtml(s, sessoes, isLight, comExcluir) {
   const baseStyle = s.nao_contar ? 'border-left:3px solid #888;opacity:.7;' : ('border-left:3px solid ' + cor + ';');
   const tituloHtml = ehCardio
     ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>${_iconCardio(isLight)} ${esc(s.cardio_tipo || 'Cardio')}${s.cardio_intensidade ? ' · ' + esc(s.cardio_intensidade) : ''}`
-    : `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>Divisão ${esc(s.divisao)} ${s.marcado_como_feito?'☑️':'✅'}`;
+    : `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>${API.foraProtocolo(s) ? 'Fora do protocolo' : 'Divisão ' + esc(s.divisao)} ${s.marcado_como_feito?'☑️':'✅'}`;
   const ptsLbl = (!s.nao_contar && pts > 0) ? ` • <b style="color:${isLight?'#5cb800':'#7FFF00'};">+${pts} pts</b>` : '';
   const subHtml = ehCardio
     ? `⏱️ ${durMin}min${ptsLbl}${cardioExtra ? ' • ' + esc(cardioExtra) : ''}`
@@ -10718,15 +10718,6 @@ function renderCardio() {
       <div style="font-size:24px;color:${isLight?'#2d8a00':'#7FFF00'};">▶</div>
     </div>
 
-    <div onclick="abrirProgramasCardio()" style="display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:14px;border-radius:18px;cursor:pointer;background:${isLight?'#fff7ed':'rgba(249,115,22,.08)'};border:1.5px solid rgba(249,115,22,.4);">
-      <div style="width:50px;height:50px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px;background:linear-gradient(135deg,#f97316,#ef4444);">🔥</div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Programas de cardio</div>
-        <div style="font-size:12.5px;color:${isLight?'#555':'#999'};margin-top:2px;line-height:1.4;">${(typeof _prog !== 'undefined' && _prog.rodando) ? '▶ Você tem um programa em andamento. Toque para voltar.' : 'HIIT, Tabata, 12-5-30 e outros, guiados passo a passo. Concluir dá distintivos e +1 ponto extra por dia.'}</div>
-      </div>
-      <div style="font-size:22px;color:${isLight?'#c2410c':'#fb923c'};">›</div>
-    </div>
-
     <details id="cardio-manual-details" style="background:${isLight?'#ecfeff':'rgba(6,182,212,.08)'};border:1.5px solid ${isLight?'#67e8f9':'rgba(6,182,212,.45)'};border-radius:16px;padding:0;margin-bottom:14px;overflow:hidden;">
       <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer;list-style:none;">
         <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#06b6d4,#0ea5e9);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">✍️</div>
@@ -10793,6 +10784,16 @@ function renderCardio() {
       <button onclick="confirmarCardio()" class="btn btn-prim btn-full" style="background:linear-gradient(135deg,#06b6d4,#0ea5e9);border:none;">🏃 Registrar cardio</button>
       </div>
     </details>
+
+    <div onclick="abrirProgramasCardio()" style="display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:14px;border-radius:18px;cursor:pointer;background:${isLight?'#fff7ed':'rgba(249,115,22,.08)'};border:1.5px solid rgba(249,115,22,.4);">
+      <div style="width:50px;height:50px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px;background:linear-gradient(135deg,#f97316,#ef4444);">🔥</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Programas de cardio</div>
+        <div style="font-size:12.5px;color:${isLight?'#555':'#999'};margin-top:2px;line-height:1.4;">${(typeof _prog !== 'undefined' && _prog.rodando) ? '▶ Você tem um programa em andamento. Toque para voltar.' : 'HIIT, Tabata, 12-5-30 e outros, guiados passo a passo. Concluir dá distintivos e +1 ponto extra por dia.'}</div>
+      </div>
+      <div style="font-size:22px;color:${isLight?'#c2410c':'#fb923c'};">›</div>
+    </div>
+
 
     <details id="cardio-historico-details" style="background:${isLight?'#f5f3ff':'rgba(129,140,248,.08)'};border:1.5px solid ${isLight?'#c4b5fd':'rgba(129,140,248,.45)'};border-radius:16px;padding:0;margin-bottom:20px;overflow:hidden;">
       <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer;list-style:none;">
@@ -11225,7 +11226,7 @@ async function _atualizarEsforcoCardio(idsessao, novoRpe, tipo, min, motivo, fot
 // de cada etapa, avisos sonoros e vibração na troca, pausa, pular etapa e encerrar. Para quem tem matrícula ativa.
 // Registro: sessão de cardio comum (os pontos do tempo seguem a regra de sempre) com comentario "Programa: <titulo>"; concluir (90% da
 // duração) dá +1 ponto extra por dia (API.agregarPontosRank) e conta para os distintivos de programas.
-var _prog = { id: null, sessao: null, ativ: '', i: 0, fimMs: 0, restMs: 0, pausado: false, acumSeg: 0, timer: null, ctx: null, iniMs: 0, rodando: false, tela: 'lista' };
+var _prog = { id: null, sessao: null, ativ: '', i: 0, fase: 'pronto', fimMs: 0, restMs: 0, pausado: false, ativoMs: 0, ultTick: 0, bipS: -1, contFimMs: 0, contN: 0, timer: null, ctx: null, rodando: false, tela: 'lista' };
 const _PROG_ATIVO_KEY = 'intus-prog-ativo';
 const _PROG_FASE = {
   aq:    { cor: '#22c55e', rot: 'Aquecimento' },
@@ -11318,118 +11319,220 @@ function _renderProgDetalhe() {
 }
 
 // ── Execução ──
+// O aluno só precisa tocar em "Iniciar": depois da contagem regressiva (3, 2, 1) o programa segue sozinho, com bip, vibração, flash colorido
+// e voz a cada troca de bloco, e avisos curtos nos 3 últimos segundos de cada bloco. Dá para pausar, voltar e avançar o bloco.
+// fase: 'pronto' (tempo parado esperando o play) | 'contagem' (3, 2, 1) | 'ativo' (rodando, ou pausado se `pausado`).
+// Tempo: `restMs` (bloco parado) ou `fimMs` (bloco rodando). `ativoMs` soma só o tempo realmente em andamento: é ele que vira a duração
+// registrada, então avançar blocos para "terminar mais cedo" não conta como programa concluído.
 function _progBip(freq, ms, vol) {
   try {
     const c = _prog.ctx; if (!c) return;
+    if (c.state === 'suspended') c.resume();
     const o = c.createOscillator(), g = c.createGain();
-    o.type = 'sine'; o.frequency.value = freq; g.gain.value = vol || 0.25;
+    o.type = 'sine'; o.frequency.value = freq; g.gain.value = vol || 0.3;
     o.connect(g); g.connect(c.destination);
-    const t = c.currentTime; o.start(t); g.gain.setValueAtTime(vol || 0.25, t + ms / 1000 - 0.03); g.gain.linearRampToValueAtTime(0, t + ms / 1000); o.stop(t + ms / 1000 + 0.02);
+    const t = c.currentTime; o.start(t); g.gain.setValueAtTime(vol || 0.3, t + ms / 1000 - 0.03); g.gain.linearRampToValueAtTime(0, t + ms / 1000); o.stop(t + ms / 1000 + 0.02);
   } catch (e) {}
 }
-function _progAviso(fase) {   // bip e vibração na troca de etapa
+function _progVozOn() { try { return localStorage.getItem('intus-prog-voz') !== '0'; } catch (e) { return true; } }
+function _progVoz() { try { localStorage.setItem('intus-prog-voz', _progVozOn() ? '0' : '1'); } catch (e) {} _renderProgExecucao(); }
+function _progFalar(txt) {
   try {
-    if (fase === 'forte') { _progBip(990, 160); setTimeout(() => _progBip(990, 160), 240); if (navigator.vibrate) navigator.vibrate([200, 80, 200]); }
-    else if (fase === 'fim') { _progBip(784, 180); setTimeout(() => _progBip(988, 180), 230); setTimeout(() => _progBip(1319, 380), 460); if (navigator.vibrate) navigator.vibrate([250, 100, 250, 100, 400]); }
-    else { _progBip(660, 220); if (navigator.vibrate) navigator.vibrate(180); }
+    if (!_progVozOn() || !window.speechSynthesis || !txt) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(txt); u.lang = 'pt-BR'; u.rate = 1.05; u.volume = 1;
+    window.speechSynthesis.speak(u);
+  } catch (e) {}
+}
+// Sinal da troca de bloco: bip (mais agudo e duplo no forte, grave no leve), vibração, flash colorido na tela inteira e voz.
+function _progSinal(e, fim) {
+  try {
+    const f = fim ? 'fim' : e.f;
+    if (f === 'forte') { _progBip(1040, 170); setTimeout(() => _progBip(1040, 170), 250); if (navigator.vibrate) navigator.vibrate([220, 90, 220]); }
+    else if (f === 'fim') { _progBip(784, 190); setTimeout(() => _progBip(988, 190), 240); setTimeout(() => _progBip(1319, 420), 480); if (navigator.vibrate) navigator.vibrate([250, 100, 250, 100, 450]); }
+    else if (f === 'leve') { _progBip(520, 260); if (navigator.vibrate) navigator.vibrate(160); }
+    else { _progBip(720, 240); if (navigator.vibrate) navigator.vibrate(180); }
+    _progFlash(fim ? '#22c55e' : _PROG_FASE[e.f].cor, fim ? 'CONCLUÍDO!' : e.n);
+    _progFalar(fim ? 'Programa concluído. Parabéns!' : e.n + (e.s >= 60 ? ', ' + _progMin(e.s) : ', ' + e.s + ' segundos'));
+  } catch (err) {}
+}
+function _progFlash(cor, texto) {
+  try {
+    document.getElementById('pg-flash')?.remove();
+    if (!document.getElementById('pg-flash-css')) { const st = document.createElement('style'); st.id = 'pg-flash-css'; st.textContent = '@keyframes pgFlash{0%{opacity:.95}60%{opacity:.85}100%{opacity:0}}'; document.head.appendChild(st); }
+    const d = document.createElement('div'); d.id = 'pg-flash';
+    d.style.cssText = 'position:fixed;inset:0;z-index:100100;pointer-events:none;display:flex;align-items:center;justify-content:center;background:' + cor + ';color:#0a0a0a;font-size:54px;font-weight:900;text-transform:uppercase;text-align:center;padding:20px;animation:pgFlash 1.6s ease-out forwards;';
+    d.textContent = texto; document.body.appendChild(d); setTimeout(() => d.remove(), 1700);
   } catch (e) {}
 }
 function _progSalvarAtivo() {
-  try { if (!_prog.rodando) { localStorage.removeItem(_PROG_ATIVO_KEY); return; } localStorage.setItem(_PROG_ATIVO_KEY, JSON.stringify({ id: _prog.id, sessao: _prog.sessao, ativ: _prog.ativ, i: _prog.i, fimMs: _prog.fimMs, restMs: _prog.restMs, pausado: _prog.pausado, acumSeg: _prog.acumSeg, iniMs: _prog.iniMs, salvoEm: Date.now() })); } catch (e) {}
+  try {
+    if (!_prog.rodando) { localStorage.removeItem(_PROG_ATIVO_KEY); return; }
+    const rest = _prog.fase === 'ativo' && !_prog.pausado ? Math.max(0, _prog.fimMs - Date.now()) : _prog.restMs;
+    localStorage.setItem(_PROG_ATIVO_KEY, JSON.stringify({ id: _prog.id, sessao: _prog.sessao, ativ: _prog.ativ, i: _prog.i, restMs: rest, ativoMs: _prog.ativoMs, fase: _prog.fase === 'pronto' ? 'pronto' : 'ativo', salvoEm: Date.now() }));
+  } catch (e) {}
 }
 function _progLerAtivo() { try { const st = JSON.parse(localStorage.getItem(_PROG_ATIVO_KEY) || 'null'); if (st && API.programaPorId(st.id) && Date.now() - (st.salvoEm || 0) < 3 * 3600 * 1000) return st; } catch (e) {} return null; }
 function _progTemAtivoSalvo() { return !!_progLerAtivo(); }
 function _progCarregarAtivo() { const st = _progLerAtivo(); if (st) { _prog.id = st.id; } }
-function _progRetomar() {
+function _progAudio() { try { if (!_prog.ctx) _prog.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (_prog.ctx.state === 'suspended') _prog.ctx.resume(); } catch (e) { _prog.ctx = null; } }
+function _progRetomar() {   // reabre o programa que ficou salvo, sempre pausado no ponto em que parou
   const st = _progLerAtivo(); if (!st) { toast('Esse programa já passou do tempo de retomada.'); _renderProgLista(); return; }
-  Object.assign(_prog, { id: st.id, sessao: st.sessao == null ? null : st.sessao, ativ: st.ativ, i: st.i, fimMs: st.fimMs, restMs: st.restMs, pausado: st.pausado, acumSeg: st.acumSeg, iniMs: st.iniMs, rodando: true });
-  _progIniciarRelogio(); _renderProgExecucao(); trocarView('cardio-prog');
+  Object.assign(_prog, { id: st.id, sessao: st.sessao == null ? null : st.sessao, ativ: st.ativ, i: st.i, restMs: st.restMs, ativoMs: st.ativoMs || 0, fase: st.fase === 'pronto' ? 'pronto' : 'ativo', pausado: true, rodando: true, ultTick: Date.now(), bipS: -1 });
+  _progAudio(); _progIniciarRelogio(); _renderProgExecucao(); trocarView('cardio-prog');
 }
-function _progIniciar() {
+function _progIniciar() {   // abre a tela do programa com o tempo PARADO, esperando o play
   if (!_progPermitido()) return;
   const p = API.programaPorId(_prog.id); if (!p) return;
   if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um programa.'); return; }
   if (_cardioLiveInicioMs) { toast('Finalize o cardio ao vivo em andamento antes de começar um programa.'); return; }
-  try { _prog.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (_prog.ctx.state === 'suspended') _prog.ctx.resume(); } catch (e) { _prog.ctx = null; }
-  Object.assign(_prog, { i: 0, fimMs: Date.now() + _progEt(p)[0].s * 1000, restMs: 0, pausado: false, acumSeg: 0, iniMs: Date.now(), rodando: true });
-  _progBip(660, 200);
+  _progAudio();
+  Object.assign(_prog, { i: 0, fase: 'pronto', pausado: true, restMs: _progEt(p)[0].s * 1000, fimMs: 0, ativoMs: 0, ultTick: Date.now(), bipS: -1, rodando: true });
   _progIniciarRelogio(); _progSalvarAtivo();
-  try { requestWakeLock(); } catch (e) {}
   _renderProgExecucao(); trocarView('cardio-prog');
 }
-function _progIniciarRelogio() { if (_prog.timer) clearInterval(_prog.timer); _prog.timer = setInterval(_progTick, 250); if (!_prog.ctx) { try { _prog.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } try { requestWakeLock(); } catch (e) {} }
-function _progTick() {
-  if (!_prog.rodando || _prog.pausado) return;
-  const p = API.programaPorId(_prog.id); if (!p) return;
-  let mudou = false;
-  while (Date.now() >= _prog.fimMs) {   // alcança etapas passadas se a tela ficou parada
-    _prog.acumSeg += _progEt(p)[_prog.i].s;
-    if (_prog.i >= _progEt(p).length - 1) { _progConcluir(true); return; }
-    _prog.i++; mudou = true;
-    _prog.fimMs += _progEt(p)[_prog.i].s * 1000;
+function _progIniciarRelogio() {
+  if (_prog.timer) clearInterval(_prog.timer);
+  _prog.timer = setInterval(_progTick, 200);
+  try { requestWakeLock(); } catch (e) {}
+}
+function _progPlay() {   // iniciar (com contagem regressiva) ou continuar depois de pausar
+  _progAudio();
+  if (_prog.fase === 'pronto') {
+    _prog.fase = 'contagem'; _prog.contFimMs = Date.now() + 3000; _prog.contN = 4; _progFalar('Prepare-se');
+    _renderProgExecucao(); _progTick(); return;
   }
-  if (mudou) { _progAviso(_progEt(p)[_prog.i].f); _progSalvarAtivo(); _renderProgExecucao(); }
-  else _progAtualizarRelogio();
+  if (_prog.fase === 'ativo' && _prog.pausado) {
+    _prog.fimMs = Date.now() + _prog.restMs; _prog.pausado = false; _prog.ultTick = Date.now(); _prog.bipS = -1;
+    _progSalvarAtivo(); _renderProgExecucao();
+  }
 }
-function _progDecorridoSeg() {
+function _progPausar() {
+  if (_prog.fase === 'pronto' || (_prog.fase === 'ativo' && _prog.pausado)) { _progPlay(); return; }
+  if (_prog.fase === 'contagem') return;
+  _prog.restMs = Math.max(0, _prog.fimMs - Date.now()); _prog.pausado = true;
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+  _progSalvarAtivo(); _renderProgExecucao();
+}
+function _progComecar() {   // fim da contagem: o 1º bloco começa
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  _prog.fase = 'ativo'; _prog.pausado = false; _prog.fimMs = Date.now() + _prog.restMs; _prog.ultTick = Date.now(); _prog.bipS = -1;
+  _progSinal(_progEt(p)[_prog.i], false); _progSalvarAtivo(); _renderProgExecucao();
+}
+function _progTick() {
+  if (!_prog.rodando) return;
+  const p = API.programaPorId(_prog.id); if (!p) return;
+  const agora = Date.now();
+  if (_prog.fase === 'contagem') {
+    const n = Math.max(1, Math.ceil((_prog.contFimMs - agora) / 1000));
+    if (agora >= _prog.contFimMs) { _progComecar(); return; }
+    if (n !== _prog.contN) { _prog.contN = n; _progBip(n === 1 ? 880 : 660, 200); try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {} const c = document.getElementById('pg-contagem'); if (c) c.textContent = n; _progFalar(String(n)); }
+    return;
+  }
+  if (_prog.fase !== 'ativo' || _prog.pausado) { _prog.ultTick = agora; return; }
+  _prog.ativoMs += agora - (_prog.ultTick || agora); _prog.ultTick = agora;
+  let mudou = false;
+  while (Date.now() >= _prog.fimMs) {   // alcança blocos já vencidos se a tela ficou parada
+    if (_prog.i >= _progEt(p).length - 1) { _progConcluir(true); return; }
+    _prog.i++; mudou = true; _prog.fimMs += _progEt(p)[_prog.i].s * 1000; _prog.bipS = -1;
+  }
+  if (mudou) { _progSinal(_progEt(p)[_prog.i], false); _progSalvarAtivo(); _renderProgExecucao(); return; }
+  // Avisos curtos nos 3 últimos segundos do bloco
+  const restS = Math.ceil((_prog.fimMs - Date.now()) / 1000);
+  if (restS <= 3 && restS >= 1 && restS !== _prog.bipS && _progEt(p)[_prog.i].s > 6) { _prog.bipS = restS; _progBip(restS === 1 ? 1000 : 780, 90, 0.22); }
+  _progAtualizarRelogio();
+}
+// Posição no programa (para o tempo decorrido/restante): blocos anteriores + parte já feita do bloco atual.
+function _progPosSeg() {
   const p = API.programaPorId(_prog.id); if (!p) return 0;
-  const e = _progEt(p)[_prog.i], rest = _prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now());
-  return Math.round(_prog.acumSeg + e.s - rest / 1000);
+  const et = _progEt(p); let antes = 0; for (let k = 0; k < _prog.i; k++) antes += et[k].s;
+  const rest = (_prog.fase === 'ativo' && !_prog.pausado) ? Math.max(0, _prog.fimMs - Date.now()) : _prog.restMs;
+  return Math.round(antes + et[_prog.i].s - rest / 1000);
 }
+function _progAtivoSeg() { return Math.round((_prog.ativoMs || 0) / 1000); }
 function _progAtualizarRelogio() {
   const p = API.programaPorId(_prog.id); if (!p) return;
-  const e = _progEt(p)[_prog.i], rest = _prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now());
+  const e = _progEt(p)[_prog.i], rest = (_prog.fase === 'ativo' && !_prog.pausado) ? Math.max(0, _prog.fimMs - Date.now()) : _prog.restMs;
   const t = document.getElementById('pg-tempo'); if (t) t.textContent = _progMMSS(rest);
-  const b = document.getElementById('pg-barra-etapa'); if (b) b.style.width = Math.min(100, Math.round((1 - rest / (e.s * 1000)) * 100)) + '%';
-  const total = API.programaDuracao(p, _prog.sessao), gt = document.getElementById('pg-barra-total'); if (gt) gt.style.width = Math.min(100, Math.round(_progDecorridoSeg() / total * 100)) + '%';
-  const rt = document.getElementById('pg-restante-total'); if (rt) rt.textContent = _progMMSS((total - _progDecorridoSeg()) * 1000) + ' restantes';
+  const pctBloco = Math.min(100, Math.round((1 - rest / (e.s * 1000)) * 100));
+  const b = document.getElementById('pg-barra-etapa'); if (b) b.style.width = pctBloco + '%';
+  const total = API.programaDuracao(p, _prog.sessao), pos = _progPosSeg();
+  const el = (id, v) => { const x = document.getElementById(id); if (x) x.textContent = v; };
+  el('pg-decorrido', _progMMSS(pos * 1000)); el('pg-restante', _progMMSS(Math.max(0, total - pos) * 1000));
+  const cur = document.getElementById('pg-seg-cur'); if (cur) cur.style.background = 'linear-gradient(90deg,' + _PROG_FASE[e.f].cor + ' ' + pctBloco + '%,rgba(128,128,128,.35) ' + pctBloco + '%)';
 }
+function _progIr(delta) {   // voltar (-1) ou avançar (+1) um bloco; "voltar" com o bloco já adiantado recomeça o bloco atual
+  if (_prog.fase === 'contagem') return;
+  const p = API.programaPorId(_prog.id); if (!p) return; const et = _progEt(p);
+  let alvo = _prog.i + delta;
+  if (delta < 0) {
+    const rest = (_prog.fase === 'ativo' && !_prog.pausado) ? Math.max(0, _prog.fimMs - Date.now()) : _prog.restMs;
+    if (et[_prog.i].s * 1000 - rest > 3000) alvo = _prog.i;   // recomeça este bloco
+  }
+  if (alvo < 0) alvo = 0;
+  if (alvo >= et.length) { _progEncerrar(); return; }   // avançar além do último = terminar
+  const rodando = _prog.fase === 'ativo' && !_prog.pausado;
+  _prog.i = alvo; _prog.restMs = et[alvo].s * 1000; _prog.fimMs = Date.now() + _prog.restMs; _prog.bipS = -1;
+  if (_prog.fase === 'pronto') { /* continua parado, mostrando o bloco escolhido */ }
+  if (rodando) _progSinal(et[alvo], false);
+  _progSalvarAtivo(); _renderProgExecucao();
+}
+function _progVoltarBloco() { _progIr(-1); }
+function _progPular() { _progIr(1); }
 function _renderProgExecucao() {
   const p = API.programaPorId(_prog.id); if (!p) return;
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
-  const e = _progEt(p)[_prog.i], prox = _progEt(p)[_prog.i + 1], fase = _PROG_FASE[e.f];
+  const et = _progEt(p), e = et[_prog.i], fase = _PROG_FASE[e.f];
   const isLight = document.body.classList.contains('tema-claro');
   const total = API.programaDuracao(p, _prog.sessao);
+  const pronto = _prog.fase === 'pronto', contando = _prog.fase === 'contagem', parado = pronto || (_prog.fase === 'ativo' && _prog.pausado);
+  // barra com um segmento por bloco (largura proporcional ao tempo): feitos cheios, atual em andamento, próximos apagados
+  const segs = et.map((x, k) => '<div ' + (k === _prog.i ? 'id="pg-seg-cur" ' : '') + 'style="flex:' + x.s + ';height:12px;border-radius:3px;background:' + (k < _prog.i ? _PROG_FASE[x.f].cor : (k === _prog.i ? 'rgba(128,128,128,.35)' : 'rgba(128,128,128,.22)')) + ';' + (k > _prog.i ? 'opacity:.8;' : '') + '"></div>').join('');
+  const prox = et.slice(_prog.i + 1, _prog.i + 4).map(x => '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid ' + (isLight ? '#eee' : '#262626') + ';"><span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:' + _PROG_FASE[x.f].cor + ';"></span><span style="flex:1;font-size:13.5px;font-weight:800;">' + esc(x.n) + '</span><span style="font-size:13px;color:#888;font-variant-numeric:tabular-nums;">' + _progMin(x.s) + '</span></div>').join('');
+  const restantesBlocos = et.length - 1 - _prog.i;
   box.innerHTML = '<button class="btn-back" onclick="_progSair()">← Sair do programa</button>' +
-    '<div style="text-align:center;font-size:12.5px;font-weight:800;color:#888;margin:2px 0 8px;">' + p.emoji + ' ' + esc(p.titulo) + (_progSessaoTit(p) ? ' · ' + esc(_progSessaoTit(p)) : '') + ' · ' + (CARDIO_LIVE_EMOJI[_prog.ativ] || '🏃') + ' ' + esc(_prog.ativ) + ' · etapa ' + (_prog.i + 1) + ' de ' + _progEt(p).length + '</div>' +
-    '<div style="border-radius:22px;padding:26px 16px 22px;text-align:center;background:' + fase.cor + ';color:#0a0a0a;">' +
+    '<div style="text-align:center;font-size:12.5px;font-weight:800;color:#888;margin:2px 0 8px;">' + p.emoji + ' ' + esc(p.titulo) + (_progSessaoTit(p) ? ' · ' + esc(_progSessaoTit(p)) : '') + ' · ' + (CARDIO_LIVE_EMOJI[_prog.ativ] || '🏃') + ' ' + esc(_prog.ativ) + ' · bloco ' + (_prog.i + 1) + ' de ' + et.length + '</div>' +
+    // bloco atual
+    '<div style="position:relative;border-radius:22px;padding:24px 16px 20px;text-align:center;background:' + fase.cor + ';color:#0a0a0a;' + (parado ? 'opacity:.92;' : '') + '">' +
       '<div style="font-size:15px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">' + esc(e.n) + '</div>' +
-      '<div id="pg-tempo" style="font-size:92px;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;margin:6px 0;">' + _progMMSS(_prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now())) + '</div>' +
+      '<div id="pg-tempo" style="font-size:88px;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;margin:6px 0;">' + _progMMSS(parado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now())) + '</div>' +
       '<div style="font-size:14px;font-weight:700;line-height:1.4;min-height:20px;">' + esc(e.d || '') + '</div>' +
-      '<div style="height:8px;border-radius:6px;background:rgba(0,0,0,.2);margin-top:16px;overflow:hidden;"><div id="pg-barra-etapa" style="height:100%;width:0%;background:rgba(0,0,0,.55);"></div></div>' +
+      '<div style="height:8px;border-radius:6px;background:rgba(0,0,0,.2);margin-top:14px;overflow:hidden;"><div id="pg-barra-etapa" style="height:100%;width:0%;background:rgba(0,0,0,.55);"></div></div>' +
+      (contando ? '<div style="position:absolute;inset:0;border-radius:22px;background:rgba(10,10,10,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;"><div style="font-size:14px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;opacity:.85;">Prepare-se</div><div id="pg-contagem" style="font-size:120px;font-weight:900;line-height:1;">3</div></div>' : '') +
     '</div>' +
-    '<div style="margin:14px 2px 4px;font-size:12.5px;color:#888;">' + (prox ? 'A seguir: <b style="color:' + (isLight ? '#222' : '#eee') + ';">' + esc(prox.n) + ' · ' + _progMin(prox.s) + '</b>' : 'Última etapa. Falta pouco!') + '</div>' +
-    '<div style="height:6px;border-radius:5px;background:' + (isLight ? '#e5e5e5' : '#242424') + ';overflow:hidden;margin:6px 2px 4px;"><div id="pg-barra-total" style="height:100%;width:0%;background:linear-gradient(90deg,#7FFF00,#40c000);"></div></div>' +
-    '<div id="pg-restante-total" style="font-size:11.5px;color:#888;text-align:right;margin:0 2px 14px;"></div>' +
-    '<div style="display:flex;gap:8px;">' +
-      '<button onclick="_progPausar()" class="btn btn-sec" style="flex:2;padding:15px;font-size:15px;font-weight:800;">' + (_prog.pausado ? '▶ Continuar' : '⏸ Pausar') + '</button>' +
-      '<button onclick="_progPular()" class="btn btn-sec" style="flex:1;padding:15px;" title="Pular etapa">⏭</button>' +
-      '<button onclick="_progEncerrar()" class="btn btn-sec" style="flex:1;padding:15px;color:#f87171;border-color:rgba(248,113,113,.4);" title="Encerrar">⏹</button>' +
+    // tempo total
+    '<div style="margin:14px 0 4px;padding:12px 14px;border-radius:16px;background:' + (isLight ? '#fff' : '#141414') + ';border:1px solid ' + (isLight ? '#e5e5e5' : '#262626') + ';">' +
+      '<div style="display:flex;justify-content:space-between;text-align:center;margin-bottom:10px;">' +
+        '<div style="flex:1;"><div id="pg-decorrido" style="font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;">00:00</div><div style="font-size:10.5px;color:#888;text-transform:uppercase;letter-spacing:.05em;">Decorrido</div></div>' +
+        '<div style="flex:1;"><div id="pg-restante" style="font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">00:00</div><div style="font-size:10.5px;color:#888;text-transform:uppercase;letter-spacing:.05em;">Restante</div></div>' +
+        '<div style="flex:1;"><div style="font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;">' + _progMMSS(total * 1000) + '</div><div style="font-size:10.5px;color:#888;text-transform:uppercase;letter-spacing:.05em;">Total</div></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:2px;">' + segs + '</div>' +
     '</div>' +
-    '<div style="font-size:11px;color:#888;text-align:center;margin:14px 6px 0;line-height:1.5;">Mantenha esta tela aberta: ela fica ligada e avisa com som e vibração a cada troca.</div>';
+    // o que vem depois
+    '<div style="margin:10px 2px 2px;"><div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;">' + (prox ? 'A seguir' : 'Último bloco') + (restantesBlocos > 3 ? ' (mais ' + (restantesBlocos - 3) + ' depois)' : '') + '</div>' + (prox || '<div style="font-size:13px;color:#888;padding:6px 0;">Falta pouco para terminar!</div>') + '</div>' +
+    // controles
+    (pronto
+      ? '<button onclick="_progPlay()" class="btn btn-prim btn-full" style="margin-top:12px;padding:18px;font-size:18px;font-weight:900;">▶ Iniciar</button><div style="font-size:12px;color:#888;text-align:center;margin-top:8px;line-height:1.5;">O tempo está parado. Ao tocar em Iniciar há uma contagem de 3 segundos e o programa segue sozinho, com som, vibração e voz a cada troca. Você não precisa tocar mais na tela.</div>'
+      : '<div style="display:flex;gap:8px;margin-top:12px;">' +
+          '<button onclick="_progVoltarBloco()" class="btn btn-sec" style="flex:1;padding:15px;font-size:17px;" title="Voltar o bloco" ' + (contando ? 'disabled' : '') + '>⏮</button>' +
+          '<button onclick="_progPausar()" class="btn btn-prim" style="flex:2;padding:15px;font-size:16px;font-weight:900;" ' + (contando ? 'disabled' : '') + '>' + (parado ? '▶ Continuar' : '⏸ Pausar') + '</button>' +
+          '<button onclick="_progPular()" class="btn btn-sec" style="flex:1;padding:15px;font-size:17px;" title="Avançar o bloco" ' + (contando ? 'disabled' : '') + '>⏭</button>' +
+          '<button onclick="_progEncerrar()" class="btn btn-sec" style="flex:1;padding:15px;color:#f87171;border-color:rgba(248,113,113,.4);" title="Encerrar">⏹</button></div>') +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin:12px 2px 0;font-size:11.5px;color:#888;"><span>Mantenha o app aberto: a tela fica ligada.</span><span onclick="_progVoz()" style="cursor:pointer;font-weight:800;color:' + (_progVozOn() ? (isLight ? '#2d8a00' : '#7FFF00') : '#888') + ';">' + (_progVozOn() ? '🔊 Voz ligada' : '🔇 Voz desligada') + '</span></div>';
   _progAtualizarRelogio();
 }
-function _progPausar() {
-  if (_prog.pausado) { _prog.fimMs = Date.now() + _prog.restMs; _prog.pausado = false; }
-  else { _prog.restMs = Math.max(0, _prog.fimMs - Date.now()); _prog.pausado = true; }
-  _progSalvarAtivo(); _renderProgExecucao();
-}
-function _progPular() {
-  const p = API.programaPorId(_prog.id); if (!p) return;
-  _prog.acumSeg += Math.round(_progEt(p)[_prog.i].s - (_prog.pausado ? _prog.restMs : Math.max(0, _prog.fimMs - Date.now())) / 1000);   // só conta o tempo realmente feito
-  if (_prog.i >= _progEt(p).length - 1) { _progConcluir(true); return; }
-  _prog.i++; _prog.fimMs = Date.now() + _progEt(p)[_prog.i].s * 1000; _prog.pausado = false;
-  _progAviso(_progEt(p)[_prog.i].f); _progSalvarAtivo(); _renderProgExecucao();
-}
-function _progParar() { if (_prog.timer) { clearInterval(_prog.timer); _prog.timer = null; } _prog.rodando = false; _prog.pausado = false; try { localStorage.removeItem(_PROG_ATIVO_KEY); } catch (e) {} try { releaseWakeLock(); } catch (e) {} }
+function _progParar() { if (_prog.timer) { clearInterval(_prog.timer); _prog.timer = null; } _prog.rodando = false; _prog.pausado = false; _prog.fase = 'pronto'; try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {} try { localStorage.removeItem(_PROG_ATIVO_KEY); } catch (e) {} try { releaseWakeLock(); } catch (e) {} }
 function _progSair() {
   if (!_prog.rodando) { abrirProgramasCardio(); return; }
+  if (_prog.fase === 'pronto') { _progParar(); abrirProgramasCardio(); return; }   // ainda nem começou: sai direto
   _progEncerrar();
 }
 function _progEncerrar() {
-  const feito = _progDecorridoSeg();
+  const feito = _progAtivoSeg();
   const p = API.programaPorId(_prog.id);
   const podeSalvar = feito >= 5 * 60;
+  if (_prog.fase === 'ativo' && !_prog.pausado) _progPausar();   // para o relógio enquanto decide
   document.getElementById('prog-fim-ov')?.remove();
   const ov = document.createElement('div');
   ov.id = 'prog-fim-ov';
@@ -11440,16 +11543,24 @@ function _progEncerrar() {
     '<div style="font-size:13px;color:#888;line-height:1.55;margin-bottom:16px;">Você fez ' + _progMin(Math.max(0, feito)) + ' de ' + _progMin(API.programaDuracao(p, _prog.sessao)) + '. ' + (podeSalvar ? 'Dá para registrar o que fez como cardio. Como o programa não foi concluído, ele não vale o ponto extra nem os distintivos.' : 'Com menos de 5 minutos não dá para registrar.') + '</div>' +
     (podeSalvar ? '<button class="btn btn-prim btn-full" onclick="document.getElementById(\'prog-fim-ov\').remove();_progConcluir(false)">Registrar o que fiz</button>' : '') +
     '<button class="btn btn-sec btn-full" style="margin-top:8px;" onclick="document.getElementById(\'prog-fim-ov\').remove();_progParar();abrirProgramasCardio()">Encerrar sem registrar</button>' +
-    '<button class="btn btn-sec btn-full" style="margin-top:8px;border:none;" onclick="document.getElementById(\'prog-fim-ov\').remove()">Continuar o programa</button></div>';
+    '<button class="btn btn-sec btn-full" style="margin-top:8px;border:none;" onclick="document.getElementById(\'prog-fim-ov\').remove()">Voltar ao programa</button></div>';
   document.body.appendChild(ov);
 }
 async function _progConcluir(completo) {
   const p = API.programaPorId(_prog.id); if (!p) return;
-  const seg = completo ? API.programaDuracao(p, _prog.sessao) : _progDecorridoSeg();
+  const total = API.programaDuracao(p, _prog.sessao);
+  // Duração registrada = tempo realmente em andamento (limitado ao total). Quem avançou blocos para acabar cedo não passa dos 90%.
+  const seg = Math.min(total, _progAtivoSeg());
+  const completoReal = completo && seg >= 0.9 * total;
   const ativ = _prog.ativ, _progSessaoGravar = _prog.sessao;
-  if (completo) _progAviso('fim');
+  if (completoReal) _progSinal(null, true);
   _progParar();
   const min = Math.max(1, Math.round(seg / 60));
+  if (min < 5) {   // salvarCardio exige 5 min; mostra o resultado sem registrar
+    const box = document.getElementById('v-cardio-prog');
+    if (box) box.innerHTML = '<div style="text-align:center;padding:40px 14px;"><div style="font-size:54px;">⏱️</div><h2 class="sect-title">Menos de 5 minutos</h2><p style="font-size:13px;color:#888;line-height:1.55;">O cardio precisa ter pelo menos 5 minutos em andamento para ser registrado.</p><button class="btn btn-prim btn-full" style="margin-top:16px;" onclick="abrirProgramasCardio()">Ver programas</button></div>';
+    return;
+  }
   // Reaproveita o registro de cardio de sempre (limite diário, plausibilidade e pontos continuam sendo decididos como em todo cardio).
   renderCardio();
   const selTipo = document.getElementById('cardio-tipo'); if (selTipo) selTipo.value = ativ;
@@ -11458,7 +11569,7 @@ async function _progConcluir(completo) {
   _cardioRpe = p.rpe;
   salvarCardio({
     silencioso: true, comentario: 'Programa: ' + p.titulo + (p.sessoes && p.sessoes[_progSessaoGravar] ? ' · ' + p.sessoes[_progSessaoGravar].id : ''),
-    onDone: function (dados) { _progResultado(p, completo, seg, dados); },
+    onDone: function (dados) { _progResultado(p, completoReal, seg, dados); },
   });
 }
 async function _progResultado(p, completo, seg, dados) {

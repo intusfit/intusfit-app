@@ -3750,8 +3750,15 @@ const API = {
   // ── TREINO FORA DO PROTOCOLO ─────────────────────────────────────────
   // Treino que o aluno marca à mão (fez com outra pessoa ou trocou os exercícios da ficha): sessão de musculação com divisao 'F'.
   // Vale PONTOS_FORA_PROTOCOLO (fixo, não entra na ordem do dia: não faz o treino da ficha virar "o segundo") e conta como dia de treino.
+  // O marcador é a divisão 'FORA' (a coluna tem 4 caracteres). NÃO usar 'F': fichas têm divisão F de verdade (Treino F) e ela valeria 5 pontos.
+  // Por compatibilidade, a sessão de teste criada antes disso (divisão F, sem ficha, comentário "Fora do protocolo") também é reconhecida.
   PONTOS_FORA_PROTOCOLO: 5,
-  foraProtocolo: (s) => !!s && String(s.divisao || '').toUpperCase() === 'F' && API.ehMusculacaoRank(s),
+  foraProtocolo: (s) => {
+    if (!s || !API.ehMusculacaoRank(s)) return false;
+    const d = String(s.divisao || '').toUpperCase();
+    if (d === 'FORA') return true;
+    return d === 'F' && !s.idficha && /^Fora do protocolo/.test(String(s.comentario || ''));
+  },
   cardioPontosBase: (tipo, rpe, minutos) => {
     const K = API.CARDIO_PONTOS, m = API.CARDIO_METS[tipo] || API.CARDIO_METS['Outro'];
     const esforco = Math.max(1, Math.min(10, Number(rpe) || 5));
