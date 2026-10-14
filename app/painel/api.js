@@ -3731,6 +3731,16 @@ const API = {
     return dur >= 0.9 * API.programaDuracao(p, idx) ? { p: p, idx: idx } : null;
   },
   programaDaSessao: (s) => { const r = API.programaSessaoInfo(s); return r ? r.p : null; },
+  // Para exibir (histórico, ranking, painel): o programa do comentário da sessão, mesmo que não tenha sido concluído. { p, idx, titulo, concluido } ou null.
+  programaDoComentario: (s) => {
+    if (!s || API.ehMusculacaoRank(s)) return null;
+    const m = /^Programa: (.+?)(?: · (S\d+T\d+))?$/.exec(String(s.comentario || '').trim());
+    if (!m) return null;
+    const p = API.PROGRAMAS_CARDIO.find((x) => x.titulo === m[1]); if (!p) return null;
+    let idx = null; if (Array.isArray(p.sessoes)) { idx = p.sessoes.findIndex((x) => x.id === m[2]); if (idx < 0) idx = null; }
+    const dur = Number(s.duracao_seg != null ? s.duracao_seg : s.dur) || 0;
+    return { p: p, idx: idx, titulo: p.titulo + (idx != null ? ' · ' + p.sessoes[idx].titulo : ''), concluido: dur >= 0.9 * API.programaDuracao(p, idx) };
+  },
   // Métricas dos distintivos (aceita sessões do ranking ou do aluno: duracao_seg ou dur): treinos guiados concluídos, programas
   // DIFERENTES concluídos (o curso só conta quando os 24 treinos foram feitos) e se o curso completo foi cumprido.
   metricasProgramas: (sessoes) => {

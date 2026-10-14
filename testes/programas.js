@@ -93,5 +93,15 @@ console.log('\n── O Treino F de verdade (divisão F da ficha) NÃO é fora d
   const teste = mus('2026-10-12', 33, { divisao: 'F', idficha: null, comentario: 'Fora do protocolo (outro motivo): viagem' });
   eq('a sessão de teste antiga (F, sem ficha, comentário "Fora do protocolo") ainda é reconhecida e não derruba o Treino F real', A.foraProtocolo(teste) && A.pontosSessaoRank(teste, [teste, realF]) === 5 && A.pontosSessaoRank(realF, [teste, realF]) === 10);
 }
+console.log('\n── Exibição do programa no histórico e no ranking ──');
+{
+  const d = A.programaDoComentario(car('2026-10-13', 1, 'Programa: Tabata', A.programaDuracao(ID('tabata'))));
+  eq('mostra o método e se foi concluído', d && d.titulo === 'Tabata' && d.concluido === true);
+  const parcial = A.programaDoComentario(car('2026-10-13', 1, 'Programa: Tabata', 600));
+  eq('programa parcial aparece (como parcial), mesmo sem valer ponto extra', parcial && parcial.concluido === false && A.programaDaSessao(car('2026-10-13', 1, 'Programa: Tabata', 600)) === null);
+  const c = A.programaDoComentario(car('2026-10-13', 1, 'Programa: Do sofá aos 5 km · S2T1', 1900));
+  eq('curso mostra a semana e o treino', c && c.titulo === 'Do sofá aos 5 km · Semana 2 · Treino 1');
+  eq('cardio comum e musculação não são programa', A.programaDoComentario(car('2026-10-13', 1, 'Corrida · 30min', 1800)) === null && A.programaDoComentario(mus('2026-10-13', 1, { comentario: 'Programa: Tabata' })) === null);
+}
 console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
 process.exit(ruim ? 1 : 0);

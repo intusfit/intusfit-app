@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261013d"></script>
+  <script src="api.js?v=20261013e"></script>
   <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -1444,7 +1444,7 @@ function abrirCompartilharCardio(dados) {
     distKm: distKm,
     kcal: _estimarKcalCardio(dados.tipo, minutos),
     nomeAluno: (typeof user !== 'undefined' && user && user.nome) ? String(user.nome).split(' ').slice(0,2).join(' ') : 'Atleta Intus',
-    nomeTreino: (CARDIO_LIVE_EMOJI[dados.tipo] || '🏃') + ' ' + dados.tipo,
+    nomeTreino: dados.nomeTreino || ((CARDIO_LIVE_EMOJI[dados.tipo] || '🏃') + ' ' + dados.tipo),
     fig: _figPick(_figurinhasList()),
     mensagem: 'Cardio de hoje concluído! ' + (CARDIO_LIVE_EMOJI[dados.tipo] || '🏃'),
   };
@@ -9916,11 +9916,16 @@ function _histCardHtml(s, sessoes, isLight, comExcluir) {
   const cor = ehCardio ? '#06b6d4' : divisaoCor(s.divisao);
   const alertaLbl = s.nao_contar ? '⏱️ Não contabilizado (teste)' : s.alerta_duracao === 'longo' ? '⚠️ Duração longa (+3h)' : s.alerta_duracao === 'curto' ? '⚠️ Muito curto (-5min)' : '';
   const baseStyle = s.nao_contar ? 'border-left:3px solid #888;opacity:.7;' : ('border-left:3px solid ' + cor + ';');
-  const tituloHtml = ehCardio
+  const prog = ehCardio ? API.programaDoComentario(s) : null;
+  const tituloHtml = prog
+    ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>${prog.p.emoji} <b>${esc(prog.titulo)}</b> <span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;vertical-align:middle;background:${prog.concluido ? 'rgba(127,255,0,.15)' : 'rgba(245,158,11,.15)'};color:${prog.concluido ? (isLight ? '#2d8a00' : '#7FFF00') : '#f59e0b'};">${prog.concluido ? '✓ concluído' : 'parcial'}</span>`
+    : ehCardio
     ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>${_iconCardio(isLight)} ${esc(s.cardio_tipo || 'Cardio')}${s.cardio_intensidade ? ' · ' + esc(s.cardio_intensidade) : ''}`
     : `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;"></span>${API.foraProtocolo(s) ? 'Fora do protocolo' : 'Divisão ' + esc(s.divisao)} ${s.marcado_como_feito?'☑️':'✅'}`;
   const ptsLbl = (!s.nao_contar && pts > 0) ? ` • <b style="color:${isLight?'#5cb800':'#7FFF00'};">+${pts} pts</b>` : '';
-  const subHtml = ehCardio
+  const subHtml = prog
+    ? `⏱️ <b>${durMin} min</b> de treino (programa de ${Math.round(API.programaDuracao(prog.p, prog.idx) / 60)} min) • ${_iconCardio(isLight)} ${esc(s.cardio_tipo || 'Cardio')}${ptsLbl}`
+    : ehCardio
     ? `⏱️ ${durMin}min${ptsLbl}${cardioExtra ? ' • ' + esc(cardioExtra) : ''}`
     : `⏱️ ${durMin}min${totalKgReps > 0 ? ` • 🏋️ ${Math.round(totalKgReps).toLocaleString('pt-BR')} kg` : ''}${s.marcado_como_feito ? ' • Marcado como feito' : ` • ${seriesP} séries`}${ptsLbl}`;
   const comentHtml = (!ehCardio && s.comentario) ? `<div class="hist-comment">💬 "${esc(s.comentario)}"</div>` : '';
@@ -11067,6 +11072,12 @@ function confirmarCardio() {
 
 // Revela o resultado só depois de confirmar. onClose roda ao fechar (para encadear a comemoração).
 let _cardioResultOnClose = null;
+// Linha de cardio nas listas de atividade (perfil e ranking): se foi um programa, o método aparece em destaque com o tempo real.
+function _atvCardioTxt(c, min) {
+  const pr = API.programaDoComentario(c);
+  if (pr) return pr.p.emoji + ' <b>' + esc(pr.titulo) + '</b> · ' + esc(c.cardio_tipo || 'Cardio') + ' · ' + min + ' min' + (pr.concluido ? ' ✓' : ' (parcial)');
+  return '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min'));
+}
 function mostrarResultadoCardio(pts, tipo, min, motivo, onClose) {
   _cardioResultOnClose = onClose || null;
   const isLight = document.body.classList.contains('tema-claro');
@@ -11572,6 +11583,7 @@ async function _progConcluir(completo) {
     onDone: function (dados) { _progResultado(p, completoReal, seg, dados); },
   });
 }
+function _progCompartilhar() { const r = _prog.ultimoResultado || {}; abrirCompartilharCardio({ tipo: r.tipo || _prog.ativ || 'Corrida', min: r.min || 0, distKm: 0, nomeTreino: r.nomeTreino }); }
 async function _progResultado(p, completo, seg, dados) {
   _rankingData = null; _rkUltimaBusca = 0;
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
@@ -11585,8 +11597,15 @@ async function _progResultado(p, completo, seg, dados) {
       '⏱ Pontos do tempo: <b>+' + (dados && dados.ptsExib != null ? dados.ptsExib : 0) + '</b>' + (dados && dados.motivo === 'limite' ? ' <span style="color:#888;">(o limite de cardios do dia já foi atingido)</span>' : '') + '<br>' +
       (completo ? (valeu ? '⭐ Ponto extra do programa: <b>+1</b> (1 por dia com programa concluído)<br>🏅 Conta para os distintivos de programas' : '🏅 Programa concluído, mas o limite de cardios do dia já foi atingido: sem ponto extra hoje') : 'Programa não concluído: sem ponto extra nem distintivo.') +
     '</div>' +
-    '<button class="btn btn-prim btn-full" style="margin-top:20px;" onclick="abrirProgramasCardio()">Ver programas</button>' +
-    '<button class="btn btn-sec btn-full" style="margin-top:8px;" onclick="navegar(\'home\')">Ir para o início</button></div>';
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px;">' +
+      '<button class="btn btn-prim" style="grid-column:1 / -1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="_progCompartilhar()">📸 Compartilhar cardio</button>' +
+      '<button class="btn btn-sec" onclick="trocarView(\'home\');renderHome();">🏠 Início</button>' +
+      '<button class="btn btn-sec" onclick="abrirRanking()">🏆 Ranking</button>' +
+      '<button class="btn btn-sec" onclick="abrirQuadroMedalhas()">🏅 Conquistas</button>' +
+      '<button class="btn btn-sec" onclick="navegar(\'historico\')">📊 Histórico</button>' +
+      '<button class="btn btn-sec" style="grid-column:1 / -1;" onclick="abrirProgramasCardio()">🔥 Ver outros programas</button>' +
+    '</div></div>';
+  _prog.ultimoResultado = { tipo: dados && dados.tipo, min: dados && dados.min, nomeTreino: p.emoji + ' ' + p.titulo + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + p.sessoes[_prog.sessao].titulo : '') };
   _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
 }
 
@@ -12689,8 +12708,8 @@ function _perfilSemanaAnteriorHtml(id, st, isLight, isMe, nome) {
     const isCardio = c.tipo === 'cardio';
     const min = Math.round((c.duracao_seg || 0) / 60);
     const txt = isCardio
-      ? '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min'))
-      : '💪 Treino' + (c.divisao && c.divisao !== 'C' ? ' ' + esc(String(c.divisao)) : '') + (min ? ' · ' + min + 'min' : '');
+      ? _atvCardioTxt(c, min)
+      : (API.foraProtocolo(c) ? '📝 Fora do protocolo' + (min ? ' · ' + min + 'min' : '') : '💪 Treino' + (c.divisao && c.divisao !== 'C' ? ' ' + esc(String(c.divisao)) : '') + (min ? ' · ' + min + 'min' : ''));
     const col = isCardio ? (isLight ? '#0e7490' : '#67e8f9') : (isLight ? '#3f6212' : '#a3e635');
     const bgc = isCardio ? (isLight ? '#f0fbff' : '#0c1a1f') : (isLight ? '#f4fce3' : '#141a08');
     const bdc = isCardio ? (isLight ? '#bae6fd' : '#164e63') : (isLight ? '#d9f99d' : '#365314');
@@ -12903,8 +12922,8 @@ async function abrirPerfilRanking(id, social, alvo) {   // alvo: elemento onde o
         const min = Math.round((c.duracao_seg||0)/60);
         const selo = (isCardio && Number(c.ao_vivo) === 1) ? ' <span title="Rastreado ao vivo pelo app" style="display:inline-block;white-space:nowrap;font-size:9px;font-weight:800;color:#0ea5e9;">🔴AO VIVO</span>' : '';
         const txt = isCardio
-          ? '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min')) + selo
-          : '💪 Treino' + (c.divisao && c.divisao !== 'C' ? ' ' + esc(String(c.divisao)) : '') + (min ? ' · ' + min + 'min' : '');
+          ? _atvCardioTxt(c, min) + selo
+          : (API.foraProtocolo(c) ? '📝 Fora do protocolo' + (min ? ' · ' + min + 'min' : '') : '💪 Treino' + (c.divisao && c.divisao !== 'C' ? ' ' + esc(String(c.divisao)) : '') + (min ? ' · ' + min + 'min' : ''));
         const dtF = c.dt.toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'2-digit' });
         const col = isCardio ? (isLight?'#0e7490':'#67e8f9') : (isLight?'#3f6212':'#a3e635');
         const bgc = isCardio ? (isLight?'#f0fbff':'#0c1a1f') : (isLight?'#f4fce3':'#141a08');
