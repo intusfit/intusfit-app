@@ -728,6 +728,15 @@ try {
         }
         $idExcluir = (int)$sessao['user_id'];
 
+        // Motivo informado pelo aluno (opcional para versões antigas do app: sem motivo, grava "não informado").
+        $motivosOk = ['preco' => 'Preço / não cabe no orçamento', 'tempo' => 'Falta de tempo', 'nao_uso' => 'Não estou usando o app',
+                      'treino' => 'Não gostei do treino ou do atendimento', 'mudei' => 'Mudei de cidade ou parei de treinar',
+                      'privacidade' => 'Preocupação com privacidade', 'outro' => 'Outro motivo'];
+        $motivoCod = strtolower(trim((string)($body['motivo'] ?? '')));
+        $motivoTxt = $motivosOk[$motivoCod] ?? 'Não informado';
+        $detalhe = trim((string)($body['detalhe'] ?? ''));
+        $detalhe = function_exists('mb_substr') ? mb_substr($detalhe, 0, 500) : substr($detalhe, 0, 500);
+
         if (!in_array('exclusao_solicitada_em', $colunas)) {
             try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `exclusao_solicitada_em` DATETIME NULL"); $colunas[] = 'exclusao_solicitada_em'; } catch (Throwable $e) {}
         }
@@ -745,6 +754,25 @@ try {
             exit;
         }
 
+        // Motivo para o painel (tabela nova, só recebe linhas: nenhum dado de aluno é alterado). Falhar aqui não impede a exclusão.
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS intus_exclusao_conta (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                idatleta INT NOT NULL,
+                nome VARCHAR(160) NULL,
+                motivo_cod VARCHAR(20) NOT NULL DEFAULT '',
+                motivo VARCHAR(120) NOT NULL DEFAULT '',
+                detalhe VARCHAR(600) NULL,
+                criado_em DATETIME NOT NULL,
+                INDEX (idatleta), INDEX (criado_em)
+            ) DEFAULT CHARSET=utf8mb4");
+            $stN = $pdo->prepare("SELECT `$col_nome` FROM `$tabela` WHERE $col_id = ? LIMIT 1");
+            $stN->execute([$idExcluir]);
+            $nomeExc = (string)($stN->fetchColumn() ?: '');
+            $pdo->prepare("INSERT INTO intus_exclusao_conta (idatleta, nome, motivo_cod, motivo, detalhe, criado_em) VALUES (?,?,?,?,?,NOW())")
+                ->execute([$idExcluir, $nomeExc, $motivoCod, $motivoTxt, $detalhe !== '' ? $detalhe : null]);
+        } catch (Throwable $e) {}
+
         // E-mail pra equipe finalizar manualmente — mesmo destino já usado
         // pelo aviso de novo cadastro.
         try {
@@ -754,7 +782,7 @@ try {
             $_cfgN = @include __DIR__ . '/../config/smtp.php';
             $emailNotif = (is_array($_cfgN) && !empty($_cfgN['notificar'])) ? $_cfgN['notificar'] : 'contato@intusfit.com.br';
             @intus_enviar_email($emailNotif, 'Pedido de exclusão de conta: ' . ($rowE[$col_nome] ?? ('#' . $idExcluir)),
-                "Um aluno pediu exclusão da conta pelo app.\n\nNome: " . ($rowE[$col_nome] ?? '-') . "\nE-mail: " . ($rowE[$col_email] ?? '-') . "\nID: $idExcluir\nData: " . date('d/m/Y H:i') . "\n\nO acesso já foi bloqueado. Finalize a exclusão dos dados pelo painel em até 30 dias, conforme a política de privacidade.",
+                "Um aluno pediu exclusão da conta pelo app.\n\nNome: " . ($rowE[$col_nome] ?? '-') . "\nE-mail: " . ($rowE[$col_email] ?? '-') . "\nID: $idExcluir\nMotivo: $motivoTxt" . ($detalhe !== '' ? "\nObservação do aluno: $detalhe" : '') . "\nData: " . date('d/m/Y H:i') . "\n\nO acesso já foi bloqueado. Finalize a exclusão dos dados pelo painel em até 30 dias, conforme a política de privacidade.",
                 $rowE[$col_email] ?? null);
         } catch (Throwable $e) {}
 

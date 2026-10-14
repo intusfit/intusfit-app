@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Início — Intus</title>
   <script src="_mock.js?v=20261013b"></script>
-  <script src="api.js?v=20261013e"></script>
+  <script src="api.js?v=20261013f"></script>
   <style>
     .checklist-card { padding: 16px; }
     .checklist-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -1086,6 +1086,27 @@ function render() {
         </button>
       </div>
 
+      ${(window._exclusoesConta || []).length ? `
+      <!-- PEDIDOS DE EXCLUSÃO DE CONTA (com o motivo informado pelo aluno) -->
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(248,113,113,.16),rgba(248,113,113,.04));border:1.5px solid rgba(248,113,113,.55);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <span style="font-size:26px;">🗑️</span>
+          <div style="flex:1;">
+            <div style="font-size:15px;font-weight:800;color:#f87171;">${window._exclusoesConta.length} pedido${window._exclusoesConta.length>1?'s':''} de exclusão de conta (últimos 60 dias)</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">O acesso do aluno já foi bloqueado. Finalize a exclusão dos dados pelo painel em até 30 dias e use o motivo para entender o que pode melhorar.</div>
+          </div>
+        </div>
+        ${window._exclusoesConta.slice(0, 8).map(x => `
+          <a href="alunos.html?busca=${encodeURIComponent(x.nome || '')}" style="text-decoration:none;display:block;padding:10px 12px;border-radius:10px;margin-top:6px;background:rgba(0,0,0,.18);border:1px solid rgba(248,113,113,.25);">
+            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <b style="color:var(--text);font-size:13.5px;">${esc(x.nome || ('Aluno #' + x.idatleta))}</b>
+              <span style="font-size:11.5px;color:var(--text-muted);">${esc(String(x.criado_em || '').slice(8,10) + '/' + String(x.criado_em || '').slice(5,7) + '/' + String(x.criado_em || '').slice(0,4))}</span>
+            </div>
+            <div style="margin-top:4px;font-size:13px;"><span style="font-weight:800;color:#f87171;">Motivo:</span> <b style="color:var(--text);">${esc(x.motivo || 'Não informado')}</b></div>
+            ${x.detalhe ? `<div style="margin-top:3px;font-size:12.5px;color:var(--text-muted);line-height:1.5;">“${esc(x.detalhe)}”</div>` : ''}
+          </a>`).join('')}
+      </div>` : ''}
+
       ${lnovos.length ? `
       <!-- AVISO DE LEADS NOVOS -->
       <a href="alunos.html" style="text-decoration:none;">
@@ -1308,6 +1329,13 @@ async function preFetchBackend() {
     // Espelha no Store (listarFichas e listarTodosTreinos ja espelham; mensalidades nao)
     if (Array.isArray(atl))  Store.set('atletas',      atl);
     if (Array.isArray(mens)) Store.set('mensalidades', mens);
+  } catch (e) { /* silencioso */ }
+  // Pedidos de exclusão de conta feitos pelo aluno (com o motivo), vindos do resumo do servidor
+  try {
+    if (typeof API !== 'undefined' && typeof API.getDashboard === 'function') {
+      const dash = await API.getDashboard();
+      window._exclusoesConta = (dash && Array.isArray(dash.exclusoes)) ? dash.exclusoes : [];
+    }
   } catch (e) { /* silencioso */ }
 }
 

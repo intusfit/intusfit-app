@@ -3682,7 +3682,7 @@ const API = {
     ];
     const sessoes5k = [];
     SEMANAS.forEach((trs, w) => trs.forEach((blocos, t) => sessoes5k.push({ id: 'S' + (w + 1) + 'T' + (t + 1), titulo: 'Semana ' + (w + 1) + ' · Treino ' + (t + 1), etapas: [aq(300, 'Caminhada rápida para aquecer.')].concat(blocos, [calma(300, 'Caminhe devagar e respire fundo.')]) })));
-    return [
+    const lista = [
       { id: 'sofa-5km', titulo: 'Do sofá aos 5 km', sub: '8 semanas, 3 treinos por semana', emoji: '🛋️', rpe: 6, nivel: 'Iniciante', atividades: ['Corrida'], sessoes: sessoes5k,
         resumo: 'Um plano de 8 semanas para sair do zero e correr 30 minutos seguidos (cerca de 5 km). Você alterna corrida e caminhada e vai aumentando o trote a cada semana. Faça 3 treinos por semana, com um dia de descanso entre eles.',
         aviso: 'Em ritmo leve, em que dê para conversar. Se sentir dor, tontura ou falta de ar fora do normal, pare. Se uma semana ficar difícil, repita os treinos dela antes de avançar.' },
@@ -3702,7 +3702,7 @@ const API = {
         resumo: 'Quatro blocos de 4 minutos em ritmo forte, com 3 minutos leves entre eles.',
         aviso: 'Avançado: mantenha um ritmo forte que você consiga repetir nos quatro blocos. Pare se sentir tontura ou dor.',
         etapas: [aq(600)].concat(rep(3, [forte(240, 'Ritmo forte e constante.'), leve(180)])).concat([forte(240, 'Último bloco, mantenha o ritmo.'), calma(300)]) },
-      { id: 'zona-2', titulo: 'Zona 2', sub: 'Ritmo de conversar', emoji: '🫁', rpe: 4, nivel: 'Todos', atividades: ['Caminhada', 'Corrida', 'Bike', 'Elíptico', 'Natação'],
+      { id: 'zona-2', titulo: 'Zona 2', sub: 'Ritmo de conversar', emoji: '🫁', rpe: 4, nivel: 'Todos', atividades: ['Caminhada', 'Corrida', 'Bike', 'Elíptico'],
         resumo: '40 minutos contínuos em ritmo leve a moderado, em que você ainda consegue conversar.',
         aviso: 'Se não consegue falar frases inteiras, reduza o ritmo.',
         etapas: [aq(300), E('Ritmo de conversar', 2400, 'cont', 'Constante e confortável. Você deve conseguir conversar.')] },
@@ -3711,6 +3711,18 @@ const API = {
         aviso: 'Pare se sentir tontura ou dor.',
         etapas: [aq(300)].concat([60, 120, 180, 120, 60].reduce((o, t) => o.concat([forte(t), leve(t)]), [])).concat([calma(300)]) },
     ];
+    // Onde fazer e o que precisa (aparece em destaque na lista e na tela do programa)
+    const ONDE = {
+      '12-5-30': { aparelho: 'Esteira com inclinação (chega a 12%)', onde: 'Na academia ou em casa, em uma esteira que suba até 12% de inclinação. Não dá para fazer na rua nem na bicicleta.' },
+      'hiit-1-1': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Escolha a atividade na tela do programa.' },
+      'tabata': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Precisa de espaço livre e piso firme.' },
+      '4x4': { aparelho: 'Esteira, bicicleta ou elíptico (ou a rua)', onde: 'Corrida na rua ou na esteira, bicicleta (na rua ou ergométrica) ou elíptico. Escolha um lugar em que dê para manter o ritmo por 4 minutos seguidos.' },
+      'zona-2': { aparelho: 'Sem aparelho obrigatório', onde: 'Caminhada ou corrida na rua ou na esteira, bicicleta ou elíptico. Em qualquer lugar em que você consiga manter um ritmo constante por 40 minutos.' },
+      'piramide': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Escolha a atividade na tela do programa.' },
+      'sofa-5km': { aparelho: 'Só um tênis confortável', onde: 'Na rua, em um parque ou pista, ou na esteira. Escolha um trajeto plano para as primeiras semanas.' },
+    };
+    lista.forEach((p) => Object.assign(p, ONDE[p.id] || {}));
+    return lista;
   })(),
   // Programa "curso" (Do sofá aos 5 km) tem `sessoes`; os demais têm `etapas`. idx = índice da sessão do curso.
   programaEtapas: (p, idx) => (!p ? [] : (Array.isArray(p.sessoes) ? ((p.sessoes[idx || 0] || p.sessoes[0]).etapas) : (p.etapas || []))),

@@ -248,6 +248,21 @@ try {
         } catch (Throwable $e) { /* ignore */ }
     }
 
+    // Pedidos de exclusão de conta feitos pelo próprio aluno (últimos 60 dias), com o motivo. Professor vê só os seus alunos.
+    try {
+        if (tableExists($pdo, 'intus_exclusao_conta')) {
+            if ($_allowedIds === null) {
+                $rowsX = $pdo->query("SELECT idatleta, nome, motivo_cod, motivo, detalhe, criado_em FROM intus_exclusao_conta WHERE criado_em >= DATE_SUB(NOW(), INTERVAL 60 DAY) ORDER BY criado_em DESC LIMIT 30")->fetchAll(PDO::FETCH_ASSOC);
+            } elseif (count($_allowedIds) > 0) {
+                $ph = implode(',', array_fill(0, count($_allowedIds), '?'));
+                $stX = $pdo->prepare("SELECT idatleta, nome, motivo_cod, motivo, detalhe, criado_em FROM intus_exclusao_conta WHERE idatleta IN ($ph) AND criado_em >= DATE_SUB(NOW(), INTERVAL 60 DAY) ORDER BY criado_em DESC LIMIT 30");
+                $stX->execute($_allowedIds);
+                $rowsX = $stX->fetchAll(PDO::FETCH_ASSOC);
+            } else { $rowsX = []; }
+            $resp['exclusoes'] = $rowsX;
+        }
+    } catch (Throwable $e) {}
+
     // Msgs nao lidas
     if ($tab_msg && colExists($pdo, $tab_msg, 'stlido')) {
         try {
