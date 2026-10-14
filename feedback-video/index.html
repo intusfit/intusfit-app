@@ -603,7 +603,19 @@ function abrirMicCamera(querMic, querCam){
   var gum = function(c){ return navigator.mediaDevices.getUserMedia(c); };
   var cMic = querMic ? { echoCancellation: true, noiseSuppression: true } : false;
   var cCam = querCam ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false;
-  var abrirCam = function(){ return gum({ video: cCam }).catch(function(e){ if (FALHA_APARELHO.test(e.name)) return gum({ video: true }); throw e; }); };
+  // Webcam que recusa o formato escolhido pelo navegador pode aceitar outro: tenta do
+  // pedido normal pra resoluções menores, parando no primeiro que abrir.
+  var abrirCam = function(){
+    var lista = [cCam, true, { width: { ideal: 640 }, height: { ideal: 480 } }, { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } }];
+    var i = 0;
+    var proximo = function(){
+      return gum({ video: lista[i++] }).catch(function(e){
+        if (FALHA_APARELHO.test(e.name) && i < lista.length) return proximo();
+        throw e;
+      });
+    };
+    return proximo();
+  };
   return gum({ audio: cMic, video: cCam }).catch(function(e){
     ultimoErroMidia = e.name + (e.message ? ': ' + e.message : '');
     if (!FALHA_APARELHO.test(e.name)) throw e;
@@ -705,6 +717,7 @@ function comecar(){
       var aparelho = soMic ? 'o microfone' : 'a câmera';
       falhar('<b>' + qual + '.</b> O ' + NAV + ' tem permissão, mas o Windows não conseguiu ligar ' + aparelho + '. Causas mais comuns:' +
         '<ol>' +
+          (soCam ? '<li><b>Feche o ' + NAV + ' por completo e abra de novo</b> (todas as janelas, e o ícone perto do relógio, se houver). Depois de uma falha, o serviço de câmera do navegador pode ficar travado enquanto ele continua aberto, e só destrava reiniciando. É a causa mais comum quando o microfone funciona e a câmera não.</li>' : '') +
           '<li>Outro programa está usando ' + aparelho + ': Zoom, Meet, Teams, WhatsApp Desktop, OBS, o app Câmera do Windows. Feche-o de vez (inclusive perto do relógio, na bandeja).</li>' +
           '<li>Outra aba do navegador está com ' + aparelho + ' ligada, inclusive outra aba desta ferramenta.</li>' +
           '<li>Windows: Configurações → Privacidade e segurança → ' + (soMic ? 'Microfone' : 'Câmera') + ' → ligue "Permitir que aplicativos da área de trabalho acessem".</li>' +
