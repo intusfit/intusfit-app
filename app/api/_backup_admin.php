@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardado no banco (admin/smtp-config.php)
 /**
  * PAINEL DE BACKUPS (só administrador) — incluído por catalogo.php, nunca chamado direto (o "_" no nome faz o .htaccess bloquear).
  *
@@ -105,7 +106,7 @@ function backupStatus(PDO $pdo, bool $completo = true): array {
     $st['smtp_estrito'] = _backupSmtpEstritoLigado();
     $st['usa_maximizeapp'] = $st['db_host'] ? (stripos($st['db_host'], 'maximizeapp') !== false) : false;
     $st['smtp_host'] = null;
-    $smtp = @include $cfg . '/smtp.php';
+    $smtp = intusSmtpConfig();
     if (is_array($smtp)) { $st['smtp_host'] = (string)($smtp['host'] ?? ''); $st['smtp_user'] = (string)($smtp['user'] ?? ''); }
     $st['smtp_usa_maximizeapp'] = $st['smtp_host'] ? (stripos($st['smtp_host'] . ($st['smtp_user'] ?? ''), 'maximizeapp') !== false) : false;
 
@@ -265,10 +266,10 @@ function backupSalvarEstrito(bool $ligado): bool
 function backupSmtpEnviar(string $para, string $assunto, string $texto): array
 {
     require_once __DIR__ . '/_smtp_seguro.php';
-    $smtp = @include _backupPastaConfig() . '/smtp.php';
-    if (!is_array($smtp)) return [false, 'config/smtp.php não encontrado no servidor.', false];
+    $smtp = intusSmtpConfig();
+    if (!is_array($smtp)) return [false, 'O e-mail do site não está configurado (admin/smtp-config.php).', false];
     $host = (string)($smtp['host'] ?? ''); $user = (string)($smtp['user'] ?? ''); $pass = (string)($smtp['pass'] ?? ''); $nome = (string)($smtp['from_name'] ?? 'Intus Fit');
-    if ($host === '' || $user === '' || $pass === '') return [false, 'O SMTP do site está sem host, usuário ou senha (config/smtp.php).', false];
+    if ($host === '' || $user === '' || $pass === '') return [false, 'O SMTP do site está sem host, usuário ou senha (configure em admin/smtp-config.php).', false];
     // Teste sempre ESTRITO: o objetivo dele é provar que a conexão é verificada.
     $sock = intusSmtpAbrir($host, $info, 12, true);
     if (!$sock) return [false, $info['erro'], false];
@@ -291,7 +292,7 @@ function backupSmtpEnviar(string $para, string $assunto, string $texto): array
 
 function backupEmailTeste(): array
 {
-    $smtp = @include _backupPastaConfig() . '/smtp.php';
+    $smtp = intusSmtpConfig();
     $padrao = is_array($smtp) ? (string)($smtp['user'] ?? '') : '';
     $para = _backupEmailConfigurado() ?: $padrao;
     if ($para === '') return [false, 'Sem e-mail de destino definido.', ''];
@@ -307,11 +308,11 @@ function backupEmailTeste(): array
  */
 function backupEmailTesteAmbos(): array
 {
-    $smtp = @include _backupPastaConfig() . '/smtp.php';
+    $smtp = intusSmtpConfig();
     $site = is_array($smtp) ? strtolower(trim((string)($smtp['user'] ?? ''))) : '';
     $dest = strtolower(trim(_backupEmailConfigurado()));
     $alvos = array_values(array_unique(array_filter([$site, $dest])));
-    if (!$alvos) return ['ok' => false, 'linhas' => ['Sem endereços para testar (config/smtp.php sem usuário e sem destino escolhido).']];
+    if (!$alvos) return ['ok' => false, 'linhas' => ['Sem endereços para testar (e-mail do site sem usuário e sem destino escolhido).']];
     $linhas = []; $tudo = true; $conexaoOk = false;
     foreach ($alvos as $a) {
         [$ok, $msg, $verif] = backupSmtpEnviar($a, 'Teste de e-mail da Intus Fit para ' . $a, "Teste de envio e encaminhamento.\nEnviado pelo servidor do site para: {$a}\n" . date('d/m/Y H:i:s') . "\n\nSe você recebeu esta mensagem na caixa certa, o endereço funciona.");

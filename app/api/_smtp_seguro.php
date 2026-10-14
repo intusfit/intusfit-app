@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardado no banco (admin/smtp-config.php)
 /**
  * CONEXÃO SEGURA COM O SERVIDOR DE E-MAIL (biblioteca interna: o "_" no nome faz o .htaccess bloquear o acesso direto).
  *
@@ -133,7 +134,7 @@ function intusEnviarEmailSimples(string $para, string $assunto, string $texto): 
     $para = trim(str_replace(["\r", "\n", "\0"], ' ', $para));
     $assunto = trim(str_replace(["\r", "\n", "\0"], ' ', $assunto));
     if (!filter_var($para, FILTER_VALIDATE_EMAIL)) return false;
-    $smtp = @include __DIR__ . '/../config/smtp.php';
+    $smtp = intusSmtpConfig();
     if (!is_array($smtp)) return false;
     $host = (string)($smtp['host'] ?? ''); $user = (string)($smtp['user'] ?? ''); $pass = (string)($smtp['pass'] ?? ''); $nome = (string)($smtp['from_name'] ?? 'Intus Fit');
     if ($host === '' || $user === '' || $pass === '') return false;

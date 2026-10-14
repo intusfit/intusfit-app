@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardado no banco (admin/smtp-config.php)
 /**
  * REGISTRO DE ACESSOS (biblioteca interna: o "_" no nome faz o .htaccess bloquear o acesso direto).
  *
@@ -100,7 +101,7 @@ function intusAcessoAlertar(PDO $pdo, int $id, string $nome): void
         if ((int)$st->fetchColumn() > 1) return;   // este país já aparecia antes (a linha de agora conta 1)
         require_once __DIR__ . '/_smtp_seguro.php';
         require_once __DIR__ . '/_backup_admin.php';
-        $smtp = @include __DIR__ . '/../config/smtp.php';
+        $smtp = intusSmtpConfig();
         $para = _backupEmailConfigurado() ?: (is_array($smtp) ? (string)($smtp['user'] ?? '') : '');
         if ($para === '') return;
         intusEnviarEmailSimples($para, 'Novo país no acesso de ' . $nome . ' - Intus Fit',

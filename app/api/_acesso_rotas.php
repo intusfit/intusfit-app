@@ -20,7 +20,26 @@ function _acessoNomes(PDO $pdo, ?string $tblAtleta, array $linhas): array
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $mapa[(int)$r['idatleta']] = (string)$r['nome'];
         } catch (Throwable $e) {}
     }
-    foreach ($linhas as &$l) { if (($l['nome'] ?? '') === '') $l['nome'] = $mapa[(int)$l['user_id']] ?? (($l['tipo'] === 'aluno' ? 'Aluno #' : 'Usuário #') . $l['user_id']); }
+    // Equipe sem nome gravado (o sino não informa o nome): busca na tabela de usuários.
+    $idsEq = [];
+    foreach ($linhas as $l) { if (($l['nome'] ?? '') === '' && $l['tipo'] === 'staff') $idsEq[(int)$l['user_id']] = true; }
+    $mapaEq = [];
+    if ($idsEq) {
+        foreach (['professor', 'usuario', 'usuarios', 'professores'] as $tbl) {
+            try {
+                $cols = array_column($pdo->query("SHOW COLUMNS FROM `$tbl`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+                $cId = null; foreach (['idusuario', 'idprofessor', 'id'] as $c) { if (in_array($c, $cols, true)) { $cId = $c; break; } }
+                $cNm = null; foreach (['nome', 'nmusuario', 'nmprofessor', 'name'] as $c) { if (in_array($c, $cols, true)) { $cNm = $c; break; } }
+                if (!$cId || !$cNm) continue;
+                $ph = implode(',', array_fill(0, count($idsEq), '?'));
+                $st = $pdo->prepare("SELECT `$cId` AS i, `$cNm` AS n FROM `$tbl` WHERE `$cId` IN ($ph)");
+                $st->execute(array_keys($idsEq));
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $mapaEq[(int)$r['i']] = (string)$r['n'];
+                break;
+            } catch (Throwable $e) { continue; }
+        }
+    }
+    foreach ($linhas as &$l) { if (($l['nome'] ?? '') === '') $l['nome'] = ($l['tipo'] === 'staff' ? ($mapaEq[(int)$l['user_id']] ?? '') : ($mapa[(int)$l['user_id']] ?? '')) ?: (($l['tipo'] === 'aluno' ? 'Aluno #' : 'Usuário #') . $l['user_id']); }
     unset($l);
     return $linhas;
 }

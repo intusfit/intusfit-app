@@ -77,7 +77,7 @@ const MINIMO_COPIAS = 10;
 // banco vai anexado quando couber, o que dá uma segunda cópia fora do Drive.
 //
 // Deixe vazio para desligar o e-mail. O padrão usa o endereço do próprio SMTP.
-const BACKUP_EMAIL_PARA = '';        // vazio = usa o user de config/smtp.php
+const BACKUP_EMAIL_PARA = '';        // vazio = usa o usuário do e-mail do site (admin/smtp-config.php)
 // Acima deste tamanho o anexo não vai: servidor de e-mail recusa, e o que
 // chega é um erro em vez de um aviso. O resumo é enviado do mesmo jeito.
 const BACKUP_ANEXO_MAX_MB = 8;
@@ -450,7 +450,7 @@ function _backupEnviarEmail(string $arquivo, int $tamanho, int $enviados, int $f
     global $LOG_LINHAS, $dbNome;
     require_once __DIR__ . '/_smtp_seguro.php';
 
-    $smtpCfg = @include __DIR__ . '/../config/smtp.php';
+    $smtpCfg = intusSmtpConfig();
     if (!is_array($smtpCfg)) $smtpCfg = [];
     $host = (string)($smtpCfg['host'] ?? 'smtp.intusfit.com.br');
     $user = (string)($smtpCfg['user'] ?? 'contato@intusfit.com.br');

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardado no banco (admin/smtp-config.php)
 // ── LIMITE PARA IMAGEM EM BASE64 ───────────────────────────────────────────
 // Estes campos gravam a imagem inteira dentro do banco, e nao tinham teto nem
 // conferencia de formato. Alguns megabytes por chamada, em laco, enchem a
@@ -354,7 +355,7 @@ try {
         }
 
         // Enviar email com OTP via SMTP
-        $smtpCfg = @include __DIR__ . '/../config/smtp.php';
+        $smtpCfg = intusSmtpConfig();
         if (!is_array($smtpCfg)) $smtpCfg = [];
         $smtpHost = $smtpCfg['host'] ?? 'smtp.intusfit.com.br';
         $smtpUser = $smtpCfg['user'] ?? 'contato@intusfit.com.br';

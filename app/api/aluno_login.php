@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardado no banco (admin/smtp-config.php)
 // ── LOGIN SOCIAL (Google/Facebook) ──────────────────────────────────────────
 // Client ID do Google (NAO e segredo — e o mesmo valor que vai pro front-end
 // pra iniciar o login). Confere o "aud" do token contra este valor pra evitar
@@ -59,7 +60,7 @@ function intus_enviar_email($to, $subject, $body, $replyTo = '') {
     if ($replyTo !== '' && !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) $replyTo = '';
     if (mb_strlen($subject) > 180) $subject = mb_substr($subject, 0, 180);
 
-    $smtpCfg = @include __DIR__ . '/../config/smtp.php';
+    $smtpCfg = intusSmtpConfig();
     if (!is_array($smtpCfg)) $smtpCfg = [];
     $smtpHost = $smtpCfg['host'] ?? 'smtp.intusfit.com.br';
     $smtpUser = $smtpCfg['user'] ?? 'contato@intusfit.com.br';
@@ -458,7 +459,7 @@ try {
         // Destino do aviso de novo cadastro. Estava fixo no codigo: se essa caixa
         // nao for lida, o aviso 'chega' e ninguem ve. Agora pode ser trocado pela
         // chave 'notificar' em /app/config/smtp.php, sem mexer em codigo.
-        $_cfgN = @include __DIR__ . '/../config/smtp.php';
+        $_cfgN = intusSmtpConfig();
         $emailNotif = (is_array($_cfgN) && !empty($_cfgN['notificar'])) ? $_cfgN['notificar'] : 'contato@intusfit.com.br';
         $assunto = "Novo aluno cadastrado: $nome";
         $corpo  = "Um novo aluno se cadastrou no Intus Fit.\n\n";
@@ -782,7 +783,7 @@ try {
             $stE = $pdo->prepare("SELECT * FROM `$tabela` WHERE $col_id = ? LIMIT 1");
             $stE->execute([$idExcluir]);
             $rowE = $stE->fetch(PDO::FETCH_ASSOC);
-            $_cfgN = @include __DIR__ . '/../config/smtp.php';
+            $_cfgN = intusSmtpConfig();
             $emailNotif = (is_array($_cfgN) && !empty($_cfgN['notificar'])) ? $_cfgN['notificar'] : 'contato@intusfit.com.br';
             @intus_enviar_email($emailNotif, 'Pedido de exclusão de conta: ' . ($rowE[$col_nome] ?? ('#' . $idExcluir)),
                 "Um aluno pediu exclusão da conta pelo app.\n\nNome: " . ($rowE[$col_nome] ?? '-') . "\nE-mail: " . ($rowE[$col_email] ?? '-') . "\nID: $idExcluir\nMotivo: $motivoTxt" . ($detalhe !== '' ? "\nObservação do aluno: $detalhe" : '') . "\nData: " . date('d/m/Y H:i') . "\n\nO acesso já foi bloqueado. Finalize a exclusão dos dados pelo painel em até 30 dias, conforme a política de privacidade.",

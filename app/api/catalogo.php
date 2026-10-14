@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardado no banco (admin/smtp-config.php)
 // ── LIMITE PARA IMAGEM EM BASE64 ───────────────────────────────────────────
 // Estes campos gravam a imagem inteira dentro do banco, e nao tinham teto nem
 // conferencia de formato. Alguns megabytes por chamada, em laco, enchem a
@@ -1050,7 +1051,7 @@ function _notificarFotosAvaliacao(PDO $pdo, int $idatleta, int $qtdFotos, string
 }
 
 function _catalogoSendEmail(string $to, string $subject, string $body) {
-    $smtpCfg = @include __DIR__ . '/../config/smtp.php';
+    $smtpCfg = intusSmtpConfig();
     if (!is_array($smtpCfg)) $smtpCfg = [];
     $smtpHost = $smtpCfg['host'] ?? 'smtp.intusfit.com.br';
     $smtpUser = $smtpCfg['user'] ?? 'contato@intusfit.com.br';
@@ -2089,7 +2090,7 @@ if ($action === 'email_diag') {
     $out = [];
     $cfgPath = __DIR__ . '/../config/smtp.php';
     $out['arquivo_smtp_existe'] = @file_exists($cfgPath);
-    $cfg = @include $cfgPath;
+    $cfg = intusSmtpConfig();
     if (!is_array($cfg)) $cfg = [];
     $host = $cfg['host'] ?? 'smtp.intusfit.com.br';
     $user = $cfg['user'] ?? 'contato@intusfit.com.br';
@@ -2148,7 +2149,7 @@ if ($action === 'email_teste') {
     if ($para === '' || !filter_var($para, FILTER_VALIDATE_EMAIL)) {
         http_response_code(400); echo json_encode(['error' => 'informe um e-mail valido em "para"']); exit;
     }
-    $cfg = @include __DIR__ . '/../config/smtp.php';
+    $cfg = intusSmtpConfig();
     if (!is_array($cfg)) $cfg = [];
     $host = $cfg['host'] ?? 'smtp.intusfit.com.br';
     $user = $cfg['user'] ?? 'contato@intusfit.com.br';
@@ -4830,7 +4831,7 @@ function _catalogoDestinatariosDoAtleta(PDO $pdo, int $idatleta): array {
         }
     }
     if (!$emails) {
-        $cfg = @include __DIR__ . '/../config/smtp.php';
+        $cfg = intusSmtpConfig();
         $fb = (is_array($cfg) && !empty($cfg['notificar'])) ? $cfg['notificar'] : 'contato@intusfit.com.br';
         $emails[] = $fb;
     }
