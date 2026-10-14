@@ -489,6 +489,12 @@ try {
 
     // ===== POST criar =====
     if ($method === 'POST') {
+        // Cadastrar cliente exige a permissão "Incluir clientes" (antes só o painel escondia o botão). Administrador sempre pode.
+        if (!$_isAdmin && !$_ehAlunoAt && !(function_exists('usuarioTemPermissao') && usuarioTemPermissao($pdo, (int)$_userId, 'at_incluir'))) {
+            http_response_code(403);
+            echo json_encode(['error' => 'sem permissao para incluir clientes']);
+            exit;
+        }
         $body = readJsonBody();
         if (empty(trim((string)($body['nome'] ?? '')))) {
             http_response_code(400);
