@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261014a"></script>
+  <script src="api.js?v=20261014b"></script>
   <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -22070,7 +22070,7 @@ async function renderMensagensAluno() {
   await _centralCarregarExtras();   // feedbacks em vídeo e avaliações, para o painel
   await _atletaPropriaCarregar();   // professores responsáveis (escolha de com quem falar)
   try { const uR = await _fetchT(API_BASE + '/usuarios.php', { headers: _notifHeaders(), cache: 'no-store' }, 12000); if (uR.ok) { const uJ = await uR.json(); if (uJ && uJ.ok && Array.isArray(uJ.usuarios)) localStorage.setItem('intus-usuarios', JSON.stringify(uJ.usuarios)); } } catch (e) {}
-  try { const am = await API.getUserAvatars(); if (am && typeof am === 'object') _userAvatarsMap = am; } catch (e) {}   // fotos dos profissionais
+  await _avatarsProfissionaisCarregar();   // fotos dos profissionais
   if (_conexoesOn) {                // amigos e conversas entre alunos
     try { if (!(_amzDados.amigos || []).length) await _amzCarregar(); } catch (e) {}
     await _dmCarregarConversas();
@@ -22291,6 +22291,18 @@ async function chatExcluir(el) {
   _chatRedesenhar();
 }
 
+// Fotos dos profissionais do aluno (cadastradas no painel em Usuários). Busca só as dos responsáveis e não depende do localStorage (as fotos em
+// base64 estouravam a cota e a resposta toda era descartada, então nenhuma foto aparecia).
+async function _avatarsProfissionaisCarregar() {
+  try {
+    const ids = getProfsResponsaveis().map(p => Number(p.id)).filter(Boolean);
+    const q = ids.length ? '&ids=' + ids.join(',') : '';
+    const r = await _fetchT(API_BASE + '/usuarios.php?action=avatars_usuarios' + q + '&_=' + Date.now(), { headers: _notifHeaders(), cache: 'no-store' }, 15000);
+    if (!r.ok) return;
+    const m = await r.json();
+    if (m && typeof m === 'object' && !Array.isArray(m)) { const limpo = {}; Object.keys(m).forEach(k => { if (/^\d+$/.test(k) && typeof m[k] === 'string') limpo[k] = m[k]; }); _userAvatarsMap = Object.assign({}, _userAvatarsMap, limpo); }
+  } catch (e) {}
+}
 function _chatProfsLista() {
   // Só os profissionais marcados como "Professores responsáveis" no cadastro do aluno (nome, foto e função).
   return getProfsResponsaveis();

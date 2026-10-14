@@ -502,7 +502,9 @@ try {
     }
 
     // ===== GET listar / GET por id =====
-    if ($method === 'GET') {
+    // As rotas de foto e de perfil (avatar, avatars_usuarios, cargo, user_meta) têm bloco próprio mais abaixo. Sem esta exceção, todo GET sem id caía aqui e
+    // devolvia a LISTA DE USUÁRIOS no lugar das fotos: nenhuma foto cadastrada no painel chegava a outro aparelho (nem ao app do aluno).
+    if ($method === 'GET' && !in_array($action, ['avatar', 'avatars_usuarios', 'cargo', 'user_meta'], true)) {
         if ($id) {
             $stmt = $pdo->prepare("SELECT * FROM `$tabela` WHERE $col_id = ? LIMIT 1");
             $stmt->execute([$id]);
@@ -683,7 +685,16 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
         if ($action === 'avatars_usuarios') {
-            $rows = $pdo->query("SELECT idusuario, avatar FROM intus_user_avatar WHERE avatar IS NOT NULL AND avatar != ''")->fetchAll(PDO::FETCH_ASSOC);
+            // ?ids=3,5 devolve só as fotos pedidas (o app do aluno só precisa dos profissionais dele; a lista inteira pesa vários MB em base64)
+            $idsPedidos = array_values(array_unique(array_filter(array_map('intval', explode(',', (string)($_GET['ids'] ?? ''))))));
+            if ($idsPedidos) {
+                $ph = implode(',', array_fill(0, count($idsPedidos), '?'));
+                $stA = $pdo->prepare("SELECT idusuario, avatar FROM intus_user_avatar WHERE avatar IS NOT NULL AND avatar != '' AND idusuario IN ($ph)");
+                $stA->execute($idsPedidos);
+                $rows = $stA->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                $rows = $pdo->query("SELECT idusuario, avatar FROM intus_user_avatar WHERE avatar IS NOT NULL AND avatar != ''")->fetchAll(PDO::FETCH_ASSOC);
+            }
             $map = [];
             foreach ($rows as $r) { $map[(int)$r['idusuario']] = $r['avatar']; }
             echo json_encode($map);

@@ -4035,8 +4035,12 @@ const API = {
       const map = await apiFetch('/usuarios.php?action=avatars_usuarios');
       if (map && typeof map === 'object') {
         const local = JSON.parse(localStorage.getItem('intus-user-avatars') || '{}');
-        const merged = { ...local, ...map };
-        localStorage.setItem('intus-user-avatars', JSON.stringify(merged));
+        // só chaves numéricas (id do usuário): uma resposta de erro ou de lista não pode virar "foto"
+        const limpo = {}; Object.keys(map).forEach(k => { if (/^\d+$/.test(k) && typeof map[k] === 'string') limpo[k] = map[k]; });
+        Object.keys(local).forEach(k => { if (!/^\d+$/.test(k)) delete local[k]; });
+        const merged = { ...local, ...limpo };
+        // Fotos em base64 pesam: guardar no aparelho pode estourar a cota do localStorage e, antes, isso derrubava a resposta inteira (as fotos sumiam).
+        try { localStorage.setItem('intus-user-avatars', JSON.stringify(merged)); } catch (e) {}
         return merged;
       }
       return JSON.parse(localStorage.getItem('intus-user-avatars') || '{}');
