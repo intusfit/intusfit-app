@@ -2738,6 +2738,11 @@ if ($action === 'notificacoes') {
     }
 
     if ($method === 'GET') {
+        // Backup diário de carona: o sino do painel (staff) consulta esta rota em toda tela. Depois que a resposta sai, o _carona_backup.php vê se já houve backup
+        // hoje (custo de ler um arquivinho) e, se não, faz. Antes ele só pegava carona em dashboard.php?action=(resumo), que nenhuma tela chamava.
+        if ($_nTipo !== 'aluno') {
+            register_shutdown_function(function () { @include __DIR__ . '/_carona_backup.php'; });
+        }
         // Notificação de post apagado (ou de comentário do mural apagado) não
         // aparece nem conta no sino. Filtra em vez de só apagar: cobre também o
         // que já ficou órfão antes desta regra, sem mexer em nenhuma linha.
@@ -3823,6 +3828,28 @@ if ($action === 'drive_uso' && $method === 'GET') {
     if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
     echo json_encode(_armazCalcular($pdo, true), JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+// ═══════════════ PAINEL DE BACKUPS (só administrador) ═══════════════
+// GET  ?action=backup_status[&resumo=1]  status do último backup, cópias no Drive, onde está o banco; resumo=1 não consulta o Drive (aviso do topo do painel)
+// POST ?action=backup_status {acao: email_teste | salvar_email{email} | rodar_agora | conferir}
+if ($action === 'backup_status') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    require_once __DIR__ . '/_backup_admin.php';
+    if ($method === 'GET') {
+        echo json_encode(backupStatus($pdo, empty($_GET['resumo'])), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $acao = (string)($b['acao'] ?? '');
+        if ($acao === 'email_teste') { [$ok, $msg, $para] = backupEmailTeste(); echo json_encode(['ok' => $ok, 'msg' => $msg, 'para' => $para], JSON_UNESCAPED_UNICODE); exit; }
+        if ($acao === 'salvar_email') { $ok = backupSalvarEmail((string)($b['email'] ?? '')); if (!$ok) http_response_code(400); echo json_encode(['ok' => $ok, 'msg' => $ok ? 'E-mail do aviso de backup salvo.' : 'E-mail inválido.']); exit; }
+        if ($acao === 'conferir') { echo json_encode(backupConferir($pdo), JSON_UNESCAPED_UNICODE); exit; }
+        if ($acao === 'rodar_agora') { backupRodarAgora(); }
+        http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit;
+    }
 }
 
 // GET: só o nível de alerta, para o aviso no topo do painel. Usa a medida de hoje se já existir; senão mede (uma vez por dia).

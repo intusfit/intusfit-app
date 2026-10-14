@@ -87,6 +87,8 @@ const BACKUP_ANEXO_MAX_MB = 8;
 $PASTAS_ARQUIVOS = [
     __DIR__ . '/../uploads',
     __DIR__ . '/../painel/uploads',
+    __DIR__ . '/../img/nutri',       // fotos das refeições que os alunos mandam (não existem em outro lugar)
+    __DIR__ . '/../img/receitas',    // fotos de receitas enviadas pelo painel
 ];
 
 // ── Quem pode disparar ────────────────────────────────────────────────────
@@ -128,6 +130,9 @@ ini_set('memory_limit', '256M');
 $inicio  = microtime(true);
 $carimbo = date('Y-m-d_His');
 $logPath = __DIR__ . '/../config/backup.log';
+// Quando este arquivo é incluído por dentro de uma função (a carona do dashboard e o botão "Fazer backup agora"), as variáveis daqui são LOCAIS e blog() e
+// _backupEnviarEmail() leem `global`. Sem estas linhas o registro nunca era gravado e o resumo por e-mail saía sem o log. Publicamos no escopo global.
+$GLOBALS['logPath'] = $logPath;
 $marcaDia = __DIR__ . '/../config/backup-ultimo.txt';
 
 // ── Trava de um por dia ───────────────────────────────────────────────────
@@ -158,6 +163,7 @@ if (!$_viaCli && !$_viaCarona) {
 }
 
 $LOG_LINHAS = [];
+$GLOBALS['LOG_LINHAS'] = &$LOG_LINHAS;
 function blog(string $msg): void {
     global $logPath, $LOG_LINHAS;
     $linha = '[' . date('Y-m-d H:i:s') . '] ' . $msg;
@@ -189,6 +195,7 @@ try {
     blog('ERRO: não consegui conectar ao banco — ' . $e->getMessage());
     exit(1);
 }
+$GLOBALS['dbNome'] = $dbNome;
 blog('Banco conectado: ' . $dbNome . ' em ' . $dbHost);
 
 // ── Export do banco, tabela por tabela, direto para arquivo .gz ────────────
@@ -375,7 +382,10 @@ function _backupEnviarEmail(string $arquivo, int $tamanho, int $enviados, int $f
     $pass = (string)($smtpCfg['pass'] ?? '');
     $nome = (string)($smtpCfg['from_name'] ?? 'Intus Fit');
 
-    $para = BACKUP_EMAIL_PARA !== '' ? BACKUP_EMAIL_PARA : $user;
+    // Destino: o e-mail escolhido no painel (Configurações > Servidor > Backups), senão a constante acima, senão o próprio usuário do SMTP.
+    $configurado = '';
+    try { require_once __DIR__ . '/_backup_admin.php'; $configurado = _backupEmailConfigurado(); } catch (Throwable $e) {}
+    $para = $configurado !== '' ? $configurado : (BACKUP_EMAIL_PARA !== '' ? BACKUP_EMAIL_PARA : $user);
     if ($para === '' || $pass === '') { blog('E-mail do backup desligado (sem destino ou sem senha de SMTP).'); return; }
 
     $ok      = ($falhas === 0);

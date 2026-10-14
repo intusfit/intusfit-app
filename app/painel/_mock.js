@@ -172,7 +172,7 @@ const DEFAULT_USUARIOS = [
     idusuario: 1,
     nome: 'Luiz Nunes Admin',
     email: 'contato@intusfit.com.br',
-    senha: 'Senhadoluiz99.9',
+    senha: '',                   // sem senha local: o acesso é só pelo servidor (esta lista é pública, não pode guardar senha nenhuma)
     admin: true,                 // conta mestra — bypass de qualquer checagem
     ativo: true,
     permissoes: _permsAllTrue(),
@@ -182,7 +182,7 @@ const DEFAULT_USUARIOS = [
     idusuario: 2,
     nome: 'Luiz Nunes',
     email: 'luiz.nunes@intus.com.br',
-    senha: 'intus2026',
+    senha: '',                   // sem senha local: o acesso é só pelo servidor (esta lista é pública, não pode guardar senha nenhuma)
     admin: false,
     ativo: true,
     permissoes: _permsAllTrue(),   // professor com todos os acessos (mas não é mestre)
@@ -192,7 +192,7 @@ const DEFAULT_USUARIOS = [
     idusuario: 3,
     nome: 'Cliente Exemplo 14',
     email: 'ricardo.schmoeller@intus.com.br',
-    senha: 'intus2026',
+    senha: '',                   // sem senha local: o acesso é só pelo servidor (esta lista é pública, não pode guardar senha nenhuma)
     admin: false,
     ativo: true,
     permissoes: {
@@ -208,7 +208,7 @@ const DEFAULT_USUARIOS = [
     idusuario: 4,
     nome: 'Vanessa Massoni',
     email: 'vanessa.massoni@intus.com.br',
-    senha: 'intus2026',
+    senha: '',                   // sem senha local: o acesso é só pelo servidor (esta lista é pública, não pode guardar senha nenhuma)
     admin: false,
     ativo: true,
     permissoes: {
@@ -255,7 +255,7 @@ const Usuarios = {
   validarLogin(email, senha) {
     const u = this.findByEmail(email);
     if (!u) return null;
-    if (u.senha !== senha) return null;
+    if (!u.senha || u.senha !== senha) return null;   // conta local sem senha nunca entra (o login de verdade é no servidor)
     if (!u.ativo) return { erro: 'Usuário desativado. Procure o administrador.' };
     return u;
   },
@@ -270,7 +270,7 @@ const Usuarios = {
       idusuario: nextId,
       nome:     String(dados.nome||'').trim(),
       email:    String(dados.email||'').trim().toLowerCase(),
-      senha:    String(dados.senha||'').trim() || 'intus2026',
+      senha:    String(dados.senha||'').trim(),
       admin:    !!dados.admin,
       ativo:    dados.ativo !== false,
       permissoes: dados.admin ? _permsAllTrue() : Object.assign(_permsAllFalse(), dados.permissoes || {}),
@@ -724,6 +724,7 @@ function renderLayout(activePage) {
   _updateLogosForTheme();
   ntfSinoIniciar();
   armazAvisoIniciar();
+  backupAvisoIniciar();
   // Fecha sidebar ao clicar em qualquer link de navegação (mobile)
   document.querySelectorAll('.sidebar-nav .nav-link').forEach(a => {
     a.addEventListener('click', () => closeSidebar());
@@ -753,6 +754,34 @@ async function armazAvisoIniciar() {
     el.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px;font-size:13px;font-weight:600;border-bottom:2px solid ' + cor + ';background:' + cor + '22;color:inherit;';
     el.innerHTML = '<span style="flex:1;min-width:200px;">⚠️ ' + txt + '</span><a href="configuracoes.html#servidor" style="font-weight:800;color:' + cor + ';">Ver detalhes</a><button type="button" style="background:none;border:none;color:inherit;font-size:18px;cursor:pointer;opacity:.7;" aria-label="Dispensar por 24 horas">×</button>';
     el.querySelector('button').onclick = function () { try { localStorage.setItem('intus-armaz-dispensado', String(Date.now() + 86400000)); } catch (e) {} el.remove(); };
+    const topo = document.querySelector('.main-wrap .topbar');
+    if (topo && topo.parentNode) topo.parentNode.insertBefore(el, topo.nextSibling);
+  } catch (e) {}
+}
+
+// Aviso de backup (só administrador): aparece se faz 2 dias ou mais sem backup do banco, se nunca houve, ou se o banco/e-mail ainda estão no domínio
+// maximizeapp.com.br. Consulta só o resumo (não toca no Drive). Pode ser dispensado por 12 horas; detalhes em Configurações > Servidor > Backups.
+async function backupAvisoIniciar() {
+  try {
+    if (!isAdmin() || document.getElementById('backup-aviso')) return;
+    let dispensado = 0;
+    try { dispensado = Number(localStorage.getItem('intus-backup-dispensado') || 0); } catch (e) {}
+    if (Date.now() < dispensado) return;
+    const r = await fetch(_ntfSinoBase() + '/catalogo.php?action=backup_status&resumo=1&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    const motivos = [];
+    if (j.nivel === 'critico') motivos.push(j.dias_sem_backup == null ? 'Não há registro de nenhum backup do banco.' : 'Faz ' + j.dias_sem_backup + ' dias sem backup do banco.');
+    else if (j.nivel === 'alerta') motivos.push(j.ultimo_fim_ok === false ? 'O último backup terminou com falha.' : 'Faz ' + j.dias_sem_backup + ' dias sem backup do banco.');
+    if (j.usa_maximizeapp) motivos.push('O banco ainda está no domínio maximizeapp.com.br.');
+    if (j.smtp_usa_maximizeapp) motivos.push('O e-mail ainda usa o domínio maximizeapp.com.br.');
+    if (!motivos.length) return;
+    const cor = j.nivel === 'critico' ? '#ef4444' : '#f59e0b';
+    const el = document.createElement('div');
+    el.id = 'backup-aviso';
+    el.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px;font-size:13px;font-weight:600;border-bottom:2px solid ' + cor + ';background:var(--bg2,#161616);color:var(--text,#f0f0f0);';
+    el.innerHTML = '<span style="flex:1;min-width:200px;">⚠️ ' + motivos.join(' ') + '</span><a href="configuracoes.html#servidor" style="font-weight:800;color:' + cor + ';">Ver backups</a><button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;" aria-label="Dispensar">✕</button>';
+    el.querySelector('button').onclick = function () { try { localStorage.setItem('intus-backup-dispensado', String(Date.now() + 43200000)); } catch (e) {} el.remove(); };
     const topo = document.querySelector('.main-wrap .topbar');
     if (topo && topo.parentNode) topo.parentNode.insertBefore(el, topo.nextSibling);
   } catch (e) {}

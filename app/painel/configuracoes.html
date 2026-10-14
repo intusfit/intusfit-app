@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Configurações — Intus</title>
-  <script src="_mock.js?v=20261014a"></script>
+  <script src="_mock.js?v=20261014c"></script>
   <script src="api.js?v=20261014b"></script>
   <style>
     .cfg-tabs { display: flex; gap: 4px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; }
@@ -413,6 +413,17 @@ function render() {
         <button class="cfg-save" onclick="verUsoDrive()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">📊 Ver armazenamento</button>
         <div id="drive-uso" style="margin-top:14px;"></div>
       </div>
+      <div class="cfg-card" id="card-backups">
+        <h3>Backups do banco e dos arquivos</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Mostra se o backup diário está rodando, quais cópias existem no Drive, para onde vai o aviso por e-mail e onde o banco está hospedado. A cópia é feita uma vez por dia, no primeiro acesso ao painel (ou pelo CronJob, se estiver configurado). Só o administrador vê.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="cfg-save" onclick="verBackups()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">💾 Ver backups</button>
+          <button class="cfg-save" onclick="backupAcao('conferir')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">✅ Conferir a última cópia</button>
+          <button class="cfg-save" onclick="backupAcao('email_teste')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">✉️ Testar o e-mail</button>
+          <button class="cfg-save" onclick="if(confirm('Fazer um backup completo agora? Leva de 1 a 3 minutos.')) backupAcao('rodar_agora')" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">▶ Fazer backup agora</button>
+        </div>
+        <div id="backups-box" style="margin-top:14px;"></div>
+      </div>
     </div>
 
     <!-- HISTÓRICO (Alterações + Eventos unificados) -->
@@ -500,7 +511,7 @@ function render() {
     });
   });
 
-  if (location.hash === '#servidor') { const t = mc.querySelector('.cfg-tab[data-tab="servidor"]'); if (t) { t.click(); if (isAdmin()) verUsoDrive(); } }
+  if (location.hash === '#servidor') { const t = mc.querySelector('.cfg-tab[data-tab="servidor"]'); if (t) { t.click(); if (isAdmin()) { verUsoDrive(); verBackups(); } } }
   checkServerUsage();
 }
 
@@ -685,6 +696,59 @@ function _fmtPrazo(dias) {
   if (dias < 730) return Math.round(dias / 30) + ' meses';
   return (dias / 365).toFixed(1).replace('.', ',') + ' anos';
 }
+// ── Backups (só administrador) ──
+function _bkHeaders(json) { const h = { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }; if (json) h['Content-Type'] = 'application/json'; return h; }
+function _bkEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function _bkQuando(iso) { if (!iso) return '—'; const d = new Date(String(iso).replace(' ', 'T')); return isNaN(d) ? String(iso) : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+async function verBackups() {
+  const box = document.getElementById('backups-box');
+  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Consultando o servidor e o Drive...</p>';
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=backup_status&_=' + Date.now(), { headers: _bkHeaders(), cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 403 ? 'Só o administrador vê esta área.' : 'Não consegui consultar agora.');
+    const d = await r.json();
+    const cor = d.nivel === 'ok' ? '#7FFF00' : (d.nivel === 'alerta' ? '#f59e0b' : '#ef4444');
+    const rot = d.nivel === 'ok' ? 'Em dia' : (d.nivel === 'alerta' ? 'Atenção' : 'Sem backup recente');
+    const lin = (a, b) => '<tr><td style="padding:5px 0;color:var(--text-muted);width:46%;vertical-align:top;">' + a + '</td><td style="padding:5px 0;color:var(--text);">' + b + '</td></tr>';
+    const dr = (d.drive && d.drive.arquivos) || [];
+    const bancos = dr.filter(x => x.tipo === 'banco'), outros = dr.filter(x => x.tipo !== 'banco');
+    const mb = b => (b / 1048576).toFixed(b >= 10485760 ? 0 : 1).replace('.', ',') + ' MB';
+    let h = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;"><span style="width:12px;height:12px;border-radius:50%;background:' + cor + ';"></span><b style="font-size:15px;color:var(--text);">' + rot + '</b><span style="font-size:12px;color:var(--text-muted);">último backup do banco: ' + _bkQuando(d.ultimo_banco_ok) + (d.dias_sem_backup != null ? ' (há ' + d.dias_sem_backup + ' dia' + (d.dias_sem_backup === 1 ? '' : 's') + ')' : '') + '</span></div>';
+    const em = d.email || {};
+    h += '<table style="width:100%;font-size:12.5px;border-collapse:collapse;">' +
+      lin('Banco de dados', d.db_host ? _bkEsc(d.db_nome) + ' em <b>' + _bkEsc(d.db_host) + '</b>' + (d.usa_maximizeapp ? ' <span style="color:#ef4444;font-weight:700;">(ainda no domínio maximizeapp.com.br)</span>' : ' <span style="color:#7FFF00;">(fora do maximizeapp)</span>') : 'não aparece no registro ainda (faça um backup agora)') +
+      lin('Servidor de e-mail', d.smtp_host ? _bkEsc(d.smtp_host) + (d.smtp_usa_maximizeapp ? ' <span style="color:#ef4444;font-weight:700;">(usa maximizeapp)</span>' : '') : '—') +
+      lin('Disparo do backup', d.tem_cron ? 'CronJob da KingHost configurado' : 'Carona: roda no primeiro acesso do dia ao painel (sem CronJob)') +
+      lin('Aviso por e-mail', (em.destino_configurado ? 'Para <b>' + _bkEsc(em.destino_configurado) + '</b>' : 'Sem destino escolhido (usa o e-mail do servidor de e-mail)') + (em.ultimo_resultado ? '<div style="color:var(--text-muted);font-size:11.5px;margin-top:2px;">' + _bkQuando(em.ultimo_em) + ': ' + _bkEsc(em.ultimo_resultado) + '</div>' : '<div style="color:#f59e0b;font-size:11.5px;margin-top:2px;">Nenhum aviso aparece no registro.</div>')) +
+      '</table>';
+    h += '<div style="margin:12px 0 6px;font-size:12px;font-weight:700;color:var(--text);">E-mail que recebe o aviso diário</div><div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="bk-email" type="email" placeholder="seu@email.com" value="' + _bkEsc(em.destino_configurado || '') + '" style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);"><button class="cfg-save" onclick="backupSalvarEmail()">Salvar</button></div>';
+    h += '<div style="margin:16px 0 4px;font-size:12px;font-weight:700;color:var(--text);">Cópias do banco no Drive (' + bancos.length + ')</div>';
+    h += d.drive && d.drive.erro ? '<div style="color:#ef4444;font-size:12px;">' + _bkEsc(d.drive.erro) + '</div>' : (bancos.length ? '<div style="font-size:12px;">' + bancos.slice(0, 10).map(x => '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);"><span>' + _bkQuando(x.criado) + '</span><span style="color:var(--text-muted);">' + mb(x.bytes) + '</span></div>').join('') + (bancos.length > 10 ? '<div style="color:var(--text-muted);padding-top:4px;">e mais ' + (bancos.length - 10) + ' mais antigas</div>' : '') + '</div>' : '<div style="color:#ef4444;font-size:12px;">Nenhuma cópia do banco no Drive.</div>');
+    h += '<div style="margin:12px 0 4px;font-size:12px;font-weight:700;color:var(--text);">Cópias de arquivos (fotos, receitas, avatares): ' + outros.length + '</div>';
+    if (outros.length) h += '<div style="font-size:12px;color:var(--text-muted);">' + outros.slice(0, 6).map(x => _bkEsc(x.nome.replace('intus-backup-', '')) + ' · ' + mb(x.bytes)).join('<br>') + '</div>';
+    const ta = d.tabelas_agora || {}, tu = d.tabelas_ultimo || {};
+    const dif = Object.keys(tu).filter(t => ta[t] != null && ta[t] < tu[t]);
+    if (dif.length) h += '<div style="margin-top:12px;padding:10px;border:1px solid #f59e0b;border-radius:8px;font-size:12px;color:var(--text);">⚠️ Tabelas com MENOS linhas agora do que no último backup: ' + dif.map(t => _bkEsc(t) + ' (' + tu[t] + ' → ' + ta[t] + ')').join(', ') + '. Se não foi de propósito, confira antes do próximo backup.</div>';
+    h += '<details style="margin-top:12px;"><summary style="cursor:pointer;font-size:12px;color:var(--text-muted);">Registro do último backup</summary><pre style="white-space:pre-wrap;font-size:11px;color:var(--text-muted);margin-top:6px;">' + _bkEsc((d.log || []).join('\n')) + '</pre></details>';
+    box.innerHTML = h;
+  } catch (e) { box.innerHTML = '<p style="font-size:12px;color:#ef4444;">' + _bkEsc(e.message) + '</p>'; }
+}
+async function backupAcao(acao, extra) {
+  const box = document.getElementById('backups-box');
+  const rotulos = { conferir: 'Baixando a última cópia do Drive e conferindo (pode levar um minuto)...', email_teste: 'Enviando o e-mail de teste...', rodar_agora: 'Iniciando o backup...' };
+  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">' + (rotulos[acao] || 'Aguarde...') + '</p>';
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=backup_status', { method: 'POST', headers: _bkHeaders(true), body: JSON.stringify(Object.assign({ acao: acao }, extra || {})) });
+    const d = await r.json().catch(() => ({}));
+    if (acao === 'conferir') {
+      box.innerHTML = '<div style="font-size:14px;font-weight:800;color:' + (d.ok ? '#7FFF00' : '#ef4444') + ';margin-bottom:8px;">' + (d.ok ? '✅ A última cópia está íntegra' : '❌ A última cópia tem problema') + '</div>' + (d.etapas || []).map(e => '<div style="font-size:12.5px;padding:3px 0;color:var(--text);">' + (e[1] ? '✅' : '❌') + ' <b>' + _bkEsc(e[0]) + '</b>: ' + _bkEsc(e[2]) + '</div>').join('');
+    } else {
+      box.innerHTML = '<div style="font-size:13px;color:' + (d.ok ? '#7FFF00' : '#ef4444') + ';">' + (d.ok ? '✅ ' : '❌ ') + _bkEsc(d.msg || d.error || 'Sem resposta do servidor.') + '</div>' + (acao === 'rodar_agora' && d.ok ? '<div style="margin-top:8px;"><button class="cfg-save" onclick="verBackups()">Atualizar</button></div>' : '');
+    }
+  } catch (e) { box.innerHTML = '<p style="font-size:12px;color:#ef4444;">Não consegui falar com o servidor.</p>'; }
+}
+function backupSalvarEmail() { const v = (document.getElementById('bk-email') || {}).value || ''; backupAcao('salvar_email', { email: v }).then(() => setTimeout(verBackups, 1200)); }
+
 async function verUsoDrive() {
   const box = document.getElementById('drive-uso');
   box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Medindo a pasta do Drive. Pode levar alguns segundos...</p>';
