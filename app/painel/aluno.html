@@ -10695,6 +10695,13 @@ async function abrirCardio() {
   } catch {}
 }
 
+// Emoji de cada atividade de cardio (lista de registro manual, histórico). Programa guiado usa o emoji do próprio programa.
+const CARDIO_EMOJI_TODOS = { Caminhada: '🚶', Corrida: '🏃', Bike: '🚴', 'Natação': '🏊', Escada: '🪜', 'Pular Corda': '🪢', 'Elíptico': '🔄', 'Tênis': '🎾', Padel: '🏸', 'Dança': '💃', Futebol: '⚽', Luta: '🥊', Outro: '🏅' };
+function _cardioEmoji(c) {
+  try { const pr = (typeof c === 'object' && c) ? API.programaDoComentario(c) : null; if (pr) return pr.p.emoji; } catch (e) {}
+  const t = (typeof c === 'object' && c) ? c.cardio_tipo : c;
+  return CARDIO_EMOJI_TODOS[t] || '🏃';
+}
 function renderCardio() {
   const isLight = document.body.classList.contains('tema-claro');
   const box = document.getElementById('v-cardio');
@@ -10720,13 +10727,13 @@ function renderCardio() {
     </div>` : '';
 
   const tiposLista = tipos.filter(t => t !== 'Outro');
-  const tiposOptions = tiposLista.map(t => `<option value="${t}">${t}</option>`).join('');
+  const tiposOptions = tiposLista.map(t => `<option value="${t}">${CARDIO_EMOJI_TODOS[t] || '🏃'}  ${t}</option>`).join('');
 
   box.innerHTML = `
     ${telaHeader('🏃 Meu Cardio')}
-    ${novoVisto ? '' : `<div id="cardio-novo-banner">${novoHtml}</div>`}
+    ${novoVisto ? '' : `<div id="cardio-novo-banner" style="margin-top:22px;">${novoHtml}</div>`}
 
-    <div onclick="abrirCardioLive()" style="background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(6,182,212,.1));border:1.5px solid rgba(127,255,0,.35);border-radius:16px;padding:16px 18px;margin-bottom:12px;cursor:pointer;display:flex;align-items:center;gap:13px;touch-action:manipulation;">
+    <div onclick="abrirCardioLive()" style="background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(6,182,212,.1));border:1.5px solid rgba(127,255,0,.35);border-radius:16px;padding:16px 18px;margin:${novoVisto ? '26px' : '0'} 0 12px;cursor:pointer;display:flex;align-items:center;gap:13px;touch-action:manipulation;">
       <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#7FFF00,#40c000);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">📍</div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:16.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio ao vivo</div>
@@ -10751,7 +10758,7 @@ function renderCardio() {
           style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#333'};background:${isLight?'#fff':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:14px;font-family:inherit;box-sizing:border-box;">
           <option value="" selected>Escolha a atividade</option>
           ${tiposOptions}
-          <option value="__outro__">Outros…</option>
+          <option value="__outro__">🏅  Outros…</option>
         </select>
         <input id="cardio-tipo-outro" type="text" placeholder="Digite sua atividade" oninput="atualizarPreviewCardio()" autocomplete="off"
           style="display:none;width:100%;margin-top:8px;padding:10px 12px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#333'};background:${isLight?'#fff':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:14px;font-family:inherit;box-sizing:border-box;"/>
@@ -10830,7 +10837,7 @@ function renderCardio() {
             const dtStr = dt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'});
             const min = Math.round(c.duracao_seg / 60);
             return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#fff':'rgba(255,255,255,.03)'};border:1px solid ${isLight?'#e5e5e5':'#1a1a1a'};border-radius:10px;">
-              <div style="font-size:22px;">🏃</div>
+              <div style="font-size:22px;">${_cardioEmoji(c)}</div>
               <div style="flex:1;min-width:0;">
                 <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(c.cardio_tipo||'Cardio')}${c.cardio_rpe?' · esforço '+c.cardio_rpe+'/10':(c.cardio_intensidade?' · '+esc(c.cardio_intensidade):'')}${(c.tem_foto||c.cardio_foto)?` <button onclick="event.stopPropagation();verFotoCardio(${Number(c.idsessao)||0},'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Ver a foto que você anexou" style="border:none;background:transparent;padding:0 2px;font-size:13px;line-height:1;cursor:pointer;">📷</button>`:''}${Number(c.ao_vivo)===1?` <span title="Rastreado ao vivo pelo app" style="display:inline-block;white-space:nowrap;font-size:9.5px;font-weight:800;color:#0ea5e9;background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.35);border-radius:5px;padding:1px 5px;vertical-align:1px;">🔴 AO VIVO</span>`:''}</div>
                 <div style="font-size:11px;color:${isLight?'#666':'#888'};">${min} min${c.cardio_metrica?' · '+esc(c.cardio_metrica):''} · ${dtStr}</div>

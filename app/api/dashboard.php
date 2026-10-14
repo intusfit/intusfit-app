@@ -250,6 +250,19 @@ try {
 
     // Pedidos de exclusão de conta feitos pelo próprio aluno (últimos 60 dias), com o motivo. Professor vê só os seus alunos.
     try {
+        // Cria a tabela dos pedidos de exclusão (só recebe linhas; nenhum dado de aluno é alterado). Mesma definição de aluno_login.php.
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS intus_exclusao_conta (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                idatleta INT NOT NULL,
+                nome VARCHAR(160) NULL,
+                motivo_cod VARCHAR(20) NOT NULL DEFAULT '',
+                motivo VARCHAR(120) NOT NULL DEFAULT '',
+                detalhe VARCHAR(600) NULL,
+                criado_em DATETIME NOT NULL,
+                INDEX (idatleta), INDEX (criado_em)
+            ) DEFAULT CHARSET=utf8mb4");
+        } catch (Throwable $e) {}
         if (tableExists($pdo, 'intus_exclusao_conta')) {
             if ($_allowedIds === null) {
                 $rowsX = $pdo->query("SELECT idatleta, nome, motivo_cod, motivo, detalhe, criado_em FROM intus_exclusao_conta WHERE criado_em >= DATE_SUB(NOW(), INTERVAL 60 DAY) ORDER BY criado_em DESC LIMIT 30")->fetchAll(PDO::FETCH_ASSOC);
