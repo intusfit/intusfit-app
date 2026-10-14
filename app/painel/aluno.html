@@ -11396,29 +11396,49 @@ function _progVozEscolher() {
     const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
     const pt = vs.filter(v => /^pt([-_]BR)?$/i.test(v.lang) || /^pt[-_]/i.test(v.lang) || /portugu/i.test(v.name));
     if (!pt.length) return null;
-    const pontos = v => { let p = 0; if (/pt[-_]BR/i.test(v.lang)) p += 4; if (/natural|neural|online|premium|enhanced|aprimorad/i.test(v.name)) p += 6; if (/google/i.test(v.name)) p += 3; if (/luciana|francisca|thalita|camila|vit[oó]ria|felipe|ant[oô]nio|ricardo/i.test(v.name)) p += 2; if (v.localService === false) p += 1; return p; };
+    // Vozes "neurais"/"naturais" (Microsoft Online, Google de rede, Siri/Premium do iPhone, Android "network") soam bem mais humanas que as locais.
+    const pontos = v => {
+      let p = 0; const n = v.name || '', l = v.lang || '';
+      if (/pt[-_]BR/i.test(l)) p += 4;
+      if (/natural|neural|online|premium|enhanced|aprimorad|siri/i.test(n)) p += 8;
+      if (/network/i.test(n) || v.localService === false) p += 4;
+      if (/google/i.test(n)) p += 3;
+      if (/luciana|francisca|thalita|camila|vit[oó]ria|felipe|ant[oô]nio|ricardo|leila|fernanda/i.test(n)) p += 2;
+      if (/espeak|compact|desktop|robot/i.test(n)) p -= 6;
+      return p;
+    };
     return pt.slice().sort((a, b) => pontos(b) - pontos(a))[0];
   } catch (e) { return null; }
 }
 try { if (window.speechSynthesis) speechSynthesis.addEventListener('voiceschanged', function () { _progVozEscolhida = _progVozEscolher(); }); } catch (e) {}
-function _progFalar(txt) {
+// Fala como um treinador animado: a frase é dividida em pedaços curtos (pausas naturais) e cada um muda um pouco o tom e a velocidade.
+// estilo: 'forte' (energia alta), 'leve' (calmo), 'fim' (comemoração) ou nada (neutro e simpático).
+function _progFalar(txt, estilo) {
   try {
     if (!_progVozOn() || !window.speechSynthesis || !txt) return;
     speechSynthesis.cancel();
     if (!_progVozEscolhida) _progVozEscolhida = _progVozEscolher();
-    const u = new SpeechSynthesisUtterance(txt); u.lang = 'pt-BR'; u.rate = 0.97; u.pitch = 1.0; u.volume = 1;
-    if (_progVozEscolhida) { u.voice = _progVozEscolhida; u.lang = _progVozEscolhida.lang || 'pt-BR'; }
-    speechSynthesis.speak(u);
+    const base = { forte: { r: 1.1, p: 1.14 }, leve: { r: 0.96, p: 1.02 }, fim: { r: 1.02, p: 1.18 } }[estilo] || { r: 1.03, p: 1.07 };
+    const partes = String(txt).match(/[^.!?]+[.!?]*/g) || [txt];
+    partes.forEach((t, k) => {
+      t = t.trim(); if (!t) return;
+      const exclama = /!\s*$/.test(t);
+      const u = new SpeechSynthesisUtterance(t); u.lang = 'pt-BR'; u.volume = 1;
+      u.rate = Math.min(1.25, base.r + (exclama ? 0.04 : 0) + (k ? -0.02 : 0));   // exclamações um pouco mais rápidas, complemento mais calmo
+      u.pitch = Math.min(1.5, base.p + (exclama ? 0.08 : 0) + (k ? -0.04 : 0));
+      if (_progVozEscolhida) { u.voice = _progVozEscolhida; u.lang = _progVozEscolhida.lang || 'pt-BR'; }
+      speechSynthesis.speak(u);
+    });
   } catch (e) {}
 }
 function _progSorteio(a) { return a[Math.floor(Math.random() * a.length)]; }
 function _progFalaDur(s) { if (s < 45) return ''; if (s < 90) return s >= 55 ? ' Por um minuto.' : ' Por ' + s + ' segundos.'; const m = Math.floor(s / 60), r = s % 60; return ' Por ' + (m === 1 ? 'um minuto' : m + ' minutos') + (r >= 25 ? ' e meio' : '') + '.'; }
 function _progFraseBloco(e) {
   const nome = String(e.n).toLowerCase();
-  if (e.f === 'forte') return (nome === 'corre' ? _progSorteio(['Agora corre!', 'Bora correr!', 'Corre! Você consegue.']) : _progSorteio(['Agora, forte!', 'Vamos! Acelera!', 'Força total! Esse é o forte.', 'Bora! Dá o seu melhor.'])) + _progFalaDur(e.s);
-  if (e.f === 'leve') return (nome === 'caminha' ? _progSorteio(['Boa! Agora caminha e respira.', 'Caminha, recupera o fôlego.']) : _progSorteio(['Boa! Agora leve, respira.', 'Desacelera e recupera o fôlego.', 'Leve agora. Respira fundo.'])) + _progFalaDur(e.s);
-  if (e.f === 'aq') return 'Vamos começar com o aquecimento. Com calma.';
-  if (e.f === 'calma') return 'Hora de desacelerar. Volta à calma.';
+  if (e.f === 'forte') return (nome === 'corre' ? _progSorteio(['Agora corre! Vai com tudo!', 'Bora correr! Você consegue!', 'Corre! Isso aí, vamos!']) : _progSorteio(['Agora é forte! Vamos nessa!', 'Vamos! Acelera! Você consegue!', 'Força total! Esse é o momento!', 'Bora! Dá tudo de você!'])) + _progFalaDur(e.s);
+  if (e.f === 'leve') return (nome === 'caminha' ? _progSorteio(['Muito bem! Agora caminha e respira fundo.', 'Boa! Caminha e recupera o fôlego.']) : _progSorteio(['Muito bem! Agora leve, respira fundo.', 'Boa! Desacelera e recupera o fôlego.', 'Mandou bem! Leve agora, respira.'])) + _progFalaDur(e.s);
+  if (e.f === 'aq') return 'Vamos lá! Começa com o aquecimento, com calma.';
+  if (e.f === 'calma') return 'Excelente! Hora de desacelerar. Volta à calma.';
   return e.n + '.' + _progFalaDur(e.s);
 }
 // Sinal da troca de bloco: bip (mais agudo e duplo no forte, grave no leve), vibração, flash colorido na tela inteira, voz e notificação (tela apagada).
@@ -11430,7 +11450,7 @@ function _progSinal(e, fim) {
     else if (f === 'leve') { _progBip(520, 260); if (navigator.vibrate) navigator.vibrate(160); }
     else { _progBip(720, 240); if (navigator.vibrate) navigator.vibrate(180); }
     _progFlash(fim ? '#22c55e' : _PROG_FASE[e.f].cor, fim ? 'CONCLUÍDO!' : e.n);
-    _progFalar(fim ? 'Programa concluído. Parabéns, ótimo trabalho!' : _progFraseBloco(e));
+    _progFalar(fim ? 'Programa concluído! Parabéns, você mandou muito bem!' : _progFraseBloco(e), fim ? 'fim' : e.f);
     _progNotificar(fim ? 'Programa concluído!' : e.n.toUpperCase(), fim ? 'Parabéns! Abra o app para ver o resumo.' : _progMin(e.s) + ' neste bloco');
     _progMediaAtualizar();
   } catch (err) {}
@@ -11564,7 +11584,7 @@ function _progIniciarRelogio() {
 function _progPlay() {   // iniciar (com contagem regressiva) ou continuar depois de pausar
   _progAudio(); _progSegundoPlanoLigar();
   if (_prog.fase === 'pronto') {
-    _prog.fase = 'contagem'; _prog.contFimMs = Date.now() + 3000; _prog.contN = 4; _progFalar('Prepare-se');
+    _prog.fase = 'contagem'; _prog.contFimMs = Date.now() + 3000; _prog.contN = 4; _progFalar('Prepare-se! Vamos lá!', 'forte');
     _renderProgExecucao(); _progTick(); return;
   }
   if (_prog.fase === 'ativo' && _prog.pausado) {
@@ -11606,7 +11626,7 @@ function _progTick() {
   // Avisos curtos nos 3 últimos segundos do bloco
   const restS = Math.ceil((_prog.fimMs - Date.now()) / 1000);
   if (restS <= 3 && restS >= 1 && restS !== _prog.bipS && _progEt(p)[_prog.i].s >= 4) { _prog.bipS = restS; _progBip(restS === 1 ? 1175 : 880, restS === 1 ? 220 : 130, 0.42); try { if (navigator.vibrate) navigator.vibrate(restS === 1 ? 120 : 50); } catch (e) {} }
-  if (restS === 10 && _progEt(p)[_prog.i].s >= 40 && _prog.f10 !== _prog.i + ':' + _prog.sessao) { _prog.f10 = _prog.i + ':' + _prog.sessao; _progFalar('Faltam dez segundos.'); }
+  if (restS === 10 && _progEt(p)[_prog.i].s >= 40 && _prog.f10 !== _prog.i + ':' + _prog.sessao) { _prog.f10 = _prog.i + ':' + _prog.sessao; _progFalar('Faltam dez segundos!', _progEt(p)[_prog.i].f); }
   _progAtualizarRelogio();
 }
 // Posição no programa (para o tempo decorrido/restante): blocos anteriores + parte já feita do bloco atual.
