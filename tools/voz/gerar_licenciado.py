@@ -4,7 +4,7 @@ Gera (ou regera) os áudios das vozes dos programas de cardio com o Azure Speech
 
 Por quê: os áudios que estão em app/painel/voz/ foram gerados de forma provisória com o serviço de leitura do Microsoft Edge (pacote
 edge-tts), que NÃO tem contrato de uso comercial. Antes de publicar nas lojas, rode este script: ele troca os arquivos pela mesma voz
-(pt-BR-ThalitaMultilingualNeural) vinda da API oficial e marca o manifesto como "licenciado": true. Sem isso, o app das lojas ignora
+(pt-BR-FranciscaNeural) vinda da API oficial e marca o manifesto como "licenciado": true. Sem isso, o app das lojas ignora
 os áudios gravados e usa a voz do aparelho (ver _progClipesCarregar em app/painel/aluno.html).
 
 Uso (a chave NUNCA vai para o código nem para o repositório; passe só pelo ambiente):
@@ -22,7 +22,7 @@ from xml.sax.saxutils import escape
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PASTA = os.path.join(RAIZ, 'app', 'painel', 'voz')
 MANIFESTO = os.path.join(PASTA, 'manifest.json')
-VOZ = os.environ.get('AZURE_SPEECH_VOICE', 'pt-BR-ThalitaMultilingualNeural')
+VOZ = os.environ.get('AZURE_SPEECH_VOICE', 'pt-BR-FranciscaNeural')
 CHAVE = os.environ.get('AZURE_SPEECH_KEY', '').strip()
 REGIAO = os.environ.get('AZURE_SPEECH_REGION', '').strip()
 

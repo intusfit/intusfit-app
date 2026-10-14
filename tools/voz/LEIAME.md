@@ -13,7 +13,7 @@
    $env:AZURE_SPEECH_REGION = "brazilsouth"
    python tools/voz/gerar_licenciado.py
    ```
-   Ele troca os 60 arquivos pela mesma voz (`pt-BR-ThalitaMultilingualNeural`) vinda da API oficial e marca o manifesto como licenciado.
+   Ele troca os 60 arquivos pela mesma voz (`pt-BR-FranciscaNeural`) vinda da API oficial e marca o manifesto como licenciado.
 3. **Ouvir** alguns arquivos de `app/painel/voz/`, fazer o commit da pasta e publicar. O app das lojas passa a usar as vozes gravadas sem mudar nada no código; para esse caminho o build precisa incluir (ou baixar do site) a pasta `voz/`.
 4. **Guardar o comprovante** do recurso Azure (nome, assinatura, data) junto da documentação da loja: ele mostra de onde vem o áudio.
 5. Conferir nos termos vigentes do Azure Speech que o áudio gerado pode ser distribuído no app (o uso comercial dos áudios sintetizados é permitido pelos termos de serviço do Azure, que mudam com o tempo; o texto que vale é o do dia do envio).

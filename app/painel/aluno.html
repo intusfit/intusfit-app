@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261013h"></script>
+  <script src="api.js?v=20261013i"></script>
   <script src="ajuda.js?v=20261013a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -1045,8 +1045,8 @@
       letter-spacing: .3px; margin-top: 24px;
     }
     .app-footer .slogan { font-style: italic; margin-bottom: 4px; color: #666; }
-    body.tema-claro .app-footer { color: #aaa; }
-    body.tema-claro .app-footer .slogan { color: #999; }
+    body.tema-claro .app-footer { color: #6f6f6f; }
+    body.tema-claro .app-footer .slogan { color: #6b6b6b; }
 
     /* TERMS VIEW */
     .terms-content { font-size: 13px; line-height: 1.8; color: #e0e0e0; }
@@ -3716,7 +3716,7 @@ async function renderFeedCompleto() {
   // ficou longe lá em cima; sem esse aqui, quem terminasse de ver os posts
   // precisava voltar pro topo só pra postar o próprio.
   html += '<button class="btn btn-prim" style="width:100%;margin:6px 0 14px;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button>';
-  html += '<div style="font-size:10.5px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
+  html += '<div style="font-size:10.5px;color:' + (isLight?'#777':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
   html += getFooterHtml();
   box.innerHTML = html;
   if (posts.length && !souMeuPerfil) _feedAtualizarPaginacao();
@@ -6118,11 +6118,42 @@ var _RENDER_POR_VIEW = {
   desafios:    function () { renderDesafiosAluno(); },
   mensagens:   function () { renderMensagensAluno(); },
   quemsomos:   function () { renderQuemSomos(); },
-  nutricao:    function () { renderNutricaoAluno(); },
+  nutricao:    function () { if (typeof _nutriRender === 'function' && _nutri && _nutri.tela) _nutriRender(); else renderNutricaoAluno(); },   // mantém a subtela (receita, vídeo, água...)
   alongamentos:function () { renderAlongamentos(); },
   muscu:       function () { renderMusculacao(); },
   feed:        function () { renderFeedCompleto(); },
+  amigos:      function () { renderAmigos(); },
+  resultados:  function () { renderResultados(); },
+  treinos:     function () { abrirMeusTreinos(); },
+  // Programas de cardio: execução (se estiver rodando), detalhe ou lista
+  'cardio-prog': function () { if (_prog.tela === 'resultado') return; if (_prog.rodando) _renderProgExecucao(); else if (_prog.tela === 'detalhe') _renderProgDetalhe(); else _renderProgLista(); },
 };
+_RENDER_POR_VIEW.mensagens = function () { if (typeof renderCentral === 'function') renderCentral(); else renderMensagensAluno(); };   // mantém a aba e a conversa abertas, sem recarregar
+
+// Cada tela guarda com qual tema foi desenhada (data-tema). Trocar o tema redesenha só a tela aberta; as outras ficam para trás e,
+// quando o aluno volta a elas pelo botão/gesto de voltar (que não redesenha), a cor estaria presa no tema antigo. Aqui detectamos e redesenhamos.
+var _temaDaTela = function () { return document.body.classList.contains('tema-claro') ? 'claro' : 'escuro'; };
+var _viewsObs = null;
+function _viewsCarimbar() {
+  try {
+    document.querySelectorAll('.view').forEach(function (el) { el.dataset.tema = _temaDaTela(); });
+    _viewsObs = new MutationObserver(function (recs) { recs.forEach(function (r) { r.target.dataset.tema = _temaDaTela(); }); });
+    document.querySelectorAll('.view').forEach(function (el) { _viewsObs.observe(el, { childList: true }); });
+  } catch (e) {}
+}
+// Chamada depois de mostrar uma tela SEM redesenhá-la (voltar do celular): se ela foi desenhada com o outro tema, desenha de novo.
+function _viewRefazerSeTemaVelho(v) {
+  try {
+    if (_viewsObs) _viewsObs.takeRecords().forEach(function (r) { r.target.dataset.tema = _temaDaTela(); });
+    var el = document.getElementById('v-' + v);
+    if (!el || !el.dataset.tema || el.dataset.tema === _temaDaTela()) return false;
+    var fn = _RENDER_POR_VIEW[v]; if (!fn || v === 'anamnese') return false;
+    fn(); el.dataset.tema = _temaDaTela();
+    return true;
+  } catch (e) { return false; }
+}
+document.addEventListener('DOMContentLoaded', _viewsCarimbar);
+if (document.readyState !== 'loading') _viewsCarimbar();
 
 function redesenharViewAtual() {
   var v = window._viewAtual || 'home';
@@ -10830,7 +10861,7 @@ function renderCardio() {
       </summary>
       <div style="padding:0 20px 20px;">
       ${_cardioHistorico.length === 0
-        ? `<div style="text-align:center;padding:24px;color:${isLight?'#aaa':'#555'};font-size:13px;">Nenhum cardio registrado ainda.</div>`
+        ? `<div style="text-align:center;padding:24px;color:${isLight?'#777':'#555'};font-size:13px;">Nenhum cardio registrado ainda.</div>`
         : `<div style="display:flex;flex-direction:column;gap:8px;">` +
           _cardioHistorico.slice(0,30).map(c => {
             const dt = new Date(c.dtsessao + 'T00:00:00');
@@ -10868,6 +10899,14 @@ function renderCardio() {
 
 let _cardioRpe = 5;
 let _cardioFoto = ''; // dataURL comprimida (opcional)
+// Cor de texto a partir de uma cor viva: no tema claro escurece para ter contraste com o fundo claro.
+function _corParaTexto(hex) {
+  if (!document.body.classList.contains('tema-claro')) return hex;
+  const hs = /^hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)$/.exec(String(hex)); if (hs) return 'hsl(' + hs[1] + ',' + hs[2] + '%,' + Math.min(Number(hs[3]), 30) + '%)';
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex)); if (!m) return hex;
+  const n = parseInt(m[1], 16), f = c => Math.round(c * 0.62).toString(16).padStart(2, '0');
+  return '#' + f((n >> 16) & 255) + f((n >> 8) & 255) + f(n & 255);
+}
 function onRpeChange() {
   const sl = document.getElementById('cardio-rpe');
   _cardioRpe = sl ? parseInt(sl.value) || 5 : 5;
@@ -10878,9 +10917,9 @@ function onRpeChange() {
     desc.innerHTML =
       '<div style="display:inline-flex;align-items:center;gap:8px;">' +
         '<span style="width:30px;height:30px;border-radius:50%;background:' + cor + ';color:#fff;font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center;">' + _cardioRpe + '</span>' +
-        '<span style="font-size:14px;font-weight:800;color:' + cor + ';">' + info.t + '</span>' +
+        '<span style="font-size:14px;font-weight:800;color:' + _corParaTexto(cor) + ';">' + info.t + '</span>' +
       '</div>' +
-      '<div style="font-size:11.5px;color:#999;margin-top:4px;">' + info.d + '</div>';
+      '<div style="font-size:11.5px;color:' + (document.body.classList.contains('tema-claro') ? '#666' : '#999') + ';margin-top:4px;">' + info.d + '</div>';
   }
   atualizarPreviewCardio();
 }
@@ -11300,8 +11339,6 @@ var _PROG_ATIV = {
     forte: { n: 'Polichinelo forte', d: 'Abra e feche braços e pernas em ritmo forte, aterrissando suave na ponta dos pés e com o abdômen firme.', dmax: 'Faça o maior número que conseguir, rápido, com os braços bem acima da cabeça e o abdômen firme.', voz: ['Polichinelo forte! Vamos nessa!', 'Abre e fecha! Você consegue!', 'Bora! Dá tudo de você no polichinelo!'] },
     leve: { n: 'Polichinelo leve ou descansa', d: 'Faça o movimento devagar, sem pular alto, ou ande no lugar e respire fundo.', voz: ['Muito bem! Anda no lugar e respira fundo.', 'Boa! Solta o corpo e recupera o fôlego.'] },
     calma: { d: 'Ande no lugar, balance os braços e respire fundo até normalizar.', voz: ['Excelente! Anda no lugar e respira fundo.'] },
-    cont: { n: 'Polichinelo leve e constante', d: 'Polichinelo em ritmo leve e constante, sem pular alto, com a respiração tranquila. Se perder o fôlego, faça uma pausa curta e volte.', voz: ['Agora é no seu ritmo! Polichinelo leve e constante, dá para conversar.'] },
-    dlongo: 'Mantenha um ritmo forte e constante durante todo o bloco, sem gastar tudo no começo. Se precisar, diminua a altura do pulo, mas continue em movimento.',
   },
   'Corrida estática': {
     aviso: 'Corrida estática: use tênis com amortecimento e piso firme que não escorregue. Pise suave na ponta do pé e mantenha o abdômen firme. Se sentir dor nos joelhos ou nas canelas, diminua o impacto ou escolha outra atividade.',
@@ -11309,8 +11346,6 @@ var _PROG_ATIV = {
     forte: { n: 'Corre no lugar', d: 'Corra parado em ritmo forte, subindo bem os joelhos e movendo os braços junto.', dmax: 'Corra no lugar o mais rápido que conseguir, com os joelhos altos e os braços firmes.', voz: ['Corre no lugar! Joelhos altos, vamos!', 'Agora é forte! Sobe esses joelhos, você consegue!', 'Bora! Dá tudo de você na corrida!'] },
     leve: { n: 'Trota leve no lugar', d: 'Reduza para um trote bem leve no lugar, ou ande no lugar, e respire fundo.', voz: ['Muito bem! Trota leve e respira fundo.', 'Boa! Desacelera e recupera o fôlego.'] },
     calma: { d: 'Ande no lugar, balance os braços e respire fundo até normalizar.', voz: ['Excelente! Anda no lugar e respira fundo.'] },
-    cont: { n: 'Trote leve no lugar', d: 'Trote leve no lugar, em ritmo constante, com a respiração tranquila. Se perder o fôlego, ande no lugar um pouco e volte.', voz: ['Agora é no seu ritmo! Trote leve no lugar, dá para conversar.'] },
-    dlongo: 'Mantenha um ritmo forte e constante durante todo o bloco, sem gastar tudo no começo. Se precisar, reduza a altura dos joelhos, mas continue em movimento.',
   },
   'Pular Corda': {
     aviso: 'Corda: use tênis com amortecimento, pise na ponta do pé em piso firme e com espaço livre. Se sentir dor nas pernas ou nas canelas, pare e escolha outra atividade.',
@@ -11320,6 +11355,41 @@ var _PROG_ATIV = {
     calma: { d: 'Ande no lugar e alongue os braços e as pernas, respirando fundo.', voz: ['Excelente! Anda no lugar e respira fundo.'] },
   },
 };
+// Aquecimento e volta à calma de 5 a 10 minutos fazendo SÓ polichinelo, corrida estática, corda ou escada não fazem sentido (é esforço, não aquecimento).
+// Para essas atividades os blocos genéricos viram uma sequência de movimentos de mobilidade, com o MESMO tempo total (a duração do programa e a regra
+// dos 90% não mudam). `mob` é o passo que usa a própria atividade em ritmo leve.
+var _PROG_MOB = {
+  'Polichinelo':      { n: 'Polichinelo leve', d: 'Faça polichinelos leves, sem pular alto, só para esquentar.', voz: ['Agora polichinelo leve, para esquentar.'] },
+  'Corrida estática': { n: 'Trote leve no lugar', d: 'Trote leve no lugar, com os joelhos baixos, só para esquentar.', voz: ['Agora trote leve no lugar, para esquentar.'] },
+  'Pular Corda':      { n: 'Pula leve', d: 'Pule devagar, com saltos bem baixos, só para esquentar.', voz: ['Agora pula leve, com saltos baixos.'] },
+  'Escada':           { n: 'Sobe e desce leve', d: 'Suba e desça devagar, degrau por degrau, só para esquentar.', voz: ['Agora sobe e desce a escada devagar.'] },
+};
+var _PROG_VOZ_MOB = ['Vamos começar! Marcha no lugar, com calma.', 'Agora gira os braços e solta os ombros.', 'Agora agachamento livre, devagar.', 'Agora afundo alternado, uma perna de cada vez.', 'Aumenta o ritmo um pouquinho, falta pouco.', 'Excelente! Caminha no lugar e respira fundo.', 'Inspira pelo nariz e solta o ar devagar.', 'Agora alonga as pernas, sem balançar.'];
+function _progRepartir(total, pesos) {   // divide o tempo em passos de múltiplos de 5 s e põe a sobra no último, sem mudar o total
+  const t = pesos.map(w => Math.max(15, Math.round(total * w / 5) * 5));
+  t[t.length - 1] = Math.max(15, total - t.slice(0, -1).reduce((a, b) => a + b, 0));
+  return t;
+}
+function _progMobilidade(total, fase, ativ) {
+  const E = (n, s, d, voz) => ({ n: n, s: s, f: fase, d: d, voz: Array.isArray(voz) ? voz : [voz] });
+  if (fase === 'aq') {
+    const m = _PROG_MOB[ativ], t = _progRepartir(total, [0.2, 0.15, 0.15, 0.15, 0.2, 0.15]);
+    return [
+      E('Marcha no lugar', t[0], 'Marche no lugar, subindo os joelhos aos poucos e balançando os braços.', _PROG_VOZ_MOB[0]),
+      E('Giro de braços e ombros', t[1], 'Gire os braços para frente e para trás, em círculos grandes, soltando os ombros.', _PROG_VOZ_MOB[1]),
+      E('Agachamento livre', t[2], 'Agache sem peso, com as costas retas e os joelhos alinhados com os pés.', _PROG_VOZ_MOB[2]),
+      E('Afundo alternado', t[3], 'Dê um passo à frente e desça o joelho de trás, alternando as pernas, sem pressa.', _PROG_VOZ_MOB[3]),
+      E(m.n, t[4], m.d, m.voz),
+      E('Aumenta o ritmo', t[5], 'Aumente um pouco o ritmo da atividade, sem chegar ao esforço forte.', _PROG_VOZ_MOB[4]),
+    ];
+  }
+  const t = _progRepartir(total, [0.35, 0.25, 0.4]);
+  return [
+    E('Caminha no lugar', t[0], 'Caminhe no lugar, balançando os braços, e deixe a respiração desacelerar.', _PROG_VOZ_MOB[5]),
+    E('Respiração profunda', t[1], 'Inspire pelo nariz, solte o ar devagar pela boca e sinta o coração desacelerar.', _PROG_VOZ_MOB[6]),
+    E('Alongamento das pernas', t[2], 'Alongue as coxas e as panturrilhas, segurando cada posição sem balançar.', _PROG_VOZ_MOB[7]),
+  ];
+}
 var _progEtCache = { k: '', v: null };
 function _progEt(p) {
   const base = API.programaEtapas(p, _prog.sessao), a = _PROG_ATIV[_prog.ativ];
@@ -11335,8 +11405,19 @@ function _progEt(p) {
     const dica = longo ? (/Último/.test(e.d || '') ? 'Último bloco! Mantenha o ritmo até o fim.' : t.dlongo) : (maxi ? (t.dmax || t.d) : (DICAS.indexOf(e.d) >= 0 || !e.d ? t.d : e.d));
     return Object.assign({}, e, { n: (e.f === 'forte' || e.f === 'leve' || e.f === 'cont') && e.n !== 'Descanso entre blocos' ? (t.n || e.n) : e.n, d: dica, voz: t.voz });
   });
-  _progEtCache = { k: k, v: v };
-  return v;
+  const final = _PROG_MOB[_prog.ativ] ? v.reduce((o, e) => o.concat(e.f === 'aq' && e.n === 'Aquecimento' ? _progMobilidade(e.s, 'aq', _prog.ativ) : (e.f === 'calma' && e.n === 'Volta à calma' ? _progMobilidade(e.s, 'calma', _prog.ativ) : [e])), []) : v;
+  _progEtCache = { k: k, v: final };
+  return final;
+}
+// Diagnóstico (console): toda combinação programa x atividade tem de somar o mesmo tempo do programa original.
+function _progConferirDuracoes() {
+  const ruins = [], salvo = { id: _prog.id, sessao: _prog.sessao, ativ: _prog.ativ };
+  API.PROGRAMAS_CARDIO.forEach(p => (p.atividades || ['']).forEach(a => {
+    _prog.id = p.id; _prog.ativ = a;
+    (p.sessoes ? p.sessoes.map((_, k) => k) : [null]).forEach(k => { _prog.sessao = k; const tot = _progEt(p).reduce((x, e) => x + e.s, 0), base = API.programaDuracao(p, k); if (tot !== base) ruins.push(p.id + ' / ' + a + ' / ' + k + ': ' + tot + ' em vez de ' + base); });
+  }));
+  Object.assign(_prog, salvo);
+  return ruins;
 }
 function _progSessaoTit(p) { return (p && p.sessoes && _prog.sessao != null && p.sessoes[_prog.sessao]) ? p.sessoes[_prog.sessao].titulo : ''; }
 function _progProximaSessao(p) { if (!p.sessoes) return null; const f = _progFeitos(p); for (let i = 0; i < p.sessoes.length; i++) if (!f[i]) return i; return p.sessoes.length - 1; }
@@ -11366,11 +11447,13 @@ function _progCartaoPrograma(p, isLight) {
 function _progConcluidos(id) {
   try { const p = API.programaPorId(id); return Object.keys(_progFeitos(p)).length; } catch (e) { return 0; }
 }
+function _progVoltarAoPrograma() { _prog.tela = 'detalhe'; _renderProgExecucao(); }
 function _renderProgLista() {
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
   box.innerHTML = telaHeader('🔥 Programas de cardio', 'cardio') +
     '<div style="font-size:13px;color:' + (isLight ? '#555' : '#aaa') + ';line-height:1.55;margin:4px 2px 14px;">Treinos de cardio prontos, guiados passo a passo com cronômetro e avisos de troca. Concluir um programa dá <b>distintivos</b> e <b>+1 ponto extra por dia</b>, além dos pontos do tempo.</div>' +
+    (_prog.rodando ? '<div onclick="_progVoltarAoPrograma()" style="padding:12px 14px;margin-bottom:12px;border-radius:14px;cursor:pointer;background:rgba(249,115,22,.12);border:1.5px solid rgba(249,115,22,.5);font-size:13.5px;font-weight:800;color:' + (isLight ? '#9a3412' : '#fdba74') + ';">▶ Você tem um programa em andamento. Toque para voltar a ele.</div>' : '') +
     (_prog.id && !_prog.rodando && _progTemAtivoSalvo() ? '<div onclick="_progRetomar()" style="padding:12px 14px;margin-bottom:12px;border-radius:14px;cursor:pointer;background:rgba(127,255,0,.1);border:1px solid rgba(127,255,0,.4);font-size:13px;font-weight:800;color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">▶ Continuar o programa que você começou</div>' : '') +
     API.PROGRAMAS_CARDIO.map(p => _progCartaoPrograma(p, isLight)).join('') +
     '<div style="font-size:11px;color:#888;line-height:1.5;margin:6px 2px 14px;">Aqueça antes e pare se sentir tontura, dor ou mal-estar. Os programas são guias de treino e não substituem a orientação do seu professor.</div>' +
@@ -11918,6 +12001,7 @@ async function _progConcluir(completo) {
 }
 function _progCompartilhar() { const r = _prog.ultimoResultado || {}; abrirCompartilharCardio({ tipo: r.tipo || _prog.ativ || 'Corrida', min: r.min || 0, distKm: 0, nomeTreino: r.nomeTreino }); }
 async function _progResultado(p, completo, seg, dados) {
+  _prog.tela = 'resultado';   // a tela de resultado não se redesenha sozinha (troca de tema)
   _rankingData = null; _rkUltimaBusca = 0;
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
@@ -14328,14 +14412,19 @@ function _pkTravarFundo() {
   if (document.body.dataset.pkLock) return;
   document.body.dataset.pkLock = '1';
   document.body.dataset.pkOv = document.body.style.overflow || '';
+  const y = window.scrollY || window.pageYOffset || 0;   // travar a rolagem zerava a posição da tela de trás (o ranking voltava ao topo ao fechar o perfil)
+  document.body.dataset.pkY = String(y);
   document.body.style.overflow = 'hidden';
   document.documentElement.style.overflow = 'hidden';
+  if (y) { window.scrollTo(0, y); requestAnimationFrame(function () { window.scrollTo(0, y); }); }
   if (_pkLockObs) return;
   _pkLockObs = new MutationObserver(function() {
     if (document.querySelector('#overlay-perfil-rk, #pk-post-ov, #pk-priv-ov, .pk-trava')) return;
+    const y = Number(document.body.dataset.pkY || 0);
     document.body.style.overflow = document.body.dataset.pkOv || '';
     document.documentElement.style.overflow = '';
-    delete document.body.dataset.pkLock; delete document.body.dataset.pkOv;
+    delete document.body.dataset.pkLock; delete document.body.dataset.pkOv; delete document.body.dataset.pkY;
+    if (y) { window.scrollTo(0, y); requestAnimationFrame(function () { window.scrollTo(0, y); }); }
   });
   _pkLockObs.observe(document.body, { childList: true });
 }
@@ -17154,7 +17243,7 @@ function _renderRankingView() {
       '</div>' +
     '</div>' +
   '</div>';
-  html += '<div style="font-size:11px;color:' + (isLight?'#bbb':'#555') + ';margin-top:10px;padding:0 4px;">Deseja sair do ranking? <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Desabilitar participação em Meu Perfil</b>.</div>';
+  html += '<div style="font-size:11px;color:' + (isLight?'#777':'#555') + ';margin-top:10px;padding:0 4px;">Deseja sair do ranking? <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Desabilitar participação em Meu Perfil</b>.</div>';
 
   html += getFooterHtml();
   box.innerHTML = html;
@@ -19439,6 +19528,7 @@ function _nutriAguaCardHtml() {
   const gota = cheia => `<svg viewBox="0 0 24 28" style="flex:1;min-width:0;height:24px;transition:.25s;" aria-hidden="true"><path d="M12 2.2C12 2.2 4.6 10.4 4.6 17a7.4 7.4 0 0 0 14.8 0C19.4 10.4 12 2.2 12 2.2z" fill="${cheia ? '#38bdf8' : 'none'}" fill-opacity="${cheia ? '.9' : '0'}" stroke="${cheia ? '#0ea5e9' : C.borda}" stroke-width="1.6" stroke-linejoin="round"/>${cheia ? '<path d="M8.6 16.2a3.6 3.6 0 0 0 2.4 3.4" fill="none" stroke="#e0f6ff" stroke-width="1.6" stroke-linecap="round" opacity=".85"/>' : ''}</svg>`;
   const icones = Array.from({ length: copos }, (_, i) => gota(i < cheios)).join('');
   const bateu = ml >= meta, home = _homeAguaAtiva();
+  const AZ = document.body.classList.contains('tema-claro') ? '#0369a1' : '#38bdf8';   // azul da água: mais escuro no tema claro (contraste)
   // Cartão compacto (metade da altura anterior): título e histórico na mesma linha, números e % juntos, copos finos, botões e o
   // interruptor do marcador da tela inicial numa linha só.
   return `<div style="background:${C.card};border:1px solid ${bateu ? '#38bdf8' : C.borda};border-radius:14px;padding:10px 12px;margin-bottom:12px;">
@@ -19448,13 +19538,13 @@ function _nutriAguaCardHtml() {
     </div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:2px 0 6px;">
       <div style="font-size:20px;font-weight:900;line-height:1.2;">${litros(ml)} <span style="font-size:12px;font-weight:700;color:${C.mut};">de ${litros(meta)} L</span></div>
-      <div style="font-size:12.5px;font-weight:900;color:#38bdf8;">${pct}%</div>
+      <div style="font-size:12.5px;font-weight:900;color:${AZ};">${pct}%</div>
     </div>
     <div style="display:flex;gap:2px;margin-bottom:8px;align-items:flex-end;">${icones}</div>
     <div style="display:flex;gap:6px;">
       <button onclick="nutriAgua(-250,1)" aria-label="Tirar um copo" style="flex:1;padding:7px 0;border-radius:10px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:15px;font-weight:800;cursor:pointer;">−</button>
       <button onclick="nutriAgua(250,1)" style="flex:3;padding:7px 0;border-radius:10px;border:none;background:#38bdf8;color:#04283a;font-size:12.5px;font-weight:900;cursor:pointer;">+ copo (250 ml)</button>
-      <button onclick="nutriAgua(500,1)" style="flex:2;padding:7px 0;border-radius:10px;border:1px solid #38bdf8;background:transparent;color:#38bdf8;font-size:12px;font-weight:800;cursor:pointer;">+ 500 ml</button>
+      <button onclick="nutriAgua(500,1)" style="flex:2;padding:7px 0;border-radius:10px;border:1px solid ${AZ};background:transparent;color:${AZ};font-size:12px;font-weight:800;cursor:pointer;">+ 500 ml</button>
     </div>
     <div onclick="homeAguaLigar(${home ? 'false' : 'true'})" title="${home ? 'Ligado: aparece abaixo de Sua semana, com + copo em um toque.' : 'Desligado: mostra um cartão de água abaixo de Sua semana.'}" style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;">
       <span style="flex-shrink:0;width:32px;height:18px;border-radius:99px;background:${home ? '#38bdf8' : 'rgba(128,128,128,.4)'};position:relative;transition:.2s;"><span style="position:absolute;top:2px;left:${home ? '16px' : '2px'};width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s;"></span></span>
@@ -19496,6 +19586,7 @@ function _nutriAguaDiasHist(n) {
 function _nutriAguaHistHtml() {
   const N = API.nutri, C = _nutriCores(), temPlano = _nutriTemPlano(), per = temPlano ? (_nutri.aguaPer || 30) : 7, meta = N.metaAguaMl(_nutriUltimoPeso());
   const dias = _nutriAguaDiasHist(per);
+  const AZ = document.body.classList.contains('tema-claro') ? '#0369a1' : '#38bdf8';
   const litros = v => (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
   const comReg = dias.filter(d => d.ml > 0), bateu = dias.filter(d => d.ml >= meta);
   const media = comReg.length ? Math.round(comReg.reduce((a, d) => a + d.ml, 0) / comReg.length) : 0;
@@ -19525,7 +19616,7 @@ function _nutriAguaHistHtml() {
     <div style="display:flex;gap:6px;margin-bottom:12px;">${chips}</div>
     <div style="background:${C.card};border:1px solid ${C.borda};border-radius:16px;padding:14px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:8px;">
-        ${stat(comReg.length ? litros(media) + ' L' : '—', 'Média por dia registrado', '#38bdf8')}${div}
+        ${stat(comReg.length ? litros(media) + ' L' : '—', 'Média por dia registrado', AZ)}${div}
         ${stat(bateu.length + '/' + per, 'Dias com a meta batida', C.ok)}${div}
         ${stat(melhor.ml ? litros(melhor.ml) + ' L' : '—', melhor.ml ? 'Melhor dia (' + melhor.data.slice(8, 10) + '/' + melhor.data.slice(5, 7) + ')' : 'Melhor dia', '#a78bfa')}
       </div>
@@ -21357,6 +21448,12 @@ window.addEventListener('popstate', function(e) {
     return;
   }
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
+  // Programa de cardio (detalhe, execução ou resultado): voltar do celular leva à lista de programas, não ao registro de cardio.
+  if (window._viewAtual === 'cardio-prog' && _prog.tela !== 'lista') {
+    _prog.tela = 'lista'; _renderProgLista();
+    history.pushState({ view: 'cardio-prog' }, '', '');
+    return;
+  }
   // Conversa aberta na Central: voltar do celular fecha a conversa e mostra a lista de mensagens (não pula para o início).
   if (window._viewAtual === 'mensagens' && typeof _chatAberta !== 'undefined' && _chatAberta) {
     _chatVoltarLista();
@@ -21388,6 +21485,7 @@ window.addEventListener('popstate', function(e) {
     else if (prevView === 'anamnese') abrirAnamnese();
     else if (prevView === 'cardio') renderCardio();
     else if (prevView === 'cardio-live') _renderCardioLive();
+    else _viewRefazerSeTemaVelho(prevView);   // telas que o voltar não redesenha (ranking, feed, programas, amigos...): só refaz se o tema mudou
   } else {
     history.pushState({ view: 'home' }, '', '');
   }
@@ -22006,7 +22104,7 @@ function renderCentralPainel(isLight, bgCard, borderC, brandColor) {
   const tile = (ic, titulo, n, sub, cor, js, destaque) =>
     '<div onclick="' + js + '" style="position:relative;padding:14px 14px 12px;border-radius:16px;cursor:pointer;background:' + bgCard + ';border:1px solid ' + (destaque ? cor : borderC) + ';">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;"><span style="font-size:22px;">' + ic + '</span>' +
-      '<span style="min-width:26px;text-align:center;padding:3px 8px;border-radius:99px;font-size:12px;font-weight:900;background:' + (n ? cor : (isLight ? '#eee' : '#262626')) + ';color:' + (n ? '#fff' : muted) + ';white-space:nowrap;">' + (n ? n + (n > 1 ? ' novos' : ' novo') : 'em dia') + '</span></div>' +
+      '<span style="min-width:26px;text-align:center;padding:3px 8px;border-radius:99px;font-size:12px;font-weight:900;background:' + (n ? cor : (isLight ? '#eee' : '#262626')) + ';color:' + (n ? (cor === '#f59e0b' ? '#2b1a00' : '#fff') : muted) + ';white-space:nowrap;">' + (n ? n + (n > 1 ? ' novos' : ' novo') : 'em dia') + '</span></div>' +
       '<div style="font-size:13.5px;font-weight:800;color:' + txt + ';margin-top:8px;">' + titulo + '</div>' +
       '<div style="font-size:11.5px;color:' + muted + ';margin-top:2px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + sub + '</div></div>';
   const tiles = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">' +
@@ -22166,10 +22264,8 @@ async function chatExcluir(el) {
 }
 
 function _chatProfsLista() {
-  // Só os profissionais marcados como "Professores responsáveis" no cadastro do aluno (nome, foto e função), sem os inativos.
-  let ativos = null;
-  try { ativos = (JSON.parse(localStorage.getItem('intus-usuarios') || '[]') || []).filter(u => u && u.ativo !== false).map(u => Number(u.idusuario)); } catch (e) {}
-  return getProfsResponsaveis().filter(p => !ativos || !ativos.length || ativos.indexOf(Number(p.id)) >= 0);
+  // Só os profissionais marcados como "Professores responsáveis" no cadastro do aluno (nome, foto e função).
+  return getProfsResponsaveis();
 }
 
 // ── Conversa entre amigos (mensagens diretas entre alunos) ──

@@ -3666,7 +3666,8 @@ const API = {
     const calma = (s, d) => E('Volta à calma', s, 'calma', d || 'Reduza o ritmo e respire fundo até normalizar.');
     const forte = (s, d) => E('Forte', s, 'forte', d || 'Esforço alto, mas com técnica. Respire.');
     const leve = (s, d) => E('Leve', s, 'leve', d || 'Ritmo bem leve para recuperar.');
-    const ATIV = ['Corrida', 'Bike', 'Elíptico', 'Pular Corda', 'Escada', 'Polichinelo', 'Corrida estática'];   // as duas últimas dispensam aparelho e lugar: dá para fazer em casa
+    const ATIV = ['Corrida', 'Bike', 'Elíptico', 'Pular Corda', 'Escada'];
+    const ATIV_CASA = ATIV.concat(['Polichinelo', 'Corrida estática']);   // as duas últimas dispensam aparelho e lugar; só no HIIT 1:1 e no Tabata (esforço curto). Nos blocos longos (4x4, Zona 2, Pirâmide) não fazem sentido
     // Do sofá aos 5 km: 8 semanas, 3 treinos por semana, alternando corrida e caminhada até correr 30 minutos seguidos. Cada treino é uma
     // sessão (S<semana>T<treino>): aquecimento de 5 min, os blocos e volta à calma de 5 min. [corre, caminha] em segundos.
     const corre = (s) => E('Corre', s, 'forte', 'Trote leve, que dê para conversar. Se faltar o ar, caminhe um pouco.');
@@ -3692,19 +3693,19 @@ const API = {
         resumo: 'Caminhada na esteira com 12% de inclinação, a 5 km/h, por 30 minutos.',
         aviso: 'Não segure no corrimão (se precisar, reduza a inclinação). Pare se sentir tontura, dor ou falta de ar fora do normal.',
         etapas: [aq(180, 'Esteira em 0%, a 4 km/h.'), E('Inclinação 12%', 1800, 'cont', 'Esteira em 12% e 5 km/h, sem se apoiar.'), calma(120, 'Esteira em 0%, a 3 km/h.')] },
-      { id: 'hiit-1-1', titulo: 'HIIT 1:1', sub: '30 s forte, 30 s leve', emoji: '⚡', rpe: 8, nivel: 'Intermediário', atividades: ATIV,
+      { id: 'hiit-1-1', titulo: 'HIIT 1:1', sub: '30 s forte, 30 s leve', emoji: '⚡', rpe: 8, nivel: 'Intermediário', atividades: ATIV_CASA,
         resumo: 'Dez tiros de 30 segundos fortes, cada um seguido de 30 segundos leves.',
         aviso: 'Para quem já treina há algum tempo. Pare se sentir tontura ou dor.',
         etapas: [aq(300)].concat(rep(10, [forte(30), leve(30)])).concat([calma(300)]) },
-      { id: 'tabata', titulo: 'Tabata', sub: '20 s máximo, 10 s descanso', emoji: '🔥', rpe: 9, nivel: 'Avançado', atividades: ATIV,
+      { id: 'tabata', titulo: 'Tabata', sub: '20 s máximo, 10 s descanso', emoji: '🔥', rpe: 9, nivel: 'Avançado', atividades: ATIV_CASA,
         resumo: 'Dois blocos de 4 minutos: oito tiros de 20 segundos no máximo, com 10 segundos de descanso entre eles.',
         aviso: 'Avançado: só para quem já treina há bastante tempo. Pare se sentir tontura, dor ou mal-estar.',
         etapas: [aq(300)].concat(rep(8, [forte(20, 'O mais forte que conseguir.'), leve(10, 'Descanse.')])).concat([E('Descanso entre blocos', 120, 'leve', 'Ritmo bem leve, beba água.')]).concat(rep(8, [forte(20, 'O mais forte que conseguir.'), leve(10, 'Descanse.')])).concat([calma(180)]) },
-      { id: '4x4', titulo: '4x4', sub: '4 min forte, 3 min leve', emoji: '🏔️', rpe: 8, nivel: 'Avançado', atividades: ['Corrida', 'Bike', 'Elíptico', 'Polichinelo', 'Corrida estática'],
+      { id: '4x4', titulo: '4x4', sub: '4 min forte, 3 min leve', emoji: '🏔️', rpe: 8, nivel: 'Avançado', atividades: ['Corrida', 'Bike', 'Elíptico'],
         resumo: 'Quatro blocos de 4 minutos em ritmo forte, com 3 minutos leves entre eles.',
         aviso: 'Avançado: mantenha um ritmo forte que você consiga repetir nos quatro blocos. Pare se sentir tontura ou dor.',
         etapas: [aq(600)].concat(rep(3, [forte(240, 'Ritmo forte e constante.'), leve(180)])).concat([forte(240, 'Último bloco, mantenha o ritmo.'), calma(300)]) },
-      { id: 'zona-2', titulo: 'Zona 2', sub: 'Ritmo de conversar', emoji: '🫁', rpe: 4, nivel: 'Todos', atividades: ['Caminhada', 'Corrida', 'Bike', 'Elíptico', 'Polichinelo', 'Corrida estática'],
+      { id: 'zona-2', titulo: 'Zona 2', sub: 'Ritmo de conversar', emoji: '🫁', rpe: 4, nivel: 'Todos', atividades: ['Caminhada', 'Corrida', 'Bike', 'Elíptico'],
         resumo: '40 minutos contínuos em ritmo leve a moderado, em que você ainda consegue conversar.',
         aviso: 'Se não consegue falar frases inteiras, reduza o ritmo.',
         etapas: [aq(300), E('Ritmo de conversar', 2400, 'cont', 'Constante e confortável. Você deve conseguir conversar.')] },
@@ -3718,9 +3719,9 @@ const API = {
       '12-5-30': { aparelho: 'Esteira com inclinação (chega a 12%)', onde: 'Na academia ou em casa, em uma esteira que suba até 12% de inclinação. Não dá para fazer na rua nem na bicicleta.' },
       'hiit-1-1': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática. Escolha a atividade na tela do programa.' },
       'tabata': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática: só precisa de espaço livre e piso firme.' },
-      '4x4': { aparelho: 'Sem aparelho obrigatório', onde: 'Corrida na rua ou na esteira, bicicleta (na rua ou ergométrica) ou elíptico. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática. Escolha um lugar em que dê para manter o ritmo por 4 minutos seguidos.' },
-      'zona-2': { aparelho: 'Sem aparelho obrigatório', onde: 'Caminhada ou corrida na rua ou na esteira, bicicleta ou elíptico. Sem aparelho nenhum, dá para fazer em casa com polichinelo leve ou trote leve no lugar. Em qualquer lugar em que você consiga manter um ritmo constante por 40 minutos.' },
-      'piramide': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática. Escolha a atividade na tela do programa.' },
+      '4x4': { aparelho: 'Esteira, bicicleta ou elíptico (ou a rua)', onde: 'Corrida na rua ou na esteira, bicicleta (na rua ou ergométrica) ou elíptico. Escolha um lugar em que dê para manter o ritmo por 4 minutos seguidos.' },
+      'zona-2': { aparelho: 'Sem aparelho obrigatório', onde: 'Caminhada ou corrida na rua ou na esteira, bicicleta ou elíptico. Em qualquer lugar em que você consiga manter um ritmo constante por 40 minutos.' },
+      'piramide': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Escolha a atividade na tela do programa.' },
       'sofa-5km': { aparelho: 'Só um tênis confortável', onde: 'Na rua, em um parque ou pista, ou na esteira. Escolha um trajeto plano para as primeiras semanas.' },
     };
     lista.forEach((p) => Object.assign(p, ONDE[p.id] || {}));

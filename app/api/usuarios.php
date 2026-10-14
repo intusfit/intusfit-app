@@ -518,7 +518,6 @@ try {
         $rows = $pdo->query("SELECT * FROM `$tabela` ORDER BY $col_id ASC")->fetchAll(PDO::FETCH_ASSOC);
         $out = array_map(fn($r) => rowToUsuario($r, $colmap), $rows);
         if ($_uAluno) {
-            $out = array_values(array_filter($out, fn($u) => ($u['ativo'] ?? true) !== false));   // aluno só vê profissionais ativos
             $out = array_map(function ($u) {
                 $u['email'] = '';
                 unset($u['permissoes'], $u['ativo']);

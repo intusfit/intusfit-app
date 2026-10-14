@@ -11,6 +11,8 @@ const strs = txt => (txt.match(RE_STR) || []).map(x => x.slice(1, -1).split("\\'
 const falas = new Set(['Prepare-se! Vamos lá!', 'Três', 'Dois', 'Um', 'Faltam dez segundos!', 'Programa concluído! Parabéns, você mandou muito bem!']);
 // arrays voz: [ ... ] de _PROG_ATIV
 (html.match(/voz: \[([^\]]*)\]/g) || []).forEach(b => strs(b).forEach(f => falas.add(f)));
+// lista de falas de mobilidade (aquecimento e volta à calma das atividades sem aparelho)
+const mob = html.match(/_PROG_VOZ_MOB = \[([^\]]*)\]/); if (mob) strs(mob[1]).forEach(f => falas.add(f));
 // listas de _progFrasesBloco (as linhas de if/return com texto falado)
 const i = html.indexOf('function _progFrasesBloco'), j = html.indexOf('function _progFraseBloco(e)');
 const NAO = ['forte', 'leve', 'aq', 'calma', 'corre', 'caminha', '.'];
