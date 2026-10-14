@@ -4,6 +4,16 @@
 // conferencia de formato. Alguns megabytes por chamada, em laco, enchem a
 // tabela e derrubam o banco por espaco. O projeto ja valida MIME e tamanho no
 // upload de midia; aqui a validacao nunca foi aplicada.
+// O conteúdo precisa SER uma imagem (JPEG, PNG, WEBP ou GIF), não só começar com "data:image/png". Devolve a extensão real ou '' se não for imagem.
+// Evita guardar texto, HTML ou outro arquivo disfarçado de foto; a extensão do arquivo passa a ser a do conteúdo.
+function _intusExtImagem(string $bin): string {
+    $i = @getimagesizefromstring($bin);
+    if (!$i || empty($i[0]) || empty($i[1])) return '';
+    $map = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_GIF => 'gif'];
+    if (defined('IMAGETYPE_WEBP')) $map[IMAGETYPE_WEBP] = 'webp';
+    return $map[$i[2] ?? 0] ?? '';
+}
+
 function _intusImagemOk($v, int $maxBytes = 3145728) {
     if ($v === null || $v === '') return null;
     if (!is_string($v)) return false;
@@ -785,6 +795,8 @@ function _salvarImagemFeedB64(string $raw, int $autorId, string $pasta = 'feed',
     $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
     $bin = base64_decode($m[2], true);
     if ($bin === false || strlen($bin) > 8 * 1024 * 1024) throw new Exception('imagem invalida ou grande demais');
+    $real = _intusExtImagem($bin); if ($real === '') throw new Exception('o arquivo nao e uma imagem valida');
+    $ext = $real;
     // 07/10/2026: foto grande demais (app antigo manda até 1920 px a 94%) é reduzida no servidor antes de guardar:
     // lado maior 1440 px, JPEG 86%. Só mexe em JPEG/PNG sem transparência quando a GD existe e só se o resultado ficar
     // menor; qualquer falha guarda o original, como sempre foi.
@@ -992,6 +1004,8 @@ function _persistirFotos($fotos) {
         $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
         $bin = base64_decode($m[2], true);
         if ($bin === false || strlen($bin) > 6 * 1024 * 1024) { $out[] = $f; continue; }
+        $real = _intusExtImagem($bin); if ($real === '') { continue; }   // não é imagem: descarta (não guarda nem repassa)
+        $ext = $real;
         try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }
         $fname = 'av_' . time() . '_' . $rand . '.' . $ext;
         if (@file_put_contents($dir . '/' . $fname, $bin) === false) { $out[] = $f; continue; }
@@ -1155,6 +1169,10 @@ $_PUBLICAS = [
 
 // Rotas que so professor/admin acessa, em qualquer metodo.
 $_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas'];
+// So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
+// alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
+$_SO_ADMIN = ['sessoes'];
+$_ESCRITA_ADMIN = ['ranking_regras', 'cardio_regras', 'conquistas_config', 'notif_config', 'frases_config', 'figurinhas_config'];
 
 // Leitura liberada para aluno logado; escrita so professor. Catalogos e
 // configuracoes que o app do aluno precisa ler para desenhar as telas.
@@ -1168,6 +1186,12 @@ if (!in_array($action, $_PUBLICAS, true)) {
 }
 if (in_array($action, $_SO_PROFESSOR, true) && $_ehAluno) {
     $_negar(403, 'acesso restrito ao professor');
+}
+if (in_array($action, $_SO_ADMIN, true) && empty($_ctx['admin'])) {
+    $_negar(403, 'somente administrador');
+}
+if (in_array($action, $_ESCRITA_ADMIN, true) && $method !== 'GET' && empty($_ctx['admin'])) {
+    $_negar(403, 'somente administrador');
 }
 if (in_array($action, $_LEITURA_ALUNO, true) && $method !== 'GET' && $_ehAluno) {
     $_negar(403, 'apenas o professor pode alterar');
@@ -1808,6 +1832,9 @@ if ($action === 'midia_upload') {
     $bin = base64_decode($m[2], true);
     if ($bin === false) { http_response_code(400); echo json_encode(['error' => 'base64 invalido']); exit; }
     if (strlen($bin) > 3 * 1024 * 1024) { http_response_code(413); echo json_encode(['error' => 'imagem grande demais (max 3MB)']); exit; }
+    $real = _intusExtImagem($bin);
+    if ($real === '') { http_response_code(400); echo json_encode(['error' => 'o arquivo nao e uma imagem valida']); exit; }
+    $ext = $real;
     // Pasta física: /app/img/uploads  (catalogo.php está em /app/api)
     $dir = __DIR__ . '/../img/uploads';
     if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
@@ -2992,6 +3019,8 @@ if ($action === 'feed_posts') {
             if (!is_dir($dir)) @mkdir($dir, 0755, true);
             $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
             $bin = base64_decode($m[2], true);
+            if ($bin !== false && _intusExtImagem($bin) === '') { http_response_code(400); echo json_encode(['error' => 'o arquivo nao e uma imagem valida']); exit; }
+            if ($bin !== false) $ext = _intusExtImagem($bin);
             if ($bin === false || strlen($bin) > 8 * 1024 * 1024) { http_response_code(400); echo json_encode(['error' => 'imagem invalida ou grande demais']); exit; }
             if (!is_dir($dir) || !is_writable($dir)) { http_response_code(500); echo json_encode(['error' => 'sem permissao de escrita']); exit; }
             try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }

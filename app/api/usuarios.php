@@ -453,11 +453,12 @@ try {
             echo json_encode(['ok'=>false, 'erro'=>'email/senha ausente']);
             exit;
         }
+        checkRateLimitConta($pdo, 'prof_login_conta', $email, 8, 900);
         $stmt = $pdo->prepare("SELECT * FROM `$tabela` WHERE LOWER($col_email) = ? LIMIT 1");
         $stmt->execute([$email]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) {
-            recordAttempt($pdo, 'prof_login');
+            recordAttempt($pdo, 'prof_login'); recordAttemptConta($pdo, 'prof_login_conta', $email);
             http_response_code(401);
             echo json_encode(['ok'=>false, 'erro'=>'credenciais invalidas']);
             exit;
@@ -478,12 +479,12 @@ try {
             }
         }
         if (!$valido) {
-            recordAttempt($pdo, 'prof_login');
+            recordAttempt($pdo, 'prof_login'); recordAttemptConta($pdo, 'prof_login_conta', $email);
             http_response_code(401);
             echo json_encode(['ok'=>false, 'erro'=>'credenciais invalidas']);
             exit;
         }
-        clearAttempts($pdo, 'prof_login');
+        clearAttempts($pdo, 'prof_login'); clearAttemptsConta($pdo, 'prof_login_conta', $email);
         if ($col_ativo && ($row[$col_ativo] ?? 'S') === 'N') {
             http_response_code(403);
             echo json_encode(['ok'=>false, 'erro'=>'usuario desativado']);

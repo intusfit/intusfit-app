@@ -83,6 +83,11 @@ function _mdSalvarCapa(string $raw, int $idatleta): string {
     $ext = strtolower($m[1]); if ($ext === 'jpeg') $ext = 'jpg';
     $bin = base64_decode($m[2], true);
     if ($bin === false || strlen($bin) > 8 * 1024 * 1024) throw new Exception('capa invalida ou grande demais');
+    $_inf = @getimagesizefromstring($bin);
+    $_tipos = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png'];
+    if (defined('IMAGETYPE_WEBP')) $_tipos[IMAGETYPE_WEBP] = 'webp';
+    if (!$_inf || !isset($_tipos[$_inf[2] ?? 0])) throw new Exception('a capa nao e uma imagem valida');
+    $ext = $_tipos[$_inf[2]];
     if (!is_dir($dir) || !is_writable($dir)) throw new Exception('sem permissao de escrita');
     try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }
     $fname = 'poster_' . $idatleta . '_' . time() . '_' . $rand . '.' . $ext;

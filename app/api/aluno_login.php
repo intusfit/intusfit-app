@@ -66,8 +66,13 @@ function intus_enviar_email($to, $subject, $body, $replyTo = '') {
     $smtpPass = $smtpCfg['pass'] ?? '';
     $fromName = $_lim($smtpCfg['from_name'] ?? 'Intus Fit');
 
-    $ctx = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-    $sock = @stream_socket_client("ssl://$smtpHost:465", $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $ctx);
+    // Verificar o certificado do servidor de e-mail impede que alguém no caminho capture a senha do SMTP. Fica DESLIGADO até o administrador confirmar,
+    // em Configurações > Servidor > Backups > "Testar o e-mail" (que já verifica), que o certificado é válido: então basta pôr 'verify_tls' => true em config/smtp.php.
+    $_verTls = !empty($smtpCfg['verify_tls']);
+    $ctx = stream_context_create(['ssl' => ['verify_peer' => $_verTls, 'verify_peer_name' => $_verTls, 'SNI_enabled' => true]]);
+    $sock = @stream_socket_client("ssl://$smtpHost:465", $errno, $errstr, 6, STREAM_CLIENT_CONNECT, $ctx);
+    // Sem limite de espera, um servidor de e-mail lento prendia um dos poucos processos do servidor por até 60 s por resposta.
+    if ($sock) { stream_set_timeout($sock, 8); }
     if (!$sock) {
         @file_put_contents(__DIR__ . '/../config/email_erros.log',
             date('c') . " | SMTP inacessivel ($errno $errstr) | para=$to | assunto=$subject\n", FILE_APPEND);
@@ -369,7 +374,7 @@ try {
             $cod = '';
             for ($try = 0; $try < 6; $try++) {
                 try { $suf = random_int(0, 9); } catch (Throwable $e) { $suf = 0; }
-                $cand = 'INT' . substr((string)(int)(microtime(true) * 1000), -4) . $suf;
+                $cand = 'INT' . strtoupper(bin2hex(random_bytes(3))) . $suf;
                 $chk = $pdo->prepare("SELECT 1 FROM `$tabela` WHERE codacesso = ? LIMIT 1");
                 $chk->execute([$cand]);
                 if (!$chk->fetchColumn()) { $cod = $cand; break; }
@@ -811,6 +816,9 @@ try {
     // achando por e-mail, procura-se pelo codigo de acesso. A senha continua
     // sendo exigida do mesmo jeito — isto muda como a conta e encontrada, nao o
     // que e preciso saber para entrar.
+    // Trava por conta (e-mail ou código digitado): 8 erros em 15 minutos bloqueiam novas tentativas NESSA conta, de qualquer IP.
+    $_identTrava = strtolower(trim((string)($body['email'] ?? '')));
+    checkRateLimitConta($pdo, 'aluno_login_conta', $_identTrava, 8, 900);
     $stmt = $pdo->prepare("SELECT * FROM `$tabela` WHERE LOWER($col_email) = ? LIMIT 1");
     $stmt->execute([$email]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -825,7 +833,7 @@ try {
     }
 
     if (!$row) {
-        recordAttempt($pdo, 'aluno_login');
+        recordAttempt($pdo, 'aluno_login'); recordAttemptConta($pdo, 'aluno_login_conta', $_identTrava);
         http_response_code(401);
         echo json_encode(['ok'=>false, 'erro'=>'credenciais invalidas']);
         exit;
@@ -871,12 +879,12 @@ try {
     }
 
     if (!$valido) {
-        recordAttempt($pdo, 'aluno_login');
+        recordAttempt($pdo, 'aluno_login'); recordAttemptConta($pdo, 'aluno_login_conta', $_identTrava);
         http_response_code(401);
         echo json_encode(['ok'=>false, 'erro'=>'credenciais invalidas']);
         exit;
     }
-    clearAttempts($pdo, 'aluno_login');
+    clearAttempts($pdo, 'aluno_login'); clearAttemptsConta($pdo, 'aluno_login_conta', $_identTrava);
 
     // Bloqueio (mensalidade vencida etc.)
     if ($col_block) {

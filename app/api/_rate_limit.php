@@ -60,6 +60,31 @@ function checkRateLimit(PDO $pdo, string $action, int $maxAttempts = 5, int $win
     return true;
 }
 
+// Trava por CONTA (e-mail ou código de acesso digitado), além da trava por IP: quem testa senhas de uma conta de vários IPs diferentes
+// passa pela trava por IP, mas não por esta. A chave é guardada só como hash (nada de e-mail na tabela).
+function _chaveConta(string $acao, string $chave): string { return 'k:' . substr(hash('sha256', $acao . '|' . strtolower(trim($chave))), 0, 42); }
+function checkRateLimitConta(PDO $pdo, string $acao, string $chave, int $max = 8, int $janela = 900): void {
+    if ($chave === '' || !_ensureRateLimitTable($pdo)) return;
+    try {
+        $st = $pdo->prepare("SELECT COUNT(*) FROM `rate_limits` WHERE `ip` = ? AND `action` = ? AND `attempted_at` > DATE_SUB(NOW(), INTERVAL ? SECOND)");
+        $st->execute([_chaveConta($acao, $chave), $acao, $janela]);
+        if ((int)$st->fetchColumn() >= $max) {
+            http_response_code(429);
+            header('Retry-After: ' . $janela);
+            echo json_encode(['error' => 'muitas_tentativas', 'mensagem' => 'Muitas tentativas nesta conta. Tente novamente em ' . ceil($janela / 60) . ' minutos.', 'retry_after' => $janela]);
+            exit;
+        }
+    } catch (Throwable $e) {}
+}
+function recordAttemptConta(PDO $pdo, string $acao, string $chave): void {
+    if ($chave === '' || !_ensureRateLimitTable($pdo)) return;
+    try { $pdo->prepare("INSERT INTO `rate_limits` (`ip`, `action`) VALUES (?, ?)")->execute([_chaveConta($acao, $chave), $acao]); } catch (Throwable $e) {}
+}
+function clearAttemptsConta(PDO $pdo, string $acao, string $chave): void {
+    if ($chave === '' || !_ensureRateLimitTable($pdo)) return;
+    try { $pdo->prepare("DELETE FROM `rate_limits` WHERE `ip` = ? AND `action` = ?")->execute([_chaveConta($acao, $chave), $acao]); } catch (Throwable $e) {}
+}
+
 function recordAttempt(PDO $pdo, string $action): void {
     if (!_ensureRateLimitTable($pdo)) return;
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';

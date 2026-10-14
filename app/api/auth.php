@@ -28,9 +28,11 @@ if ($method === 'POST' && $action === 'login_professor') {
     // nem para atleta. Forca bruta era so questao de tempo.
     @require_once __DIR__ . '/_rate_limit.php';
     if (function_exists('checkRateLimit')) { checkRateLimit($db, 'auth_login', 5, 900); }
+    if (function_exists('checkRateLimitConta')) { checkRateLimitConta($db, 'auth_login_conta', (string)$email, 8, 900); }
 
     if (!$prof) {
         if (function_exists('recordAttempt')) recordAttempt($db, 'auth_login');
+        if (function_exists('recordAttemptConta')) recordAttemptConta($db, 'auth_login_conta', (string)$email);
         jsonError('Credenciais inválidas', 401);
     }
 
@@ -47,6 +49,7 @@ if ($method === 'POST' && $action === 'login_professor') {
         ? password_verify($senha, $prof['senha'])
         : hash_equals((string)$prof['senha'], (string)$senha);
     if (!$valid) {
+        if (function_exists('recordAttemptConta')) recordAttemptConta($db, 'auth_login_conta', (string)$email);
         jsonError('Credenciais inválidas', 401);
     }
 

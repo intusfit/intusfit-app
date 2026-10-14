@@ -465,6 +465,11 @@ if ($method === 'DELETE') {
         exit;
     }
 
+    if (!$_isAdmin && !(function_exists('usuarioTemAlgumaPermissao') && usuarioTemAlgumaPermissao($pdo, (int)$_userId, ['mt_excluir', 'pg_excluir', 'mt_gerir']))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'sem permissão para excluir matrículas ou pagamentos']);
+        exit;
+    }
     $stmt = $pdo->prepare("DELETE FROM intus_mensalidade WHERE idmensalidade = ?");
     $stmt->execute([$id]);
     auditLog($pdo, $tok, 'excluir', 'mensalidade', $id, 'Excluiu mensalidade #' . $id, $rowDel, null);

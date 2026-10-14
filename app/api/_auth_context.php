@@ -191,6 +191,12 @@ function usuarioTemPermissao(PDO $pdo, int $idusuario, string $chave): bool {
     } catch (Throwable $e) { return false; }
 }
 
+// Tem pelo menos UMA das permissões listadas? (o painel esconde o botão pela permissão; aqui o servidor também confere nas ações que apagam)
+function usuarioTemAlgumaPermissao(PDO $pdo, int $idusuario, array $chaves): bool {
+    foreach ($chaves as $c) { if (usuarioTemPermissao($pdo, $idusuario, $c)) return true; }
+    return false;
+}
+
 function getAtletasDoUsuario(PDO $pdo, int $idusuario): array {
     $atletaTable = null;
     foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $t) {

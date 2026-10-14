@@ -418,7 +418,7 @@ try {
                 $novo = '';
                 for ($t = 0; $t < 8; $t++) {
                     try { $suf = random_int(0, 9); } catch (Throwable $e) { $suf = 0; }
-                    $cand = 'INT' . substr((string)(int)(microtime(true) * 1000), -4) . $suf;
+                    $cand = 'INT' . strtoupper(bin2hex(random_bytes(3))) . $suf;
                     if (!isset($usados[$cand])) { $novo = $cand; break; }
                     usleep(1200);
                 }
@@ -509,7 +509,10 @@ try {
         // Defaults
         if (!isset($body['stbloqueio'])) $body['stbloqueio'] = 'N';
         if (!isset($body['codacesso']) || !$body['codacesso']) {
-            $body['codacesso'] = 'INT' . substr((string)(int)(microtime(true)*1000), -4);
+            // Código de acesso novo: 6 caracteres aleatórios (antes eram só 4 dígitos do relógio: 10 mil combinações, fácil de testar um por um).
+            $_alf = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; $_cod = '';
+            for ($_i = 0; $_i < 6; $_i++) { $_cod .= $_alf[random_int(0, strlen($_alf) - 1)]; }
+            $body['codacesso'] = 'INT' . $_cod;
         }
         // Origem: quem já é criado com professor responsável veio do link de um professor (não é lead);
         // sem professor = autocadastro pelo /app ou página de captura = lead.
@@ -647,6 +650,12 @@ try {
         }
 
         if ($action === 'excluir') {
+            // Exclusão definitiva: administrador, ou professor com a permissão "Excluir clientes" ligada (antes só o painel escondia o botão).
+            if (!$_isAdmin && !(function_exists('usuarioTemAlgumaPermissao') && usuarioTemAlgumaPermissao($pdo, (int)$_userId, ['at_excluir']))) {
+                http_response_code(403);
+                echo json_encode(['error' => 'sem permissao para excluir clientes']);
+                exit;
+            }
             $pdo->prepare("DELETE FROM `$tabela` WHERE $col_id = ?")->execute([$id]);
             auditLog($pdo, $tok, 'excluir', 'atleta', $id, 'Excluiu atleta: ' . ($rowDel[$col_nome] ?? ''), $rowDel, null);
             echo json_encode(['ok'=>true, 'removed'=>1]);

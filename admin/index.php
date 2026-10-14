@@ -1,21 +1,43 @@
 <?php
 require_once 'config.php';
 session_name(SESSION_KEY);
+// Cookie de sessão só por HTTPS, invisível ao JavaScript e nunca enviado a partir de outro site.
+session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Strict']);
 session_start();
 
 $error = '';
 
+// Trava de tentativas (antes só havia um sleep(1), que prende um dos poucos processos do servidor e não impede teste em paralelo).
+// 5 erros em 15 minutos bloqueiam aquele IP; 60 erros de qualquer IP bloqueiam o login inteiro por 15 minutos. Os contadores ficam em
+// app/config (pasta fechada ao público). Esta área guarda a chave do Drive e as chaves do WhatsApp: é alvo certo de força bruta.
+function _adminTrava(string $nome, int $max, int $janela, string $acao = 'ver'): bool {
+    $arq = __DIR__ . '/../app/config/admin-login-' . $nome . '.json';
+    $agora = time();
+    $lista = [];
+    if (is_file($arq)) { $j = json_decode((string)@file_get_contents($arq), true); if (is_array($j)) $lista = array_values(array_filter($j, fn($t) => is_int($t) && $t > $agora - $janela)); }
+    if ($acao === 'erro') { $lista[] = $agora; @file_put_contents($arq, json_encode($lista), LOCK_EX); }
+    if ($acao === 'limpar') { @unlink($arq); return false; }
+    return count($lista) >= $max;
+}
+$_nomeIp = substr(hash('sha256', (string)($_SERVER['REMOTE_ADDR'] ?? '0')), 0, 16);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = trim($_POST['user'] ?? '');
     $pass = $_POST['pass'] ?? '';
-    if ($user === ADMIN_USER && password_verify($pass, ADMIN_PASS)) {
+    if (_adminTrava($_nomeIp, 5, 900) || _adminTrava('global', 60, 900)) {
+        http_response_code(429);
+        $error = 'Muitas tentativas. Tente de novo em 15 minutos.';
+    } elseif ($user === ADMIN_USER && password_verify($pass, ADMIN_PASS)) {
+        session_regenerate_id(true);   // novo identificador de sessão ao entrar (evita fixação de sessão)
+        _adminTrava($_nomeIp, 5, 900, 'limpar');
         $_SESSION['auth'] = true;
         $_SESSION['login_time'] = time();
         header('Location: painel.php');
         exit;
+    } else {
+        _adminTrava($_nomeIp, 5, 900, 'erro'); _adminTrava('global', 60, 900, 'erro');
+        $error = 'Usuário ou senha incorretos.';
     }
-    $error = 'Usuário ou senha incorretos.';
-    sleep(1); // brute-force protection
 }
 
 // Já logado
