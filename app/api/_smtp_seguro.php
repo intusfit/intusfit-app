@@ -126,3 +126,28 @@ function intusSmtpAbrir(string $host, ?array &$info = null, int $timeout = 12, ?
     $info['erro'] = 'Não consegui uma conexão segura com ' . $host . '. ' . intusSmtpDiagnosticoCert($host) . ' Detalhes: ' . implode(' | ', $info['detalhes']);
     return null;
 }
+
+/** E-mail de texto simples pelo SMTP do site, com certificado verificado. Devolve true se o servidor aceitou. Usado pelos avisos de segurança. */
+function intusEnviarEmailSimples(string $para, string $assunto, string $texto): bool
+{
+    $para = trim(str_replace(["\r", "\n", "\0"], ' ', $para));
+    $assunto = trim(str_replace(["\r", "\n", "\0"], ' ', $assunto));
+    if (!filter_var($para, FILTER_VALIDATE_EMAIL)) return false;
+    $smtp = @include __DIR__ . '/../config/smtp.php';
+    if (!is_array($smtp)) return false;
+    $host = (string)($smtp['host'] ?? ''); $user = (string)($smtp['user'] ?? ''); $pass = (string)($smtp['pass'] ?? ''); $nome = (string)($smtp['from_name'] ?? 'Intus Fit');
+    if ($host === '' || $user === '' || $pass === '') return false;
+    $sock = intusSmtpAbrir($host, $info, 8);
+    if (!$sock) return false;
+    stream_set_timeout($sock, 8);
+    $ler = function () use ($sock) { $r = ''; while (($l = fgets($sock, 1024)) !== false) { $r .= $l; if (strlen($l) >= 4 && $l[3] === ' ') break; } return $r; };
+    $cmd = function ($c) use ($sock, $ler) { fwrite($sock, $c . "\r\n"); return $ler(); };
+    $cod = function ($r) { return (int)substr(trim((string)$r), 0, 3); };
+    $passos = [[$cmd('EHLO intusfit.com.br'), 250], [$cmd('AUTH LOGIN'), 334], [$cmd(base64_encode($user)), 334], [$cmd(base64_encode($pass)), 235],
+               [$cmd("MAIL FROM:<{$user}>"), 250], [$cmd("RCPT TO:<{$para}>"), 250], [$cmd('DATA'), 354]];
+    foreach ($passos as $p) { if ($cod($p[0]) !== $p[1]) { @fclose($sock); return false; } }
+    $cab = "From: {$nome} <{$user}>\r\nTo: {$para}\r\nSubject: =?UTF-8?B?" . base64_encode($assunto) . "?=\r\nDate: " . date('r') . "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n";
+    fwrite($sock, $cab . "\r\n" . chunk_split(base64_encode($texto), 76, "\r\n") . "\r\n.\r\n");
+    $fim = $ler(); $cmd('QUIT'); @fclose($sock);
+    return $cod($fim) === 250;
+}

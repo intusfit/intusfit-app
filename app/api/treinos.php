@@ -823,6 +823,7 @@ try {
                 $horaConcl,
             ]);
             $id = (int)$pdo->lastInsertId();
+            if ($_ehAlunoTr) { require_once __DIR__ . '/_acesso.php'; intusRegistrarAcesso($pdo, 'aluno', (int)$idat, '', 'treino', $id); }   // horário e local do registro (só quando é o próprio aluno)
             echo json_encode(['idsessao' => $id, 'ok' => true]);
             exit;
         }
@@ -927,6 +928,7 @@ try {
                 $aoVivo,
             ]);
             $id = (int)$pdo->lastInsertId();
+            if ($_ehAlunoTr) { require_once __DIR__ . '/_acesso.php'; intusRegistrarAcesso($pdo, 'aluno', (int)$idat, '', 'cardio', $id); }
             echo json_encode(['idsessao' => $id, 'ok' => true, 'pontos' => $pontos, 'nao_contar' => $naoContar, 'limite_dia' => $LIMITE_CARDIO_DIA]);
             exit;
         }

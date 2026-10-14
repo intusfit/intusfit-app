@@ -535,7 +535,7 @@ async function _ntfSinoMensagens() {
 async function _ntfSinoContagem() {
   await _ntfSinoMensagens();
   try {
-    const r = await fetch(_ntfSinoBase() + '/catalogo.php?action=notificacoes&so_contagem=1&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
+    const r = await fetch(_ntfSinoBase() + '/catalogo.php?action=notificacoes&so_contagem=1' + '&tz=' + encodeURIComponent((function () { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } })()) + '&_=' + Date.now(), { headers: _ntfSinoHeaders(), cache: 'no-store' });
     if (!r.ok) return;
     const j = await r.json();
     _ntfSinoPintar(j && j.nao_lidas);

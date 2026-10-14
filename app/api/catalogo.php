@@ -1178,10 +1178,10 @@ $_PUBLICAS = [
 ];
 
 // Rotas que so professor/admin acessa, em qualquer metodo.
-$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas'];
+$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'acessos', 'acessos_painel'];
 // So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
 // alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
-$_SO_ADMIN = ['sessoes'];
+$_SO_ADMIN = ['sessoes', 'acessos'];
 $_ESCRITA_ADMIN = ['ranking_regras', 'cardio_regras', 'conquistas_config', 'notif_config', 'frases_config', 'figurinhas_config'];
 
 // Leitura liberada para aluno logado; escrita so professor. Catalogos e
@@ -2775,6 +2775,9 @@ if ($action === 'notificacoes') {
     }
 
     if ($method === 'GET') {
+        // Histórico de acessos (intus_acesso): o sino é consultado em toda tela do app e do painel, então serve de "abertura" (no máximo 1 a cada 20 min por pessoa).
+        require_once __DIR__ . '/_acesso.php';
+        intusRegistrarAcesso($pdo, ($_nTipo === 'aluno') ? 'aluno' : 'staff', (int)$_nId, (string)($_ctx['nmusuario'] ?? ''), 'abertura', null, (string)($_GET['tz'] ?? ''));
         // Backup diário de carona: o sino do painel (staff) consulta esta rota em toda tela. Depois que a resposta sai, o _carona_backup.php vê se já houve backup
         // hoje (custo de ler um arquivinho) e, se não, faz. Antes ele só pegava carona em dashboard.php?action=(resumo), que nenhuma tela chamava.
         if ($_nTipo !== 'aluno') {
@@ -3893,6 +3896,16 @@ if ($action === 'backup_status') {
         if ($acao === 'rodar_agora') { backupRodarAgora($pdo); }
         http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit;
     }
+}
+
+// ═══════════════ ACESSOS (histórico de logins, aberturas, treinos e cardios; ver _acesso_rotas.php) ═══════════════
+// GET ?action=acessos         só administrador: acessos de qualquer pessoa, com IP, local e horário
+// GET ?action=acessos_painel  equipe: quadro da Frequência e Ranking (só os alunos visíveis para quem pede)
+if (($action === 'acessos' || $action === 'acessos_painel') && $method === 'GET') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    require_once __DIR__ . '/_acesso_rotas.php';
+    intusAcessoRota($pdo, $_ctx, $_ehAluno, $action, _feedDetectarTabelaAtleta($pdo));
+    exit;
 }
 
 // GET: só o nível de alerta, para o aviso no topo do painel. Usa a medida de hoje se já existir; senão mede (uma vez por dia).

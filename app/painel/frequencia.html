@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Frequência e Ranking — Intus</title>
-  <script src="_mock.js?v=20261014d"></script>
+  <script src="_mock.js?v=20261014e"></script>
   <script src="api.js?v=20261014c"></script>
   <style>
     .freq-toolbar {
@@ -365,19 +365,105 @@ function render() {
         <button class="${view==='ranking'?'active':''}" onclick="view='ranking';render()">🏆 Ranking</button>
         <button class="${view==='list'?'active':''}" onclick="view='list';render()">Lista</button>
         <button class="${view==='calendar'?'active':''}" onclick="view='calendar';render()">📅 Calendário</button>
+        <button class="${view==='acessos'?'active':''}" onclick="view='acessos';render();acessosCarregar()">📡 Acessos</button>
       </div>
     </div>
 
-    ${view === 'calendar' ? '' : `<div class="freq-summary">
+    ${(view === 'calendar' || view === 'acessos') ? '' : `<div class="freq-summary">
       <div class="freq-stat"><div class="freq-stat-label">Sessões no período</div><div class="freq-stat-value green">${totalSessoes}</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Alunos ativos</div><div class="freq-stat-value">${atletasAtivos}</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Média por aluno</div><div class="freq-stat-value">${mediaPorAluno} treinos</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Total carteira</div><div class="freq-stat-value">${atletasFiltrados.length}</div></div>
     </div>`}
 
-    ${view === 'ranking' ? renderRankingView(atletasFiltrados) : view === 'list' ? renderListView(atletasFiltrados, atletaMap, dias) : renderCalendarView(sessFiltradas, atletasFiltrados)}
+    ${view === 'ranking' ? renderRankingView(atletasFiltrados) : view === 'list' ? renderListView(atletasFiltrados, atletaMap, dias) : view === 'acessos' ? '<div id="acc-root">' + renderAcessosView() + '</div>' : renderCalendarView(sessFiltradas, atletasFiltrados)}
     ${view === 'list' ? renderAlertaSessoes() : ''}
   `;
+}
+
+// ═══════════════ ACESSOS (tempo real, picos, locais) ═══════════════
+// Dados de catalogo.php?action=acessos_painel (tabela intus_acesso): cada acesso, treino e cardio dos alunos que esta pessoa pode ver, com horário em UTC.
+// O servidor já devolve as contagens por hora em Brasília e no fuso do aparelho de cada aluno; aqui só se desenha. Atualiza sozinho a cada 15 s.
+let _acc = null, _accErro = '', _accDias = 14, _accHora = 'br', _accTimer = null;
+const _ACC_EV = { login: ['🔑', 'Entrou'], abertura: ['📱', 'Abriu o app'], treino: ['🏋️', 'Treino'], cardio: ['🏃', 'Cardio'] };
+const _ACC_COR = { abertura: '#38bdf8', treino: '#7FFF00', cardio: '#f59e0b' };
+
+async function acessosCarregar(silencioso) {
+  clearInterval(_accTimer);
+  if (!silencioso) { _acc = null; _accErro = ''; _accPintar(); }
+  try {
+    const r = await fetch((typeof API_BASE !== 'undefined' ? API_BASE : '/app/api') + '/catalogo.php?action=acessos_painel&dias=' + _accDias + '&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 403 ? 'Sem permissão para ver os acessos.' : 'Não consegui carregar agora.');
+    _acc = await r.json(); _accErro = '';
+  } catch (e) { _accErro = e.message || 'Não consegui carregar agora.'; }
+  _accPintar();
+  _accTimer = setInterval(() => { if (view === 'acessos' && !document.hidden) acessosCarregar(true); else if (view !== 'acessos') clearInterval(_accTimer); }, 15000);
+}
+function _accPintar() { const el = document.getElementById('acc-root'); if (el) el.innerHTML = renderAcessosView(); }
+
+function _accFmtHora(utc, tz) {
+  const d = new Date(String(utc).replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  try { return d.toLocaleTimeString('pt-BR', { timeZone: tz || 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; }
+}
+function _accHa(utc, agoraUtc) {
+  const a = new Date(String(utc).replace(' ', 'T') + 'Z'), b = new Date(String(agoraUtc || '').replace(' ', 'T') + 'Z');
+  const s = Math.max(0, Math.round(((isNaN(b) ? Date.now() : b.getTime()) - a.getTime()) / 1000));
+  if (s < 60) return 'agora'; if (s < 3600) return 'há ' + Math.floor(s / 60) + ' min'; if (s < 86400) return 'há ' + Math.floor(s / 3600) + ' h';
+  return 'há ' + Math.floor(s / 86400) + ' d';
+}
+
+function renderAcessosView() {
+  if (_accErro) return '<div style="padding:24px;text-align:center;color:#ef4444;">' + esc(_accErro) + ' <button class="btn btn-secondary" onclick="acessosCarregar()">Tentar de novo</button></div>';
+  if (!_acc) return '<div style="text-align:center;padding:40px;color:var(--text-muted);">Carregando os acessos...</div>';
+  const a = _acc, t = a.totais || {};
+  const bar = (n, max) => Math.max(3, Math.round(100 * n / Math.max(1, max)));
+  const card = (rot, val, cor) => '<div class="freq-stat"><div class="freq-stat-label">' + rot + '</div><div class="freq-stat-value" style="' + (cor ? 'color:' + cor : '') + '">' + val + '</div></div>';
+  let h = '<div class="freq-admin-filters" style="margin-bottom:12px;"><label>Período: <select onchange="_accDias=parseInt(this.value);acessosCarregar()">' +
+    [1, 7, 14, 30, 90].map(d => '<option value="' + d + '" ' + (_accDias === d ? 'selected' : '') + '>' + (d === 1 ? 'Último dia' : d + ' dias') + '</option>').join('') + '</select></label>' +
+    '<label>Horários em: <select onchange="_accHora=this.value;_accPintar()"><option value="br" ' + (_accHora === 'br' ? 'selected' : '') + '>Horário de Brasília</option><option value="local" ' + (_accHora === 'local' ? 'selected' : '') + '>Horário local do aluno</option></select></label>' +
+    '<span style="font-size:12px;color:var(--text-muted);"><span style="color:#7FFF00;">●</span> ao vivo, atualiza a cada 15 s</span></div>';
+  if (a.vazio || !(t.eventos > 0)) {
+    return h + '<div style="padding:28px;text-align:center;color:var(--text-muted);border:1px dashed var(--border);border-radius:12px;">Ainda não há acessos registrados' + (a.vazio ? ' para a sua carteira' : '') + '. Eles passam a aparecer aqui a partir de agora, conforme os alunos abrem o app, treinam e registram cardio.</div>';
+  }
+  h += '<div class="freq-summary">' + card('Online agora (10 min)', t.online_10min || 0, '#7FFF00') + card('Última hora', t.ultima_hora || 0) + card('Acessos', (t.abertura || 0) + (t.login || 0)) + card('Treinos', t.treino || 0, '#7FFF00') + card('Cardios', t.cardio || 0, '#f59e0b') + card('Alunos', t.alunos || 0) + '</div>';
+
+  // Horários de pico (barras empilhadas por tipo de evento)
+  const base = _accHora === 'local' ? (a.hora_local || {}) : (a.hora_br || {});
+  const tot = Array.from({ length: 24 }, (_, h2) => ['abertura', 'treino', 'cardio'].reduce((s2, e) => s2 + ((base[e] || [])[h2] || 0), 0));
+  const max = Math.max(1, ...tot);
+  let pico = 0; tot.forEach((n, i) => { if (n > tot[pico]) pico = i; });
+  const top3 = tot.map((n, i) => [n, i]).sort((x, y) => y[0] - x[0]).slice(0, 3).filter(x => x[0] > 0).map(x => x[1] + 'h');
+  h += '<div style="margin:18px 0 6px;font-size:14px;font-weight:700;color:var(--text);">Horários de pico <span style="font-weight:400;font-size:12px;color:var(--text-muted);">(' + (_accHora === 'local' ? 'horário do aparelho de cada aluno' : 'horário de Brasília') + ')</span></div>' +
+    '<div style="font-size:12.5px;color:var(--text);margin-bottom:8px;">Mais movimento às <b>' + top3.join(', ') + '</b> · pico: <b>' + pico + 'h às ' + ((pico + 1) % 24) + 'h</b> com ' + tot[pico] + ' registros</div>' +
+    '<div style="display:flex;align-items:flex-end;gap:3px;height:130px;padding:6px 4px 0;border-bottom:1px solid var(--border);">' +
+    tot.map((n, i) => {
+      const alt = Math.round(120 * n / max);
+      const seg = ['cardio', 'treino', 'abertura'].map(e => { const v = (base[e] || [])[i] || 0; return v ? '<div style="height:' + Math.max(2, Math.round(alt * v / Math.max(1, n))) + 'px;background:' + _ACC_COR[e] + ';opacity:' + (i === pico ? 1 : .8) + ';"></div>' : ''; }).join('');
+      return '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;" title="' + i + 'h: ' + n + ' registros (' + ((base.abertura || [])[i] || 0) + ' acessos, ' + ((base.treino || [])[i] || 0) + ' treinos, ' + ((base.cardio || [])[i] || 0) + ' cardios)">' + seg + '</div>';
+    }).join('') + '</div>' +
+    '<div style="display:flex;gap:3px;padding:3px 4px;font-size:9.5px;color:var(--text-muted);">' + tot.map((n, i) => '<div style="flex:1;text-align:center;">' + (i % 3 === 0 ? i : '') + '</div>').join('') + '</div>' +
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-muted);margin-top:4px;"><span><i style="display:inline-block;width:9px;height:9px;background:' + _ACC_COR.abertura + ';border-radius:2px;"></i> acessos</span><span><i style="display:inline-block;width:9px;height:9px;background:' + _ACC_COR.treino + ';border-radius:2px;"></i> treinos</span><span><i style="display:inline-block;width:9px;height:9px;background:' + _ACC_COR.cardio + ';border-radius:2px;"></i> cardios</span></div>';
+
+  // Dia da semana
+  const sem = a.dia_semana || [], smax = Math.max(1, ...sem), nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  h += '<div style="margin:22px 0 8px;font-size:14px;font-weight:700;color:var(--text);">Dia da semana mais movimentado</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">' +
+    sem.map((n, i) => '<div style="text-align:center;"><div style="height:70px;display:flex;align-items:flex-end;justify-content:center;"><div style="width:70%;height:' + bar(n, smax) + '%;background:var(--green);border-radius:4px 4px 0 0;opacity:' + (n === smax ? 1 : .55) + ';" title="' + nomes[i] + ': ' + n + '"></div></div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">' + nomes[i] + '</div><div style="font-size:12px;color:var(--text);font-weight:600;">' + n + '</div></div>').join('') + '</div>';
+
+  // Locais e fusos
+  const loc = a.locais || [], lmax = Math.max(1, ...loc.map(x => x.n));
+  h += '<div style="margin:22px 0 8px;font-size:14px;font-weight:700;color:var(--text);">Locais com mais acessos</div>';
+  if (!a.cloudflare && loc.length <= 1 && (loc[0] || {}).local === 'Sem localização') h += '<div style="font-size:12px;color:var(--text-muted);">A localização (cidade e país) aparece quando o site estiver atrás do Cloudflare. Por enquanto os acessos não trazem o local.</div>';
+  else h += loc.map(x => '<div style="display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12.5px;"><div style="width:170px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(x.local) + '">' + esc(x.local) + '</div><div style="flex:1;background:var(--bg3);border-radius:6px;height:14px;"><div style="width:' + bar(x.n, lmax) + '%;height:100%;background:#38bdf8;border-radius:6px;"></div></div><div style="width:92px;text-align:right;color:var(--text-muted);">' + x.n + ' (' + x.alunos + ' aluno' + (x.alunos === 1 ? '' : 's') + ')</div></div>').join('');
+  if ((a.fusos || []).length) h += '<div style="margin-top:12px;font-size:12.5px;color:var(--text);"><b>Alunos em outro fuso horário:</b> ' + a.fusos.map(f => esc(f.fuso) + ' (' + f.alunos + ' aluno' + (f.alunos === 1 ? '' : 's') + ', ' + f.n + ' registros)').join(' · ') + '. Troque "Horários em" para ver o pico no horário deles.</div>';
+
+  // Ao vivo
+  h += '<div style="margin:22px 0 8px;font-size:14px;font-weight:700;color:var(--text);">Ao vivo: últimos registros</div><div style="max-height:420px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;">' +
+    (a.recentes || []).map(x => {
+      const e = _ACC_EV[x.evento] || ['•', x.evento];
+      return '<div style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;"><span style="width:20px;text-align:center;">' + e[0] + '</span><b style="color:var(--text);min-width:130px;">' + esc(x.nome) + '</b><span style="color:var(--text);">' + e[1] + '</span><span style="color:var(--text-muted);">' + _accFmtHora(x.quando_utc) + ' (Brasília)' + (x.hora_local ? ' · <span style="color:#f59e0b;">' + x.hora_local + ' no fuso dele (' + esc(x.fuso_local) + ')</span>' : '') + ' · ' + _accHa(x.quando_utc, a.agora_utc) + '</span>' + (x.local ? '<span style="color:var(--text-muted);">📍 ' + esc(x.local) + '</span>' : '') + (x.ip ? '<span style="color:var(--text-muted);font-size:11px;">' + esc(x.ip) + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  return h;
 }
 
 // ═══════════════ RANKING VIEW ═══════════════

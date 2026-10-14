@@ -58,6 +58,14 @@ function createSession(PDO $pdo, int $userId, string $type = 'prof', string $use
         return null;
     }
 
+    // Histórico de acessos (intus_acesso): quem entrou, quando, de onde. Nunca derruba o login. Aviso por e-mail se um administrador entrar de um país novo.
+    try {
+        require_once __DIR__ . '/_acesso.php';
+        $tipoAc = ($type === 'aluno') ? 'aluno' : 'staff';
+        intusRegistrarAcesso($pdo, $tipoAc, $userId, $userName, 'login');
+        if ($tipoAc === 'staff' && $admin) intusAcessoAlertar($pdo, $userId, $userName);
+    } catch (Throwable $e) {}
+
     return $token;
 }
 
