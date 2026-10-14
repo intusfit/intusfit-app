@@ -11270,7 +11270,54 @@ const _PROG_FASE = {
   cont:  { cor: '#a78bfa', rot: 'Contínuo' },
   calma: { cor: '#2dd4bf', rot: 'Volta à calma' },
 };
-function _progEt(p) { return API.programaEtapas(p, _prog.sessao); }
+// Texto e estímulo de cada bloco adaptados à atividade escolhida (escada, bike, elíptico, corda). Os programas guardam textos genéricos
+// ("Forte", "Leve"); aqui o nome, a dica e a fala viram o movimento de cada aparelho. Corrida e caminhada continuam como estão.
+var _PROG_ATIV = {
+  'Escada': {
+    aviso: 'Escada: use tênis firme, pise com o pé inteiro em cada degrau e desça sempre com cuidado e devagar. Segure no corrimão se precisar. Se não tiver escada segura, escolha outra atividade.',
+    aq: { d: 'Suba e desça devagar, degrau por degrau, e vá aumentando o ritmo aos poucos.', voz: ['Vamos lá! Sobe e desce leve para aquecer.'] },
+    forte: { n: 'Sobe forte', d: 'Suba os degraus em ritmo forte, pisando firme com o pé inteiro e empurrando com a perna. Corrimão só para equilíbrio.', dmax: 'Suba o mais rápido que conseguir, com os passos firmes e seguros.', voz: ['Sobe forte! Pisa firme, vamos!', 'Agora sobe! Empurra com a perna, você consegue!', 'Bora subir! Dá tudo de você!'] },
+    leve: { n: 'Desce e recupera', d: 'Desça devagar, com atenção em cada degrau, ou ande no plano e respire fundo.', voz: ['Muito bem! Desce com cuidado e respira fundo.', 'Boa! Desce devagar e recupera o fôlego.'] },
+    calma: { d: 'Desça devagar, ande um pouco no plano e respire fundo até normalizar.', voz: ['Excelente! Desce devagar e respira fundo.'] },
+  },
+  'Bike': {
+    aviso: '',
+    aq: { d: 'Pedale leve, com pouca carga, e vá aumentando a cadência aos poucos.', voz: ['Vamos lá! Pedala leve para aquecer.'] },
+    forte: { n: 'Pedala forte', d: 'Aumente a carga e a cadência. Pedale com força e de forma constante, com o tronco firme.', dmax: 'Pedale o mais forte que conseguir, com carga alta e cadência rápida.', voz: ['Pedala forte! Vamos nessa!', 'Aumenta a carga e pedala! Você consegue!', 'Bora pedalar! Dá tudo de você!'] },
+    leve: { n: 'Pedala leve', d: 'Reduza a carga e gire as pernas soltas, só para recuperar o fôlego.', voz: ['Muito bem! Pedala leve e respira fundo.', 'Boa! Solta as pernas e recupera.'] },
+    calma: { d: 'Pedale bem leve, com pouca carga, e respire fundo até normalizar.', voz: ['Excelente! Pedala bem leve e respira fundo.'] },
+  },
+  'Elíptico': {
+    aviso: '',
+    aq: { d: 'Movimente braços e pernas em ritmo leve e vá aumentando a velocidade aos poucos.', voz: ['Vamos lá! Elíptico leve para aquecer.'] },
+    forte: { n: 'Acelera no elíptico', d: 'Aumente a velocidade (e a resistência, se quiser), movendo braços e pernas juntos e mantendo a postura.', dmax: 'Vá o mais rápido que conseguir, com braços e pernas juntos e a postura firme.', voz: ['Acelera! Braços e pernas juntos, vamos!', 'Agora é forte! Empurra e puxa, você consegue!', 'Bora! Dá tudo de você no elíptico!'] },
+    leve: { n: 'Elíptico leve', d: 'Reduza a velocidade e a resistência e mantenha o movimento solto para recuperar.', voz: ['Muito bem! Elíptico leve, respira fundo.', 'Boa! Desacelera e recupera o fôlego.'] },
+    calma: { d: 'Reduza a velocidade e a resistência e respire fundo até normalizar.', voz: ['Excelente! Desacelera no elíptico e respira fundo.'] },
+  },
+  'Pular Corda': {
+    aviso: 'Corda: use tênis com amortecimento, pise na ponta do pé em piso firme e com espaço livre. Se sentir dor nas pernas ou nas canelas, pare e escolha outra atividade.',
+    aq: { d: 'Pule leve, com saltos bem baixos, e vá aumentando o ritmo aos poucos.', voz: ['Vamos lá! Pula leve para aquecer.'] },
+    forte: { n: 'Pula forte', d: 'Pule mais rápido, com saltos baixos, na ponta dos pés e com os cotovelos junto ao corpo.', dmax: 'Pule o mais rápido que conseguir, com saltos baixos e o ritmo firme.', voz: ['Pula forte! Salto baixo, vamos!', 'Agora é rápido! Gira a corda, você consegue!', 'Bora pular! Dá tudo de você!'] },
+    leve: { n: 'Pula leve ou descansa', d: 'Pule devagar ou apoie a corda e ande no lugar, respirando fundo. Mantenha o corpo em movimento.', voz: ['Muito bem! Pula devagar e respira fundo.', 'Boa! Solta o corpo e recupera o fôlego.'] },
+    calma: { d: 'Ande no lugar e alongue os braços e as pernas, respirando fundo.', voz: ['Excelente! Anda no lugar e respira fundo.'] },
+  },
+};
+var _progEtCache = { k: '', v: null };
+function _progEt(p) {
+  const base = API.programaEtapas(p, _prog.sessao), a = _PROG_ATIV[_prog.ativ];
+  if (!a || !p || !p.atividades || p.atividades.length < 2 || p.atividades.indexOf(_prog.ativ) < 0) return base;
+  const k = p.id + '|' + _prog.sessao + '|' + _prog.ativ;
+  if (_progEtCache.k === k && _progEtCache.v) return _progEtCache.v;
+  const NOMES = ['Forte', 'Leve', 'Aquecimento', 'Volta à calma', 'Descanso entre blocos'];
+  const DICAS = ['Esforço alto, mas com técnica. Respire.', 'Ritmo bem leve para recuperar.', 'Comece leve e vá aumentando o ritmo aos poucos.', 'Reduza o ritmo e respire fundo até normalizar.', 'Ritmo bem leve, beba água.', 'Descanse.'];
+  const v = base.map(e => {
+    const t = a[e.f]; if (!t || NOMES.indexOf(e.n) < 0) return e;
+    const maxi = /mais forte que conseguir/i.test(e.d || '');
+    return Object.assign({}, e, { n: (e.f === 'forte' || e.f === 'leve') && e.n !== 'Descanso entre blocos' ? (t.n || e.n) : e.n, d: (maxi ? (t.dmax || t.d) : (DICAS.indexOf(e.d) >= 0 || !e.d ? t.d : e.d)), voz: t.voz });
+  });
+  _progEtCache = { k: k, v: v };
+  return v;
+}
 function _progSessaoTit(p) { return (p && p.sessoes && _prog.sessao != null && p.sessoes[_prog.sessao]) ? p.sessoes[_prog.sessao].titulo : ''; }
 function _progProximaSessao(p) { if (!p.sessoes) return null; const f = _progFeitos(p); for (let i = 0; i < p.sessoes.length; i++) if (!f[i]) return i; return p.sessoes.length - 1; }
 function _progMin(seg) { const m = Math.floor(seg / 60), s = seg % 60; return m === 0 ? s + ' s' : (s ? m + ' min ' + s + ' s' : m + ' min'); }
@@ -11362,7 +11409,7 @@ function _renderProgDetalhe() {
     rotulo('Onde fazer e o que precisa') + '<div style="padding:14px 16px;border-radius:16px;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1.5px solid ' + (isLight ? 'rgba(92,184,0,.45)' : 'rgba(127,255,0,.35)') + ';">' +
       '<div style="font-size:14.5px;font-weight:900;margin-bottom:6px;">🧰 ' + esc(p.aparelho) + '</div><div style="font-size:14px;line-height:1.55;">📍 ' + esc(p.onde) + '</div></div>' +
     '<div style="margin:12px 0 0;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.55;background:' + (isLight ? '#fff7ed' : 'rgba(249,115,22,.08)') + ';border:1px solid rgba(249,115,22,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ ' + esc(p.aviso) + '</div>' +
-    chips + curso +
+    chips + ((_PROG_ATIV[_prog.ativ] && _PROG_ATIV[_prog.ativ].aviso && p.atividades.length > 1 && p.atividades.indexOf(_prog.ativ) >= 0) ? '<div style="margin:12px 0 0;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.55;background:' + (isLight ? '#fff7ed' : 'rgba(249,115,22,.08)') + ';border:1px solid rgba(249,115,22,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ ' + esc(_PROG_ATIV[_prog.ativ].aviso) + '</div>' : '') + curso +
     '<div style="font-size:12.5px;color:' + acento + ';font-weight:700;margin-top:16px;line-height:1.5;">🏅 Concluir dá distintivos e +1 ponto extra por dia. O tempo também pontua como cardio.</div>' +
     '<button class="btn btn-prim btn-full" style="margin-top:12px;padding:16px;font-size:16px;font-weight:900;" onclick="_progIniciar()">▶ ' + (p.sessoes ? 'Começar: ' + esc(_progSessaoTit(p)) : 'Começar programa') + '</button>' +
     '<button id="pg-etapas-btn" onclick="_progVerEtapas()" class="btn btn-sec btn-full" style="margin-top:10px;padding:13px;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;"><span>▸</span> 📋 Ver todas as etapas (' + _progEt(p).length + ')</button>' +
@@ -11413,9 +11460,43 @@ function _progVozEscolher() {
 try { if (window.speechSynthesis) speechSynthesis.addEventListener('voiceschanged', function () { _progVozEscolhida = _progVozEscolher(); }); } catch (e) {}
 // Fala como um treinador animado: a frase é dividida em pedaços curtos (pausas naturais) e cada um muda um pouco o tom e a velocidade.
 // estilo: 'forte' (energia alta), 'leve' (calmo), 'fim' (comemoração) ou nada (neutro e simpático).
+// Voz gravada (voz neural pt-BR gerada uma vez e guardada em /app/painel/voz/): toca na hora, não depende da voz instalada no celular
+// e continua funcionando sem internet depois de carregada. Se faltar o áudio daquela frase, cai na voz do aparelho (acima).
+var _progClipes = { man: null, urls: {}, carregando: false, atual: null };
+const _PROG_SUFIXO_DUR = / Por (um minuto|\d+ segundos|\d+ minutos?)( e meio)?\.$/;
+async function _progClipesCarregar() {
+  if (_progClipes.man || _progClipes.carregando) return;
+  _progClipes.carregando = true;
+  try {
+    const r = await fetch('voz/manifest.json', { cache: 'no-cache' }); if (!r.ok) throw new Error('sem manifesto');
+    const man = await r.json(); _progClipes.man = man;
+    await Promise.all(Object.keys(man).map(async f => {   // baixa todos (cerca de 0,9 MB) de uma vez; depois tocam sem rede
+      try { const rr = await fetch('voz/' + man[f]); if (rr.ok) _progClipes.urls[f] = URL.createObjectURL(await rr.blob()); } catch (e) {}
+    }));
+  } catch (e) { _progClipes.man = _progClipes.man || {}; }
+  _progClipes.carregando = false;
+}
+function _progClipeFalar(txt) {
+  try {
+    let t = String(txt).trim(); if (!_progClipes.urls[t]) t = t.replace(_PROG_SUFIXO_DUR, '');
+    const url = _progClipes.urls[t]; if (!url) return false;
+    if (_progClipes.atual) { try { _progClipes.atual.pause(); } catch (e) {} }
+    const a = new Audio(url); a.volume = 1; _progClipes.atual = a;
+    const pr = a.play(); if (pr && pr.catch) pr.catch(() => { try { _progFalarTts(txt); } catch (e) {} });
+    return true;
+  } catch (e) { return false; }
+}
 function _progFalar(txt, estilo) {
   try {
-    if (!_progVozOn() || !window.speechSynthesis || !txt) return;
+    if (!_progVozOn() || !txt) return;
+    try { window.speechSynthesis && speechSynthesis.cancel(); } catch (e) {}
+    if (_progClipeFalar(txt)) return;
+    _progFalarTts(txt, estilo);
+  } catch (e) {}
+}
+function _progFalarTts(txt, estilo) {
+  try {
+    if (!window.speechSynthesis || !txt) return;
     speechSynthesis.cancel();
     if (!_progVozEscolhida) _progVozEscolhida = _progVozEscolher();
     const base = { forte: { r: 1.1, p: 1.14 }, leve: { r: 0.96, p: 1.02 }, fim: { r: 1.02, p: 1.18 } }[estilo] || { r: 1.03, p: 1.07 };
@@ -11434,6 +11515,7 @@ function _progFalar(txt, estilo) {
 function _progSorteio(a) { return a[Math.floor(Math.random() * a.length)]; }
 function _progFalaDur(s) { if (s < 45) return ''; if (s < 90) return s >= 55 ? ' Por um minuto.' : ' Por ' + s + ' segundos.'; const m = Math.floor(s / 60), r = s % 60; return ' Por ' + (m === 1 ? 'um minuto' : m + ' minutos') + (r >= 25 ? ' e meio' : '') + '.'; }
 function _progFraseBloco(e) {
+  if (e.voz && e.voz.length) return _progSorteio(e.voz) + ((e.f === 'forte' || e.f === 'leve') ? _progFalaDur(e.s) : '');
   const nome = String(e.n).toLowerCase();
   if (e.f === 'forte') return (nome === 'corre' ? _progSorteio(['Agora corre! Vai com tudo!', 'Bora correr! Você consegue!', 'Corre! Isso aí, vamos!']) : _progSorteio(['Agora é forte! Vamos nessa!', 'Vamos! Acelera! Você consegue!', 'Força total! Esse é o momento!', 'Bora! Dá tudo de você!'])) + _progFalaDur(e.s);
   if (e.f === 'leve') return (nome === 'caminha' ? _progSorteio(['Muito bem! Agora caminha e respira fundo.', 'Boa! Caminha e recupera o fôlego.']) : _progSorteio(['Muito bem! Agora leve, respira fundo.', 'Boa! Desacelera e recupera o fôlego.', 'Mandou bem! Leve agora, respira.'])) + _progFalaDur(e.s);
@@ -11564,14 +11646,14 @@ function _progAudio() { try { if (!_prog.ctx) _prog.ctx = new (window.AudioConte
 function _progRetomar() {   // reabre o programa que ficou salvo, sempre pausado no ponto em que parou
   const st = _progLerAtivo(); if (!st) { toast('Esse programa já passou do tempo de retomada.'); _renderProgLista(); return; }
   Object.assign(_prog, { id: st.id, sessao: st.sessao == null ? null : st.sessao, ativ: st.ativ, i: st.i, restMs: st.restMs, ativoMs: st.ativoMs || 0, fase: st.fase === 'pronto' ? 'pronto' : 'ativo', pausado: true, rodando: true, ultTick: Date.now(), bipS: -1 });
-  _progAudio(); _progIniciarRelogio(); _renderProgExecucao(); trocarView('cardio-prog');
+  _progAudio(); _progClipesCarregar(); _progIniciarRelogio(); _renderProgExecucao(); trocarView('cardio-prog');
 }
 function _progIniciar() {   // abre a tela do programa com o tempo PARADO, esperando o play
   if (!_progPermitido()) return;
   const p = API.programaPorId(_prog.id); if (!p) return;
   if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um programa.'); return; }
   if (_cardioLiveInicioMs) { toast('Finalize o cardio ao vivo em andamento antes de começar um programa.'); return; }
-  _progAudio();
+  _progAudio(); _progClipesCarregar();
   Object.assign(_prog, { i: 0, fase: 'pronto', pausado: true, restMs: _progEt(p)[0].s * 1000, fimMs: 0, ativoMs: 0, ultTick: Date.now(), bipS: -1, rodando: true });
   _progIniciarRelogio(); _progSalvarAtivo();
   _renderProgExecucao(); trocarView('cardio-prog');
@@ -11596,7 +11678,7 @@ function _progPausar() {
   if (_prog.fase === 'pronto' || (_prog.fase === 'ativo' && _prog.pausado)) { _progPlay(); return; }
   if (_prog.fase === 'contagem') return;
   _prog.restMs = Math.max(0, _prog.fimMs - Date.now()); _prog.pausado = true;
-  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); if (_progClipes.atual) _progClipes.atual.pause(); } catch (e) {}
   _progCancelarNativo(); _progMediaAtualizar();
   _progSalvarAtivo(); _renderProgExecucao();
 }
