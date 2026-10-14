@@ -3646,6 +3646,8 @@ const API = {
     'Dança':      { leve: 3.5, moderada: 5.5, intensa: 7.8 },
     'Futebol':    { leve: 5.0, moderada: 7.0, intensa: 10.0 },
     'Luta':       { leve: 5.3, moderada: 7.8, intensa: 10.3 },
+    'Polichinelo':{ leve: 5.0, moderada: 8.0, intensa: 10.0 },
+    'Corrida estática': { leve: 5.0, moderada: 8.0, intensa: 10.0 },
     'Outro':      { leve: 3.0, moderada: 5.0, intensa: 7.0 },
   },
   CARDIO_PONTOS: { centro: 6, compressao: 0.5, pesoIntensidade: 0.03 },
@@ -3664,7 +3666,7 @@ const API = {
     const calma = (s, d) => E('Volta à calma', s, 'calma', d || 'Reduza o ritmo e respire fundo até normalizar.');
     const forte = (s, d) => E('Forte', s, 'forte', d || 'Esforço alto, mas com técnica. Respire.');
     const leve = (s, d) => E('Leve', s, 'leve', d || 'Ritmo bem leve para recuperar.');
-    const ATIV = ['Corrida', 'Bike', 'Elíptico', 'Pular Corda', 'Escada'];
+    const ATIV = ['Corrida', 'Bike', 'Elíptico', 'Pular Corda', 'Escada', 'Polichinelo', 'Corrida estática'];   // as duas últimas dispensam aparelho e lugar: dá para fazer em casa
     // Do sofá aos 5 km: 8 semanas, 3 treinos por semana, alternando corrida e caminhada até correr 30 minutos seguidos. Cada treino é uma
     // sessão (S<semana>T<treino>): aquecimento de 5 min, os blocos e volta à calma de 5 min. [corre, caminha] em segundos.
     const corre = (s) => E('Corre', s, 'forte', 'Trote leve, que dê para conversar. Se faltar o ar, caminhe um pouco.');
@@ -3714,11 +3716,11 @@ const API = {
     // Onde fazer e o que precisa (aparece em destaque na lista e na tela do programa)
     const ONDE = {
       '12-5-30': { aparelho: 'Esteira com inclinação (chega a 12%)', onde: 'Na academia ou em casa, em uma esteira que suba até 12% de inclinação. Não dá para fazer na rua nem na bicicleta.' },
-      'hiit-1-1': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Escolha a atividade na tela do programa.' },
-      'tabata': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Precisa de espaço livre e piso firme.' },
+      'hiit-1-1': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática. Escolha a atividade na tela do programa.' },
+      'tabata': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática: só precisa de espaço livre e piso firme.' },
       '4x4': { aparelho: 'Esteira, bicicleta ou elíptico (ou a rua)', onde: 'Corrida na rua ou na esteira, bicicleta (na rua ou ergométrica) ou elíptico. Escolha um lugar em que dê para manter o ritmo por 4 minutos seguidos.' },
       'zona-2': { aparelho: 'Sem aparelho obrigatório', onde: 'Caminhada ou corrida na rua ou na esteira, bicicleta ou elíptico. Em qualquer lugar em que você consiga manter um ritmo constante por 40 minutos.' },
-      'piramide': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Escolha a atividade na tela do programa.' },
+      'piramide': { aparelho: 'Sem aparelho obrigatório', onde: 'Na rua, na esteira, na bicicleta, no elíptico, com corda ou na escada. Sem aparelho nenhum, dá para fazer em casa com polichinelo ou corrida estática. Escolha a atividade na tela do programa.' },
       'sofa-5km': { aparelho: 'Só um tênis confortável', onde: 'Na rua, em um parque ou pista, ou na esteira. Escolha um trajeto plano para as primeiras semanas.' },
     };
     lista.forEach((p) => Object.assign(p, ONDE[p.id] || {}));

@@ -391,7 +391,7 @@ $action = $_GET['action'] ?? '';
 // o esforço (RPE) pesa -12% a +15% e as atividades são aproximadas pelo "centro". Devolve null se não souber a atividade.
 function _cardioPontosBase($tipo, $rpe, $minutos) {
     $mod = ['Caminhada' => 3.5, 'Corrida' => 8.0, 'Bike' => 6.8, 'Natação' => 6.0, 'Escada' => 7.0, 'Pular Corda' => 10.0, 'Elíptico' => 6.0,
-            'Tênis' => 7.0, 'Padel' => 7.0, 'Dança' => 5.5, 'Futebol' => 7.0, 'Luta' => 7.8, 'Outro' => 5.0];
+            'Tênis' => 7.0, 'Padel' => 7.0, 'Dança' => 5.5, 'Futebol' => 7.0, 'Luta' => 7.8, 'Polichinelo' => 8.0, 'Corrida estática' => 8.0, 'Outro' => 5.0];
     $tipo = (string)$tipo;
     $m = $mod[$tipo] ?? $mod['Outro'];
     $esforco = max(1, min(10, (int)$rpe ?: 5));
