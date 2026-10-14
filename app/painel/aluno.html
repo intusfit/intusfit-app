@@ -11672,9 +11672,21 @@ async function _progAgendarNativo() {
     if (!(_prog.fase === 'ativo' && !_prog.pausado)) return;
     const p = API.programaPorId(_prog.id); if (!p) return; const et = _progEt(p);
     try { const perm = await LN.checkPermissions(); if (perm && perm.display !== 'granted') { const r = await LN.requestPermissions(); if (!r || r.display !== 'granted') return; } } catch (e) {}
+    // Android: canal de importância alta (som, vibração e aviso na tela bloqueada) e, no Android 12+, o alarme exato (sem ele o aviso pode atrasar minutos).
+    try { if (LN.createChannel) await LN.createChannel({ id: 'programa', name: 'Programas de cardio', description: 'Avisos de troca de bloco durante o programa', importance: 5, visibility: 1, vibration: true }); } catch (e) {}
+    try {
+      if (LN.checkExactNotificationSetting) {
+        const ex = await LN.checkExactNotificationSetting();
+        if (ex && ex.exact_alarm === 'denied' && !localStorage.getItem('intus-exact-alarm-pedido')) {
+          localStorage.setItem('intus-exact-alarm-pedido', '1');
+          toast('Para os avisos chegarem na hora certa, permita "Alarmes e lembretes" para o Intus Fit.');
+          if (LN.changeExactNotificationSetting) LN.changeExactNotificationSetting();
+        }
+      }
+    } catch (e) {}
     let t = Math.max(0, _prog.fimMs - Date.now()); const itens = []; const ids = [];
-    for (let j = _prog.i + 1; j < et.length; j++) { const id = 91000 + j; ids.push(id); itens.push({ id: id, title: et[j].n.toUpperCase(), body: _progMin(et[j].s) + ' · ' + p.titulo, schedule: { at: new Date(Date.now() + t), allowWhileIdle: true } }); t += et[j].s * 1000; }
-    ids.push(91999); itens.push({ id: 91999, title: 'Programa concluído!', body: p.titulo + ': ótimo trabalho!', schedule: { at: new Date(Date.now() + t), allowWhileIdle: true } });
+    for (let j = _prog.i + 1; j < et.length; j++) { const id = 91000 + j; ids.push(id); itens.push({ id: id, channelId: 'programa', title: et[j].n.toUpperCase(), body: _progMin(et[j].s) + ' · ' + p.titulo, schedule: { at: new Date(Date.now() + t), allowWhileIdle: true } }); t += et[j].s * 1000; }
+    ids.push(91999); itens.push({ id: 91999, channelId: 'programa', title: 'Programa concluído!', body: p.titulo + ': ótimo trabalho!', schedule: { at: new Date(Date.now() + t), allowWhileIdle: true } });
     _prog.idsNativos = ids;
     await LN.schedule({ notifications: itens.slice(0, 60) });
   } catch (e) {}

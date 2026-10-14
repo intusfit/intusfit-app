@@ -25,6 +25,10 @@ for (const file of files) {
   await cp(join(panelRoot, file), join(webRoot, file));
 }
 
+// Vozes gravadas dos programas de cardio (aluno.html as lê em voz/). O app das lojas só as usa quando voz/manifest.json tem
+// "licenciado": true (ver tools/voz/LEIAME.md); sem isso cai na voz do aparelho. Vão no binário para tocar sem internet.
+await cp(join(panelRoot, 'voz'), join(webRoot, 'voz'), { recursive: true });
+
 // Tem de ser carregado antes do api.js em ambas as telas. A origem web continua
 // relativa; no WebView a API fica absoluta para alcançar o servidor de produção.
 const runtime = `// Gerado por mobile/scripts/build-web.mjs — não editar no diretório www.\nwindow.INTUS_NATIVE_APP = true;\nwindow.INTUS_API_BASE = 'https://intusfit.com.br/app/api';\n`;
