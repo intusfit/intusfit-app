@@ -129,12 +129,12 @@ const PERM_KEYS = [
   { key: 'nt_editar',   label: 'Editar plano nutri',    grupo: 'Nutrição'     },
   { key: 'nt_excluir',  label: 'Excluir plano nutri',   grupo: 'Nutrição'     },
   // Matrículas / Pagamentos
-  { key: 'mt_ver',      label: 'Ver matrículas',       grupo: 'Matrículas'   },
+  { key: 'mt_ver',      label: 'Ver matrículas (só dos seus alunos)', grupo: 'Matrículas'   },
   { key: 'mt_incluir',  label: 'Incluir matrículas',   grupo: 'Matrículas'   },
   { key: 'mt_editar',   label: 'Editar matrículas',    grupo: 'Matrículas'   },
   { key: 'mt_excluir',  label: 'Excluir matrículas',   grupo: 'Matrículas'   },
   // Pagamentos
-  { key: 'pg_ver',      label: 'Ver pagamentos',       grupo: 'Pagamentos'   },
+  { key: 'pg_ver',      label: 'Ver pagamentos (só dos seus alunos)', grupo: 'Pagamentos'   },
   { key: 'pg_incluir',  label: 'Incluir pagamentos',   grupo: 'Pagamentos'   },
   { key: 'pg_editar',   label: 'Editar pagamentos',    grupo: 'Pagamentos'   },
   { key: 'pg_excluir',  label: 'Excluir pagamentos',   grupo: 'Pagamentos'   },
@@ -144,13 +144,13 @@ const PERM_KEYS = [
   { key: 'ms_editar',   label: 'Editar mensagens',     grupo: 'Mensagens'    },
   { key: 'ms_excluir',  label: 'Excluir mensagens',    grupo: 'Mensagens'    },
   // Financeiro
-  { key: 'fin_ver',     label: 'Ver financeiro',       grupo: 'Financeiro'   },
-  { key: 'fin_caixa',   label: 'Lançar entradas/saídas', grupo: 'Financeiro'},
+  { key: 'fin_ver',     label: 'Ver financeiro (só dos seus alunos)', grupo: 'Financeiro'   },
+  { key: 'fin_caixa',   label: 'Lançar entradas/saídas (exige o caixa da empresa)', grupo: 'Financeiro'},
   // RESTRITA de proposito: nao entra no pacote automatico do administrador. O
   // caixa da empresa inteira e outra coisa que "ver o financeiro dos meus
   // alunos" — quando outros professores tiverem acesso, cada um vera so os
   // numeros dos clientes dele, e essa separacao precisa comecar fechada.
-  { key: 'fin_empresa', label: 'Ver o caixa da empresa', grupo: 'Financeiro', restrita: true },
+  { key: 'fin_empresa', label: 'Ver o caixa da empresa (toda a operação: Caixa, Eduzz, Analytics)', grupo: 'Financeiro', restrita: true },
 ];
 
 function _permsAllTrue() {

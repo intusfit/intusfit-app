@@ -243,20 +243,29 @@ if ($method === 'GET' && $action === 'metricas') {
     $hoje = date('Y-m-d');
     $mesAtual = date('Y-m');
 
-    $ativas = $pdo->prepare("SELECT COUNT(*) FROM intus_mensalidade WHERE stpgto = 'S' AND dtvencimento >= ?");
-    $ativas->execute([$hoje]);
+    // Professor (não administrador) só enxerga os totais dos SEUS alunos, nunca os da operação inteira.
+    $escopo = ''; $escopoP = [];
+    if ($_allowedIds !== null) {
+        if (count($_allowedIds) === 0) { $escopo = ' AND 1=0'; }
+        else { $escopo = ' AND idatleta IN (' . implode(',', array_fill(0, count($_allowedIds), '?')) . ')'; $escopoP = array_map('intval', $_allowedIds); }
+    }
+
+    $ativas = $pdo->prepare("SELECT COUNT(*) FROM intus_mensalidade WHERE stpgto = 'S' AND dtvencimento >= ?" . $escopo);
+    $ativas->execute(array_merge([$hoje], $escopoP));
     $numAtivas = (int)$ativas->fetchColumn();
 
-    $vencidas = $pdo->prepare("SELECT COUNT(*) FROM intus_mensalidade WHERE (stpgto = 'N' OR dtvencimento < ?)");
-    $vencidas->execute([$hoje]);
+    $vencidas = $pdo->prepare("SELECT COUNT(*) FROM intus_mensalidade WHERE (stpgto = 'N' OR dtvencimento < ?)" . $escopo);
+    $vencidas->execute(array_merge([$hoje], $escopoP));
     $numVencidas = (int)$vencidas->fetchColumn() - $numAtivas;
     if ($numVencidas < 0) $numVencidas = 0;
 
-    $receita = $pdo->prepare("SELECT COALESCE(SUM(vlpagamento),0) FROM intus_mensalidade WHERE stpgto = 'S' AND dtpagamento LIKE ?");
-    $receita->execute([$mesAtual . '%']);
+    $receita = $pdo->prepare("SELECT COALESCE(SUM(vlpagamento),0) FROM intus_mensalidade WHERE stpgto = 'S' AND dtpagamento LIKE ?" . $escopo);
+    $receita->execute(array_merge([$mesAtual . '%'], $escopoP));
     $receitaMes = (float)$receita->fetchColumn();
 
-    $popular = $pdo->query("SELECT dshistorico, COUNT(*) as cnt FROM intus_mensalidade WHERE dshistorico != '' GROUP BY dshistorico ORDER BY cnt DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $popularSql = "SELECT dshistorico, COUNT(*) as cnt FROM intus_mensalidade WHERE dshistorico != ''" . $escopo . " GROUP BY dshistorico ORDER BY cnt DESC LIMIT 1";
+    $popularSt = $pdo->prepare($popularSql); $popularSt->execute($escopoP);
+    $popular = $popularSt->fetch(PDO::FETCH_ASSOC);
 
     echo json_encode([
         'ativas' => $numAtivas,
@@ -340,6 +349,12 @@ if ($method === 'POST') {
         echo json_encode(['error' => 'idatleta e dtvencimento obrigatórios']);
         exit;
     }
+    // Professor (não administrador) só cria pagamento para aluno em que é responsável.
+    if (!$_isAdmin && !in_array((int)$d['idatleta'], array_map('intval', (array)$_allowedIds), true)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'sem permissão: este aluno não é seu']);
+        exit;
+    }
     // Bloquear criação por colaborador em atleta protegido
     if (!$_isAdmin && in_array((int)$d['idatleta'], $_protectedIds)) {
         http_response_code(403);
@@ -389,6 +404,11 @@ if ($method === 'PUT') {
     $stBefore->execute([$id]);
     $rowBefore = $stBefore->fetch(PDO::FETCH_ASSOC);
 
+    if (!$_isAdmin && (!$rowBefore || !in_array((int)$rowBefore['idatleta'], array_map('intval', (array)$_allowedIds), true))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'sem permissão: este aluno não é seu']);
+        exit;
+    }
     if (!$_isAdmin && $rowBefore && in_array((int)$rowBefore['idatleta'], $_protectedIds)) {
         http_response_code(403);
         echo json_encode(['error' => 'sem permissão para gerenciar financeiro deste aluno']);
@@ -434,6 +454,11 @@ if ($method === 'DELETE') {
     $stDel->execute([$id]);
     $rowDel = $stDel->fetch(PDO::FETCH_ASSOC);
 
+    if (!$_isAdmin && (!$rowDel || !in_array((int)$rowDel['idatleta'], array_map('intval', (array)$_allowedIds), true))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'sem permissão: este aluno não é seu']);
+        exit;
+    }
     if (!$_isAdmin && $rowDel && in_array((int)$rowDel['idatleta'], $_protectedIds)) {
         http_response_code(403);
         echo json_encode(['error' => 'sem permissão para gerenciar financeiro deste aluno']);

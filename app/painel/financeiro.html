@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Financeiro — Intus</title>
-  <script src="_mock.js?v=20261013b"></script>
+  <script src="_mock.js?v=20261014a"></script>
   <script src="api.js?v=20261014a"></script>
 </head>
 <body>
@@ -26,7 +26,10 @@ if (!isAdmin() && !hasPerm('fin_ver')) {
   throw new Error('sem permissao');
 }
 
-const podeLancar = isAdmin() || hasPerm('fin_caixa');
+// O caixa da empresa (entradas e saídas gerais), o Eduzz e o Analytics são da OPERAÇÃO inteira: só administrador e quem tem "Ver o caixa da empresa".
+// Professor com "Ver financeiro" enxerga só os pagamentos dos alunos em que é responsável (o servidor também aplica isso).
+const veEmpresa = isAdmin() || hasPerm('fin_empresa');
+const podeLancar = veEmpresa && (isAdmin() || hasPerm('fin_caixa'));
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(d){ return d ? new Date(d+'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
@@ -140,7 +143,7 @@ document.addEventListener('click', function(e) {
 // conexão. saveCaixa é o único lugar que grava: ele compara a lista nova com
 // a de antes e manda pro servidor só o que de fato mudou.
 const CAIXA_KEY = 'intus-caixa';
-let _caixaCache = (function () { try { return JSON.parse(localStorage.getItem(CAIXA_KEY) || '[]'); } catch (e) { return []; } })();
+let _caixaCache = !veEmpresa ? [] : (function () { try { return JSON.parse(localStorage.getItem(CAIXA_KEY) || '[]'); } catch (e) { return []; } })();
 function getCaixa() { return _caixaCache; }
 
 function saveCaixa(items) {
@@ -221,7 +224,7 @@ async function syncDoBackend(forceRender) {
   render();
 }
 syncDoBackend();
-_carregarCaixaRemoto();
+if (veEmpresa) _carregarCaixaRemoto();
 
 function carregarDados() {
   const atletas      = JSON.parse(localStorage.getItem('intus-atletas')      || '[]');
@@ -488,7 +491,7 @@ function render() {
 
       <!-- KPIs PRINCIPAIS -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
-        ${kpi('Saldo do Caixa', brlV(d.saldoCaixa), 'var(--green)', '💰')}
+        ${veEmpresa ? kpi('Saldo do Caixa', brlV(d.saldoCaixa), 'var(--green)', '💰') : ''}
         ${kpi('Recebido',       brlV(d.recebido),   'var(--green)', '✅')}
         ${kpi('Previsão 7d',    brlV(d.previsao7d), '#60a5fa',      '📅')}
         ${kpi('Previsão 30d',   brlV(d.previsao30d),'#818cf8',      '📊')}
@@ -501,18 +504,18 @@ function render() {
         ${kpiSmall('Pagantes',        d.clientesPagantes + ' de ' + d.totalAtivos)}
         ${kpiSmall('Recorrência',     d.recorrencia.toFixed(0) + '%')}
         ${kpiSmall('Inadimplência',   d.inadimplencia.toFixed(1) + '%')}
-        ${kpiSmall('Entradas extras', brlV(d.entradas))}
-        ${kpiSmall('Saídas',          brlV(d.saidas))}
+        ${veEmpresa ? kpiSmall('Entradas extras', brlV(d.entradas)) : ''}
+        ${veEmpresa ? kpiSmall('Saídas',          brlV(d.saidas)) : ''}
       </div>
 
       <!-- TABS -->
       <div style="display:flex;gap:0;border-bottom:1px solid var(--border);">
         <button class="fin-tab ${abaAtiva==='resumo'?'active':''}" onclick="setAba('resumo')">Resumo</button>
-        <button class="fin-tab ${abaAtiva==='caixa'?'active':''}" onclick="setAba('caixa')">Caixa</button>
+        ${veEmpresa ? `<button class="fin-tab ${abaAtiva==='caixa'?'active':''}" onclick="setAba('caixa')">Caixa</button>` : ''}
         <button class="fin-tab ${abaAtiva==='historico'?'active':''}" onclick="setAba('historico')">Histórico</button>
         <button class="fin-tab ${abaAtiva==='planos'?'active':''}" onclick="setAba('planos')">Planos</button>
-        <button class="fin-tab ${abaAtiva==='vendas'?'active':''}" onclick="setAba('vendas')">Eduzz</button>
-        <button class="fin-tab ${abaAtiva==='analytics'?'active':''}" onclick="setAba('analytics')">Analytics</button>
+        ${veEmpresa ? `<button class="fin-tab ${abaAtiva==='vendas'?'active':''}" onclick="setAba('vendas')">Eduzz</button>
+        <button class="fin-tab ${abaAtiva==='analytics'?'active':''}" onclick="setAba('analytics')">Analytics</button>` : ''}
       </div>
 
       <div id="fin-tab-content"></div>
@@ -534,12 +537,13 @@ function render() {
   renderAba(d);
 }
 
-function setAba(aba) { abaAtiva = aba; render(); }
+function setAba(aba) { if (!veEmpresa && (aba === 'caixa' || aba === 'vendas' || aba === 'analytics')) aba = 'resumo'; abaAtiva = aba; render(); }
 
 function renderAba(d) {
   const box = document.getElementById('fin-tab-content');
   if (!box) return;
 
+  if (!veEmpresa && (abaAtiva === 'caixa' || abaAtiva === 'vendas' || abaAtiva === 'analytics')) abaAtiva = 'resumo';
   if (abaAtiva === 'resumo') renderResumo(box, d);
   else if (abaAtiva === 'caixa') renderCaixa(box, d);
   else if (abaAtiva === 'historico') renderHistorico(box, d);

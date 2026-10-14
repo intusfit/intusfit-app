@@ -1630,6 +1630,10 @@ if ($action === 'alimento_medidas') {
 // Restrito ao professor/admin, igual às outras ações sensíveis desta rota.
 if ($action === 'caixa') {
     if ($_ehAluno) { http_response_code(403); echo json_encode(['error' => 'restrito ao professor']); exit; }
+    // O caixa é da EMPRESA inteira (entradas e saídas, não só de um aluno): só administrador ou quem tem "Ver o caixa da empresa" (fin_empresa).
+    if (empty($_ctx['admin']) && !(function_exists('usuarioTemPermissao') && usuarioTemPermissao($pdo, (int)($_ctx['idusuario'] ?? 0), 'fin_empresa'))) {
+        http_response_code(403); echo json_encode(['error' => 'restrito ao administrador']); exit;
+    }
 
     if ($method === 'GET') {
         $st = $pdo->query("SELECT * FROM intus_caixa ORDER BY data DESC, created_at DESC");

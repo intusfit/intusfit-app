@@ -168,6 +168,29 @@ function getAuthContext(PDO $pdo, string $tok): array {
  * Usa a coluna professores_responsaveis (JSON array) na tabela de atletas.
  * Filtragem PHP-side para compatibilidade com MySQL sem JSON_CONTAINS.
  */
+// A permissão `$chave` está ligada (true) no cadastro do usuário? Lê direto do banco (a sessão só traz id e admin). Falha fechada: na dúvida, false.
+function usuarioTemPermissao(PDO $pdo, int $idusuario, string $chave): bool {
+    if ($idusuario <= 0) return false;
+    try {
+        $tab = null;
+        foreach (['professor', 'usuario', 'usuarios', 'professores'] as $t) {
+            try { $pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $tab = $t; break; } catch (Throwable $e) {}
+        }
+        if (!$tab) return false;
+        $cols = array_column($pdo->query("SHOW COLUMNS FROM `$tab`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+        $colId = null; foreach (['idusuario', 'idprofessor', 'id'] as $c) { if (in_array($c, $cols)) { $colId = $c; break; } }
+        $colPerm = null; foreach (['permissoes', 'permissions'] as $c) { if (in_array($c, $cols)) { $colPerm = $c; break; } }
+        if (!$colId || !$colPerm) return false;
+        $st = $pdo->prepare("SELECT `$colPerm` FROM `$tab` WHERE `$colId` = ? LIMIT 1");
+        $st->execute([$idusuario]);
+        $raw = $st->fetchColumn();
+        $p = is_string($raw) ? json_decode($raw, true) : null;
+        if (!is_array($p) || !array_key_exists($chave, $p)) return false;
+        $v = $p[$chave];
+        return $v === true || $v === 1 || $v === '1';
+    } catch (Throwable $e) { return false; }
+}
+
 function getAtletasDoUsuario(PDO $pdo, int $idusuario): array {
     $atletaTable = null;
     foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $t) {
