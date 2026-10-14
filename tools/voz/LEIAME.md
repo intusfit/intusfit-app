@@ -22,6 +22,6 @@ Frase nova de voz: acrescente a chave no `manifest.json` (valor qualquer) e rode
 
 ## Declarações nas lojas para esse recurso
 - **iOS (App Store)**: o app usa `UIBackgroundModes` = `audio` (áudio com a tela apagada durante o programa). Na revisão, informar: "O app toca avisos de voz e sons de troca de bloco durante um treino guiado, com a tela apagada. O áudio só toca com um programa em andamento." Não há gravação de microfone.
-- **Android (Google Play)**: as notificações de troca de bloco usam `@capacitor/local-notifications` (permissão `POST_NOTIFICATIONS` no Android 13+; alarmes exatos só se ativar o agendamento exato). Declarar o uso de notificações no formulário de permissões.
+- **Android (Google Play)**: as notificações de troca de bloco usam `@capacitor/local-notifications` (permissão `POST_NOTIFICATIONS` no Android 13+ e `SCHEDULE_EXACT_ALARM`, já declaradas no `AndroidManifest.xml`). Declarar o uso de notificações e do alarme exato ("avisos de troca de bloco de treino na hora marcada pelo aluno") no formulário da Play Store.
 - **Privacidade**: as vozes são arquivos estáticos do próprio app; nenhum dado do aluno é enviado a terceiros para gerar ou tocar o áudio. A política de privacidade não precisa de mudança por causa da voz.
 - O plugin `@capacitor/local-notifications` já está instalado em `mobile/` e o projeto nativo já foi sincronizado (ver `mobile/README.md`). Antes do envio: `cd mobile && npm run sync`, abrir no Android Studio e no Xcode e gerar o build.
