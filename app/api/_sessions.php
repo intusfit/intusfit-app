@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_ip.php';   // intusClientIp(): IP real do visitante (com ou sem Cloudflare)
 /**
  * Intus Fit — Server-side Session Tokens
  *
@@ -48,7 +49,7 @@ function createSession(PDO $pdo, int $userId, string $type = 'prof', string $use
     $token = bin2hex(random_bytes(32));
     $hash = hash('sha256', $token);
     $expiresAt = date('Y-m-d H:i:s', time() + ($ttlDays * 86400));
-    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $ip = intusClientIp();
 
     try {
         $st = $pdo->prepare("INSERT INTO `intus_sessions` (`token_hash`, `user_id`, `user_type`, `user_name`, `admin`, `expires_at`, `ip`) VALUES (?, ?, ?, ?, ?, ?, ?)");

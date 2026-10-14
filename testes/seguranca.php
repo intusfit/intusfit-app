@@ -5,6 +5,7 @@ $ok = 0; $ruim = 0;
 function eq($rot, $c, $d = '') { global $ok, $ruim; if ($c) { $ok++; echo "  OK    $rot\n"; } else { $ruim++; echo "  FALHA $rot" . ($d ? "\n          $d" : '') . "\n"; } }
 $cod = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/catalogo.php'));
 $i = strpos($cod, 'function _intusExtImagem'); $j = strpos($cod, "\n}\n", $i);
+require_once __DIR__ . '/../app/api/_antivirus.php';
 eval(substr($cod, $i, $j - $i + 3));
 
 $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
@@ -18,7 +19,11 @@ eq('texto disfarçado de imagem é recusado', _intusExtImagem('isto nao e uma im
 eq('código PHP disfarçado de imagem é recusado', _intusExtImagem("<?php system(\$_GET['c']); ?>") === '');
 eq('HTML com script é recusado', _intusExtImagem('<html><script>alert(1)</script></html>') === '');
 eq('SVG não é aceito (pode carregar script)', _intusExtImagem('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>') === '');
-eq('PNG com lixo PHP no fim continua PNG (o arquivo é guardado como .png e nunca executa)', _intusExtImagem($png . '<?php echo 1; ?>') === 'png');
+eq('PNG com código PHP escondido no fim é recusado (poliglota)', _intusExtImagem($png . '<?php echo 1; ?>') === '');
+eq('PNG com <script> escondido é recusado', _intusExtImagem($png . '<script>alert(1)</script>') === '');
+eq('PNG com o arquivo de teste de antivírus (EICAR) é recusado', _intusExtImagem($png . 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*') === '');
+eq('intusAntivirus: imagem limpa passa', intusAntivirus($png) === '');
+eq('intusAntivirus: motivo em português quando recusa', strpos(intusAntivirus($png . '<?php x ?>'), 'código escondido') !== false);
 eq('vazio é recusado', _intusExtImagem('') === '');
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

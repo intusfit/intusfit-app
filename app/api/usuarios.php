@@ -9,7 +9,14 @@ function _intusImagemOk($v, int $maxBytes = 3145728) {
     if (!is_string($v)) return false;
     if (strlen($v) > $maxBytes) return false;
     // aceita data URI de imagem ou caminho/URL simples
-    if (preg_match('#^data:image/(png|jpe?g|gif|webp);base64,#i', $v)) return $v;
+    if (preg_match('#^data:image/(png|jpe?g|gif|webp);base64,(.+)$#is', $v, $_m)) {
+        // O conteúdo precisa ser imagem de verdade e passar na verificação de segurança (_antivirus.php), não só começar com "data:image".
+        $_bin = base64_decode($_m[2], true);
+        if ($_bin === false || @getimagesizefromstring($_bin) === false) return false;
+        require_once __DIR__ . '/_antivirus.php';
+        if (intusAntivirus($_bin) !== '') return false;
+        return $v;
+    }
     if (preg_match('#^(https?://|/)[^\s"\'<>]{1,500}$#i', $v)) return $v;
     return false;
 }

@@ -640,7 +640,7 @@ try {
         ");
         $nomeSeguro = $nomeProvedor !== '' ? $nomeProvedor : 'Visitante (' . $provedor . ')';
         $st = $pdo->prepare("INSERT INTO intus_lead (nome, whatsapp, email, origem, ip) VALUES (?, '', ?, ?, ?)");
-        $st->execute([$nomeSeguro, $email, 'login-' . $provedor, $_SERVER['REMOTE_ADDR'] ?? null]);
+        $st->execute([$nomeSeguro, $email, 'login-' . $provedor, intusClientIp()]);
         echo json_encode(['ok' => true, 'existente' => false, 'lead' => true, 'nome' => $nomeSeguro, 'email' => $email]);
     }
 

@@ -6,12 +6,16 @@
 // upload de midia; aqui a validacao nunca foi aplicada.
 // O conteúdo precisa SER uma imagem (JPEG, PNG, WEBP ou GIF), não só começar com "data:image/png". Devolve a extensão real ou '' se não for imagem.
 // Evita guardar texto, HTML ou outro arquivo disfarçado de foto; a extensão do arquivo passa a ser a do conteúdo.
+require_once __DIR__ . '/_antivirus.php';
 function _intusExtImagem(string $bin): string {
     $i = @getimagesizefromstring($bin);
     if (!$i || empty($i[0]) || empty($i[1])) return '';
     $map = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_GIF => 'gif'];
     if (defined('IMAGETYPE_WEBP')) $map[IMAGETYPE_WEBP] = 'webp';
-    return $map[$i[2] ?? 0] ?? '';
+    $ext = $map[$i[2] ?? 0] ?? '';
+    // Terceira trava: antivírus (ClamAV se existir) e código escondido dentro da imagem. Ver _antivirus.php.
+    if ($ext !== '' && function_exists('intusAntivirus') && intusAntivirus($bin) !== '') return '';
+    return $ext;
 }
 
 function _intusImagemOk($v, int $maxBytes = 3145728) {
@@ -19,7 +23,14 @@ function _intusImagemOk($v, int $maxBytes = 3145728) {
     if (!is_string($v)) return false;
     if (strlen($v) > $maxBytes) return false;
     // aceita data URI de imagem ou caminho/URL simples
-    if (preg_match('#^data:image/(png|jpe?g|gif|webp);base64,#i', $v)) return $v;
+    if (preg_match('#^data:image/(png|jpe?g|gif|webp);base64,(.+)$#is', $v, $_m)) {
+        // O conteúdo precisa ser imagem de verdade e passar na verificação de segurança (_antivirus.php), não só começar com "data:image".
+        $_bin = base64_decode($_m[2], true);
+        if ($_bin === false || @getimagesizefromstring($_bin) === false) return false;
+        require_once __DIR__ . '/_antivirus.php';
+        if (intusAntivirus($_bin) !== '') return false;
+        return $v;
+    }
     if (preg_match('#^(https?://|/)[^\s"\'<>]{1,500}$#i', $v)) return $v;
     return false;
 }
@@ -4941,7 +4952,7 @@ if ($action === 'anamnese') {
                 'ctx_id'     => (int)($_ctx['idusuario'] ?? 0),
                 'ctx_atleta' => (int)($_ctx['idatleta'] ?? 0),
                 'aluno'      => $_ehAluno ? 'S' : 'N',
-                'ip'         => substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
+                'ip'         => substr(intusClientIp(), 0, 45),
                 'ua'         => substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 180),
             ];
         }

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_ip.php';   // intusClientIp(): IP real do visitante (com ou sem Cloudflare)
 /**
  * Rate-limiting por IP usando tabela MySQL.
  * Uso: require_once '_rate_limit.php'; checkRateLimit($pdo, 'login', 5, 900);
@@ -30,7 +31,7 @@ function _ensureRateLimitTable(PDO $pdo): bool {
 function checkRateLimit(PDO $pdo, string $action, int $maxAttempts = 5, int $windowSeconds = 900): bool {
     if (!_ensureRateLimitTable($pdo)) return true; // graceful: skip if table unavailable
 
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ip = intusClientIp();
 
     try {
         $pdo->prepare("DELETE FROM `rate_limits` WHERE `action` = ? AND `attempted_at` < DATE_SUB(NOW(), INTERVAL ? SECOND)")
@@ -87,7 +88,7 @@ function clearAttemptsConta(PDO $pdo, string $acao, string $chave): void {
 
 function recordAttempt(PDO $pdo, string $action): void {
     if (!_ensureRateLimitTable($pdo)) return;
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ip = intusClientIp();
     try {
         $pdo->prepare("INSERT INTO `rate_limits` (`ip`, `action`) VALUES (?, ?)")
             ->execute([$ip, $action]);
@@ -96,7 +97,7 @@ function recordAttempt(PDO $pdo, string $action): void {
 
 function clearAttempts(PDO $pdo, string $action): void {
     if (!_ensureRateLimitTable($pdo)) return;
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ip = intusClientIp();
     try {
         $pdo->prepare("DELETE FROM `rate_limits` WHERE `ip` = ? AND `action` = ?")
             ->execute([$ip, $action]);

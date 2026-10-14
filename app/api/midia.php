@@ -87,6 +87,8 @@ function _mdSalvarCapa(string $raw, int $idatleta): string {
     $_tipos = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png'];
     if (defined('IMAGETYPE_WEBP')) $_tipos[IMAGETYPE_WEBP] = 'webp';
     if (!$_inf || !isset($_tipos[$_inf[2] ?? 0])) throw new Exception('a capa nao e uma imagem valida');
+    require_once __DIR__ . '/_antivirus.php';
+    if (intusAntivirus($bin) !== '') throw new Exception('a capa foi recusada pela verificacao de seguranca');
     $ext = $_tipos[$_inf[2]];
     if (!is_dir($dir) || !is_writable($dir)) throw new Exception('sem permissao de escrita');
     try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }

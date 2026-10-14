@@ -238,6 +238,8 @@ const Usuarios = {
   },
 
   _save(lista) {
+    // Senha nunca fica no navegador (apaga também as que versões antigas deixaram guardadas).
+    try { lista = (lista || []).map(u => (u && u.senha) ? Object.assign({}, u, { senha: '' }) : u); } catch {}
     localStorage.setItem(this.KEY, JSON.stringify(lista));
     // notifica outras abas abertas
     try { window.dispatchEvent(new Event('intus-usuarios-change')); } catch {}

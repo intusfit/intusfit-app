@@ -4177,7 +4177,7 @@ const API = {
               // Atualiza cache
               try {
                 const lista = Usuarios.listar().filter(u => Number(u.idusuario) !== Number(r.usuario.idusuario));
-                lista.push(Object.assign({}, r.usuario, { senha: d.senha || '' }));
+                lista.push(Object.assign({}, r.usuario, { senha: '' }));   // a senha digitada nunca fica guardada no navegador
                 Usuarios._save(lista);
               } catch {}
               return r.usuario;
@@ -4196,7 +4196,7 @@ const API = {
               try {
                 const lista = Usuarios.listar();
                 const idx = lista.findIndex(u => Number(u.idusuario) === Number(id));
-                const senhaCache = d.senha || (idx >= 0 ? (lista[idx].senha || '') : '');
+                const senhaCache = '';   // a senha digitada nunca fica guardada no navegador
                 const merged = Object.assign({}, lista[idx] || {}, r.usuario, { senha: senhaCache });
                 if (idx >= 0) lista[idx] = merged; else lista.push(merged);
                 Usuarios._save(lista);

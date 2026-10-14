@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_ip.php';   // intusClientIp(): IP real do visitante (com ou sem Cloudflare)
 /**
  * CORS restrito + headers de segurança.
  * Inclua no topo de cada endpoint ANTES dos outros headers.

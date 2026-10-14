@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_ip.php';   // intusClientIp(): IP real do visitante (com ou sem Cloudflare)
 /**
  * Intus Fit — OTP (One-Time Password) for password reset.
  *
@@ -55,7 +56,7 @@ function createOtp(PDO $pdo, string $email, int $ttlMinutes = 10): ?string {
     $code = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
     $hash = hash('sha256', $code . $email);
     $expiresAt = date('Y-m-d H:i:s', time() + ($ttlMinutes * 60));
-    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $ip = intusClientIp();
 
     try {
         $st = $pdo->prepare("INSERT INTO `intus_otp` (`email`, `code_hash`, `expires_at`, `ip`) VALUES (?, ?, ?, ?)");

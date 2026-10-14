@@ -113,7 +113,7 @@ if ($action === 'criar') {
     recordAttempt($pdo, 'lead_criar');
 
     $st = $pdo->prepare("INSERT INTO intus_lead (nome, whatsapp, email, objetivo, origem, ip, indicado_por_idatleta) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    $st->execute([$nome, $whatsapp, $email ?: null, $objetivo ?: null, $origem, $_SERVER['REMOTE_ADDR'] ?? null, $indicadoPor]);
+    $st->execute([$nome, $whatsapp, $email ?: null, $objetivo ?: null, $origem, intusClientIp(), $indicadoPor]);
     echo json_encode(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
     exit;
 }

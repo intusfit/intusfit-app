@@ -186,6 +186,9 @@ function _salvarFotoSlot($relatorioId, $linhaIdx, $slotIdx, $dataUrl) {
     $bin = base64_decode($m[2], true);
     if ($bin === false) throw new Exception('base64 invalido');
     if (strlen($bin) > 8 * 1024 * 1024) throw new Exception('imagem grande demais (max 8MB apos compressao)');
+    require_once __DIR__ . '/_antivirus.php';
+    if (@getimagesizefromstring($bin) === false) throw new Exception('o arquivo nao e uma imagem valida');
+    if (intusAntivirus($bin) !== '') throw new Exception('imagem recusada pela verificacao de seguranca');
     $dir = _dirRelatorio($relatorioId);
     if (!is_writable($dir)) throw new Exception('pasta de upload indisponivel');
     $base = (int)$linhaIdx . '-slot' . (int)$slotIdx;
