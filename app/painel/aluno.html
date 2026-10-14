@@ -11703,8 +11703,16 @@ function _progFlash(cor, texto) {
     document.getElementById('pg-flash')?.remove();
     if (!document.getElementById('pg-flash-css')) { const st = document.createElement('style'); st.id = 'pg-flash-css'; st.textContent = '@keyframes pgFlash{0%{opacity:.95}60%{opacity:.85}100%{opacity:0}}'; document.head.appendChild(st); }
     const d = document.createElement('div'); d.id = 'pg-flash';
-    d.style.cssText = 'position:fixed;inset:0;z-index:100100;pointer-events:none;display:flex;align-items:center;justify-content:center;background:' + cor + ';color:#0a0a0a;font-size:54px;font-weight:900;text-transform:uppercase;text-align:center;padding:20px;animation:pgFlash 1.6s ease-out forwards;';
-    d.textContent = texto; document.body.appendChild(d); setTimeout(() => d.remove(), 1700);
+    d.style.cssText = 'position:fixed;inset:0;z-index:100100;pointer-events:none;display:flex;align-items:center;justify-content:center;background:' + cor + ';color:#0a0a0a;font-weight:900;text-transform:uppercase;text-align:center;padding:20px;box-sizing:border-box;animation:pgFlash 1.6s ease-out forwards;';
+    // O texto se ajusta à largura da tela: nomes longos ("Agachamento livre", "Alongamento das pernas") cortavam nas bordas com a fonte fixa de 54 px.
+    const sp = document.createElement('span'); sp.style.cssText = 'display:block;max-width:100%;line-height:1.08;overflow-wrap:break-word;font-size:54px;'; sp.textContent = texto;
+    d.appendChild(sp); document.body.appendChild(d);
+    let fs = 54; const larg = d.clientWidth - 40;
+    while (fs > 20 && (sp.scrollWidth > larg || sp.scrollHeight > d.clientHeight - 40)) { fs -= 2; sp.style.fontSize = fs + 'px'; }
+    // maior palavra sozinha precisa caber numa linha
+    const maior = String(texto).split(/\s+/).reduce((m, w) => w.length > m.length ? w : m, '');
+    if (maior) { const t = document.createElement('span'); t.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-weight:900;text-transform:uppercase;font-size:' + fs + 'px;'; t.textContent = maior; d.appendChild(t); while (fs > 18 && t.offsetWidth > larg) { fs -= 2; t.style.fontSize = fs + 'px'; sp.style.fontSize = fs + 'px'; } t.remove(); }
+    setTimeout(() => d.remove(), 1700);
   } catch (e) {}
 }
 
