@@ -3248,6 +3248,99 @@ if ($action === 'amizades') {
     }
 }
 
+// ── Conversa entre amigos (mensagens diretas entre alunos) ────────────────
+// Só entre amigos (amizade aceita). GET: lista de conversas (última mensagem e não lidas); GET ?com=ID: a conversa
+// (marca como lidas as recebidas); GET ?so_contagem=1: total de não lidas; POST {para_id, texto}: envia;
+// DELETE ?id=: apaga uma mensagem PRÓPRIA. A tabela intus_dm só recebe linhas novas (nenhum dado de aluno é alterado).
+if ($action === 'dm') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (!INTUS_CONEXOES_ATIVO) { http_response_code(403); echo json_encode(['error' => 'recurso ainda nao liberado']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorTipo !== 'aluno' || $_autorId <= 0) { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS intus_dm (
+            iddm INT AUTO_INCREMENT PRIMARY KEY,
+            de_id INT NOT NULL,
+            para_id INT NOT NULL,
+            texto VARCHAR(1000) NOT NULL,
+            lido TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_para (para_id, lido),
+            INDEX idx_par (de_id, para_id, iddm)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (Throwable $e) { http_response_code(500); echo json_encode(['error' => 'falha ao preparar mensagens']); exit; }
+    $amigosDm = _amigosDe($pdo, $_autorId);
+
+    if ($method === 'GET') {
+        if (!empty($_GET['so_contagem'])) {
+            $st = $pdo->prepare("SELECT COUNT(*) FROM intus_dm WHERE para_id = ? AND lido = 0");
+            $st->execute([$_autorId]);
+            echo json_encode(['nao_lidas' => (int)$st->fetchColumn()]);
+            exit;
+        }
+        $com = (int)($_GET['com'] ?? 0);
+        if ($com > 0) {
+            if (!in_array($com, $amigosDm, true)) { http_response_code(403); echo json_encode(['error' => 'so entre amigos']); exit; }
+            $st = $pdo->prepare("SELECT * FROM (SELECT * FROM intus_dm WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?) ORDER BY iddm DESC LIMIT 200) t ORDER BY iddm ASC");
+            $st->execute([$_autorId, $com, $com, $_autorId]);
+            $msgs = array_map(function ($r) use ($_autorId) {
+                return ['id' => (int)$r['iddm'], 'meu' => ((int)$r['de_id'] === $_autorId), 'texto' => (string)$r['texto'], 'quando' => (string)$r['created_at'], 'lido' => (bool)$r['lido']];
+            }, $st->fetchAll(PDO::FETCH_ASSOC));
+            $pdo->prepare("UPDATE intus_dm SET lido = 1 WHERE para_id = ? AND de_id = ? AND lido = 0")->execute([$_autorId, $com]);
+            try { _notifGarantirTabela($pdo); $pdo->prepare("UPDATE intus_notificacao SET lido = 1 WHERE destino_tipo = 'aluno' AND destino_id = ? AND tipo = 'dm' AND ator_id = ?")->execute([$_autorId, $com]); } catch (Throwable $e) {}
+            echo json_encode(['mensagens' => $msgs, 'pessoas' => (object)_pessoasMapa($pdo, [$com])], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $conversas = [];
+        if ($amigosDm) {
+            $st = $pdo->prepare("SELECT de_id, COUNT(*) c FROM intus_dm WHERE para_id = ? AND lido = 0 GROUP BY de_id");
+            $st->execute([$_autorId]);
+            $naoLidas = [];
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $naoLidas[(int)$r['de_id']] = (int)$r['c'];
+            $meuId = (int)$_autorId;
+            $st = $pdo->prepare("SELECT * FROM intus_dm WHERE iddm IN (SELECT m FROM (SELECT MAX(iddm) AS m FROM intus_dm WHERE de_id = ? OR para_id = ? GROUP BY IF(de_id = $meuId, para_id, de_id)) x)");
+            $st->execute([$meuId, $meuId]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $outro = ((int)$r['de_id'] === $_autorId) ? (int)$r['para_id'] : (int)$r['de_id'];
+                if (!in_array($outro, $amigosDm, true)) continue;
+                $conversas[] = ['id' => $outro, 'ultima' => (string)$r['texto'], 'quando' => (string)$r['created_at'], 'de_mim' => ((int)$r['de_id'] === $_autorId), 'nao_lidas' => $naoLidas[$outro] ?? 0];
+            }
+        }
+        echo json_encode(['conversas' => $conversas, 'nao_lidas' => array_sum(array_column($conversas, 'nao_lidas')), 'pessoas' => (object)_pessoasMapa($pdo, $amigosDm)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $para = (int)($b['para_id'] ?? 0);
+        $texto = trim((string)($b['texto'] ?? ''));
+        if ($para <= 0 || $para === $_autorId) { http_response_code(400); echo json_encode(['error' => 'aluno invalido']); exit; }
+        if (!in_array($para, $amigosDm, true)) { http_response_code(403); echo json_encode(['error' => 'so entre amigos']); exit; }
+        if ($texto === '') { http_response_code(400); echo json_encode(['error' => 'mensagem vazia']); exit; }
+        if (mb_strlen($texto) > 1000) $texto = mb_substr($texto, 0, 1000);
+        // Freio contra spam: no máximo 20 mensagens por minuto.
+        $st = $pdo->prepare("SELECT COUNT(*) FROM intus_dm WHERE de_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
+        $st->execute([$_autorId]);
+        if ((int)$st->fetchColumn() >= 20) { http_response_code(429); echo json_encode(['error' => 'muitas mensagens em pouco tempo']); exit; }
+        $pdo->prepare("INSERT INTO intus_dm (de_id, para_id, texto) VALUES (?,?,?)")->execute([$_autorId, $para, $texto]);
+        $id = (int)$pdo->lastInsertId();
+        // Um aviso por conversa: só cria se ainda não há aviso de mensagem não lido desta pessoa.
+        try {
+            _notifGarantirTabela($pdo);
+            $q = $pdo->prepare("SELECT 1 FROM intus_notificacao WHERE destino_tipo = 'aluno' AND destino_id = ? AND tipo = 'dm' AND ator_id = ? AND lido = 0 LIMIT 1");
+            $q->execute([$para, $_autorId]);
+            if (!$q->fetchColumn()) _criarNotificacao($pdo, 'aluno', $para, 'dm', 'aluno', $_autorId, (string)$_autorNome, 'dm', $_autorId, $texto);
+        } catch (Throwable $e) {}
+        echo json_encode(['ok' => true, 'mensagem' => ['id' => $id, 'meu' => true, 'texto' => $texto, 'quando' => date('Y-m-d H:i:s'), 'lido' => false]], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'DELETE') {
+        $idm = (int)($_GET['id'] ?? 0);
+        $pdo->prepare("DELETE FROM intus_dm WHERE iddm = ? AND de_id = ?")->execute([$idm, $_autorId]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
 // ── Parcerias de treino (DESLIGADO: ver INTUS_CONEXOES_ATIVO) ─────────────
 // Só entre amigos. GET: parceiros e convites; POST {para_id}: convidar; PUT {de_id, aceitar}: aceitar ou recusar;
 // DELETE ?id=: desfazer. No máximo 30 parceiros por aluno (pessoas com quem já treinou ou pretende treinar).
