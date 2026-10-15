@@ -208,12 +208,92 @@ eq('YouTube: embed', cddYoutubeId('https://www.youtube.com/embed/BSkBbni41pM?rel
 eq('YouTube: texto qualquer vira null', cddYoutubeId('oi') === null);
 eq('URL: só https', cddUrl('http://x.com') === '' && cddUrl('javascript:alert(1)') === '' && cddUrl('https://x.com/a') === 'https://x.com/a');
 
+echo "\nFichas importadas e base de exercícios\n";
+$seed2 = ['exercicios' => [['nome' => 'Elevação Pélvica', 'video' => 'https://youtu.be/btkguzN-j9Q'], ['nome' => 'Stiff', 'video' => '']],
+    'modulos' => [['titulo' => 'Protocolo X', 'grupo' => 'protocolo', 'aulas' => [
+        ['titulo' => 'Treino A', 'youtube' => 'AAAAAAAAAAA', 'ficha' => [
+            ['grupo' => 'TREINO A', 'exercicio' => 'Elevação Pélvica', 'series' => '4', 'repeticoes' => '12', 'intervalo' => '0:30"', 'metodo' => '', 'video' => ''],
+            ['grupo' => 'TREINO A', 'exercicio' => 'Stiff', 'series' => '3', 'repeticoes' => '8 a 12', 'video' => 'https://youtu.be/nncwJiJDivc'],
+            ['grupo' => 'TREINO A', 'exercicio' => 'Tarefa de casa', 'video' => '']]]]]]];
+$r = cddImportarSeed($pdo, $seed2);
+eq('importa a ficha da aula (3 itens) e 2 exercícios novos na base', $r['fichas_novas'] === 1 && $r['exercicios_novos'] === 2 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_ficha_item")->fetchColumn() >= 3);
+$r = cddImportarSeed($pdo, $seed2);
+eq('importar de novo não duplica ficha nem exercício', $r['fichas_novas'] === 0 && $r['exercicios_novos'] === 0);
+$idTreino = (int)$pdo->query("SELECT idaula FROM cdd_aula WHERE titulo = 'Treino A'")->fetchColumn();
+$pdo->exec("UPDATE cdd_ficha_item SET exercicio = 'Stiff editado' WHERE idaula = $idTreino AND exercicio = 'Stiff'");
+cddImportarSeed($pdo, $seed2);
+eq('importar não desfaz a edição da ficha', (int)$pdo->query("SELECT COUNT(*) FROM cdd_ficha_item WHERE idaula = $idTreino AND exercicio = 'Stiff editado'")->fetchColumn() === 1);
+$pdo->exec("UPDATE cdd_ficha_item SET exercicio = 'Stiff' WHERE idaula = $idTreino AND exercicio = 'Stiff editado'");
+req('a_matricula', 'POST', [], ['idaluna' => $idAna, 'status' => 'ativa'], $tAdmin);
+req('a_aluna_status', 'POST', [], ['idaluna' => $idAna, 'status' => 'ativa'], $tAdmin);
+[$s, $d] = req('login', 'POST', [], ['email' => 'ana@exemplo.com', 'senha' => 'novasenha123']); $tAna2 = $d['token'] ?? '';
+[$s, $d] = req('aula', 'GET', ['id' => $idTreino], [], $tAna2);
+eq('aluna vê a ficha com 3 itens', $s === 200 && count($d['aula']['ficha']) === 3, json_encode($d));
+$f = []; foreach ($d['aula']['ficha'] ?? [] as $it) $f[$it['exercicio']] = $it;
+eq('item sem vídeo herda o vídeo da base', ($f['Elevação Pélvica']['video'] ?? '') === 'btkguzN-j9Q');
+eq('item com vídeo próprio mantém o seu', ($f['Stiff']['video'] ?? '') === 'nncwJiJDivc');
+[$s, $d] = req('a_aula', 'GET', ['id' => $idTreino], [], $tAdmin);
+$fa = []; foreach ($d['aula']['ficha'] ?? [] as $it) $fa[$it['exercicio']] = $it;
+eq('no editor da equipe o item continua vazio (o vídeo da base não é gravado na ficha)', ($fa['Elevação Pélvica']['video'] ?? 'x') === '');
+eq('cddNorm ignora acento, caixa e pontuação', cddNorm('Elevação Pélvica (deitada)') === cddNorm('elevacao pelvica deitada') && cddNorm('Stiff') === 'stiff');
+
+[$s, $d] = req('a_exercicios', 'GET', ['busca' => 'stiff'], [], $tAdmin);
+eq('lista e busca exercícios da base', $s === 200 && count($d['exercicios']) === 1 && $d['total'] >= 2);
+[$s, $d] = req('a_exercicios', 'GET', [], [], $tAna2);
+eq('aluna não acessa a base de exercícios da equipe', $s === 403);
+[$s, $d] = req('a_exercicio_salvar', 'POST', [], ['nome' => 'Remada Curvada', 'grupo' => 'Costas', 'video' => 'https://youtu.be/BSkBbni41pM'], $tAdmin); $idRem = $d['idexercicio'];
+eq('cria exercício na base', $s === 200 && $idRem > 0);
+[$s, $d] = req('a_exercicio_salvar', 'POST', [], ['nome' => 'remada  curvada!'], $tAdmin);
+eq('nome repetido (mesmo com acento ou pontuação diferente) é recusado', $s === 409);
+[$s, $d] = req('a_exercicio_salvar', 'POST', [], ['idexercicio' => $idRem, 'nome' => 'Remada Curvada', 'video' => 'não é link'], $tAdmin);
+eq('vídeo inválido é recusado', $s === 422);
+[$s, $d] = req('a_exercicio_salvar', 'POST', [], ['idexercicio' => $idRem, 'nome' => 'Remada Curvada Barra', 'grupo' => 'Costas', 'video' => 'BSkBbni41pM'], $tAdmin);
+eq('edita exercício', $s === 200 && $pdo->query("SELECT nome FROM cdd_exercicio WHERE idexercicio = $idRem")->fetchColumn() === 'Remada Curvada Barra');
+
+// Sincronização com a Intus (catálogo simulado; só leitura)
+[$s, $d] = req('a_exercicios_sync_intus', 'POST', [], [], $tAdmin);
+eq('sem o catálogo da Intus no banco, avisa em vez de quebrar (404)', $s === 404 && $d['error'] === 'intus_indisponivel');
+$pdo->exec("CREATE TABLE intus_exercicio (idexercicio INTEGER PRIMARY KEY, nmexercicio TEXT, grupo TEXT, equipamento TEXT, descricao TEXT, videoyoutube TEXT)");
+$pdo->exec("INSERT INTO intus_exercicio VALUES (1, 'Supino Reto', 'Peito', 'barra', 'Controle a descida', 'https://youtube.com/watch?v=kj_yrgzG5WM'), (2, 'Stiff', 'Posterior', NULL, NULL, 'https://youtube.com/watch?v=AAAAAAAAAAB'), (3, 'Elevação Pélvica', 'Glúteo', 'peso do corpo', NULL, ''), (4, '   ', 'x', NULL, NULL, NULL)");
+$antesIntus = $pdo->query("SELECT COUNT(*) || '|' || SUM(idexercicio) || '|' || GROUP_CONCAT(nmexercicio) FROM intus_exercicio")->fetchColumn();
+[$s, $d] = req('a_exercicios_sync_intus', 'POST', [], [], $tAdmin);
+eq('sincroniza: lê 4, cria 1, atualiza 2, ignora a linha sem nome', $s === 200 && $d['lidos'] === 4 && $d['novos'] === 1 && $d['atualizados'] === 2 && $d['ignorados'] === 1, json_encode($d));
+$st = $pdo->query("SELECT * FROM cdd_exercicio WHERE nome_norm = 'stiff'")->fetch();
+eq('a Intus é a fonte principal: o vídeo e o grupo dela substituem os do CDD', $st['video'] === 'AAAAAAAAAAB' && $st['grupo'] === 'Posterior' && $st['origem'] === 'intus' && (int)$st['id_intus'] === 2);
+$st = $pdo->query("SELECT * FROM cdd_exercicio WHERE nome_norm = 'elevacaopelvica'")->fetch();
+eq('campo vazio na Intus não apaga o vídeo que o CDD já tinha', $st['video'] === 'btkguzN-j9Q' && $st['grupo'] === 'Glúteo' && $st['equipamento'] === 'peso do corpo');
+eq('exercício que veio só da Intus entra com origem intus', $pdo->query("SELECT origem FROM cdd_exercicio WHERE nome_norm = 'supinoreto'")->fetchColumn() === 'intus');
+eq('exercício criado só no CDD continua intacto', $pdo->query("SELECT origem FROM cdd_exercicio WHERE idexercicio = $idRem")->fetchColumn() === 'cdd');
+$depoisIntus = $pdo->query("SELECT COUNT(*) || '|' || SUM(idexercicio) || '|' || GROUP_CONCAT(nmexercicio) FROM intus_exercicio")->fetchColumn();
+eq('a tabela da Intus não é alterada (só leitura)', $antesIntus === $depoisIntus);
+[$s, $d] = req('a_exercicios_sync_intus', 'POST', [], [], $tAdmin);
+eq('sincronizar de novo não muda nada', $d['novos'] === 0 && $d['atualizados'] === 0 && $d['iguais'] === 3, json_encode($d));
+[$s, $d] = req('a_exercicios_sync_intus', 'POST', [], [], $tAna2);
+eq('aluna não sincroniza', $s === 403);
+[$s, $d] = req('a_exercicio_excluir', 'POST', [], ['idexercicio' => $idRem], $tAdmin);
+eq('exclui exercício da base', (int)$pdo->query("SELECT COUNT(*) FROM cdd_exercicio WHERE idexercicio = $idRem")->fetchColumn() === 0);
+$pdo->exec('DROP TABLE intus_exercicio');
+
+echo "\nAtualização do esquema (instalação que já existia)\n";
+$novo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+cddGarantirTabelas($novo);
+eq('instalação nova cria todas as tabelas e grava a versão do esquema', (int)$novo->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'cdd%'")->fetchColumn() === count(cddDdl()) && cddConfig($novo, 'esquema') === (string)CDD_ESQUEMA && cddConfig($novo, 'instalacao_aberta') === '1');
+$antigo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+foreach (cddDdl() as $n => $sql) { if ($n !== 'cdd_exercicio') $antigo->exec(cddDdlSqlite($sql)); }
+$antigo->exec("INSERT INTO cdd_config (chave, valor) VALUES ('instalacao_aberta', '0')");
+$antigo->exec("INSERT INTO cdd_aluna (nome, email, papel, status, criado_em) VALUES ('Existente', 'e@e.com', 'aluna', 'ativa', '2026-10-15 10:00:00')");
+cddGarantirTabelas($antigo);
+eq('instalação antiga (sem a chave de versão) ganha a tabela nova sem perder nada', (int)$antigo->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'cdd_exercicio'")->fetchColumn() === 1 && (int)$antigo->query('SELECT COUNT(*) FROM cdd_aluna')->fetchColumn() === 1 && cddConfig($antigo, 'instalacao_aberta') === '0' && cddConfig($antigo, 'esquema') === '2');
+
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
 eq('o CDD não inclui nenhum arquivo PHP da Intus (só lê as constantes do banco)', preg_match_all('~(?:require|include)(?:_once)?\s*\(?\s*__DIR__\s*\.\s*\'([^\']+)\'~', $fonte, $mm) && count(array_filter($mm[1], function ($p) { return strpos($p, 'app/api') !== false; })) === 0);
 eq('todas as tabelas do CDD têm prefixo cdd_', count(array_filter(array_keys(cddDdl()), function ($t) { return strpos($t, 'cdd_') !== 0; })) === 0);
-preg_match_all('/(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_]+)/', file_get_contents(__DIR__ . '/../api/_nucleo.php'), $tb);
-eq('o SQL do CDD só toca tabelas cdd_', count(array_filter($tb[1], function ($t) { return strpos($t, 'cdd_') !== 0; })) === 0, json_encode(array_values(array_unique(array_filter($tb[1], function ($t) { return strpos($t, 'cdd_') !== 0; })))));
+$cod = file_get_contents(__DIR__ . '/../api/_nucleo.php');
+preg_match_all('/(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_]+)/', $cod, $tb);
+$fora = array_values(array_unique(array_filter($tb[1], function ($t) { return strpos($t, 'cdd_') !== 0; })));
+eq('o SQL do CDD só toca tabelas cdd_, exceto a leitura do catálogo intus_exercicio', $fora === ['intus_exercicio'], json_encode($fora));
+eq('intus_exercicio só aparece em SELECT (nunca INSERT, UPDATE ou DELETE)', preg_match_all('/intus_exercicio/', $cod) === preg_match_all('/SELECT [^;]*FROM intus_exercicio/', $cod) + 0 || preg_match('/(INSERT INTO|UPDATE|DELETE FROM)\s+intus_exercicio/i', $cod) === 0);
 
 echo "\n" . ($ruim ? "$ruim FALHA(S), $ok ok" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

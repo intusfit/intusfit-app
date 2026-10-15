@@ -57,13 +57,13 @@
 
   /* ---------- esqueleto ---------- */
   function esqueleto() {
-    var abas = [['resumo', 'Resumo'], ['alunas', 'Alunas'], ['conteudo', 'Conteúdo'], ['conta', 'Conta']];
+    var abas = [['resumo', 'Resumo'], ['alunas', 'Alunas'], ['conteudo', 'Conteúdo'], ['exercicios', 'Exercícios'], ['conta', 'Conta']];
     $app.innerHTML = '<div class="topo"><a class="marca" href="painel.html"><span>CDD <small>Painel</small></span></a><nav>' +
       abas.map(function (a) { return '<button class="btn peq' + (aba === a[0] ? ' pri' : '') + '" data-aba="' + a[0] + '">' + a[1] + '</button>'; }).join('') +
       '<a class="btn peq" href="index.html" target="_blank" rel="noopener">Ver como aluna</a></nav></div><div class="wrap" id="v"></div>';
     $app.querySelectorAll('[data-aba]').forEach(function (b) { b.onclick = function () { aba = b.getAttribute('data-aba'); render(); }; });
   }
-  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, conteudo: abaConteudo, conta: abaConta })[aba](); }
+  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, conteudo: abaConteudo, exercicios: abaExercicios, conta: abaConta })[aba](); }
 
   /* ---------- resumo ---------- */
   async function abaResumo() {
@@ -76,7 +76,7 @@
       n('módulos', d.modulos) + n('aulas', d.aulas) + n('aulas sem vídeo', d.aulas_sem_video) + n('aulas em rascunho', d.rascunhos) + '</div>' +
       '<div class="card" style="margin-top:12px"><h3>Cadastro aberto</h3><p class="mut">Quando aberto, qualquer mulher pode criar conta pela página inicial. Ela só vê o conteúdo depois que você liberar a matrícula.</p><div class="espaco"></div>' +
       '<label class="chk"><input type="checkbox" id="ca"' + (d.cadastro_aberto ? ' checked' : '') + '><span>Permitir que novas alunas criem conta sozinhas</span></label></div>' +
-      '<div class="card"><h3>Importar conteúdo da Nutror</h3><p class="mut">Cria os módulos, aulas, vídeos e links que foram levantados na Nutror. Pode rodar de novo sem duplicar nada: só acrescenta o que falta e nunca apaga nem sobrescreve o que você já editou. Aulas sensíveis (esteroides, remédios, Molécula da Definição) entram como rascunho.</p><div class="espaco"></div>' +
+      '<div class="card"><h3>Importar conteúdo da Nutror</h3><p class="mut">Cria os módulos, aulas, vídeos, links, fichas de treino e a base de exercícios que foram levantados na Nutror e nas planilhas. Pode rodar de novo sem duplicar nada: só acrescenta o que falta e nunca apaga nem sobrescreve o que você já editou. Aulas sensíveis (esteroides, remédios, Molécula da Definição) entram como rascunho.</p><div class="espaco"></div>' +
       '<button class="btn pri" id="imp">Importar conteúdo</button><div id="impr"></div></div>' +
       '<div class="card"><h3>Como liberar uma aluna</h3><ol class="mut" style="padding-left:20px"><li>Em <b>Alunas</b>, clique em <b>Nova aluna</b>, com a opção de matricular marcada.</li><li>Copie o link de acesso que aparece e mande pelo WhatsApp.</li><li>Ela cria a senha e já entra no conteúdo.</li></ol></div>';
     $('ca').onchange = async function () { await CDD.api('a_config', { body: { cadastro_aberto: this.checked } }); };
@@ -84,7 +84,7 @@
       this.disabled = true; $('impr').innerHTML = '<p class="mut">Importando...</p>';
       var x = await CDD.api('a_importar_seed', { body: {} });
       this.disabled = false; cache.conteudo = null;
-      $('impr').innerHTML = x.ok ? msg('Pronto: ' + x.data.modulos_novos + ' módulos novos, ' + x.data.aulas_novas + ' aulas novas, ' + x.data.aulas_atualizadas + ' aulas com vídeo preenchido.', 'ok') : msg(x.data.mensagem);
+      $('impr').innerHTML = x.ok ? msg('Pronto: ' + x.data.modulos_novos + ' módulos novos, ' + x.data.aulas_novas + ' aulas novas, ' + x.data.aulas_atualizadas + ' aulas com vídeo preenchido, ' + x.data.fichas_novas + ' fichas de treino e ' + x.data.exercicios_novos + ' exercícios novos na base.', 'ok') : msg(x.data.mensagem);
     };
   }
 
@@ -228,7 +228,8 @@
     if (id) { var r = await CDD.api('a_aula', { q: { id: id } }); if (!r.ok) { alert(r.data.mensagem); return; } a = r.data.aula; }
     var anexos = a.anexos.map(function (x) { return { titulo: x.titulo, url: x.url }; });
     var ficha = a.ficha.map(function (x) { return Object.assign({}, x); });
-    var m = modal('<h3>' + (id ? 'Editar aula' : 'Nova aula') + '</h3><div id="aviso"></div><div id="corpo"></div>');
+    if (!cache.exs) { var rx = await CDD.api('a_exercicios'); cache.exs = rx.ok ? rx.data.exercicios.map(function (x) { return x.nome; }) : []; }
+    var m = modal('<h3>' + (id ? 'Editar aula' : 'Nova aula') + '</h3><div id="aviso"></div><div id="corpo"></div><datalist id="dl-ex">' + cache.exs.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>');
     m.querySelector('.caixa').style.maxWidth = '820px';
     function desenhar() {
       var h = '<form id="f"><label for="t1">Título</label><input id="t1" required maxlength="250" value="' + esc(a.titulo) + '">' +
@@ -237,7 +238,7 @@
         '<label for="t4">Texto da aula (opcional)</label><textarea id="t4" maxlength="6000">' + esc(a.texto || '') + '</textarea>' +
         '<label class="chk"><input type="checkbox" id="t5"' + (a.publicado ? ' checked' : '') + '><span>Publicada (visível para as alunas)</span></label>' +
         '<h3 style="margin-top:14px">Anexos e links</h3><div id="anx"></div><button type="button" class="btn peq" id="aa">Adicionar link</button>' +
-        '<h3 style="margin-top:18px">Ficha de treino</h3><p class="mut">Cole as linhas da planilha do Google (Exercício, Repetições, Séries, Intervalo, Método) ou digite os exercícios abaixo. Links de "Ver vídeo" não vêm na colagem: cole o link do YouTube na coluna Como fazer da linha.</p>' +
+        '<h3 style="margin-top:18px">Ficha de treino</h3><p class="mut">Cole as linhas da planilha do Google (Exercício, Repetições, Séries, Intervalo, Método) ou digite os exercícios abaixo. O link do "Ver vídeo" não vem na colagem: se o exercício já estiver na base, o vídeo dele aparece para a aluna sozinho; senão cole o link do YouTube na coluna Como fazer.</p>' +
         '<textarea id="col" placeholder="Cole aqui as linhas copiadas da planilha"></textarea><div class="linha" style="margin-top:6px"><button type="button" class="btn peq" id="cb">Ler o que colei</button><button type="button" class="btn peq" id="ai">Adicionar exercício</button></div><div id="fic" style="margin-top:10px"></div>' +
         '<div class="espaco"></div><div class="linha"><button class="btn pri" id="ok">Salvar aula</button><button type="button" class="btn" id="fx">Cancelar</button>' + (id ? '<button type="button" class="btn perigo" id="ex">Excluir aula</button>' : '') + '</div></form>';
       m.querySelector('#corpo').innerHTML = h;
@@ -272,8 +273,8 @@
       if (!ficha.length) { el.innerHTML = '<p class="mut">Nenhum exercício na ficha.</p>'; return; }
       var h = '<div class="tbl"><table><thead><tr><th>Treino</th><th>Exercício</th><th>Séries</th><th>Reps</th><th>Intervalo</th><th>Método</th><th>Como fazer (YouTube)</th><th></th></tr></thead><tbody>';
       ficha.forEach(function (x, i) {
-        function c(k, w) { return '<td><input data-f="' + k + '" data-i="' + i + '" value="' + esc(x[k] || '') + '" style="min-width:' + w + 'px;padding:7px 8px;font-size:14px"></td>'; }
-        h += '<tr>' + c('grupo', 90) + c('exercicio', 170) + c('series', 50) + c('repeticoes', 60) + c('intervalo', 80) + c('metodo', 110) + c('video', 150) +
+        function c(k, w, dl) { return '<td><input data-f="' + k + '" data-i="' + i + '"' + (dl ? ' list="' + dl + '"' : '') + ' value="' + esc(x[k] || '') + '" style="min-width:' + w + 'px;padding:7px 8px;font-size:14px"></td>'; }
+        h += '<tr>' + c('grupo', 90) + c('exercicio', 170, 'dl-ex') + c('series', 50) + c('repeticoes', 60) + c('intervalo', 80) + c('metodo', 110) + c('video', 150) +
           '<td><div class="linha"><button type="button" class="btn peq" data-fu="' + i + '" aria-label="Subir">&uarr;</button><button type="button" class="btn peq" data-fd="' + i + '" aria-label="Descer">&darr;</button><button type="button" class="btn peq perigo" data-fx="' + i + '" aria-label="Remover">&times;</button></div></td></tr>';
       });
       el.innerHTML = h + '</tbody></table></div>';
@@ -300,6 +301,59 @@
     }
     a._yt = a.youtube_id ? 'https://youtu.be/' + a.youtube_id : '';
     desenhar();
+  }
+
+  /* ---------- exercícios ---------- */
+  async function abaExercicios() {
+    var v = $('v');
+    v.innerHTML = '<div class="linha" style="justify-content:space-between;margin-bottom:6px"><h2>Exercícios</h2><div class="linha"><button class="btn" id="sy">Sincronizar com a Intus</button><button class="btn pri" id="ne">Novo exercício</button></div></div>' +
+      '<p class="mut" id="cont" style="margin-bottom:10px"></p><div id="syr"></div><input id="bu" placeholder="Buscar por nome ou grupo muscular" style="margin-bottom:12px"><div id="lista"><div class="vazio">Carregando...</div></div>';
+    $('ne').onclick = function () { editarExercicio(null, carregar); };
+    $('sy').onclick = async function () {
+      if (!confirm('Buscar o catálogo de exercícios da Intus? A Intus é a fonte principal: nome, grupo, equipamento, descrição e vídeo dela substituem os daqui quando existirem. Nada é alterado na Intus.')) return;
+      this.disabled = true; $('syr').innerHTML = '<p class="mut">Sincronizando...</p>';
+      var r = await CDD.api('a_exercicios_sync_intus', { body: {} }); this.disabled = false;
+      $('syr').innerHTML = r.ok ? msg('Pronto: ' + r.data.lidos + ' lidos da Intus, ' + r.data.novos + ' novos, ' + r.data.atualizados + ' atualizados, ' + r.data.iguais + ' sem mudança' + (r.data.ignorados ? ', ' + r.data.ignorados + ' ignorados' : '') + '.', 'ok') : msg(r.data.mensagem);
+      cache.exs = null; carregar();
+    };
+    var t; $('bu').oninput = function () { clearTimeout(t); t = setTimeout(carregar, 300); };
+    async function carregar() {
+      var r = await CDD.api('a_exercicios', { q: { busca: $('bu').value } });
+      if (!r.ok) { $('lista').innerHTML = msg(r.data.mensagem); return; }
+      $('cont').textContent = r.data.total + ' exercícios na base, ' + r.data.da_intus + ' vindos da Intus.';
+      var l = r.data.exercicios;
+      if (!l.length) { $('lista').innerHTML = '<div class="card vazio">Nenhum exercício encontrado. Use "Importar conteúdo" no Resumo, "Sincronizar com a Intus" ou "Novo exercício".</div>'; return; }
+      var h = '<div class="tbl"><table><thead><tr><th>Exercício</th><th>Grupo</th><th>Equipamento</th><th>Vídeo</th><th>Origem</th><th></th></tr></thead><tbody>';
+      l.forEach(function (e) {
+        var vid = CDD.ytId(e.video) ? '<a href="https://youtu.be/' + esc(e.video) + '" target="_blank" rel="noopener">Ver</a>' : (e.video ? '<a href="' + esc(e.video) + '" target="_blank" rel="noopener">Ver</a>' : '<span class="mut">sem vídeo</span>');
+        h += '<tr><td><b>' + esc(e.nome) + '</b></td><td>' + esc(e.grupo || '') + '</td><td>' + esc(e.equipamento || '') + '</td><td>' + vid + '</td><td><span class="tag ' + (e.origem === 'intus' ? 'ok' : '') + '">' + (e.origem === 'intus' ? 'Intus' : 'CDD') + '</span></td><td><button class="btn peq" data-ed="' + e.idexercicio + '">Editar</button></td></tr>';
+      });
+      $('lista').innerHTML = h + '</tbody></table></div>';
+      var porId = {}; l.forEach(function (e) { porId[e.idexercicio] = e; });
+      $('lista').querySelectorAll('[data-ed]').forEach(function (b) { b.onclick = function () { editarExercicio(porId[b.getAttribute('data-ed')], carregar); }; });
+    }
+    carregar();
+  }
+
+  function editarExercicio(e, depois) {
+    modal('<h3>' + (e ? 'Editar exercício' : 'Novo exercício') + '</h3>' + (e && e.origem === 'intus' ? '<p class="mut">Este exercício veio da Intus. Uma nova sincronização pode trocar estes campos pelos da Intus.</p>' : '') + '<div id="aviso"></div><form id="f">' +
+      '<label for="e1">Nome</label><input id="e1" required maxlength="200" value="' + esc(e ? e.nome : '') + '">' +
+      '<div class="grid g2"><div><label for="e2">Grupo muscular</label><input id="e2" maxlength="120" value="' + esc(e ? e.grupo || '' : '') + '"></div><div><label for="e3">Equipamento</label><input id="e3" maxlength="40" value="' + esc(e ? e.equipamento || '' : '') + '"></div></div>' +
+      '<label for="e4">Vídeo de explicação (link do YouTube)</label><input id="e4" value="' + esc(e && e.video ? (CDD.ytId(e.video) ? 'https://youtu.be/' + e.video : e.video) : '') + '" placeholder="https://youtu.be/...">' +
+      '<label for="e5">Descrição (opcional)</label><textarea id="e5" maxlength="4000">' + esc(e ? e.descricao || '' : '') + '</textarea>' +
+      '<div class="espaco"></div><div class="linha"><button class="btn pri" id="ok">Salvar</button><button type="button" class="btn" id="fx">Cancelar</button>' + (e ? '<button type="button" class="btn perigo" id="ex">Excluir</button>' : '') + '</div></form>', function (m) {
+      m.querySelector('#fx').onclick = m.fechar;
+      m.querySelector('#f').onsubmit = async function (ev) {
+        ev.preventDefault();
+        var r = await CDD.api('a_exercicio_salvar', { body: { idexercicio: e ? e.idexercicio : 0, nome: m.querySelector('#e1').value, grupo: m.querySelector('#e2').value, equipamento: m.querySelector('#e3').value, video: m.querySelector('#e4').value, descricao: m.querySelector('#e5').value } });
+        if (!r.ok) { m.querySelector('#aviso').innerHTML = msg(r.data.mensagem); return; }
+        cache.exs = null; m.fechar(); depois();
+      };
+      if (e) m.querySelector('#ex').onclick = async function () {
+        if (!confirm('Excluir "' + e.nome + '" da base? As fichas que usam este nome continuam funcionando, só perdem o vídeo da base.')) return;
+        await CDD.api('a_exercicio_excluir', { body: { idexercicio: e.idexercicio } }); cache.exs = null; m.fechar(); depois();
+      };
+    });
   }
 
   /* ---------- conta ---------- */

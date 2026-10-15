@@ -3,7 +3,8 @@
  * CDD (Código da Definição): núcleo da API.
  *
  * Sistema próprio do CDD, separado da Intus: tabelas `cdd_*`, sessão própria, nenhum arquivo da Intus é editado.
- * A única ligação com a Intus é ler as credenciais do banco em app/config/db.php (mesmo banco da hospedagem).
+ * As únicas ligações com a Intus são LEITURAS: as credenciais do banco em app/config/db.php (mesmo banco da hospedagem) e, só quando a equipe
+ * clica em "Sincronizar com a Intus", um SELECT no catálogo `intus_exercicio` (cddSincronizarIntus). Nada da Intus é gravado.
  * Biblioteca interna: o "_" no nome faz o .htaccess bloquear o acesso direto.
  *
  * Toda a regra mora em cddTratar() para poder ser testada sem servidor web (cdd/testes/cdd.php).
@@ -13,6 +14,7 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
+const CDD_ESQUEMA = 2;   // 1 = tabelas do MVP, 2 = base de exercícios (cdd_exercicio)
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -154,6 +156,20 @@ function cddDdl(): array {
             obs VARCHAR(500) NULL,
             INDEX idx_aula (idaula, ordem)
         ) $c",
+        'cdd_exercicio' => "CREATE TABLE IF NOT EXISTS cdd_exercicio (
+            idexercicio INT AUTO_INCREMENT PRIMARY KEY,
+            nome VARCHAR(200) NOT NULL,
+            nome_norm VARCHAR(200) NOT NULL,
+            grupo VARCHAR(120) NULL,
+            equipamento VARCHAR(40) NULL,
+            descricao TEXT NULL,
+            video VARCHAR(500) NULL,
+            origem VARCHAR(10) NOT NULL DEFAULT 'cdd',
+            id_intus INT NULL,
+            atualizado_em DATETIME NOT NULL,
+            UNIQUE INDEX idx_norm (nome_norm),
+            INDEX idx_intus (id_intus)
+        ) $c",
         'cdd_progresso' => "CREATE TABLE IF NOT EXISTS cdd_progresso (
             idaluna INT NOT NULL,
             idaula INT NOT NULL,
@@ -167,14 +183,21 @@ function cddGarantirTabelas(PDO $pdo): void {
     static $feito = [];
     $k = spl_object_id($pdo);
     if (!empty($feito[$k])) return;
-    $falta = false;
-    try { $pdo->query('SELECT 1 FROM cdd_config LIMIT 1'); } catch (Throwable $e) { $falta = true; }
-    if ($falta) {
+    $primeira = false; $versao = 0;
+    try {
+        $v = $pdo->query("SELECT valor FROM cdd_config WHERE chave = 'esquema'")->fetchColumn();
+        $versao = $v === false ? 1 : (int)$v;   // instalação anterior à versão 2 não tinha a chave
+    } catch (Throwable $e) { $primeira = true; }
+    if ($primeira || $versao < CDD_ESQUEMA) {
+        // Só CREATE TABLE IF NOT EXISTS: cria o que falta, nunca altera nem apaga tabela existente.
         $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
         foreach (cddDdl() as $sql) $pdo->exec($sqlite ? cddDdlSqlite($sql) : $sql);
-        $st = $pdo->prepare('INSERT INTO cdd_config (chave, valor) VALUES (?, ?)');
-        $st->execute(['instalacao_aberta', '1']);
-        $st->execute(['cadastro_aberto', '1']);
+        if ($primeira) {
+            $st = $pdo->prepare('INSERT INTO cdd_config (chave, valor) VALUES (?, ?)');
+            $st->execute(['instalacao_aberta', '1']);
+            $st->execute(['cadastro_aberto', '1']);
+        }
+        cddConfigGravar($pdo, 'esquema', (string)CDD_ESQUEMA);
     }
     $feito[$k] = true;
 }
@@ -368,10 +391,93 @@ function cddAulaCompleta(PDO $pdo, int $idaula, int $idaluna, bool $incluirRascu
     $a['idaula'] = (int)$a['idaula']; $a['idmodulo'] = (int)$a['idmodulo'];
     $a['anexos'] = $an->fetchAll();
     $a['ficha'] = $fi->fetchAll();
+    if (!$incluirRascunho) $a['ficha'] = cddFichaComBase($pdo, $a['ficha']);   // a aluna recebe o vídeo da base quando o item não tem o seu
     $a['concluida'] = (int)$pr->fetchColumn() > 0;
     $a['anterior'] = ($pos !== false && $pos > 0) ? $ids[$pos - 1] : null;
     $a['proxima'] = ($pos !== false && $pos < count($ids) - 1) ? $ids[$pos + 1] : null;
     return $a;
+}
+
+/* ───────────────────────── Base de exercícios ───────────────────────── */
+
+/** Nome sem acento, minúsculo, só letras e números: chave para achar o mesmo exercício escrito de jeitos diferentes. */
+function cddNorm($t): string {
+    $t = function_exists('mb_strtolower') ? mb_strtolower((string)$t, 'UTF-8') : strtolower((string)$t);
+    $t = strtr($t, ['á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a', 'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e', 'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+                    'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o', 'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u', 'ç' => 'c', 'ñ' => 'n']);
+    return substr(preg_replace('/[^a-z0-9]+/', '', $t) ?? '', 0, 200);
+}
+
+/** Completa a ficha da aluna: sem vídeo no item, usa o da base de exercícios (mesmo nome) e leva a descrição. */
+function cddFichaComBase(PDO $pdo, array $itens): array {
+    if (!$itens) return $itens;
+    $chaves = [];
+    foreach ($itens as $i => $it) { $k = cddNorm($it['exercicio']); $itens[$i]['_k'] = $k; if ($k !== '') $chaves[$k] = true; }
+    $base = [];
+    if ($chaves) {
+        $ks = array_keys($chaves);
+        $st = $pdo->prepare('SELECT nome_norm, video, descricao FROM cdd_exercicio WHERE nome_norm IN (' . implode(',', array_fill(0, count($ks), '?')) . ')');
+        $st->execute($ks);
+        foreach ($st->fetchAll() as $r) $base[$r['nome_norm']] = $r;
+    }
+    foreach ($itens as $i => $it) {
+        $b = $base[$it['_k']] ?? null;
+        if (empty($it['video']) && $b && !empty($b['video'])) $itens[$i]['video'] = $b['video'];
+        $itens[$i]['descricao'] = $b['descricao'] ?? '';
+        unset($itens[$i]['_k']);
+    }
+    return $itens;
+}
+
+/** Cria ou atualiza um exercício da base pelo nome (chave normalizada). Devolve 'novo', 'atualizado' ou 'igual'. */
+function cddExercicioGuardar(PDO $pdo, array $d, bool $intusMandaNoCampo = false) {
+    $nome = cddStr($d['nome'] ?? '', 200);
+    $norm = cddNorm($nome);
+    if ($nome === '' || $norm === '') return false;
+    $video = cddVideoCampo($d['video'] ?? '');
+    $grupo = cddStr($d['grupo'] ?? '', 120); $equip = cddStr($d['equipamento'] ?? '', 40); $desc = cddStr($d['descricao'] ?? '', 4000);
+    $origem = ($d['origem'] ?? 'cdd') === 'intus' ? 'intus' : 'cdd'; $idIntus = !empty($d['id_intus']) ? (int)$d['id_intus'] : null;
+    $st = $pdo->prepare('SELECT * FROM cdd_exercicio WHERE nome_norm = ?'); $st->execute([$norm]);
+    $ex = $st->fetch();
+    if (!$ex && $idIntus) { $st = $pdo->prepare('SELECT * FROM cdd_exercicio WHERE id_intus = ?'); $st->execute([$idIntus]); $ex = $st->fetch(); }
+    if (!$ex) {
+        $pdo->prepare('INSERT INTO cdd_exercicio (nome, nome_norm, grupo, equipamento, descricao, video, origem, id_intus, atualizado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$nome, $norm, $grupo ?: null, $equip ?: null, $desc ?: null, $video ?: null, $origem, $idIntus, cddAgora()]);
+        return 'novo';
+    }
+    // Campo vazio nunca apaga o que já existe. Com a Intus como fonte principal, o que ela traz substitui o que o CDD tinha.
+    $novo = ['grupo' => $ex['grupo'], 'equipamento' => $ex['equipamento'], 'descricao' => $ex['descricao'], 'video' => $ex['video'], 'nome' => $ex['nome'], 'id_intus' => $ex['id_intus'], 'origem' => $ex['origem']];
+    foreach (['grupo' => $grupo, 'equipamento' => $equip, 'descricao' => $desc, 'video' => $video] as $k => $v) {
+        if ($v === '') continue;
+        if ($intusMandaNoCampo || empty($ex[$k])) $novo[$k] = $v;
+    }
+    if ($intusMandaNoCampo) { $novo['id_intus'] = $idIntus ?: $ex['id_intus']; $novo['origem'] = 'intus'; $novo['nome'] = $nome; }
+    $mudou = false; foreach ($novo as $k => $v) { if ((string)$v !== (string)$ex[$k]) $mudou = true; }
+    if (!$mudou) return 'igual';
+    $pdo->prepare('UPDATE cdd_exercicio SET nome = ?, nome_norm = ?, grupo = ?, equipamento = ?, descricao = ?, video = ?, origem = ?, id_intus = ?, atualizado_em = ? WHERE idexercicio = ?')
+        ->execute([$novo['nome'], cddNorm($novo['nome']), $novo['grupo'] ?: null, $novo['equipamento'] ?: null, $novo['descricao'] ?: null, $novo['video'] ?: null, $novo['origem'], $novo['id_intus'], cddAgora(), $ex['idexercicio']]);
+    return 'atualizado';
+}
+
+/**
+ * Sincroniza com o catálogo de exercícios da Intus (a Intus é a fonte principal). SOMENTE LEITURA do lado da Intus:
+ * um SELECT em intus_exercicio. Nada é gravado na Intus. Exercícios criados só no CDD continuam como estão.
+ */
+function cddSincronizarIntus(PDO $pdo): array {
+    try {
+        $linhas = $pdo->query('SELECT idexercicio, nmexercicio, grupo, equipamento, descricao, videoyoutube FROM intus_exercicio ORDER BY idexercicio')->fetchAll();
+    } catch (Throwable $e) {
+        return ['erro' => 'Não encontrei o catálogo de exercícios da Intus neste banco.'];
+    }
+    $r = ['lidos' => count($linhas), 'novos' => 0, 'atualizados' => 0, 'iguais' => 0, 'ignorados' => 0];
+    foreach ($linhas as $l) {
+        try {
+            $res = cddExercicioGuardar($pdo, ['nome' => $l['nmexercicio'], 'grupo' => $l['grupo'], 'equipamento' => $l['equipamento'], 'descricao' => $l['descricao'],
+                                              'video' => $l['videoyoutube'], 'origem' => 'intus', 'id_intus' => $l['idexercicio']], true);
+        } catch (Throwable $e) { $res = false; }   // por exemplo, dois nomes que viram a mesma chave: segue para o próximo
+        if ($res === 'novo') $r['novos']++; elseif ($res === 'atualizado') $r['atualizados']++; elseif ($res === 'igual') $r['iguais']++; else $r['ignorados']++;
+    }
+    return $r;
 }
 
 /* ───────────────────────── Ficha: colar da planilha ───────────────────────── */
@@ -417,7 +523,7 @@ function cddParseFicha(string $texto): array {
 
 /** Cria ou atualiza módulos, aulas e anexos pelo par (módulo, título). Não apaga nada e não mexe em fichas já editadas. */
 function cddImportarSeed(PDO $pdo, array $seed): array {
-    $novos = 0; $atualizados = 0; $mods = 0;
+    $novos = 0; $atualizados = 0; $mods = 0; $fichas = 0; $exNovos = 0;
     $ordemMod = (int)$pdo->query('SELECT COALESCE(MAX(ordem),0) FROM cdd_modulo')->fetchColumn();
     foreach ($seed['modulos'] ?? [] as $m) {
         $titulo = cddStr($m['titulo'] ?? '', 200);
@@ -446,6 +552,21 @@ function cddImportarSeed(PDO $pdo, array $seed): array {
                 $ida = (int)$ex['idaula'];
                 if ($yid && empty($ex['youtube_id'])) { $pdo->prepare("UPDATE cdd_aula SET youtube_id = ?, tipo = 'video' WHERE idaula = ?")->execute([$yid, $ida]); $atualizados++; }
             }
+            // Ficha: só entra se a aula ainda não tem nenhum exercício (nunca sobrescreve o que a equipe editou).
+            if (!empty($a['ficha']) && is_array($a['ficha'])) {
+                $st = $pdo->prepare('SELECT COUNT(*) FROM cdd_ficha_item WHERE idaula = ?'); $st->execute([$ida]);
+                if ((int)$st->fetchColumn() === 0) {
+                    $o = 0;
+                    foreach ($a['ficha'] as $it) {
+                        $ex = cddStr($it['exercicio'] ?? '', 200); if ($ex === '') continue;
+                        $o += 10;
+                        $pdo->prepare('INSERT INTO cdd_ficha_item (idaula, ordem, grupo, exercicio, series, repeticoes, intervalo, metodo, video, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                            ->execute([$ida, $o, cddStr($it['grupo'] ?? '', 80), $ex, cddStr($it['series'] ?? '', 30), cddStr($it['repeticoes'] ?? '', 40), cddStr($it['intervalo'] ?? '', 40),
+                                       cddStr($it['metodo'] ?? '', 200), cddVideoCampo($it['video'] ?? ''), cddStr($it['obs'] ?? '', 500)]);
+                    }
+                    if ($o) $fichas++;
+                }
+            }
             foreach ($a['anexos'] ?? [] as $ax) {
                 $url = cddUrl($ax['url'] ?? ''); if ($url === '') continue;
                 $st = $pdo->prepare('SELECT COUNT(*) FROM cdd_anexo WHERE idaula = ? AND url = ?'); $st->execute([$ida, $url]);
@@ -453,7 +574,11 @@ function cddImportarSeed(PDO $pdo, array $seed): array {
             }
         }
     }
-    return ['modulos_novos' => $mods, 'aulas_novas' => $novos, 'aulas_atualizadas' => $atualizados];
+    // Base de exercícios: nomes e vídeos que aparecem nas fichas.
+    foreach ($seed['exercicios'] ?? [] as $e) {
+        if (cddExercicioGuardar($pdo, ['nome' => $e['nome'] ?? '', 'video' => $e['video'] ?? '', 'origem' => 'cdd']) === 'novo') $exNovos++;
+    }
+    return ['modulos_novos' => $mods, 'aulas_novas' => $novos, 'aulas_atualizadas' => $atualizados, 'fichas_novas' => $fichas, 'exercicios_novos' => $exNovos];
 }
 
 /* ───────────────────────── Roteador ───────────────────────── */
@@ -782,6 +907,45 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
     if ($acao === 'a_ficha_colar' && !$get) {
         $itens = cddParseFicha((string)($b['texto'] ?? ''));
         return cddResp(200, ['itens' => $itens]);
+    }
+    /* base de exercícios */
+    if ($acao === 'a_exercicios' && $get) {
+        $busca = cddStr($q['busca'] ?? '', 80);
+        $sql = 'SELECT idexercicio, nome, grupo, equipamento, descricao, video, origem, id_intus FROM cdd_exercicio';
+        $par = [];
+        if ($busca !== '') { $sql .= ' WHERE nome LIKE ? OR grupo LIKE ?'; $par = ['%' . $busca . '%', '%' . $busca . '%']; }
+        $st = $pdo->prepare($sql . ' ORDER BY nome LIMIT 800'); $st->execute($par);
+        $tot = (int)$pdo->query('SELECT COUNT(*) FROM cdd_exercicio')->fetchColumn();
+        $intus = (int)$pdo->query("SELECT COUNT(*) FROM cdd_exercicio WHERE origem = 'intus'")->fetchColumn();
+        return cddResp(200, ['exercicios' => $st->fetchAll(), 'total' => $tot, 'da_intus' => $intus]);
+    }
+    if ($acao === 'a_exercicio_salvar' && !$get) {
+        $nome = cddStr($b['nome'] ?? '', 200); $norm = cddNorm($nome);
+        if ($nome === '' || $norm === '') return cddErro(422, 'dados_invalidos', 'Informe o nome do exercício.');
+        $vt = trim((string)($b['video'] ?? '')); $video = cddVideoCampo($vt);
+        if ($vt !== '' && $video === '') return cddErro(422, 'video_invalido', 'Link de vídeo inválido. Cole um link do YouTube ou outro link https.');
+        $id = (int)($b['idexercicio'] ?? 0);
+        $st = $pdo->prepare('SELECT idexercicio FROM cdd_exercicio WHERE nome_norm = ?'); $st->execute([$norm]);
+        $outro = (int)$st->fetchColumn();
+        if ($outro && $outro !== $id) return cddErro(409, 'exercicio_repetido', 'Já existe um exercício com este nome.');
+        $campos = [$nome, $norm, cddStr($b['grupo'] ?? '', 120) ?: null, cddStr($b['equipamento'] ?? '', 40) ?: null, cddStr($b['descricao'] ?? '', 4000) ?: null, $video ?: null, cddAgora()];
+        if ($id) {
+            $pdo->prepare('UPDATE cdd_exercicio SET nome = ?, nome_norm = ?, grupo = ?, equipamento = ?, descricao = ?, video = ?, atualizado_em = ? WHERE idexercicio = ?')->execute(array_merge($campos, [$id]));
+        } else {
+            $pdo->prepare("INSERT INTO cdd_exercicio (nome, nome_norm, grupo, equipamento, descricao, video, atualizado_em, origem) VALUES (?, ?, ?, ?, ?, ?, ?, 'cdd')")->execute($campos);
+            $id = (int)$pdo->lastInsertId();
+        }
+        return cddResp(200, ['idexercicio' => $id]);
+    }
+    if ($acao === 'a_exercicio_excluir' && !$get) {
+        $pdo->prepare('DELETE FROM cdd_exercicio WHERE idexercicio = ?')->execute([(int)($b['idexercicio'] ?? 0)]);
+        return cddResp(200, ['ok' => true]);
+    }
+    if ($acao === 'a_exercicios_sync_intus' && !$get) {
+        $r = cddSincronizarIntus($pdo);
+        if (isset($r['erro'])) return cddErro(404, 'intus_indisponivel', $r['erro']);
+        cddRegistrarEvento($pdo, $idadmin, 'sync_exercicios_intus', 'manual', 'ok', json_encode($r));
+        return cddResp(200, $r);
     }
     if ($acao === 'a_importar_seed' && !$get) {
         $f = $ctx['seed'] ?? '';
