@@ -19,7 +19,9 @@ function _adminTrava(string $nome, int $max, int $janela, string $acao = 'ver'):
     if ($acao === 'limpar') { @unlink($arq); return false; }
     return count($lista) >= $max;
 }
-$_nomeIp = substr(hash('sha256', (string)($_SERVER['REMOTE_ADDR'] ?? '0')), 0, 16);
+// Atrás do Cloudflare o REMOTE_ADDR é o do Cloudflare (todo mundo pareceria o mesmo IP e a trava de 5 erros valeria para todos): usa o IP real.
+require_once __DIR__ . '/../app/api/_ip.php';
+$_nomeIp = substr(hash('sha256', intusClientIp()), 0, 16);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = trim($_POST['user'] ?? '');

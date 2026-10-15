@@ -207,6 +207,7 @@ a{color:inherit;text-decoration:none}
     <span class="topbar-badge">v2.0</span>
   </div>
   <div class="topbar-right">
+    <a href="smtp-config.php" class="btn-logout">E-mail do site</a>
     <a href="https://intusfit.com.br" target="_blank" class="btn-logout">Ver site</a>
     <button class="btn-publish" onclick="publishSite()">
       <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>

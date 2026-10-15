@@ -1659,7 +1659,7 @@ if ($action === 'anamnese') {
                 'ctx_id'     => (int)($_ctx['idusuario'] ?? 0),
                 'ctx_atleta' => (int)($_ctx['idatleta'] ?? 0),
                 'aluno'      => $_ehAluno ? 'S' : 'N',
-                'ip'         => substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
+                'ip'         => substr((function () { require_once __DIR__ . '/../app/api/_ip.php'; return intusClientIp(); })(), 0, 45),
                 'ua'         => substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 180),
             ];
         }
