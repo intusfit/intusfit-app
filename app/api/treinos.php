@@ -417,6 +417,11 @@ if ($_ehAlunoTr && $method !== 'GET' && in_array($action, $_SO_PROF_TREINO, true
     echo json_encode(['error' => 'apenas o professor altera treinos']);
     exit;
 }
+// PERMISSÃO DE ESCRITA no servidor (antes só o painel escondia o botão): um professor sem "incluir/editar/excluir treinos" (ou exercícios) não grava por chamada direta.
+if (!$_ehAlunoTr) {
+    $_permTr = ['ficha' => 'tr', 'fichas' => 'tr', 'treinos' => 'tr', 'treinos_replace' => 'tr', 'exercicios' => 'ex'];
+    if (isset($_permTr[$action])) intusExigirPermissaoEscrita($pdo, $_authCtx, $_permTr[$action], $method);
+}
 // Rotas de manutencao em massa: so admin. Elas fazem DELETE e UPDATE em toda a
 // base de exercicios, sem volta, e aceitavam qualquer token valido.
 if (in_array($action, ['fix_subs_treino','dedup_exercicios','fix_ids'], true) && empty($_authCtx['admin'])) {

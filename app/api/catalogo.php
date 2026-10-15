@@ -1207,6 +1207,14 @@ if (in_array($action, $_ESCRITA_ADMIN, true) && $method !== 'GET' && empty($_ctx
 if (in_array($action, $_LEITURA_ALUNO, true) && $method !== 'GET' && $_ehAluno) {
     $_negar(403, 'apenas o professor pode alterar');
 }
+// PERMISSÃO DE ESCRITA da equipe no servidor (antes só o painel escondia o botão): alongamentos (al), avaliações (av), plano e conteúdo de nutrição, alimentos e medidas (nt).
+// Aluno e administrador não passam por aqui (o aluno tem as travas próprias de cada rota).
+$_PERM_ESCRITA_CAT = ['alongamentos' => 'al', 'avaliacoes' => 'av', 'nutricao' => 'nt', 'nutri_conteudo' => 'nt', 'meus_alimentos' => 'nt', 'alimento_medidas' => 'nt'];
+if ($_tokValido && !$_ehAluno && isset($_PERM_ESCRITA_CAT[$action])) {
+    // Apagar o próprio alimento ou medida durante a prescrição não exige "excluir plano": basta poder editar nutrição.
+    $_mEf = ($method === 'DELETE' && in_array($action, ['meus_alimentos', 'alimento_medidas'], true)) ? 'PUT' : $method;
+    if (!intusPermissaoEscrita($pdo, $_ctx, $_PERM_ESCRITA_CAT[$action], $_mEf)) $_negar(403, 'sem permissao para esta acao (' . $_PERM_ESCRITA_CAT[$action] . ')');
+}
 
 // ── ESCOPO: aluno so mexe no que e dele ────────────────────────────────────
 // Rotas que recebem um id de atleta e nao tinham dono nenhum. "profile"

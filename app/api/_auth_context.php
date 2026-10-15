@@ -171,6 +171,13 @@ function getAuthContext(PDO $pdo, string $tok): array {
 // A permissão `$chave` está ligada (true) no cadastro do usuário? Lê direto do banco (a sessão só traz id e admin). Falha fechada: na dúvida, false.
 function usuarioTemPermissao(PDO $pdo, int $idusuario, string $chave): bool {
     if ($idusuario <= 0) return false;
+    static $cache = [];
+    if (isset($cache[$idusuario])) {
+        $p = $cache[$idusuario];
+        if (!array_key_exists($chave, $p)) return false;
+        $v = $p[$chave];
+        return $v === true || $v === 1 || $v === '1';
+    }
     try {
         $tab = null;
         foreach (['professor', 'usuario', 'usuarios', 'professores'] as $t) {
@@ -185,6 +192,7 @@ function usuarioTemPermissao(PDO $pdo, int $idusuario, string $chave): bool {
         $st->execute([$idusuario]);
         $raw = $st->fetchColumn();
         $p = is_string($raw) ? json_decode($raw, true) : null;
+        if (is_array($p)) $cache[$idusuario] = $p;
         if (!is_array($p) || !array_key_exists($chave, $p)) return false;
         $v = $p[$chave];
         return $v === true || $v === 1 || $v === '1';
@@ -192,6 +200,34 @@ function usuarioTemPermissao(PDO $pdo, int $idusuario, string $chave): bool {
 }
 
 // Tem pelo menos UMA das permissões listadas? (o painel esconde o botão pela permissão; aqui o servidor também confere nas ações que apagam)
+/**
+ * Permissão de ESCRITA de uma área (prefixo da chave: al, av, nt, tr, ex, mt, pg...). Regra do painel, agora também no servidor:
+ *   POST e PUT  exigem "<prefixo>_incluir" ou "<prefixo>_editar" (qualquer uma: várias telas gravam com a chave vizinha);
+ *   DELETE      exige "<prefixo>_excluir".
+ * Administrador sempre pode; aluno não passa por aqui (tem as próprias travas); leitura (GET) não é checada. $prefixos pode ter mais de um (['mt','pg']).
+ */
+function intusPermissaoEscrita(PDO $pdo, array $ctx, $prefixos, string $metodo): bool {
+    $metodo = strtoupper($metodo);
+    if (!in_array($metodo, ['POST', 'PUT', 'DELETE'], true)) return true;
+    if (!empty($ctx['admin']) || !empty($ctx['is_aluno'])) return true;
+    $uid = (int)($ctx['idusuario'] ?? 0);
+    if ($uid <= 0) return false;
+    $chaves = [];
+    foreach ((array)$prefixos as $p) {
+        if ($metodo === 'DELETE') $chaves[] = $p . '_excluir';
+        else { $chaves[] = $p . '_incluir'; $chaves[] = $p . '_editar'; }
+    }
+    return usuarioTemAlgumaPermissao($pdo, $uid, $chaves);
+}
+
+/** Igual, mas responde 403 e encerra quando não tem permissão. */
+function intusExigirPermissaoEscrita(PDO $pdo, array $ctx, $prefixos, string $metodo): void {
+    if (intusPermissaoEscrita($pdo, $ctx, $prefixos, $metodo)) return;
+    http_response_code(403);
+    echo json_encode(['error' => 'sem permissao para esta acao (' . implode(', ', (array)$prefixos) . ')'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 function usuarioTemAlgumaPermissao(PDO $pdo, int $idusuario, array $chaves): bool {
     foreach ($chaves as $c) { if (usuarioTemPermissao($pdo, $idusuario, $c)) return true; }
     return false;

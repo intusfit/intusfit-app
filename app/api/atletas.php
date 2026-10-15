@@ -598,6 +598,18 @@ try {
 
         $body = readJsonBody();
 
+        // Editar cliente exige "Editar clientes" no servidor. Exceções de efeito colateral que outras telas fazem com a permissão da própria área:
+        // só notas do professor e origem (lead que vira cliente ao ganhar matrícula), ou só o bloqueio de acesso feito pelo financeiro ao encerrar um plano.
+        if (!$_isAdmin && !$_ehAlunoAt) {
+            $_campos = array_keys((array)$body);
+            $_leve = !array_diff($_campos, ['notas_professor', 'origem']);
+            $_soBloqueio = $_campos && !array_diff($_campos, ['stbloqueio']);
+            $_ok = $_leve
+                || (function_exists('usuarioTemPermissao') && usuarioTemPermissao($pdo, (int)$_userId, 'at_editar'))
+                || ($_soBloqueio && function_exists('usuarioTemAlgumaPermissao') && usuarioTemAlgumaPermissao($pdo, (int)$_userId, ['mt_editar', 'mt_excluir', 'pg_editar', 'pg_excluir']));
+            if (!$_ok) { http_response_code(403); echo json_encode(['error' => 'sem permissao para editar clientes']); exit; }
+        }
+
         // ── LISTA BRANCA DO ALUNO ────────────────────────────────────────
         // Chegando aqui com sessao de aluno, so pode ser o proprio cadastro (a
         // trava la em cima ja garantiu isso). Ainda assim, filtramos os campos:

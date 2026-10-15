@@ -342,6 +342,8 @@ if ($method === 'GET') {
 }
 
 // ---------- POST ----------
+// PERMISSÃO DE ESCRITA no servidor: criar e editar matrícula/pagamento exige alguma chave de matrículas (mt_) ou pagamentos (pg_). Excluir já era conferido mais abaixo.
+if (($method === 'POST' || $method === 'PUT') && !$_isAdmin && empty($_authCtx['is_aluno'])) intusExigirPermissaoEscrita($pdo, $_authCtx, ['mt', 'pg'], $method);
 if ($method === 'POST') {
     $d = jsonBody();
     if (empty($d['idatleta']) || empty($d['dtvencimento'])) {

@@ -12,6 +12,9 @@
  *                   de localização do visitante" ativa); vazio sem ele.
  */
 
+// A KingHost deixa display_errors ligado por padrão: um aviso do PHP vazaria caminhos de arquivo e nomes de tabela na resposta. Este arquivo é carregado por quase toda rota, então desliga aqui (o erro continua no log).
+@ini_set('display_errors', '0');
+
 function _ipDentroDe(string $ip, string $cidr): bool
 {
     [$base, $bits] = explode('/', $cidr) + [1 => null];
