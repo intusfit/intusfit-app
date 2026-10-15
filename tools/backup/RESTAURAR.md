@@ -41,3 +41,8 @@ Só com o OK do Luiz e depois de baixar uma cópia de segurança do estado atual
 ## Riscos conhecidos
 - O dump é feito linha a linha, sem travar as tabelas: uma gravação no meio do backup pode ficar de fora (a cópia do dia seguinte pega).
 - O arquivo do banco tem dados pessoais, anamneses, financeiro e hashes de senha. Quem acessa a pasta do Drive e a caixa de e-mail do aviso acessa tudo isso: mantenha o acesso restrito e use verificação em duas etapas nessas contas.
+
+## Teste de restauração feito em 15/10/2026
+- **Cópia sintética**: o script real do backup (`cron-backup.php`) gerou o dump de um banco MariaDB local com os casos difíceis (aspas simples e duplas, `;` e `);` dentro do texto, barra invertida, emoji, NULL, texto de 70 KB, tabela vazia, 1.200 linhas), o `restaurar.php` importou num banco vazio e a comparação linha a linha (soma de verificação por tabela) deu **idêntica** nas 4 tabelas.
+- **Cópia real do Drive**: baixar o `intus-backup-db-*.sql.gz` mais recente da pasta do Drive para `C:\Users\User\IntusFit\restore-teste\` e rodar `--so-ler` e depois a importação num banco de teste. A cópia real vem de MySQL 5.6 e o teste local usa MariaDB: diferenças de versão aparecem aqui antes de uma emergência.
+- **Como repetir**: `winget install MariaDB.Server`, criar um banco vazio de teste e seguir o passo 3 acima, com `DB_HOST=127.0.0.1:PORTA`. Apagar o banco de teste depois.
