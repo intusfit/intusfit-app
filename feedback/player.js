@@ -134,5 +134,6 @@
     });
   }
 
-  window.IntusFeedbackPlayer = { carregar: carregar };
+  // baixar(url, mime, aoProgredir(0-1)) -> Promise<Blob>: o vídeo inteiro, em faixas (usado pelo editor).
+  window.IntusFeedbackPlayer = { carregar: carregar, baixar: baixarTudo };
 })();

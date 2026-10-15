@@ -33,6 +33,8 @@
  *     GET  ?action=listar[&idatleta=N]          -> sem idatleta: os do professor (admin: todos); com idatleta: todos daquele aluno
  *     POST ?action=iniciar  {idatleta, aluno_nome, titulo, descricao, mime, tamanho, duracao_seg} -> {ok, id, parte_bytes}
  *     POST ?action=enviar_parte&id=N&inicio=BYTE (corpo = bytes crus do pedaço) -> {ok, recebido, concluido, link?}
+ *     POST ?action=editar_iniciar {id, mime, tamanho, duracao_seg} -> {ok, parte_bytes}   (substitui o vídeo de um feedback já salvo; link, título e comentários continuam)
+ *     POST ?action=editar_parte&id=N&inicio=BYTE (corpo = bytes crus) -> {ok, recebido, concluido, link?, aviso?}   (ao concluir troca o arquivo e apaga o antigo no Drive)
  *     POST ?action=excluir  {id}                -> {ok, aviso?}
  */
 
@@ -47,8 +49,8 @@ header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(204); exit; }
 
-define('FB_DURACAO_MAX_SEG', 600);            // 10 min (decisão do Luiz, 25/09/2026)
-define('FB_TAMANHO_MAX', 250 * 1024 * 1024);  // folga para 10 min mesmo em navegador que ignora o bitrate pedido
+define('FB_DURACAO_MAX_SEG', 900);            // 15 min (era 10; pedido do Luiz em 15/10/2026)
+define('FB_TAMANHO_MAX', 250 * 1024 * 1024);  // folga para 15 min mesmo em navegador que ignora o bitrate pedido
 define('FB_FAIXA_VIDEO', 4 * 1024 * 1024);    // quanto o player recebe por pedido
 // Cota de gravações guardadas por professor (07/10/2026, para o Drive não crescer sem controle). Ao chegar em
 // FB_AVISO_PCT % a ferramenta avisa para apagar; ao chegar no limite, novas gravações são recusadas até apagar alguma.
@@ -167,7 +169,20 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
 _intusGarantirUtf8mb4($pdo, 'intus_feedback_interacao', ['autor_nome', 'texto']);
-const FB_REACOES = ['❤️', '🔥', '👏', '💪', '🙏', '👍'];
+// Edição de um vídeo já salvo (editar_iniciar / editar_parte): o upload da versão nova corre numa sessão do Drive guardada aqui,
+// sem mexer na linha do feedback (o vídeo antigo segue tocando até a versão nova chegar inteira). Tabela nova, só aditiva.
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS intus_feedback_edicao (
+        idfeedback      INT PRIMARY KEY,
+        sessao          TEXT NOT NULL,
+        mime            VARCHAR(80) NOT NULL DEFAULT 'video/mp4',
+        tamanho_bytes   BIGINT NOT NULL DEFAULT 0,
+        duracao_seg     INT NOT NULL DEFAULT 0,
+        bytes_enviados  BIGINT NOT NULL DEFAULT 0,
+        criado_em       DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+const FB_REACOES =['❤️', '🔥', '👏', '💪', '🙏', '👍'];
 
 // Quem está agindo: professor (Bearer do painel) ou o aluno do feedback (link ou app). Devolve [tipo, nome, id, ehEquipe].
 function _fbAtor(PDO $pdo, array $fb): array {
@@ -202,6 +217,12 @@ function _fbPorToken(PDO $pdo, $token) {
     return $st->fetch(PDO::FETCH_ASSOC) ?: null;
 }
 
+// O parâmetro r muda quando o vídeo é substituído por uma versão editada: sem ele, o navegador do aluno
+// podia juntar trechos guardados do vídeo antigo com trechos do novo (o cache da rota video dura 1 h).
+function _fbVideoUrl(array $r) {
+    return '/app/api/feedbacks.php?action=video&v=' . $r['token_publico'] . '&r=' . substr(md5((string)$r['drive_file_id']), 0, 8);
+}
+
 function _fbResumo(array $r, $comLink) {
     $o = [
         'id' => (int)$r['id'], 'tipo' => $r['tipo'], 'idatleta' => (int)$r['idatleta'], 'aluno_nome' => $r['aluno_nome'],
@@ -212,7 +233,7 @@ function _fbResumo(array $r, $comLink) {
     ];
     if ($comLink && $r['status'] === 'pronto') {
         $o['link'] = _fbLinkPublico($r['token_publico']);
-        $o['video_url'] = '/app/api/feedbacks.php?action=video&v=' . $r['token_publico'];
+        $o['video_url'] = _fbVideoUrl($r);
     }
     return $o;
 }
@@ -241,7 +262,7 @@ try {
             // Link pode ser repassado: expõe só o primeiro nome do aluno, nunca id/e-mail.
             'aluno_nome' => $partes[0] ?? '', 'professor_nome' => $r['professor_nome'],
             'criado_em' => $r['criado_em'], 'duracao_seg' => (int)$r['duracao_seg'], 'mime' => $r['mime'],
-            'video_url' => '/app/api/feedbacks.php?action=video&v=' . $r['token_publico'],
+            'video_url' => _fbVideoUrl($r),
         ]]);
         exit;
     }
@@ -419,7 +440,7 @@ try {
         $tamanho = (int)($b['tamanho'] ?? 0);
         if ($tamanho <= 0 || $tamanho > FB_TAMANHO_MAX) _fbResponder(400, ['ok' => false, 'erro' => 'Vídeo grande demais (máx. ' . round(FB_TAMANHO_MAX / 1048576) . ' MB).']);
         $duracao = (int)($b['duracao_seg'] ?? 0);
-        if ($duracao > FB_DURACAO_MAX_SEG + 5) _fbResponder(400, ['ok' => false, 'erro' => 'Gravação acima de 10 minutos.']);
+        if ($duracao > FB_DURACAO_MAX_SEG + 5) _fbResponder(400, ['ok' => false, 'erro' => 'Gravação acima de ' . round(FB_DURACAO_MAX_SEG / 60) . ' minutos.']);
         if (!gdriveDisponivel()) _fbResponder(503, ['ok' => false, 'erro' => 'Google Drive não está configurado neste servidor.']);
 
         $alunoNome = mb_substr(trim((string)($b['aluno_nome'] ?? '')), 0, 150);
@@ -462,6 +483,64 @@ try {
         exit;
     }
 
+    if ($action === 'editar_iniciar') {
+        $exigirPost();
+        $b = json_decode(file_get_contents('php://input'), true) ?: [];
+        $r = $carregarDoDono($b['id'] ?? 0);
+        if ($r['status'] !== 'pronto' || !$r['drive_file_id']) _fbResponder(409, ['ok' => false, 'erro' => 'so da pra editar uma gravacao ja salva']);
+        $mime = preg_replace('/;.*$/', '', strtolower(trim((string)($b['mime'] ?? ''))));
+        if (!in_array($mime, ['video/webm', 'video/mp4'], true)) _fbResponder(400, ['ok' => false, 'erro' => 'formato de video nao suportado']);
+        $tamanho = (int)($b['tamanho'] ?? 0);
+        if ($tamanho <= 0 || $tamanho > FB_TAMANHO_MAX) _fbResponder(400, ['ok' => false, 'erro' => 'Vídeo grande demais (máx. ' . round(FB_TAMANHO_MAX / 1048576) . ' MB).']);
+        $duracao = (int)($b['duracao_seg'] ?? 0);
+        if ($duracao > FB_DURACAO_MAX_SEG + 5) _fbResponder(400, ['ok' => false, 'erro' => 'Vídeo acima de ' . round(FB_DURACAO_MAX_SEG / 60) . ' minutos.']);
+        if (!gdriveDisponivel()) _fbResponder(503, ['ok' => false, 'erro' => 'Google Drive não está configurado neste servidor.']);
+        $ext = $mime === 'video/mp4' ? 'mp4' : 'webm';
+        $nomeArq = 'feedback_' . date('Y-m-d_His') . '_editado_' . (int)$r['id'] . '.' . $ext;
+        $sessao = gdriveIniciarUploadGrande($nomeArq, $mime, $tamanho);
+        $pdo->prepare('REPLACE INTO intus_feedback_edicao (idfeedback, sessao, mime, tamanho_bytes, duracao_seg, bytes_enviados) VALUES (?, ?, ?, ?, ?, 0)')
+            ->execute([(int)$r['id'], $sessao, $mime, $tamanho, max(0, $duracao)]);
+        echo json_encode(['ok' => true, 'id' => (int)$r['id'], 'parte_bytes' => _fbTamanhoParte()]);
+        exit;
+    }
+
+    if ($action === 'editar_parte') {
+        $exigirPost();
+        $r = $carregarDoDono($_GET['id'] ?? 0);
+        $st = $pdo->prepare('SELECT * FROM intus_feedback_edicao WHERE idfeedback = ?');
+        $st->execute([(int)$r['id']]);
+        $e = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$e) _fbResponder(409, ['ok' => false, 'erro' => 'nao ha edicao aberta para esta gravacao']);
+        $inicio = (int)($_GET['inicio'] ?? -1);
+        $esperado = (int)$e['bytes_enviados'];
+        // Pedaço fora de ordem (reenvio depois de falha de rede): diz de onde continuar.
+        if ($inicio !== $esperado) _fbResponder(200, ['ok' => true, 'recebido' => $esperado, 'concluido' => false, 'fora_de_ordem' => true]);
+        $bin = file_get_contents('php://input');
+        if ($bin === '' || $bin === false) _fbResponder(400, ['ok' => false, 'erro' => 'pedaco vazio (limite de upload do servidor?)']);
+        $total = (int)$e['tamanho_bytes'];
+        if ($inicio + strlen($bin) > $total) _fbResponder(400, ['ok' => false, 'erro' => 'pedaco passa do tamanho declarado']);
+
+        $res = gdriveEnviarParte($e['sessao'], $bin, $inicio, $total);
+        if ($res['file_id']) {
+            // Chegou inteiro: troca o arquivo da gravação e só então apaga o antigo no Drive.
+            $antigo = $r['drive_file_id'];
+            $pdo->prepare('UPDATE intus_feedback SET drive_file_id = ?, mime = ?, tamanho_bytes = ?, duracao_seg = ?, bytes_enviados = ? WHERE id = ?')
+                ->execute([$res['file_id'], $e['mime'], $total, (int)$e['duracao_seg'], $total, (int)$r['id']]);
+            $pdo->prepare('DELETE FROM intus_feedback_edicao WHERE idfeedback = ?')->execute([(int)$r['id']]);
+            $aviso = null;
+            if ($antigo) {
+                $apagou = false;
+                try { $apagou = gdriveExcluirArquivo($antigo); } catch (Throwable $ex) { _intusLogErro($ex); }
+                if (!$apagou) $aviso = 'O vídeo novo já vale, mas não consegui apagar a versão antiga no Google Drive. Procure por "feedback_" na pasta e apague manualmente.';
+            }
+            echo json_encode(['ok' => true, 'recebido' => $total, 'concluido' => true, 'link' => _fbLinkPublico($r['token_publico']), 'aviso' => $aviso]);
+            exit;
+        }
+        $pdo->prepare('UPDATE intus_feedback_edicao SET bytes_enviados = ? WHERE idfeedback = ?')->execute([$res['recebido'], (int)$r['id']]);
+        echo json_encode(['ok' => true, 'recebido' => $res['recebido'], 'concluido' => false]);
+        exit;
+    }
+
     if ($action === 'excluir') {
         $exigirPost();
         $b = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -474,6 +553,7 @@ try {
             if (!$apagou) $aviso = 'O link já não funciona, mas não consegui apagar o arquivo no Google Drive. Procure por "feedback_" na pasta e apague manualmente.';
         }
         $pdo->prepare("DELETE FROM intus_feedback WHERE id = ?")->execute([(int)$r['id']]);
+        $pdo->prepare('DELETE FROM intus_feedback_edicao WHERE idfeedback = ?')->execute([(int)$r['id']]);
         echo json_encode(['ok' => true, 'aviso' => $aviso]);
         exit;
     }

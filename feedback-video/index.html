@@ -142,6 +142,25 @@ input,textarea{font-family:inherit}
 .progresso div{height:100%;width:0;background:var(--accent);transition:width .3s}
 .status-envio{font-size:12px;color:var(--muted);margin-top:6px}
 
+/* ── editor de cortes ── */
+.editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--borda)}
+.editor-topo{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.editor-topo b{font-size:13px}
+.editor-topo span{font-size:11.5px;color:var(--muted-d)}
+#ed-linha{display:block;width:100%;height:96px;background:#0a0a0a;border:1px solid var(--borda);border-radius:8px;touch-action:none;cursor:crosshair}
+.ed-linha-botoes{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.ed-linha-botoes .sep{height:20px}
+.ed-tempo{font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted);min-width:128px}
+#ed-pan{width:100%;accent-color:var(--accent);margin-top:2px}
+.ed-selecao{font-size:12.5px;color:var(--accent);min-height:18px;margin-bottom:6px}
+.ed-cortes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.ed-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:20px;padding:3px 6px 3px 10px;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.ed-chip button{background:transparent;border:none;color:inherit;font-size:13px;line-height:1;padding:2px 4px}
+.ed-resumo{font-size:12px;color:var(--muted);margin-bottom:10px}
+.btn-mini.destaque{color:var(--accent-text);background:var(--accent);border-color:var(--accent)}
+.btn-secundario.destaque{background:#b91c1c;border-color:#b91c1c;color:#fff}
+.btn-mini:disabled{opacity:.4;cursor:default}
+
 .pronto{border-color:var(--accent-borda)}
 .link-box{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
 .link-box input{flex:1 1 280px;padding:10px 12px;border-radius:9px;border:1px solid var(--accent-borda);background:var(--input-bg);color:var(--accent);font-size:12.5px}
@@ -217,7 +236,7 @@ input,textarea{font-family:inherit}
     </div>
     <div class="linha-botoes">
       <button class="btn-gravar" id="btn-comecar"><span class="pt"></span> Começar a gravar</button>
-      <span class="dica" style="margin:0">Máximo de <b id="lbl-max">10 minutos</b> por gravação.</span>
+      <span class="dica" style="margin:0">Máximo de <b id="lbl-max">15 minutos</b> por gravação.</span>
     </div>
     <div class="status-passo" id="status-passo" hidden></div>
     <div class="msg-erro destaque" id="erro-gravar" hidden></div>
@@ -262,22 +281,26 @@ input,textarea{font-family:inherit}
       <label>Tamanho <input type="range" id="range-bolha" min="12" max="50" value="26"></label>
     </div>
     <div class="barra-gravando">
-      <div class="cronometro pausado" id="cronometro"><span class="pt"></span><span id="estado-gravacao">Preparando…</span><span id="tempo">00:00</span><small id="tempo-max">/ 10:00</small></div>
-      <button class="btn-secundario" id="btn-pausar" style="margin-left:auto" disabled>⏸ Pausar</button>
+      <div class="cronometro pausado" id="cronometro"><span class="pt"></span><span id="estado-gravacao">Preparando…</span><span id="tempo">00:00</span><small id="tempo-max">/ 15:00</small></div>
+      <button class="btn-secundario" id="btn-pip" style="margin-left:auto" hidden title="Uma janelinha com você, por cima de todas as outras, pra ver como está saindo no vídeo">🪟 Ver minha câmera por cima</button>
+      <button class="btn-secundario" id="btn-reiniciar" disabled title="Apaga o que já foi gravado e começa de novo, sem escolher a tela outra vez">↻ Reiniciar</button>
+      <button class="btn-secundario" id="btn-pausar" disabled>⏸ Pausar</button>
       <button class="btn-acao" id="btn-parar">■ Parar</button>
     </div>
     <p class="dica" id="dica-gravando"></p>
+    <p class="dica" id="dica-pip" hidden></p>
   </div>
 
   <!-- 3. conferir e salvar -->
   <div class="card" id="etapa-salvar" hidden>
-    <div class="secao-titulo">Confira antes de enviar</div>
+    <div class="secao-titulo" id="titulo-salvar">Confira antes de enviar</div>
     <div class="grid-salvar">
       <div>
         <video id="previa" controls playsinline></video>
         <p class="info-video" id="info-video"></p>
       </div>
       <div>
+        <p class="aviso-tela-inteira" id="info-salvo" hidden></p>
         <div class="campo">
           <span class="rotulo">Aluno</span>
           <span class="campo-autocomplete">
@@ -304,6 +327,41 @@ input,textarea{font-family:inherit}
         <p class="msg-erro" id="erro-salvar" hidden></p>
       </div>
     </div>
+
+    <div class="editor" id="editor" hidden>
+      <div class="editor-topo">
+        <b>✂ Cortar trechos do vídeo</b>
+        <span>Arraste na linha abaixo para selecionar um trecho (uma palavra, uma frase, o começo ou o fim) e clique em "Cortar". A roda do mouse aproxima, para achar a palavra certa.</span>
+      </div>
+      <canvas id="ed-linha"></canvas>
+      <input type="range" id="ed-pan" min="0" max="1000" value="0" hidden>
+      <div class="ed-linha-botoes">
+        <button class="btn-mini" id="ed-play">▶ Tocar</button>
+        <span class="ed-tempo" id="ed-tempo">0:00.0 / 0:00.0</span>
+        <button class="btn-mini" id="ed-zoom-menos" title="Afastar">−</button>
+        <button class="btn-mini" id="ed-zoom-mais" title="Aproximar">+</button>
+        <button class="btn-mini" id="ed-zoom-tudo">Ver tudo</button>
+        <span class="sep"></span>
+        <button class="btn-mini" id="ed-ouvir" disabled>▶ Ouvir a seleção</button>
+        <button class="btn-mini" id="ed-ampliar" disabled>🔍 Ampliar a seleção</button>
+        <button class="btn-mini destaque" id="ed-cortar" disabled>✂ Cortar a seleção</button>
+        <button class="btn-mini" id="ed-cortar-ini" title="Corta do começo do vídeo até onde o vídeo está tocando">✂ Do começo até aqui</button>
+        <button class="btn-mini" id="ed-cortar-fim" title="Corta de onde o vídeo está tocando até o fim">✂ Daqui até o fim</button>
+      </div>
+      <div class="ed-selecao" id="ed-selecao"></div>
+      <div class="ed-cortes" id="ed-cortes"></div>
+      <p class="ed-resumo" id="ed-resumo"></p>
+      <div class="linha-botoes">
+        <button class="btn-acao" id="ed-aplicar" disabled>Aplicar os cortes</button>
+        <button class="btn-secundario" id="ed-original" hidden>Voltar ao vídeo original</button>
+      </div>
+      <div id="ed-progresso" hidden>
+        <div class="progresso"><div id="ed-barra"></div></div>
+        <p class="status-envio" id="ed-status"></p>
+      </div>
+      <p class="msg-erro" id="ed-erro" hidden></p>
+    </div>
+    <p class="dica" id="ed-indisponivel" hidden>O corte de trechos funciona no Chrome, no Edge e no Opera (versões recentes), com a gravação em MP4. Neste navegador, grave de novo ou use um desses.</p>
   </div>
 
   <!-- 4. link pronto -->
@@ -342,12 +400,13 @@ input,textarea{font-family:inherit}
 
 </div><!-- /#app -->
 
+<script src="editor.js?v=20261015a"></script>
 <script>
 (function(){
 'use strict';
 
 var API_BASE = '/app/api';
-var DURACAO_MAX = 600;          // segundos; o servidor confirma em action=eu
+var DURACAO_MAX = 900;          // segundos (15 min, pedido do Luiz em 15/10/2026); o servidor confirma em action=eu
 var VIDEO_BPS = 650000;         // 07/10/2026: era 1,2 Mbps. ~5,5 MB por minuto somando o áudio (tela com pouco movimento aguenta bem)
 var AUDIO_BPS = 64000;
 var LARGURA_MAX = 1280;         // teto de resolução (era 1920): tela cheia gravada em 1280 ainda lê bem e pesa bem menos
@@ -773,6 +832,14 @@ function prepararPalco(g){
     : 'Tudo o que aparece no quadro entra no vídeo. O navegador mostra um aviso de "compartilhando" enquanto grava.';
   document.getElementById('tempo').textContent = '00:00';
   document.getElementById('btn-pausar').textContent = '⏸ Pausar';
+  atualizarBotoesReinicio();
+  atualizarBotaoPip();
+  var dp = document.getElementById('dica-pip');
+  dp.textContent = pipSuportado()
+    ? 'Dica: clique em "Ver minha câmera por cima" para uma janelinha com você ficar por cima das outras janelas enquanto grava' + (g.superficie === 'monitor' ? ' (em tela inteira ela aparece no vídeo se ficar sobre a tela que você grava: deixe-a num canto que não importa, ou em outro monitor).' : '.')
+    : 'Este navegador não tem a câmera flutuante. No Chrome, no Edge ou no Opera ela mostra você por cima das outras janelas.';
+  dp.hidden = false;
+  try { navigator.mediaSession.setActionHandler('enterpictureinpicture', function(){ abrirPip(); }); } catch (e) {}
   mostrarEtapa('etapa-gravando');
   document.getElementById('etapa-gravando').scrollIntoView({ behavior: 'smooth', block: 'start' });
   var n = 0;
@@ -816,7 +883,7 @@ function desenharQuadro(g){
 
   // exibição para o professor
   var v = g.vctx;
-  if (!telaInteira(g)) { v.drawImage(g.recCanvas, 0, 0); return; }
+  if (!telaInteira(g)) { v.drawImage(g.recCanvas, 0, 0); desenharPip(g); return; }
   v.fillStyle = '#151515'; v.fillRect(0, 0, W, H);
   v.strokeStyle = '#2a2a2a'; v.lineWidth = Math.max(2, W * 0.003); v.setLineDash([W * 0.01, W * 0.008]);
   v.strokeRect(W * 0.01, H * 0.01, W * 0.98, H * 0.98); v.setLineDash([]);
@@ -827,6 +894,7 @@ function desenharQuadro(g){
   v.fillText(g.bolha ? 'Arraste a bolha para escolher onde seu rosto aparece no vídeo' : 'Vá para o que quer mostrar', W / 2, H / 2 + H * 0.04);
   v.textAlign = 'start';
   if (g.bolha && g.camVideo.readyState >= 2) desenharBolha(v, g, W, H);
+  desenharPip(g);
 }
 
 function desenharBolha(ctx, g, W, H){
@@ -851,12 +919,14 @@ document.getElementById('range-bolha').addEventListener('input', function(){
 // ---------- contagem 3-2-1 e gravação ----------
 function contagem(g){
   var el = document.getElementById('contagem'), n = 3;
-  g.contando = true;
+  g.contando = true; g.contagemN = n;
   document.getElementById('estado-gravacao').textContent = 'Começa em';
   el.textContent = n; el.hidden = false;
+  atualizarPip();
   g.timerContagem = setInterval(function(){
     n--;
-    if (n > 0) { el.textContent = n; return; }
+    g.contagemN = n;
+    if (n > 0) { el.textContent = n; atualizarPip(); return; }
     clearInterval(g.timerContagem);
     el.hidden = true; g.contando = false;
     iniciarGravacao(g);
@@ -885,7 +955,8 @@ function iniciarGravacao(g){
   rec.ondataavailable = function(e){ if (e.data && e.data.size) g.chunks.push(e.data); };
   rec.onstop = function(){ finalizarGravacao(g); };
   // O professor clicou em "Parar de compartilhar" na barra do navegador.
-  if (g.tela) g.tela.getVideoTracks()[0].addEventListener('ended', function(){ parar(); });
+  // (guarda: ao reiniciar a gravação esta função roda de novo e não pode duplicar o aviso)
+  if (g.tela && !g.escutaFim) { g.escutaFim = true; g.tela.getVideoTracks()[0].addEventListener('ended', function(){ parar(); }); }
 
   rec.start(1000);
   // Tempo medido no relógio de verdade (descontando pausas), não contando "tiques":
@@ -895,11 +966,14 @@ function iniciarGravacao(g){
     if (g.parando) return;
     g.segundos = segundosGravados(g);
     document.getElementById('tempo').textContent = fmtTempo(g.segundos);
+    atualizarPip();
     if (g.segundos >= DURACAO_MAX) { toast('Chegou no limite de ' + Math.round(DURACAO_MAX / 60) + ' minutos.'); parar(); }
   });
   document.getElementById('estado-gravacao').textContent = 'Gravando';
   document.getElementById('cronometro').classList.remove('pausado');
   document.getElementById('btn-pausar').disabled = false;
+  atualizarBotoesReinicio();
+  atualizarPip();
 }
 
 function segundosGravados(g){
@@ -907,14 +981,122 @@ function segundosGravados(g){
   return Math.max(0, (agora - g.inicio - g.tempoPausado) / 1000);
 }
 
-document.getElementById('btn-pausar').addEventListener('click', function(){
-  var g = gravacao; if (!g || !g.rec) return;
-  if (g.pausado) { g.rec.resume(); g.tempoPausado += Date.now() - g.pausadoEm; g.pausado = false; this.textContent = '⏸ Pausar'; }
-  else { g.rec.pause(); g.pausadoEm = Date.now(); g.pausado = true; this.textContent = '● Continuar'; }
+function alternarPausa(){
+  var g = gravacao; if (!g || !g.rec || g.parando) return;
+  if (g.pausado) { g.rec.resume(); g.tempoPausado += Date.now() - g.pausadoEm; g.pausado = false; }
+  else { g.rec.pause(); g.pausadoEm = Date.now(); g.pausado = true; }
+  document.getElementById('btn-pausar').textContent = g.pausado ? '● Continuar' : '⏸ Pausar';
   document.getElementById('estado-gravacao').textContent = g.pausado ? 'Pausado' : 'Gravando';
   document.getElementById('cronometro').classList.toggle('pausado', g.pausado);
-});
+  atualizarPip();
+}
+document.getElementById('btn-pausar').addEventListener('click', alternarPausa);
 document.getElementById('btn-parar').addEventListener('click', function(){ parar(); });
+
+// ---------- reiniciar a gravação ----------
+// Apaga o que já foi gravado e recomeça (com a contagem 3-2-1) mantendo a tela e a câmera
+// já liberadas. Pede um segundo clique pra confirmar — sem janela de "confirm", que
+// travaria o desenho do quadro (e congelaria o vídeo) enquanto estivesse aberta.
+function atualizarBotoesReinicio(){
+  var g = gravacao, confirmando = !!(g && g.confirmandoReinicio);
+  var txt = confirmando ? 'Apagar tudo e recomeçar?' : '↻ Reiniciar';
+  var b = document.getElementById('btn-reiniciar');
+  b.textContent = txt; b.classList.toggle('destaque', confirmando);
+  b.disabled = !(g && g.rec && !g.parando);
+  if (pip) { pip.pr.textContent = confirmando ? 'Apagar e recomeçar?' : '↻'; pip.pr.style.background = confirmando ? '#b91c1c' : ''; }
+}
+function reiniciar(){
+  var g = gravacao; if (!g || g.parando || g.contando || !g.rec) return;
+  if (g.segundos >= 3 && !g.confirmandoReinicio) {
+    g.confirmandoReinicio = true; atualizarBotoesReinicio();
+    clearTimeout(g.timerReinicio);
+    g.timerReinicio = setTimeout(function(){ g.confirmandoReinicio = false; atualizarBotoesReinicio(); }, 5000);
+    return;
+  }
+  clearTimeout(g.timerReinicio); g.confirmandoReinicio = false;
+  g.cronometro.parar();
+  var rec = g.rec; rec.ondataavailable = null; rec.onstop = null;
+  try { if (rec.state !== 'inactive') rec.stop(); } catch (e) {}
+  g.rec = null; g.chunks = []; g.segundos = 0; g.pausado = false; g.tempoPausado = 0;
+  if (g.audioCtx) { try { g.audioCtx.close(); } catch (e) {} g.audioCtx = null; }
+  g.anotacoes = []; g.historia = []; g.rascunho = null; g.angulo = null; fecharTexto(false);
+  document.getElementById('tempo').textContent = '00:00';
+  document.getElementById('btn-pausar').textContent = '⏸ Pausar';
+  document.getElementById('btn-pausar').disabled = true;
+  document.getElementById('cronometro').classList.add('pausado');
+  atualizarBotoesReinicio();
+  contagem(g);
+}
+document.getElementById('btn-reiniciar').addEventListener('click', reiniciar);
+
+// ---------- câmera flutuante (ver a si mesmo enquanto grava) ----------
+// Janela "Picture-in-Picture" de documento (Chrome/Edge/Opera recentes): fica por cima de
+// todas as outras janelas, então dá pra ver o quadro e se a câmera está cobrindo o que
+// importa mesmo com a ferramenta escondida atrás do que está sendo mostrado. Tem também
+// pausar, parar e reiniciar, pra controlar a gravação sem voltar pra esta aba.
+// Em TELA INTEIRA o quadro gravado contém a própria janela flutuante (espelho infinito),
+// então ali ela mostra só a câmera; em janela/aba/câmera mostra o quadro exatamente como
+// está sendo gravado.
+var pip = null;
+function pipSuportado(){ return !!(window.documentPictureInPicture && window.documentPictureInPicture.requestWindow); }
+function atualizarBotaoPip(){
+  var b = document.getElementById('btn-pip');
+  b.hidden = !(gravacao && pipSuportado());
+  b.textContent = pip ? '🪟 Fechar a câmera flutuante' : '🪟 Ver minha câmera por cima';
+}
+function abrirPip(){
+  var g = gravacao;
+  if (!g || !pipSuportado()) return;
+  if (pip) { try { pip.win.focus(); } catch (e) {} return; }
+  var W = 340, asp = Math.min(0.75, g.recCanvas.height / g.recCanvas.width);
+  window.documentPictureInPicture.requestWindow({ width: W, height: Math.round(W * asp) + 62 }).then(function(win){
+    var d = win.document;
+    var st = d.createElement('style');
+    st.textContent = 'html,body{margin:0;height:100%;background:#0d0d0d;color:#f0f0f0;font:700 12px Inter,system-ui,sans-serif}body{display:flex;flex-direction:column}' +
+      'canvas{flex:1 1 auto;min-height:0;width:100%;background:#000}.b{display:flex;align-items:center;gap:6px;padding:6px 8px}' +
+      '.b button{background:#1a1a1a;color:#f0f0f0;border:1px solid #2a2a2a;border-radius:7px;padding:6px 9px;font:700 12px Inter,system-ui,sans-serif;cursor:pointer}' +
+      '.b button:hover{border-color:#7FFF00}.b .t{margin-right:auto;font-variant-numeric:tabular-nums;color:#ef4444;white-space:nowrap}.b .t.p{color:#aeaeae}';
+    d.head.appendChild(st);
+    var c = d.createElement('canvas'); c.width = 640; c.height = Math.round(640 * asp);
+    var b = d.createElement('div'); b.className = 'b';
+    b.innerHTML = '<span class="t">●</span><button title="Pausar / continuar">⏸</button><button title="Apagar e recomeçar do zero">↻</button><button title="Parar e conferir o vídeo">■ Parar</button>';
+    d.body.appendChild(c); d.body.appendChild(b);
+    var bts = b.querySelectorAll('button');
+    pip = { win: win, canvas: c, ctx: c.getContext('2d'), t: b.querySelector('.t'), pp: bts[0], pr: bts[1] };
+    bts[0].onclick = alternarPausa; bts[1].onclick = reiniciar; bts[2].onclick = function(){ parar(); };
+    win.addEventListener('pagehide', function(){ pip = null; atualizarBotaoPip(); });
+    atualizarBotaoPip(); atualizarPip(); atualizarBotoesReinicio();
+  }).catch(function(e){
+    toast('Não consegui abrir a câmera flutuante' + (e && e.message ? ': ' + e.message : '.'));
+  });
+}
+function fecharPip(){ if (pip) { try { pip.win.close(); } catch (e) {} pip = null; } atualizarBotaoPip(); }
+document.getElementById('btn-pip').addEventListener('click', function(){ if (pip) fecharPip(); else abrirPip(); });
+
+function atualizarPip(){
+  var g = gravacao, p = pip; if (!p || !g) return;
+  var txt = g.contando ? 'Começa em ' + g.contagemN : (g.pausado ? '❚❚ ' : '● ') + fmtTempo(g.segundos || 0) + ' / ' + fmtTempo(DURACAO_MAX);
+  p.t.textContent = txt; p.t.classList.toggle('p', !!g.pausado || !!g.contando);
+  p.pp.textContent = g.pausado ? '●' : '⏸';
+  p.pp.disabled = !g.rec;
+}
+function desenharPip(g){
+  var p = pip; if (!p) return;
+  var ctx = p.ctx, W = p.canvas.width, H = p.canvas.height;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  var cam = g.camVideo && g.camVideo.readyState >= 2 && g.camVideo.videoWidth ? g.camVideo : null;
+  if (telaInteira(g) && cam) {
+    var k = Math.max(W / cam.videoWidth, H / cam.videoHeight), tw = cam.videoWidth * k, th = cam.videoHeight * k;
+    ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1); ctx.drawImage(cam, (W - tw) / 2, (H - th) / 2, tw, th); ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, H - 34, W, 34);
+    ctx.fillStyle = '#fff'; ctx.font = '600 15px Inter, sans-serif'; ctx.textBaseline = 'middle';
+    ctx.fillText('Gravando a tela inteira · aqui só você', 10, H - 17);
+  } else {
+    var f = telaInteira(g) ? g.canvas : g.recCanvas;
+    var k2 = Math.min(W / f.width, H / f.height), tw2 = f.width * k2, th2 = f.height * k2;
+    ctx.drawImage(f, (W - tw2) / 2, (H - th2) / 2, tw2, th2);
+  }
+}
 
 function parar(){
   var g = gravacao; if (!g || g.parando) return;
@@ -933,6 +1115,9 @@ function parar(){
 
 function encerrarRecursos(g){
   if (g.relogio) g.relogio.parar();
+  clearTimeout(g.timerReinicio);
+  fecharPip();
+  try { navigator.mediaSession.setActionHandler('enterpictureinpicture', null); } catch (e) {}
   g.streams.forEach(pararTracks);
   if (g.audioCtx) g.audioCtx.close();
   fecharTexto(false);
@@ -940,6 +1125,8 @@ function encerrarRecursos(g){
   document.getElementById('cronometro').classList.add('pausado');
   document.getElementById('estado-gravacao').textContent = 'Preparando…';
   document.getElementById('btn-pausar').disabled = true;
+  atualizarBotoesReinicio();
+  atualizarBotaoPip();
   atualizarDiagnostico();
 }
 
@@ -964,6 +1151,362 @@ function finalizarGravacao(g){
   document.getElementById('envio').hidden = true;
   travarSalvar(false);
   mostrarEtapa('etapa-salvar');
+  otimizarGravacao(g.segundos);
+}
+
+// ---------- editor de cortes ----------
+// Funciona tanto na gravação que acabou de ser feita quanto numa já salva (ver editarSalvo).
+// A linha do tempo mostra a onda sonora (pra achar a palavra errada), aceita arrastar pra
+// selecionar um trecho, e os cortes só são aplicados ao clicar em "Aplicar os cortes"
+// (editor.js refaz o MP4 sem os trechos). Na prévia, os trechos marcados já são pulados.
+var EDITOR_OK = !!(window.IntusEditorVideo && window.IntusEditorVideo.suportado());
+var ed = { aberto: false, dur: 0, cortes: [], sel: null, picos: null, vis: { ini: 0, dur: 1 }, drag: null, original: null, ocupado: false, paraEm: null, raf: 0 };
+var edLinha = document.getElementById('ed-linha'), edCtx = edLinha.getContext('2d');
+var edPrev = document.getElementById('previa');
+var preparando = false;
+var editandoSalvo = null;       // { f } enquanto edita uma gravação que já está salva
+
+function fmtT(t){ t = Math.max(0, t); var m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
+function edDur(){ var d = edPrev.duration; return isFinite(d) && d > 0 ? d : (duracaoFinal || 1); }
+function atualizarBotaoSalvar(){
+  document.getElementById('btn-salvar').disabled = preparando || ed.ocupado || (!!editandoSalvo && !ed.original);
+}
+
+function edAbrir(){
+  var painel = document.getElementById('editor'), nota = document.getElementById('ed-indisponivel');
+  ed.cortes = []; ed.sel = null; ed.original = null; ed.picos = null; ed.ocupado = false; ed.paraEm = null;
+  document.getElementById('ed-original').hidden = true;
+  document.getElementById('ed-erro').hidden = true;
+  document.getElementById('ed-progresso').hidden = true;
+  atualizarBotaoSalvar();
+  if (!EDITOR_OK || mimeFinal !== 'video/mp4' || !blobFinal) { painel.hidden = true; nota.hidden = !blobFinal; ed.aberto = false; return; }
+  nota.hidden = true; painel.hidden = false; ed.aberto = true;
+  edReiniciarVista();
+  edCarregarPicos();
+  edRenderCortes(); edAtualizarSelecao(); edDesenhar();
+}
+function edFechar(){
+  ed.aberto = false; cancelAnimationFrame(ed.raf);
+  document.getElementById('editor').hidden = true;
+  document.getElementById('ed-indisponivel').hidden = true;
+  ed.cortes = []; ed.sel = null; ed.original = null; ed.picos = null; ed.ocupado = false;
+}
+function edReiniciarVista(){ ed.dur = edDur(); ed.vis = { ini: 0, dur: ed.dur }; edLimitarVista(); }
+function edCarregarPicos(){
+  var alvo = blobFinal;
+  IntusEditorVideo.picos(alvo).then(function(p){ if (p && alvo === blobFinal) { ed.picos = p; edDesenhar(); } });
+}
+function edLimitarVista(){
+  var v = ed.vis;
+  v.dur = Math.max(Math.min(2, ed.dur), Math.min(ed.dur, v.dur));
+  v.ini = Math.max(0, Math.min(ed.dur - v.dur, v.ini));
+  var pan = document.getElementById('ed-pan');
+  pan.hidden = v.dur >= ed.dur - 0.01;
+  pan.value = ed.dur - v.dur > 0 ? Math.round(v.ini / (ed.dur - v.dur) * 1000) : 0;
+}
+function edZoom(fator, centro){
+  var v = ed.vis, c = centro == null ? v.ini + v.dur / 2 : centro, prop = (c - v.ini) / v.dur;
+  v.dur = v.dur / fator; v.ini = c - prop * v.dur;
+  edLimitarVista(); edDesenhar();
+}
+
+function edDesenhar(){
+  if (!ed.aberto) return;
+  var c = edLinha, W = c.clientWidth || 600, H = 96, dpr = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  var x = edCtx; x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.fillStyle = '#0a0a0a'; x.fillRect(0, 0, W, H);
+  var v = ed.vis, topo = H - 18, meio = topo / 2;
+  function X(t){ return (t - v.ini) / v.dur * W; }
+  if (ed.picos) {
+    var pps = ed.picos.porSeg, arr = ed.picos.picos;
+    x.fillStyle = '#4d8a1f';
+    for (var px = 0; px < W; px++) {
+      var i1 = Math.floor((v.ini + px / W * v.dur) * pps), i2 = Math.max(i1 + 1, Math.ceil((v.ini + (px + 1) / W * v.dur) * pps)), m = 0;
+      for (var i = i1; i < i2 && i < arr.length; i++) if (i >= 0 && arr[i] > m) m = arr[i];
+      var h = Math.max(1, m / 255 * (meio - 2));
+      x.fillRect(px, meio - h, 1, h * 2);
+    }
+  } else {
+    x.fillStyle = '#2a2a2a'; x.fillRect(0, meio, W, 1);
+    x.fillStyle = '#828282'; x.font = '11px Inter, sans-serif'; x.fillText('(onda sonora indisponível)', 8, 14);
+  }
+  ed.cortes.forEach(function(c2){
+    var a = X(c2.ini), b = X(c2.fim);
+    if (b < 0 || a > W) return;
+    x.fillStyle = 'rgba(239,68,68,.45)'; x.fillRect(a, 0, Math.max(1, b - a), topo);
+    x.fillStyle = 'rgba(239,68,68,.95)'; x.fillRect(a, 0, 1, topo); x.fillRect(b - 1, 0, 1, topo);
+  });
+  if (ed.sel) {
+    var a2 = X(ed.sel.a), b2 = X(ed.sel.b);
+    x.fillStyle = 'rgba(127,255,0,.22)'; x.fillRect(a2, 0, b2 - a2, topo);
+    x.fillStyle = '#7FFF00'; x.fillRect(a2 - 1, 0, 2, topo); x.fillRect(b2 - 1, 0, 2, topo);
+  }
+  var passos = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600], alvo = v.dur / (W / 90), passo = passos[passos.length - 1];
+  for (var k = 0; k < passos.length; k++) if (passos[k] >= alvo) { passo = passos[k]; break; }
+  x.fillStyle = '#828282'; x.font = '10px Inter, sans-serif';
+  for (var t = Math.ceil(v.ini / passo) * passo; t < v.ini + v.dur; t += passo) {
+    var p2 = X(t); x.fillRect(p2, topo, 1, 5); x.fillText(fmtT(t).replace(/\.0$/, ''), p2 + 3, H - 3);
+  }
+  var ph = X(edPrev.currentTime || 0);
+  if (ph >= 0 && ph <= W) { x.fillStyle = '#fff'; x.fillRect(ph - 1, 0, 2, topo); }
+  document.getElementById('ed-tempo').textContent = fmtT(edPrev.currentTime || 0) + ' / ' + fmtT(ed.dur);
+}
+
+function edTempoDeX(e){
+  var r = edLinha.getBoundingClientRect();
+  return Math.max(0, Math.min(ed.dur, ed.vis.ini + (e.clientX - r.left) / r.width * ed.vis.dur));
+}
+function edPertoDaBorda(t){
+  if (!ed.sel) return null;
+  var pxSeg = edLinha.getBoundingClientRect().width / ed.vis.dur;
+  if (Math.abs(t - ed.sel.a) * pxSeg < 8) return 'a';
+  if (Math.abs(t - ed.sel.b) * pxSeg < 8) return 'b';
+  return null;
+}
+edLinha.addEventListener('pointerdown', function(e){
+  if (!ed.aberto || ed.ocupado) return;
+  edLinha.setPointerCapture(e.pointerId);
+  var t = edTempoDeX(e);
+  ed.drag = { borda: edPertoDaBorda(t), ancora: t, x0: e.clientX, moveu: false };
+});
+edLinha.addEventListener('pointermove', function(e){
+  if (!ed.aberto) return;
+  var d = ed.drag;
+  if (!d) { edLinha.style.cursor = edPertoDaBorda(edTempoDeX(e)) ? 'ew-resize' : 'crosshair'; return; }
+  if (Math.abs(e.clientX - d.x0) > 3) d.moveu = true;
+  if (!d.moveu) return;
+  var t = edTempoDeX(e);
+  if (d.borda) {
+    ed.sel[d.borda] = t;
+    if (ed.sel.a > ed.sel.b) { var tmp = ed.sel.a; ed.sel.a = ed.sel.b; ed.sel.b = tmp; d.borda = d.borda === 'a' ? 'b' : 'a'; }
+  } else ed.sel = { a: Math.min(d.ancora, t), b: Math.max(d.ancora, t) };
+  edAtualizarSelecao(); edDesenhar();
+});
+function edSoltar(){
+  var d = ed.drag; ed.drag = null;
+  if (!d) return;
+  if (!d.moveu) { edPrev.currentTime = d.ancora; ed.sel = null; }
+  else {
+    if (ed.sel && ed.sel.b - ed.sel.a < 0.05) ed.sel = null;
+    if (ed.sel && !d.borda) edPrev.currentTime = ed.sel.a;
+  }
+  edAtualizarSelecao(); edDesenhar();
+}
+edLinha.addEventListener('pointerup', edSoltar);
+edLinha.addEventListener('pointercancel', edSoltar);
+edLinha.addEventListener('wheel', function(e){
+  if (!ed.aberto) return;
+  e.preventDefault();
+  edZoom(e.deltaY < 0 ? 1.3 : 1 / 1.3, edTempoDeX(e));
+}, { passive: false });
+document.getElementById('ed-pan').addEventListener('input', function(){
+  ed.vis.ini = Number(this.value) / 1000 * (ed.dur - ed.vis.dur);
+  edDesenhar();
+});
+
+function edAtualizarSelecao(){
+  var s = ed.sel;
+  document.getElementById('ed-selecao').textContent = s ? 'Seleção: ' + fmtT(s.a) + ' → ' + fmtT(s.b) + ' (' + (s.b - s.a).toFixed(1).replace('.', ',') + ' s)' : '';
+  ['ed-ouvir', 'ed-ampliar', 'ed-cortar'].forEach(function(id){ document.getElementById(id).disabled = !s || ed.ocupado; });
+}
+function edRenderCortes(){
+  var wrap = document.getElementById('ed-cortes');
+  wrap.innerHTML = '';
+  var total = 0;
+  ed.cortes.forEach(function(c, i){
+    total += c.fim - c.ini;
+    var chip = document.createElement('span'); chip.className = 'ed-chip';
+    chip.innerHTML = '<span style="cursor:pointer" title="Ir até esse corte">✂ ' + fmtT(c.ini) + ' → ' + fmtT(c.fim) + ' (' + (c.fim - c.ini).toFixed(1).replace('.', ',') + ' s)</span><button title="Desfazer este corte">✕</button>';
+    chip.firstChild.addEventListener('click', function(){ edPrev.currentTime = Math.max(0, c.ini - 1); });
+    chip.lastChild.addEventListener('click', function(){ if (ed.ocupado) return; ed.cortes.splice(i, 1); edRenderCortes(); edDesenhar(); });
+    wrap.appendChild(chip);
+  });
+  document.getElementById('ed-resumo').textContent = ed.cortes.length
+    ? 'Vai tirar ' + total.toFixed(1).replace('.', ',') + ' s: o vídeo vai de ' + fmtT(ed.dur) + ' para ' + fmtT(Math.max(0, ed.dur - total)) + '. Ouça o resultado (os trechos em vermelho são pulados) e clique em "Aplicar os cortes".'
+    : 'Nenhum trecho cortado ainda.';
+  document.getElementById('ed-aplicar').disabled = !ed.cortes.length || ed.ocupado;
+}
+function edAddCorte(a, b){
+  if (ed.ocupado) return;
+  if (b - a < 0.05) { toast('Escolha um trecho maior que 0,05 s.'); return; }
+  ed.cortes.push({ ini: a, fim: b });
+  ed.cortes.sort(function(x, y){ return x.ini - y.ini; });
+  var m = [];
+  ed.cortes.forEach(function(c){ var u = m[m.length - 1]; if (u && c.ini <= u.fim) u.fim = Math.max(u.fim, c.fim); else m.push({ ini: c.ini, fim: c.fim }); });
+  ed.cortes = m; ed.sel = null;
+  edRenderCortes(); edAtualizarSelecao(); edDesenhar();
+}
+
+// Prévia: toca pulando os cortes marcados.
+function edLoop(){
+  ed.raf = 0;
+  if (!ed.aberto || edPrev.paused) { edDesenhar(); return; }
+  var t = edPrev.currentTime;
+  if (ed.paraEm != null && t >= ed.paraEm) { edPrev.pause(); ed.paraEm = null; }
+  else for (var i = 0; i < ed.cortes.length; i++) {
+    var c = ed.cortes[i];
+    if (t >= c.ini && t < c.fim - 0.03) { edPrev.currentTime = c.fim; break; }
+  }
+  var v = ed.vis;
+  if (edPrev.currentTime < v.ini || edPrev.currentTime > v.ini + v.dur) { v.ini = Math.max(0, edPrev.currentTime - v.dur * 0.1); edLimitarVista(); }
+  edDesenhar();
+  ed.raf = requestAnimationFrame(edLoop);
+}
+edPrev.addEventListener('play', function(){
+  document.getElementById('ed-play').textContent = '❚❚ Pausar';
+  if (ed.aberto && !ed.raf) ed.raf = requestAnimationFrame(edLoop);
+});
+edPrev.addEventListener('pause', function(){ document.getElementById('ed-play').textContent = '▶ Tocar'; edDesenhar(); });
+['seeked', 'timeupdate'].forEach(function(n){ edPrev.addEventListener(n, function(){ if (!ed.raf) edDesenhar(); }); });
+['loadedmetadata', 'durationchange'].forEach(function(n){
+  edPrev.addEventListener(n, function(){
+    if (!ed.aberto) return;
+    var nd = edDur();
+    if (Math.abs(nd - ed.dur) > 0.05) { var tudo = ed.vis.dur >= ed.dur - 0.01; ed.dur = nd; if (tudo) ed.vis = { ini: 0, dur: nd }; edLimitarVista(); edDesenhar(); }
+  });
+});
+window.addEventListener('resize', function(){ edDesenhar(); });
+
+document.getElementById('ed-play').addEventListener('click', function(){ if (edPrev.paused) edPrev.play().catch(function(){}); else edPrev.pause(); });
+document.getElementById('ed-zoom-mais').addEventListener('click', function(){ edZoom(1.6, edPrev.currentTime); });
+document.getElementById('ed-zoom-menos').addEventListener('click', function(){ edZoom(1 / 1.6, edPrev.currentTime); });
+document.getElementById('ed-zoom-tudo').addEventListener('click', function(){ ed.vis = { ini: 0, dur: ed.dur }; edLimitarVista(); edDesenhar(); });
+document.getElementById('ed-ouvir').addEventListener('click', function(){
+  if (!ed.sel) return;
+  edPrev.currentTime = ed.sel.a; ed.paraEm = ed.sel.b; edPrev.play().catch(function(){});
+});
+document.getElementById('ed-ampliar').addEventListener('click', function(){
+  if (!ed.sel) return;
+  var pad = Math.max(0.5, (ed.sel.b - ed.sel.a) * 0.5);
+  ed.vis = { ini: ed.sel.a - pad, dur: (ed.sel.b - ed.sel.a) + pad * 2 }; edLimitarVista(); edDesenhar();
+});
+document.getElementById('ed-cortar').addEventListener('click', function(){ if (ed.sel) edAddCorte(ed.sel.a, ed.sel.b); });
+document.getElementById('ed-cortar-ini').addEventListener('click', function(){ edAddCorte(0, edPrev.currentTime); });
+document.getElementById('ed-cortar-fim').addEventListener('click', function(){ edAddCorte(edPrev.currentTime, ed.dur); });
+
+function edOcupar(sim, texto){
+  ed.ocupado = sim;
+  document.getElementById('ed-progresso').hidden = !sim;
+  if (sim) { document.getElementById('ed-barra').style.width = '0'; document.getElementById('ed-status').textContent = texto || ''; document.getElementById('ed-erro').hidden = true; }
+  ['ed-play', 'ed-zoom-mais', 'ed-zoom-menos', 'ed-zoom-tudo', 'ed-cortar-ini', 'ed-cortar-fim', 'ed-original'].forEach(function(id){ document.getElementById(id).disabled = sim; });
+  edAtualizarSelecao(); edRenderCortes(); atualizarBotaoSalvar();
+}
+document.getElementById('ed-aplicar').addEventListener('click', function(){
+  if (!ed.cortes.length || ed.ocupado || !blobFinal) return;
+  edPrev.pause();
+  edOcupar(true, 'Cortando… 0%');
+  var antes = { blob: blobFinal, dur: duracaoFinal }, alvo = blobFinal;
+  IntusEditorVideo.aplicarCortes(blobFinal, ed.cortes, function(p){
+    document.getElementById('ed-barra').style.width = Math.round(p * 100) + '%';
+    document.getElementById('ed-status').textContent = 'Cortando… ' + Math.round(p * 100) + '%';
+  }).then(function(r){
+    return validarVideo(r.blob, r.duracao).then(function(dur){
+      if (!dur) throw new Error('o vídeo editado não passou na conferência');
+      if (blobFinal !== alvo) return false;                    // descartou enquanto cortava
+      if (!ed.original) ed.original = antes;                   // o que existia antes da 1ª edição
+      blobFinal = r.blob; duracaoFinal = Math.round(dur);
+      return true;
+    });
+  }).then(function(aplicou){
+    if (!aplicou) return;
+    ed.cortes = []; ed.sel = null; ed.picos = null;
+    recarregarPrevia();
+    edReiniciarVista(); edCarregarPicos();
+    document.getElementById('ed-original').hidden = false;
+    toast('Cortes aplicados: ' + fmtT(antes.dur) + ' → ' + fmtT(duracaoFinal));
+  }).catch(function(e){
+    console.error('[feedback-video] corte falhou:', e);
+    var el = document.getElementById('ed-erro'); el.textContent = 'Não consegui cortar o vídeo: ' + (e && e.message ? e.message : e) + '. O vídeo continua como estava.'; el.hidden = false;
+  }).then(function(){ edOcupar(false); edDesenhar(); });
+});
+document.getElementById('ed-original').addEventListener('click', function(){
+  if (!ed.original || ed.ocupado) return;
+  if (!confirm('Voltar ao vídeo de antes dos cortes? Os cortes já aplicados serão desfeitos.')) return;
+  blobFinal = ed.original.blob; duracaoFinal = ed.original.dur; ed.original = null;
+  ed.cortes = []; ed.sel = null; ed.picos = null;
+  recarregarPrevia(); edReiniciarVista(); edCarregarPicos();
+  document.getElementById('ed-original').hidden = true;
+  edRenderCortes(); edAtualizarSelecao(); atualizarBotaoSalvar(); edDesenhar();
+});
+
+// ---------- editar uma gravação que já está salva ----------
+// Baixa o vídeo do servidor, abre no mesmo editor e, ao final, SUBSTITUI o arquivo: o link,
+// o título, os comentários e a reação do aluno continuam os mesmos.
+function mostrarModoSalvo(sim){
+  document.querySelectorAll('#etapa-salvar .campo').forEach(function(c){ c.hidden = sim; });
+  document.getElementById('info-salvo').hidden = !sim;
+  document.getElementById('titulo-salvar').textContent = sim ? 'Editar gravação salva' : 'Confira antes de enviar';
+  document.getElementById('btn-salvar').textContent = sim ? 'Substituir o vídeo salvo' : 'Salvar e gerar link';
+  document.getElementById('btn-descartar').textContent = sim ? 'Cancelar a edição' : 'Descartar e regravar';
+}
+function carregarPlayerFeedback(){
+  if (window.IntusFeedbackPlayer && window.IntusFeedbackPlayer.baixar) return Promise.resolve();
+  return new Promise(function(resolve, reject){
+    var s = document.createElement('script'); s.src = '/feedback/player.js?v=20261015a';
+    s.onload = resolve; s.onerror = function(){ reject(new Error('não consegui carregar o leitor de vídeo')); };
+    document.head.appendChild(s);
+  });
+}
+function editarSalvo(f){
+  if (gravacao || (blobFinal && !document.getElementById('etapa-salvar').hidden)) { alert('Termine, envie ou descarte a gravação que está aberta antes de editar outra.'); return; }
+  if (!EDITOR_OK) { alert('Editar vídeo precisa do Chrome, do Edge ou do Opera (versões recentes).'); return; }
+  if (String(f.mime || '').split(';')[0] !== 'video/mp4') { alert('Este vídeo foi gravado em WebM e só dá para cortar vídeos em MP4.'); return; }
+  editandoSalvo = { f: f };
+  blobFinal = null; mimeFinal = 'video/mp4'; duracaoFinal = f.duracao_seg || 0;
+  edFechar();
+  var prev = document.getElementById('previa');
+  if (prev.src) { URL.revokeObjectURL(prev.src); prev.removeAttribute('src'); prev.load(); }
+  document.getElementById('info-salvo').innerHTML = 'Editando: <b>' + esc(f.titulo || '(sem título)') + '</b> · ' + esc(f.aluno_nome || '') + '. O link continua o mesmo e o aluno vê o vídeo novo; o antigo é substituído só quando você clicar em "Substituir o vídeo salvo".';
+  mostrarModoSalvo(true);
+  erro('erro-salvar', ''); document.getElementById('envio').hidden = true;
+  travarSalvar(false);
+  preparando = true; atualizarBotaoSalvar();
+  document.getElementById('info-video').textContent = 'Baixando o vídeo salvo… 0%';
+  mostrarEtapa('etapa-salvar');
+  document.getElementById('etapa-salvar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  carregarPlayerFeedback().then(function(){
+    return window.IntusFeedbackPlayer.baixar(f.video_url, 'video/mp4', function(p){
+      document.getElementById('info-video').textContent = 'Baixando o vídeo salvo… ' + Math.round(p * 100) + '%';
+    });
+  }).then(function(blob){
+    if (!editandoSalvo || editandoSalvo.f !== f) return;      // cancelou enquanto baixava
+    blobFinal = blob;
+    recarregarPrevia();
+    otimizarGravacao(f.duracao_seg || 0);
+  }).catch(function(e){
+    if (!editandoSalvo || editandoSalvo.f !== f) return;
+    preparando = false;
+    sairEdicaoSalvo();
+    alert('Não consegui abrir o vídeo salvo para editar: ' + (e && e.message ? e.message : e));
+  });
+}
+function sairEdicaoSalvo(){
+  editandoSalvo = null; preparando = false;
+  descartarGravacao();
+  mostrarModoSalvo(false);
+  document.getElementById('envio').hidden = true;
+  travarSalvar(false);
+  mostrarEtapa('etapa-escolher');
+}
+function substituirSalvo(){
+  var s = editandoSalvo; if (!s || !blobFinal || !ed.original) return;
+  var f = s.f;
+  travarSalvar(true);
+  document.getElementById('envio').hidden = false;
+  progresso(0, 'Preparando o envio...');
+  apiPost('/feedbacks.php?action=editar_iniciar', { id: f.id, mime: mimeFinal, tamanho: blobFinal.size, duracao_seg: duracaoFinal }).then(function(data){
+    if (!data.ok) throw new Error(data.erro || 'o servidor recusou');
+    return enviarPedacos(f.id, data.parte_bytes || 4194304, 'editar_parte');
+  }).then(function(res){
+    toast('Vídeo substituído. O link continua o mesmo.');
+    if (res && res.aviso) alert(res.aviso);
+    sairEdicaoSalvo();
+    carregarLista();
+  }).catch(function(e){
+    travarSalvar(false); atualizarBotaoSalvar();
+    erro('erro-salvar', 'Não consegui enviar: ' + e.message + '. A edição continua aqui; clique em "Substituir o vídeo salvo" de novo. O vídeo que já estava salvo não foi alterado.');
+  });
 }
 
 // ---------- desenho por cima (janela/aba e câmera) ----------
@@ -1166,9 +1709,65 @@ function descartarGravacao(){
   var prev = document.getElementById('previa');
   if (prev.src) { URL.revokeObjectURL(prev.src); prev.removeAttribute('src'); prev.load(); }
   blobFinal = null;
+  edFechar();
+}
+
+// ---------- depois de gravar: reorganizar o MP4 e abrir o editor ----------
+// O MP4 que o navegador grava vem "fragmentado" e sem duração; o Chrome/Edge/Opera precisam
+// varrer o arquivo todo pra tocar (e o aluno nesses navegadores esperava minutos). editor.js
+// refaz o arquivo sem recodificar (rápido e sem perda), com a duração certa e o índice no
+// começo. Só vale se o resultado abrir direito e tiver a duração esperada; senão fica o original.
+function validarVideo(blob, esperado){
+  return new Promise(function(resolve){
+    var v = document.createElement('video'), url = URL.createObjectURL(blob), t, feito = false;
+    function fim(dur){
+      if (feito) return; feito = true; clearTimeout(t);
+      v.onloadedmetadata = v.onerror = null; v.removeAttribute('src'); try { v.load(); } catch (e) {}
+      URL.revokeObjectURL(url); resolve(dur || 0);   // 0 = não passou
+    }
+    v.preload = 'metadata'; v.muted = true;
+    v.onloadedmetadata = function(){
+      var d = v.duration;
+      var bom = isFinite(d) && d > 0 && v.videoWidth > 0 && (!esperado || Math.abs(d - esperado) <= Math.max(3, esperado * 0.06));
+      fim(bom ? d : 0);
+    };
+    v.onerror = function(){ fim(0); };
+    t = setTimeout(function(){ fim(0); }, 20000);
+    v.src = url;
+  });
+}
+function recarregarPrevia(){
+  var prev = document.getElementById('previa');
+  if (prev.src) URL.revokeObjectURL(prev.src);
+  prev.src = URL.createObjectURL(blobFinal);
+  corrigirDuracao(prev);
+  document.getElementById('info-video').textContent = fmtTempo(duracaoFinal) + ' · ' + fmtMB(blobFinal.size) + ' · ' + (mimeFinal === 'video/mp4' ? 'MP4' : 'WebM');
+}
+function otimizarGravacao(segundos){
+  var blob0 = blobFinal;
+  if (!EDITOR_OK || mimeFinal !== 'video/mp4') { edAbrir(); return; }
+  preparando = true; atualizarBotaoSalvar();
+  document.getElementById('info-video').textContent = 'Preparando o vídeo…';
+  IntusEditorVideo.otimizar(blob0).then(function(r){
+    return validarVideo(r.blob, segundos).then(function(dur){
+      if (!dur) throw new Error('o arquivo reorganizado não passou na conferência');
+      if (blobFinal !== blob0) return;                       // descartou enquanto preparava
+      blobFinal = r.blob; duracaoFinal = Math.round(dur);
+    });
+  }).catch(function(e){ console.warn('[feedback-video] reorganização ignorada:', e); }).then(function(){
+    preparando = false;
+    if (!blobFinal) { atualizarBotaoSalvar(); return; }
+    recarregarPrevia();
+    edAbrir();
+  });
 }
 
 document.getElementById('btn-descartar').addEventListener('click', function(){
+  if (editandoSalvo) {
+    if (ed.original && !confirm('Descartar os cortes feitos? O vídeo salvo continua como estava.')) return;
+    sairEdicaoSalvo();
+    return;
+  }
   if (!confirm('Descartar esta gravação? Ela não foi enviada e vai se perder.')) return;
   descartarGravacao();
   mostrarEtapa('etapa-escolher');
@@ -1186,6 +1785,7 @@ function travarSalvar(sim){
 
 document.getElementById('btn-salvar').addEventListener('click', function(){
   erro('erro-salvar', '');
+  if (editandoSalvo) { substituirSalvo(); return; }
   if (!blobFinal) return;
   if (!alunoSel) { erro('erro-salvar', 'Escolha o aluno na lista que aparece ao digitar o nome.'); return; }
   var titulo = document.getElementById('input-titulo').value.trim();
@@ -1222,12 +1822,13 @@ function progresso(frac, texto){
 
 // Manda um pedaço por vez. Se a rede falhar no meio, tenta de novo o mesmo pedaço
 // (até 4 vezes, esperando cada vez mais); o servidor diz de qual byte continuar.
-function enviarPedacos(id, tamanhoParte){
+function enviarPedacos(id, tamanhoParte, acao){
   var total = blobFinal.size;
+  acao = acao || 'enviar_parte';
   function enviar(inicio, tentativa){
     var fim = Math.min(total, inicio + tamanhoParte);
     progresso(inicio / total, 'Enviando... ' + fmtMB(inicio) + ' de ' + fmtMB(total));
-    return apiFetch('/feedbacks.php?action=enviar_parte&id=' + id + '&inicio=' + inicio, {
+    return apiFetch('/feedbacks.php?action=' + acao + '&id=' + id + '&inicio=' + inicio, {
       method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: blobFinal.slice(inicio, fim)
     }).then(function(data){
       if (!data.ok) throw new Error(data.erro || 'falha no envio');
@@ -1277,7 +1878,7 @@ function carregarLista(){
           '<div class="item-info"><b>' + esc(f.titulo || '(sem título)') + '</b>' +
           '<span>' + esc(f.aluno_nome) + ' · ' + esc(fmtData(f.criado_em)) + ' · ' + fmtTempo(f.duracao_seg) + ' · ' + fmtMB(f.tamanho_bytes) + '</span></div>' +
           selo +
-          (pronto ? '<button class="btn-mini b-play">▶ Assistir</button><button class="btn-mini b-conversa">' + (f.reacao ? esc(f.reacao) + ' ' : '') + '💬 ' + (f.n_comentarios || 0) + '</button><button class="btn-mini b-copiar">Copiar link</button>' +
+          (pronto ? '<button class="btn-mini b-play">▶ Assistir</button><button class="btn-mini b-editar" title="Cortar trechos deste vídeo (o link continua o mesmo)">✂ Editar</button><button class="btn-mini b-conversa">' + (f.reacao ? esc(f.reacao) + ' ' : '') + '💬 ' + (f.n_comentarios || 0) + '</button><button class="btn-mini b-copiar">Copiar link</button>' +
                     '<a class="btn-mini" target="_blank" rel="noopener" href="' + esc(linkWhats(f.link, f.titulo, '')) + '">WhatsApp</a>' : '') +
           '<button class="btn-mini perigo b-excluir">Excluir</button>' +
         '</div>';
@@ -1285,11 +1886,16 @@ function carregarLista(){
         item.querySelector('.b-play').addEventListener('click', function(){
           var v = item.querySelector('video');
           if (v) { v.remove(); return; }
-          v = document.createElement('video'); v.controls = true; v.playsInline = true; v.src = f.video_url;
-          corrigirDuracao(v);
-          item.appendChild(v); v.play().catch(function(){});
+          v = document.createElement('video'); v.controls = true; v.playsInline = true;
+          item.appendChild(v);
+          // leitor compartilhado (/feedback/player.js): no Chrome/Edge/Opera baixa em faixas, senão o MP4 antigo demora minutos pra abrir
+          var aviso = document.createElement('p'); aviso.className = 'info-video'; item.insertBefore(aviso, v);
+          carregarPlayerFeedback().then(function(){
+            return window.IntusFeedbackPlayer.carregar(v, f.video_url, { mime: f.mime, aoMudarEstado: function(t){ aviso.textContent = t || ''; aviso.hidden = !t; } });
+          }).then(function(){ aviso.remove(); v.play().catch(function(){}); }).catch(function(){ aviso.textContent = 'Não consegui tocar este vídeo aqui.'; });
         });
         item.querySelector('.b-copiar').addEventListener('click', function(){ copiar(f.link); });
+        item.querySelector('.b-editar').addEventListener('click', function(){ editarSalvo(f); });
         // Reação e comentários do aluno (a equipe responde aqui; o aluno vê no app e no link).
         item.querySelector('.b-conversa').addEventListener('click', function(){
           var box = item.querySelector('.conversa');

@@ -703,6 +703,23 @@ autorização entre professores, e upload de foto de avaliação pro Drive.
   falhar. O `.htaccess` da raiz passou de `microphone=()` para `microphone=(self)`, porque não dava
   para confirmar daqui se a exceção da pasta valia na KingHost; `feedback-video/.htaccess` agora
   também manda `Cache-Control: no-cache`.
+- **Revisão 4 (15/10/2026), pedido do Luiz:** (1) **limite subiu de 10 para 15 min** (`FB_DURACAO_MAX_SEG = 900` em
+  `feedbacks.php`; o front lê de `action=eu`). (2) **Câmera flutuante**: janela Document Picture-in-Picture (Chrome/Edge/
+  Opera recentes) por cima das outras janelas, com o quadro como está sendo gravado, tempo, pausar, parar e reiniciar;
+  em tela inteira mostra só a câmera (o quadro gravado conteria a própria janela). Precisa de clique do usuário
+  (`btn-pip`); o `mediaSession` `enterpictureinpicture` tenta abrir sozinho ao trocar de aba. (3) **Reiniciar**: apaga o
+  que foi gravado e refaz a contagem 3-2-1 mantendo tela/câmera liberadas (2 cliques pra confirmar, sem `confirm()`,
+  que travaria o desenho do quadro). (4) **Editor de cortes** (`feedback-video/editor.js`): linha do tempo com onda
+  sonora e zoom, arrastar pra selecionar, cortar pontas e meio, prévia que já pula os cortes, "voltar ao original".
+  Por baixo: mp4box.js lê o MP4, o vídeo é decodificado/recodificado só no que fica (WebCodecs, H.264, 1 Mbps), o áudio
+  AAC é copiado quadro a quadro (sem recodificar) e mp4-muxer monta o arquivo. Só MP4 e só Chromium com WebCodecs.
+  (5) **Depois de gravar, o MP4 é reorganizado sem recodificar** (`IntusEditorVideo.otimizar`): índice no começo e
+  duração certa, o que também resolve a demora do Chromium pra abrir (ver `feedback/player.js`); só vale se o
+  resultado passar em `validarVideo`, senão fica o original. (6) **Editar gravação já salva** (botão "✂ Editar" na lista):
+  baixa o vídeo, abre no mesmo editor e **substitui o arquivo mantendo token, link, título, comentários e reação**
+  (`editar_iniciar`/`editar_parte` em `feedbacks.php`, tabela nova `intus_feedback_edicao` com a sessão de upload; o
+  arquivo antigo do Drive só é apagado depois que o novo chega inteiro). `video_url` ganhou `&r=` (muda a cada
+  substituição) pro cache de 1 h do aluno não misturar trechos do vídeo antigo com o novo.
 - **Revisão 3 (30/09), Opera 136 no Windows:** com as permissões já liberadas, apareceu "A câmera ou
   o microfone não abriu" (`NotReadableError`: o Windows não conseguiu ligar o aparelho). Agora
   `abrirMicCamera()` pede os dois juntos e, se o aparelho falhar, tenta cada um separado (a câmera
