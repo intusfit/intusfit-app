@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0d0d10">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Código da Definição</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="cdd.css?v=20261015a">
+</head>
+<body>
+<div id="app"></div>
+<script src="cdd.js?v=20261015a"></script>
+<script>
+(function () {
+  var $app = document.getElementById('app');
+  var esc = CDD.esc;
+  var estado = { eu: null, matricula: null, acesso: false, modulos: null };
+  CDD.tema();
+
+  var LOGO = '<div class="logo"><img src="img/logo-cdd.png" alt="Código da Definição" onerror="this.outerHTML=\'<b>Código da<br>Definição</b><span>CDD</span>\'"></div>';
+  var MARCA = '<a class="marca" href="#/"><img src="img/logo-cdd.png" alt="" onerror="this.remove()"><span>Código da <small>Definição</small></span></a>';
+
+  function msg(t, tipo) { return t ? '<div class="msg ' + (tipo || 'erro') + '">' + esc(t) + '</div>' : ''; }
+
+  /* ---------- telas de entrada ---------- */
+  function telaLogin(aviso, tipo) {
+    $app.innerHTML = '<div class="login">' + LOGO + '<div class="card"><h2 style="margin-bottom:6px">Entrar</h2>' +
+      '<div id="aviso">' + msg(aviso, tipo) + '</div>' +
+      '<form id="f"><label for="em">E-mail</label><input id="em" type="email" autocomplete="username" required>' +
+      '<label for="se">Senha</label><input id="se" type="password" autocomplete="current-password" required>' +
+      '<div class="espaco"></div><button class="btn pri" style="width:100%" id="ok">Entrar</button></form>' +
+      '<p class="sep">Ainda não tem conta? <a href="#/cadastro">Criar conta</a></p>' +
+      '<p class="sep mut">Esqueceu a senha? Peça um novo link de acesso à equipe do CDD.</p></div></div>';
+    document.getElementById('f').onsubmit = async function (e) {
+      e.preventDefault();
+      var b = document.getElementById('ok'); b.disabled = true;
+      var r = await CDD.api('login', { body: { email: document.getElementById('em').value, senha: document.getElementById('se').value } });
+      b.disabled = false;
+      if (!r.ok) { document.getElementById('aviso').innerHTML = msg(r.data.mensagem); return; }
+      CDD.guardar(r.data.token); iniciar();
+    };
+  }
+
+  function telaCadastro(aviso, extra) {
+    $app.innerHTML = '<div class="login">' + LOGO + '<div class="card"><h2 style="margin-bottom:6px">Criar conta</h2>' +
+      '<p class="mut">O Código da Definição é um programa exclusivo para mulheres.</p>' +
+      '<div id="aviso">' + msg(aviso) + (extra || '') + '</div>' +
+      '<form id="f"><label for="no">Nome</label><input id="no" autocomplete="name" required maxlength="160">' +
+      '<label for="em">E-mail</label><input id="em" type="email" autocomplete="username" required>' +
+      '<label for="se">Senha (mínimo 8 caracteres)</label><input id="se" type="password" autocomplete="new-password" minlength="8" required>' +
+      '<label for="sx">Sexo</label><select id="sx" required><option value="">Escolha</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select>' +
+      '<label class="chk"><input type="checkbox" id="ac"><span>Li e aceito os <a href="termos.html" target="_blank" rel="noopener">termos e a política de privacidade</a>.</span></label>' +
+      '<button class="btn pri" style="width:100%" id="ok">Criar conta</button></form>' +
+      '<p class="sep">Já tem conta? <a href="#/">Entrar</a></p></div></div>';
+    document.getElementById('f').onsubmit = async function (e) {
+      e.preventDefault();
+      var b = document.getElementById('ok'); b.disabled = true;
+      var r = await CDD.api('cadastro', { body: { nome: document.getElementById('no').value, email: document.getElementById('em').value, senha: document.getElementById('se').value, sexo: document.getElementById('sx').value, aceite: document.getElementById('ac').checked } });
+      b.disabled = false;
+      if (r.status === 403 && r.data.error === 'exclusivo_mulheres') {
+        document.getElementById('aviso').innerHTML = '<div class="msg aviso">' + esc(r.data.mensagem) + '<div class="espaco"></div><a class="btn pri" href="' + esc(r.data.intus_url) + '" rel="noopener">Conhecer a Intus Fit</a></div>';
+        return;
+      }
+      if (!r.ok) { document.getElementById('aviso').innerHTML = msg(r.data.mensagem); return; }
+      CDD.guardar(r.data.token); location.hash = '#/'; iniciar();
+    };
+  }
+
+  async function telaAtivar(token) {
+    $app.innerHTML = '<div class="login">' + LOGO + '<div class="card" id="c">Conferindo o link...</div></div>';
+    var r = await CDD.api('ativar_info', { q: { t: token } });
+    var c = document.getElementById('c');
+    if (!r.ok) { c.innerHTML = msg(r.data.mensagem) + '<p class="sep"><a href="#/">Ir para o login</a></p>'; return; }
+    c.innerHTML = '<h2 style="margin-bottom:6px">Olá, ' + esc(r.data.nome) + '</h2><p class="mut">Crie a sua senha para entrar no Código da Definição.</p><div id="aviso"></div>' +
+      '<form id="f"><label for="se">Senha (mínimo 8 caracteres)</label><input id="se" type="password" autocomplete="new-password" minlength="8" required>' +
+      '<label class="chk"><input type="checkbox" id="ac"><span>Li e aceito os <a href="termos.html" target="_blank" rel="noopener">termos e a política de privacidade</a>.</span></label>' +
+      '<button class="btn pri" style="width:100%" id="ok">Criar senha e entrar</button></form>';
+    document.getElementById('f').onsubmit = async function (e) {
+      e.preventDefault();
+      if (!document.getElementById('ac').checked) { document.getElementById('aviso').innerHTML = msg('É preciso aceitar os termos.'); return; }
+      var b = document.getElementById('ok'); b.disabled = true;
+      var x = await CDD.api('ativar', { body: { token: token, senha: document.getElementById('se').value } });
+      b.disabled = false;
+      if (!x.ok) { document.getElementById('aviso').innerHTML = msg(x.data.mensagem); return; }
+      CDD.guardar(x.data.token); location.hash = '#/'; iniciar();
+    };
+  }
+
+  /* ---------- área da aluna ---------- */
+  function topo() {
+    return '<div class="topo">' + MARCA + '<nav><a class="btn peq" href="#/">Início</a><a class="btn peq" href="#/conta">Conta</a></nav></div>';
+  }
+  function semAcesso() {
+    var m = estado.matricula || {};
+    var texto = m.status === 'expirada' ? 'Seu acesso expirou. Fale com a equipe do CDD para renovar.'
+      : m.status === 'sem_matricula' ? 'Sua conta está criada. Assim que a equipe liberar a sua matrícula, o conteúdo aparece aqui.'
+      : 'Seu acesso está pausado. Fale com a equipe do CDD.';
+    return '<div class="card"><h2 style="margin-bottom:8px">Olá, ' + esc((estado.eu.nome || '').split(' ')[0]) + '</h2><div class="msg aviso">' + esc(texto) + '</div></div>';
+  }
+
+  async function carregarModulos() {
+    var r = await CDD.api('meus_modulos');
+    if (r.status === 401) { CDD.guardar(''); return telaLogin('Sua sessão expirou. Entre de novo.', 'aviso'); }
+    if (!r.ok) return null;
+    estado.modulos = r.data.modulos; return estado.modulos;
+  }
+
+  function proximaAula() {
+    var ms = estado.modulos || [];
+    for (var i = 0; i < ms.length; i++) for (var j = 0; j < ms[i].aulas.length; j++) if (!ms[i].aulas[j].concluida) return ms[i].aulas[j];
+    return null;
+  }
+
+  async function viewHome() {
+    $app.innerHTML = topo() + '<div class="wrap" id="v"><div class="vazio">Carregando...</div></div>';
+    var v = document.getElementById('v');
+    if (!estado.acesso) { v.innerHTML = semAcesso(); return; }
+    var ms = await carregarModulos();
+    if (!ms) { v.innerHTML = '<div class="msg erro">Não foi possível carregar o conteúdo. Tente de novo.</div>'; return; }
+    if (!ms.length) { v.innerHTML = '<div class="card"><div class="vazio">O conteúdo ainda não foi publicado.</div></div>'; return; }
+    var total = 0, feitas = 0; ms.forEach(function (m) { total += m.total; feitas += m.feitas; });
+    var pct = total ? Math.round(feitas * 100 / total) : 0;
+    var prox = proximaAula();
+    var h = '<div class="card"><h2 style="margin-bottom:4px">Olá, ' + esc((estado.eu.nome || '').split(' ')[0]) + '</h2>' +
+      '<p class="mut">' + feitas + ' de ' + total + ' aulas concluídas (' + pct + '%)</p><div class="barra"><i style="width:' + pct + '%"></i></div>' +
+      (prox ? '<div class="espaco"></div><a class="btn pri" href="#/aula/' + prox.idaula + '">' + (feitas ? 'Continuar: ' : 'Começar: ') + esc(prox.titulo.length > 46 ? prox.titulo.slice(0, 46) + '...' : prox.titulo) + '</a>' : '<p style="margin-top:10px">Você concluiu todas as aulas. Parabéns.</p>') + '</div>';
+    var grupos = [['curso', 'Programa'], ['protocolo', 'Protocolos de treino'], ['bonus', 'Bônus']];
+    grupos.forEach(function (g) {
+      var lista = ms.filter(function (m) { return m.grupo === g[0]; });
+      if (!lista.length) return;
+      h += '<h3 style="margin:22px 0 10px">' + g[1] + '</h3><div class="grid g2">';
+      lista.forEach(function (m) {
+        var p = m.total ? Math.round(m.feitas * 100 / m.total) : 0;
+        h += '<a class="card mod" href="#/modulo/' + m.idmodulo + '"><h3>' + esc(m.titulo) + '</h3><div class="sub">' + m.total + ' aula' + (m.total === 1 ? '' : 's') + ' · ' + m.feitas + ' concluída' + (m.feitas === 1 ? '' : 's') + '</div><div class="barra"><i style="width:' + p + '%"></i></div></a>';
+      });
+      h += '</div>';
+    });
+    v.innerHTML = h;
+  }
+
+  async function viewModulo(id) {
+    $app.innerHTML = topo() + '<div class="wrap" id="v"><div class="vazio">Carregando...</div></div>';
+    var v = document.getElementById('v');
+    if (!estado.acesso) { v.innerHTML = semAcesso(); return; }
+    var ms = estado.modulos || await carregarModulos();
+    if (!ms) return;
+    var m = ms.filter(function (x) { return x.idmodulo === id; })[0];
+    if (!m) { v.innerHTML = '<div class="msg erro">Módulo não encontrado.</div><a class="btn" href="#/">Voltar</a>'; return; }
+    var h = '<div class="miga"><a href="#/">Início</a> / ' + esc(m.titulo) + '</div><div class="card"><h2 style="margin-bottom:4px">' + esc(m.titulo) + '</h2>' + (m.descricao ? '<p class="mut">' + esc(m.descricao) + '</p>' : '') + '<ul class="aulas" style="margin-top:8px">';
+    m.aulas.forEach(function (a) {
+      h += '<li class="' + (a.concluida ? 'feita' : '') + '"><a href="#/aula/' + a.idaula + '"><span class="bola">' + (a.concluida ? '&#10003;' : '') + '</span><span class="ti">' + esc(a.titulo) + '</span></a></li>';
+    });
+    v.innerHTML = h + '</ul></div>';
+  }
+
+  function fichaHtml(f) {
+    if (!f.length) return '';
+    var h = '<h3 style="margin:20px 0 8px">Ficha de treino</h3><div class="tbl"><table><thead><tr><th>Exercício</th><th>Séries</th><th>Repetições</th><th>Intervalo</th><th>Método</th><th></th></tr></thead><tbody>';
+    var g = null;
+    f.forEach(function (i) {
+      if ((i.grupo || '') !== g && i.grupo) { g = i.grupo; h += '<tr class="grupo"><td colspan="6">' + esc(g) + '</td></tr>'; }
+      var v = '';
+      if (CDD.ytId(i.video)) v = '<button class="btn peq" data-yt="' + esc(i.video) + '">Como fazer</button>';
+      else if (i.video) v = '<a class="btn peq" href="' + esc(i.video) + '" target="_blank" rel="noopener">Como fazer</a>';
+      h += '<tr><td>' + esc(i.exercicio) + (i.obs ? '<div class="mut">' + esc(i.obs) + '</div>' : '') + '</td><td class="num">' + esc(i.series) + '</td><td class="num">' + esc(i.repeticoes) + '</td><td class="num">' + esc(i.intervalo) + '</td><td>' + esc(i.metodo) + '</td><td>' + v + '</td></tr>';
+    });
+    return h + '</tbody></table></div>';
+  }
+
+  function abrirVideo(id) {
+    var m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = '<div class="caixa"><div class="video"><iframe src="' + esc(CDD.ytEmbed(id)) + '" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div><div class="espaco"></div><button class="btn" id="fx">Fechar</button></div>';
+    m.onclick = function (e) { if (e.target === m || e.target.id === 'fx') m.remove(); };
+    document.body.appendChild(m);
+  }
+
+  async function viewAula(id) {
+    $app.innerHTML = topo() + '<div class="wrap" id="v"><div class="vazio">Carregando...</div></div>';
+    var v = document.getElementById('v');
+    if (!estado.acesso) { v.innerHTML = semAcesso(); return; }
+    var r = await CDD.api('aula', { q: { id: id } });
+    if (r.status === 401) { CDD.guardar(''); return telaLogin('Sua sessão expirou. Entre de novo.', 'aviso'); }
+    if (!r.ok) { v.innerHTML = '<div class="msg erro">' + esc(r.data.mensagem || 'Aula não encontrada.') + '</div><a class="btn" href="#/">Voltar</a>'; return; }
+    var a = r.data.aula;
+    var h = '<div class="miga"><a href="#/">Início</a> / <a href="#/modulo/' + a.idmodulo + '">' + esc(a.modulo) + '</a></div><h2 style="margin-bottom:12px;overflow-wrap:anywhere">' + esc(a.titulo) + '</h2>';
+    if (CDD.ytId(a.youtube_id)) h += '<div class="video"><iframe src="' + esc(CDD.ytEmbed(a.youtube_id)) + '" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" title="' + esc(a.titulo) + '"></iframe></div>';
+    else if (a.tipo === 'video') h += '<div class="semvideo">O vídeo desta aula ainda não foi publicado.</div>';
+    if (a.texto) h += '<div class="card texto" style="margin-top:14px">' + esc(a.texto) + '</div>';
+    if (a.anexos.length) {
+      h += '<div class="linha" style="margin-top:14px">';
+      a.anexos.forEach(function (x) { h += '<a class="btn" href="' + esc(x.url) + '" target="_blank" rel="noopener">' + esc(x.titulo) + '</a>'; });
+      h += '</div>';
+    }
+    h += fichaHtml(a.ficha);
+    h += '<div class="nav2"><div>' + (a.anterior ? '<a class="btn" href="#/aula/' + a.anterior + '">&larr; Anterior</a>' : '') + '</div>' +
+      '<button class="btn ' + (a.concluida ? '' : 'pri') + '" id="bc">' + (a.concluida ? 'Concluída (desmarcar)' : 'Marcar como concluída') + '</button>' +
+      '<div>' + (a.proxima ? '<a class="btn" href="#/aula/' + a.proxima + '">Próxima &rarr;</a>' : '') + '</div></div>';
+    v.innerHTML = h;
+    v.querySelectorAll('[data-yt]').forEach(function (b) { b.onclick = function () { abrirVideo(b.getAttribute('data-yt')); }; });
+    document.getElementById('bc').onclick = async function () {
+      this.disabled = true;
+      var x = await CDD.api('concluir', { body: { id: a.idaula, feito: !a.concluida } });
+      estado.modulos = null;
+      if (x.ok && !a.concluida && a.proxima) location.hash = '#/aula/' + a.proxima; else viewAula(id);
+    };
+  }
+
+  function viewConta() {
+    $app.innerHTML = topo() + '<div class="wrap"><div class="card"><h2 style="margin-bottom:4px">Minha conta</h2><p class="mut">' + esc(estado.eu.nome) + ' · ' + esc(estado.eu.email) + '</p>' +
+      '<p class="mut" style="margin-top:6px">Acesso: ' + (estado.matricula && estado.matricula.ativa ? 'ativo' + (estado.matricula.expira_em ? ' até ' + CDD.dataBR(estado.matricula.expira_em) : '') : 'sem acesso no momento') + '</p></div>' +
+      '<div class="card"><h3>Trocar senha</h3><div id="aviso"></div><form id="f"><label for="at">Senha atual</label><input id="at" type="password" autocomplete="current-password" required>' +
+      '<label for="nv">Nova senha (mínimo 8 caracteres)</label><input id="nv" type="password" autocomplete="new-password" minlength="8" required><div class="espaco"></div><button class="btn pri">Trocar senha</button></form></div>' +
+      '<div class="card linha"><button class="btn" id="tm">Alternar tema claro e escuro</button><button class="btn perigo" id="sai">Sair</button></div></div>';
+    document.getElementById('tm').onclick = CDD.alternarTema;
+    document.getElementById('sai').onclick = async function () { await CDD.api('logout', { body: {} }); CDD.guardar(''); estado = { eu: null }; location.hash = '#/'; telaLogin(); };
+    document.getElementById('f').onsubmit = async function (e) {
+      e.preventDefault();
+      var r = await CDD.api('trocar_senha', { body: { atual: document.getElementById('at').value, nova: document.getElementById('nv').value } });
+      document.getElementById('aviso').innerHTML = msg(r.ok ? 'Senha trocada.' : r.data.mensagem, r.ok ? 'ok' : 'erro');
+      if (r.ok) document.getElementById('f').reset();
+    };
+  }
+
+  /* ---------- roteador ---------- */
+  function rota() {
+    var h = location.hash || '#/';
+    var ativ = h.match(/^#ativar=(.+)$/);
+    if (ativ) return telaAtivar(ativ[1]);
+    if (!estado.eu) { return h === '#/cadastro' ? telaCadastro() : telaLogin(); }
+    var m;
+    if ((m = h.match(/^#\/modulo\/(\d+)$/))) return viewModulo(parseInt(m[1], 10));
+    if ((m = h.match(/^#\/aula\/(\d+)$/))) return viewAula(parseInt(m[1], 10));
+    if (h === '#/conta') return viewConta();
+    return viewHome();
+  }
+
+  async function iniciar() {
+    if (/^#ativar=/.test(location.hash)) { estado = { eu: null }; return rota(); }
+    if (!CDD.token()) { estado = { eu: null }; return rota(); }
+    var r = await CDD.api('eu');
+    if (!r.ok) { CDD.guardar(''); estado = { eu: null }; return rota(); }
+    estado.eu = r.data.usuario; estado.matricula = r.data.matricula; estado.acesso = r.data.acesso;
+    rota();
+  }
+
+  window.addEventListener('hashchange', rota);
+  iniciar();
+})();
+</script>
+</body>
+</html>
