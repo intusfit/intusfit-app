@@ -64,6 +64,15 @@ function intusAcessoRota(PDO $pdo, array $ctx, bool $ehAluno, string $action, ?s
     // ─────────────── Administrador: acessos de qualquer pessoa ───────────────
     if ($action === 'acessos') {
         if (!$admin) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); return; }
+        // Limpeza do histórico: SÓ pelo painel, com confirmação (nunca automática). Apaga acessos com mais de N dias (mínimo 30).
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'DELETE') {
+            $dd = (int)($_GET['dias'] ?? 0);
+            if ($dd < 30) { http_response_code(400); echo json_encode(['error' => 'informe dias >= 30']); return; }
+            $st = $pdo->prepare('DELETE FROM intus_acesso WHERE criado_em < ?');
+            $st->execute([gmdate('Y-m-d H:i:s', time() - $dd * 86400)]);
+            echo json_encode(['ok' => true, 'apagados' => $st->rowCount(), 'dias' => $dd]);
+            return;
+        }
         $dias = max(1, min(90, (int)($_GET['dias'] ?? 7)));
         $tipo = (string)($_GET['tipo'] ?? '');
         $q = trim((string)($_GET['q'] ?? ''));
@@ -92,7 +101,9 @@ function intusAcessoRota(PDO $pdo, array $ctx, bool $ehAluno, string $action, ?s
         }
         $pessoas = array_map(function ($p) { $p['ips'] = array_slice(array_keys($p['ips']), 0, 8); $p['locais'] = array_slice(array_keys($p['locais']), 0, 8); return $p; }, array_values($pessoas));
         $temGeo = false; foreach ($linhas as $l) { if ($l['pais'] !== '') { $temGeo = true; break; } }
-        echo json_encode(['agora_utc' => gmdate('Y-m-d H:i:s'), 'dias' => $dias, 'cloudflare' => intusVemDoCloudflare(), 'localizacao_ativa' => $temGeo, 'total' => count($linhas),
+        $tam = $pdo->query('SELECT COUNT(*) AS n, MIN(criado_em) AS ini FROM intus_acesso')->fetch(PDO::FETCH_ASSOC) ?: ['n' => 0, 'ini' => null];
+        echo json_encode(['guardados' => (int)$tam['n'], 'mais_antigo_utc' => $tam['ini'],
+                          'agora_utc' => gmdate('Y-m-d H:i:s'), 'dias' => $dias, 'cloudflare' => intusVemDoCloudflare(), 'localizacao_ativa' => $temGeo, 'total' => count($linhas),
                           'linhas' => array_slice($linhas, 0, $limite), 'pessoas' => array_slice($pessoas, 0, 120)], JSON_UNESCAPED_UNICODE);
         return;
     }

@@ -3902,7 +3902,7 @@ if ($action === 'backup_status') {
 // ═══════════════ ACESSOS (histórico de logins, aberturas, treinos e cardios; ver _acesso_rotas.php) ═══════════════
 // GET ?action=acessos         só administrador: acessos de qualquer pessoa, com IP, local e horário
 // GET ?action=acessos_painel  equipe: quadro da Frequência e Ranking (só os alunos visíveis para quem pede)
-if (($action === 'acessos' || $action === 'acessos_painel') && $method === 'GET') {
+if (($action === 'acessos' && ($method === 'GET' || $method === 'DELETE')) || ($action === 'acessos_painel' && $method === 'GET')) {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     require_once __DIR__ . '/_acesso_rotas.php';
     intusAcessoRota($pdo, $_ctx, $_ehAluno, $action, _feedDetectarTabelaAtleta($pdo));

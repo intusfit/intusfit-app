@@ -74,5 +74,20 @@ eq('professor NÃO pode ver a lista de acessos (403)', $cod === 403, (string)$co
 [$cod, $jd] = rota($pdo, ['admin' => false, 'idusuario' => 5], true, 'acessos_painel');
 eq('aluno NÃO pode ver o quadro (403)', $cod === 403, (string)$cod);
 
+// 5) limpeza do histórico: só administrador, mínimo 30 dias, apaga só o antigo
+$pdo->exec("INSERT INTO intus_acesso (user_tipo,user_id,user_nome,evento,criado_em) VALUES ('aluno',1,'Ana','abertura','" . gmdate('Y-m-d H:i:s', time() - 200 * 86400) . "')");
+$antes = (int)$pdo->query("SELECT COUNT(*) FROM intus_acesso")->fetchColumn();
+$_SERVER['REQUEST_METHOD'] = 'DELETE';
+[$cod, $jl] = rota($pdo, ['admin' => false, 'idusuario' => 10], false, 'acessos', ['dias' => 180]);
+eq('professor NÃO pode limpar o histórico (403)', $cod === 403 && (int)$pdo->query("SELECT COUNT(*) FROM intus_acesso")->fetchColumn() === $antes, (string)$cod);
+[$cod, $jl] = rota($pdo, ['admin' => true, 'idusuario' => 1], false, 'acessos', ['dias' => 5]);
+eq('limpar com menos de 30 dias é recusado (400) e não apaga nada', $cod === 400 && (int)$pdo->query("SELECT COUNT(*) FROM intus_acesso")->fetchColumn() === $antes, (string)$cod);
+[$cod, $jl] = rota($pdo, ['admin' => true, 'idusuario' => 1], false, 'acessos', ['dias' => 180]);
+$depois = (int)$pdo->query("SELECT COUNT(*) FROM intus_acesso")->fetchColumn();
+eq('administrador apaga só os com mais de 180 dias (1 registro)', $cod === 200 && ($jl['apagados'] ?? -1) === 1 && $depois === $antes - 1, json_encode($jl));
+$_SERVER['REQUEST_METHOD'] = 'GET';
+[$cod, $jr] = rota($pdo, ['admin' => true, 'idusuario' => 1], false, 'acessos', ['dias' => 7]);
+eq('a tela recebe quantos registros estão guardados', isset($jr['guardados']) && $jr['guardados'] === $depois, json_encode($jr['guardados'] ?? null));
+
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

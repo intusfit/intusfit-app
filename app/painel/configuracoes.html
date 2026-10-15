@@ -763,6 +763,16 @@ function _acQuando(utc, fusoLocal) {
   if (fusoLocal && fusoLocal !== 'America/Sao_Paulo') { try { t += ' <span style="color:#f59e0b;" title="Fuso do aparelho: ' + _bkEsc(fusoLocal) + '">(local ' + d.toLocaleTimeString('pt-BR', { timeZone: fusoLocal, hour: '2-digit', minute: '2-digit' }) + ')</span>'; } catch (e) {} }
   return t;
 }
+async function limparAcessos() {
+  if (!confirm('Apagar os acessos com mais de 180 dias do histórico? Isso não afeta treinos, cardios nem nada dos alunos, só este registro de horários e locais. Não dá para desfazer.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=acessos&dias=180', { method: 'DELETE', headers: _bkHeaders() });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Não consegui apagar.');
+    if (typeof showToast === 'function') showToast('Apagados ' + d.apagados + ' registros antigos', 'success'); else alert('Apagados ' + d.apagados);
+    verAcessos();
+  } catch (e) { alert(e.message); }
+}
 async function verAcessos() {
   const box = document.getElementById('acessos-box');
   box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Consultando...</p>';
@@ -775,6 +785,7 @@ async function verAcessos() {
     const td = 'style="padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top;"';
     let h = '';
     if (!d.localizacao_ativa) h += '<div style="padding:10px;border:1px solid #f59e0b;border-radius:8px;font-size:12px;color:var(--text);margin-bottom:12px;">📍 Ainda sem localização: ' + (d.cloudflare ? 'o Cloudflare está na frente, mas falta ativar "Adicionar cabeçalhos de localização do visitante" (Regras > Transform Rules > Managed Transforms).' : 'o site ainda não está atrás do Cloudflare. Ligando o Cloudflare (gratuito), cidade, país e fuso passam a aparecer aqui.') + ' Por enquanto: horário, IP e aparelho.</div>';
+    h += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin-bottom:12px;">Histórico guardado: <b style="color:var(--text);">' + (d.guardados || 0).toLocaleString('pt-BR') + ' registros</b>' + (d.mais_antigo_utc ? ' desde ' + _acQuando(d.mais_antigo_utc).split(',')[0] : '') + '. <button class="cfg-save" onclick="limparAcessos()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:5px 12px;">🧹 Apagar os com mais de 180 dias</button></div>';
     const ps = d.pessoas || [];
     h += '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">Por pessoa (' + ps.length + ')</div><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><tr><th ' + th + '>Pessoa</th><th ' + th + '>Último acesso</th><th ' + th + '>Onde</th><th ' + th + '>IPs</th><th ' + th + '>Eventos</th></tr>' +
       ps.slice(0, 40).map(p => '<tr><td ' + td + '><b>' + _bkEsc(p.nome) + '</b> <span style="color:var(--text-muted);">' + (p.tipo === 'staff' ? 'equipe' : 'aluno') + '</span></td><td ' + td + '>' + _acQuando(p.ultimo_utc) + '</td><td ' + td + '>' + (p.locais.length ? _bkEsc(p.locais.join(' · ')) : '<span style="color:var(--text-muted);">—</span>') + '</td><td ' + td + ' title="' + _bkEsc(p.ips.join(', ')) + '">' + _bkEsc(p.ips.slice(0, 2).join(', ')) + (p.ips.length > 2 ? ' +' + (p.ips.length - 2) : '') + '</td><td ' + td + '>' + p.eventos + '</td></tr>').join('') + '</table></div>';
