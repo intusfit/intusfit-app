@@ -153,6 +153,7 @@ input,textarea{font-family:inherit}
 .ed-tempo{font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted);min-width:128px}
 #ed-pan{width:100%;accent-color:var(--accent);margin-top:2px}
 .ed-selecao{font-size:12.5px;color:var(--accent);min-height:18px;margin-bottom:6px}
+.ed-selecao input{width:70px;padding:3px 5px;border-radius:6px;border:1px solid var(--borda);background:var(--input-bg);color:var(--texto);font-size:12px;text-align:center}
 .ed-cortes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .ed-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:20px;padding:3px 6px 3px 10px;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums}
 .ed-chip button{background:transparent;border:none;color:inherit;font-size:13px;line-height:1;padding:2px 4px}
@@ -331,7 +332,7 @@ input,textarea{font-family:inherit}
     <div class="editor" id="editor" hidden>
       <div class="editor-topo">
         <b>✂ Cortar trechos do vídeo</b>
-        <span>Arraste na linha abaixo para selecionar um trecho (uma palavra, uma frase, o começo ou o fim) e clique em "Cortar". A roda do mouse aproxima, para achar a palavra certa.</span>
+        <span><b>Para tirar um trecho do meio:</b> toque o vídeo, pause onde o erro começa e clique em "Início do corte aqui" (tecla I); toque até onde o erro termina e clique em "Fim do corte aqui" (tecla O); confira com "Ouvir a seleção" e clique em "Cortar a seleção" (tecla C). Também dá para arrastar na linha abaixo, ajustar os segundos nos campos, e a roda do mouse aproxima a linha do tempo.</span>
       </div>
       <canvas id="ed-linha"></canvas>
       <input type="range" id="ed-pan" min="0" max="1000" value="0" hidden>
@@ -342,13 +343,17 @@ input,textarea{font-family:inherit}
         <button class="btn-mini" id="ed-zoom-mais" title="Aproximar">+</button>
         <button class="btn-mini" id="ed-zoom-tudo">Ver tudo</button>
         <span class="sep"></span>
+        <button class="btn-mini" id="ed-marca-ini" title="Marca onde o trecho a cortar COMEÇA, na posição atual do vídeo (tecla I)">⌈ Início do corte aqui</button>
+        <button class="btn-mini" id="ed-marca-fim" title="Marca onde o trecho a cortar TERMINA, na posição atual do vídeo (tecla O)">Fim do corte aqui ⌋</button>
         <button class="btn-mini" id="ed-ouvir" disabled>▶ Ouvir a seleção</button>
         <button class="btn-mini" id="ed-ampliar" disabled>🔍 Ampliar a seleção</button>
         <button class="btn-mini destaque" id="ed-cortar" disabled>✂ Cortar a seleção</button>
         <button class="btn-mini" id="ed-cortar-ini" title="Corta do começo do vídeo até onde o vídeo está tocando">✂ Do começo até aqui</button>
         <button class="btn-mini" id="ed-cortar-fim" title="Corta de onde o vídeo está tocando até o fim">✂ Daqui até o fim</button>
       </div>
-      <div class="ed-selecao" id="ed-selecao"></div>
+      <div class="ed-selecao"><span id="ed-selecao"></span>
+        <span id="ed-nums" hidden> · ajustar: início <input type="number" id="ed-ini" step="0.1" min="0"> s &nbsp;fim <input type="number" id="ed-fim" step="0.1" min="0"> s</span>
+      </div>
       <div class="ed-cortes" id="ed-cortes"></div>
       <p class="ed-resumo" id="ed-resumo"></p>
       <div class="linha-botoes">
@@ -1191,7 +1196,9 @@ function edFechar(){
   document.getElementById('ed-indisponivel').hidden = true;
   ed.cortes = []; ed.sel = null; ed.original = null; ed.picos = null; ed.ocupado = false;
 }
-function edReiniciarVista(){ ed.dur = edDur(); ed.vis = { ini: 0, dur: ed.dur }; edLimitarVista(); }
+// Vídeo longo abre aproximado (60 s por vez): numa gravação de 10 min, tela toda dá ~0,6 s por pixel,
+// impreciso demais pra achar uma palavra. "Ver tudo" e a roda do mouse mudam o zoom.
+function edReiniciarVista(){ ed.dur = edDur(); ed.vis = { ini: 0, dur: ed.dur > 90 ? 60 : ed.dur }; edLimitarVista(); }
 function edCarregarPicos(){
   var alvo = blobFinal;
   IntusEditorVideo.picos(alvo).then(function(p){ if (p && alvo === blobFinal) { ed.picos = p; edDesenhar(); } });
@@ -1307,9 +1314,47 @@ document.getElementById('ed-pan').addEventListener('input', function(){
 
 function edAtualizarSelecao(){
   var s = ed.sel;
-  document.getElementById('ed-selecao').textContent = s ? 'Seleção: ' + fmtT(s.a) + ' → ' + fmtT(s.b) + ' (' + (s.b - s.a).toFixed(1).replace('.', ',') + ' s)' : '';
+  document.getElementById('ed-selecao').textContent = s ? 'Seleção: ' + fmtT(s.a) + ' → ' + fmtT(s.b) + ' (' + (s.b - s.a).toFixed(1).replace('.', ',') + ' s)' : 'Nenhum trecho selecionado.';
+  document.getElementById('ed-nums').hidden = !s;
+  if (s) {
+    var ini = document.getElementById('ed-ini'), fim = document.getElementById('ed-fim');
+    if (document.activeElement !== ini) ini.value = s.a.toFixed(1);
+    if (document.activeElement !== fim) fim.value = s.b.toFixed(1);
+  }
   ['ed-ouvir', 'ed-ampliar', 'ed-cortar'].forEach(function(id){ document.getElementById(id).disabled = !s || ed.ocupado; });
 }
+// Início/fim marcados na posição atual do vídeo; se só um dos lados existe, o outro nasce 3 s afastado (dá pra ajustar).
+function edMarcar(lado){
+  if (!ed.aberto || ed.ocupado) return;
+  var t = Math.max(0, Math.min(ed.dur, edPrev.currentTime || 0)), s = ed.sel;
+  if (lado === 'ini') ed.sel = { a: t, b: s && s.b > t + 0.05 ? s.b : Math.min(ed.dur, t + 3) };
+  else ed.sel = { a: s && s.a < t - 0.05 ? s.a : Math.max(0, t - 3), b: t };
+  if (ed.sel.b - ed.sel.a < 0.05) ed.sel = null;
+  edAtualizarSelecao(); edDesenhar();
+}
+function edAplicarCampos(){
+  if (!ed.sel) return;
+  var a = parseFloat(document.getElementById('ed-ini').value), b = parseFloat(document.getElementById('ed-fim').value);
+  if (!isFinite(a) || !isFinite(b)) { edAtualizarSelecao(); return; }
+  a = Math.max(0, Math.min(ed.dur, a)); b = Math.max(0, Math.min(ed.dur, b));
+  if (a > b) { var t = a; a = b; b = t; }
+  if (b - a < 0.05) { edAtualizarSelecao(); return; }
+  ed.sel = { a: a, b: b };
+  edAtualizarSelecao(); edDesenhar();
+}
+['ed-ini', 'ed-fim'].forEach(function(id){ document.getElementById(id).addEventListener('change', edAplicarCampos); });
+document.getElementById('ed-marca-ini').addEventListener('click', function(){ edMarcar('ini'); });
+document.getElementById('ed-marca-fim').addEventListener('click', function(){ edMarcar('fim'); });
+// Teclas I (início), O (fim) e C (cortar a seleção), quando o editor está aberto e não se está digitando.
+document.addEventListener('keydown', function(e){
+  if (!ed.aberto || e.ctrlKey || e.metaKey || e.altKey) return;
+  var tag = (document.activeElement && document.activeElement.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  var k = e.key.toLowerCase();
+  if (k === 'i') { edMarcar('ini'); e.preventDefault(); }
+  else if (k === 'o') { edMarcar('fim'); e.preventDefault(); }
+  else if (k === 'c' && ed.sel) { edAddCorte(ed.sel.a, ed.sel.b); e.preventDefault(); }
+});
 function edRenderCortes(){
   var wrap = document.getElementById('ed-cortes');
   wrap.innerHTML = '';
