@@ -426,6 +426,12 @@ function render() {
         <div id="backups-box" style="margin-top:14px;"></div>
       </div>
 
+      <div class="cfg-card" id="card-sessoes">
+        <h3>Sessões ativas (quem está conectado)</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Cada aparelho em que alguém entrou fica com uma sessão válida por até 7 dias, mesmo que a senha seja trocada depois. <b>Depois de trocar uma senha, encerre as sessões daquela conta</b> para derrubar quem ainda estiver conectado com a senha antiga. Encerrar só desconecta (a pessoa entra de novo com a senha); nenhum dado é apagado. Só o administrador vê.</p>
+        <div id="sessoes-box"><button class="cfg-save" onclick="verSessoes()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">🔌 Ver sessões ativas</button></div>
+      </div>
+
       <div class="cfg-card" id="card-tabelas">
         <h3>Tabelas antigas do banco</h3>
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Algumas tabelas vieram do sistema antigo (clientes, professores, matrículas, treinos...) num formato que trava a tabela inteira a cada gravação e não aceita emoji nem alguns nomes. Aqui você converte cada uma para o formato moderno. A conversão foi ensaiada numa cópia do banco real e ficou idêntica. Antes de cada uma o servidor faz uma cópia de segurança da tabela e depois confere o conteúdo; <b>nada é apagado</b>. Só o administrador vê.</p>
@@ -775,6 +781,48 @@ function _acQuando(utc, fusoLocal) {
   let t = f('America/Sao_Paulo');
   if (fusoLocal && fusoLocal !== 'America/Sao_Paulo') { try { t += ' <span style="color:#f59e0b;" title="Fuso do aparelho: ' + _bkEsc(fusoLocal) + '">(local ' + d.toLocaleTimeString('pt-BR', { timeZone: fusoLocal, hour: '2-digit', minute: '2-digit' }) + ')</span>'; } catch (e) {} }
   return t;
+}
+async function verSessoes(msg) {
+  const box = document.getElementById('sessoes-box');
+  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Consultando...</p>';
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=sessoes&_=' + Date.now(), { headers: _bkHeaders(), cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 403 ? 'Só o administrador vê esta área.' : 'Não consegui consultar agora.');
+    const d = await r.json(), ss = d.sessoes || [];
+    const grupos = {};
+    ss.forEach(s => {
+      const k = s.user_type + ':' + s.user_id;
+      const g = grupos[k] || (grupos[k] = { tipo: s.user_type, id: s.user_id, nome: s.user_name || s.nome || '', n: 0, ips: {}, ultimo: '', admin: false });
+      g.n++;
+      if (s.ip) g.ips[s.ip] = true;
+      const quando = s.last_seen || s.created_at || '';
+      if (quando > g.ultimo) g.ultimo = quando;
+      if (!g.nome && (s.user_name || s.nome)) g.nome = s.user_name || s.nome;
+      if (s.admin && String(s.admin) !== '0') g.admin = true;
+    });
+    const lista = Object.values(grupos).sort((a, b) => (a.tipo === b.tipo ? (b.ultimo > a.ultimo ? 1 : -1) : (a.tipo === 'prof' ? -1 : 1)));
+    const td = 'padding:6px 8px;border-top:1px solid var(--border);vertical-align:top;';
+    let html = msg ? '<div style="padding:10px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;color:var(--text);margin-bottom:10px;">' + _bkEsc(msg) + '</div>' : '';
+    if (!lista.length) html += '<p style="font-size:12.5px;color:var(--text-muted);">Nenhuma sessão ativa.</p>';
+    else {
+      const linhas = lista.map(g => {
+        const nome = g.nome || ((g.tipo === 'aluno' ? 'Aluno #' : 'Usuário #') + g.id);
+        const ips = Object.keys(g.ips);
+        return '<tr><td style="' + td + '"><b>' + _bkEsc(nome) + '</b> <span style="color:var(--text-muted);">' + (g.tipo === 'aluno' ? 'aluno' : (g.admin ? 'administrador' : 'equipe')) + '</span></td><td style="' + td + 'text-align:center;">' + g.n + '</td><td style="' + td + '">' + _bkEsc(g.ultimo ? g.ultimo.replace('T', ' ').slice(0, 16) : '') + '</td><td style="' + td + '" title="' + _bkEsc(ips.join(', ')) + '">' + _bkEsc(ips.slice(0, 2).join(', ')) + (ips.length > 2 ? ' +' + (ips.length - 2) : '') + '</td><td style="' + td + 'text-align:right;"><button class="cfg-save" data-tipo="' + _bkEsc(g.tipo) + '" data-id="' + g.id + '" data-nome="' + _bkEsc(nome) + '" onclick="encerrarSessoes(this.dataset.tipo, this.dataset.id, this.dataset.nome)" style="padding:4px 12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);">Encerrar</button></td></tr>';
+      }).join('');
+      html += '<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><tr><th style="text-align:left;padding:6px 8px;color:var(--text-muted);">Conta</th><th style="padding:6px 8px;color:var(--text-muted);">Sessões</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted);">Último uso</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted);">IPs</th><th></th></tr>' + linhas + '</table></div>';
+    }
+    box.innerHTML = html;
+  } catch (e) { box.innerHTML = '<p style="font-size:12px;color:#ef4444;">' + _bkEsc(e.message) + '</p>'; }
+}
+async function encerrarSessoes(tipo, id, nome) {
+  if (!confirm('Encerrar TODAS as sessões de "' + nome + '"? Todo aparelho com essa conta entra na tela de login na próxima ação (se for a sua conta, você também precisará entrar de novo). Nenhum dado é apagado.')) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=sessoes', { method: 'POST', headers: _bkHeaders(true), body: JSON.stringify({ user_id: Number(id), user_type: tipo }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Não consegui encerrar.');
+    verSessoes('✅ ' + d.encerradas + ' sessão(ões) de ' + nome + ' encerrada(s).');
+  } catch (e) { alert(e.message); }
 }
 async function verTabelas(msg) {
   const box = document.getElementById('tabelas-box');
