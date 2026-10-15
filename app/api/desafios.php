@@ -213,6 +213,12 @@ function jsonBody() {
 }
 
 $action = $_GET['action'] ?? '';
+// Trava opcional (Configurações > Servidor > Segurança): gestão de desafios só do administrador. Aluno continua com as ações dele (entrar, ranking, chat).
+require_once __DIR__ . '/_auth_context.php';
+if (!empty(intusSegConfig($pdo)['desafios_admin']) && in_array($action, ['planos', 'desafios', 'desafio', 'participantes', 'professores'], true)
+    && in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT', 'DELETE'], true)) {
+    $_sessDes = _intusExigeSessao($pdo, true, true);   // 401/403 se não for administrador
+}
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 
 try {

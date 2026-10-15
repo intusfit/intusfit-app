@@ -228,6 +228,74 @@ function intusExigirPermissaoEscrita(PDO $pdo, array $ctx, $prefixos, string $me
     exit;
 }
 
+/**
+ * TRAVAS OPCIONAIS (intus_secrets.seg_config; ligadas pelo administrador em Configurações > Servidor > Segurança). Nascem DESLIGADAS: sem ligar, nada muda.
+ *   mensagens       as chaves ms_ver / ms_incluir / ms_excluir passam a valer no servidor (só nega quando a chave está EXPLICITAMENTE desligada no usuário;
+ *                   usuário sem a chave continua como sempre, então ligar não derruba o chat de ninguém que nunca teve a chave tocada)
+ *   desafios_admin  criar, editar e apagar desafios, planos de desafio, participantes e professores do desafio passam a ser só do administrador
+ */
+function intusSegConfig(PDO $pdo, bool $recarregar = false): array {
+    static $cache = null;
+    if ($cache !== null && !$recarregar) return $cache;
+    $cfg = ['mensagens' => false, 'desafios_admin' => false];
+    try {
+        $st = $pdo->prepare("SELECT valor FROM intus_secrets WHERE chave = 'seg_config' LIMIT 1");
+        $st->execute();
+        $j = json_decode((string)$st->fetchColumn(), true);
+        if (is_array($j)) foreach ($cfg as $k => $_) { if (array_key_exists($k, $j)) $cfg[$k] = !empty($j[$k]); }
+    } catch (Throwable $e) { /* tabela ainda não existe: tudo desligado */ }
+    return $cache = $cfg;
+}
+
+function intusSegGravar(PDO $pdo, array $novo): bool {
+    try {
+        require_once __DIR__ . '/_gdrive.php';
+        try { _gdriveEnsureTable($pdo); } catch (Throwable $e) { /* a tabela já existe */ }
+        $atual = intusSegConfig($pdo, true);
+        foreach ($atual as $k => $_) { if (array_key_exists($k, $novo)) $atual[$k] = !empty($novo[$k]); }
+        $json = json_encode($atual);
+        $st = $pdo->prepare("SELECT 1 FROM intus_secrets WHERE chave = 'seg_config' LIMIT 1");
+        $st->execute();
+        if ($st->fetchColumn()) $pdo->prepare("UPDATE intus_secrets SET valor = ? WHERE chave = 'seg_config'")->execute([$json]);
+        else $pdo->prepare("INSERT INTO intus_secrets (chave, valor) VALUES ('seg_config', ?)")->execute([$json]);
+        intusSegConfig($pdo, true);
+        return true;
+    } catch (Throwable $e) { return false; }
+}
+
+/** Verdadeiro só quando a chave existe no usuário e está desligada (usada pelas travas opcionais acima). */
+function usuarioPermissaoNegada(PDO $pdo, int $idusuario, string $chave): bool {
+    foreach (intusUsuariosPermissoes($pdo) as $u) {
+        if ((int)$u['id'] !== $idusuario) continue;
+        if (!array_key_exists($chave, $u['perms'])) return false;
+        $v = $u['perms'][$chave];
+        return !($v === true || $v === 1 || $v === '1');
+    }
+    return false;
+}
+
+/** Equipe com as permissões gravadas: [['id','nome','admin','perms'=>[chave=>valor]]]. Leitura única por requisição. */
+function intusUsuariosPermissoes(PDO $pdo): array {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $cache = [];
+    try {
+        $tab = null;
+        foreach (['professor', 'usuario', 'usuarios', 'professores'] as $t) { try { $pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $tab = $t; break; } catch (Throwable $e) {} }
+        if (!$tab) return $cache;
+        $cols = array_column($pdo->query("SHOW COLUMNS FROM `$tab`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+        $pick = function (array $c) use ($cols) { foreach ($c as $x) { if (in_array($x, $cols, true)) return $x; } return null; };
+        $cId = $pick(['idusuario', 'idprofessor', 'id']); $cNm = $pick(['nome', 'nmusuario', 'nmprofessor', 'name']); $cPm = $pick(['permissoes', 'permissions']); $cAd = $pick(['admin', 'is_admin', 'stadmin']); $cAt = $pick(['ativo', 'stativo']);
+        if (!$cId || !$cPm) return $cache;
+        $sel = "`$cId` AS i, `$cPm` AS p" . ($cNm ? ", `$cNm` AS n" : '') . ($cAd ? ", `$cAd` AS a" : '') . ($cAt ? ", `$cAt` AS t" : '');
+        foreach ($pdo->query("SELECT $sel FROM `$tab`")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $p = is_string($r['p'] ?? null) ? json_decode($r['p'], true) : null;
+            $cache[] = ['id' => (int)$r['i'], 'nome' => (string)($r['n'] ?? ('#' . $r['i'])), 'admin' => !empty($r['a']) && $r['a'] !== 'N' && $r['a'] !== '0', 'ativo' => !isset($r['t']) || ($r['t'] !== 'N' && $r['t'] !== '0' && $r['t'] !== 0), 'perms' => is_array($p) ? $p : []];
+        }
+    } catch (Throwable $e) {}
+    return $cache;
+}
+
 function usuarioTemAlgumaPermissao(PDO $pdo, int $idusuario, array $chaves): bool {
     foreach ($chaves as $c) { if (usuarioTemPermissao($pdo, $idusuario, $c)) return true; }
     return false;

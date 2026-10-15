@@ -1182,7 +1182,7 @@ $_PUBLICAS = [
 $_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'acessos', 'acessos_painel'];
 // So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
 // alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
-$_SO_ADMIN = ['sessoes', 'acessos'];
+$_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config'];
 $_ESCRITA_ADMIN = ['ranking_regras', 'cardio_regras', 'conquistas_config', 'notif_config', 'frases_config', 'figurinhas_config'];
 
 // Leitura liberada para aluno logado; escrita so professor. Catalogos e
@@ -2790,7 +2790,7 @@ if ($action === 'notificacoes') {
         // Backup diário de carona: o sino do painel (staff) consulta esta rota em toda tela. Depois que a resposta sai, o _carona_backup.php vê se já houve backup
         // hoje (custo de ler um arquivinho) e, se não, faz. Antes ele só pegava carona em dashboard.php?action=(resumo), que nenhuma tela chamava.
         if ($_nTipo !== 'aluno') {
-            register_shutdown_function(function () { @include __DIR__ . '/_carona_backup.php'; });
+            register_shutdown_function(function () { @include __DIR__ . '/_carona_backup.php'; @include __DIR__ . '/_carona_rotinas.php'; });
         }
         // Notificação de post apagado (ou de comentário do mural apagado) não
         // aparece nem conta no sino. Filtra em vez de só apagar: cobre também o
@@ -3905,6 +3905,29 @@ if ($action === 'backup_status') {
         if ($acao === 'rodar_agora') { backupRodarAgora($pdo); }
         http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit;
     }
+}
+
+// ═══════════════ SEGURANÇA (travas opcionais; só administrador) ═══════════════
+// GET  ?action=seguranca_config   as travas e, para cada uma, quem seria afetado se ligar
+// POST ?action=seguranca_config   {mensagens?: bool, desafios_admin?: bool}
+if ($action === 'seguranca_config') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $novo = []; foreach (['mensagens', 'desafios_admin'] as $_k) { if (is_array($b) && array_key_exists($_k, $b)) $novo[$_k] = !empty($b[$_k]); }
+        $ok = intusSegGravar($pdo, $novo);
+        if (!$ok) { http_response_code(500); echo json_encode(['ok' => false, 'error' => 'nao consegui salvar']); exit; }
+    }
+    $semMs = [];
+    foreach (intusUsuariosPermissoes($pdo) as $u) {
+        if ($u['admin'] || !$u['ativo']) continue;
+        $nega = [];
+        foreach (['ms_ver' => 'ver', 'ms_incluir' => 'enviar', 'ms_excluir' => 'excluir'] as $k => $rot) { if (array_key_exists($k, $u['perms']) && !($u['perms'][$k] === true || $u['perms'][$k] === 1 || $u['perms'][$k] === '1')) $nega[] = $rot; }
+        if ($nega) $semMs[] = ['id' => $u['id'], 'nome' => $u['nome'], 'perderia' => $nega];
+    }
+    echo json_encode(['config' => intusSegConfig($pdo, true), 'mensagens_afetados' => $semMs, 'equipe_ativa' => count(array_filter(intusUsuariosPermissoes($pdo), fn($u) => !$u['admin'] && $u['ativo']))], JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 // ═══════════════ ACESSOS (histórico de logins, aberturas, treinos e cardios; ver _acesso_rotas.php) ═══════════════

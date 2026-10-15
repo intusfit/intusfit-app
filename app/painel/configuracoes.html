@@ -426,6 +426,12 @@ function render() {
         <div id="backups-box" style="margin-top:14px;"></div>
       </div>
 
+      <div class="cfg-card" id="card-seguranca">
+        <h3>Travas de segurança opcionais</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Duas travas que começam <b>desligadas</b> para não mudar o que já funciona. Cada uma mostra quem seria afetado antes de você ligar. Só o administrador vê.</p>
+        <div id="seguranca-box"><button class="cfg-save" onclick="verSeguranca()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">🛡 Ver travas</button></div>
+      </div>
+
       <div class="cfg-card" id="card-acessos">
         <h3>Acessos dos usuários</h3>
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Quem entrou, quando, de onde e por qual aparelho: logins, aberturas do app ou do painel, treinos e cardios registrados. Horário de Brasília; quando o aparelho do aluno está em outro fuso, o horário local aparece junto. Só o administrador vê. A localização (cidade e país) aparece quando o site está atrás do Cloudflare; sem ele, ficam o horário, o IP e o aparelho.</p>
@@ -736,6 +742,7 @@ async function verBackups() {
       lin('Servidor de e-mail', d.smtp_host ? _bkEsc(d.smtp_host) + (d.smtp_usa_maximizeapp ? ' <span style="color:#ef4444;font-weight:700;">(usa maximizeapp)</span>' : '') : '—') +
       lin('Disparo do backup', d.tem_cron ? 'CronJob da KingHost configurado' : (d.fastcgi ? 'Carona: roda no primeiro acesso do dia ao painel (sem CronJob)' : '<span style="color:#f59e0b;">Este servidor não entrega a resposta antes de terminar o trabalho, então a carona automática fica desligada. Use "Fazer backup agora" todo dia ou contrate o CronJob da KingHost.</span>')) +
       lin('Senha e servidor do e-mail', '<a href="/admin/smtp-config.php" target="_blank" rel="noopener" style="color:var(--green);">Abrir a tela do e-mail do site (admin)</a>') +
+      lin('Rotinas automáticas', (d.rotinas && d.rotinas.ultima_rodada) ? 'Última rodada: ' + _bkQuando(new Date(d.rotinas.ultima_rodada * 1000).toISOString()) + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">Conferência semanal da cópia: ' + (d.rotinas.verificacao_em ? _bkQuando(new Date(d.rotinas.verificacao_em * 1000).toISOString()) + (d.rotinas.verificacao_ok ? ' <span style="color:#7FFF00;">aprovada</span>' : ' <span style="color:#ef4444;">REPROVADA</span>') : 'ainda não feita') + (d.rotinas.cert_dias != null ? ' · certificado do servidor vence em ' + d.rotinas.cert_dias + ' dias' : '') + '. Alertas e resumo mensal vão por e-mail.</div>' : '<span style="color:var(--text-muted);">Ainda não rodaram. Rodam sozinhas no primeiro acesso da equipe ao painel (conferência semanal da cópia, vigia de backup parado e do certificado, resumo mensal por e-mail).</span>') +
       lin('Certificado do servidor de e-mail', d.smtp_estrito ? '<span style="color:#7FFF00;">Verificado e exigido (modo estrito ligado)</span>' : 'Verificado quando possível; sem exigir. Rode "Testar os dois e-mails" e, se passar, ligue o modo estrito.') +
       lin('Aviso por e-mail', (em.destino_configurado ? 'Para <b>' + _bkEsc(em.destino_configurado) + '</b>' : 'Sem destino escolhido (usa o e-mail do servidor de e-mail)') + (em.ultimo_resultado ? '<div style="color:var(--text-muted);font-size:11.5px;margin-top:2px;">' + _bkQuando(em.ultimo_em) + ': ' + _bkEsc(em.ultimo_resultado) + '</div>' : '<div style="color:#f59e0b;font-size:11.5px;margin-top:2px;">Nenhum aviso aparece no registro.</div>')) +
       '</table>';
@@ -762,6 +769,28 @@ function _acQuando(utc, fusoLocal) {
   let t = f('America/Sao_Paulo');
   if (fusoLocal && fusoLocal !== 'America/Sao_Paulo') { try { t += ' <span style="color:#f59e0b;" title="Fuso do aparelho: ' + _bkEsc(fusoLocal) + '">(local ' + d.toLocaleTimeString('pt-BR', { timeZone: fusoLocal, hour: '2-digit', minute: '2-digit' }) + ')</span>'; } catch (e) {} }
   return t;
+}
+async function verSeguranca(salvo) {
+  const box = document.getElementById('seguranca-box');
+  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Consultando...</p>';
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=seguranca_config&_=' + Date.now(), { headers: _bkHeaders(), cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 403 ? 'Só o administrador vê esta área.' : 'Não consegui consultar agora.');
+    const d = await r.json(), c = d.config || {}, af = d.mensagens_afetados || [];
+    const lin = (tit, desc, on, chave, extra) => '<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;"><div style="min-width:0;flex:1;"><b style="color:var(--text);font-size:13px;">' + tit + '</b> <span style="font-size:11px;font-weight:700;color:' + (on ? '#7FFF00' : '#f59e0b') + ';">' + (on ? 'LIGADA' : 'desligada') + '</span><div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + desc + '</div></div><button class="cfg-save" onclick="mudarSeguranca(\'' + chave + '\', ' + (on ? 'false' : 'true') + ')" style="' + (on ? 'background:var(--bg3);color:var(--text);border:1px solid var(--border);' : '') + '">' + (on ? 'Desligar' : 'Ligar') + '</button></div>' + (extra || '') + '</div>';
+    let h = lin('Permissão de mensagens valendo no servidor', 'As chaves "Ver", "Enviar" e "Excluir mensagens" de cada professor (em Usuários) passam a valer de verdade. Só bloqueia quem tem a chave <b>desmarcada de propósito</b>; quem nunca teve a chave mexida continua com o chat.', !!c.mensagens, 'mensagens',
+      af.length ? '<div style="margin-top:8px;font-size:12px;color:var(--text);">⚠️ Perderiam o chat se ligar agora: ' + af.map(a => _bkEsc(a.nome) + ' (' + a.perderia.join(', ') + ')').join('; ') + '. Se não for isso que você quer, marque as chaves deles em Usuários antes de ligar.</div>' : '<div style="margin-top:8px;font-size:12px;color:#7FFF00;">✅ Nenhum professor ativo seria afetado hoje (' + (d.equipe_ativa || 0) + ' na equipe).</div>');
+    h += lin('Gestão de desafios só do administrador', 'Criar, editar e apagar desafios, planos de desafio, participantes e professores do desafio passam a ser só do administrador. Aluno continua entrando, vendo o ranking e usando o chat do desafio.', !!c.desafios_admin, 'desafios_admin',
+      '<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Hoje qualquer professor consegue gerir desafios. Ligue se só você deve fazer isso.</div>');
+    box.innerHTML = h + (salvo ? '<div style="font-size:12px;color:#7FFF00;">✅ Salvo.</div>' : '');
+  } catch (e) { box.innerHTML = '<p style="font-size:12px;color:#ef4444;">' + _bkEsc(e.message) + '</p>'; }
+}
+async function mudarSeguranca(chave, ligar) {
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=seguranca_config', { method: 'POST', headers: _bkHeaders(true), body: JSON.stringify({ [chave]: ligar }) });
+    if (!r.ok) throw new Error('Não consegui salvar.');
+    verSeguranca(true);
+  } catch (e) { alert(e.message); }
 }
 async function limparAcessos() {
   if (!confirm('Apagar os acessos com mais de 180 dias do histórico? Isso não afeta treinos, cardios nem nada dos alunos, só este registro de horários e locais. Não dá para desfazer.')) return;

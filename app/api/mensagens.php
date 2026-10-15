@@ -114,6 +114,16 @@ if (!$_isAdmin && $_userId > 0 && !$_authCtx['is_aluno']) {
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+// Trava opcional (Configurações > Servidor > Segurança): quando ligada, as chaves ms_ do usuário valem no servidor. Só nega se a chave está explicitamente desligada.
+if (!$_isAdmin && $_userId > 0 && empty($_authCtx['is_aluno']) && !empty(intusSegConfig($pdo)['mensagens'])) {
+    $_mapaMs = ['listar' => 'ms_ver', 'nao_lidas' => 'ms_ver', 'enviar' => 'ms_incluir', 'excluir' => 'ms_excluir'];
+    if (isset($_mapaMs[$action]) && usuarioPermissaoNegada($pdo, (int)$_userId, $_mapaMs[$action])) {
+        if ($action === 'listar') { echo json_encode([]); exit; }
+        if ($action === 'nao_lidas') { echo json_encode(['count' => 0, 'total' => 0]); exit; }
+        http_response_code(403); echo json_encode(['ok' => false, 'error' => 'sem permissao de mensagens (' . $_mapaMs[$action] . ')']); exit;
+    }
+}
+
 try {
     // ===== Listar mensagens =====
     if ($action === 'listar') {

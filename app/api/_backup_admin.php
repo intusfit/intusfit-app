@@ -104,6 +104,7 @@ function backupStatus(PDO $pdo, bool $completo = true): array {
     $st['fastcgi']   = function_exists('fastcgi_finish_request');
     $st['progresso'] = backupProgresso();
     $st['smtp_estrito'] = _backupSmtpEstritoLigado();
+    $st['rotinas'] = (function () { $a = __DIR__ . '/../config/rotinas.json'; $j = is_file($a) ? json_decode((string)@file_get_contents($a), true) : null; return is_array($j) ? array_intersect_key($j, array_flip(['verificacao_em', 'verificacao_ok', 'verificacao_etapas', 'cert_dias', 'resumo_em', 'ultima_rodada'])) : null; })();
     $st['usa_maximizeapp'] = $st['db_host'] ? (stripos($st['db_host'], 'maximizeapp') !== false) : false;
     $st['smtp_host'] = null;
     $smtp = intusSmtpConfig();
