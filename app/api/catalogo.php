@@ -1182,7 +1182,7 @@ $_PUBLICAS = [
 $_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'acessos', 'acessos_painel'];
 // So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
 // alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
-$_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config'];
+$_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config', 'conversao_tabelas'];
 $_ESCRITA_ADMIN = ['ranking_regras', 'cardio_regras', 'conquistas_config', 'notif_config', 'frases_config', 'figurinhas_config'];
 
 // Leitura liberada para aluno logado; escrita so professor. Catalogos e
@@ -3905,6 +3905,30 @@ if ($action === 'backup_status') {
         if ($acao === 'rodar_agora') { backupRodarAgora($pdo); }
         http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit;
     }
+}
+
+// ═══════════════ TABELAS ANTIGAS DO BANCO (MyISAM/latin1 -> InnoDB/utf8mb4; só administrador; ver _conversao_tabelas.php) ═══════════════
+// GET  ?action=conversao_tabelas              lista as tabelas antigas, as cópias de segurança já criadas e há quantas horas foi o último backup do banco
+// POST ?action=conversao_tabelas {tabela}     converte UMA tabela (cópia de segurança antes, conferência do conteúdo depois; nada é apagado). Recusa se o último backup tem mais de 24 h.
+if ($action === 'conversao_tabelas') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    require_once __DIR__ . '/_conversao_tabelas.php';
+    require_once __DIR__ . '/_backup_admin.php';
+    $stB = backupStatus($pdo, false);
+    $horas = !empty($stB['ultimo_banco_ok']) ? round((time() - strtotime($stB['ultimo_banco_ok'])) / 3600, 1) : null;
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $t = (string)($b['tabela'] ?? '');
+        if ($horas === null || $horas > 24) { http_response_code(409); echo json_encode(['ok' => false, 'msg' => 'Faça um backup novo antes (o último do banco tem ' . ($horas === null ? 'data desconhecida' : $horas . ' horas') . '; o limite é 24 h). Configurações > Servidor > Backups > Fazer backup agora.'], JSON_UNESCAPED_UNICODE); exit; }
+        $r = conversaoConverter($pdo, $t);
+        @file_put_contents(__DIR__ . '/../config/backup.log', '[' . date('Y-m-d H:i:s') . '] Conversao de tabela ' . preg_replace('/[^A-Za-z0-9_]/', '', $t) . ' (administrador ' . (int)($_ctx['idusuario'] ?? 0) . '): ' . ($r['ok'] ? 'OK' : 'FALHOU - ' . $r['msg']) . PHP_EOL, FILE_APPEND);
+        if (!$r['ok']) http_response_code(422);
+        echo json_encode($r, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    echo json_encode(['tabelas' => conversaoListar($pdo), 'copias' => conversaoCopias($pdo), 'horas_ultimo_backup' => $horas], JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 // ═══════════════ SEGURANÇA (travas opcionais; só administrador) ═══════════════

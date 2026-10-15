@@ -426,6 +426,12 @@ function render() {
         <div id="backups-box" style="margin-top:14px;"></div>
       </div>
 
+      <div class="cfg-card" id="card-tabelas">
+        <h3>Tabelas antigas do banco</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Algumas tabelas vieram do sistema antigo (clientes, professores, matrículas, treinos...) num formato que trava a tabela inteira a cada gravação e não aceita emoji nem alguns nomes. Aqui você converte cada uma para o formato moderno. A conversão foi ensaiada numa cópia do banco real e ficou idêntica. Antes de cada uma o servidor faz uma cópia de segurança da tabela e depois confere o conteúdo; <b>nada é apagado</b>. Só o administrador vê.</p>
+        <div id="tabelas-box"><button class="cfg-save" onclick="verTabelas()" style="background:var(--bg3);color:var(--text);border:1px solid var(--border);">🗄 Ver tabelas antigas</button></div>
+      </div>
+
       <div class="cfg-card" id="card-seguranca">
         <h3>Travas de segurança opcionais</h3>
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Duas travas que começam <b>desligadas</b> para não mudar o que já funciona. Cada uma mostra quem seria afetado antes de você ligar. Só o administrador vê.</p>
@@ -769,6 +775,54 @@ function _acQuando(utc, fusoLocal) {
   let t = f('America/Sao_Paulo');
   if (fusoLocal && fusoLocal !== 'America/Sao_Paulo') { try { t += ' <span style="color:#f59e0b;" title="Fuso do aparelho: ' + _bkEsc(fusoLocal) + '">(local ' + d.toLocaleTimeString('pt-BR', { timeZone: fusoLocal, hour: '2-digit', minute: '2-digit' }) + ')</span>'; } catch (e) {} }
   return t;
+}
+async function verTabelas(msg) {
+  const box = document.getElementById('tabelas-box');
+  box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Consultando...</p>';
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=conversao_tabelas&_=' + Date.now(), { headers: _bkHeaders(), cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 403 ? 'Só o administrador vê esta área.' : 'Não consegui consultar agora.');
+    const d = await r.json(), ts = d.tabelas || [], cp = d.copias || [], h = d.horas_ultimo_backup;
+    const backupOk = h !== null && h !== undefined && h <= 24;
+    const dis = backupOk ? '' : 'disabled ';
+    const tdE = 'padding:6px 8px;border-top:1px solid var(--border);';
+    let html = (msg ? '<div style="padding:10px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;color:var(--text);margin-bottom:10px;">' + _bkEsc(msg) + '</div>' : '');
+    html += '<div style="font-size:12.5px;margin-bottom:10px;color:' + (backupOk ? '#7FFF00' : '#f59e0b') + ';">' + (backupOk ? '✅ Último backup do banco há ' + h + ' h: pode converter.' : '⚠️ Faça um backup novo antes de converter (o último ' + (h == null ? 'não tem data' : 'tem ' + h + ' h') + '; o limite é 24 h).') + '</div>';
+    if (!ts.length) {
+      html += '<div style="font-size:13px;color:#7FFF00;">✅ Todas as tabelas já estão no formato moderno (InnoDB e utf8mb4).</div>';
+    } else {
+      const linhas = ts.map(t => '<tr><td style="' + tdE + '"><b>' + _bkEsc(t.tabela) + '</b></td><td style="' + tdE + '">' + _bkEsc(t.engine) + '</td><td style="' + tdE + '">' + _bkEsc(t.collation) + '</td><td style="' + tdE + 'text-align:right;">' + t.linhas + '</td><td style="' + tdE + 'text-align:right;"><button class="cfg-save" ' + dis + 'data-tab="' + _bkEsc(t.tabela) + '" onclick="converterTabela(this.dataset.tab)" style="padding:4px 12px;">Converter</button></td></tr>').join('');
+      html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><tr><th style="text-align:left;padding:6px 8px;color:var(--text-muted);">Tabela</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted);">Motor</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted);">Texto</th><th style="text-align:right;padding:6px 8px;color:var(--text-muted);">Linhas</th><th></th></tr>' + linhas + '</table></div>';
+      html += '<div style="margin-top:10px;"><button class="cfg-save" ' + dis + 'onclick="converterTodas()">⚙️ Converter todas, uma por vez (' + ts.length + ')</button></div>';
+    }
+    if (cp.length) {
+      html += '<details style="margin-top:14px;"><summary style="cursor:pointer;font-size:12px;color:var(--text-muted);">Cópias de segurança criadas (' + cp.length + ')</summary><div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Cada conversão deixou uma cópia da tabela antiga (o nome começa com conv_bak_). Depois de uns dias de uso sem problema, elas podem ser apagadas pelo phpMyAdmin da KingHost (apagar é sempre manual): ' + cp.map(c => _bkEsc(c.tabela) + ' (' + c.linhas + ')').join(', ') + '</div></details>';
+    }
+    box.innerHTML = html;
+  } catch (e) { box.innerHTML = '<p style="font-size:12px;color:#ef4444;">' + _bkEsc(e.message) + '</p>'; }
+}
+async function _converterUma(nome) {
+  const r = await fetch(API_BASE + '/catalogo.php?action=conversao_tabelas', { method: 'POST', headers: _bkHeaders(true), body: JSON.stringify({ tabela: nome }) });
+  return r.json().catch(() => ({ ok: false, msg: 'Resposta inválida do servidor.' }));
+}
+async function converterTabela(nome) {
+  if (!confirm('Converter a tabela "' + nome + '"? O servidor faz uma cópia de segurança dela antes e confere o conteúdo depois. Nada é apagado.')) return;
+  const d = await _converterUma(nome);
+  verTabelas((d.ok ? '✅ ' : '❌ ') + nome + ': ' + (d.msg || d.error || 'sem resposta'));
+}
+async function converterTodas() {
+  if (!confirm('Converter TODAS as tabelas antigas, uma por vez? Cada uma leva menos de um segundo. Se alguma falhar, o processo para e a tabela volta como estava.')) return;
+  const box = document.getElementById('tabelas-box');
+  const r0 = await fetch(API_BASE + '/catalogo.php?action=conversao_tabelas&_=' + Date.now(), { headers: _bkHeaders(), cache: 'no-store' });
+  const lista = (await r0.json()).tabelas || [];
+  let feitas = 0, erro = '';
+  for (const t of lista) {
+    box.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">Convertendo ' + _bkEsc(t.tabela) + ' (' + (feitas + 1) + ' de ' + lista.length + ')...</p>';
+    const d = await _converterUma(t.tabela);
+    if (!d.ok) { erro = t.tabela + ': ' + (d.msg || d.error || 'falhou'); break; }
+    feitas++;
+  }
+  verTabelas(erro ? '❌ Parou em ' + erro + ' (' + feitas + ' convertidas antes).' : '✅ ' + feitas + ' tabelas convertidas, conteúdo conferido.');
 }
 async function verSeguranca(salvo) {
   const box = document.getElementById('seguranca-box');
