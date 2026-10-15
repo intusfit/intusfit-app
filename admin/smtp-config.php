@@ -158,11 +158,11 @@ function chip(bool $ok, string $rotulo): string {
 <label for="host">Servidor (SMTP, porta 465 com SSL)</label>
 <input type="text" id="host" name="host" placeholder="<?= h($cfg['host'] ?? 'smtp.intusfit.com.br') ?>">
 <label for="user">Usuário (o e-mail completo)</label>
-<input type="email" id="user" name="user" placeholder="<?= h($cfg['user'] ?? 'contato@intusfit.com.br') ?>">
+<input type="email" id="user" name="user" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore placeholder="<?= h($cfg['user'] ?? 'contato@intusfit.com.br') ?>">
 <label for="pass">Senha do e-mail</label>
-<input type="password" id="pass" name="pass" autocomplete="new-password" placeholder="<?= !empty($cfg['pass']) ? 'salva (em branco mantém)' : 'digite aqui' ?>">
+<input type="password" id="pass" name="pass" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="<?= !empty($cfg['pass']) ? 'salva (em branco mantém)' : 'digite aqui' ?>">
 <label for="from_name">Nome que aparece como remetente</label>
-<input type="text" id="from_name" name="from_name" maxlength="60" placeholder="<?= h($cfg['from_name'] ?? 'Intus Fit') ?>">
+<input type="text" id="from_name" name="from_name" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore maxlength="60" placeholder="<?= h($cfg['from_name'] ?? 'Intus Fit') ?>">
 <label for="notificar">E-mail que recebe o aviso de novo cadastro (opcional)</label>
 <input type="email" id="notificar" name="notificar" placeholder="<?= h($cfg['notificar'] ?? 'contato@intusfit.com.br') ?>">
 <button type="submit" name="acao" value="salvar">Salvar</button>
