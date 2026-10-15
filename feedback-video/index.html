@@ -148,6 +148,9 @@ input,textarea{font-family:inherit}
 .editor-topo b{font-size:13px}
 .editor-topo span{font-size:11.5px;color:var(--muted-d)}
 #ed-linha{display:block;width:100%;height:96px;background:#0a0a0a;border:1px solid var(--borda);border-radius:8px;touch-action:none;cursor:crosshair}
+.ed-linha-wrap{position:relative}
+.ed-flutua{position:absolute;top:6px;display:flex;gap:4px;z-index:3;transform:translateX(-50%);white-space:nowrap}
+.ed-flutua button{box-shadow:0 4px 14px rgba(0,0,0,.6)}
 .ed-linha-botoes{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
 .ed-linha-botoes .sep{height:20px}
 .ed-tempo{font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted);min-width:128px}
@@ -332,9 +335,15 @@ input,textarea{font-family:inherit}
     <div class="editor" id="editor" hidden>
       <div class="editor-topo">
         <b>✂ Cortar trechos do vídeo</b>
-        <span><b>Para tirar um trecho do meio:</b> toque o vídeo, pause onde o erro começa e clique em "Início do corte aqui" (tecla I); toque até onde o erro termina e clique em "Fim do corte aqui" (tecla O); confira com "Ouvir a seleção" e clique em "Cortar a seleção" (tecla C). Também dá para arrastar na linha abaixo, ajustar os segundos nos campos, e a roda do mouse aproxima a linha do tempo.</span>
+        <span><b>Para tirar um trecho:</b> arraste na linha abaixo sobre o erro (ou toque o vídeo e use "Início/Fim do corte aqui", teclas I e O). Aparecem duas alças verdes: arraste cada uma para acertar o começo e o fim, ou arraste o trecho inteiro para o lado — a imagem do vídeo acompanha. Clique em "✂ Cortar" (ou Delete). Arrastar na régua de tempo, embaixo, passeia pelo vídeo. A roda do mouse aproxima; clicar num corte vermelho volta a ajustá-lo.</span>
       </div>
-      <canvas id="ed-linha"></canvas>
+      <div class="ed-linha-wrap">
+        <canvas id="ed-linha"></canvas>
+        <div class="ed-flutua" id="ed-flutua" hidden>
+          <button class="btn-mini destaque" id="ed-f-cortar" title="Cortar o trecho selecionado (Delete ou C)">✂ Cortar</button>
+          <button class="btn-mini" id="ed-f-ouvir" title="Ouvir só o trecho selecionado">▶</button>
+        </div>
+      </div>
       <input type="range" id="ed-pan" min="0" max="1000" value="0" hidden>
       <div class="ed-linha-botoes">
         <button class="btn-mini" id="ed-play">▶ Tocar</button>
@@ -1247,7 +1256,13 @@ function edDesenhar(){
   if (ed.sel) {
     var a2 = X(ed.sel.a), b2 = X(ed.sel.b);
     x.fillStyle = 'rgba(127,255,0,.22)'; x.fillRect(a2, 0, b2 - a2, topo);
-    x.fillStyle = '#7FFF00'; x.fillRect(a2 - 1, 0, 2, topo); x.fillRect(b2 - 1, 0, 2, topo);
+    x.fillStyle = '#7FFF00'; x.fillRect(a2, 0, 2, topo); x.fillRect(b2 - 2, 0, 2, topo);
+    // alças pra arrastar (como no CapCut): saem pra fora das pontas do trecho
+    [[a2 - 9, 'a'], [b2, 'b']].forEach(function(al){
+      var ay = topo * 0.18, ah = topo * 0.64;
+      x.fillStyle = '#7FFF00'; x.fillRect(al[0], ay, 9, ah);
+      x.fillStyle = '#0a0a0a'; x.fillRect(al[0] + 3, ay + 9, 1, ah - 18); x.fillRect(al[0] + 5, ay + 9, 1, ah - 18);
+    });
   }
   var passos = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600], alvo = v.dur / (W / 90), passo = passos[passos.length - 1];
   for (var k = 0; k < passos.length; k++) if (passos[k] >= alvo) { passo = passos[k]; break; }
@@ -1258,45 +1273,99 @@ function edDesenhar(){
   var ph = X(edPrev.currentTime || 0);
   if (ph >= 0 && ph <= W) { x.fillStyle = '#fff'; x.fillRect(ph - 1, 0, 2, topo); }
   document.getElementById('ed-tempo').textContent = fmtT(edPrev.currentTime || 0) + ' / ' + fmtT(ed.dur);
+  // botão "✂ Cortar" em cima do trecho selecionado (some enquanto se arrasta)
+  var fl = document.getElementById('ed-flutua');
+  if (ed.sel && !ed.drag && !ed.ocupado && X(ed.sel.b) > 0 && X(ed.sel.a) < W) {
+    fl.style.left = Math.max(70, Math.min(W - 70, (X(ed.sel.a) + X(ed.sel.b)) / 2)) + 'px';
+    fl.hidden = false;
+  } else fl.hidden = true;
 }
 
 function edTempoDeX(e){
   var r = edLinha.getBoundingClientRect();
   return Math.max(0, Math.min(ed.dur, ed.vis.ini + (e.clientX - r.left) / r.width * ed.vis.dur));
 }
-function edPertoDaBorda(t){
-  if (!ed.sel) return null;
-  var pxSeg = edLinha.getBoundingClientRect().width / ed.vis.dur;
-  if (Math.abs(t - ed.sel.a) * pxSeg < 8) return 'a';
-  if (Math.abs(t - ed.sel.b) * pxSeg < 8) return 'b';
-  return null;
+// O que está sob o ponteiro: régua (passear pelo vídeo), alça da seleção, corpo da seleção
+// (mover o trecho inteiro), um corte já marcado (reabrir pra ajustar) ou espaço livre (nova seleção).
+var ED_H = 96, ED_REGUA = 18;
+function edAlvo(e){
+  var r = edLinha.getBoundingClientRect(), y = e.clientY - r.top, t = edTempoDeX(e), pxs = r.width / ed.vis.dur;
+  if (y > ED_H - ED_REGUA) return { tipo: 'regua', t: t };
+  if (ed.sel) {
+    var da = Math.abs(t - ed.sel.a) * pxs, db = Math.abs(t - ed.sel.b) * pxs;
+    if (Math.min(da, db) <= 10) return { tipo: 'borda', borda: da <= db ? 'a' : 'b', t: t };
+    if (t > ed.sel.a && t < ed.sel.b) return { tipo: 'corpo', t: t };
+  }
+  for (var i = 0; i < ed.cortes.length; i++) if (t >= ed.cortes[i].ini && t <= ed.cortes[i].fim) return { tipo: 'corte', idx: i, t: t };
+  return { tipo: 'novo', t: t };
+}
+var ED_CURSOR = { regua: 'col-resize', borda: 'ew-resize', corpo: 'grab', corte: 'pointer', novo: 'crosshair' };
+// A imagem do vídeo acompanha o que se arrasta (no máximo ~20 vezes por segundo).
+function edScrub(t, forcar){
+  var agora = performance.now();
+  if (!forcar && agora - (ed.ultimoScrub || 0) < 50) return;
+  ed.ultimoScrub = agora;
+  if (!edPrev.paused) edPrev.pause();
+  edPrev.currentTime = Math.max(0, Math.min(ed.dur, t));
+}
+function edArrastar(t){
+  var d = ed.drag; if (!d) return;
+  if (d.tipo === 'regua') edScrub(t);
+  else if (d.tipo === 'borda' && ed.sel) {
+    ed.sel[d.borda] = t;
+    if (ed.sel.a > ed.sel.b) { var tmp = ed.sel.a; ed.sel.a = ed.sel.b; ed.sel.b = tmp; d.borda = d.borda === 'a' ? 'b' : 'a'; }
+    edScrub(t);
+  } else if (d.tipo === 'corpo' && ed.sel) {
+    var a = Math.max(0, Math.min(ed.dur - d.lenSel, t - d.offA));
+    ed.sel = { a: a, b: a + d.lenSel };
+    edScrub(a);
+  } else {
+    ed.sel = { a: Math.min(d.ancora, t), b: Math.max(d.ancora, t) };
+    edScrub(t);
+  }
+  edAtualizarSelecao(); edDesenhar();
 }
 edLinha.addEventListener('pointerdown', function(e){
   if (!ed.aberto || ed.ocupado) return;
   edLinha.setPointerCapture(e.pointerId);
-  var t = edTempoDeX(e);
-  ed.drag = { borda: edPertoDaBorda(t), ancora: t, x0: e.clientX, moveu: false };
+  var al = edAlvo(e);
+  ed.drag = { tipo: al.tipo, borda: al.borda, idx: al.idx, ancora: al.t, x0: e.clientX, ultimoX: e.clientX, moveu: false,
+              offA: ed.sel ? al.t - ed.sel.a : 0, lenSel: ed.sel ? ed.sel.b - ed.sel.a : 0 };
+  if (al.tipo === 'regua') edScrub(al.t, true);
+  clearInterval(ed.autoPan);
+  // Segurando perto da borda, a linha do tempo anda sozinha (dá pra arrastar um trecho além do que está à vista).
+  ed.autoPan = setInterval(function(){
+    var d = ed.drag; if (!d || !(d.moveu || d.tipo === 'regua') || ed.vis.dur >= ed.dur) return;
+    var r = edLinha.getBoundingClientRect(), dir = d.ultimoX < r.left + 28 ? -1 : d.ultimoX > r.right - 28 ? 1 : 0;
+    if (!dir) return;
+    ed.vis.ini += dir * ed.vis.dur * 0.02; edLimitarVista();
+    edArrastar(edTempoDeX({ clientX: d.ultimoX }));
+  }, 50);
 });
 edLinha.addEventListener('pointermove', function(e){
   if (!ed.aberto) return;
   var d = ed.drag;
-  if (!d) { edLinha.style.cursor = edPertoDaBorda(edTempoDeX(e)) ? 'ew-resize' : 'crosshair'; return; }
+  if (!d) { edLinha.style.cursor = ED_CURSOR[edAlvo(e).tipo]; return; }
+  d.ultimoX = e.clientX;
   if (Math.abs(e.clientX - d.x0) > 3) d.moveu = true;
-  if (!d.moveu) return;
-  var t = edTempoDeX(e);
-  if (d.borda) {
-    ed.sel[d.borda] = t;
-    if (ed.sel.a > ed.sel.b) { var tmp = ed.sel.a; ed.sel.a = ed.sel.b; ed.sel.b = tmp; d.borda = d.borda === 'a' ? 'b' : 'a'; }
-  } else ed.sel = { a: Math.min(d.ancora, t), b: Math.max(d.ancora, t) };
-  edAtualizarSelecao(); edDesenhar();
+  if (!d.moveu && d.tipo !== 'regua') return;
+  if (d.tipo === 'corpo') edLinha.style.cursor = 'grabbing';
+  edArrastar(edTempoDeX(e));
 });
 function edSoltar(){
-  var d = ed.drag; ed.drag = null;
+  var d = ed.drag; ed.drag = null; clearInterval(ed.autoPan);
   if (!d) return;
-  if (!d.moveu) { edPrev.currentTime = d.ancora; ed.sel = null; }
-  else {
-    if (ed.sel && ed.sel.b - ed.sel.a < 0.05) ed.sel = null;
-    if (ed.sel && !d.borda) edPrev.currentTime = ed.sel.a;
+  if (!d.moveu) {
+    if (d.tipo === 'corte') {                      // clique num corte: volta a ser seleção, pra ajustar
+      var c = ed.cortes.splice(d.idx, 1)[0];
+      ed.sel = { a: c.ini, b: c.fim }; edRenderCortes(); edScrub(c.ini, true);
+    } else if (d.tipo !== 'regua') {
+      edScrub(d.ancora, true);
+      if (d.tipo === 'novo') ed.sel = null;        // clicar na alça ou dentro da seleção só posiciona o vídeo
+    }
+  } else if (ed.sel) {
+    if (ed.sel.b - ed.sel.a < 0.05) ed.sel = null;
+    else if (d.tipo === 'novo' || d.tipo === 'corte') edScrub(ed.sel.a, true);
   }
   edAtualizarSelecao(); edDesenhar();
 }
@@ -1353,8 +1422,10 @@ document.addEventListener('keydown', function(e){
   var k = e.key.toLowerCase();
   if (k === 'i') { edMarcar('ini'); e.preventDefault(); }
   else if (k === 'o') { edMarcar('fim'); e.preventDefault(); }
-  else if (k === 'c' && ed.sel) { edAddCorte(ed.sel.a, ed.sel.b); e.preventDefault(); }
+  else if ((k === 'c' || k === 'delete' || k === 'backspace') && ed.sel) { edAddCorte(ed.sel.a, ed.sel.b); e.preventDefault(); }
 });
+document.getElementById('ed-f-cortar').addEventListener('click', function(){ if (ed.sel) edAddCorte(ed.sel.a, ed.sel.b); });
+document.getElementById('ed-f-ouvir').addEventListener('click', function(){ document.getElementById('ed-ouvir').click(); });
 function edRenderCortes(){
   var wrap = document.getElementById('ed-cortes');
   wrap.innerHTML = '';
