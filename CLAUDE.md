@@ -1626,3 +1626,22 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 ## 79. Senha mestra trocada e tela de sessões ativas (15/10/2026)
 - O Luiz trocou a senha mestra do administrador em 15/10/2026. A senha antiga ficou publicada no `_mock.js` por um tempo e continua no histórico do git, agora sem valor.
 - **Trocar a senha NÃO derruba as sessões já abertas** (cada login cria um token válido por até 7 dias em `intus_sessions`). Por isso Configurações > Servidor ganhou o card **"Sessões ativas"** (`verSessoes`, `encerrarSessoes`; usa `catalogo.php?action=sessoes`, que já existia e é só do administrador): lista as contas conectadas (sessões, último uso, IPs) e "Encerrar" derruba todas as sessões da conta; nenhum dado é apagado. **Regra de rotina: depois de trocar qualquer senha de equipe, encerrar as sessões daquela conta.** Encerrar sessão continua sendo ação manual pelo painel, nunca por script.
+
+## 80. Código da Definição (CDD) dentro da Intus: desenho aprovado (15/10/2026)
+Só desenho, nenhum código ainda. Fase 0 e 1 em `C:\Users\User\IntusFit\cdd-descoberta\` (fora do repositório; Artifact do desenho: https://claude.ai/artifact/KNpfLE2EoHujYf4jXnPRMH). A construção será em branch `cdd`, começando por arquivos novos; `aluno.html`, `catalogo.php` e `api.js` só com aviso ao Luiz.
+- **Arquitetura**: um sistema só com vários programas (Intus, CDD e os que vierem), não cópia de código. Programa tem marca, público, conteúdo e domínio. Matrícula por programa (status, origem, função). Tabelas novas só aditivas, com autorização do Luiz antes de rodar.
+- **Fonte do conteúdo**: Nutror (19 módulos, 85 aulas, todas em vídeo do YouTube) e Drive (planilhas de treino, PDFs). Os IDs das planilhas na Nutror são os mesmos do Drive. 11 protocolos (o #11 Bikini 2.0 só no Drive).
+- **Vídeo**: continua no YouTube embutido (decisão do Luiz). Sem servidor de vídeo próprio por enquanto.
+- **Fichas de treino**: serão convertidas das planilhas para fichas dentro do sistema, no modelo das fichas e alongamentos que a Intus já tem. Isso exige ler as ~35 planilhas (exportar é download, só com o sim do Luiz para cada lote).
+- **Conteúdo editável**: o Luiz edita módulos, aulas e bônus num painel admin do CDD, inclusive trocar aulas de tema sensível por outras sem risco.
+- **Método Marlene Mariano**: criação própria, entra como módulo ou bônus, pode virar app à parte no futuro.
+- **Marca**: identidade visual atual do CDD (logos e banners do Drive). Comunicação, promessas e branding a trabalhar à parte.
+- **Login**: conta única; quem tem matrícula nos dois programas troca de programa na tela.
+- **Comunidade**: ranking e feed exclusivos do CDD e da Intus, mais ranking e feed gerais de todo o ecossistema (previstos para programas futuros). O treino pertence à pessoa e conta uma vez; cada ranking é uma lista de membros. Trava de exclusividade feminina no servidor.
+- **"Só mulheres"**: o cadastro mantém a escolha do sexo. Quem escolher masculino recebe aviso da exclusividade do CDD para mulheres e a indicação da Intus.
+- **App nativo**: dois apps independentes nas lojas (identificadores e marcas diferentes), mesma base de código. Quem tem um app acessa o outro programa se tiver matrícula.
+- **Domínio**: `codigodadefinicao.com.br` pelo Cloudflare, mais página de vendas e captura nova. Ticket KingHost 411645 (bloqueio) ainda a resolver. Sem plano de hospedagem novo por enquanto; medir o pool de 4 processos.
+- **Alunas atuais**: ficam na Nutror até o acesso expirar; só alunas novas entram no sistema novo. Nunca migrar senha.
+- **Pagamento**: NÃO vincular a Eduzz ao sistema por enquanto. O Luiz pretende trocar de plataforma de recebimento e integrar depois. Até lá a matrícula é manual ou cortesia. Desenhar a entrada de matrícula independente de plataforma (tabela de eventos e origem), para ligar o webhook novo depois.
+- **Ordem**: conteúdo e acesso primeiro; comunidade com escopos e app depois.
+- Dados de alunas (pastas de alunas, contratos, anamneses, fotos) não foram abertos e não são necessários para o desenho.
