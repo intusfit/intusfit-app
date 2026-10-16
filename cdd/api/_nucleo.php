@@ -14,8 +14,9 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 3;   // 1 = tabelas do MVP, 2 = base de exercícios, 3 = liberação por tempo, treino, comentários e avaliações
+const CDD_ESQUEMA = 4;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking
 require_once __DIR__ . '/_treino.php';
+require_once __DIR__ . '/_app.php';
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -52,6 +53,7 @@ function cddDdl(): array {
             sexo VARCHAR(12) NOT NULL DEFAULT 'feminino',
             papel VARCHAR(12) NOT NULL DEFAULT 'aluna',
             status VARCHAR(12) NOT NULL DEFAULT 'ativa',
+            ranking_visivel TINYINT NOT NULL DEFAULT 1,
             termos_versao VARCHAR(40) NULL,
             termos_em DATETIME NULL,
             criado_em DATETIME NOT NULL,
@@ -124,7 +126,10 @@ function cddDdl(): array {
             ordem INT NOT NULL DEFAULT 0,
             publicado TINYINT NOT NULL DEFAULT 1,
             liberacao_dias INT NULL,
-            liberacao_data DATE NULL
+            liberacao_data DATE NULL,
+            emoji VARCHAR(8) NULL,
+            cor VARCHAR(9) NULL,
+            capa_url VARCHAR(500) NULL
         ) $c",
         'cdd_aula' => "CREATE TABLE IF NOT EXISTS cdd_aula (
             idaula INT AUTO_INCREMENT PRIMARY KEY,
@@ -155,6 +160,7 @@ function cddDdl(): array {
             repeticoes VARCHAR(40) NULL,
             intervalo VARCHAR(40) NULL,
             metodo VARCHAR(200) NULL,
+            metodo_tipo VARCHAR(10) NULL,
             video VARCHAR(500) NULL,
             obs VARCHAR(500) NULL,
             INDEX idx_aula (idaula, ordem)
@@ -207,6 +213,18 @@ function cddDdl(): array {
             atualizado_em DATETIME NOT NULL,
             PRIMARY KEY (idaluna, idaula)
         ) $c",
+        'cdd_anamnese' => "CREATE TABLE IF NOT EXISTS cdd_anamnese (
+            idaluna INT NOT NULL PRIMARY KEY,
+            respostas TEXT NULL,
+            enviado_em DATETIME NULL,
+            atualizado_em DATETIME NOT NULL
+        ) $c",
+        'cdd_conquista' => "CREATE TABLE IF NOT EXISTS cdd_conquista (
+            idaluna INT NOT NULL,
+            chave VARCHAR(30) NOT NULL,
+            conquistada_em DATETIME NOT NULL,
+            PRIMARY KEY (idaluna, chave)
+        ) $c",
         'cdd_progresso' => "CREATE TABLE IF NOT EXISTS cdd_progresso (
             idaluna INT NOT NULL,
             idaula INT NOT NULL,
@@ -234,9 +252,12 @@ function cddGarantirTabelas(PDO $pdo): void {
             $st->execute(['instalacao_aberta', '1']);
             $st->execute(['cadastro_aberto', '1']);
         }
-        foreach (['liberacao_dias' => 'INT NULL', 'liberacao_data' => 'DATE NULL'] as $col => $tipo) {
-            try { $pdo->query("SELECT $col FROM cdd_modulo LIMIT 1"); }
-            catch (Throwable $e) { $pdo->exec("ALTER TABLE cdd_modulo ADD COLUMN $col $tipo"); }
+        // Colunas novas de tabelas do próprio CDD (só ADD COLUMN, nunca altera nem apaga dado existente).
+        foreach ([['cdd_modulo', 'liberacao_dias', 'INT NULL'], ['cdd_modulo', 'liberacao_data', 'DATE NULL'], ['cdd_modulo', 'emoji', 'VARCHAR(8) NULL'],
+                  ['cdd_modulo', 'cor', 'VARCHAR(9) NULL'], ['cdd_modulo', 'capa_url', 'VARCHAR(500) NULL'], ['cdd_aluna', 'ranking_visivel', 'TINYINT NOT NULL DEFAULT 1'],
+                  ['cdd_ficha_item', 'metodo_tipo', 'VARCHAR(10) NULL']] as $c3) {
+            try { $pdo->query("SELECT {$c3[1]} FROM {$c3[0]} LIMIT 1"); }
+            catch (Throwable $e) { $pdo->exec("ALTER TABLE {$c3[0]} ADD COLUMN {$c3[1]} {$c3[2]}"); }
         }
         cddConfigGravar($pdo, 'esquema', (string)CDD_ESQUEMA);
     }
@@ -390,8 +411,9 @@ function cddConfigGravar(PDO $pdo, string $chave, string $valor): void {
 /* ───────────────────────── Conteúdo (leitura da aluna) ───────────────────────── */
 
 function cddModulosParaAluna(PDO $pdo, int $idaluna, bool $incluirRascunho, ?string $inicio = null): array {
-    $mods = $pdo->query('SELECT idmodulo, titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data FROM cdd_modulo ORDER BY ordem, idmodulo')->fetchAll();
-    $aulas = $pdo->query('SELECT idaula, idmodulo, titulo, tipo, ordem, publicado, (CASE WHEN youtube_id IS NULL OR youtube_id = \'\' THEN 0 ELSE 1 END) AS tem_video FROM cdd_aula ORDER BY ordem, idaula')->fetchAll();
+    $mods = $pdo->query('SELECT idmodulo, titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data, emoji, cor, capa_url FROM cdd_modulo ORDER BY ordem, idmodulo')->fetchAll();
+    $aulas = $pdo->query('SELECT idaula, idmodulo, titulo, tipo, youtube_id, ordem, publicado, (CASE WHEN youtube_id IS NULL OR youtube_id = \'\' THEN 0 ELSE 1 END) AS tem_video FROM cdd_aula ORDER BY ordem, idaula')->fetchAll();
+    $comFicha = array_flip(array_map('intval', array_column($pdo->query('SELECT DISTINCT idaula FROM cdd_ficha_item')->fetchAll(), 'idaula')));
     $st = $pdo->prepare('SELECT idaula FROM cdd_progresso WHERE idaluna = ?'); $st->execute([$idaluna]);
     $feitas = array_flip(array_map('intval', array_column($st->fetchAll(), 'idaula')));
     $nota = []; $coment = []; $semResp = [];
@@ -400,10 +422,12 @@ function cddModulosParaAluna(PDO $pdo, int $idaluna, bool $incluirRascunho, ?str
         foreach ($pdo->query('SELECT idaula, COUNT(*) AS n FROM cdd_comentario WHERE oculto = 0 GROUP BY idaula')->fetchAll() as $r) $coment[(int)$r['idaula']] = (int)$r['n'];
         foreach ($pdo->query('SELECT c.idaula, COUNT(*) AS n FROM cdd_comentario c WHERE c.parent_id IS NULL AND c.oculto = 0 AND c.equipe = 0 AND NOT EXISTS (SELECT 1 FROM cdd_comentario r WHERE r.parent_id = c.idcomentario AND r.equipe = 1 AND r.oculto = 0) GROUP BY c.idaula')->fetchAll() as $r) $semResp[(int)$r['idaula']] = (int)$r['n'];
     }
-    $porMod = [];
+    $porMod = []; $thumb = [];
     foreach ($aulas as $a) {
         if (!$incluirRascunho && !(int)$a['publicado']) continue;
-        $a['idaula'] = (int)$a['idaula']; $a['concluida'] = isset($feitas[$a['idaula']]);
+        $a['idaula'] = (int)$a['idaula']; $a['concluida'] = isset($feitas[$a['idaula']]); $a['tem_ficha'] = isset($comFicha[$a['idaula']]);
+        $a['yt'] = $a['youtube_id'] ?: null; unset($a['youtube_id']);
+        if (empty($thumb[(int)$a['idmodulo']]) && $a['yt']) $thumb[(int)$a['idmodulo']] = $a['yt'];
         if ($incluirRascunho) { $a['nota_media'] = $nota[$a['idaula']][0] ?? null; $a['votos'] = $nota[$a['idaula']][1] ?? 0; $a['comentarios'] = $coment[$a['idaula']] ?? 0; $a['sem_resposta'] = $semResp[$a['idaula']] ?? 0; }
         $porMod[(int)$a['idmodulo']][] = $a;
     }
@@ -418,9 +442,11 @@ function cddModulosParaAluna(PDO $pdo, int $idaluna, bool $incluirRascunho, ?str
         $m['libera_em'] = $lib['libera_em'];
         $m['liberacao_dias'] = ($m['liberacao_dias'] === null || $m['liberacao_dias'] === '') ? null : (int)$m['liberacao_dias'];
         $m['liberacao_data'] = $m['liberacao_data'] ? substr((string)$m['liberacao_data'], 0, 10) : null;
+        $m['thumb_yt'] = $thumb[$m['idmodulo']] ?? null;
         $m['total'] = count($lista);
         $m['feitas'] = count(array_filter($lista, function ($a) { return $a['concluida']; }));
         $m['aulas'] = (!$incluirRascunho && !$lib['liberado']) ? [] : $lista;   // módulo trancado: a aluna vê o nome e quando libera, não as aulas
+        if (!$incluirRascunho && !$lib['liberado']) foreach (['thumb_yt'] as $k) $m[$k] = null;
         $out[] = $m;
     }
     return $out;
@@ -440,7 +466,7 @@ function cddAulaCompleta(PDO $pdo, int $idaula, int $idaluna, bool $incluirRascu
     }
     unset($a['liberacao_dias'], $a['liberacao_data']);
     $an = $pdo->prepare('SELECT idanexo, titulo, url FROM cdd_anexo WHERE idaula = ? ORDER BY ordem, idanexo'); $an->execute([$idaula]);
-    $fi = $pdo->prepare('SELECT iditem, grupo, exercicio, series, repeticoes, intervalo, metodo, video, obs FROM cdd_ficha_item WHERE idaula = ? ORDER BY ordem, iditem'); $fi->execute([$idaula]);
+    $fi = $pdo->prepare('SELECT iditem, grupo, exercicio, series, repeticoes, intervalo, metodo, metodo_tipo, video, obs FROM cdd_ficha_item WHERE idaula = ? ORDER BY ordem, iditem'); $fi->execute([$idaula]);
     $pr = $pdo->prepare('SELECT COUNT(*) FROM cdd_progresso WHERE idaluna = ? AND idaula = ?'); $pr->execute([$idaluna, $idaula]);
     // vizinhas (anterior e próxima, dentro do mesmo módulo)
     $vz = $pdo->prepare('SELECT idaula, publicado FROM cdd_aula WHERE idmodulo = ? ORDER BY ordem, idaula'); $vz->execute([$a['idmodulo']]);
@@ -456,6 +482,39 @@ function cddAulaCompleta(PDO $pdo, int $idaula, int $idaluna, bool $incluirRascu
     $a['anterior'] = ($pos !== false && $pos > 0) ? $ids[$pos - 1] : null;
     $a['proxima'] = ($pos !== false && $pos < count($ids) - 1) ? $ids[$pos + 1] : null;
     return $a;
+}
+
+/* ───────────────────────── Métodos de treino (mesma lógica da Intus) ───────────────────────── */
+
+/** Bloco do método: super (bi-set), triset ou circuito. Vale o que a equipe marcou; sem marcação, deduz do texto da ficha. */
+function cddMetodoTipoDoItem(array $it): string {
+    $m = (string)($it['metodo_tipo'] ?? '');
+    if (in_array($m, ['super', 'triset', 'circuito'], true)) return $m;
+    $t = strtolower(strtr(($it['series'] ?? '') . ' ' . ($it['metodo'] ?? '') . ' ' . ($it['obs'] ?? ''), ['É' => 'e', 'é' => 'e', 'ç' => 'c']));
+    if (preg_match('/tri[\s-]?set/', $t)) return 'triset';
+    if (strpos($t, 'circuito') !== false) return 'circuito';
+    if (strpos($t, 'super') !== false) return 'super';
+    return '';
+}
+
+/** Técnica de série (drop, rest-pause...) citada no texto do método. Mesmas chaves da Intus. */
+function cddInferirTecnica(array $it): string {
+    $t = strtolower(strtr(($it['metodo'] ?? '') . ' ' . ($it['obs'] ?? ''), ['ã' => 'a', 'á' => 'a', 'é' => 'e', 'ê' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ç' => 'c']));
+    if (preg_match('/drop[\s-]?set|\bdrop\b/', $t)) return 'drop';
+    if (preg_match('/rest[\s-]?pause/', $t)) return 'restpause';
+    if (strpos($t, 'cluster') !== false) return 'cluster';
+    if (preg_match('/back[\s-]?off/', $t)) return 'backoff';
+    if (preg_match('/ate a falha|falha total|ate falhar/', $t)) return 'falha';
+    if (strpos($t, 'isometria') !== false) return 'isometria';
+    if (strpos($t, 'negativa') !== false) return 'negativa';
+    return '';
+}
+
+function cddGravarItemFicha(PDO $pdo, int $ida, int $ordem, array $it): void {
+    $mt = cddMetodoTipoDoItem($it);
+    $pdo->prepare('INSERT INTO cdd_ficha_item (idaula, ordem, grupo, exercicio, series, repeticoes, intervalo, metodo, metodo_tipo, video, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        ->execute([$ida, $ordem, cddStr($it['grupo'] ?? '', 80), cddStr($it['exercicio'] ?? '', 200), cddStr($it['series'] ?? '', 30), cddStr($it['repeticoes'] ?? '', 40), cddStr($it['intervalo'] ?? '', 40),
+                   cddStr($it['metodo'] ?? '', 200), $mt ?: null, cddVideoCampo($it['video'] ?? ''), cddStr($it['obs'] ?? '', 500)]);
 }
 
 /* ───────────────────────── Base de exercícios ───────────────────────── */
@@ -484,6 +543,8 @@ function cddFichaComBase(PDO $pdo, array $itens): array {
         $b = $base[$it['_k']] ?? null;
         if (empty($it['video']) && $b && !empty($b['video'])) $itens[$i]['video'] = $b['video'];
         $itens[$i]['descricao'] = $b['descricao'] ?? '';
+        $itens[$i]['metodo_tipo'] = cddMetodoTipoDoItem($it);
+        $itens[$i]['tecnica'] = cddInferirTecnica($it);
         unset($itens[$i]['_k']);
     }
     return $itens;
@@ -574,6 +635,7 @@ function cddParseFicha(string $texto): array {
         if ($it['exercicio'] === '') continue;
         foreach (['series' => 30, 'repeticoes' => 40, 'intervalo' => 40, 'metodo' => 200] as $k => $m) $it[$k] = cddStr($it[$k], $m);
         $it['video'] = cddVideoCampo($it['video']);
+        $it['metodo_tipo'] = cddMetodoTipoDoItem($it);
         $itens[] = $it;
     }
     return $itens;
@@ -592,11 +654,18 @@ function cddImportarSeed(PDO $pdo, array $seed): array {
         $idm = $st->fetchColumn();
         if (!$idm) {
             $ordemMod += 10;
-            $pdo->prepare('INSERT INTO cdd_modulo (titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            $pdo->prepare('INSERT INTO cdd_modulo (titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data, emoji, cor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
                 ->execute([$titulo, cddStr($m['descricao'] ?? '', 600), cddStr($m['grupo'] ?? 'curso', 20), $ordemMod, !empty($m['rascunho']) ? 0 : 1,
-                           isset($m['liberacao_dias']) ? (int)$m['liberacao_dias'] : null, !empty($m['liberacao_data']) ? cddData($m['liberacao_data']) : null]);
+                           isset($m['liberacao_dias']) ? (int)$m['liberacao_dias'] : null, !empty($m['liberacao_data']) ? cddData($m['liberacao_data']) : null,
+                           cddStr($m['emoji'] ?? '', 8) ?: null, preg_match('/^#[0-9a-fA-F]{6}$/', (string)($m['cor'] ?? '')) ? $m['cor'] : null]);
             $idm = (int)$pdo->lastInsertId(); $mods++;
-        } elseif (isset($m['liberacao_dias']) || !empty($m['liberacao_data'])) {
+        } elseif (!empty($m['emoji']) || !empty($m['cor'])) {
+            // módulo que já existia sem capa: completa só o que ainda estiver vazio
+            $sv = $pdo->prepare('SELECT emoji, cor FROM cdd_modulo WHERE idmodulo = ?'); $sv->execute([$idm]); $sv = $sv->fetch();
+            if ($sv && empty($sv['emoji']) && !empty($m['emoji'])) $pdo->prepare('UPDATE cdd_modulo SET emoji = ? WHERE idmodulo = ?')->execute([cddStr($m['emoji'], 8), $idm]);
+            if ($sv && empty($sv['cor']) && preg_match('/^#[0-9a-fA-F]{6}$/', (string)($m['cor'] ?? ''))) $pdo->prepare('UPDATE cdd_modulo SET cor = ? WHERE idmodulo = ?')->execute([$m['cor'], $idm]);
+        }
+        if ($idm && (isset($m['liberacao_dias']) || !empty($m['liberacao_data']))) {
             // módulo que já existia sem regra de liberação (importação anterior): completa só se ainda estiver vazio
             $sv = $pdo->prepare('SELECT liberacao_dias, liberacao_data FROM cdd_modulo WHERE idmodulo = ?'); $sv->execute([$idm]); $sv = $sv->fetch();
             if ($sv && $sv['liberacao_dias'] === null && empty($sv['liberacao_data'])) {
@@ -618,6 +687,7 @@ function cddImportarSeed(PDO $pdo, array $seed): array {
             } else {
                 $ida = (int)$ex['idaula'];
                 if ($yid && empty($ex['youtube_id'])) { $pdo->prepare("UPDATE cdd_aula SET youtube_id = ?, tipo = 'video' WHERE idaula = ?")->execute([$yid, $ida]); $atualizados++; }
+                if (($a['tipo'] ?? '') === 'anamnese') $pdo->prepare("UPDATE cdd_aula SET tipo = 'anamnese' WHERE idaula = ? AND tipo = 'link'")->execute([$ida]);
             }
             // Ficha: só entra se a aula ainda não tem nenhum exercício (nunca sobrescreve o que a equipe editou).
             if (!empty($a['ficha']) && is_array($a['ficha'])) {
@@ -627,9 +697,7 @@ function cddImportarSeed(PDO $pdo, array $seed): array {
                     foreach ($a['ficha'] as $it) {
                         $ex = cddStr($it['exercicio'] ?? '', 200); if ($ex === '') continue;
                         $o += 10;
-                        $pdo->prepare('INSERT INTO cdd_ficha_item (idaula, ordem, grupo, exercicio, series, repeticoes, intervalo, metodo, video, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                            ->execute([$ida, $o, cddStr($it['grupo'] ?? '', 80), $ex, cddStr($it['series'] ?? '', 30), cddStr($it['repeticoes'] ?? '', 40), cddStr($it['intervalo'] ?? '', 40),
-                                       cddStr($it['metodo'] ?? '', 200), cddVideoCampo($it['video'] ?? ''), cddStr($it['obs'] ?? '', 500)]);
+                        cddGravarItemFicha($pdo, $ida, $o, $it);
                     }
                     if ($o) $fichas++;
                 }
@@ -774,18 +842,29 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
         return cddResp(200, ['ok' => true]);
     }
 
+    $ra = cddRotaApp($pdo, $metodo, $acao, $q, $b, $eu, $ctx);   // anamnese e preferência do ranking: qualquer conta logada
+    if ($ra !== null) return $ra;
+
     /* ---- conteúdo: exige matrícula ativa (ou admin) ---- */
-    if (in_array($acao, ['meus_modulos', 'aula', 'concluir', 'treino', 'treino_salvar', 'treino_excluir', 'jornada', 'comentarios', 'comentar', 'comentario_excluir', 'avaliar'], true)) {
+    if (in_array($acao, ['meus_modulos', 'aula', 'concluir', 'treino', 'treino_salvar', 'treino_excluir', 'jornada', 'comentarios', 'comentar', 'comentario_excluir', 'avaliar', 'ranking', 'conquistas'], true)) {
         $mat = cddMatricula($pdo, $idaluna);
         if (!$admin && !$mat['ativa']) {
             $msg = $mat['status'] === 'expirada' ? 'Seu acesso expirou. Fale com a equipe para renovar.' : ($mat['status'] === 'sem_matricula' ? 'Sua conta está criada. Assim que a equipe liberar a sua matrícula, o conteúdo aparece aqui.' : 'Seu acesso está pausado. Fale com a equipe do CDD.');
             return cddErro(403, 'sem_matricula', $msg, ['status' => $mat['status']]);
         }
         $inicio = $mat['inicio'] ?? null;
+        $rm = cddRotaMembro($pdo, $metodo, $acao, $q, $eu);
+        if ($rm !== null) return $rm;
         if ($acao === 'meus_modulos' && $get) {
             $mods = cddModulosParaAluna($pdo, $idaluna, $admin, $inicio);
-            $seg = $pdo->prepare('SELECT COUNT(DISTINCT data) FROM cdd_treino WHERE idaluna = ? AND data >= ?'); $seg->execute([$idaluna, date('Y-m-d', strtotime('monday this week'))]);
-            return cddResp(200, ['modulos' => $mods, 'treino_hoje' => cddProximoTreino($pdo, $idaluna, $mods), 'treinos_semana' => (int)$seg->fetchColumn(), 'inicio' => $inicio]);
+            $seg = $pdo->prepare('SELECT COUNT(DISTINCT data) FROM cdd_treino WHERE idaluna = ? AND data >= ?'); $seg->execute([$idaluna, cddInicioSemana()]);
+            $an = $pdo->prepare('SELECT enviado_em FROM cdd_anamnese WHERE idaluna = ?'); $an->execute([$idaluna]); $an = $an->fetch();
+            $rk = cddRanking($pdo, $idaluna, 'semana');
+            $cq = cddConquistasDaAluna($pdo, $idaluna);
+            return cddResp(200, ['modulos' => $mods, 'treino_hoje' => cddProximoTreino($pdo, $idaluna, $mods), 'treinos_semana' => (int)$seg->fetchColumn(), 'inicio' => $inicio,
+                                 'anamnese_enviada' => !empty($an['enviado_em']), 'pontos_semana' => $rk['eu']['pontos'], 'posicao_semana' => $rk['eu']['pos'], 'participantes_semana' => $rk['participantes'],
+                                 'conquistas_ganhas' => count(array_filter($cq, function ($c) { return $c['conquistada']; })), 'conquistas_total' => count($cq),
+                                 'ranking_visivel' => $rk['visivel'], 'proximas_conquistas' => array_slice(array_values(array_filter($cq, function ($c) { return !$c['conquistada']; })), 0, 3)]);
         }
         if ($acao === 'aula' && $get) {
             $a = cddAulaAcessivel($pdo, (int)($q['id'] ?? 0), $idaluna, $admin, $inicio);
@@ -804,7 +883,7 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
             } else {
                 $pdo->prepare('DELETE FROM cdd_progresso WHERE idaluna = ? AND idaula = ?')->execute([$idaluna, $ida]);
             }
-            return cddResp(200, ['ok' => true, 'concluida' => !empty($b['feito'])]);
+            return cddResp(200, ['ok' => true, 'concluida' => !empty($b['feito']), 'novas' => !empty($b['feito']) ? cddAtualizarConquistas($pdo, $idaluna) : []]);
         }
         $r = cddRotaAluna($pdo, $metodo, $acao, $q, $b, $eu, $mat, $ctx);
         if ($r !== null) return $r;
@@ -834,6 +913,7 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
             'aulas_sem_video' => $n("SELECT COUNT(*) FROM cdd_aula WHERE tipo = 'video' AND (youtube_id IS NULL OR youtube_id = '')"),
             'rascunhos' => $n('SELECT COUNT(*) FROM cdd_aula WHERE publicado = 0'),
             'cadastro_aberto' => cddConfig($pdo, 'cadastro_aberto', '1') === '1',
+            'anamneses_enviadas' => $n('SELECT COUNT(*) FROM cdd_anamnese WHERE enviado_em IS NOT NULL'),
             'comentarios_sem_resposta' => $n("SELECT COUNT(*) FROM cdd_comentario c WHERE c.parent_id IS NULL AND c.oculto = 0 AND c.equipe = 0 AND NOT EXISTS (SELECT 1 FROM cdd_comentario r WHERE r.parent_id = c.idcomentario AND r.equipe = 1 AND r.oculto = 0)"),
             'treinos_7_dias' => $n("SELECT COUNT(*) FROM cdd_treino WHERE data >= '" . date('Y-m-d', time() - 6 * 86400) . "'"),
             'alunas_treinaram_7_dias' => $n("SELECT COUNT(DISTINCT idaluna) FROM cdd_treino WHERE data >= '" . date('Y-m-d', time() - 6 * 86400) . "'"),
@@ -910,13 +990,16 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
         $pub = !empty($b['publicado']) ? 1 : 0; $desc = cddStr($b['descricao'] ?? '', 600);
         $ldRaw = trim((string)($b['liberacao_dias'] ?? '')); $ld = ($ldRaw === '') ? null : max(0, min(3650, (int)$ldRaw));
         $ldataRaw = trim((string)($b['liberacao_data'] ?? '')); $ldata = ($ldataRaw === '') ? null : cddData($ldataRaw);
+        $emoji = cddStr($b['emoji'] ?? '', 8) ?: null; $cor = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($b['cor'] ?? '')) ? $b['cor'] : null;
+        $capaRaw = trim((string)($b['capa_url'] ?? '')); $capa = $capaRaw === '' ? null : (cddUrl($capaRaw) ?: false);
+        if ($capa === false) return cddErro(422, 'capa_invalida', 'O link da capa precisa começar com https://.');
         if ($ldataRaw !== '' && !$ldata) return cddErro(422, 'dados_invalidos', 'Data de liberação inválida. Use o formato AAAA-MM-DD.');
         $id = (int)($b['idmodulo'] ?? 0);
         if ($id) {
-            $pdo->prepare('UPDATE cdd_modulo SET titulo = ?, descricao = ?, grupo = ?, publicado = ?, liberacao_dias = ?, liberacao_data = ? WHERE idmodulo = ?')->execute([$titulo, $desc, $grupo, $pub, $ld, $ldata, $id]);
+            $pdo->prepare('UPDATE cdd_modulo SET titulo = ?, descricao = ?, grupo = ?, publicado = ?, liberacao_dias = ?, liberacao_data = ?, emoji = ?, cor = ?, capa_url = ? WHERE idmodulo = ?')->execute([$titulo, $desc, $grupo, $pub, $ld, $ldata, $emoji, $cor, $capa, $id]);
         } else {
             $ordem = (int)$pdo->query('SELECT COALESCE(MAX(ordem),0) FROM cdd_modulo')->fetchColumn() + 10;
-            $pdo->prepare('INSERT INTO cdd_modulo (titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data) VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([$titulo, $desc, $grupo, $ordem, $pub, $ld, $ldata]);
+            $pdo->prepare('INSERT INTO cdd_modulo (titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data, emoji, cor, capa_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([$titulo, $desc, $grupo, $ordem, $pub, $ld, $ldata, $emoji, $cor, $capa]);
             $id = (int)$pdo->lastInsertId();
         }
         return cddResp(200, ['idmodulo' => $id]);
@@ -933,7 +1016,7 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
         if ($titulo === '') return cddErro(422, 'dados_invalidos', 'Informe o título da aula.');
         $yt = trim((string)($b['youtube'] ?? '')); $yid = cddYoutubeId($yt);
         if ($yt !== '' && !$yid) return cddErro(422, 'youtube_invalido', 'Link do YouTube inválido. Cole o link do vídeo ou só o código de 11 caracteres.');
-        $tp = $b['tipo'] ?? 'video'; $tipo = in_array($tp, ['video', 'texto', 'ficha', 'link'], true) ? $tp : 'video';
+        $tp = $b['tipo'] ?? 'video'; $tipo = in_array($tp, ['video', 'texto', 'ficha', 'link', 'anamnese'], true) ? $tp : 'video';
         $texto = cddStr($b['texto'] ?? '', 6000); $pub = !empty($b['publicado']) ? 1 : 0;
         $id = (int)($b['idaula'] ?? 0); $idm = (int)($b['idmodulo'] ?? 0);
         if ($id) {
@@ -981,9 +1064,7 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
         foreach ($itens as $it) {
             $ex = cddStr($it['exercicio'] ?? '', 200); if ($ex === '') continue;
             $o += 10;
-            $pdo->prepare('INSERT INTO cdd_ficha_item (idaula, ordem, grupo, exercicio, series, repeticoes, intervalo, metodo, video, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                ->execute([$ida, $o, cddStr($it['grupo'] ?? '', 80), $ex, cddStr($it['series'] ?? '', 30), cddStr($it['repeticoes'] ?? '', 40), cddStr($it['intervalo'] ?? '', 40),
-                           cddStr($it['metodo'] ?? '', 200), cddVideoCampo($it['video'] ?? ''), cddStr($it['obs'] ?? '', 500)]);
+            cddGravarItemFicha($pdo, $ida, $o, $it);
         }
         return cddResp(200, ['ok' => true, 'itens' => $o / 10]);
     }
@@ -1041,6 +1122,8 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
     }
     $ex = cddAdminExtra($pdo, $metodo, $acao, $q, $b, $idadmin);
     if ($ex !== null) return $ex;
+    $an = cddAdminAnamnese($pdo, $metodo, $acao, $q);
+    if ($an !== null) return $an;
     return cddErro(404, 'rota_desconhecida', 'Rota desconhecida.');
 }
 

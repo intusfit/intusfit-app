@@ -4,14 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0b0b0f">
 <title>CDD Painel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="cdd.css?v=20261016a">
+<link rel="stylesheet" href="cdd.css?v=20261017a">
 </head>
 <body>
 <div id="app"></div>
-<script src="cdd.js?v=20261016a"></script>
+<script src="cdd.js?v=20261017a"></script>
 <script>
 (function () {
   var $app = document.getElementById('app');
@@ -36,13 +37,14 @@
 
   /* ---------- entrada ---------- */
   function telaEntrar(aviso, instalar) {
-    $app.innerHTML = '<div class="login"><div class="logo"><div class="logo-caixa"><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt=""><img class="logo-claro" src="marca/logo-cdd-preta.png" alt=""></div><span>Painel da equipe</span></div><div class="card"><h2 style="margin-bottom:6px">' + (instalar ? 'Primeiro acesso' : 'Entrar') + '</h2>' +
+    $app.innerHTML = '<div class="login"><div class="logo"><div class="logo-caixa"><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt=""><img class="logo-claro" src="marca/logo-cdd-preta.png" alt=""></div><span>Painel da equipe</span></div><div class="card"><div class="linha" style="justify-content:flex-end"><button class="iconbtn" data-tema-btn aria-label="Alternar tema"></button></div><h2 style="margin-bottom:6px">' + (instalar ? 'Primeiro acesso' : 'Entrar') + '</h2>' +
       (instalar ? '<p class="mut">Crie o administrador do CDD. Só o e-mail do dono pode fazer isto, uma única vez.</p>' : '') +
       '<div id="aviso">' + msg(aviso) + '</div><form id="f">' + (instalar ? '<label for="no">Nome</label><input id="no" required maxlength="160">' : '') +
       '<label for="em">E-mail</label><input id="em" type="email" autocomplete="username" required>' +
       '<label for="se">Senha' + (instalar ? ' (mínimo 8 caracteres)' : '') + '</label><input id="se" type="password" autocomplete="' + (instalar ? 'new-password' : 'current-password') + '" minlength="' + (instalar ? 8 : 1) + '" required>' +
       '<div class="espaco"></div><button class="btn pri" style="width:100%" id="ok">' + (instalar ? 'Criar administrador' : 'Entrar') + '</button></form>' +
       '<p class="sep"><a href="#" id="alt">' + (instalar ? 'Já instalei, quero entrar' : 'Primeiro acesso (instalação)') + '</a></p></div></div>';
+    $app.querySelectorAll('[data-tema-btn]').forEach(function (b) { b.onclick = function () { CDD.alternarTema(); }; }); CDD.aplicarMeta();
     $('alt').onclick = function (e) { e.preventDefault(); telaEntrar('', !instalar); };
     $('f').onsubmit = async function (e) {
       e.preventDefault(); $('ok').disabled = true;
@@ -56,14 +58,21 @@
   }
 
   /* ---------- esqueleto ---------- */
+  var ABAS = [['resumo', '📊', 'Resumo'], ['alunas', '👩', 'Alunas'], ['conteudo', '🎬', 'Conteúdo'], ['exercicios', '🏋️', 'Exercícios'], ['comentarios', '💬', 'Comentários'], ['anamneses', '📝', 'Anamneses'], ['conta', '⚙️', 'Ajustes']];
   function esqueleto() {
-    var abas = [['resumo', 'Resumo'], ['alunas', 'Alunas'], ['conteudo', 'Conteúdo'], ['exercicios', 'Exercícios'], ['comentarios', 'Comentários'], ['conta', 'Conta']];
-    $app.innerHTML = '<div class="topo"><a class="marca" href="painel.html"><span>CDD <small>Painel</small></span></a><nav>' +
-      abas.map(function (a) { return '<button class="btn peq' + (aba === a[0] ? ' pri' : '') + '" data-aba="' + a[0] + '">' + a[1] + '</button>'; }).join('') +
-      '<a class="btn peq" href="index.html" target="_blank" rel="noopener">Ver como aluna</a></nav></div><div class="wrap" id="v"></div>';
+    var atual = ABAS.filter(function (x) { return x[0] === aba; })[0];
+    $app.innerHTML = '<div class="pn"><aside class="pn-menu" id="menu"><div class="logo-caixa"><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt="CDD"><img class="logo-claro" src="marca/logo-cdd-preta.png" alt="CDD"></div><div class="sub">Painel da equipe</div>' +
+      ABAS.map(function (x) { return '<button class="it' + (aba === x[0] ? ' on' : '') + '" data-aba="' + x[0] + '"><span class="e">' + x[1] + '</span>' + x[2] + '</button>'; }).join('') +
+      '<div class="rod"><a class="btn" href="index.html" target="_blank" rel="noopener">👀 Ver como aluna</a><button class="btn perigo" id="sai">Sair</button></div></aside>' +
+      '<div class="pn-fundo" id="fundo"></div><div class="pn-corpo"><div class="pn-cab"><div class="linha"><button class="iconbtn pn-burger" id="bg" aria-label="Menu">☰</button><h1>' + atual[1] + ' ' + atual[2] + '</h1></div><div class="acoes"><button class="iconbtn" data-tema-btn aria-label="Alternar tema"></button></div></div><div class="pn-cont" id="v"></div></div></div>';
     $app.querySelectorAll('[data-aba]').forEach(function (b) { b.onclick = function () { aba = b.getAttribute('data-aba'); render(); }; });
+    $('sai').onclick = async function () { await CDD.api('logout', { body: {} }); CDD.guardar(''); telaEntrar(); };
+    function menu(on) { $('menu').classList.toggle('aberto', on); $('fundo').classList.toggle('on', on); }
+    $('bg').onclick = function () { menu(true); }; $('fundo').onclick = function () { menu(false); };
+    $app.querySelectorAll('[data-tema-btn]').forEach(function (b) { b.onclick = function () { CDD.alternarTema(); }; });
+    CDD.aplicarMeta();
   }
-  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, conta: abaConta })[aba](); }
+  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, anamneses: abaAnamneses, conta: abaConta })[aba](); window.scrollTo(0, 0); }
 
   /* ---------- resumo ---------- */
   async function abaResumo() {
@@ -71,12 +80,12 @@
     var r = await CDD.api('a_resumo');
     if (!r.ok) { v.innerHTML = msg(r.data.mensagem); return; }
     var d = r.data;
-    function n(rot, val, extra) { return '<div class="card"><div style="font-size:28px;font-weight:800">' + val + '</div><div class="mut">' + rot + '</div>' + (extra || '') + '</div>'; }
-    v.innerHTML = '<h2 style="margin-bottom:12px">Resumo</h2><div class="grid g4">' + n('alunas', d.alunas) + n('matrículas ativas', d.matriculas_ativas) + n('contas sem matrícula', d.sem_matricula) +
-      n('módulos', d.modulos) + n('aulas', d.aulas) + n('aulas sem vídeo', d.aulas_sem_video) + n('aulas em rascunho', d.rascunhos) + n('comentários sem resposta', d.comentarios_sem_resposta) + n('treinos nos últimos 7 dias', d.treinos_7_dias) + n('alunas que treinaram em 7 dias', d.alunas_treinaram_7_dias) + '</div>' +
+    function n(rot, val, emoji) { return '<div class="card"><div style="font-size:22px">' + (emoji || '') + '</div><div style="font-size:28px;font-weight:800">' + val + '</div><div class="mut">' + rot + '</div></div>'; }
+    v.innerHTML = '<div class="kpis">' + n('alunas', d.alunas, '👩') + n('matrículas ativas', d.matriculas_ativas, '✅') + n('contas sem matrícula', d.sem_matricula, '⏳') +
+      n('módulos', d.modulos, '📚') + n('aulas', d.aulas, '🎬') + n('aulas sem vídeo', d.aulas_sem_video, '⚠️') + n('aulas escondidas (rascunho)', d.rascunhos, '🙈') + n('comentários sem resposta', d.comentarios_sem_resposta, '💬') + n('treinos em 7 dias', d.treinos_7_dias, '🏋️') + n('alunas treinando em 7 dias', d.alunas_treinaram_7_dias, '🔥') + '</div>' +
       '<div class="card" style="margin-top:12px"><h3>Cadastro aberto</h3><p class="mut">Quando aberto, qualquer mulher pode criar conta pela página inicial. Ela só vê o conteúdo depois que você liberar a matrícula.</p><div class="espaco"></div>' +
       '<label class="chk"><input type="checkbox" id="ca"' + (d.cadastro_aberto ? ' checked' : '') + '><span>Permitir que novas alunas criem conta sozinhas</span></label></div>' +
-      '<div class="card"><h3>Importar conteúdo da Nutror</h3><p class="mut">Cria os módulos, aulas, vídeos, links, fichas de treino e a base de exercícios que foram levantados na Nutror e nas planilhas. Pode rodar de novo sem duplicar nada: só acrescenta o que falta e nunca apaga nem sobrescreve o que você já editou. Aulas sensíveis (esteroides, remédios, Molécula da Definição) entram como rascunho.</p><div class="espaco"></div>' +
+      '<div class="card"><h3>Importar conteúdo da Nutror</h3><p class="mut">Cria os módulos, aulas, vídeos, links, fichas de treino, capas e a base de exercícios levantados na Nutror e nas planilhas. Inclui o que está escondido das alunas: módulos e aulas ocultas entram como rascunho e só você vê no painel. Pode rodar de novo sem duplicar nada: só acrescenta o que falta e nunca apaga nem sobrescreve o que você já editou.</p><div class="espaco"></div>' +
       '<button class="btn pri" id="imp">Importar conteúdo</button><div id="impr"></div></div>' +
       '<div class="card"><h3>Como liberar uma aluna</h3><ol class="mut" style="padding-left:20px"><li>Em <b>Alunas</b>, clique em <b>Nova aluna</b>, com a opção de matricular marcada.</li><li>Copie o link de acesso que aparece e mande pelo WhatsApp.</li><li>Ela cria a senha e já entra no conteúdo.</li></ol></div>';
     $('ca').onchange = async function () { await CDD.api('a_config', { body: { cadastro_aberto: this.checked } }); };
@@ -170,11 +179,12 @@
     var r = await CDD.api('a_conteudo');
     if (!r.ok) { v.innerHTML = msg(r.data.mensagem); return; }
     var ms = r.data.modulos;
-    var h = '<div class="linha" style="justify-content:space-between;margin-bottom:12px"><h2>Conteúdo</h2><button class="btn pri" id="nm">Novo módulo</button></div>';
+    var h = '<div class="linha" style="justify-content:space-between;margin-bottom:12px"><span class="mut">' + ms.length + ' módulos · rascunhos ficam escondidos das alunas</span><button class="btn pri" id="nm">Novo módulo</button></div>';
     if (!ms.length) h += '<div class="card vazio">Nenhum módulo ainda. Vá em <b>Resumo</b> e use <b>Importar conteúdo</b>, ou crie um módulo.</div>';
     ms.forEach(function (m, mi) {
-      h += '<div class="card" data-m="' + m.idmodulo + '"><div class="linha" style="justify-content:space-between"><div style="min-width:0"><b style="overflow-wrap:anywhere">' + esc(m.titulo) + '</b> ' +
-        (m.publicado ? '' : '<span class="tag aviso">rascunho</span> ') + '<span class="tag">' + esc(m.grupo) + '</span><div class="mut">' + m.total + ' aulas' + (m.liberacao_dias !== null || m.liberacao_data ? ' · libera ' + [m.liberacao_dias !== null ? m.liberacao_dias + ' dias após a matrícula' : '', m.liberacao_data ? 'em ' + CDD.dataBR(m.liberacao_data) : ''].filter(Boolean).join(' e ') : ' · libera na hora') + '</div></div>' +
+      var cor = /^#[0-9a-fA-F]{6}$/.test(m.cor || '') ? m.cor : '#e2272d';
+      h += '<div class="card" data-m="' + m.idmodulo + '"><div class="linha" style="justify-content:space-between;align-items:flex-start"><div class="linha" style="min-width:0;flex-wrap:nowrap;align-items:flex-start"><div class="cap-prev" style="--c:' + cor + ';width:54px;font-size:22px"' + (m.capa_url ? ' data-capa="' + esc(m.capa_url) + '"' : '') + '>' + (m.capa_url ? '' : esc(m.emoji || '🎬')) + '</div><div style="min-width:0"><b style="overflow-wrap:anywhere">' + esc(m.titulo) + '</b> ' +
+        (m.publicado ? '' : '<span class="tag aviso">rascunho</span> ') + '<span class="tag">' + esc(m.grupo) + '</span><div class="mut">' + m.total + ' aulas' + (m.liberacao_dias !== null || m.liberacao_data ? ' · libera ' + [m.liberacao_dias !== null ? m.liberacao_dias + ' dias após a matrícula' : '', m.liberacao_data ? 'em ' + CDD.dataBR(m.liberacao_data) : ''].filter(Boolean).join(' e ') : ' · libera na hora') + '</div></div></div>' +
         '<div class="linha"><button class="btn peq" data-up="m" data-i="' + mi + '" ' + (mi ? '' : 'disabled') + ' aria-label="Subir módulo">&uarr;</button><button class="btn peq" data-dn="m" data-i="' + mi + '" ' + (mi < ms.length - 1 ? '' : 'disabled') + ' aria-label="Descer módulo">&darr;</button>' +
         '<button class="btn peq" data-em="' + m.idmodulo + '">Editar módulo</button><button class="btn peq" data-na="' + m.idmodulo + '">Nova aula</button></div></div><ul class="aulas" style="margin-top:8px">';
       m.aulas.forEach(function (a, ai) {
@@ -185,7 +195,7 @@
       });
       h += '</ul></div>';
     });
-    v.innerHTML = h; cache.conteudo = ms;
+    v.innerHTML = h; cache.conteudo = ms; CDD.aplicarCapas(v);
     $('nm') && ($('nm').onclick = function () { editarModulo(null); });
     v.querySelectorAll('[data-em]').forEach(function (b) { b.onclick = function () { editarModulo(ms.filter(function (m) { return m.idmodulo == b.getAttribute('data-em'); })[0]); }; });
     v.querySelectorAll('[data-na]').forEach(function (b) { b.onclick = function () { editarAula(null, parseInt(b.getAttribute('data-na'), 10)); }; });
@@ -205,15 +215,26 @@
   function editarModulo(m) {
     modal('<h3>' + (m ? 'Editar módulo' : 'Novo módulo') + '</h3><div id="aviso"></div><form id="f"><label for="a1">Título</label><input id="a1" required maxlength="200" value="' + esc(m ? m.titulo : '') + '">' +
       '<label for="a2">Descrição (opcional)</label><textarea id="a2" maxlength="600">' + esc(m ? m.descricao || '' : '') + '</textarea>' +
+      '<div class="card" style="margin:12px 0"><b>Capa estilo Netflix</b><div class="linha" style="margin-top:8px;align-items:flex-start;flex-wrap:nowrap"><div class="cap-prev" id="cp"></div><div style="flex:1;min-width:0"><label for="a7">Emoji</label><input id="a7" maxlength="4" value="' + esc(m && m.emoji ? m.emoji : '') + '" placeholder="🔥"><label>Cor</label><div class="cores" id="cores"></div><label for="a8">Imagem da capa (opcional, link https://)</label><input id="a8" value="' + esc(m && m.capa_url ? m.capa_url : '') + '" placeholder="https://..."><p class="mut" style="font-size:12px;margin-top:4px">Formato vertical (2:3) funciona melhor. Sem imagem, a capa usa a cor e o emoji.</p></div></div></div>' +
       '<label for="a3">Grupo na tela da aluna</label><select id="a3"><option value="curso">Programa</option><option value="protocolo">Protocolos de treino</option><option value="bonus">Bônus</option></select>' +
       '<div class="card" style="margin:12px 0"><b>Liberação por tempo</b><p class="mut" style="margin:2px 0 4px">Deixe os dois campos vazios para liberar o módulo assim que a aluna for matriculada. Com os dois preenchidos vale a data mais tardia.</p><div class="grid g2"><div><label for="a5">Dias depois da matrícula</label><input id="a5" type="number" min="0" max="3650" value="' + esc(m && m.liberacao_dias !== null && m.liberacao_dias !== undefined ? m.liberacao_dias : '') + '" placeholder="ex.: 20"></div><div><label for="a6">Ou em uma data fixa</label><input id="a6" type="date" value="' + esc(m && m.liberacao_data ? m.liberacao_data : '') + '"></div></div></div>' +
-      '<label class="chk"><input type="checkbox" id="a4"' + (!m || m.publicado ? ' checked' : '') + '><span>Publicado (visível para as alunas)</span></label>' +
+      '<label class="chk"><input type="checkbox" id="a4"' + (!m || m.publicado ? ' checked' : '') + '><span>Publicado (desmarque para esconder das alunas; só você vê aqui)</span></label>' +
       '<div class="linha"><button class="btn pri" id="ok">Salvar</button><button type="button" class="btn" id="fx">Cancelar</button>' + (m ? '<button type="button" class="btn perigo" id="ex">Excluir módulo</button>' : '') + '</div></form>', function (box) {
       box.querySelector('#a3').value = m ? m.grupo : 'curso';
+      var corSel = m && m.cor ? m.cor : '#e2272d';
+      function pintarCapa() {
+        var cp = box.querySelector('#cp'), u = box.querySelector('#a8').value.trim();
+        cp.style.setProperty('--c', corSel); cp.style.backgroundImage = ''; cp.textContent = u ? '' : (box.querySelector('#a7').value || '🎬');
+        if (/^https:\/\//i.test(u)) cp.style.backgroundImage = 'linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.25)),url(' + JSON.stringify(u) + ')';
+        box.querySelectorAll('#cores button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-c') === corSel); });
+      }
+      box.querySelector('#cores').innerHTML = ['#e2272d', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b', '#111827'].map(function (c) { return '<button type="button" data-c="' + c + '" style="background:' + c + '" aria-label="Cor ' + c + '"></button>'; }).join('');
+      box.querySelectorAll('#cores button').forEach(function (b) { b.onclick = function () { corSel = b.getAttribute('data-c'); pintarCapa(); }; });
+      box.querySelector('#a7').oninput = pintarCapa; box.querySelector('#a8').oninput = pintarCapa; pintarCapa();
       box.querySelector('#fx').onclick = box.fechar;
       box.querySelector('#f').onsubmit = async function (e) {
         e.preventDefault();
-        var r = await CDD.api('a_modulo_salvar', { body: { idmodulo: m ? m.idmodulo : 0, titulo: box.querySelector('#a1').value, descricao: box.querySelector('#a2').value, grupo: box.querySelector('#a3').value, publicado: box.querySelector('#a4').checked, liberacao_dias: box.querySelector('#a5').value, liberacao_data: box.querySelector('#a6').value } });
+        var r = await CDD.api('a_modulo_salvar', { body: { idmodulo: m ? m.idmodulo : 0, titulo: box.querySelector('#a1').value, descricao: box.querySelector('#a2').value, grupo: box.querySelector('#a3').value, publicado: box.querySelector('#a4').checked, liberacao_dias: box.querySelector('#a5').value, liberacao_data: box.querySelector('#a6').value, emoji: box.querySelector('#a7').value, cor: corSel, capa_url: box.querySelector('#a8').value } });
         if (!r.ok) { box.querySelector('#aviso').innerHTML = msg(r.data.mensagem); return; }
         box.fechar(); abaConteudo();
       };
@@ -234,10 +255,10 @@
     m.querySelector('.caixa').style.maxWidth = '820px';
     function desenhar() {
       var h = '<form id="f"><label for="t1">Título</label><input id="t1" required maxlength="250" value="' + esc(a.titulo) + '">' +
-        '<div class="grid g2"><div><label for="t2">Tipo</label><select id="t2"><option value="video">Vídeo</option><option value="ficha">Ficha de treino</option><option value="texto">Texto</option><option value="link">Links</option></select></div>' +
+        '<div class="grid g2"><div><label for="t2">Tipo</label><select id="t2"><option value="video">Vídeo</option><option value="ficha">Ficha de treino</option><option value="texto">Texto</option><option value="link">Links</option><option value="anamnese">Anamnese (formulário no app)</option></select></div>' +
         '<div><label for="t3">Vídeo do YouTube (link ou código)</label><input id="t3" value="' + esc(a.youtube_id ? 'https://youtu.be/' + a.youtube_id : '') + '" placeholder="https://youtu.be/..."></div></div>' +
         '<label for="t4">Texto da aula (opcional)</label><textarea id="t4" maxlength="6000">' + esc(a.texto || '') + '</textarea>' +
-        '<label class="chk"><input type="checkbox" id="t5"' + (a.publicado ? ' checked' : '') + '><span>Publicada (visível para as alunas)</span></label>' +
+        '<label class="chk"><input type="checkbox" id="t5"' + (a.publicado ? ' checked' : '') + '><span>Publicada (desmarque para esconder das alunas)</span></label>' +
         '<h3 style="margin-top:14px">Anexos e links</h3><div id="anx"></div><button type="button" class="btn peq" id="aa">Adicionar link</button>' +
         '<h3 style="margin-top:18px">Ficha de treino</h3><p class="mut">Cole as linhas da planilha do Google (Exercício, Repetições, Séries, Intervalo, Método) ou digite os exercícios abaixo. O link do "Ver vídeo" não vem na colagem: se o exercício já estiver na base, o vídeo dele aparece para a aluna sozinho; senão cole o link do YouTube na coluna Como fazer.</p>' +
         '<textarea id="col" placeholder="Cole aqui as linhas copiadas da planilha"></textarea><div class="linha" style="margin-top:6px"><button type="button" class="btn peq" id="cb">Ler o que colei</button><button type="button" class="btn peq" id="ai">Adicionar exercício</button></div><div id="fic" style="margin-top:10px"></div>' +
@@ -272,10 +293,10 @@
     function desenharFicha() {
       var el = m.querySelector('#fic');
       if (!ficha.length) { el.innerHTML = '<p class="mut">Nenhum exercício na ficha.</p>'; return; }
-      var h = '<div class="tbl"><table><thead><tr><th>Treino</th><th>Exercício</th><th>Séries</th><th>Reps</th><th>Intervalo</th><th>Método</th><th>Como fazer (YouTube)</th><th></th></tr></thead><tbody>';
+      var h = '<div class="tbl"><table><thead><tr><th>Treino</th><th>Exercício</th><th>Séries</th><th>Reps</th><th>Intervalo</th><th>Método</th><th>Agrupar</th><th>Como fazer (YouTube)</th><th></th></tr></thead><tbody>';
       ficha.forEach(function (x, i) {
         function c(k, w, dl) { return '<td><input data-f="' + k + '" data-i="' + i + '"' + (dl ? ' list="' + dl + '"' : '') + ' value="' + esc(x[k] || '') + '" style="min-width:' + w + 'px;padding:7px 8px;font-size:14px"></td>'; }
-        h += '<tr>' + c('grupo', 90) + c('exercicio', 170, 'dl-ex') + c('series', 50) + c('repeticoes', 60) + c('intervalo', 80) + c('metodo', 110) + c('video', 150) +
+        h += '<tr>' + c('grupo', 90) + c('exercicio', 170, 'dl-ex') + c('series', 50) + c('repeticoes', 60) + c('intervalo', 80) + c('metodo', 110) + '<td><select data-f="metodo_tipo" data-i="' + i + '" style="padding:7px 8px;font-size:14px"><option value=""' + (!x.metodo_tipo ? ' selected' : '') + '>Automático</option><option value="super"' + (x.metodo_tipo === 'super' ? ' selected' : '') + '>⚡ Super série</option><option value="triset"' + (x.metodo_tipo === 'triset' ? ' selected' : '') + '>🔥 Triset</option><option value="circuito"' + (x.metodo_tipo === 'circuito' ? ' selected' : '') + '>🔄 Circuito</option></select></td>' + c('video', 150) +
           '<td><div class="linha"><button type="button" class="btn peq" data-fu="' + i + '" aria-label="Subir">&uarr;</button><button type="button" class="btn peq" data-fd="' + i + '" aria-label="Descer">&darr;</button><button type="button" class="btn peq perigo" data-fx="' + i + '" aria-label="Remover">&times;</button></div></td></tr>';
       });
       el.innerHTML = h + '</tbody></table></div>';
@@ -390,6 +411,26 @@
       }; });
     }
     carregar();
+  }
+
+  /* ---------- anamneses ---------- */
+  async function abaAnamneses() {
+    var v = $('v'); v.innerHTML = '<div class="vazio">Carregando...</div>';
+    var r = await CDD.api('a_anamneses');
+    if (!r.ok) { v.innerHTML = msg(r.data.mensagem); return; }
+    var l = r.data.anamneses;
+    if (!l.length) { v.innerHTML = '<div class="card vazio">Nenhuma aluna começou a anamnese ainda. Ela é respondida direto no app. 📝</div>'; return; }
+    v.innerHTML = '<div class="tbl"><table><thead><tr><th>Aluna</th><th>Situação</th><th>Enviada em</th><th></th></tr></thead><tbody>' + l.map(function (a) {
+      return '<tr><td><b>' + esc(a.nome) + '</b><div class="mut">' + esc(a.email) + '</div></td><td><span class="tag ' + (a.enviado_em ? 'ok' : 'aviso') + '">' + (a.enviado_em ? 'enviada' : 'em andamento') + '</span></td><td class="num">' + (a.enviado_em ? CDD.dataBR(a.enviado_em) : '—') + '</td><td><button class="btn peq" data-an="' + a.idaluna + '">Ver respostas</button></td></tr>';
+    }).join('') + '</tbody></table></div>';
+    v.querySelectorAll('[data-an]').forEach(function (b) { b.onclick = async function () {
+      var x = await CDD.api('a_anamnese', { q: { id: b.getAttribute('data-an') } });
+      if (!x.ok) { alert(x.data.mensagem); return; }
+      var d = x.data;
+      modal('<h3>📝 ' + esc(d.aluna.nome) + '</h3><div class="mut">' + esc(d.aluna.email) + (d.enviado_em ? ' · enviada em ' + CDD.dataBR(d.enviado_em) : ' · ainda não enviada') + '</div>' +
+        d.etapas.map(function (e) { return '<h3 style="margin-top:16px">' + e.emoji + ' ' + esc(e.titulo) + '</h3>' + e.itens.map(function (i) { return '<div style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="mut" style="font-size:12px">' + esc(i.pergunta) + '</div><div style="white-space:pre-wrap;overflow-wrap:anywhere">' + (i.resposta ? esc(i.resposta) : '<span class="mut">sem resposta</span>') + '</div></div>'; }).join(''); }).join('') +
+        '<div class="espaco"></div><button class="btn grande" id="fx">Fechar</button>', function (m) { m.querySelector('#fx').onclick = m.fechar; });
+    }; });
   }
 
   /* ---------- conta ---------- */

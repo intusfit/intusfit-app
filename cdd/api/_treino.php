@@ -79,8 +79,9 @@ function cddHistoricoCargas(PDO $pdo, int $idaluna, int $excluirIdtreino = 0): a
         if (!is_array($itens)) continue;
         foreach ($itens as $it) {
             $k = cddNorm($it['exercicio'] ?? ''); if ($k === '' || empty($it['series'])) continue;
-            if (!isset($h[$k])) $h[$k] = ['nome' => $it['exercicio'], 'ultimo' => ['data' => $s['data'], 'series' => $it['series']], 'max' => ['peso' => 0, 'reps' => 0, 'data' => null], 'sessoes' => 0];
+            if (!isset($h[$k])) $h[$k] = ['nome' => $it['exercicio'], 'ultimo' => ['data' => $s['data'], 'series' => $it['series']], 'max' => ['peso' => 0, 'reps' => 0, 'data' => null], 'sessoes' => 0, 'lista' => []];
             $h[$k]['sessoes']++;
+            if (count($h[$k]['lista']) < 6) $h[$k]['lista'][] = ['data' => $s['data'], 'series' => $it['series']];
             foreach ($it['series'] as $sr) {
                 $p = (float)($sr['peso'] ?? 0);
                 if ($p > $h[$k]['max']['peso']) $h[$k]['max'] = ['peso' => $p, 'reps' => (int)($sr['reps'] ?? 0), 'data' => $s['data']];
@@ -135,10 +136,10 @@ function cddProximoTreino(PDO $pdo, int $idaluna, array $modulos): ?array {
 /** Semanas seguidas (de segunda a domingo) com pelo menos um dia de treino, contando até a semana atual ou a anterior. */
 function cddSequenciaSemanas(array $datas): int {
     $sem = [];
-    foreach ($datas as $d) $sem[date('o-W', strtotime($d))] = true;
-    $n = 0; $t = time();
-    if (!isset($sem[date('o-W', $t)])) $t -= 7 * 86400;   // semana atual ainda em aberto não quebra a sequência
-    while (isset($sem[date('o-W', $t)])) { $n++; $t -= 7 * 86400; }
+    foreach ($datas as $d) $sem[cddInicioSemana($d)] = true;
+    $n = 0; $w = cddInicioSemana();
+    if (!isset($sem[$w])) $w = date('Y-m-d', strtotime($w . ' -7 days'));   // semana atual ainda em aberto não quebra a sequência
+    while (isset($sem[$w])) { $n++; $w = date('Y-m-d', strtotime($w . ' -7 days')); }
     return $n;
 }
 
@@ -148,7 +149,7 @@ function cddJornada(PDO $pdo, int $idaluna, array $modulos, ?string $inicio, arr
     $treinos = $st->fetchAll();
     $titulos = [];
     foreach ($modulos as $m) foreach ($m['aulas'] as $a) $titulos[$a['idaula']] = $a['titulo'];
-    $porDia = []; $recentes = []; $semana = []; $segunda = date('Y-m-d', strtotime('monday this week'));
+    $porDia = []; $recentes = []; $semana = []; $segunda = cddInicioSemana();
     foreach ($treinos as $t) {
         $porDia[$t['data']] = ($porDia[$t['data']] ?? 0) + 1;
         if ($t['data'] >= $segunda) $semana[$t['data']] = true;
@@ -159,7 +160,7 @@ function cddJornada(PDO $pdo, int $idaluna, array $modulos, ?string $inicio, arr
         }
     }
     $cal = [];
-    $ini = strtotime('monday this week') - 7 * 7 * 86400;   // 8 semanas, terminando na atual
+    $ini = strtotime(cddInicioSemana() . ' 12:00:00') - 7 * 7 * 86400;   // 8 semanas (domingo a sábado), terminando na atual
     for ($i = 0; $i < 56; $i++) { $d = date('Y-m-d', $ini + $i * 86400); $cal[] = ['d' => $d, 'n' => $porDia[$d] ?? 0, 'futuro' => $d > cddHoje()]; }
     // evolução por exercício (do mais antigo para o mais novo)
     $evo = [];
@@ -226,7 +227,7 @@ function cddRotaAluna(PDO $pdo, string $metodo, string $acao, array $q, array $b
         $mapa = [];
         foreach ($a['ficha'] as $it) {
             $k = cddNorm($it['exercicio']);
-            if (isset($hist[$k])) $mapa[$k] = ['ultimo' => $hist[$k]['ultimo'], 'max' => $hist[$k]['max'], 'sessoes' => $hist[$k]['sessoes']];
+            if (isset($hist[$k])) $mapa[$k] = ['ultimo' => $hist[$k]['ultimo'], 'max' => $hist[$k]['max'], 'sessoes' => $hist[$k]['sessoes'], 'lista' => $hist[$k]['lista']];
         }
         $hoje = $pdo->prepare('SELECT idtreino, itens, duracao_seg, esforco, comentario FROM cdd_treino WHERE idaluna = ? AND idaula = ? AND data = ?');
         $hoje->execute([$idaluna, $a['idaula'], cddHoje()]); $h = $hoje->fetch();
@@ -268,7 +269,7 @@ function cddRotaAluna(PDO $pdo, string $metodo, string $acao, array $q, array $b
         }
         $p = $pdo->prepare('SELECT COUNT(*) FROM cdd_progresso WHERE idaluna = ? AND idaula = ?'); $p->execute([$idaluna, $ida]);
         if ((int)$p->fetchColumn() === 0) $pdo->prepare('INSERT INTO cdd_progresso (idaluna, idaula, concluida_em) VALUES (?, ?, ?)')->execute([$idaluna, $ida, cddAgora()]);
-        return cddResp(200, ['idtreino' => $id, 'recordes' => $recordes, 'resumo' => $res]);
+        return cddResp(200, ['idtreino' => $id, 'recordes' => $recordes, 'resumo' => $res, 'novas' => cddAtualizarConquistas($pdo, $idaluna), 'conta_ranking' => $dur >= CDD_RANK['minimoSeg']]);
     }
 
     if ($acao === 'treino_excluir' && !$get) {
@@ -303,7 +304,7 @@ function cddRotaAluna(PDO $pdo, string $metodo, string $acao, array $q, array $b
         cddRegistrarTentativa($pdo, 'c:id' . $idaluna, 'comentar'); cddRegistrarTentativa($pdo, 'ip:' . $ip, 'comentar');
         $pdo->prepare('INSERT INTO cdd_comentario (idaula, idaluna, parent_id, texto, oculto, equipe, criado_em) VALUES (?, ?, ?, ?, 0, ?, ?)')
             ->execute([$a['idaula'], $idaluna, $parent ?: null, $texto, $admin ? 1 : 0, cddAgora()]);
-        return cddResp(200, ['ok' => true, 'comentarios' => cddComentariosDaAula($pdo, $a['idaula'], $idaluna)]);
+        return cddResp(200, ['ok' => true, 'comentarios' => cddComentariosDaAula($pdo, $a['idaula'], $idaluna), 'novas' => cddAtualizarConquistas($pdo, $idaluna)]);
     }
 
     if ($acao === 'comentario_excluir' && !$get) {
@@ -325,7 +326,7 @@ function cddRotaAluna(PDO $pdo, string $metodo, string $acao, array $q, array $b
             $e = $pdo->prepare('SELECT COUNT(*) FROM cdd_avaliacao WHERE idaluna = ? AND idaula = ?'); $e->execute([$idaluna, $a['idaula']]);
             if ((int)$e->fetchColumn() === 0) $pdo->prepare('INSERT INTO cdd_avaliacao (idaluna, idaula, nota, atualizado_em) VALUES (?, ?, ?, ?)')->execute([$idaluna, $a['idaula'], $nota, cddAgora()]);
         }
-        return cddResp(200, ['ok' => true, 'minha_nota' => $nota]);
+        return cddResp(200, ['ok' => true, 'minha_nota' => $nota, 'novas' => cddAtualizarConquistas($pdo, $idaluna)]);
     }
     return null;
 }

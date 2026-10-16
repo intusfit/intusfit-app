@@ -446,6 +446,125 @@ eq('a aula já devolve a minha nota', $d['aula']['minha_nota'] === 5);
 $aulaA = null; foreach ($d['modulos'] as $m) foreach ($m['aulas'] as $a) { if ($a['idaula'] === $aA) $aulaA = $a; }
 eq('o painel mostra nota média, votos e comentários de cada aula', $aulaA && $aulaA['nota_media'] === 4.0 && $aulaA['votos'] === 2 && $aulaA['comentarios'] >= 1);
 
+echo "\nSemana de domingo a sábado e pontos (mesmas regras da Intus)\n";
+eq('semana começa no domingo (sábado 17/10/2026 pertence à semana de 11/10)', cddInicioSemana('2026-10-17') === '2026-10-11' && cddInicioSemana('2026-10-18') === '2026-10-18' && cddInicioSemana('2026-10-11') === '2026-10-11');
+$sem0 = cddInicioSemana();
+$dia = function ($n) use ($sem0) { return date('Y-m-d', strtotime($sem0 . ' +' . $n . ' days')); };
+[$idPt, $tPt] = novaAluna('Paula Pontos', 'paula@exemplo.com');
+$ins = function ($idaluna, $data, $dur) use ($pdo) { static $n = 900; $n++; $pdo->prepare("INSERT INTO cdd_treino (idaluna, idaula, data, duracao_seg, itens, criado_em, atualizado_em) VALUES (?, ?, ?, ?, '[]', '2026-01-01 00:00:00', '2026-01-01 00:00:00')")->execute([$idaluna, $n, $data, $dur]); };
+$ins($idPt, $dia(0), 3600); $ins($idPt, $dia(0), 3600); $ins($idPt, $dia(0), 3600);   // 10 + 5 + 0
+$ins($idPt, $dia(1), 600);                                                           // 10 min: conta, mas vale 5
+$ins($idPt, $dia(2), 120);                                                           // menos de 5 min: não conta
+$ins($idPt, $dia(3), 3000); $ins($idPt, $dia(4), 3000);                              // 10 + 10; chega ao 4º dia na sexta = bônus 5
+$pts = cddPontosPorAluna($pdo, $sem0, date('Y-m-d', strtotime($sem0 . ' +6 days')));
+eq('pontos: 1º treino do dia 10, 2º 5, 3º 0, treino curto 5, menos de 5 min nada, +5 no 4º dia da semana', isset($pts[$idPt]) && (int)$pts[$idPt]['pontos'] === 10 + 5 + 0 + 5 + 10 + 10 + 5, json_encode($pts[$idPt] ?? null));
+eq('treino de 2 minutos não entra na contagem de treinos do ranking', $pts[$idPt]['treinos'] === 6);
+[$idQ, $tQ] = novaAluna('Quiteria Quase', 'quiteria@exemplo.com');
+$ins($idQ, $dia(0), 3000); $ins($idQ, $dia(1), 3000); $ins($idQ, $dia(2), 3000);        // 30 pontos, sem bônus (3 dias)
+[$idR, $tR] = novaAluna('Rita Empate', 'rita@exemplo.com');
+$ins($idR, $dia(0), 3000); $ins($idR, $dia(1), 3000); $ins($idR, $dia(2), 3000);        // empate com a Quitéria
+[$s, $d] = req('ranking', 'GET', ['periodo' => 'semana'], [], $tPt); $rk = $d['ranking'];
+eq('ranking da semana: líder com 45 pontos e posição 1', $s === 200 && $rk['top'][0]['pontos'] === 45 && $rk['top'][0]['pos'] === 1 && $rk['top'][0]['nome'] === 'Você' && $rk['eu']['pos'] === 1, json_encode($rk, JSON_UNESCAPED_UNICODE));
+eq('empate divide a colocação e a seguinte não é pulada (posição densa)', $rk['top'][1]['pos'] === 2 && $rk['top'][2]['pos'] === 2 && $rk['participantes'] >= 3, json_encode($rk['top']));
+eq('os outros aparecem só com nome e inicial do sobrenome', in_array($rk['top'][1]['nome'], ['Quiteria Q.', 'Rita E.'], true));
+[$s, $d] = req('perfil_ranking', 'POST', [], ['visivel' => false], $tQ);
+[$s, $d] = req('ranking', 'GET', ['periodo' => 'semana'], [], $tPt); $nomes = array_column($d['ranking']['top'], 'nome');
+eq('quem sai do ranking deixa de aparecer para as outras', !in_array('Quiteria Q.', $nomes, true) && in_array('Rita E.', $nomes, true));
+[$s, $d] = req('ranking', 'GET', ['periodo' => 'semana'], [], $tQ);
+eq('mas ela continua vendo a própria posição', $d['ranking']['eu']['pontos'] === 30 && $d['ranking']['visivel'] === false);
+[$s, $d] = req('ranking', 'GET', ['periodo' => 'mes'], [], $tPt); eq('ranking do mês responde', $s === 200 && $d['ranking']['periodo'] === 'mes');
+[$s, $d] = req('ranking', 'GET', ['periodo' => 'geral'], [], $tPt); eq('ranking geral responde', $s === 200 && $d['ranking']['eu']['pontos'] >= 35);
+eq('sem matrícula não vê o ranking', req('ranking', 'GET', [], [], $tSem)[0] === 403);
+
+echo "\nConquistas\n";
+[$s, $d] = req('conquistas', 'GET', [], [], $tPt);
+$cq = []; foreach ($d['conquistas'] as $c) $cq[$c['chave']] = $c;
+eq('conquistas: lista o modelo todo e marca as alcançadas', $s === 200 && $d['total'] >= 20 && $cq['treino_1']['conquistada'] === true && $cq['semana_4dias']['conquistada'] === true && $cq['treino_10']['conquistada'] === false && $cq['treino_10']['atual'] === 7, json_encode($cq['treino_10']));
+[$idCo, $tCo] = novaAluna('Camila Conquista', 'camila@exemplo.com');
+[$s, $d] = req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '20', 'reps' => '10']]]], 'duracao_seg' => 1800], $tCo);
+$chaves = array_column($d['novas'] ?? [], 'chave');
+eq('o primeiro treino devolve as conquistas novas (primeiro treino e primeira aula)', in_array('treino_1', $chaves, true) && in_array('aula_1', $chaves, true) && $d['conta_ranking'] === true, json_encode($d['novas'] ?? null));
+[$s, $d] = req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '25', 'reps' => '10']]]], 'duracao_seg' => 1800], $tCo);
+eq('salvar de novo não repete a conquista', !in_array('treino_1', array_column($d['novas'], 'chave'), true));
+[$s, $d] = req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '25', 'reps' => '10']]]], 'duracao_seg' => 100], $tCo);
+eq('treino com menos de 5 minutos avisa que não conta no ranking', $d['conta_ranking'] === false);
+[$s, $d] = req('comentar', 'POST', [], ['id' => $aA, 'texto' => 'Meu primeiro comentário aqui'], $tCo);
+eq('comentar também gera conquista nova', in_array('comentou', array_column($d['novas'], 'chave'), true));
+$pdo->exec("UPDATE cdd_treino SET data = '" . date('Y-m-d', time() - 86400 * 3) . "' WHERE idaluna = $idCo");
+req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '30', 'reps' => '8']]]], 'duracao_seg' => 1800], $tCo);
+$cq = []; foreach (req('conquistas', 'GET', [], [], $tCo)[1]['conquistas'] as $c) $cq[$c['chave']] = $c;
+eq('recorde de carga conta como conquista (25 depois 30 kg)', $cq['recorde_1']['conquistada'] === true);
+
+echo "\nAnamnese no app\n";
+[$idAn, $tAn] = novaAluna('Ana Anamnese', 'ana.anamnese@exemplo.com', false);
+[$s, $d] = req('anamnese', 'GET', [], [], $tAn);
+$campos = []; foreach ($d['etapas'] as $e) foreach ($e['perguntas'] as $p) $campos[$p['id']] = $p;
+eq('anamnese abre mesmo sem matrícula e traz as etapas com perguntas obrigatórias', $s === 200 && count($d['etapas']) === 5 && $campos['objetivo']['obrig'] === true && $campos['peso']['tipo'] === 'numero' && $campos['nivel']['tipo'] === 'opcao' && $d['enviado_em'] === null);
+[$s, $d] = req('anamnese_salvar', 'POST', [], ['respostas' => ['objetivo' => 'Definir o abdômen', 'peso' => '62,5', 'nivel' => 'Qualquer', 'inventada' => 'x'], 'enviar' => false], $tAn);
+eq('rascunho salva sem exigir tudo', $s === 200 && $d['enviada'] === false);
+[$s, $d] = req('anamnese', 'GET', [], [], $tAn);
+eq('rascunho volta ao reabrir; número com vírgula vira ponto; opção inválida e campo inventado são descartados', $d['respostas']['objetivo'] === 'Definir o abdômen' && $d['respostas']['peso'] === '62.5' && $d['respostas']['nivel'] === '' && !isset($d['respostas']['inventada']));
+[$s, $d] = req('anamnese_salvar', 'POST', [], ['respostas' => ['objetivo' => 'Definir o abdômen'], 'enviar' => true], $tAn);
+eq('enviar com obrigatórias em branco é recusado e diz o que falta', $s === 422 && $d['error'] === 'anamnese_incompleta' && count($d['faltam']) >= 5);
+$completa = ['idade' => '34', 'peso' => '62', 'altura' => '165', 'nivel' => 'Intermediária', 'gestacao' => 'Não', 'objetivo' => 'Definir o abdômen e ganhar força.', 'local_treino' => 'Em casa',
+             'doencas' => 'nenhum', 'articulares' => 'dor leve no joelho direito', 'medicamentos' => 'nenhum', 'sono' => '7h, boa'];
+[$s, $d] = req('anamnese_salvar', 'POST', [], ['respostas' => $completa, 'enviar' => true], $tAn);
+eq('anamnese completa é enviada e gera a conquista Perfil completo', $s === 200 && $d['enviada'] === true && in_array('anamnese', array_column($d['novas'], 'chave'), true));
+$enviadoEm = $pdo->query("SELECT enviado_em FROM cdd_anamnese WHERE idaluna = $idAn")->fetchColumn();
+[$s, $d] = req('anamnese_salvar', 'POST', [], ['respostas' => array_merge($completa, ['peso' => '61']), 'enviar' => false], $tAn);
+eq('editar depois de enviada mantém o envio e atualiza as respostas', $d['enviada'] === true && $pdo->query("SELECT enviado_em FROM cdd_anamnese WHERE idaluna = $idAn")->fetchColumn() === $enviadoEm && json_decode($pdo->query("SELECT respostas FROM cdd_anamnese WHERE idaluna = $idAn")->fetchColumn(), true)['peso'] === '61');
+[$s, $d] = req('a_anamneses', 'GET', [], [], $tAn);
+eq('aluna não lê as anamneses da equipe (403)', $s === 403);
+[$s, $d] = req('a_anamneses', 'GET', [], [], $tAdmin);
+eq('a equipe vê a lista de anamneses', $s === 200 && count($d['anamneses']) === 1 && $d['anamneses'][0]['email'] === 'ana.anamnese@exemplo.com');
+[$s, $d] = req('a_anamnese', 'GET', ['id' => $idAn], [], $tAdmin); $flat = [];
+foreach ($d['etapas'] as $e) foreach ($e['itens'] as $it) $flat[$it['pergunta']] = $it['resposta'];
+eq('a equipe lê as respostas com as perguntas e as unidades', $s === 200 && $flat['Peso atual'] === '61 kg' && $flat['Altura'] === '165 cm' && $flat['Como você se considera no treino?'] === 'Intermediária' && $d['enviado_em'] === $enviadoEm);
+[$s, $d] = req('a_resumo', 'GET', [], [], $tAdmin);
+eq('resumo conta as anamneses enviadas', $d['anamneses_enviadas'] === 1);
+[$s, $d] = req('meus_modulos', 'GET', [], [], $tCo);
+eq('a tela inicial sabe se a anamnese foi enviada, os pontos da semana e as conquistas', $d['anamnese_enviada'] === false && isset($d['pontos_semana']) && $d['conquistas_total'] >= 20 && count($d['proximas_conquistas']) === 3);
+
+echo "\nCapas, aulas escondidas, métodos e técnicas\n";
+$seedCapa = ['modulos' => [['titulo' => 'Módulo com Capa', 'emoji' => '🔥', 'cor' => '#e2272d', 'aulas' => [['titulo' => 'Aula Visível', 'youtube' => 'AAAAAAAAAAA'], ['titulo' => 'Aula Escondida', 'youtube' => 'BBBBBBBBBBB', 'rascunho' => true]]],
+                                ['titulo' => 'Módulo Escondido', 'rascunho' => true, 'aulas' => [['titulo' => 'Dentro do escondido', 'youtube' => 'CCCCCCCCCCC']]],
+                                ['titulo' => 'Avaliações', 'aulas' => [['titulo' => 'Responda a anamnese', 'tipo' => 'anamnese', 'anexos' => [['titulo' => 'Form', 'url' => 'https://forms.gle/x']]]]]]];
+$pdo->exec("INSERT INTO cdd_modulo (titulo, grupo, ordem, publicado) VALUES ('Avaliações', 'curso', 5, 1)");
+$idAv = (int)$pdo->lastInsertId(); $pdo->exec("INSERT INTO cdd_aula (idmodulo, titulo, tipo, ordem, publicado) VALUES ($idAv, 'Responda a anamnese', 'link', 10, 1)");
+cddImportarSeed($pdo, $seedCapa);
+eq('importação grava emoji e cor da capa', $pdo->query("SELECT emoji FROM cdd_modulo WHERE titulo = 'Módulo com Capa'")->fetchColumn() === '🔥' && $pdo->query("SELECT cor FROM cdd_modulo WHERE titulo = 'Módulo com Capa'")->fetchColumn() === '#e2272d');
+eq('a aula antiga de anamnese (link) passa a abrir a anamnese do app', $pdo->query("SELECT tipo FROM cdd_aula WHERE titulo = 'Responda a anamnese'")->fetchColumn() === 'anamnese');
+[$s, $d] = req('meus_modulos', 'GET', [], [], $tCo); $mc = null; $nomesMod = [];
+foreach ($d['modulos'] as $m) { $nomesMod[] = $m['titulo']; if ($m['titulo'] === 'Módulo com Capa') $mc = $m; }
+eq('a aluna vê o módulo com capa, sem a aula escondida, e não vê o módulo escondido', $mc && $mc['emoji'] === '🔥' && count($mc['aulas']) === 1 && $mc['thumb_yt'] === 'AAAAAAAAAAA' && !in_array('Módulo Escondido', $nomesMod, true));
+[$s, $d] = req('a_conteudo', 'GET', [], [], $tAdmin); $mAd = []; foreach ($d['modulos'] as $m) $mAd[$m['titulo']] = $m;
+eq('a equipe vê o módulo escondido e a aula escondida como rascunho', isset($mAd['Módulo Escondido']) && $mAd['Módulo Escondido']['publicado'] == 0 && count($mAd['Módulo com Capa']['aulas']) === 2);
+$idEsc = (int)$pdo->query("SELECT idaula FROM cdd_aula WHERE titulo = 'Aula Escondida'")->fetchColumn();
+eq('a aula escondida não abre para a aluna nem por link direto (404)', req('aula', 'GET', ['id' => $idEsc], [], $tCo)[0] === 404 && req('treino', 'GET', ['id' => $idEsc], [], $tCo)[0] === 404);
+[$s, $d] = req('a_modulo_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Protocolo Trancado', 'grupo' => 'protocolo', 'publicado' => 1, 'emoji' => '🧠', 'cor' => '#7c3aed', 'capa_url' => 'https://exemplo.com/capa.jpg'], $tAdmin);
+eq('painel salva emoji, cor e capa', $s === 200 && $pdo->query("SELECT capa_url FROM cdd_modulo WHERE idmodulo = $mT")->fetchColumn() === 'https://exemplo.com/capa.jpg');
+eq('capa com javascript: é recusada', req('a_modulo_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Protocolo Trancado', 'capa_url' => 'javascript:alert(1)'], $tAdmin)[0] === 422);
+eq('cor inválida é ignorada', (function () use ($pdo, $mT, $tAdmin) { req('a_modulo_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Protocolo Trancado', 'cor' => 'vermelho'], $tAdmin); return $pdo->query("SELECT cor FROM cdd_modulo WHERE idmodulo = $mT")->fetchColumn() === null; })());
+eq('método do bloco: deduz super, triset e circuito do texto', cddMetodoTipoDoItem(['series' => 'Super-Série 3x cada']) === 'super' && cddMetodoTipoDoItem(['metodo' => 'Tri-set com o próximo']) === 'triset' && cddMetodoTipoDoItem(['obs' => 'em circuito']) === 'circuito' && cddMetodoTipoDoItem(['series' => '4']) === '' && cddMetodoTipoDoItem(['metodo_tipo' => 'triset', 'series' => 'x']) === 'triset');
+eq('técnica de série: drop, rest-pause, cluster, back-off, falha, isometria, negativa', cddInferirTecnica(['metodo' => 'Drop set']) === 'drop' && cddInferirTecnica(['metodo' => 'Rest-pause 3x']) === 'restpause' && cddInferirTecnica(['obs' => 'cluster']) === 'cluster' && cddInferirTecnica(['metodo' => 'Back off']) === 'backoff' && cddInferirTecnica(['metodo' => 'até a falha']) === 'falha' && cddInferirTecnica(['metodo' => 'Isometria final']) === 'isometria' && cddInferirTecnica(['metodo' => 'Negativa lenta']) === 'negativa' && cddInferirTecnica(['metodo' => 'Repetições lentas']) === '');
+[$s, $d] = req('a_aula_salvar', 'POST', [], ['idmodulo' => $mTr, 'titulo' => 'Treino Métodos', 'youtube' => 'AAAAAAAAAAA', 'publicado' => 1], $tAdmin); $aM = $d['idaula'];
+req('a_ficha_salvar', 'POST', [], ['idaula' => $aM, 'itens' => [['exercicio' => 'Supino', 'series' => 'Super-Série 3x cada', 'repeticoes' => '10'], ['exercicio' => 'Remada', 'series' => '3', 'repeticoes' => '10', 'metodo_tipo' => 'super', 'metodo' => 'Drop set'], ['exercicio' => 'Crucifixo', 'series' => '3']]], $tAdmin);
+[$s, $d] = req('treino', 'GET', ['id' => $aM], [], $tCo); $fm = $d['aula']['ficha'];
+eq('a ficha da aluna traz o tipo de bloco e a técnica de cada exercício', $fm[0]['metodo_tipo'] === 'super' && $fm[1]['metodo_tipo'] === 'super' && $fm[1]['tecnica'] === 'drop' && $fm[2]['metodo_tipo'] === '' && $fm[2]['tecnica'] === '');
+req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '40', 'reps' => '8']]]], 'duracao_seg' => 1800], $tCo);
+[$s, $d] = req('treino', 'GET', ['id' => $aA], [], $tCo); $hh = $d['historico'][cddNorm('Agachamento Livre')];
+eq('o histórico do exercício traz as últimas sessões', isset($hh['lista']) && count($hh['lista']) >= 1 && $hh['lista'][0]['series'][0]['peso'] === '40');
+$v3 = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$ddl3 = cddDdl();
+$ddl3['cdd_modulo'] = str_replace([",\n            emoji VARCHAR(8) NULL", ",\n            cor VARCHAR(9) NULL", ",\n            capa_url VARCHAR(500) NULL"], '', $ddl3['cdd_modulo']);
+$ddl3['cdd_aluna'] = str_replace("            ranking_visivel TINYINT NOT NULL DEFAULT 1,\n", '', $ddl3['cdd_aluna']);
+$ddl3['cdd_ficha_item'] = str_replace("            metodo_tipo VARCHAR(10) NULL,\n", '', $ddl3['cdd_ficha_item']);
+foreach ($ddl3 as $n3 => $sql3) { if (!in_array($n3, ['cdd_anamnese', 'cdd_conquista'], true)) $v3->exec(cddDdlSqlite($sql3)); }
+$v3->exec("INSERT INTO cdd_config (chave, valor) VALUES ('instalacao_aberta', '0'), ('esquema', '3')");
+$v3->exec("INSERT INTO cdd_aluna (nome, email, papel, status, criado_em) VALUES ('Antiga', 'a@a.com', 'aluna', 'ativa', '2026-10-15 10:00:00')");
+cddGarantirTabelas($v3);
+eq('esquema 3 sobe para o 4: tabelas novas, colunas novas e a aluna antiga entra no ranking por padrão', (int)$v3->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('cdd_anamnese', 'cdd_conquista')")->fetchColumn() === 2 && (int)$v3->query('SELECT ranking_visivel FROM cdd_aluna')->fetchColumn() === 1 && $v3->query('SELECT emoji, cor, capa_url FROM cdd_modulo')->fetchAll() === [] && $v3->query('SELECT metodo_tipo FROM cdd_ficha_item')->fetchAll() === [] && cddConfig($v3, 'esquema') === '4');
+
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
 eq('o CDD não inclui nenhum arquivo PHP da Intus (só lê as constantes do banco)', preg_match_all('~(?:require|include)(?:_once)?\s*\(?\s*__DIR__\s*\.\s*\'([^\']+)\'~', $fonte, $mm) && count(array_filter($mm[1], function ($p) { return strpos($p, 'app/api') !== false; })) === 0);
