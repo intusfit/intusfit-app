@@ -17,7 +17,7 @@
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261016a"></script>
-  <script src="ajuda.js?v=20261016b" defer></script>
+  <script src="ajuda.js?v=20261016c" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -11831,6 +11831,7 @@ function _renderProgDetalhe() {
 // registrada, então avançar blocos para "terminar mais cedo" não conta como programa concluído.
 function _progBip(freq, ms, vol) {
   try {
+    if (_progModoAudio() === 'mudo') return;
     const c = _prog.ctx; if (!c) return;
     if (c.state === 'suspended') c.resume();
     const o = c.createOscillator(), g = c.createGain();
@@ -11918,6 +11919,7 @@ function _progClipeFalar(txt) {
 }
 function _progFalar(txt, estilo) {
   try {
+    if (_progModoAudio() === 'mudo') return;
     if (!_progVozOn() || !txt) return;
     try { window.speechSynthesis && speechSynthesis.cancel(); } catch (e) {}
     if (_progClipeFalar(txt)) return;
@@ -12020,7 +12022,7 @@ function _progSegundoPlanoLigar() {
   const nativo = !!(window.Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
   // App das lojas: o iOS já está configurado no AppDelegate (toca por cima da música e ignora o botão de silêncio). Navegador: 'ambient' mistura, mas o botão de silêncio do iPhone cala.
   _progAudioSessao(nativo ? 'auto' : (musica ? 'ambient' : 'playback'));
-  if (musica) { _progAudioParar(); _progAudio(); _progKeepWebAudio(); _progStatusMostrar(); }   // sem áudio silencioso nem cartão de mídia: a música do aluno segue tocando
+  if (musica) { _progAudioParar(); if (_progModoAudio() === 'mix') { _progAudio(); _progKeepWebAudio(); } _progStatusMostrar(); }   // sem áudio silencioso nem cartão de mídia: a música do aluno segue tocando
   else {
     try {
       if (!_prog.keep) { const a = document.createElement('audio'); a.id = 'pg-keep'; a.loop = true; a.setAttribute('playsinline', ''); a.src = _progSilencioUrl(); a.style.display = 'none'; document.body.appendChild(a); _prog.keep = a; }
@@ -12051,7 +12053,13 @@ function _progSegundoPlanoDesligar() {
 //    música para.
 // Limite honesto: no navegador/PWA com a tela BLOQUEADA o sistema pode congelar a página em qualquer um dos dois jeitos; o garantido é o app das lojas (notificações
 // agendadas) e a tela ligada (o app já segura a tela acesa).
-function _progModoMusica() { try { return localStorage.getItem('intus-prog-audio') !== 'bloqueio'; } catch (e) { return true; } }
+// Padrão: áudio do app LIGADO (bips e voz garantidos). 'mudo' = o aluno prefere ouvir só a música dele: sem bips nem voz e sem tomar o áudio do celular (vibração, cor da tela e aviso na barra continuam).
+// 'mix' (app das lojas, onde o áudio do app toca POR CIMA da música) e 'exclusivo' (navegador: o áudio do app toma o áudio do celular e a música dos outros apps pode pausar) são os dois jeitos de estar ligado.
+function _progModoAudio() {
+  try { if (localStorage.getItem('intus-prog-audio') === 'mudo') return 'mudo'; } catch (e) {}
+  return (window.Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform()) ? 'mix' : 'exclusivo';
+}
+function _progModoMusica() { return _progModoAudio() !== 'exclusivo'; }   // true = sem áudio silencioso nem cartão de mídia (não toma o áudio dos outros apps)
 // 'ambient' mistura com a música dos outros apps; 'playback' faz o iPhone tratar como mídia (cartão na tela de bloqueio); 'auto' devolve o padrão do sistema.
 function _progAudioSessao(tipo) { try { if (navigator.audioSession) navigator.audioSession.type = tipo; } catch (e) {} }
 // Mantém o AudioContext rodando com um sinal inaudível: o sistema continua tratando o app como "com áudio" (não suspende o contexto nem congela a página com a tela bloqueada)
@@ -12068,13 +12076,14 @@ function _progKeepWebAudio() {
 }
 function _progTestarSom() {
   try {
+    if (_progModoAudio() === 'mudo') { toast('O áudio está no mudo. Troque para "Áudio do app" para ouvir os bips e a voz.'); return; }
     _progAudio();
     const musica = _progModoMusica();
     const nativo = !!(window.Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
     _progAudioSessao(nativo ? 'auto' : (musica ? 'ambient' : 'playback'));
     _progBip(1040, 170, 0.5); setTimeout(() => _progBip(1040, 170, 0.5), 250);
     setTimeout(() => _progFalar('Teste de som. Se você me ouviu, está tudo certo!'), 600);
-    toast('Tocando um bip e uma frase. Se não ouvir, veja o volume e, no iPhone, o botão lateral de silêncio.');
+    toast('Tocando um bip e uma frase. Se não ouvir, veja o volume do celular.');
   } catch (e) {}
 }
 function _progAudioParar() {
@@ -12083,19 +12092,20 @@ function _progAudioParar() {
   try { if ('mediaSession' in navigator) { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; ['play', 'pause', 'nexttrack', 'previoustrack'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, null); } catch (e) {} }); } } catch (e) {}
 }
 function _progAudioModo(modo) {
-  try { localStorage.setItem('intus-prog-audio', modo === 'bloqueio' ? 'bloqueio' : 'musica'); } catch (e) {}
+  try { localStorage.setItem('intus-prog-audio', modo === 'mudo' ? 'mudo' : 'ligado'); } catch (e) {}
   if (_prog.rodando && _prog.fase !== 'pronto') { _progAudioParar(); statusAtivoParar('prog'); _progSegundoPlanoLigar(); }   // troca na hora, com o programa em andamento
   if (_prog.rodando) _renderProgExecucao(); else if (_prog.tela === 'detalhe') _renderProgDetalhe();
-  toast(modo === 'bloqueio' ? 'Cartão na tela bloqueada ligado. Atenção: a música dos outros apps é pausada.' : 'Pronto: sua música continua tocando durante o programa.');
+  toast(modo === 'mudo' ? 'Áudio no mudo: sua música toca normalmente. Os avisos vêm por vibração e pela cor da tela.' : 'Áudio do app ligado: bips e voz em cada troca.');
 }
 function _progAudioCartaoHtml(isLight, acento, borda, card, mut) {
-  const m = _progModoMusica();
-  const opt = (modo, rot, on) => '<button onclick="_progAudioModo(\'' + modo + '\')" style="flex:1;padding:10px 6px;border-radius:12px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1.5px solid ' + (on ? acento : borda) + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (on ? acento : (isLight ? '#444' : '#ccc')) + ';">' + rot + '</button>';
-  const iosNav = m && _vtEhIOS() && !(window.Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
+  const modo = _progModoAudio(), mudo = modo === 'mudo';
+  const opt = (m, rot, on) => '<button onclick="_progAudioModo(\'' + m + '\')" style="flex:1;padding:11px 6px;border-radius:12px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1.5px solid ' + (on ? acento : borda) + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (on ? acento : (isLight ? '#444' : '#ccc')) + ';">' + rot + '</button>';
+  const txt = mudo ? 'Sem bips nem voz. Sua música toca normalmente. Os avisos vêm por vibração e pela cor da tela.'
+    : (modo === 'mix' ? 'Bips e voz tocam por cima da sua música.' : 'Bips e voz em cada troca. Se você ouve música, ela pode pausar: para ouvir só a música, escolha Mudo.');
   return '<div style="margin:16px 0 0;padding:12px;border-radius:16px;background:' + card + ';border:1px solid ' + borda + ';">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:11px;font-weight:800;color:' + mut + ';text-transform:uppercase;letter-spacing:.06em;">🎧 Áudio</span><span onclick="_progTestarSom()" style="font-size:12px;font-weight:800;color:' + acento + ';cursor:pointer;">🔊 Testar o som</span></div>' +
-    '<div style="display:flex;gap:8px;">' + opt('musica', '🎵 Minha música', m) + opt('bloqueio', '🔒 Tela bloqueada', !m) + '</div>' +
-    '<div style="font-size:12px;line-height:1.45;color:' + mut + ';margin-top:8px;">' + (m ? 'Spotify e outros continuam tocando.' : 'Cronômetro na tela de bloqueio, mas a música é pausada.') + (iosNav ? ' <b style="color:' + (isLight ? '#9a3412' : '#fdba74') + ';">iPhone: desligue o botão lateral de silêncio.</b>' : '') + '</div></div>';
+    '<div style="display:flex;gap:8px;">' + opt('ligado', '🔊 Áudio do app', !mudo) + opt('mudo', '🔇 Mudo, só minha música', mudo) + '</div>' +
+    '<div style="font-size:12px;line-height:1.45;color:' + mut + ';margin-top:8px;">' + txt + '</div></div>';
 }
 
 // ── PRESENÇA NO TOPO E NA TELA BLOQUEADA, SEM TOMAR O ÁUDIO (treino de musculação e programas no modo "com a minha música") ──
@@ -12414,7 +12424,7 @@ function _renderProgExecucao() {
       '<div style="margin-top:12px;"><div style="font-size:13px;font-weight:900;color:' + (isLight ? '#222' : '#f0f0f0') + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">' + (prox ? 'A seguir' : 'Último bloco') + (restantesBlocos > 4 ? ' <span style="font-weight:700;color:#888;text-transform:none;letter-spacing:0;">(mais ' + (restantesBlocos - 4) + ' depois)</span>' : '') + '</div>' + (prox || '<div style="font-size:13px;color:#888;padding:5px 0;">Falta pouco para terminar!</div>') + '</div>' +
     '</div>' +
     dock +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:30px;"><button onclick="_progAudioModo(\'' + (_progModoMusica() ? 'bloqueio' : 'musica') + '\')" style="padding:14px 8px;border-radius:14px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:' + (isLight ? '#333' : '#ddd') + ';touch-action:manipulation;" title="Toque para trocar">' + (_progModoMusica() ? '🎧 Com a minha música' : '🔒 Tela bloqueada') + '</button><button onclick="_progVoz()" style="padding:14px 8px;border-radius:14px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (_progVozOn() ? (isLight ? '#2d8a00' : '#7FFF00') : (isLight ? '#ddd' : '#333')) + ';background:transparent;color:' + (_progVozOn() ? (isLight ? '#2d8a00' : '#7FFF00') : '#888') + ';touch-action:manipulation;">' + (_progVozOn() ? '🔊 Voz ligada' : '🔇 Voz desligada') + '</button></div>';
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:30px;"><button onclick="_progAudioModo(\'' + (_progModoAudio() === 'mudo' ? 'ligado' : 'mudo') + '\')" style="padding:14px 8px;border-radius:14px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:transparent;color:' + (isLight ? '#333' : '#ddd') + ';touch-action:manipulation;" title="Toque para trocar">' + (_progModoAudio() === 'mudo' ? '🔇 Só minha música' : '🔊 Áudio do app') + '</button><button onclick="_progVoz()" style="padding:14px 8px;border-radius:14px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ' + (_progVozOn() ? (isLight ? '#2d8a00' : '#7FFF00') : (isLight ? '#ddd' : '#333')) + ';background:transparent;color:' + (_progVozOn() ? (isLight ? '#2d8a00' : '#7FFF00') : '#888') + ';touch-action:manipulation;">' + (_progVozOn() ? '🔊 Voz ligada' : '🔇 Voz desligada') + '</button></div>';
   _progAtualizarRelogio();
 }
 function _progParar() { _progSegundoPlanoDesligar(); if (_prog.timer) { clearInterval(_prog.timer); _prog.timer = null; } _prog.rodando = false; _prog.pausado = false; _prog.fase = 'pronto'; try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {} try { localStorage.removeItem(_PROG_ATIVO_KEY); } catch (e) {} try { releaseWakeLock(); } catch (e) {} }
