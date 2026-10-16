@@ -11687,7 +11687,7 @@ function abrirProgramasCardio() {
   if (!_progPermitido()) return;
   if (_prog.rodando) { _renderProgExecucao(); trocarView('cardio-prog'); return; }
   _progCarregarAtivo();
-  _prog.tela = 'lista'; _renderProgLista(); trocarView('cardio-prog');
+  _prog.tela = 'lista'; _progTopo(); _renderProgLista(); trocarView('cardio-prog'); _progTopo(true);
 }
 // Etiquetas e filtros da lista: o aparelho em que o programa pode ser feito. "Sem aparelho" = dá para fazer em casa.
 const _PROG_FILTROS = ['Todos', 'Sem aparelho', 'Esteira', 'Bike', 'Elíptico'];
@@ -11728,9 +11728,11 @@ function _progCartaoPrograma(p, isLight, sugerido) {
 function _progConcluidos(id) {
   try { const p = API.programaPorId(id); return Object.keys(_progFeitos(p)).length; } catch (e) { return 0; }
 }
-function _progVoltarAoPrograma() { _prog.tela = 'execucao'; _renderProgExecucao(); }
+function _progVoltarAoPrograma() { _prog.tela = 'execucao'; _progTopo(); _renderProgExecucao(); _progTopo(true); }
 // "← Voltar" do detalhe de um programa: sempre à lista (nunca à execução de outro programa).
-function _progVoltarLista() { _prog.tela = 'lista'; _renderProgLista(); window.scrollTo(0, 0); }
+// Sobe ao topo ao trocar de tela dentro dos programas: a rolagem da tela anterior ficava (a tela nova abria no fim) e, no iPhone, voltar deixava uma tela fantasma com cliques errados.
+function _progTopo(depois) { try { window.scrollTo(0, 0); if (depois) requestAnimationFrame(() => window.scrollTo(0, 0)); } catch (e) {} }
+function _progVoltarLista() { _prog.tela = 'lista'; _progTopo(); _renderProgLista(); const y = _prog.listaY || 0; _progTopo(); requestAnimationFrame(() => { try { window.scrollTo(0, y); } catch (e) {} }); }
 function _renderProgLista() {
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
@@ -11755,7 +11757,7 @@ function abrirProgramaCardio(id) {
     _progVoltarAoPrograma(); return;
   }
   _prog.id = id; _prog.ativ = p.atividades[0]; _prog.tela = 'detalhe'; _prog.sessao = p.sessoes ? _progProximaSessao(p) : null;
-  _renderProgDetalhe();
+  _prog.listaY = window.scrollY || 0; _progTopo(); _renderProgDetalhe(); _progTopo(true);
 }
 function _progEscolherSessao(k) { _prog.sessao = k; _renderProgDetalhe(); }
 function _progEscolherAtiv(a) { _prog.ativ = a; _renderProgDetalhe(); }
@@ -12227,7 +12229,7 @@ function _progIniciar() {   // abre a tela do programa com o tempo PARADO, esper
   _progAudio(); _progClipesCarregar();
   Object.assign(_prog, { tela: 'execucao', i: 0, fase: 'pronto', pausado: true, restMs: _progEt(p)[0].s * 1000, fimMs: 0, ativoMs: 0, ultTick: Date.now(), bipS: -1, rodando: true });
   _progIniciarRelogio(); _progSalvarAtivo();
-  _renderProgExecucao(); trocarView('cardio-prog');
+  _progTopo(); _renderProgExecucao(); trocarView('cardio-prog'); _progTopo(true);
 }
 function _progIniciarRelogio() {
   if (_prog.timer) clearInterval(_prog.timer);
@@ -21930,7 +21932,7 @@ window.addEventListener('popstate', function(e) {
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
   // Programa de cardio (detalhe, execução ou resultado): voltar do celular leva à lista de programas, não ao registro de cardio.
   if (window._viewAtual === 'cardio-prog' && _prog.tela !== 'lista') {
-    _prog.tela = 'lista'; _renderProgLista();
+    _prog.tela = 'lista'; _progTopo(); _renderProgLista(); _progTopo(true);
     history.pushState({ view: 'cardio-prog' }, '', '');
     return;
   }

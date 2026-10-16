@@ -1711,3 +1711,5 @@ Escolhas do Luiz sobre o Artifact de propostas: tela de execução 2 (cor total)
 - **Tela do programa enxuta (16/10/2026, a pedido do Luiz: "muito texto, embaralhado")**: título, chips de tempo e nível, atividade, cartão de áudio curto (duas opções + "Testar o som"), botão Começar e duas seções recolhidas ("Como funciona e onde fazer" e "Ver todas as etapas"). Na lista o texto introdutório ficou numa linha e em Meu Cardio "Por que fazer cardio" ficou recolhido.
 
 - **Home, correção (16/10/2026)**: o modo compacto (Evoluções, Conquistas e Nutrição em "Ver mais" e tile sorteado) vale SÓ com o cartão da refeição fixado. A água sozinha mantém o modelo padrão.
+
+- **Rolagem nos programas (16/10/2026)**: abrir um programa a partir da lista herdava a rolagem da lista (a tela nova abria no fim) e voltar deixava tela fantasma no iPhone. `_progTopo()` sobe ao topo ao trocar de tela (detalhe, execução, lista) e a lista volta à posição em que estava (`_prog.listaY`).
