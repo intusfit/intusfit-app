@@ -25,9 +25,18 @@ function cddDB(): PDO {
     if (!empty($GLOBALS['CDD_PDO'])) return $GLOBALS['CDD_PDO'];
     static $pdo = null;
     if ($pdo) return $pdo;
-    require_once __DIR__ . '/../../app/config/db.php';   // só define as constantes DB_*; a conexão abaixo é do CDD
-    $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+    // Servidor próprio do CDD: config/banco.php (fora do git) define CDD_DB_HOST, CDD_DB_NAME, CDD_DB_USER e CDD_DB_PASS.
+    // Sem esse arquivo (hospedagem compartilhada com a Intus), usa só as constantes do banco da Intus em app/config/db.php.
+    $proprio = __DIR__ . '/config/banco.php';
+    if (is_file($proprio)) {
+        require_once $proprio;
+        $h = CDD_DB_HOST; $n = CDD_DB_NAME; $u = CDD_DB_USER; $pw = CDD_DB_PASS;
+    } else {
+        require_once __DIR__ . '/../../app/config/db.php';   // só define as constantes DB_*; a conexão abaixo é do CDD
+        $h = DB_HOST; $n = DB_NAME; $u = DB_USER; $pw = DB_PASS;
+    }
+    $dsn = 'mysql:host=' . $h . ';dbname=' . $n . ';charset=utf8mb4';
+    $pdo = new PDO($dsn, $u, $pw, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
