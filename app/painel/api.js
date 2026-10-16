@@ -3104,6 +3104,27 @@ const API = {
       var futura = pendentes.filter(function (r) { return r.horario && String(r.horario).slice(0, 5) >= agora; })[0];
       return futura || pendentes[0] || null;
     }
+    // Refeição que a tela inicial destaca (fonte única; a Home não refaz esta conta). Parte da última refeição já registrada hoje e olha só as que vêm
+    // DEPOIS dela (quem pulou uma antiga não é cobrado de novo); entre essas escolhe a mais perto do horário de agora, e no empate a que ainda vai chegar.
+    // estado: 'proxima' (falta mais de 45 min), 'agora' (de 45 min antes até 90 min depois do horário), 'atrasada' (passou de 90 min),
+    // 'completo' (nada mais a registrar depois da última) ou 'sem' (plano sem refeições). minutos = horário da refeição menos agora (negativo = já passou).
+    function minutosDe(hhmm) { var m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; }
+    function refeicaoDaHome(plano, registrosDoDia, agora) {
+      var refs = refeicoes(plano), reg = {};
+      (registrosDoDia || []).forEach(function (r) { reg[r.refeicao] = r; });
+      var total = refs.length;
+      if (!total) return { estado: 'sem', total: 0, feitas: 0, semRegistro: 0 };
+      var feitas = refs.filter(function (r) { return reg[r.chave]; }).length;
+      var ultimo = -1; refs.forEach(function (r, i) { if (reg[r.chave]) ultimo = i; });
+      var am = minutosDe(agora || agoraHHMM());
+      var pend = refs.map(function (r, i) { return { r: r, i: i, m: minutosDe(r.horario) }; }).filter(function (x) { return !reg[x.r.chave] && x.i > ultimo; });
+      if (!pend.length) return { estado: 'completo', total: total, feitas: feitas, semRegistro: total - feitas };
+      pend.forEach(function (x) { x.d = x.m == null ? 99999 : Math.abs(x.m - am); x.fut = x.m != null && x.m >= am ? 1 : 0; });
+      pend.sort(function (a, b) { return (a.d - b.d) || (b.fut - a.fut) || (a.i - b.i); });
+      var e = pend[0], dif = e.m == null ? null : e.m - am;
+      var estado = (dif == null || dif > 45) ? 'proxima' : (dif >= -90 ? 'agora' : 'atrasada');
+      return { estado: estado, ref: e.r, indice: e.i, minutos: dif, total: total, feitas: feitas, semRegistro: ultimo + 1 - feitas };
+    }
     // Dias seguidos (terminando hoje ou ontem) com pelo menos uma refeição marcada como feita.
     function sequencia(registros) {
       var dias = {}; (registros || []).forEach(function (r) { if (r.status === 'feito') dias[String(r.data).slice(0, 10)] = 1; });
@@ -3218,7 +3239,7 @@ const API = {
       }
       return out;
     }
-    return { chave: chave, refeicoes: refeicoes, somaItens: somaItens, aderencia: aderencia, consumo: consumo, proximaRefeicao: proximaRefeicao,
+    return { chave: chave, refeicoes: refeicoes, somaItens: somaItens, aderencia: aderencia, consumo: consumo, proximaRefeicao: proximaRefeicao, refeicaoDaHome: refeicaoDaHome,
              sequencia: sequencia, metaAguaMl: metaAguaMl, listaCompras: listaCompras, alertas: alertas, hojeIso: hojeIso, addDias: addDias,
              gramasItem: gramasItem, pluralMedida: pluralMedida, rotuloQtd: rotuloQtd, gramasEquivalentes: gramasEquivalentes, arredondarQtd: arredondarQtd };
   })(),

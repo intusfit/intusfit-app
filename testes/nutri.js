@@ -132,5 +132,36 @@ console.log('\n── 8. Quantidades: medida caseira, plural e equivalência ─
   eq('nunca zera: mínimo de 5 g', A.arredondarQtd(1, 1), 5);
 }
 
+console.log('\n── 9. Refeição destacada na tela inicial ──');
+{
+  // plano de 6 refeições para testar a escolha pelo horário (a sequência importa: só vale o que vem depois da última registrada)
+  const mk = (nome, horario) => ({ nome, horario, itens_estruturados: [it('Item', 100, 100, 5, 10, 2)] });
+  const p6 = { refeicoes: [mk('Café', '07:00'), mk('Lanche manhã', '10:00'), mk('Almoço', '12:30'), mk('Lanche tarde', '16:00'), mk('Jantar', '19:30'), mk('Ceia', '22:00')] };
+  const K = n => A.chave(p6.refeicoes.find(x => x.nome === n));
+  const hoje = '2026-10-05';
+  const rg = (...nomes) => nomes.map(n => r(hoje, K(n), 'feito'));
+  const h = (reg, agora) => A.refeicaoDaHome(p6, reg, agora);
+  const nome = x => x.ref ? x.ref.nome : null;
+  const ATE_JANTAR = ['Café', 'Lanche manhã', 'Almoço', 'Lanche tarde', 'Jantar'], TODAS = ATE_JANTAR.concat('Ceia');
+  eq('sem registro, 07:10: o café, "agora"', [nome(h([], '07:10')), h([], '07:10').estado], ['Café', 'agora']);
+  eq('sem registro, 06:00: o café, falta mais de 45 min = próxima', [nome(h([], '06:00')), h([], '06:00').estado], ['Café', 'proxima']);
+  eq('sem registro, 08:10: o café ainda é o mais perto (70 min contra 110)', nome(h([], '08:10')), 'Café');
+  eq('sem registro, 09:30: o lanche da manhã é mais perto que o café esquecido', nome(h([], '09:30')), 'Lanche manhã');
+  eq('café feito, 07:30: a seguinte é o lanche da manhã, "proxima" (falta 150 min)', [nome(h(rg('Café'), '07:30')), h(rg('Café'), '07:30').estado], ['Lanche manhã', 'proxima']);
+  eq('almoço marcado cedo (12:00): vai para o lanche da tarde, não volta ao lanche esquecido', nome(h(rg('Almoço'), '12:00')), 'Lanche tarde');
+  eq('almoço feito: refeições esquecidas antes não viram pendência, só contagem', h(rg('Almoço'), '12:40').semRegistro, 2);
+  eq('empate de distância: prefere a que ainda vai chegar', nome(h(rg('Lanche manhã'), '14:15')), 'Lanche tarde');   // almoço 12:30 a 105 min, lanche 16:00 a 105 min
+  eq('13:40, café e lanche feitos: o almoço (70 min atrás) é o mais perto, "agora"', [nome(h(rg('Café', 'Lanche manhã'), '13:40')), h(rg('Café', 'Lanche manhã'), '13:40').estado], ['Almoço', 'agora']);
+  eq('15:00 com almoço sem registro: o lanche (60 min) é mais perto que o almoço (150 min)', nome(h(rg('Café', 'Lanche manhã'), '15:00')), 'Lanche tarde');
+  eq('só a ceia falta, 23:30: ceia', nome(h(rg(...ATE_JANTAR), '23:30')), 'Ceia');
+  eq('só a ceia falta, 23:50: passou de 90 min = atrasada', h(rg(...ATE_JANTAR), '23:50').estado, 'atrasada');
+  eq('tudo registrado: completo', [h(rg(...TODAS), '23:00').estado, h(rg(...TODAS), '23:00').feitas], ['completo', 6]);
+  eq('última refeição registrada: completo mesmo com antigas sem registro', [h(rg('Ceia'), '22:30').estado, h(rg('Ceia'), '22:30').semRegistro], ['completo', 5]);
+  eq('parcial e fora também contam como registrado', nome(h([r(hoje, K('Café'), 'parcial'), r(hoje, K('Lanche manhã'), 'fora')], '10:30')), 'Almoço');
+  eq('plano sem refeições', A.refeicaoDaHome({ refeicoes: [] }, [], '10:00').estado, 'sem');
+  eq('refeição sem horário: "proxima", sem minutos', (function () { const x = A.refeicaoDaHome({ refeicoes: [{ nome: 'Livre' }] }, [], '10:00'); return [x.ref.nome, x.estado, x.minutos]; })(), ['Livre', 'proxima', null]);
+  eq('registro de outra chave não conta', nome(A.refeicaoDaHome(p6, [r(hoje, 'xx|yy', 'feito')], '07:05')), 'Café');
+}
+
 console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
 process.exit(ruim ? 1 : 0);

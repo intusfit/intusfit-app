@@ -16,8 +16,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261014c"></script>
-  <script src="ajuda.js?v=20261013a" defer></script>
+  <script src="api.js?v=20261016a"></script>
+  <script src="ajuda.js?v=20261016a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -664,6 +664,28 @@
     .h-at .ic { width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; }
     .h-at .tt { font-size:10.5px; font-weight:700; color:var(--texto); text-align:center; line-height:1.2; }
     .h-hoje:active, .h-sem:active, .h-mini:active, .h-dest:active, .h-at:active { transform:scale(.985); }
+
+    /* Cartão da refeição na tela inicial (opcional): ocupa a coluna da direita do bloco Ranking/Medalhas. */
+    .h-ref { flex:1; min-width:0; background:var(--card-bg); border:1px solid var(--borda); border-radius:16px; padding:9px 10px 10px; cursor:pointer;
+             display:flex; flex-direction:column; gap:3px; transition:transform .08s; touch-action:manipulation; }
+    .h-ref:active { transform:scale(.985); }
+    .h-min { width:24px; height:24px; border-radius:50%; border:1px solid var(--borda); background:transparent; color:var(--muted); padding:0; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:5px; touch-action:manipulation; }
+    .h-min:active { transform:scale(.9); }
+    .h-ref.agora { border-color:var(--link-ex); background:var(--marca-fraca); }
+    .h-ref.atrasada { border-color:#f59e0b; }
+    .h-ref .topo { display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:17px; }
+    .h-ref .cab { font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+    .h-ref.agora .cab { color:var(--link-ex); }
+    .h-ref.atrasada .cab { color:var(--alerta); }
+    .h-ref .hr { font-size:11px; font-weight:900; font-variant-numeric:tabular-nums; color:var(--texto); background:var(--sup); border-radius:6px; padding:1px 6px; flex-shrink:0; }
+    .h-ref .nm { font-size:15px; font-weight:900; color:var(--texto); line-height:1.15; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .h-ref .it { font-size:10.5px; color:var(--muted); line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; flex:1; }
+    .h-ref .bt { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:4px; }
+    .h-ref .bt button { height:32px; border-radius:9px; border:1px solid var(--borda); background:transparent; color:var(--texto); font-family:inherit; font-size:10px; font-weight:800; cursor:pointer; padding:0; white-space:nowrap; touch-action:manipulation; }
+    .h-ref .bt button.s { background:linear-gradient(135deg,#7FFF00,#5cb800); border-color:transparent; color:#0a1400; }
+    .h-ref .bt button:active { transform:scale(.96); }
+    @media (max-width:350px) { .h-ref .bt { grid-template-columns:1fr 1fr; } .h-ref .bt button.s { grid-column:1 / -1; }
+      .h-ref .cab { letter-spacing:0; } .h-ref .nm { font-size:14px; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; } }
 
     .prev-box {
       font-size: 11px; color: #666; background: #0d0d0d; border: 1px solid #1a1a1a;
@@ -6438,11 +6460,13 @@ function startTreinoTimer(resume) {
   }, 1000);
   requestWakeLock();
   if (typeof salvarTreinoAtivo === 'function') salvarTreinoAtivo();
+  _statusTreinoMostrar();
 }
 function stopTreinoTimer() {
   if (treinoTimer) { clearInterval(treinoTimer); treinoTimer = null; }
   document.getElementById('timer-bar').classList.remove('visible');
   releaseWakeLock();
+  statusAtivoParar('treino');
 }
 // O cronômetro de descanso agora sabe qual é a pausa DAQUELA série e mostra o
 // alvo ao lado do tempo corrido. Sem isso, prescrever 90s numa série e 45s na
@@ -7061,6 +7085,7 @@ function mostrarNovidadePontos() {
 // A preferência é de exibição e fica no aparelho. A Home não carrega a Nutrição: busca só a água de hoje e ontem, depois de pintar,
 // com tentativa no máximo a cada 60 s (renderHome roda várias vezes), e repinta só este cartão.
 function _homeAguaAtiva() { try { return localStorage.getItem('intus-home-agua-' + idAtleta) === '1'; } catch (e) { return false; } }
+function _homeAguaMin() { try { return localStorage.getItem('intus-home-agua-' + idAtleta) === '2'; } catch (e) { return false; } }
 let _homeAguaUltima = 0;
 function _homeAguaHtml() {
   if (!_homeAguaAtiva() || typeof API === 'undefined' || !API.nutri) return '';
@@ -7074,7 +7099,7 @@ function _homeAguaHtml() {
       <div style="display:flex;align-items:center;gap:10px;">
         <div style="font-size:22px;line-height:1;">💧</div>
         <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:baseline;gap:6px;"><span class="cab">Água de hoje</span><span style="flex:1;"></span><span style="font-size:11px;font-weight:800;color:#38bdf8;">${bateu ? 'Meta batida ✓' : pct + '%'}</span></div>
+          <div style="display:flex;align-items:baseline;gap:6px;"><span class="cab">Água de hoje</span><span style="flex:1;"></span><span style="font-size:11px;font-weight:800;color:#38bdf8;">${bateu ? 'Meta batida ✓' : pct + '%'}</span>${_homeMinBtn('agua')}</div>
           <div style="margin-top:1px;"><b style="font-size:17px;font-weight:900;">${litros(ml)}</b> <span style="font-size:12px;font-weight:700;color:var(--muted);">de ${litros(meta)} L</span></div>
         </div>
         <button onclick="event.stopPropagation();homeAguaBeber(-250)" aria-label="Tirar um copo" style="width:36px;height:36px;border-radius:11px;border:1px solid var(--borda);background:transparent;color:inherit;font-size:17px;font-weight:800;cursor:pointer;">−</button>
@@ -7110,6 +7135,180 @@ async function _homeAguaCarregar() {
   try { localStorage.setItem(_nutriCacheKey(), JSON.stringify({ regs: _nutri.regs, agua: _nutri.agua })); } catch (e) {}
   if (window._viewAtual === 'home') _homeAguaRepintar();
 }
+
+// ── REFEIÇÃO NA TELA INICIAL (opcional) ────────────────────────────────────────────────────────────────────
+// O aluno liga em Nutrição ("Deixar a próxima refeição na tela inicial", como a água). O cartão fica na coluna da direita do bloco
+// Ranking/Medalhas, no lugar dos atalhos Evoluções e Conquistas (que passaram para "Ver mais"), então a Home não cresce. Mostra a refeição
+// do plano alimentar mais perto do horário, ou a seguinte à última marcada (regra única em API.nutri.refeicaoDaHome), com três botões:
+// Segui (feito), Alterei (parcial) e Fora. Tocar no cartão abre o plano alimentar naquela refeição. A preferência é do aparelho.
+// O plano fica guardado em forma resumida (nomes, horários e itens) para o cartão pintar na hora e funcionar sem internet.
+function _homeRefAtiva() { try { return localStorage.getItem('intus-home-ref-' + idAtleta) === '1'; } catch (e) { return false; } }
+function _homeRefMin() { try { return localStorage.getItem('intus-home-ref-' + idAtleta) === '2'; } catch (e) { return false; } }
+function _homeRefSnapKey() { return 'intus-home-ref-plano-' + idAtleta; }
+function _homeRefResumo(plano) {
+  const N = API.nutri;
+  return { idplano: plano.idplano, refeicoes: N.refeicoes(plano).map(r => ({ nome: r.nome, horario: r.horario, kcal: Math.round(N.somaItens(r.itens_estruturados).kcal), itens: (r.itens_estruturados || []).map(i => i && i.nome).filter(Boolean).slice(0, 8) })) };
+}
+function _homeRefSnapGravar() {
+  try {
+    if (!_nutri.carregado) return;
+    if (_nutri.plano) localStorage.setItem(_homeRefSnapKey(), JSON.stringify(_homeRefResumo(_nutri.plano)));
+    else if (navigator.onLine !== false) localStorage.removeItem(_homeRefSnapKey());   // sem internet 'não achei plano' pode ser só falha: não apaga o que estava guardado
+  } catch (e) {}
+}
+// null = sem plano alimentar ativo; undefined = ainda não sei (nada carregado e nada guardado neste aparelho)
+function _homeRefPlano() {
+  if (_nutri.carregado && (_nutri.plano || navigator.onLine !== false)) return _nutri.plano ? _homeRefResumo(_nutri.plano) : null;
+  try { const c = JSON.parse(localStorage.getItem(_homeRefSnapKey()) || 'null'); if (c && Array.isArray(c.refeicoes)) return c; } catch (e) {}
+  return undefined;
+}
+function _homeRefRegsHoje() {
+  if (!_nutri.carregado && !_nutri.regs.length) {   // ainda sem a Nutrição carregada: usa o que ficou guardado, com o que foi marcado sem internet por cima
+    try { const c = JSON.parse(localStorage.getItem(_nutriCacheKey()) || 'null'); if (c && Array.isArray(c.regs)) _nutri.regs = c.regs; } catch (e) {}
+    _nutriPendLer().forEach(p => { if (p.tipo === 'registro') _nutriAplicarLocal(p.tipo, p.corpo); });
+  }
+  return _nutriRegsDoDia(API.nutri.hojeIso());
+}
+function _homeRefEstado() { const pl = _homeRefPlano(); return pl ? API.nutri.refeicaoDaHome(pl, _homeRefRegsHoje()) : null; }
+var _homeRefFlash = null, _homeRefAssin = '', _homeRefUltima = 0;
+function _homeRefFlashAtivo() { return (_homeRefFlash && Date.now() < _homeRefFlash.ate) ? _homeRefFlash : null; }
+function _homeRefAssinatura() {
+  const m = _homeRefAtiva() ? _homeRefEstado() : null;
+  return [API.nutri.hojeIso(), _homeRefAtiva() ? 1 : 0, m ? m.estado + '|' + (m.ref ? m.ref.nome + '@' + m.ref.horario : '') + '|' + m.feitas : 'x', _homeRefFlashAtivo() ? 1 : 0].join('~');
+}
+function _homeRefTxtItens(r) {
+  const it = (r.itens || []).map(x => String(x).split(',')[0].trim()).filter(Boolean);
+  if (!it.length) return r.kcal ? r.kcal + ' kcal' : '';
+  return it.slice(0, 3).join(', ') + (it.length > 3 ? ' +' + (it.length - 3) : '');
+}
+function _homeRefCartaoHtml() {
+  const pl = _homeRefPlano();
+  if (pl === null) return '';
+  const isLight = document.body.classList.contains('tema-claro');
+  if (pl === undefined) return `<div class="h-ref" id="h-ref-card" onclick="navegar('nutricao')"><div class="topo"><span class="cab">🍽 Sua refeição</span></div><div class="it" style="flex:none;margin-top:3px;">Carregando seu plano alimentar...</div></div>`;
+  const m = API.nutri.refeicaoDaHome(pl, _homeRefRegsHoje());
+  if (m.estado === 'sem') return '';
+  const fl = _homeRefFlashAtivo();
+  const topoFlash = fl ? `<span class="cab" style="color:var(--link-ex);">✓ ${esc(fl.nome)}</span><span class="hr" onclick="event.stopPropagation();abrirRefeicaoDaHome(${fl.indice})">mudar</span>` : '';
+  const min = _homeMinBtn('ref');
+  if (m.estado === 'completo') {
+    return `<div class="h-ref" id="h-ref-card" onclick="abrirRefeicaoDaHome(-1)">
+      <div class="topo">${topoFlash || '<span class="cab" style="color:var(--link-ex);">🍽 Hoje</span>'}${min}</div>
+      <div class="nm">${m.feitas} de ${m.total}</div>
+      <div class="it">${m.feitas === m.total ? 'Todas as refeições do dia registradas. Boa!' : 'Você registrou as últimas refeições. Toque para ver o plano.'}</div>
+    </div>`;
+  }
+  const r = m.ref, cls = m.estado === 'atrasada' ? 'atrasada' : (m.estado === 'agora' ? 'agora' : '');
+  const rot = m.estado === 'agora' ? '🍽 Agora' : (m.estado === 'atrasada' ? '🍽 Sem registro' : '🍽 Próxima');
+  const hr = r.horario ? esc(String(r.horario).slice(0, 5)) : '';
+  const cAlt = isLight ? '#b45309' : '#fbbf24', cFora = isLight ? '#c0392b' : '#ff6b6b';
+  return `<div class="h-ref ${cls}" id="h-ref-card" onclick="abrirRefeicaoDaHome(${m.indice})">
+    <div class="topo">${topoFlash || `<span class="cab">${rot}</span>${hr ? `<span class="hr">${hr}</span>` : ''}`}${min}</div>
+    <div class="nm">${esc(r.nome || 'Refeição')}</div>
+    <div class="it">${esc(_homeRefTxtItens(r))}</div>
+    <div class="bt">
+      <button class="s" onclick="event.stopPropagation();homeRefMarcar('feito')" aria-label="Segui o plano nesta refeição">Segui</button>
+      <button onclick="event.stopPropagation();homeRefMarcar('parcial')" aria-label="Alterei parte desta refeição" style="color:${cAlt};border-color:${cAlt}66;">Alterei</button>
+      <button onclick="event.stopPropagation();homeRefMarcar('fora')" aria-label="Fiquei fora do plano nesta refeição" style="color:${cFora};border-color:${cFora}66;">Fora</button>
+    </div>
+  </div>`;
+}
+// Coluna da direita do bloco Ranking/Medalhas: com o cartão da refeição ligado, ele ocupa o espaço e Nutrição e "Ver mais" viram uma faixa
+// baixa embaixo; sem ele, são dois atalhos altos, um sobre o outro. `aberto` = o painel "Ver mais" já está aberto (só muda o rótulo).
+function _homeDirHtml(aberto) {
+  if (aberto === undefined) { const p = document.getElementById('h-maisatalhos'); aberto = !!(p && p.style.display === 'grid'); }
+  const rotMais = aberto ? 'Ver menos' : 'Ver mais';
+  const card = _homeRefAtiva() ? _homeRefCartaoHtml() : '';
+  _homeRefAssin = _homeRefAssinatura();
+  if (card) {
+    const mini = (js, ic, tit, extra) => `<div ${extra || ''} class="h-at" onclick="${js}" style="flex:1;flex-direction:row;gap:6px;min-height:0;height:44px;margin:0;padding:0 6px;"><span style="font-size:17px;line-height:1;">${ic}</span><span class="tt" style="text-align:left;white-space:nowrap;">${tit}</span></div>`;
+    return card + `<div style="display:flex;gap:6px;">${mini("navegar('nutricao')", '🥗', 'Nutrição')}${mini('_toggleMaisAtalhosHome()', '⋯', `<span id="h-maisatalhos-label">${rotMais}</span>`, 'id="h-maisatalhos-toggle"')}</div>`;
+  }
+  return `<div class="h-at" onclick="navegar('nutricao')" style="flex:1;margin:0;">
+      <div class="ic" style="background:linear-gradient(135deg,#7a1f3d,#e0567c);">🥗</div>
+      <div class="tt">Nutrição</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Plano alimentar</div>
+    </div>
+    <div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" class="h-at" style="flex:1;margin:0;">
+      <div class="h-at-ic" style="width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;line-height:1;background:var(--borda);color:var(--muted);">⋯</div>
+      <div id="h-maisatalhos-label" class="tt">${rotMais}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;line-height:1.25;">Evoluções, Conquistas, Avaliações, Central, Perfil</div>
+    </div>`;
+}
+// Minimizar: o cartão sai da tela inicial e a opção passa a ficar em "Ver mais" (de lá volta com um toque). Desligar de vez continua sendo na Nutrição.
+function _homeMinBtn(tipo) {
+  return `<button class="h-min" onclick="event.stopPropagation();homeMinimizar('${tipo}')" aria-label="Minimizar e guardar em Ver mais" title="Minimizar (fica em Ver mais)"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+}
+function _homeMaisHtml() {
+  const t = (js, grad, ic, tit, sub) => `<div class="h-at" onclick="${js}"><div class="ic" style="background:${grad};">${ic}</div><div class="tt">${tit}</div><div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">${sub}</div></div>`;
+  return (_homeAguaMin() ? t("homeRestaurar('agua')", 'linear-gradient(135deg,#0a5c7a,#38bdf8)', '💧', 'Água', 'Fixar na tela') : '') +
+    (_homeRefMin() ? t("homeRestaurar('ref')", 'linear-gradient(135deg,#7a1f3d,#e0567c)', '🍽️', 'Refeição', 'Fixar na tela') : '') +
+    t("renderHistorico();trocarView('historico');", 'linear-gradient(135deg,#2a3550,#5b7bd5)', '📈', 'Evoluções', 'Histórico') +
+    t("renderPerfil();trocarView('perfil');", 'linear-gradient(135deg,#a06a10,#ffb020)', '🏅', 'Conquistas', 'Distintivos') +
+    t("navegar('avaliacoes')", 'linear-gradient(135deg,#1f4a4a,#3fb0a0)', '📋', 'Avaliações', 'Medidas') +
+    t("navegar('mensagens')", 'linear-gradient(135deg,#5a2a5e,#c060d0)', '💬', 'Central', 'Mensagens') +
+    t('abrirPerfilDados()', 'linear-gradient(135deg,#3a3a3a,#8a8a8a)', '👤', 'Perfil', 'Matrícula');
+}
+function homeMinimizar(tipo) {
+  try { localStorage.setItem('intus-home-' + tipo + '-' + idAtleta, '2'); } catch (e) {}
+  if (tipo === 'agua') { const c = document.getElementById('h-agua-card'); if (c) c.remove(); }
+  else _homeRefRepintar();
+  const p = document.getElementById('h-maisatalhos'); if (p) p.innerHTML = _homeMaisHtml();
+  toast((tipo === 'agua' ? 'Água' : 'Refeição') + ' guardada em Ver mais. Toque lá para fixar de novo.');
+  if (_nutri.tela === 'home' && window._viewAtual === 'nutricao') _nutriRender();
+}
+function homeRestaurar(tipo) {
+  try { localStorage.setItem('intus-home-' + tipo + '-' + idAtleta, '1'); } catch (e) {}
+  if (tipo === 'ref') { _homeRefUltima = 0; _homeRefFlash = null; }
+  renderHome();
+}
+function _homeRefRepintar() {
+  const el = document.getElementById('h-dir'); if (!el) return;
+  el.innerHTML = _homeDirHtml();
+}
+function homeRefMarcar(status) {
+  const pl = _homeRefPlano(), m = pl ? API.nutri.refeicaoDaHome(pl, _homeRefRegsHoje()) : null;
+  if (!m || !m.ref) return;
+  try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
+  _homeRefFlash = { nome: m.ref.nome, indice: m.indice, ate: Date.now() + 6000 };
+  setTimeout(() => { if (!_homeRefFlashAtivo()) { _homeRefFlash = null; _homeRefRepintar(); } }, 6100);
+  _nutriSalvar('registro', { data: API.nutri.hojeIso(), refeicao: m.ref.chave, status: status, obs: '', idplano: pl.idplano });
+}
+function homeRefLigar(on) {
+  try { localStorage.setItem('intus-home-ref-' + idAtleta, on ? '1' : '0'); } catch (e) {}
+  _homeRefFlash = null;
+  if (on) { _homeRefSnapGravar(); _homeRefUltima = 0; toast('Pronto: a próxima refeição aparece na tela inicial 🍽️'); }
+  _homeRefRepintar();
+  if (_nutri.tela === 'home' && window._viewAtual === 'nutricao') _nutriRender();
+}
+// Abre o plano alimentar na refeição do cartão (indice = posição na ordem do plano; -1 = só abre o plano). O "Voltar" daqui leva de volta à Home.
+function abrirRefeicaoDaHome(indice) {
+  if (verificarInadimplencia() || verificarSemMatricula()) { navegar('nutricao'); return; }
+  renderNutricaoAluno({ plano: true, indice: indice, deHome: true });
+  trocarView('nutricao');
+}
+async function _homeRefCarregar() {
+  if (!_homeRefAtiva() || Date.now() - _homeRefUltima < 60000) return;
+  _homeRefUltima = Date.now();
+  try {
+    if (!_nutri.carregado) { await _nutriEnviarPendentes(); await _nutriCarregar(); }   // plano, registros e água de uma vez (o mesmo que abrir a Nutrição)
+    else {
+      const desde = API.nutri.addDias(API.nutri.hojeIso(), -1);
+      const d = await _nutriGet('nutri_registro&desde=' + desde);
+      if (d && Array.isArray(d.registros)) {
+        _nutri.regs = _nutri.regs.filter(x => String(x.data).slice(0, 10) < desde).concat(d.registros);
+        if (Array.isArray(d.agua)) d.agua.forEach(a => { const dia = String(a.data).slice(0, 10), x = _nutri.agua.find(y => String(y.data).slice(0, 10) === dia); if (x) x.agua_ml = a.agua_ml; else _nutri.agua.push(a); });
+        _nutriPendLer().forEach(p => _nutriAplicarLocal(p.tipo, p.corpo));   // o que foi marcado sem internet vale por cima
+        try { localStorage.setItem(_nutriCacheKey(), JSON.stringify({ regs: _nutri.regs, agua: _nutri.agua })); } catch (e) {}
+      }
+    }
+  } catch (e) {}
+  _homeRefSnapGravar();
+  _homeRefRepintar(); _homeAguaRepintar();
+}
+// Com a Home aberta, o cartão acompanha o relógio (a refeição de agora muda) e a virada do dia, só repintando quando algo mudou (um toque no meio de um repintar se perderia).
+setInterval(function () { try { if (!document.hidden && window._viewAtual === 'home' && _homeRefAtiva() && _homeRefAssinatura() !== _homeRefAssin) _homeRefRepintar(); } catch (e) {} }, 30000);
+document.addEventListener('visibilitychange', function () { try { if (!document.hidden && _homeRefAtiva() && document.getElementById('h-dir') && _homeRefAssinatura() !== _homeRefAssin) _homeRefRepintar(); } catch (e) {} });
 
 function renderHome() {
   document.getElementById('nome-top').textContent = user?.nome || 'Aluno';
@@ -7566,46 +7765,10 @@ function renderHome() {
           ` : ''}
         </div>
       </div>
-      <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-        <div class="h-at" onclick="navegar('nutricao')" style="margin:0;">
-          <div class="ic" style="background:linear-gradient(135deg,#7a1f3d,#e0567c);">🥗</div>
-          <div class="tt">Nutrição</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Plano alimentar</div>
-        </div>
-        <div class="h-at" onclick="renderHistorico();trocarView('historico');" style="margin:0;">
-          <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
-          <div class="tt">Evoluções</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Histórico</div>
-        </div>
-        <div class="h-at" onclick="renderPerfil();trocarView('perfil');" style="margin:0;">
-          <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
-          <div class="tt">Conquistas</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Distintivos</div>
-        </div>
-        <div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" style="border-radius:14px;border:1px solid var(--borda);background:var(--card-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:7px 5px;margin:0;">
-          <div class="h-at-ic" style="width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;line-height:1;background:var(--borda);color:var(--muted);">⋯</div>
-          <div id="h-maisatalhos-label" style="font-size:10.5px;font-weight:700;color:var(--texto);text-align:center;line-height:1.2;">Ver mais</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;line-height:1.25;">Avaliações, Central, Perfil</div>
-        </div>
-      </div>
+      <div id="h-dir" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">${_homeDirHtml(false)}</div>
     </div>
 
-    <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;">
-      <div class="h-at" onclick="navegar('avaliacoes')">
-        <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
-        <div class="tt">Avaliações</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Medidas</div>
-      </div>
-      <div class="h-at" onclick="navegar('mensagens')">
-        <div class="ic" style="background:linear-gradient(135deg,#5a2a5e,#c060d0);">💬</div>
-        <div class="tt">Central</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Mensagens</div>
-      </div>
-      <div class="h-at" onclick="abrirPerfilDados()">
-        <div class="ic" style="background:linear-gradient(135deg,#3a3a3a,#8a8a8a);">👤</div>
-        <div class="tt">Perfil</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Matrícula</div>
-      </div>
+    <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;">${_homeMaisHtml()}
     </div>
 
     ${renderFeedHomePreview()}
@@ -7633,7 +7796,7 @@ function renderHome() {
     });
   }
 
-  _homeAguaCarregar();
+  if (_homeRefAtiva()) _homeRefCarregar(); else _homeAguaCarregar();   // com a refeição ligada, o carregamento da Nutrição traz a água junto
   // Prioriza a novidade da nova pontuação; evita empilhar dois overlays.
   setTimeout(function(){ verificarNovidadePontos(); if (!_novidadePtsSessao) verificarNovidadeRanking(); }, 700);
   verificarConquistasHome();
@@ -7918,6 +8081,7 @@ function salvarTreinoAtivo() {
 function limparTreinoAtivo() {
   try { localStorage.removeItem(TREINO_ATIVO_KEY); } catch {}
   pararMonitorInatividade();
+  statusAtivoParar('treino');
   atualizarBannerTreino(window._viewAtual || 'home');
 }
 function carregarTreinoAtivo() {
@@ -11465,7 +11629,9 @@ function _progCartaoPrograma(p, isLight) {
 function _progConcluidos(id) {
   try { const p = API.programaPorId(id); return Object.keys(_progFeitos(p)).length; } catch (e) { return 0; }
 }
-function _progVoltarAoPrograma() { _prog.tela = 'detalhe'; _renderProgExecucao(); }
+function _progVoltarAoPrograma() { _prog.tela = 'execucao'; _renderProgExecucao(); }
+// "← Voltar" do detalhe de um programa: sempre à lista (nunca à execução de outro programa).
+function _progVoltarLista() { _prog.tela = 'lista'; _renderProgLista(); window.scrollTo(0, 0); }
 function _renderProgLista() {
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
@@ -11479,6 +11645,11 @@ function _renderProgLista() {
 }
 function abrirProgramaCardio(id) {
   const p = API.programaPorId(id); if (!p) return;
+  // Com um programa em andamento, abrir outro sobrescrevia o estado dele (o app passava a achar que o outro estava rodando, com os blocos do primeiro).
+  if (_prog.rodando) {
+    toast(id === _prog.id ? 'Esse programa já está em andamento.' : 'Você tem um programa em andamento. Termine ou encerre antes de abrir outro.');
+    _progVoltarAoPrograma(); return;
+  }
   _prog.id = id; _prog.ativ = p.atividades[0]; _prog.tela = 'detalhe'; _prog.sessao = p.sessoes ? _progProximaSessao(p) : null;
   _renderProgDetalhe();
 }
@@ -11521,7 +11692,7 @@ function _renderProgDetalhe() {
       (nF ? rotulo('Treinos que você já fez') + '<div style="border:1px solid ' + borda + ';border-radius:14px;background:' + card + ';padding:2px 12px;">' +
         idxFeitos.map(Number).sort((a, b) => feitos[b].dt - feitos[a].dt || b - a).map(k => '<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid ' + borda + ';font-size:13px;"><span style="color:' + acento + ';">✓</span><span style="flex:1;"><b>' + esc(p.sessoes[k].titulo) + '</b></span><span style="color:' + mut + ';white-space:nowrap;">' + _progDataBr(feitos[k].dt) + ' · ' + Math.round(feitos[k].dur / 60) + ' min</span></div>').join('').replace('border-top:1px solid ' + borda + ';', '') + '</div>' : '');
   }
-  box.innerHTML = '<button class="btn-back" onclick="abrirProgramasCardio()">← Voltar</button>' +
+  box.innerHTML = '<button class="btn-back" onclick="_progVoltarLista()">← Voltar</button>' +
     '<div style="text-align:center;margin:4px 0 2px;font-size:54px;line-height:1;">' + p.emoji + '</div>' +
     '<h1 style="text-align:center;font-size:25px;font-weight:900;margin:4px 0 2px;letter-spacing:-.4px;">' + esc(p.titulo) + '</h1>' +
     '<div style="text-align:center;font-size:13px;font-weight:700;color:' + acento + ';">' + esc(p.sub) + '</div>' +
@@ -11529,6 +11700,7 @@ function _renderProgDetalhe() {
     rotulo('Como funciona') + '<div style="padding:14px 16px;border-radius:16px;background:' + card + ';border:1px solid ' + borda + ';font-size:15px;line-height:1.6;">' + esc(p.resumo) + '</div>' +
     rotulo('Onde fazer e o que precisa') + '<div style="padding:14px 16px;border-radius:16px;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1.5px solid ' + (isLight ? 'rgba(92,184,0,.45)' : 'rgba(127,255,0,.35)') + ';">' +
       '<div style="font-size:14.5px;font-weight:900;margin-bottom:6px;">🧰 ' + esc(p.aparelho) + '</div><div style="font-size:14px;line-height:1.55;">📍 ' + esc(p.onde) + '</div></div>' +
+    _progAudioCartaoHtml(isLight, acento, borda, card, mut) +
     '<div style="margin:12px 0 0;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.55;background:' + (isLight ? '#fff7ed' : 'rgba(249,115,22,.08)') + ';border:1px solid rgba(249,115,22,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ ' + esc(p.aviso) + '</div>' +
     chips + ((_PROG_ATIV[_prog.ativ] && _PROG_ATIV[_prog.ativ].aviso && p.atividades.length > 1 && p.atividades.indexOf(_prog.ativ) >= 0) ? '<div style="margin:12px 0 0;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.55;background:' + (isLight ? '#fff7ed' : 'rgba(249,115,22,.08)') + ';border:1px solid rgba(249,115,22,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ ' + esc(_PROG_ATIV[_prog.ativ].aviso) + '</div>' : '') + curso +
     '<div style="font-size:12.5px;color:' + acento + ';font-weight:700;margin-top:16px;line-height:1.5;">🏅 Concluir dá distintivos e +1 ponto extra por dia. O tempo também pontua como cardio.</div>' +
@@ -11731,29 +11903,117 @@ function _progSilencioUrl() {
   return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
 }
 function _progSegundoPlanoLigar() {
-  try {
-    if (!_prog.keep) { const a = document.createElement('audio'); a.id = 'pg-keep'; a.loop = true; a.setAttribute('playsinline', ''); a.src = _progSilencioUrl(); a.style.display = 'none'; document.body.appendChild(a); _prog.keep = a; }
-    const pr = _prog.keep.play(); if (pr && pr.catch) pr.catch(() => {});
-  } catch (e) {}
+  const musica = _progModoMusica();
+  _progAudioSessao(musica ? 'ambient' : 'playback');
+  if (musica) { _progAudioParar(); _progStatusMostrar(); }   // sem áudio silencioso nem cartão de mídia: a música do aluno segue tocando
+  else {
+    try {
+      if (!_prog.keep) { const a = document.createElement('audio'); a.id = 'pg-keep'; a.loop = true; a.setAttribute('playsinline', ''); a.src = _progSilencioUrl(); a.style.display = 'none'; document.body.appendChild(a); _prog.keep = a; }
+      const pr = _prog.keep.play(); if (pr && pr.catch) pr.catch(() => {});
+    } catch (e) {}
+    try {
+      if ('mediaSession' in navigator) {
+        const ms = navigator.mediaSession;
+        ms.setActionHandler('play', () => _progPlay()); ms.setActionHandler('pause', () => _progPausar());
+        ms.setActionHandler('nexttrack', () => _progPular()); ms.setActionHandler('previoustrack', () => _progVoltarBloco());
+      }
+    } catch (e) {}
+  }
   try { if (window.Notification && Notification.permission === 'default') Notification.requestPermission(); } catch (e) {}
-  try {
-    if ('mediaSession' in navigator) {
-      const ms = navigator.mediaSession;
-      ms.setActionHandler('play', () => _progPlay()); ms.setActionHandler('pause', () => _progPausar());
-      ms.setActionHandler('nexttrack', () => _progPular()); ms.setActionHandler('previoustrack', () => _progVoltarBloco());
-    }
-  } catch (e) {}
   _progMediaAtualizar();
 }
 function _progSegundoPlanoDesligar() {
-  try { if (_prog.keep) { _prog.keep.pause(); _prog.keep.remove(); _prog.keep = null; } } catch (e) {}
-  try { if ('mediaSession' in navigator) { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; ['play', 'pause', 'nexttrack', 'previoustrack'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, null); } catch (e) {} }); } } catch (e) {}
+  _progAudioParar(); _progAudioSessao('auto'); statusAtivoParar('prog');
   _progCancelarNativo();
   try { document.getElementById('prog-pill')?.classList.remove('on'); } catch (e) {}
 }
+// ── MÚSICA EM PARALELO E PRESENÇA NO TOPO DO CELULAR ──────────────────────────────────────────────────────────
+// Dois jeitos de o programa de cardio ficar vivo com a tela bloqueada, e o aluno escolhe (padrão: com a música dele):
+//  • 'musica' (padrão): NÃO usa o cartão de mídia. O áudio silencioso e a Media Session é que tomam o áudio do celular e pausam o Spotify; sem eles, os bips e a
+//    voz (Web Audio) tocam POR CIMA da música, e no iPhone o áudio do app vira "ambiente" (mistura). Uma notificação silenciosa fica no topo do celular e na tela
+//    de bloqueio, e no app das lojas as trocas de bloco chegam por notificações agendadas, mesmo com a tela apagada.
+//  • 'bloqueio': o comportamento anterior. O cronômetro aparece como cartão de mídia na tela de bloqueio (pausar, voltar e avançar), mas o app assume o áudio e a
+//    música para.
+// Limite honesto: no navegador/PWA com a tela BLOQUEADA o sistema pode congelar a página em qualquer um dos dois jeitos; o garantido é o app das lojas (notificações
+// agendadas) e a tela ligada (o app já segura a tela acesa).
+function _progModoMusica() { try { return localStorage.getItem('intus-prog-audio') !== 'bloqueio'; } catch (e) { return true; } }
+// 'ambient' mistura com a música dos outros apps; 'playback' faz o iPhone tratar como mídia (cartão na tela de bloqueio); 'auto' devolve o padrão do sistema.
+function _progAudioSessao(tipo) { try { if (navigator.audioSession) navigator.audioSession.type = tipo; } catch (e) {} }
+function _progAudioParar() {
+  try { if (_prog.keep) { _prog.keep.pause(); _prog.keep.remove(); _prog.keep = null; } } catch (e) {}
+  try { if ('mediaSession' in navigator) { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; ['play', 'pause', 'nexttrack', 'previoustrack'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, null); } catch (e) {} }); } } catch (e) {}
+}
+function _progAudioModo(modo) {
+  try { localStorage.setItem('intus-prog-audio', modo === 'bloqueio' ? 'bloqueio' : 'musica'); } catch (e) {}
+  if (_prog.rodando && _prog.fase !== 'pronto') { _progAudioParar(); statusAtivoParar('prog'); _progSegundoPlanoLigar(); }   // troca na hora, com o programa em andamento
+  if (_prog.rodando) _renderProgExecucao(); else if (_prog.tela === 'detalhe') _renderProgDetalhe();
+  toast(modo === 'bloqueio' ? 'Cartão na tela bloqueada ligado. Atenção: a música dos outros apps é pausada.' : 'Pronto: sua música continua tocando durante o programa.');
+}
+function _progAudioCartaoHtml(isLight, acento, borda, card, mut) {
+  const m = _progModoMusica();
+  const opt = (modo, rot, on) => '<button onclick="_progAudioModo(\'' + modo + '\')" style="flex:1;padding:10px 8px;border-radius:12px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;line-height:1.25;border:1.5px solid ' + (on ? acento : borda) + ';background:' + (on ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + (on ? acento : (isLight ? '#444' : '#ccc')) + ';">' + rot + '</button>';
+  return '<div style="margin:12px 0 0;padding:12px 14px;border-radius:16px;background:' + card + ';border:1px solid ' + borda + ';">' +
+    '<div style="font-size:11px;font-weight:800;color:' + mut + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">🎧 Áudio durante o programa</div>' +
+    '<div style="display:flex;gap:8px;">' + opt('musica', '🎵 Com a minha música', m) + opt('bloqueio', '🔒 Cartão na tela bloqueada', !m) + '</div>' +
+    '<div style="font-size:12px;line-height:1.5;color:' + mut + ';margin-top:8px;">' + (m
+      ? 'Spotify, YouTube Music e outros continuam tocando. O app avisa cada troca com bip e voz por cima da música, e uma notificação fica no topo do celular.'
+      : 'O cronômetro aparece na tela de bloqueio, com pausar e avançar. Em troca, o app assume o áudio do celular e a música dos outros apps é pausada.') + '</div></div>';
+}
+
+// ── PRESENÇA NO TOPO E NA TELA BLOQUEADA, SEM TOMAR O ÁUDIO (treino de musculação e programas no modo "com a minha música") ──
+// Uma notificação silenciosa fica na barra do celular e na tela de bloqueio enquanto o treino ou o programa está em andamento. Ela não usa o áudio, então
+// Spotify, YouTube Music e outros continuam tocando (o contrário do cartão de mídia, que pausa a música). App das lojas: notificação local de baixa importância
+// (sem som e sem vibração; o aluno pode dispensar). Navegador: notificação do service worker, também silenciosa. O texto é fixo (nome e hora de início), assim
+// nunca fica desatualizado com o app em segundo plano. Só aparece se o aluno permitiu notificações. No iPhone ela vira um aviso comum (o sistema não deixa app
+// comum fixar um aviso; isso seria uma Live Activity, que exige código nativo novo).
+var _statusAtivo = { chave: '' };
+const _STATUS_ID = 92001;
+function _statusHora(ms) { const d = new Date(ms || Date.now()); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+async function statusAtivoMostrar(chave, titulo, corpo) {
+  try {
+    if (_statusAtivo.chave === chave) return;
+    _statusAtivo.chave = chave;
+    const LN = _progLN();
+    if (LN) {
+      try { const perm = await LN.checkPermissions(); if (perm && perm.display !== 'granted') { const r = await LN.requestPermissions(); if (!r || r.display !== 'granted') return; } } catch (e) {}
+      try { if (LN.createChannel) await LN.createChannel({ id: 'ativo', name: 'Treino em andamento', description: 'Aviso silencioso enquanto um treino ou programa está aberto', importance: 2, visibility: 1, vibration: false }); } catch (e) {}
+      await LN.schedule({ notifications: [{ id: _STATUS_ID, channelId: 'ativo', title: titulo, body: corpo, autoCancel: false, schedule: { at: new Date(Date.now() + 800), allowWhileIdle: true } }] });
+      return;
+    }
+    if (!window.Notification || Notification.permission !== 'granted' || !navigator.serviceWorker) return;
+    const reg = await navigator.serviceWorker.ready;
+    reg.showNotification(titulo, { body: corpo, tag: 'intus-ativo', silent: true, requireInteraction: true, renotify: false, icon: 'logo-icon-dark.png', badge: 'favicon-192.png', data: { url: 'aluno.html' } });
+  } catch (e) {}
+}
+function _statusAtivoCancelar() {
+  try {
+    const LN = _progLN(); if (LN) { try { LN.cancel({ notifications: [{ id: _STATUS_ID }] }); } catch (e) {} }
+    if (navigator.serviceWorker && navigator.serviceWorker.ready) navigator.serviceWorker.ready.then(r => r.getNotifications({ tag: 'intus-ativo' }).then(l => l.forEach(n => n.close()))).catch(() => {});
+  } catch (e) {}
+}
+function statusAtivoParar(chave) {
+  if (chave && _statusAtivo.chave && _statusAtivo.chave !== chave) return;   // outro aviso está valendo (programa x treino)
+  _statusAtivo.chave = '';
+  _statusAtivoCancelar();
+}
+// Se o app foi fechado no meio de um treino, o aviso poderia ficar na barra para sempre: ao abrir, apaga o que não tem treino ou programa por trás.
+setTimeout(function () { try { const st = carregarTreinoAtivo(); if (!(st && st.emMusculacao) && !_progLerAtivo() && !_prog.rodando) _statusAtivoCancelar(); } catch (e) {} }, 3000);
+function _statusTreinoMostrar() {
+  try {
+    const nome = sessaoAtual && sessaoAtual.divisao ? 'Treino ' + sessaoAtual.divisao : 'Treino';
+    statusAtivoMostrar('treino', '💪 ' + nome + ' em andamento', 'Começou às ' + _statusHora(treinoStart) + '. Toque para voltar ao app.');
+  } catch (e) {}
+}
+function _progStatusMostrar() {
+  try {
+    const p = API.programaPorId(_prog.id); if (!p) return;
+    statusAtivoMostrar('prog', p.emoji + ' ' + p.titulo + ' em andamento', 'Começou às ' + _statusHora(Date.now()) + '. Toque para voltar ao programa.');
+  } catch (e) {}
+}
+
 function _progMediaAtualizar() {
   try {
-    if (!('mediaSession' in navigator) || !_prog.rodando) return;
+    if (!('mediaSession' in navigator) || !_prog.rodando || _progModoMusica()) return;
     const p = API.programaPorId(_prog.id); if (!p) return; const e = _progEt(p)[_prog.i]; if (!e) return;
     navigator.mediaSession.metadata = new MediaMetadata({ title: e.n + ' · ' + _progMin(e.s), artist: p.titulo + (_progSessaoTit(p) ? ' · ' + _progSessaoTit(p) : ''), album: 'Intus Fit' });
     navigator.mediaSession.playbackState = (_prog.fase === 'ativo' && !_prog.pausado) ? 'playing' : 'paused';
@@ -11828,7 +12088,7 @@ function _progCarregarAtivo() { const st = _progLerAtivo(); if (st) { _prog.id =
 function _progAudio() { try { if (!_prog.ctx) _prog.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (_prog.ctx.state === 'suspended') _prog.ctx.resume(); } catch (e) { _prog.ctx = null; } }
 function _progRetomar() {   // reabre o programa que ficou salvo, sempre pausado no ponto em que parou
   const st = _progLerAtivo(); if (!st) { toast('Esse programa já passou do tempo de retomada.'); _renderProgLista(); return; }
-  Object.assign(_prog, { id: st.id, sessao: st.sessao == null ? null : st.sessao, ativ: st.ativ, i: st.i, restMs: st.restMs, ativoMs: st.ativoMs || 0, fase: st.fase === 'pronto' ? 'pronto' : 'ativo', pausado: true, rodando: true, ultTick: Date.now(), bipS: -1 });
+  Object.assign(_prog, { tela: 'execucao', id: st.id, sessao: st.sessao == null ? null : st.sessao, ativ: st.ativ, i: st.i, restMs: st.restMs, ativoMs: st.ativoMs || 0, fase: st.fase === 'pronto' ? 'pronto' : 'ativo', pausado: true, rodando: true, ultTick: Date.now(), bipS: -1 });
   _progAudio(); _progClipesCarregar(); _progIniciarRelogio(); _renderProgExecucao(); trocarView('cardio-prog');
 }
 function _progIniciar() {   // abre a tela do programa com o tempo PARADO, esperando o play
@@ -11837,7 +12097,7 @@ function _progIniciar() {   // abre a tela do programa com o tempo PARADO, esper
   if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um programa.'); return; }
   if (_cardioLiveInicioMs) { toast('Finalize o cardio ao vivo em andamento antes de começar um programa.'); return; }
   _progAudio(); _progClipesCarregar();
-  Object.assign(_prog, { i: 0, fase: 'pronto', pausado: true, restMs: _progEt(p)[0].s * 1000, fimMs: 0, ativoMs: 0, ultTick: Date.now(), bipS: -1, rodando: true });
+  Object.assign(_prog, { tela: 'execucao', i: 0, fase: 'pronto', pausado: true, restMs: _progEt(p)[0].s * 1000, fimMs: 0, ativoMs: 0, ultTick: Date.now(), bipS: -1, rodando: true });
   _progIniciarRelogio(); _progSalvarAtivo();
   _renderProgExecucao(); trocarView('cardio-prog');
 }
@@ -11972,7 +12232,7 @@ function _renderProgExecucao() {
           '<button onclick="_progPausar()" class="btn btn-prim" style="flex:2;padding:15px;font-size:16px;font-weight:900;" ' + (contando ? 'disabled' : '') + '>' + (parado ? '▶ Continuar' : '⏸ Pausar') + '</button>' +
           '<button onclick="_progPular()" class="btn btn-sec" style="flex:1;padding:15px;font-size:17px;" title="Avançar o bloco" ' + (contando ? 'disabled' : '') + '>⏭</button>' +
           '<button onclick="_progEncerrar()" class="btn btn-sec" style="flex:1;padding:15px;color:#f87171;border-color:rgba(248,113,113,.4);" title="Encerrar">⏹</button></div>') +
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin:12px 2px 0;font-size:11.5px;color:#888;"><span>Mantenha o app aberto: a tela fica ligada.</span><span onclick="_progVoz()" style="cursor:pointer;font-weight:800;color:' + (_progVozOn() ? (isLight ? '#2d8a00' : '#7FFF00') : '#888') + ';">' + (_progVozOn() ? '🔊 Voz ligada' : '🔇 Voz desligada') + '</span></div>';
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin:12px 2px 0;font-size:11.5px;color:#888;"><span onclick="_progAudioModo(\'' + (_progModoMusica() ? 'bloqueio' : 'musica') + '\')" style="cursor:pointer;font-weight:800;" title="Toque para trocar">' + (_progModoMusica() ? '🎧 Com a minha música ⇄' : '🔒 Tela bloqueada ⇄') + '</span><span onclick="_progVoz()" style="cursor:pointer;font-weight:800;color:' + (_progVozOn() ? (isLight ? '#2d8a00' : '#7FFF00') : '#888') + ';">' + (_progVozOn() ? '🔊 Voz ligada' : '🔇 Voz desligada') + '</span></div>';
   _progAtualizarRelogio();
 }
 function _progParar() { _progSegundoPlanoDesligar(); if (_prog.timer) { clearInterval(_prog.timer); _prog.timer = null; } _prog.rodando = false; _prog.pausado = false; _prog.fase = 'pronto'; try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {} try { localStorage.removeItem(_PROG_ATIVO_KEY); } catch (e) {} try { releaseWakeLock(); } catch (e) {} }
@@ -18995,6 +19255,7 @@ async function _nutriCarregar() {
   // Registro feito sem internet entra por cima do que veio do servidor.
   _nutriPendLer().forEach(p => _nutriAplicarLocal(p.tipo, p.corpo));
   _nutri.carregado = true;
+  _homeRefSnapGravar();
 }
 
 // Aplica um registro/água na memória (mesmo antes de o servidor confirmar).
@@ -19022,13 +19283,13 @@ async function _nutriEnviar(tipo, corpo) {
 async function _nutriSalvar(tipo, corpo) {
   _nutriAplicarLocal(tipo, corpo);
   _nutriRender();
-  if (tipo === 'agua') _homeAguaRepintar();
+  if (tipo === 'agua') _homeAguaRepintar(); else _homeRefRepintar();
   try {
     const j = await _nutriEnviar(tipo, corpo);
     if (tipo === 'registro') {
       const r = _nutri.regs.find(x => String(x.data).slice(0, 10) === corpo.data && x.refeicao === corpo.refeicao);
       if (r) { r.idregistro = j.idregistro || r.idregistro; if (j.foto) r.foto = j.foto; }
-      _nutriRender();
+      _nutriRender(); _homeRefRepintar();
     }
   } catch (e) {
     if (e.definitivo) { toast('Não consegui salvar: ' + e.message); await _nutriCarregar(); _nutriRender(); return; }
@@ -19241,7 +19502,7 @@ function _nutriHojeHtml() {
         ${foto}${resp}
       </div>`;
     }
-    return `<div style="background:${eProx ? 'var(--marca-fraca,rgba(127,255,0,.07))' : C.card};border:1px solid ${eProx ? C.ok : C.borda};border-radius:12px;margin-bottom:8px;overflow:hidden;">
+    return `<div id="nutri-ref-${i}" style="background:${eProx ? 'var(--marca-fraca,rgba(127,255,0,.07))' : C.card};border:1px solid ${eProx ? C.ok : C.borda};border-radius:12px;margin-bottom:8px;overflow:hidden;">
       <div onclick="nutriAbrir(${i})" style="padding:11px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;">
         ${marca}
         <div style="flex:1;min-width:0;"><div style="font-size:13.5px;font-weight:800;">${esc((r.horario || '') + (r.horario ? ' ' : '') + (r.nome || 'Refeição'))}${eProx ? ` <span style="font-size:10px;color:${C.ok};font-weight:800;">AGORA</span>` : ''}</div><div style="font-size:11.5px;color:${C.mut};">${itens.length} ite${itens.length === 1 ? 'm' : 'ns'} · ${Math.round(s.kcal)} kcal${x && x.foto ? ' · 📷' : ''}${x && x.resposta_nutri ? ' · 💬' : ''}</div></div>
@@ -19497,6 +19758,7 @@ function nutriTela(t, id) {
 }
 // "Voltar" do cabeçalho: usa o histórico quando ele tem os passos da Nutrição (assim os dois jeitos de voltar andam juntos).
 function nutriVoltar() {
+  if (_nutri.deHome && _nutri.tela === 'plano' && _nutri.hist <= 0) { _nutri.deHome = false; voltarTela('home'); return; }   // veio do cartão da Home: volta para ela
   if (_nutri.hist > 0) { history.back(); return; }
   nutriTela((_nutri.tela === 'receita' || _nutri.tela === 'video') ? (_nutri.pai || 'home') : 'home');
 }
@@ -19581,6 +19843,17 @@ function _nutriAguaCardHtml() {
   </div>`;
 }
 
+
+// Interruptor da refeição na tela inicial (só com plano alimentar ativo), logo abaixo do cartão de água.
+function _nutriRefToggleHtml() {
+  if (!_nutri.plano) return '';
+  const C = _nutriCores(), on = _homeRefAtiva();
+  return `<div onclick="homeRefLigar(${on ? 'false' : 'true'})" style="display:flex;align-items:center;gap:10px;background:${C.card};border:1px solid ${on ? C.ok : C.borda};border-radius:14px;padding:10px 12px;margin-bottom:12px;cursor:pointer;">
+    <span style="font-size:20px;line-height:1;">🍽️</span>
+    <div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:800;">Deixar a próxima refeição na tela inicial</div><div style="font-size:10.5px;color:${C.mut};line-height:1.35;margin-top:1px;">Mostra a refeição da hora e deixa marcar se você seguiu, alterou ou ficou fora, sem abrir o plano.</div></div>
+    <span style="flex-shrink:0;width:32px;height:18px;border-radius:99px;background:${on ? C.ok : 'rgba(128,128,128,.4)'};position:relative;transition:.2s;"><span style="position:absolute;top:2px;left:${on ? '16px' : '2px'};width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s;"></span></span>
+  </div>`;
+}
 
 // ── Histórico de água ──
 // Tela própria (a tela da Nutrição não cresce). A água de cada dia vem de intus_nutri_dia; busca 90 dias ao abrir e usa o que já
@@ -19725,6 +19998,7 @@ function _nutriHomeHtml() {
   return `<div style="padding:16px 0;">
     ${telaHeader('🥗 Nutrição')}
     ${_nutriAguaCardHtml()}
+    ${_nutriRefToggleHtml()}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
       ${plano ? tile("nutriTela('plano')", '🍽️', 'Meu plano alimentar', esc(planoSub), true) : tile("abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')", '🍽️', 'Meu plano alimentar', 'Sem plano alimentar ativo. Toque para falar com a equipe.', false)}
       ${tile("nutriTela('receitas')", '👩‍🍳', 'Receitas', nRec ? (_nutriTemPlano() ? nRec + ' receitas práticas' : '1 por categoria liberada hoje · ' + nRec + ' no total') : 'Em breve', false)}
@@ -20051,13 +20325,20 @@ function _nutriDicasHtml() {
   </div>${getFooterHtml()}`;
 }
 
-async function renderNutricaoAluno() {
+// opt = { plano: true, indice, deHome: true } abre direto o plano alimentar (e a refeição de posição `indice`) quando o aluno vem do cartão da Home.
+async function renderNutricaoAluno(opt) {
   const container = document.getElementById('v-nutricao');
-  _nutri.tela = 'home'; _nutri.pai = 'home'; _nutri.hist = 0;
+  const irPlano = !!(opt && opt.plano);
+  _nutri.tela = irPlano ? 'plano' : 'home'; _nutri.pai = 'home'; _nutri.hist = 0; _nutri.deHome = !!(opt && opt.deHome);
+  if (irPlano) { _nutri.visao = 'hoje'; _nutri.dia = 'hoje'; }
   container.innerHTML = `${telaHeader('🥗 Nutrição')}<div style="text-align:center;padding:60px 20px;"><div class="spinner"></div></div>`;
   await _nutriEnviarPendentes();
   await Promise.all([_nutriCarregar(), _nutriConteudoCarregar()]);
+  let rolar = null;
+  if (irPlano && !_nutri.plano) { _nutri.tela = 'home'; _nutri.deHome = false; }   // plano inativado enquanto isso: cai na tela inicial da Nutrição
+  else if (irPlano && opt.indice >= 0) { const ref = API.nutri.refeicoes(_nutri.plano)[opt.indice]; if (ref) { _nutri.aberta = ref.chave; rolar = opt.indice; } }
   _nutriRender();
+  if (rolar != null) setTimeout(() => { const el = document.getElementById('nutri-ref-' + rolar); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -64); } }, 60);
   _nutriAvCarregar().then(_nutriAvRender);   // médias, favoritos e "eu fiz": chegam depois e repintam
 }
 
