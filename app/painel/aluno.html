@@ -11685,6 +11685,7 @@ function _progPermitido() {
 }
 function abrirProgramasCardio() {
   if (!_progPermitido()) return;
+  _progLimparHist();
   if (_prog.rodando) { _renderProgExecucao(); trocarView('cardio-prog'); return; }
   _progCarregarAtivo();
   _prog.tela = 'lista'; _progTopo(); _renderProgLista(); trocarView('cardio-prog'); _progTopo(true);
@@ -11732,7 +11733,12 @@ function _progVoltarAoPrograma() { _prog.tela = 'execucao'; _progTopo(); _render
 // "← Voltar" do detalhe de um programa: sempre à lista (nunca à execução de outro programa).
 // Sobe ao topo ao trocar de tela dentro dos programas: a rolagem da tela anterior ficava (a tela nova abria no fim) e, no iPhone, voltar deixava uma tela fantasma com cliques errados.
 function _progTopo(depois) { try { window.scrollTo(0, 0); if (depois) requestAnimationFrame(() => window.scrollTo(0, 0)); } catch (e) {} }
-function _progVoltarLista() { _prog.tela = 'lista'; _progTopo(); _renderProgLista(); const y = _prog.listaY || 0; _progTopo(); requestAnimationFrame(() => { try { window.scrollTo(0, y); } catch (e) {} }); }
+function _progVoltarLista() {
+  if (_prog.hist > 0) { history.back(); return; }   // o popstate central desenha a lista
+  _prog.tela = 'lista'; _progTopo(); _renderProgLista(); const y = _prog.listaY || 0; requestAnimationFrame(() => { try { window.scrollTo(0, y); } catch (e) {} });
+}
+// Sair do programa por botão (lista, encerrar, resultado): desfaz a entrada de histórico do detalhe sem passar pelo tratamento do gesto de voltar.
+function _progLimparHist() { if (_prog.hist > 0) { const n = _prog.hist; _prog.hist = 0; window._ignorarPop = (window._ignorarPop || 0) + 1; try { history.go(-n); } catch (e) { window._ignorarPop = 0; } } }
 function _renderProgLista() {
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
@@ -11758,6 +11764,8 @@ function abrirProgramaCardio(id) {
   }
   _prog.id = id; _prog.ativ = p.atividades[0]; _prog.tela = 'detalhe'; _prog.sessao = p.sessoes ? _progProximaSessao(p) : null;
   _prog.listaY = window.scrollY || 0; _progTopo(); _renderProgDetalhe(); _progTopo(true);
+  // O detalhe tem a sua própria entrada no histórico: o gesto de voltar do celular (principalmente o do iPhone) desfaz só ela e cai na lista, sem a tela fantasma de antes.
+  try { history.pushState({ view: 'cardio-prog' }, '', ''); _prog.hist = (_prog.hist || 0) + 1; } catch (e) {}
 }
 function _progEscolherSessao(k) { _prog.sessao = k; _renderProgDetalhe(); }
 function _progEscolherAtiv(a) { _prog.ativ = a; _renderProgDetalhe(); }
@@ -21869,6 +21877,7 @@ trocarView = function(v) {
   }
 };
 window.addEventListener('popstate', function(e) {
+  if (window._ignorarPop > 0) { window._ignorarPop--; return; }   // voltas que o próprio app pediu para limpar o histórico
   const _passos = Math.max(1, window._popN || 1); window._popN = 1;   // voltarTela pode desfazer vários passos de uma vez (history.go(-n))
   // Gesto de arrastar da borda (voltar do celular) dispara popstate igual um
   // toque no botão de voltar — sem esta trava, um gesto sem querer com o
@@ -21932,8 +21941,9 @@ window.addEventListener('popstate', function(e) {
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
   // Programa de cardio (detalhe, execução ou resultado): voltar do celular leva à lista de programas, não ao registro de cardio.
   if (window._viewAtual === 'cardio-prog' && _prog.tela !== 'lista') {
-    _prog.tela = 'lista'; _progTopo(); _renderProgLista(); _progTopo(true);
-    history.pushState({ view: 'cardio-prog' }, '', '');
+    const tinha = _prog.hist > 0; if (tinha) _prog.hist--;
+    _prog.tela = 'lista'; _progTopo(); _renderProgLista(); const y = tinha ? (_prog.listaY || 0) : 0; requestAnimationFrame(() => { try { window.scrollTo(0, y); } catch (e) {} });
+    if (!tinha) history.pushState({ view: 'cardio-prog' }, '', '');   // sem entrada própria (execução reaberta pelo aviso): mantém a pilha
     return;
   }
   // Conversa aberta na Central: voltar do celular fecha a conversa e mostra a lista de mensagens (não pula para o início).
