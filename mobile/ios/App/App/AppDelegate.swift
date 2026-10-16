@@ -1,4 +1,5 @@
 import UIKit
+import AVFoundation
 import Capacitor
 
 @UIApplicationMain
@@ -8,7 +9,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        configurarAudio()
         return true
+    }
+
+    // Programas de cardio: os bips e a voz precisam tocar POR CIMA da música do aluno (Spotify etc.) e mesmo com o botão lateral de silêncio ligado.
+    // A categoria .playback ignora o botão de silêncio e a opção .mixWithOthers deixa os outros apps tocando. Com o modo de áudio em segundo plano
+    // ("audio" no Info.plist) e o áudio da página rodando, o app continua vivo com a tela bloqueada.
+    private func configurarAudio() {
+        do {
+            let sessao = AVAudioSession.sharedInstance()
+            try sessao.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try sessao.setActive(true)
+        } catch {
+            print("Intus: nao consegui configurar a sessao de audio: \(error)")
+        }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
@@ -27,6 +42,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        configurarAudio()   // o sistema pode ter desfeito a sessão (ligação, outro app): refaz
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

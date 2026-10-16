@@ -64,3 +64,8 @@ Para cada plugin, criar uma feature branch, instalar a dependência, registrar p
 - A publicação em App Store Connect e Google Play Console continua bloqueada até o Luiz conceder os acessos de titular/admin apropriados.
 
 Consulte [STORE-LAUNCH-CHECKLIST.md](STORE-LAUNCH-CHECKLIST.md) para a checklist de material, privacidade e submissão.
+
+## Áudio dos programas de cardio junto com a música (16/10/2026)
+- **iOS** (`ios/App/App/AppDelegate.swift`): a sessão de áudio nasce como `.playback` com `.mixWithOthers`. Os bips e a voz dos programas tocam por cima do Spotify e ignoram o botão lateral de silêncio, e o app continua vivo com a tela bloqueada (o `Info.plist` já tem `UIBackgroundModes = audio`). **Não compilado nem testado aqui (sem Mac): conferir num iPhone de verdade com Spotify tocando, tela bloqueada e o botão de silêncio ligado.** Se o WebKit voltar a derrubar a categoria quando a página toca áudio, o sintoma é o Spotify pausar ao iniciar um programa.
+- **Android**: o app usa notificações locais agendadas para as trocas de bloco e um aviso silencioso (canal `ativo`) enquanto o treino ou programa está aberto. Cartão com botões e execução dos bips com a tela apagada exigem um serviço em primeiro plano nativo, ainda não escrito.
+- Depois de qualquer mudança em `app/painel`, rode `cd mobile && npm run sync` antes de gerar o build.
