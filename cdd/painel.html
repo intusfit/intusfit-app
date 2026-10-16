@@ -7,11 +7,11 @@
 <title>CDD Painel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="cdd.css?v=20261015a">
+<link rel="stylesheet" href="cdd.css?v=20261016a">
 </head>
 <body>
 <div id="app"></div>
-<script src="cdd.js?v=20261015a"></script>
+<script src="cdd.js?v=20261016a"></script>
 <script>
 (function () {
   var $app = document.getElementById('app');
@@ -57,13 +57,13 @@
 
   /* ---------- esqueleto ---------- */
   function esqueleto() {
-    var abas = [['resumo', 'Resumo'], ['alunas', 'Alunas'], ['conteudo', 'Conteúdo'], ['exercicios', 'Exercícios'], ['conta', 'Conta']];
+    var abas = [['resumo', 'Resumo'], ['alunas', 'Alunas'], ['conteudo', 'Conteúdo'], ['exercicios', 'Exercícios'], ['comentarios', 'Comentários'], ['conta', 'Conta']];
     $app.innerHTML = '<div class="topo"><a class="marca" href="painel.html"><span>CDD <small>Painel</small></span></a><nav>' +
       abas.map(function (a) { return '<button class="btn peq' + (aba === a[0] ? ' pri' : '') + '" data-aba="' + a[0] + '">' + a[1] + '</button>'; }).join('') +
       '<a class="btn peq" href="index.html" target="_blank" rel="noopener">Ver como aluna</a></nav></div><div class="wrap" id="v"></div>';
     $app.querySelectorAll('[data-aba]').forEach(function (b) { b.onclick = function () { aba = b.getAttribute('data-aba'); render(); }; });
   }
-  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, conteudo: abaConteudo, exercicios: abaExercicios, conta: abaConta })[aba](); }
+  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, conta: abaConta })[aba](); }
 
   /* ---------- resumo ---------- */
   async function abaResumo() {
@@ -73,7 +73,7 @@
     var d = r.data;
     function n(rot, val, extra) { return '<div class="card"><div style="font-size:28px;font-weight:800">' + val + '</div><div class="mut">' + rot + '</div>' + (extra || '') + '</div>'; }
     v.innerHTML = '<h2 style="margin-bottom:12px">Resumo</h2><div class="grid g4">' + n('alunas', d.alunas) + n('matrículas ativas', d.matriculas_ativas) + n('contas sem matrícula', d.sem_matricula) +
-      n('módulos', d.modulos) + n('aulas', d.aulas) + n('aulas sem vídeo', d.aulas_sem_video) + n('aulas em rascunho', d.rascunhos) + '</div>' +
+      n('módulos', d.modulos) + n('aulas', d.aulas) + n('aulas sem vídeo', d.aulas_sem_video) + n('aulas em rascunho', d.rascunhos) + n('comentários sem resposta', d.comentarios_sem_resposta) + n('treinos nos últimos 7 dias', d.treinos_7_dias) + n('alunas que treinaram em 7 dias', d.alunas_treinaram_7_dias) + '</div>' +
       '<div class="card" style="margin-top:12px"><h3>Cadastro aberto</h3><p class="mut">Quando aberto, qualquer mulher pode criar conta pela página inicial. Ela só vê o conteúdo depois que você liberar a matrícula.</p><div class="espaco"></div>' +
       '<label class="chk"><input type="checkbox" id="ca"' + (d.cadastro_aberto ? ' checked' : '') + '><span>Permitir que novas alunas criem conta sozinhas</span></label></div>' +
       '<div class="card"><h3>Importar conteúdo da Nutror</h3><p class="mut">Cria os módulos, aulas, vídeos, links, fichas de treino e a base de exercícios que foram levantados na Nutror e nas planilhas. Pode rodar de novo sem duplicar nada: só acrescenta o que falta e nunca apaga nem sobrescreve o que você já editou. Aulas sensíveis (esteroides, remédios, Molécula da Definição) entram como rascunho.</p><div class="espaco"></div>' +
@@ -174,12 +174,12 @@
     if (!ms.length) h += '<div class="card vazio">Nenhum módulo ainda. Vá em <b>Resumo</b> e use <b>Importar conteúdo</b>, ou crie um módulo.</div>';
     ms.forEach(function (m, mi) {
       h += '<div class="card" data-m="' + m.idmodulo + '"><div class="linha" style="justify-content:space-between"><div style="min-width:0"><b style="overflow-wrap:anywhere">' + esc(m.titulo) + '</b> ' +
-        (m.publicado ? '' : '<span class="tag aviso">rascunho</span> ') + '<span class="tag">' + esc(m.grupo) + '</span><div class="mut">' + m.total + ' aulas</div></div>' +
+        (m.publicado ? '' : '<span class="tag aviso">rascunho</span> ') + '<span class="tag">' + esc(m.grupo) + '</span><div class="mut">' + m.total + ' aulas' + (m.liberacao_dias !== null || m.liberacao_data ? ' · libera ' + [m.liberacao_dias !== null ? m.liberacao_dias + ' dias após a matrícula' : '', m.liberacao_data ? 'em ' + CDD.dataBR(m.liberacao_data) : ''].filter(Boolean).join(' e ') : ' · libera na hora') + '</div></div>' +
         '<div class="linha"><button class="btn peq" data-up="m" data-i="' + mi + '" ' + (mi ? '' : 'disabled') + ' aria-label="Subir módulo">&uarr;</button><button class="btn peq" data-dn="m" data-i="' + mi + '" ' + (mi < ms.length - 1 ? '' : 'disabled') + ' aria-label="Descer módulo">&darr;</button>' +
         '<button class="btn peq" data-em="' + m.idmodulo + '">Editar módulo</button><button class="btn peq" data-na="' + m.idmodulo + '">Nova aula</button></div></div><ul class="aulas" style="margin-top:8px">';
       m.aulas.forEach(function (a, ai) {
         var sv = a.tipo === 'video' && !a.tem_video;
-        h += '<li><div class="linha" style="padding:8px 0;justify-content:space-between"><span style="min-width:0;overflow-wrap:anywhere">' + esc(a.titulo) + ' ' + (a.publicado ? '' : '<span class="tag aviso">rascunho</span>') + '</span>' +
+        h += '<li><div class="linha" style="padding:8px 0;justify-content:space-between"><span style="min-width:0;overflow-wrap:anywhere">' + esc(a.titulo) + ' ' + (a.publicado ? '' : '<span class="tag aviso">rascunho</span> ') + (a.tipo === 'video' && !a.tem_video ? '<span class="tag erro">sem vídeo</span> ' : '') + (a.votos ? '<span class="mut" title="Nota média e avaliações">&#9733; ' + String(a.nota_media).replace('.', ',') + ' (' + a.votos + ')</span> ' : '') + (a.comentarios ? '<span class="mut">' + a.comentarios + ' coment.</span> ' : '') + (a.sem_resposta ? '<span class="tag aviso">' + a.sem_resposta + ' sem resposta</span>' : '') + '</span>' +
           '<span class="linha"><button class="btn peq" data-up="a" data-m="' + m.idmodulo + '" data-i="' + ai + '" ' + (ai ? '' : 'disabled') + ' aria-label="Subir aula">&uarr;</button><button class="btn peq" data-dn="a" data-m="' + m.idmodulo + '" data-i="' + ai + '" ' + (ai < m.aulas.length - 1 ? '' : 'disabled') + ' aria-label="Descer aula">&darr;</button>' +
           '<button class="btn peq" data-ea="' + a.idaula + '">Editar</button></span></div></li>';
       });
@@ -206,13 +206,14 @@
     modal('<h3>' + (m ? 'Editar módulo' : 'Novo módulo') + '</h3><div id="aviso"></div><form id="f"><label for="a1">Título</label><input id="a1" required maxlength="200" value="' + esc(m ? m.titulo : '') + '">' +
       '<label for="a2">Descrição (opcional)</label><textarea id="a2" maxlength="600">' + esc(m ? m.descricao || '' : '') + '</textarea>' +
       '<label for="a3">Grupo na tela da aluna</label><select id="a3"><option value="curso">Programa</option><option value="protocolo">Protocolos de treino</option><option value="bonus">Bônus</option></select>' +
+      '<div class="card" style="margin:12px 0"><b>Liberação por tempo</b><p class="mut" style="margin:2px 0 4px">Deixe os dois campos vazios para liberar o módulo assim que a aluna for matriculada. Com os dois preenchidos vale a data mais tardia.</p><div class="grid g2"><div><label for="a5">Dias depois da matrícula</label><input id="a5" type="number" min="0" max="3650" value="' + esc(m && m.liberacao_dias !== null && m.liberacao_dias !== undefined ? m.liberacao_dias : '') + '" placeholder="ex.: 20"></div><div><label for="a6">Ou em uma data fixa</label><input id="a6" type="date" value="' + esc(m && m.liberacao_data ? m.liberacao_data : '') + '"></div></div></div>' +
       '<label class="chk"><input type="checkbox" id="a4"' + (!m || m.publicado ? ' checked' : '') + '><span>Publicado (visível para as alunas)</span></label>' +
       '<div class="linha"><button class="btn pri" id="ok">Salvar</button><button type="button" class="btn" id="fx">Cancelar</button>' + (m ? '<button type="button" class="btn perigo" id="ex">Excluir módulo</button>' : '') + '</div></form>', function (box) {
       box.querySelector('#a3').value = m ? m.grupo : 'curso';
       box.querySelector('#fx').onclick = box.fechar;
       box.querySelector('#f').onsubmit = async function (e) {
         e.preventDefault();
-        var r = await CDD.api('a_modulo_salvar', { body: { idmodulo: m ? m.idmodulo : 0, titulo: box.querySelector('#a1').value, descricao: box.querySelector('#a2').value, grupo: box.querySelector('#a3').value, publicado: box.querySelector('#a4').checked } });
+        var r = await CDD.api('a_modulo_salvar', { body: { idmodulo: m ? m.idmodulo : 0, titulo: box.querySelector('#a1').value, descricao: box.querySelector('#a2').value, grupo: box.querySelector('#a3').value, publicado: box.querySelector('#a4').checked, liberacao_dias: box.querySelector('#a5').value, liberacao_data: box.querySelector('#a6').value } });
         if (!r.ok) { box.querySelector('#aviso').innerHTML = msg(r.data.mensagem); return; }
         box.fechar(); abaConteudo();
       };
@@ -354,6 +355,41 @@
         await CDD.api('a_exercicio_excluir', { body: { idexercicio: e.idexercicio } }); cache.exs = null; m.fechar(); depois();
       };
     });
+  }
+
+  /* ---------- comentários ---------- */
+  async function abaComentarios() {
+    var v = $('v');
+    v.innerHTML = '<div class="linha" style="justify-content:space-between;margin-bottom:10px"><h2>Comentários</h2><div class="linha"><button class="btn peq pri" id="f1">Sem resposta</button><button class="btn peq" id="f2">Todos</button></div></div><div id="lista"><div class="vazio">Carregando...</div></div>';
+    var filtro = 'sem_resposta';
+    function marca() { $('f1').classList.toggle('pri', filtro === 'sem_resposta'); $('f2').classList.toggle('pri', filtro === 'todos'); }
+    $('f1').onclick = function () { filtro = 'sem_resposta'; carregar(); }; $('f2').onclick = function () { filtro = 'todos'; carregar(); };
+    async function carregar() {
+      marca();
+      var r = await CDD.api('a_comentarios', { q: { filtro: filtro } });
+      if (!r.ok) { $('lista').innerHTML = msg(r.data.mensagem); return; }
+      var l = r.data.comentarios;
+      if (!l.length) { $('lista').innerHTML = '<div class="card vazio">' + (filtro === 'sem_resposta' ? 'Nenhum comentário esperando resposta.' : 'Nenhum comentário ainda.') + '</div>'; return; }
+      $('lista').innerHTML = l.map(function (c) {
+        return '<div class="card"><div class="mut" style="font-size:13px">' + esc(c.modulo) + ' / ' + esc(c.aula) + '</div><div style="margin:4px 0"><b>' + esc(c.nome) + '</b> <span class="mut">' + esc(c.email) + ' · ' + CDD.dataBR(c.criado_em) + '</span>' + (Number(c.oculto) ? ' <span class="tag aviso">oculto</span>' : '') + '</div>' +
+          '<div class="texto" style="white-space:pre-wrap;overflow-wrap:anywhere">' + esc(c.texto) + '</div>' +
+          c.respostas.map(function (r2) { return '<div style="margin:8px 0 0 14px;padding-left:10px;border-left:2px solid var(--line)"><b>' + (Number(r2.equipe) ? 'Equipe CDD' : esc(r2.nome)) + '</b> <span class="mut">' + CDD.dataBR(r2.criado_em) + '</span>' + (Number(r2.oculto) ? ' <span class="tag aviso">oculto</span>' : '') + '<div style="white-space:pre-wrap;overflow-wrap:anywhere">' + esc(r2.texto) + '</div></div>'; }).join('') +
+          '<div class="linha" style="margin-top:10px"><button class="btn peq pri" data-re="' + c.idcomentario + '">Responder</button><button class="btn peq" data-oc="' + c.idcomentario + '" data-v="' + (Number(c.oculto) ? 0 : 1) + '">' + (Number(c.oculto) ? 'Mostrar' : 'Ocultar') + '</button></div><div id="rb-' + c.idcomentario + '"></div></div>';
+      }).join('');
+      $('lista').querySelectorAll('[data-oc]').forEach(function (b) { b.onclick = async function () { await CDD.api('a_comentario_ocultar', { body: { id: parseInt(b.getAttribute('data-oc'), 10), oculto: b.getAttribute('data-v') === '1' } }); carregar(); }; });
+      $('lista').querySelectorAll('[data-re]').forEach(function (b) { b.onclick = function () {
+        var id = b.getAttribute('data-re'), box = $('rb-' + id);
+        if (box.innerHTML) { box.innerHTML = ''; return; }
+        box.innerHTML = '<form><textarea maxlength="1000" placeholder="Sua resposta aparece para a aluna como Equipe CDD" style="margin-top:8px"></textarea><div class="linha" style="margin-top:6px"><button class="btn pri peq">Enviar resposta</button></div><div class="ra"></div></form>';
+        box.querySelector('form').onsubmit = async function (e) {
+          e.preventDefault();
+          var x = await CDD.api('a_comentario_responder', { body: { id: parseInt(id, 10), texto: box.querySelector('textarea').value } });
+          if (!x.ok) { box.querySelector('.ra').innerHTML = msg(x.data.mensagem); return; }
+          carregar();
+        };
+      }; });
+    }
+    carregar();
   }
 
   /* ---------- conta ---------- */

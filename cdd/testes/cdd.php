@@ -279,11 +279,172 @@ $novo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMOD
 cddGarantirTabelas($novo);
 eq('instalação nova cria todas as tabelas e grava a versão do esquema', (int)$novo->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'cdd%'")->fetchColumn() === count(cddDdl()) && cddConfig($novo, 'esquema') === (string)CDD_ESQUEMA && cddConfig($novo, 'instalacao_aberta') === '1');
 $antigo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
-foreach (cddDdl() as $n => $sql) { if ($n !== 'cdd_exercicio') $antigo->exec(cddDdlSqlite($sql)); }
+$ddl = cddDdl();
+$ddl['cdd_modulo'] = str_replace([",\n            liberacao_dias INT NULL", ",\n            liberacao_data DATE NULL"], '', $ddl['cdd_modulo']);   // como era no esquema 1
+foreach ($ddl as $nome => $sql) { if (!in_array($nome, ['cdd_exercicio', 'cdd_treino', 'cdd_comentario', 'cdd_avaliacao'], true)) $antigo->exec(cddDdlSqlite($sql)); }
 $antigo->exec("INSERT INTO cdd_config (chave, valor) VALUES ('instalacao_aberta', '0')");
 $antigo->exec("INSERT INTO cdd_aluna (nome, email, papel, status, criado_em) VALUES ('Existente', 'e@e.com', 'aluna', 'ativa', '2026-10-15 10:00:00')");
+$antigo->exec("INSERT INTO cdd_modulo (titulo, grupo, ordem, publicado) VALUES ('Modulo Antigo', 'curso', 10, 1)");
 cddGarantirTabelas($antigo);
-eq('instalação antiga (sem a chave de versão) ganha a tabela nova sem perder nada', (int)$antigo->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'cdd_exercicio'")->fetchColumn() === 1 && (int)$antigo->query('SELECT COUNT(*) FROM cdd_aluna')->fetchColumn() === 1 && cddConfig($antigo, 'instalacao_aberta') === '0' && cddConfig($antigo, 'esquema') === '2');
+eq('instalação antiga (esquema 1) ganha as tabelas e colunas novas sem perder nada', (int)$antigo->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('cdd_exercicio', 'cdd_treino', 'cdd_comentario', 'cdd_avaliacao')")->fetchColumn() === 4 && (int)$antigo->query('SELECT COUNT(*) FROM cdd_aluna')->fetchColumn() === 1 && cddConfig($antigo, 'instalacao_aberta') === '0' && cddConfig($antigo, 'esquema') === (string)CDD_ESQUEMA);
+$antigo->exec("UPDATE cdd_modulo SET liberacao_dias = 5");
+eq('a coluna de liberação existe e o módulo antigo continua lá', $antigo->query("SELECT titulo FROM cdd_modulo WHERE liberacao_dias = 5")->fetchColumn() === 'Modulo Antigo');
+
+function novaAluna($nome, $email, $matricular = true) {
+    global $tAdmin;
+    [$s, $d] = req('a_aluna_criar', 'POST', [], ['nome' => $nome, 'email' => $email, 'matricular' => $matricular], $tAdmin);
+    $tk = substr($d['link_ativacao'], strpos($d['link_ativacao'], '#ativar=') + 8);
+    [$s2, $d2] = req('ativar', 'POST', [], ['token' => $tk, 'senha' => 'senhasegura123']);
+    return [$d['idaluna'], $d2['token']];
+}
+
+echo "\nLiberação de módulos por tempo\n";
+eq('regra: sem dias nem data = liberado', cddModuloLiberacao(['liberacao_dias' => null, 'liberacao_data' => null], '2026-10-01')['liberado'] === true);
+$r = cddModuloLiberacao(['liberacao_dias' => 20, 'liberacao_data' => null], date('Y-m-d', time() - 25 * 86400));
+eq('regra: 20 dias depois de uma matrícula de 25 dias atrás = liberado', $r['liberado'] === true);
+$r = cddModuloLiberacao(['liberacao_dias' => 20, 'liberacao_data' => null], date('Y-m-d', time() - 5 * 86400));
+eq('regra: 20 dias depois de uma matrícula de 5 dias atrás = libera em 15 dias', $r['liberado'] === false && $r['libera_em'] === date('Y-m-d', time() + 15 * 86400));
+$r = cddModuloLiberacao(['liberacao_dias' => 1, 'liberacao_data' => date('Y-m-d', time() + 40 * 86400)], date('Y-m-d', time() - 30 * 86400));
+eq('regra: com dias e data vale a mais tardia', $r['liberado'] === false && $r['libera_em'] === date('Y-m-d', time() + 40 * 86400));
+
+[$idLiv, $tLiv] = novaAluna('Livia Teste', 'livia@exemplo.com');
+[$s, $d] = req('a_modulo_salvar', 'POST', [], ['titulo' => 'Protocolo Trancado', 'grupo' => 'protocolo', 'publicado' => 1, 'liberacao_dias' => 10], $tAdmin); $mT = $d['idmodulo'];
+eq('painel salva a regra de liberação por dias', $s === 200 && (int)$pdo->query("SELECT liberacao_dias FROM cdd_modulo WHERE idmodulo = $mT")->fetchColumn() === 10);
+[$s, $d] = req('a_aula_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Treino Trancado', 'youtube' => 'AAAAAAAAAAA', 'publicado' => 1], $tAdmin); $aT = $d['idaula'];
+req('a_ficha_salvar', 'POST', [], ['idaula' => $aT, 'itens' => [['exercicio' => 'Agachamento', 'series' => '3', 'repeticoes' => '10']]], $tAdmin);
+[$s, $d] = req('a_modulo_salvar', 'POST', [], ['titulo' => 'Protocolo Data Ruim', 'liberacao_data' => '31/12/2026', 'publicado' => 1], $tAdmin);
+eq('data de liberação em formato errado é recusada', $s === 422);
+[$s, $d] = req('meus_modulos', 'GET', [], [], $tLiv);
+$mm = null; foreach ($d['modulos'] as $x) { if ($x['titulo'] === 'Protocolo Trancado') $mm = $x; }
+eq('aluna nova vê o módulo trancado com a data, sem as aulas', $mm && $mm['liberado'] === false && $mm['libera_em'] === date('Y-m-d', time() + 10 * 86400) && $mm['aulas'] === [] && $mm['total'] === 1, json_encode($mm));
+[$s, $d] = req('aula', 'GET', ['id' => $aT], [], $tLiv);
+eq('abrir aula de módulo trancado = 403 com a data (o servidor trava, não só a tela)', $s === 403 && $d['error'] === 'modulo_bloqueado' && $d['libera_em'] === date('Y-m-d', time() + 10 * 86400));
+foreach ([['treino', 'GET', ['id' => $aT], []], ['treino_salvar', 'POST', [], ['idaula' => $aT, 'itens' => [['exercicio' => 'Agachamento', 'series' => [['peso' => '10', 'reps' => '10']]]]]],
+          ['concluir', 'POST', [], ['id' => $aT, 'feito' => true]], ['comentarios', 'GET', ['id' => $aT], []], ['comentar', 'POST', [], ['id' => $aT, 'texto' => 'oi tudo bem']], ['avaliar', 'POST', [], ['id' => $aT, 'nota' => 5]]] as $x) {
+    [$s, $d] = req($x[0], $x[1], $x[2], $x[3], $tLiv);
+    eq('módulo trancado também bloqueia: ' . $x[0], $s === 403 && $d['error'] === 'modulo_bloqueado');
+}
+[$s, $d] = req('a_conteudo', 'GET', [], [], $tAdmin);
+$mA = null; foreach ($d['modulos'] as $x) { if ($x['titulo'] === 'Protocolo Trancado') $mA = $x; }
+eq('a equipe vê o módulo com a regra e as aulas', $mA && $mA['liberacao_dias'] === 10 && count($mA['aulas']) === 1);
+$pdo->exec("UPDATE cdd_matricula SET inicio = '" . date('Y-m-d', time() - 11 * 86400) . "' WHERE idaluna = $idLiv");
+[$s, $d] = req('aula', 'GET', ['id' => $aT], [], $tLiv);
+eq('passados os 10 dias da matrícula, a aula abre', $s === 200 && $d['aula']['titulo'] === 'Treino Trancado');
+req('a_modulo_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Protocolo Trancado', 'grupo' => 'protocolo', 'publicado' => 1, 'liberacao_dias' => '', 'liberacao_data' => date('Y-m-d', time() + 5 * 86400)], $tAdmin);
+[$s, $d] = req('aula', 'GET', ['id' => $aT], [], $tLiv);
+eq('liberação por data futura volta a trancar', $s === 403);
+req('a_modulo_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Protocolo Trancado', 'grupo' => 'protocolo', 'publicado' => 1, 'liberacao_dias' => '', 'liberacao_data' => ''], $tAdmin);
+eq('limpar a regra libera o módulo', req('aula', 'GET', ['id' => $aT], [], $tLiv)[0] === 200);
+$seedLib = ['modulos' => [['titulo' => 'Módulo do Seed', 'liberacao_dias' => 45, 'aulas' => [['titulo' => 'X']]], ['titulo' => 'Módulo do Seed 2', 'liberacao_data' => '2025-11-03', 'aulas' => [['titulo' => 'Y']]]]];
+cddImportarSeed($pdo, $seedLib);
+eq('importação grava a regra de liberação (dias e data)', (int)$pdo->query("SELECT liberacao_dias FROM cdd_modulo WHERE titulo = 'Módulo do Seed'")->fetchColumn() === 45 && $pdo->query("SELECT liberacao_data FROM cdd_modulo WHERE titulo = 'Módulo do Seed 2'")->fetchColumn() === '2025-11-03');
+req('a_modulo_salvar', 'POST', [], ['idmodulo' => (int)$pdo->query("SELECT idmodulo FROM cdd_modulo WHERE titulo = 'Módulo do Seed'")->fetchColumn(), 'titulo' => 'Módulo do Seed', 'liberacao_dias' => 7, 'publicado' => 1], $tAdmin);
+cddImportarSeed($pdo, $seedLib);
+eq('importar de novo não desfaz a regra editada pela equipe', (int)$pdo->query("SELECT liberacao_dias FROM cdd_modulo WHERE titulo = 'Módulo do Seed'")->fetchColumn() === 7);
+
+echo "\nTreino do dia: cargas, repetições, recordes e jornada\n";
+[$s, $d] = req('a_modulo_salvar', 'POST', [], ['titulo' => 'Protocolo Treino', 'grupo' => 'protocolo', 'publicado' => 1], $tAdmin); $mTr = $d['idmodulo'];
+[$s, $d] = req('a_aula_salvar', 'POST', [], ['idmodulo' => $mTr, 'titulo' => 'Treino A', 'youtube' => 'AAAAAAAAAAA', 'publicado' => 1], $tAdmin); $aA = $d['idaula'];
+[$s, $d] = req('a_aula_salvar', 'POST', [], ['idmodulo' => $mTr, 'titulo' => 'Treino B', 'youtube' => 'BBBBBBBBBBB', 'publicado' => 1], $tAdmin); $aB = $d['idaula'];
+$fichaTreino = [['grupo' => 'TREINO', 'exercicio' => 'Agachamento Livre', 'series' => '4', 'repeticoes' => '8 a 12', 'intervalo' => '0:45"'], ['grupo' => 'TREINO', 'exercicio' => 'Stiff', 'series' => 'Super-Série 3x cada', 'repeticoes' => '12'], ['grupo' => 'TREINO', 'exercicio' => 'Panturrilha', 'series' => '', 'repeticoes' => '15']];
+req('a_ficha_salvar', 'POST', [], ['idaula' => $aA, 'itens' => $fichaTreino], $tAdmin);
+req('a_ficha_salvar', 'POST', [], ['idaula' => $aB, 'itens' => [['exercicio' => 'Remada Baixa', 'series' => '3', 'repeticoes' => '12']]], $tAdmin);
+[$idTre, $tTre] = novaAluna('Tatiana Treino', 'tatiana@exemplo.com');
+[$s, $d] = req('meus_modulos', 'GET', [], [], $tTre);
+eq('aluna nova: o treino de hoje sugere uma ficha de protocolo liberado', $s === 200 && $d['treino_hoje'] !== null && $d['treino_hoje']['treinou_hoje'] === false, json_encode($d['treino_hoje'] ?? null));
+[$s, $d] = req('treino', 'GET', ['id' => $aA], [], $tTre);
+eq('tela do treino traz a ficha com a quantidade de séries de cada exercício', $s === 200 && $d['aula']['ficha'][0]['qtd_series'] === 4 && $d['aula']['ficha'][1]['qtd_series'] === 3 && $d['aula']['ficha'][2]['qtd_series'] === 3 && $d['historico'] === [] && $d['hoje'] === null, json_encode($d['aula']['ficha'] ?? null));
+[$s, $d] = req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '', 'reps' => ''], ['peso' => '', 'reps' => '']]]]], $tTre);
+eq('treino sem nenhuma carga ou repetição não salva', $s === 422 && $d['error'] === 'treino_vazio');
+$itens1 = [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '20', 'reps' => '12'], ['peso' => '22,5', 'reps' => '10'], ['peso' => 'abc', 'reps' => '1000'], ['peso' => '', 'reps' => '8']]],
+           ['exercicio' => 'Stiff', 'series' => [['peso' => '30', 'reps' => '12']]], ['exercicio' => 'Panturrilha', 'series' => []]];
+[$s, $d] = req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => $itens1, 'duracao_seg' => 3300, 'esforco' => 4, 'comentario' => 'Foi bom'], $tTre);
+eq('salva o treino com resumo de séries e volume', $s === 200 && $d['resumo']['exercicios'] === 2 && $d['resumo']['series'] === 4 && $d['resumo']['volume_kg'] === 825 && $d['recordes'] === [], json_encode($d));
+$linha = $pdo->query("SELECT * FROM cdd_treino WHERE idaluna = $idTre")->fetch();
+$it = json_decode($linha['itens'], true);
+eq('carga com vírgula vira ponto e valor inválido vira vazio', $it[0]['series'][1]['peso'] === '22.5' && $it[0]['series'][2]['peso'] === '' && $it[0]['series'][2]['reps'] === '');
+eq('o treino guarda a mesma estrutura da Intus (itens com exercicio e series peso/reps), duração, esforço e comentário', $linha['duracao_seg'] == 3300 && $linha['esforco'] == 4 && $linha['comentario'] === 'Foi bom' && isset($it[0]['series'][0]['peso'], $it[0]['series'][0]['reps']));
+eq('treino salvo marca a aula como concluída', (int)$pdo->query("SELECT COUNT(*) FROM cdd_progresso WHERE idaluna = $idTre AND idaula = $aA")->fetchColumn() === 1);
+[$s, $d] = req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => $itens1], $tTre);
+eq('salvar de novo no mesmo dia atualiza a sessão em vez de duplicar', (int)$pdo->query("SELECT COUNT(*) FROM cdd_treino WHERE idaluna = $idTre")->fetchColumn() === 1);
+[$s, $d] = req('treino', 'GET', ['id' => $aA], [], $tTre);
+eq('ao reabrir o treino do dia, as cargas anotadas voltam preenchidas', $d['hoje'] !== null && $d['hoje']['itens'][0]['series'][0]['peso'] === '20');
+$pdo->exec("UPDATE cdd_treino SET data = '" . date('Y-m-d', time() - 7 * 86400) . "' WHERE idaluna = $idTre");
+[$s, $d] = req('treino', 'GET', ['id' => $aA], [], $tTre);
+$ag = $d['historico'][cddNorm('Agachamento Livre')] ?? null;
+eq('na semana seguinte a tela mostra a última carga e o recorde de cada exercício', $ag && $ag['ultimo']['series'][0]['peso'] === '20' && $ag['max']['peso'] === 22.5 && $d['hoje'] === null, json_encode($ag));
+$itens2 = [['exercicio' => 'Agachamento Livre', 'series' => [['peso' => '25', 'reps' => '10']]], ['exercicio' => 'Stiff', 'series' => [['peso' => '30', 'reps' => '12']]], ['exercicio' => 'Exercício Novo', 'series' => [['peso' => '50', 'reps' => '8']]]];
+[$s, $d] = req('treino_salvar', 'POST', [], ['idaula' => $aA, 'itens' => $itens2], $tTre);
+eq('recorde pessoal só quando bate a maior carga anterior (exercício novo e carga igual não contam)', $s === 200 && count($d['recordes']) === 1 && $d['recordes'][0]['exercicio'] === 'Agachamento Livre' && $d['recordes'][0]['peso'] === 25.0 && $d['recordes'][0]['anterior'] === 22.5, json_encode($d['recordes'] ?? null));
+[$s, $d] = req('meus_modulos', 'GET', [], [], $tTre);
+eq('depois do treino A, o treino de hoje sugere a próxima ficha do mesmo protocolo (B)', $d['treino_hoje']['idaula'] === $aB && $d['treino_hoje']['treinou_hoje'] === true && $d['treinos_semana'] === 1, json_encode($d['treino_hoje']));
+[$s, $d] = req('jornada', 'GET', [], [], $tTre); $j = $d['jornada'];
+eq('jornada: totais, calendário de 8 semanas e sequência', $s === 200 && $j['treinos_total'] === 2 && count($j['calendario']) === 56 && $j['treinos_semana'] === 1 && $j['sequencia_semanas'] >= 1 && $j['dia_do_programa'] >= 1);
+$ev = []; foreach ($j['evolucao'] as $e) $ev[$e['exercicio']] = $e;
+eq('jornada: evolução de carga por exercício (primeira, atual e máxima)', ($ev['Agachamento Livre']['primeira'] ?? 0) == 22.5 && ($ev['Agachamento Livre']['atual'] ?? 0) == 25 && $ev['Agachamento Livre']['sessoes'] === 2, json_encode($ev));
+eq('jornada: lista os treinos recentes e os módulos com estado de liberação', count($j['recentes']) === 2 && count($j['modulos']) >= 2 && isset($j['modulos'][0]['liberado']));
+[$idOut, $tOut] = novaAluna('Outra Aluna', 'outra@exemplo.com');
+[$s, $d] = req('treino_excluir', 'POST', [], ['idtreino' => (int)$pdo->query("SELECT MAX(idtreino) FROM cdd_treino")->fetchColumn()], $tOut);
+eq('uma aluna não apaga o treino de outra', (int)$pdo->query("SELECT COUNT(*) FROM cdd_treino")->fetchColumn() === 2);
+[$s, $d] = req('treino_excluir', 'POST', [], ['idtreino' => (int)$pdo->query("SELECT MAX(idtreino) FROM cdd_treino")->fetchColumn()], $tTre);
+eq('a aluna apaga o próprio treino', (int)$pdo->query("SELECT COUNT(*) FROM cdd_treino")->fetchColumn() === 1);
+[$idSem, $tSem] = novaAluna('Sem Matricula', 'sem@exemplo.com', false);
+eq('sem matrícula, nenhuma rota de treino abre', req('treino', 'GET', ['id' => $aA], [], $tSem)[0] === 403 && req('jornada', 'GET', [], [], $tSem)[0] === 403 && req('comentarios', 'GET', ['id' => $aA], [], $tSem)[0] === 403);
+
+echo "\nComentários e avaliações\n";
+[$s, $d] = req('comentar', 'POST', [], ['id' => $aA, 'texto' => 'a'], $tTre);
+eq('comentário curto demais é recusado', $s === 422 && $d['error'] === 'comentario_curto');
+[$s, $d] = req('comentar', 'POST', [], ['id' => $aA, 'texto' => 'Adorei este treino, o glúteo ficou queimando!'], $tTre);
+eq('aluna comenta e recebe a lista', $s === 200 && count($d['comentarios']) === 1 && $d['comentarios'][0]['autor'] === 'Tatiana T.' && $d['comentarios'][0]['meu'] === true && $d['comentarios'][0]['equipe'] === false, json_encode($d));
+$idC = $d['comentarios'][0]['id'];
+[$s, $d] = req('comentarios', 'GET', ['id' => $aA], [], $tOut);
+eq('outra aluna vê o comentário, que não é dela', $s === 200 && count($d['comentarios']) === 1 && $d['comentarios'][0]['meu'] === false && !isset($d['comentarios'][0]['email']));
+[$s, $d] = req('comentar', 'POST', [], ['id' => $aA, 'texto' => 'Também amei, treino puxado!', 'parent' => $idC], $tOut);
+eq('aluna responde a um comentário', $s === 200 && count($d['comentarios'][0]['respostas']) === 1);
+$idResp = $d['comentarios'][0]['respostas'][0]['id'];
+[$s, $d] = req('comentar', 'POST', [], ['id' => $aA, 'texto' => 'Resposta da resposta', 'parent' => $idResp], $tOut);
+eq('responder a uma resposta é recusado (um nível só)', $s === 422);
+[$s, $d] = req('comentar', 'POST', [], ['id' => $aB, 'texto' => 'Resposta em outra aula', 'parent' => $idC], $tOut);
+eq('responder a comentário de outra aula é recusado', $s === 422);
+[$s, $d] = req('a_comentarios', 'GET', ['filtro' => 'sem_resposta'], [], $tTre);
+eq('aluna não acessa a moderação (403)', $s === 403);
+[$s, $d] = req('a_comentarios', 'GET', ['filtro' => 'sem_resposta'], [], $tAdmin);
+eq('a equipe vê o comentário sem resposta da equipe, com a aula e a aluna', $s === 200 && count($d['comentarios']) === 1 && $d['comentarios'][0]['aula'] === 'Treino A' && $d['comentarios'][0]['email'] === 'tatiana@exemplo.com' && count($d['comentarios'][0]['respostas']) === 1);
+[$s, $d] = req('a_resumo', 'GET', [], [], $tAdmin);
+eq('resumo conta comentários pendentes e treinos da semana', $d['comentarios_sem_resposta'] === 1 && $d['treinos_7_dias'] >= 0);
+[$s, $d] = req('a_comentario_responder', 'POST', [], ['id' => $idC, 'texto' => 'Que bom, Tatiana! Continue assim.'], $tAdmin);
+eq('a equipe responde', $s === 200);
+[$s, $d] = req('comentarios', 'GET', ['id' => $aA], [], $tTre);
+$eqResp = array_values(array_filter($d['comentarios'][0]['respostas'], function ($r) { return $r['equipe']; }));
+eq('resposta da equipe aparece como "Equipe CDD"', count($eqResp) === 1 && $eqResp[0]['autor'] === 'Equipe CDD');
+[$s, $d] = req('a_comentarios', 'GET', ['filtro' => 'sem_resposta'], [], $tAdmin);
+eq('depois de respondido, sai da lista de pendentes', $s === 200 && count($d['comentarios']) === 0);
+[$s, $d] = req('comentario_excluir', 'POST', [], ['id' => $idC], $tOut);
+eq('aluna não apaga comentário de outra', $s === 403);
+[$s, $d] = req('comentario_excluir', 'POST', [], ['id' => $idResp], $tOut);
+[$s, $d] = req('comentarios', 'GET', ['id' => $aA], [], $tTre);
+eq('aluna apaga o próprio comentário (some da lista)', count(array_filter($d['comentarios'][0]['respostas'], function ($r) { return !$r['equipe']; })) === 0);
+[$s, $d] = req('a_comentario_ocultar', 'POST', [], ['id' => $idC, 'oculto' => true], $tAdmin);
+[$s, $d] = req('comentarios', 'GET', ['id' => $aA], [], $tTre);
+eq('a equipe oculta um comentário e as respostas dele saem junto', $d['comentarios'] === []);
+[$s, $d] = req('a_comentario_ocultar', 'POST', [], ['id' => $idC, 'oculto' => false], $tAdmin);
+eq('a equipe desfaz a ocultação', count(req('comentarios', 'GET', ['id' => $aA], [], $tTre)[1]['comentarios']) === 1);
+for ($i = 0; $i < 12; $i++) $r = req('comentar', 'POST', [], ['id' => $aA, 'texto' => 'Comentário número ' . $i . ' de spam'], $tOut);
+eq('muitos comentários seguidos da mesma aluna são barrados (429)', $r[0] === 429);
+
+[$s, $d] = req('avaliar', 'POST', [], ['id' => $aA, 'nota' => 0], $tTre);
+eq('nota fora de 1 a 5 é recusada', $s === 422);
+req('avaliar', 'POST', [], ['id' => $aA, 'nota' => 4], $tTre);
+req('avaliar', 'POST', [], ['id' => $aA, 'nota' => 5], $tTre);
+eq('avaliar de novo troca a nota (uma por aluna e aula)', (int)$pdo->query("SELECT COUNT(*) FROM cdd_avaliacao WHERE idaluna = $idTre AND idaula = $aA")->fetchColumn() === 1 && (int)$pdo->query("SELECT nota FROM cdd_avaliacao WHERE idaluna = $idTre AND idaula = $aA")->fetchColumn() === 5);
+[$s, $d] = req('avaliar', 'POST', [], ['id' => $aA, 'nota' => 3], $tOut);
+[$s, $d] = req('comentarios', 'GET', ['id' => $aA], [], $tTre);
+eq('média e total de votos aparecem junto da minha nota', $d['media'] === 4.0 && $d['votos'] === 2 && $d['minha_nota'] === 5);
+[$s, $d] = req('aula', 'GET', ['id' => $aA], [], $tTre);
+eq('a aula já devolve a minha nota', $d['aula']['minha_nota'] === 5);
+[$s, $d] = req('a_conteudo', 'GET', [], [], $tAdmin);
+$aulaA = null; foreach ($d['modulos'] as $m) foreach ($m['aulas'] as $a) { if ($a['idaula'] === $aA) $aulaA = $a; }
+eq('o painel mostra nota média, votos e comentários de cada aula', $aulaA && $aulaA['nota_media'] === 4.0 && $aulaA['votos'] === 2 && $aulaA['comentarios'] >= 1);
 
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
