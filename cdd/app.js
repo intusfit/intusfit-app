@@ -222,6 +222,7 @@
         '<div style="min-width:0;flex:1"><div class="mut" style="font-weight:700;text-transform:uppercase;letter-spacing:.08em;font-size:11px">Sua jornada</div><b style="display:block;overflow-wrap:anywhere">' + esc(cur.emoji || '') + ' ' + esc(tituloLimpo(cur.titulo)) + '</b>' +
         '<span class="mut">' + (desb ? '🔓 Próximo módulo em ' + Math.max(0, diasAte(desb.libera_em)) + ' dias' : 'Todos os módulos liberados') + '</span></div><span class="mut">›</span></a>';
     }
+    html += '<div class="habs" id="habs"></div>';
     if (prox) {
       var a = prox.aula;
       html += '<div class="sec"><h3>▶️ Continue de onde parou</h3></div><a class="vid" href="#/aula/' + a.idaula + '"><span class="th"' + (a.yt ? ' style="background-image:url(\'' + esc(CDD.ytThumb(a.yt)) + '\')"' : '') + '>' + (a.yt ? '<span class="pl">▶</span>' : esc(prox.modulo.emoji || '🎬')) + '</span><span class="tx"><b>' + esc(a.titulo) + '</b><span class="est">' + esc(tituloLimpo(prox.modulo.titulo)) + '</span></span></a>';
@@ -233,6 +234,7 @@
     html += fila('🔥 Protocolos de treino', ms.filter(function (m) { return m.grupo === 'protocolo'; }), '<a href="#/aulas">ver tudo</a>');
     v.innerHTML = html;
     CDD.aplicarCapas(v);
+    habitosHome(document.getElementById('habs'));
     var ou = document.getElementById('outro');
     if (ou) ou.onclick = function () {
       var m = abrirModal('<h3>Escolher treino</h3><p class="mut">' + esc(tituloLimpo(t.modulo)) + '</p><div id="alts"></div><div class="espaco"></div><button class="btn grande" data-f>Fechar</button>');
@@ -658,6 +660,87 @@
     vibrar([40, 40, 60]); celebrar(d.novas);
   }
 
+  /* ───────── cardio ───────── */
+  var CARDIO_RASC = { ativ: 'caminhada', min: 30, esf: 3, dia: 'hoje' };
+  async function viewCardio() {
+    var v = tela('inicio');
+    if (!estado.acesso) { v.innerHTML = semAcesso(); return; }
+    var r = await CDD.api('cardio');
+    if (sessaoExpirou(r)) return;
+    if (!r.ok) { v.innerHTML = msg(r.data.mensagem); return; }
+    var d = r.data, S = CARDIO_RASC, ontem = new Date(); ontem.setDate(ontem.getDate() - 1);
+    var ISO = function (x) { return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); };
+    var h = '<a class="voltar" href="#/">‹ Início</a><h2 style="margin-bottom:10px">🏃‍♀️ Cardio</h2>' +
+      '<div class="card hero" style="display:flex;gap:14px;align-items:center"><div><div class="mut" style="font-weight:800;text-transform:uppercase;letter-spacing:.1em;font-size:11px">Nesta semana</div><h2 style="margin:2px 0">' + d.semana.minutos + ' min</h2><div class="mut">' + d.semana.sessoes + (d.semana.sessoes === 1 ? ' cardio' : ' cardios') + ' · ⭐ ' + num(d.semana.pontos) + ' pts</div></div><span class="grande-emoji">🏃‍♀️</span></div>' +
+      '<div class="sec"><h3>➕ Registrar cardio</h3></div><div class="card"><div class="mut" style="margin-bottom:8px">Qual atividade?</div><div class="atv">' +
+      d.atividades.map(function (a) { return '<button type="button" class="' + (S.ativ === a.chave ? 'on' : '') + '" data-at="' + a.chave + '"><span>' + a.emoji + '</span>' + esc(a.nome) + '</button>'; }).join('') + '</div>' +
+      '<div class="mut" style="margin:14px 0 6px">Quanto tempo? (minutos)</div><div class="ops" id="mins">' + [15, 20, 30, 45, 60].map(function (m) { return '<button type="button" data-m="' + m + '" class="' + (S.min === m ? 'on' : '') + '">' + m + '</button>'; }).join('') + '</div>' +
+      '<input id="mn" inputmode="numeric" placeholder="Outro valor" style="margin-top:8px" value="' + ([15, 20, 30, 45, 60].indexOf(S.min) < 0 ? S.min : '') + '">' +
+      '<div class="mut" style="margin:14px 0 6px">Como foi o esforço?</div><div class="ops" id="esf">' + [['1', '😌 Leve'], ['2', '🙂 Moderado'], ['3', '💪 Forte'], ['4', '🔥 Muito forte'], ['5', '🥵 No limite']].map(function (x) { return '<button type="button" data-e="' + x[0] + '" class="' + (String(S.esf) === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="mut" style="margin:14px 0 6px">Quando?</div><div class="ops" id="dia"><button type="button" data-d="hoje" class="' + (S.dia === 'hoje' ? 'on' : '') + '">Hoje</button><button type="button" data-d="ontem" class="' + (S.dia === 'ontem' ? 'on' : '') + '">Ontem</button></div>' +
+      '<div id="av"></div><div class="espaco"></div><button class="btn pri grande" id="sv">✅ Registrar cardio</button><p class="mut" style="margin-top:10px;font-size:12px">' + esc(d.regra) + '</p></div>';
+    h += '<div class="sec"><h3>🕒 Últimos cardios</h3></div>';
+    if (!d.cardios.length) h += '<div class="card vazio">Nenhum cardio ainda. O primeiro vale uma conquista! 🏅</div>';
+    else h += '<div class="card">' + d.cardios.slice(0, 15).map(function (c) {
+      return '<div class="rec" style="align-items:center"><span><b>' + c.emoji + ' ' + esc(c.nome) + '</b><div class="mut" style="font-size:12px">' + esc(dm(c.data)) + ' · ' + c.minutos + ' min · esforço ' + c.esforco + '</div></span><span style="text-align:right">' + (c.pontos ? '⭐ ' + num(c.pontos) : '<span class="mut">sem pontos</span>') + '<div><button class="lk" data-del="' + c.id + '">Apagar</button></div></span></div>'; }).join('') + '</div>';
+    v.innerHTML = h;
+    v.querySelectorAll('[data-at]').forEach(function (b) { b.onclick = function () { S.ativ = b.getAttribute('data-at'); v.querySelectorAll('[data-at]').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+    v.querySelectorAll('#mins [data-m]').forEach(function (b) { b.onclick = function () { S.min = parseInt(b.getAttribute('data-m'), 10); document.getElementById('mn').value = ''; v.querySelectorAll('#mins button').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+    document.getElementById('mn').oninput = function () { var n = parseInt(this.value, 10); if (n > 0) { S.min = n; v.querySelectorAll('#mins button').forEach(function (x) { x.classList.remove('on'); }); } };
+    v.querySelectorAll('#esf [data-e]').forEach(function (b) { b.onclick = function () { S.esf = parseInt(b.getAttribute('data-e'), 10); v.querySelectorAll('#esf button').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+    v.querySelectorAll('#dia [data-d]').forEach(function (b) { b.onclick = function () { S.dia = b.getAttribute('data-d'); v.querySelectorAll('#dia button').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+    v.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function () { confirmar({ emoji: '🗑️', titulo: 'Apagar este cardio?', texto: 'Os pontos dele saem do ranking.', sim: 'Apagar' }, async function () { await CDD.api('cardio_excluir', { body: { id: parseInt(b.getAttribute('data-del'), 10) } }); viewCardio(); }); }; });
+    document.getElementById('sv').onclick = async function () {
+      this.disabled = true;
+      var x = await CDD.api('cardio_salvar', { body: { atividade: S.ativ, minutos: S.min, esforco: S.esf, data: S.dia === 'ontem' ? ISO(ontem) : hojeISO() } });
+      this.disabled = false;
+      if (!x.ok) { document.getElementById('av').innerHTML = msg(x.data.mensagem); return; }
+      vibrar(30); estado.modulos = null;
+      toast(x.data.conta_ranking ? '⭐' : '✅', x.data.conta_ranking ? '+' + num(x.data.pontos) + ' pontos no ranking' : 'Cardio registrado', x.data.conta_ranking ? '' : 'Abaixo de 10 minutos ou acima de 3 no dia: sem pontos.');
+      celebrar(x.data.novas); viewCardio();
+    };
+  }
+
+  /* ───────── nutrição ───────── */
+  async function viewNutri() {
+    var v = tela('inicio');
+    if (!estado.acesso) { v.innerHTML = semAcesso(); return; }
+    var r = await CDD.api('nutri');
+    if (sessaoExpirou(r)) return;
+    if (!r.ok) { v.innerHTML = msg(r.data.mensagem); return; }
+    var n = r.data.nutri, pct = Math.min(100, Math.round(n.agua_ml * 100 / n.meta_ml));
+    var alim = ((estado.modulos || []).filter(function (m) { return /aliment/i.test(m.titulo) && m.liberado; })[0]) || null;
+    var h = '<a class="voltar" href="#/">‹ Início</a><h2 style="margin-bottom:10px">🥗 Nutrição</h2>' +
+      '<div class="card hero" style="display:flex;gap:16px;align-items:center"><div class="anel" style="--p:' + pct + ';--s:96px"><b style="font-size:18px">💧</b></div><div style="min-width:0"><div class="mut" style="font-weight:800;text-transform:uppercase;letter-spacing:.1em;font-size:11px">Água de hoje</div><h2 style="margin:2px 0" id="ag">' + (n.agua_ml / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' L</h2><div class="mut">meta de ' + (n.meta_ml / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' L' + (pct >= 100 ? ' · ✅ batida!' : '') + '</div></div></div>' +
+      '<div class="linha" style="margin-top:10px"><button class="btn grande" data-a="-250" style="flex:1">− copo</button><button class="btn pri grande" data-a="250" style="flex:2">💧 + 1 copo (250 ml)</button></div>' +
+      '<div class="sec"><h3>🍽️ Refeições de hoje</h3></div><div class="card" id="refs">' + n.refeicoes.map(function (x) {
+        return '<div class="ref"><div class="ref-n"><span class="em">' + x.emoji + '</span><b>' + esc(x.nome) + '</b></div><div class="ops" data-r="' + x.chave + '">' +
+          [['feito', '✅ Fiz'], ['parcial', '🟡 Em parte'], ['fora', '❌ Pulei']].map(function (o) { return '<button type="button" data-s="' + o[0] + '" class="' + (x.status === o[0] ? 'on' : '') + '">' + o[1] + '</button>'; }).join('') + '</div></div>'; }).join('') +
+        '<div class="mut" style="margin-top:8px;font-size:12px">Toque de novo na opção marcada para limpar.</div></div>' +
+      '<div class="card" style="margin-top:12px"><div class="linha" style="justify-content:space-between"><b>📊 Últimos 7 dias</b><span class="mut">' + (n.aderencia_semana !== null ? 'aderência média ' + n.aderencia_semana + '%' : 'sem registros') + '</span></div><div class="sem7">' +
+      n.semana.map(function (d) { var di = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][new Date(d.data + 'T12:00:00').getDay()];
+        return '<div class="d7"><div class="bar"><i style="height:' + (d.aderencia === null ? 0 : d.aderencia) + '%"></i></div><span class="gota' + (d.meta_batida ? ' on' : '') + '">💧</span><small>' + di + '</small></div>'; }).join('') + '</div><div class="mut" style="font-size:12px">Barras: refeições do dia. 💧 aceso: meta de água batida.</div></div>';
+    if (alim) h += '<a class="banner" href="#/modulo/' + alim.idmodulo + '" style="margin-top:12px;border-left-color:var(--ok)"><span class="em">' + esc(alim.emoji || '🥗') + '</span><div><b>' + esc(tituloLimpo(alim.titulo)) + '</b><span class="mut">Cardápios e aulas de alimentação do programa.</span></div></a>';
+    h += '<p class="mut" style="margin-top:14px;font-size:12px">A meta de água usa 35 ml por kg do peso da sua anamnese. Este diário não substitui o acompanhamento de uma nutricionista.</p>';
+    v.innerHTML = h;
+    v.querySelectorAll('[data-a]').forEach(function (b) { b.onclick = async function () { var x = await CDD.api('agua', { body: { delta: parseInt(b.getAttribute('data-a'), 10) } }); if (x.ok) { vibrar(15); celebrar(x.data.novas); viewNutri(); } }; });
+    v.querySelectorAll('[data-r] [data-s]').forEach(function (b) { b.onclick = async function () {
+      var ch = b.parentNode.getAttribute('data-r'), s = b.getAttribute('data-s'), ja = b.classList.contains('on');
+      var x = await CDD.api('refeicao', { body: { refeicao: ch, status: ja ? '' : s } });
+      if (x.ok) { vibrar(15); celebrar(x.data.novas); viewNutri(); } }; });
+  }
+
+  /** Cartões de hábitos na Home: preenchidos depois, sem travar a tela. */
+  async function habitosHome(el) {
+    var a = await CDD.api('cardio'), b = await CDD.api('nutri');
+    if (!el.isConnected) return;
+    var h = '';
+    if (a.ok) h += '<a class="card hab" href="#/cardio"><span class="em">🏃‍♀️</span><b>Cardio</b><span class="mut">' + a.data.semana.minutos + ' min na semana</span></a>';
+    if (b.ok) { var n = b.data.nutri, p = Math.min(100, Math.round(n.agua_ml * 100 / n.meta_ml));
+      h += '<a class="card hab" href="#/nutri"><span class="em">🥗</span><b>Nutrição</b><span class="mut">💧 ' + p + '% da água' + (n.aderencia_hoje !== null ? ' · ' + n.aderencia_hoje + '% refeições' : '') + '</span></a>'; }
+    el.innerHTML = h;
+  }
+
   /* ───────── jornada ───────── */
   async function viewJornada(aba) {
     var v = tela('jornada');
@@ -836,6 +919,8 @@
     if ((m = h.match(/^#\/ranking(?:\/(\w+))?$/))) return viewRanking(m[1]);
     if (h === '#/anamnese') return viewAnamnese();
     if (h === '#/conta') return viewConta();
+    if (h === '#/cardio') return viewCardio();
+    if (h === '#/nutri') return viewNutri();
     return viewHome();
   }
 

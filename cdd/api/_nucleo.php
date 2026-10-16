@@ -14,9 +14,10 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 4;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking
+const CDD_ESQUEMA = 5;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições
 require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
+require_once __DIR__ . '/_bemestar.php';
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -230,6 +231,30 @@ function cddDdl(): array {
             idaula INT NOT NULL,
             concluida_em DATETIME NOT NULL,
             PRIMARY KEY (idaluna, idaula)
+        ) $c",
+        'cdd_cardio' => "CREATE TABLE IF NOT EXISTS cdd_cardio (
+            idcardio INT AUTO_INCREMENT PRIMARY KEY,
+            idaluna INT NOT NULL,
+            data DATE NOT NULL,
+            atividade VARCHAR(20) NOT NULL,
+            minutos INT NOT NULL,
+            esforco TINYINT NOT NULL,
+            comentario VARCHAR(300) NULL,
+            criado_em DATETIME NOT NULL,
+            INDEX idx_aluna_data (idaluna, data)
+        ) $c",
+        'cdd_agua' => "CREATE TABLE IF NOT EXISTS cdd_agua (
+            idaluna INT NOT NULL,
+            data DATE NOT NULL,
+            ml INT NOT NULL,
+            PRIMARY KEY (idaluna, data)
+        ) $c",
+        'cdd_refeicao' => "CREATE TABLE IF NOT EXISTS cdd_refeicao (
+            idaluna INT NOT NULL,
+            data DATE NOT NULL,
+            refeicao VARCHAR(20) NOT NULL,
+            status VARCHAR(10) NOT NULL,
+            PRIMARY KEY (idaluna, data, refeicao)
         ) $c",
     ];
 }
@@ -846,13 +871,15 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     if ($ra !== null) return $ra;
 
     /* ---- conteúdo: exige matrícula ativa (ou admin) ---- */
-    if (in_array($acao, ['meus_modulos', 'aula', 'concluir', 'treino', 'treino_salvar', 'treino_excluir', 'jornada', 'comentarios', 'comentar', 'comentario_excluir', 'avaliar', 'ranking', 'conquistas'], true)) {
+    if (in_array($acao, ['meus_modulos', 'aula', 'concluir', 'treino', 'treino_salvar', 'treino_excluir', 'jornada', 'comentarios', 'comentar', 'comentario_excluir', 'avaliar', 'ranking', 'conquistas', 'cardio', 'cardio_salvar', 'cardio_excluir', 'nutri', 'agua', 'refeicao'], true)) {
         $mat = cddMatricula($pdo, $idaluna);
         if (!$admin && !$mat['ativa']) {
             $msg = $mat['status'] === 'expirada' ? 'Seu acesso expirou. Fale com a equipe para renovar.' : ($mat['status'] === 'sem_matricula' ? 'Sua conta está criada. Assim que a equipe liberar a sua matrícula, o conteúdo aparece aqui.' : 'Seu acesso está pausado. Fale com a equipe do CDD.');
             return cddErro(403, 'sem_matricula', $msg, ['status' => $mat['status']]);
         }
         $inicio = $mat['inicio'] ?? null;
+        $rb = cddRotaBemestar($pdo, $metodo, $acao, $q, $b, $eu);
+        if ($rb !== null) return $rb;
         $rm = cddRotaMembro($pdo, $metodo, $acao, $q, $eu);
         if ($rm !== null) return $rm;
         if ($acao === 'meus_modulos' && $get) {

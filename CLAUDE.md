@@ -1678,3 +1678,10 @@ Tudo em `cdd/`, nenhum arquivo da Intus editado. Esquema do banco 4 (`CDD_ESQUEM
 - **Painel** (`cdd/painel.html`): menu lateral (Resumo, Alunas, Conteúdo, Exercícios, Comentários, Anamneses, Ajustes), tema no cabeçalho, drawer no celular, editor de capa com emoji, cor e imagem, campo "Agrupar" (super série, triset, circuito) na ficha, aula tipo anamnese, lista de anamneses com respostas por etapa.
 - **Regras novas no servidor** (`cdd/api/_app.php`): pontos e ranking com as regras da Intus (10, 5 se menos de 20 min, 5 o segundo treino do dia, bônus de 5 em 4 dias, semana de domingo a sábado, posição densa), 23 conquistas, anamnese de 16 campos em 5 etapas.
 - **Ficou para depois**: cardio e nutrição no CDD, avaliação com foto dentro do app, app nativo, domínio próprio, conexão com a Intus.
+
+## 83. CDD: cardio, água e refeições (15/10/2026)
+- Esquema 5, tabelas novas (só aditivas, criadas sozinhas no primeiro acesso depois do deploy): `cdd_cardio`, `cdd_agua`, `cdd_refeicao`. Regra em `cdd/api/_bemestar.php`, rotas `cardio`, `cardio_salvar`, `cardio_excluir`, `nutri`, `agua`, `refeicao` (aluna com matrícula). Testes: 243 em `cdd/testes/cdd.php`.
+- **Cardio** segue a fórmula da Intus (seção 56): base da atividade (MET) x esforço x minutos/30 x 0,55, teto de 7 por sessão, 10 min ou mais pontua, até 3 por dia (só sessões que pontuam entram na conta do limite). Esforço de 1 a 5 vira RPE de 2 a 10. Só hoje ou ontem. Os pontos somam no ranking do CDD (`cddPontosPorAluna`).
+- **Nutrição** é um diário, sem plano alimentar individual: água (meta de 35 ml por kg do peso da anamnese, 2500 ml sem peso, copo de 250 ml) e 5 refeições por dia (fiz, em parte, pulei). Aderência: feito 1, parcial 0,5, pulei 0. Atalho para o módulo "Código da Alimentação".
+- 6 conquistas novas (cardio 1, 10 e 30, meta de água 1 e 7 dias, 7 dias de diário), 29 no total. Telas `#/cardio` e `#/nutri` com cartões na Home.
+- **Fica para depois**: programas guiados de cardio (HIIT, Tabata, cronômetro), cardio ao vivo por GPS, plano alimentar individual da nutricionista, foto da refeição.

@@ -45,6 +45,10 @@ function cddPontosPorAluna(PDO $pdo, string $de, string $ate): array {
             if (count($semDias[$sk]) === CDD_RANK['bonusDias'] && $t['data'] >= $de) $r[$a]['pontos'] += CDD_RANK['bonusPts'];
         }
     }
+    foreach (cddPontosCardio($pdo, $de, $ate) as $a => $c) {   // cardio soma por cima do treino
+        if (!isset($r[$a])) $r[$a] = ['pontos' => 0.0, 'treinos' => 0, 'dias' => 0];
+        $r[$a]['pontos'] += $c['pontos'];
+    }
     return $r;
 }
 
@@ -84,7 +88,7 @@ function cddRanking(PDO $pdo, int $idaluna, string $periodo): array {
     return ['periodo' => $periodo, 'de' => $de, 'ate' => $ate, 'top' => $top, 'participantes' => count($linhas),
             'eu' => $eu ? ['pos' => $eu['pos'], 'pontos' => $eu['pontos'], 'treinos' => $eu['treinos']] : ['pos' => null, 'pontos' => 0, 'treinos' => 0],
             'visivel' => (int)$visivel->fetchColumn() === 1,
-            'regras' => 'Treino de 5 minutos ou mais: 10 pontos o primeiro do dia (5 se durar menos de 20 min), 5 pontos o segundo, e 5 de bônus ao treinar em 4 dias diferentes da semana (domingo a sábado).'];
+            'regras' => 'Treino de 5 minutos ou mais: 10 pontos o primeiro do dia (5 se durar menos de 20 min), 5 pontos o segundo, e 5 de bônus ao treinar em 4 dias diferentes da semana (domingo a sábado). Cardio de 10 minutos ou mais soma até 7 pontos por sessão, 3 por dia.'];
 }
 
 /* ───────────────────────── Conquistas ───────────────────────── */
@@ -112,6 +116,12 @@ function cddConquistaModelo(): array {
     $add('anamnese', '📝', 'Perfil completo', 'Enviou a anamnese para a equipe.', 'anamnese', 1);
     $add('avaliou', '⭐', 'Primeira avaliação', 'Avaliou uma aula.', 'avaliacoes', 1);
     $add('comentou', '💬', 'Primeiro comentário', 'Comentou em uma aula.', 'comentarios', 1);
+    $add('cardio_1', '🏃‍♀️', 'Primeiro cardio', 'Registrou o primeiro cardio.', 'cardios', 1);
+    $add('cardio_10', '❤️‍🔥', '10 cardios', 'Dez cardios registrados.', 'cardios', 10);
+    $add('cardio_30', '🫀', '30 cardios', 'Trinta cardios registrados.', 'cardios', 30);
+    $add('agua_1', '💧', 'Meta de água', 'Bateu a meta de água em um dia.', 'agua_dias', 1);
+    $add('agua_7', '🌊', 'Hidratada', 'Sete dias batendo a meta de água.', 'agua_dias', 7);
+    $add('nutri_7', '🥗', 'Diário em dia', 'Sete dias marcando as refeições.', 'refeicao_dias', 7);
     $add('dia_7', '🌱', 'Primeira semana', 'Sete dias de programa.', 'dias', 7);
     $add('dia_30', '🌸', 'Um mês de CDD', 'Trinta dias de programa.', 'dias', 30);
     $add('dia_100', '💎', '100 dias de CDD', 'Cem dias de programa.', 'dias', 100);
@@ -149,7 +159,11 @@ function cddMetricas(PDO $pdo, int $idaluna): array {
         $fe = $um('SELECT COUNT(*) FROM cdd_progresso p JOIN cdd_aula a ON a.idaula = p.idaula WHERE p.idaluna = ? AND a.idmodulo = ? AND a.publicado = 1', [$idaluna, $x['idmodulo']]);
         if ($fe >= $tot) $mods++;
     }
-    return ['treinos' => count($treinos), 'melhor_semana' => $melhorSemana, 'melhor_sequencia' => $melhorSeq, 'recordes' => $recordes,
+    $meta = cddMetaAgua($pdo, $idaluna);
+    $cardios = $um('SELECT COUNT(*) FROM cdd_cardio WHERE idaluna = ? AND minutos >= ?', [$idaluna, CDD_CARDIO['min_min']]);
+    $aguaDias = $um('SELECT COUNT(*) FROM cdd_agua WHERE idaluna = ? AND ml >= ?', [$idaluna, $meta]);
+    $refDias = $um('SELECT COUNT(*) FROM (SELECT data FROM cdd_refeicao WHERE idaluna = ? GROUP BY data) x', [$idaluna]);
+    return ['cardios' => $cardios, 'agua_dias' => $aguaDias, 'refeicao_dias' => $refDias, 'treinos' => count($treinos), 'melhor_semana' => $melhorSemana, 'melhor_sequencia' => $melhorSeq, 'recordes' => $recordes,
             'aulas' => $um('SELECT COUNT(*) FROM cdd_progresso WHERE idaluna = ?', [$idaluna]), 'modulos' => $mods,
             'anamnese' => $um('SELECT COUNT(*) FROM cdd_anamnese WHERE idaluna = ? AND enviado_em IS NOT NULL', [$idaluna]),
             'avaliacoes' => $um('SELECT COUNT(*) FROM cdd_avaliacao WHERE idaluna = ?', [$idaluna]),
