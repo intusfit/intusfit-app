@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Tráfego e Captação — Intus</title>
+  <script src="_mock.js?v=20261019a"></script>
+  <script src="api.js?v=20261016a"></script>
+  <style>
+    .tf-topo { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:16px; }
+    .tf-topo h1 { font-size:20px; margin:0; color:var(--text); }
+    .tf-sub { font-size:12.5px; color:var(--text-muted); margin-top:2px; }
+    .tf-chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+    .tf-chip { padding:7px 12px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--text-muted); font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+    .tf-chip.on { background:var(--green); border-color:var(--green); color:#000; }
+    body.theme-light .tf-chip.on { color:#fff; }
+    .tf-sel, .tf-in { padding:7px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12.5px; font-family:inherit; }
+    .tf-vivo { display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--text-muted); }
+    .tf-vivo i { width:9px; height:9px; border-radius:50%; background:#4ade80; box-shadow:0 0 0 0 rgba(74,222,128,.6); animation:tfPulso 1.8s infinite; }
+    @keyframes tfPulso { 70% { box-shadow:0 0 0 9px rgba(74,222,128,0); } 100% { box-shadow:0 0 0 0 rgba(74,222,128,0); } }
+    .tf-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+    .tf-kpi { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+    .tf-kpi .r { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); }
+    .tf-kpi .v { font-size:28px; font-weight:800; margin:4px 0 2px; font-variant-numeric:tabular-nums; color:var(--text); }
+    .tf-kpi .d { font-size:11.5px; font-weight:700; }
+    .tf-kpi .d.up { color:#4ade80; } .tf-kpi .d.down { color:#f87171; } .tf-kpi .d.eq { color:var(--text-muted); }
+    .tf-kpi.dest { border-color:var(--green); }
+    .tf-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; margin-bottom:16px; }
+    .tf-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:16px 18px; min-width:0; }
+    .tf-card.larga { grid-column:1 / -1; }
+    .tf-card h2 { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--text); margin:0 0 3px; }
+    .tf-card .nota { font-size:12px; color:var(--text-muted); margin:0 0 12px; line-height:1.5; }
+    .tf-tab { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .tf-tab th { text-align:right; font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+    .tf-tab th:first-child, .tf-tab td:first-child { text-align:left; }
+    .tf-tab td { padding:8px; border-bottom:1px solid var(--border); text-align:right; font-variant-numeric:tabular-nums; color:var(--text); }
+    .tf-tab td:first-child { word-break:break-word; }
+    .tf-tab tr:last-child td { border-bottom:none; }
+    .tf-tab .sub { display:block; font-size:11px; color:var(--text-muted); font-weight:500; }
+    .tf-wrap { overflow-x:auto; }
+    .tf-barra { display:grid; grid-template-columns:minmax(90px,150px) 1fr auto; gap:10px; align-items:center; padding:5px 0; font-size:12.5px; }
+    .tf-barra .n { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .tf-barra .b { height:10px; background:var(--border); border-radius:6px; overflow:hidden; }
+    .tf-barra .b u { display:block; height:100%; background:var(--green); border-radius:6px; }
+    .tf-barra .v { font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); text-align:right; white-space:nowrap; }
+    .tf-barra .v small { color:var(--text-muted); font-weight:500; margin-left:4px; }
+    .tf-funil .tf-barra .b { height:18px; } .tf-funil .tf-barra .b u { background:linear-gradient(90deg,var(--green),#06b6d4); }
+    .tf-vazio { padding:18px 6px; font-size:12.5px; color:var(--text-muted); text-align:center; }
+    .tf-aviso { padding:14px 16px; border-radius:12px; border:1px solid rgba(251,191,36,.4); background:rgba(251,191,36,.08); color:var(--text); font-size:13px; line-height:1.55; margin-bottom:16px; }
+    .tf-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin-bottom:10px; }
+    .tf-form label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:var(--text-muted); margin-bottom:4px; }
+    .tf-form .tf-sel, .tf-form .tf-in { width:100%; box-sizing:border-box; }
+    .tf-link { display:flex; gap:8px; align-items:stretch; }
+    .tf-link code { flex:1; padding:10px 12px; border-radius:8px; border:1px dashed var(--border); background:var(--bg); font-size:12px; word-break:break-all; color:var(--text); }
+    .tf-btn { padding:9px 16px; border-radius:8px; border:none; background:var(--green); color:#000; font-weight:800; font-size:12.5px; cursor:pointer; font-family:inherit; }
+    body.theme-light .tf-btn { color:#fff; }
+    .tf-btn.sec { background:transparent; border:1px solid var(--border); color:var(--text); }
+    .tf-btn.perigo { background:transparent; border:1px solid rgba(248,113,113,.5); color:#f87171; }
+    .tf-svg { width:100%; height:auto; display:block; }
+    .tf-leg { display:flex; gap:14px; font-size:11.5px; color:var(--text-muted); margin-bottom:8px; flex-wrap:wrap; }
+    .tf-leg i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+    @media (max-width:640px) { .tf-grid { grid-template-columns:1fr; } .tf-kpi .v { font-size:24px; } .tf-barra { grid-template-columns:90px 1fr auto; } }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Tráfego e Captação');
+const main = document.getElementById('main-content');
+
+// Números da operação inteira (de onde vem quem se cadastra): só administrador. O servidor confere de novo.
+if (!(Sessao.atual() && Sessao.atual().admin)) {
+  main.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted);"><div style="font-size:40px;margin-bottom:8px;">🔒</div><div style="font-weight:700;color:var(--text);margin-bottom:4px;">Acesso restrito</div><div style="font-size:13px;">Esta tela é só do administrador.</div></div>';
+  throw new Error('sem permissao');
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const nf = v => Number(v || 0).toLocaleString('pt-BR');
+const pc = v => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+function iso(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+function hojeISO() { return iso(new Date()); }
+function somaDias(s, n) { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return iso(d); }
+function fmtDia(s) { return s ? s.slice(8, 10) + '/' + s.slice(5, 7) : ''; }
+function fmtDiaCompleto(s) { return s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : ''; }
+
+const NOMES_PAGINA = { '/': 'Site (página inicial)', '/teste-gratis.html': 'Teste grátis', '/app/painel/login.html': 'Login do app', '/cdd/': 'CDD (Código da Definição)', '/app/painel/termos.html': 'Termos de uso', '/app/painel/privacidade.html': 'Privacidade' };
+const nomePagina = p => NOMES_PAGINA[p] || p;
+const NOMES_CANAL = { direto: 'Direto (digitou ou salvou o link)', indicacao: 'Link de indicação de aluno', instagram: 'Instagram', whatsapp: 'WhatsApp', facebook: 'Facebook', google: 'Google', busca: 'Outras buscas', youtube: 'YouTube', tiktok: 'TikTok', email: 'E-mail', sms: 'SMS', qrcode: 'QR code', twitter: 'X / Twitter', 'outros sites': 'Outros sites' };
+const nomeCanal = c => NOMES_CANAL[c] || c;
+const NOMES_EVENTO = { whatsapp: 'Clique no WhatsApp', acessar_app: 'Clique para abrir o app / login', cta: 'Clique em "Quero meu acesso"', form_inicio: 'Começou a preencher o formulário', etapa1_ok: 'Passou da 1ª etapa do formulário', conta_criada: 'Criou o acesso grátis', lead_enviado: 'Deixou só o contato (sem conta)', email_ja_cadastrado: 'Tentou criar conta com e-mail já cadastrado' };
+const nomeEvento = e => NOMES_EVENTO[e] || e;
+
+let periodo = '30', de = '', ate = '', pagina = '', dados = null, carregando = false;
+function limites() {
+  const h = hojeISO();
+  if (periodo === 'custom') return { de: de || h, ate: ate || h };
+  if (periodo === '0') return { de: h, ate: h };
+  return { de: somaDias(h, -(Number(periodo) - 1)), ate: h };
+}
+async function chamar(qs) {
+  const tk = (typeof Auth !== 'undefined' && Auth.getToken) ? (Auth.getToken() || '') : (localStorage.getItem('mx-token') || '');
+  const r = await fetch(API_BASE + '/trafego.php?' + qs, { headers: { 'Authorization': 'Bearer ' + tk }, cache: 'no-store' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('erro ' + r.status));
+  return j;
+}
+async function carregar() {
+  if (carregando) return; carregando = true;
+  const l = limites();
+  try {
+    dados = await chamar('action=relatorio&de=' + l.de + '&ate=' + l.ate + (pagina ? '&pagina=' + encodeURIComponent(pagina) : ''));
+    desenhar();
+  } catch (e) {
+    main.innerHTML = '<div class="tf-aviso">Não consegui carregar os números agora: ' + esc(e.message) + '. <button class="tf-btn sec" onclick="carregar()">Tentar de novo</button></div>';
+  } finally { carregando = false; }
+}
+function setPeriodo(p) { periodo = p; carregar(); }
+function setCustom() { de = document.getElementById('tf-de').value; ate = document.getElementById('tf-ate').value; if (de && ate) { periodo = 'custom'; carregar(); } }
+function setPagina(v) { pagina = v; carregar(); }
+
+function delta(atual, antes, sufixo) {
+  if (!antes && !atual) return '<span class="d eq">sem dados antes</span>';
+  if (!antes) return '<span class="d up">novo</span>';
+  const p = Math.round((atual - antes) * 100 / antes);
+  if (p === 0) return '<span class="d eq">igual ao período anterior</span>';
+  return '<span class="d ' + (p > 0 ? 'up' : 'down') + '">' + (p > 0 ? '▲ +' : '▼ ') + p + '% vs período anterior</span>';
+}
+function kpi(rot, v, d, dest) { return '<div class="tf-kpi' + (dest ? ' dest' : '') + '"><div class="r">' + rot + '</div><div class="v">' + v + '</div>' + d + '</div>'; }
+function barras(lista, nomeFn, campo, extra) {
+  if (!lista || !lista.length) return '<div class="tf-vazio">Sem dados neste período.</div>';
+  const max = Math.max(1, ...lista.map(x => x[campo] || 0));
+  return lista.map(x => '<div class="tf-barra"><div class="n" title="' + esc(nomeFn(x)) + '">' + esc(nomeFn(x)) + '</div><div class="b"><u style="width:' + Math.max(2, Math.round((x[campo] || 0) * 100 / max)) + '%"></u></div><div class="v">' + nf(x[campo]) + (extra ? '<small>' + extra(x) + '</small>' : '') + '</div></div>').join('');
+}
+
+function graficoSerie(serie) {
+  const W = 760, H = 220, pe = 34, pd = 34, pt = 12, pb = 26, w = W - pe - pd, h = H - pt - pb;
+  const maxV = Math.max(1, ...serie.map(s => s.visitantes)), maxC = Math.max(1, ...serie.map(s => s.conversoes));
+  const n = serie.length, bw = Math.max(2, Math.min(28, w / n - 3));
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const y = pt + h - (h * i / 4); g += '<line x1="' + pe + '" x2="' + (W - pd) + '" y1="' + y + '" y2="' + y + '" stroke="var(--border)" stroke-width="1"/><text x="' + (pe - 5) + '" y="' + (y + 3) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + Math.round(maxV * i / 4) + '</text>'; }
+  let barrasSvg = '', pts = [];
+  serie.forEach((s, i) => {
+    const x = pe + (w * (i + .5) / n), bh = h * s.visitantes / maxV, y = pt + h - bh;
+    const tip = '<div class="tip-t">' + esc(fmtDiaCompleto(s.dia)) + '</div><div class="tip-v">' + nf(s.visitantes) + '<small>visitantes</small></div><div class="tip-n">' + nf(s.visitas) + ' visitas · ' + nf(s.conversoes) + ' captações</div>';
+    barrasSvg += '<rect x="' + (x - bw / 2) + '" y="' + y + '" width="' + bw + '" height="' + Math.max(bh, 1) + '" rx="2" fill="var(--green)" opacity=".8"' + Tip.attr(tip) + '/>';
+    pts.push([x, pt + h - h * s.conversoes / maxC, s]);
+  });
+  const linha = pts.some(p => p[2].conversoes > 0) ? '<polyline fill="none" stroke="#06b6d4" stroke-width="2" points="' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') + '"/>' + pts.filter(p => p[2].conversoes > 0).map(p => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3.5" fill="#06b6d4"/>').join('') : '';
+  const eixo = serie.map((s, i) => (n <= 14 || i % Math.ceil(n / 12) === 0) ? '<text x="' + (pe + w * (i + .5) / n) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">' + fmtDia(s.dia) + '</text>' : '').join('');
+  const dir = pts.some(p => p[2].conversoes > 0) ? [0, 1, 2, 3, 4].map(i => '<text x="' + (W - pd + 5) + '" y="' + (pt + h - h * i / 4 + 3) + '" font-size="9" fill="#06b6d4">' + Math.round(maxC * i / 4) + '</text>').join('') : '';
+  return '<div class="tf-leg"><span><i style="background:var(--green)"></i>Visitantes por dia</span><span><i style="background:#06b6d4"></i>Pessoas captadas (eixo da direita)</span></div><svg class="tf-svg" viewBox="0 0 ' + W + ' ' + H + '">' + g + barrasSvg + linha + eixo + dir + '</svg>';
+}
+
+function graficoHoras(horas) {
+  const max = Math.max(1, ...horas), W = 760, H = 110, bw = W / 24;
+  return '<svg class="tf-svg" viewBox="0 0 ' + W + ' ' + (H + 18) + '">' + horas.map((v, i) => {
+    const bh = Math.max(v ? 2 : 0, (H - 6) * v / max);
+    return '<rect x="' + (i * bw + 3) + '" y="' + (H - bh) + '" width="' + (bw - 6) + '" height="' + bh + '" rx="2" fill="var(--green)" opacity=".8"' + Tip.attr('<div class="tip-t">' + i + 'h (Brasília)</div><div class="tip-v">' + nf(v) + '<small>visitas</small></div>') + '/><text x="' + (i * bw + bw / 2) + '" y="' + (H + 13) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">' + (i % 3 === 0 ? i + 'h' : '') + '</text>';
+  }).join('') + '</svg>';
+}
+
+function desenhar() {
+  const d = dados, k = d.kpis, a = d.kpis_anterior, p = d.periodo;
+  const semDados = !k.visitas && !a.visitas;
+  const optsPag = ['<option value="">Todas as páginas</option>'].concat((d.paginas || []).map(x => '<option value="' + esc(x.pagina) + '"' + (pagina === x.pagina ? ' selected' : '') + '>' + esc(nomePagina(x.pagina)) + '</option>')).join('');
+  const chips = [['0', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['90', '90 dias'], ['365', '12 meses']].map(([v, t]) => '<button class="tf-chip' + (periodo === v ? ' on' : '') + '" onclick="setPeriodo(\'' + v + '\')">' + t + '</button>').join('');
+  let h = '<div class="tf-topo"><div><h1>Tráfego e Captação</h1><div class="tf-sub">De onde vêm as visitas das páginas públicas e quantas viram cadastro · ' + fmtDiaCompleto(p.de) + ' a ' + fmtDiaCompleto(p.ate) + (p.pagina ? ' · só ' + esc(nomePagina(p.pagina)) : '') + '</div></div>' +
+    '<div class="tf-chips">' + chips + '<input type="date" class="tf-in" id="tf-de" value="' + p.de + '" onchange="setCustom()"><span style="color:var(--text-muted)">a</span><input type="date" class="tf-in" id="tf-ate" value="' + p.ate + '" onchange="setCustom()">' +
+    '<select class="tf-sel" onchange="setPagina(this.value)">' + optsPag + '</select><span class="tf-vivo" id="tf-vivo"><i></i><span id="tf-vivo-t">' + nf(d.agora.ativos) + ' agora</span></span></div></div>';
+  if (semDados) h += '<div class="tf-aviso"><b>Ainda não há visitas medidas.</b> A medição começa a contar a partir do momento em que esta versão foi publicada: nada do que aconteceu antes aparece aqui. Abra o site, a página do teste grátis ou um link seu em outra aba e volte em alguns segundos. A sua própria visita não conta se você estiver logado no painel neste navegador (de propósito, para os testes não se misturarem com os números reais). Abra em uma janela anônima para ver uma visita aparecer.</div>';
+  h += '<div class="tf-kpis">' +
+    kpi('Visitantes únicos', nf(k.visitantes), delta(k.visitantes, a.visitantes)) +
+    kpi('Visitas às páginas', nf(k.visitas), delta(k.visitas, a.visitas)) +
+    kpi('Visitantes novos', nf(k.novos), delta(k.novos, a.novos)) +
+    kpi('Cliques de interesse', nf(k.cliques), delta(k.cliques, a.cliques)) +
+    kpi('Pessoas captadas', nf(k.conversoes), delta(k.conversoes, a.conversoes), true) +
+    kpi('Taxa de captação', pc(k.taxa), '<span class="d eq">captadas ÷ visitantes</span>') + '</div>';
+  h += '<div class="tf-grid"><div class="tf-card larga"><h2>Visitantes por dia</h2><p class="nota">Barras: pessoas diferentes por dia. Linha: pessoas captadas (criaram o acesso grátis ou deixaram o contato). Passe o mouse ou toque para ver o dia.</p>' + graficoSerie(d.serie) + '</div></div>';
+
+  // funil
+  const f = d.funil || [], f0 = Math.max(1, f[0] ? f[0].n : 1);
+  const funil = f.map((e, i) => '<div class="tf-barra"><div class="n" title="' + esc(e.rotulo) + '">' + esc(e.rotulo) + '</div><div class="b"><u style="width:' + Math.max(e.n ? 3 : 0, Math.round(e.n * 100 / f0)) + '%"></u></div><div class="v">' + nf(e.n) + '<small>' + (i ? pc(e.n * 100 / f0) : '') + '</small></div></div>').join('');
+  h += '<div class="tf-grid"><div class="tf-card tf-funil"><h2>Funil do teste grátis</h2><p class="nota">Pessoas que passaram por cada etapa da página do teste grátis (cada pessoa conta uma vez por visita). A porcentagem é sobre quem visitou.</p>' + funil + '</div>' +
+    '<div class="tf-card"><h2>De onde vieram</h2><p class="nota">Canal da visita: link de indicação, UTM do seu link, site de origem ou acesso direto.</p>' +
+    (d.canais.length ? '<div class="tf-wrap"><table class="tf-tab"><tr><th>Canal</th><th>Visitantes</th><th>Captadas</th><th>Taxa</th></tr>' + d.canais.map(c => '<tr><td>' + esc(nomeCanal(c.canal)) + '</td><td>' + nf(c.visitantes) + '</td><td>' + nf(c.conversoes) + '</td><td>' + pc(c.taxa) + '</td></tr>').join('') + '</table></div>' : '<div class="tf-vazio">Sem dados neste período.</div>') + '</div></div>';
+
+  // páginas
+  h += '<div class="tf-grid"><div class="tf-card larga"><h2>Por página</h2><p class="nota">Cliques de interesse = WhatsApp, abrir o app e "Quero meu acesso". Captadas = acessos grátis criados ou contatos deixados.</p>' +
+    (d.paginas.length ? '<div class="tf-wrap"><table class="tf-tab"><tr><th>Página</th><th>Visitas</th><th>Visitantes</th><th>Cliques</th><th>Captadas</th><th>Taxa</th></tr>' + d.paginas.map(x => '<tr><td>' + esc(nomePagina(x.pagina)) + '<span class="sub">' + esc(x.pagina) + '</span></td><td>' + nf(x.visitas) + '</td><td>' + nf(x.visitantes) + '</td><td>' + nf(x.cliques) + '</td><td>' + nf(x.conversoes) + '</td><td>' + pc(x.taxa) + '</td></tr>').join('') + '</table></div>' : '<div class="tf-vazio">Sem visitas neste período.</div>') + '</div></div>';
+
+  // campanhas + gerador
+  h += '<div class="tf-grid"><div class="tf-card"><h2>Campanhas (links com UTM)</h2><p class="nota">Cada linha é um link seu com origem marcada, por exemplo o link de um story. Crie os links ao lado para medir cada divulgação separada.</p>' +
+    (d.campanhas.length ? '<div class="tf-wrap"><table class="tf-tab"><tr><th>Origem / campanha</th><th>Visitantes</th><th>Captadas</th><th>Taxa</th></tr>' + d.campanhas.map(c => '<tr><td>' + esc([c.utm_source, c.utm_medium].filter(Boolean).join(' / ') || 'sem origem') + '<span class="sub">' + esc([c.utm_campaign, c.utm_content].filter(Boolean).join(' · ') || 'sem campanha') + '</span></td><td>' + nf(c.visitantes) + '</td><td>' + nf(c.conversoes) + '</td><td>' + pc(c.taxa) + '</td></tr>').join('') + '</table></div>' : '<div class="tf-vazio">Nenhum link com UTM recebeu visita neste período.</div>') + '</div>' +
+    '<div class="tf-card"><h2>Criar link rastreável</h2><p class="nota">Preencha, copie e use no story, na bio, no WhatsApp ou no QR code. Cada link novo aparece ao lado com as próprias visitas.</p>' + geradorHtml() + '</div></div>';
+
+  // indicações
+  h += '<div class="tf-grid"><div class="tf-card larga"><h2>Links de indicação dos alunos</h2><p class="nota">Quem trouxe visitas pelo link <code>teste-gratis.html?ref=…</code> do próprio app. "Captadas" são as pessoas que criaram o acesso grátis ou deixaram o contato depois de entrar por esse link' +
+    (d.banco && d.banco.leads_indicados != null ? '. No banco, ' + nf(d.banco.leads_indicados) + ' contato(s) deste período vieram marcados como indicados' : '') + '.</p>' +
+    (d.indicacoes.length ? '<div class="tf-wrap"><table class="tf-tab"><tr><th>Aluno que indicou</th><th>Visitas</th><th>Visitantes</th><th>Captadas</th><th>Taxa</th></tr>' + d.indicacoes.map(x => '<tr><td>' + esc(x.nome) + '</td><td>' + nf(x.visitas) + '</td><td>' + nf(x.visitantes) + '</td><td>' + nf(x.conversoes) + '</td><td>' + pc(x.visitantes ? x.conversoes * 100 / x.visitantes : 0) + '</td></tr>').join('') + '</table></div>' : '<div class="tf-vazio">Nenhuma visita por link de indicação neste período.</div>') + '</div></div>';
+
+  // cliques
+  h += '<div class="tf-grid"><div class="tf-card"><h2>Cliques e ações</h2><p class="nota">O que as pessoas fizeram nas páginas. Os cliques de WhatsApp mostram o texto da mensagem, que identifica o plano escolhido.</p>' +
+    (d.eventos.length ? '<div class="tf-wrap"><table class="tf-tab"><tr><th>Ação</th><th>Vezes</th><th>Pessoas</th></tr>' + d.eventos.map(e => '<tr><td>' + esc(nomeEvento(e.evento)) + (e.rotulo ? '<span class="sub">' + esc(e.rotulo) + '</span>' : '') + '</td><td>' + nf(e.n) + '</td><td>' + nf(e.visitantes) + '</td></tr>').join('') + '</table></div>' : '<div class="tf-vazio">Nenhum clique neste período.</div>') + '</div>' +
+    '<div class="tf-card"><h2>Sites de origem</h2><p class="nota">Páginas de outros sites e apps que levaram visitas (quando o navegador informa).</p>' + barras(d.sites_origem, x => x.host, 'visitas') + '</div></div>';
+
+  // público
+  h += '<div class="tf-grid"><div class="tf-card"><h2>Aparelhos</h2>' + barras(d.aparelhos, x => x.nome, 'visitantes') + '<h2 style="margin-top:16px">Sistemas</h2>' + barras(d.sistemas, x => x.nome, 'visitantes') + '</div>' +
+    '<div class="tf-card"><h2>Navegadores</h2><p class="nota">"Instagram" e "Facebook" são quem abriu o link dentro do próprio app deles.</p>' + barras(d.navegadores, x => x.nome, 'visitantes') + '</div>' +
+    '<div class="tf-card"><h2>Cidades</h2><p class="nota">Vem do Cloudflare. Pode faltar para parte dos visitantes.</p>' + barras(d.cidades, x => x.nome, 'visitantes') + '<h2 style="margin-top:16px">Países</h2>' + barras(d.paises, x => x.nome, 'visitantes') + '</div></div>';
+
+  // horários
+  const dsem = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  h += '<div class="tf-grid"><div class="tf-card"><h2>Horário das visitas</h2><p class="nota">Visitas por hora do dia (Brasília).</p>' + graficoHoras(d.horas) + '</div>' +
+    '<div class="tf-card"><h2>Dia da semana</h2><p class="nota">Visitas por dia da semana no período.</p>' + barras(d.dia_semana.map((v, i) => ({ nome: dsem[i], v })), x => x.nome, 'v') + '</div></div>';
+
+  // agora + conferência + ferramentas
+  h += '<div class="tf-grid"><div class="tf-card"><h2>Últimas visitas</h2><p class="nota">Atualiza sozinha. Horário de Brasília.</p><div id="tf-ultimas">' + ultimasHtml(d.agora.ultimas) + '</div></div>' +
+    '<div class="tf-card"><h2>Conferência com o banco</h2><p class="nota">Cadastros que de fato existem no banco, independente do que o navegador avisou (útil para ver se algo está deixando de ser medido).</p>' +
+    (d.banco && d.banco.leads != null ? '<div class="tf-barra"><div class="n">Contatos na tabela de leads</div><div class="b"></div><div class="v">' + nf(d.banco.leads) + '</div></div>' + (d.banco.leads_por_origem || []).map(o => '<div class="tf-barra"><div class="n" style="padding-left:12px;color:var(--text-muted)">' + esc(o.origem) + '</div><div class="b"></div><div class="v">' + nf(o.n) + '</div></div>').join('') : '<div class="tf-vazio">Tabela de leads indisponível.</div>') +
+    '<p class="nota" style="margin-top:12px">Quem criou o acesso grátis direto no formulário aparece em Clientes, não nesta tabela. "Pessoas captadas" acima soma os dois caminhos.</p>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="tf-btn perigo" onclick="limparAntigos()">Apagar medições com mais de 12 meses</button></div></div></div>';
+  main.innerHTML = h;
+  gerarLink();
+}
+function ultimasHtml(l) {
+  if (!l || !l.length) return '<div class="tf-vazio">Nenhuma visita ainda.</div>';
+  return '<div class="tf-wrap"><table class="tf-tab"><tr><th>Quando</th><th>Página</th><th>Origem</th><th>Local</th></tr>' + l.map(v => {
+    const dt = new Date(String(v.criado_em).replace(' ', 'T') + 'Z');
+    const quando = isNaN(dt) ? '' : dt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return '<tr><td>' + esc(quando) + (Number(v.novo) ? '<span class="sub">novo visitante</span>' : '') + '</td><td>' + esc(nomePagina(v.pagina)) + '</td><td>' + esc(nomeCanal(v.canal)) + (v.utm_campaign ? '<span class="sub">' + esc(v.utm_campaign) + '</span>' : '') + '</td><td>' + esc([v.cidade, v.aparelho].filter(Boolean).join(' · ')) + '</td></tr>';
+  }).join('') + '</table></div>';
+}
+
+// ── gerador de link com UTM ──
+const BASES = [['https://intusfit.com.br/teste-gratis.html', 'Teste grátis'], ['https://intusfit.com.br/', 'Site (página inicial)'], ['https://intusfit.com.br/app/painel/login.html', 'Login do app']];
+function geradorHtml() {
+  const op = (l, sel) => l.map(([v, t]) => '<option value="' + esc(v) + '">' + esc(t) + '</option>').join('');
+  return '<div class="tf-form"><div><label>Página de destino</label><select class="tf-sel" id="g-base" onchange="gerarLink()">' + op(BASES) + '</select></div>' +
+    '<div><label>Onde vai divulgar</label><select class="tf-sel" id="g-src" onchange="gerarLink()">' + op([['instagram', 'Instagram'], ['whatsapp', 'WhatsApp'], ['facebook', 'Facebook'], ['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['google', 'Google'], ['email', 'E-mail'], ['qrcode', 'QR code'], ['outro', 'Outro']]) + '</select></div>' +
+    '<div><label>Formato</label><select class="tf-sel" id="g-med" onchange="gerarLink()">' + op([['stories', 'Stories'], ['bio', 'Link da bio'], ['post', 'Post'], ['reels', 'Reels'], ['mensagem', 'Mensagem direta'], ['anuncio', 'Anúncio pago'], ['impresso', 'Impresso / QR'], ['outro', 'Outro']]) + '</select></div>' +
+    '<div><label>Nome da campanha</label><input class="tf-in" id="g-camp" placeholder="ex.: teste-gratis-outubro" oninput="gerarLink()"></div>' +
+    '<div><label>Qual arte ou versão (opcional)</label><input class="tf-in" id="g-cont" placeholder="ex.: story-a5 ou foto-troféus" oninput="gerarLink()"></div></div>' +
+    '<div class="tf-link"><code id="g-url"></code><button class="tf-btn" onclick="copiarLink()">Copiar</button></div>';
+}
+function slug(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60); }
+function gerarLink() {
+  const g = id => (document.getElementById(id) || {}).value || '';
+  if (!document.getElementById('g-url')) return;
+  const p = new URLSearchParams();
+  p.set('utm_source', g('g-src')); p.set('utm_medium', g('g-med'));
+  if (slug(g('g-camp'))) p.set('utm_campaign', slug(g('g-camp')));
+  if (slug(g('g-cont'))) p.set('utm_content', slug(g('g-cont')));
+  document.getElementById('g-url').textContent = g('g-base') + '?' + p.toString();
+}
+function copiarLink() {
+  const t = document.getElementById('g-url').textContent;
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Link copiado'), () => { const r = document.createRange(); r.selectNode(document.getElementById('g-url')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Selecionei o link: copie com Ctrl+C'); });
+}
+function toast(m) { const el = document.createElement('div'); el.textContent = m; el.style.cssText = 'position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:10px 16px;border-radius:10px;z-index:99999;font-size:13px;'; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
+
+async function limparAntigos() {
+  if (!confirm('Apagar as medições de tráfego com mais de 12 meses? Só as medições de visitas e cliques saem; clientes, leads e o resto não são tocados. Não dá para desfazer.')) return;
+  try { const tk = (Auth.getToken() || ''); const r = await fetch(API_BASE + '/trafego.php?action=limpar&dias=365', { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + tk } }); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'erro'); toast(nf(j.apagadas) + ' registros apagados'); carregar(); }
+  catch (e) { toast('Não consegui apagar: ' + e.message); }
+}
+
+// "Agora" atualiza sozinho sem redesenhar a tela inteira (só com a aba visível).
+setInterval(async () => {
+  if (document.hidden || !dados) return;
+  try {
+    const j = await chamar('action=agora');
+    const t = document.getElementById('tf-vivo-t'); if (t) t.textContent = nf(j.agora.ativos) + ' agora';
+    const u = document.getElementById('tf-ultimas'); if (u) u.innerHTML = ultimasHtml(j.agora.ultimas);
+  } catch (e) {}
+}, 20000);
+main.innerHTML = '<div class="tf-vazio" style="padding:60px">Carregando os números...</div>';
+carregar();
+</script>
+</body>
+</html>

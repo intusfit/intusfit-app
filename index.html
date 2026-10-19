@@ -188,6 +188,7 @@ footer{border-top:1px solid #181818;padding:48px 24px;text-align:center}
 @media(max-width:640px){.nav{padding:12px 16px}section{padding:72px 20px}.team-grid{grid-template-columns:1fr}.transf-grid{grid-template-columns:1fr 1fr}.depo-grid{grid-template-columns:1fr}.steps{grid-template-columns:1fr 1fr}.steps::before{display:none}.cta-btns{flex-direction:column;align-items:center}.wa-float-text{display:none}.wa-float{padding:14px;border-radius:50%}}
 @media(max-width:400px){.transf-grid{grid-template-columns:1fr}.steps{grid-template-columns:1fr}}
 </style>
+<script src="/trafego.js" defer></script>
 </head>
 <body>
 

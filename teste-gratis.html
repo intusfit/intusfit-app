@@ -141,6 +141,7 @@ h1 em{font-style:normal;color:var(--accent)}
 .ig-link{display:inline-flex;align-items:center;gap:6px;color:var(--muted);text-decoration:none;font-size:12px;font-weight:700;margin:14px 0 10px}
 .ig-link svg{width:16px;height:16px;flex-shrink:0}
 </style>
+<script src="/trafego.js" defer></script>
 </head>
 <body>
 
@@ -302,6 +303,9 @@ const WHATS_NUMERO = '5545991156006';
 // _linkIndicacao em aluno.html). Guardado aqui só pra repassar no cadastro —
 // nunca validado contra nada nesta página, o back-end aceita ou ignora.
 const REF_INDICACAO = (new URLSearchParams(location.search).get('ref') || '').trim();
+// Medição do funil (trafego.js): cada etapa vira um evento. Falha aqui nunca atrapalha o formulário.
+function trk(nome, rotulo, valor) { try { if (window.Trafego) window.Trafego.evento(nome, rotulo, valor); } catch (e) {} }
+(function () { var f = document.getElementById('form-lead'), uma = false; if (f) f.addEventListener('focusin', function () { if (!uma) { uma = true; trk('form_inicio'); } }); })();
 
 function formatarTelefoneInput(el) {
   el.addEventListener('input', function () {
@@ -323,6 +327,7 @@ document.getElementById('btn-continuar').addEventListener('click', function () {
   if (whatsappNumeros.length < 10) { aviso1.textContent = 'Digite um WhatsApp válido, com DDD.'; aviso1.classList.add('on'); return; }
   if (!email) { aviso1.textContent = 'Digite seu e-mail.'; aviso1.classList.add('on'); return; }
   if (!document.querySelector('input[name="genero"]:checked')) { aviso1.textContent = 'Escolha o seu gênero.'; aviso1.classList.add('on'); return; }
+  trk('etapa1_ok');
   document.getElementById('step-1').style.display = 'none';
   document.getElementById('step-2').style.display = 'block';
   document.getElementById('dot-1').classList.remove('on');
@@ -360,6 +365,7 @@ function mostrarConfirmacaoLead(nome, objetivo) {
   document.getElementById('link-whats').href = 'https://wa.me/' + WHATS_NUMERO + '?text=' + encodeURIComponent(msg);
   document.getElementById('form-lead').style.display = 'none';
   document.getElementById('confirmacao').classList.add('on');
+  trk('whatsapp', 'abriu sozinho apos o contato');
   window.open(document.getElementById('link-whats').href, '_blank');
 }
 
@@ -425,6 +431,7 @@ document.getElementById('form-lead').addEventListener('submit', async function (
     });
 
     if (r.status === 409) {
+      trk('email_ja_cadastrado');
       aviso.textContent = 'Esse e-mail já é cadastrado na Intus Fit. Entre no app com sua senha, ou fale com a equipe no WhatsApp se precisar de ajuda.';
       aviso.classList.add('on');
       btn.disabled = false; btn.textContent = 'Quero meu acesso grátis 💪';
@@ -448,12 +455,14 @@ document.getElementById('form-lead').addEventListener('submit', async function (
     }));
     localStorage.setItem('intus-welcome', '1');
 
+    trk('conta_criada', REF_INDICACAO ? 'indicado' : 'direto', Number(criado.idatleta) || null);
     mostrarConfirmacaoConta(nome, objetivo);
   } catch (err) {
     // Conta não pôde ser criada agora (servidor fora do ar, rate limit etc.) —
     // não perde o contato: cai no mesmo fluxo de captura de lead + WhatsApp
     // que já existia, pra equipe seguir manualmente.
     await registrarApenasLead(nome, whatsappNumeros, email, objetivo, honeypot);
+    trk('lead_enviado', REF_INDICACAO ? 'indicado' : 'direto');
     mostrarConfirmacaoLead(nome, objetivo);
   }
 });
