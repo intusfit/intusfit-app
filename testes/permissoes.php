@@ -58,5 +58,23 @@ eq('catalogo.php confere al/av/nt em alongamentos, avaliações, nutrição e al
 eq('atletas.php confere at_editar no PUT e at_incluir no POST', strpos($ar('atletas.php'), "'at_editar')") !== false && strpos($ar('atletas.php'), "'at_incluir')") !== false);
 eq('o PUT de clientes só abre exceção para notas, origem e bloqueio', strpos($ar('atletas.php'), "['notas_professor', 'origem']") !== false && strpos($ar('atletas.php'), "['stbloqueio']") !== false);
 
+// Registrar/apagar treino e cardio: cada pessoa só mexe nos alunos que pode ver (aluno: ele mesmo). Antes POST de treino, POST de
+// cardio, DELETE de treino, DELETE e PUT de cardio não conferiam de quem era o registro (achado em 19/10/2026).
+$tr = $ar('treinos.php');
+$trecho = function ($ini, $fim, $de = 0) use ($tr) { $a = strpos($tr, $ini, $de); $b = strpos($tr, $fim, $a + 1); return substr($tr, $a, $b - $a); };
+$sessoes = $trecho("if (\$action === 'sessoes')", "if (\$action === 'cardio')");
+$cardio = $trecho("if (\$action === 'cardio')", "if (\$action === 'ranking')");
+$parte = function ($txt, $ini, $fim) { $a = strpos($txt, $ini); $b = ($fim === null) ? strlen($txt) : strpos($txt, $fim, $a + 1); return substr($txt, $a, $b - $a); };
+$posS = $parte($sessoes, "if (\$method === 'POST')", "if (\$method === 'DELETE')");
+$delS = $parte($sessoes, "if (\$method === 'DELETE')", "if (\$method === 'PUT')");
+$posC = $parte($cardio, "if (\$method === 'POST')", "// Foto do cardio");
+$delC = $parte($cardio, "if (\$method === 'DELETE')", "// O cardio ao vivo");
+$putC = $parte($cardio, "if (\$method === 'PUT')", null);
+eq('POST de treino confere de quem é', strpos($posS, '_checkAtletaAccess($idat)') !== false);
+eq('DELETE de treino confere de quem é', strpos($delS, "_checkAtletaAccess((int)\$rowD['idatleta'])") !== false);
+eq('POST de cardio confere de quem é', strpos($posC, '_checkAtletaAccess($idat)') !== false);
+eq('DELETE de cardio confere de quem é', strpos($delC, "_checkAtletaAccess((int)\$rowD['idatleta'])") !== false);
+eq('PUT de cardio confere de quem é', strpos($putC, "_checkAtletaAccess((int)\$row['idatleta'])") !== false);
+
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

@@ -190,23 +190,31 @@ function ensureTables(PDO $pdo) {
             INDEX idx_data (dtsessao)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN nao_contar TINYINT NOT NULL DEFAULT 0 AFTER marcado_como_feito"); } catch (Throwable $e2) {}
-    // tipo: 'musculacao' (default) | 'cardio'
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN tipo VARCHAR(20) NOT NULL DEFAULT 'musculacao' AFTER nao_contar"); } catch (Throwable $e2) {}
-    // pontos calculados (musculacao=3 por sessão, cardio via METs)
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN pontos DECIMAL(6,2) NOT NULL DEFAULT 0 AFTER tipo"); } catch (Throwable $e2) {}
-    // cardio fields
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN cardio_tipo VARCHAR(60) NULL AFTER pontos"); } catch (Throwable $e2) {}
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN cardio_intensidade VARCHAR(20) NULL AFTER cardio_tipo"); } catch (Throwable $e2) {}
-    // escala subjetiva de esforço (RPE 1-10) e foto de comprovação (esteira/relógio/print)
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN cardio_rpe TINYINT NULL AFTER cardio_intensidade"); } catch (Throwable $e2) {}
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN cardio_foto LONGTEXT NULL AFTER cardio_rpe"); } catch (Throwable $e2) {}
-    // hora do registro (HH:MM, hora local do aluno) — para o professor conferir
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN hora_conclusao VARCHAR(5) NULL AFTER cardio_foto"); } catch (Throwable $e2) {}
-    // 1 = cardio rastreado ao vivo pelo app (GPS ou cronômetro), 0 = registro
-    // manual — usado pro selo "ao vivo" e pelo bônus semanal de horas ao vivo
-    // no ranking (API.agregarPontosRank, em api.js).
-    try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN ao_vivo TINYINT NOT NULL DEFAULT 0 AFTER hora_conclusao"); } catch (Throwable $e2) {}
+    // Colunas que entraram depois. ANTES: nove "ALTER TABLE ... ADD COLUMN" rodavam e falhavam (coluna ja existe) a CADA gravacao de
+    // treino ou cardio: nove idas ao banco e nove pedidos de trava na tabela de sessoes, no caminho de quem esta esperando o
+    // "Salvando o seu treino...". Agora um unico SHOW COLUMNS, e so altera o que realmente falta.
+    $scols = array_column($pdo->query("SHOW COLUMNS FROM intus_sessao")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    $sadd = [
+        'nao_contar'          => "nao_contar TINYINT NOT NULL DEFAULT 0 AFTER marcado_como_feito",
+        // tipo: 'musculacao' (default) | 'cardio'
+        'tipo'                => "tipo VARCHAR(20) NOT NULL DEFAULT 'musculacao' AFTER nao_contar",
+        // pontos calculados (musculacao=3 por sessao, cardio via METs)
+        'pontos'              => "pontos DECIMAL(6,2) NOT NULL DEFAULT 0 AFTER tipo",
+        'cardio_tipo'         => "cardio_tipo VARCHAR(60) NULL AFTER pontos",
+        'cardio_intensidade'  => "cardio_intensidade VARCHAR(20) NULL AFTER cardio_tipo",
+        // escala subjetiva de esforco (RPE 1-10) e foto de comprovacao (esteira/relogio/print)
+        'cardio_rpe'          => "cardio_rpe TINYINT NULL AFTER cardio_intensidade",
+        'cardio_foto'         => "cardio_foto LONGTEXT NULL AFTER cardio_rpe",
+        // hora do registro (HH:MM, hora local do aluno) para o professor conferir
+        'hora_conclusao'      => "hora_conclusao VARCHAR(5) NULL AFTER cardio_foto",
+        // 1 = cardio rastreado ao vivo pelo app (GPS ou cronometro), 0 = registro manual; alimenta o selo "ao vivo" e o bonus
+        // semanal de horas ao vivo no ranking (API.agregarPontosRank, em api.js)
+        'ao_vivo'             => "ao_vivo TINYINT NOT NULL DEFAULT 0 AFTER hora_conclusao",
+    ];
+    foreach ($sadd as $_col => $_ddl) {
+        if (in_array($_col, $scols, true)) continue;
+        try { $pdo->exec("ALTER TABLE intus_sessao ADD COLUMN " . $_ddl); } catch (Throwable $e2) {}
+    }
 }
 try { ensureTables($pdo); } catch (Throwable $e) {
     http_response_code(500);
@@ -762,6 +770,8 @@ try {
             $b = jsonBody();
             $idat = (int)($b['idatleta'] ?? 0);
             if ($idat <= 0) { http_response_code(400); echo json_encode(['error' => 'idatleta obrigatorio']); exit; }
+            // Aluno so registra treino para si; professor so para os alunos dele (antes qualquer pessoa autenticada registrava para qualquer idatleta).
+            if (!_checkAtletaAccess($idat)) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
             $itens = isset($b['itens']) && is_array($b['itens']) ? json_encode($b['itens']) : null;
             $naoContar = (int)($b['nao_contar'] ?? 0);
             // Musculação = 5 pontos por sessão válida (MET médio 5.0)
@@ -799,9 +809,12 @@ try {
                 WHERE idatleta = ? AND tipo = 'musculacao' AND dtsessao = ?
                   AND divisao <=> ? AND idficha <=> ? AND ABS(duracao_seg - ?) <= 900
                   AND itens <=> ? AND comentario <=> ?
-                  AND created_at >= (NOW() - INTERVAL 30 MINUTE)
+                  AND (created_at >= (NOW() - INTERVAL 30 MINUTE) OR (? IS NOT NULL AND hora_conclusao = ?))
                 ORDER BY idsessao DESC LIMIT 1");
-            $stDup->execute([$idat, $dtsessao, $divisao, $idficha, $duracao, $itens, $comentario]);
+            // Segunda chance de reconhecer o reenvio: o app guarda o treino pronto (com a hora de conclusao DE QUANDO terminou) e
+            // reenvia sozinho quando a conexao volta, as vezes horas depois. Mesma hora de conclusao + mesmos itens no mesmo dia
+            // e o mesmo treino, mesmo fora da janela de 30 minutos.
+            $stDup->execute([$idat, $dtsessao, $divisao, $idficha, $duracao, $itens, $comentario, $horaConcl, $horaConcl]);
             $dupId = $stDup->fetchColumn();
             if ($dupId) { echo json_encode(['idsessao' => (int)$dupId, 'ok' => true, 'duplicata' => true]); exit; }
             // Treino fora do protocolo (divisao 'FORA', marcado à mão pelo aluno; vale 5 pontos fixos no ranking): 15 min a 4 h, de hoje ou de ontem,
@@ -835,6 +848,12 @@ try {
         if ($method === 'DELETE') {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+            // So apaga sessao de aluno que a pessoa pode ver (antes qualquer pessoa autenticada apagava a sessao de qualquer um, pelo id).
+            $stD = $pdo->prepare("SELECT idatleta FROM intus_sessao WHERE idsessao = ?");
+            $stD->execute([$id]);
+            $rowD = $stD->fetch(PDO::FETCH_ASSOC);
+            if (!$rowD) { http_response_code(404); echo json_encode(['error' => 'sessao nao encontrada']); exit; }
+            if (!_checkAtletaAccess((int)$rowD['idatleta'])) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
             $pdo->prepare("DELETE FROM intus_sessao WHERE idsessao = ?")->execute([$id]);
             echo json_encode(['ok' => true]);
             exit;
@@ -885,6 +904,7 @@ try {
             $b = jsonBody();
             $idat = (int)($b['idatleta'] ?? 0);
             if ($idat <= 0) { http_response_code(400); echo json_encode(['error' => 'idatleta obrigatorio']); exit; }
+            if (!_checkAtletaAccess($idat)) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
             $duracao_seg = (int)($b['duracao_seg'] ?? 0);
             $pontos = (float)($b['pontos'] ?? 0);
             $rpe = isset($b['cardio_rpe']) && $b['cardio_rpe'] !== '' ? (int)$b['cardio_rpe'] : null;
@@ -917,6 +937,30 @@ try {
             if ($pontos > 0 && $duracao_seg > 0 && !empty($b['cardio_tipo'])) $pontos = _cardioPontosBase($b['cardio_tipo'], $rpe ?? 5, $duracao_seg / 60);
             $horaConcl = (isset($b['hora_conclusao']) && $b['hora_conclusao'] !== '') ? substr((string)$b['hora_conclusao'], 0, 5) : null;
             $aoVivo = !empty($b['ao_vivo']) ? 1 : 0;
+            // Reenvio do MESMO cardio (a conexao caiu depois do INSERT, ou o app guardou o cardio e o reenviou quando a internet voltou):
+            // devolve o registro que ja existe em vez de criar outro. Ate 19/10/2026 o cardio nao tinha esta protecao, e cada reenvio
+            // virava mais um cardio (e comia o limite de 3 por dia). Com hora de conclusao (todo app recente manda): mesma pessoa,
+            // dia, atividade, duracao exata e hora de conclusao. Sem ela (app antigo): mesma coisa nos ultimos 10 minutos.
+            try {
+                if ($horaConcl !== null) {
+                    $stCd = $pdo->prepare("SELECT idsessao, pontos, nao_contar FROM intus_sessao
+                        WHERE idatleta = ? AND tipo = 'cardio' AND dtsessao = ? AND cardio_tipo <=> ? AND duracao_seg = ? AND hora_conclusao = ?
+                        ORDER BY idsessao DESC LIMIT 1");
+                    $stCd->execute([$idat, $dtCardio, $b['cardio_tipo'] ?? null, $duracao_seg, $horaConcl]);
+                } else {
+                    $stCd = $pdo->prepare("SELECT idsessao, pontos, nao_contar FROM intus_sessao
+                        WHERE idatleta = ? AND tipo = 'cardio' AND dtsessao = ? AND cardio_tipo <=> ? AND duracao_seg = ?
+                          AND created_at >= (NOW() - INTERVAL 10 MINUTE)
+                        ORDER BY idsessao DESC LIMIT 1");
+                    $stCd->execute([$idat, $dtCardio, $b['cardio_tipo'] ?? null, $duracao_seg]);
+                }
+                $dupC = $stCd->fetch(PDO::FETCH_ASSOC);
+                if ($dupC) {
+                    echo json_encode(['idsessao' => (int)$dupC['idsessao'], 'ok' => true, 'duplicata' => true, 'pontos' => (float)$dupC['pontos'],
+                        'nao_contar' => (int)$dupC['nao_contar'], 'limite_dia' => $LIMITE_CARDIO_DIA]);
+                    exit;
+                }
+            } catch (Throwable $e) { /* sem a checagem, segue o fluxo normal */ }
             $st = $pdo->prepare("INSERT INTO intus_sessao (idatleta, dtsessao, duracao_seg, comentario, nao_contar, tipo, pontos, cardio_tipo, cardio_intensidade, cardio_rpe, cardio_foto, divisao, hora_conclusao, ao_vivo) VALUES (?, ?, ?, ?, ?, 'cardio', ?, ?, ?, ?, ?, 'C', ?, ?)");
             $st->execute([
                 $idat,
@@ -958,6 +1002,11 @@ try {
         if ($method === 'DELETE') {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+            $stD = $pdo->prepare("SELECT idatleta FROM intus_sessao WHERE idsessao = ? AND tipo = 'cardio'");
+            $stD->execute([$id]);
+            $rowD = $stD->fetch(PDO::FETCH_ASSOC);
+            if (!$rowD) { http_response_code(404); echo json_encode(['error' => 'sessao nao encontrada']); exit; }
+            if (!_checkAtletaAccess((int)$rowD['idatleta'])) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
             $pdo->prepare("DELETE FROM intus_sessao WHERE idsessao = ? AND tipo = 'cardio'")->execute([$id]);
             echo json_encode(['ok' => true]);
             exit;
@@ -974,10 +1023,11 @@ try {
             $b = jsonBody();
             if (!isset($b['cardio_rpe'])) { http_response_code(400); echo json_encode(['error' => 'cardio_rpe obrigatorio']); exit; }
             $rpe = max(1, min(10, (int)$b['cardio_rpe']));
-            $st = $pdo->prepare("SELECT nao_contar, cardio_tipo, duracao_seg FROM intus_sessao WHERE idsessao = ? AND tipo = 'cardio'");
+            $st = $pdo->prepare("SELECT idatleta, nao_contar, cardio_tipo, duracao_seg FROM intus_sessao WHERE idsessao = ? AND tipo = 'cardio'");
             $st->execute([$id]);
             $row = $st->fetch(PDO::FETCH_ASSOC);
             if (!$row) { http_response_code(404); echo json_encode(['error' => 'sessao nao encontrada']); exit; }
+            if (!_checkAtletaAccess((int)$row['idatleta'])) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
             // Se já não contava ponto (limite diário ou duração fora do normal), o
             // esforço pode mudar mas os pontos continuam zero — não foi o RPE que
             // decidiu não contar, e mudar o RPE não deveria reverter isso.

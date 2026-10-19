@@ -40,6 +40,6 @@ eq('usuário desconhecido não nega', !usuarioPermissaoNegada($pdo, 99, 'ms_ver'
 $ar = fn($p) => str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/' . $p));
 eq('mensagens.php consulta a trava e a chave antes de listar, enviar e excluir', strpos($ar('mensagens.php'), "intusSegConfig(\$pdo)['mensagens']") !== false && strpos($ar('mensagens.php'), "'enviar' => 'ms_incluir'") !== false);
 eq('desafios.php exige administrador nas escritas quando a trava está ligada', strpos($ar('desafios.php'), "intusSegConfig(\$pdo)['desafios_admin']") !== false && strpos($ar('desafios.php'), '_intusExigeSessao($pdo, true, true)') !== false);
-eq('a rota de configuração é só do administrador', strpos($ar('catalogo.php'), "'seguranca_config'];") !== false);
+eq('a rota de configuração é só do administrador', preg_match("/\\$_SO_ADMIN = \[[^\]]*'seguranca_config'/", $ar('catalogo.php')) === 1);
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

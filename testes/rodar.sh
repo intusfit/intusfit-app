@@ -36,6 +36,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "telas de verdade no navegador"      node navegador.js
   passo "as 3 telas concordam na pontuação"  node concordancia.js
   passo "financeiro de verdade no navegador" node financeiro_tela.js
+  passo "fila de envio de treinos e cardios"  node fila.js
   kill "$(cat /tmp/intus-srv.pid)" "$(cat /tmp/intus-srv2.pid)" 2>/dev/null
 else
   echo "!! playwright ou python3 ausentes: testes de navegador pulados."

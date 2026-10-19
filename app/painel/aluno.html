@@ -17,7 +17,7 @@
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261016a"></script>
-  <script src="ajuda.js?v=20261016c" defer></script>
+  <script src="ajuda.js?v=20261019a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -2080,8 +2080,14 @@ async function _compositarInfoNaFoto(dataUrl) {
 async function _composeImagemFinal() {
   let dataUrl = _feedComposeImg;
   // Post de vídeo: a capa é um quadro do vídeo e já traz a figurinha, então não leva outra por cima.
-  if (_composeInfoOn && _composeInfo && !_composeVideoCapa) dataUrl = await _compositarInfoNaFoto(dataUrl);
-  dataUrl = await _compositarLogoNaFoto(dataUrl);
+  // Compartilhar treino/cardio liga a figurinha, que passa pelo html2canvas; já houve aparelho em que ele falha (memória, fonte,
+  // imagem externa) e o post inteiro morria com "Não consegui publicar", enquanto o "Novo post" comum (sem figurinha) funcionava.
+  // A figurinha é enfeite: se falhar, publica a foto sem ela e avisa.
+  if (_composeInfoOn && _composeInfo && !_composeVideoCapa) {
+    try { dataUrl = await _compositarInfoNaFoto(dataUrl); }
+    catch (e) { console.warn('[compartilhar] figurinha falhou, seguindo só com a foto:', e); toast('Não consegui colocar a figurinha na foto. Vou usar só a foto.'); }
+  }
+  try { dataUrl = await _compositarLogoNaFoto(dataUrl); } catch (e) { console.warn('[compartilhar] logo falhou:', e); }
   return dataUrl;
 }
 
@@ -6549,7 +6555,7 @@ const SessoesTreino = {
       return ia === ib ? 0 : (ib > ia ? 1 : -1);
     });
   },
-  async criar(s) {
+  async criar(s, ms) {
     const token = localStorage.getItem('mx-token') || '';
     let resposta;
     try {
@@ -6557,7 +6563,7 @@ const SessoesTreino = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify(s),
-      }, 25000);
+      }, ms || 25000);
       resposta = await r.json().catch(() => ({}));
       if (!r.ok || !resposta.ok || !Number(resposta.idsessao)) {
         throw Object.assign(new Error(resposta.error || 'Não foi possível salvar o treino no servidor.'), { status: r.status });
@@ -6578,7 +6584,7 @@ const SessoesTreino = {
   // de novo: isso precisa CONTAR o trabalho extra, mas sem criar um 2º
   // registro pro mesmo dia/ficha/divisão (ver _voltarParaContinuarTreino e
   // _executarFinalizacao).
-  async atualizar(idsessao, s) {
+  async atualizar(idsessao, s, ms) {
     const token = localStorage.getItem('mx-token') || '';
     let resposta;
     try {
@@ -6586,7 +6592,7 @@ const SessoesTreino = {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify(s),
-      }, 25000);
+      }, ms || 25000);
       resposta = await r.json().catch(() => ({}));
       if (!r.ok || !resposta.ok) throw Object.assign(new Error(resposta.error || 'Não foi possível atualizar o treino no servidor.'), { status: r.status });
     } catch (e) {
@@ -9277,19 +9283,18 @@ function _executarFinalizacao(duracao, naoContar) {
   // O treino pronto fica guardado neste aparelho ANTES de ir ao servidor. Se a rede
   // cair, o app fechar ou o servidor demorar, ele é reenviado sozinho depois (o
   // servidor ignora o reenvio do mesmo treino) e nada do que foi feito se perde.
-  _pendenteGravar({
+  const _pend = _pendenteGravar({
     sessao: sessao, idParaContinuar: _idParaContinuar || null, duracaoTotal: duracaoTotal,
     comentario: sessaoAtual.comentario || '', ficha: sessaoAtual.idficha, divisao: sessaoAtual.divisao,
     dia: sessao.dtsessao, criadoEm: Date.now(),
   });
   _finalizandoTreino = true;
   _busyMostrar('Salvando o seu treino...', null, 'Estamos registrando seus pontos. Não feche o app.');
-  _enviarSessaoComRetentativas(sessao, _idParaContinuar, function (msg) { _busyMostrar('Salvando o seu treino...', null, msg); })
+  _enviarSessaoComRetentativas(sessao, _idParaContinuar, function (msg) { _busyMostrar('Salvando o seu treino...', null, msg); }, 2)
     .then(function (sessaoSalva) {
-      const p = _pendenteLer();
-      _pendenteLimpar();
+      _pendenteLimpar(_pend.uid);
       _finalizandoTreino = false; _busyFim();
-      if (p) _concluirFinalizacao(sessaoSalva, p);
+      _concluirFinalizacao(sessaoSalva, _pend);
     })
     .catch(function (e) {
       _finalizandoTreino = false; _busyFim();
@@ -9297,29 +9302,62 @@ function _executarFinalizacao(duracao, naoContar) {
     });
 }
 
-// ── Treino finalizado aguardando o servidor ──
+// ── Registros finalizados aguardando o servidor (FILA de treinos e de cardios) ──
+// Regra de ouro: o treino/cardio pronto fica guardado NESTE APARELHO antes de ir ao servidor e só sai de lá quando o servidor
+// confirma. Se a rede cair, o app fechar ou o servidor demorar, o envio recomeça sozinho (ao abrir o app, ao voltar a internet,
+// ao voltar para o app e a cada 40 s) e nada do que foi feito se perde. O servidor reconhece o reenvio do mesmo treino ou cardio
+// (não duplica), então reenviar é sempre seguro. A fila aceita vários itens (antes o treino guardado era um só e um 2º treino
+// finalizado sem internet apagava o 1º).
 var _enviandoPendente = false;
-function _pendenteKey() { return 'intus-sessao-pendente-' + idAtleta; }
-function _pendenteLer() { try { return JSON.parse(localStorage.getItem(_pendenteKey()) || 'null'); } catch { return null; } }
-function _pendenteGravar(p) { try { localStorage.setItem(_pendenteKey(), JSON.stringify(p)); } catch {} }
-function _pendenteLimpar() { try { localStorage.removeItem(_pendenteKey()); } catch {} }
-function _pendenteDoTreino(ficha, divisao) {
-  const p = _pendenteLer();
-  return !!p && Number(p.ficha) === Number(ficha) && String(p.divisao) === String(divisao) && p.dia === dataHojeLocal();
+function _pendenteKey() { return 'intus-sessao-pendente-' + idAtleta; }   // formato antigo (um treino só): migrado para a fila
+function _filaKey() { return 'intus-sessao-fila-' + idAtleta; }
+function _filaTreinos() {
+  let l = [];
+  try { l = JSON.parse(localStorage.getItem(_filaKey()) || '[]'); } catch { l = []; }
+  if (!Array.isArray(l)) l = [];
+  try {
+    const velho = JSON.parse(localStorage.getItem(_pendenteKey()) || 'null');
+    if (velho && velho.sessao) {
+      velho.uid = velho.uid || ('v' + (velho.criadoEm || Date.now()));
+      if (!l.some(x => x.uid === velho.uid)) l.unshift(velho);
+      localStorage.setItem(_filaKey(), JSON.stringify(l));   // se não coube, cai no catch e o formato antigo fica como está
+    }
+    localStorage.removeItem(_pendenteKey());
+  } catch {}
+  return l;
 }
+function _filaTreinosSalvar(l) { try { localStorage.setItem(_filaKey(), JSON.stringify(l)); return true; } catch { return false; } }
+function _pendenteGravar(p) {
+  p.uid = p.uid || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
+  // O mesmo treino finalizado de novo antes de chegar ao servidor (ficha, divisão e dia iguais) substitui o anterior da fila.
+  const l = _filaTreinos().filter(x => !(Number(x.ficha) === Number(p.ficha) && String(x.divisao) === String(p.divisao) && x.dia === p.dia));
+  l.push(p);
+  _filaTreinosSalvar(l);
+  _filaIndicador();
+  return p;
+}
+function _pendenteLimpar(uid) { _filaTreinosSalvar(_filaTreinos().filter(x => x.uid !== uid)); _filaIndicador(); }
+function _pendenteDoTreino(ficha, divisao) {
+  return _filaTreinos().some(p => Number(p.ficha) === Number(ficha) && String(p.divisao) === String(divisao) && p.dia === dataHojeLocal());
+}
+// Erro que repetir não resolve (o servidor recusou o pedido). Falta de conexão, prazo estourado, erro do servidor (5xx),
+// sessão vencida (401), pedido limitado (429) e prazo do servidor (408) valem nova tentativa.
+function _erroPermanente(e) { const s = e && e.status; return !!s && s >= 400 && s < 500 && s !== 401 && s !== 408 && s !== 429; }
 
-// Até 3 tentativas. O servidor reconhece o reenvio do mesmo treino (não duplica); erro
-// de verdade do servidor (4xx) não adianta repetir.
-async function _enviarSessaoComRetentativas(sessao, idContinuar, aviso) {
+// Prazos curtos de propósito: o servidor não responde em 15 s só quando está sobrecarregado ou a rede está ruim, e esperar mais
+// só deixa o aluno olhando uma tela parada. Passou do prazo, o registro continua guardado e o envio segue em segundo plano.
+// tentativas = 1 (segundo plano, um prazo de 30 s) ou 2 (aluno esperando: 15 s e depois 25 s).
+async function _enviarSessaoComRetentativas(sessao, idContinuar, aviso, tentativas) {
+  const prazos = tentativas === 1 ? [30000] : [15000, 25000];
   let ultimo = null;
-  for (let i = 0; i < 3; i++) {
-    try { return idContinuar ? await SessoesTreino.atualizar(idContinuar, sessao) : await SessoesTreino.criar(sessao); }
+  for (let i = 0; i < prazos.length; i++) {
+    try { return idContinuar ? await SessoesTreino.atualizar(idContinuar, sessao, prazos[i]) : await SessoesTreino.criar(sessao, prazos[i]); }
     catch (e) {
       ultimo = e;
-      if (e && e.status && e.status >= 400 && e.status < 500) break;
-      if (i < 2) {
-        if (aviso) aviso('A conexão está lenta. Tentando de novo (' + (i + 2) + ' de 3)...');
-        await new Promise(function (r) { setTimeout(r, 2000 * (i + 1)); });
+      if (_erroPermanente(e)) break;
+      if (i < prazos.length - 1) {
+        if (aviso) aviso('A conexão está lenta. Tentando de novo (' + (i + 2) + ' de ' + prazos.length + ')...');
+        await new Promise(function (r) { setTimeout(r, 1500); });
       }
     }
   }
@@ -9347,29 +9385,179 @@ function _concluirFinalizacao(sessaoSalva, p) {
     if (st && st.sessao && Number(st.sessao.idficha) === Number(p.ficha) && String(st.sessao.divisao) === String(p.divisao)) localStorage.removeItem(TREINO_ATIVO_KEY);
   } catch {}
   limparTreinoAtivo();
-  toast('✅ Seu treino de hoje foi salvo!');
+  const _d = String(p.dia || '').split('-');
+  toast(p.dia === dataHojeLocal() || _d.length !== 3 ? '✅ Seu treino de hoje foi salvo!' : '✅ Treino de ' + _d[2] + '/' + _d[1] + ' enviado!');
   try { if (window._viewAtual === 'home') renderHome(); } catch {}
 }
 
-// Reenvia o treino guardado. interativo = a pessoa pediu (mostra a janela de carregamento).
+// Reenvia os treinos guardados, do mais antigo para o mais novo. interativo = a pessoa pediu (mostra a janela de carregamento
+// e, se falhar, o aviso). Devolve true quando a fila ficou vazia.
 async function _enviarPendente(interativo) {
-  const p = _pendenteLer();
-  if (!p || _enviandoPendente || _finalizandoTreino) return false;
+  if (_enviandoPendente || _finalizandoTreino) return false;
+  const fila = _filaTreinos().filter(function (p) { return interativo || !p.bloqueado; });
+  if (!fila.length) return false;
   _enviandoPendente = true;
   if (interativo) _busyMostrar('Enviando o seu treino...', null, 'Não feche o app até terminar.');
+  let falha = null;
   try {
-    const salva = await _enviarSessaoComRetentativas(p.sessao, p.idParaContinuar, interativo ? function (m) { _busyMostrar('Enviando o seu treino...', null, m); } : null);
-    _pendenteLimpar();
-    if (interativo) _busyFim();
-    _concluirFinalizacao(salva, p);
-    return true;
-  } catch (e) {
-    if (interativo) { _busyFim(); _treinoFalhaDialogo((e && e.message) || ''); }
-    return false;
-  } finally { _enviandoPendente = false; }
+    for (const p of fila) {
+      try {
+        const salva = await _enviarSessaoComRetentativas(p.sessao, p.idParaContinuar, interativo ? function (m) { _busyMostrar('Enviando o seu treino...', null, m); } : null, interativo ? 2 : 1);
+        _pendenteLimpar(p.uid);
+        if (interativo) _busyFim();
+        _concluirFinalizacao(salva, p);
+        if (interativo && fila.length > 1) _busyMostrar('Enviando o seu treino...', null, 'Não feche o app até terminar.');
+      } catch (e) {
+        // Anota a tentativa. Recusa do servidor não é repetida sozinha (só por "Tentar agora"); falta de conexão para o laço.
+        const l = _filaTreinos(); const it = l.find(function (x) { return x.uid === p.uid; });
+        if (it) { it.tentativas = (it.tentativas || 0) + 1; it.ultimoErro = (e && e.message) || ''; it.bloqueado = _erroPermanente(e); _filaTreinosSalvar(l); }
+        falha = e;
+        if (!_erroPermanente(e)) break;
+      }
+    }
+  } finally { _enviandoPendente = false; if (interativo) _busyFim(); _filaIndicador(); }
+  if (falha && interativo) _treinoFalhaDialogo((falha && falha.message) || '');
+  return !falha;
 }
-window.addEventListener('online', function () { _enviarPendente(false); });
-document.addEventListener('visibilitychange', function () { if (!document.hidden) _enviarPendente(false); });
+
+// ── Cardios aguardando o servidor ──
+// Mesma regra dos treinos. Até 19/10/2026 o cardio ia ao servidor numa chamada só, sem prazo, sem fila e sem repetir: com a
+// conexão ruim o aluno via "Registrado localmente" e o cardio nunca chegava ao ranking.
+var _cardioEnviandoFila = false;
+var _cardioUidParaId = {};   // uid do item da fila -> idsessao que o servidor devolveu (a tela de esforço usa para saber se ajusta a fila ou o registro)
+function _cardioFilaKey() { return 'intus-cardio-fila-' + idAtleta; }
+function _cardioFilaLer() { try { const l = JSON.parse(localStorage.getItem(_cardioFilaKey()) || '[]'); return Array.isArray(l) ? l : []; } catch { return []; } }
+function _cardioFilaSalvar(l) {
+  try { localStorage.setItem(_cardioFilaKey(), JSON.stringify(l)); return true; } catch {}
+  // Sem espaço no aparelho: guarda sem as fotos (o cardio vale mais que a foto).
+  try { localStorage.setItem(_cardioFilaKey(), JSON.stringify(l.map(function (x) { return Object.assign({}, x, { payload: Object.assign({}, x.payload, { cardio_foto: '' }), semFoto: true }); }))); return true; } catch { return false; }
+}
+function _cardioFilaAdd(payload) {
+  const item = { uid: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), payload: payload, criadoEm: Date.now(), tentativas: 0 };
+  const l = _cardioFilaLer(); l.push(item); _cardioFilaSalvar(l); _filaIndicador();
+  return item;
+}
+function _cardioFilaRemover(uid) { _cardioFilaSalvar(_cardioFilaLer().filter(function (x) { return x.uid !== uid; })); _filaIndicador(); }
+function _cardioFilaAtualizar(uid, campos) {
+  const l = _cardioFilaLer(); const it = l.find(function (x) { return x.uid === uid; });
+  if (!it) return false;
+  Object.assign(it.payload, campos); _cardioFilaSalvar(l);
+  return true;
+}
+// Guarda o cardio confirmado nas cópias locais (histórico do Cardio e lista de sessões da Home), sem a foto.
+function _cardioRegistrarLocal(res, payload) {
+  const localItem = Object.assign({}, payload); delete localItem.cardio_foto;
+  const excedeu = Number(res.nao_contar) === 1 || Number(payload.nao_contar) === 1;
+  const pts = typeof res.pontos === 'number' ? res.pontos : payload.pontos;
+  const idsessao = Number(res.idsessao);
+  if (!(_cardioHistorico || []).some(function (c) { return Number(c.idsessao) === idsessao; })) {
+    _cardioHistorico.unshift(Object.assign({}, localItem, { pontos: pts, nao_contar: excedeu ? 1 : 0, tem_foto: payload.cardio_foto ? 1 : 0, idsessao: idsessao }));
+  }
+  // Cardio vive num localStorage à parte (intus-cardios-*), separado do SessoesTreino que a Home lê para o quadro "Sua semana".
+  if (idsessao) {
+    const _l = SessoesTreino.load();
+    if (!_l.some(function (x) { return Number(x.idsessao) === idsessao; })) {
+      _l.push(Object.assign({}, localItem, { pontos: pts, nao_contar: excedeu ? 1 : 0, idsessao: idsessao }));
+      SessoesTreino.save(_l);
+    }
+  }
+}
+async function _cardioPostar(payload, ms) {
+  const token = localStorage.getItem('mx-token') || '';
+  const r = await _fetchT(API_BASE + '/treinos.php?action=cardio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(payload),
+  }, ms);
+  const res = await r.json().catch(function () { return {}; });
+  if (!r.ok || !Number(res.idsessao)) throw Object.assign(new Error(res.error || ('Erro ' + r.status + ' no servidor.')), { status: r.status });
+  return res;
+}
+// Envia UM item da fila. tentativas = 1 (segundo plano) ou 2 (aluno esperando). Quando o servidor confirma, o item sai da fila.
+async function _cardioEnviarItem(item, tentativas) {
+  const prazos = tentativas === 1 ? [30000] : [15000, 25000];
+  let ultimo = null, payload = item.payload, i = 0;
+  while (i < prazos.length) {
+    try {
+      const res = await _cardioPostar(payload, prazos[i]);
+      _cardioFilaRemover(item.uid);
+      _cardioUidParaId[item.uid] = Number(res.idsessao);
+      _cardioRegistrarLocal(res, payload);
+      return res;
+    } catch (e) {
+      ultimo = e;
+      if (e && e.status === 413 && payload.cardio_foto) {   // foto grande demais para o servidor: envia o cardio sem ela
+        payload = Object.assign({}, payload, { cardio_foto: '' }); _cardioFilaAtualizar(item.uid, { cardio_foto: '' });
+        continue;
+      }
+      if (_erroPermanente(e)) break;
+      i++;
+      if (i < prazos.length) await new Promise(function (r) { setTimeout(r, 1500); });
+    }
+  }
+  const l = _cardioFilaLer(); const it = l.find(function (x) { return x.uid === item.uid; });
+  if (it) { it.tentativas = (it.tentativas || 0) + 1; it.ultimoErro = (ultimo && ultimo.message) || ''; it.bloqueado = _erroPermanente(ultimo); _cardioFilaSalvar(l); }
+  throw ultimo;
+}
+// Reenvia os cardios guardados (mais antigo primeiro). Devolve true quando a fila ficou vazia.
+async function _cardioEnviarFila(interativo) {
+  if (_cardioEnviandoFila || _cardioSalvando) return false;
+  const fila = _cardioFilaLer().filter(function (x) { return interativo || !x.bloqueado; });
+  if (!fila.length) return false;
+  _cardioEnviandoFila = true;
+  if (interativo) _busyMostrar('Enviando o seu cardio...', null, 'Não feche o app até terminar.');
+  let enviados = 0, falha = null;
+  try {
+    for (const it of fila) {
+      try { await _cardioEnviarItem(it, interativo ? 2 : 1); enviados++; }
+      catch (e) { falha = e; if (!_erroPermanente(e)) break; }
+    }
+  } finally { _cardioEnviandoFila = false; if (interativo) _busyFim(); _filaIndicador(); }
+  if (enviados) {
+    _rankingData = null; _rkUltimaBusca = 0;
+    toast(enviados > 1 ? '✅ ' + enviados + ' cardios enviados!' : '✅ Cardio enviado!');
+    try { if (window._viewAtual === 'cardio') renderCardio(); else if (window._viewAtual === 'home') renderHome(); } catch {}
+  }
+  if (falha && interativo) toast('Ainda não consegui enviar: ' + ((falha && falha.message) || 'sem conexão') + '. O cardio continua guardado.');
+  return !falha;
+}
+
+// ── Aviso de registros guardados que ainda não chegaram ao servidor ──
+function _filaIndicador() {
+  let n = 0, maisAntigo = Infinity;
+  try {
+    const t = _filaTreinos(), c = _cardioFilaLer();
+    n = t.length + c.length;
+    t.concat(c).forEach(function (x) { if (x.criadoEm && x.criadoEm < maisAntigo) maisAntigo = x.criadoEm; });
+  } catch {}
+  let el = document.getElementById('fila-pend');
+  // Só aparece depois de 20 s (o envio normal leva poucos segundos) e nunca por cima da tela "Salvando...".
+  if (!n || _finalizandoTreino || _cardioSalvando || Date.now() - maisAntigo < 20000) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fila-pend';
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(66px + env(safe-area-inset-bottom,0px));z-index:1150;max-width:calc(100vw - 24px);padding:10px 16px;border-radius:999px;background:rgba(10,10,10,.94);border:1.5px solid rgba(251,191,36,.6);color:#fde68a;font-size:12.5px;font-weight:800;text-align:center;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,.4);cursor:pointer;touch-action:manipulation;';
+    el.onclick = function () { _filaEnviarAgora(); };
+    document.body.appendChild(el);
+  }
+  el.textContent = '📡 ' + n + (n === 1 ? ' registro guardado, aguardando envio' : ' registros guardados, aguardando envio') + '. Toque para enviar agora.';
+}
+async function _filaEnviarAgora() {
+  if (_filaTreinos().length) { const ok = await _enviarPendente(true); if (!ok) return; }
+  if (_cardioFilaLer().length) await _cardioEnviarFila(true);
+  _filaIndicador();
+}
+function _filaEnviarTudo() {
+  _enviarPendente(false);
+  _cardioEnviarFila(false);
+}
+window.addEventListener('online', _filaEnviarTudo);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) _filaEnviarTudo(); });
+setInterval(function () {
+  if (document.hidden || navigator.onLine === false) return;
+  _filaIndicador();
+  _filaEnviarTudo();
+}, 40000);
 
 function _treinoFalhaDialogo(motivo) {
   document.getElementById('treino-falha-ov')?.remove();
@@ -11394,8 +11582,11 @@ function _atvCardioTxt(c, min) {
   if (pr) return pr.p.emoji + ' <b>' + esc(pr.titulo) + '</b> · ' + esc(c.cardio_tipo || 'Cardio') + ' · ' + min + ' min' + (pr.concluido ? ' ✓' : ' (parcial)');
   return '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min'));
 }
-function mostrarResultadoCardio(pts, tipo, min, motivo, onClose) {
+let _cardioResultShare = null;
+function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
   _cardioResultOnClose = onClose || null;
+  _cardioResultShare = extra && extra.tipo ? { tipo: extra.tipo, min: extra.min, distKm: extra.distKm || 0 } : null;
+  const avisoPend = extra && extra.pendente ? `<div style="padding:10px 12px;border-radius:10px;background:${document.body.classList.contains('tema-claro')?'#fffbeb':'rgba(251,191,36,.08)'};border:1px solid rgba(251,191,36,.35);font-size:11.5px;line-height:1.5;color:${document.body.classList.contains('tema-claro')?'#92400e':'#fcd34d'};margin-bottom:14px;">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>` : '';
   const isLight = document.body.classList.contains('tema-claro');
   const ov = document.createElement('div');
   ov.id = 'cardio-result-overlay';
@@ -11417,13 +11608,25 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose) {
       <div style="font-size:12px;color:${isLight?'#888':'#777'};text-transform:uppercase;letter-spacing:.5px;">Pontos somados</div>
       <div style="font-size:44px;font-weight:900;color:#06b6d4;line-height:1.1;animation:fraseEntrada .5s ease-out both;">+${pts.toFixed(1)}</div>
       <div style="font-size:11px;color:${isLight?'#999':'#666'};margin-bottom:18px;">no ranking de cardio e geral</div>`;
+  const btnCompartilhar = _cardioResultShare
+    ? `<button onclick="_cardioResultadoCompartilhar()" style="width:100%;margin-bottom:8px;padding:12px;border-radius:12px;border:1px solid ${isLight?'#e5e5e5':'#333'};background:${isLight?'#f6f6f6':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">📸 Compartilhar cardio</button>`
+    : '';
   ov.innerHTML = `
     <div style="background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#333'};border-radius:18px;padding:26px 22px;max-width:320px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5);">
       ${corpo}
+      ${avisoPend}
+      ${btnCompartilhar}
       <button onclick="_fecharResultadoCardio()" style="width:100%;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">Beleza! 💪</button>
     </div>`;
   document.body.appendChild(ov);
   try { if (navigator && navigator.vibrate) navigator.vibrate([30,50,30]); } catch(e){}
+}
+// Compartilhar logo depois de registrar um cardio MANUAL (antes só o cardio ao vivo e os programas tinham o botão, e quem registrava
+// à mão só conseguia postar indo ao Feed).
+function _cardioResultadoCompartilhar() {
+  const d = _cardioResultShare;
+  _fecharResultadoCardio();
+  if (d) setTimeout(function () { abrirCompartilharCardio(d); }, 80);
 }
 function _fecharResultadoCardio() {
   const ov = document.getElementById('cardio-result-overlay'); if (ov) ov.remove();
@@ -11459,6 +11662,8 @@ async function salvarCardio(opts) {
   const extra = _cardioMetricaTexto();
   const intensidade = rpeIntensidade(rpe); // faixa clássica p/ compatibilidade
   const foto = _cardioFoto || '';
+  const rawMet = _cardioMetricaRaw();
+  const distKm = rawMet ? (rawMet.mtipo === 'km' ? rawMet.valor : (rawMet.mtipo === 'm' ? rawMet.valor / 1000 : 0)) : 0;
   const payload = {
     idatleta: idAtleta, dtsessao: dataHojeLocal(),
     duracao_seg, pontos: pts, nao_contar: excedeu ? 1 : 0,
@@ -11472,39 +11677,27 @@ async function salvarCardio(opts) {
     comentario: opts.comentario || (tipo + ' · esforço ' + rpe + '/10 · ' + min + 'min' + (extra ? ' · ' + extra : '')),   // programas de cardio gravam "Programa: <titulo>"
   };
   // Save locally (sem a foto, para não estourar o localStorage)
-  const localItem = { ...payload }; delete localItem.cardio_foto;
-  const local = JSON.parse(localStorage.getItem('intus-cardios-' + idAtleta) || '[]');
-  local.unshift({ ...localItem, idsessao: Date.now() });
-  localStorage.setItem('intus-cardios-' + idAtleta, JSON.stringify(local.slice(0, 100)));
-  // Send to backend (o servidor é a fonte da verdade sobre pontos/limite)
-  const token = localStorage.getItem('mx-token') || '';
+  try {
+    const localItem = { ...payload }; delete localItem.cardio_foto;
+    const local = JSON.parse(localStorage.getItem('intus-cardios-' + idAtleta) || '[]');
+    local.unshift({ ...localItem, idsessao: Date.now() });
+    localStorage.setItem('intus-cardios-' + idAtleta, JSON.stringify(local.slice(0, 100)));
+  } catch (e) {}
+  // O cardio pronto fica guardado na FILA deste aparelho antes de ir ao servidor e só sai de lá quando o servidor confirma (ver
+  // "Registros finalizados aguardando o servidor"). O servidor é a fonte da verdade sobre pontos e limite do dia.
+  const item = _cardioFilaAdd(payload);
   _cardioSalvando = true;
   _busyMostrar('Salvando o seu cardio...', null, 'Estamos calculando seus pontos. Não feche o app.');
+  var idsessaoSalvo = null, guardado = false;
   try {
-    const r = await fetch(API_BASE + '/treinos.php?action=cardio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify(payload),
-    });
-    var idsessaoSalvo = null;
-    if (r.ok) {
-      const res = await r.json();
-      if (typeof res.pontos === 'number') pts = res.pontos;
-      if (Number(res.nao_contar) === 1) { excedeu = true; if (!motivo) motivo = 'limite'; }
-      idsessaoSalvo = res.idsessao;
-      _cardioHistorico.unshift({ ...localItem, pontos: pts, nao_contar: excedeu ? 1 : 0, tem_foto: foto ? 1 : 0, idsessao: res.idsessao });
-      // Cardio vive num localStorage à parte (intus-cardios-*), separado do
-      // SessoesTreino que a Home lê pro quadro "Sua semana". Sem isto, o
-      // emoji de cardio só aparecia lá depois do próximo login (quando
-      // SessoesTreino.sincronizar roda de novo) — mesmo já contando certo no
-      // ranking, que busca direto do servidor a cada abertura da Home.
-      if (idsessaoSalvo) {
-        const _l = SessoesTreino.load();
-        _l.push({ ...payload, pontos: pts, nao_contar: excedeu ? 1 : 0, idsessao: Number(idsessaoSalvo) });
-        SessoesTreino.save(_l);
-      }
-    } else { toast('Registrado localmente.'); }
-  } catch { toast('Registrado localmente (sem conexão).'); }
+    const res = await _cardioEnviarItem(item, 2);
+    if (typeof res.pontos === 'number') pts = res.pontos;
+    if (Number(res.nao_contar) === 1) { excedeu = true; if (!motivo) motivo = 'limite'; }
+    idsessaoSalvo = res.idsessao;
+  } catch (e) {
+    guardado = true;
+    toast(_erroPermanente(e) ? 'O servidor não aceitou o cardio agora: ' + ((e && e.message) || 'erro') + '. Ele continua guardado no aparelho.' : 'Sem conexão com o servidor: o cardio ficou guardado e será enviado sozinho.');
+  }
   _cardioSalvando = false; _busyFim();
   // Reseta a foto. renderCardio() só faz sentido se a tela de Cardio for a
   // que vai ficar visível — no fluxo silencioso (cardio ao vivo) quem decide
@@ -11514,13 +11707,13 @@ async function salvarCardio(opts) {
   // pts (payload) fica RAW p/ o ranking recomputar; o aluno vê o valor com fator + teto.
   const ptsExib = excedeu ? 0 : _pontosCardioPolitica(pts);
   if (opts.silencioso) {
-    if (typeof opts.onDone === 'function') opts.onDone({ idsessao: idsessaoSalvo, pts, ptsExib, tipo, min, motivo, rpe });
+    if (typeof opts.onDone === 'function') opts.onDone({ idsessao: idsessaoSalvo, uid: item.uid, pendente: guardado, pts, ptsExib, tipo, min, motivo, rpe });
     return;
   }
   mostrarResultadoCardio(ptsExib, tipo, min, motivo, function () {
     _rankingData = null; _rkUltimaBusca = 0; // dados frescos incluem o cardio recém-salvo
     _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
-  });
+  }, { tipo: tipo, min: min, distKm: distKm, pendente: guardado });
 }
 
 // Atualiza o esforço (e os pontos recalculados) — e, opcionalmente, a foto —
@@ -11534,11 +11727,11 @@ async function _atualizarEsforcoCardio(idsessao, novoRpe, tipo, min, motivo, fot
   const body = { cardio_rpe: novoRpe, pontos: pts };
   if (foto) body.cardio_foto = foto;
   try {
-    const r = await fetch(API_BASE + '/treinos.php?action=cardio&id=' + idsessao, {
+    const r = await _fetchT(API_BASE + '/treinos.php?action=cardio&id=' + idsessao, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify(body),
-    });
+    }, 20000);
     if (!r.ok) throw new Error('falhou');
   } catch (e) { toast('Não consegui salvar o esforço agora — o cardio já está registrado, tente ajustar depois pelo histórico.'); return false; }
   // Mantém o cache local coerente com o que acabou de ser confirmado.
@@ -13076,7 +13269,7 @@ function _renderTelaEsforcoCardioLive(dados) {
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-size:36px;margin-bottom:6px;">✅</div>
         <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio registrado!</div>
-        <div style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">Já está salvo — só falta confirmar o esforço</div>
+        <div style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">${dados.pendente ? 'Guardado neste aparelho, o envio é automático quando a conexão voltar' : 'Já está salvo — só falta confirmar o esforço'}</div>
       </div>
       ${temRota ? `<div id="cle-mapa" style="width:100%;height:150px;border-radius:12px;overflow:hidden;isolation:isolate;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;margin-bottom:18px;">
@@ -13203,31 +13396,42 @@ function _renderCardioLiveFotoArea() {
 // ficava sem o cardio recém-salvo até um refresh acontecer. _confirmarEsforcoCardioLive
 // (botão "Concluir") já chamava renderCardio() no fim; este aqui não
 // chamava, e o aluno via "não registrou" mesmo o cardio já estando salvo.
-function _compartilharCardioAoVivo() {
-  const dados = window._cardioEsforcoDados;
-  _cardioEsforcoFecharMapa();
-  document.getElementById('cardio-esforco-overlay')?.remove();
-  // Mesma limitação que o esforço já tinha nesta saída (só "Concluir" salva
-  // de verdade, ver aviso na tela): uma foto anexada aqui e não confirmada
-  // seria perdida de qualquer forma — zera pra não vazar pro próximo cardio
-  // manual que o aluno abrir.
-  _cardioFoto = '';
-  renderCardio();
-  if (dados) abrirCompartilharCardio(dados);
-}
-async function _confirmarEsforcoCardioLive() {
+// Lê o esforço e a foto da tela de esforço e grava. Cardio ainda na fila (sem conexão): ajusta o item da fila, que vai com o esforço
+// certo quando for enviado. Cardio já no servidor: atualiza o registro. As leituras da tela acontecem ANTES do primeiro await.
+async function _salvarEsforcoCardioLive() {
   const dados = window._cardioEsforcoDados;
   const sl = document.getElementById('cle-rpe');
   const novoRpe = sl ? parseInt(sl.value) || 5 : 5;
   const foto = _cardioFoto;
   _cardioFoto = '';
+  if (!dados) return;
+  let idsessao = dados.idsessao || (dados.uid && _cardioUidParaId[dados.uid]) || null;
+  if (!idsessao && dados.uid) {
+    const ok = _cardioFilaAtualizar(dados.uid, Object.assign({ cardio_rpe: novoRpe, cardio_intensidade: rpeIntensidade(novoRpe), pontos: dados.motivo ? 0 : calcCardioPoints(dados.tipo, novoRpe, dados.min) }, foto ? { cardio_foto: foto } : {}));
+    if (ok) { if (novoRpe !== 5 || foto) toast('Esforço guardado junto com o cardio.'); return; }
+    idsessao = _cardioUidParaId[dados.uid] || null;   // saiu da fila no meio: já foi enviado
+  }
+  if (!idsessao) return;
+  if (novoRpe === 5 && !foto) return; // esforço já é o padrão salvo e nenhuma foto nova: nada a fazer
+  toast(foto ? 'Salvando esforço e foto...' : 'Salvando esforço...');
+  const ok = await _atualizarEsforcoCardio(idsessao, novoRpe, dados.tipo, dados.min, dados.motivo, foto);
+  if (ok) toast(foto ? 'Esforço e foto salvos! 💪' : 'Esforço atualizado! 💪');
+}
+// Antes este botão só fechava a tela e abria o compartilhar: o esforço e a foto escolhidos aqui se perdiam (só "Concluir" gravava).
+function _compartilharCardioAoVivo() {
+  const dados = window._cardioEsforcoDados;
+  const gravando = _salvarEsforcoCardioLive();   // lê a tela agora e grava em segundo plano
   _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
-  if (!dados || !dados.idsessao) { renderCardio(); return; } // salvo só localmente (sem servidor) — nada pra atualizar
-  if (novoRpe === 5 && !foto) { renderCardio(); return; } // esforço já é o padrão salvo e nenhuma foto nova — nada a fazer
-  toast(foto ? 'Salvando esforço e foto...' : 'Salvando esforço...');
-  const ok = await _atualizarEsforcoCardio(dados.idsessao, novoRpe, dados.tipo, dados.min, dados.motivo, foto);
-  if (ok) toast(foto ? 'Esforço e foto salvos! 💪' : 'Esforço atualizado! 💪');
+  renderCardio();
+  if (dados) abrirCompartilharCardio(dados);
+  gravando.then(function () { try { if (window._viewAtual === 'cardio') renderCardio(); } catch (e) {} }).catch(function () {});
+}
+async function _confirmarEsforcoCardioLive() {
+  const gravando = _salvarEsforcoCardioLive();   // lê a tela agora
+  _cardioEsforcoFecharMapa();
+  document.getElementById('cardio-esforco-overlay')?.remove();
+  await gravando;
   renderCardio();
 }
 
@@ -23256,6 +23460,7 @@ function mostrarDicaTema() {
   _criarBannerTreino();
   retomarTreinoAtivo(true); // só entra direto no treino se houver progresso recente
   _enviarPendente(false);   // treino finalizado que não chegou ao servidor da última vez
+  _cardioEnviarFila(false); // idem para os cardios
   if (_abriuRapido) _syncP.then(function () {
     try { if (window._viewAtual === 'home' && !treinoTimer) { renderHome(); atualizarBadgeMensagens(); } } catch (e) {}
   });
