@@ -214,16 +214,17 @@ function trKpis(PDO $pdo, string $de, string $ate, ?string $pagina): array
     $st->execute(array_merge([$de, $ate], $pp));
     $v = $st->fetch(PDO::FETCH_ASSOC) ?: [];
     $ph = implode(',', array_fill(0, count(TR_CONVERSOES), '?'));
-    $st = $pdo->prepare("SELECT COUNT(*) FROM intus_trafego_evento WHERE dia BETWEEN ? AND ? AND evento IN ($ph)" . $fp);
+    $st = $pdo->prepare("SELECT evento, COUNT(*) AS n FROM intus_trafego_evento WHERE dia BETWEEN ? AND ? AND evento IN ($ph)" . $fp . " GROUP BY evento");
     $st->execute(array_merge([$de, $ate], TR_CONVERSOES, $pp));
-    $conv = (int)$st->fetchColumn();
+    $porEv = []; foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $porEv[$r['evento']] = (int)$r['n'];
+    $conv = array_sum($porEv);
     $ph2 = implode(',', array_fill(0, count(TR_CLIQUES), '?'));
     $st = $pdo->prepare("SELECT COUNT(*) FROM intus_trafego_evento WHERE dia BETWEEN ? AND ? AND evento IN ($ph2)" . $fp);
     $st->execute(array_merge([$de, $ate], TR_CLIQUES, $pp));
     $cliques = (int)$st->fetchColumn();
     $visitantes = (int)($v['visitantes'] ?? 0);
     return ['visitas' => (int)($v['visitas'] ?? 0), 'visitantes' => $visitantes, 'sessoes' => (int)($v['sessoes'] ?? 0), 'novos' => (int)($v['novos'] ?? 0),
-            'conversoes' => $conv, 'cliques' => $cliques, 'taxa' => $visitantes > 0 ? round($conv * 100 / $visitantes, 1) : 0.0];
+            'conversoes' => $conv, 'contas_criadas' => $porEv['conta_criada'] ?? 0, 'contatos_sem_conta' => $porEv['lead_enviado'] ?? 0, 'cliques' => $cliques, 'taxa' => $visitantes > 0 ? round($conv * 100 / $visitantes, 1) : 0.0];
 }
 
 function trLinhas(PDO $pdo, string $sql, array $p): array { $st = $pdo->prepare($sql); $st->execute($p); return $st->fetchAll(PDO::FETCH_ASSOC); }
@@ -354,16 +355,39 @@ function trRelatorio(PDO $pdo, string $de, string $ate, ?string $pagina = null, 
         $st = $pdo->prepare('SELECT COUNT(*) FROM intus_lead WHERE DATE(criado_em) BETWEEN ? AND ? AND indicado_por_idatleta IS NOT NULL'); $st->execute($base); $banco['leads_indicados'] = (int)$st->fetchColumn();
     } catch (Throwable $e) {}
     $out['banco'] = $banco;
+    $out['armazenado'] = trArmazenado($pdo);
     $out['gerado_em'] = gmdate('Y-m-d H:i:s', $agora);
     return $out;
 }
 
-/** Apaga o que for mais velho que N dias (mínimo 90). Devolve quantas linhas saíram. */
-function trLimparAntigos(PDO $pdo, int $dias): int
+const TR_LIMPEZA_MIN_DIAS = 365;   // nunca apaga nada com menos de 12 meses
+
+/** Quanto há guardado no total e desde quando. */
+function trArmazenado(PDO $pdo): array
 {
-    $dias = max(90, $dias);
-    $corte = date('Y-m-d', time() - $dias * 86400);
+    $v = (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_visita')->fetchColumn();
+    $e = (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_evento')->fetchColumn();
+    $d = $pdo->query('SELECT MIN(dia) FROM intus_trafego_visita')->fetchColumn();
+    return ['visitas' => $v, 'eventos' => $e, 'desde' => $d ?: null];
+}
+
+/** O que a limpeza apagaria (só conta, não apaga nada). */
+function trPreviaLimpeza(PDO $pdo, int $dias, ?int $ts = null): array
+{
+    $dias = max(TR_LIMPEZA_MIN_DIAS, $dias);
+    $corte = date('Y-m-d', ($ts ?? time()) - $dias * 86400);
+    $st = $pdo->prepare('SELECT COUNT(*) FROM intus_trafego_visita WHERE dia < ?'); $st->execute([$corte]); $v = (int)$st->fetchColumn();
+    $st = $pdo->prepare('SELECT COUNT(*) FROM intus_trafego_evento WHERE dia < ?'); $st->execute([$corte]); $e = (int)$st->fetchColumn();
+    $st = $pdo->prepare('SELECT MIN(dia) FROM intus_trafego_visita WHERE dia < ?'); $st->execute([$corte]); $d = $st->fetchColumn();
+    return ['dias' => $dias, 'corte' => $corte, 'visitas' => $v, 'eventos' => $e, 'total' => $v + $e, 'mais_antiga' => $d ?: null, 'armazenado' => trArmazenado($pdo)];
+}
+
+/** Apaga o que for mais velho que N dias (mínimo 365). Só apaga se o total bater com o que a pessoa viu na prévia. Devolve quantas linhas saíram ou null se o total mudou. */
+function trLimparAntigos(PDO $pdo, int $dias, ?int $esperadas = null, ?int $ts = null): ?int
+{
+    $pre = trPreviaLimpeza($pdo, $dias, $ts);
+    if ($esperadas !== null && $esperadas !== $pre['total']) return null;
     $n = 0;
-    foreach (['intus_trafego_visita', 'intus_trafego_evento'] as $t) { $st = $pdo->prepare("DELETE FROM $t WHERE dia < ?"); $st->execute([$corte]); $n += $st->rowCount(); }
+    foreach (['intus_trafego_visita', 'intus_trafego_evento'] as $t) { $st = $pdo->prepare("DELETE FROM $t WHERE dia < ?"); $st->execute([$pre['corte']]); $n += $st->rowCount(); }
     return $n;
 }

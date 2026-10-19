@@ -87,18 +87,28 @@ $pdo->exec("INSERT INTO intus_lead (nome, origem, indicado_por_idatleta, criado_
 $rel = trRelatorio($pdo, '2026-10-13', '2026-10-19', null, null, $t0 + 600);
 eq('conferência com a tabela de leads (só do período)', [$rel['banco']['leads'], $rel['banco']['leads_indicados']], [2, 1]);
 
-echo "\n══ Limpeza ══\n";
-$antes = (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_visita')->fetchColumn();
-$pdo->exec("INSERT INTO intus_trafego_visita (vid, sid, pagina, dia, hora, criado_em) VALUES ('ffffffff66','yyyyyyyy66','/','2020-01-01',3,'2020-01-01 03:00:00')");
-$apagadas = trLimparAntigos($pdo, 30);   // 30 sobe para o mínimo de 90 dias
-eq('apaga só o antigo e respeita o mínimo de 90 dias', [$apagadas >= 1, (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_visita')->fetchColumn() >= $antes - 1000], [true, true]);
+echo "\n══ Limpeza (cuidadosa) ══\n";
+$pdo->exec("INSERT INTO intus_trafego_visita (vid, sid, pagina, dia, hora, criado_em) VALUES ('ffffffff66','yyyyyyyy66','/','2020-01-01',3,'2020-01-01 03:00:00'),('ffffffff67','yyyyyyyy67','/','2026-08-01',3,'2026-08-01 03:00:00')");
+$pdo->exec("INSERT INTO intus_trafego_evento (vid, sid, pagina, evento, dia, hora, criado_em) VALUES ('ffffffff66','yyyyyyyy66','/','whatsapp','2020-01-01',3,'2020-01-01 03:00:00')");
+$totalAntes = (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_visita')->fetchColumn();
+$pre = trPreviaLimpeza($pdo, 30, $t0);   // 30 dias sobe para o mínimo de 365
+eq('a prévia só conta e respeita o mínimo de 365 dias', [$pre['dias'], $pre['visitas'], $pre['eventos'], $pre['total'], $pre['mais_antiga']], [365, 1, 1, 2, '2020-01-01']);
+eq('a prévia não apagou nada', (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_visita')->fetchColumn(), $totalAntes);
+eq('total diferente do que a pessoa viu: não apaga nada', [trLimparAntigos($pdo, 30, 99, $t0), (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_visita')->fetchColumn()], [null, $totalAntes]);
+eq('visita de 80 dias atrás (agosto) sobrevive mesmo pedindo "30 dias"', trPreviaLimpeza($pdo, 30, $t0)['visitas'], 1);
+$apagadas = trLimparAntigos($pdo, 30, $pre['total'], $t0);
+eq('com o total certo, apaga só o que tem mais de 12 meses', [$apagadas, (int)$pdo->query('SELECT COUNT(*) FROM intus_trafego_visita')->fetchColumn(), (int)$pdo->query("SELECT COUNT(*) FROM intus_trafego_visita WHERE vid='ffffffff67'")->fetchColumn(), (int)$pdo->query("SELECT COUNT(*) FROM intus_trafego_evento WHERE dia < '2021-01-01'")->fetchColumn()], [2, $totalAntes - 1, 1, 0]);
 eq('não tocou nas visitas recentes', (int)$pdo->query("SELECT COUNT(*) FROM intus_trafego_visita WHERE vid='aaaaaaaa11'")->fetchColumn(), 2);
+$rel = trRelatorio($pdo, '2026-10-13', '2026-10-19', null, null, $t0 + 600);
+eq('o relatório mostra o que está guardado', $rel['armazenado']['visitas'] > 0 && $rel['armazenado']['desde'] !== null, true);
+eq('o relatório separa contas criadas e contatos sem conta (para a conferência com o banco)', [$rel['kpis']['contas_criadas'], $rel['kpis']['contatos_sem_conta']], [1, 1]);
 
 echo "\n══ Estrutura do endpoint ══\n";
 $php = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/trafego.php'));
 eq('o relatório exige administrador', strpos($php, "empty(\$ctx['admin'])") !== false && strpos($php, "'acesso restrito ao administrador'") !== false, true);
 eq('quem só envia não recebe resposta com dados', strpos($php, "echo json_encode(['ok' => \$r['ok']]);") !== false, true);
-eq('limpar exige DELETE e mínimo de 90 dias', strpos($php, "'use DELETE'") !== false && strpos($php, "'minimo 90 dias'") !== false, true);
+eq('limpar exige DELETE, mínimo de 365 dias, confirmação e o total visto na prévia', strpos($php, "'use DELETE'") !== false && strpos($php, "'minimo 365 dias'") !== false && strpos($php, "'confirmacao ausente'") !== false && strpos($php, "'total esperado ausente'") !== false, true);
+eq('o total que mudou desde a prévia devolve 409 sem apagar', strpos($php, '409') !== false && strpos($php, 'o total mudou desde a previa') !== false, true);
 eq('a biblioteca não grava IP', preg_match('/intusClientIp|REMOTE_ADDR/', file_get_contents(__DIR__ . '/../app/api/_trafego.php')) === 0, true);
 
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";

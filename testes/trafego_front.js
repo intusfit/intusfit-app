@@ -104,7 +104,7 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
   console.log('\n══ Tela do painel (trafego.html) ══');
   const relatorio = {
     periodo: { de: '2026-09-20', ate: '2026-10-19', dias: 30, anterior_de: '2026-08-21', anterior_ate: '2026-09-19', pagina: null },
-    kpis: { visitas: 1200, visitantes: 800, sessoes: 900, novos: 600, conversoes: 40, cliques: 150, taxa: 5.0 },
+    kpis: { visitas: 1200, visitantes: 800, sessoes: 900, novos: 600, conversoes: 40, contas_criadas: 37, contatos_sem_conta: 3, cliques: 150, taxa: 5.0 },
     kpis_anterior: { visitas: 1000, visitantes: 700, sessoes: 800, novos: 500, conversoes: 20, cliques: 100, taxa: 2.9 },
     serie: Array.from({ length: 30 }, (_, i) => ({ dia: '2026-09-' + String(20 + i > 30 ? 30 : 20 + i).padStart(2, '0'), visitas: 30 + i, visitantes: 20 + i, conversoes: i % 5 })),
     dia_semana: [10, 20, 30, 40, 50, 60, 70], horas: Array.from({ length: 24 }, (_, i) => i * 3),
@@ -118,18 +118,25 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
     aparelhos: [{ nome: 'celular', visitantes: 700 }], navegadores: [{ nome: 'Instagram', visitantes: 300 }], sistemas: [{ nome: 'iOS', visitantes: 400 }],
     paises: [{ nome: 'BR', visitantes: 790 }], cidades: [{ nome: 'Cascavel - PR', visitantes: 200 }],
     agora: { ativos: 3, ultimas: [{ criado_em: '2026-10-19 15:00:00', pagina: '/', canal: 'instagram', utm_campaign: null, ref_idatleta: null, aparelho: 'celular', cidade: 'Cascavel', regiao: 'PR', novo: 1 }] },
-    banco: { leads: 12, leads_por_origem: [{ origem: 'landing-teste-gratis', n: 12 }], leads_indicados: 3 }, gerado_em: '2026-10-19 15:00:00',
+    banco: { leads: 12, leads_por_origem: [{ origem: 'landing-teste-gratis', n: 3 }, { origem: 'app', n: 9 }], leads_indicados: 3 }, armazenado: { visitas: 5000, eventos: 900, desde: '2024-01-10' }, gerado_em: '2026-10-19 15:00:00',
   };
   async function painel(usuario) {
     const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await c.addInitScript((u) => { localStorage.setItem('mx-token', 'teste'); localStorage.setItem('mx-user', JSON.stringify(u)); }, usuario);
     const pg = await c.newPage(); const er = []; pg.on('pageerror', e => er.push(String(e.message)));
-    const chamadas = [];
-    await pg.route('**/trafego.php**', r => { chamadas.push(r.request().url()); r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().url().includes('action=agora') ? { agora: relatorio.agora, hoje: relatorio.kpis } : relatorio) }); });
+    const chamadas = [], apagou = [];
+    await pg.route('**/trafego.php**', r => {
+      const u = r.request().url(); chamadas.push(u);
+      if (r.request().method() === 'DELETE') { apagou.push(u); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, apagadas: 120 }) }); }
+      const corpo = u.includes('action=agora') ? { agora: relatorio.agora, hoje: relatorio.kpis }
+        : u.includes('action=limpar_previa') ? { dias: 365, corte: '2025-10-19', visitas: 100, eventos: 20, total: 120, mais_antiga: '2024-01-10', armazenado: { visitas: 5000, eventos: 900, desde: '2024-01-10' } }
+        : relatorio;
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(corpo) });
+    });
     await pg.route(/\/app\/api\/(?!trafego\.php)/, r => r.abort('failed'));
     await pg.goto(B + '/app/painel/trafego.html', { waitUntil: 'load' });
     await pg.waitForTimeout(1500);
-    return { pg, er, chamadas, c };
+    return { pg, er, chamadas, apagou, c };
   }
   const adm = await painel({ tipo: 'admin', idusuario: 1, admin: 1, nome: 'Luiz Nunes', permissoes: {} });
   const texto = await adm.pg.evaluate(() => document.getElementById('main-content').innerText);
@@ -142,6 +149,38 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
   await adm.pg.click('.tf-chip >> text=7 dias'); await adm.pg.waitForTimeout(400);
   ver('trocar o período pede o relatório de novo com as datas', adm.chamadas.some(u => /action=relatorio&de=\d{4}-\d{2}-\d{2}&ate=\d{4}-\d{2}-\d{2}/.test(u)) && adm.chamadas.length >= 2, adm.chamadas);
   eq('sem erro de script', adm.er, []);
+  console.log('\n══ Conferência com o banco e apagar dados ══');
+  ver('a conferência explica e compara (contas e contatos medidos x banco)', /contas de teste grátis criadas/i.test(texto) && /batem|a mais|a menos/i.test(texto) === true, texto.slice(texto.indexOf('CONFER'), texto.indexOf('CONFER') + 400));
+  ver('o aviso do banco diz quando o banco tem contatos a mais (aqui 3 = 3: batem)', /batem/i.test(texto));
+  const corBtn = await adm.pg.evaluate(() => { document.body.classList.add('theme-light'); const b = document.querySelector('.tf-btn.perigo'); const cs = getComputedStyle(b); return { cor: cs.color, fundo: getComputedStyle(document.body).backgroundColor, txt: b.textContent.trim() }; });
+  ver('o botão de apagar é visível no tema claro (texto não é branco sobre fundo claro)', corBtn.cor !== 'rgb(255, 255, 255)' && corBtn.txt.length > 3, corBtn);
+  await adm.pg.evaluate(() => document.body.classList.remove('theme-light'));
+  await adm.pg.click('.tf-btn.perigo >> text=Apagar medições antigas');
+  ver('passo 1: explica o que sai e o que NÃO sai', /não dá para desfazer/i.test(await adm.pg.innerText('#tf-modal')) && /clientes, leads, matrículas/i.test(await adm.pg.innerText('#tf-modal')));
+  await adm.pg.click('#tf-modal >> text=Cancelar');
+  eq('cancelar fecha e não apaga nada', [await adm.pg.locator('#tf-modal').count(), adm.apagou.length], [0, 0]);
+  await adm.pg.click('.tf-btn.perigo >> text=Apagar medições antigas');
+  await adm.pg.click('#tf-modal >> text=Ver o que seria apagado');
+  await adm.pg.waitForTimeout(400);
+  const p2 = await adm.pg.innerText('#tf-modal');
+  ver('passo 2: mostra quantas visitas e cliques sairiam e quantos ficam', /100/.test(p2) && /20/.test(p2) && /4\.900/.test(p2) && /backup/i.test(p2), p2);
+  eq('a prévia não apagou nada', adm.apagou.length, 0);
+  await adm.pg.click('#tf-modal >> text=Continuar');
+  ver('passo 3: "Continuar" começa travado', await adm.pg.locator('#lp-prox').isDisabled());
+  await adm.pg.check('#lp-c1'); await adm.pg.check('#lp-c2'); await adm.pg.fill('#lp-txt', 'apagar');
+  ver('só as caixas e "apagar" em minúsculas não destravam', await adm.pg.locator('#lp-prox').isDisabled());
+  await adm.pg.fill('#lp-txt', 'APAGAR');
+  ver('caixas marcadas e APAGAR digitado destravam', !(await adm.pg.locator('#lp-prox').isDisabled()));
+  await adm.pg.click('#lp-prox');
+  ver('passo 4: o botão final começa travado, com contagem', await adm.pg.locator('#lp-final').isDisabled() && /\(\d\)/.test(await adm.pg.locator('#lp-final').innerText()));
+  eq('até aqui, nenhum pedido de apagar saiu', adm.apagou.length, 0);
+  await adm.pg.waitForTimeout(9000);
+  ver('depois da contagem o botão libera', !(await adm.pg.locator('#lp-final').isDisabled()));
+  await adm.pg.click('#lp-final');
+  await adm.pg.waitForTimeout(500);
+  eq('um único pedido de apagar, com a palavra APAGAR, o total visto e no mínimo 365 dias', [adm.apagou.length, /confirmo=APAGAR/.test(adm.apagou[0] || ''), /esperadas=120/.test(adm.apagou[0] || ''), Number((/dias=(\d+)/.exec(adm.apagou[0] || '') || [])[1]) >= 365], [1, true, true, true]);
+  ver('mostra o resultado', /120 registro/.test(await adm.pg.innerText('#tf-modal')));
+  eq('sem erro de script nos fluxos de apagar', adm.er, []);
   const prof = await painel({ tipo: 'professor', idusuario: 9, admin: 0, nome: 'Prof', permissoes: {} });
   const negado = await prof.pg.evaluate(() => document.getElementById('main-content').innerText);
   ver('professor vê "Acesso restrito" e nenhuma chamada de dados', /Acesso restrito/.test(negado) && prof.chamadas.length === 0, [negado.slice(0, 80), prof.chamadas]);

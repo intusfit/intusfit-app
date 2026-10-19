@@ -8,7 +8,8 @@
  * ADMINISTRADOR (Bearer):
  *   GET    ?action=relatorio&de=AAAA-MM-DD&ate=AAAA-MM-DD[&pagina=/teste-gratis.html]
  *   GET    ?action=agora            (visitantes dos últimos 30 min e últimas visitas, para atualizar a cada poucos segundos)
- *   DELETE ?action=limpar&dias=N    (apaga o que tem mais de N dias, mínimo 90; ação do painel, com confirmação)
+ *   GET    ?action=limpar_previa&dias=N   (só conta o que a limpeza apagaria; não apaga nada)
+ *   DELETE ?action=limpar&dias=N&confirmo=APAGAR&esperadas=T   (apaga o que tem mais de N dias, mínimo 365, e só se o total T for o da prévia; ação do painel, com várias confirmações)
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
@@ -57,7 +58,7 @@ if ($method === 'POST' && ($action === 'visita' || $action === 'evento')) {
 }
 
 // ── ADMINISTRADOR ──
-if (!in_array($action, ['relatorio', 'agora', 'limpar'], true)) { http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit; }
+if (!in_array($action, ['relatorio', 'agora', 'limpar', 'limpar_previa'], true)) { http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit; }
 $h = '';
 if (isset($_SERVER['HTTP_AUTHORIZATION'])) $h = $_SERVER['HTTP_AUTHORIZATION'];
 elseif (function_exists('apache_request_headers')) { foreach (apache_request_headers() as $k => $v) if (strcasecmp($k, 'Authorization') === 0) { $h = $v; break; } }
@@ -73,8 +74,18 @@ try {
     if ($action === 'limpar') {
         if ($method !== 'DELETE') { http_response_code(405); echo json_encode(['error' => 'use DELETE']); exit; }
         $dias = (int)($_GET['dias'] ?? 0);
-        if ($dias < 90) { http_response_code(400); echo json_encode(['error' => 'minimo 90 dias']); exit; }
-        echo json_encode(['ok' => true, 'apagadas' => trLimparAntigos($pdo, $dias)]);
+        if ($dias < TR_LIMPEZA_MIN_DIAS) { http_response_code(400); echo json_encode(['error' => 'minimo 365 dias']); exit; }
+        if (($_GET['confirmo'] ?? '') !== 'APAGAR') { http_response_code(400); echo json_encode(['error' => 'confirmacao ausente']); exit; }
+        if (!isset($_GET['esperadas']) || !ctype_digit((string)$_GET['esperadas'])) { http_response_code(400); echo json_encode(['error' => 'total esperado ausente']); exit; }
+        $n = trLimparAntigos($pdo, $dias, (int)$_GET['esperadas']);
+        if ($n === null) { http_response_code(409); echo json_encode(['error' => 'o total mudou desde a previa: veja de novo antes de apagar']); exit; }
+        @error_log('[intus trafego] limpeza: ' . $n . ' linhas apagadas (mais de ' . $dias . ' dias) por usuario #' . (int)$ctx['idusuario']);
+        echo json_encode(['ok' => true, 'apagadas' => $n]);
+        exit;
+    }
+    if ($action === 'limpar_previa') {
+        if ($method !== 'GET') { http_response_code(405); echo json_encode(['error' => 'use GET']); exit; }
+        echo json_encode(trPreviaLimpeza($pdo, (int)($_GET['dias'] ?? 0)));
         exit;
     }
     if ($method !== 'GET') { http_response_code(405); echo json_encode(['error' => 'use GET']); exit; }

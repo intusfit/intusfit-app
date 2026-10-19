@@ -56,7 +56,20 @@
     .tf-btn { padding:9px 16px; border-radius:8px; border:none; background:var(--green); color:#000; font-weight:800; font-size:12.5px; cursor:pointer; font-family:inherit; }
     body.theme-light .tf-btn { color:#fff; }
     .tf-btn.sec { background:transparent; border:1px solid var(--border); color:var(--text); }
-    .tf-btn.perigo { background:transparent; border:1px solid rgba(248,113,113,.5); color:#f87171; }
+    .tf-btn.perigo { background:transparent; border:1px solid rgba(248,113,113,.6); color:#f87171; }
+    body.theme-light .tf-btn.sec { color:var(--text); }
+    body.theme-light .tf-btn.perigo { color:#dc2626; border-color:rgba(220,38,38,.55); }
+    .tf-btn.cheio { background:#dc2626; border-color:#dc2626; color:#fff; }
+    body.theme-light .tf-btn.cheio { color:#fff; }
+    .tf-btn[disabled] { opacity:.4; cursor:not-allowed; }
+    .tf-modal { position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; padding:16px; }
+    .tf-modal > div { background:var(--bg2); color:var(--text); border:1px solid var(--border); border-radius:14px; padding:22px; width:100%; max-width:520px; max-height:92vh; overflow:auto; font-size:13.5px; line-height:1.6; }
+    .tf-modal h3 { margin:0 0 10px; font-size:17px; }
+    .tf-modal ul { margin:8px 0 12px 18px; padding:0; }
+    .tf-modal .alerta { padding:12px 14px; border-radius:10px; border:1px solid rgba(220,38,38,.5); background:rgba(220,38,38,.1); margin:12px 0; }
+    .tf-modal label.ck { display:flex; gap:10px; align-items:flex-start; margin:12px 0; cursor:pointer; }
+    .tf-modal .acoes { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-top:16px; }
+    .tf-modal .big { font-size:26px; font-weight:800; font-variant-numeric:tabular-nums; }
     .tf-svg { width:100%; height:auto; display:block; }
     .tf-leg { display:flex; gap:14px; font-size:11.5px; color:var(--text-muted); margin-bottom:8px; flex-wrap:wrap; }
     .tf-leg i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
@@ -216,12 +229,97 @@ function desenhar() {
 
   // agora + conferência + ferramentas
   h += '<div class="tf-grid"><div class="tf-card"><h2>Últimas visitas</h2><p class="nota">Atualiza sozinha. Horário de Brasília.</p><div id="tf-ultimas">' + ultimasHtml(d.agora.ultimas) + '</div></div>' +
-    '<div class="tf-card"><h2>Conferência com o banco</h2><p class="nota">Cadastros que de fato existem no banco, independente do que o navegador avisou (útil para ver se algo está deixando de ser medido).</p>' +
-    (d.banco && d.banco.leads != null ? '<div class="tf-barra"><div class="n">Contatos na tabela de leads</div><div class="b"></div><div class="v">' + nf(d.banco.leads) + '</div></div>' + (d.banco.leads_por_origem || []).map(o => '<div class="tf-barra"><div class="n" style="padding-left:12px;color:var(--text-muted)">' + esc(o.origem) + '</div><div class="b"></div><div class="v">' + nf(o.n) + '</div></div>').join('') : '<div class="tf-vazio">Tabela de leads indisponível.</div>') +
-    '<p class="nota" style="margin-top:12px">Quem criou o acesso grátis direto no formulário aparece em Clientes, não nesta tabela. "Pessoas captadas" acima soma os dois caminhos.</p>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="tf-btn perigo" onclick="limparAntigos()">Apagar medições com mais de 12 meses</button></div></div></div>';
+    '<div class="tf-card"><h2>Conferência com o banco</h2><p class="nota">Serve para descobrir se a medição está deixando passar cadastros. Compara o que as páginas avisaram com o que realmente existe guardado no banco, no mesmo período.</p>' + conferenciaHtml(d) + '</div></div>';
+  h += '<div class="tf-grid"><div class="tf-card larga"><h2>Dados da medição guardados</h2>' + armazenadoHtml(d.armazenado) + '</div></div>';
   main.innerHTML = h;
   gerarLink();
+}
+function conferenciaHtml(d) {
+  const k = d.kpis, b = d.banco || {};
+  const linha = (rot, v, nota) => '<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)"><div>' + rot + (nota ? '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;line-height:1.45">' + nota + '</div>' : '') + '</div><div style="font-weight:800;font-size:18px;font-variant-numeric:tabular-nums">' + v + '</div></div>';
+  let h = '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);margin:2px 0 2px">O que as páginas avisaram</div>' +
+    linha('Contas de teste grátis criadas', nf(k.contas_criadas), 'Aparecem em <b>Clientes</b>, não na tabela de leads.') +
+    linha('Contatos deixados sem conta', nf(k.contatos_sem_conta), 'Quando o cadastro completo falha, a página guarda só o contato.');
+  h += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);margin:14px 0 2px">O que existe no banco</div>';
+  if (b.leads == null) return h + '<div class="tf-vazio">Não consegui ler a tabela de leads.</div>';
+  const landing = (b.leads_por_origem || []).filter(o => /landing/i.test(o.origem)).reduce((s, o) => s + o.n, 0);
+  h += linha('Contatos na tabela de leads (todas as origens)', nf(b.leads)) + linha('Destes, vindos da página de teste grátis', nf(landing), 'Esta é a parte que deve bater com "contatos deixados sem conta" acima.');
+  const dif = landing - (k.contatos_sem_conta || 0);
+  const veredito = dif === 0 ? ['#4ade80', 'Batem. A medição está vendo todos os contatos deste período.']
+    : dif > 0 ? ['#fbbf24', 'O banco tem ' + nf(dif) + ' contato(s) a mais do que a medição viu. Pode ser de antes de 19/10/2026 (quando a medição começou), de gente com o navegador bloqueando a medição, ou de um cadastro feito fora da página.']
+    : ['#fbbf24', 'A medição viu ' + nf(-dif) + ' contato(s) a mais do que o banco guardou. Se isso se repetir, avise: pode ser um cadastro que não chegou a gravar.'];
+  return h + '<div style="margin-top:12px;padding:10px 12px;border-radius:10px;border:1px solid ' + veredito[0] + ';font-size:12.5px;line-height:1.5">' + veredito[1] + '</div>';
+}
+function armazenadoHtml(a) {
+  a = a || { visitas: 0, eventos: 0, desde: null };
+  return '<p class="nota">Cada visita e cada clique medidos ficam gravados no banco. Eles não têm nome nem contato de ninguém: só o dia, a página, a origem e o aparelho. Com o tempo vão se acumulando. Hoje há <b>' + nf(a.visitas) + '</b> visita(s) e <b>' + nf(a.eventos) + '</b> clique(s)/etapa(s) guardados' + (a.desde ? ', desde ' + fmtDiaCompleto(a.desde) : '') + '.</p>' +
+    '<p class="nota">Só vale a pena apagar quando o volume ficar grande demais para a tela abrir rápido, o que deve levar anos. Apagar tira <b>somente</b> estas medições. Clientes, leads, matrículas, treinos e tudo o mais ficam intactos. O sistema <b>nunca</b> apaga nada com menos de 12 meses, e exige várias confirmações.</p>' +
+    '<button class="tf-btn perigo" onclick="abrirLimpeza()">Apagar medições antigas...</button>';
+}
+// ── apagar medições antigas: 5 passos, de propósito ──
+let _lp = { meses: 12, previa: null };
+function fecharLimpeza() { const m = document.getElementById('tf-modal'); if (m) m.remove(); clearInterval(_lp.timer); }
+function abrirLimpeza() {
+  fecharLimpeza(); _lp = { meses: 12, previa: null };
+  const m = document.createElement('div'); m.className = 'tf-modal'; m.id = 'tf-modal';
+  m.onclick = e => { if (e.target === m) fecharLimpeza(); };
+  m.innerHTML = '<div id="tf-modal-c"></div>'; document.body.appendChild(m);
+  limpezaPasso1();
+}
+function limpezaPasso1() {
+  document.getElementById('tf-modal-c').innerHTML = '<h3>Apagar medições antigas</h3><p>Passo 1 de 4: escolha até onde guardar.</p>' +
+    '<div class="alerta"><b>Isto apaga dados e não dá para desfazer.</b> O que sai: as visitas e os cliques medidos das páginas públicas, anteriores à data que você escolher. O que NÃO sai: clientes, leads, matrículas, treinos e qualquer outro dado do sistema.</div>' +
+    '<label style="font-size:12px;font-weight:700;color:var(--text-muted)">GUARDAR OS ÚLTIMOS</label><select class="tf-sel" id="lp-meses" style="width:100%;margin-top:4px"><option value="12">12 meses (apaga o que for mais antigo)</option><option value="18">18 meses</option><option value="24">24 meses</option><option value="36">36 meses</option></select>' +
+    '<p style="font-size:12px;color:var(--text-muted);margin-top:10px">Nada será apagado agora. No próximo passo você vê exatamente quantos registros sairiam.</p>' +
+    '<div class="acoes"><button class="tf-btn sec" onclick="fecharLimpeza()">Cancelar</button><button class="tf-btn" onclick="limpezaPasso2()">Ver o que seria apagado</button></div>';
+}
+async function limpezaPasso2() {
+  _lp.meses = Number(document.getElementById('lp-meses').value) || 12;
+  const c = document.getElementById('tf-modal-c'); c.innerHTML = '<div class="tf-vazio">Contando...</div>';
+  try { _lp.previa = await chamar('action=limpar_previa&dias=' + (_lp.meses * 30 + (_lp.meses >= 12 ? 5 : 0))); }
+  catch (e) { c.innerHTML = '<h3>Não consegui contar</h3><p>' + esc(e.message) + '</p><div class="acoes"><button class="tf-btn sec" onclick="fecharLimpeza()">Fechar</button></div>'; return; }
+  const p = _lp.previa;
+  if (!p.total) { c.innerHTML = '<h3>Nada para apagar</h3><p>Não há medições anteriores a ' + fmtDiaCompleto(p.corte) + '. Está tudo dentro do período que você quer guardar.</p><div class="acoes"><button class="tf-btn" onclick="fecharLimpeza()">Fechar</button></div>'; return; }
+  c.innerHTML = '<h3>Passo 2 de 4: confira o que sairia</h3>' +
+    '<p>Medições anteriores a <b>' + fmtDiaCompleto(p.corte) + '</b>' + (p.mais_antiga ? ' (a mais antiga é de ' + fmtDiaCompleto(p.mais_antiga) + ')' : '') + ':</p>' +
+    '<ul><li><span class="big">' + nf(p.visitas) + '</span> visita(s)</li><li><span class="big">' + nf(p.eventos) + '</span> clique(s) e etapa(s)</li></ul>' +
+    '<p>Ficam guardados: <b>' + nf(p.armazenado.visitas - p.visitas) + '</b> visita(s) e <b>' + nf(p.armazenado.eventos - p.eventos) + '</b> clique(s) mais recentes.</p>' +
+    '<p style="font-size:12px;color:var(--text-muted)">O backup diário do banco guarda uma cópia destes dados por cerca de 45 dias. Depois disso, não há como recuperar.</p>' +
+    '<div class="acoes"><button class="tf-btn sec" onclick="limpezaPasso1()">Voltar</button><button class="tf-btn perigo" onclick="limpezaPasso3()">Continuar</button></div>';
+}
+function limpezaPasso3() {
+  const p = _lp.previa;
+  document.getElementById('tf-modal-c').innerHTML = '<h3>Passo 3 de 4: confirme que entendeu</h3>' +
+    '<label class="ck"><input type="checkbox" id="lp-c1" onchange="limpezaChecar()"><span>Entendo que vou apagar <b>' + nf(p.total) + '</b> registro(s) de medição e que <b>não dá para desfazer</b>.</span></label>' +
+    '<label class="ck"><input type="checkbox" id="lp-c2" onchange="limpezaChecar()"><span>Entendo que isso só afeta as medições de visitas e cliques, e que os gráficos e comparações destes períodos antigos vão ficar vazios.</span></label>' +
+    '<p style="margin-top:14px">Para continuar, digite <b>APAGAR</b> (em maiúsculas) abaixo:</p><input class="tf-in" id="lp-txt" autocomplete="off" style="width:100%;box-sizing:border-box" oninput="limpezaChecar()" placeholder="APAGAR">' +
+    '<div class="acoes"><button class="tf-btn sec" onclick="fecharLimpeza()">Cancelar</button><button class="tf-btn perigo" id="lp-prox" disabled onclick="limpezaPasso4()">Continuar</button></div>';
+}
+function limpezaChecar() {
+  const ok = document.getElementById('lp-c1').checked && document.getElementById('lp-c2').checked && document.getElementById('lp-txt').value.trim() === 'APAGAR';
+  document.getElementById('lp-prox').disabled = !ok;
+}
+function limpezaPasso4() {
+  const p = _lp.previa; let seg = 8;
+  document.getElementById('tf-modal-c').innerHTML = '<h3>Passo 4 de 4: última chance</h3>' +
+    '<div class="alerta">Você vai apagar <b>' + nf(p.visitas) + ' visita(s)</b> e <b>' + nf(p.eventos) + ' clique(s)</b> anteriores a <b>' + fmtDiaCompleto(p.corte) + '</b>. Isto não pode ser desfeito.</div>' +
+    '<p style="font-size:12px;color:var(--text-muted)">O botão libera em alguns segundos, para dar tempo de desistir.</p>' +
+    '<div class="acoes"><button class="tf-btn sec" onclick="fecharLimpeza()">Desistir (recomendado)</button><button class="tf-btn cheio" id="lp-final" disabled onclick="limpezaExecutar()">Apagar definitivamente (' + seg + ')</button></div>';
+  _lp.timer = setInterval(() => {
+    seg--; const b = document.getElementById('lp-final'); if (!b) { clearInterval(_lp.timer); return; }
+    if (seg <= 0) { clearInterval(_lp.timer); b.disabled = false; b.textContent = 'Apagar definitivamente'; } else b.textContent = 'Apagar definitivamente (' + seg + ')';
+  }, 1000);
+}
+async function limpezaExecutar() {
+  const p = _lp.previa, c = document.getElementById('tf-modal-c');
+  c.innerHTML = '<div class="tf-vazio">Apagando...</div>';
+  try {
+    const tk = (Auth.getToken() || '');
+    const r = await fetch(API_BASE + '/trafego.php?action=limpar&dias=' + p.dias + '&confirmo=APAGAR&esperadas=' + p.total, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + tk } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('erro ' + r.status));
+    c.innerHTML = '<h3>Pronto</h3><p>' + nf(j.apagadas) + ' registro(s) apagado(s).</p><div class="acoes"><button class="tf-btn" onclick="fecharLimpeza();carregar()">Fechar</button></div>';
+  } catch (e) { c.innerHTML = '<h3>Nada foi apagado</h3><p>' + esc(e.message) + '</p><div class="acoes"><button class="tf-btn" onclick="fecharLimpeza()">Fechar</button></div>'; }
 }
 function ultimasHtml(l) {
   if (!l || !l.length) return '<div class="tf-vazio">Nenhuma visita ainda.</div>';
@@ -258,12 +356,6 @@ function copiarLink() {
   (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Link copiado'), () => { const r = document.createRange(); r.selectNode(document.getElementById('g-url')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Selecionei o link: copie com Ctrl+C'); });
 }
 function toast(m) { const el = document.createElement('div'); el.textContent = m; el.style.cssText = 'position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:10px 16px;border-radius:10px;z-index:99999;font-size:13px;'; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
-
-async function limparAntigos() {
-  if (!confirm('Apagar as medições de tráfego com mais de 12 meses? Só as medições de visitas e cliques saem; clientes, leads e o resto não são tocados. Não dá para desfazer.')) return;
-  try { const tk = (Auth.getToken() || ''); const r = await fetch(API_BASE + '/trafego.php?action=limpar&dias=365', { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + tk } }); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'erro'); toast(nf(j.apagadas) + ' registros apagados'); carregar(); }
-  catch (e) { toast('Não consegui apagar: ' + e.message); }
-}
 
 // "Agora" atualiza sozinho sem redesenhar a tela inteira (só com a aba visível).
 setInterval(async () => {
