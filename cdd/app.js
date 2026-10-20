@@ -12,6 +12,8 @@
   var MARCA = '<a class="marca" href="#/"><span class="marca-img">' + IMG2 + '</span></a>';
   var MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   var ZAP = 'https://wa.me/5545999574107?text=' + encodeURIComponent('Oi! Preciso de ajuda no app do Código da Definição.');
+  var LINK_SENHA_ZAP = 'https://wa.me/5545999574107?text=' + encodeURIComponent('Oi! Esqueci a minha senha do app do Código da Definição. Pode me enviar um novo link de acesso? Meu e-mail de cadastro é: ');
+  var LINK_SENHA_EMAIL = 'mailto:contato@codigodadefinicao.com.br?subject=' + encodeURIComponent('Esqueci a minha senha do app') + '&body=' + encodeURIComponent('Oi! Esqueci a senha do app do Código da Definição. Pode me enviar um novo link de acesso?' + String.fromCharCode(10, 10) + 'Meu nome:' + String.fromCharCode(10) + 'Meu e-mail de cadastro: ');
 
   /* ───────── utilidades ───────── */
   function msg(t, tipo) { return t ? '<div class="msg ' + (tipo || 'erro') + '">' + esc(t) + '</div>' : ''; }
@@ -67,7 +69,7 @@
       '<label for="se">Senha</label><input id="se" type="password" autocomplete="current-password" required>' +
       '<div class="espaco"></div><button class="btn pri grande" id="ok">Entrar</button></form>' +
       '<p class="sep">Ainda não tem conta? <a href="#/cadastro">Criar conta</a></p>' +
-      '<p class="sep mut">Esqueceu a senha? Peça um novo link de acesso à equipe do CDD.</p></div></div>';
+      '<p class="sep mut" style="margin-bottom:8px">Esqueceu a senha? A equipe envia um novo link de acesso.</p><div class="linha" style="justify-content:center"><a class="btn peq" href="' + LINK_SENHA_ZAP + '" target="_blank" rel="noopener">💬 Pedir pelo WhatsApp</a><a class="btn peq" href="' + LINK_SENHA_EMAIL + '">✉️ Pedir por e-mail</a></div></div><p class="sep"><a href="painel.html">Acesso da equipe (painel)</a></p></div>';
     ligarTema();
     document.getElementById('f').onsubmit = async function (e) {
       e.preventDefault();
@@ -888,6 +890,7 @@
       '<a class="banner" href="#/jornada/conquistas" style="border-left-color:var(--accent)"><span class="em">🏅</span><div><b>Conquistas</b><span class="mut">' + (h.conquistas_ganhas || 0) + ' de ' + (h.conquistas_total || 0) + ' conquistadas</span></div></a>' +
       '<div class="card" style="margin-top:12px"><h3>🌗 Aparência</h3><p class="mut" style="margin:2px 0 10px">Tema claro ou escuro, como ficar melhor para você.</p><button class="btn" data-tema-btn id="tm"></button></div>' +
       '<div class="card"><h3>🔑 Trocar senha</h3><div id="aviso"></div><form id="f"><label for="at">Senha atual</label><input id="at" type="password" autocomplete="current-password" required><label for="nv">Nova senha (mínimo 8 caracteres)</label><input id="nv" type="password" autocomplete="new-password" minlength="8" required><div class="espaco"></div><button class="btn pri">Trocar senha</button></form></div>' +
+      (estado.eu.papel === 'admin' ? '<a class="btn pri grande" style="margin-top:12px" href="painel.html">⚙️ Abrir o painel da equipe</a>' : '') +
       '<a class="btn grande" style="margin-top:12px" href="' + ZAP + '" target="_blank" rel="noopener">💬 Falar com a equipe</a><button class="btn perigo grande" id="sai" style="margin-top:10px">Sair da conta</button>';
     ligarTema(v);
     document.getElementById('sai').onclick = async function () { await CDD.api('logout', { body: {} }); CDD.guardar(''); estado = { eu: null }; TR = null; location.hash = '#/'; telaLogin(); };
