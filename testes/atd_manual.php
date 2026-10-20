@@ -190,6 +190,33 @@ confere('último passo: passados 2 dias a Dani sai da fila', null, item(atd_manu
 confere('último passo: e continua fora dias depois', null, item(atd_manual_fila($pdo, em('2026-11-05 12:00:00')), 'Dani Reis'));
 confere('quem respondeu não recebe a t7 "sem resposta" (Fran)', null, item(atd_manual_fila($pdo, em('2026-10-20 19:00:00')), 'Fran Melo'));
 
+// ── A equipe escolhe qual mensagem enviar ───────────────────────────────────
+conta($pdo, 12, 'Luna Escolha', '(45) 99111-0013', '2026-10-20 11:00:00');
+$fe = atd_manual_fila($pdo, $agora);
+$luna = item($fe, 'Luna Escolha');
+verdade('escolha: a biblioteca traz as mensagens de todos os funis, sem o modelo cru', count($fe['biblioteca']) > 7 && !isset($fe['biblioteca'][0]['modelo']) && in_array('chamou-whatsapp:c4', array_column($fe['biblioteca'], 'passo'), true));
+confere('escolha: cada pessoa leva o texto de todas as mensagens, com o nome dela', true, isset($luna['opcoes']['t6']) && strpos($luna['opcoes']['t6'], 'Luna') !== false && strpos($luna['opcoes']['t6'], '{{') === false);
+confere('escolha: o texto sugerido é uma das opções', $luna['texto'], $luna['opcoes'][$luna['passo']]);
+$r = atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'enviada', 'passo' => 't6', 'passo_sugerido' => $luna['passo'], 'telefone' => '5545991110013'], 1, 'Luiz', $agora);
+confere('escolha: enviar outra mensagem que não a sugerida é aceito', true, $r['ok']);
+$reg = atd_manual_registros($pdo, ['a12'])['a12']['passos'];
+confere('escolha: fica gravado o que foi enviado e a sugerida vira "substituída"', ['enviada', 'substituida', $luna['passo']], [$reg['t6']['estado'], $reg[$luna['passo']]['estado'], $reg[$luna['passo']]['por_passo'] === 't6' ? $luna['passo'] : '']);
+$fe2 = atd_manual_fila($pdo, $agora);
+confere('escolha: a pessoa sai da fila e vai para aguardando com a mensagem escolhida', [null, 'Convite depois do teste'], [item($fe2, 'Luna Escolha'), (array_values(array_filter($fe2['aguardando'], fn($x) => $x['nome'] === 'Luna Escolha'))[0]['mensagem_nome'] ?? null)]);
+$plac = array_values(array_filter($fe2['placar'], fn($x) => $x['passo'] === 't6'))[0] ?? null;
+confere('escolha: o placar conta só a enviada, a substituída não entra', [1, true], [$plac['enviadas'] ?? 0, !in_array($luna['passo'], array_column(array_filter($fe2['placar'], fn($x) => $x['passo'] === $luna['passo'] && $luna['passo'] !== 't6'), 'passo'), true)]);
+confere('escolha: mensagem que não existe é recusada', false, atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'enviada', 'passo' => 'inventado:z9', 'passo_sugerido' => 't1'], 1, 'Luiz', $agora)['ok']);
+// passo pulado e depois enviado de verdade: vale (antes ficava preso como "já tratado")
+atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'pular', 'passo' => 't4'], 1, 'Luiz', $agora);
+$r = atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'enviada', 'passo' => 't4', 'telefone' => '5545991110013'], 1, 'Luiz', $agora);
+confere('escolha: um passo que foi pulado pode ser enviado depois', ['enviada', false], [atd_manual_registros($pdo, ['a12'])['a12']['passos']['t4']['estado'], $r['ja']]);
+$r = atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'enviada', 'passo' => 't4', 'telefone' => '5545991110013'], 1, 'Luiz', $agora);
+confere('escolha: repetir o toque no que já foi enviado não duplica', true, $r['ja']);
+$r = atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'pular', 'passo' => 't4'], 1, 'Luiz', $agora);
+confere('escolha: pular o que já foi enviado não desfaz o envio', ['enviada', true], [atd_manual_registros($pdo, ['a12'])['a12']['passos']['t4']['estado'], $r['ja']]);
+$htmlEsc = file_get_contents(__DIR__ . '/../atendimento/index.html');
+verdade('escolha: a tela tem o seletor de mensagem e manda a sugerida junto', strpos($htmlEsc, 'data-fila-msg') !== false && strpos($htmlEsc, 'passo_sugerido') !== false);
+
 // ── Funil editado vale na hora; funil sem texto não vira mensagem em branco ─
 $ed = atd_funil_por_id($pdo, 'teste-gratis');
 $ed['mensagens'][0]['texto'] = 'Texto novo para {{1}}.';

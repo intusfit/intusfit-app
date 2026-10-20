@@ -132,6 +132,31 @@ function atd_manual_agenda(PDO $pdo, array $p, array $funisPorId, DateTimeImmuta
     return $ag;
 }
 
+/**
+ * Todas as mensagens prontas da Central (de todos os funis) com texto, para a equipe escolher qual enviar.
+ * Cada item: passo, funil, funil_nome, funil_status, mensagem, nome, aprovada e o modelo (texto com {{1}}).
+ */
+function atd_manual_biblioteca(array $funis): array {
+    $out = [];
+    foreach ($funis as $f) {
+        foreach ($f['mensagens'] ?? [] as $m) {
+            if (trim((string)($m['texto'] ?? '')) === '') continue;
+            $out[] = [
+                'passo' => atd_passo((string)$f['id'], (string)$m['id']), 'funil' => $f['id'], 'funil_nome' => $f['nome'], 'funil_status' => $f['status'] ?? 'rascunho',
+                'mensagem' => $m['id'], 'nome' => $m['nome'], 'aprovada' => !empty($m['aprovada']), 'modelo' => $m,
+            ];
+        }
+    }
+    return $out;
+}
+
+/** Texto de cada mensagem da biblioteca já com o nome da pessoa: [passo => texto]. */
+function atd_manual_opcoes(array $biblioteca, string $nome, string $indicador): array {
+    $o = [];
+    foreach ($biblioteca as $b) $o[$b['passo']] = atd_render_mensagem($b['modelo'], $nome, $indicador);
+    return $o;
+}
+
 /** Passo que vale agora para a pessoa, ou null. Cada passo vale da hora dele até a hora do próximo. */
 function atd_manual_passo_agora(array $agenda, array $registro, array $p, DateTimeImmutable $agora): ?array {
     $k = -1;
@@ -170,6 +195,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
         $candidatos[] = $p;
     }
     $regs = atd_manual_registros($pdo, array_column($candidatos, 'chave'));
+    $biblioteca = atd_manual_biblioteca($funis);
 
     $paraEnviar = []; $aguardando = []; $resultado = []; $enviadasHoje = 0; $hoje = $agora->format('Y-m-d');
     foreach ($candidatos as $p) {
@@ -205,6 +231,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
                     'aprovada' => !empty($m['aprovada']), 'lado' => $a[5] ?? null, 'texto' => $texto, 'devida_em' => wa_fmt($a[1]),
                     'atraso_horas' => max(0, (int)floor(($agora->getTimestamp() - $a[1]->getTimestamp()) / 3600)),
                     'ja_contatado' => ($p['grupo_contato'] ?? '') === 'contatado' || ($p['grupo_contato'] ?? '') === 'retorno',
+                    'opcoes' => atd_manual_opcoes($biblioteca, (string)$p['nome'], (string)($p['indicado_por'] ?? '')),
                 ];
                 continue;
             }
@@ -248,6 +275,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
         'cfg' => $cfg, 'agora' => wa_fmt($agora), 'no_horario' => wa_hora_permitida($agora, (int)$aj['horario_ini'], (int)$aj['horario_fim']),
         'horario' => [(int)$aj['horario_ini'], (int)$aj['horario_fim']],
         'para_enviar' => $paraEnviar, 'aguardando' => $aguardando, 'placar' => $placar,
+        'biblioteca' => array_map(fn($b) => array_diff_key($b, ['modelo' => 1]), $biblioteca),
         'resumo' => $res + ['para_enviar' => count($paraEnviar), 'aguardando' => count($aguardando), 'enviadas_hoje' => $enviadasHoje],
         'meta' => ['usada' => false, 'configurada' => wa_config_whatsapp($pdo) !== null, 'automacao_ligada' => $mestre],
     ];
@@ -281,8 +309,19 @@ function atd_manual_acao(PDO $pdo, array $b, int $idusuario, string $usuarioNome
         $f = atd_funil_por_id($pdo, $fid);
         $m = $f ? atd_manual_mensagem($f, $mid) : null;
         if (!$f || !$m || atd_passo($fid, $mid) !== $passo) return ['ok' => false, 'erro' => 'Mensagem do funil não encontrada.', 'ja' => false];
-        if (isset($reg['passos'][$passo])) return ['ok' => true, 'erro' => null, 'ja' => true];
+        $antes = $reg['passos'][$passo]['estado'] ?? null;
+        // repetir o mesmo toque não duplica; marcar como enviada um passo que tinha sido pulado vale
+        if ($antes === 'enviada' || ($antes !== null && $acao === 'pular')) return ['ok' => true, 'erro' => null, 'ja' => true];
         $reg['passos'][$passo] = ['estado' => $acao === 'enviada' ? 'enviada' : 'pulada', 'em' => wa_fmt($agora), 'por' => $por];
+        // enviou outra mensagem no lugar da sugerida: a sugerida fica resolvida (não conta como enviada nem volta para a fila)
+        $sug = (string)($b['passo_sugerido'] ?? '');
+        if ($acao === 'enviada' && $sug !== '' && $sug !== $passo && !isset($reg['passos'][$sug])) {
+            [$sf, $sm] = atd_passo_decodificar($sug);
+            $sfun = atd_funil_por_id($pdo, $sf);
+            if ($sfun && atd_manual_mensagem($sfun, $sm) && atd_passo($sf, $sm) === $sug) {
+                $reg['passos'][$sug] = ['estado' => 'substituida', 'por_passo' => $passo, 'em' => wa_fmt($agora), 'por' => $por];
+            }
+        }
         atd_manual_registro_gravar($pdo, $chave, $reg);
         if ($acao === 'enviada') {
             $r = trContatoRegistrar($pdo, ['chave' => $chave, 'status' => 'chamado', 'canal' => 'whatsapp_link', 'telefone' => $tel, 'nota' => 'Central: ' . $f['nome'] . ' · ' . $m['nome']], $idusuario, $usuarioNome, $ts);

@@ -461,6 +461,7 @@ function graficoHoras(horas){
 }
 
 /* ================= FILA DE HOJE (atendimento manual, sem a Meta) ================= */
+S.filaSel = {};   // chave da pessoa -> passo da mensagem escolhida (sobrevive ao Atualizar, some depois da ação)
 var ROTULO_ORIGEM = { organico: 'Orgânico', pago: 'Pago (anúncio)', todos: 'Todos' };
 function telaFila(c){
   if (S.aba !== 'fila') return;
@@ -468,6 +469,15 @@ function telaFila(c){
   c.innerHTML = '<p class="carregando">Montando a fila de hoje...</p>';
   api('manual_estado').then(function(d){ if (tok !== S.tok) return; S.fila = d; pintarFila(c); })
   .catch(function(e){ falha(e); if (tok === S.tok) c.innerHTML = '<div class="aviso erro">' + esc(e.message) + '</div>'; });
+}
+function opcoesMensagem(bib, p, sel){
+  var h = '', funil = null;
+  bib.forEach(function(b){
+    if (p.opcoes[b.passo] === undefined) return;
+    if (b.funil !== funil) { if (funil !== null) h += '</optgroup>'; h += '<optgroup label="' + esc(b.funil_nome + (b.funil_status === 'aprovado' ? '' : ' (rascunho)')) + '">'; funil = b.funil; }
+    h += '<option value="' + esc(b.passo) + '"' + (b.passo === sel ? ' selected' : '') + '>' + esc(b.nome + (b.passo === p.passo ? ' (sugerida agora)' : '') + (b.aprovada ? '' : ' · rascunho')) + '</option>';
+  });
+  return h + (funil !== null ? '</optgroup>' : '');
 }
 function linkWhats(p, texto){
   return p.whatsapp ? 'https://wa.me/' + p.whatsapp + (texto ? '?text=' + encodeURIComponent(texto) : '') : '';
@@ -477,7 +487,7 @@ function pintarFila(c){
   var fora = r.fora_da_origem + r.sem_telefone + r.pediram_para_sair + r.encerrados + r.conversa_de_pessoa;
   var nf = $('#n-fila'); if (nf) nf.textContent = r.para_enviar;
   h += '<div class="card"><div class="linha" style="margin-bottom:6px"><h2 style="font-size:18px">Fila de hoje</h2><span class="badge verde">Manual, sem Meta</span><span class="espaco"></span><button class="btn mini" id="fila-atualizar">Atualizar</button></div>'
-     + '<p class="dica">Nada é enviado automaticamente. Para cada pessoa abaixo você abre o WhatsApp da Intus com a mensagem certa para o momento dela, envia e marca <b>Já enviei</b>. O que você marcar fica em <a href="/app/painel/captados.html">Pessoas Captadas</a> e a fila não repete a mesma mensagem.</p>'
+     + '<p class="dica">Nada é enviado automaticamente. Para cada pessoa abaixo a mensagem certa para o momento dela já vem escolhida; você pode trocar por qualquer outra mensagem pronta. Abra o WhatsApp da Intus, envie e marque <b>Já enviei</b>: fica registrada a mensagem que você escolheu. O que você marcar fica em <a href="/app/painel/captados.html">Pessoas Captadas</a> e a fila não repete a mesma mensagem.</p>'
      + '<div class="linha" style="margin-top:12px;align-items:flex-end"><div class="campo" style="margin:0"><label for="fila-origem">Quem entra na fila</label><select id="fila-origem">'
      + ['organico', 'pago', 'todos'].map(function(o){ return '<option value="' + o + '"' + (cfg.origem === o ? ' selected' : '') + '>' + ROTULO_ORIGEM[o] + '</option>'; }).join('') + '</select></div>'
      + '<div class="campo" style="margin:0"><label for="fila-desde">Leads cadastrados desde</label><input type="date" id="fila-desde" value="' + esc(cfg.desde) + '" max="' + esc(String(d.agora).slice(0, 10)) + '"></div>'
@@ -496,15 +506,17 @@ function pintarFila(c){
   if (!d.para_enviar.length) h += '<p class="dica">Ninguém com mensagem pendente neste momento. ' + (r.leads_no_periodo ? 'Há ' + num(r.leads_no_periodo) + ' leads no período, mas nenhum está numa hora de mensagem (o funil espera o momento certo de cada passo).' : 'Ainda não há leads cadastrados desde ' + esc(cfg.desde) + '.') + '</p>';
   d.para_enviar.forEach(function(p, i){
     var orig = [rotuloCanal(p.canal || 'sem_medicao')]; if (p.campanha) orig.push(p.campanha);
+    var sel = (S.filaSel[p.chave] && p.opcoes[S.filaSel[p.chave]] !== undefined) ? S.filaSel[p.chave] : p.passo;
     h += '<div class="lead" data-fi="' + i + '"><div class="lead-corpo"><div class="lead-topo">'
       + (p.tipo === 'conta' ? '<a class="lead-nome" href="/app/painel/alunos.html?busca=' + encodeURIComponent(p.nome) + '">' + esc(p.nome) + '</a>' : '<span class="lead-nome">' + esc(p.nome) + '</span>')
       + ' <span class="badge ' + (COR_ETAPA[p.etapa] || '') + '">' + esc(p.etapa_rotulo) + '</span>'
       + ' <span class="badge ' + (p.origem_tipo === 'pago' ? 'ambar' : 'azul') + '">' + (p.origem_tipo === 'pago' ? 'pago' : 'orgânico') + '</span></div>'
       + '<div class="msg-meta">' + esc(orig.join(' · ')) + ' · cadastro ' + esc(fmtDataHora(p.criado_em)) + (p.treinos ? ' · ' + p.treinos + ' treino' + (p.treinos > 1 ? 's' : '') : '') + (p.telefone ? ' · ' + esc(p.telefone) : '') + '</div>'
-      + '<div class="msg-meta"><b>' + esc(p.funil_nome) + ' · ' + esc(p.mensagem_nome) + '</b>' + (p.lado ? ' (lado ' + esc(String(p.lado).toUpperCase()) + ' do teste A/B)' : '') + (p.aprovada ? '' : ' <span class="badge ambar">rascunho</span>') + ' · devia sair ' + esc(fmtDataHora(p.devida_em)) + (p.atraso_horas >= 1 ? ' (há ' + p.atraso_horas + ' h)' : '') + '</div>'
+      + '<div class="msg-meta">Sugerida agora: <b>' + esc(p.funil_nome) + ' · ' + esc(p.mensagem_nome) + '</b>' + (p.lado ? ' (lado ' + esc(String(p.lado).toUpperCase()) + ' do teste A/B)' : '') + ' · devia sair ' + esc(fmtDataHora(p.devida_em)) + (p.atraso_horas >= 1 ? ' (há ' + p.atraso_horas + ' h)' : '') + '</div>'
       + (p.ja_contatado ? '<div class="msg-meta">Já houve contato com esta pessoa em Pessoas Captadas.</div>' : '')
-      + '<div class="preview">' + esc(p.texto) + '</div></div>'
-      + '<div class="lead-acoes"><a class="btn mini primario" href="' + esc(linkWhats(p, p.texto)) + '" target="_blank" rel="noopener noreferrer">Abrir no WhatsApp</a>'
+      + '<div class="campo" style="margin:8px 0 0"><label for="fm-' + i + '">Mensagem que vou enviar</label><select id="fm-' + i + '" data-fila-msg>' + opcoesMensagem(d.biblioteca || [], p, sel) + '</select></div>'
+      + '<div class="preview" data-prev>' + esc(p.opcoes[sel]) + '</div></div>'
+      + '<div class="lead-acoes"><a class="btn mini primario" data-wa href="' + esc(linkWhats(p, p.opcoes[sel])) + '" target="_blank" rel="noopener noreferrer">Abrir no WhatsApp</a>'
       + '<button class="btn mini" data-fila="copiar">Copiar mensagem</button>'
       + '<button class="btn mini" data-fila="enviada">Já enviei</button>'
       + '<button class="btn mini" data-fila="pular">Pular</button>'
@@ -534,20 +546,31 @@ function pintarFila(c){
   $('#fila-salvar', c).addEventListener('click', function(){
     api('manual_config', { origem: $('#fila-origem', c).value, desde: $('#fila-desde', c).value }).then(function(){ toast('Configuração salva'); telaFila(c); }).catch(falha);
   });
+  c.onchange = function(ev){
+    var sl = ev.target.closest('[data-fila-msg]'); if (!sl) return;
+    var linha = sl.closest('.lead'), p = S.fila.para_enviar[parseInt(linha.getAttribute('data-fi'), 10)];
+    if (!p || p.opcoes[sl.value] === undefined) return;
+    S.filaSel[p.chave] = sl.value;
+    $('[data-prev]', linha).textContent = p.opcoes[sl.value];
+    $('[data-wa]', linha).setAttribute('href', linkWhats(p, p.opcoes[sl.value]));
+  };
   c.onclick = function(ev){
     var b = ev.target.closest('[data-fila],[data-aguarda]'); if (!b) return;
     var linha = b.closest('.lead'), ehFila = b.hasAttribute('data-fila');
     var p = ehFila ? S.fila.para_enviar[parseInt(linha.getAttribute('data-fi'), 10)] : S.fila.aguardando[parseInt(linha.getAttribute('data-ai'), 10)];
     var acao = b.getAttribute(ehFila ? 'data-fila' : 'data-aguarda');
     if (!p) return;
-    if (acao === 'copiar') { copiar(p.texto, 'Mensagem copiada, pronta para colar'); return; }
+    var escolhida = ehFila ? (S.filaSel[p.chave] && p.opcoes[S.filaSel[p.chave]] !== undefined ? S.filaSel[p.chave] : p.passo) : null;
+    if (acao === 'copiar') { copiar(p.opcoes[escolhida], 'Mensagem copiada, pronta para colar'); return; }
     if (acao === 'encerrar' && !confirm('Tirar ' + p.nome + ' da fila? Fica registrado como "sem interesse" em Pessoas Captadas e a pessoa não recebe mais mensagens daqui.')) return;
     var corpo = { chave: p.chave, telefone: p.whatsapp, acao: acao === 'pular' ? 'pular' : acao };
-    if (acao === 'enviada' || acao === 'pular') corpo.passo = p.passo;
+    if (acao === 'enviada') { corpo.passo = escolhida; corpo.passo_sugerido = p.passo; }
+    if (acao === 'pular') corpo.passo = p.passo;
     b.disabled = true;
     api('manual_acao', corpo).then(function(r){
       if (r.erro) toast(r.erro);
       else toast({ enviada: 'Marcada como enviada', pular: 'Passo pulado', respondeu: 'Resposta registrada', encerrar: 'Pessoa encerrada' }[acao] || 'Pronto');
+      delete S.filaSel[p.chave];
       var y = window.scrollY; telaFila(c); setTimeout(function(){ window.scrollTo(0, y); }, 400);
     }).catch(function(e){ b.disabled = false; falha(e); });
   };
