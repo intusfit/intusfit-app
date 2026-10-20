@@ -1227,6 +1227,19 @@ function atd_primeiro_nome(string $nome): string {
     return $p === '(sem' ? '' : $p;
 }
 
+/** Texto de uma mensagem de funil já com o nome, o link do app e quem indicou. Sem nome a frase se ajusta. */
+function atd_render_mensagem(array $msg, string $nome, string $indicador = ''): string {
+    $primeiro = atd_primeiro_nome($nome);
+    $modelo = (string)($msg['texto'] ?? '');
+    if ($primeiro === '') {
+        // sem nome: "Oi {{1}}, tudo bem?" vira "Oi, tudo bem?" e "{{1}}, parabéns" vira "Parabéns"
+        $modelo = preg_replace('/^\{\{1\}\},\s*(\p{L})/u', '$1', $modelo, 1, $abriuComNome);
+        if ($abriuComNome) $modelo = mb_strtoupper(mb_substr($modelo, 0, 1)) . mb_substr($modelo, 1);
+        $modelo = str_replace(' {{1}}', '', $modelo);
+    }
+    return atd_renderizar($modelo, ['1' => $primeiro, '2' => ATD_LINK_APP, '3' => $indicador]);
+}
+
 /** Texto pronto da Central para uma etapa, com o nome da pessoa. null se não houver mensagem para a etapa. */
 function atd_sugestao(array $funis, string $etapa, string $nome, string $indicador = ''): ?array {
     $alvo = ATD_MENSAGEM_DA_ETAPA[$etapa] ?? null;
@@ -1235,16 +1248,7 @@ function atd_sugestao(array $funis, string $etapa, string $nome, string $indicad
         if (($f['id'] ?? '') !== $alvo[0]) continue;
         foreach ($f['mensagens'] as $m) {
             if ($m['id'] !== $alvo[1] || trim((string)$m['texto']) === '') continue;
-            $primeiro = atd_primeiro_nome($nome);
-            $modelo = $m['texto'];
-            if ($primeiro === '') {
-                // sem nome: "Oi {{1}}, tudo bem?" vira "Oi, tudo bem?" e "{{1}}, parabéns" vira "Parabéns"
-                $modelo = preg_replace('/^\{\{1\}\},\s*(\p{L})/u', '$1', $modelo, 1, $abriuComNome);
-                if ($abriuComNome) $modelo = mb_strtoupper(mb_substr($modelo, 0, 1)) . mb_substr($modelo, 1);
-                $modelo = str_replace(' {{1}}', '', $modelo);
-            }
-            $texto = atd_renderizar($modelo, ['1' => $primeiro, '2' => ATD_LINK_APP, '3' => $indicador]);
-            return ['funil' => $f['id'], 'funil_nome' => $f['nome'], 'mensagem' => $m['id'], 'nome' => $m['nome'], 'aprovada' => !empty($m['aprovada']), 'texto' => $texto];
+            return ['funil' => $f['id'], 'funil_nome' => $f['nome'], 'mensagem' => $m['id'], 'nome' => $m['nome'], 'aprovada' => !empty($m['aprovada']), 'texto' => atd_render_mensagem($m, $nome, $indicador)];
         }
     }
     return null;

@@ -5,6 +5,8 @@
  * GET  ?action=resumo                       prontidão + funis + conceitos + referências + testes
  * GET  ?action=dashboard&dias=30            métricas do WhatsApp, resultado dos testes A/B, captação (Tráfego) e resumo de leads
  * GET  ?action=leads&dias=30                 leads do período (Clientes + Tráfego e Captação + WhatsApp), com a mensagem sugerida
+ * GET  ?action=manual_estado               fila de hoje do atendimento manual (sem a Meta): configuração, o que enviar agora e quem aguarda resposta
+ * POST ?action=manual_config | manual_acao   salvar origem e data de início; marcar enviada, pular, respondeu ou encerrar
  * GET  ?action=exportar                     pacote JSON para a automação
  * POST ?action=funil_salvar | funil_excluir | funil_restaurar | funil_duplicar
  * POST ?action=conceito_salvar | conceito_excluir | conceito_restaurar
@@ -24,6 +26,7 @@ header('Cache-Control: no-store');
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { http_response_code(204); exit; }
 
 require_once __DIR__ . '/_atendimento.php';
+require_once __DIR__ . '/_atd_manual.php';
 
 if (!function_exists('bearerToken')) {
     function bearerToken() {
@@ -62,7 +65,7 @@ try {
     $action = (string)($_GET['action'] ?? '');
     $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $soPost = ['funil_salvar', 'funil_excluir', 'funil_restaurar', 'funil_duplicar', 'conceito_salvar', 'conceito_excluir', 'conceito_restaurar',
-               'ref_link', 'ref_arquivo', 'ref_atualizar', 'ref_ler', 'ref_excluir', 'teste_salvar', 'teste_excluir', 'analisar', 'gerar'];
+               'manual_config', 'manual_acao', 'ref_link', 'ref_arquivo', 'ref_atualizar', 'ref_ler', 'ref_excluir', 'teste_salvar', 'teste_excluir', 'analisar', 'gerar'];
     if (in_array($action, $soPost, true) && $metodo !== 'POST') atd_resp(405, ['ok' => false, 'erro' => 'Use POST.']);
 
     $d = $metodo === 'POST' ? atd_entrada() : [];
@@ -92,6 +95,16 @@ try {
             $dias = max(1, min(365, (int)($_GET['dias'] ?? 30)));
             [$de, $ate] = atd_periodo($dias);
             atd_resp(200, ['ok' => true] + atd_leads($pdo, $de, $ate));
+        }
+        case 'manual_estado':
+            atd_resp(200, ['ok' => true] + atd_manual_fila($pdo));
+        case 'manual_config': {
+            $cfg = atd_manual_cfg_gravar($pdo, $d);
+            atd_resp(200, ['ok' => true, 'cfg' => $cfg]);
+        }
+        case 'manual_acao': {
+            $r = atd_manual_acao($pdo, $d, (int)$ctx['idusuario'], (string)($ctx['nmusuario'] ?? ''));
+            atd_resp($r['ok'] ? 200 : 422, ['ok' => $r['ok'], 'erro' => $r['erro'], 'ja' => $r['ja']]);
         }
         case 'exportar':
             atd_resp(200, ['ok' => true, 'pacote' => atd_exportar($pdo)]);

@@ -188,6 +188,7 @@ details.conf summary{cursor:pointer;color:var(--muted);font-size:13px;font-weigh
 .check-pill input{accent-color:var(--accent)}
 .lead{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 14px;padding:14px 0;border-bottom:1px solid var(--borda)}
 .lead:last-child{border-bottom:0}
+.lead-corpo{min-width:0}
 .lead-topo{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:2px}
 .lead-nome{font-weight:700;font-size:15px;color:var(--texto);overflow-wrap:anywhere}
 a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-underline-offset:3px}
@@ -225,6 +226,7 @@ a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-u
     </div>
     <div class="abas" role="tablist" id="abas">
       <button class="aba" role="tab" data-aba="painel">Painel</button>
+      <button class="aba" role="tab" data-aba="fila">Fila de hoje <span class="n" id="n-fila">0</span></button>
       <button class="aba" role="tab" data-aba="leads">Leads</button>
       <button class="aba" role="tab" data-aba="funis">Funis e copys</button>
       <button class="aba" role="tab" data-aba="lab">Laboratório de copy</button>
@@ -241,7 +243,7 @@ a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-u
 (function(){
 'use strict';
 var API = '/app/api/atendimento.php';
-var S = { tok: 0, aba: 'painel', dados: null, funilSel: null, sujo: {}, labModo: 'gerar', labSub: 'escrever', dias: 30, dash: null, ultimaGeracao: null, vars: { '1': 'Ana', '2': 'https://intusfit.com.br/app', '3': 'Carlos' } };
+var S = { tok: 0, aba: 'fila', dados: null, funilSel: null, sujo: {}, labModo: 'gerar', labSub: 'escrever', dias: 30, dash: null, ultimaGeracao: null, vars: { '1': 'Ana', '2': 'https://intusfit.com.br/app', '3': 'Carlos' } };
 
 /* ---------- utilidades ---------- */
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -343,6 +345,7 @@ function desenhar(){
   var c = $('#conteudo');
   c.onclick = null; c.onchange = null;
   if (S.aba === 'painel') return telaPainel(c);
+  if (S.aba === 'fila') return telaFila(c);
   if (S.aba === 'leads') return telaLeads(c);
   if (S.aba === 'funis') return telaFunis(c);
   if (S.aba === 'lab') return telaLab(c);
@@ -455,6 +458,99 @@ function graficoHoras(horas){
   var g = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Respostas por hora do dia">';
   horas.forEach(function(v, i){ var hh = v / max * (H - 28); g += '<rect x="' + (10 + i * bw + 2) + '" y="' + (H - 18 - hh) + '" width="' + (bw - 4) + '" height="' + hh + '" rx="2" style="fill:var(--serie1)" opacity="' + (v ? 1 : .15) + '"><title>' + i + 'h: ' + v + '</title></rect>'; if (i % 3 === 0) g += '<text x="' + (10 + i * bw + bw / 2) + '" y="' + (H - 4) + '" style="fill:var(--eixo)" font-size="10" text-anchor="middle">' + i + 'h</text>'; });
   return g + '</svg>';
+}
+
+/* ================= FILA DE HOJE (atendimento manual, sem a Meta) ================= */
+var ROTULO_ORIGEM = { organico: 'Orgânico', pago: 'Pago (anúncio)', todos: 'Todos' };
+function telaFila(c){
+  if (S.aba !== 'fila') return;
+  var tok = ++S.tok;
+  c.innerHTML = '<p class="carregando">Montando a fila de hoje...</p>';
+  api('manual_estado').then(function(d){ if (tok !== S.tok) return; S.fila = d; pintarFila(c); })
+  .catch(function(e){ falha(e); if (tok === S.tok) c.innerHTML = '<div class="aviso erro">' + esc(e.message) + '</div>'; });
+}
+function linkWhats(p, texto){
+  return p.whatsapp ? 'https://wa.me/' + p.whatsapp + (texto ? '?text=' + encodeURIComponent(texto) : '') : '';
+}
+function pintarFila(c){
+  var d = S.fila, r = d.resumo, cfg = d.cfg, h = '';
+  var fora = r.fora_da_origem + r.sem_telefone + r.pediram_para_sair + r.encerrados + r.conversa_de_pessoa;
+  var nf = $('#n-fila'); if (nf) nf.textContent = r.para_enviar;
+  h += '<div class="card"><div class="linha" style="margin-bottom:6px"><h2 style="font-size:18px">Fila de hoje</h2><span class="badge verde">Manual, sem Meta</span><span class="espaco"></span><button class="btn mini" id="fila-atualizar">Atualizar</button></div>'
+     + '<p class="dica">Nada é enviado automaticamente. Para cada pessoa abaixo você abre o WhatsApp da Intus com a mensagem certa para o momento dela, envia e marca <b>Já enviei</b>. O que você marcar fica em <a href="/app/painel/captados.html">Pessoas Captadas</a> e a fila não repete a mesma mensagem.</p>'
+     + '<div class="linha" style="margin-top:12px;align-items:flex-end"><div class="campo" style="margin:0"><label for="fila-origem">Quem entra na fila</label><select id="fila-origem">'
+     + ['organico', 'pago', 'todos'].map(function(o){ return '<option value="' + o + '"' + (cfg.origem === o ? ' selected' : '') + '>' + ROTULO_ORIGEM[o] + '</option>'; }).join('') + '</select></div>'
+     + '<div class="campo" style="margin:0"><label for="fila-desde">Leads cadastrados desde</label><input type="date" id="fila-desde" value="' + esc(cfg.desde) + '" max="' + esc(String(d.agora).slice(0, 10)) + '"></div>'
+     + '<button class="btn primario" id="fila-salvar">Salvar</button></div>'
+     + '<p class="dica" style="margin-top:8px">Orgânico é todo lead que não veio de um anúncio (indicação, bio, story, QR, busca e link direto). Um lead conta como pago quando o link tem <code>utm_medium=cpc</code> (ou paid, ads, anuncio); marque assim os links dos anúncios no gerador de UTM de Tráfego e Captação. A data evita falar com gente cadastrada há muito tempo.</p></div>';
+  if (!d.no_horario) h += '<div class="aviso warn" style="margin-top:12px">Agora é fora do horário combinado (' + d.horario[0] + 'h às ' + d.horario[1] + 'h). As mensagens continuam aqui, mas prefira enviar a partir das ' + d.horario[0] + 'h.</div>';
+  if (d.meta && d.meta.automacao_ligada) h += '<div class="aviso warn" style="margin-top:12px">A automação por Meta está ligada em <a href="/atendimento/teste.html">Teste do WhatsApp</a>. Esta fila não depende dela e não envia nada sozinha.</div>';
+  h += '<div class="grade gauto" style="margin-top:12px">'
+    + kpi(num(r.para_enviar), 'Para enviar agora', 'a mensagem de cada pessoa vale até a próxima')
+    + kpi(num(r.aguardando), 'Aguardando resposta', 'enviadas nos últimos 3 dias')
+    + kpi(num(r.enviadas_hoje), 'Enviadas hoje', 'marcadas por você')
+    + kpi(num(fora), 'Fora da fila', num(r.fora_da_origem) + ' de outra origem, ' + num(r.sem_telefone) + ' sem telefone, ' + num(r.pediram_para_sair) + ' pediram para sair, ' + num(r.encerrados) + ' encerrados, ' + num(r.conversa_de_pessoa) + ' clientes ou matrícula a pagar')
+    + '</div>';
+
+  h += '<div class="card" style="margin-top:14px"><div class="secao-titulo">Para enviar agora (' + d.para_enviar.length + ')</div>';
+  if (!d.para_enviar.length) h += '<p class="dica">Ninguém com mensagem pendente neste momento. ' + (r.leads_no_periodo ? 'Há ' + num(r.leads_no_periodo) + ' leads no período, mas nenhum está numa hora de mensagem (o funil espera o momento certo de cada passo).' : 'Ainda não há leads cadastrados desde ' + esc(cfg.desde) + '.') + '</p>';
+  d.para_enviar.forEach(function(p, i){
+    var orig = [rotuloCanal(p.canal || 'sem_medicao')]; if (p.campanha) orig.push(p.campanha);
+    h += '<div class="lead" data-fi="' + i + '"><div class="lead-corpo"><div class="lead-topo">'
+      + (p.tipo === 'conta' ? '<a class="lead-nome" href="/app/painel/alunos.html?busca=' + encodeURIComponent(p.nome) + '">' + esc(p.nome) + '</a>' : '<span class="lead-nome">' + esc(p.nome) + '</span>')
+      + ' <span class="badge ' + (COR_ETAPA[p.etapa] || '') + '">' + esc(p.etapa_rotulo) + '</span>'
+      + ' <span class="badge ' + (p.origem_tipo === 'pago' ? 'ambar' : 'azul') + '">' + (p.origem_tipo === 'pago' ? 'pago' : 'orgânico') + '</span></div>'
+      + '<div class="msg-meta">' + esc(orig.join(' · ')) + ' · cadastro ' + esc(fmtDataHora(p.criado_em)) + (p.treinos ? ' · ' + p.treinos + ' treino' + (p.treinos > 1 ? 's' : '') : '') + (p.telefone ? ' · ' + esc(p.telefone) : '') + '</div>'
+      + '<div class="msg-meta"><b>' + esc(p.funil_nome) + ' · ' + esc(p.mensagem_nome) + '</b>' + (p.lado ? ' (lado ' + esc(String(p.lado).toUpperCase()) + ' do teste A/B)' : '') + (p.aprovada ? '' : ' <span class="badge ambar">rascunho</span>') + ' · devia sair ' + esc(fmtDataHora(p.devida_em)) + (p.atraso_horas >= 1 ? ' (há ' + p.atraso_horas + ' h)' : '') + '</div>'
+      + (p.ja_contatado ? '<div class="msg-meta">Já houve contato com esta pessoa em Pessoas Captadas.</div>' : '')
+      + '<div class="preview">' + esc(p.texto) + '</div></div>'
+      + '<div class="lead-acoes"><a class="btn mini primario" href="' + esc(linkWhats(p, p.texto)) + '" target="_blank" rel="noopener noreferrer">Abrir no WhatsApp</a>'
+      + '<button class="btn mini" data-fila="copiar">Copiar mensagem</button>'
+      + '<button class="btn mini" data-fila="enviada">Já enviei</button>'
+      + '<button class="btn mini" data-fila="pular">Pular</button>'
+      + '<button class="btn mini perigo" data-fila="encerrar">Encerrar</button></div></div>';
+  });
+  h += '</div>';
+
+  h += '<div class="card" style="margin-top:14px"><div class="secao-titulo">Aguardando resposta (' + d.aguardando.length + ')</div>';
+  if (!d.aguardando.length) h += '<p class="dica">Ninguém aguardando. Quando você marcar "Já enviei", a pessoa fica aqui por 3 dias até você marcar que ela respondeu.</p>';
+  d.aguardando.forEach(function(p, i){
+    h += '<div class="lead" data-ai="' + i + '"><div class="lead-corpo"><div class="lead-topo"><span class="lead-nome">' + esc(p.nome) + '</span> <span class="badge">' + esc(p.etapa_rotulo) + '</span></div>'
+      + '<div class="msg-meta">Enviou "' + esc(p.mensagem_nome) + '" (' + esc(p.funil_nome) + ') em ' + esc(fmtDataHora(p.enviada_em)) + (p.por ? ' por ' + esc(p.por) : '') + '</div></div>'
+      + '<div class="lead-acoes"><a class="btn mini" href="' + esc(linkWhats(p, '')) + '" target="_blank" rel="noopener noreferrer">Abrir conversa</a>'
+      + '<button class="btn mini primario" data-aguarda="respondeu">Respondeu</button><button class="btn mini perigo" data-aguarda="encerrar">Encerrar</button></div></div>';
+  });
+  h += '</div>';
+
+  h += '<div class="card" style="margin-top:14px"><div class="secao-titulo">Placar do teste das mensagens</div>';
+  if (!d.placar.length) h += '<p class="dica">Sem envios marcados ainda. Cada "Já enviei" entra aqui; marque "Respondeu" quando a pessoa responder para a taxa ser de verdade.</p>';
+  else h += '<div class="tabela-rolar"><table><tr><th>Mensagem</th><th class="n">Enviadas</th><th class="n">Responderam</th><th class="n">Taxa</th></tr>'
+    + d.placar.map(function(x){ return '<tr><td>' + esc(x.funil_nome + ' · ' + x.mensagem_nome) + '</td><td class="n">' + x.enviadas + '</td><td class="n">' + x.responderam + '</td><td class="n"><b>' + pct(x.taxa) + '</b></td></tr>'; }).join('') + '</table></div>'
+    + '<p class="dica" style="margin-top:6px">Resposta = o que você marcou como "Respondeu" depois do envio. Poucos envios não provam nada: espere ao menos 30 por mensagem antes de decidir qual texto é melhor.</p>';
+  h += '</div>';
+  c.innerHTML = h;
+
+  $('#fila-atualizar', c).addEventListener('click', function(){ telaFila(c); });
+  $('#fila-salvar', c).addEventListener('click', function(){
+    api('manual_config', { origem: $('#fila-origem', c).value, desde: $('#fila-desde', c).value }).then(function(){ toast('Configuração salva'); telaFila(c); }).catch(falha);
+  });
+  c.onclick = function(ev){
+    var b = ev.target.closest('[data-fila],[data-aguarda]'); if (!b) return;
+    var linha = b.closest('.lead'), ehFila = b.hasAttribute('data-fila');
+    var p = ehFila ? S.fila.para_enviar[parseInt(linha.getAttribute('data-fi'), 10)] : S.fila.aguardando[parseInt(linha.getAttribute('data-ai'), 10)];
+    var acao = b.getAttribute(ehFila ? 'data-fila' : 'data-aguarda');
+    if (!p) return;
+    if (acao === 'copiar') { copiar(p.texto, 'Mensagem copiada, pronta para colar'); return; }
+    if (acao === 'encerrar' && !confirm('Tirar ' + p.nome + ' da fila? Fica registrado como "sem interesse" em Pessoas Captadas e a pessoa não recebe mais mensagens daqui.')) return;
+    var corpo = { chave: p.chave, telefone: p.whatsapp, acao: acao === 'pular' ? 'pular' : acao };
+    if (acao === 'enviada' || acao === 'pular') corpo.passo = p.passo;
+    b.disabled = true;
+    api('manual_acao', corpo).then(function(r){
+      if (r.erro) toast(r.erro);
+      else toast({ enviada: 'Marcada como enviada', pular: 'Passo pulado', respondeu: 'Resposta registrada', encerrar: 'Pessoa encerrada' }[acao] || 'Pronto');
+      var y = window.scrollY; telaFila(c); setTimeout(function(){ window.scrollTo(0, y); }, 400);
+    }).catch(function(e){ b.disabled = false; falha(e); });
+  };
 }
 
 /* ================= LEADS (Clientes + Tráfego e Captação + WhatsApp) ================= */
