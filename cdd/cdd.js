@@ -40,9 +40,12 @@
   function aplicarCapas(raiz) {
     (raiz || document).querySelectorAll('[data-capa]').forEach(function (el) {
       var u = el.getAttribute('data-capa');
-      if (/^https:\/\//i.test(u)) el.style.backgroundImage = 'linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.25)),url(' + JSON.stringify(u) + ')';
+      if (/^marca\/capas\/[a-z0-9-]+(-wide)?\.(jpe?g|png|webp)$/i.test(u)) el.style.backgroundImage = 'url(' + JSON.stringify(u) + ')';   // capa pronta: já vem com o degradê e o título na imagem
+      else if (/^https:\/\//i.test(u)) el.style.backgroundImage = 'linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.25)),url(' + JSON.stringify(u) + ')';
     });
   }
+  /** Versão horizontal (sem título) de uma capa pronta, para o destaque e o cabeçalho do módulo. Link de fora fica como está. */
+  function capaLarga(u) { return /^marca\/capas\/[a-z0-9-]+\.(jpe?g|png|webp)$/i.test(u || '') ? u.replace(/\.(jpe?g|png|webp)$/i, '-wide.$1') : (u || ''); }
   function claro() { return document.body.classList.contains('tema-claro'); }
   function aplicarMeta() {
     var m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', claro() ? '#f4f2ef' : '#0b0b0f');
@@ -59,5 +62,5 @@
     return claro();
   }
 
-  window.CDD = { api: api, esc: esc, ytId: ytId, ytEmbed: ytEmbed, ytThumb: ytThumb, dataBR: dataBR, copiar: copiar, guardar: guardar, token: token, tema: tema, alternarTema: alternarTema, aplicarCapas: aplicarCapas, aplicarMeta: aplicarMeta, claro: claro };
+  window.CDD = { api: api, esc: esc, ytId: ytId, ytEmbed: ytEmbed, ytThumb: ytThumb, dataBR: dataBR, copiar: copiar, guardar: guardar, token: token, tema: tema, alternarTema: alternarTema, aplicarCapas: aplicarCapas, capaLarga: capaLarga, aplicarMeta: aplicarMeta, claro: claro };
 })();

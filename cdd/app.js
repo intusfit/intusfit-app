@@ -165,10 +165,11 @@
     var cap = m.capa_url ? ' data-capa="' + esc(m.capa_url) + '"' : '';
     var emoji = m.capa_url ? '' : '<span class="em">' + esc(m.emoji || '🎬') + '</span>';
     var sub = m.liberado ? m.total + (m.total === 1 ? ' aula' : ' aulas') : (m.libera_em ? 'Libera em ' + dm(m.libera_em) : 'Em breve');
-    var corpo = emoji + (n ? '<span class="num">' + n + '</span>' : '') + '<span class="ti">' + esc(tituloLimpo(m.titulo)) + '<small>' + esc(sub) + '</small></span>' +
+    var tem = !!m.capa_url;   // capa com título e logo já na imagem: o app só mostra o selo de aulas
+    var corpo = emoji + (n && !tem ? '<span class="num">' + n + '</span>' : '') + '<span class="ti">' + (tem ? '' : esc(tituloLimpo(m.titulo))) + '<small>' + esc(sub) + '</small></span>' +
       (m.liberado && pct ? '<span class="pg"><i style="width:' + pct + '%"></i></span>' : '') + (!m.liberado ? '<span class="cad">🔒</span>' : '');
-    if (!m.liberado) return '<div class="capa ' + (larga ? 'larga ' : '') + 'trancado" style="' + estilo + '"' + cap + ' role="img" aria-label="' + esc(m.titulo) + ' (trancado)">' + corpo + '</div>';
-    return '<a class="capa ' + (larga ? 'larga' : '') + '" style="' + estilo + '"' + cap + ' href="#/modulo/' + m.idmodulo + '">' + corpo + '</a>';
+    if (!m.liberado) return '<div class="capa ' + (tem ? 'com-img ' : '') + (larga ? 'larga ' : '') + 'trancado" style="' + estilo + '"' + cap + ' role="img" aria-label="' + esc(m.titulo) + ' (trancado)">' + corpo + '</div>';
+    return '<a class="capa ' + (tem ? 'com-img ' : '') + (larga ? 'larga' : '') + '" style="' + estilo + '"' + cap + ' href="#/modulo/' + m.idmodulo + '">' + corpo + '</a>';
   }
   function fila(titulo, lista, extra) {
     if (!lista.length) return '';
@@ -255,7 +256,7 @@
     var html = '<h2 style="margin:2px 0 12px">🎬 Aulas e conteúdos</h2>';
     if (dest) {
       var cor = /^#[0-9a-fA-F]{6}$/.test(dest.cor || '') ? dest.cor : '#e2272d';
-      html += '<div class="destaque" style="--c:' + cor + '"' + (dest.capa_url ? ' data-capa="' + esc(dest.capa_url) + '"' : '') + '>' + (dest.capa_url ? '' : '<span class="em">' + esc(dest.emoji || '🎬') + '</span>') +
+      html += '<div class="destaque" style="--c:' + cor + '"' + (dest.capa_url ? ' data-capa="' + esc(CDD.capaLarga(dest.capa_url)) + '"' : '') + '>' + (dest.capa_url ? '' : '<span class="em">' + esc(dest.emoji || '🎬') + '</span>') +
         '<span class="mut" style="color:rgba(255,255,255,.85);font-weight:800;text-transform:uppercase;letter-spacing:.1em;font-size:11px">' + (prox ? 'Continue assistindo' : 'Em destaque') + '</span><h2>' + esc(tituloLimpo(dest.titulo)) + '</h2>' +
         '<span style="font-size:13px;opacity:.9">' + dest.feitas + ' de ' + dest.total + ' aulas</span><a class="btn pri" href="' + (prox ? '#/aula/' + prox.aula.idaula : '#/modulo/' + dest.idmodulo) + '">▶️ ' + (prox ? 'Assistir agora' : 'Abrir') + '</a></div>';
     }
@@ -274,13 +275,13 @@
     var m = ms.filter(function (x) { return x.idmodulo === id; })[0];
     if (!m) { v.innerHTML = '<div class="msg erro">Módulo não encontrado.</div><a class="btn" href="#/aulas">Voltar</a>'; return; }
     var cor = /^#[0-9a-fA-F]{6}$/.test(m.cor || '') ? m.cor : '#e2272d', pct = m.total ? Math.round(m.feitas * 100 / m.total) : 0;
-    var h = '<a class="voltar" href="#/aulas">‹ Aulas</a><div class="cabmod" style="--c:' + cor + '"' + (m.capa_url ? ' data-capa="' + esc(m.capa_url) + '"' : '') + '>' + (m.capa_url ? '' : '<span class="em">' + esc(m.emoji || '🎬') + '</span>') +
+    var h = '<a class="voltar" href="#/aulas">‹ Aulas</a><div class="cabmod" style="--c:' + cor + '"' + (m.capa_url ? ' data-capa="' + esc(CDD.capaLarga(m.capa_url)) + '"' : '') + '>' + (m.capa_url ? '' : '<span class="em">' + esc(m.emoji || '🎬') + '</span>') +
       '<h2>' + esc(tituloLimpo(m.titulo)) + '</h2><span style="font-size:13px;opacity:.9">' + m.total + (m.total === 1 ? ' aula' : ' aulas') + ' · ' + m.feitas + ' concluída' + (m.feitas === 1 ? '' : 's') + '</span><div class="barra"><i style="width:' + pct + '%"></i></div></div>';
     if (m.descricao) h += '<p class="mut" style="margin:12px 2px 0">' + esc(m.descricao) + '</p>';
     if (!m.liberado) h += '<div class="msg aviso" style="margin-top:14px">🔒 Este módulo será liberado em ' + esc(dm(m.libera_em)) + '. Você já pode seguir com os outros conteúdos.</div>';
     m.aulas.forEach(function (a) {
       var ic = a.tipo === 'anamnese' ? '📝' : a.tem_ficha ? '🏋️' : a.tipo === 'link' ? '🔗' : a.tipo === 'texto' ? '📄' : '🎬';
-      h += '<a class="vid' + (a.concluida ? ' feita' : '') + '" href="#/aula/' + a.idaula + '"><span class="th"' + (a.yt ? ' style="background-image:url(\'' + esc(CDD.ytThumb(a.yt)) + '\')"' : '') + '>' + (a.yt ? '<span class="pl">▶</span>' : ic) + (a.concluida ? '<span class="ok">✓</span>' : '') + '</span>' +
+      h += '<a class="vid' + (a.concluida ? ' feita' : '') + '" href="#/aula/' + a.idaula + '"><span class="th"' + (a.yt ? ' style="background-image:url(\'' + esc(CDD.ytThumb(a.yt)) + '\')"' : (m.capa_url ? ' data-capa="' + esc(CDD.capaLarga(m.capa_url)) + '"' : '')) + '>' + (a.yt ? '<span class="pl">▶</span>' : ic) + (a.concluida ? '<span class="ok">✓</span>' : '') + '</span>' +
         '<span class="tx"><b>' + esc(a.titulo) + '</b><span class="est">' + (a.tem_ficha ? '🏋️ ficha de treino' : a.concluida ? 'Concluída' : 'Aula') + '</span></span></a>';
     });
     v.innerHTML = h; CDD.aplicarCapas(v);

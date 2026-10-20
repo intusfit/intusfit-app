@@ -340,6 +340,12 @@ function cddUrl($v): string {
     if (strlen($v) > 500 || !preg_match('~^https://[^\s<>"\']+$~i', $v)) return '';
     return $v;
 }
+/** Capa de módulo: link https:// ou uma capa pronta do próprio app (marca/capas/arquivo.jpg, caminho relativo, sem pasta acima). */
+function cddCapaUrl($v): string {
+    $v = trim((string)$v);
+    if (preg_match('~^marca/capas/[a-z0-9][a-z0-9-]{0,60}(-wide)?\.(jpg|jpeg|png|webp)$~i', $v)) return $v;
+    return cddUrl($v);
+}
 function cddVideoCampo($v): string {
     $v = trim((string)$v);
     if ($v === '') return '';
@@ -688,14 +694,15 @@ function cddImportarSeed(PDO $pdo, array $seed): array {
         $idm = $st->fetchColumn();
         if (!$idm) {
             $ordemMod += 10;
-            $pdo->prepare('INSERT INTO cdd_modulo (titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data, emoji, cor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            $pdo->prepare('INSERT INTO cdd_modulo (titulo, descricao, grupo, ordem, publicado, liberacao_dias, liberacao_data, emoji, cor, capa_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
                 ->execute([$titulo, cddStr($m['descricao'] ?? '', 600), cddStr($m['grupo'] ?? 'curso', 20), $ordemMod, !empty($m['rascunho']) ? 0 : 1,
                            isset($m['liberacao_dias']) ? (int)$m['liberacao_dias'] : null, !empty($m['liberacao_data']) ? cddData($m['liberacao_data']) : null,
-                           cddStr($m['emoji'] ?? '', 8) ?: null, preg_match('/^#[0-9a-fA-F]{6}$/', (string)($m['cor'] ?? '')) ? $m['cor'] : null]);
+                           cddStr($m['emoji'] ?? '', 8) ?: null, preg_match('/^#[0-9a-fA-F]{6}$/', (string)($m['cor'] ?? '')) ? $m['cor'] : null, cddCapaUrl($m['capa_url'] ?? '') ?: null]);
             $idm = (int)$pdo->lastInsertId(); $mods++;
-        } elseif (!empty($m['emoji']) || !empty($m['cor'])) {
+        } elseif (!empty($m['emoji']) || !empty($m['cor']) || !empty($m['capa_url'])) {
             // módulo que já existia sem capa: completa só o que ainda estiver vazio
-            $sv = $pdo->prepare('SELECT emoji, cor FROM cdd_modulo WHERE idmodulo = ?'); $sv->execute([$idm]); $sv = $sv->fetch();
+            $sv = $pdo->prepare('SELECT emoji, cor, capa_url FROM cdd_modulo WHERE idmodulo = ?'); $sv->execute([$idm]); $sv = $sv->fetch();
+            if ($sv && empty($sv['capa_url']) && cddCapaUrl($m['capa_url'] ?? '') !== '') $pdo->prepare('UPDATE cdd_modulo SET capa_url = ? WHERE idmodulo = ?')->execute([cddCapaUrl($m['capa_url']), $idm]);
             if ($sv && empty($sv['emoji']) && !empty($m['emoji'])) $pdo->prepare('UPDATE cdd_modulo SET emoji = ? WHERE idmodulo = ?')->execute([cddStr($m['emoji'], 8), $idm]);
             if ($sv && empty($sv['cor']) && preg_match('/^#[0-9a-fA-F]{6}$/', (string)($m['cor'] ?? ''))) $pdo->prepare('UPDATE cdd_modulo SET cor = ? WHERE idmodulo = ?')->execute([$m['cor'], $idm]);
         }
@@ -1027,8 +1034,8 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
         $ldRaw = trim((string)($b['liberacao_dias'] ?? '')); $ld = ($ldRaw === '') ? null : max(0, min(3650, (int)$ldRaw));
         $ldataRaw = trim((string)($b['liberacao_data'] ?? '')); $ldata = ($ldataRaw === '') ? null : cddData($ldataRaw);
         $emoji = cddStr($b['emoji'] ?? '', 8) ?: null; $cor = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($b['cor'] ?? '')) ? $b['cor'] : null;
-        $capaRaw = trim((string)($b['capa_url'] ?? '')); $capa = $capaRaw === '' ? null : (cddUrl($capaRaw) ?: false);
-        if ($capa === false) return cddErro(422, 'capa_invalida', 'O link da capa precisa começar com https://.');
+        $capaRaw = trim((string)($b['capa_url'] ?? '')); $capa = $capaRaw === '' ? null : (cddCapaUrl($capaRaw) ?: false);
+        if ($capa === false) return cddErro(422, 'capa_invalida', 'A capa precisa ser um link https:// ou uma das capas prontas do app.');
         if ($ldataRaw !== '' && !$ldata) return cddErro(422, 'dados_invalidos', 'Data de liberação inválida. Use o formato AAAA-MM-DD.');
         $id = (int)($b['idmodulo'] ?? 0);
         if ($id) {

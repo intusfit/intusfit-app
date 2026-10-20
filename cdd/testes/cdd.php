@@ -473,7 +473,7 @@ eq('quem sai do ranking deixa de aparecer para as outras', !in_array('Quiteria Q
 [$s, $d] = req('ranking', 'GET', ['periodo' => 'semana'], [], $tQ);
 eq('mas ela continua vendo a própria posição', $d['ranking']['eu']['pontos'] === 30 && $d['ranking']['visivel'] === false);
 [$s, $d] = req('ranking', 'GET', ['periodo' => 'mes'], [], $tPt); eq('ranking do mês responde', $s === 200 && $d['ranking']['periodo'] === 'mes');
-[$s, $d] = req('ranking', 'GET', ['periodo' => 'geral'], [], $tPt); eq('ranking geral responde', $s === 200 && $d['ranking']['eu']['pontos'] >= 35);
+[$s, $d] = req('ranking', 'GET', ['periodo' => 'geral'], [], $tPt); eq('ranking geral responde (só conta até hoje: no mínimo os 3 treinos do domingo, 15 pontos)', $s === 200 && $d['ranking']['eu']['pontos'] >= 15);
 eq('sem matrícula não vê o ranking', req('ranking', 'GET', [], [], $tSem)[0] === 403);
 
 echo "\nConquistas\n";
@@ -613,6 +613,23 @@ req('anamnese_salvar', 'POST', [], ['respostas' => ['peso' => '70'], 'enviar' =>
 [$s, $d] = req('nutri', 'GET', [], [], $tBm); eq('resumo reflete água de hoje e aderência', $d['nutri']['agua_ml'] === 2450 && $d['nutri']['aderencia_hoje'] === 10 && $d['nutri']['semana'][6]['meta_batida'] === true);
 [$s, $d] = req('nutri', 'GET', [], [], $tOutra); eq('os dados de nutrição são só da própria aluna', $d['nutri']['agua_ml'] === 0 && $d['nutri']['aderencia_hoje'] === null);
 [$s, $d] = req('conquistas', 'GET', [], [], $tBm); eq('há 29 conquistas no total, com as de cardio e nutrição', $d['total'] === 29, (string)$d['total']);
+
+echo "\nCapas prontas dos módulos\n";
+$seedC = json_decode(file_get_contents(__DIR__ . '/../api/dados/seed-conteudo.json'), true);
+$semArq = []; $semCapa = [];
+foreach ($seedC['modulos'] as $mc) {
+    $cu = $mc['capa_url'] ?? '';
+    if ($cu === '') { $semCapa[] = $mc['titulo']; continue; }
+    $arq = __DIR__ . '/../' . $cu;
+    if (!is_file($arq) || !is_file(preg_replace('/\.jpg$/', '-wide.jpg', $arq))) $semArq[] = $cu;
+}
+eq('todo módulo do seed tem capa pronta (pôster e banner) e os arquivos existem', !$semCapa && !$semArq, json_encode([$semCapa, $semArq]));
+eq('capa pronta e https são aceitos; caminho fora da pasta, php e javascript são recusados', cddCapaUrl('marca/capas/protocolo-3.jpg') === 'marca/capas/protocolo-3.jpg' && cddCapaUrl('https://x.com/a.jpg') === 'https://x.com/a.jpg' && cddCapaUrl('marca/capas/../../app/config/db.php') === '' && cddCapaUrl('../marca/capas/a.jpg') === '' && cddCapaUrl('/etc/passwd') === '' && cddCapaUrl('marca/capas/a.php') === '' && cddCapaUrl('javascript:alert(1)') === '');
+[$s, $d] = req('a_modulo_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Protocolo Trancado', 'grupo' => 'protocolo', 'publicado' => 1, 'capa_url' => 'marca/capas/protocolo-4.jpg'], $tAdmin);
+eq('painel salva uma capa pronta', $s === 200 && $pdo->query("SELECT capa_url FROM cdd_modulo WHERE idmodulo = $mT")->fetchColumn() === 'marca/capas/protocolo-4.jpg');
+eq('painel recusa caminho que sai da pasta de capas', req('a_modulo_salvar', 'POST', [], ['idmodulo' => $mT, 'titulo' => 'Protocolo Trancado', 'capa_url' => 'marca/capas/../x.jpg'], $tAdmin)[0] === 422);
+cddImportarSeed($pdo, $seedC);
+eq('o importador do seed deixa as capas prontas nos módulos', (int)$pdo->query("SELECT COUNT(*) FROM cdd_modulo WHERE capa_url LIKE 'marca/capas/%'")->fetchColumn() >= count($seedC['modulos']));
 
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
