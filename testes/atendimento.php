@@ -615,6 +615,8 @@ confere('sugestão: contato sem conta recebe o convite do teste com o link', tru
 confere('sugestão: quem pediu para sair não recebe sugestão', null, $por['Bia Lima']['sugestao']);
 confere('sugestão: cliente e matrícula em negociação são conversa de pessoa', [null, null], [$por['Eva Matos']['sugestao'], $por['Fran Melo']['sugestao']]);
 confere('sugestão: sem nome, sem espaço antes da vírgula', 'Oi, tudo bem? Aqui é a Cora, assistente virtual da Intus. Seu teste grátis de treino já está liberado por 3 dias. Para entrar no app, use este link: ' . ATD_LINK_APP . '. Se tiver qualquer dúvida, é só responder esta mensagem.', atd_sugestao(atd_funis_padrao(), 'so_conta', '(sem nome)')['texto']);
+confere('sugestão: sem nome, texto que abre com a variável começa por maiúscula', 'Parabéns pelo treino de hoje. Como foi a experiência? Se algum exercício ficou confuso, é só me dizer.', atd_sugestao(atd_funis_padrao(), 'treinando', '(sem nome)')['texto']);
+confere('sugestão: nome composto usa só o primeiro', 'Oi Maria, tudo bem?', substr(atd_sugestao(atd_funis_padrao(), 'so_conta', 'Maria das Dores Silva')['texto'], 0, 19));
 confere('sugestão: usa o texto EDITADO do funil', 'Olá Ana, texto novo.', (function () use ($pdo) {
     $f = atd_funil_por_id($pdo, 'teste-gratis'); $f['mensagens'][0]['texto'] = 'Olá {{1}}, texto novo.'; atd_funil_salvar($pdo, $f);
     return atd_sugestao(atd_funis($pdo), 'so_conta', 'Ana Souza')['texto'];
@@ -642,6 +644,34 @@ $semExtra = array_column(trLeads($pdo, '2026-10-01', '2026-10-20', 'atleta', $ag
 verdade('trLeads sem extras só traz o que Tráfego mede', in_array('Ana Souza', $semExtra, true) && in_array('Lia Contato', $semExtra, true) && !in_array('Kika Indicada', $semExtra, true) && !in_array('Iris Antiga', $semExtra, true));
 $comExtra = array_column(trLeads($pdo, '2026-10-01', '2026-10-20', 'atleta', $agL->getTimestamp(), [12])['pessoas'], 'nome');
 verdade('trLeads com extras inclui a conta pedida', in_array('Kika Indicada', $comExtra, true) && !in_array('Iris Antiga', $comExtra, true));
+
+// ── Leads: controle de contato de Pessoas Captadas aparece na Central ───────
+$tsL = $agL->getTimestamp();
+foreach ([['a1', 'chamado', 'whatsapp_link', null], ['a4', 'sem_interesse', 'ligacao', null], ['a2', 'retornar', 'whatsapp_link', '2026-10-19']] as [$chv, $stt, $cnl, $ret]) {
+    $r = trContatoRegistrar($pdo, ['chave' => $chv, 'status' => $stt, 'canal' => $cnl, 'retorno_em' => $ret, 'telefone' => '5545991110001'], 1, 'Luiz', $tsL);
+    confere("contato registrado: $chv $stt", true, $r['ok']);
+}
+$L2 = atd_leads($pdo, '2026-10-01', '2026-10-20', $agL);
+$por2 = []; foreach ($L2['pessoas'] as $p) $por2[$p['nome']] = $p;
+confere('controle: quem já foi chamado', ['contatado', 'chamado'], [$por2['Ana Souza']['grupo_contato'], $por2['Ana Souza']['controle']['ultimo']['status']]);
+confere('controle: quem nunca foi chamado', 'nunca', $por2['Carla Dias']['grupo_contato']);
+confere('controle: sem interesse sai da fila', 'encerrado', $por2['Dani Reis']['grupo_contato']);
+confere('controle: retorno vencido sobe', 'retorno', $por2['Bia Lima']['grupo_contato']);
+confere('controle: cliente não entra na fila de contato', 'cliente', $por2['Eva Matos']['grupo_contato']);
+confere('controle: resumo de Tráfego chega junto', [5, 2, 1, 1], [$L2['resumo_contato']['nao_contatados'], $L2['resumo_contato']['contatados'], $L2['resumo_contato']['encerrados'], $L2['resumo_contato']['retornos_pendentes']]);
+confere('controle: data de hoje para comparar o retorno', '2026-10-20', $L2['hoje']);
+verdade('controle: quem registrou aparece no histórico', $por2['Ana Souza']['controle']['ultimo']['usuario'] === 'Luiz' && $por2['Ana Souza']['controle']['total'] === 1);
+// "respondeu" só vale se a pessoa escreveu DEPOIS de receber algo da Central
+$pw = banco_leads();
+conta($pw, 1, 'Primeira a Escrever', '(45) 99111-0001', 'app', '2026-10-18 09:00:00');
+$cw = wa_contato_obter_ou_criar($pw, '5545991110001', 'Primeira a Escrever', $agL);
+msg($pw, (int)$cw['idcontato'], 'E', '2026-10-18 09:00:00');
+msg($pw, (int)$cw['idcontato'], 'S', '2026-10-18 10:00:00', ['template' => 'intus_t1_boas_vindas']);
+$lw = atd_leads($pw, '2026-10-01', '2026-10-20', $agL)['pessoas'][0];
+confere('whatsapp: escrever antes de receber não é resposta', [1, false], [$lw['wa']['enviadas'], $lw['wa']['respondeu']]);
+msg($pw, (int)$cw['idcontato'], 'E', '2026-10-18 11:00:00');
+confere('whatsapp: escrever depois de receber é resposta', true, atd_leads($pw, '2026-10-01', '2026-10-20', $agL)['pessoas'][0]['wa']['respondeu']);
+verdade('biblioteca: não repete a leitura do estado do WhatsApp (vem de trLeads)', strpos(file_get_contents(__DIR__ . '/../app/api/_atendimento.php'), "'ultimo_status'") === false && strpos(file_get_contents(__DIR__ . '/../app/api/_atendimento.php'), 'FROM intus_wa_contato WHERE telefone IN') === false);
 
 // ── Exportação e prontidão ──────────────────────────────────────────────────
 $pdo = banco();
@@ -690,6 +720,11 @@ if (is_file($pagina)) {
     verdade('pagina: usa a API certa', strpos($h, '/app/api/atendimento.php') !== false);
     verdade('pagina: escapa HTML antes de inserir texto', strpos($h, 'function esc(') !== false);
     verdade('pagina: sem travessao no texto', !preg_match('/[\x{2014}\x{2013}]/u', $h));
+    verdade('pagina: tema claro e escuro por variáveis, seguindo a chave do painel (mx-theme)', strpos($h, ':root[data-tema="light"]') !== false && strpos($h, "'mx-theme'") !== false && strpos($h, 'prefers-color-scheme') !== false);
+    $apos = substr($h, strpos($h, '*{box-sizing:border-box}'));
+    verdade('pagina: nenhuma cor fixa fora das variáveis (senão some em um dos temas)', !preg_match('/#[0-9a-fA-F]{3,8}\b|rgba?\(/', $apos));
+    verdade('pagina: Voltar ao painel no lugar do Sair', strpos($h, 'href="/app/painel/index.html"') !== false && strpos($h, 'btn-sair') === false && strpos($h, '>Sair<') === false);
+    verdade('pagina: aba Leads e bloco de captação', strpos($h, 'data-aba="leads"') !== false && strpos($h, 'blocoCaptacao') !== false);
 }
 
 echo "\n";

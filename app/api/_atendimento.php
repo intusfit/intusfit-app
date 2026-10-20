@@ -1308,57 +1308,58 @@ function atd_leads(PDO $pdo, string $de, string $ate, ?DateTimeImmutable $agora 
         return !(($t !== '' && isset($telsConta[$t])) || ($e !== '' && isset($emailsConta[$e])));
     }));
 
-    // WhatsApp: contato, consentimento, mensagens e funil
+    // WhatsApp e controle de contato: o estado de cada pessoa (`wa`) e o histórico de contatos (`controle`) já vêm de trLeads, a mesma conta
+    // de "Pessoas Captadas". Aqui entra só o que é da Central: em qual funil a pessoa está (pela agenda) e a mensagem sugerida.
     $in = fn(array $v) => implode(',', array_fill(0, count($v), '?'));
-    $porTel = [];
+    $funilPorTel = [];
+    $tels = [];
     foreach ($pessoas as $i => $p) {
         $t = wa_normalizar_telefone($p['telefone'] ?? '');
         $pessoas[$i]['whatsapp'] = $t;
-        if ($t !== '') $porTel[$t] = true;
+        if ($t !== '') $tels[$t] = true;
     }
-    $wa = [];
-    if ($porTel) {
-        $tels = array_keys($porTel);
+    if ($tels) {
         try {
-            $st = $pdo->prepare("SELECT idcontato, telefone, optin_em, saiu_em, modo, precisa_humano FROM intus_wa_contato WHERE telefone IN (" . $in($tels) . ")");
-            $st->execute($tels);
-            $porId = [];
-            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) { $wa[$c['telefone']] = $c + ['enviadas' => 0, 'respondeu' => false, 'ultima_em' => null, 'ultimo_status' => null, 'funil' => null]; $porId[(int)$c['idcontato']] = $c['telefone']; }
-            if ($porId) {
-                $idsC = array_keys($porId);
-                $st = $pdo->prepare("SELECT idcontato, direcao, status, criado_em FROM intus_wa_mensagem WHERE idcontato IN (" . $in($idsC) . ") ORDER BY idmensagem");
-                $st->execute($idsC);
-                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
-                    $t = $porId[(int)$m['idcontato']];
-                    if ($m['direcao'] === 'S') { $wa[$t]['enviadas']++; $wa[$t]['ultimo_status'] = $m['status']; $wa[$t]['ultima_em'] = $m['criado_em']; }
-                    elseif ($wa[$t]['enviadas'] > 0) $wa[$t]['respondeu'] = true;
-                }
-                $st = $pdo->prepare("SELECT idcontato, passo FROM intus_wa_agenda WHERE idcontato IN (" . $in($idsC) . ") ORDER BY idagenda");
-                $st->execute($idsC);
+            foreach (array_chunk(array_keys($tels), 400) as $lote) {
+                $st = $pdo->prepare("SELECT c.telefone, a.passo FROM intus_wa_agenda a JOIN intus_wa_contato c ON c.idcontato = a.idcontato WHERE c.telefone IN (" . $in($lote) . ") ORDER BY a.idagenda");
+                $st->execute($lote);
                 foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $a) {
-                    $t = $porId[(int)$a['idcontato']];
-                    if ($wa[$t]['funil'] === null) $wa[$t]['funil'] = atd_passo_decodificar((string)$a['passo'])[0];
+                    if (!isset($funilPorTel[$a['telefone']])) $funilPorTel[$a['telefone']] = atd_passo_decodificar((string)$a['passo'])[0];
                 }
             }
         } catch (Throwable $e) { wa_log_erro($e); }
     }
+    $vazioWa = ['contato' => false, 'consentiu' => false, 'saiu' => false, 'modo' => null, 'precisa_humano' => false, 'enviadas' => 0, 'recebidas' => 0, 'respondeu' => false, 'ultima_em' => null];
+    $hoje = (string)($T['hoje'] ?? wa_agora()->format('Y-m-d'));
     foreach ($pessoas as $i => $p) {
-        $c = $p['whatsapp'] !== '' ? ($wa[$p['whatsapp']] ?? null) : null;
-        $pessoas[$i]['wa'] = [
-            'telefone_valido' => $p['whatsapp'] !== '', 'contato' => $c !== null, 'consentiu' => $c !== null && !empty($c['optin_em']), 'saiu' => $c !== null && !empty($c['saiu_em']),
-            'modo' => $c['modo'] ?? null, 'precisa_humano' => $c !== null && (int)$c['precisa_humano'] === 1, 'funil' => $c['funil'] ?? null,
-            'enviadas' => $c['enviadas'] ?? 0, 'respondeu' => $c['respondeu'] ?? false, 'ultima_em' => $c['ultima_em'] ?? null, 'ultimo_status' => $c['ultimo_status'] ?? null,
-        ];
-        // a mensagem pronta de Tráfego (trMensagem) fica no campo "mensagem"; a da Central (funis editáveis) vem em "sugestao"
-        $pessoas[$i]['sugestao'] = $pessoas[$i]['wa']['saiu'] ? null : atd_sugestao($funis, $p['etapa'], (string)$p['nome'], (string)($p['indicado_por'] ?? ''));
+        $w = is_array($p['wa'] ?? null) ? $p['wa'] : $vazioWa;
+        $w['telefone_valido'] = $p['whatsapp'] !== '';
+        $w['funil'] = $funilPorTel[$p['whatsapp']] ?? null;
+        $pessoas[$i]['wa'] = $w;
+        // em que fila de contato a pessoa está (mesma regra de Pessoas Captadas: o último registro manda)
+        $u = $p['controle']['ultimo'] ?? null;
+        $grupo = 'nunca';
+        if ($u) {
+            if (in_array($u['status'], TR_CONTATO_ENCERRADOS, true)) $grupo = 'encerrado';
+            elseif ($u['status'] === 'retornar' && !empty($u['retorno_em']) && $u['retorno_em'] <= $hoje) $grupo = 'retorno';
+            else $grupo = 'contatado';
+        }
+        $pessoas[$i]['grupo_contato'] = $p['etapa'] === 'cliente' ? 'cliente' : $grupo;
+        // a mensagem pronta de Tráfego (trMensagem) fica em "mensagem"; a da Central (funis editáveis) vem em "sugestao"
+        $pessoas[$i]['sugestao'] = $w['saiu'] ? null : atd_sugestao($funis, $p['etapa'], (string)$p['nome'], (string)($p['indicado_por'] ?? ''));
     }
 
     // Resumos
     $resumo = []; foreach (TR_ETAPAS as $k => $v) $resumo[$k] = 0;
     $cob = ['total' => count($pessoas), 'telefone_valido' => 0, 'sem_telefone' => 0, 'contato' => 0, 'consentiu' => 0, 'saiu' => 0, 'receberam' => 0, 'responderam' => 0, 'treinaram' => 0, 'clientes' => 0];
     $canais = [];
+    // fila de contato contada sobre a lista JÁ sem duplicados (a de Tráfego conta antes de juntar contato e conta da mesma pessoa)
+    $rc = ['nao_contatados' => 0, 'contatados' => 0, 'retornos_pendentes' => 0, 'encerrados' => 0];
     foreach ($pessoas as $p) {
         $resumo[$p['etapa']]++;
+        $g = $p['grupo_contato'];
+        if ($g === 'nunca') $rc['nao_contatados']++; elseif ($g === 'encerrado') $rc['encerrados']++;
+        elseif ($g === 'contatado' || $g === 'retorno') { $rc['contatados']++; if ($g === 'retorno') $rc['retornos_pendentes']++; }
         if ($p['wa']['telefone_valido']) $cob['telefone_valido']++; else $cob['sem_telefone']++;
         if ($p['wa']['contato']) $cob['contato']++;
         if ($p['wa']['consentiu']) $cob['consentiu']++;
@@ -1379,6 +1380,7 @@ function atd_leads(PDO $pdo, string $de, string $ate, ?DateTimeImmutable $agora 
     return [
         'periodo' => ['de' => $de, 'ate' => $ate], 'pessoas' => $pessoas, 'resumo' => $resumo, 'etapas' => $T['etapas'],
         'whatsapp' => $cob, 'por_canal' => $canais, 'tabela_atleta' => $tbl !== null, 'sem_medicao' => $T['sem_medicao'] ?? 0,
+        'resumo_contato' => $rc, 'wa_configurado' => $T['wa_configurado'] ?? false, 'hoje' => $hoje,
         'limite_atingido' => count($pessoas) >= ATD_MAX_LEADS,
     ];
 }
