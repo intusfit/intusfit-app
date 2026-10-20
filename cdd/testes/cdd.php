@@ -631,6 +631,26 @@ eq('painel recusa caminho que sai da pasta de capas', req('a_modulo_salvar', 'PO
 cddImportarSeed($pdo, $seedC);
 eq('o importador do seed deixa as capas prontas nos módulos', (int)$pdo->query("SELECT COUNT(*) FROM cdd_modulo WHERE capa_url LIKE 'marca/capas/%'")->fetchColumn() >= count($seedC['modulos']));
 
+echo "\nRecuperação da senha do administrador\n";
+require_once __DIR__ . '/../api/_recuperar.php';
+$adm = cddRecuperarAdmins($pdo);
+eq('a lista traz só contas de administrador, sem hash', count($adm) === 1 && $adm[0]['email'] === CDD_EMAIL_INSTALADOR && !array_key_exists('senha_hash', $adm[0]));
+$idAdm = (int)$adm[0]['idaluna'];
+eq('confirmação diferente é recusada', cddRecuperarTrocarSenha($pdo, $idAdm, 'senhaNova123', 'outraCoisa123', true)[0] === false);
+eq('senha curta é recusada', cddRecuperarTrocarSenha($pdo, $idAdm, 'curta', 'curta', true)[0] === false);
+eq('conta de aluna não é alterada por esta rotina', cddRecuperarTrocarSenha($pdo, (int)$idPt, 'senhaNova123', 'senhaNova123', true)[0] === false);
+eq('conta que não existe é recusada', cddRecuperarTrocarSenha($pdo, 999999, 'senhaNova123', 'senhaNova123', true)[0] === false);
+$hashAluna = $pdo->query("SELECT senha_hash FROM cdd_aluna WHERE idaluna = " . (int)$idPt)->fetchColumn();
+eq('a senha antiga ainda vale antes da troca', req('login', 'POST', [], ['email' => CDD_EMAIL_INSTALADOR, 'senha' => 'senhaboa123'], '', '10.9.9.1')[0] === 200);
+[$trocou, $msgTroca] = cddRecuperarTrocarSenha($pdo, $idAdm, 'senhaNova123', 'senhaNova123', true);
+eq('a troca funciona e avisa que encerrou as sessões', $trocou === true && strpos($msgTroca, 'sessões') !== false);
+eq('a senha nova entra', req('login', 'POST', [], ['email' => CDD_EMAIL_INSTALADOR, 'senha' => 'senhaNova123'], '', '10.9.9.2')[0] === 200);
+eq('a senha antiga deixa de valer', req('login', 'POST', [], ['email' => CDD_EMAIL_INSTALADOR, 'senha' => 'senhaboa123'], '', '10.9.9.3')[0] === 401);
+eq('a sessão aberta antes da troca foi encerrada', req('eu', 'GET', [], [], $tAdmin)[0] === 401);
+eq('o que fica no banco é só o hash (bcrypt), nunca a senha', strpos((string)$pdo->query("SELECT senha_hash FROM cdd_aluna WHERE idaluna = $idAdm")->fetchColumn(), '$2y$') === 0 && $pdo->query("SELECT senha_hash FROM cdd_aluna WHERE idaluna = " . (int)$idPt)->fetchColumn() === $hashAluna);
+$pag = file_get_contents(__DIR__ . '/../../admin/cdd-recuperar.php');
+eq('a página fica atrás do login do admin e confere o token CSRF', strpos($pag, "empty(\$_SESSION['auth'])") !== false && strpos($pag, 'hash_equals($csrf') !== false && strpos($pag, "header('Location: index.php')") !== false);
+
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
 eq('o CDD não inclui nenhum arquivo PHP da Intus (só lê as constantes do banco)', preg_match_all('~(?:require|include)(?:_once)?\s*\(?\s*__DIR__\s*\.\s*\'([^\']+)\'~', $fonte, $mm) && count(array_filter($mm[1], function ($p) { return strpos($p, 'app/api') !== false; })) === 0);
