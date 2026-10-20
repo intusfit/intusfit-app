@@ -1231,6 +1231,9 @@ try {
             $b = jsonBody();
             $subaction = $b['subaction'] ?? '';
             if ($subaction === 'comentario') {
+                // Teste grátis não escreve no mural dos membros: libera quando houver outro plano ativo (regra do Luiz, 20/10/2026).
+                @require_once __DIR__ . '/_plano_aluno.php';
+                if (function_exists('intusExigirPlanoParaPublicar')) intusExigirPlanoParaPublicar($pdo, $_authCtx);
                 $idat = (int)($b['idatleta'] ?? 0);
                 $nome = trim($b['nome'] ?? '');
                 $texto = trim($b['texto'] ?? '');

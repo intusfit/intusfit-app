@@ -1436,6 +1436,7 @@ function abrirCompartilharUltimoTreino() {
 // escolhido depois na Central de Compartilhamento). idsessao é opcional —
 // só usado pra reabrir esta mesma tela depois sabendo qual treino é.
 function abrirCompartilharTreino(info) {
+  if (!_soTesteBarra()) return;
   // Guarda o snapshot mais recente (treino OU cardio, pelo info.tipo) — é a
   // mesma leitura que abrirCompartilharUltimoTreino já usava pro treino;
   // agora o Novo post também lê daqui pra oferecer "Último treino"/"Último
@@ -3162,6 +3163,7 @@ function toggleComentariosFeed(idpost) {
 let _comentarioEnviando = {};
 async function enviarComentarioFeed(idpost) {
   if (_comentarioEnviando[idpost]) return;
+  if (!_soTesteBarra()) return;
   const input = _campoComentarioFeed(idpost);
   const texto = _mencoesCodificar('feed:' + idpost, input?.value?.trim());
   if (!texto) { toast('Escreva o comentário antes de enviar.'); return; }
@@ -3892,6 +3894,7 @@ let _composeExtras = [];
 let _composeFiltroCss = '';
 
 function abrirNovoPostFeed() {
+  if (!_soTesteBarra()) return;
   _composeOrigem = 'post';
   _composeFotoCaptura = false;
   _composeInfo = null;
@@ -6929,6 +6932,37 @@ function _matSituacao() {
 function _temMatriculaAtiva() {
   const s = _matSituacao();
   return s.vigente || !!s.carencia; // acesso durante a carência
+}
+
+// TESTE GRÁTIS: treina, faz cardio e pontua no ranking, mas NÃO publica no Feed nem comenta (post, comentário e mural) enquanto o único plano for o teste.
+// Libera sozinho quando houver outro plano ativo. Mesma regra do servidor (_plano_aluno.php, que é quem barra de verdade): "cortesia" NÃO é teste, é plano de presente.
+// Sem confirmação do servidor ou sem matrícula nenhuma, não bloqueia (o app trata essas contas por outro caminho).
+const _SO_TESTE_MSG = 'O teste grátis não inclui publicar no Feed nem comentar. Isso libera assim que você tiver um plano ativo.';
+function _ehSoTeste() {
+  try {
+    if (!_syncDone || !_matSyncOk) return false;
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const dia = d => new Date(String(d).slice(0, 10) + 'T00:00:00');
+    const limite = new Date(hoje.getTime() - 5 * 86400000);
+    let teste = false, plano = false;
+    _mensalidadesAtivas().forEach(m => {
+      const ehTeste = /\bteste\b|gr[aá]tis|trial|degusta|experimental/i.test(String(m.tipo_plano || '') + ' ' + String(m.dshistorico || ''));
+      const venc = dia(m.dtvencimento);
+      if (ehTeste) {
+        const ini = m.dtinicio ? dia(m.dtinicio) : null;
+        if (venc >= hoje && (!ini || ini <= hoje)) teste = true;
+      } else if (String(m.stpgto || '').toUpperCase() === 'S' && venc >= limite) {
+        plano = true;
+      }
+    });
+    return teste && !plano;
+  } catch (e) { return false; }
+}
+// true = pode seguir; false = avisou o aluno (teste grátis)
+function _soTesteBarra() {
+  if (!_ehSoTeste()) return true;
+  toast(_SO_TESTE_MSG, 6000);
+  return false;
 }
 
 // Corte definitivo: acima disto o acesso e bloqueado, nao so avisado.
@@ -15406,6 +15440,7 @@ function _pkTileTexto(p, isLight, fn) {
     '<span style="position:absolute;top:4px;right:5px;font-size:11px;">✍️</span>' + _visibSeloHtml(p) + '</div>';
 }
 function abrirPostTexto() {
+  if (!_soTesteBarra()) return;
   _txt = { fonte: '', visib: _composeVisibPadrao() || 'todos', destino: 'feed' };
   const isLight = document.body.classList.contains('tema-claro');
   const borda = isLight ? '#ddd' : '#333';
@@ -16453,6 +16488,7 @@ function _cqShareSheet() {
 function _cqSetVisib(v) { _cqShare.visib = v; _cqShareSheet(); }
 async function _cqPostar(destino) {
   if (_cqPublicando || !_cqShare.dataUrl) return;
+  if (!_soTesteBarra()) return;
   _cqPublicando = true;
   _busyMostrar('Publicando sua conquista...', null, '');
   try {
@@ -17938,6 +17974,7 @@ function _renderRankingView() {
 // Mural dos Membros: escrever é de quem tem plano de treino (matrícula) ativo; ler é aberto. O mural da Nutrição segue o plano alimentar.
 function _muralPodeEscrever() { try { return !verificarSemMatricula() && !verificarInadimplencia(); } catch (e) { return true; } }
 async function enviarComentarioRanking() {
+  if (!_soTesteBarra()) return;
   if (!_muralPodeEscrever()) { toast('Escrever no mural é para quem tem plano de treino ativo.'); return; }
   const inp = document.getElementById('ranking-comment-input');
   const texto = _mencoesCodificar('ranking', (inp?.value || '').trim());
@@ -20618,6 +20655,7 @@ function _nmHtml(tipo, id) {
 async function _nmEnviar(el) {
   const tipo = el.dataset.tipo, id = Number(el.dataset.id), chave = _nmChave(tipo, id);
   if (_nm.env[chave]) return;
+  if (!_soTesteBarra()) return;
   const box = document.getElementById(_nmDom(tipo, id)), ta = box && box.querySelector('textarea');
   const texto = ta ? ta.value.trim() : '';
   if (!texto) { toast('Escreva algo antes de enviar.'); return; }

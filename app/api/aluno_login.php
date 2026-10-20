@@ -396,6 +396,8 @@ try {
             if (in_array('indicado_por_idatleta', $colunas)) { $cols[]='indicado_por_idatleta'; $vals[]=$indicadoPor; $phs[]='?'; }
         }
         $cols[]='dt_cadastro'; $vals[]=date('Y-m-d H:i:s'); $phs[]='?';
+        // Entra no ranking desde o primeiro dia (inclusive no teste grátis): explícito, sem depender do DEFAULT da coluna.
+        if (in_array('ranking_optin', $colunas)) { $cols[]='ranking_optin'; $vals[]='S'; $phs[]='?'; }
 
         // Marca como NAO bloqueado por padrao
         if ($col_block && $col_block !== 'stativo') {

@@ -1207,6 +1207,13 @@ if (in_array($action, $_ESCRITA_ADMIN, true) && $method !== 'GET' && empty($_ctx
 if (in_array($action, $_LEITURA_ALUNO, true) && $method !== 'GET' && $_ehAluno) {
     $_negar(403, 'apenas o professor pode alterar');
 }
+// TESTE GRÁTIS NÃO PUBLICA NEM COMENTA: post no Feed (e a mídia dele) e comentário público só com outro plano ativo.
+// Treino, cardio, ranking e pontos continuam liberados. Regra em _plano_aluno.php. PUT e DELETE (editar ou apagar o que já existe) seguem livres.
+if ($_tokValido && $_ehAluno && $method === 'POST' && in_array($action, ['feed_posts', 'feed_midia', 'comentarios_pub'], true)
+    && @file_exists(__DIR__ . '/_plano_aluno.php')) {
+    @require_once __DIR__ . '/_plano_aluno.php';
+    if (function_exists('intusExigirPlanoParaPublicar')) intusExigirPlanoParaPublicar($pdo, $_ctx);
+}
 // PERMISSÃO DE ESCRITA da equipe no servidor (antes só o painel escondia o botão): alongamentos (al), avaliações (av), plano e conteúdo de nutrição, alimentos e medidas (nt).
 // Aluno e administrador não passam por aqui (o aluno tem as travas próprias de cada rota).
 $_PERM_ESCRITA_CAT = ['alongamentos' => 'al', 'avaliacoes' => 'av', 'nutricao' => 'nt', 'nutri_conteudo' => 'nt', 'meus_alimentos' => 'nt', 'alimento_medidas' => 'nt'];
