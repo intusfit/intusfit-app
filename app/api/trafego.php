@@ -9,6 +9,8 @@
  *   GET    ?action=relatorio&de=AAAA-MM-DD&ate=AAAA-MM-DD[&pagina=/teste-gratis.html]
  *   GET    ?action=agora            (visitantes dos últimos 30 min e últimas visitas, para atualizar a cada poucos segundos)
  *   GET    ?action=leads&de=&ate=   (pessoas captadas no período: quem são, contato, como chegaram e em que etapa do funil estão)
+ *   POST   ?action=contato          {chave, status, canal, nota?, retorno_em?, telefone?}   registra um contato feito com a pessoa (tabela intus_lead_contato)
+ *   POST   ?action=responder_wa     {chave, telefone, texto}   responde pelo WhatsApp da Intus (API da Meta) a quem escreveu nas últimas 24 h
  *   GET    ?action=limpar_previa&dias=N   (só conta o que a limpeza apagaria; não apaga nada)
  *   DELETE ?action=limpar&dias=N&confirmo=APAGAR&esperadas=T   (apaga o que tem mais de N dias, mínimo 365, e só se o total T for o da prévia; ação do painel, com várias confirmações)
  */
@@ -59,7 +61,7 @@ if ($method === 'POST' && ($action === 'visita' || $action === 'evento')) {
 }
 
 // ── ADMINISTRADOR ──
-if (!in_array($action, ['relatorio', 'agora', 'limpar', 'limpar_previa', 'leads'], true)) { http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit; }
+if (!in_array($action, ['relatorio', 'agora', 'limpar', 'limpar_previa', 'leads', 'contato', 'responder_wa'], true)) { http_response_code(400); echo json_encode(['error' => 'acao invalida']); exit; }
 $h = '';
 if (isset($_SERVER['HTTP_AUTHORIZATION'])) $h = $_SERVER['HTTP_AUTHORIZATION'];
 elseif (function_exists('apache_request_headers')) { foreach (apache_request_headers() as $k => $v) if (strcasecmp($k, 'Authorization') === 0) { $h = $v; break; } }
@@ -87,6 +89,23 @@ try {
     if ($action === 'limpar_previa') {
         if ($method !== 'GET') { http_response_code(405); echo json_encode(['error' => 'use GET']); exit; }
         echo json_encode(trPreviaLimpeza($pdo, (int)($_GET['dias'] ?? 0)));
+        exit;
+    }
+    if ($action === 'contato' || $action === 'responder_wa') {
+        if ($method !== 'POST') { http_response_code(405); echo json_encode(['error' => 'use POST']); exit; }
+        $b = json_decode((string)file_get_contents('php://input', false, null, 0, 8192), true);
+        if (!is_array($b)) { http_response_code(400); echo json_encode(['error' => 'corpo invalido']); exit; }
+        $uid = (int)$ctx['idusuario']; $unome = (string)($ctx['nmusuario'] ?? '');
+        if ($action === 'contato') {
+            $r = trContatoRegistrar($pdo, $b, $uid, $unome);
+            if (!$r['ok']) { http_response_code(400); echo json_encode(['error' => $r['erro']]); exit; }
+            $c = trContatosPorChaves($pdo, [$b['chave']]);
+            echo json_encode(['ok' => true, 'registro' => $r['registro'], 'controle' => $c[$b['chave']] ?? null]);
+            exit;
+        }
+        $r = trWaResponder($pdo, (string)($b['chave'] ?? ''), (string)($b['telefone'] ?? ''), (string)($b['texto'] ?? ''), $uid, $unome);
+        if (!$r['ok']) { http_response_code(409); echo json_encode(['error' => $r['erro']]); exit; }
+        echo json_encode(['ok' => true]);
         exit;
     }
     if ($method !== 'GET') { http_response_code(405); echo json_encode(['error' => 'use GET']); exit; }

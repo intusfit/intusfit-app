@@ -124,11 +124,11 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
   const leadsCanned = {
     periodo: { de: '2026-09-20', ate: '2026-10-19' }, captadas_medidas: 6, sem_medicao: 1, gerado_em: '',
     etapas: [{ etapa: 'contato', rotulo: 'Deixou só o contato (sem conta)' }, { etapa: 'so_conta', rotulo: 'Criou o acesso, nunca abriu o app' }, { etapa: 'abriu_app', rotulo: 'Abriu o app, ainda não treinou' }, { etapa: 'treinando', rotulo: 'Em teste: já treinou' }, { etapa: 'teste_expirado', rotulo: 'Teste acabou, sem comprar' }, { etapa: 'negociando', rotulo: 'Matrícula criada, falta pagar' }, { etapa: 'cliente', rotulo: 'Virou cliente' }],
-    resumo: { contato: 1, so_conta: 2, abriu_app: 0, treinando: 1, teste_expirado: 1, negociando: 0, cliente: 1 },
+    hoje: '2026-10-19', resumo: { contato: 1, so_conta: 2, abriu_app: 0, treinando: 1, teste_expirado: 1, negociando: 0, cliente: 1 },
     pessoas: [
-      pessoa({ chave: 'a1', id: 1, nome: 'Ana Souza', etapa: 'so_conta', etapa_rotulo: 'Criou o acesso, nunca abriu o app', mensagem: 'Oi Ana, tudo bem? Aqui é da Intus Fit. Vi que você criou o seu acesso ao teste grátis.' }),
+      pessoa({ chave: 'a1', id: 1, nome: 'Ana Souza', wa: { contato: true, saiu: false, enviadas: 2, recebidas: 1, respondeu: true, precisa_humano: true, modo: 'robo', pode_responder: true, janela_aberta: true }, controle: { ultimo: { status: 'retornar', status_rotulo: 'Retornar depois', canal: 'whatsapp_link', nota: 'Quer o preço do trimestral', retorno_em: '2026-10-10', usuario: 'Luiz Nunes', criado_em: '2026-10-18 15:00:00' }, total: 2, historico: [{ status: 'retornar', usuario: 'Luiz Nunes', criado_em: '2026-10-18 15:00:00', nota: 'Quer o preço do trimestral' }, { status: 'chamado', usuario: 'Luiz Nunes', criado_em: '2026-10-18 14:00:00', nota: '' }] }, etapa: 'so_conta', etapa_rotulo: 'Criou o acesso, nunca abriu o app', mensagem: 'Oi Ana, tudo bem? Aqui é da Intus Fit. Vi que você criou o seu acesso ao teste grátis.' }),
       pessoa({ chave: 'a2', id: 2, nome: 'Daniel <b>Rocha</b>', telefone: '(45) 96666-4444', whatsapp: '5545966664444', etapa: 'teste_expirado', etapa_rotulo: 'Teste acabou, sem comprar', criado_em: '2026-10-10 10:00:00', treinos: 3, ultimo_treino: '2026-10-12', abriu_app: true, aberturas: 4, teste: { dias_restantes: -6, expirou: true }, acao: 'Melhor hora para oferecer o plano.', mensagem: 'Oi Daniel, tudo bem? Aqui é da Intus Fit. O seu teste grátis terminou.' }),
-      pessoa({ chave: 'a3', id: 3, nome: 'Carla Dias', canal: 'indicacao', indicado_por: 'Indicadora Oficial', etapa: 'treinando', etapa_rotulo: 'Em teste: já treinou', treinos: 2, ultimo_treino: '2026-10-19', abriu_app: true, aberturas: 2, mensagem: 'Oi Carla, tudo bem?' }),
+      pessoa({ chave: 'a3', id: 3, nome: 'Carla Dias', wa: { contato: true, saiu: true, enviadas: 3, recebidas: 0, respondeu: false, precisa_humano: false, modo: 'robo', pode_responder: false, janela_aberta: false }, controle: { ultimo: { status: 'sem_interesse', status_rotulo: 'Sem interesse', canal: 'ligacao', nota: '', retorno_em: null, usuario: 'Luiz Nunes', criado_em: '2026-10-17 10:00:00' }, total: 1, historico: [] }, canal: 'indicacao', indicado_por: 'Indicadora Oficial', etapa: 'treinando', etapa_rotulo: 'Em teste: já treinou', treinos: 2, ultimo_treino: '2026-10-19', abriu_app: true, aberturas: 2, mensagem: 'Oi Carla, tudo bem?' }),
       pessoa({ chave: 'a5', id: 5, nome: 'Elisa Prado', etapa: 'cliente', etapa_rotulo: 'Virou cliente', matricula: { plano: 'Trimestral', pago: true }, mensagem: '' }),
       pessoa({ chave: 'l1', tipo: 'contato', id: 1, nome: 'Gabriela Alves', telefone: '45933337777', whatsapp: '5545933337777', objetivo: 'Emagrecer', etapa: 'contato', etapa_rotulo: 'Deixou só o contato (sem conta)', teste: null, mensagem: 'Oi Gabriela, tudo bem?' }),
       pessoa({ chave: 'a8', id: 8, nome: 'Heitor Cruz', medido: false, canal: null, utm: {}, etapa: 'so_conta', etapa_rotulo: 'Criou o acesso, nunca abriu o app', telefone: '', whatsapp: '', mensagem: 'Oi Heitor, tudo bem?' }),
@@ -138,9 +138,15 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
     const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await c.addInitScript((u) => { localStorage.setItem('mx-token', 'teste'); localStorage.setItem('mx-user', JSON.stringify(u)); }, usuario);
     const pg = await c.newPage(); const er = []; pg.on('pageerror', e => er.push(String(e.message)));
-    const chamadas = [], apagou = [];
+    const chamadas = [], apagou = [], posts = [];
     await pg.route('**/trafego.php**', r => {
       const u = r.request().url(); chamadas.push(u);
+      if (r.request().method() === 'POST') {
+        const b = JSON.parse(r.request().postData() || '{}'); posts.push({ u, b });
+        if (/action=responder_wa/.test(u)) return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+        const reg = { status: b.status, status_rotulo: b.status, canal: b.canal, nota: b.nota || '', retorno_em: b.retorno_em || null, usuario: 'Luiz Nunes', criado_em: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19).replace('T', ' ') };
+        return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, registro: reg, controle: { ultimo: reg, total: 1, historico: [reg] } }) });
+      }
       if (r.request().method() === 'DELETE') { apagou.push(u); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, apagadas: 120 }) }); }
       const corpo = u.includes('action=agora') ? { agora: relatorio.agora, hoje: relatorio.kpis }
         : u.includes('action=leads') ? leadsCanned
@@ -151,7 +157,7 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
     await pg.route(/\/app\/api\/(?!trafego\.php)/, r => r.abort('failed'));
     await pg.goto(B + '/app/painel/trafego.html', { waitUntil: 'load' });
     await pg.waitForTimeout(1500);
-    return { pg, er, chamadas, apagou, c };
+    return { pg, er, chamadas, apagou, posts, c };
   }
   const adm = await painel({ tipo: 'admin', idusuario: 1, admin: 1, nome: 'Luiz Nunes', permissoes: {} });
   const texto = await adm.pg.evaluate(() => document.getElementById('main-content').innerText);
@@ -244,7 +250,51 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
   eq('a busca acha por pedaço do telefone', await cap.pg.evaluate(() => [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)), ['l1']);
   await cap.pg.fill('#cp-busca', '');
   await cap.pg.selectOption('.cp-sel', 'prioridade'); await cap.pg.waitForTimeout(200);
-  eq('"quem contatar primeiro" põe teste que acabou antes de quem só criou a conta, e cliente por último', await cap.pg.evaluate(() => [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)), ['a2', 'a3', 'a1', 'a8', 'l1', 'a5']);
+  eq('"quem contatar primeiro": retorno vencido, depois quem nunca foi chamado (teste que acabou antes de só conta), depois já contatados, encerrados e cliente por último', await cap.pg.evaluate(() => [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)), ['a1', 'a2', 'a8', 'l1', 'a3', 'a5']);
+  console.log('\n══ Controle de contato e WhatsApp ══');
+  const rc = await cap.pg.evaluate(() => [...document.querySelectorAll('.cp-rc')].map(b => b.innerText.replace(/\s+/g, ' ')));
+  eq('resumo do contato: não contatados, contatados, retornos vencidos, encerrados', rc, ['Ainda não contatados 3', 'Já contatados 1', 'Retornar hoje ou atrasado 1', 'Encerrados (sem interesse, fechou, número errado) 1']);
+  const linhaA1 = await cap.pg.innerText('tr[data-chave="a1"]');
+  ver('mostra quem chamou, quando, a anotação, o retorno vencido e o histórico', /Retornar depois/.test(linhaA1) && /Luiz Nunes/.test(linhaA1) && /Quer o preço do trimestral/.test(linhaA1) && /hoje ou atrasado/.test(linhaA1) && /Ver histórico \(2\)/.test(linhaA1), linhaA1);
+  ver('mostra o que já houve no WhatsApp da Intus (respondeu, pediu atendimento humano)', /recebeu 2 mensagem/.test(linhaA1) && /respondeu/.test(linhaA1) && /atendimento humano/.test(linhaA1), linhaA1);
+  eq('quem ainda não foi contatado aparece assim', (await cap.pg.innerText('tr[data-chave="a2"]')).includes('Ainda não contatado'), true);
+  const linhaA3 = await cap.pg.innerText('tr[data-chave="a3"]');
+  ver('quem pediu para parar: aviso e SEM botão de chamar nem de responder', /Pediu para não receber/.test(linhaA3) && (await cap.pg.locator('tr[data-chave="a3"] a.zap').count()) === 0 && (await cap.pg.locator('tr[data-chave="a3"] >> text=Responder pelo painel').count()) === 0, linhaA3);
+  eq('"Responder pelo painel" só aparece onde a janela de 24 h está aberta', [await cap.pg.locator('tr[data-chave="a1"] >> text=Responder pelo painel').count(), await cap.pg.locator('tr[data-chave="a2"] >> text=Responder pelo painel').count()], [1, 0]);
+  await cap.pg.click('tr[data-chave="a1"] >> text=Ver histórico');
+  ver('o histórico abre com os contatos anteriores', /Chamado/.test(await cap.pg.innerText('tr[data-chave="a1"] .cp-hist')));
+  await cap.pg.click('.cp-rc >> nth=0');
+  eq('filtrar "Ainda não contatados" mostra só quem nunca foi chamado', await cap.pg.evaluate(() => [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)), ['a2', 'a8', 'l1']);
+  await cap.pg.click('.cp-rc >> nth=0');
+  // clicar em "Chamar no WhatsApp" registra o contato sozinho
+  await cap.pg.evaluate(() => document.querySelector('tr[data-chave="a2"] a.zap').addEventListener('click', e => e.preventDefault(), true));
+  const antesP = cap.posts.length;
+  await cap.pg.click('tr[data-chave="a2"] a.zap'); await cap.pg.waitForTimeout(500);
+  eq('clicar em Chamar no WhatsApp registra "chamado" por WhatsApp, com o telefone', [cap.posts.length - antesP, (cap.posts[antesP] || {}).b], [1, { chave: 'a2', status: 'chamado', canal: 'whatsapp_link', telefone: '5545966664444' }]);
+  ver('e a linha já mostra "Chamado" sem recarregar', /Chamado/.test(await cap.pg.innerText('tr[data-chave="a2"]')));
+  await cap.pg.click('tr[data-chave="a2"] a.zap'); await cap.pg.waitForTimeout(300);
+  eq('chamar de novo em menos de 10 min não repete o registro', cap.posts.length - antesP, 1);
+  // anotar resultado
+  await cap.pg.click('tr[data-chave="a8"] >> text=Anotar resultado');
+  ver('o modal de resultado abre', await cap.pg.locator('#cp-modal #rs-status').count() === 1);
+  await cap.pg.selectOption('#rs-status', 'retornar');
+  ver('"Retornar depois" pede a data', await cap.pg.locator('#rs-data').isVisible());
+  await cap.pg.fill('#rs-nota', 'Ligar de noite'); await cap.pg.click('#rs-ok'); await cap.pg.waitForTimeout(500);
+  const pr = cap.posts[cap.posts.length - 1];
+  eq('salvar manda situação, canal, anotação e data', [pr.b.chave, pr.b.status, pr.b.canal, pr.b.nota, /^\d{4}-\d{2}-\d{2}$/.test(pr.b.retorno_em)], ['a8', 'retornar', 'whatsapp_link', 'Ligar de noite', true]);
+  eq('o modal fecha e a linha mostra o resultado', [await cap.pg.locator('#cp-modal').count(), (await cap.pg.innerText('tr[data-chave="a8"]')).includes('Retornar depois')], [0, true]);
+  // responder pelo painel
+  await cap.pg.click('tr[data-chave="a1"] >> text=Responder pelo painel');
+  const aviso24 = await cap.pg.innerText('#cp-modal');
+  ver('o modal de resposta explica as 24 h, que sai do número oficial e que o robô para', /24 horas/.test(aviso24) && /número oficial/.test(aviso24) && /robô para/.test(aviso24), aviso24);
+  eq('já vem com a mensagem sugerida da etapa', (await cap.pg.inputValue('#rp-texto')).startsWith('Oi Ana'), true);
+  const antesR = cap.posts.length;
+  await cap.pg.fill('#rp-texto', 'Oi Ana, posso te ajudar com o plano?'); await cap.pg.click('#rp-ok'); await cap.pg.waitForTimeout(700);
+  const pw = cap.posts[antesR];
+  eq('enviar chama responder_wa com a pessoa, o telefone e o texto', [/action=responder_wa/.test(pw.u), pw.b.chave, pw.b.telefone, pw.b.texto], [true, 'a1', '5545999991111', 'Oi Ana, posso te ajudar com o plano?']);
+  eq('depois de enviar, os dados são recarregados', cap.chamadas.filter(u => /action=leads/.test(u)).length >= 2, true);
+  const csvDl = await Promise.all([cap.pg.waitForEvent('download', { timeout: 5000 }).catch(() => null), cap.pg.click('text=Baixar planilha')]);
+  ver('a planilha também sai com a situação do contato', csvDl[0] && /\.csv$/.test(csvDl[0].suggestedFilename()));
   const [dl] = await Promise.all([cap.pg.waitForEvent('download', { timeout: 5000 }).catch(() => null), cap.pg.click('text=Baixar planilha')]);
   ver('baixa a planilha com a lista filtrada', dl && /^pessoas-captadas-2026-09-20-a-2026-10-19\.csv$/.test(dl.suggestedFilename()), dl && dl.suggestedFilename());
   eq('sem erro de script', cap.er, []);

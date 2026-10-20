@@ -43,6 +43,24 @@
     .cp-att { font-size:11.5px; color:var(--text-dim); margin-top:8px; }
     #main-content { min-width:0; }
     .cp-card { overflow-x:auto; max-width:100%; }
+    .cp-st { display:inline-block; padding:3px 9px; border-radius:999px; font-size:11px; font-weight:800; white-space:nowrap; border:1px solid var(--border); }
+    .cp-btn.peq { padding:6px 10px; font-size:12px; }
+    .cp-resumo { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    .cp-rc { padding:6px 12px; border-radius:999px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
+    .cp-rc.on { border-color:var(--green); outline:1px solid var(--green); }
+    .cp-rc b { font-variant-numeric:tabular-nums; }
+    .cp-hist { margin-top:6px; padding:8px 10px; border-radius:8px; background:var(--bg); border:1px solid var(--border); font-size:11.5px; line-height:1.5; }
+    .cp-hist div { padding:2px 0; }
+    .cp-wa { font-size:11.5px; color:var(--text-muted); line-height:1.45; }
+    .cp-wa.alerta { color:#f87171; font-weight:700; }
+    .cp-modal { position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; padding:16px; }
+    .cp-modal > div { background:var(--bg2); color:var(--text); border:1px solid var(--border); border-radius:14px; padding:20px; width:100%; max-width:480px; max-height:92vh; overflow:auto; font-size:13.5px; line-height:1.55; }
+    .cp-modal h3 { margin:0 0 6px; font-size:17px; }
+    .cp-modal label { display:block; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.3px; color:var(--text-muted); margin:12px 0 4px; }
+    .cp-modal .cp-in, .cp-modal .cp-sel, .cp-modal textarea { width:100%; box-sizing:border-box; }
+    .cp-modal textarea { min-height:110px; padding:9px 11px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:inherit; font-size:13px; resize:vertical; }
+    .cp-modal .acoes { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-top:16px; }
+    .cp-modal .aviso { padding:10px 12px; border-radius:10px; border:1px solid rgba(251,191,36,.4); background:rgba(251,191,36,.08); font-size:12px; margin-top:10px; }
     @media (max-width:1240px) {
       .cp-tab thead { display:none; }
       .cp-tab, .cp-tab tbody, .cp-tab td { display:block; width:100%; box-sizing:border-box; }
@@ -107,23 +125,67 @@ function setPeriodo(p) { periodo = p; carregar(); }
 function setCustom() { de = document.getElementById('cp-de').value; ate = document.getElementById('cp-ate').value; if (de && ate) { periodo = 'custom'; carregar(); } }
 function setEtapa(e) { filtroEtapa = filtroEtapa === e ? '' : e; desenharLista(); desenharEtapas(); }
 
+const ST_CONTATO = { chamado: 'Chamado', respondeu: 'Respondeu', retornar: 'Retornar depois', sem_resposta: 'Sem resposta', sem_interesse: 'Sem interesse', fechou: 'Fechou', numero_errado: 'Número errado', nota: 'Anotação' };
+const ST_COR = { chamado: '#38bdf8', respondeu: '#4ade80', retornar: '#fbbf24', sem_resposta: '#9ca3af', sem_interesse: '#f87171', fechou: '#22c55e', numero_errado: '#f87171', nota: '#9ca3af' };
+const ENCERRADOS = ['sem_interesse', 'fechou', 'numero_errado'];
+let filtroContato = '', histAberto = {}, modalAberto = false;
+const hoje = () => (dados && dados.hoje) || hojeISO();
+function grupoContato(p) {   // 0 retorno vencido, 1 ainda não contatado, 2 já contatado, 3 encerrado, 4 cliente
+  if (p.etapa === 'cliente') return 4;
+  const u = p.controle && p.controle.ultimo;
+  if (!u) return 1;
+  if (ENCERRADOS.includes(u.status)) return 3;
+  if (u.status === 'retornar' && u.retorno_em && u.retorno_em <= hoje()) return 0;
+  return 2;
+}
 function filtradas() {
   const t = busca.trim().toLowerCase(), td = t.replace(/\D/g, '');
   let l = dados.pessoas.filter(p => (!filtroEtapa || p.etapa === filtroEtapa) &&
+    (!filtroContato || (filtroContato === 'nao' ? grupoContato(p) === 1 : filtroContato === 'sim' ? grupoContato(p) === 2 || grupoContato(p) === 0 : filtroContato === 'retorno' ? grupoContato(p) === 0 : grupoContato(p) === 3)) &&
     (!t || p.nome.toLowerCase().includes(t) || (p.email || '').toLowerCase().includes(t) || (td.length >= 3 && (p.telefone || '').replace(/\D/g, '').includes(td))));
-  if (ordem === 'prioridade') l = l.slice().sort((a, b) => (PRIORIDADE[a.etapa] - PRIORIDADE[b.etapa]) || String(b.criado_em || '').localeCompare(String(a.criado_em || '')));
+  if (ordem === 'prioridade') l = l.slice().sort((a, b) => (grupoContato(a) - grupoContato(b)) || (PRIORIDADE[a.etapa] - PRIORIDADE[b.etapa]) || String(b.criado_em || '').localeCompare(String(a.criado_em || '')));
   return l;
 }
+function resumoContato() {
+  const r = { nao: 0, sim: 0, retorno: 0, enc: 0 };
+  dados.pessoas.forEach(p => { const g = grupoContato(p); if (g === 1) r.nao++; else if (g === 2) r.sim++; else if (g === 0) { r.sim++; r.retorno++; } else if (g === 3) r.enc++; });
+  return r;
+}
+function desenharResumoContato() {
+  const r = resumoContato(), el = document.getElementById('cp-resumo'); if (!el) return;
+  const it = (k, rot, n) => '<button class="cp-rc' + (filtroContato === k ? ' on' : '') + '" onclick="setContato(\'' + k + '\')">' + rot + ' <b>' + nf(n) + '</b></button>';
+  el.innerHTML = it('nao', 'Ainda não contatados', r.nao) + it('sim', 'Já contatados', r.sim) + it('retorno', 'Retornar hoje ou atrasado', r.retorno) + it('enc', 'Encerrados (sem interesse, fechou, número errado)', r.enc);
+}
+function setContato(k) { filtroContato = filtroContato === k ? '' : k; desenharResumoContato(); desenharLista(); }
 function desenharEtapas() {
-  const r = dados.resumo, total = dados.pessoas.length;
+  const r = dados.resumo;
   document.getElementById('cp-etapas').innerHTML = ORDEM_FUNIL.map(e => {
     const info = dados.etapas.find(x => x.etapa === e) || { rotulo: e };
     return '<button class="cp-et' + (filtroEtapa === e ? ' on' : '') + '" style="border-top-color:' + COR[e] + '" onclick="setEtapa(\'' + e + '\')"><div class="n">' + nf(r[e]) + '</div><div class="r">' + esc(info.rotulo) + '</div></button>';
   }).join('');
 }
 function etapaBadge(p) { return '<span class="cp-badge" style="background:' + COR[p.etapa] + '26;color:' + COR[p.etapa] + ';border:1px solid ' + COR[p.etapa] + '66">' + esc(p.etapa_rotulo) + '</span>'; }
+function haQuanto(s) { const c = quando(s); return c.h ? c.h : c.t; }
+function controleHtml(p) {
+  const c = p.controle || { ultimo: null, total: 0, historico: [] }, u = c.ultimo, w = p.wa || {};
+  let h = '';
+  if (u) {
+    const venc = u.status === 'retornar' && u.retorno_em && u.retorno_em <= hoje();
+    h += '<span class="cp-st" style="color:' + ST_COR[u.status] + ';border-color:' + ST_COR[u.status] + '66">' + esc(ST_CONTATO[u.status] || u.status) + '</span>' +
+      '<div class="cp-mut">' + esc(u.usuario || 'alguém') + ' · ' + esc(haQuanto(u.criado_em)) + (u.canal === 'whatsapp_api' ? ' · pelo painel' : u.canal === 'whatsapp_link' ? ' · WhatsApp' : u.canal === 'ligacao' ? ' · ligação' : '') + '</div>' +
+      (u.nota ? '<div class="cp-mut">“' + esc(u.nota) + '”</div>' : '') +
+      (u.status === 'retornar' && u.retorno_em ? '<div class="cp-mut" style="' + (venc ? 'color:#f87171;font-weight:700' : '') + '">retornar em ' + esc(fmtDiaCompleto(u.retorno_em)) + (venc ? ' (hoje ou atrasado)' : '') + '</div>' : '') +
+      (c.total > 1 ? '<button class="cp-btn peq" style="margin-top:4px" onclick="alternarHist(\'' + esc(p.chave) + '\')">' + (histAberto[p.chave] ? 'Esconder' : 'Ver') + ' histórico (' + c.total + ')</button>' : '');
+    if (histAberto[p.chave]) h += '<div class="cp-hist">' + c.historico.map(x => '<div><b>' + esc(ST_CONTATO[x.status] || x.status) + '</b> · ' + esc(x.usuario || '') + ' · ' + esc(quando(x.criado_em).t) + (x.nota ? ' · “' + esc(x.nota) + '”' : '') + '</div>').join('') + (c.total > c.historico.length ? '<div class="cp-mut">(mostrando os ' + c.historico.length + ' mais recentes)</div>' : '') + '</div>';
+  } else if (p.etapa !== 'cliente') h += '<span class="cp-st" style="color:var(--text-muted)">Ainda não contatado</span>';
+  if (w.contato) {
+    h += '<div class="cp-wa' + (w.saiu ? ' alerta' : '') + '" style="margin-top:6px">' + (w.saiu ? '🚫 Pediu para não receber mensagens da Intus. Não chame.' :
+      '💬 No WhatsApp da Intus: ' + (w.enviadas ? 'recebeu ' + w.enviadas + ' mensagem(ns)' : 'sem mensagens enviadas') + (w.recebidas ? ', ' + (w.respondeu ? 'respondeu' : 'escreveu') + ' (' + w.recebidas + ')' : ', ainda não respondeu') + (w.precisa_humano ? ' · <b>pediu atendimento humano</b>' : '') + (w.modo === 'humano' ? ' · atendimento com uma pessoa' : '')) + '</div>';
+  }
+  return h;
+}
 function linhaHtml(p) {
-  const c = quando(p.criado_em);
+  const c = quando(p.criado_em), w = p.wa || {};
   const zap = p.whatsapp && p.mensagem ? 'https://wa.me/' + p.whatsapp + '?text=' + encodeURIComponent(p.mensagem) : (p.whatsapp ? 'https://wa.me/' + p.whatsapp : '');
   const origem = p.medido ? esc(NOMES_CANAL[p.canal] || p.canal || 'sem canal') + (p.utm && (p.utm.campaign || p.utm.content) ? '<div class="cp-mut">' + esc([p.utm.campaign, p.utm.content].filter(Boolean).join(' · ')) + '</div>' : '') : '<div class="cp-mut">origem não medida</div>';
   const indic = p.indicado_por ? '<div class="cp-mut">indicado por ' + esc(p.indicado_por) + '</div>' : '';
@@ -136,39 +198,100 @@ function linhaHtml(p) {
   } else app = '<span class="cp-mut">sem conta no app</span>';
   const nomeHtml = p.tipo === 'conta' && p.id ? '<a href="alunos.html?busca=' + encodeURIComponent(p.nome) + '" title="Abrir no cadastro de clientes">' + esc(p.nome) + '</a>' : esc(p.nome);
   const contato = (p.telefone ? '<div>' + esc(p.telefone) + '</div>' : '<div class="cp-mut">sem telefone</div>') + (p.email ? '<div class="cp-mut">' + esc(p.email) + '</div>' : '');
-  return '<tr data-chave="' + esc(p.chave) + '">' +
+  const ch = esc(p.chave);
+  const botoes = p.etapa === 'cliente' ? '<span class="cp-mut">já é cliente</span>' :
+    (w.saiu ? '<span class="cp-mut">sem envio: pediu para parar</span>' : '<a class="cp-btn zap" target="_blank" rel="noopener" href="' + esc(zap) + '"' + (zap ? ' onclick="aoChamar(\'' + ch + '\')"' : ' aria-disabled="true"') + '>💬 Chamar no WhatsApp</a>') +
+    (w.pode_responder ? '<button class="cp-btn" onclick="abrirResponder(\'' + ch + '\')">Responder pelo painel</button>' : '') +
+    '<button class="cp-btn" onclick="abrirResultado(\'' + ch + '\')">Anotar resultado</button>' +
+    (p.mensagem && !w.saiu ? '<button class="cp-btn peq" onclick="copiarMensagem(\'' + ch + '\')">Copiar mensagem</button>' : '');
+  return '<tr data-chave="' + ch + '">' +
     '<td data-r="Pessoa"><div class="cp-nome">' + nomeHtml + '</div>' + (p.objetivo ? '<div class="cp-mut">objetivo: ' + esc(p.objetivo) + '</div>' : '') + (p.bloqueado ? '<div class="cp-mut" style="color:#f87171">conta bloqueada</div>' : '') + '</td>' +
     '<td data-r="Contato">' + contato + '</td>' +
     '<td data-r="Etapa do funil">' + etapaBadge(p) + '<div class="cp-mut" style="margin-top:4px">' + esc(p.acao) + '</div></td>' +
     '<td data-r="Como chegou">' + origem + indic + '</td>' +
     '<td data-r="Cadastro">' + esc(c.t) + '<div class="cp-mut">' + esc(c.h) + '</div></td>' +
     '<td data-r="No app">' + app + '</td>' +
-    '<td data-r="Contato rápido"><div class="cp-acoes">' +
-      (p.etapa === 'cliente' ? '<span class="cp-mut">já é cliente</span>' : '<a class="cp-btn zap" target="_blank" rel="noopener" href="' + esc(zap) + '"' + (zap ? '' : ' aria-disabled="true"') + '>💬 Chamar no WhatsApp</a><button class="cp-btn" onclick="copiarMensagem(\'' + esc(p.chave) + '\')">Copiar mensagem</button>') +
-    '</div></td></tr>';
+    '<td data-r="Já falamos com a pessoa?">' + controleHtml(p) + '</td>' +
+    '<td data-r="Contatar"><div class="cp-acoes">' + botoes + '</div></td></tr>';
 }
 function desenharLista() {
   const l = filtradas();
   const tab = document.getElementById('cp-lista');
-  tab.innerHTML = l.length ? '<table class="cp-tab"><thead><tr><th>Pessoa</th><th>Contato</th><th>Etapa do funil</th><th>Como chegou</th><th>Cadastro</th><th>No app</th><th></th></tr></thead><tbody>' + l.map(linhaHtml).join('') + '</tbody></table>'
+  tab.innerHTML = l.length ? '<table class="cp-tab"><thead><tr><th>Pessoa</th><th>Contato</th><th>Etapa do funil</th><th>Como chegou</th><th>Cadastro</th><th>No app</th><th>Já falamos com a pessoa?</th><th></th></tr></thead><tbody>' + l.map(linhaHtml).join('') + '</tbody></table>'
     : '<div class="cp-vazio">' + (dados.pessoas.length ? 'Ninguém com esse filtro.' : 'Ninguém captado neste período.') + '</div>';
   document.getElementById('cp-contagem').textContent = nf(l.length) + ' de ' + nf(dados.pessoas.length) + ' pessoa(s)';
 }
+function alternarHist(chave) { histAberto[chave] = !histAberto[chave]; desenharLista(); }
 function desenhar() {
-  const p = dados.periodo, tot = dados.pessoas.length, cli = dados.resumo.cliente;
+  const p = dados.periodo;
   const chips = [['0', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['90', '90 dias']].map(([v, t]) => '<button class="cp-chip' + (periodo === v ? ' on' : '') + '" onclick="setPeriodo(\'' + v + '\')">' + t + '</button>').join('');
-  const estado = { b: (document.getElementById('cp-busca') || {}).value };
   main.innerHTML =
     '<div class="cp-topo"><div><h1>Pessoas Captadas</h1><div class="cp-sub">Quem se cadastrou ou deixou contato no teste grátis, e em que ponto do funil está · ' + fmtDiaCompleto(p.de) + ' a ' + fmtDiaCompleto(p.ate) + ' · <a href="trafego.html">← Tráfego e Captação</a></div></div>' +
     '<div class="cp-chips">' + chips + '<input type="date" class="cp-in" id="cp-de" value="' + p.de + '" onchange="setCustom()"><span style="color:var(--text-muted)">a</span><input type="date" class="cp-in" id="cp-ate" value="' + p.ate + '" onchange="setCustom()"></div></div>' +
     '<div class="cp-etapas" id="cp-etapas"></div>' +
+    '<div class="cp-resumo" id="cp-resumo"></div>' +
     (dados.sem_medicao ? '<div class="cp-aviso"><b>' + nf(dados.sem_medicao) + '</b> destas pessoas não têm a origem medida (cadastro de antes de 19/10/2026 ou feito com o navegador bloqueando a medição). Aparecem aqui mesmo assim, só sem canal e campanha.</div>' : '') +
     '<div class="cp-barra"><input class="cp-in" id="cp-busca" placeholder="Buscar por nome, telefone ou e-mail" oninput="busca=this.value;desenharLista()" value="' + esc(busca) + '">' +
     '<select class="cp-sel" onchange="ordem=this.value;desenharLista()"><option value="recentes"' + (ordem === 'recentes' ? ' selected' : '') + '>Mais recentes primeiro</option><option value="prioridade"' + (ordem === 'prioridade' ? ' selected' : '') + '>Quem contatar primeiro</option></select>' +
     '<button class="cp-btn" onclick="exportarCsv()">Baixar planilha (CSV)</button><span class="cp-mut" id="cp-contagem"></span></div>' +
     '<div class="cp-card" id="cp-lista"></div>' +
     '<div class="cp-att" id="cp-att"></div>';
-  desenharEtapas(); desenharLista(); marcarAtualizacao();
+  desenharEtapas(); desenharResumoContato(); desenharLista(); marcarAtualizacao();
+}
+
+// ── controle de contato: registrar, anotar resultado, responder pelo painel ──
+async function postar(acao, corpo) {
+  const tk = (typeof Auth !== 'undefined' && Auth.getToken) ? (Auth.getToken() || '') : (localStorage.getItem('mx-token') || '');
+  const r = await fetch(API_BASE + '/trafego.php?action=' + acao, { method: 'POST', headers: { 'Authorization': 'Bearer ' + tk, 'Content-Type': 'application/json' }, body: JSON.stringify(corpo), keepalive: true });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('erro ' + r.status));
+  return j;
+}
+function pessoaPor(chave) { return dados.pessoas.find(x => x.chave === chave); }
+function aplicarControle(chave, controle) { const p = pessoaPor(chave); if (p && controle) { p.controle = controle; } desenharResumoContato(); desenharLista(); }
+// Clicar em "Chamar no WhatsApp" já deixa registrado que a pessoa foi chamada (e por quem), sem ninguém precisar anotar.
+function aoChamar(chave) {
+  const p = pessoaPor(chave); if (!p) return;
+  const u = p.controle && p.controle.ultimo;
+  if (u && u.status === 'chamado' && u.canal === 'whatsapp_link' && Date.now() - new Date(String(u.criado_em).replace(' ', 'T')).getTime() < 10 * 60000) return;   // não repete a cada clique
+  postar('contato', { chave: chave, status: 'chamado', canal: 'whatsapp_link', telefone: p.whatsapp }).then(j => aplicarControle(chave, j.controle)).catch(e => aviso('Abri o WhatsApp, mas não consegui registrar o contato: ' + e.message));
+}
+function fecharModal() { const m = document.getElementById('cp-modal'); if (m) m.remove(); modalAberto = false; }
+function abrirModal(html) {
+  fecharModal(); modalAberto = true;
+  const m = document.createElement('div'); m.className = 'cp-modal'; m.id = 'cp-modal'; m.onclick = e => { if (e.target === m) fecharModal(); };
+  m.innerHTML = '<div>' + html + '</div>'; document.body.appendChild(m);
+}
+function abrirResultado(chave) {
+  const p = pessoaPor(chave); if (!p) return;
+  abrirModal('<h3>Anotar resultado do contato</h3><div class="cp-mut">' + esc(p.nome) + ' · ' + esc(p.etapa_rotulo) + '</div>' +
+    '<label>Como foi</label><select class="cp-sel" id="rs-status" onchange="document.getElementById(\'rs-ret\').style.display=this.value===\'retornar\'?\'block\':\'none\'"><option value="respondeu">Respondeu / conversamos</option><option value="retornar">Retornar depois</option><option value="sem_resposta">Sem resposta</option><option value="sem_interesse">Sem interesse</option><option value="fechou">Fechou</option><option value="numero_errado">Número errado</option><option value="nota">Só uma anotação</option></select>' +
+    '<div id="rs-ret" style="display:none"><label>Retornar em</label><input type="date" class="cp-in" id="rs-data" value="' + somaDias(hojeISO(), 2) + '"></div>' +
+    '<label>Como falou</label><select class="cp-sel" id="rs-canal"><option value="whatsapp_link">WhatsApp</option><option value="ligacao">Ligação</option><option value="email">E-mail</option><option value="presencial">Pessoalmente</option><option value="outro">Outro</option></select>' +
+    '<label>Anotação (opcional)</label><textarea id="rs-nota" maxlength="500" placeholder="Ex.: quer saber o preço do trimestral; pediu para ligar à noite"></textarea>' +
+    '<div class="acoes"><button class="cp-btn" onclick="fecharModal()">Cancelar</button><button class="cp-btn zap" id="rs-ok" onclick="salvarResultado(\'' + esc(chave) + '\')">Salvar</button></div>');
+}
+async function salvarResultado(chave) {
+  const p = pessoaPor(chave), g = id => document.getElementById(id).value, st = g('rs-status');
+  const b = { chave: chave, status: st, canal: g('rs-canal'), nota: g('rs-nota'), telefone: p && p.whatsapp };
+  if (st === 'retornar') b.retorno_em = g('rs-data');
+  const btn = document.getElementById('rs-ok'); btn.disabled = true;
+  try { const j = await postar('contato', b); fecharModal(); aplicarControle(chave, j.controle); aviso('Contato registrado'); }
+  catch (e) { btn.disabled = false; aviso('Não consegui salvar: ' + e.message); }
+}
+function abrirResponder(chave) {
+  const p = pessoaPor(chave); if (!p) return;
+  abrirModal('<h3>Responder pelo WhatsApp da Intus</h3><div class="cp-mut">' + esc(p.nome) + ' · ' + esc(p.telefone) + '</div>' +
+    '<div class="aviso">Esta pessoa escreveu para a Intus nas últimas 24 horas, então dá para responder aqui. A mensagem sai do número oficial da Intus e fica registrada na conversa. Ao enviar, o atendimento passa para uma pessoa e o robô para de responder a ela.</div>' +
+    '<label>Mensagem</label><textarea id="rp-texto" maxlength="1000">' + esc(p.mensagem || '') + '</textarea>' +
+    '<div class="acoes"><button class="cp-btn" onclick="fecharModal()">Cancelar</button><button class="cp-btn zap" id="rp-ok" onclick="enviarResposta(\'' + esc(chave) + '\')">Enviar agora</button></div>');
+}
+async function enviarResposta(chave) {
+  const p = pessoaPor(chave), t = document.getElementById('rp-texto').value.trim();
+  if (!t) { aviso('Escreva a mensagem'); return; }
+  const btn = document.getElementById('rp-ok'); btn.disabled = true; btn.textContent = 'Enviando...';
+  try { await postar('responder_wa', { chave: chave, telefone: p.whatsapp, texto: t }); fecharModal(); aviso('Mensagem enviada pelo WhatsApp da Intus'); await carregar(); }
+  catch (e) { btn.disabled = false; btn.textContent = 'Enviar agora'; aviso('Não enviou: ' + e.message); }
 }
 function copiarMensagem(chave) {
   const p = dados.pessoas.find(x => x.chave === chave); if (!p) return;
@@ -177,7 +300,7 @@ function copiarMensagem(chave) {
 function aviso(m) { const el = document.createElement('div'); el.textContent = m; el.style.cssText = 'position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:10px 16px;border-radius:10px;z-index:99999;font-size:13px;'; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
 function exportarCsv() {
   const cel = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-  const linhas = [['Nome', 'Telefone', 'E-mail', 'Etapa', 'Cadastro', 'Canal', 'Campanha', 'Indicado por', 'Treinos'].map(cel).join(';')].concat(filtradas().map(p => [p.nome, p.telefone, p.email, p.etapa_rotulo, p.criado_em, p.canal || '', (p.utm && p.utm.campaign) || '', p.indicado_por || '', p.treinos].map(cel).join(';')));
+  const linhas = [['Nome', 'Telefone', 'E-mail', 'Etapa', 'Cadastro', 'Canal', 'Campanha', 'Indicado por', 'Treinos', 'Situação do contato', 'Último contato', 'Retornar em'].map(cel).join(';')].concat(filtradas().map(p => { const u = p.controle && p.controle.ultimo; return [p.nome, p.telefone, p.email, p.etapa_rotulo, p.criado_em, p.canal || '', (p.utm && p.utm.campaign) || '', p.indicado_por || '', p.treinos, u ? (ST_CONTATO[u.status] || u.status) : 'Ainda não contatado', u ? u.criado_em : '', u && u.retorno_em || ''].map(cel).join(';'); }));
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' })); a.download = 'pessoas-captadas-' + dados.periodo.de + '-a-' + dados.periodo.ate + '.csv'; document.body.appendChild(a); a.click(); a.remove();
 }
 
@@ -186,7 +309,7 @@ const INTERVALO_ATUALIZACAO_MS = 60000;
 let _ultima = 0;
 function marcarAtualizacao() { _ultima = Date.now(); const el = document.getElementById('cp-att'); if (el) el.textContent = 'atualiza sozinho a cada minuto · última às ' + new Date().toLocaleTimeString('pt-BR') + ' · horários de Brasília'; }
 async function atualizarSilencioso() {
-  if (carregando || !dados || document.hidden) return;
+  if (carregando || !dados || document.hidden || modalAberto) return;
   const ae = document.activeElement; if (ae && ae.id === 'cp-busca') return;
   const l = limites(); let novo;
   try { novo = await chamar('action=leads&de=' + l.de + '&ate=' + l.ate); } catch (e) { return; }

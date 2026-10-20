@@ -453,7 +453,7 @@ function trEhPlanoTeste(array $m): bool
  * Lista de pessoas captadas no período (pela data do cadastro), com a etapa do funil de cada uma.
  * $tblAtleta: nome da tabela de atletas (ou null). Devolve ['pessoas'=>[], 'resumo'=>[], 'captadas_medidas'=>int, 'sem_medicao'=>int].
  */
-function trLeads(PDO $pdo, string $de, string $ate, ?string $tblAtleta, ?int $ts = null): array
+function trLeads(PDO $pdo, string $de, string $ate, ?string $tblAtleta, ?int $ts = null, array $idsExtras = []): array
 {
     trGarantirTabelas($pdo);
     $hoje = trAgora($ts)[1];
@@ -481,6 +481,8 @@ function trLeads(PDO $pdo, string $de, string $ate, ?string $tblAtleta, ?int $ts
             foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $i) { $i = (int)$i; $idsAt[$i] = true; if (!isset($pessoas['a' . $i])) $pessoas['a' . $i] = ['chave' => 'a' . $i, 'tipo' => 'conta', 'id' => $i, 'medido' => false, 'criado_em' => null, 'canal' => null, 'utm' => [], 'ref' => null]; }
         } catch (Throwable $e) {}
     }
+    // Contas que outra tela (Central de Atendimento) já sabe que são lead pela regra de Clientes, mesmo sem evento medido nem origem landing
+    foreach ($idsExtras as $i) { $i = (int)$i; if ($i <= 0) continue; $idsAt[$i] = true; if (!isset($pessoas['a' . $i])) $pessoas['a' . $i] = ['chave' => 'a' . $i, 'tipo' => 'conta', 'id' => $i, 'medido' => false, 'criado_em' => null, 'canal' => null, 'utm' => [], 'ref' => null]; }
     $leadsRows = [];
     try {
         $st = $pdo->prepare("SELECT * FROM intus_lead WHERE DATE(criado_em) BETWEEN ? AND ? AND origem LIKE 'landing%' LIMIT 1500"); $st->execute([$de, $ate]);
@@ -560,9 +562,205 @@ function trLeads(PDO $pdo, string $de, string $ate, ?string $tblAtleta, ?int $ts
             'mensagem' => $etapa === 'cliente' ? '' : trMensagem($etapa, $nome),
         ]);
     }
+    // Controle de contato (tabela intus_lead_contato) e o que já houve no WhatsApp da Intus
+    $contatos = trContatosPorChaves($pdo, array_column($out, 'chave'));
+    $waEst = trWaEstados($pdo, array_column($out, 'telefone'), null);
+    $vazio = ['ultimo' => null, 'total' => 0, 'historico' => []];
+    $waVazio = ['contato' => false, 'consentiu' => false, 'saiu' => false, 'modo' => null, 'precisa_humano' => false, 'enviadas' => 0, 'recebidas' => 0, 'respondeu' => false, 'ultima_em' => null, 'ultima_direcao' => null, 'janela_aberta' => false, 'api_configurada' => false, 'pode_responder' => false];
+    $rc = ['nao_contatados' => 0, 'contatados' => 0, 'retornos_pendentes' => 0, 'encerrados' => 0];
+    foreach ($out as $i => $p) {
+        $c = $contatos[$p['chave']] ?? $vazio;
+        $out[$i]['controle'] = $c;
+        $out[$i]['wa'] = ($p['whatsapp'] !== '' ? ($waEst[wa_normalizar_telefone_seguro($p['whatsapp'])] ?? null) : null) ?: $waVazio;
+        if ($p['etapa'] === 'cliente') continue;
+        $u = $c['ultimo'];
+        if (!$u) $rc['nao_contatados']++;
+        elseif (in_array($u['status'], TR_CONTATO_ENCERRADOS, true)) $rc['encerrados']++;
+        else { $rc['contatados']++; if ($u['status'] === 'retornar' && $u['retorno_em'] && $u['retorno_em'] <= $hoje) $rc['retornos_pendentes']++; }
+    }
     usort($out, fn($a, $b) => strcmp((string)($b['criado_em'] ?? ''), (string)($a['criado_em'] ?? '')));
     $resumo = []; foreach (TR_ETAPAS as $k => $v) $resumo[$k] = 0;
     foreach ($out as $p) $resumo[$p['etapa']]++;
     return ['periodo' => ['de' => $de, 'ate' => $ate], 'pessoas' => $out, 'resumo' => $resumo, 'etapas' => array_map(fn($k, $v) => ['etapa' => $k, 'ordem' => $v[0], 'rotulo' => $v[1]], array_keys(TR_ETAPAS), array_values(TR_ETAPAS)),
-            'captadas_medidas' => $captadasMedidas, 'sem_medicao' => count(array_filter($out, fn($p) => !$p['medido'])), 'gerado_em' => gmdate('Y-m-d H:i:s', $ts ?? time())];
+            'resumo_contato' => $rc, 'wa_configurado' => trWaConfigurado($pdo), 'hoje' => $hoje, 'captadas_medidas' => $captadasMedidas, 'sem_medicao' => count(array_filter($out, fn($p) => !$p['medido'])), 'gerado_em' => gmdate('Y-m-d H:i:s', $ts ?? time())];
 }
+
+// ───────────────────────── CONTROLE DE CONTATO COM OS LEADS ─────────────────────────
+// Tabela nova `intus_lead_contato` (autorizada pelo Luiz em 20/10/2026; só recebe linhas, nunca altera nem apaga dado de aluno ou lead):
+// cada linha é UM contato feito com uma pessoa captada (clique no WhatsApp, resposta enviada pelo painel, resultado anotado). A situação atual
+// de uma pessoa é a linha mais recente dela. `chave` é a mesma da tela Pessoas Captadas: 'a<idatleta>' (conta) ou 'l<idlead>' (contato sem conta).
+
+const TR_CONTATO_STATUS = [
+    'chamado'       => 'Chamado',
+    'respondeu'     => 'Respondeu',
+    'retornar'      => 'Retornar depois',
+    'sem_resposta'  => 'Sem resposta',
+    'sem_interesse' => 'Sem interesse',
+    'fechou'        => 'Fechou',
+    'numero_errado' => 'Número errado',
+    'nota'          => 'Anotação',
+];
+const TR_CONTATO_CANAIS = ['whatsapp_link', 'whatsapp_api', 'ligacao', 'email', 'presencial', 'outro'];
+// Quem já está resolvido (de um jeito ou de outro) não deve voltar para o topo da fila de contato.
+const TR_CONTATO_ENCERRADOS = ['sem_interesse', 'fechou', 'numero_errado'];
+
+function trGarantirTabelaContato(PDO $pdo): bool
+{
+    static $ok = [];
+    $k = spl_object_id($pdo);
+    if (!empty($ok[$k])) return true;
+    try { $pdo->query('SELECT 1 FROM intus_lead_contato LIMIT 1'); return $ok[$k] = true; } catch (Throwable $e) { /* cria abaixo */ }
+    try {
+        if (trSqlite($pdo)) {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS intus_lead_contato (idlc INTEGER PRIMARY KEY AUTOINCREMENT, chave TEXT, telefone TEXT, canal TEXT, status TEXT, nota TEXT, retorno_em TEXT, idusuario INT, usuario_nome TEXT, criado_em TEXT)");
+        } else {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS intus_lead_contato (
+                idlc BIGINT AUTO_INCREMENT PRIMARY KEY,
+                chave VARCHAR(20) NOT NULL,
+                telefone VARCHAR(20) NULL,
+                canal VARCHAR(20) NOT NULL,
+                status VARCHAR(20) NOT NULL,
+                nota VARCHAR(500) NULL,
+                retorno_em DATE NULL,
+                idusuario INT NULL,
+                usuario_nome VARCHAR(100) NULL,
+                criado_em DATETIME NOT NULL,
+                INDEX i_chave (chave, idlc),
+                INDEX i_status (status, retorno_em)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+        return $ok[$k] = true;
+    } catch (Throwable $e) { return $ok[$k] = false; }
+}
+
+/** Registra um contato. Devolve ['ok'=>bool, 'erro'=>?string, 'registro'=>?array]. Valida tudo que vem da tela. */
+function trContatoRegistrar(PDO $pdo, array $b, int $idusuario, string $usuarioNome, ?int $ts = null): array
+{
+    $chave = is_string($b['chave'] ?? null) ? $b['chave'] : '';
+    if (!preg_match('/^[al][0-9]{1,10}$/', $chave)) return ['ok' => false, 'erro' => 'pessoa invalida', 'registro' => null];
+    $status = (string)($b['status'] ?? '');
+    if (!isset(TR_CONTATO_STATUS[$status])) return ['ok' => false, 'erro' => 'situacao invalida', 'registro' => null];
+    $canal = (string)($b['canal'] ?? 'outro');
+    if (!in_array($canal, TR_CONTATO_CANAIS, true)) return ['ok' => false, 'erro' => 'canal invalido', 'registro' => null];
+    $nota = trLimpar($b['nota'] ?? '', 500);
+    $retorno = null;
+    if (($b['retorno_em'] ?? '') !== '' && $b['retorno_em'] !== null) {
+        if (!trDataValida($b['retorno_em'])) return ['ok' => false, 'erro' => 'data de retorno invalida', 'registro' => null];
+        $retorno = $b['retorno_em'];
+    }
+    if ($status === 'retornar' && $retorno === null) return ['ok' => false, 'erro' => 'informe quando retornar', 'registro' => null];
+    if ($status === 'nota' && $nota === '') return ['ok' => false, 'erro' => 'escreva a anotacao', 'registro' => null];
+    $tel = preg_replace('/\D/', '', (string)($b['telefone'] ?? ''));
+    if (strlen($tel) < 10 || strlen($tel) > 15) $tel = '';
+    if (!trGarantirTabelaContato($pdo)) return ['ok' => false, 'erro' => 'tabela indisponivel', 'registro' => null];
+    try {
+        $utc = trAgora($ts)[0];
+        $pdo->prepare('INSERT INTO intus_lead_contato (chave, telefone, canal, status, nota, retorno_em, idusuario, usuario_nome, criado_em) VALUES (?,?,?,?,?,?,?,?,?)')
+            ->execute([$chave, $tel ?: null, $canal, $status, $nota !== '' ? $nota : null, $retorno, $idusuario ?: null, trLimpar($usuarioNome, 100) ?: null, $utc]);
+        return ['ok' => true, 'erro' => null, 'registro' => ['idlc' => (int)$pdo->lastInsertId(), 'chave' => $chave, 'status' => $status, 'canal' => $canal, 'nota' => $nota, 'retorno_em' => $retorno, 'usuario' => $usuarioNome, 'criado_em' => trParaBrt($utc)]];
+    } catch (Throwable $e) { return ['ok' => false, 'erro' => 'falha ao gravar', 'registro' => null]; }
+}
+
+/** Situação de contato de cada chave: último registro, total e os 5 últimos (mais novo primeiro). */
+function trContatosPorChaves(PDO $pdo, array $chaves): array
+{
+    $chaves = array_values(array_unique(array_filter($chaves, fn($c) => is_string($c) && preg_match('/^[al][0-9]{1,10}$/', $c))));
+    if (!$chaves || !trGarantirTabelaContato($pdo)) return [];
+    $out = [];
+    try {
+        foreach (array_chunk($chaves, 400) as $lote) {
+            $ph = implode(',', array_fill(0, count($lote), '?'));
+            $st = $pdo->prepare("SELECT idlc, chave, telefone, canal, status, nota, retorno_em, usuario_nome, criado_em FROM intus_lead_contato WHERE chave IN ($ph) ORDER BY idlc DESC");
+            $st->execute($lote);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $k = $r['chave'];
+                $reg = ['idlc' => (int)$r['idlc'], 'status' => $r['status'], 'status_rotulo' => TR_CONTATO_STATUS[$r['status']] ?? $r['status'], 'canal' => $r['canal'], 'nota' => $r['nota'] ?? '', 'retorno_em' => $r['retorno_em'], 'usuario' => $r['usuario_nome'] ?? '', 'criado_em' => trParaBrt((string)$r['criado_em'])];
+                if (!isset($out[$k])) $out[$k] = ['ultimo' => $reg, 'total' => 0, 'historico' => []];
+                $out[$k]['total']++;
+                if (count($out[$k]['historico']) < 5) $out[$k]['historico'][] = $reg;
+            }
+        }
+    } catch (Throwable $e) {}
+    return $out;
+}
+
+// ───────────── WhatsApp da Intus (Meta): o que já aconteceu com este telefone e se dá para responder pelo painel ─────────────
+
+function trWaBiblioteca(): bool
+{
+    if (function_exists('wa_garantir_tabelas')) return true;
+    try { require_once __DIR__ . '/_wa.php'; return function_exists('wa_garantir_tabelas'); } catch (Throwable $e) { return false; }
+}
+
+/**
+ * Estado do telefone no WhatsApp da Intus, para cada número pedido (só leitura). Chave do resultado = telefone normalizado.
+ * pode_responder: a pessoa escreveu para a Intus nas últimas 24 h (janela aberta, texto livre permitido), não pediu para sair e a Meta está configurada.
+ */
+function trWaEstados(PDO $pdo, array $telefones, ?DateTimeImmutable $agora = null): array
+{
+    if (!$telefones || !trWaBiblioteca()) return [];
+    try { wa_garantir_tabelas($pdo); } catch (Throwable $e) { return []; }
+    $agora = $agora ?: wa_agora();
+    $tels = array_values(array_unique(array_filter(array_map('wa_normalizar_telefone', $telefones))));
+    if (!$tels) return [];
+    $out = [];
+    try {
+        $cfg = wa_config_whatsapp($pdo);
+        foreach (array_chunk($tels, 400) as $lote) {
+            $ph = implode(',', array_fill(0, count($lote), '?'));
+            $st = $pdo->prepare("SELECT idcontato, telefone, modo, optin_em, saiu_em, ultima_entrada_em, precisa_humano, motivo_humano FROM intus_wa_contato WHERE telefone IN ($ph)");
+            $st->execute($lote);
+            $porId = [];
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) { $porId[(int)$c['idcontato']] = $c['telefone']; $out[$c['telefone']] = $c + ['enviadas' => 0, 'recebidas' => 0, 'respondeu' => false, 'ultima_em' => null, 'ultima_direcao' => null]; }
+            if ($porId) {
+                $ids = array_keys($porId); $ph2 = implode(',', array_fill(0, count($ids), '?'));
+                $st = $pdo->prepare("SELECT idcontato, direcao, criado_em FROM intus_wa_mensagem WHERE idcontato IN ($ph2) ORDER BY idmensagem");
+                $st->execute($ids);
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                    $t = $porId[(int)$m['idcontato']];
+                    if ($m['direcao'] === 'S') $out[$t]['enviadas']++; else { $out[$t]['recebidas']++; if ($out[$t]['enviadas'] > 0) $out[$t]['respondeu'] = true; }
+                    $out[$t]['ultima_em'] = $m['criado_em']; $out[$t]['ultima_direcao'] = $m['direcao'];
+                }
+            }
+        }
+        foreach ($out as $t => $c) {
+            [$podeTexto] = wa_decidir_envio($c, $agora, ['tipo' => 'texto', 'proativa' => false, 'automatica' => false]);
+            $out[$t] = ['contato' => true, 'consentiu' => !empty($c['optin_em']), 'saiu' => !empty($c['saiu_em']), 'modo' => $c['modo'], 'precisa_humano' => (int)$c['precisa_humano'] === 1,
+                'enviadas' => $c['enviadas'], 'recebidas' => $c['recebidas'], 'respondeu' => $c['respondeu'], 'ultima_em' => $c['ultima_em'], 'ultima_direcao' => $c['ultima_direcao'],
+                'janela_aberta' => wa_janela_aberta($c['ultima_entrada_em'] ?? null, $agora), 'api_configurada' => $cfg !== null, 'pode_responder' => $cfg !== null && $podeTexto];
+        }
+    } catch (Throwable $e) { return []; }
+    return $out;
+}
+
+/**
+ * Responde, pelo WhatsApp da Intus (API da Meta), a uma pessoa captada que escreveu nas últimas 24 h. Texto livre só vale nessa janela e nunca
+ * para quem pediu para sair. Grava na conversa (origem 'humano'), passa o atendimento para uma pessoa (o robô para) e registra o contato.
+ * $http: para teste (mesma assinatura de wa_http_post). Devolve ['ok'=>bool,'erro'=>?string].
+ */
+function trWaResponder(PDO $pdo, string $chave, string $telefone, string $texto, int $idusuario, string $usuarioNome, ?callable $http = null, ?DateTimeImmutable $agora = null): array
+{
+    if (!trWaBiblioteca()) return ['ok' => false, 'erro' => 'WhatsApp indisponivel'];
+    $texto = trim($texto);
+    if ($texto === '' || mb_strlen($texto) > 1000) return ['ok' => false, 'erro' => 'a mensagem precisa ter de 1 a 1000 caracteres'];
+    if (!preg_match('/^[al][0-9]{1,10}$/', $chave)) return ['ok' => false, 'erro' => 'pessoa invalida'];
+    try {
+        wa_garantir_tabelas($pdo);
+        $agora = $agora ?: wa_agora();
+        $cfg = wa_config_whatsapp($pdo);
+        if (!$cfg) return ['ok' => false, 'erro' => 'o WhatsApp da Intus ainda nao esta configurado'];
+        $tel = wa_normalizar_telefone($telefone);
+        $c = $tel !== '' ? wa_contato_por_telefone($pdo, $tel) : null;
+        if (!$c) return ['ok' => false, 'erro' => 'essa pessoa ainda nao escreveu para o WhatsApp da Intus'];
+        [$pode, $motivo] = wa_decidir_envio($c, $agora, ['tipo' => 'texto', 'proativa' => false, 'automatica' => false]);
+        if (!$pode) return ['ok' => false, 'erro' => $motivo === 'saiu' ? 'a pessoa pediu para nao receber mensagens' : ($motivo === 'fora_da_janela' ? 'passaram mais de 24 h desde a ultima mensagem dela: use o botao de abrir o WhatsApp' : 'envio nao permitido (' . $motivo . ')')];
+        $r = wa_enviar_texto($pdo, $cfg, $c, $texto, 'humano', $http, $agora);
+        if (!$r['ok']) return ['ok' => false, 'erro' => 'a Meta recusou o envio: ' . ($r['erro'] ?? 'erro')];
+        wa_contato_atualizar($pdo, (int)$c['idcontato'], ['modo' => 'humano', 'precisa_humano' => 0], $agora);
+        trContatoRegistrar($pdo, ['chave' => $chave, 'telefone' => $tel, 'canal' => 'whatsapp_api', 'status' => 'chamado', 'nota' => mb_substr($texto, 0, 200)], $idusuario, $usuarioNome);
+        return ['ok' => true, 'erro' => null];
+    } catch (Throwable $e) { return ['ok' => false, 'erro' => 'falha ao enviar']; }
+}
+
+function wa_normalizar_telefone_seguro(string $t): string { return trWaBiblioteca() ? wa_normalizar_telefone($t) : $t; }
+function trWaConfigurado(PDO $pdo): bool { if (!trWaBiblioteca()) return false; try { wa_garantir_tabelas($pdo); return wa_config_whatsapp($pdo) !== null; } catch (Throwable $e) { return false; } }

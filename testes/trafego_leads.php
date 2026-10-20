@@ -96,9 +96,81 @@ foreach (['so_conta', 'abriu_app', 'treinando', 'teste_expirado', 'negociando', 
 }
 eq('cada etapa tem uma ação sugerida', count(array_filter(TR_ETAPAS, fn($e) => $e[2] !== '')), 7);
 
+
+echo "\n══ Controle de contato (tabela intus_lead_contato) ══\n";
+$u = fn($b) => trContatoRegistrar($pdo, $b, 1, 'Luiz Nunes', $t0);
+$r0 = trLeads($pdo, '2026-10-01', '2026-10-19', 'atleta', $t0);
+eq('antes de qualquer contato: ninguém contatado, todos (menos clientes) na fila', [$r0['resumo_contato']['nao_contatados'], $r0['resumo_contato']['contatados'], $r0['pessoas'][0]['controle']['total']], [count(array_filter($r0['pessoas'], fn($p) => $p['etapa'] !== 'cliente')), 0, 0]);
+$ok1 = $u(['chave' => 'a1', 'status' => 'chamado', 'canal' => 'whatsapp_link', 'telefone' => '5545999991111']);
+eq('registrar contato grava e devolve o registro', [$ok1['ok'], $ok1['registro']['status'], $ok1['registro']['usuario']], [true, 'chamado', 'Luiz Nunes']);
+eq('horário do contato volta em Brasília', $ok1['registro']['criado_em'], '2026-10-19 12:00:00');
+$u(['chave' => 'a1', 'status' => 'respondeu', 'canal' => 'whatsapp_link', 'nota' => 'Quer saber o preço do trimestral']);
+$u(['chave' => 'a2', 'status' => 'retornar', 'canal' => 'ligacao', 'retorno_em' => '2026-10-19', 'nota' => 'Ligar à tarde']);
+$u(['chave' => 'a3', 'status' => 'sem_interesse', 'canal' => 'whatsapp_link']);
+$r1 = trLeads($pdo, '2026-10-01', '2026-10-19', 'atleta', $t0);
+$por1 = []; foreach ($r1['pessoas'] as $p) $por1[$p['nome']] = $p;
+eq('a situação atual é o último registro', [$por1['Ana Souza']['controle']['ultimo']['status'], $por1['Ana Souza']['controle']['total'], $por1['Ana Souza']['controle']['ultimo']['nota']], ['respondeu', 2, 'Quer saber o preço do trimestral']);
+eq('o histórico vem do mais novo para o mais antigo', array_column($por1['Ana Souza']['controle']['historico'], 'status'), ['respondeu', 'chamado']);
+eq('quem nunca foi contatado continua sem registro', $por1['Fábio Neto']['controle']['ultimo'], null);
+eq('resumo do contato: não contatados, contatados, retornos de hoje e encerrados', [$r1['resumo_contato']['nao_contatados'], $r1['resumo_contato']['contatados'], $r1['resumo_contato']['retornos_pendentes'], $r1['resumo_contato']['encerrados']], [$r0['resumo_contato']['nao_contatados'] - 3, 2, 1, 1]);
+eq('cliente não entra na conta de contato', $por1['Elisa Prado']['controle']['ultimo'], null);
+eq('retorno agendado para depois de hoje não conta como pendente', (function () use ($pdo, $t0) { trContatoRegistrar($pdo, ['chave' => 'a4', 'status' => 'retornar', 'canal' => 'outro', 'retorno_em' => '2026-10-25'], 1, 'L', $t0); return trLeads($pdo, '2026-10-01', '2026-10-19', 'atleta', $t0)['resumo_contato']['retornos_pendentes']; })(), 1);
+echo "\n══ Validação do que vem da tela ══\n";
+eq('pessoa inválida é recusada', [$u(['chave' => "a1'; DROP", 'status' => 'chamado', 'canal' => 'outro'])['ok'], $u(['chave' => 'x1', 'status' => 'chamado', 'canal' => 'outro'])['ok']], [false, false]);
+eq('situação inválida é recusada', $u(['chave' => 'a1', 'status' => 'hackeado', 'canal' => 'outro'])['ok'], false);
+eq('canal inválido é recusado', $u(['chave' => 'a1', 'status' => 'chamado', 'canal' => 'pombo'])['ok'], false);
+eq('"retornar" exige a data e a data precisa ser real', [$u(['chave' => 'a1', 'status' => 'retornar', 'canal' => 'outro'])['ok'], $u(['chave' => 'a1', 'status' => 'retornar', 'canal' => 'outro', 'retorno_em' => '2026-13-45'])['ok']], [false, false]);
+eq('anotação vazia é recusada', $u(['chave' => 'a1', 'status' => 'nota', 'canal' => 'outro', 'nota' => '  '])['ok'], false);
+$n = $u(['chave' => 'a1', 'status' => 'nota', 'canal' => 'outro', 'nota' => '<script>alert(1)</script> ' . str_repeat('x', 800)]);
+eq('anotação perde marcação de código e é limitada a 500 caracteres', [strpos($n['registro']['nota'], '<') === false, mb_strlen($n['registro']['nota'])], [true, 500]);
+eq('telefone inválido vira vazio em vez de lixo', (function () use ($pdo, $t0) { trContatoRegistrar($pdo, ['chave' => 'a5', 'status' => 'nota', 'canal' => 'outro', 'nota' => 'x', 'telefone' => 'abc'], 1, 'L', $t0); return $pdo->query("SELECT COALESCE(telefone,'-') FROM intus_lead_contato WHERE chave='a5' ORDER BY idlc DESC LIMIT 1")->fetchColumn(); })(), '-');
+eq('a tabela só ganha linhas (nenhum apagar no código)', preg_match('/DELETE\s+FROM\s+intus_lead_contato|UPDATE\s+intus_lead_contato|DROP\s+TABLE\s+intus_lead_contato/i', file_get_contents(__DIR__ . '/../app/api/_trafego.php')) === 0, true);
+
+echo "\n══ WhatsApp da Intus (tabelas da Meta) ══\n";
+wa_garantir_tabelas($pdo);
+$agoraWa = new DateTimeImmutable('2026-10-19 12:00:00', new DateTimeZone('America/Sao_Paulo'));
+$tw = $agoraWa->getTimestamp();
+$pdo->exec("INSERT INTO intus_wa_contato (telefone, nome, etapa, modo, optin_em, saiu_em, ultima_entrada_em, precisa_humano, criado_em, atualizado_em) VALUES
+  ('5545999991111','Ana','novo','robo','2026-10-18 10:00:00',NULL,'" . gmdate('Y-m-d H:i:s', $tw - 3600) . "',1,'2026-10-18 10:00:00','2026-10-18 10:00:00'),
+  ('5545988882222','Bruno','novo','robo',NULL,'2026-10-18 12:00:00','" . gmdate('Y-m-d H:i:s', $tw - 7200) . "',0,'2026-10-18 10:00:00','2026-10-18 10:00:00'),
+  ('5545977773333','Carla','novo','robo','2026-10-18 10:00:00',NULL,'" . gmdate('Y-m-d H:i:s', $tw - 3 * 86400) . "',0,'2026-10-18 10:00:00','2026-10-18 10:00:00')");
+$pdo->exec("INSERT INTO intus_wa_mensagem (idcontato, direcao, origem, tipo, texto, status, processada, criado_em) VALUES
+  (1,'S','sequencia','template','oi','enviada',1,'2026-10-18 10:05:00'),(1,'E','cliente','text','quero saber','recebida',1,'2026-10-19 11:00:00'),
+  (3,'S','sequencia','template','oi','enviada',1,'2026-10-16 10:05:00')");
+$est = trWaEstados($pdo, ['5545999991111', '(45) 98888-2222', '45977773333', '45900000000'], $agoraWa);
+eq('Ana: já conversou, respondeu, janela aberta, precisa de humano', [$est['5545999991111']['enviadas'], $est['5545999991111']['recebidas'], $est['5545999991111']['respondeu'], $est['5545999991111']['janela_aberta'], $est['5545999991111']['precisa_humano']], [1, 1, true, true, true]);
+eq('Bruno pediu para sair', [$est['5545988882222']['saiu'], $est['5545988882222']['pode_responder']], [true, false]);
+eq('Carla escreveu há 3 dias: janela fechada, não dá para responder por texto livre', [$est['5545977773333']['janela_aberta'], $est['5545977773333']['pode_responder']], [false, false]);
+eq('número que nunca falou com a Intus não aparece', isset($est['5545900000000']), false);
+eq('sem a Meta configurada ninguém pode ser respondido pelo painel', $est['5545999991111']['pode_responder'], false);
+eq('e o estado diz que a API não está configurada', $est['5545999991111']['api_configurada'], false);
+wa_segredo_gravar($pdo, 'whatsapp_config', ['phone_number_id' => '123', 'access_token' => 'tok-de-teste']);
+$est2 = trWaEstados($pdo, ['5545999991111', '5545977773333'], $agoraWa);
+eq('com a Meta configurada, quem escreveu nas últimas 24 h pode ser respondido', [$est2['5545999991111']['pode_responder'], $est2['5545977773333']['pode_responder']], [true, false]);
+$r2 = trLeads($pdo, '2026-10-01', '2026-10-19', 'atleta', $t0);
+$ana = null; foreach ($r2['pessoas'] as $p) if ($p['nome'] === 'Ana Souza') $ana = $p;
+eq('a lista de leads traz o estado do WhatsApp de cada pessoa', [$ana['wa']['contato'], $ana['wa']['respondeu'], $r2['wa_configurado']], [true, true, true]);
+$chamadas = [];
+$http = function ($url, $corpo, $token) use (&$chamadas) { $chamadas[] = [$url, $corpo, $token]; return ['status' => 200, 'json' => ['messages' => [['id' => 'wamid.TESTE1']]], 'corpo' => '', 'erro' => '']; };
+$rr = trWaResponder($pdo, 'a1', '5545999991111', 'Oi Ana, sou da Intus. Posso te ajudar com o trimestral?', 1, 'Luiz Nunes', $http, $agoraWa);
+eq('responder pelo painel envia à Meta com o texto, o número e o token', [$rr['ok'], count($chamadas), $chamadas[0][1]['to'] ?? null, $chamadas[0][1]['text']['body'] ?? null, $chamadas[0][2] ?? null], [true, 1, '5545999991111', 'Oi Ana, sou da Intus. Posso te ajudar com o trimestral?', 'tok-de-teste']);
+eq('a resposta fica na conversa com origem "humano"', $pdo->query("SELECT origem || '/' || direcao || '/' || status FROM intus_wa_mensagem WHERE wa_id = 'wamid.TESTE1'")->fetchColumn(), 'humano/S/enviada');
+eq('o atendimento passa para uma pessoa (o robô para) e sai de "precisa de humano"', [$pdo->query("SELECT modo FROM intus_wa_contato WHERE telefone='5545999991111'")->fetchColumn(), (int)$pdo->query("SELECT precisa_humano FROM intus_wa_contato WHERE telefone='5545999991111'")->fetchColumn()], ['humano', 0]);
+eq('o contato fica registrado no controle como WhatsApp pelo painel', $pdo->query("SELECT canal || '/' || status FROM intus_lead_contato WHERE chave='a1' ORDER BY idlc DESC LIMIT 1")->fetchColumn(), 'whatsapp_api/chamado');
+$n0 = count($chamadas);
+eq('quem pediu para sair NÃO recebe', [trWaResponder($pdo, 'a2', '5545988882222', 'oi', 1, 'L', $http, $agoraWa)['ok'], count($chamadas)], [false, $n0]);
+eq('janela de 24 h fechada NÃO envia', [trWaResponder($pdo, 'a3', '5545977773333', 'oi', 1, 'L', $http, $agoraWa)['erro'] !== null, count($chamadas)], [true, $n0]);
+eq('quem nunca escreveu NÃO recebe', [trWaResponder($pdo, 'a4', '5545900000000', 'oi', 1, 'L', $http, $agoraWa)['ok'], count($chamadas)], [false, $n0]);
+eq('mensagem vazia ou gigante é recusada', [trWaResponder($pdo, 'a1', '5545999991111', '   ', 1, 'L', $http, $agoraWa)['ok'], trWaResponder($pdo, 'a1', '5545999991111', str_repeat('a', 1001), 1, 'L', $http, $agoraWa)['ok']], [false, false]);
+$httpFalha = fn($u, $c, $t) => ['status' => 400, 'json' => ['error' => ['message' => 'Re-engagement message']], 'corpo' => '', 'erro' => ''];
+$pdo->exec("UPDATE intus_wa_contato SET modo='robo' WHERE telefone='5545999991111'");
+$rf = trWaResponder($pdo, 'a1', '5545999991111', 'teste', 1, 'L', $httpFalha, $agoraWa);
+eq('se a Meta recusar, o erro volta e o robô NÃO é desligado nem o contato registrado', [$rf['ok'], $pdo->query("SELECT modo FROM intus_wa_contato WHERE telefone='5545999991111'")->fetchColumn(), (int)$pdo->query("SELECT COUNT(*) FROM intus_lead_contato WHERE chave='a1' AND canal='whatsapp_api'")->fetchColumn()], [false, 'robo', 1]);
+
 echo "\n══ Estrutura do endpoint ══\n";
 $php = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/trafego.php'));
-eq('a lista de leads exige administrador (mesma porta do relatório)', strpos($php, "'leads'], true)") !== false && strpos($php, "empty(\$ctx['admin'])") !== false && strpos($php, "if (\$action === 'leads')") > strpos($php, "empty(\$ctx['admin'])"), true);
+eq('leads, contato e responder_wa passam pela mesma porta de administrador do relatório', preg_match("/'leads', 'contato', 'responder_wa'\], true\)/", $php) === 1 && strpos($php, "empty(\$ctx['admin'])") !== false && strpos($php, "if (\$action === 'leads')") > strpos($php, "empty(\$ctx['admin'])") && strpos($php, "if (\$action === 'contato' || \$action === 'responder_wa')") > strpos($php, "empty(\$ctx['admin'])"), true);
+eq('registrar contato e responder pelo WhatsApp só aceitam POST', substr_count($php, "'use POST'") >= 1, true);
 
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

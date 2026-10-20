@@ -523,6 +523,126 @@ confere('ab resultado: lado A so conta contatos depois do inicio', [2, 1], [$res
 confere('ab resultado: lado B', [1, 0], [$res['b']['receberam'], $res['b']['responderam']]);
 confere('ab resultado: poucos dados nao concluem', 'amostra_pequena', $res['comparacao']['veredito']);
 
+// ── Leads: Clientes + Tráfego e Captação + WhatsApp ─────────────────────────
+function banco_leads(): PDO {
+    $pdo = banco();
+    $pdo->exec("CREATE TABLE atleta (idatleta INTEGER PRIMARY KEY, nome TEXT, email TEXT, telefone TEXT, origem TEXT, dt_cadastro TEXT, professores_responsaveis TEXT, stbloqueio TEXT, ultimo_acesso TEXT, indicado_por_idatleta INT)");
+    $pdo->exec("CREATE TABLE intus_lead (idlead INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, whatsapp TEXT, email TEXT, objetivo TEXT, origem TEXT, status TEXT, ip TEXT, indicado_por_idatleta INT, criado_em TEXT)");
+    $pdo->exec("CREATE TABLE intus_sessao (idsessao INTEGER PRIMARY KEY AUTOINCREMENT, idatleta INT, dtsessao TEXT, nao_contar INT DEFAULT 0)");
+    $pdo->exec("CREATE TABLE intus_mensalidade (idmensalidade INTEGER PRIMARY KEY AUTOINCREMENT, idatleta INT, dshistorico TEXT, tipo_plano TEXT, dtinicio TEXT, dtvencimento TEXT, stpgto TEXT, vlpagamento REAL, stmatricula TEXT)");
+    $pdo->exec("CREATE TABLE intus_acesso (id INTEGER PRIMARY KEY AUTOINCREMENT, user_tipo TEXT, user_id INT, evento TEXT, criado_em TEXT)");
+    trGarantirTabelas($pdo);
+    return $pdo;
+}
+function conta(PDO $pdo, int $id, string $nome, ?string $tel, ?string $origem, string $cad, array $x = []): void {
+    $pdo->prepare('INSERT INTO atleta (idatleta, nome, email, telefone, origem, dt_cadastro, professores_responsaveis, stbloqueio, ultimo_acesso, indicado_por_idatleta) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$id, $nome, $x['email'] ?? (strtolower(preg_replace('/\W/', '', $nome)) . '@exemplo.com'), $tel, $origem, $cad, $x['profs'] ?? null, 'N', $x['ultimo'] ?? null, $x['ref'] ?? null]);
+}
+function mat(PDO $pdo, int $id, string $plano, string $ini, string $fim, string $pgto = 'N', float $valor = 0): void {
+    $pdo->prepare('INSERT INTO intus_mensalidade (idatleta, dshistorico, tipo_plano, dtinicio, dtvencimento, stpgto, vlpagamento, stmatricula) VALUES (?,?,?,?,?,?,?,?)')->execute([$id, $plano, $plano, $ini, $fim, $pgto, $valor, 'ativa']);
+}
+$pdo = banco_leads();
+$agL = em('2026-10-20 12:00:00');
+conta($pdo, 1, 'Ana Souza', '(45) 99111-0001', 'app', '2026-10-18 09:00:00');           mat($pdo, 1, 'Teste grátis', '2026-10-18', '2026-10-21');
+conta($pdo, 2, 'Bia Lima', '(45) 99111-0002', 'app', '2026-10-17 09:00:00');
+$pdo->exec("INSERT INTO intus_acesso (user_tipo, user_id, evento, criado_em) VALUES ('aluno', 2, 'abertura', '2026-10-17 09:30:00')");
+conta($pdo, 3, 'Carla Dias', '(45) 99111-0003', 'app', '2026-10-16 09:00:00');           mat($pdo, 3, 'Teste grátis', '2026-10-16', '2026-10-22');
+$pdo->exec("INSERT INTO intus_sessao (idatleta, dtsessao) VALUES (3, '2026-10-17'), (3, '2026-10-18')");
+conta($pdo, 4, 'Dani Reis', '(45) 99111-0004', 'app', '2026-10-05 09:00:00');           mat($pdo, 4, 'Teste grátis', '2026-10-05', '2026-10-08');
+$pdo->exec("INSERT INTO intus_sessao (idatleta, dtsessao) VALUES (4, '2026-10-06')");
+conta($pdo, 5, 'Eva Matos', '(45) 99111-0005', 'app', '2026-10-04 09:00:00');           mat($pdo, 5, 'Teste grátis', '2026-10-04', '2026-10-07'); mat($pdo, 5, 'Consultoria Premium', '2026-10-08', '2026-11-08', 'S', 300);
+conta($pdo, 6, 'Fran Melo', '(45) 99111-0006', 'app', '2026-10-10 09:00:00');           mat($pdo, 6, 'Consultoria Premium', '2026-10-12', '2026-11-12', 'N', 0);
+conta($pdo, 7, 'Gabi Prof', '(45) 99111-0007', 'professor', '2026-10-12 09:00:00');
+conta($pdo, 8, 'Hana Prof', '(45) 99111-0008', null, '2026-10-12 09:00:00', ['profs' => '[3]']);
+conta($pdo, 9, 'Iris Antiga', null, null, '2026-10-11 09:00:00');
+conta($pdo, 10, 'Modelo', null, 'app', '2026-10-11 09:00:00', ['email' => 'modelo.feminino@intusfit.local']);
+conta($pdo, 11, 'Joana Fora', '(45) 99111-0011', 'app', '2026-09-01 09:00:00');
+conta($pdo, 12, 'Kika Indicada', '(45) 99111-0012', 'app', '2026-10-19 09:00:00', ['ref' => 5]);
+$pdo->exec("INSERT INTO intus_lead (nome, whatsapp, email, origem, criado_em) VALUES ('Lia Contato', '45991110013', 'lia@exemplo.com', 'landing-teste-gratis', '2026-10-19 10:00:00')");
+$idLia = (int)$pdo->lastInsertId();
+$pdo->exec("INSERT INTO intus_lead (nome, whatsapp, email, origem, criado_em) VALUES ('Ana Repetida', '45991110001', 'x@exemplo.com', 'landing-teste-gratis', '2026-10-18 10:00:00')");
+$pdo->exec("INSERT INTO intus_lead (nome, whatsapp, email, origem, criado_em) VALUES ('Outra Origem', '45991110099', 'o@exemplo.com', 'outra', '2026-10-18 10:00:00')");
+$pdo->exec("INSERT INTO intus_trafego_visita (vid, sid, pagina, canal, dia, hora, criado_em) VALUES ('v1', 's1', '/teste-gratis.html', 'instagram', '2026-10-18', 8, '2026-10-18 11:00:00')");
+$pdo->exec("INSERT INTO intus_trafego_evento (vid, sid, pagina, evento, valor, canal, utm_campaign, dia, hora, criado_em) VALUES ('v1', 's1', '/teste-gratis.html', 'conta_criada', 1, 'instagram', 'story-out', '2026-10-18', 9, '2026-10-18 12:00:00')");
+$pdo->exec("INSERT INTO intus_trafego_evento (vid, sid, pagina, evento, valor, canal, dia, hora, criado_em) VALUES ('v2', 's2', '/teste-gratis.html', 'lead_enviado', $idLia, 'direto', '2026-10-19', 9, '2026-10-19 12:00:00')");
+// WhatsApp: Ana é contato, consentiu, recebeu t1 e respondeu; Bia pediu para sair
+$ca = wa_contato_obter_ou_criar($pdo, '5545991110001', 'Ana Souza', $agL);
+wa_contato_atualizar($pdo, (int)$ca['idcontato'], ['optin_em' => '2026-10-18 09:01:00'], $agL);
+msg($pdo, (int)$ca['idcontato'], 'S', '2026-10-18 09:05:00', ['template' => 'intus_t1_boas_vindas', 'status' => 'lida']);
+msg($pdo, (int)$ca['idcontato'], 'E', '2026-10-18 09:20:00');
+passo($pdo, (int)$ca['idcontato'], 't1', 'enviada');
+$cb = wa_contato_obter_ou_criar($pdo, '5545991110002', 'Bia Lima', $agL);
+wa_contato_atualizar($pdo, (int)$cb['idcontato'], ['optin_em' => '2026-10-17 09:01:00', 'saiu_em' => '2026-10-17 10:00:00'], $agL);
+
+$L = atd_leads($pdo, '2026-10-01', '2026-10-20', $agL);
+$nomes = array_column($L['pessoas'], 'nome');
+sort($nomes);
+confere('leads: quem entra (regra de Clientes + contatos sem conta)', ['Ana Souza', 'Bia Lima', 'Carla Dias', 'Dani Reis', 'Eva Matos', 'Fran Melo', 'Iris Antiga', 'Kika Indicada', 'Lia Contato'], $nomes);
+confere('leads: resumo por etapa', ['cliente' => 1, 'negociando' => 1, 'teste_expirado' => 1, 'treinando' => 1, 'abriu_app' => 1, 'so_conta' => 3, 'contato' => 1], $L['resumo']);
+$por = []; foreach ($L['pessoas'] as $p) $por[$p['nome']] = $p;
+confere('leads: Ana criou a conta e nunca abriu', 'so_conta', $por['Ana Souza']['etapa']);
+confere('leads: Ana está no último dia do teste', [1, false], [$por['Ana Souza']['teste']['dias_restantes'], $por['Ana Souza']['teste']['expirou']]);
+confere('leads: Dani teste expirado', [-12, true], [$por['Dani Reis']['teste']['dias_restantes'], $por['Dani Reis']['teste']['expirou']]);
+confere('leads: Carla treinou duas vezes', 2, $por['Carla Dias']['treinos']);
+confere('leads: Eva virou cliente e o plano é o pago, nao o teste', 'Consultoria Premium', $por['Eva Matos']['matricula']['plano']);
+confere('leads: matrícula só de teste não conta como compra', true, $por['Carla Dias']['matricula'] === null);
+confere('leads: origem medida vem do Tráfego (canal e campanha)', ['instagram', 'story-out', true], [$por['Ana Souza']['canal'], $por['Ana Souza']['utm']['campaign'], $por['Ana Souza']['medido']]);
+confere('leads: sem medição fica marcado', [null, false], [$por['Carla Dias']['canal'], $por['Carla Dias']['medido']]);
+confere('leads: contato sem conta tem canal do evento lead_enviado', 'direto', $por['Lia Contato']['canal']);
+confere('leads: quem indicou aparece pelo nome', 'Eva Matos', $por['Kika Indicada']['indicado_por']);
+confere('leads: contato repetido da mesma pessoa não duplica', 1, count(array_filter($L['pessoas'], fn($p) => $p['whatsapp'] === '5545991110001')));
+confere('leads: lead antigo sem origem e sem professor entra', 'so_conta', $por['Iris Antiga']['etapa']);
+confere('leads: modelo do sistema nunca é lead', false, in_array('Modelo', $nomes, true));
+confere('leads: conta de professor nunca é lead', false, in_array('Gabi Prof', $nomes, true) || in_array('Hana Prof', $nomes, true));
+confere('leads: fora do período não entra', false, in_array('Joana Fora', $nomes, true));
+confere('leads: telefone normalizado para o WhatsApp', '5545991110003', $por['Carla Dias']['whatsapp']);
+confere('leads: sem telefone fica sem WhatsApp', ['', false], [$por['Iris Antiga']['whatsapp'], $por['Iris Antiga']['wa']['telefone_valido']]);
+confere('leads: WhatsApp da Ana', [true, true, false, 1, true, 'teste-gratis'], [$por['Ana Souza']['wa']['contato'], $por['Ana Souza']['wa']['consentiu'], $por['Ana Souza']['wa']['saiu'], $por['Ana Souza']['wa']['enviadas'], $por['Ana Souza']['wa']['respondeu'], $por['Ana Souza']['wa']['funil']]);
+confere('leads: Bia pediu para sair', [true, true], [$por['Bia Lima']['wa']['saiu'], $por['Bia Lima']['wa']['consentiu']]);
+confere('leads: quem não é contato do WhatsApp', false, $por['Carla Dias']['wa']['contato']);
+confere('leads: cobertura do WhatsApp', ['total' => 9, 'telefone_valido' => 8, 'sem_telefone' => 1, 'contato' => 2, 'consentiu' => 2, 'saiu' => 1, 'receberam' => 1, 'responderam' => 1, 'treinaram' => 2, 'clientes' => 1], $L['whatsapp']);
+$canais = array_column($L['por_canal'], null, 'canal');
+confere('leads: por canal, Instagram', [1, 1], [$canais['instagram']['leads'], $canais['instagram']['responderam']]);
+confere('leads: por canal, o resto é sem medição', 7, $canais['sem_medicao']['leads']);
+confere('leads: Eva conta como cliente no canal sem medição', 1, $canais['sem_medicao']['clientes']);
+// mensagem sugerida
+verdade('sugestão: Ana (conta sem abrir) recebe a boas-vindas com nome e link', strpos($por['Ana Souza']['sugestao']['texto'], 'Oi Ana, tudo bem?') === 0 && strpos($por['Ana Souza']['sugestao']['texto'], ATD_LINK_APP) !== false && strpos($por['Ana Souza']['sugestao']['texto'], '{{') === false);
+confere('sugestão: Ana usa a t1 do teste grátis, aprovada', ['teste-gratis', 't1', true], [$por['Ana Souza']['sugestao']['funil'], $por['Ana Souza']['sugestao']['mensagem'], $por['Ana Souza']['sugestao']['aprovada']]);
+confere('sugestão: quem treinou recebe a de parabéns', 'Carla, parabéns pelo treino de hoje. Como foi a experiência? Se algum exercício ficou confuso, é só me dizer.', $por['Carla Dias']['sugestao']['texto']);
+confere('sugestão: teste expirado recebe a de convite', 't6', $por['Dani Reis']['sugestao']['mensagem']);
+confere('sugestão: quem abriu o app e não treinou recebe a t2', 't2', $por['Iris Antiga']['sugestao']['mensagem'] === 't1' ? 't2' : $por['Iris Antiga']['sugestao']['mensagem']);
+confere('sugestão: contato sem conta recebe o convite do teste com o link', true, strpos($por['Lia Contato']['sugestao']['texto'], ATD_LINK_APP) !== false && $por['Lia Contato']['sugestao']['funil'] === 'chamou-whatsapp');
+confere('sugestão: quem pediu para sair não recebe sugestão', null, $por['Bia Lima']['sugestao']);
+confere('sugestão: cliente e matrícula em negociação são conversa de pessoa', [null, null], [$por['Eva Matos']['sugestao'], $por['Fran Melo']['sugestao']]);
+confere('sugestão: sem nome, sem espaço antes da vírgula', 'Oi, tudo bem? Aqui é a Cora, assistente virtual da Intus. Seu teste grátis de treino já está liberado por 3 dias. Para entrar no app, use este link: ' . ATD_LINK_APP . '. Se tiver qualquer dúvida, é só responder esta mensagem.', atd_sugestao(atd_funis_padrao(), 'so_conta', '(sem nome)')['texto']);
+confere('sugestão: usa o texto EDITADO do funil', 'Olá Ana, texto novo.', (function () use ($pdo) {
+    $f = atd_funil_por_id($pdo, 'teste-gratis'); $f['mensagens'][0]['texto'] = 'Olá {{1}}, texto novo.'; atd_funil_salvar($pdo, $f);
+    return atd_sugestao(atd_funis($pdo), 'so_conta', 'Ana Souza')['texto'];
+})());
+confere('sugestão: mensagem apagada do funil não quebra', null, atd_sugestao([['id' => 'teste-gratis', 'nome' => 'x', 'mensagens' => []]], 'so_conta', 'Ana'));
+// captação (Tráfego)
+$cap = atd_captacao($pdo, '2026-10-01', '2026-10-20');
+confere('captação: números vêm de Tráfego e Captação', [1, 2, 1, 1], [$cap['kpis']['visitantes'], $cap['kpis']['conversoes'], $cap['kpis']['contas_criadas'], $cap['kpis']['contatos_sem_conta']]);
+verdade('captação: funil do teste grátis e canais presentes', count($cap['funil']) >= 4 && $cap['canais'][0]['canal'] === 'instagram');
+verdade('captação: campanha com conversão', $cap['campanhas'] && $cap['campanhas'][0]['utm_campaign'] === 'story-out' && $cap['campanhas'][0]['conversoes'] === 1);
+confere('período: últimos 30 dias contando hoje', ['2026-09-21', '2026-10-20'], atd_periodo(30, $agL));
+confere('período: 1 dia é só hoje', ['2026-10-20', '2026-10-20'], atd_periodo(1, $agL));
+// banco sem as tabelas de Clientes: não quebra
+$semTudo = banco();
+$vz = atd_leads($semTudo, '2026-10-01', '2026-10-20', $agL);
+confere('leads: sem tabela de atletas devolve vazio', [[], false], [$vz['pessoas'], $vz['tabela_atleta']]);
+// só Tráfego dispara este endpoint (estrutura)
+$epL = file_get_contents(__DIR__ . '/../app/api/atendimento.php');
+verdade('endpoint: ação leads e captação no dashboard', strpos($epL, "case 'leads'") !== false && strpos($epL, 'atd_captacao') !== false);
+verdade('endpoint: leads também só depois da checagem de administrador', strpos($epL, "case 'leads'") > strpos($epL, "empty(\$ctx['admin'])"));
+$libL = file_get_contents(__DIR__ . '/../app/api/_atendimento.php');
+verdade('biblioteca: a etapa do lead vem de trLeads (Tráfego), sem repetir a regra', strpos($libL, 'trLeads(') !== false && strpos($libL, 'stpgto') === false && strpos($libL, 'dtvencimento') === false);
+// trLeads aceita ids extras: sem eles a Kika (autocadastro sem evento nem origem landing) não aparece
+$semExtra = array_column(trLeads($pdo, '2026-10-01', '2026-10-20', 'atleta', $agL->getTimestamp())['pessoas'], 'nome');
+verdade('trLeads sem extras só traz o que Tráfego mede', in_array('Ana Souza', $semExtra, true) && in_array('Lia Contato', $semExtra, true) && !in_array('Kika Indicada', $semExtra, true) && !in_array('Iris Antiga', $semExtra, true));
+$comExtra = array_column(trLeads($pdo, '2026-10-01', '2026-10-20', 'atleta', $agL->getTimestamp(), [12])['pessoas'], 'nome');
+verdade('trLeads com extras inclui a conta pedida', in_array('Kika Indicada', $comExtra, true) && !in_array('Iris Antiga', $comExtra, true));
+
 // ── Exportação e prontidão ──────────────────────────────────────────────────
 $pdo = banco();
 $ex = atd_exportar($pdo);

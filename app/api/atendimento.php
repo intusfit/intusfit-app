@@ -3,7 +3,8 @@
  * Central de atendimento: API da tela /atendimento/ (somente administrador).
  *
  * GET  ?action=resumo                       prontidão + funis + conceitos + referências + testes
- * GET  ?action=dashboard&dias=30            métricas do WhatsApp e resultado dos testes A/B
+ * GET  ?action=dashboard&dias=30            métricas do WhatsApp, resultado dos testes A/B, captação (Tráfego) e resumo de leads
+ * GET  ?action=leads&dias=30                 leads do período (Clientes + Tráfego e Captação + WhatsApp), com a mensagem sugerida
  * GET  ?action=exportar                     pacote JSON para a automação
  * POST ?action=funil_salvar | funil_excluir | funil_restaurar | funil_duplicar
  * POST ?action=conceito_salvar | conceito_excluir | conceito_restaurar
@@ -80,8 +81,17 @@ try {
             ]);
         }
         case 'dashboard': {
-            $dias = (int)($_GET['dias'] ?? 30);
-            atd_resp(200, ['ok' => true, 'metricas' => atd_metricas($pdo, $dias), 'testes' => atd_testes($pdo), 'resultados' => atd_resultados_testes($pdo)]);
+            $dias = max(1, min(365, (int)($_GET['dias'] ?? 30)));
+            [$de, $ate] = atd_periodo($dias);
+            $captacao = null; $leads = null;
+            try { $captacao = atd_captacao($pdo, $de, $ate); } catch (Throwable $e) { wa_log_erro($e); }
+            try { $l = atd_leads($pdo, $de, $ate); unset($l['pessoas']); $leads = $l; } catch (Throwable $e) { wa_log_erro($e); }
+            atd_resp(200, ['ok' => true, 'metricas' => atd_metricas($pdo, $dias), 'testes' => atd_testes($pdo), 'resultados' => atd_resultados_testes($pdo), 'captacao' => $captacao, 'leads' => $leads]);
+        }
+        case 'leads': {
+            $dias = max(1, min(365, (int)($_GET['dias'] ?? 30)));
+            [$de, $ate] = atd_periodo($dias);
+            atd_resp(200, ['ok' => true] + atd_leads($pdo, $de, $ate));
         }
         case 'exportar':
             atd_resp(200, ['ok' => true, 'pacote' => atd_exportar($pdo)]);

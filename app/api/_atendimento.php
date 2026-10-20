@@ -19,6 +19,7 @@
 
 require_once __DIR__ . '/_wa.php';
 require_once __DIR__ . '/_atendimento_conteudo.php';
+require_once __DIR__ . '/_trafego.php';   // só trRelatorio e trGarantirTabelas (versão já publicada)
 
 const ATD_MAX_MENSAGENS_FUNIL = 30;
 const ATD_MAX_TEXTO_MENSAGEM = 1024;
@@ -1170,6 +1171,236 @@ function atd_resultados_testes(PDO $pdo, ?DateTimeImmutable $agora = null): arra
         $out[$t['id']] = ['a' => $a, 'b' => $b, 'comparacao' => atd_comparar_taxas($a['responderam'], $a['receberam'], $b['responderam'], $b['receberam'])];
     }
     return $out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Leads (Clientes + Tráfego e Captação + WhatsApp)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ATD_LINK_APP = 'https://intusfit.com.br/app/painel/aluno.html';
+const ATD_MAX_LEADS = 1500;
+/** Qual mensagem da Central serve para cada etapa: [funil, mensagem]. null = conversa de uma pessoa. */
+const ATD_MENSAGEM_DA_ETAPA = [
+    'contato'        => ['chamou-whatsapp', 'c4'],
+    'so_conta'       => ['teste-gratis', 't1'],
+    'abriu_app'      => ['teste-gratis', 't2'],
+    'treinando'      => ['teste-gratis', 't3'],
+    'teste_expirado' => ['teste-gratis', 't6'],
+    'negociando'     => null,
+    'cliente'        => null,
+];
+
+function atd_colunas(PDO $pdo, string $tbl): array {
+    try {
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            return array_column($pdo->query("PRAGMA table_info(`$tbl`)")->fetchAll(PDO::FETCH_ASSOC), 'name');
+        }
+        return array_column($pdo->query("SHOW COLUMNS FROM `$tbl`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    } catch (Throwable $e) { return []; }
+}
+
+function atd_escolher(array $cols, array $candidatos): ?string {
+    foreach ($candidatos as $c) { if (in_array($c, $cols, true)) return $c; }
+    return null;
+}
+
+function atd_tabela_atleta(PDO $pdo): ?string {
+    foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $t) {
+        try { $pdo->query("SELECT 1 FROM `$t` LIMIT 1"); return $t; } catch (Throwable $e) {}
+    }
+    return null;
+}
+
+/** Mesma regra de Clientes (alunos.html, isLead) aplicada a uma linha da tabela de atletas. */
+function atd_conta_eh_lead(array $r, ?string $colOrigem, ?string $colEmail): bool {
+    $o = mb_strtolower(trim((string)($colOrigem ? ($r[$colOrigem] ?? '') : '')), 'UTF-8');
+    $email = mb_strtolower(trim((string)($colEmail ? ($r[$colEmail] ?? '') : '')), 'UTF-8');
+    if (in_array($email, ['modelo.masculino@intusfit.local', 'modelo.feminino@intusfit.local'], true)) return false;
+    if (in_array($o, ['app', 'captura', 'lead'], true) || strpos($o, 'landing') === 0) return true;
+    if (in_array($o, ['professor', 'cliente'], true)) return false;
+    $profs = json_decode((string)($r['professores_responsaveis'] ?? ''), true);
+    return !(is_array($profs) && count($profs) > 0);
+}
+
+function atd_primeiro_nome(string $nome): string {
+    $p = trim(explode(' ', trim($nome))[0] ?? '');
+    return $p === '(sem' ? '' : $p;
+}
+
+/** Texto pronto da Central para uma etapa, com o nome da pessoa. null se não houver mensagem para a etapa. */
+function atd_sugestao(array $funis, string $etapa, string $nome, string $indicador = ''): ?array {
+    $alvo = ATD_MENSAGEM_DA_ETAPA[$etapa] ?? null;
+    if (!$alvo) return null;
+    foreach ($funis as $f) {
+        if (($f['id'] ?? '') !== $alvo[0]) continue;
+        foreach ($f['mensagens'] as $m) {
+            if ($m['id'] !== $alvo[1] || trim((string)$m['texto']) === '') continue;
+            $primeiro = atd_primeiro_nome($nome);
+            $modelo = $m['texto'];
+            if ($primeiro === '') {
+                // sem nome: "Oi {{1}}, tudo bem?" vira "Oi, tudo bem?" e "{{1}}, parabéns" vira "Parabéns"
+                $modelo = preg_replace('/^\{\{1\}\},\s*(\p{L})/u', '$1', $modelo, 1, $abriuComNome);
+                if ($abriuComNome) $modelo = mb_strtoupper(mb_substr($modelo, 0, 1)) . mb_substr($modelo, 1);
+                $modelo = str_replace(' {{1}}', '', $modelo);
+            }
+            $texto = atd_renderizar($modelo, ['1' => $primeiro, '2' => ATD_LINK_APP, '3' => $indicador]);
+            return ['funil' => $f['id'], 'funil_nome' => $f['nome'], 'mensagem' => $m['id'], 'nome' => $m['nome'], 'aprovada' => !empty($m['aprovada']), 'texto' => $texto];
+        }
+    }
+    return null;
+}
+
+/**
+ * Ids das contas que Clientes (alunos.html, isLead) chama de lead dentro do período.
+ * A Central entrega esses ids a trLeads, para que lead de autocadastro (origem app ou captura) apareça junto com o que
+ * Tráfego e Captação mede, sem repetir aqui a regra das etapas.
+ */
+function atd_ids_leads_clientes(PDO $pdo, ?string $tbl, string $de, string $ate): array {
+    if (!$tbl) return [];
+    $cols = atd_colunas($pdo, $tbl);
+    $cId = atd_escolher($cols, ['idatleta', 'idaluno', 'id']);
+    $cEmail = atd_escolher($cols, ['email', 'dsemail']);
+    $cDt = atd_escolher($cols, ['dt_cadastro', 'dtcadastro', 'created_at', 'dtinclusao']);
+    $cOri = atd_escolher($cols, ['origem']);
+    if (!$cId || !$cDt) return [];
+    $ids = [];
+    try {
+        $st = $pdo->prepare("SELECT * FROM `$tbl` WHERE substr(`$cDt`, 1, 10) BETWEEN ? AND ? ORDER BY `$cId` DESC LIMIT " . ATD_MAX_LEADS);
+        $st->execute([$de, $ate]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (atd_conta_eh_lead($r, $cOri, $cEmail)) $ids[] = (int)$r[$cId];
+        }
+    } catch (Throwable $e) { wa_log_erro($e); }
+    return $ids;
+}
+
+/**
+ * Leads do período, juntando o que já existe no sistema:
+ *  - Tráfego e Captação (trLeads, a mesma conta da tela "Pessoas Captadas"): quem são, de onde vieram (canal, campanha,
+ *    indicação), uso do app, teste, matrícula e a ETAPA do funil. A regra das etapas mora lá e não é repetida aqui;
+ *  - Clientes: contas que a tela de Clientes chama de lead (autocadastro e captura), passadas a trLeads como extras;
+ *  - WhatsApp: se a pessoa já é contato, se consentiu, se saiu, quantas mensagens da Central recebeu e se respondeu.
+ * Cada pessoa sai com o estado no WhatsApp e a mensagem sugerida da Central para a etapa dela.
+ * $de e $ate: 'Y-m-d' (data de cadastro).
+ */
+function atd_leads(PDO $pdo, string $de, string $ate, ?DateTimeImmutable $agora = null): array {
+    wa_garantir_tabelas($pdo);
+    trGarantirTabelas($pdo);
+    $agora = $agora ?: wa_agora();
+    $funis = atd_funis($pdo);
+    $tbl = atd_tabela_atleta($pdo);
+    $T = trLeads($pdo, $de, $ate, $tbl, $agora->getTimestamp(), atd_ids_leads_clientes($pdo, $tbl, $de, $ate));
+    $pessoas = $T['pessoas'];
+
+    // Contato sem conta cujo telefone ou e-mail já é de uma conta: é a mesma pessoa, fica só a conta
+    $telsConta = []; $emailsConta = [];
+    foreach ($pessoas as $p) {
+        if ($p['tipo'] !== 'conta') continue;
+        $t = wa_normalizar_telefone($p['telefone'] ?? '');
+        if ($t !== '') $telsConta[$t] = true;
+        $e = mb_strtolower(trim((string)($p['email'] ?? '')), 'UTF-8');
+        if ($e !== '') $emailsConta[$e] = true;
+    }
+    $pessoas = array_values(array_filter($pessoas, function ($p) use ($telsConta, $emailsConta) {
+        if ($p['tipo'] !== 'contato') return true;
+        $t = wa_normalizar_telefone($p['telefone'] ?? '');
+        $e = mb_strtolower(trim((string)($p['email'] ?? '')), 'UTF-8');
+        return !(($t !== '' && isset($telsConta[$t])) || ($e !== '' && isset($emailsConta[$e])));
+    }));
+
+    // WhatsApp: contato, consentimento, mensagens e funil
+    $in = fn(array $v) => implode(',', array_fill(0, count($v), '?'));
+    $porTel = [];
+    foreach ($pessoas as $i => $p) {
+        $t = wa_normalizar_telefone($p['telefone'] ?? '');
+        $pessoas[$i]['whatsapp'] = $t;
+        if ($t !== '') $porTel[$t] = true;
+    }
+    $wa = [];
+    if ($porTel) {
+        $tels = array_keys($porTel);
+        try {
+            $st = $pdo->prepare("SELECT idcontato, telefone, optin_em, saiu_em, modo, precisa_humano FROM intus_wa_contato WHERE telefone IN (" . $in($tels) . ")");
+            $st->execute($tels);
+            $porId = [];
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) { $wa[$c['telefone']] = $c + ['enviadas' => 0, 'respondeu' => false, 'ultima_em' => null, 'ultimo_status' => null, 'funil' => null]; $porId[(int)$c['idcontato']] = $c['telefone']; }
+            if ($porId) {
+                $idsC = array_keys($porId);
+                $st = $pdo->prepare("SELECT idcontato, direcao, status, criado_em FROM intus_wa_mensagem WHERE idcontato IN (" . $in($idsC) . ") ORDER BY idmensagem");
+                $st->execute($idsC);
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                    $t = $porId[(int)$m['idcontato']];
+                    if ($m['direcao'] === 'S') { $wa[$t]['enviadas']++; $wa[$t]['ultimo_status'] = $m['status']; $wa[$t]['ultima_em'] = $m['criado_em']; }
+                    elseif ($wa[$t]['enviadas'] > 0) $wa[$t]['respondeu'] = true;
+                }
+                $st = $pdo->prepare("SELECT idcontato, passo FROM intus_wa_agenda WHERE idcontato IN (" . $in($idsC) . ") ORDER BY idagenda");
+                $st->execute($idsC);
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $a) {
+                    $t = $porId[(int)$a['idcontato']];
+                    if ($wa[$t]['funil'] === null) $wa[$t]['funil'] = atd_passo_decodificar((string)$a['passo'])[0];
+                }
+            }
+        } catch (Throwable $e) { wa_log_erro($e); }
+    }
+    foreach ($pessoas as $i => $p) {
+        $c = $p['whatsapp'] !== '' ? ($wa[$p['whatsapp']] ?? null) : null;
+        $pessoas[$i]['wa'] = [
+            'telefone_valido' => $p['whatsapp'] !== '', 'contato' => $c !== null, 'consentiu' => $c !== null && !empty($c['optin_em']), 'saiu' => $c !== null && !empty($c['saiu_em']),
+            'modo' => $c['modo'] ?? null, 'precisa_humano' => $c !== null && (int)$c['precisa_humano'] === 1, 'funil' => $c['funil'] ?? null,
+            'enviadas' => $c['enviadas'] ?? 0, 'respondeu' => $c['respondeu'] ?? false, 'ultima_em' => $c['ultima_em'] ?? null, 'ultimo_status' => $c['ultimo_status'] ?? null,
+        ];
+        // a mensagem pronta de Tráfego (trMensagem) fica no campo "mensagem"; a da Central (funis editáveis) vem em "sugestao"
+        $pessoas[$i]['sugestao'] = $pessoas[$i]['wa']['saiu'] ? null : atd_sugestao($funis, $p['etapa'], (string)$p['nome'], (string)($p['indicado_por'] ?? ''));
+    }
+
+    // Resumos
+    $resumo = []; foreach (TR_ETAPAS as $k => $v) $resumo[$k] = 0;
+    $cob = ['total' => count($pessoas), 'telefone_valido' => 0, 'sem_telefone' => 0, 'contato' => 0, 'consentiu' => 0, 'saiu' => 0, 'receberam' => 0, 'responderam' => 0, 'treinaram' => 0, 'clientes' => 0];
+    $canais = [];
+    foreach ($pessoas as $p) {
+        $resumo[$p['etapa']]++;
+        if ($p['wa']['telefone_valido']) $cob['telefone_valido']++; else $cob['sem_telefone']++;
+        if ($p['wa']['contato']) $cob['contato']++;
+        if ($p['wa']['consentiu']) $cob['consentiu']++;
+        if ($p['wa']['saiu']) $cob['saiu']++;
+        if ($p['wa']['enviadas'] > 0) $cob['receberam']++;
+        if ($p['wa']['respondeu']) $cob['responderam']++;
+        if (($p['treinos'] ?? 0) > 0) $cob['treinaram']++;
+        if ($p['etapa'] === 'cliente') $cob['clientes']++;
+        $k = $p['canal'] ?: 'sem_medicao';
+        if (!isset($canais[$k])) $canais[$k] = ['canal' => $k, 'leads' => 0, 'treinaram' => 0, 'clientes' => 0, 'responderam' => 0];
+        $canais[$k]['leads']++;
+        if (($p['treinos'] ?? 0) > 0) $canais[$k]['treinaram']++;
+        if ($p['etapa'] === 'cliente') $canais[$k]['clientes']++;
+        if ($p['wa']['respondeu']) $canais[$k]['responderam']++;
+    }
+    $canais = array_values($canais);
+    usort($canais, fn($a, $b) => [$b['clientes'], $b['leads']] <=> [$a['clientes'], $a['leads']]);
+    return [
+        'periodo' => ['de' => $de, 'ate' => $ate], 'pessoas' => $pessoas, 'resumo' => $resumo, 'etapas' => $T['etapas'],
+        'whatsapp' => $cob, 'por_canal' => $canais, 'tabela_atleta' => $tbl !== null, 'sem_medicao' => $T['sem_medicao'] ?? 0,
+        'limite_atingido' => count($pessoas) >= ATD_MAX_LEADS,
+    ];
+}
+
+/** [de, ate] em 'Y-m-d' (Brasília) para os últimos $dias dias, contando hoje. */
+function atd_periodo(int $dias, ?DateTimeImmutable $agora = null): array {
+    $agora = $agora ?: wa_agora();
+    $dias = max(1, min(365, $dias));
+    return [$agora->modify('-' . ($dias - 1) . ' day')->format('Y-m-d'), $agora->format('Y-m-d')];
+}
+
+/** Números de Tráfego e Captação para o mesmo período, direto do relatório de lá (fonte única das visitas e cliques). */
+function atd_captacao(PDO $pdo, string $de, string $ate): array {
+    $rel = trRelatorio($pdo, $de, $ate, null, atd_tabela_atleta($pdo));
+    $k = $rel['kpis']; $a = $rel['kpis_anterior'];
+    $topo = fn(array $l, int $n) => array_slice($l, 0, $n);
+    return [
+        'periodo' => $rel['periodo'],
+        'kpis' => ['visitantes' => $k['visitantes'], 'visitas' => $k['visitas'], 'conversoes' => $k['conversoes'], 'contas_criadas' => $k['contas_criadas'], 'contatos_sem_conta' => $k['contatos_sem_conta'],
+                   'cliques' => $k['cliques'], 'taxa' => $k['taxa'], 'conversoes_anterior' => $a['conversoes'], 'visitantes_anterior' => $a['visitantes']],
+        'funil' => $rel['funil'], 'canais' => $topo($rel['canais'], 8), 'campanhas' => $topo($rel['campanhas'], 8), 'indicacoes' => $topo($rel['indicacoes'], 5),
+    ];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
