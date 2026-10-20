@@ -62,5 +62,29 @@
     return claro();
   }
 
+  /** Botão de ver/ocultar senha em TODO campo de senha, de qualquer tela (vale para telas feitas depois também). */
+  function decorarSenhas(raiz) {
+    (raiz || document).querySelectorAll('input[type=password]').forEach(function (inp) {
+      if (inp.getAttribute('data-ver') || !inp.parentNode) return;
+      inp.setAttribute('data-ver', '1');
+      var cx = document.createElement('span'); cx.className = 'pw';
+      inp.parentNode.insertBefore(cx, inp); cx.appendChild(inp);
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'pw-ver'; b.setAttribute('aria-label', 'Mostrar a senha'); b.title = 'Mostrar a senha'; b.textContent = '👁️';
+      b.onclick = function () {
+        var vendo = inp.type === 'text';
+        inp.type = vendo ? 'password' : 'text';
+        b.textContent = vendo ? '👁️' : '🙈';
+        b.setAttribute('aria-label', vendo ? 'Mostrar a senha' : 'Ocultar a senha'); b.title = b.getAttribute('aria-label');
+        inp.focus();
+      };
+      cx.appendChild(b);
+    });
+  }
+  try {
+    var obs = new MutationObserver(function () { decorarSenhas(document); });
+    var ligar = function () { decorarSenhas(document); obs.observe(document.body, { childList: true, subtree: true }); };
+    if (document.body) ligar(); else document.addEventListener('DOMContentLoaded', ligar);
+  } catch (e) {}
+
   window.CDD = { api: api, esc: esc, ytId: ytId, ytEmbed: ytEmbed, ytThumb: ytThumb, dataBR: dataBR, copiar: copiar, guardar: guardar, token: token, tema: tema, alternarTema: alternarTema, aplicarCapas: aplicarCapas, capaLarga: capaLarga, aplicarMeta: aplicarMeta, claro: claro };
 })();

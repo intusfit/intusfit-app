@@ -63,6 +63,9 @@ try { $admins = cddRecuperarAdmins($pdo); } catch (Throwable $e) { $admins = [];
   .aviso.erro{background:#2b0f0f;border-color:#5c1a1a;}
   .caixa{background:#161616;border:1px solid #2a2a2a;border-radius:10px;padding:14px 16px;margin:12px 0;}
   a{color:#7FFF00;}
+  .pw{position:relative;display:block} .pw input{padding-right:50px}
+  .pw-ver{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:40px;height:40px;border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;border-radius:8px;margin:0;padding:0;display:grid;place-items:center}
+  .pw-ver:hover{background:#2a2a2a}
 </style>
 </head>
 <body>
@@ -93,5 +96,21 @@ try { $admins = cddRecuperarAdmins($pdo); } catch (Throwable $e) { $admins = [];
 
 <div class="caixa"><p>Esta página só altera contas de <b>administrador</b> do CDD. Contas de alunas continuam sendo tratadas no painel do CDD (Alunas, botão Link). O login desta página é o do admin da Intus, não o do CDD.</p></div>
 <p><a href="painel.php">Voltar ao admin da Intus</a></p>
+<script>
+// ver/ocultar a senha digitada (só no navegador; nada é enviado antes de clicar em Trocar a senha)
+document.querySelectorAll('input[type=password]').forEach(function (inp) {
+  var cx = document.createElement('span'); cx.className = 'pw';
+  inp.parentNode.insertBefore(cx, inp); cx.appendChild(inp);
+  var b = document.createElement('button'); b.type = 'button'; b.className = 'pw-ver'; b.setAttribute('aria-label', 'Mostrar a senha'); b.title = 'Mostrar a senha'; b.textContent = '👁️';
+  b.onclick = function () {
+    var vendo = inp.type === 'text';
+    inp.type = vendo ? 'password' : 'text';
+    b.textContent = vendo ? '👁️' : '🙈';
+    b.setAttribute('aria-label', vendo ? 'Mostrar a senha' : 'Ocultar a senha'); b.title = b.getAttribute('aria-label');
+    inp.focus();
+  };
+  cx.appendChild(b);
+});
+</script>
 </body>
 </html>
