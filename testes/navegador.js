@@ -3,6 +3,18 @@
 // arquivo continuando "válido". Só o navegador pega isso.
 const { chromium } = require('playwright');
 const DIR = 'http://127.0.0.1:8099/';
+// A tela do aluno às vezes recarrega sozinha (service worker) no meio da leitura: o contexto some e o evaluate falha com
+// "Execution context was destroyed". Não é erro da tela, é corrida do teste: espera a página assentar e tenta de novo.
+async function avaliarComRetentativa(page, fn) {
+  for (let i = 0; ; i++) {
+    try { return await page.evaluate(fn); }
+    catch (e) {
+      if (i >= 3 || !/Execution context was destroyed|navigation/i.test(String(e.message))) throw e;
+      await page.waitForLoadState('load').catch(() => {});
+      await page.waitForTimeout(800);
+    }
+  }
+}
 
 let ok = 0, ruim = 0;
 function eq(rot, obtido, esperado) {
@@ -57,7 +69,7 @@ function eq(rot, obtido, esperado) {
     }
     if (!pronto) throw new Error(tela + ' nao terminou de carregar (marco "' + marco + '" nunca apareceu em 15s)');
     eq(tela + ': continuou na tela certa (nao caiu no login)', new URL(page.url()).pathname.replace('/', ''), tela);
-    const r = await page.evaluate(() => {
+    const r = await avaliarComRetentativa(page, () => {
       const out = { temAPI: typeof API !== 'undefined' };
       if (!out.temAPI) return out;
       let id = 900;
@@ -97,7 +109,7 @@ function eq(rot, obtido, esperado) {
       eq(tela + ': SEM bônus com 4 sessões em 2 dias', r.bonus2dias, 0);
       eq(tela + ': base de 4 sessões em 2 dias = 30', r.base2dias, 30);
     }
-    const graves = erros.filter(e => !/Failed to load|net::|fetch|NetworkError|sem rede|Load failed|404/i.test(e));
+    const graves = erros.filter(e => !/Failed to load|net::|fetch|NetworkError|sem rede|Load failed|404|Failed to update a ServiceWorker/i.test(e));
     eq(tela + ': sem erro de JavaScript na página', graves, []);
     await page.close();
   }

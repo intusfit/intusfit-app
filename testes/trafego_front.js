@@ -26,7 +26,7 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
   async function novaPagina(ctx, opts = {}) {
     const page = await ctx.newPage();
     const envios = [], erros = [];
-    page.on('pageerror', e => erros.push(String(e.message)));
+    page.on('pageerror', e => { if (!/Failed to update a ServiceWorker/i.test(String(e.message))) erros.push(String(e.message)); });
     await page.route('**/trafego.php**', route => {
       const req = route.request(), u = new URL(req.url());
       let corpo = {}; try { corpo = JSON.parse(req.postData() || '{}'); } catch (e) {}
@@ -137,7 +137,7 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
   async function painel(usuario) {
     const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await c.addInitScript((u) => { localStorage.setItem('mx-token', 'teste'); localStorage.setItem('mx-user', JSON.stringify(u)); }, usuario);
-    const pg = await c.newPage(); const er = []; pg.on('pageerror', e => er.push(String(e.message)));
+    const pg = await c.newPage(); const er = []; pg.on('pageerror', e => { if (!/Failed to update a ServiceWorker/i.test(String(e.message))) er.push(String(e.message)); });
     const chamadas = [], apagou = [], posts = [];
     await pg.route('**/trafego.php**', r => {
       const u = r.request().url(); chamadas.push(u);

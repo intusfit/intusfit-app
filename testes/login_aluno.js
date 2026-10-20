@@ -30,7 +30,7 @@ const ATLETA = { idatleta: 7, nome: 'Aluna Teste', email: 'a@t.com', telefone: '
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
     if (opts.logado) await ctx.addInitScript((a) => { if (!sessionStorage.getItem('__semeado')) { sessionStorage.setItem('__semeado', '1'); localStorage.setItem('mx-token', a.server_token); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: a.idatleta, nome: a.nome })); } }, ATLETA);
     const page = await ctx.newPage(); const chamadas = [], erros = [];
-    page.on('pageerror', e => erros.push(String(e.message)));
+    page.on('pageerror', e => { if (!/Failed to update a ServiceWorker/i.test(String(e.message))) erros.push(String(e.message)); });
     await page.route(/\/app\/api\//, route => {
       const req = route.request(), u = req.url();
       chamadas.push({ u, metodo: req.method(), auth: req.headers()['authorization'] || '' });

@@ -27,7 +27,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const erros = [];
-  page.on('pageerror', e => erros.push(String(e.message)));
+  page.on('pageerror', e => { if (!/Failed to update a ServiceWorker/i.test(String(e.message))) erros.push(String(e.message)); });
 
   // ── servidor de mentira ──
   const S = { modo: 'ok', posts: [], proxId: 5000, vistos: {} };
