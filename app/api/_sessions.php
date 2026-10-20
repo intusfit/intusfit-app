@@ -43,7 +43,44 @@ function _ensureSessionsTable(PDO $pdo): bool {
  * Cria um novo token de sessão server-side.
  * Retorna o token plaintext (para enviar ao client) ou null se falhar.
  */
+// ── "MANTER CONECTADO" DO ALUNO (19/10/2026) ──────────────────────────────────
+// Aluno reclamou de pedir a senha várias vezes na semana (muitos não lembram dela). Duas causas tratadas aqui:
+//  1) a sessão valia 30 dias CONTADOS DO LOGIN, mesmo para quem usa todo dia. Agora vale 90 dias e é RENOVADA a cada uso (a conta só
+//     "vence" se o aluno ficar 90 dias sem abrir o app).
+//  2) no Safari do iPhone o navegador apaga o localStorage de sites sem interação por 7 dias, e o login ia junto. Agora o servidor também
+//     entrega o login num cookie HttpOnly (que o Safari não apaga): `aluno_login.php?action=retomar` troca o cookie por uma sessão nova
+//     no aparelho. "Sair" no app apaga o cookie e a sessão (`action=esquecer`).
+const INTUS_SESSAO_ALUNO_DIAS = 90;
+const INTUS_SESSAO_ALUNO_RENOVAR_ABAIXO_DIAS = 75;   // renova quando faltar menos que isso (no máximo 1 gravação a cada 15 dias de uso)
+const INTUS_COOKIE_RETOMAR = 'intus_rt';
+
+/** Nova validade da sessão do aluno, ou null se ainda não precisa renovar. Pura (testável). */
+function intusSessaoNovaValidade(string $expiraEm, int $agora): ?string
+{
+    $exp = strtotime($expiraEm);
+    if ($exp === false) return null;
+    if ($exp - $agora >= INTUS_SESSAO_ALUNO_RENOVAR_ABAIXO_DIAS * 86400) return null;
+    return date('Y-m-d H:i:s', $agora + INTUS_SESSAO_ALUNO_DIAS * 86400);
+}
+
+/** Opções do cookie de retomada: só o servidor lê (HttpOnly), só por HTTPS e só nesta API. */
+function intusCookieRetomarOpcoes(int $agora, bool $apagar = false): array
+{
+    return ['expires' => $apagar ? 1 : $agora + INTUS_SESSAO_ALUNO_DIAS * 86400, 'path' => '/app/api/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax'];
+}
+function intusEmitirCookieRetomar(string $token): void
+{
+    if (headers_sent()) return;
+    @setcookie(INTUS_COOKIE_RETOMAR, $token, intusCookieRetomarOpcoes(time()));
+}
+function intusLimparCookieRetomar(): void
+{
+    if (headers_sent()) return;
+    @setcookie(INTUS_COOKIE_RETOMAR, '', intusCookieRetomarOpcoes(time(), true));
+}
+
 function createSession(PDO $pdo, int $userId, string $type = 'prof', string $userName = '', bool $admin = false, int $ttlDays = 7): ?string {
+    if ($type === 'aluno') $ttlDays = max($ttlDays, INTUS_SESSAO_ALUNO_DIAS);
     if (!_ensureSessionsTable($pdo)) return null;
 
     $token = bin2hex(random_bytes(32));
@@ -57,6 +94,7 @@ function createSession(PDO $pdo, int $userId, string $type = 'prof', string $use
     } catch (Throwable $e) {
         return null;
     }
+    if ($type === 'aluno') intusEmitirCookieRetomar($token);
 
     // Histórico de acessos (intus_acesso): quem entrou, quando, de onde. Nunca derruba o login. Aviso por e-mail se um administrador entrar de um país novo.
     try {
@@ -101,9 +139,15 @@ function validateSession(PDO $pdo, string $token): ?array {
 
     if (!$row) return null;
 
-    // Atualizar last_used
+    // Atualizar last_used (e, para aluno, empurrar a validade: ver "MANTER CONECTADO" no topo do arquivo)
     try {
-        $pdo->prepare("UPDATE `intus_sessions` SET `last_used` = NOW() WHERE `id` = ?")->execute([$row['id']]);
+        $novaValidade = ($row['user_type'] === 'aluno') ? intusSessaoNovaValidade((string)$row['expires_at'], time()) : null;
+        if ($novaValidade !== null) {
+            $pdo->prepare("UPDATE `intus_sessions` SET `last_used` = NOW(), `expires_at` = ? WHERE `id` = ?")->execute([$novaValidade, $row['id']]);
+            $row['expires_at'] = $novaValidade;
+        } else {
+            $pdo->prepare("UPDATE `intus_sessions` SET `last_used` = NOW() WHERE `id` = ?")->execute([$row['id']]);
+        }
     } catch (Throwable $e) {}
 
     return [

@@ -557,6 +557,23 @@
       } catch {}
     }
 
+    // Retoma o login pelo cookie do servidor. O Safari do iPhone apaga o localStorage de sites sem uso por 7 dias e o aluno caia aqui pedindo
+    // senha. O servidor guarda um cookie HttpOnly (que o Safari mantem) e `retomar` devolve a mesma sessao. "Sair" (?saiu=1) nao retoma.
+    (async function retomarLogin() {
+      if (localStorage.getItem('mx-token')) return;
+      if (/[?&](saiu|excluido)=1/.test(location.search)) return;
+      try {
+        const r = await fetch(API_BASE + '/aluno_login.php?action=retomar', { method: 'POST', cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const a = j && j.ok && j.atleta;
+        if (!a || !a.server_token || localStorage.getItem('mx-token')) return;
+        localStorage.setItem('mx-token', a.server_token);
+        localStorage.setItem('mx-user', JSON.stringify({ idatleta: a.idatleta, nome: a.nome, email: a.email, telefone: a.telefone || '', genero: a.genero || '', dtnascimento: a.dtnascimento || '', codacesso: a.codacesso || '', tipo: 'aluno', admin: false, permissoes: {} }));
+        location.href = 'aluno.html';
+      } catch (e) { /* sem rede ou sem cookie: segue para o formulario */ }
+    })();
+
     // Já logado? manda para a tela correta
     if (localStorage.getItem('mx-token')) {
       try {

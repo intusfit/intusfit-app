@@ -79,6 +79,32 @@ window.sessaoExpirou = function (motivo) {
     return false;
   }
 
+  // CONFIRMA antes de derrubar o login (19/10/2026). O servidor responde "token invalido" (401) também quando o banco engasga por um instante
+  // (a consulta da sessão falha e ele acha que o token não existe). Antes, UM único 401 desses apagava o login e o aluno tinha que digitar a
+  // senha de novo, várias vezes na semana. Agora uma chamada leve (a mesma do sininho) é feita até 3 vezes, em 0 s, 2 s e 5 s: só se TODAS
+  // disserem "token inválido" a sessão é dada como vencida. Sem rede, ou qualquer resposta diferente de 401, a sessão é mantida.
+  window._intusSessaoInvalida = function () {
+    var token = '';
+    try { token = localStorage.getItem('mx-token') || ''; } catch (e) {}
+    if (!token) return Promise.resolve(true);
+    var base = window.INTUS_API_BASE || '/app/api';
+    function sonda() {
+      return original(base + '/catalogo.php?action=notificacoes&so_contagem=1', { headers: { 'Authorization': 'Bearer ' + token }, cache: 'no-store' }).then(function (r) {
+        if (r.status !== 401) return 'ok';
+        return r.clone().text().then(function (c) { return /token/i.test(c || '') ? 'invalida' : 'ok'; });
+      }).catch(function () { return 'ok'; });
+    }
+    var esperas = [0, 2000, 5000], i = 0;
+    return (function passo() {
+      return new Promise(function (res) { setTimeout(res, esperas[i]); }).then(sonda).then(function (v) {
+        if (v === 'ok') return false;
+        i++;
+        return i < esperas.length ? passo() : true;
+      });
+    })();
+  };
+  var _confirmando = false;
+
   window.fetch = function (entrada, opcoes) {
     return original(entrada, opcoes).then(function (resp) {
       try {
@@ -90,7 +116,10 @@ window.sessaoExpirou = function (motivo) {
             // daquela rota especifica e nao justifica expulsar o usuario. A
             // leitura e feita numa copia e sem segurar a resposta original.
             resp.clone().text().then(function (corpo) {
-              if (/token/i.test(corpo || '')) window.sessaoExpirou('401 em ' + u);
+              if (/token/i.test(corpo || '') && !_confirmando) {
+                _confirmando = true;
+                window._intusSessaoInvalida().then(function (invalida) { _confirmando = false; if (invalida) window.sessaoExpirou('401 em ' + u); });
+              }
             }).catch(function () {});
           }
         }
@@ -1295,7 +1324,7 @@ async function apiFetch(endpoint, options = {}) {
     throw new Error('offline');
   }
 
-  const res = await fetch(API_BASE + endpoint, {
+  const _pedir = () => fetch(API_BASE + endpoint, {
     cache: 'no-store',
     ...options,
     headers: {
@@ -1305,6 +1334,14 @@ async function apiFetch(endpoint, options = {}) {
       ...(options.headers || {}),
     },
   });
+  let res = await _pedir();
+  // Um 401 isolado NAO pode derrubar o login: o servidor responde 401 tambem quando o banco engasga por um instante (a consulta da
+  // sessao falha e ele acha que o token nao existe). Antes, esse tropeco apagava o login do aluno e ele tinha que digitar a senha de novo,
+  // varias vezes na semana. Agora pede mais uma vez depois de um instante, e so desloga se o servidor insistir.
+  if (res.status === 401 && !options.skipAuthRedirect && token) {
+    await new Promise(r => setTimeout(r, 1500));
+    res = await _pedir();
+  }
 
   if (res.status === 401) {
     if (options.skipAuthRedirect) {
@@ -1319,6 +1356,13 @@ async function apiFetch(endpoint, options = {}) {
     // que estivesse guardado no aparelho. Foi assim que o aluno ficou olhando
     // uma tela vazia sem entender nada: o servidor tinha respondido, e a
     // resposta era "seu login nao vale mais". Modo offline nao conserta login.
+    // So limpa o login se a sessao esta mesmo invalida (ver _intusSessaoInvalida): um soluco do servidor nao pode custar a senha do aluno.
+    const _invalida = typeof window._intusSessaoInvalida === 'function' ? await window._intusSessaoInvalida() : true;
+    if (!_invalida) {
+      const e503 = new Error('O servidor demorou para responder. Tente de novo em instantes.');
+      e503.status = 503;
+      throw e503;
+    }
     Auth.clear();
     if (typeof window.sessaoExpirou === 'function') window.sessaoExpirou('apiFetch ' + endpoint);
     else window.location.href = 'login.html';

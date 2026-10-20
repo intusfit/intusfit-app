@@ -259,6 +259,46 @@ $action = $_GET['action'] ?? '';
 $body   = readJsonBody();
 
 try {
+    // ===== Retomar o login pelo cookie (Safari do iPhone apaga o localStorage de sites sem uso por 7 dias) =====
+    // Só aluno, só com o cookie HttpOnly que o próprio servidor entregou no login. Devolve a MESMA sessão (e renova a validade).
+    if ($action === 'retomar') {
+        require_once __DIR__ . '/_sessions.php';
+        $tkC = (string)($_COOKIE[INTUS_COOKIE_RETOMAR] ?? '');
+        $sessC = $tkC !== '' ? validateSession($pdo, $tkC) : null;
+        $rowC = null;
+        if ($sessC && ($sessC['user_type'] ?? '') === 'aluno') {
+            $stC = $pdo->prepare("SELECT * FROM `$tabela` WHERE `$col_id` = ? LIMIT 1");
+            $stC->execute([(int)$sessC['user_id']]);
+            $rowC = $stC->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        if (!$rowC) {
+            if ($tkC !== '') intusLimparCookieRetomar();
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'erro' => 'sem sessao']);
+            exit;
+        }
+        if ($col_block) {
+            $bvC = (string)($rowC[$col_block] ?? '');
+            if (($col_block === 'stativo') ? ($bvC === 'N') : ($bvC === 'S' || $bvC === '1')) { http_response_code(403); echo json_encode(['ok' => false, 'erro' => 'conta bloqueada']); exit; }
+        }
+        $atletaC = rowToAtleta($rowC, $colmap);
+        $atletaC['server_token'] = $tkC;
+        intusEmitirCookieRetomar($tkC);
+        echo json_encode(['ok' => true, 'atleta' => $atletaC]);
+        exit;
+    }
+    // ===== Sair de verdade: apaga a sessão no servidor e o cookie (sem isto o "Sair" seria desfeito pelo cookie) =====
+    if ($action === 'esquecer') {
+        require_once __DIR__ . '/_sessions.php';
+        $hA = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? '');
+        if (preg_match('/Bearer\s+([a-f0-9]{64})/i', $hA, $mA)) revokeSession($pdo, strtolower($mA[1]));
+        $tkC = (string)($_COOKIE[INTUS_COOKIE_RETOMAR] ?? '');
+        if ($tkC !== '') revokeSession($pdo, $tkC);
+        intusLimparCookieRetomar();
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
     // ===== Auto-cadastro =====
     if ($action === 'criar') {
         // Cada chamada insere aluno, cria matricula, COPIA todas as fichas do
@@ -609,7 +649,7 @@ try {
             }
             $atleta = rowToAtleta($row, $colmap);
             require_once __DIR__ . '/_sessions.php';
-            $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 30);
+            $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 90);
             if ($serverToken) $atleta['server_token'] = $serverToken;
             try {
                 $temCol = $pdo->query(
@@ -902,7 +942,7 @@ try {
 
     // Gerar token server-side seguro
     require_once __DIR__ . '/_sessions.php';
-    $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 30);
+    $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 90);
     if ($serverToken) $atleta['server_token'] = $serverToken;
 
     // Registra o acesso — alimenta o distintivo de indicação (só conta quem
