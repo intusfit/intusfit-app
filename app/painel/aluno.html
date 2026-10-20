@@ -2061,7 +2061,12 @@ async function _compositarInfoNaFoto(dataUrl) {
   document.body.appendChild(host);
   try {
     const node = host.querySelector('.share-card');
-    const infoCanvas = await html2canvas(node, { scale: img.width / cssW, backgroundColor: null, useCORS: true });
+    // O html2canvas clona a PÁGINA INTEIRA (feed com dezenas de fotos, o editor com as imagens do carrossel em base64...) e não tem prazo próprio:
+    // no iPhone isso já deixou o "Preparando seu post..." girando para sempre. Só o que está dentro da figurinha (e o que a envolve) precisa ser clonado.
+    const infoCanvas = await html2canvas(node, {
+      scale: img.width / cssW, backgroundColor: null, useCORS: true, imageTimeout: 8000,
+      ignoreElements: (el) => !(el === host || host.contains(el) || el.contains(host)) && document.body.contains(el) && el !== document.body,
+    });
     const canvas = document.createElement('canvas');
     canvas.width = img.width; canvas.height = img.height;
     const ctx = canvas.getContext('2d');
@@ -2078,6 +2083,14 @@ async function _compositarInfoNaFoto(dataUrl) {
 // recortada+filtrada (_feedComposeImg, de _edConcluir) recebe por cima, na
 // ordem, a camada de informação (se ligada) e depois a marca d'água — as
 // duas únicas coisas que ainda "colam" pixel em cima da foto.
+// Nenhuma etapa da montagem da imagem pode deixar o aluno olhando "Preparando..." para sempre: passou do prazo, segue sem aquele enfeite.
+function _comPrazo(promessa, ms, motivo) {
+  return new Promise(function (resolve, reject) {
+    const t = setTimeout(function () { reject(new Error(motivo || 'tempo esgotado')); }, ms);
+    promessa.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+  });
+}
+var _COMPOSE_PRAZO_FIGURINHA_MS = 20000, _COMPOSE_PRAZO_LOGO_MS = 8000;
 async function _composeImagemFinal() {
   let dataUrl = _feedComposeImg;
   // Post de vídeo: a capa é um quadro do vídeo e já traz a figurinha, então não leva outra por cima.
@@ -2085,10 +2098,10 @@ async function _composeImagemFinal() {
   // imagem externa) e o post inteiro morria com "Não consegui publicar", enquanto o "Novo post" comum (sem figurinha) funcionava.
   // A figurinha é enfeite: se falhar, publica a foto sem ela e avisa.
   if (_composeInfoOn && _composeInfo && !_composeVideoCapa) {
-    try { dataUrl = await _compositarInfoNaFoto(dataUrl); }
+    try { dataUrl = await _comPrazo(_compositarInfoNaFoto(dataUrl), _COMPOSE_PRAZO_FIGURINHA_MS, 'a figurinha demorou demais'); }
     catch (e) { console.warn('[compartilhar] figurinha falhou, seguindo só com a foto:', e); toast('Não consegui colocar a figurinha na foto. Vou usar só a foto.'); }
   }
-  try { dataUrl = await _compositarLogoNaFoto(dataUrl); } catch (e) { console.warn('[compartilhar] logo falhou:', e); }
+  try { dataUrl = await _comPrazo(_compositarLogoNaFoto(dataUrl), _COMPOSE_PRAZO_LOGO_MS, 'a logo demorou demais'); } catch (e) { console.warn('[compartilhar] logo falhou:', e); }
   return dataUrl;
 }
 
@@ -2123,11 +2136,11 @@ async function _composePublicarInterno(destino) {
   };
   _composeProgresso('Enviando seu post...', itens.length ? 0 : null);
   try {
-    const r = await fetch(API_BASE + '/catalogo.php?action=feed_posts', {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=feed_posts', {
       method: 'POST',
       headers: hdrs,
       body: JSON.stringify({ imagem: dataUrl, legenda: legenda, localizacao: localizacao, destino: destino, visib: _composeVisib || undefined, total_midias: Math.max(1, total), capa_de_video: capaDeVideo ? 1 : 0, colaboradores: _composeColab.length ? _composeColab.slice() : undefined }),
-    });
+    }, 90000);
     if (!r.ok) throw new Error(await motivoDe(r));
     if (itens.length) {
       // Carrossel/vídeo: o post fica invisível até o último item chegar (um por
@@ -2139,7 +2152,7 @@ async function _composePublicarInterno(destino) {
         let ultimo = '';
         for (let t = 0; t < 2; t++) {
           try {
-            const rr = await fetch(API_BASE + '/catalogo.php?action=feed_midia', { method: 'POST', headers: hdrs, body: JSON.stringify(corpo) });
+            const rr = await _fetchT(API_BASE + '/catalogo.php?action=feed_midia', { method: 'POST', headers: hdrs, body: JSON.stringify(corpo) }, 90000);
             if (rr.ok) return;
             ultimo = await motivoDe(rr);
           } catch (e) { ultimo = 'sem conexao'; }
