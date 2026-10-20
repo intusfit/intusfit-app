@@ -120,6 +120,20 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
     agora: { ativos: 3, ultimas: [{ criado_em: '2026-10-19 15:00:00', pagina: '/', canal: 'instagram', utm_campaign: null, ref_idatleta: null, aparelho: 'celular', cidade: 'Cascavel', regiao: 'PR', novo: 1 }] },
     banco: { leads: 12, leads_por_origem: [{ origem: 'landing-teste-gratis', n: 3 }, { origem: 'app', n: 9 }], leads_indicados: 3 }, armazenado: { visitas: 5000, eventos: 900, desde: '2024-01-10' }, gerado_em: '2026-10-19 15:00:00',
   };
+  const pessoa = (o) => Object.assign({ tipo: 'conta', id: 1, medido: true, criado_em: '2026-10-18 10:00:00', canal: 'instagram', utm: { campaign: 'outubro', content: 'story-a5' }, ref: null, indicado_por: null, telefone: '(45) 99999-1111', whatsapp: '5545999991111', email: 'a@t.com', objetivo: '', treinos: 0, ultimo_treino: null, abriu_app: false, aberturas: 0, teste: { dias_restantes: 2, expirou: false }, matricula: null, bloqueado: false, acao: 'Dar boas-vindas e ajudar a entrar no app.' }, o);
+  const leadsCanned = {
+    periodo: { de: '2026-09-20', ate: '2026-10-19' }, captadas_medidas: 6, sem_medicao: 1, gerado_em: '',
+    etapas: [{ etapa: 'contato', rotulo: 'Deixou só o contato (sem conta)' }, { etapa: 'so_conta', rotulo: 'Criou o acesso, nunca abriu o app' }, { etapa: 'abriu_app', rotulo: 'Abriu o app, ainda não treinou' }, { etapa: 'treinando', rotulo: 'Em teste: já treinou' }, { etapa: 'teste_expirado', rotulo: 'Teste acabou, sem comprar' }, { etapa: 'negociando', rotulo: 'Matrícula criada, falta pagar' }, { etapa: 'cliente', rotulo: 'Virou cliente' }],
+    resumo: { contato: 1, so_conta: 2, abriu_app: 0, treinando: 1, teste_expirado: 1, negociando: 0, cliente: 1 },
+    pessoas: [
+      pessoa({ chave: 'a1', id: 1, nome: 'Ana Souza', etapa: 'so_conta', etapa_rotulo: 'Criou o acesso, nunca abriu o app', mensagem: 'Oi Ana, tudo bem? Aqui é da Intus Fit. Vi que você criou o seu acesso ao teste grátis.' }),
+      pessoa({ chave: 'a2', id: 2, nome: 'Daniel <b>Rocha</b>', telefone: '(45) 96666-4444', whatsapp: '5545966664444', etapa: 'teste_expirado', etapa_rotulo: 'Teste acabou, sem comprar', criado_em: '2026-10-10 10:00:00', treinos: 3, ultimo_treino: '2026-10-12', abriu_app: true, aberturas: 4, teste: { dias_restantes: -6, expirou: true }, acao: 'Melhor hora para oferecer o plano.', mensagem: 'Oi Daniel, tudo bem? Aqui é da Intus Fit. O seu teste grátis terminou.' }),
+      pessoa({ chave: 'a3', id: 3, nome: 'Carla Dias', canal: 'indicacao', indicado_por: 'Indicadora Oficial', etapa: 'treinando', etapa_rotulo: 'Em teste: já treinou', treinos: 2, ultimo_treino: '2026-10-19', abriu_app: true, aberturas: 2, mensagem: 'Oi Carla, tudo bem?' }),
+      pessoa({ chave: 'a5', id: 5, nome: 'Elisa Prado', etapa: 'cliente', etapa_rotulo: 'Virou cliente', matricula: { plano: 'Trimestral', pago: true }, mensagem: '' }),
+      pessoa({ chave: 'l1', tipo: 'contato', id: 1, nome: 'Gabriela Alves', telefone: '45933337777', whatsapp: '5545933337777', objetivo: 'Emagrecer', etapa: 'contato', etapa_rotulo: 'Deixou só o contato (sem conta)', teste: null, mensagem: 'Oi Gabriela, tudo bem?' }),
+      pessoa({ chave: 'a8', id: 8, nome: 'Heitor Cruz', medido: false, canal: null, utm: {}, etapa: 'so_conta', etapa_rotulo: 'Criou o acesso, nunca abriu o app', telefone: '', whatsapp: '', mensagem: 'Oi Heitor, tudo bem?' }),
+    ],
+  };
   async function painel(usuario) {
     const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await c.addInitScript((u) => { localStorage.setItem('mx-token', 'teste'); localStorage.setItem('mx-user', JSON.stringify(u)); }, usuario);
@@ -129,6 +143,7 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
       const u = r.request().url(); chamadas.push(u);
       if (r.request().method() === 'DELETE') { apagou.push(u); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, apagadas: 120 }) }); }
       const corpo = u.includes('action=agora') ? { agora: relatorio.agora, hoje: relatorio.kpis }
+        : u.includes('action=leads') ? leadsCanned
         : u.includes('action=limpar_previa') ? { dias: 365, corte: '2025-10-19', visitas: 100, eventos: 20, total: 120, mais_antiga: '2024-01-10', armazenado: { visitas: 5000, eventos: 900, desde: '2024-01-10' } }
         : relatorio;
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(corpo) });
@@ -207,6 +222,42 @@ const ver = (rot, c, extra) => { eq(rot, !!c, true); if (!c && extra !== undefin
   eq('um único pedido de apagar, com a palavra APAGAR, o total visto e no mínimo 365 dias', [adm.apagou.length, /confirmo=APAGAR/.test(adm.apagou[0] || ''), /esperadas=120/.test(adm.apagou[0] || ''), Number((/dias=(\d+)/.exec(adm.apagou[0] || '') || [])[1]) >= 365], [1, true, true, true]);
   ver('mostra o resultado', /120 registro/.test(await adm.pg.innerText('#tf-modal')));
   eq('sem erro de script nos fluxos de apagar', adm.er, []);
+  console.log('\n══ Pessoas captadas: de quem são e em que etapa estão ══');
+  const linkKpi = await adm.pg.evaluate(() => { const a = document.querySelector('a.tf-kpi-link'); return a ? [a.getAttribute('href'), a.innerText] : null; });
+  ver('"Pessoas captadas" em Tráfego é um link para a lista, com o mesmo período', linkKpi && /^captados\.html\?de=\d{4}-\d{2}-\d{2}&ate=\d{4}-\d{2}-\d{2}$/.test(linkKpi[0]) && /ver quem são/i.test(linkKpi[1]), linkKpi);
+  const cap = await painel({ tipo: 'admin', idatleta: 0, idusuario: 1, admin: 1, nome: 'Luiz Nunes', permissoes: {} });
+  await cap.pg.goto(B + '/app/painel/captados.html?de=2026-09-20&ate=2026-10-19', { waitUntil: 'load' }); await cap.pg.waitForTimeout(1500);
+  const tx = await cap.pg.innerText('#main-content');
+  ver('mostra as pessoas com nome e telefone', /Ana Souza/.test(tx) && /Gabriela Alves/.test(tx) && /45933337777/.test(tx), tx.slice(0, 300));
+  eq('os contadores por etapa vêm do servidor', await cap.pg.evaluate(() => [...document.querySelectorAll('.cp-et')].map(b => b.querySelector('.n').textContent)), ['1', '2', '0', '1', '1', '0', '1']);
+  const zaps = await cap.pg.evaluate(() => [...document.querySelectorAll('tr[data-chave="a1"] a.zap, tr[data-chave="a2"] a.zap')].map(a => a.getAttribute('href')));
+  ver('o botão do WhatsApp abre a conversa com o número e a mensagem da etapa', zaps.length === 2 && zaps[0].startsWith('https://wa.me/5545999991111?text=') && decodeURIComponent(zaps[0]).includes('Oi Ana') && zaps[1].includes('5545966664444'), zaps);
+  eq('cliente não tem botão de abordagem', await cap.pg.evaluate(() => ({ botao: !!document.querySelector('tr[data-chave="a5"] a.zap'), txt: document.querySelector('tr[data-chave="a5"]').innerText.includes('já é cliente') })), { botao: false, txt: true });
+  eq('quem não tem telefone aparece com o botão desativado', await cap.pg.evaluate(() => document.querySelector('tr[data-chave="a8"] a.zap').getAttribute('aria-disabled')), 'true');
+  ver('avisa que uma pessoa não tem a origem medida', /não têm a origem medida|não tem a origem medida/i.test(tx) && /origem não medida/.test(tx), tx.slice(0, 600));
+  eq('indicação mostra quem indicou', await cap.pg.evaluate(() => document.querySelector('tr[data-chave="a3"]').innerText.includes('indicado por Indicadora Oficial')), true);
+  eq('texto vindo da internet (nome) nunca vira HTML', await cap.pg.evaluate(() => document.querySelectorAll('tr[data-chave="a2"] b').length), 0);
+  await cap.pg.click('.cp-et >> nth=4');
+  eq('clicar numa etapa filtra a lista', await cap.pg.evaluate(() => [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)), ['a2']);
+  await cap.pg.click('.cp-et >> nth=4');
+  await cap.pg.fill('#cp-busca', '9333'); await cap.pg.waitForTimeout(200);
+  eq('a busca acha por pedaço do telefone', await cap.pg.evaluate(() => [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)), ['l1']);
+  await cap.pg.fill('#cp-busca', '');
+  await cap.pg.selectOption('.cp-sel', 'prioridade'); await cap.pg.waitForTimeout(200);
+  eq('"quem contatar primeiro" põe teste que acabou antes de quem só criou a conta, e cliente por último', await cap.pg.evaluate(() => [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)), ['a2', 'a3', 'a1', 'a8', 'l1', 'a5']);
+  const [dl] = await Promise.all([cap.pg.waitForEvent('download', { timeout: 5000 }).catch(() => null), cap.pg.click('text=Baixar planilha')]);
+  ver('baixa a planilha com a lista filtrada', dl && /^pessoas-captadas-2026-09-20-a-2026-10-19\.csv$/.test(dl.suggestedFilename()), dl && dl.suggestedFilename());
+  eq('sem erro de script', cap.er, []);
+  const calls0 = cap.chamadas.length;
+  await cap.pg.fill('#cp-busca', 'ana'); await cap.pg.click('.cp-et >> nth=1'); await cap.pg.evaluate(() => document.getElementById('cp-busca').blur());
+  await cap.pg.evaluate(() => atualizarSilencioso()); await cap.pg.waitForTimeout(400);
+  eq('a atualização automática mantém busca e filtro', await cap.pg.evaluate(() => [document.getElementById('cp-busca').value, [...document.querySelectorAll('#cp-lista tbody tr')].map(r => r.dataset.chave)]), ['ana', ['a1']]);
+  ver('e pediu os dados de novo', cap.chamadas.length > calls0);
+  eq('o intervalo é de 1 minuto', await cap.pg.evaluate(() => INTERVALO_ATUALIZACAO_MS), 60000);
+  const profL = await painel({ tipo: 'professor', idusuario: 9, admin: 0, nome: 'Prof', permissoes: {} });
+  await profL.pg.goto(B + '/app/painel/captados.html', { waitUntil: 'load' }); await profL.pg.waitForTimeout(800);
+  ver('professor não vê telefones: "Acesso restrito" e nenhuma chamada', /Acesso restrito/.test(await profL.pg.innerText('#main-content')) && profL.chamadas.filter(u => /action=leads/.test(u)).length === 0);
+  eq('o item do menu "Pessoas Captadas" só aparece para o administrador', [await cap.pg.evaluate(() => [...document.querySelectorAll('a')].some(a => /captados\.html/.test(a.getAttribute('href') || ''))), await profL.pg.evaluate(() => [...document.querySelectorAll('a')].some(a => /captados\.html/.test(a.getAttribute('href') || '')))], [true, false]);
   const prof = await painel({ tipo: 'professor', idusuario: 9, admin: 0, nome: 'Prof', permissoes: {} });
   const negado = await prof.pg.evaluate(() => document.getElementById('main-content').innerText);
   ver('professor vê "Acesso restrito" e nenhuma chamada de dados', /Acesso restrito/.test(negado) && prof.chamadas.length === 0, [negado.slice(0, 80), prof.chamadas]);

@@ -391,3 +391,178 @@ function trLimparAntigos(PDO $pdo, int $dias, ?int $esperadas = null, ?int $ts =
     foreach (['intus_trafego_visita', 'intus_trafego_evento'] as $t) { $st = $pdo->prepare("DELETE FROM $t WHERE dia < ?"); $st->execute([$pre['corte']]); $n += $st->rowCount(); }
     return $n;
 }
+
+// ───────────────────────── PESSOAS CAPTADAS (leads) ─────────────────────────
+// Quem são, como chegaram e em que ponto do funil estão. Junta: os eventos medidos (conta_criada, lead_enviado), a tabela de atletas
+// (contas do teste grátis), a de leads (contato sem conta), os acessos ao app, os treinos e as matrículas. Só leitura.
+
+const TR_ETAPAS = [
+    'cliente'        => [6, 'Virou cliente', 'Matrícula paga. Nada a fazer aqui.'],
+    'negociando'     => [5, 'Matrícula criada, falta pagar', 'Falar sobre o pagamento para liberar o acesso.'],
+    'teste_expirado' => [4, 'Teste acabou, sem comprar', 'Melhor hora para oferecer o plano: ele já conheceu o app.'],
+    'treinando'      => [3, 'Em teste: já treinou', 'Perguntar como está sendo e apresentar o plano antes do teste acabar.'],
+    'abriu_app'      => [2, 'Abriu o app, ainda não treinou', 'Ajudar a fazer o primeiro treino.'],
+    'so_conta'       => [1, 'Criou o acesso, nunca abriu o app', 'Dar boas-vindas e ajudar a entrar no app.'],
+    'contato'        => [0, 'Deixou só o contato (sem conta)', 'Chamar para criar o acesso grátis e começar.'],
+];
+
+function trColunas(PDO $pdo, string $tbl): array
+{
+    try {
+        if (trSqlite($pdo)) return array_column($pdo->query("PRAGMA table_info(`$tbl`)")->fetchAll(PDO::FETCH_ASSOC), 'name');
+        return array_column($pdo->query("SHOW COLUMNS FROM `$tbl`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    } catch (Throwable $e) { return []; }
+}
+function trPick(array $cols, array $cands): ?string { foreach ($cands as $c) if (in_array($c, $cols, true)) return $c; return null; }
+
+/** Número só com dígitos e DDI do Brasil, pronto para o wa.me. Vazio se não parecer telefone. */
+function trWhatsapp($tel): string
+{
+    $d = preg_replace('/\D/', '', (string)$tel);
+    if (strlen($d) >= 12 && substr($d, 0, 2) === '55') return $d;
+    if (strlen($d) === 10 || strlen($d) === 11) return '55' . $d;
+    return '';
+}
+
+function trMensagem(string $etapa, string $nome): string
+{
+    $p = trim(explode(' ', trim($nome))[0] ?? '');
+    $oi = 'Oi' . ($p !== '' ? ' ' . $p : '') . ', tudo bem? Aqui é da Intus Fit. ';
+    switch ($etapa) {
+        case 'so_conta':       return $oi . 'Vi que você criou o seu acesso ao teste grátis. Posso te ajudar a entrar no app e começar o primeiro treino?';
+        case 'abriu_app':      return $oi . 'Você já entrou no app, mas ainda não fez o primeiro treino. Quer que eu te explique por onde começar?';
+        case 'treinando':      return $oi . 'Vi que você já treinou no teste grátis. Como está sendo para você? Posso te ajudar com alguma dúvida?';
+        case 'teste_expirado': return $oi . 'O seu teste grátis terminou. Quer conversar sobre continuar com acompanhamento profissional?';
+        case 'negociando':     return $oi . 'Sua matrícula está criada e falta só o pagamento para liberar o acesso. Posso te ajudar com isso?';
+        case 'contato':        return $oi . 'Você deixou o seu contato para o teste grátis. Posso te ajudar a começar?';
+        default:               return $oi . 'Como estão os treinos?';
+    }
+}
+
+function trParaBrt(string $utc): string
+{
+    try { return (new DateTime($utc, new DateTimeZone('UTC')))->setTimezone(new DateTimeZone(TR_FUSO))->format('Y-m-d H:i:s'); } catch (Throwable $e) { return $utc; }
+}
+
+function trEhPlanoTeste(array $m): bool
+{
+    return preg_match('/\bteste\b|gr[aá]tis|trial|degusta|experimental|cortesia/iu', (string)($m['tipo_plano'] ?? '') . ' ' . (string)($m['dshistorico'] ?? '')) === 1;
+}
+
+/**
+ * Lista de pessoas captadas no período (pela data do cadastro), com a etapa do funil de cada uma.
+ * $tblAtleta: nome da tabela de atletas (ou null). Devolve ['pessoas'=>[], 'resumo'=>[], 'captadas_medidas'=>int, 'sem_medicao'=>int].
+ */
+function trLeads(PDO $pdo, string $de, string $ate, ?string $tblAtleta, ?int $ts = null): array
+{
+    trGarantirTabelas($pdo);
+    $hoje = trAgora($ts)[1];
+    $pessoas = [];   // chave => dados
+    $ev = $pdo->prepare("SELECT idevento, evento, valor, canal, utm_source, utm_medium, utm_campaign, utm_content, ref_idatleta, rotulo, criado_em FROM intus_trafego_evento WHERE dia BETWEEN ? AND ? AND evento IN ('conta_criada','lead_enviado') ORDER BY idevento DESC LIMIT 1500");
+    $ev->execute([$de, $ate]);
+    $eventos = $ev->fetchAll(PDO::FETCH_ASSOC);
+    $captadasMedidas = count($eventos);
+    $idsAt = []; $idsLead = [];
+    foreach ($eventos as $e) {
+        $v = $e['valor'] !== null ? (int)$e['valor'] : 0;
+        if ($e['evento'] === 'conta_criada') { $k = $v ? 'a' . $v : 'e' . $e['idevento']; if ($v) $idsAt[$v] = true; }
+        else { $k = $v ? 'l' . $v : 'e' . $e['idevento']; if ($v) $idsLead[$v] = true; }
+        $pessoas[$k] = ['chave' => $k, 'tipo' => $v ? ($e['evento'] === 'conta_criada' ? 'conta' : 'contato') : 'anonimo', 'id' => $v ?: null, 'medido' => true, 'criado_em' => trParaBrt((string)$e['criado_em']),
+            'canal' => $e['canal'] ?: null, 'utm' => ['source' => $e['utm_source'], 'medium' => $e['utm_medium'], 'campaign' => $e['utm_campaign'], 'content' => $e['utm_content']],
+            'ref' => $e['ref_idatleta'] !== null ? (int)$e['ref_idatleta'] : null, 'anonimo_evento' => $e['evento']];
+    }
+    // Contas do teste grátis criadas no período que a medição não viu (antes dela existir ou com o navegador bloqueando)
+    $cA = $tblAtleta ? trColunas($pdo, $tblAtleta) : [];
+    $cId = trPick($cA, ['idatleta', 'idaluno', 'id']); $cDt = trPick($cA, ['dt_cadastro']); $cOri = trPick($cA, ['origem']);
+    if ($tblAtleta && $cId && $cDt && $cOri) {
+        try {
+            $st = $pdo->prepare("SELECT `$cId` AS i FROM `$tblAtleta` WHERE DATE(`$cDt`) BETWEEN ? AND ? AND `$cOri` LIKE 'landing%' LIMIT 1500");
+            $st->execute([$de, $ate]);
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $i) { $i = (int)$i; $idsAt[$i] = true; if (!isset($pessoas['a' . $i])) $pessoas['a' . $i] = ['chave' => 'a' . $i, 'tipo' => 'conta', 'id' => $i, 'medido' => false, 'criado_em' => null, 'canal' => null, 'utm' => [], 'ref' => null]; }
+        } catch (Throwable $e) {}
+    }
+    $leadsRows = [];
+    try {
+        $st = $pdo->prepare("SELECT * FROM intus_lead WHERE DATE(criado_em) BETWEEN ? AND ? AND origem LIKE 'landing%' LIMIT 1500"); $st->execute([$de, $ate]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) { $leadsRows[(int)$r['idlead']] = $r; $idsLead[(int)$r['idlead']] = true; if (!isset($pessoas['l' . $r['idlead']])) $pessoas['l' . $r['idlead']] = ['chave' => 'l' . $r['idlead'], 'tipo' => 'contato', 'id' => (int)$r['idlead'], 'medido' => false, 'criado_em' => null, 'canal' => null, 'utm' => [], 'ref' => null]; }
+        $falta = array_diff(array_keys($idsLead), array_keys($leadsRows));
+        if ($falta) { $st = $pdo->prepare('SELECT * FROM intus_lead WHERE idlead IN (' . implode(',', array_fill(0, count($falta), '?')) . ')'); $st->execute(array_values($falta)); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $leadsRows[(int)$r['idlead']] = $r; }
+    } catch (Throwable $e) {}
+    // Dados das contas
+    $atRows = [];
+    if ($idsAt && $tblAtleta && $cId) {
+        try { $st = $pdo->prepare("SELECT * FROM `$tblAtleta` WHERE `$cId` IN (" . implode(',', array_fill(0, count($idsAt), '?')) . ')'); $st->execute(array_keys($idsAt)); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $atRows[(int)$r[$cId]] = $r; } catch (Throwable $e) {}
+    }
+    $ids = array_keys($atRows);
+    $ph = $ids ? implode(',', array_fill(0, count($ids), '?')) : '';
+    $treinos = []; $mats = []; $abert = [];
+    if ($ids) {
+        try { $st = $pdo->prepare("SELECT idatleta, COUNT(*) AS n, MIN(dtsessao) AS p, MAX(dtsessao) AS u FROM intus_sessao WHERE idatleta IN ($ph) AND (nao_contar IS NULL OR nao_contar = 0) GROUP BY idatleta"); $st->execute($ids); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $treinos[(int)$r['idatleta']] = $r; } catch (Throwable $e) {}
+        try { $st = $pdo->prepare("SELECT idatleta, dshistorico, tipo_plano, dtinicio, dtvencimento, stpgto, vlpagamento, stmatricula FROM intus_mensalidade WHERE idatleta IN ($ph)"); $st->execute($ids); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $mats[(int)$r['idatleta']][] = $r; } catch (Throwable $e) {}
+        try { $st = $pdo->prepare("SELECT user_id, COUNT(*) AS n, MAX(criado_em) AS u FROM intus_acesso WHERE user_tipo = 'aluno' AND evento IN ('abertura','login') AND user_id IN ($ph) GROUP BY user_id"); $st->execute($ids); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $abert[(int)$r['user_id']] = $r; } catch (Throwable $e) {}
+    }
+    // Nomes de quem indicou
+    $refIds = [];
+    foreach ($pessoas as $p) if (!empty($p['ref'])) $refIds[(int)$p['ref']] = true;
+    foreach ($atRows as $r) if (!empty($r['indicado_por_idatleta'])) $refIds[(int)$r['indicado_por_idatleta']] = true;
+    foreach ($leadsRows as $r) if (!empty($r['indicado_por_idatleta'])) $refIds[(int)$r['indicado_por_idatleta']] = true;
+    $nomesRef = [];
+    if ($refIds && $tblAtleta && $cId && ($cNm = trPick($cA, ['nome', 'nmatleta', 'nmaluno']))) {
+        try { $st = $pdo->prepare("SELECT `$cId` AS i, `$cNm` AS n FROM `$tblAtleta` WHERE `$cId` IN (" . implode(',', array_fill(0, count($refIds), '?')) . ')'); $st->execute(array_keys($refIds)); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $nomesRef[(int)$r['i']] = (string)$r['n']; } catch (Throwable $e) {}
+    }
+    $cNome = trPick($cA, ['nome', 'nmatleta', 'nmaluno']); $cEmail = trPick($cA, ['email', 'dsemail']); $cTel = trPick($cA, ['telefone', 'nrtelefone', 'dstelefone', 'celular']);
+    $out = [];
+    foreach ($pessoas as $p) {
+        $nome = ''; $tel = ''; $email = ''; $obj = ''; $criado = $p['criado_em']; $ref = $p['ref'];
+        $r = null; $etapa = 'contato';
+        $p['treinos'] = 0; $p['primeiro_treino'] = null; $p['ultimo_treino'] = null; $p['abriu_app'] = false; $p['aberturas'] = 0; $p['ultimo_acesso'] = null; $p['teste'] = null; $p['matricula'] = null; $p['bloqueado'] = false;
+        if ($p['tipo'] === 'conta' && isset($atRows[$p['id']])) {
+            $r = $atRows[$p['id']];
+            $nome = (string)($cNome ? ($r[$cNome] ?? '') : ''); $tel = (string)($cTel ? ($r[$cTel] ?? '') : ''); $email = (string)($cEmail ? ($r[$cEmail] ?? '') : '');
+            $criado = $criado ?: ($cDt ? ($r[$cDt] ?? null) : null);
+            if (!$ref && !empty($r['indicado_por_idatleta'])) $ref = (int)$r['indicado_por_idatleta'];
+            $id = (int)$p['id'];
+            if (isset($treinos[$id])) { $p['treinos'] = (int)$treinos[$id]['n']; $p['primeiro_treino'] = $treinos[$id]['p']; $p['ultimo_treino'] = $treinos[$id]['u']; }
+            $ab = $abert[$id] ?? null;
+            $p['aberturas'] = $ab ? (int)$ab['n'] : 0;
+            $ult = $ab['u'] ?? ($r['ultimo_acesso'] ?? null);
+            $p['ultimo_acesso'] = $ult ?: null;
+            $criadoTs = $criado ? strtotime((string)$criado) : 0;
+            // "abriu o app": houve abertura registrada; sem a tabela de acessos, vale o último acesso uns minutos depois do cadastro
+            $p['abriu_app'] = $p['aberturas'] > 0 || ($ult && $criadoTs && strtotime((string)$ult) - $criadoTs > 600);
+            $p['bloqueado'] = isset($r['stbloqueio']) && $r['stbloqueio'] === 'S';
+            $pago = false; $pend = false; $teste = null; $planoPago = null; $valor = null;
+            foreach ($mats[$id] ?? [] as $m) {
+                if (strtolower((string)($m['stmatricula'] ?? '')) === 'cancelada') continue;
+                if (trEhPlanoTeste($m)) { $teste = ['inicio' => $m['dtinicio'], 'vence' => $m['dtvencimento']]; continue; }
+                if (($m['stpgto'] ?? '') === 'S' && (float)($m['vlpagamento'] ?? 0) > 0) { $pago = true; $planoPago = $m['tipo_plano'] ?: $m['dshistorico']; $valor = (float)$m['vlpagamento']; }
+                elseif (($m['stpgto'] ?? '') === 'N') { $pend = true; $planoPago = $planoPago ?: ($m['tipo_plano'] ?: $m['dshistorico']); }
+            }
+            if ($teste) { $teste['dias_restantes'] = (int)round((strtotime((string)$teste['vence']) - strtotime($hoje)) / 86400); $teste['expirou'] = $teste['dias_restantes'] < 0; }
+            $p['teste'] = $teste;
+            $p['matricula'] = ($pago || $pend) ? ['plano' => $planoPago, 'pago' => $pago, 'valor' => $valor] : null;
+            $etapa = $pago ? 'cliente' : ($pend ? 'negociando' : (($teste && $teste['expirou']) ? 'teste_expirado' : ($p['treinos'] > 0 ? 'treinando' : ($p['abriu_app'] ? 'abriu_app' : 'so_conta'))));
+        } elseif ($p['tipo'] === 'contato' && isset($leadsRows[$p['id']])) {
+            $r = $leadsRows[$p['id']];
+            $nome = (string)($r['nome'] ?? ''); $tel = (string)($r['whatsapp'] ?? ''); $email = (string)($r['email'] ?? ''); $obj = (string)($r['objetivo'] ?? '');
+            $criado = $criado ?: ($r['criado_em'] ?? null);
+            if (!$ref && !empty($r['indicado_por_idatleta'])) $ref = (int)$r['indicado_por_idatleta'];
+            $etapa = 'contato';
+            $p['status_lead'] = $r['status'] ?? null;
+        } elseif ($p['tipo'] === 'anonimo') {
+            $etapa = $p['anonimo_evento'] === 'conta_criada' ? 'so_conta' : 'contato';
+        } else { continue; }   // conta apagada ou fora da tabela: não há o que mostrar
+        $wa = trWhatsapp($tel);
+        $out[] = array_merge($p, [
+            'nome' => $nome !== '' ? $nome : '(sem nome)', 'telefone' => $tel, 'whatsapp' => $wa, 'email' => $email, 'objetivo' => $obj, 'criado_em' => $criado,
+            'ref' => $ref, 'indicado_por' => $ref ? ($nomesRef[$ref] ?? ('Aluno #' . $ref)) : null,
+            'etapa' => $etapa, 'etapa_rotulo' => TR_ETAPAS[$etapa][1], 'etapa_ordem' => TR_ETAPAS[$etapa][0], 'acao' => TR_ETAPAS[$etapa][2],
+            'mensagem' => $etapa === 'cliente' ? '' : trMensagem($etapa, $nome),
+        ]);
+    }
+    usort($out, fn($a, $b) => strcmp((string)($b['criado_em'] ?? ''), (string)($a['criado_em'] ?? '')));
+    $resumo = []; foreach (TR_ETAPAS as $k => $v) $resumo[$k] = 0;
+    foreach ($out as $p) $resumo[$p['etapa']]++;
+    return ['periodo' => ['de' => $de, 'ate' => $ate], 'pessoas' => $out, 'resumo' => $resumo, 'etapas' => array_map(fn($k, $v) => ['etapa' => $k, 'ordem' => $v[0], 'rotulo' => $v[1]], array_keys(TR_ETAPAS), array_values(TR_ETAPAS)),
+            'captadas_medidas' => $captadasMedidas, 'sem_medicao' => count(array_filter($out, fn($p) => !$p['medido'])), 'gerado_em' => gmdate('Y-m-d H:i:s', $ts ?? time())];
+}

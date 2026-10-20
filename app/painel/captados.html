@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Pessoas Captadas — Intus</title>
+  <script src="_mock.js?v=20261020a"></script>
+  <script src="api.js?v=20261019a"></script>
+  <style>
+    .cp-topo { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:14px; }
+    .cp-topo h1 { font-size:20px; margin:0; color:var(--text); }
+    .cp-sub { font-size:12.5px; color:var(--text-muted); margin-top:2px; }
+    .cp-sub a { color:var(--green); text-decoration:none; font-weight:700; }
+    .cp-chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+    .cp-chip { padding:7px 12px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--text-muted); font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+    .cp-chip.on { background:var(--green); border-color:var(--green); color:#000; }
+    body.theme-light .cp-chip.on { color:#fff; }
+    .cp-in, .cp-sel { padding:8px 11px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12.5px; font-family:inherit; }
+    .cp-etapas { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); gap:10px; margin-bottom:12px; }
+    .cp-et { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:11px 13px; cursor:pointer; text-align:left; font-family:inherit; color:var(--text); border-top-width:3px; }
+    .cp-et .n { font-size:24px; font-weight:800; font-variant-numeric:tabular-nums; }
+    .cp-et .r { font-size:11px; font-weight:700; color:var(--text-muted); line-height:1.3; }
+    .cp-et.on { outline:2px solid var(--green); }
+    .cp-aviso { padding:11px 14px; border-radius:10px; border:1px solid rgba(251,191,36,.4); background:rgba(251,191,36,.08); color:var(--text); font-size:12.5px; line-height:1.5; margin-bottom:12px; }
+    .cp-barra { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+    .cp-barra .cp-in { flex:1; min-width:180px; }
+    .cp-btn { padding:8px 14px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--text); font-weight:700; font-size:12.5px; cursor:pointer; font-family:inherit; text-decoration:none; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+    .cp-btn.zap { background:#16a34a; border-color:#16a34a; color:#fff; }
+    .cp-btn.zap[aria-disabled="true"] { opacity:.4; pointer-events:none; }
+    .cp-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    .cp-tab { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .cp-tab th { text-align:left; font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); padding:9px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+    .cp-tab td { padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+    .cp-tab tr:last-child td { border-bottom:none; }
+    .cp-nome { font-weight:800; font-size:13.5px; }
+    .cp-nome a { color:var(--text); text-decoration:none; }
+    .cp-nome a:hover { color:var(--green); }
+    .cp-mut { font-size:11.5px; color:var(--text-muted); line-height:1.45; }
+    .cp-badge { display:inline-block; padding:3px 9px; border-radius:999px; font-size:11px; font-weight:800; white-space:nowrap; }
+    .cp-acoes { display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+    .cp-vazio { padding:40px 16px; text-align:center; color:var(--text-muted); font-size:13px; }
+    .cp-att { font-size:11.5px; color:var(--text-dim); margin-top:8px; }
+    #main-content { min-width:0; }
+    .cp-card { overflow-x:auto; max-width:100%; }
+    @media (max-width:1240px) {
+      .cp-tab thead { display:none; }
+      .cp-tab, .cp-tab tbody, .cp-tab td { display:block; width:100%; box-sizing:border-box; }
+      .cp-tab tr { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:2px 8px; border-bottom:1px solid var(--border); padding:12px 4px; }
+      .cp-tab td { border:none; padding:5px 12px; }
+      .cp-tab td[data-r]::before { content:attr(data-r); display:block; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-bottom:2px; }
+    }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Pessoas Captadas');
+const main = document.getElementById('main-content');
+if (!(Sessao.atual() && Sessao.atual().admin)) {
+  main.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted);"><div style="font-size:40px;margin-bottom:8px;">🔒</div><div style="font-weight:700;color:var(--text);margin-bottom:4px;">Acesso restrito</div><div style="font-size:13px;">Esta tela tem telefones e e-mails e é só do administrador.</div></div>';
+  throw new Error('sem permissao');
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const nf = v => Number(v || 0).toLocaleString('pt-BR');
+function iso(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+function hojeISO() { return iso(new Date()); }
+function somaDias(s, n) { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return iso(d); }
+function fmtDiaCompleto(s) { return s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : ''; }
+function quando(s) {
+  if (!s) return { t: '—', h: '' };
+  const d = new Date(String(s).replace(' ', 'T')); if (isNaN(d)) return { t: esc(s), h: '' };
+  const dias = Math.floor((Date.now() - d.getTime()) / 86400000);
+  return { t: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), h: dias <= 0 ? 'hoje' : dias === 1 ? 'ontem' : 'há ' + dias + ' dias' };
+}
+const NOMES_CANAL = { direto: 'Acesso direto', indicacao: 'Indicação de aluno', instagram: 'Instagram', whatsapp: 'WhatsApp', facebook: 'Facebook', google: 'Google', busca: 'Outras buscas', youtube: 'YouTube', tiktok: 'TikTok', email: 'E-mail', sms: 'SMS', qrcode: 'QR code', twitter: 'X / Twitter', 'outros sites': 'Outros sites' };
+const COR = { contato: '#9ca3af', so_conta: '#f59e0b', abriu_app: '#38bdf8', treinando: '#4ade80', teste_expirado: '#fb7185', negociando: '#a78bfa', cliente: '#22c55e' };
+// Quem merece contato primeiro (o teste acabou e ele conheceu o app é a melhor hora; cliente por último).
+const PRIORIDADE = { teste_expirado: 0, negociando: 1, treinando: 2, abriu_app: 3, so_conta: 4, contato: 5, cliente: 6 };
+const ORDEM_FUNIL = ['contato', 'so_conta', 'abriu_app', 'treinando', 'teste_expirado', 'negociando', 'cliente'];
+
+const q = new URLSearchParams(location.search);
+let periodo = q.get('de') ? 'custom' : '30', de = q.get('de') || '', ate = q.get('ate') || '';
+let dados = null, filtroEtapa = '', busca = '', ordem = 'recentes', carregando = false;
+function limites() {
+  const h = hojeISO();
+  if (periodo === 'custom') return { de: de || somaDias(h, -29), ate: ate || h };
+  if (periodo === '0') return { de: h, ate: h };
+  return { de: somaDias(h, -(Number(periodo) - 1)), ate: h };
+}
+async function chamar(qs) {
+  const tk = (typeof Auth !== 'undefined' && Auth.getToken) ? (Auth.getToken() || '') : (localStorage.getItem('mx-token') || '');
+  const r = await fetch(API_BASE + '/trafego.php?' + qs, { headers: { 'Authorization': 'Bearer ' + tk }, cache: 'no-store' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('erro ' + r.status));
+  return j;
+}
+async function carregar() {
+  if (carregando) return; carregando = true;
+  const l = limites();
+  try { dados = await chamar('action=leads&de=' + l.de + '&ate=' + l.ate); desenhar(); }
+  catch (e) { main.innerHTML = '<div class="cp-aviso">Não consegui carregar a lista agora: ' + esc(e.message) + ' <button class="cp-btn" onclick="carregar()">Tentar de novo</button></div>'; }
+  finally { carregando = false; }
+}
+function setPeriodo(p) { periodo = p; carregar(); }
+function setCustom() { de = document.getElementById('cp-de').value; ate = document.getElementById('cp-ate').value; if (de && ate) { periodo = 'custom'; carregar(); } }
+function setEtapa(e) { filtroEtapa = filtroEtapa === e ? '' : e; desenharLista(); desenharEtapas(); }
+
+function filtradas() {
+  const t = busca.trim().toLowerCase(), td = t.replace(/\D/g, '');
+  let l = dados.pessoas.filter(p => (!filtroEtapa || p.etapa === filtroEtapa) &&
+    (!t || p.nome.toLowerCase().includes(t) || (p.email || '').toLowerCase().includes(t) || (td.length >= 3 && (p.telefone || '').replace(/\D/g, '').includes(td))));
+  if (ordem === 'prioridade') l = l.slice().sort((a, b) => (PRIORIDADE[a.etapa] - PRIORIDADE[b.etapa]) || String(b.criado_em || '').localeCompare(String(a.criado_em || '')));
+  return l;
+}
+function desenharEtapas() {
+  const r = dados.resumo, total = dados.pessoas.length;
+  document.getElementById('cp-etapas').innerHTML = ORDEM_FUNIL.map(e => {
+    const info = dados.etapas.find(x => x.etapa === e) || { rotulo: e };
+    return '<button class="cp-et' + (filtroEtapa === e ? ' on' : '') + '" style="border-top-color:' + COR[e] + '" onclick="setEtapa(\'' + e + '\')"><div class="n">' + nf(r[e]) + '</div><div class="r">' + esc(info.rotulo) + '</div></button>';
+  }).join('');
+}
+function etapaBadge(p) { return '<span class="cp-badge" style="background:' + COR[p.etapa] + '26;color:' + COR[p.etapa] + ';border:1px solid ' + COR[p.etapa] + '66">' + esc(p.etapa_rotulo) + '</span>'; }
+function linhaHtml(p) {
+  const c = quando(p.criado_em);
+  const zap = p.whatsapp && p.mensagem ? 'https://wa.me/' + p.whatsapp + '?text=' + encodeURIComponent(p.mensagem) : (p.whatsapp ? 'https://wa.me/' + p.whatsapp : '');
+  const origem = p.medido ? esc(NOMES_CANAL[p.canal] || p.canal || 'sem canal') + (p.utm && (p.utm.campaign || p.utm.content) ? '<div class="cp-mut">' + esc([p.utm.campaign, p.utm.content].filter(Boolean).join(' · ')) + '</div>' : '') : '<div class="cp-mut">origem não medida</div>';
+  const indic = p.indicado_por ? '<div class="cp-mut">indicado por ' + esc(p.indicado_por) + '</div>' : '';
+  let app = '';
+  if (p.tipo === 'conta') {
+    app = (p.abriu_app ? 'Abriu o app' + (p.aberturas ? ' (' + nf(p.aberturas) + 'x)' : '') : 'Nunca abriu') +
+      '<div class="cp-mut">' + (p.treinos ? nf(p.treinos) + ' treino(s), o último em ' + esc(String(p.ultimo_treino || '').slice(8, 10) + '/' + String(p.ultimo_treino || '').slice(5, 7)) : 'nenhum treino') + '</div>';
+    if (p.teste) app += '<div class="cp-mut">' + (p.teste.expirou ? 'teste acabou há ' + Math.abs(p.teste.dias_restantes) + ' dia(s)' : p.teste.dias_restantes === 0 ? 'teste acaba hoje' : 'teste acaba em ' + p.teste.dias_restantes + ' dia(s)') + '</div>';
+    if (p.matricula) app += '<div class="cp-mut">' + (p.matricula.pago ? 'plano ' + esc(p.matricula.plano || '') + ' pago' : 'plano ' + esc(p.matricula.plano || '') + ' aguardando pagamento') + '</div>';
+  } else app = '<span class="cp-mut">sem conta no app</span>';
+  const nomeHtml = p.tipo === 'conta' && p.id ? '<a href="alunos.html?busca=' + encodeURIComponent(p.nome) + '" title="Abrir no cadastro de clientes">' + esc(p.nome) + '</a>' : esc(p.nome);
+  const contato = (p.telefone ? '<div>' + esc(p.telefone) + '</div>' : '<div class="cp-mut">sem telefone</div>') + (p.email ? '<div class="cp-mut">' + esc(p.email) + '</div>' : '');
+  return '<tr data-chave="' + esc(p.chave) + '">' +
+    '<td data-r="Pessoa"><div class="cp-nome">' + nomeHtml + '</div>' + (p.objetivo ? '<div class="cp-mut">objetivo: ' + esc(p.objetivo) + '</div>' : '') + (p.bloqueado ? '<div class="cp-mut" style="color:#f87171">conta bloqueada</div>' : '') + '</td>' +
+    '<td data-r="Contato">' + contato + '</td>' +
+    '<td data-r="Etapa do funil">' + etapaBadge(p) + '<div class="cp-mut" style="margin-top:4px">' + esc(p.acao) + '</div></td>' +
+    '<td data-r="Como chegou">' + origem + indic + '</td>' +
+    '<td data-r="Cadastro">' + esc(c.t) + '<div class="cp-mut">' + esc(c.h) + '</div></td>' +
+    '<td data-r="No app">' + app + '</td>' +
+    '<td data-r="Contato rápido"><div class="cp-acoes">' +
+      (p.etapa === 'cliente' ? '<span class="cp-mut">já é cliente</span>' : '<a class="cp-btn zap" target="_blank" rel="noopener" href="' + esc(zap) + '"' + (zap ? '' : ' aria-disabled="true"') + '>💬 Chamar no WhatsApp</a><button class="cp-btn" onclick="copiarMensagem(\'' + esc(p.chave) + '\')">Copiar mensagem</button>') +
+    '</div></td></tr>';
+}
+function desenharLista() {
+  const l = filtradas();
+  const tab = document.getElementById('cp-lista');
+  tab.innerHTML = l.length ? '<table class="cp-tab"><thead><tr><th>Pessoa</th><th>Contato</th><th>Etapa do funil</th><th>Como chegou</th><th>Cadastro</th><th>No app</th><th></th></tr></thead><tbody>' + l.map(linhaHtml).join('') + '</tbody></table>'
+    : '<div class="cp-vazio">' + (dados.pessoas.length ? 'Ninguém com esse filtro.' : 'Ninguém captado neste período.') + '</div>';
+  document.getElementById('cp-contagem').textContent = nf(l.length) + ' de ' + nf(dados.pessoas.length) + ' pessoa(s)';
+}
+function desenhar() {
+  const p = dados.periodo, tot = dados.pessoas.length, cli = dados.resumo.cliente;
+  const chips = [['0', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['90', '90 dias']].map(([v, t]) => '<button class="cp-chip' + (periodo === v ? ' on' : '') + '" onclick="setPeriodo(\'' + v + '\')">' + t + '</button>').join('');
+  const estado = { b: (document.getElementById('cp-busca') || {}).value };
+  main.innerHTML =
+    '<div class="cp-topo"><div><h1>Pessoas Captadas</h1><div class="cp-sub">Quem se cadastrou ou deixou contato no teste grátis, e em que ponto do funil está · ' + fmtDiaCompleto(p.de) + ' a ' + fmtDiaCompleto(p.ate) + ' · <a href="trafego.html">← Tráfego e Captação</a></div></div>' +
+    '<div class="cp-chips">' + chips + '<input type="date" class="cp-in" id="cp-de" value="' + p.de + '" onchange="setCustom()"><span style="color:var(--text-muted)">a</span><input type="date" class="cp-in" id="cp-ate" value="' + p.ate + '" onchange="setCustom()"></div></div>' +
+    '<div class="cp-etapas" id="cp-etapas"></div>' +
+    (dados.sem_medicao ? '<div class="cp-aviso"><b>' + nf(dados.sem_medicao) + '</b> destas pessoas não têm a origem medida (cadastro de antes de 19/10/2026 ou feito com o navegador bloqueando a medição). Aparecem aqui mesmo assim, só sem canal e campanha.</div>' : '') +
+    '<div class="cp-barra"><input class="cp-in" id="cp-busca" placeholder="Buscar por nome, telefone ou e-mail" oninput="busca=this.value;desenharLista()" value="' + esc(busca) + '">' +
+    '<select class="cp-sel" onchange="ordem=this.value;desenharLista()"><option value="recentes"' + (ordem === 'recentes' ? ' selected' : '') + '>Mais recentes primeiro</option><option value="prioridade"' + (ordem === 'prioridade' ? ' selected' : '') + '>Quem contatar primeiro</option></select>' +
+    '<button class="cp-btn" onclick="exportarCsv()">Baixar planilha (CSV)</button><span class="cp-mut" id="cp-contagem"></span></div>' +
+    '<div class="cp-card" id="cp-lista"></div>' +
+    '<div class="cp-att" id="cp-att"></div>';
+  desenharEtapas(); desenharLista(); marcarAtualizacao();
+}
+function copiarMensagem(chave) {
+  const p = dados.pessoas.find(x => x.chave === chave); if (!p) return;
+  (navigator.clipboard ? navigator.clipboard.writeText(p.mensagem) : Promise.reject()).then(() => aviso('Mensagem copiada'), () => aviso('Não consegui copiar. Use o botão do WhatsApp.'));
+}
+function aviso(m) { const el = document.createElement('div'); el.textContent = m; el.style.cssText = 'position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:10px 16px;border-radius:10px;z-index:99999;font-size:13px;'; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); }
+function exportarCsv() {
+  const cel = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const linhas = [['Nome', 'Telefone', 'E-mail', 'Etapa', 'Cadastro', 'Canal', 'Campanha', 'Indicado por', 'Treinos'].map(cel).join(';')].concat(filtradas().map(p => [p.nome, p.telefone, p.email, p.etapa_rotulo, p.criado_em, p.canal || '', (p.utm && p.utm.campaign) || '', p.indicado_por || '', p.treinos].map(cel).join(';')));
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' })); a.download = 'pessoas-captadas-' + dados.periodo.de + '-a-' + dados.periodo.ate + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+}
+
+// Atualiza sozinha a cada minuto, sem perder busca, filtro nem ordem.
+const INTERVALO_ATUALIZACAO_MS = 60000;
+let _ultima = 0;
+function marcarAtualizacao() { _ultima = Date.now(); const el = document.getElementById('cp-att'); if (el) el.textContent = 'atualiza sozinho a cada minuto · última às ' + new Date().toLocaleTimeString('pt-BR') + ' · horários de Brasília'; }
+async function atualizarSilencioso() {
+  if (carregando || !dados || document.hidden) return;
+  const ae = document.activeElement; if (ae && ae.id === 'cp-busca') return;
+  const l = limites(); let novo;
+  try { novo = await chamar('action=leads&de=' + l.de + '&ate=' + l.ate); } catch (e) { return; }
+  if (carregando) return;
+  const y = window.scrollY; dados = novo; desenhar(); window.scrollTo(0, y);
+}
+setInterval(atualizarSilencioso, INTERVALO_ATUALIZACAO_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - _ultima >= INTERVALO_ATUALIZACAO_MS) atualizarSilencioso(); });
+main.innerHTML = '<div class="cp-vazio">Carregando...</div>';
+carregar();
+</script>
+</body>
+</html>

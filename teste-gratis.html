@@ -348,12 +348,14 @@ document.getElementById('btn-voltar').addEventListener('click', function () {
 // estiver fora do ar.
 async function registrarApenasLead(nome, whatsappNumeros, email, objetivo, honeypot) {
   try {
-    await fetch('/app/api/leads.php?action=criar', {
+    const r = await fetch('/app/api/leads.php?action=criar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nome, whatsapp: whatsappNumeros, email, objetivo, origem: 'landing-teste-gratis', site: honeypot, ref: REF_INDICACAO }),
     });
-  } catch (e) { /* melhor esforço — não bloqueia o fallback pro WhatsApp */ }
+    const j = await r.json().catch(() => ({}));
+    return j && j.id ? Number(j.id) : null;   // o painel de Tráfego usa o id para mostrar quem é o contato
+  } catch (e) { return null; /* melhor esforço — não bloqueia o fallback pro WhatsApp */ }
 }
 
 function mostrarConfirmacaoLead(nome, objetivo) {
@@ -461,8 +463,8 @@ document.getElementById('form-lead').addEventListener('submit', async function (
     // Conta não pôde ser criada agora (servidor fora do ar, rate limit etc.) —
     // não perde o contato: cai no mesmo fluxo de captura de lead + WhatsApp
     // que já existia, pra equipe seguir manualmente.
-    await registrarApenasLead(nome, whatsappNumeros, email, objetivo, honeypot);
-    trk('lead_enviado', REF_INDICACAO ? 'indicado' : 'direto');
+    const idLead = await registrarApenasLead(nome, whatsappNumeros, email, objetivo, honeypot);
+    trk('lead_enviado', REF_INDICACAO ? 'indicado' : 'direto', idLead);
     mostrarConfirmacaoLead(nome, objetivo);
   }
 });
