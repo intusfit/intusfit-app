@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Extras — Intus</title>
+  <script src="_mock.js?v=20261021a"></script>
+  <script src="api.js?v=20261021b"></script>
+  <style>
+    .ex-topo { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:14px; }
+    .ex-topo h1 { font-size:20px; margin:0; color:var(--text); }
+    .ex-sub { font-size:12.5px; color:var(--text-muted); margin-top:2px; max-width:640px; line-height:1.5; }
+    .ex-aviso { padding:11px 14px; border-radius:10px; border:1px solid rgba(251,191,36,.4); background:rgba(251,191,36,.08); color:var(--text); font-size:12.5px; line-height:1.5; margin-bottom:12px; }
+    .ex-mod { background:var(--bg2); border:1px solid var(--border); border-radius:14px; margin-bottom:12px; overflow:hidden; }
+    .ex-mod-cab { display:flex; align-items:center; gap:12px; padding:12px 14px; flex-wrap:wrap; }
+    .ex-capa { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; background-size:cover; background-position:center; }
+    .ex-tit { flex:1; min-width:180px; }
+    .ex-tit b { font-size:15px; color:var(--text); display:block; }
+    .ex-tit span { font-size:12px; color:var(--text-muted); }
+    .ex-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:5px; }
+    .ex-chip { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:800; border:1px solid var(--border); color:var(--text-muted); }
+    .ex-chip.on { color:#22c55e; border-color:rgba(34,197,94,.5); background:rgba(34,197,94,.1); }
+    .ex-chip.rasc { color:#f59e0b; border-color:rgba(245,158,11,.5); background:rgba(245,158,11,.1); }
+    .ex-chip.vis { color:#38bdf8; border-color:rgba(56,189,248,.45); background:rgba(56,189,248,.08); }
+    .ex-acoes { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    .ex-btn { padding:7px 12px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--text); font-weight:700; font-size:12.5px; cursor:pointer; font-family:inherit; }
+    .ex-btn:hover { border-color:var(--green); }
+    .ex-btn.mini { padding:5px 9px; }
+    .ex-btn.prim { background:var(--green); border-color:var(--green); color:#000; }
+    body.theme-light .ex-btn.prim { color:#fff; }
+    .ex-btn.perigo { color:#f87171; }
+    .ex-btn[disabled] { opacity:.35; cursor:default; }
+    .ex-itens { border-top:1px solid var(--border); padding:6px 14px 12px; }
+    .ex-item { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .ex-item:last-of-type { border-bottom:none; }
+    .ex-ico { width:30px; text-align:center; font-size:18px; flex-shrink:0; }
+    .ex-vazio { padding:18px 6px; color:var(--text-muted); font-size:12.5px; text-align:center; }
+    .ex-modal .input, .ex-modal select, .ex-modal textarea { width:100%; box-sizing:border-box; }
+    .ex-modal textarea { min-height:80px; padding:9px 11px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:inherit; font-size:13px; }
+    .ex-linha2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .ex-ajuda { font-size:11.5px; color:var(--text-muted); line-height:1.45; margin-top:5px; }
+    .ex-pick { border:1px solid var(--border); border-radius:10px; padding:8px; margin-top:8px; background:var(--bg); }
+    .ex-pick-lista { max-height:210px; overflow:auto; margin-top:6px; }
+    .ex-pick-lista label { display:flex; align-items:center; gap:8px; padding:5px 4px; font-size:13px; cursor:pointer; color:var(--text); }
+    @media (max-width:640px) { .ex-linha2 { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Extras');
+const main = document.getElementById('main-content');
+if (!(Sessao.atual() && Sessao.atual().admin)) {
+  main.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted);"><div style="font-size:40px;margin-bottom:8px;">🔒</div><div style="font-size:15px;font-weight:700;color:var(--text);">Esta área é só do administrador.</div></div>';
+  throw new Error('sem permissao');
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const MODOS = { todos: 'Todos os alunos', ativos: 'Só alunos ativos', nutricao: 'Alunos de nutrição ou combo', treino: 'Alunos de treino ou combo', selecionados: 'Alunos escolhidos' };
+const TIPOS = { video: ['🎬', 'Vídeo / aula gravada'], live: ['🔴', 'Live'], material: ['📄', 'Material (PDF, planilha)'], link: ['🔗', 'Link'] };
+let dados = null, alunos = null, abertos = {}, carregando = false, selecionados = new Set();
+
+async function chamar(action, corpo) {
+  const tk = (typeof Auth !== 'undefined' && Auth.getToken) ? (Auth.getToken() || '') : (localStorage.getItem('mx-token') || '');
+  const op = { headers: { 'Authorization': 'Bearer ' + tk }, cache: 'no-store' };
+  if (corpo !== undefined) { op.method = 'POST'; op.headers['Content-Type'] = 'application/json'; op.body = JSON.stringify(corpo); }
+  const r = await fetch(API_BASE + '/extras.php?action=' + action, op);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.ok === false) throw new Error(j.error || ('erro ' + r.status));
+  return j;
+}
+async function carregar() {
+  if (carregando) return; carregando = true;
+  try { dados = await chamar('admin'); desenhar(); }
+  catch (e) { main.innerHTML = '<div class="ex-aviso">Não consegui carregar agora: ' + esc(e.message) + ' <button class="ex-btn" onclick="carregar()">Tentar de novo</button></div>'; }
+  finally { carregando = false; }
+}
+async function carregarAlunos() {
+  if (alunos) return alunos;
+  try {
+    const l = await API.listarAtletas('');
+    alunos = (Array.isArray(l) ? l : []).filter(a => a && a.nome && !/@intusfit\.local$/i.test(String(a.email || '')) && a.stbloqueio !== 'S')
+      .map(a => ({ id: Number(a.idatleta), nome: String(a.nome) })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  } catch (e) { alunos = []; }
+  return alunos;
+}
+
+function visRotulo(v, herda) {
+  if (!v) return herda ? 'igual ao módulo' : MODOS.ativos;
+  const base = MODOS[v.modo] || v.modo;
+  if (v.modo === 'selecionados') return base + ' (' + (v.ids || []).length + ')';
+  const n = dados && dados.alcance ? dados.alcance[v.modo] : null;
+  return base + (n != null ? ' (≈ ' + n + ')' : '');
+}
+
+function desenhar() {
+  const mods = dados.categorias;
+  let h = '<div class="ex-topo"><div><h1>🎁 Extras</h1><div class="ex-sub">Aulas gravadas, lives, treinos para fazer em casa e outros bônus que aparecem no app do aluno, no modelo do CDD: módulos com conteúdos dentro. Você decide quem vê cada um, a ordem e o que está publicado.</div></div>' +
+    '<div class="ex-acoes"><button class="ex-btn prim" onclick="editarModulo()">+ Novo módulo</button></div></div>';
+  if (!dados.salvo) h += '<div class="ex-aviso">Estes são os módulos sugeridos de fábrica: estão <b>vazios e escondidos</b> do aluno. Abra um módulo, inclua os conteúdos (link do YouTube, por exemplo), escolha quem vê e marque <b>Publicado</b>. Nada aparece no app até você publicar.</div>';
+  h += mods.length ? mods.map((m, i) => modHtml(m, i, mods.length)).join('') : '<div class="ex-vazio">Nenhum módulo ainda. Clique em "+ Novo módulo".</div>';
+  main.innerHTML = h;
+}
+
+function modHtml(m, i, total) {
+  const aberto = !!abertos[m.id], itens = m.itens || [];
+  const pub = itens.filter(x => x.publicado).length;
+  const capa = m.capa ? 'background-image:url(' + esc(m.capa) + ');' : 'background:' + esc(m.cor || '#0ea5e9') + ';';
+  return '<div class="ex-mod" data-mod="' + esc(m.id) + '"><div class="ex-mod-cab">' +
+    '<div class="ex-capa" style="' + capa + '">' + (m.capa ? '' : esc(m.emoji || '🎁')) + '</div>' +
+    '<div class="ex-tit"><b>' + esc(m.titulo) + '</b><span>' + itens.length + ' conteúdo' + (itens.length === 1 ? '' : 's') + ' (' + pub + ' publicado' + (pub === 1 ? '' : 's') + ')</span>' +
+      '<div class="ex-chips"><span class="ex-chip ' + (m.publicado ? 'on' : 'rasc') + '">' + (m.publicado ? 'Publicado' : 'Rascunho: o aluno não vê') + '</span><span class="ex-chip vis">' + esc(visRotulo(m.visibilidade)) + '</span></div></div>' +
+    '<div class="ex-acoes"><button class="ex-btn mini" title="Subir" ' + (i === 0 ? 'disabled' : '') + ' onclick="mover(\'categoria\',\'\',' + i + ',-1)">▲</button>' +
+    '<button class="ex-btn mini" title="Descer" ' + (i === total - 1 ? 'disabled' : '') + ' onclick="mover(\'categoria\',\'\',' + i + ',1)">▼</button>' +
+    '<button class="ex-btn" onclick="alternar(\'' + esc(m.id) + '\')">Conteúdos ' + (aberto ? '▴' : '▾') + '</button>' +
+    '<button class="ex-btn" onclick="editarModulo(\'' + esc(m.id) + '\')">Editar</button>' +
+    '<button class="ex-btn perigo" onclick="excluirModulo(\'' + esc(m.id) + '\')">Excluir</button></div></div>' +
+    (aberto ? '<div class="ex-itens">' + (itens.length ? itens.map((it, k) => itemHtml(m, it, k, itens.length)).join('') : '<div class="ex-vazio">Nenhum conteúdo neste módulo ainda.</div>') +
+      '<div style="margin-top:8px;"><button class="ex-btn prim" onclick="editarItem(\'' + esc(m.id) + '\')">+ Novo conteúdo</button></div></div>' : '') + '</div>';
+}
+function itemHtml(m, it, k, n) {
+  const t = TIPOS[it.tipo] || TIPOS.video;
+  const quando = it.tipo === 'live' && it.data ? ' · ' + esc(it.data.slice(8, 10) + '/' + it.data.slice(5, 7) + ' ' + it.data.slice(11, 16)) : '';
+  return '<div class="ex-item" data-item="' + esc(it.id) + '"><div class="ex-ico">' + t[0] + '</div>' +
+    '<div class="ex-tit"><b style="font-size:13.5px;">' + esc(it.titulo) + '</b><span>' + esc(t[1]) + (it.duracao ? ' · ' + esc(it.duracao) : '') + quando + (it.url ? '' : ' · <span style="color:#f59e0b;font-weight:800;">sem link</span>') + '</span>' +
+      '<div class="ex-chips"><span class="ex-chip ' + (it.publicado ? 'on' : 'rasc') + '">' + (it.publicado ? 'Publicado' : 'Rascunho') + '</span>' + (it.visibilidade ? '<span class="ex-chip vis">' + esc(visRotulo(it.visibilidade, true)) + '</span>' : '') + '</div></div>' +
+    '<div class="ex-acoes"><button class="ex-btn mini" ' + (k === 0 ? 'disabled' : '') + ' onclick="mover(\'item\',\'' + esc(m.id) + '\',' + k + ',-1)">▲</button>' +
+    '<button class="ex-btn mini" ' + (k === n - 1 ? 'disabled' : '') + ' onclick="mover(\'item\',\'' + esc(m.id) + '\',' + k + ',1)">▼</button>' +
+    '<button class="ex-btn" onclick="editarItem(\'' + esc(m.id) + '\',\'' + esc(it.id) + '\')">Editar</button>' +
+    '<button class="ex-btn perigo" onclick="excluirItem(\'' + esc(m.id) + '\',\'' + esc(it.id) + '\')">Excluir</button></div></div>';
+}
+function alternar(id) { abertos[id] = !abertos[id]; desenhar(); }
+
+async function mover(tipo, catId, i, d) {
+  const lista = tipo === 'categoria' ? dados.categorias : (dados.categorias.find(c => c.id === catId) || {}).itens;
+  if (!lista || i + d < 0 || i + d >= lista.length) return;
+  [lista[i], lista[i + d]] = [lista[i + d], lista[i]];
+  desenhar();
+  try { await chamar('reordenar', { tipo: tipo, categoria: catId, ids: lista.map(x => x.id) }); }
+  catch (e) { showToast('Não consegui salvar a ordem: ' + e.message, 'error'); carregar(); }
+}
+
+// ── seletor de alunos (visibilidade "Alunos escolhidos") ──
+function seletorHtml(prefixo) {
+  return '<div id="' + prefixo + '-sel" class="ex-pick" style="display:none;"><input id="' + prefixo + '-busca" class="input" placeholder="Buscar aluno pelo nome" oninput="filtrarAlunos(\'' + prefixo + '\')"/>' +
+    '<div id="' + prefixo + '-cont" class="ex-ajuda" style="margin-top:6px;"></div><div id="' + prefixo + '-lista" class="ex-pick-lista"></div></div>';
+}
+async function mostrarSeletor(prefixo) {
+  const modo = document.getElementById(prefixo + '-modo').value, caixa = document.getElementById(prefixo + '-sel');
+  caixa.style.display = modo === 'selecionados' ? 'block' : 'none';
+  if (modo !== 'selecionados') return;
+  const lista = await carregarAlunos();
+  const el = document.getElementById(prefixo + '-lista'); if (!el) return;
+  el.innerHTML = lista.length ? lista.map(a => '<label data-nome="' + esc(a.nome.toLowerCase()) + '"><input type="checkbox" value="' + a.id + '" ' + (selecionados.has(a.id) ? 'checked' : '') + ' onchange="marcarAluno(\'' + prefixo + '\',this)"/> ' + esc(a.nome) + '</label>').join('') : '<div class="ex-ajuda">Não consegui carregar a lista de alunos.</div>';
+  contarSel(prefixo);
+}
+function marcarAluno(prefixo, cb) { const id = Number(cb.value); if (cb.checked) selecionados.add(id); else selecionados.delete(id); contarSel(prefixo); }
+function contarSel(prefixo) { const e = document.getElementById(prefixo + '-cont'); if (e) e.textContent = selecionados.size ? selecionados.size + ' aluno' + (selecionados.size > 1 ? 's' : '') + ' com acesso' : 'Nenhum aluno escolhido: ninguém vai ver até você marcar alguém.'; }
+function filtrarAlunos(prefixo) {
+  const q = (document.getElementById(prefixo + '-busca').value || '').toLowerCase().trim();
+  document.querySelectorAll('#' + prefixo + '-lista label').forEach(l => { l.style.display = !q || l.dataset.nome.indexOf(q) >= 0 ? '' : 'none'; });
+}
+function modoOpcoes(atual, herdar) {
+  return (herdar ? '<option value="herdar"' + (!atual ? ' selected' : '') + '>Igual ao módulo</option>' : '') +
+    Object.keys(MODOS).map(k => '<option value="' + k + '"' + (atual && atual.modo === k ? ' selected' : '') + '>' + MODOS[k] + (dados.alcance && dados.alcance[k] != null ? ' (≈ ' + dados.alcance[k] + ' hoje)' : '') + '</option>').join('');
+}
+function lerVisibilidade(prefixo, herdar) {
+  const modo = document.getElementById(prefixo + '-modo').value;
+  if (herdar && modo === 'herdar') return null;
+  return { modo: modo, ids: modo === 'selecionados' ? Array.from(selecionados) : [] };
+}
+
+// ── módulo ──
+function editarModulo(id) {
+  const m = id ? dados.categorias.find(c => c.id === id) : null;
+  selecionados = new Set(m && m.visibilidade && m.visibilidade.modo === 'selecionados' ? (m.visibilidade.ids || []).map(Number) : []);
+  openModal(`
+    <div class="modal-header"><span class="modal-title">${m ? 'Editar módulo' : 'Novo módulo'}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body ex-modal">
+      <div class="form-group"><label class="label">Nome do módulo</label><input id="em-titulo" class="input" maxlength="100" value="${esc(m ? m.titulo : '')}" placeholder="Ex.: Cintura de Atleta"/></div>
+      <div class="form-group"><label class="label">Descrição (aparece para o aluno)</label><textarea id="em-desc" maxlength="400">${esc(m ? m.descricao : '')}</textarea></div>
+      <div class="ex-linha2">
+        <div class="form-group"><label class="label">Emoji da capa</label><input id="em-emoji" class="input" maxlength="8" value="${esc(m ? m.emoji : '🎁')}"/></div>
+        <div class="form-group"><label class="label">Cor da capa</label><input id="em-cor" class="input" type="color" value="${esc(m ? m.cor : '#0ea5e9')}" style="height:38px;padding:3px;"/></div>
+      </div>
+      <div class="form-group"><label class="label">Imagem da capa (opcional, link https://)</label><input id="em-capa" class="input" value="${esc(m ? m.capa : '')}" placeholder="https://..."/><div class="ex-ajuda">Sem imagem, a capa usa o emoji e a cor.</div></div>
+      <div class="form-group"><label class="label">Quem vê este módulo</label><select id="em-modo" class="input" onchange="mostrarSeletor('em')">${modoOpcoes(m ? m.visibilidade : { modo: 'ativos' }, false)}</select>
+        <div class="ex-ajuda">Cada conteúdo pode ter uma regra própria; se não tiver, vale a do módulo. O aluno só vê o módulo se houver pelo menos um conteúdo publicado que ele possa ver.</div>${seletorHtml('em')}</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="em-pub" ${m && m.publicado ? 'checked' : ''}/> Publicado (o aluno só vê módulos publicados)</label>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-success" onclick="salvarModulo('${m ? esc(m.id) : ''}')">Salvar</button></div>`);
+  mostrarSeletor('em');
+}
+async function salvarModulo(id) {
+  const vis = lerVisibilidade('em', false);
+  if (vis.modo === 'selecionados' && !vis.ids.length && !confirm('Nenhum aluno foi escolhido: ninguém vai ver este módulo até você marcar alguém. Salvar assim mesmo?')) return;
+  const cat = { id: id || undefined, titulo: document.getElementById('em-titulo').value, descricao: document.getElementById('em-desc').value, emoji: document.getElementById('em-emoji').value,
+    cor: document.getElementById('em-cor').value, capa: document.getElementById('em-capa').value, publicado: document.getElementById('em-pub').checked, visibilidade: vis };
+  try { await chamar('categoria_salvar', { categoria: cat }); closeModal(); showToast('Módulo salvo.'); await carregar(); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+async function excluirModulo(id) {
+  const m = dados.categorias.find(c => c.id === id); if (!m) return;
+  const n = (m.itens || []).length;
+  if (!confirm('Excluir o módulo "' + m.titulo + '"?' + (n ? '\n\nOs ' + n + ' conteúdo(s) dentro dele também serão excluídos.' : ''))) return;
+  if (n && !confirm('Tem certeza? Os conteúdos deste módulo deixam de aparecer para os alunos e não dá para desfazer.')) return;
+  try { await chamar('categoria_excluir', { id: id }); showToast('Módulo excluído.'); await carregar(); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+
+// ── conteúdo ──
+function editarItem(catId, id) {
+  const cat = dados.categorias.find(c => c.id === catId); if (!cat) return;
+  const it = id ? (cat.itens || []).find(x => x.id === id) : null;
+  selecionados = new Set(it && it.visibilidade && it.visibilidade.modo === 'selecionados' ? (it.visibilidade.ids || []).map(Number) : []);
+  const tipo = it ? it.tipo : 'video';
+  openModal(`
+    <div class="modal-header"><span class="modal-title">${it ? 'Editar conteúdo' : 'Novo conteúdo'} · ${esc(cat.titulo)}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body ex-modal">
+      <div class="form-group"><label class="label">Título</label><input id="ei-titulo" class="input" maxlength="140" value="${esc(it ? it.titulo : '')}" placeholder="Ex.: Aula 1: aquecimento"/></div>
+      <div class="ex-linha2">
+        <div class="form-group"><label class="label">Tipo</label><select id="ei-tipo" class="input" onchange="tipoItemMudou()">${Object.keys(TIPOS).map(k => '<option value="' + k + '"' + (tipo === k ? ' selected' : '') + '>' + TIPOS[k][0] + ' ' + TIPOS[k][1] + '</option>').join('')}</select></div>
+        <div class="form-group"><label class="label">Duração (opcional)</label><input id="ei-dur" class="input" maxlength="20" value="${esc(it ? it.duracao : '')}" placeholder="Ex.: 18 min"/></div>
+      </div>
+      <div class="form-group"><label class="label">Link (https://)</label><input id="ei-url" class="input" value="${esc(it ? it.url : '')}" placeholder="https://youtu.be/..."/><div class="ex-ajuda">YouTube abre no player dentro do app. Outros links (Drive, PDF, site) abrem fora do app. Deixe vazio enquanto não tiver o link: o conteúdo fica sem link.</div></div>
+      <div class="form-group" id="ei-data-box" style="display:${tipo === 'live' ? 'block' : 'none'};"><label class="label">Data e hora da live (opcional)</label><input id="ei-data" class="input" type="datetime-local" value="${esc(it ? it.data : '')}"/></div>
+      <div class="form-group"><label class="label">Descrição (opcional)</label><textarea id="ei-desc" maxlength="1200">${esc(it ? it.descricao : '')}</textarea></div>
+      <div class="form-group"><label class="label">Quem vê este conteúdo</label><select id="ei-modo" class="input" onchange="mostrarSeletor('ei')">${modoOpcoes(it ? it.visibilidade : null, true)}</select>${seletorHtml('ei')}</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ei-pub" ${it && it.publicado ? 'checked' : ''}/> Publicado</label>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-success" onclick="salvarItem('${esc(catId)}','${it ? esc(it.id) : ''}')">Salvar</button></div>`);
+  mostrarSeletor('ei');
+}
+function tipoItemMudou() { document.getElementById('ei-data-box').style.display = document.getElementById('ei-tipo').value === 'live' ? 'block' : 'none'; }
+async function salvarItem(catId, id) {
+  const vis = lerVisibilidade('ei', true);
+  if (vis && vis.modo === 'selecionados' && !vis.ids.length && !confirm('Nenhum aluno foi escolhido: ninguém vai ver este conteúdo até você marcar alguém. Salvar assim mesmo?')) return;
+  const item = { id: id || undefined, titulo: document.getElementById('ei-titulo').value, tipo: document.getElementById('ei-tipo').value, duracao: document.getElementById('ei-dur').value,
+    url: document.getElementById('ei-url').value, data: document.getElementById('ei-tipo').value === 'live' ? document.getElementById('ei-data').value : '', descricao: document.getElementById('ei-desc').value,
+    publicado: document.getElementById('ei-pub').checked, visibilidade: vis };
+  try { await chamar('item_salvar', { categoria: catId, item: item }); closeModal(); abertos[catId] = true; showToast('Conteúdo salvo.'); await carregar(); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+async function excluirItem(catId, id) {
+  const cat = dados.categorias.find(c => c.id === catId), it = cat && (cat.itens || []).find(x => x.id === id); if (!it) return;
+  if (!confirm('Excluir o conteúdo "' + it.titulo + '"? Ele deixa de aparecer para os alunos e não dá para desfazer.')) return;
+  try { await chamar('item_excluir', { categoria: catId, id: id }); showToast('Conteúdo excluído.'); await carregar(); }
+  catch (e) { showToast(e.message, 'error'); }
+}
+
+carregar();
+</script>
+</body>
+</html>

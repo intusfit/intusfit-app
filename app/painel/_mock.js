@@ -658,6 +658,7 @@ function renderLayout(activePage) {
     { href: 'mensagens.html',    icon: ICONS.chat,     label: 'Central do Aluno', show: true },
     { href: 'feed.html',         icon: ICONS.camera,   label: 'Feed',         show: true },
     { href: 'resultados.html',   icon: ICONS.crown,    label: 'Quadro de Resultados', show: true },
+    { href: 'extras.html',       icon: ICONS.video,    label: 'Extras',       show: !!user.admin },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },
     { href: 'configuracoes.html',icon: ICONS.gear,     label: 'Configurações',show: !!user.admin },

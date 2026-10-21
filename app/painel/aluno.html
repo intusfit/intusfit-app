@@ -1159,6 +1159,7 @@
     <div class="menu-item" id="menu-amigos" style="display:none;" onclick="navegar('amigos');fecharMenuDireto()"><span class="mi-icon">🤝</span> Comunidade <span id="menu-amigos-badge" style="display:none;background:#f87171;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;margin-left:6px;font-weight:700;"></span></div>
     <div class="menu-item" onclick="navegar('desafios');fecharMenuDireto()"><span class="mi-icon">🏆</span> Desafios</div>
     <div class="menu-item" onclick="navegar('nutricao');fecharMenuDireto()"><span class="mi-icon">🥗</span> Nutrição</div>
+    <div class="menu-item" id="menu-extras" style="display:none;" onclick="navegar('extras');fecharMenuDireto()"><span class="mi-icon">🎁</span> Extras <span id="menu-extras-badge" style="display:none;background:#7FFF00;color:#0f1a00;font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:99px;margin-left:6px;">NOVO</span></div>
     <div class="menu-item" onclick="navegar('avaliacoes');fecharMenuDireto()"><span class="mi-icon">📈</span> Avaliações</div>
     <div class="menu-item" onclick="navegar('mensagens');fecharMenuDireto()"><span class="mi-icon">💬</span> Central <span id="menu-msg-badge" style="display:none;background:#f87171;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;margin-left:6px;font-weight:700;"></span></div>
     <div class="menu-item" onclick="navegar('perfil');fecharMenuDireto()"><span class="mi-icon">👤</span> Meu Perfil & Conquistas</div>
@@ -1219,6 +1220,7 @@
   <section class="view" id="v-feed"></section>
   <section class="view" id="v-resultados"></section>
   <section class="view" id="v-amigos"></section>
+  <section class="view" id="v-extras"></section>
   <section class="view" id="v-ajuda"></section>
 </div>
 
@@ -6082,6 +6084,7 @@ function navegar(dest) {
   else if (dest === 'feed') { renderFeedCompleto(); trocarView('feed'); }
   else if (dest === 'resultados') { renderResultados(); trocarView('resultados'); }
   else if (dest === 'amigos') { renderAmigos(); trocarView('amigos'); }
+  else if (dest === 'extras') { _extras.mod = null; renderExtras(); trocarView('extras'); }
   else if (dest === 'quemsomos') { renderQuemSomos(); trocarView('quemsomos'); }
   else if (dest === 'anamnese') { abrirAnamnese(); }
 }
@@ -6193,6 +6196,7 @@ var _RENDER_POR_VIEW = {
   // Programas de cardio: execução (se estiver rodando), detalhe ou lista
   'cardio-prog': function () { if (_prog.tela === 'resultado') return; if (_prog.rodando) _renderProgExecucao(); else if (_prog.tela === 'detalhe') _renderProgDetalhe(); else _renderProgLista(); },
 };
+_RENDER_POR_VIEW.extras = function () { if (typeof renderExtras === 'function') renderExtras(); };
 _RENDER_POR_VIEW.mensagens = function () { if (typeof renderCentral === 'function') renderCentral(); else renderMensagensAluno(); };   // mantém a aba e a conversa abertas, sem recarregar
 
 // Cada tela guarda com qual tema foi desenhada (data-tema). Trocar o tema redesenha só a tela aberta; as outras ficam para trás e,
@@ -7918,6 +7922,8 @@ function renderHome() {
 
     <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;">${_homeMaisHtml()}
     </div>
+
+    ${_extrasHomeHtml()}
 
     ${renderFeedHomePreview()}
 
@@ -21762,6 +21768,112 @@ function iniciarNotificacoes() {
     _notifListenerVis = true;
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _notifBuscarContagem(); });
   }
+}
+
+// ═══════════════ EXTRAS (conteúdos bônus) ═══════════════
+// Aulas gravadas, lives, treinos para fazer em casa e outros módulos, no modelo do CDD (módulos com conteúdos dentro). O administrador decide quem vê o quê
+// (painel Extras); QUEM PODE VER é decidido no servidor (extras.php?action=lista só devolve o que este aluno pode ver). Aqui só se desenha e se guarda uma cópia
+// para funcionar sem internet. Sem nada visível, o cartão da Home, o item do menu e a tela não aparecem.
+var _extras = { lista: null, ts: 0, carregando: null, mod: null, vistoAntes: '' };
+const _EXTRAS_TIPOS = { video: ['▶️', 'Vídeo'], live: ['🔴', 'Live'], material: ['📄', 'Material'], link: ['🔗', 'Link'] };
+function _extrasChave(p) { return 'intus-extras-' + p + '-' + idAtleta; }
+function _extrasCacheLer() { try { const c = JSON.parse(localStorage.getItem(_extrasChave('lista')) || 'null'); return Array.isArray(c) ? c : null; } catch (e) { return null; } }
+function _extrasUltimo() { let m = ''; (_extras.lista || []).forEach(c => (c.itens || []).forEach(i => { if ((i.criado_em || '') > m) m = i.criado_em; })); return m; }
+function _extrasTemNovo() { const v = localStorage.getItem(_extrasChave('visto')) || ''; return !!_extrasUltimo() && _extrasUltimo() > v; }
+function _extrasNovoEm(c) { const v = _extras.vistoAntes; return (c.itens || []).some(i => (i.criado_em || '') > v); }
+function _extrasMarcarVisto() { try { localStorage.setItem(_extrasChave('visto'), _extrasUltimo()); } catch (e) {} }
+function _extrasTotal() { return (_extras.lista || []).reduce((s, c) => s + (c.itens || []).length, 0); }
+async function _extrasCarregar(forcar) {
+  if (!idAtleta) return [];
+  if (_extras.carregando) return _extras.carregando;
+  if (!forcar && _extras.lista && Date.now() - _extras.ts < 120000) return _extras.lista;
+  _extras.carregando = (async () => {
+    try {
+      const r = await _fetchT(API_BASE + '/extras.php?action=lista', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' }, 15000);
+      if (!r.ok) throw new Error('http ' + r.status);
+      const j = await r.json();
+      if (!j || !Array.isArray(j.categorias)) throw new Error('resposta');
+      _extras.lista = j.categorias; _extras.ts = Date.now();
+      try { localStorage.setItem(_extrasChave('lista'), JSON.stringify(j.categorias)); } catch (e) {}
+    } catch (e) { if (!_extras.lista) _extras.lista = _extrasCacheLer() || []; }   // sem internet: usa a cópia guardada
+    _extras.carregando = null;
+    _extrasAtualizarEntradas();
+    return _extras.lista;
+  })();
+  return _extras.carregando;
+}
+// Home e menu: só aparecem quando existe algo visível para este aluno.
+function _extrasHomeInner() {
+  if (!_extras.lista || !_extras.lista.length) return '';
+  const isLight = document.body.classList.contains('tema-claro'), n = _extrasTotal(), novo = _extrasTemNovo();
+  return '<div onclick="navegar(\'extras\')" role="button" style="display:flex;align-items:center;gap:12px;padding:13px 14px;margin:0 0 10px;border-radius:14px;cursor:pointer;border:1px solid ' + (isLight ? 'rgba(92,184,0,.4)' : 'rgba(127,255,0,.28)') + ';background:' + (isLight ? 'rgba(92,184,0,.07)' : 'rgba(127,255,0,.05)') + ';">' +
+    '<div style="font-size:26px;line-height:1;">🎁</div>' +
+    '<div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:900;color:var(--texto);">Extras' + (novo ? ' <span style="background:#7FFF00;color:#0f1a00;font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:99px;vertical-align:middle;">NOVO</span>' : '') + '</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' + n + ' conteúdo' + (n > 1 ? 's' : '') + ' em ' + _extras.lista.length + ' módulo' + (_extras.lista.length > 1 ? 's' : '') + ': aulas, lives e bônus</div></div>' +
+    '<div style="font-size:20px;color:var(--muted);">›</div></div>';
+}
+function _extrasHomeHtml() {
+  if (idAtleta) setTimeout(() => { _extrasCarregar(); }, 0);
+  return '<div id="h-extras">' + _extrasHomeInner() + '</div>';
+}
+function _extrasAtualizarEntradas() {
+  const tem = !!(_extras.lista && _extras.lista.length);
+  const mi = document.getElementById('menu-extras'); if (mi) mi.style.display = tem ? '' : 'none';
+  const b = document.getElementById('menu-extras-badge'); if (b) b.style.display = tem && _extrasTemNovo() ? 'inline-block' : 'none';
+  const h = document.getElementById('h-extras'); if (h) h.innerHTML = _extrasHomeInner();
+}
+function renderExtras() {
+  const box = document.getElementById('v-extras'); if (!box) return;
+  if (!_extras.lista) { box.innerHTML = telaHeader('🎁 Extras') + '<div style="padding:40px 16px;text-align:center;color:var(--muted);">Carregando...</div>'; _extrasCarregar().then(() => { if (window._viewAtual === 'extras') renderExtras(); }); return; }
+  const isLight = document.body.classList.contains('tema-claro');
+  const mod = _extras.mod ? _extras.lista.find(c => c.id === _extras.mod) : null;
+  if (!mod && !_extras.mod) { _extras.vistoAntes = localStorage.getItem(_extrasChave('visto')) || ''; }
+  const card = isLight ? '#fff' : '#161616', borda = isLight ? '#e5e5e5' : '#262626';
+  if (!_extras.lista.length) {
+    box.innerHTML = telaHeader('🎁 Extras') + '<div style="padding:46px 20px;text-align:center;color:var(--muted);"><div style="font-size:44px;margin-bottom:8px;">🎁</div><div style="font-size:14px;font-weight:800;color:var(--texto);">Nenhum extra disponível para você agora</div><div style="font-size:12.5px;margin-top:6px;line-height:1.5;">Quando a equipe liberar aulas, lives e bônus para o seu plano, eles aparecem aqui.</div></div>';
+    return;
+  }
+  if (mod) {
+    box.innerHTML = telaHeader(esc(mod.emoji + ' ' + mod.titulo)) +
+      '<div style="padding:4px 0 18px;"><button type="button" onclick="extrasModulo(null)" style="background:none;border:none;color:var(--muted);font-size:12.5px;font-weight:800;cursor:pointer;padding:6px 0;font-family:inherit;">‹ Todos os módulos</button>' +
+      (mod.descricao ? '<div style="font-size:13px;color:var(--muted);line-height:1.5;margin:2px 0 12px;">' + esc(mod.descricao) + '</div>' : '') +
+      mod.itens.map(it => _extrasItemHtml(mod, it, card, borda, isLight)).join('') + '</div>';
+    _extrasMarcarVisto(); _extrasAtualizarEntradas();
+    return;
+  }
+  box.innerHTML = telaHeader('🎁 Extras') +
+    '<div style="font-size:12.5px;color:var(--muted);line-height:1.5;padding:2px 0 12px;">Aulas, lives e bônus liberados para você.</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding-bottom:18px;">' +
+    _extras.lista.map(c => {
+      const fundo = c.capa ? 'background:#000 url(' + esc(c.capa) + ') center/cover;' : 'background:linear-gradient(135deg,' + esc(c.cor || '#0ea5e9') + ',' + esc(c.cor || '#0ea5e9') + '99);';
+      return '<div onclick="extrasModulo(\'' + esc(c.id) + '\')" role="button" style="background:' + card + ';border:1px solid ' + borda + ';border-radius:14px;overflow:hidden;cursor:pointer;">' +
+        '<div style="position:relative;aspect-ratio:4/3;' + fundo + 'display:flex;align-items:center;justify-content:center;">' + (c.capa ? '' : '<span style="font-size:44px;">' + esc(c.emoji || '🎁') + '</span>') +
+        (_extrasNovoEm(c) ? '<span style="position:absolute;left:8px;top:8px;background:#7FFF00;color:#0f1a00;font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:99px;">NOVO</span>' : '') + '</div>' +
+        '<div style="padding:9px 11px 11px;"><div style="font-size:13px;font-weight:900;line-height:1.25;color:var(--texto);">' + esc(c.titulo) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:3px;">' + c.itens.length + ' conteúdo' + (c.itens.length > 1 ? 's' : '') + '</div></div></div>';
+    }).join('') + '</div>';
+}
+function _extrasItemHtml(mod, it, card, borda, isLight) {
+  const t = _EXTRAS_TIPOS[it.tipo] || _EXTRAS_TIPOS.video;
+  let quando = '';
+  if (it.tipo === 'live' && it.data) {
+    const d = new Date(it.data), passou = !isNaN(d) && d.getTime() < Date.now();
+    quando = isNaN(d) ? '' : (passou ? 'Gravação da live de ' : 'Ao vivo em ') + d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+  const yt = _nutriYtId(it.url), capa = yt ? 'https://img.youtube.com/vi/' + yt + '/mqdefault.jpg' : '';
+  return '<div onclick="extrasAbrirItem(\'' + esc(mod.id) + '\',\'' + esc(it.id) + '\')" role="button" style="display:flex;gap:12px;align-items:center;background:' + card + ';border:1px solid ' + borda + ';border-radius:14px;padding:10px;margin-bottom:10px;cursor:pointer;">' +
+    '<div style="width:96px;aspect-ratio:16/9;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:24px;background:' + (isLight ? '#eef0f3' : '#222') + ' ' + (capa ? 'url(' + capa + ') center/cover' : '') + ';">' + (capa ? '' : t[0]) + '</div>' +
+    '<div style="flex:1;min-width:0;"><div style="font-size:13.5px;font-weight:900;line-height:1.3;color:var(--texto);">' + esc(it.titulo) + '</div>' +
+    '<div style="font-size:11.5px;color:var(--muted);margin-top:3px;">' + t[0] + ' ' + t[1] + (it.duracao ? ' · ' + esc(it.duracao) : '') + (quando ? ' · ' + esc(quando) : '') + '</div>' +
+    (it.descricao ? '<div style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + esc(it.descricao) + '</div>' : '') + '</div>' +
+    '<div style="font-size:20px;color:var(--muted);">›</div></div>';
+}
+function extrasModulo(id) { _extras.mod = id; renderExtras(); window.scrollTo(0, 0); }
+function extrasAbrirItem(modId, itemId) {
+  const mod = (_extras.lista || []).find(c => c.id === modId), it = mod && mod.itens.find(i => i.id === itemId);
+  if (!it) return;
+  if (!it.url) { toast('Este conteúdo ainda não tem link. Volte em breve.'); return; }
+  if (_nutriYtId(it.url)) abrirVideoModal(it.url); else window.open(it.url, '_blank', 'noopener');
 }
 
 // ═══════════════ MENÇÕES (@) ═══════════════
