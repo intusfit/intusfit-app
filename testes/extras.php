@@ -82,15 +82,26 @@ eq('capa que não é https é recusada', $r, 'recusou');
 echo "\n══ O catálogo de fábrica ══\n";
 $pdo = banco();
 $d = extras_ler($pdo);
-eq('vem com os 5 módulos pedidos, vazios e escondidos', [count($d['categorias']), array_column($d['categorias'], 'publicado'), array_map('count', array_column($d['categorias'], 'itens'))], [5, [false, false, false, false, false], [0, 0, 0, 0, 0]]);
-eq('os módulos são aulas, lives, treinos em casa, cintura de atleta e materiais', array_column($d['categorias'], 'id'), ['aulas-gravadas', 'lives', 'treinos-em-casa', 'cintura-de-atleta', 'materiais-bonus']);
-eq('o aluno não recebe nada enquanto nada foi publicado', extras_para_aluno($d, $ativo, 5), []);
+eq('vem com os 4 módulos do CDD, todos publicados para alunos ativos', [count($d['categorias']), array_column($d['categorias'], 'publicado'), array_unique(array_map(fn($c) => $c['visibilidade']['modo'], $d['categorias']))], [4, [true, true, true, true], ['ativos']]);
+eq('na ordem pedida: cintura de atleta, treinos em casa, assista antes de treinar, lives e aulas exclusivas', array_column($d['categorias'], 'id'), ['cintura-de-atleta', 'treinos-em-casa', 'assista-antes-de-treinar', 'lives-e-aulas-exclusivas']);
+eq('com 12, 5, 7 e 8 aulas', array_map('count', array_column($d['categorias'], 'itens')), [12, 5, 7, 8]);
+eq('6 aulas entram como rascunho (as que o CDD já guardava assim)', array_sum(array_map(fn($c) => count(array_filter($c['itens'], fn($i) => !$i['publicado'])), $d['categorias'])), 6);
+$rasc = []; foreach ($d['categorias'] as $c) foreach ($c['itens'] as $it) if (!$it['publicado']) $rasc[] = $it['titulo'];
+eq('os rascunhos são os de tema sensível e os escondidos da aluna', array_map(fn($t) => (bool)preg_match('/Esteroides|Remédios|Molécula|cargas|Respiração|TUT/u', $t), $rasc), array_fill(0, 6, true));
+eq('toda capa de módulo e de aula é https do próprio site', array_unique(array_merge(array_map(fn($c) => (bool)preg_match('#^https://intusfit\.com\.br/app/painel/extras/capas/#', $c['capa']), $d['categorias']), array_map(fn($i) => (bool)preg_match('#^https://intusfit\.com\.br/app/painel/extras/capas/#', $i['capa']), array_merge(...array_column($d['categorias'], 'itens'))))), [true]);
+eq('todo conteúdo tem link do YouTube', array_unique(array_map(fn($i) => (bool)preg_match('#^https://www\.youtube\.com/watch\?v=[\w-]{11}$#', $i['url']), array_merge(...array_column($d['categorias'], 'itens')))), [true]);
+eq('as capas existem como arquivo no site', array_unique(array_map(fn($u) => is_file(__DIR__ . '/../app/painel/extras/capas/' . basename($u)), array_merge(array_column($d['categorias'], 'capa'), array_column(array_merge(...array_column($d['categorias'], 'itens')), 'capa')))), [true]);
+$vis = fn($perfil, $id = 5) => array_map(fn($c) => [$c['id'], count($c['itens'])], extras_para_aluno($d, $perfil, $id));
+eq('aluno ativo vê os 4 módulos só com as aulas publicadas (12, 5, 4 e 5)', $vis($ativo), [['cintura-de-atleta', 12], ['treinos-em-casa', 5], ['assista-antes-de-treinar', 4], ['lives-e-aulas-exclusivas', 5]]);
+eq('aluno sem plano e aluno só no teste grátis não veem nada (a regra é "ativos")', [$vis($nada), $vis($teste)], [[], []]);
+eq('o aluno recebe a capa de cada aula', array_unique(array_map(fn($c) => (bool)array_product(array_map(fn($i) => $i['capa'] !== '', $c['itens'])), extras_para_aluno($d, $ativo, 5))), [true]);
 eq('nada foi gravado só por ler', (int)$pdo->query("SELECT COUNT(*) FROM intus_config")->fetchColumn(), 0);
 
 echo "\n══ Criar, editar, ordenar e excluir ══\n";
+extras_gravar($pdo, ['versao' => 1, 'categorias' => []]);   // parte de um catálogo vazio (a fábrica já traz os 4 módulos do CDD)
 $m1 = extras_salvar_categoria($pdo, ['titulo' => 'Aulas ao vivo', 'emoji' => '🎥', 'publicado' => true, 'visibilidade' => ['modo' => 'todos']]);
 $d = extras_ler($pdo);
-eq('módulo novo entra no fim e o catálogo passa a ser o salvo', [count($d['categorias']), end($d['categorias'])['titulo'], !empty($d['salvo'])], [6, 'Aulas ao vivo', true]);
+eq('módulo novo entra no fim e o catálogo passa a ser o salvo', [count($d['categorias']), end($d['categorias'])['titulo'], !empty($d['salvo'])], [1, 'Aulas ao vivo', true]);
 $m1b = extras_salvar_categoria($pdo, ['id' => $m1['id'], 'titulo' => 'Aulas ao vivo (novo nome)', 'visibilidade' => ['modo' => 'nutricao']]);
 eq('editar mantém o id e os conteúdos', [$m1b['id'] === $m1['id'], $m1b['titulo']], [true, 'Aulas ao vivo (novo nome)']);
 $i1 = extras_salvar_item($pdo, $m1['id'], ['titulo' => 'Aula 1', 'url' => 'https://youtu.be/a1', 'publicado' => true]);
@@ -99,13 +110,14 @@ $i3 = extras_salvar_item($pdo, $m1['id'], ['titulo' => 'Aula 3', 'url' => 'https
 $itens = fn() => array_column(array_values(array_filter(extras_ler($pdo)['categorias'], fn($c) => $c['id'] === $m1['id']))[0]['itens'], 'titulo');
 eq('três conteúdos, na ordem em que entraram', $itens(), ['Aula 1', 'Aula 2', 'Aula 3']);
 extras_salvar_item($pdo, $m1['id'], ['id' => $i2['id'], 'titulo' => 'Aula 2 corrigida', 'publicado' => true]);
-eq('editar um conteúdo mantém a posição e a data de criação', [$itens(), extras_ler($pdo)['categorias'][5]['itens'][1]['criado_em'] === $i2['criado_em']], [['Aula 1', 'Aula 2 corrigida', 'Aula 3'], true]);
+eq('editar um conteúdo mantém a posição e a data de criação', [$itens(), extras_ler($pdo)['categorias'][0]['itens'][1]['criado_em'] === $i2['criado_em']], [['Aula 1', 'Aula 2 corrigida', 'Aula 3'], true]);
 extras_reordenar($pdo, 'item', $m1['id'], [$i3['id'], $i1['id'], $i2['id']]);
 eq('reordenar conteúdos', $itens(), ['Aula 3', 'Aula 1', 'Aula 2 corrigida']);
 extras_reordenar($pdo, 'item', $m1['id'], [$i2['id']]);
 eq('conteúdo que faltou na lista não some: vai para o fim', $itens(), ['Aula 2 corrigida', 'Aula 3', 'Aula 1']);
-extras_reordenar($pdo, 'categoria', '', [$m1['id'], 'lives']);
-eq('reordenar módulos (id desconhecido é ignorado, o resto segue)', array_slice(array_column(extras_ler($pdo)['categorias'], 'id'), 0, 3), [$m1['id'], 'lives', 'aulas-gravadas']);
+$m2 = extras_salvar_categoria($pdo, ['titulo' => 'Segundo']); $m3 = extras_salvar_categoria($pdo, ['titulo' => 'Terceiro']);
+extras_reordenar($pdo, 'categoria', '', [$m3['id'], 'nao-existe', $m1['id']]);
+eq('reordenar módulos (id desconhecido é ignorado, o resto segue)', array_column(extras_ler($pdo)['categorias'], 'id'), [$m3['id'], $m1['id'], $m2['id']]);
 try { extras_reordenar($pdo, 'item', 'nao-existe', []); $r = 'aceitou'; } catch (InvalidArgumentException $e) { $r = 'recusou'; }
 eq('ordenar conteúdos de módulo inexistente é recusado', $r, 'recusou');
 eq('excluir um conteúdo', [extras_excluir_item($pdo, $m1['id'], $i3['id']), count($itens())], [true, 2]);
@@ -117,6 +129,7 @@ eq('excluir módulo que não existe devolve falso', extras_excluir_categoria($pd
 
 echo "\n══ O que o aluno recebe ══\n";
 $pdo = banco();
+extras_gravar($pdo, ['versao' => 1, 'categorias' => []]);
 $mod = extras_salvar_categoria($pdo, ['titulo' => 'Treinos em casa', 'publicado' => true, 'visibilidade' => ['modo' => 'treino']]);
 extras_salvar_item($pdo, $mod['id'], ['titulo' => 'Treino A', 'url' => 'https://youtu.be/ta', 'publicado' => true]);
 extras_salvar_item($pdo, $mod['id'], ['titulo' => 'Rascunho', 'url' => 'https://youtu.be/rr', 'publicado' => false]);
@@ -145,6 +158,27 @@ eq('alcance: todos (sem bloqueado e sem aluno-modelo), ativos, nutrição, trein
 eq('banco sem a tabela de alunos devolve zeros e não quebra', extras_alcance(new PDO('sqlite::memory:'), $hoje), ['todos' => 0, 'ativos' => 0, 'nutricao' => 0, 'treino' => 0]);
 
 echo "\n══ Estrutura do endpoint ══\n";
+echo "\n══ Importar do CDD ══\n";
+$pdo = banco();
+$r = extras_importar_cdd($pdo);
+eq('catálogo nunca salvo: já mostra os 4 módulos; importar não cria repetido', [$r, count(extras_ler($pdo)['categorias'])], [['criados' => 0, 'preenchidos' => 0], 4]);
+$pdo = banco();
+extras_gravar($pdo, ['versao' => 1, 'categorias' => [['id' => 'treinos-em-casa', 'titulo' => 'Treinos para fazer em casa', 'descricao' => '', 'emoji' => '🏠', 'cor' => '#22c55e', 'capa' => '', 'publicado' => false, 'visibilidade' => ['modo' => 'ativos', 'ids' => []], 'itens' => []],
+    ['id' => 'cintura-de-atleta', 'titulo' => 'Meu módulo editado', 'descricao' => 'texto meu', 'emoji' => '🔥', 'cor' => '#f59e0b', 'capa' => '', 'publicado' => true, 'visibilidade' => ['modo' => 'todos', 'ids' => []], 'itens' => [['id' => 'x1', 'titulo' => 'Aula minha', 'tipo' => 'video', 'url' => '', 'publicado' => true, 'visibilidade' => null, 'criado_em' => '2026-01-01 00:00:00']]]]]);
+$r = extras_importar_cdd($pdo);
+$d = extras_ler($pdo); $por = []; foreach ($d['categorias'] as $c) $por[$c['id']] = $c;
+eq('módulo vazio é preenchido, o que tem conteúdo é preservado, os que faltam são criados', [$r, count($d['categorias'])], [['criados' => 2, 'preenchidos' => 1], 4]);
+eq('o módulo vazio ganhou as 5 aulas, a capa e foi publicado', [count($por['treinos-em-casa']['itens']), $por['treinos-em-casa']['capa'] !== '', $por['treinos-em-casa']['publicado']], [5, true, true]);
+eq('o módulo que o administrador editou não foi tocado (nome, regra e aula dele)', [$por['cintura-de-atleta']['titulo'], $por['cintura-de-atleta']['visibilidade']['modo'], array_column($por['cintura-de-atleta']['itens'], 'titulo')], ['Meu módulo editado', 'todos', ['Aula minha']]);
+eq('importar de novo não repete nada', [extras_importar_cdd($pdo), count(extras_ler($pdo)['categorias'])], [['criados' => 0, 'preenchidos' => 0], 4]);
+extras_excluir_categoria($pdo, 'lives-e-aulas-exclusivas');
+eq('módulo excluído volta ao importar (é para isso que o botão serve)', [extras_importar_cdd($pdo)['criados'], count(extras_ler($pdo)['categorias'])], [1, 4]);
+
+echo "\n══ Capa do conteúdo ══\n";
+eq('capa de aula só aceita https', [extras_limpar_item(['titulo' => 'x', 'capa' => 'https://a.com/i.jpg'])['capa'], extras_limpar_item(['titulo' => 'x'])['capa']], ['https://a.com/i.jpg', '']);
+try { extras_limpar_item(['titulo' => 'x', 'capa' => 'http://a.com/i.jpg']); $r = 'aceitou'; } catch (InvalidArgumentException $e) { $r = 'recusou'; }
+eq('capa de aula com http é recusada', $r, 'recusou');
+
 $ep = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/extras.php'));
 eq('o aluno só chama "lista"; todo o resto exige administrador', strpos($ep, "if (\$ehAluno || !\$admin) _exResp(403") > strpos($ep, "if (\$action === 'lista')"), true);
 eq('"lista" é só de aluno (a equipe usa "admin")', strpos($ep, "if (!\$ehAluno) _exResp(403, ['ok' => false, 'error' => 'esta rota é do aluno'])") !== false, true);

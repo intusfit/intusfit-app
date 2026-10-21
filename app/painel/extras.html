@@ -97,8 +97,8 @@ function visRotulo(v, herda) {
 function desenhar() {
   const mods = dados.categorias;
   let h = '<div class="ex-topo"><div><h1>🎁 Extras</h1><div class="ex-sub">Aulas gravadas, lives, treinos para fazer em casa e outros bônus que aparecem no app do aluno, no modelo do CDD: módulos com conteúdos dentro. Você decide quem vê cada um, a ordem e o que está publicado.</div></div>' +
-    '<div class="ex-acoes"><button class="ex-btn prim" onclick="editarModulo()">+ Novo módulo</button></div></div>';
-  if (!dados.salvo) h += '<div class="ex-aviso">Estes são os módulos sugeridos de fábrica: estão <b>vazios e escondidos</b> do aluno. Abra um módulo, inclua os conteúdos (link do YouTube, por exemplo), escolha quem vê e marque <b>Publicado</b>. Nada aparece no app até você publicar.</div>';
+    '<div class="ex-acoes"><button class="ex-btn" title="Traz do CDD os módulos que ainda não estão aqui (não mexe no que você já editou)" onclick="importarCdd()">Importar do CDD</button><button class="ex-btn prim" onclick="editarModulo()">+ Novo módulo</button></div></div>';
+  if (!dados.salvo) h += '<div class="ex-aviso">Estes quatro módulos foram importados do CDD (Cintura de Atleta, Treinos em casa, Assista antes de treinar e Lives e aulas exclusivas) e <b>já estão no ar para os alunos ativos</b>. As aulas que o CDD guardava como rascunho (tema sensível) entram como <b>Rascunho</b>: o aluno não vê até você publicar. Daqui em diante é só incluir, editar, reordenar e escolher quem vê.</div>';
   h += mods.length ? mods.map((m, i) => modHtml(m, i, mods.length)).join('') : '<div class="ex-vazio">Nenhum módulo ainda. Clique em "+ Novo módulo".</div>';
   main.innerHTML = h;
 }
@@ -122,7 +122,7 @@ function modHtml(m, i, total) {
 function itemHtml(m, it, k, n) {
   const t = TIPOS[it.tipo] || TIPOS.video;
   const quando = it.tipo === 'live' && it.data ? ' · ' + esc(it.data.slice(8, 10) + '/' + it.data.slice(5, 7) + ' ' + it.data.slice(11, 16)) : '';
-  return '<div class="ex-item" data-item="' + esc(it.id) + '"><div class="ex-ico">' + t[0] + '</div>' +
+  return '<div class="ex-item" data-item="' + esc(it.id) + '">' + (it.capa ? '<img src="' + esc(it.capa) + '" alt="" loading="lazy" style="width:64px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;flex-shrink:0;" onerror="this.style.display=\'none\'"/>' : '<div class="ex-ico">' + t[0] + '</div>') +
     '<div class="ex-tit"><b style="font-size:13.5px;">' + esc(it.titulo) + '</b><span>' + esc(t[1]) + (it.duracao ? ' · ' + esc(it.duracao) : '') + quando + (it.url ? '' : ' · <span style="color:#f59e0b;font-weight:800;">sem link</span>') + '</span>' +
       '<div class="ex-chips"><span class="ex-chip ' + (it.publicado ? 'on' : 'rasc') + '">' + (it.publicado ? 'Publicado' : 'Rascunho') + '</span>' + (it.visibilidade ? '<span class="ex-chip vis">' + esc(visRotulo(it.visibilidade, true)) + '</span>' : '') + '</div></div>' +
     '<div class="ex-acoes"><button class="ex-btn mini" ' + (k === 0 ? 'disabled' : '') + ' onclick="mover(\'item\',\'' + esc(m.id) + '\',' + k + ',-1)">▲</button>' +
@@ -131,6 +131,11 @@ function itemHtml(m, it, k, n) {
     '<button class="ex-btn perigo" onclick="excluirItem(\'' + esc(m.id) + '\',\'' + esc(it.id) + '\')">Excluir</button></div></div>';
 }
 function alternar(id) { abertos[id] = !abertos[id]; desenhar(); }
+async function importarCdd() {
+  if (!confirm('Importar do CDD os módulos Cintura de Atleta, Treinos em casa, Assista antes de treinar e Lives e aulas exclusivas?\n\nSó entra o que ainda não está aqui: módulo que já tem conteúdo não é alterado.')) return;
+  try { const r = await chamar('importar_cdd', {}); showToast(r.criados || r.preenchidos ? 'Importado: ' + r.criados + ' módulo(s) novo(s) e ' + r.preenchidos + ' preenchido(s).' : 'Nada novo para importar: tudo já está aqui.'); await carregar(); }
+  catch (e) { showToast(e.message, 'error'); }
+}
 
 async function mover(tipo, catId, i, d) {
   const lista = tipo === 'categoria' ? dados.categorias : (dados.categorias.find(c => c.id === catId) || {}).itens;
@@ -225,6 +230,7 @@ function editarItem(catId, id) {
       </div>
       <div class="form-group"><label class="label">Link (https://)</label><input id="ei-url" class="input" value="${esc(it ? it.url : '')}" placeholder="https://youtu.be/..."/><div class="ex-ajuda">YouTube abre no player dentro do app. Outros links (Drive, PDF, site) abrem fora do app. Deixe vazio enquanto não tiver o link: o conteúdo fica sem link.</div></div>
       <div class="form-group" id="ei-data-box" style="display:${tipo === 'live' ? 'block' : 'none'};"><label class="label">Data e hora da live (opcional)</label><input id="ei-data" class="input" type="datetime-local" value="${esc(it ? it.data : '')}"/></div>
+      <div class="form-group"><label class="label">Imagem de capa do conteúdo (opcional, link https://)</label><input id="ei-capa" class="input" value="${esc(it ? (it.capa || '') : '')}" placeholder="https://..."/><div class="ex-ajuda">Sem imagem, o app usa o quadro do YouTube ou um ícone.</div></div>
       <div class="form-group"><label class="label">Descrição (opcional)</label><textarea id="ei-desc" maxlength="1200">${esc(it ? it.descricao : '')}</textarea></div>
       <div class="form-group"><label class="label">Quem vê este conteúdo</label><select id="ei-modo" class="input" onchange="mostrarSeletor('ei')">${modoOpcoes(it ? it.visibilidade : null, true)}</select>${seletorHtml('ei')}</div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ei-pub" ${it && it.publicado ? 'checked' : ''}/> Publicado</label>
@@ -237,7 +243,7 @@ async function salvarItem(catId, id) {
   const vis = lerVisibilidade('ei', true);
   if (vis && vis.modo === 'selecionados' && !vis.ids.length && !confirm('Nenhum aluno foi escolhido: ninguém vai ver este conteúdo até você marcar alguém. Salvar assim mesmo?')) return;
   const item = { id: id || undefined, titulo: document.getElementById('ei-titulo').value, tipo: document.getElementById('ei-tipo').value, duracao: document.getElementById('ei-dur').value,
-    url: document.getElementById('ei-url').value, data: document.getElementById('ei-tipo').value === 'live' ? document.getElementById('ei-data').value : '', descricao: document.getElementById('ei-desc').value,
+    url: document.getElementById('ei-url').value, capa: document.getElementById('ei-capa').value, data: document.getElementById('ei-tipo').value === 'live' ? document.getElementById('ei-data').value : '', descricao: document.getElementById('ei-desc').value,
     publicado: document.getElementById('ei-pub').checked, visibilidade: vis };
   try { await chamar('item_salvar', { categoria: catId, item: item }); closeModal(); abertos[catId] = true; showToast('Conteúdo salvo.'); await carregar(); }
   catch (e) { showToast(e.message, 'error'); }

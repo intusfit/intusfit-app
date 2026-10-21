@@ -5,6 +5,9 @@
  * faz o .htaccess bloquear o acesso direto. Quem expõe isto é extras.php.
  *
  * Decisões que não são óbvias:
+ *  - O CATÁLOGO DE FÁBRICA (enquanto o administrador não salvou nada) são os 4 módulos importados do CDD (_extras_cdd.php): Cintura de Atleta,
+ *    Treinos em casa, Assista antes de treinar e Lives e aulas exclusivas, publicados para alunos ativos. Aula que o CDD guardava como rascunho entra como
+ *    rascunho. O botão "Importar do CDD" do painel traz de volta o que ainda não está no catálogo (nunca sobrescreve o que o administrador editou).
  *  - NENHUMA tabela nova: o catálogo inteiro é um JSON em intus_config (chave extras_conteudo), como os funis da Central de atendimento.
  *    São dezenas de itens editados só pelo administrador, então um JSON basta e dispensa migração de banco.
  *  - QUEM VÊ é decidido AQUI, no servidor: o aluno só recebe os conteúdos que pode ver (a lista dos outros nem chega ao aparelho dele).
@@ -22,6 +25,7 @@
  */
 
 require_once __DIR__ . '/_plano_aluno.php';
+require_once __DIR__ . '/_extras_cdd.php';
 
 const EXTRAS_CHAVE = 'extras_conteudo';
 const EXTRAS_MODOS = ['todos', 'ativos', 'nutricao', 'treino', 'selecionados'];
@@ -77,19 +81,26 @@ function extras_gravar(PDO $pdo, array $dados): void {
     else $pdo->prepare('INSERT INTO intus_config (chave, valor) VALUES (?, ?)')->execute([EXTRAS_CHAVE, $json]);
 }
 
-/** Módulos de fábrica: só a estrutura que o Luiz pediu, vazia e escondida do aluno até ele publicar. */
+/** Catálogo de fábrica: os módulos importados do CDD, publicados para alunos ativos (o administrador edita, reordena e inclui os próximos). */
 function extras_padrao(): array {
-    $m = function (string $id, string $titulo, string $desc, string $emoji, string $cor) {
-        return ['id' => $id, 'titulo' => $titulo, 'descricao' => $desc, 'emoji' => $emoji, 'cor' => $cor, 'capa' => '', 'publicado' => false,
-                'visibilidade' => ['modo' => 'ativos', 'ids' => []], 'itens' => []];
-    };
-    return ['versao' => 1, 'salvo' => false, 'categorias' => [
-        $m('aulas-gravadas', 'Aulas gravadas', 'Aulas para assistir quando quiser, no seu tempo.', '🎬', '#0ea5e9'),
-        $m('lives', 'Lives', 'Gravações das lives com a equipe e avisos das próximas.', '🔴', '#ef4444'),
-        $m('treinos-em-casa', 'Treinos para fazer em casa', 'Treinos para os dias em que você não puder ir à academia.', '🏠', '#22c55e'),
-        $m('cintura-de-atleta', 'Cintura de Atleta', 'Módulo com o passo a passo para trabalhar a cintura.', '🔥', '#f59e0b'),
-        $m('materiais-bonus', 'Materiais e bônus', 'Guias, planilhas e outros presentes para quem treina com a Intus.', '🎁', '#a855f7'),
-    ]];
+    return ['versao' => 1, 'salvo' => false, 'categorias' => extras_catalogo_cdd()];
+}
+
+/**
+ * Traz do CDD o que ainda não está no catálogo salvo: módulo que não existe é criado inteiro; módulo que existe VAZIO (por exemplo os de exemplo da
+ * primeira versão) é preenchido com as aulas, capa e regra do CDD. Módulo que já tem conteúdo nunca é tocado. Idempotente.
+ * Devolve ['criados' => n, 'preenchidos' => n].
+ */
+function extras_importar_cdd(PDO $pdo): array {
+    $dados = extras_ler($pdo);
+    $criados = 0; $preenchidos = 0;
+    foreach (extras_catalogo_cdd() as $m) {
+        $i = extras_achar_categoria($dados, $m['id']);
+        if ($i < 0) { $dados['categorias'][] = $m; $criados++; continue; }
+        if (empty($dados['categorias'][$i]['itens'])) { $dados['categorias'][$i] = array_merge($dados['categorias'][$i], ['itens' => $m['itens'], 'capa' => $m['capa'], 'descricao' => $m['descricao'], 'publicado' => $m['publicado'], 'visibilidade' => $m['visibilidade']]); $preenchidos++; }
+    }
+    if ($criados || $preenchidos) extras_gravar($pdo, $dados);
+    return ['criados' => $criados, 'preenchidos' => $preenchidos];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,12 +144,15 @@ function extras_limpar_item(array $d, ?array $atual = null): array {
     if (trim((string)($d['url'] ?? '')) !== '' && $url === '') throw new InvalidArgumentException('O link precisa começar com https://.');
     $data = extras_texto($d['data'] ?? '', 16);
     if ($data !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}(T| )\d{2}:\d{2}$/', $data)) $data = '';
+    $capa = extras_url($d['capa'] ?? '');
+    if (trim((string)($d['capa'] ?? '')) !== '' && $capa === '') throw new InvalidArgumentException('O link da imagem precisa começar com https://.');
     return [
         'id' => $atual['id'] ?? extras_novo_id(),
         'titulo' => $titulo,
         'descricao' => extras_texto($d['descricao'] ?? '', 1200),
         'tipo' => $tipo,
         'url' => $url,
+        'capa' => $capa,
         'duracao' => extras_texto($d['duracao'] ?? '', 20),
         'data' => str_replace(' ', 'T', $data),
         'publicado' => !empty($d['publicado']),
@@ -321,7 +335,7 @@ function extras_para_aluno(array $dados, array $perfil, int $idatleta): array {
             $vis = $it['visibilidade'] ?? ($c['visibilidade'] ?? null);
             if (!extras_pode_ver($vis, $perfil, $idatleta)) continue;
             $itens[] = ['id' => $it['id'], 'titulo' => $it['titulo'], 'descricao' => $it['descricao'] ?? '', 'tipo' => $it['tipo'] ?? 'video',
-                        'url' => $it['url'] ?? '', 'duracao' => $it['duracao'] ?? '', 'data' => $it['data'] ?? '', 'criado_em' => $it['criado_em'] ?? ''];
+                        'url' => $it['url'] ?? '', 'capa' => $it['capa'] ?? '', 'duracao' => $it['duracao'] ?? '', 'data' => $it['data'] ?? '', 'criado_em' => $it['criado_em'] ?? ''];
         }
         if (!$itens) continue;
         $out[] = ['id' => $c['id'], 'titulo' => $c['titulo'], 'descricao' => $c['descricao'] ?? '', 'emoji' => $c['emoji'] ?? '🎁', 'cor' => $c['cor'] ?? '#0ea5e9',

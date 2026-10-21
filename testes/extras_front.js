@@ -46,6 +46,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
         const lista = d.tipo === 'categoria' ? S.cats : S.cats.find(x => x.id === d.categoria).itens; const m = {}; lista.forEach(x => m[x.id] = x);
         const nova = d.ids.map(id => m[id]).filter(Boolean); if (d.tipo === 'categoria') S.cats = nova; else S.cats.find(x => x.id === d.categoria).itens = nova; return json({ ok: true });
       }
+      if (acao === 'importar_cdd') { S.cats.push({ id: 'cdd-novo', titulo: 'Importado do CDD', descricao: '', emoji: '🎬', cor: '#0ea5e9', capa: '', publicado: true, visibilidade: { modo: 'ativos', ids: [] }, itens: [] }); return json({ ok: true, criados: 1, preenchidos: 0 }); }
       return json({ ok: false, error: 'acao' }, 400);
     }
     if (u.includes('atletas.php')) return json([{ idatleta: 1, nome: 'Ana Souza', email: 'a@x.com', stbloqueio: 'N' }, { idatleta: 2, nome: 'Bruno Lima', email: 'b@x.com', stbloqueio: 'N' }, { idatleta: 3, nome: 'Modelo', email: 'modelo.feminino@intusfit.local' }, { idatleta: 4, nome: 'Bloqueado', email: 'c@x.com', stbloqueio: 'S' }]);
@@ -55,13 +56,18 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await pg.goto('http://127.0.0.1:8109/extras.html', { waitUntil: 'networkidle' });
   await pg.waitForSelector('.ex-mod', { timeout: 5000 });
   eq('lista os módulos', await pg.locator('.ex-mod').count(), 2);
-  ver('avisa que são os módulos de fábrica, escondidos do aluno (nada salvo ainda)', await pg.evaluate(() => /vazios e escondidos/.test(document.body.innerText)));
+  ver('avisa que são os módulos importados do CDD, já no ar, com os rascunhos escondidos (nada salvo ainda)', await pg.evaluate(() => /importados do CDD/.test(document.body.innerText) && /já estão no ar/.test(document.body.innerText) && /Rascunho/.test(document.body.innerText)));
   ver('mostra "Rascunho" e "Publicado" e a regra com o alcance (≈ 30)', await pg.evaluate(() => /Rascunho: o aluno não vê/.test(document.body.innerText) && /Publicado/.test(document.body.innerText) && /Só alunos ativos \(≈ 30\)/.test(document.body.innerText)));
   ver('o menu lateral tem "Extras"', await pg.evaluate(() => /Extras/.test(document.querySelector('.sidebar, nav, #sidebar, body').innerText)));
 
+  // importar do CDD
+  dialogos = [];
+  await pg.click('text=Importar do CDD'); await pg.waitForTimeout(600);
+  eq('Importar do CDD pede confirmação e chama a importação', [dialogos.length, S.chamadas.at(-1).acao], [1, 'importar_cdd']);
+  ver('os módulos importados aparecem na lista', await pg.evaluate(() => /Importado do CDD/.test(document.body.innerText)));
   // reordenar módulos
   await pg.locator('.ex-mod').nth(1).locator('button[title="Subir"]').click(); await pg.waitForTimeout(300);
-  eq('subir um módulo manda a nova ordem ao servidor', S.chamadas.at(-1), { acao: 'reordenar', d: { tipo: 'categoria', categoria: '', ids: ['lives', 'aulas'] } });
+  eq('subir um módulo manda a nova ordem ao servidor', S.chamadas.at(-1), { acao: 'reordenar', d: { tipo: 'categoria', categoria: '', ids: ['lives', 'aulas', 'cdd-novo'] } });
   eq('e a tela já mostra na nova ordem', await pg.$$eval('.ex-mod .ex-tit b', e => e.map(x => x.textContent).slice(0, 2)), ['Lives', 'Aulas gravadas']);
 
   // novo módulo com "alunos escolhidos"
@@ -77,7 +83,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await pg.click('.modal-footer .btn-success'); await pg.waitForTimeout(500);
   const sv = S.chamadas.at(-1);
   eq('salva o módulo com a regra "alunos escolhidos" e o id do aluno', [sv.acao, sv.d.categoria.titulo, sv.d.categoria.visibilidade, sv.d.categoria.publicado], ['categoria_salvar', 'Cintura de Atleta', { modo: 'selecionados', ids: [2] }, true]);
-  eq('o módulo novo aparece na lista', await pg.locator('.ex-mod').count(), 3);
+  eq('o módulo novo aparece na lista', await pg.locator('.ex-mod').count(), 4);
 
   // módulo sem nome
   await pg.click('text=+ Novo módulo'); await pg.waitForSelector('#em-titulo');
@@ -96,9 +102,10 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await pg.fill('#ei-titulo', 'Treino em casa 1'); await pg.selectOption('#ei-tipo', 'video'); await pg.fill('#ei-url', 'http://inseguro.com');
   await pg.click('.modal-footer .btn-success'); await pg.waitForTimeout(400);
   ver('link http é recusado com o aviso do servidor', await pg.evaluate(() => /começar com https/.test(document.body.innerText) && !!document.getElementById('ei-titulo')));
-  await pg.fill('#ei-url', 'https://youtu.be/treino1'); await pg.selectOption('#ei-modo', 'treino'); await pg.check('#ei-pub');
+  await pg.fill('#ei-url', 'https://youtu.be/treino1'); await pg.fill('#ei-capa', 'https://intusfit.com.br/app/painel/extras/capas/x.jpg'); await pg.selectOption('#ei-modo', 'treino'); await pg.check('#ei-pub');
   await pg.click('.modal-footer .btn-success'); await pg.waitForTimeout(500);
   const si = S.chamadas.at(-1);
+  eq('a capa do conteúdo vai junto', si.d.item.capa, 'https://intusfit.com.br/app/painel/extras/capas/x.jpg');
   eq('salva o conteúdo com regra própria (treino) e publicado', [si.acao, si.d.categoria, si.d.item.titulo, si.d.item.visibilidade, si.d.item.publicado], ['item_salvar', 'lives', 'Treino em casa 1', { modo: 'treino', ids: [] }, true]);
   await pg.locator('.ex-item').nth(2).locator('button', { hasText: 'Editar' }).click(); await pg.waitForSelector('#ei-titulo');
   await pg.selectOption('#ei-modo', 'herdar');
@@ -116,7 +123,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
 
   // ───────────────────────── APP DO ALUNO ─────────────────────────
   console.log('\n══ App do aluno (aluno.html) ══');
-  const A = { lista: [{ id: 'm1', titulo: 'Treinos em casa', descricao: 'Para os dias sem academia.', emoji: '🏠', cor: '#22c55e', capa: '', itens: [{ id: 'a', titulo: 'Treino A', descricao: 'Corpo todo', tipo: 'video', url: 'https://youtu.be/abcdef12345', duracao: '20 min', data: '', criado_em: '2026-10-21 10:00:00' }, { id: 'b', titulo: 'Live de terça', descricao: '', tipo: 'live', url: '', duracao: '', data: '2030-01-01T19:30', criado_em: '2026-10-20 10:00:00' }, { id: 'c', titulo: 'Planilha', descricao: '', tipo: 'material', url: 'https://drive.google.com/x', duracao: '', data: '', criado_em: '2026-10-19 10:00:00' }] }], chamadas: 0 };
+  const A = { lista: [{ id: 'm1', titulo: 'Treinos em casa', descricao: 'Para os dias sem academia.', emoji: '🏠', cor: '#22c55e', capa: '', itens: [{ id: 'a', titulo: 'Treino A', descricao: 'Corpo todo', tipo: 'video', url: 'https://youtu.be/abcdef12345', capa: 'https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa-aula-1.jpg', duracao: '20 min', data: '', criado_em: '2026-10-21 10:00:00' }, { id: 'b', titulo: 'Live de terça', descricao: '', tipo: 'live', url: '', duracao: '', data: '2030-01-01T19:30', criado_em: '2026-10-20 10:00:00' }, { id: 'c', titulo: 'Planilha', descricao: '', tipo: 'material', url: 'https://drive.google.com/x', duracao: '', data: '', criado_em: '2026-10-19 10:00:00' }] }], chamadas: 0 };
   const ctx2 = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const ap = await ctx2.newPage(); const erros2 = []; ap.on('pageerror', e => erros2.push(e.message));
   let abertos = []; await ctx2.route('https://drive.google.com/**', r => { abertos.push(r.request().url()); r.fulfill({ status: 200, body: 'ok' }); });
@@ -143,6 +150,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   const mod = await ap.evaluate(() => document.getElementById('v-extras').innerText);
   ver('o módulo lista os conteúdos com tipo, duração e descrição', /Treino A/.test(mod) && /20 min/.test(mod) && /Corpo todo/.test(mod) && /Live de terça/.test(mod) && /Planilha/.test(mod), mod);
   ver('a live futura mostra "Ao vivo em"', /Ao vivo em 01\/01/.test(mod), mod);
+  eq('a aula usa a capa própria (e não o quadro do YouTube)', await ap.evaluate(() => { const bg = Array.from(document.querySelectorAll('#v-extras [role=button] > div:first-child')).map(e => e.getAttribute('style') || ''); return [bg.some(x => x.includes('treinos-em-casa-aula-1.jpg')), bg.some(x => x.includes('img.youtube.com'))]; }), [true, false]);
   eq('abrir o módulo marca como visto (o selo NOVO some da Home)', await ap.evaluate(() => _extrasTemNovo()), false);
   await ap.evaluate(() => extrasAbrirItem('m1', 'a')); await ap.waitForTimeout(300);
   ver('vídeo do YouTube abre no player do app', await ap.evaluate(() => document.getElementById('video-modal').classList.contains('open') && /embed\/abcdef12345/.test(document.getElementById('video-iframe').src)));

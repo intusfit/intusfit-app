@@ -11,6 +11,7 @@
  *   POST ?action=item_salvar                {categoria, item:{id?, titulo, descricao, tipo, url, duracao, data, publicado, visibilidade|null}}
  *   POST ?action=item_excluir               {categoria, id}
  *   POST ?action=reordenar                  {tipo:'categoria'|'item', categoria?, ids:[...]}
+ *   POST ?action=importar_cdd               traz do CDD os módulos que ainda não estão no catálogo (idempotente; nunca sobrescreve o que tem conteúdo)
  * Excluir é ação do painel, com confirmação na tela. Nenhum outro perfil (professor, aluno) escreve aqui.
  */
 
@@ -94,6 +95,8 @@ try {
             _exResp(200, ['ok' => true, 'item' => extras_salvar_item($pdo, (string)($d['categoria'] ?? ''), (array)($d['item'] ?? []))]);
         case 'item_excluir':
             _exResp(200, ['ok' => extras_excluir_item($pdo, (string)($d['categoria'] ?? ''), (string)($d['id'] ?? ''))]);
+        case 'importar_cdd':
+            _exResp(200, ['ok' => true] + extras_importar_cdd($pdo));
         case 'reordenar':
             extras_reordenar($pdo, (string)($d['tipo'] ?? ''), (string)($d['categoria'] ?? ''), (array)($d['ids'] ?? []));
             _exResp(200, ['ok' => true]);
