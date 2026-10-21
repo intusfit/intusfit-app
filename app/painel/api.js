@@ -2749,12 +2749,33 @@ const API = {
     return r;
   },
 
-  pagarMensalidade: (m, dtpagamento, vlpagamento) => API.editarMensalidade(m.idmensalidade, {
+  // ── VALOR RECEBIDO NA BAIXA ───────────────────────────────────────────────
+  // O padrao e o combinado do ciclo (vlpagar) mais a multa/juros menos o desconto. Quando o aluno paga OUTRO valor naquele mes, a
+  // baixa grava o valor recebido em vlpagamento E acerta vlpagar (valor do ciclo) para o mesmo numero, sem a multa: assim a lista de
+  // matriculas, o Financeiro, a Gestao e o Inicio (que leem vlpagar ou vlpagamento) mostram o mesmo dinheiro. O desconto vira 0, porque
+  // o valor combinado ja e o valor final. Valor igual ao padrao nao muda nada (comportamento de sempre).
+  //   m = ciclo em aberto, juros = multa/juros digitada, recebido = valor digitado (vazio = o padrao)
+  //   devolve { ok, total, diferente, padrao, diferenca, vlpagarCiclo, vldesconto, juros } ou { ok:false, erro }
+  calcularRecebimento: (m, juros, recebido) => {
+    const c2 = (v) => Math.round((Number(v) + 1e-9) * 100) / 100;
+    const vlpagar = Number(m && m.vlpagar) || 0, desc = Number(m && m.vldesconto) || 0;
+    const j = Math.max(0, Number(String(juros == null ? 0 : juros).replace(',', '.')) || 0);
+    const padrao = c2(vlpagar + j - desc);
+    const vazio = recebido === null || recebido === undefined || String(recebido).trim() === '';
+    const r = vazio ? padrao : c2(Number(String(recebido).replace(',', '.')));
+    if (!isFinite(r) || r <= 0) return { ok: false, erro: 'Informe um valor recebido maior que zero.' };
+    if (Math.abs(r - padrao) < 0.005) return { ok: true, total: padrao, diferente: false, padrao: padrao, diferenca: 0, vlpagarCiclo: vlpagar, vldesconto: desc, juros: j };
+    if (r - j <= 0) return { ok: false, erro: 'O valor recebido não pode ser menor que a multa/juros.' };
+    return { ok: true, total: r, diferente: true, padrao: padrao, diferenca: c2(r - padrao), vlpagarCiclo: c2(r - j), vldesconto: 0, juros: j };
+  },
+
+  // ajuste (opcional) = { vlpagar, vldesconto } vindo de calcularRecebimento quando o valor recebido foi outro.
+  pagarMensalidade: (m, dtpagamento, vlpagamento, ajuste) => API.editarMensalidade(m.idmensalidade, {
     dshistorico:  m.dshistorico || 'Mensalidade',
     dtvencimento: m.dtvencimento,
-    vlpagar:      m.vlpagar,
+    vlpagar:      (ajuste && ajuste.vlpagar != null) ? ajuste.vlpagar : m.vlpagar,
     stpgto:       'S',
-    vldesconto:   m.vldesconto || 0,
+    vldesconto:   (ajuste && ajuste.vldesconto != null) ? ajuste.vldesconto : (m.vldesconto || 0),
     vljuro:       m.vljuro || 0,
     dtpagamento:  dtpagamento || new Date().toISOString().slice(0,10),
     vlpagamento:  (vlpagamento != null ? vlpagamento : m.vlpagar),

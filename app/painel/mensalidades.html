@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Matrículas — Intus</title>
   <script src="_mock.js?v=20261020a"></script>
-  <script src="api.js?v=20261021a"></script>
+  <script src="api.js?v=20261021b"></script>
   <style>
     /* ── MODAL EXTRA WIDTH ── */
     .modal-box.wide { max-width: 560px; }
@@ -912,18 +912,50 @@ async function renovarCiclo(idmens) {
   const prox = _proxCicloDe(m);
   if (!prox) return showToast('Defina a periodicidade desta matrícula no Editar para gerar o próximo ciclo.', 'error');
   if (_temCicloAberto(m, m.idmensalidade)) return showToast('Esta matrícula já tem um ciclo em aberto.', 'error');
+  // O valor do ciclo novo e editavel (combinou outro valor com o aluno para este mes): janela propria no lugar do confirm().
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Gerar o próximo ciclo</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">
+        <b style="color:var(--text);">${esc(m.nmathleta || 'Aluno')}</b> — ${esc(m.dshistorico || 'Mensalidade')}<br>
+        Período: <b style="color:var(--text);">${fmtData(prox.dtinicio)} a ${fmtData(prox.dtvencimento)}</b>
+      </div>
+      <div class="form-group">
+        <label class="label">Valor deste ciclo (R$)</label>
+        <input id="rn-valor" class="input" type="number" min="0" step="0.01" value="${_num(m.vlpagar).toFixed(2)}"/>
+        <div style="margin-top:6px;font-size:11.5px;color:var(--text-muted);">Valor combinado hoje: ${'R$ ' + _num(m.vlpagar).toFixed(2).replace('.', ',')}. Mude se combinou outro valor para este período.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarRenovacaoCiclo(${m.idmensalidade})">Gerar ciclo</button>
+    </div>
+  `);
+}
+
+async function confirmarRenovacaoCiclo(idmens) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(idmens));
+  if (!m) return;
+  const prox = _proxCicloDe(m);
+  if (!prox) return showToast('Defina a periodicidade desta matrícula no Editar para gerar o próximo ciclo.', 'error');
+  if (_temCicloAberto(m, m.idmensalidade)) return showToast('Esta matrícula já tem um ciclo em aberto.', 'error');
+  const valor = parseFloat(String(document.getElementById('rn-valor')?.value || '').replace(',', '.'));
+  if (!isFinite(valor) || valor <= 0) return showToast('Informe o valor do ciclo (maior que zero).', 'error');
   const root = m.idmatricula_origem || m.idmensalidade;
-  if (!confirm('Gerar o próximo ciclo de ' + (m.nmathleta || 'aluno') + '?\n\nPeríodo: ' + fmtData(prox.dtinicio) + ' a ' + fmtData(prox.dtvencimento) + '\nValor: R$ ' + _num(m.vlpagar).toFixed(2))) return;
+  closeModal();
   try {
     await API.criarMensalidade({
       idatleta: m.idatleta, nmathleta: m.nmathleta || '',
       dshistorico: m.dshistorico || 'Mensalidade', tipo_plano: m.tipo_plano || null,
       dtinicio: prox.dtinicio, dtvencimento: prox.dtvencimento,
-      vlpagar: m.vlpagar, vldesconto: 0, vljuro: 0,
+      vlpagar: valor, vldesconto: 0, vljuro: 0,
       stpgto: 'N', professor: m.professor || null, recorrencia: prox.rec,
       idmatricula_origem: root,
     });
-    showToast('Próximo ciclo gerado: ' + fmtData(prox.dtinicio) + ' a ' + fmtData(prox.dtvencimento) + '.');
+    showToast('Próximo ciclo gerado: ' + fmtData(prox.dtinicio) + ' a ' + fmtData(prox.dtvencimento) + ' (R$ ' + valor.toFixed(2).replace('.', ',') + ').');
     await carregar();
   } catch (e) { showToast(e.message || 'Erro ao renovar', 'error'); }
 }
@@ -1011,8 +1043,14 @@ function marcarPago(id) {
       </div>
       ${venc ? `<div class="form-group">
         <label class="label">Multa/juros (R$) — vencida há ${_atr} dia(s)</label>
-        <input id="pg-juros" class="input" type="number" min="0" step="0.01" value="0" placeholder="0,00"/>
+        <input id="pg-juros" class="input" type="number" min="0" step="0.01" value="0" placeholder="0,00" oninput="_pgJurosMudou()"/>
       </div>` : ''}
+      <div class="form-group">
+        <label class="label">Valor recebido (R$)</label>
+        <input id="pg-valor" class="input" type="number" min="0" step="0.01" value="${baseReceber.toFixed(2)}" oninput="_pgValorMudou()"/>
+        <div id="pg-valor-nota" style="display:none;margin-top:6px;font-size:11.5px;line-height:1.45;color:var(--text-muted);"></div>
+        <label id="pg-manter-wrap" style="display:none;margin-top:6px;font-size:12px;color:var(--text);cursor:pointer;"><input type="checkbox" id="pg-manter"/> Cobrar este valor também nos próximos ciclos</label>
+      </div>
       <div class="form-group">
         <label class="label">Data do pagamento</label>
         <input id="pg-data" class="input" type="date" value="${new Date().toISOString().slice(0,10)}"/>
@@ -1023,7 +1061,35 @@ function marcarPago(id) {
       <button class="btn btn-success" onclick="confirmarPagamento(${id})">Confirmar pagamento</button>
     </div>
   `);
+  window._pgId = id;
   _onFormaPgto();
+}
+
+// Valor recebido da baixa. O campo nasce com o combinado (+ multa/juros - desconto); se o aluno pagou outro valor naquele mes, digite aqui.
+// Mexeu na multa/juros e ainda nao tocou no valor: o valor acompanha. Tocou no valor: ele manda. A conta mora em API.calcularRecebimento.
+function _pgFmt(v) { return 'R$ ' + Number(v).toFixed(2).replace('.', ','); }
+function _pgJurosMudou() {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(window._pgId)); if (!m) return;
+  const campo = document.getElementById('pg-valor'); if (!campo) return;
+  if (campo.dataset.sujo !== '1') {
+    const j = Math.max(0, parseFloat(String(document.getElementById('pg-juros')?.value || '0').replace(',', '.')) || 0);
+    campo.value = API.calcularRecebimento(m, j, '').total.toFixed(2);
+  }
+  _pgValorMudou(true);
+}
+function _pgValorMudou(automatico) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(window._pgId)); if (!m) return;
+  const campo = document.getElementById('pg-valor'), nota = document.getElementById('pg-valor-nota'), manter = document.getElementById('pg-manter-wrap');
+  if (!campo || !nota || !manter) return;
+  if (automatico !== true) campo.dataset.sujo = '1';
+  const j = Math.max(0, parseFloat(String(document.getElementById('pg-juros')?.value || '0').replace(',', '.')) || 0);
+  const c = API.calcularRecebimento(m, j, campo.value);
+  if (!c.ok) { nota.style.display = 'block'; nota.style.color = '#f87171'; nota.textContent = c.erro; manter.style.display = 'none'; return; }
+  nota.style.color = 'var(--text-muted)';
+  if (!c.diferente) { nota.style.display = 'none'; manter.style.display = 'none'; return; }
+  nota.style.display = 'block';
+  nota.innerHTML = 'Combinado: <b>' + _pgFmt(c.padrao) + '</b>. Você está registrando <b>' + _pgFmt(c.total) + '</b> (' + (c.diferenca > 0 ? '+' : '−') + _pgFmt(Math.abs(c.diferenca)) + '). O valor desta cobrança passa a ser ' + _pgFmt(c.vlpagarCiclo) + '; o próximo ciclo continua com ' + _pgFmt(m.vlpagar) + ', a menos que você marque a opção abaixo.';
+  manter.style.display = 'block';
 }
 
 function _onFormaPgto() {
@@ -1039,13 +1105,18 @@ async function confirmarPagamento(id) {
   const data  = document.getElementById('pg-data')?.value || new Date().toISOString().slice(0,10);
   let juros = parseFloat(String(document.getElementById('pg-juros')?.value || '0').replace(',', '.')) || 0;
   if (juros < 0) juros = 0;
-  const totalReceber = +((parseFloat(m.vlpagar || 0)) + juros - (parseFloat(m.vldesconto || 0))).toFixed(2);
+  // valor recebido: o digitado (ou o combinado, se ninguem mexeu). Valor invalido avisa ANTES de fechar a janela.
+  const calc = API.calcularRecebimento(m, juros, document.getElementById('pg-valor')?.value);
+  if (!calc.ok) return showToast(calc.erro, 'error');
+  const manterValor = !!document.getElementById('pg-manter')?.checked && calc.diferente;
+  const vlOriginal = parseFloat(m.vlpagar || 0);   // o proximo ciclo nasce com o valor de plano, salvo se pediu para manter o combinado
+  const totalReceber = calc.total;
   closeModal();
   try {
     if (juros > 0) m.vljuro = juros;
-    await API.pagarMensalidade(m, data, totalReceber);
+    await API.pagarMensalidade(m, data, totalReceber, calc.diferente ? { vlpagar: calc.vlpagarCiclo, vldesconto: calc.vldesconto } : null);
     if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); m.forma_pgto = forma; } catch (e) {} }
-    showToast('Pagamento registrado!' + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : '') + (juros > 0 ? ' (+ R$ ' + juros.toFixed(2) + ' de juros)' : ''));
+    showToast('Pagamento registrado!' + (calc.diferente ? ' Valor recebido: ' + _pgFmt(calc.total) + ' (combinado ' + _pgFmt(calc.padrao) + ').' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : '') + (juros > 0 ? ' (+ R$ ' + juros.toFixed(2) + ' de juros)' : ''));
     // ── Nasce aqui o proximo ciclo ─────────────────────────────────────────
     // Antes o codigo empurrava o vencimento da PROPRIA linha paga um periodo
     // para a frente. O registro do pagamento de agosto virava um registro de
@@ -1063,7 +1134,7 @@ async function confirmarPagamento(id) {
           tipo_plano: m.tipo_plano || null,
           dtinicio: _prox.dtinicio,
           dtvencimento: _prox.dtvencimento,
-          vlpagar: m.vlpagar,
+          vlpagar: manterValor ? calc.vlpagarCiclo : vlOriginal,
           vldesconto: 0, vljuro: 0, stpgto: 'N',
           professor: m.professor || null,
           recorrencia: _prox.rec,

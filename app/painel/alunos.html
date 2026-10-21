@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
   <script src="_mock.js?v=20261020a"></script>
-  <script src="api.js?v=20261021a"></script>
+  <script src="api.js?v=20261021b"></script>
   <style>
     .th-sort { cursor: pointer; user-select: none; white-space: nowrap; transition: color .15s; }
     .th-sort:hover { color: var(--green, #7FFF00); }
@@ -1651,7 +1651,7 @@ async function _gerarRenovacaoAl(m, opts) {
     tipo_plano: m.tipo_plano || null,
     dtinicio: baseStr,
     dtvencimento: novoVenc,
-    vlpagar: m.vlpagar,
+    vlpagar: (opts.vlpagar != null ? opts.vlpagar : m.vlpagar),   // o valor combinado so vale para o proximo ciclo se a tela pediu
     vldesconto: 0, vljuro: 0, stpgto: 'N',
     professor: m.professor || null,
     recorrencia: rec || null,
@@ -1679,14 +1679,42 @@ function marcarPagoMini(idmens, idatleta) {
       <div class="form-group"><label class="label">Forma de pagamento</label>
         <select id="pgm-forma" class="input" onchange="_pgmForma()">${op('pix','Pix')}${op('dinheiro','Dinheiro')}${op('cartao','Cartão (crédito/débito)')}${op('eduzz','Eduzz')}</select></div>
       <div id="pgm-eduzz" style="display:none;background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);">Via Eduzz: fica retido ~30 dias; entra no Caixa (líquido) no saque, em Financeiro › Eduzz.</div>
-      ${venc ? `<div class="form-group"><label class="label">Multa/juros (R$) — vencida há ${atraso} dia(s)</label><input id="pgm-juros" class="input" type="number" min="0" step="0.01" value="0"/></div>` : ''}
+      ${venc ? `<div class="form-group"><label class="label">Multa/juros (R$) — vencida há ${atraso} dia(s)</label><input id="pgm-juros" class="input" type="number" min="0" step="0.01" value="0" oninput="_pgmJurosMudou()"/></div>` : ''}
+      <div class="form-group"><label class="label">Valor recebido (R$)</label><input id="pgm-valor" class="input" type="number" min="0" step="0.01" value="${base}" oninput="_pgmValorMudou()"/>
+        <div id="pgm-valor-nota" style="display:none;margin-top:6px;font-size:11.5px;line-height:1.45;color:var(--text-muted);"></div>
+        <label id="pgm-manter-wrap" style="display:none;margin-top:6px;font-size:12px;color:var(--text);cursor:pointer;"><input type="checkbox" id="pgm-manter"/> Cobrar este valor também nos próximos ciclos</label></div>
       <div class="form-group"><label class="label">Data do pagamento</label><input id="pgm-data" class="input" type="date" value="${hoje}"/></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-secondary btn-sm" onclick="miniTab('matriculas',${idatleta})">Cancelar</button>
         <button class="btn btn-success btn-sm" onclick="confirmarPagamentoMini(${idmens},${idatleta})">Confirmar</button>
       </div>
     </div>`;
+  window._pgmRef = { idmens: idmens, idatleta: idatleta };
   _pgmForma();
+}
+// Valor recebido: nasce com o combinado (+ multa/juros - desconto). Se o aluno pagou outro valor neste mes, digite aqui (conta em API.calcularRecebimento).
+function _pgmFmt(v) { return 'R$ ' + Number(v).toFixed(2).replace('.', ','); }
+function _pgmJurosMudou() {
+  const r = window._pgmRef || {}, m = _mAtual(r.idmens, r.idatleta), campo = document.getElementById('pgm-valor'); if (!m || !campo) return;
+  if (campo.dataset.sujo !== '1') {
+    const j = Math.max(0, parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0);
+    campo.value = API.calcularRecebimento(m, j, '').total.toFixed(2);
+  }
+  _pgmValorMudou(true);
+}
+function _pgmValorMudou(automatico) {
+  const r = window._pgmRef || {}, m = _mAtual(r.idmens, r.idatleta);
+  const campo = document.getElementById('pgm-valor'), nota = document.getElementById('pgm-valor-nota'), manter = document.getElementById('pgm-manter-wrap');
+  if (!m || !campo || !nota || !manter) return;
+  if (automatico !== true) campo.dataset.sujo = '1';
+  const j = Math.max(0, parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0);
+  const c = API.calcularRecebimento(m, j, campo.value);
+  if (!c.ok) { nota.style.display = 'block'; nota.style.color = '#f87171'; nota.textContent = c.erro; manter.style.display = 'none'; return; }
+  nota.style.color = 'var(--text-muted)';
+  if (!c.diferente) { nota.style.display = 'none'; manter.style.display = 'none'; return; }
+  nota.style.display = 'block';
+  nota.innerHTML = 'Combinado: <b>' + _pgmFmt(c.padrao) + '</b>. Você está registrando <b>' + _pgmFmt(c.total) + '</b> (' + (c.diferenca > 0 ? '+' : '−') + _pgmFmt(Math.abs(c.diferenca)) + '). O valor desta cobrança passa a ser ' + _pgmFmt(c.vlpagarCiclo) + '; o próximo ciclo continua com ' + _pgmFmt(m.vlpagar) + ', a menos que você marque a opção abaixo.';
+  manter.style.display = 'block';
 }
 function _pgmForma() {
   const f = document.getElementById('pgm-forma')?.value;
@@ -1699,15 +1727,18 @@ async function confirmarPagamentoMini(idmens, idatleta) {
   const data = document.getElementById('pgm-data')?.value || new Date().toISOString().slice(0, 10);
   let juros = parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0;
   if (juros < 0) juros = 0;
-  const total = +((parseFloat(m.vlpagar || 0)) + juros - (parseFloat(m.vldesconto || 0))).toFixed(2);
+  const calc = API.calcularRecebimento(m, juros, document.getElementById('pgm-valor')?.value);
+  if (!calc.ok) { showToast(calc.erro, 'error'); return; }
+  const total = calc.total, vlOriginal = parseFloat(m.vlpagar || 0);
+  const manterValor = !!document.getElementById('pgm-manter')?.checked && calc.diferente;
   try {
     if (juros > 0) m.vljuro = juros;
-    await API.pagarMensalidade(m, data, total);
+    await API.pagarMensalidade(m, data, total, calc.diferente ? { vlpagar: calc.vlpagarCiclo, vldesconto: calc.vldesconto } : null);
     if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); } catch (e) {} }
     m.forma_pgto = forma;
     const recKnown = String(m.recorrencia || '').toLowerCase() in _RECMESES_AL;
-    const nv = await _gerarRenovacaoAl(m, { perguntar: !recKnown });
-    showToast('Pagamento registrado!' + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
+    const nv = await _gerarRenovacaoAl(m, { perguntar: !recKnown, vlpagar: manterValor ? calc.vlpagarCiclo : vlOriginal });
+    showToast('Pagamento registrado!' + (calc.diferente ? ' Valor recebido: ' + _pgmFmt(calc.total) + ' (combinado ' + _pgmFmt(calc.padrao) + ').' : '') + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
     try { mensalidades = await API.listarMensalidades(); } catch {}
     if (API.ehParcelada(m)) {
       const r = API.resumoParcelas(mensalidades.find(x => Number(x.idmensalidade) === Number(m.idmensalidade)) || m, mensalidades);

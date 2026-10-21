@@ -44,6 +44,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "faixa de notificação some de verdade (iPhone com ilha)" node aviso_notificacao.js
   passo "cobrança: ciclo pago na linha de cima avisa quando vence" node cobranca_paga_anterior.js
   passo "aviso de mensalidade no sino do aluno" node aviso_mensalidade_aluno.js
+  passo "valor recebido editável na baixa e na renovação" node valor_recebido.js
   passo "treino fora do protocolo: marcar aluno e post colaborativo" node fora_protocolo_colab.js
   passo "laboratório do WhatsApp: tela" node wa_teste_front.js
   kill "$(cat /tmp/intus-srv.pid)" "$(cat /tmp/intus-srv2.pid)" 2>/dev/null
