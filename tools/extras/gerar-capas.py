@@ -6,7 +6,7 @@ Para cada módulo cria em app/painel/extras/capas/:
   <slug>.jpg              capa do módulo 4:3 (960x720), com o título (grade de módulos do app e do painel)
   <slug>-aula-<n>.jpg     capa de cada aula 16:9 (640x360), com "AULA n" (lista de conteúdos)
 
-Usa só imagens que já são da Intus (fotos de equipe do site e a logo). Não baixa nada da internet.
+Usa só imagens da Intus (fotos de equipe do site, a foto de treino em casa do Drive do Luiz já preparada por preparar-fotos.py e a logo). Não baixa nada da internet.
 Uso (na raiz do repositório):
     python tools/extras/gerar-capas.py <pasta-com-as-fotos> app/painel/extras/capas
 A pasta de fotos é a "img/" do site (fica fora do git); os nomes dos arquivos estão em MODULOS. Requer Pillow.
@@ -20,13 +20,21 @@ LOGO = os.path.join(RAIZ, 'app', 'painel', 'logo-intus-dark.png')
 LIMA = (127, 255, 0)
 FUNDO = (11, 11, 11)
 
-# slug, rótulo curto, título (| quebra a linha), cor do módulo, foto, centralização da foto (x, y), nº de aulas (o script lê do catálogo)
+# slug, título (| quebra a linha), cor do módulo, foto, centralização da foto (x, y), layout
+#   painel: foto no lado direito, com degradê para o fundo escuro (retratos)
+#   cheia:  foto ocupa a capa inteira, escurecida à esquerda onde ficam o logo e o título (cenas largas)
+# As fotos são procuradas primeiro em tools/extras/fotos/ (preparadas por preparar-fotos.py) e depois na pasta de fotos informada.
 MODULOS = [
-    ('cintura-de-atleta',        'CINTURA DE ATLETA',           '#f59e0b', 'prof-marlene.jpg',                                     (0.50, 0.30)),
-    ('treinos-em-casa',          'TREINOS EM CASA',             '#22c55e', '024d6d53-d589-40b5-95ed-d2e69cba81b6.jpg',             (0.50, 0.22)),
-    ('assista-antes-de-treinar', 'ASSISTA ANTES|DE TREINAR',    '#0ea5e9', 'prof-luiz.jpg',                                        (0.50, 0.28)),
-    ('lives-e-aulas-exclusivas', 'LIVES E AULAS|EXCLUSIVAS',    '#ef4444', 'luiz.jpg',                                             (0.50, 0.22)),
+    ('cintura-de-atleta',        'CINTURA DE ATLETA',           '#f59e0b', 'prof-marlene.jpg',  (0.50, 0.30), 'painel'),
+    ('treinos-em-casa',          'TREINOS|EM CASA',             '#22c55e', 'treinos-em-casa.jpg', (0.62, 0.30), 'cheia'),
+    ('assista-antes-de-treinar', 'ASSISTA ANTES|DE TREINAR',    '#0ea5e9', 'luiz-academia.jpg', (0.50, 0.14), 'painel'),
+    ('lives-e-aulas-exclusivas', 'LIVES E AULAS|EXCLUSIVAS',    '#ef4444', 'luiz.jpg',          (0.50, 0.22), 'painel'),
 ]
+
+
+def caminho_foto(pasta_fotos, nome):
+    c = os.path.join(RAIZ, 'tools', 'extras', 'fotos', nome)
+    return c if os.path.exists(c) else os.path.join(pasta_fotos, nome)
 
 
 def hexrgb(h):
@@ -68,8 +76,21 @@ def degrade_horizontal(tam, de, ate):
     return linha.resize((w, h))
 
 
-def compor_foto(base, caminho, caixa, centro, cor, escurecer=1.0, fade=0.45):
+def compor_foto(base, caminho, caixa, centro, cor, escurecer=1.0, fade=0.45, cheia=False):
     x0, y0, x1, y1 = caixa
+    if cheia:
+        W, H = base.size
+        foto = foto_painel(caminho, (W, H), centro, cor, escurecer)
+        base.paste(foto, (0, 0))
+        # escurece da esquerda para o meio: o logo e o título ficam sobre fundo escuro e o rosto fica livre
+        esc = Image.new('L', (W, H), 0)
+        px = esc.load()
+        for x in range(W):
+            t = 1.0 if x < W * 0.12 else max(0.0, 1.0 - (x - W * 0.12) / (W * 0.50))
+            for y in range(H):
+                px[x, y] = int(235 * t * t)
+        base.paste(Image.new('RGB', (W, H), FUNDO), (0, 0), esc)
+        return
     foto = foto_painel(caminho, (x1 - x0, y1 - y0), centro, cor, escurecer)
     m = degrade_horizontal(foto.size, 0, int(foto.size[0] * fade))
     base.paste(foto, (x0, y0), m)
@@ -89,11 +110,11 @@ def quebrar(titulo, fonte_, largura, draw):
     return linhas
 
 
-def capa_modulo(slug, titulo, cor_hex, foto, centro, qtd, pasta_fotos, saida, fonte_arq):
+def capa_modulo(slug, titulo, cor_hex, foto, centro, layout, qtd, pasta_fotos, saida, fonte_arq):
     W, H = 960, 720
     cor = hexrgb(cor_hex)
     base = Image.new('RGB', (W, H), FUNDO)
-    compor_foto(base, os.path.join(pasta_fotos, foto), (330, 0, W, H), centro, cor, 0.95, 0.5)
+    compor_foto(base, caminho_foto(pasta_fotos, foto), (330, 0, W, H), centro, cor, 0.95, 0.5, layout == 'cheia')
     # vinheta inferior
     v = Image.new('L', (W, H), 0); d = ImageDraw.Draw(v)
     for y in range(H // 2, H):
@@ -126,13 +147,13 @@ def capa_modulo(slug, titulo, cor_hex, foto, centro, qtd, pasta_fotos, saida, fo
     base.save(os.path.join(saida, slug + '.jpg'), quality=86, optimize=True, progressive=True)
 
 
-def capa_aula(slug, n, cor_hex, foto, centro, pasta_fotos, saida, fonte_arq):
+def capa_aula(slug, n, cor_hex, foto, centro, layout, pasta_fotos, saida, fonte_arq):
     W, H = 640, 360
     cor = hexrgb(cor_hex)
     base = Image.new('RGB', (W, H), FUNDO)
     desloc = [(0.50, 0), (0.42, 0.04), (0.58, -0.03), (0.46, 0.07), (0.54, -0.05)][n % 5]
     c = (min(1.0, max(0.0, centro[0] + desloc[0] - 0.5)), min(1.0, max(0.0, centro[1] + desloc[1])))
-    compor_foto(base, os.path.join(pasta_fotos, foto), (250, 0, W, H), c, cor, 0.92, 0.5)
+    compor_foto(base, caminho_foto(pasta_fotos, foto), (250, 0, W, H), c, cor, 0.92, 0.5, layout == 'cheia')
     dr = ImageDraw.Draw(base)
     dr.rectangle([0, 0, 8, H], fill=cor)
     img, m = logo_branca(128); base.paste(img, (28, 22), m)
@@ -153,11 +174,11 @@ def main():
     pasta_fotos, saida = args
     os.makedirs(saida, exist_ok=True)
     quantidades = json.load(open(os.path.join(RAIZ, 'tools', 'extras', 'quantidades.json'), encoding='utf-8'))
-    for slug, titulo, cor, foto, centro in MODULOS:
+    for slug, titulo, cor, foto, centro, layout in MODULOS:
         qtd = int(quantidades[slug])
-        capa_modulo(slug, titulo, cor, foto, centro, qtd, pasta_fotos, saida, fonte_arq)
+        capa_modulo(slug, titulo, cor, foto, centro, layout, qtd, pasta_fotos, saida, fonte_arq)
         for n in range(1, qtd + 1):
-            capa_aula(slug, n, cor, foto, centro, pasta_fotos, saida, fonte_arq)
+            capa_aula(slug, n, cor, foto, centro, layout, pasta_fotos, saida, fonte_arq)
         print(slug, '-> capa + %d aulas' % qtd)
 
 

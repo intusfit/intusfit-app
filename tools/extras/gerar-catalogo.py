@@ -13,6 +13,7 @@ import json, os, re
 RAIZ = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SEED = os.path.join(RAIZ, 'cdd', 'api', 'dados', 'seed-conteudo.json')
 BASE_CAPAS = 'https://intusfit.com.br/app/painel/extras/capas/'
+VERSAO = '?v=2'   # sobe quando as imagens forem refeitas, para o navegador e o Cloudflare não servirem a capa antiga
 CRIADO = '2026-10-21 12:00:00'
 
 # título no CDD, id, título no app, emoji, cor, descrição (sem promessa de resultado)
@@ -45,10 +46,10 @@ def main():
             itens.append({
                 'id': 'cdd-%s-%d' % (mid, n), 'titulo': limpar_titulo(a['titulo']), 'descricao': '', 'tipo': 'video',
                 'url': ('https://www.youtube.com/watch?v=' + video) if video else '', 'duracao': '', 'data': '',
-                'capa': '%s%s-aula-%d.jpg' % (BASE_CAPAS, mid, n), 'publicado': not a.get('rascunho'), 'visibilidade': None, 'criado_em': CRIADO,
+                'capa': '%s%s-aula-%d.jpg%s' % (BASE_CAPAS, mid, n, VERSAO), 'publicado': not a.get('rascunho'), 'visibilidade': None, 'criado_em': CRIADO,
             })
         qtd[mid] = len(itens)
-        saida.append({'id': mid, 'titulo': titulo, 'descricao': desc, 'emoji': emoji, 'cor': cor, 'capa': BASE_CAPAS + mid + '.jpg',
+        saida.append({'id': mid, 'titulo': titulo, 'descricao': desc, 'emoji': emoji, 'cor': cor, 'capa': BASE_CAPAS + mid + '.jpg' + VERSAO,
                       'publicado': True, 'visibilidade': {'modo': 'ativos', 'ids': []}, 'itens': itens})
     js = json.dumps(saida, ensure_ascii=False, indent=1)
     assert 'JSON_FIM' not in js
