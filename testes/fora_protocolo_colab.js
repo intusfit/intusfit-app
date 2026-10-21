@@ -13,18 +13,19 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await new Promise(r => srv.listen(8103, '127.0.0.1', r));
   const b = await chromium.launch(); const page = await b.newPage({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const erros = []; page.on('pageerror', e => erros.push(String(e.message)));
-  const S = { amigos: [42], enviados: [], posts: [] };
+  const S = { amigos: [42], enviados: [], posts: [], buscas: 0, listaOk: true };
   await page.route(/\/app\/api\/treinos\.php.*action=sessoes/, async (route) => {
     const req = route.request();
     if (req.method() === 'POST') { S.posts.push(JSON.parse(req.postData())); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"idsessao":777}' }); }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
-  await page.route(/\/app\/api\/catalogo\.php.*action=(amizades|parcerias|turmas|desafios_aluno)/, route => {
+  await page.route(/\/app\/api\/catalogo\.php.*action=(amizades|parcerias|turmas|desafios_aluno|pessoas_mencionaveis)/, route => {
     const a = (route.request().url().match(/action=(\w+)/) || [])[1];
+    if (a === 'pessoas_mencionaveis') { S.buscas++; return route.fulfill({ status: S.listaOk ? 200 : 500, contentType: 'application/json', body: JSON.stringify({ pessoas: [{ tipo: 'aluno', id: 42, nome: 'Isabela Pazzinatto', desde: '' }] }) }); }
     const corpo = a === 'amizades' ? { amigos: S.amigos, recebidos: [], enviados: S.enviados, pessoas: {} } : (a === 'parcerias' ? { parceiros: [], recebidos: [], enviados: [], limite: 30, pessoas: {} } : { pessoas: {} });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(corpo) });
   });
-  await page.route(/\/app\/api\/(?!treinos\.php|catalogo\.php.*action=(amizades|parcerias|turmas|desafios_aluno))/, r => r.abort('failed'));
+  await page.route(/\/app\/api\/(?!treinos\.php|catalogo\.php.*action=(amizades|parcerias|turmas|desafios_aluno|pessoas_mencionaveis))/, r => r.abort('failed'));
   await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); });
   await page.goto('http://127.0.0.1:8103/aluno.html', { waitUntil: 'domcontentloaded' });
   for (let i = 0; i < 80; i++) { if (await page.evaluate(() => typeof abrirTreinoForaProtocolo === 'function' && typeof _fpColabCartao === 'function' && typeof API !== 'undefined').catch(() => false)) break; await page.waitForTimeout(250); }
@@ -120,6 +121,14 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await preparar('@zzzz');
   await page.waitForFunction(() => /Nenhum aluno encontrado/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 3000 });
   ver('nome que ninguém tem: diz "Nenhum aluno encontrado"', true);
+  ver('a mensagem diz quantos alunos tinha na lista (para diagnosticar)', await page.evaluate(() => /\(2 na lista\)/.test(document.getElementById('mencao-dd').textContent)));
+  // lista vazia guardada de uma chamada anterior: busca de novo antes de dizer que não achou
+  S.buscas = 0;
+  await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = []; _mencoesPessoasTs = Date.now(); _mencoesFalhou = false; abrirTreinoForaProtocolo(); });
+  await page.focus('#fp-desc'); await page.keyboard.type('@isa');
+  await page.waitForFunction(() => /Isabela/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
+  ver('lista vazia em cache: refaz a busca uma vez e acha a Isabela', S.buscas >= 1, S.buscas);
+  S.listaOk = false;
   await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; abrirTreinoForaProtocolo(); });
   await page.focus('#fp-desc'); await page.keyboard.type('@isa');
   await page.waitForFunction(() => /Não consegui carregar a lista/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });

@@ -21903,7 +21903,9 @@ document.addEventListener('input', async (e) => {
   const seq = el._mencSeq = (el._mencSeq || 0) + 1;   // só a última tecla manda (as buscas terminam fora de ordem)
   const emCache = _mencoesPessoas && Date.now() - _mencoesPessoasTs < 600000;
   if (caixa && !emCache) _mencoesAviso(caixa, 'Buscando alunos...');
-  const pessoas = await _mencoesCarregar();
+  let pessoas = await _mencoesCarregar();
+  // lista vazia guardada de uma chamada anterior (falha passageira do servidor): busca de novo uma vez antes de dizer que não achou
+  if (!pessoas.length && emCache) { _mencoesPessoas = null; _mencoesPessoasTs = 0; pessoas = await _mencoesCarregar(); }
   if (seq !== el._mencSeq) return;
   if (document.activeElement !== el) return;
   const pontua = (p) => {
@@ -21914,7 +21916,7 @@ document.addEventListener('input', async (e) => {
   };
   const lista = pessoas.map(p => ({ p, s: pontua(p) })).filter(x => x.s > 0)
     .sort((a, b) => b.s - a.s).slice(0, 6).map(x => x.p);
-  if (caixa && !lista.length) { _mencoesAviso(caixa, _mencoesFalhou && !pessoas.length ? 'Não consegui carregar a lista de alunos agora. Verifique a internet e tente de novo.' : 'Nenhum aluno encontrado com "' + m[2] + '". Se não for aluno da Intus, pode deixar só o nome.'); return; }
+  if (caixa && !lista.length) { _mencoesAviso(caixa, _mencoesFalhou && !pessoas.length ? 'Não consegui carregar a lista de alunos agora. Verifique a internet e tente de novo.' : 'Nenhum aluno encontrado com "' + m[2] + '" (' + pessoas.length + ' na lista). Só aparecem alunos que participam do Feed. Se não for aluno da Intus, pode deixar só o nome.'); return; }
   _mencoesMostrar(el, lista, inicio, pos);
 });
 document.addEventListener('focusout', (e) => { if (e.target && e.target.matches && e.target.matches('[data-mencoes]')) setTimeout(_mencoesFechar, 200); });
