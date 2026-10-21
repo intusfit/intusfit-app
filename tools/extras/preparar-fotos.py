@@ -6,11 +6,13 @@ Prepara as fotos que o gerador de capas dos Extras usa (tools/extras/fotos/):
                         - apaga o logo antigo (MAXIMIZE) da camiseta preta, deixando a camiseta totalmente preta;
                         - recorta fora a marca d'água do canto e o contador do vídeo, em proporção 4:3;
                         - reduz o ruído de compressão, amplia, aplica nitidez e ajuste leve de contraste e cor.
+  ricardo.jpg           foto do Prof. Ricardo (Drive do Luiz, IMG_0608.JPG, 3072x3072) no padrão das outras: reduzida para 1600 px, mais escura e
+                        contrastada (a original tem parede clara e piso verde vivo), para combinar com o fundo escuro das capas.
   luiz-academia.jpg     a foto do Luiz na academia SEM distorção (a prof-luiz.jpg do site está achatada na horizontal; esta vem do
                         original em retrato, cortado acima do texto do cartão).
 
 Uso (na raiz do repositório):
-    python tools/extras/preparar-fotos.py <foto-do-drive.jpg> <pasta img do site>
+    python tools/extras/preparar-fotos.py <foto-treino-em-casa.jpg> <pasta img do site> [<foto-do-ricardo.jpg>]
 Requer Pillow (sem numpy).
 """
 import os, random, sys
@@ -69,17 +71,39 @@ def treinos_em_casa(origem):
     return im
 
 
+def ricardo(origem):
+    im = ImageOps.exif_transpose(Image.open(origem)).convert('RGB')
+    im = im.resize((1600, 1600), Image.LANCZOS)
+    im = ImageEnhance.Brightness(im).enhance(0.80)
+    im = ImageEnhance.Contrast(im).enhance(1.16)
+    im = ImageEnhance.Color(im).enhance(0.86)   # o verde do piso e o vermelho do fundo chamam mais atenção que o rosto
+    # vinheta: bordas e canto de baixo mais escuros, rosto em destaque
+    W, H = im.size
+    v = Image.new('L', (W, H), 0)
+    px = v.load()
+    for y in range(0, H, 1):
+        for x in range(0, W, 1):
+            dx, dy = (x - W * 0.50) / (W * 0.62), (y - H * 0.34) / (H * 0.78)
+            d = (dx * dx + dy * dy) ** 0.5
+            px[x, y] = int(max(0.0, min(1.0, (d - 0.55) / 0.70)) * 150)
+    im.paste(Image.new('RGB', (W, H), (8, 8, 8)), (0, 0), v)
+    return im
+
+
 def luiz_academia(pasta_img):
     im = Image.open(os.path.join(pasta_img, '259fdefd-32ea-4dac-952f-213279238ece.jpg')).convert('RGB')   # 720x1280, retrato
     return im.crop((0, 0, 720, 940))
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         print(__doc__); sys.exit(1)
     origem, pasta_img = sys.argv[1], sys.argv[2]
+    origem_ricardo = sys.argv[3] if len(sys.argv) == 4 else None
     os.makedirs(SAIDA, exist_ok=True)
     treinos_em_casa(origem).save(os.path.join(SAIDA, 'treinos-em-casa.jpg'), quality=92, optimize=True)
+    if origem_ricardo:
+        ricardo(origem_ricardo).save(os.path.join(SAIDA, 'ricardo.jpg'), quality=90, optimize=True)
     luiz_academia(pasta_img).save(os.path.join(SAIDA, 'luiz-academia.jpg'), quality=92, optimize=True)
     print('fotos preparadas em', SAIDA)
 

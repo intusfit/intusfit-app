@@ -13,7 +13,7 @@ import json, os, re
 RAIZ = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SEED = os.path.join(RAIZ, 'cdd', 'api', 'dados', 'seed-conteudo.json')
 BASE_CAPAS = 'https://intusfit.com.br/app/painel/extras/capas/'
-VERSAO = '?v=2'   # sobe quando as imagens forem refeitas, para o navegador e o Cloudflare não servirem a capa antiga
+VERSAO = '?v=3'   # sobe quando as imagens forem refeitas, para o navegador e o Cloudflare não servirem a capa antiga
 CRIADO = '2026-10-21 12:00:00'
 
 # título no CDD, id, título no app, emoji, cor, descrição (sem promessa de resultado)
@@ -27,6 +27,10 @@ MODULOS = [
     ('Lives/Aulas Exclusivas', 'lives-e-aulas-exclusivas', 'Lives e aulas exclusivas', '🔴', '#ef4444',
      'Aulas e lives gravadas com a equipe: aeróbico, hipopressivo, lipedema, treino e dieta e mais.'),
 ]
+
+
+# aulas com outra pessoa (código do vídeo -> descrição)
+DESCRICOES = {'ZA-pZRy3_WU': 'Com o Prof. Ricardo.', 'f_asiwEChPw': 'Com o Prof. Ricardo.'}
 
 
 def limpar_titulo(t):
@@ -44,7 +48,7 @@ def main():
         for n, a in enumerate(m['aulas'], 1):
             video = a.get('video') or a.get('youtube') or a.get('video_url')
             itens.append({
-                'id': 'cdd-%s-%d' % (mid, n), 'titulo': limpar_titulo(a['titulo']), 'descricao': '', 'tipo': 'video',
+                'id': 'cdd-%s-%d' % (mid, n), 'titulo': limpar_titulo(a['titulo']), 'descricao': DESCRICOES.get(video, ''), 'tipo': 'video',
                 'url': ('https://www.youtube.com/watch?v=' + video) if video else '', 'duracao': '', 'data': '',
                 'capa': '%s%s-aula-%d.jpg%s' % (BASE_CAPAS, mid, n, VERSAO), 'publicado': not a.get('rascunho'), 'visibilidade': None, 'criado_em': CRIADO,
             })

@@ -91,6 +91,10 @@ eq('os rascunhos são os de tema sensível e os escondidos da aluna', array_map(
 eq('toda capa de módulo e de aula é https do próprio site', array_unique(array_merge(array_map(fn($c) => (bool)preg_match('#^https://intusfit\.com\.br/app/painel/extras/capas/#', $c['capa']), $d['categorias']), array_map(fn($i) => (bool)preg_match('#^https://intusfit\.com\.br/app/painel/extras/capas/#', $i['capa']), array_merge(...array_column($d['categorias'], 'itens'))))), [true]);
 eq('todo conteúdo tem link do YouTube', array_unique(array_map(fn($i) => (bool)preg_match('#^https://www\.youtube\.com/watch\?v=[\w-]{11}$#', $i['url']), array_merge(...array_column($d['categorias'], 'itens')))), [true]);
 eq('as capas existem como arquivo no site', array_unique(array_map(fn($u) => is_file(__DIR__ . '/../app/painel/extras/capas/' . basename(parse_url($u, PHP_URL_PATH))), array_merge(array_column($d['categorias'], 'capa'), array_column(array_merge(...array_column($d['categorias'], 'itens')), 'capa')))), [true]);
+$todas = array_merge(...array_column($d['categorias'], 'itens'));
+$ric = array_values(array_filter($todas, fn($i) => preg_match('/Rem[ée]dios para Emagrecer|Lipedema/u', $i['titulo'])));
+eq('as aulas Remédios para Emagrecer e Lipedema dizem que são com o Prof. Ricardo', [count($ric), array_unique(array_column($ric, 'descricao'))], [2, ['Com o Prof. Ricardo.']]);
+eq('e só essas duas têm essa descrição', count(array_filter($todas, fn($i) => strpos($i['descricao'], 'Ricardo') !== false)), 2);
 $vis = fn($perfil, $id = 5) => array_map(fn($c) => [$c['id'], count($c['itens'])], extras_para_aluno($d, $perfil, $id));
 eq('aluno ativo vê os 4 módulos só com as aulas publicadas (12, 5, 4 e 5)', $vis($ativo), [['cintura-de-atleta', 12], ['treinos-em-casa', 5], ['assista-antes-de-treinar', 4], ['lives-e-aulas-exclusivas', 5]]);
 eq('aluno sem plano e aluno só no teste grátis não veem nada (a regra é "ativos")', [$vis($nada), $vis($teste)], [[], []]);

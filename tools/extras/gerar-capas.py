@@ -32,6 +32,14 @@ MODULOS = [
 ]
 
 
+# capas de aulas com outra pessoa: (módulo, nº da aula) -> (foto, centralização). Aulas 4 (Remédios para Emagrecer) e 6 (Lipedema) de Lives e aulas
+# exclusivas são com o Prof. Ricardo.
+FOTOS_AULA = {
+    ('lives-e-aulas-exclusivas', 4): ('ricardo.jpg', (0.50, 0.30)),
+    ('lives-e-aulas-exclusivas', 6): ('ricardo.jpg', (0.50, 0.24)),
+}
+
+
 def caminho_foto(pasta_fotos, nome):
     c = os.path.join(RAIZ, 'tools', 'extras', 'fotos', nome)
     return c if os.path.exists(c) else os.path.join(pasta_fotos, nome)
@@ -178,7 +186,8 @@ def main():
         qtd = int(quantidades[slug])
         capa_modulo(slug, titulo, cor, foto, centro, layout, qtd, pasta_fotos, saida, fonte_arq)
         for n in range(1, qtd + 1):
-            capa_aula(slug, n, cor, foto, centro, layout, pasta_fotos, saida, fonte_arq)
+            f_aula, c_aula = FOTOS_AULA.get((slug, n), (foto, centro))
+            capa_aula(slug, n, cor, f_aula, c_aula, 'painel' if (slug, n) in FOTOS_AULA else layout, pasta_fotos, saida, fonte_arq)
         print(slug, '-> capa + %d aulas' % qtd)
 
 
