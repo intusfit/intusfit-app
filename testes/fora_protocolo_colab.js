@@ -52,6 +52,9 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   console.log('\n══ O campo oferece os alunos ao digitar @ ══');
   await preparar('@isa');
   ver('aparece a lista com a Isabela', await page.evaluate(() => !!document.getElementById('mencao-dd') && /Isabela Pazzinatto/.test(document.getElementById('mencao-dd').textContent)));
+  // regressão real (iPhone, 20/10): a lista existia mas ficava ATRÁS da folha do treino e não dava para tocar nela
+  const vis = await page.evaluate(() => { const d = document.getElementById('mencao-dd'), r = d.getBoundingClientRect(), t = document.elementFromPoint(r.left + r.width / 2, r.top + 14); return { dentro: !!t && d.contains(t), z: getComputedStyle(d).zIndex, folha: getComputedStyle(document.getElementById('fp-sheet')).zIndex }; });
+  ver('a lista está VISÍVEL e tocável, por cima da folha (não atrás dela)', vis.dentro && Number(vis.z) > Number(vis.folha), vis);
   eq('o próprio aluno não é sugerido? (a lista do app já o exclui no servidor; aqui só confere que a escolha funciona)', await page.evaluate(() => !!_mencoesCtx), true);
   await page.evaluate(() => _mencoesEscolher(0));
   eq('o campo fica com "@Isabela Pazzinatto "', await page.$eval('#fp-desc', e => e.value), '@Isabela Pazzinatto ');
