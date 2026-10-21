@@ -842,6 +842,18 @@ try {
             ]);
             $id = (int)$pdo->lastInsertId();
             if ($_ehAlunoTr) { require_once __DIR__ . '/_acesso.php'; intusRegistrarAcesso($pdo, 'aluno', (int)$idat, '', 'treino', $id); }   // horário e local do registro (só quando é o próprio aluno)
+            // Treino fora do protocolo com @menção de outro aluno ("treinei com a Isabela"): quem foi marcado recebe um aviso. O token vem do app e
+            // cada pessoa é conferida aqui (existe, está no Feed, sem bloqueio entre os dois); no máximo 4. Falha em avisar nunca derruba o registro.
+            if ($_ehAlunoTr && strtoupper((string)$divisao) === 'FORA' && !empty($b['mencoes']) && is_string($b['mencoes'])) {
+                try {
+                    $tAt = _mencaoTabela($pdo, ['atleta', 'atletas', 'aluno', 'alunos']);
+                    $nomeAt = 'Um aluno';
+                    if ($tAt) { $qn = $pdo->prepare("SELECT nome FROM `$tAt` WHERE idatleta = ? LIMIT 1"); $qn->execute([$idat]); $nomeAt = (string)($qn->fetchColumn() ?: 'Um aluno'); }
+                    $marcas = array_filter(_extrairMencoes(mb_substr($b['mencoes'], 0, 400)), fn($m) => $m['tipo'] === 'aluno');
+                    $texto = implode(' ', array_slice(array_map(fn($m) => '@[' . $m['nome'] . ']{aluno:' . $m['id'] . '}', $marcas), 0, 4));
+                    if ($texto !== '') _notificarMencoes($pdo, $texto, 'aluno', (int)$idat, $nomeAt, 'sessao', $id);
+                } catch (Throwable $e) {}
+            }
             echo json_encode(['idsessao' => $id, 'ok' => true]);
             exit;
         }

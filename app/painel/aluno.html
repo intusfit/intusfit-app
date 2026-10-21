@@ -1435,7 +1435,7 @@ function abrirCompartilharUltimoTreino() {
 // Chamada com os dados de UM treino específico (recém-finalizado, ou
 // escolhido depois na Central de Compartilhamento). idsessao é opcional —
 // só usado pra reabrir esta mesma tela depois sabendo qual treino é.
-function abrirCompartilharTreino(info) {
+function abrirCompartilharTreino(info, opts) {
   if (!_soTesteBarra()) return;
   // Guarda o snapshot mais recente (treino OU cardio, pelo info.tipo) — é a
   // mesma leitura que abrirCompartilharUltimoTreino já usava pro treino;
@@ -1466,7 +1466,7 @@ function abrirCompartilharTreino(info) {
   _feedComposeLocal = '';
   _feedComposeCaption = _shareLegendaAuto(info);
   _composeDestino = 'feed';
-  _composeColab = [];
+  _composeColab = (opts && Array.isArray(opts.colab)) ? opts.colab.map(Number).filter(Boolean).slice(0, 4) : [];   // treino fora do protocolo já abre com quem foi marcado
   _composeVisib = null; _composeVisibCarregado = false;
   _renderComposeFeed();
   // A câmera já abria sozinha, embutida, assim que a tela aparecia — sem
@@ -8036,6 +8036,7 @@ function _fpConhecidos() {   // exercícios cadastrados que o aluno já fez: id 
 }
 function abrirTreinoForaProtocolo() {
   _fp = { motivo: 'outra', desc: '', dur: '', ex: [_fpNovoEx()], salvando: false, conhecidos: _fpConhecidos() };
+  _mencoesLimpar('fp');
   _fpDesenhar(true);
 }
 function _fpLer() {   // guarda o que está nos campos antes de redesenhar
@@ -8067,7 +8068,8 @@ function _fpDesenhar(abrir, semLer) {   // semLer: o estado já foi alterado em 
   }).join('');
   const campoDesc = _fp.motivo === 'outro'
     ? rot('Descreva o motivo') + '<input id="fp-desc" value="' + esc(_fp.desc || '') + '" maxlength="120" placeholder="Ex: Treino em viagem, na academia do hotel" style="' + inp + '"/>'
-    : (_fp.motivo === 'outra' ? rot('Com quem você treinou? (opcional)') + '<input id="fp-desc" value="' + esc(_fp.desc || '') + '" maxlength="120" placeholder="Ex: João" style="' + inp + '"/>' : '');
+    : (_fp.motivo === 'outra' ? rot('Com quem você treinou? (opcional)') + '<input id="fp-desc" data-mencoes="fp" autocomplete="off" value="' + esc(_fp.desc || '') + '" maxlength="120" placeholder="Digite @ e escolha o aluno (ou só o nome)" style="' + inp + '"/>' +
+        '<div style="font-size:11.5px;color:#888;line-height:1.45;margin-top:6px;">Marque um aluno da Intus com <b>@</b>: ele recebe um aviso e, depois de registrar, você já pode postar o treino em colaboração com ele.</div>' : '');
   const corpo =
     '<div style="font-size:12.5px;color:#888;line-height:1.5;margin-bottom:4px;">Use quando você treinou com outra pessoa ou trocou os exercícios da sua ficha. Vale <b>' + API.PONTOS_FORA_PROTOCOLO + ' pontos</b>, 1 treino por dia, e é registrado no dia de hoje.</div>' +
     rot('O que aconteceu?') + '<div style="display:flex;flex-wrap:wrap;gap:6px;">' + _FP_MOTIVOS.map(m => chip(_fp.motivo === m[0], "_fpSet('" + m[0] + "')", m[1])).join('') + '</div>' +
@@ -8113,7 +8115,15 @@ function _fpMontar() {   // valida e devolve { erro } ou { sessao, resumo }
   const min = parseInt(_fp.dur, 10) || 0;
   if (min < 15) return { erro: 'Informe a duração do treino (mínimo 15 minutos).' };
   if (min > 240) return { erro: 'A duração máxima é de 4 horas.' };
-  const desc = String(_fp.desc || '').trim();
+  // "Treinei com @Isabela": o texto do comentário leva só o nome (sem o código da marcação, que apareceria cru no histórico e no painel);
+  // quem foi marcado segue à parte, em `mencoes`, para o servidor avisar e para o convite de post colaborativo depois do registro.
+  let desc = String(_fp.desc || '').trim(), marcados = [], mencoes = '';
+  if (_fp.motivo === 'outra') {
+    const segs = _mencoesSegmentos(_mencoesCodificar('fp', desc));
+    desc = segs.map(s => s.t != null ? s.t : s.nome).join('').replace(/\s+/g, ' ').trim();
+    segs.filter(s => s.tipo === 'aluno' && Number(s.id) !== Number(idAtleta)).forEach(s => { if (marcados.length < 4 && !marcados.some(m => m.id === s.id)) marcados.push({ id: s.id, nome: s.nome }); });
+    mencoes = marcados.map(m => '@[' + m.nome + ']{aluno:' + m.id + '}').join(' ');
+  }
   if (_fp.motivo === 'outro' && desc.length < 3) return { erro: 'Descreva o motivo do treino fora do protocolo.' };
   const exs = _fp.ex.filter(e => String(e.n).trim());
   if (!exs.length) return { erro: 'Informe pelo menos um exercício.' };
@@ -8127,7 +8137,9 @@ function _fpMontar() {   // valida e devolve { erro } ou { sessao, resumo }
     hora_conclusao: new Date().toTimeString().slice(0, 5), nao_contar: 0, marcado_como_feito: false,
     comentario: 'Fora do protocolo (' + motivo + ')' + (desc ? ': ' + desc.slice(0, 120) : ''), itens: itens,
   };
-  return { sessao: sessao, resumo: { min: min, motivo: motivo, desc: desc, exs: itens.length, series: itens.reduce((a, it) => a + it.series.length, 0) } };
+  if (mencoes) sessao.mencoes = mencoes;
+  const volume = itens.reduce((a, it) => a + it.series.reduce((b, s) => b + (parseFloat(s.peso) || 0) * (parseInt(s.reps, 10) || 0), 0), 0);
+  return { sessao: sessao, resumo: { min: min, motivo: motivo, desc: desc, exs: itens.length, series: itens.reduce((a, it) => a + it.series.length, 0), marcados: marcados, volume: Math.round(volume) } };
 }
 function _fpConfirmar() {   // confirmação antes de registrar
   if (_fp.salvando) return;
@@ -8155,6 +8167,7 @@ async function _fpSalvar() {
     document.getElementById('fp-conf')?.remove(); document.getElementById('fp-sheet')?.remove();
     _rankingData = null; _rkUltimaBusca = 0;
     try { SessoesTreino.sincronizar(idAtleta); } catch (e) {}
+    _fpUltimo = r.resumo;
     _fpSucesso(r.resumo);
     _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
   } catch (e) {
@@ -8162,6 +8175,41 @@ async function _fpSalvar() {
     document.getElementById('fp-conf')?.remove();
     toast(e && e.status === 409 ? 'Você já registrou um treino fora do protocolo hoje.' : ('Não consegui registrar: ' + ((e && e.message) || 'tente de novo') + '.'));
   }
+}
+var _fpUltimo = null;
+// Quem foi marcado: se já é amigo, o treino pode virar um post colaborativo com ele (o convite só vale entre amigos, regra do servidor);
+// se não é, oferece o pedido de amizade. Só aparece com as conexões ligadas.
+async function _fpColabCartao() {
+  const x = _fpUltimo, box = document.getElementById('fp-colab');
+  if (!x || !box || !(x.marcados || []).length || !_conexoesOn) return;
+  try { await _amzCarregar(); } catch (e) {}
+  if (!document.getElementById('fp-colab')) return;
+  const isLight = document.body.classList.contains('tema-claro'), amigos = (_amzDados.amigos || []).map(Number), acento = isLight ? '#2d8a00' : '#7FFF00';
+  const enviados = (_amzDados.enviados || []).map(function (e) { return Number(e && typeof e === 'object' ? (e.para_id || e.id) : e); });
+  const linhas = x.marcados.map(m => {
+    const amigo = amigos.indexOf(Number(m.id)) >= 0, pedido = enviados.indexOf(Number(m.id)) >= 0;
+    return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;text-align:left;"><span style="flex:1;min-width:0;font-weight:700;">' + esc((m.nome || 'Aluno').split(' ')[0]) + '</span>' +
+      (amigo ? '<span style="color:' + acento + ';font-weight:800;">amigo ✓</span>'
+        : (pedido ? '<span style="color:#888;">pedido enviado</span>' : '<button type="button" onclick="this.disabled=true;this.textContent=\'Enviando...\';amzPedir(' + Number(m.id) + ')" style="padding:5px 10px;border-radius:8px;border:1px solid ' + (isLight ? '#ccc' : '#444') + ';background:transparent;color:' + acento + ';font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit;">Pedir amizade</button>')) + '</div>';
+  }).join('');
+  const amigosMarcados = x.marcados.filter(m => amigos.indexOf(Number(m.id)) >= 0);
+  box.innerHTML = '<div style="margin-bottom:14px;padding:12px;border-radius:14px;border:1px solid ' + (isLight ? 'rgba(92,184,0,.35)' : 'rgba(127,255,0,.3)') + ';background:' + (isLight ? 'rgba(92,184,0,.08)' : 'rgba(127,255,0,.06)') + ';">' +
+    '<div style="font-size:13px;font-weight:800;">👥 Treinou com ' + x.marcados.map(m => esc((m.nome || 'Aluno').split(' ')[0])).join(', ') + '?</div>' + linhas +
+    (amigosMarcados.length
+      ? '<div style="font-size:11.5px;color:#888;margin:8px 0;line-height:1.4;">Poste este treino em colaboração: ' + amigosMarcados.map(m => esc((m.nome || '').split(' ')[0])).join(', ') + ' recebe um convite e o post aparece no perfil dos dois.</div><button type="button" class="btn btn-prim btn-full" onclick="_fpPostarColab()">📸 Postar em colaboração</button>'
+      : '<div style="font-size:11.5px;color:#888;margin-top:8px;line-height:1.4;">Para convidar para um post colaborativo, vocês precisam ser amigos no app.</div>') + '</div>';
+}
+function _fpPostarColab() {
+  const x = _fpUltimo; if (!x) return;
+  const amigos = (_amzDados.amigos || []).map(Number), ids = (x.marcados || []).map(m => Number(m.id)).filter(i => amigos.indexOf(i) >= 0);
+  // o nome de quem foi marcado já é conhecido aqui; o convite do compositor mostra "com Isabela" mesmo que o mapa de amigos ainda não o traga
+  (x.marcados || []).forEach(m => { const k = String(m.id); _amzDados.pessoas = _amzDados.pessoas || {}; if (!_amzDados.pessoas[k]) _amzDados.pessoas[k] = { nome: m.nome }; });
+  document.getElementById('fp-ok')?.remove();
+  abrirCompartilharTreino({
+    nomeAluno: (user && user.nome) ? String(user.nome).split(' ').slice(0, 2).join(' ') : 'Atleta Intus', nomeTreino: 'Treino fora do protocolo', divisao: 'FORA',
+    min: x.min, sec: 0, volume: x.volume || 0, seriesFeitas: x.series, seriesTotal: x.series, pctCompleto: 100,
+    fig: _figPick(_figurinhasList()), mensagem: 'Treino registrado! 💪', recordes: [],
+  }, { colab: ids });
 }
 function _fpSucesso(x) {
   const isLight = document.body.classList.contains('tema-claro');
@@ -8171,9 +8219,11 @@ function _fpSucesso(x) {
   ov.innerHTML = '<div style="background:' + (isLight ? '#fff' : '#141414') + ';border-radius:20px;padding:26px 22px;max-width:340px;width:100%;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';text-align:center;">' +
     '<div style="font-size:56px;line-height:1;margin-bottom:8px;">💪</div><div style="font-size:19px;font-weight:900;margin-bottom:6px;">Treino registrado!</div>' +
     '<div style="font-size:13.5px;color:#888;line-height:1.55;margin-bottom:16px;">' + x.min + ' minutos, ' + x.exs + ' exercício' + (x.exs > 1 ? 's' : '') + '.<br><b style="color:' + (isLight ? '#2d8a00' : '#7FFF00') + ';">+' + API.PONTOS_FORA_PROTOCOLO + ' pontos</b> no ranking.</div>' +
+    '<div id="fp-colab"></div>' +
     '<button class="btn btn-prim btn-full" onclick="document.getElementById(\'fp-ok\').remove();navegar(\'historico\');_historicoTrocarTab(\'linha\')">Ver no histórico</button>' +
     '<button class="btn btn-sec btn-full" style="margin-top:8px;" onclick="document.getElementById(\'fp-ok\').remove();navegar(\'home\')">Ir para o início</button></div>';
   document.body.appendChild(ov);
+  _fpColabCartao();
 }
 
 // ═══════════════ STATE ═══════════════
@@ -21889,7 +21939,7 @@ function _notifLinhaHtml(n, isLight) {
     curtida_chat: 'curtiu sua mensagem',
     comentario: noMural ? 'respondeu seu comentário no mural' : 'comentou no seu post',
     resposta: 'respondeu seu comentário',
-    mencao: noMural ? 'mencionou você no mural' : 'mencionou você',
+    mencao: noMural ? 'mencionou você no mural' : (n.alvo_tipo === 'sessao' ? 'marcou você num treino fora do protocolo' : 'mencionou você'),
     nutri_resposta: 'respondeu ao seu registro de refeição',
     dm: 'enviou uma mensagem',
     amizade_pedido: 'quer ser seu amigo',
@@ -21911,7 +21961,7 @@ function _notifLinhaHtml(n, isLight) {
     ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“' + esc(n.texto) + '”</div>' : '';
   const dt = new Date(String(n.quando).replace(' ', 'T'));
   const fundo = n.lido ? 'transparent' : (isLight ? 'rgba(92,184,0,.10)' : 'rgba(127,255,0,.07)');
-  return '<div data-notif-id="' + n.idnotificacao + '" data-alvo="' + n.alvo_id + '" data-alvotipo="' + esc(n.alvo_tipo || '') + '" data-tipo="' + esc(n.tipo) + '" onclick="_notifAbrir(this)" ' +
+  return '<div data-notif-id="' + n.idnotificacao + '" data-ator="' + Number(n.ator_id || 0) + '" data-alvo="' + n.alvo_id + '" data-alvotipo="' + esc(n.alvo_tipo || '') + '" data-tipo="' + esc(n.tipo) + '" onclick="_notifAbrir(this)" ' +
     'style="display:flex;align-items:center;gap:11px;padding:10px 8px;border-bottom:1px solid var(--borda);cursor:pointer;background:' + fundo + ';border-radius:8px;">' +
     '<div style="width:34px;height:34px;border-radius:50%;background:var(--borda);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">' + (icones[n.tipo] || '🔔') + '</div>' +
     '<div style="flex:1;min-width:0;">' +
@@ -21998,6 +22048,7 @@ function _notifAbrir(el) {
   if (tipo === 'dm') { _centralTab = 'chat'; _centralChatTarget = 'a:' + alvo; _chatAberta = true; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
   if (tipo === 'colab_convite') { _colabConviteSheet(alvo); return; }
+  if (tipo === 'mencao' && el.dataset.alvotipo === 'sessao') { if (Number(el.dataset.ator)) abrirPerfilAluno(Number(el.dataset.ator)); return; }   // "marcou você num treino": abre o perfil de quem treinou com você
   if (el.dataset.alvotipo === 'feedback') {   // resposta do professor ao comentário no feedback em vídeo: abre a lista de feedbacks
     navegar('avaliacoes');
     return;
