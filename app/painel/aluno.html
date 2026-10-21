@@ -21668,19 +21668,27 @@ function _notifMsgsNaoLidas() {
 }
 
 // Aviso de notificação nova com o app aberto: faixa em destaque no topo, 8 segundos, toque abre o sino.
+// Escondida, a faixa sobe MAIS que a própria altura somada à área segura do topo: com -180% (da altura dela) uma faixa de ~60 px num iPhone com
+// ilha dinâmica (área segura de ~59 px) ficava com parte da borda e da sombra à mostra, "cortada" no alto da tela, mesmo depois de tocar nela.
+function _notifAvisoEstado(el, visivel) {
+  if (!el) return;
+  el.style.transform = visivel ? 'translate(-50%,0)' : 'translate(-50%, calc(-100% - 60px - env(safe-area-inset-top,0px)))';
+  el.style.opacity = visivel ? '1' : '0';
+  el.style.pointerEvents = visivel ? '' : 'none';
+}
 function _notifAvisoNovo(qtd) {
   let el = document.getElementById('notif-aviso');
   if (!el) {
     el = document.createElement('div'); el.id = 'notif-aviso';
-    el.style.cssText = 'position:fixed;left:50%;top:calc(8px + env(safe-area-inset-top,0px));transform:translate(-50%,-180%);z-index:1500;width:max-content;max-width:min(92vw,360px);box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:14px;cursor:pointer;background:#7FFF00;color:#0a0a0a;font-size:13.5px;font-weight:800;line-height:1.3;box-shadow:0 12px 36px rgba(0,0,0,.45),0 0 0 3px rgba(127,255,0,.35);transition:transform .35s cubic-bezier(.2,.9,.3,1.2);touch-action:manipulation;';
-    el.onclick = function () { clearTimeout(_notifAvisoNovo._t); el.style.transform = 'translate(-50%,-180%)'; abrirNotificacoes(); };
+    el.style.cssText = 'position:fixed;left:50%;top:calc(8px + env(safe-area-inset-top,0px));transform:translate(-50%, calc(-100% - 60px - env(safe-area-inset-top,0px)));opacity:0;pointer-events:none;z-index:1500;width:max-content;max-width:min(92vw,360px);box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:14px;cursor:pointer;background:#7FFF00;color:#0a0a0a;font-size:13.5px;font-weight:800;line-height:1.3;box-shadow:0 12px 36px rgba(0,0,0,.45),0 0 0 3px rgba(127,255,0,.35);transition:transform .35s cubic-bezier(.2,.9,.3,1.2),opacity .25s ease;touch-action:manipulation;';
+    el.onclick = function () { clearTimeout(_notifAvisoNovo._t); _notifAvisoEstado(el, false); abrirNotificacoes(); };
     document.body.appendChild(el);
   }
   el.innerHTML = '<span style="font-size:20px;">🔔</span><span style="flex:1;">' + (qtd > 1 ? 'Você tem ' + qtd + ' notificações novas' : 'Você tem uma notificação nova') + '<span style="display:block;font-size:12px;font-weight:700;opacity:.75;">Toque para ver</span></span>';
   void el.offsetWidth;
-  el.style.transform = 'translate(-50%,0)';
+  _notifAvisoEstado(el, true);
   clearTimeout(_notifAvisoNovo._t);
-  _notifAvisoNovo._t = setTimeout(function () { el.style.transform = 'translate(-50%,-180%)'; }, 6000);
+  _notifAvisoNovo._t = setTimeout(function () { _notifAvisoEstado(el, false); }, 6000);
   try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {}
 }
 // O aviso em faixa só aparece quando o SERVIDOR informa mais notificações do que antes. Antes a conta somava as mensagens do professor que o
