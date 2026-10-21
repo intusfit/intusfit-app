@@ -183,6 +183,22 @@ eq('capa de aula só aceita https', [extras_limpar_item(['titulo' => 'x', 'capa'
 try { extras_limpar_item(['titulo' => 'x', 'capa' => 'http://a.com/i.jpg']); $r = 'aceitou'; } catch (InvalidArgumentException $e) { $r = 'recusou'; }
 eq('capa de aula com http é recusada', $r, 'recusou');
 
+echo "\n══ Versão das capas (cache do Cloudflare) ══\n";
+$ver = EXTRAS_CAPAS_VERSAO;
+$antigas = ['id' => 'm', 'titulo' => 'Treinos em casa', 'descricao' => '', 'emoji' => '🏠', 'cor' => '#22c55e', 'capa' => 'https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa.jpg', 'publicado' => true, 'visibilidade' => ['modo' => 'todos', 'ids' => []],
+    'itens' => [['id' => 'i', 'titulo' => 'Aula', 'tipo' => 'video', 'url' => '', 'capa' => 'https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa-aula-1.jpg?v=2', 'publicado' => true, 'visibilidade' => null, 'criado_em' => '2026-10-21 12:00:00'],
+                ['id' => 'j', 'titulo' => 'Aula de fora', 'tipo' => 'video', 'url' => '', 'capa' => 'https://img.youtube.com/vi/abc/hq.jpg', 'publicado' => true, 'visibilidade' => null, 'criado_em' => '2026-10-21 12:00:00']]];
+$pa = extras_para_aluno(['categorias' => [$antigas]], $ativo, 5);
+eq('catálogo já salvo com capa SEM versão: o aluno recebe a capa do módulo com a versão atual', $pa[0]['capa'], "https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa.jpg?v=$ver");
+eq('capa de aula com versão antiga (?v=2) também sobe para a atual', $pa[0]['itens'][0]['capa'], "https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa-aula-1.jpg?v=$ver");
+eq('imagem de outro site passa sem mudança', $pa[0]['itens'][1]['capa'], 'https://img.youtube.com/vi/abc/hq.jpg');
+$adm = extras_versionar_capas([$antigas]);
+eq('o painel (admin) recebe as mesmas URLs versionadas', [$adm[0]['capa'], $adm[0]['itens'][0]['capa']], ["https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa.jpg?v=$ver", "https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa-aula-1.jpg?v=$ver"]);
+eq('os dados salvos não são alterados por entregar (só a resposta)', $antigas['capa'], 'https://intusfit.com.br/app/painel/extras/capas/treinos-em-casa.jpg');
+$cdd = extras_catalogo_cdd();
+eq('o catálogo de fábrica usa a mesma versão da constante (gerar-catalogo.py e _extras.php andam juntos)', array_unique(array_map(fn($u) => (preg_match('/\?v=(\d+)$/', $u, $m) ? $m[1] : '?'), array_merge(array_column($cdd, 'capa'), array_column(array_merge(...array_column($cdd, 'itens')), 'capa')))), [$ver]);
+eq('as capas novas das aulas com duas pessoas existem (miniatura do YouTube)', array_map(fn($n) => is_file(__DIR__ . "/../app/painel/extras/capas/lives-e-aulas-exclusivas-aula-$n.jpg"), [1, 2, 7, 8]), [true, true, true, true]);
+
 $ep = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/extras.php'));
 eq('o aluno só chama "lista"; todo o resto exige administrador', strpos($ep, "if (\$ehAluno || !\$admin) _exResp(403") > strpos($ep, "if (\$action === 'lista')"), true);
 eq('"lista" é só de aluno (a equipe usa "admin")', strpos($ep, "if (!\$ehAluno) _exResp(403, ['ok' => false, 'error' => 'esta rota é do aluno'])") !== false, true);

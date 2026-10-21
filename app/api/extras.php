@@ -76,7 +76,7 @@ try {
 
     if ($action === 'admin' && $metodo === 'GET') {
         $dados = extras_ler($pdo);
-        _exResp(200, ['ok' => true, 'categorias' => $dados['categorias'], 'salvo' => !empty($dados['salvo']), 'alcance' => extras_alcance($pdo),
+        _exResp(200, ['ok' => true, 'categorias' => extras_versionar_capas($dados['categorias']), 'salvo' => !empty($dados['salvo']), 'alcance' => extras_alcance($pdo),
                       'modos' => EXTRAS_ROTULO_MODO, 'limites' => ['modulos' => EXTRAS_MAX_MODULOS, 'itens' => EXTRAS_MAX_ITENS]]);
     }
 

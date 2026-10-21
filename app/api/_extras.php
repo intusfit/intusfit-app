@@ -30,6 +30,10 @@ require_once __DIR__ . '/_extras_cdd.php';
 const EXTRAS_CHAVE = 'extras_conteudo';
 const EXTRAS_MODOS = ['todos', 'ativos', 'nutricao', 'treino', 'selecionados'];
 const EXTRAS_TIPOS = ['video', 'live', 'material', 'link'];
+// Versão das imagens de capa que moram no próprio site (app/painel/extras/capas). Sobe quando as capas forem refeitas (junto com VERSAO em
+// tools/extras/gerar-catalogo.py). O servidor acrescenta ?v=<versão> a toda capa do site na hora de ENTREGAR, mesmo em catálogo já salvo pelo
+// administrador: sem isso o Cloudflare e o navegador seguem servindo a imagem antiga no mesmo endereço por horas.
+const EXTRAS_CAPAS_VERSAO = '4';
 const EXTRAS_MAX_MODULOS = 60;
 const EXTRAS_MAX_ITENS = 200;
 const EXTRAS_MAX_SELECIONADOS = 500;
@@ -324,6 +328,21 @@ function extras_pode_ver(?array $vis, array $perfil, int $idatleta): bool {
     return false;
 }
 
+/** Capa do próprio site com a versão atual na URL; qualquer outro endereço passa sem mudança. */
+function extras_capa_versionada($url): string {
+    $u = (string)$url;
+    if (preg_match('#^(https://intusfit\.com\.br/app/painel/extras/capas/[\w\-]+\.jpg)(\?.*)?$#', $u, $m)) return $m[1] . '?v=' . EXTRAS_CAPAS_VERSAO;
+    return $u;
+}
+
+function extras_versionar_capas(array $categorias): array {
+    foreach ($categorias as $i => $c) {
+        $categorias[$i]['capa'] = extras_capa_versionada($c['capa'] ?? '');
+        foreach ($c['itens'] ?? [] as $k => $it) $categorias[$i]['itens'][$k]['capa'] = extras_capa_versionada($it['capa'] ?? '');
+    }
+    return $categorias;
+}
+
 /** O que o aluno recebe: só módulos publicados com pelo menos um conteúdo publicado e visível para ele, sem nenhuma configuração de acesso. */
 function extras_para_aluno(array $dados, array $perfil, int $idatleta): array {
     $out = [];
@@ -335,11 +354,11 @@ function extras_para_aluno(array $dados, array $perfil, int $idatleta): array {
             $vis = $it['visibilidade'] ?? ($c['visibilidade'] ?? null);
             if (!extras_pode_ver($vis, $perfil, $idatleta)) continue;
             $itens[] = ['id' => $it['id'], 'titulo' => $it['titulo'], 'descricao' => $it['descricao'] ?? '', 'tipo' => $it['tipo'] ?? 'video',
-                        'url' => $it['url'] ?? '', 'capa' => $it['capa'] ?? '', 'duracao' => $it['duracao'] ?? '', 'data' => $it['data'] ?? '', 'criado_em' => $it['criado_em'] ?? ''];
+                        'url' => $it['url'] ?? '', 'capa' => extras_capa_versionada($it['capa'] ?? ''), 'duracao' => $it['duracao'] ?? '', 'data' => $it['data'] ?? '', 'criado_em' => $it['criado_em'] ?? ''];
         }
         if (!$itens) continue;
         $out[] = ['id' => $c['id'], 'titulo' => $c['titulo'], 'descricao' => $c['descricao'] ?? '', 'emoji' => $c['emoji'] ?? '🎁', 'cor' => $c['cor'] ?? '#0ea5e9',
-                  'capa' => $c['capa'] ?? '', 'itens' => $itens];
+                  'capa' => extras_capa_versionada($c['capa'] ?? ''), 'itens' => $itens];
     }
     return $out;
 }

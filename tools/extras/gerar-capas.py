@@ -40,6 +40,40 @@ FOTOS_AULA = {
 }
 
 
+# aulas com DUAS pessoas (ou chamada de vídeo): a capa parte da miniatura do próprio vídeo no YouTube (tools/extras/fotos/yt/<código>.jpg, 1280x720,
+# baixada de img.youtube.com). (módulo, nº da aula) -> (código do vídeo, pôr a logo da Intus?). A miniatura 1 já traz a logo e o título, então fica sem logo extra.
+MINIATURAS_AULA = {
+    ('lives-e-aulas-exclusivas', 1): ('GLkoV5NJnRY', False),   # Aeróbico: correr ou caminhar
+    ('lives-e-aulas-exclusivas', 2): ('cLSk2sE_zOc', True),    # Aula ao vivo Hipopressivo
+    ('lives-e-aulas-exclusivas', 7): ('P_tUiVzKo4I', True),    # 3 pilares do treino para eliminar a gordura da barriga
+    ('lives-e-aulas-exclusivas', 8): ('u_fKsW-GUKo', True),    # Perguntas e respostas sobre treino e dieta
+}
+
+
+def capa_aula_miniatura(slug, n, cor_hex, codigo, com_logo, saida, fonte_arq):
+    """640x360: a miniatura do vídeo inteira (sem cortar), com barra da cor do módulo, selo "AULA nn" no canto de baixo e, se pedido, a logo da Intus
+    num selo escuro no canto de cima. Nada cobre o centro nem o texto da miniatura."""
+    cor = hexrgb(cor_hex)
+    im = Image.open(os.path.join(RAIZ, 'tools', 'extras', 'fotos', 'yt', codigo + '.jpg')).convert('RGB')
+    im = ImageOps.fit(im, (640, 360), Image.LANCZOS)
+    im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=3))
+    cam = Image.new('RGBA', im.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(cam)
+    f = fonte(30, fonte_arq)
+    txt = 'AULA %02d' % n
+    w = int(d.textlength(txt, font=f))
+    d.rounded_rectangle([14, 308, 14 + w + 30, 308 + 40], radius=8, fill=(8, 8, 8, 205))
+    d.rectangle([14 + 15, 308 + 33, 14 + 15 + 44, 308 + 36], fill=LIMA + (255,))
+    d.text((14 + 15, 308 + 3), txt, font=f, fill=(255, 255, 255, 255))
+    if com_logo:
+        img, m = logo_branca(104)
+        d.rounded_rectangle([12, 12, 12 + 104 + 24, 12 + 36 + 16], radius=8, fill=(8, 8, 8, 190))
+        cam.paste(img.convert('RGBA'), (24, 22), m)
+    d.rectangle([0, 0, 7, 360], fill=cor + (255,))
+    im = Image.alpha_composite(im.convert('RGBA'), cam).convert('RGB')
+    im.save(os.path.join(saida, '%s-aula-%d.jpg' % (slug, n)), quality=86, optimize=True, progressive=True)
+
+
 def caminho_foto(pasta_fotos, nome):
     c = os.path.join(RAIZ, 'tools', 'extras', 'fotos', nome)
     return c if os.path.exists(c) else os.path.join(pasta_fotos, nome)
@@ -186,6 +220,9 @@ def main():
         qtd = int(quantidades[slug])
         capa_modulo(slug, titulo, cor, foto, centro, layout, qtd, pasta_fotos, saida, fonte_arq)
         for n in range(1, qtd + 1):
+            if (slug, n) in MINIATURAS_AULA:
+                capa_aula_miniatura(slug, n, cor, MINIATURAS_AULA[(slug, n)][0], MINIATURAS_AULA[(slug, n)][1], saida, fonte_arq)
+                continue
             f_aula, c_aula = FOTOS_AULA.get((slug, n), (foto, centro))
             capa_aula(slug, n, cor, f_aula, c_aula, 'painel' if (slug, n) in FOTOS_AULA else layout, pasta_fotos, saida, fonte_arq)
         print(slug, '-> capa + %d aulas' % qtd)
