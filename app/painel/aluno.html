@@ -8068,7 +8068,7 @@ function _fpDesenhar(abrir, semLer) {   // semLer: o estado já foi alterado em 
   }).join('');
   const campoDesc = _fp.motivo === 'outro'
     ? rot('Descreva o motivo') + '<input id="fp-desc" value="' + esc(_fp.desc || '') + '" maxlength="120" placeholder="Ex: Treino em viagem, na academia do hotel" style="' + inp + '"/>'
-    : (_fp.motivo === 'outra' ? rot('Com quem você treinou? (opcional)') + '<input id="fp-desc" data-mencoes="fp" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(_fp.desc || '') + '" maxlength="120" placeholder="Digite @ e escolha o aluno (ou só o nome)" style="' + inp + '"/>' +
+    : (_fp.motivo === 'outra' ? rot('Com quem você treinou? (opcional)') + '<input id="fp-desc" data-mencoes="fp" data-mencoes-inline="fp-mencao-box" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(_fp.desc || '') + '" maxlength="120" placeholder="Digite @ e escolha o aluno (ou só o nome)" style="' + inp + '"/><div id="fp-mencao-box"></div>' +
         '<div style="font-size:11.5px;color:#888;line-height:1.45;margin-top:6px;">Marque um aluno da Intus com <b>@</b>: ele recebe um aviso e, depois de registrar, você já pode postar o treino em colaboração com ele.</div>' : '');
   const corpo =
     '<div style="font-size:12.5px;color:#888;line-height:1.5;margin-bottom:4px;">Use quando você treinou com outra pessoa ou trocou os exercícios da sua ficha. Vale <b>' + API.PONTOS_FORA_PROTOCOLO + ' pontos</b>, 1 treino por dia, e é registrado no dia de hoje.</div>' +
@@ -21736,7 +21736,7 @@ function iniciarNotificacoes() {
 // Digitar "@alguem" sem escolher da lista não marca ninguém (de propósito).
 // A chave do campo (data-mencoes) mantém a escolha mesmo se o campo for
 // redesenhado enquanto a pessoa digita.
-var _mencoesPessoas = null, _mencoesPessoasTs = 0, _mencoesCampos = {}, _mencoesCtx = null, _mencoesRepetidos = {};
+var _mencoesPessoas = null, _mencoesPessoasTs = 0, _mencoesCampos = {}, _mencoesCtx = null, _mencoesRepetidos = {}, _mencoesFalhou = false, _mencoesInline = false;
 
 // Nome igual ao de outra pessoa: a lista mostra "desde MM/AAAA" (e o nº, se
 // ainda empatar) pra a pessoa saber qual é qual. A marcação guarda o id, então
@@ -21756,8 +21756,9 @@ async function _mencoesCarregar() {
   if (_mencoesPessoas && Date.now() - _mencoesPessoasTs < 600000) return _mencoesPessoas;
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=pessoas_mencionaveis&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
-    if (r.ok) { const j = await r.json(); _mencoesPessoas = (j && Array.isArray(j.pessoas)) ? j.pessoas : []; _mencoesPessoasTs = Date.now(); _mencoesRecalcularRepetidos(); }
-  } catch (e) {}
+    if (r.ok) { const j = await r.json(); _mencoesPessoas = (j && Array.isArray(j.pessoas)) ? j.pessoas : []; _mencoesPessoasTs = Date.now(); _mencoesRecalcularRepetidos(); _mencoesFalhou = false; }
+    else _mencoesFalhou = true;
+  } catch (e) { _mencoesFalhou = true; }
   return _mencoesPessoas || [];
 }
 
@@ -21821,7 +21822,16 @@ function _textoComMencoes(texto, limite) {
   return out;
 }
 
-function _mencoesFechar() { document.getElementById('mencao-dd')?.remove(); _mencoesCtx = null; }
+function _mencoesFechar() { document.getElementById('mencao-dd')?.remove(); _mencoesCtx = null; _mencoesInline = false; }
+// Campo com data-mencoes-inline="<id de uma div>": a lista (ou o aviso) aparece DENTRO da própria tela, logo abaixo do campo, em vez de flutuar por cima.
+// No iPhone, com o teclado aberto, a página rola sozinha (o que fechava a lista flutuante na hora) e posição "fixed" pode sair da área visível.
+function _mencoesAviso(box, txt) {
+  _mencoesFechar();
+  const isLight = document.body.classList.contains('tema-claro'), d = document.createElement('div');
+  d.id = 'mencao-dd'; _mencoesInline = true;
+  d.style.cssText = 'margin-top:6px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.4;color:' + (isLight ? '#666' : '#aaa') + ';border:1px dashed ' + (isLight ? '#ccc' : '#444') + ';';
+  d.textContent = txt; box.appendChild(d);
+}
 
 function _mencoesMostrar(el, lista, inicio, fim) {
   _mencoesFechar();
@@ -21830,13 +21840,15 @@ function _mencoesMostrar(el, lista, inicio, fim) {
   const isLight = document.body.classList.contains('tema-claro');
   const dd = document.createElement('div');
   dd.id = 'mencao-dd';
+  const caixa = el.dataset.mencoesInline ? document.getElementById(el.dataset.mencoesInline) : null;
+  _mencoesInline = !!caixa;
   const rect = el.getBoundingClientRect();
   const largura = Math.max(220, Math.min(rect.width, 360));
   const esq = Math.max(8, Math.min(rect.left, window.innerWidth - largura - 8));
   const altura = lista.length * 48 + 8;
   const acima = rect.top > altura + 16;
-  dd.style.cssText = 'position:fixed;z-index:100950;left:' + esq + 'px;width:' + largura + 'px;' + (acima ? 'bottom:' + (window.innerHeight - rect.top + 6) + 'px;' : 'top:' + (rect.bottom + 6) + 'px;') +
-    'background:' + (isLight ? '#fff' : '#1a1a1a') + ';border:1px solid ' + (isLight ? '#ddd' : '#2a2a2a') + ';border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px;max-height:260px;overflow-y:auto;';
+  dd.style.cssText = (caixa ? 'margin-top:6px;' : 'position:fixed;z-index:100950;left:' + esq + 'px;width:' + largura + 'px;' + (acima ? 'bottom:' + (window.innerHeight - rect.top + 6) + 'px;' : 'top:' + (rect.bottom + 6) + 'px;')) +
+    'background:' + (isLight ? '#fff' : '#1a1a1a') + ';border:1px solid ' + (isLight ? '#ddd' : '#2a2a2a') + ';border-radius:12px;' + (caixa ? '' : 'box-shadow:0 10px 30px rgba(0,0,0,.35);') + 'padding:4px;max-height:260px;overflow-y:auto;';
   dd.innerHTML = lista.map((p, i) => {
     const foto = p.tipo === 'aluno' ? ((typeof _feedAvatarsMap !== 'undefined' && _feedAvatarsMap[String(p.id)]) || '') : '';
     const rotulo = _mencoesRotulo(p);
@@ -21856,7 +21868,9 @@ function _mencoesMostrar(el, lista, inicio, fim) {
     ev.preventDefault();
     _mencoesEscolher(Number(it.dataset.i));
   });
-  document.body.appendChild(dd);
+  // mousedown/touchstart também: no iOS só o pointerdown não impede o campo de perder o foco antes da escolha
+  ['mousedown', 'touchstart'].forEach(ev => dd.addEventListener(ev, (e2) => { if (e2.target.closest('[data-i]')) e2.preventDefault(); }, { passive: false }));
+  (caixa || document.body).appendChild(dd);
 }
 
 function _mencoesEscolher(i) {
@@ -21885,7 +21899,12 @@ document.addEventListener('input', async (e) => {
   if (!m) { _mencoesFechar(); return; }
   const inicio = pos - m[2].length - 1;
   const consulta = _semAcentoMencao(m[2]);
+  const caixa = el.dataset.mencoesInline ? document.getElementById(el.dataset.mencoesInline) : null;
+  const seq = el._mencSeq = (el._mencSeq || 0) + 1;   // só a última tecla manda (as buscas terminam fora de ordem)
+  const emCache = _mencoesPessoas && Date.now() - _mencoesPessoasTs < 600000;
+  if (caixa && !emCache) _mencoesAviso(caixa, 'Buscando alunos...');
   const pessoas = await _mencoesCarregar();
+  if (seq !== el._mencSeq) return;
   if (document.activeElement !== el) return;
   const pontua = (p) => {
     const nome = _semAcentoMencao(p.nome);
@@ -21895,11 +21914,12 @@ document.addEventListener('input', async (e) => {
   };
   const lista = pessoas.map(p => ({ p, s: pontua(p) })).filter(x => x.s > 0)
     .sort((a, b) => b.s - a.s).slice(0, 6).map(x => x.p);
+  if (caixa && !lista.length) { _mencoesAviso(caixa, _mencoesFalhou && !pessoas.length ? 'Não consegui carregar a lista de alunos agora. Verifique a internet e tente de novo.' : 'Nenhum aluno encontrado com "' + m[2] + '". Se não for aluno da Intus, pode deixar só o nome.'); return; }
   _mencoesMostrar(el, lista, inicio, pos);
 });
 document.addEventListener('focusout', (e) => { if (e.target && e.target.matches && e.target.matches('[data-mencoes]')) setTimeout(_mencoesFechar, 200); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _mencoesFechar(); });
-window.addEventListener('scroll', _mencoesFechar, true);
+window.addEventListener('scroll', function () { if (!_mencoesInline) _mencoesFechar(); }, true);   // a lista dentro da tela não fecha com a rolagem do teclado do iPhone
 
 // ── Limite de texto: 1000 caracteres (contando as marcações de @, que ocupam
 // um pouco mais que o "@Nome" na tela). Passou: volta ao que cabia e AVISA, em

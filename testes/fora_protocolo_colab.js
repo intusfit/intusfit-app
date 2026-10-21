@@ -52,9 +52,14 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   console.log('\n══ O campo oferece os alunos ao digitar @ ══');
   await preparar('@isa');
   ver('aparece a lista com a Isabela', await page.evaluate(() => !!document.getElementById('mencao-dd') && /Isabela Pazzinatto/.test(document.getElementById('mencao-dd').textContent)));
-  // regressão real (iPhone, 20/10): a lista existia mas ficava ATRÁS da folha do treino e não dava para tocar nela
-  const vis = await page.evaluate(() => { const d = document.getElementById('mencao-dd'), r = d.getBoundingClientRect(), t = document.elementFromPoint(r.left + r.width / 2, r.top + 14); return { dentro: !!t && d.contains(t), z: getComputedStyle(d).zIndex, folha: getComputedStyle(document.getElementById('fp-sheet')).zIndex }; });
-  ver('a lista está VISÍVEL e tocável, por cima da folha (não atrás dela)', vis.dentro && Number(vis.z) > Number(vis.folha), vis);
+  // regressão real (iPhone, 20/10): a lista flutuante ficava atrás da folha / saía da tela com o teclado e não dava para tocar nela.
+  // Agora ela é parte da própria folha, logo abaixo do campo.
+  const vis = await page.evaluate(() => { const d = document.getElementById('mencao-dd'), r = d.getBoundingClientRect(), t = document.elementFromPoint(r.left + r.width / 2, r.top + 14), campo = document.getElementById('fp-desc').getBoundingClientRect(); return { dentro: !!t && d.contains(t), naCaixa: !!d.closest('#fp-mencao-box'), abaixoDoCampo: r.top >= campo.bottom - 1, noEcra: r.bottom <= innerHeight && r.top >= 0 }; });
+  ver('a lista está VISÍVEL e tocável, dentro da folha, logo abaixo do campo', vis.dentro && vis.naCaixa && vis.abaixoDoCampo && vis.noEcra, vis);
+  // o iPhone rola a página sozinho quando o teclado abre: isso fechava a lista na hora
+  await page.evaluate(() => { window.dispatchEvent(new Event('scroll')); document.getElementById('fp-sheet-corpo')?.dispatchEvent(new Event('scroll')); });
+  await page.waitForTimeout(100);
+  ver('a rolagem do teclado NÃO fecha a lista', await page.evaluate(() => !!document.getElementById('mencao-dd')));
   eq('o próprio aluno não é sugerido? (a lista do app já o exclui no servidor; aqui só confere que a escolha funciona)', await page.evaluate(() => !!_mencoesCtx), true);
   await page.evaluate(() => _mencoesEscolher(0));
   eq('o campo fica com "@Isabela Pazzinatto "', await page.$eval('#fp-desc', e => e.value), '@Isabela Pazzinatto ');
@@ -110,6 +115,15 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await page.evaluate(() => { document.getElementById('fp-ok')?.remove(); _fpSalvar(); });
   await page.waitForSelector('#fp-ok');
   eq('sem @ não manda marcação e não mostra o cartão', [S.posts[0].mencoes, await page.$eval('#fp-colab', e => e.innerHTML)], [undefined, '']);
+
+  console.log('\n══ Sem resultado e sem conexão: o app explica ══');
+  await preparar('@zzzz');
+  await page.waitForFunction(() => /Nenhum aluno encontrado/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 3000 });
+  ver('nome que ninguém tem: diz "Nenhum aluno encontrado"', true);
+  await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; abrirTreinoForaProtocolo(); });
+  await page.focus('#fp-desc'); await page.keyboard.type('@isa');
+  await page.waitForFunction(() => /Não consegui carregar a lista/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
+  ver('lista de alunos que não carrega: diz que não conseguiu (e não fica mudo)', true);
 
   console.log('\n══ Aviso na lista de notificações ══');
   const l = await page.evaluate(() => _notifLinhaHtml({ idnotificacao: 5, tipo: 'mencao', alvo_tipo: 'sessao', alvo_id: 777, ator_id: 9, ator_nome: 'Maria Souza', texto: '@Isabela Pazzinatto', quando: '2026-10-20 21:00:00', lido: 0 }, false));

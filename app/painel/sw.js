@@ -1,4 +1,4 @@
-const CACHE_NAME = 'intus-v41';
+const CACHE_NAME = 'intus-v42';
 const ASSETS = [
   'aluno.html',
   'nutricao.html',
