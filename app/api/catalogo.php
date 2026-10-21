@@ -2849,7 +2849,7 @@ if ($action === 'notificacoes') {
             $rTipo  = (string)($rg['tipo'] ?? '');
             $rChave = trim((string)($rg['chave'] ?? ''));
             $rTexto = trim((string)($rg['texto'] ?? ''));
-            if (!in_array($rTipo, ['medalha', 'distintivo', 'parceiro'], true) || $rChave === '' || mb_strlen($rChave) > 80 || $rTexto === '') {
+            if (!in_array($rTipo, ['medalha', 'distintivo', 'parceiro', 'mensalidade'], true) || $rChave === '' || mb_strlen($rChave) > 80 || $rTexto === '') {
                 http_response_code(400); echo json_encode(['error' => 'registro invalido']); exit;
             }
             $rAlvo = crc32($rTipo . ':' . $rChave) & 0x7fffffff;

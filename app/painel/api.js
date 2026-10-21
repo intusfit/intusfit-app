@@ -1789,7 +1789,23 @@ const API = {
     // Em aberto. O dinheiro pode ter entrado na linha de cima.
     if (API.cicloJaPago(m, lista)) {
       const bx = API.baixaQuePagou(m, lista);
-      return R('paga_no_anterior', { cobranca: API.dtCobranca(m), pagoEm: (bx && bx.dtpagamento) || '' });
+      const base = { cobranca: API.dtCobranca(m), pagoEm: (bx && bx.dtpagamento) || '' };
+      // O ciclo esta PAGO, mas ele tambem acaba um dia. Antes este estado devolvia sempre "sem proxima cobranca" e as telas o ignoravam
+      // para sempre: o Erick (que paga uns 2 dias antes do fim do ciclo, entao toda linha dele nasce "paga na linha anterior") passou do
+      // vencimento sem aparecer em "a vencer", em "vencidas" nem em "renovar", e quando a baixa de hoje criasse o ciclo seguinte o
+      // problema se repetiria todo mes. Regra: sem ciclo seguinte registrado, a proxima cobranca e o fim da cobertura (como em "paga");
+      // se a cobertura ja acabou, e "renovar" (acao sua, nao divida).
+      const sucessor = (Array.isArray(lista) ? lista : []).some(x =>
+        Number(x.idmensalidade) !== Number(m.idmensalidade) &&
+        API.mesmaMatricula(x, m, lista) &&
+        x.stmatricula !== 'cancelada' && x.stmatricula !== 'encerrada' &&
+        String(x.dtinicio || '').slice(0, 10) >= fim);
+      if (fim && !sucessor && !API.ehParcelada(m)) {
+        if (fim >= hoje) return R('paga_no_anterior', Object.assign(base, { proxima: fim }));
+        const d = Math.round((new Date(hoje + 'T00:00:00') - new Date(fim + 'T00:00:00')) / 86400000);
+        return R('renovar', Object.assign(base, { cobranca: fim, dias: d, proxima: fim }));
+      }
+      return R('paga_no_anterior', base);
     }
     const cob = API.dtCobranca(m);
     if (!cob) return R('pendente');

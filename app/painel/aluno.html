@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261019a"></script>
+  <script src="api.js?v=20261021a"></script>
   <script src="ajuda.js?v=20261019a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -6728,6 +6728,7 @@ async function sincronizarDoBackend() {
         const other = all.filter(m => Number(m.idatleta) !== Number(idAtleta));
         localStorage.setItem('intus-mensalidades', JSON.stringify([...other, ...fresh]));
         _matSyncOk = true;   // so aqui sabemos que a lista veio mesmo do servidor
+        try { setTimeout(_mensalidadeNotificar, 1500); } catch (e) {}
       }
     } catch {} })(),
   ];
@@ -6945,6 +6946,33 @@ function _matSituacao() {
 function _temMatriculaAtiva() {
   const s = _matSituacao();
   return s.vigente || !!s.carencia; // acesso durante a carência
+}
+
+// AVISO NO SINO: "seu plano vence em N dias" (5 dias antes do fim da cobertura) e "seu plano venceu" (na carência). Antes só existiam as faixas dentro
+// da Home e da Central, que só aparecem se o aluno abrir essas telas e nunca deixavam um aviso no sino. Um aviso por fim de cobertura e por fase
+// (o servidor recusa repetido: tipo + chave), e só depois de o servidor confirmar as matrículas. O teste grátis tem o próprio aviso e não entra aqui.
+function _mensalidadeNotificar() {
+  try {
+    if (!_syncDone || !_matSyncOk || !idAtleta) return;
+    const ativas = _mensalidadesAtivas();
+    if (!ativas.length) return;
+    if (ativas.some(m => /teste|gr[aá]tis|trial|degusta|experimental/i.test(String(m.tipo_plano || '') + ' ' + String(m.dshistorico || '')))) return;
+    const fim = ativas.map(m => String(m.dtvencimento || '').slice(0, 10)).filter(Boolean).sort().pop();
+    if (!fim) return;
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const dias = Math.round((new Date(fim + 'T00:00:00') - hoje) / 86400000);   // >= 0: faltam; < 0: venceu
+    const br = fim.slice(8, 10) + '/' + fim.slice(5, 7);
+    const s = _matSituacao();
+    let fase = '', texto = '';
+    if (s.carencia && dias < 0) { fase = 'venceu'; texto = 'Seu plano venceu em ' + br + '. Regularize ' + (s.carencia.restantes > 1 ? 'em até ' + s.carencia.restantes + ' dias' : 'hoje') + ' para continuar treinando sem interrupção.'; }
+    else if (s.vigente && dias >= 0 && dias <= 5) { fase = 'vence'; texto = dias === 0 ? 'Seu plano vence hoje (' + br + '). Combine a renovação com a equipe.' : 'Seu plano vence em ' + dias + ' dia' + (dias > 1 ? 's' : '') + ' (' + br + '). Combine a renovação com a equipe.'; }
+    if (!fase) return;
+    const chave = fase + ':' + fim, marca = 'intus-mens-avisada-' + idAtleta;
+    let feitas = []; try { feitas = JSON.parse(localStorage.getItem(marca) || '[]'); } catch (e) {}
+    if (feitas.indexOf(chave) >= 0) return;
+    feitas.push(chave); try { localStorage.setItem(marca, JSON.stringify(feitas.slice(-12))); } catch (e) {}
+    _notifRegistrar({ tipo: 'mensalidade', chave: chave, texto: texto });
+  } catch (e) {}
 }
 
 // TESTE GRÁTIS: treina, faz cardio e pontua no ranking, mas NÃO publica no Feed nem comenta (post, comentário e mural) enquanto o único plano for o teste.
@@ -21978,8 +22006,8 @@ document.addEventListener('input', (e) => {
 // Linha de notificação, usada na aba Notificações da Central. Medalha e
 // distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
-  const icones = { dm: '💬', curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯', colab_convite: '👥', colab_aceito: '👥' };
-  const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro';
+  const icones = { dm: '💬', curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', mensalidade: '💳', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯', colab_convite: '👥', colab_aceito: '👥' };
+  const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro' || n.tipo === 'mensalidade';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
     curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Mural' : ((n.texto && n.texto !== '❤️') ? 'reagiu ' + n.texto + ' ao seu post' : 'curtiu seu post')),
@@ -22092,6 +22120,7 @@ function _notifAbrir(el) {
   closeModal();
   if (tipo === 'medalha') { abrirQuadroMedalhas(); return; }
   if (tipo === 'distintivo') { navegar('perfil'); return; }
+  if (tipo === 'mensalidade') { navegar('matricula'); return; }
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
   if (tipo === 'dm') { _centralTab = 'chat'; _centralChatTarget = 'a:' + alvo; _chatAberta = true; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
