@@ -21762,6 +21762,8 @@ async function _mencoesCarregar() {
   return _mencoesPessoas || [];
 }
 
+// nomes iguais mostram "desde"/nº na lista; com a união das fontes o cálculo precisa olhar a lista final
+function _mencoesRecalcularRepetidos2(lista) { const antes = _mencoesPessoas; _mencoesPessoas = lista; _mencoesRecalcularRepetidos(); _mencoesPessoas = antes; }
 function _semAcentoMencao(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 
 function _mencoesLimpar(chave) { _mencoesCampos[chave] = []; }
@@ -21908,6 +21910,22 @@ document.addEventListener('input', async (e) => {
   if (!pessoas.length && emCache) { _mencoesPessoas = null; _mencoesPessoasTs = 0; pessoas = await _mencoesCarregar(); }
   if (seq !== el._mencSeq) return;
   if (document.activeElement !== el) return;
+  // Campo dentro de uma folha (treino fora do protocolo): além da lista do servidor, usa os alunos que o app já conhece (ranking, Feed, amigos).
+  // Se a lista do servidor vier vazia ou incompleta no aparelho de alguém, a marcação continua funcionando. O servidor segue conferindo cada marcada
+  // (existe, participa do Feed, sem bloqueio) antes de avisar, então nome de quem não pode ser avisado só não gera aviso.
+  let doServidor = pessoas.length, doApp = 0;
+  if (caixa) {
+    const vistos = new Set(pessoas.filter(p => p.tipo === 'aluno').map(p => Number(p.id)));
+    pessoas = pessoas.slice();
+    const juntar = (mapa) => Object.keys(mapa || {}).forEach(k => {
+      const id = Number(k), v = mapa[k], nome = String(v && typeof v === 'object' ? (v.nome || '') : (v || '')).trim();
+      if (id > 0 && id !== Number(idAtleta) && nome && !vistos.has(id)) { vistos.add(id); pessoas.push({ tipo: 'aluno', id: id, nome: nome, desde: '' }); doApp++; }
+    });
+    try { if (!_rankingData || _rankingData._falhou) { await _ensureRankingData(); } } catch (e2) {}
+    if (seq !== el._mencSeq) return;
+    juntar((_rankingData || {}).atletas); juntar(_feedAtletasMap); juntar((_amzDados || {}).pessoas);
+    _mencoesRecalcularRepetidos2(pessoas);
+  }
   const pontua = (p) => {
     const nome = _semAcentoMencao(p.nome);
     if (!consulta) return 1;
@@ -21916,7 +21934,7 @@ document.addEventListener('input', async (e) => {
   };
   const lista = pessoas.map(p => ({ p, s: pontua(p) })).filter(x => x.s > 0)
     .sort((a, b) => b.s - a.s).slice(0, 6).map(x => x.p);
-  if (caixa && !lista.length) { _mencoesAviso(caixa, _mencoesFalhou && !pessoas.length ? 'Não consegui carregar a lista de alunos agora. Verifique a internet e tente de novo.' : 'Nenhum aluno encontrado com "' + m[2] + '" (' + pessoas.length + ' na lista). Só aparecem alunos que participam do Feed. Se não for aluno da Intus, pode deixar só o nome.'); return; }
+  if (caixa && !lista.length) { _mencoesAviso(caixa, _mencoesFalhou && !pessoas.length ? 'Não consegui carregar a lista de alunos agora. Verifique a internet e tente de novo.' : 'Nenhum aluno encontrado com "' + m[2] + '" (' + doServidor + ' na lista do servidor, ' + doApp + ' do ranking). Se não for aluno da Intus, pode deixar só o nome.'); return; }
   _mencoesMostrar(el, lista, inicio, pos);
 });
 document.addEventListener('focusout', (e) => { if (e.target && e.target.matches && e.target.matches('[data-mencoes]')) setTimeout(_mencoesFechar, 200); });
