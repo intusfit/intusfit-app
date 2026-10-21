@@ -39,7 +39,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
       localStorage.removeItem('intus-sessoes-treino');
       _mencoesFechar(); abrirTreinoForaProtocolo();
     });
-    await page.focus('#fp-desc');
+    await page.waitForTimeout(300); await page.focus('#fp-desc');
     await page.keyboard.type(texto);
     // as teclas disparam buscas assíncronas: espera a lista já filtrada (só quem casa com o que foi digitado) e escolhe na mesma hora
     if (texto[0] === '@') { await page.waitForFunction((t) => { const d = document.getElementById('mencao-dd'); return d && d.textContent.toLowerCase().includes(t); }, texto.slice(1).toLowerCase(), { timeout: 3000 }); }
@@ -125,19 +125,19 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   // lista vazia guardada de uma chamada anterior: busca de novo antes de dizer que não achou
   S.buscas = 0;
   await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = []; _mencoesPessoasTs = Date.now(); _mencoesFalhou = false; abrirTreinoForaProtocolo(); });
-  await page.focus('#fp-desc'); await page.keyboard.type('@isa');
+  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@isa');
   await page.waitForFunction(() => /Isabela/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
   ver('lista vazia em cache: refaz a busca uma vez e acha a Isabela', S.buscas >= 1, S.buscas);
   S.listaOk = false;
-  await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; abrirTreinoForaProtocolo(); });
-  await page.focus('#fp-desc'); await page.keyboard.type('@isa');
+  await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; _rankingData = { atletas: {}, sessoes: [], comentarios: [] }; _feedAtletasMap = {}; _amzDados = { amigos: [], recebidos: [], enviados: [], pessoas: {} }; abrirTreinoForaProtocolo(); });
+  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@isa');
   await page.waitForFunction(() => /Não consegui carregar a lista/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
   ver('lista de alunos que não carrega: diz que não conseguiu (e não fica mudo)', true);
 
   console.log('\n══ Lista do servidor vazia: usa os alunos que o app já conhece ══');
   S.listaVazia = true; S.listaOk = true;
   await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; _rankingData = { atletas: { '42': 'Isabela Pazzinatto', '7': 'Aluna Teste' }, sessoes: [], comentarios: [] }; abrirTreinoForaProtocolo(); });
-  await page.focus('#fp-desc'); await page.keyboard.type('@isa');
+  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@isa');
   await page.waitForFunction(() => /Isabela/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
   ver('servidor devolveu lista vazia: a Isabela vem do ranking que o app já tem', true);
   await page.evaluate(() => _mencoesEscolher(0));
@@ -145,7 +145,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   const mm = await page.evaluate(() => _fpMontar());
   eq('e a marcação sai igual (id e nome)', mm.resumo && mm.resumo.marcados, [{ id: 42, nome: 'Isabela Pazzinatto' }]);
   await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); abrirTreinoForaProtocolo(); });
-  await page.focus('#fp-desc'); await page.keyboard.type('@alun');
+  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@alun');
   await page.waitForFunction(() => /Nenhum aluno/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
   ver('o próprio aluno nunca é sugerido (nem pelo ranking)', true);
   S.listaVazia = false;
