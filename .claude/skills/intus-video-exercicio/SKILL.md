@@ -31,7 +31,29 @@ site, e isto aqui não é para ficar acessível pela web.
 - **MP4 nunca entra no repositório**: o `git push` na `main` publica tudo no site. Gere no
   scratchpad e entregue o arquivo ao Luiz (SendUserFile).
 
-## Dois modelos: 3D realista (padrão) e boneco 2D
+## Caminho atual: clipe gerado por IA (decisão do Luiz, 22/10/2026)
+
+O Luiz reprovou o boneco 2D ("robótico") e também o 3D feito aqui no Blender ("ficou bem ruim").
+Escolheu **vídeo gerado por IA do zero** (Kling 3.0; Seedance 2.0 como comparação). Claude não
+entra na conta dele nem usa chave dele: **o Luiz gera o clipe** com os prompts do kit e manda o MP4.
+
+- Kit com o passo a passo e os prompts (modelo da Intus, piloto da prancha, erros, checklist):
+  **https://claude.ai/artifact/CZTy8DMMaPNz15aDQbMRwm** (fonte no scratchpad da sessão; para
+  mudar, leia com `action: "read"` e republique no mesmo `url`).
+- Montagem do vídeo final a partir do clipe: `renderizar-ia.js` + `modelo-ia.html` + roteiro em
+  `roteiros-ia/`. Corta UMA repetição do clipe (`rep.inicio`/`rep.fim`, em segundos; `vaiEvolta`
+  para isometria ou quando o fim não encaixa no começo), repete em loop e põe por cima passo a
+  passo, fase (`fases`), respiração (`respiracao`), erros e logo. Erro com `clipe` usa o clipe do
+  erro; sem ele, mostra a execução certa com moldura vermelha/verde.
+
+```bash
+node renderizar-ia.js roteiros-ia/abdominal-prancha.json <clipe.mp4> <saida.mp4>
+```
+
+- A IA erra técnica: o checklist do kit precisa ser seguido antes de aceitar um clipe, e o Luiz
+  valida o conteúdo técnico como sempre.
+
+## Dois modelos anteriores (reprovados): 3D no Blender e boneco 2D
 
 O Luiz achou o boneco 2D "robótico" (22/10/2026) e escolheu o **3D realista**: corpo humano do
 MakeHuman (malha e alvos CC0, via MPFB 2) com esqueleto, renderizado no Blender (Cycles, CPU).
