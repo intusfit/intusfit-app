@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Intus · vídeo de exercício</title>
+<style>
+  html,body{margin:0;background:#0f0f0f;overflow:hidden}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<img id="logo" src="../../../app/painel/logo-intus-dark.png" style="display:none">
+<script>
+/*
+ * Modelo de vídeo explicativo de exercício da Intus (16:9, 1920×1080).
+ *
+ * Tudo é função do tempo: desenhar(t) pinta o quadro do segundo t, sem estado. É isso
+ * que deixa o renderizar.js gerar o MP4 quadro a quadro, sempre igual, sem gravar a tela.
+ * O conteúdo vem de window.ROTEIRO (um JSON por exercício, em roteiros/).
+ *
+ * Boneco visto de LADO, virado para a direita. Cada pose diz o ângulo de cada segmento
+ * em graus, medido a partir da vertical para cima: 0 = em pé reto, positivo = inclinado
+ * para a frente (direita), negativo = para trás. Exemplos: canela 30 = joelho à frente
+ * do pé; coxa -90 = coxa deitada apontando para trás (quadril atrás do joelho).
+ */
+var R = window.ROTEIRO || null;
+var W = 1920, H = 1080;
+var C = document.getElementById('c'), X = C.getContext('2d');
+var LOGO = document.getElementById('logo');
+// o renderizar.js manda a logo embutida (data URL): imagem lida do disco "contamina" o canvas
+// e o navegador proíbe exportar o quadro (toDataURL) para virar vídeo.
+if (window.LOGO_DATA) LOGO.src = window.LOGO_DATA;
+var COR = { fundo: '#0f0f0f', cartao: '#161616', borda: '#2a2a2a', texto: '#f0f0f0', muted: '#9a9a9a',
+            verde: '#7FFF00', vermelho: '#ff4d4d', corpo: '#e9e9e9', corpoSombra: '#8c8c8c', equip: '#bdbdbd' };
+var FONTE = 'Inter, "Inter Display", system-ui, sans-serif';
+
+// ── tempos das cenas (segundos) ──
+var T_INTRO = 2.6, T_DICA = 3.2, T_ERRO_CADA = 2.6, T_OUTRO = 2.6;
+function linhaDoTempo(){
+  var nDicas = (R.dicas || []).length;
+  var iniDemo = T_INTRO, fimDemo = iniDemo + 0.6 + nDicas * T_DICA + 0.4;
+  var iniErro = fimDemo, fimErro = R.erro ? iniErro + 2 * T_ERRO_CADA : iniErro;
+  return { iniDemo: iniDemo, fimDemo: fimDemo, iniErro: iniErro, fimErro: fimErro, total: fimErro + T_OUTRO };
+}
+var LT = R ? linhaDoTempo() : null;
+var DURACAO = LT ? LT.total : 0;
+
+// ── utilidades ──
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+function suave(x){ x = clamp(x, 0, 1); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+function surge(t, ini, dur){ return suave((t - ini) / (dur || .45)); }           // 0→1
+function some(t, fim, dur){ return 1 - suave((t - (fim - (dur || .4))) / (dur || .4)); } // 1→0
+function rad(g){ return g * Math.PI / 180; }
+function lerp(a, b, k){ return a + (b - a) * k; }
+
+// ── esqueleto ──
+var L = { canela: .46, coxa: .46, tronco: .56, pescoco: .07, cabeca: .115, braco: .30, antebraco: .28, pe: .25, calcanhar: .06 };
+var SEG = ['canela', 'coxa', 'tronco', 'pe', 'braco', 'antebraco', 'cabecaInc'];
+function misturar(a, b, k){
+  var o = {};
+  Object.keys(a).forEach(function(n){ o[n] = typeof a[n] === 'number' && typeof b[n] === 'number' ? lerp(a[n], b[n], k) : (k < .5 ? a[n] : b[n]); });
+  Object.keys(b).forEach(function(n){ if (!(n in o)) o[n] = b[n]; });
+  return o;
+}
+// pose no instante tm do ciclo de repetição (sequencia = [[nomePose, segundos, rotulo], ...])
+function poseNoCiclo(tm, sobrescrever){
+  var seq = R.movimento.sequencia, poses = R.movimento.poses;
+  var total = seq.reduce(function(s, p){ return s + p[1]; }, 0);
+  var x = ((tm % total) + total) % total, acum = 0;
+  for (var i = 0; i < seq.length; i++) {
+    var de = poses[seq[(i - 1 + seq.length) % seq.length][0]], para = poses[seq[i][0]];
+    if (x <= acum + seq[i][1]) {
+      var k = suave((x - acum) / seq[i][1]);
+      var p = misturar(de, para, k);
+      if (sobrescrever) p = misturar(p, Object.assign({}, p, sobrescrever), 1);
+      return { pose: p, rotulo: seq[i][2] || '', fase: (x - acum) / seq[i][1] };
+    }
+    acum += seq[i][1];
+  }
+  return { pose: poses[seq[0][0]], rotulo: '', fase: 0 };
+}
+// direção de um segmento com ângulo g (graus a partir da vertical, + = frente)
+function dir(g){ return { x: Math.sin(rad(g)), y: Math.cos(rad(g)) }; }   // y para CIMA
+function soma(p, g, l){ var d = dir(g); return { x: p.x + d.x * l, y: p.y + d.y * l }; }
+// IK de 2 ossos (ombro→cotovelo→mão), cotovelo dobrando para trás/baixo
+function ik(ombro, alvo, l1, l2, cotoveloParaTras){
+  var dx = alvo.x - ombro.x, dy = alvo.y - ombro.y, d = Math.min(Math.hypot(dx, dy), l1 + l2 - 1e-4);
+  var a = Math.atan2(dy, dx), b = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1));
+  var ang = a + (cotoveloParaTras ? b : -b);
+  return { x: ombro.x + Math.cos(ang) * l1, y: ombro.y + Math.sin(ang) * l1 };
+}
+function montar(p){
+  var tornozelo = { x: 0, y: 0 };
+  // calcanhar levantado gira o pé em torno da ponta e sobe o tornozelo
+  var lev = p.calcanhar || 0;
+  var ponta = { x: L.pe - L.calcanhar, y: 0 };
+  if (lev) { tornozelo = { x: ponta.x - Math.cos(rad(lev)) * (L.pe - L.calcanhar), y: Math.sin(rad(lev)) * (L.pe - L.calcanhar) }; }
+  var calc = { x: tornozelo.x - Math.cos(rad(lev)) * L.calcanhar, y: tornozelo.y - Math.sin(rad(lev)) * L.calcanhar };
+  var joelho = soma(tornozelo, p.canela, L.canela);
+  var quadril = soma(joelho, p.coxa, L.coxa);
+  var ombro = soma(quadril, p.tronco, L.tronco);
+  var pesc = soma(ombro, p.tronco + (p.cabecaInc || 0), L.pescoco);
+  var cabeca = soma(pesc, p.tronco + (p.cabecaInc || 0), L.cabeca);
+  var j = { tornozelo: tornozelo, calc: calc, ponta: ponta, joelho: joelho, quadril: quadril, ombro: ombro, pesc: pesc, cabeca: cabeca };
+  // barra nas costas: um pouco atrás e acima do ombro, perpendicular ao tronco
+  var n = dir(p.tronco - 90);
+  if (R.equipamento === 'barra_costas') {
+    j.barra = { x: ombro.x + n.x * .07 + dir(p.tronco).x * .03, y: ombro.y + n.y * .07 + dir(p.tronco).y * .03 };
+    j.mao = { x: j.barra.x + dir(p.tronco).x * .0, y: j.barra.y };
+    j.cotovelo = ik(ombro, j.mao, L.braco, L.antebraco, true);   // cotovelo para baixo/trás
+  } else if (typeof p.braco === 'number') {
+    j.cotovelo = soma(ombro, p.braco, L.braco);
+    j.mao = soma(j.cotovelo, p.antebraco, L.antebraco);
+  } else {
+    j.cotovelo = soma(ombro, 180, L.braco); j.mao = soma(j.cotovelo, 180, L.antebraco);
+  }
+  return j;
+}
+
+// ── desenho do boneco ──
+function desenharBoneco(p, ox, oy, esc, destaque, corContorno){
+  var j = montar(p);
+  var P = function(q){ return [ox + q.x * esc, oy - q.y * esc]; };
+  var linha = function(a, b, larg, cor){
+    var A = P(a), B = P(b);
+    X.strokeStyle = cor; X.lineWidth = larg * esc; X.lineCap = 'round';
+    X.beginPath(); X.moveTo(A[0], A[1]); X.lineTo(B[0], B[1]); X.stroke();
+  };
+  var musc = R.musculosSegmentos || [];
+  var cor = function(seg){ return corContorno || (destaque && musc.indexOf(seg) >= 0 ? COR.verde : COR.corpo); };
+  // brilho atrás dos músculos trabalhados
+  if (destaque && !corContorno) {
+    X.save(); X.shadowColor = COR.verde; X.shadowBlur = 40;
+    if (musc.indexOf('coxa') >= 0) linha(j.joelho, j.quadril, .11, 'rgba(127,255,0,.35)');
+    if (musc.indexOf('canela') >= 0) linha(j.tornozelo, j.joelho, .09, 'rgba(127,255,0,.35)');
+    if (musc.indexOf('tronco') >= 0) linha(j.quadril, j.ombro, .13, 'rgba(127,255,0,.3)');
+    X.restore();
+  }
+  // anilha ATRÁS do corpo (senão cobre a cabeça e o tronco e o movimento some)
+  if (j.barra) {
+    var Ba = P(j.barra);
+    X.fillStyle = '#242424'; X.strokeStyle = corContorno ? corContorno : '#6b6b6b'; X.lineWidth = .012 * esc;
+    X.beginPath(); X.arc(Ba[0], Ba[1], .15 * esc, 0, Math.PI * 2); X.fill(); X.stroke();
+  }
+  // pernas, tronco, cabeça e braço
+  linha(j.calc, j.ponta, .05, corContorno || COR.corpo);
+  linha(j.tornozelo, j.joelho, .085, cor('canela'));
+  linha(j.joelho, j.quadril, .105, cor('coxa'));
+  if (musc.indexOf('gluteo') >= 0 && destaque && !corContorno) {
+    var Q = P(j.quadril); X.fillStyle = COR.verde; X.beginPath(); X.arc(Q[0], Q[1], .075 * esc, 0, Math.PI * 2); X.fill();
+  }
+  linha(j.quadril, j.ombro, .13, cor('tronco'));
+  linha(j.ombro, j.pesc, .06, corContorno || COR.corpo);
+  var Cc = P(j.cabeca); X.fillStyle = corContorno || COR.corpo; X.beginPath(); X.arc(Cc[0], Cc[1], L.cabeca * esc * .95, 0, Math.PI * 2); X.fill();
+  // equipamento
+  linha(j.ombro, j.cotovelo, .07, corContorno || COR.corpoSombra);
+  linha(j.cotovelo, j.mao, .06, corContorno || COR.corpoSombra);
+  if (j.barra) {   // ponta da barra (vista de lado) por cima da mão
+    var Bb = P(j.barra);
+    X.fillStyle = corContorno || COR.equip; X.beginPath(); X.arc(Bb[0], Bb[1], .035 * esc, 0, Math.PI * 2); X.fill();
+  }
+  return { j: j, P: P };
+}
+
+// ── texto ──
+function texto(t, x, y, tam, peso, cor, alinh, alfa){
+  X.save(); X.globalAlpha = alfa == null ? 1 : alfa;
+  X.font = peso + ' ' + tam + 'px ' + FONTE; X.fillStyle = cor; X.textAlign = alinh || 'left'; X.textBaseline = 'alphabetic';
+  X.fillText(t, x, y); X.restore();
+}
+function quebrar(t, larg, tam, peso){
+  X.font = peso + ' ' + tam + 'px ' + FONTE;
+  var pal = t.split(' '), linhas = [], at = '';
+  pal.forEach(function(p){ var tst = at ? at + ' ' + p : p; if (X.measureText(tst).width > larg && at) { linhas.push(at); at = p; } else at = tst; });
+  if (at) linhas.push(at);
+  return linhas;
+}
+function retArred(x, y, w, h, r){ X.beginPath(); X.moveTo(x + r, y); X.arcTo(x + w, y, x + w, y + h, r); X.arcTo(x + w, y + h, x, y + h, r); X.arcTo(x, y + h, x, y, r); X.arcTo(x, y, x + w, y, r); X.closePath(); }
+function logo(x, y, h, alfa){ if (LOGO.complete && LOGO.naturalWidth) { X.save(); X.globalAlpha = alfa; X.drawImage(LOGO, x, y, h * LOGO.naturalWidth / LOGO.naturalHeight, h); X.restore(); } }
+
+// ── palco (cartão da esquerda com o boneco) ──
+var PALCO = { x: 80, y: 130, w: 960, h: 860 };
+function palco(t, conteudo, alfa){
+  X.save(); X.globalAlpha = alfa;
+  retArred(PALCO.x, PALCO.y, PALCO.w, PALCO.h, 28); X.fillStyle = COR.cartao; X.fill();
+  X.strokeStyle = COR.borda; X.lineWidth = 2; X.stroke();
+  var chao = PALCO.y + PALCO.h - 175;   // espaço embaixo para o texto da fase
+  X.strokeStyle = '#333'; X.lineWidth = 3; X.beginPath(); X.moveTo(PALCO.x + 60, chao); X.lineTo(PALCO.x + PALCO.w - 60, chao); X.stroke();
+  X.save(); retArred(PALCO.x, PALCO.y, PALCO.w, PALCO.h, 28); X.clip();
+  conteudo(PALCO.x + PALCO.w * .5, chao, 360);
+  X.restore();
+  X.restore();
+}
+
+// ── cenas ──
+function cenaIntro(t){
+  var a = surge(t, .1, .6) * some(t, T_INTRO, .45);
+  texto('COMO FAZER', W / 2, 420, 34, 800, COR.verde, 'center', a);
+  texto(R.nome, W / 2, 530, 104, 900, COR.texto, 'center', a * surge(t, .25, .6));
+  texto((R.musculos || []).join('  ·  '), W / 2, 610, 40, 500, COR.muted, 'center', a * surge(t, .5, .6));
+  logo(W / 2 - 90, 760, 52, a * .9);
+}
+
+function painelDireito(titulo, alfa){
+  texto(R.nome, 1110, 230, 60, 900, COR.texto, 'left', alfa);
+  texto((R.musculos || []).join('  ·  '), 1110, 285, 30, 500, COR.muted, 'left', alfa);
+  if (titulo) texto(titulo, 1110, 375, 26, 800, COR.verde, 'left', alfa);
+}
+
+function cenaDemo(t){
+  var tl = t - LT.iniDemo, dur = LT.fimDemo - LT.iniDemo;
+  var a = surge(tl, 0, .5) * some(tl, dur, .4);
+  var c = poseNoCiclo(tl);
+  palco(t, function(ox, oy, esc){ desenharBoneco(c.pose, ox, oy, esc, true); }, a);
+  // indicador de cadência: rótulo da fase + barra
+  if (c.rotulo) {
+    X.save(); X.globalAlpha = a;
+    retArred(PALCO.x + 60, PALCO.y + PALCO.h - 58, PALCO.w - 120, 12, 6); X.fillStyle = '#262626'; X.fill();
+    retArred(PALCO.x + 60, PALCO.y + PALCO.h - 58, (PALCO.w - 120) * clamp(c.fase, 0, 1), 12, 6); X.fillStyle = COR.verde; X.fill();
+    X.restore();
+    texto(c.rotulo, PALCO.x + 60, PALCO.y + PALCO.h - 80, 30, 800, COR.texto, 'left', a);
+  }
+  painelDireito('PASSO A PASSO', a);
+  // dicas aparecendo uma a uma; a atual em destaque
+  var y = 450;
+  (R.dicas || []).forEach(function(d, i){
+    var ini = .6 + i * T_DICA, ap = surge(tl, ini, .4);
+    if (ap <= 0) return;
+    var atual = tl >= ini && tl < ini + T_DICA;
+    var linhas = quebrar(d, 640, 36, 600);
+    var alt = 30 + linhas.length * 46;
+    X.save(); X.globalAlpha = a * ap;
+    retArred(1100, y - 8, 720, alt, 16);
+    X.fillStyle = atual ? 'rgba(127,255,0,.08)' : 'rgba(255,255,255,.02)'; X.fill();
+    X.strokeStyle = atual ? 'rgba(127,255,0,.45)' : COR.borda; X.lineWidth = 2; X.stroke();
+    X.restore();
+    texto(String(i + 1), 1130, y + 42, 34, 900, atual ? COR.verde : COR.muted, 'left', a * ap);
+    linhas.forEach(function(l, k){ texto(l, 1178, y + 42 + k * 46, 36, 600, atual ? COR.texto : '#bdbdbd', 'left', a * ap); });
+    y += alt + 18;
+  });
+  logo(80, 52, 40, a);
+}
+
+function cenaErro(t){
+  var tl = t - LT.iniErro, dur = LT.fimErro - LT.iniErro;
+  var a = surge(tl, 0, .4) * some(tl, dur, .35);
+  var errado = tl < T_ERRO_CADA;
+  var tc = errado ? tl : tl - T_ERRO_CADA;
+  var cx = surge(tc, 0, .35);
+  // segura a pose do erro (fim da descida) para ficar claro
+  var p = R.movimento.poses[R.erro.pose || 'baixo'];
+  if (errado) p = Object.assign({}, p, R.erro.ajuste || {});
+  palco(t, function(ox, oy, esc){
+    var b = desenharBoneco(p, ox, oy, esc, false, errado ? COR.vermelho : COR.verde);
+    var alvo = b.j[R.erro.marcar || 'calc'];
+    if (alvo) {
+      var M = b.P(alvo);
+      X.save(); X.globalAlpha = cx; X.strokeStyle = errado ? COR.vermelho : COR.verde; X.lineWidth = 6;
+      X.beginPath(); X.arc(M[0], M[1], 58, 0, Math.PI * 2); X.stroke(); X.restore();
+    }
+  }, a);
+  painelDireito('ERRO COMUM', a);
+  var titulo = errado ? '✗  ' + R.erro.errado : '✓  ' + R.erro.certo;
+  var linhas = quebrar(titulo, 700, 44, 800);
+  linhas.forEach(function(l, k){ texto(l, 1110, 480 + k * 56, 44, 800, errado ? COR.vermelho : COR.verde, 'left', a * cx); });
+  var expl = quebrar(errado ? (R.erro.porque || '') : (R.erro.comoCorrigir || ''), 700, 32, 500);
+  expl.forEach(function(l, k){ texto(l, 1110, 500 + linhas.length * 56 + 20 + k * 42, 32, 500, '#cfcfcf', 'left', a * cx); });
+  logo(80, 52, 40, a);
+}
+
+function cenaOutro(t){
+  var tl = t - LT.fimErro;
+  var a = surge(tl, 0, .5);
+  logo(W / 2 - 150, 400, 86, a);
+  texto(R.fechamento || 'Dúvida na execução? Fale com o seu professor pelo app.', W / 2, 600, 40, 600, COR.texto, 'center', a * surge(tl, .3, .5));
+  texto('intusfit.com.br', W / 2, 660, 30, 500, COR.muted, 'center', a * surge(tl, .5, .5));
+}
+
+function desenhar(t){
+  X.fillStyle = COR.fundo; X.fillRect(0, 0, W, H);
+  // fundo liso de propósito: degradê suave vira "anéis" depois da compressão do vídeo
+  if (!R) { texto('Sem roteiro (window.ROTEIRO)', 80, 120, 40, 700, COR.vermelho); return; }
+  if (t < LT.iniDemo) cenaIntro(t);
+  else if (t < LT.fimDemo) cenaDemo(t);
+  else if (t < LT.fimErro) cenaErro(t);
+  else cenaOutro(t);
+}
+
+// prévia ao abrir no navegador (o renderizar.js controla o tempo sozinho)
+if (!window.__RENDER) { var t0 = performance.now(); (function loop(){ desenhar(((performance.now() - t0) / 1000) % (DURACAO || 1)); requestAnimationFrame(loop); })(); }
+</script>
+</body>
+</html>
