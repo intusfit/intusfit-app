@@ -75,7 +75,9 @@ def criar(h, rig, co, couro, bun, mat=None, n_fios=26000, semente=7):
     # coque: voltas de fios em espiral, com bagunça
     for i in range(int(n_fios * .45)):
         eixo = rng.normal(0, 1, 3); eixo /= np.linalg.norm(eixo)
-        a1 = np.cross(eixo, [0, 0, 1.]); a1 /= max(np.linalg.norm(a1), 1e-6); a2 = np.cross(eixo, a1)
+        a1 = np.cross(eixo, [0, 0, 1.])
+        if np.linalg.norm(a1) < .2: a1 = np.cross(eixo, [1., 0, 0])     # eixo quase vertical: outra referência
+        a1 /= np.linalg.norm(a1); a2 = np.cross(eixo, a1)
         rr = rb * (.45 + .55 * rnd.random()); fase = rnd.random() * 6.28; voltas = .9 + .6 * rnd.random()
         pts = []
         for k in range(K):

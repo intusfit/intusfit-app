@@ -127,13 +127,12 @@ def criar_modelo():
     ts = importlib.import_module(base + '.services.targetservice').TargetService
     dados = os.path.join(os.path.dirname(importlib.import_module(base).__file__), 'data', 'targets')
     mac = ts.get_default_macro_info_dict()
-    mac.update(dict(gender=0.0, age=0.42, muscle=0.8, weight=0.56, height=0.55, proportions=1.0, cupsize=0.5, firmness=0.85))
+    mac.update(dict(gender=0.0, age=0.45, muscle=0.74, weight=0.46, height=0.55, proportions=0.9, cupsize=0.45, firmness=0.8))
     h = hs.create_human(macro_detail_dict=mac)
     # glúteo treinado, abdômen firme, cintura fina
-    for cat, nome, peso in (('buttocks', 'buttocks-volume-incr', 1.0), ('hip', 'hip-scale-depth-incr', .55),
-                            ('hip', 'hip-scale-horiz-incr', .25), ('pelvis', 'pelvis-tone-incr', .7),
-                            ('stomach', 'stomach-tone-incr', .6), ('torso', 'measure-waist-circ-decr', .45),
-                            ('stomach', 'stomach-navel-in', .5)):
+    # corpo do modelo original (aprovado pelo Luiz: estilo das personagens do GTA)
+    for cat, nome, peso in (('buttocks', 'buttocks-volume-incr', 1.0), ('stomach', 'stomach-tone-incr', .7),
+                            ('torso', 'measure-waist-circ-decr', .35), ('stomach', 'stomach-navel-in', .5)):
         ts.load_target(h, os.path.join(dados, cat, nome + '.target.gz'), weight=peso)
     rig = hs.add_builtin_rig(h, 'default')
     for md in h.modifiers: md.show_viewport = False
@@ -190,6 +189,12 @@ def criar_modelo():
         p.use_smooth = True
         gu = set().union(*[vg[i] for i in p.vertices])
         p.material_index = 0 if 'body' in gu else (3 if 'helper-tongue' in gu else 2)
+    # entreperna e fenda do glúteo mais lisas (o short não afunda no vinco do corpo)
+    fenda = h.vertex_groups.new(name='fenda')
+    for i, c in enumerate(co):
+        if 'body' in vg[i] and m['zbarra'] - .02 < c.z < zp + .04 and abs(c.x) < .06:
+            fenda.add([i], max(0.0, 1 - abs(c.x) / .06) * (1 if c.z < zp - .02 else .5), 'REPLACE')
+    sm = h.modifiers.new('fenda', 'SMOOTH'); sm.factor = .8; sm.iterations = 12; sm.vertex_group = 'fenda'
     sub = h.modifiers.new('suave', 'SUBSURF'); sub.levels = 1; sub.render_levels = 2
 
     tn = h.copy(); tn.data = h.data.copy(); tn.name = 'tenis'; bpy.context.scene.collection.objects.link(tn)
