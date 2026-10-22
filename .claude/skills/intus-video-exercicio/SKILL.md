@@ -165,7 +165,10 @@ Tudo que for produzido entra na página **https://claude.ai/artifact/NHTznbab21E
 (Vídeos de exercícios: filtros por região, posição e vista; MP4 e capa para baixar). Para
 acrescentar um vídeo: gere o MP4 e a capa numa pasta `videos/` do scratchpad, acrescente o item no
 array `VIDEOS` do `index.html` da galeria e republique com `url` dessa página (leia a página antes
-com `action: "read"`, e mande nos `files` só os vídeos novos: os já publicados ficam).
+com `action: "read"`, e mande nos `files` só os vídeos novos: os já publicados ficam). Cada vídeo tem
+status (Rascunho, Aprovado, Arquivado) que o Luiz marca na própria página: fica no banco da página,
+documento `status/<id do vídeo>` com `{estado, em}` (só quem edita a página escreve). Antes de produzir
+de novo, leia com `ArtifactData list` (coleção `status`) para saber o que já foi aprovado ou arquivado.
 
 ## Qual exercício está sem vídeo
 
