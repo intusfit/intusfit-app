@@ -25,9 +25,9 @@ for p in h.data.polygons:
     if all(v in novo for v in vs):
         for k in range(1, len(vs) - 1): tri += [novo[vs[0]], novo[vs[k]], novo[vs[k + 1]]]
 
-# cores (mesma regra do shader de modelo.material_corpo, por vértice)
-def srgb8(hx): hx = hx.lstrip('#'); return [int(hx[i:i + 2], 16) for i in (0, 2, 4)]
-cor = []
+# região de cada vértice (a página pinta com as cores escolhidas): 0 pele, 1 lábios, 2 cabelo pintado,
+# 3 top, 4 short, 5 tênis, 6 detalhe (friso/barra), 7 sola
+reg = []
 zo, z1 = m['zombro'], m['zbusto']
 for i in corpo:
     z = A['zr'].data[i].value; y = A['yr'].data[i].value; ax = A['ax'].data[i].value
@@ -38,29 +38,49 @@ for i in corpo:
     top = tronco and ((frente and z1 < z < decote) or (frente and .049 < ax < .081 and z1 < z < zo + .11)
                       or (costas and z1 < z < z1 + .042) or (costas and abs(ax - nad) < .016 and z1 < z < zo + .11)
                       or (costas and ax < .022 and z1 < z < zo - .09))
-    c = modelo.PELE
-    if lb > .3: c = '#8e4f43'
-    if hsv > .5: c = modelo.CABELO
-    if top: c = modelo.ROUPA
-    if tronco and m['zbarra'] < z < m['zcintura'] + .03: c = modelo.ROUPA
-    if tronco and (z1 < z < z1 + .008 or m['zbarra'] < z < m['zbarra'] + .006): c = modelo.DESTAQUE
-    if z < m['ztorn'] + .012: c = modelo.TENIS
-    cor += srgb8(c)
-# sobrancelhas: escurece a pele em volta da curva (só na prévia; no render são fios de verdade)
-olhos = []
+    r_ = 0
+    if lb > .3: r_ = 1
+    if hsv > .78: r_ = 2
+    if top: r_ = 3
+    if tronco and m['zbarra'] < z < m['zcintura'] + .03: r_ = 4
+    if tronco and (z1 < z < z1 + .008 or m['zbarra'] - .006 < z < m['zbarra'] + .008): r_ = 6
+    if z < m['ztorn'] + .012: r_ = 5
+    if z < .014: r_ = 7
+    reg.append(r_)
+# olhos e sobrancelhas (pontos de cada tipo, presos na pele, para a página desenhar)
+olhos = []; sobr = {t: [] for t in modelo.SOBRANCELHAS}
 for lado in ('l', 'r'):
     ids = [i for i, s in enumerate(vg) if 'helper-%s-eye' % lado in s]
     c = sum((co[i] for i in ids), Vector()) / len(ids); rr = max((co[i] - c).length for i in ids) * .98
     olhos.append([c.x, c.y, c.z, rr])
     s_ = 1 if c.x > 0 else -1
-    arco = [Vector((c.x + s_ * dx, 0, c.z + dz)) for dx, dz in ((-.016, .0165), (-.003, .0195), (.010, .0198), (.021, .0155))]
-    for k, i in enumerate(corpo):
-        q = co[i]
-        if q.y < c.y + .03 and abs(q.x - c.x) < .03 and min(math.hypot(q.x - a.x, q.z - a.z) for a in arco) < .0035:
-            cor[3 * k:3 * k + 3] = srgb8('#1d120c')
-ids = [i for i, s in enumerate(vg) if 'scalp' in s]
-topo = max((co[i] for i in ids), key=lambda v: v.z); tras = max((co[i] for i in ids), key=lambda v: v.y)
-coque = [0, tras.y + .012, topo.z - .03, .058]
+    face = [co[i] for i, g in enumerate(vg) if 'body' in g and co[i].y < c.y + .03 and abs(co[i].x - c.x) < .035 and c.z < co[i].z < c.z + .04]
+    def na_pele(x, z):
+        v = min(face, key=lambda q: (q.x - x) ** 2 + (q.z - z) ** 2); return [x, v.y - .0012, z]
+    for t, (alturas, grossuras) in modelo.SOBRANCELHAS.items():
+        sobr[t].append([na_pele(c.x + s_ * dx, c.z + dz) for dx, dz in zip((-.016, -.003, .010, .021), alturas)])
+grossuras = {t: g for t, (_, g) in modelo.SOBRANCELHAS.items()}
+# cabelo: raízes sorteadas no couro cabeludo, pontos do couro (raio da cabeça), referências e corpos de colisão
+couro = [i for i in range(len(co)) if A['hs'].data[i].value > .45]
+Sset = set(couro); T = []
+for p in h.data.polygons:
+    vs = list(p.vertices)
+    if sum(v in Sset for v in vs) >= len(vs) - 1:
+        for k in range(1, len(vs) - 1): T.append([[co[vs[j]].x, co[vs[j]].y, co[vs[j]].z] for j in (0, k, k + 1)])
+T = np.array(T); area = np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1) / 2
+rng = np.random.default_rng(3); NR = 3500
+ch = rng.choice(len(T), NR, p=area / area.sum()); uu = rng.random(NR); vv = rng.random(NR); tr_ = uu + vv > 1; uu[tr_] = 1 - uu[tr_]; vv[tr_] = 1 - vv[tr_]
+raizes = T[ch, 0] + (T[ch, 1] - T[ch, 0]) * uu[:, None] + (T[ch, 2] - T[ch, 0]) * vv[:, None]
+Pc = np.array([[co[i].x, co[i].y, co[i].z] for i in couro])
+orelha = [co[i] for i, s_ in enumerate(vg) if 'ears' in s_]; orelha_topo = max(c.z for c in orelha)
+nuca_z = sum((co[i] for i, s_ in enumerate(vg) if 'joint-neck' in s_), Vector()).z / max(1, sum(1 for s_ in vg if 'joint-neck' in s_)) + .035
+idsS = [i for i, s_ in enumerate(vg) if 'scalp' in s_]
+topo = max((co[i] for i in idsS), key=lambda v: v.z); tras = max((co[i] for i in idsS), key=lambda v: v.y)
+rig = r['rig']; ossos = {n_: list(rig.data.bones[n_].head_local) for n_ in ('neck01', 'spine01', 'spine02', 'spine03', 'upperarm01.L', 'upperarm01.R')}
+cab = {'raizes': base64.b64encode(raizes.astype(np.float32).tobytes()).decode(),
+       'couro': base64.b64encode(Pc.astype(np.float32).tobytes()).decode(),
+       'mapa': {'coque_alto': [0, tras.y + .012, topo.z - .03], 'coque_baixo': [0, tras.y + .006, nuca_z + .035],
+                'rabo': [0, tras.y + .004, topo.z - .055], 'orelha_z': orelha_topo}, 'ossos': ossos}
 
 ESC = 2e-5
 def empacotar(delta):
@@ -102,7 +122,8 @@ assert erro < 1e-4, 'a malha não voltou ao estado base: %g' % erro
 out = {'versao': 1, 'escala_delta': ESC, 'n': len(corpo),
        'pos': base64.b64encode(base[corpo].astype(np.float32).tobytes()).decode(),
        'tri': base64.b64encode(np.array(tri, dtype=np.uint16).tobytes()).decode(),
-       'cor': base64.b64encode(bytes(cor)).decode(),
-       'olhos': olhos, 'coque': coque, 'controles': modelo.controles(), 'morfos': morfos}
+       'regiao': base64.b64encode(bytes(reg)).decode(),
+       'olhos': olhos, 'sobrancelhas': sobr, 'grossuras': grossuras, 'cabelo': cab,
+       'aparencia': {k: v for k, v in modelo.APARENCIA_PADRAO.items()}, 'controles': modelo.controles(), 'morfos': morfos}
 json.dump(out, open(sys.argv[-1], 'w'))
 print('tamanho', os.path.getsize(sys.argv[-1]) // 1024, 'KB', 'vertices', len(corpo), 'triangulos', len(tri) // 3)

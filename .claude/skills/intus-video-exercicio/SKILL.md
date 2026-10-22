@@ -43,7 +43,14 @@ site, e isto aqui não é para ficar acessível pela web.
 - Mudou `ajustes.json`, a forma base ou as cores? Gere de novo `modelo.json` com
   `bpyenv/bin/python 3d/exportar_editor.py 3d <saida>/modelo.json` e republique a página com o
   arquivo em `files` (mesma URL).
-- A prévia é aproximada (cores por vértice, sem cabelo de fios nem logo); o render final é no Blender.
+- O doc salvo tem também `aparencia` (pele, lábios, olhos, sobrancelha {tipo, espessura, cor}, cabelo
+  {estilo coque_alto|coque_baixo|rabo|solto, cor, comprimento, volume, mechas}, roupa {top, short,
+  detalhe, tênis}): passe para `modelo.criar_modelo(valores, aparencia=...)`.
+- Depois de posar a modelo em cada quadro, chame `m['cabelo'].atualizar()` (rabo, cabelo solto e
+  mechas caem com a gravidade e não atravessam cabeça, tronco nem chão).
+- Roupa: top e short são cascas de tecido (cópias do corpo afastadas ~3 mm, com trama), o top
+  recortado por transparência e o short cortado na geometria (barra reta).
+- A prévia é aproximada (cores por vértice, cabelo em linhas finas, sem logo); o render final é no Blender.
 - Logo: só os triângulos (geometria do `favicon.svg`), em tons claros, na frente da coxa esquerda
   do short (`imagem_logo()` e `m['logo_*']` em `modelo.py`).
 

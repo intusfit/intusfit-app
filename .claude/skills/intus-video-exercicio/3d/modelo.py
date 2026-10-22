@@ -8,6 +8,30 @@ def srgb(h):
     return tuple(((x+0.055)/1.055)**2.4 if x > 0.04045 else x/12.92 for x in c)
 
 PELE = '#b07650'; ROUPA = '#0e0e10'; DESTAQUE = '#7fff00'; TENIS = '#dcdcd8'; CABELO = '#1a100a'
+# aparência escolhida no Editor da Modelo (cores e estilos); tudo opcional
+APARENCIA_PADRAO = dict(pele=PELE, labios='', olhos='#4a2e1c',
+                        sobrancelha=dict(tipo='arqueada', espessura=.5, cor='#1d120c'),
+                        cabelo=dict(estilo='coque_alto', cor=CABELO, comprimento=.5, volume=.5, mechas=.5),
+                        roupa=dict(top=ROUPA, short=ROUPA, detalhe=DESTAQUE, tenis=TENIS))
+# formato das sobrancelhas: altura (m acima do centro do olho) de 4 pontos, de dentro para fora, e
+# espessura relativa de cada ponto
+SOBRANCELHAS = {
+    'reta':      ((.0172, .0186, .0186, .0165), (.9, 1, .85, .35)),
+    'arqueada':  ((.0165, .0195, .0198, .0155), (.85, .95, .7, .25)),
+    'arco_alto': ((.0160, .0210, .0222, .0150), (.8, .9, .65, .2)),
+    'grossa':    ((.0170, .0190, .0192, .0160), (1, 1.05, .9, .45)),
+    'fina':      ((.0168, .0196, .0198, .0158), (.6, .65, .5, .2)),
+}
+
+def aparencia_completa(ap):
+    out = {}
+    for k, v in APARENCIA_PADRAO.items():
+        if isinstance(v, dict): out[k] = {**v, **((ap or {}).get(k) or {})}
+        else: out[k] = (ap or {}).get(k) or v
+    if not out['labios']:   # sem cor escolhida: tom da pele, mais rosado e escuro
+        pr = srgb(out['pele']); out['labios_lin'] = (pr[0] * .62, pr[1] * .38, pr[2] * .36)
+    else: out['labios_lin'] = srgb(out['labios'])
+    return out
 
 # ---------- montagem de shader por expressão (bordas nítidas a partir da posição de repouso) ----------
 class Nos:
@@ -69,7 +93,7 @@ def imagem_logo(tam=512):
     img.pixels.foreach_set(px[::-1].ravel() if False else px.ravel()); img.pack()
     return img
 
-def material_corpo(m):
+def material_corpo(m, ap):
     mat = bpy.data.materials.new('corpo'); mat.use_nodes = True; n = Nos(mat); n.N.clear()
     out = n.N.new('ShaderNodeOutputMaterial'); b = n.N.new('ShaderNodeBsdfPrincipled')
     b.inputs['Subsurface Radius'].default_value = (1, .45, .3); b.inputs['Subsurface Scale'].default_value = .005
@@ -96,23 +120,15 @@ def material_corpo(m):
     cos = n.e(corpo, n.entre(z, m['zcintura'] + .006, m['zcintura'] + .03, .0015))
     tenis = n.menor(z, m['ztorn'] + .012, .003)
     sola = n.menor(z, .014, .002)
-    cor = srgb(PELE)
-    cor = n.mixc(lb, cor, srgb('#8e4f43'))
-    for fac, c in ((top, srgb(ROUPA)), (short, srgb(ROUPA)), (cos, srgb('#1c1c1f')), (friso, srgb(DESTAQUE)), (barra, srgb(DESTAQUE)),
-                   (tenis, srgb(TENIS)), (sola, srgb('#2b2b2b'))):
+    cor = srgb(ap['pele'])
+    cor = n.mixc(lb, cor, ap['labios_lin'])
+    # embaixo da roupa de tecido (cascas separadas) o corpo fica na cor da roupa, mais escura
+    escuro = lambda hx: tuple(x * .55 for x in srgb(hx))
+    for fac, c in ((top, escuro(ap['roupa']['top'])), (short, escuro(ap['roupa']['short'])),
+                   (tenis, srgb(ap['roupa']['tenis'])), (sola, srgb('#2b2b2b'))):
         cor = n.mixc(fac, cor, c)
-    cabelo = n.maior(hs, .5, .06)
-    cor = n.mixc(cabelo, cor, srgb(CABELO))
-    # logo (só os triângulos) na frente da coxa esquerda, perto da barra do short
-    lw = .072; lu = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', xs, m['logo_x']), lw), .5)
-    lv = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', z, m['logo_z']), lw), .5)
-    vec = n.N.new('ShaderNodeCombineXYZ'); n.L.new(lu, vec.inputs[0]); n.L.new(lv, vec.inputs[1])
-    tex = n.N.new('ShaderNodeTexImage'); tex.image = imagem_logo(); tex.extension = 'CLIP'; tex.interpolation = 'Cubic'
-    n.L.new(vec.outputs[0], tex.inputs['Vector'])
-    na_frente = n.menor(y, m['logo_y'], .004)
-    logo = n.e(tex.outputs['Alpha'], na_frente, corpo, n.entre(z, m['zbarra'] + .012, m['zcintura'], .001))
-    mx = n.N.new('ShaderNodeMix'); mx.data_type = 'RGBA'; n.L.new(logo, mx.inputs['Factor']); n.L.new(cor, mx.inputs['A']); n.L.new(tex.outputs['Color'], mx.inputs['B'])
-    cor = mx.outputs['Result']
+    cabelo = n.maior(hs, .78, .06)
+    cor = n.mixc(cabelo, cor, tuple(x * .6 for x in srgb(ap['cabelo']['cor'])))
     roupa = n.ou(top, short)
     n.L.new(cor, b.inputs['Base Color'])
     n.L.new(n.mixf(cabelo, n.mixf(roupa, .46, .7), .5), b.inputs['Roughness'])
@@ -120,6 +136,73 @@ def material_corpo(m):
     n.L.new(n.mixf(roupa, 0.0, .08), b.inputs['Sheen Weight'])
     n.L.new(b.outputs[0], out.inputs['Surface'])
     return mat
+
+def material_tecido(m, ap, peca):
+    """Roupa de verdade: casca separada do corpo, recortada pela mesma máscara do desenho (borda nítida),
+    com trama de malha, brilho de tecido e a logo no short."""
+    mat = bpy.data.materials.new('tecido-' + peca); mat.use_nodes = True; n = Nos(mat); n.N.clear()
+    out = n.N.new('ShaderNodeOutputMaterial'); b = n.N.new('ShaderNodeBsdfPrincipled')
+    z, ax, y, br, xs = n.attr('zr'), n.attr('ax'), n.attr('yr'), n.attr('br'), n.attr('xs')
+    corpo = n.menor(br, .35, .05); frente = n.menor(y, m['yc'], .004); costas = n.op('SUBTRACT', 1.0, frente)
+    z1 = m['zbusto']; zo = m['zombro']; base_cor = srgb(ap['roupa'][peca])
+    if peca == 'top':
+        decote = n.op('ADD', zo - .088, n.op('MULTIPLY', n.op('MINIMUM', ax, .062), .55))
+        nad_c = n.op('MINIMUM', n.op('ADD', .006, n.op('MULTIPLY', n.op('MAXIMUM', n.op('SUBTRACT', z, zo - .10), 0.0), .47)), .065)
+        mask = n.e(corpo, n.ou(n.e(frente, n.entre(z, z1, decote, .0012)),
+                               n.e(frente, n.entre(ax, .049, .081, .0012), n.entre(z, z1, zo + .11, .0012)),
+                               n.e(costas, n.entre(z, z1, z1 + .042, .0012)),
+                               n.e(costas, n.entre(ax, n.op('SUBTRACT', nad_c, .016), n.op('ADD', nad_c, .016), .0012), n.entre(z, z1, zo + .11, .0012)),
+                               n.e(costas, n.menor(ax, .022, .0012), n.entre(z, z1, zo - .09, .0012))))
+        cor = n.mixc(n.entre(z, z1, z1 + .008, .0012), base_cor, srgb(ap['roupa']['detalhe']))
+    else:
+        mask = 1.0
+        cor = n.mixc(n.entre(z, m['zcintura'] + .006, m['zcintura'] + .03, .0012), base_cor, tuple(min(1, x * 1.6 + .01) for x in base_cor))
+        cor = n.mixc(n.entre(z, m['zbarra'] - .01, m['zbarra'] + .008, .001), cor, srgb(ap['roupa']['detalhe']))
+        # logo (só os triângulos) na frente da coxa esquerda, perto da barra
+        lw = .072; lu = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', xs, m['logo_x']), lw), .5)
+        lv = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', z, m['logo_z']), lw), .5)
+        vec = n.N.new('ShaderNodeCombineXYZ'); n.L.new(lu, vec.inputs[0]); n.L.new(lv, vec.inputs[1])
+        tex = n.N.new('ShaderNodeTexImage'); tex.image = imagem_logo(); tex.extension = 'CLIP'; tex.interpolation = 'Cubic'
+        n.L.new(vec.outputs[0], tex.inputs['Vector'])
+        logo = n.e(tex.outputs['Alpha'], n.menor(y, m['logo_y'], .004), n.entre(z, m['zbarra'] + .012, m['zcintura'], .001))
+        mx = n.N.new('ShaderNodeMix'); mx.data_type = 'RGBA'; n.L.new(logo, mx.inputs['Factor']); n.L.new(cor, mx.inputs['A']); n.L.new(tex.outputs['Color'], mx.inputs['B'])
+        cor = mx.outputs['Result']
+    # trama da malha: relevo fino nas coordenadas de repouso (acompanha o corpo)
+    tc = n.N.new('ShaderNodeTexCoord'); onda = n.N.new('ShaderNodeTexWave'); onda.inputs['Scale'].default_value = 900
+    onda.wave_type = 'BANDS'; onda.bands_direction = 'Z'; n.L.new(tc.outputs['Generated'], onda.inputs['Vector'])
+    ru = n.N.new('ShaderNodeTexNoise'); ru.inputs['Scale'].default_value = 1500; n.L.new(tc.outputs['Generated'], ru.inputs['Vector'])
+    bump = n.N.new('ShaderNodeBump'); bump.inputs['Strength'].default_value = .12; bump.inputs['Distance'].default_value = .0004
+    soma = n.op('ADD', onda.outputs['Fac'], n.op('MULTIPLY', ru.outputs['Fac'], .6)); n.L.new(soma, bump.inputs['Height'])
+    n.L.new(bump.outputs['Normal'], b.inputs['Normal'])
+    n.L.new(cor, b.inputs['Base Color'])
+    if not isinstance(mask, float): n.L.new(mask, b.inputs['Alpha'])
+    b.inputs['Roughness'].default_value = .62; b.inputs['Sheen Weight'].default_value = .35; b.inputs['Sheen Roughness'].default_value = .4
+    n.L.new(b.outputs[0], out.inputs['Surface'])
+    return mat
+
+def _casca(h, nome, manter, mat, folga=.0026, cortes=None):
+    """Cópia de parte do corpo (mesmo esqueleto e formas) afastada da pele: vira a roupa."""
+    cs = h.copy(); cs.data = h.data.copy(); cs.name = nome; bpy.context.scene.collection.objects.link(cs)
+    bm = bmesh.new(); bm.from_mesh(cs.data); bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.index not in manter], context='VERTS')
+    bm.to_mesh(cs.data); bm.free()
+    if cortes:   # leva a borda de baixo/de cima exatamente para a altura dada (barra reta)
+        zr = cs.data.attributes['zr'].data; bm = bmesh.new(); bm.from_mesh(cs.data); bm.verts.ensure_lookup_table()
+        borda = [v.index for v in bm.verts if v.is_boundary]; bm.free()
+        kb = cs.data.shape_keys.key_blocks if cs.data.shape_keys else []
+        for i in borda:
+            z0 = zr[i].value; alvo = cortes[0] if abs(z0 - cortes[0]) < abs(z0 - cortes[1]) else cortes[1]
+            dz = alvo - z0; cs.data.vertices[i].co.z += dz; zr[i].value = alvo
+            for k_ in kb: k_.data[i].co.z += dz
+    for md in list(cs.modifiers):
+        if md.type in ('MASK', 'SUBSURF'): cs.modifiers.remove(md)
+    d = cs.modifiers.new('folga', 'DISPLACE'); d.direction = 'NORMAL'; d.strength = folga; d.mid_level = 0
+    if cortes:
+        so = cs.modifiers.new('espessura', 'SOLIDIFY'); so.thickness = .0018; so.offset = 1; so.use_even_offset = True
+    s_ = cs.modifiers.new('suave', 'SUBSURF'); s_.levels = 1; s_.render_levels = 2
+    cs.data.materials.clear(); cs.data.materials.append(mat)
+    for p in cs.data.polygons: p.use_smooth = True
+    return cs
 
 def material_simples(nome, cor, rough=.5, sheen=0.0, coat=0.0):
     m = bpy.data.materials.new(nome); m.use_nodes = True; b = m.node_tree.nodes['Principled BSDF']
@@ -138,12 +221,12 @@ def material_short(m):
     n.L.new(cor, b.inputs['Base Color']); b.inputs['Roughness'].default_value = .8; b.inputs['Sheen Weight'].default_value = .1
     n.L.new(b.outputs[0], out.inputs['Surface']); return mat
 
-def material_olho(raio):
+def material_olho(raio, iris='#4a2e1c'):
     mat = bpy.data.materials.new('olho'); mat.use_nodes = True; n = Nos(mat); n.N.clear()
     out = n.N.new('ShaderNodeOutputMaterial'); b = n.N.new('ShaderNodeBsdfPrincipled')
     tc = n.N.new('ShaderNodeTexCoord'); sp = n.N.new('ShaderNodeSeparateXYZ'); n.L.new(tc.outputs['Object'], sp.inputs[0])
     fr = n.op('DIVIDE', n.op('MULTIPLY', sp.outputs['Y'], -1.0), raio)        # 1 = centro da frente
-    cor = n.mixc(n.maior(fr, .80, .02), srgb('#e9e4dc'), srgb('#4a2e1c'))
+    cor = n.mixc(n.maior(fr, .80, .02), srgb('#e9e4dc'), srgb(iris))
     cor = n.mixc(n.maior(fr, .955, .008), cor, srgb('#0b0706'))
     n.L.new(cor, b.inputs['Base Color']); b.inputs['Roughness'].default_value = .25; b.inputs['Coat Weight'].default_value = 1
     n.L.new(b.outputs[0], out.inputs['Surface']); return mat
@@ -181,8 +264,10 @@ def aplicar_alvos(h, ts, dados, ajustes):
         for cat, nome in arquivos_do_alvo(c['mais'] if v > 0 else c['menos']):
             ts.load_target(h, os.path.join(dados, cat, nome + '.target.gz'), weight=abs(v), name='aj-%s-%s' % (c['id'], nome))
 
-def criar_modelo(ajustes=None, para_editor=False):
-    """ajustes: {id do controle (3d/ajustes.json): valor de -1 a 1}, salvos pelo Editor da Modelo."""
+def criar_modelo(ajustes=None, para_editor=False, aparencia=None):
+    """ajustes: {id do controle (3d/ajustes.json): valor de -1 a 1}; aparencia: cores e estilos.
+    Os dois vêm do Editor da Modelo (banco da página, doc modelo/ajustes)."""
+    ap = aparencia_completa(aparencia)
     addon_utils.enable('bl_ext.user_default.mpfb', default_set=True)
     base = 'bl_ext.user_default.mpfb'
     hs = importlib.import_module(base + '.services.humanservice').HumanService
@@ -224,8 +309,18 @@ def criar_modelo(ajustes=None, para_editor=False):
     faixa_coxa = [c for i, c in enumerate(co) if 'body' in vg[i] and abs(c.z - m['logo_z']) < .01 and c.x > .02]
     m['logo_x'] = (min(c.x for c in faixa_coxa) + max(c.x for c in faixa_coxa)) / 2 + .006
     m['logo_y'] = sum(c.y for c in faixa_coxa) / len(faixa_coxa)
-    cabeca = [co[i] for i, s_ in enumerate(vg) if 'scalp' in s_]
-    orelha_y = (min(c.y for c in cabeca) + max(c.y for c in cabeca)) / 2 + .025   # atrás da orelha
+    # região do cabelo pela anatomia (o grupo 'scalp' do MakeHuman deixa as laterais carecas):
+    # topo, laterais acima das orelhas, nuca; linha da frente desce em direção às têmporas
+    orelha = [co[i] for i, s_ in enumerate(vg) if 'ears' in s_]
+    orelha_topo = max(c.z for c in orelha); orelha_frente = min(c.y for c in orelha); orelha_tras = max(c.y for c in orelha)
+    sobr_y = min(co[i].y for i, s_ in enumerate(vg) if 'body' in s_ and abs(co[i].z - (olho_z + .02)) < .01 and abs(co[i].x) < .02)
+    nuca_z = media('joint-neck')[0].z + .035
+    def tem_cabelo(i, c):
+        if 'body' not in vg[i] or 'ears' in vg[i] or pesos[i].get('head', 0) < .5: return False
+        alt = c.z - olho_z
+        if c.y > orelha_tras + .004: return c.z > nuca_z                              # nuca e parte de trás
+        if c.y > orelha_frente - .008: return c.z > orelha_topo - .004                 # acima da orelha
+        return alt > .052 - .55 * max(0.0, c.y - sobr_y - .01)                          # testa e têmporas
     # atributos de repouso para o shader
     braco = ('upperarm', 'lowerarm', 'wrist', 'finger', 'metacarpal')   # ombro/clavícula ficam com o tronco (alças do top)
     A = {k: h.data.attributes.new(k, 'FLOAT', 'POINT') for k in ('zr', 'yr', 'ax', 'br', 'lb', 'hs', 'xs')}
@@ -234,8 +329,7 @@ def criar_modelo(ajustes=None, para_editor=False):
         A['br'].data[i].value = min(1.0, sum(w for g, w in pesos[i].items() if g.startswith(braco)))
         A['lb'].data[i].value = pesos[i].get('lips', 0.0)
         # cabelo: couro cabeludo, menos a lateral do rosto (o grupo do MakeHuman desce até a bochecha)
-        rosto = c.z < olho_z + .03 and c.y < orelha_y
-        A['hs'].data[i].value = 1.0 if pesos[i].get('scalp', 0.0) > .3 and not rosto else 0.0
+        A['hs'].data[i].value = 1.0 if tem_cabelo(i, c) else 0.0
     # linha do cabelo mais suave: média com os vizinhos (a malha da cabeça é grossa)
     viz = [[] for _ in co]
     for e_ in h.data.edges:
@@ -255,7 +349,7 @@ def criar_modelo(ajustes=None, para_editor=False):
     vis = h.vertex_groups.new(name='visivel'); vis.add([i for i, s in enumerate(vg) if s & {'body', 'helper-upper-teeth', 'helper-lower-teeth', 'helper-tongue'}], 1.0, 'REPLACE')
     for md in h.modifiers:
         if md.type == 'MASK': md.vertex_group = 'visivel'
-    corpo = material_corpo(m); cab = material_simples('cabelo', CABELO, .5, coat=.08)
+    corpo = material_corpo(m, ap); cab = material_simples('cabelo', ap['cabelo']['cor'], .5, coat=.08)
     dente = material_simples('dente', '#e8e2d6', .35); lingua = material_simples('lingua', '#9c4a4a', .45)
     h.data.materials.clear()
     for mm in (corpo, cab, dente, lingua): h.data.materials.append(mm)
@@ -270,6 +364,11 @@ def criar_modelo(ajustes=None, para_editor=False):
             fenda.add([i], max(0.0, 1 - abs(c.x) / .06) * (1 if c.z < zp - .02 else .5), 'REPLACE')
     sm = h.modifiers.new('fenda', 'SMOOTH'); sm.factor = .8; sm.iterations = 12; sm.vertex_group = 'fenda'
     sub = h.modifiers.new('suave', 'SUBSURF'); sub.levels = 1; sub.render_levels = 2
+    # roupa de tecido: cascas do top e do short, recortadas pela máscara no shader
+    tronco_v = {i for i, c in enumerate(co) if 'body' in vg[i] and A['br'].data[i].value < .5}
+    _casca(h, 'top', {i for i in tronco_v if m['zbusto'] - .015 < co[i].z < m['zombro'] + .13}, material_tecido(m, ap, 'top'))
+    _casca(h, 'short', {i for i in tronco_v if m['zbarra'] - .004 < co[i].z < m['zcintura'] + .036}, material_tecido(m, ap, 'short'), .003,
+           cortes=(m['zbarra'], m['zcintura'] + .03))
 
     tn = h.copy(); tn.data = h.data.copy(); tn.name = 'tenis'; bpy.context.scene.collection.objects.link(tn)
     bm = bmesh.new(); bm.from_mesh(tn.data); bm.verts.ensure_lookup_table()
@@ -282,8 +381,8 @@ def criar_modelo(ajustes=None, para_editor=False):
     s3 = tn.modifiers.new('suave', 'SUBSURF'); s3.levels = 2; s3.render_levels = 2
     mt = bpy.data.materials.new('tenis'); mt.use_nodes = True; nn = Nos(mt); nn.N.clear()
     o_ = nn.N.new('ShaderNodeOutputMaterial'); b_ = nn.N.new('ShaderNodeBsdfPrincipled'); zz = nn.attr('zr')
-    cor = nn.mixc(nn.menor(zz, .018, .002), srgb(TENIS), srgb('#26262a'))
-    cor = nn.mixc(nn.entre(zz, .018, .024, .001), cor, srgb(DESTAQUE))
+    cor = nn.mixc(nn.menor(zz, .018, .002), srgb(ap['roupa']['tenis']), srgb('#26262a'))
+    cor = nn.mixc(nn.entre(zz, .018, .024, .001), cor, srgb(ap['roupa']['detalhe']))
     nn.L.new(cor, b_.inputs['Base Color']); b_.inputs['Roughness'].default_value = .6
     nn.L.new(b_.outputs[0], o_.inputs['Surface'])
     tn.data.materials.clear(); tn.data.materials.append(mt)
@@ -293,7 +392,7 @@ def criar_modelo(ajustes=None, para_editor=False):
         c, ids = media('helper-%s-eye' % lado)
         raio = max((co[i] - c).length for i in ids) * .98
         bpy.ops.mesh.primitive_uv_sphere_add(radius=raio, location=c, segments=32, ring_count=20)
-        o = bpy.context.object; o.name = 'olho.' + lado; o.data.materials.append(material_olho(raio))
+        o = bpy.context.object; o.name = 'olho.' + lado; o.data.materials.append(material_olho(raio, ap['olhos']))
         for p in o.data.polygons: p.use_smooth = True
         _prender_na_cabeca(o, rig)
         s = 1 if c.x > 0 else -1
@@ -301,15 +400,15 @@ def criar_modelo(ajustes=None, para_editor=False):
         def na_pele(x, z):
             v = min(face, key=lambda q: (q.x - x) ** 2 + (q.z - z) ** 2)
             return Vector((x, v.y - .0012, z))
-        pts = [na_pele(c.x - s * .016, c.z + .0165), na_pele(c.x - s * .003, c.z + .0195),
-               na_pele(c.x + s * .010, c.z + .0198), na_pele(c.x + s * .021, c.z + .0155)]
+        alturas, grossuras = SOBRANCELHAS.get(ap['sobrancelha']['tipo'], SOBRANCELHAS['arqueada'])
+        pts = [na_pele(c.x + s * dx, c.z + dz) for dx, dz in zip((-.016, -.003, .010, .021), alturas)]
         cu = bpy.data.curves.new('sobrancelha.' + lado, 'CURVE'); cu.dimensions = '3D'
         sp = cu.splines.new('BEZIER'); sp.bezier_points.add(len(pts) - 1)
-        for bp, p, r in zip(sp.bezier_points, pts, (.85, .95, .7, .25)):
+        for bp, p, r in zip(sp.bezier_points, pts, grossuras):
             bp.co = p; bp.handle_left_type = bp.handle_right_type = 'AUTO'; bp.radius = r
-        cu.bevel_depth = .0017; cu.bevel_resolution = 2
+        cu.bevel_depth = .0010 + .0016 * float(ap['sobrancelha']['espessura']); cu.bevel_resolution = 2
         ob = bpy.data.objects.new('sobrancelha.' + lado, cu); bpy.context.scene.collection.objects.link(ob)
-        ob.data.materials.append(material_simples('sobrancelha', '#1d120c', .7, sheen=.4))
+        ob.data.materials.append(material_simples('sobrancelha', ap['sobrancelha']['cor'], .7, sheen=.4))
         alvo_v = [min((i for i, g in enumerate(vg) if 'body' in g), key=lambda i: (co[i] - p).length) for p in pts]
         # a sobrancelha vai presa a 3 vértices do rosto: segue a cabeça e o levantar da testa
         tri = alvo_v[0], alvo_v[1], alvo_v[3]
@@ -320,10 +419,9 @@ def criar_modelo(ajustes=None, para_editor=False):
     couro = [i for i in range(len(co)) if A['hs'].data[i].value > .45]
     ids = [i for i, s_ in enumerate(vg) if 'scalp' in s_]
     topo = max((co[i] for i in ids), key=lambda v: v.z); tras = max((co[i] for i in ids), key=lambda v: v.y)
-    bun = Vector((0, tras.y + .012, topo.z - .03))
-    mfios = cabelo.material_cabelo()
-    _, centro, _ = cabelo.criar(h, rig, co, couro, bun, mfios)
-    m['mechas'] = cabelo.Mechas(rig, co, couro, centro, mfios)
+    mapa = dict(coque_alto=(0, tras.y + .012, topo.z - .03), coque_baixo=(0, tras.y + .006, nuca_z + .035),
+                rabo=(0, tras.y + .004, topo.z - .055), orelha_z=orelha_topo)
+    m['mechas'] = m['cabelo'] = cabelo.Cabelo(h, rig, co, couro, mapa, ap['cabelo'])
     rig.scale = (m['escala'],) * 3; bpy.context.view_layer.update()
     m['ztorn_mundo'] = m['ztorn'] * m['escala']
     m['h'] = h
