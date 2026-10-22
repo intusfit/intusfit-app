@@ -163,8 +163,43 @@ def equipamentos():
         if 'rodinha' in EQ: c = Vector((c.x, c.y, .09))
         o.matrix_world = Matrix.Translation(c) @ Vector((0, 0, 1)).rotation_difference(Vector((1, 0, 0))).to_matrix().to_4x4()
 
+_MOCAP = {}
+def estado_mocap(c, t):
+    """clipe com movimento capturado de vídeo real: braços e inclinação do tronco vêm do arquivo, o resto da pose base"""
+    arq = os.path.join(os.path.dirname(os.path.abspath(args[2])), c['mocap'])
+    if arq not in _MOCAP: _MOCAP[arq] = json.load(open(arq))
+    M = _MOCAP[arq]; n = M['n']; x = (t * M['fps']) % n; i = int(x); j = (i + 1) % n; k = x - i
+    if 'angulos' in M:      # vídeo filmado de lado (real/mocap_lado.py): ângulos já no formato da pose
+        A = {nome: lst[i] + (lst[j] - lst[i]) * k for nome, lst in M['angulos'].items()}
+        p = dict(P[c['pose']])
+        for nome in ('braco_L', 'antebraco_L', 'braco_R', 'antebraco_R'):
+            if nome in A: p[nome] = A[nome]
+        med = sum(M['angulos']['tronco']) / n
+        p['tronco'] = p.get('tronco', 0) + (A['tronco'] - med) * c.get('tronco_ganho', 1.0)
+        # giro do antebraço pelo quanto o cotovelo dobrou: [ângulo embaixo, ângulo em cima, polegar embaixo, polegar em cima]
+        for lado, regra in (c.get('polegar') or {}).items():
+            if isinstance(regra, list):
+                a0, a1, p0, p1 = regra; u = max(0.0, min(1.0, (A['antebraco_' + lado] - a0) / (a1 - a0)))
+                p['polegar_' + lado] = p0 + (p1 - p0) * suave(u)
+            else: p['polegar_' + lado] = regra
+        f = (t / c['dur']) % 1.0; w = 2 * math.pi * f
+        resp = .5 + .5 * math.cos(w) if 'inspira' not in c else (suave(f / c['inspira']) if f < c['inspira'] else 1 - suave((f - c['inspira']) / (1 - c['inspira'])))
+        ex = {kk: v[0] + (v[1] - v[0]) * (.5 - .5 * math.cos(w)) for kk, v in c.get('expressao', {}).items()}
+        p['resp'] = resp; return p, ex
+    dirs = {}
+    for nome, lst in M['dirs'].items():
+        v = Vector(lst[i]).lerp(Vector(lst[j]), k); dirs[nome] = list(v.normalized())
+    p = dict(P[c['pose']]); p['_dir'] = {kk: v for kk, v in dirs.items() if kk != 'tronco'}
+    tr = Vector(dirs['tronco']); med = Vector(M.get('tronco_medio') or [0, 0, 1])
+    p['tronco'] = p.get('tronco', 0) + (math.degrees(math.atan2(-tr.y, tr.z)) - math.degrees(math.atan2(-med.y, med.z))) * c.get('tronco_ganho', 1.0)
+    f = (t / c['dur']) % 1.0; w = 2 * math.pi * f
+    resp = .5 + .5 * math.cos(w) if 'inspira' not in c else (suave(f / c['inspira']) if f < c['inspira'] else 1 - suave((f - c['inspira']) / (1 - c['inspira'])))
+    ex = {kk: v[0] + (v[1] - v[0]) * (.5 - .5 * math.cos(w)) for kk, v in c.get('expressao', {}).items()}
+    p['resp'] = resp; return p, ex
+
 def estado(clipe, t):
     c = R['clipes'][clipe]; dur = c['dur']; f = (t / dur) % 1.0
+    if 'mocap' in c: return estado_mocap(c, t)
     ch = c.get('chaves') or [[0, c['pose'], {}], [1, c['pose'], {}]]
     for a, b in zip(ch, ch[1:]):
         if a[0] <= f <= b[0]:

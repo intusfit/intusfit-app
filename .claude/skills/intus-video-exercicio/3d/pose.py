@@ -82,7 +82,15 @@ def _torcer(rig, lado, alvo, sx):
     ref = fora - a * fora.dot(a)
     if ref.length < .25: ref = Vector((0, 0, 1)) - a * a.z     # antebraço apontando para o lado
     ref.normalize()
-    alvo_v = Quaternion(a, math.radians(alvo) * sx) @ ref
+    _torcer_para(rig, lado, Quaternion(a, math.radians(alvo) * sx) @ ref)
+
+def _torcer_para(rig, lado, alvo_v):
+    """gira o antebraço até o eixo indicador->mínimo da mão apontar o mais perto possível de alvo_v"""
+    from mathutils import Quaternion
+    a = (ponto(rig, 'lowerarm02.' + lado, 't') - ponto(rig, 'lowerarm01.' + lado)).normalized()
+    alvo_v = (alvo_v - a * alvo_v.dot(a))
+    if alvo_v.length < 1e-4: return
+    alvo_v.normalize()
     for _ in range(3):
         e = ponto(rig, 'finger2-1.' + lado) - ponto(rig, 'finger5-1.' + lado); e = e - a * e.dot(a)
         if e.length < 1e-6: return
@@ -130,7 +138,13 @@ def aplicar(rig, p, delta=0.0, fixos=()):
         for n in ('lowerarm01.', 'lowerarm02.'): _apontar(rig, n + lado, _girar_z(_abrir(dirv(L_('antebraco'), la), aa, sx), pl))
         _fechar_mao(rig, lado, p.get('mao_' + lado, p['mao']))
         pg = p.get('polegar_' + lado, p['polegar'])
-        if pg is not None: _torcer(rig, lado, pg, sx)
+        dr = p.get('_dir')
+        if dr:      # movimento capturado de vídeo real (real/mocap.py): direções no sistema da modelo
+            for n, k in (('upperarm01.', 'braco_'), ('upperarm02.', 'braco_'), ('lowerarm01.', 'antebraco_'), ('lowerarm02.', 'antebraco_')):
+                if k + lado in dr: _apontar(rig, n + lado, Vector(dr[k + lado]))
+            if 'mao_' + lado in dr: _torcer_para(rig, lado, Vector(dr['mao_' + lado]))
+            elif pg is not None: _torcer(rig, lado, pg, sx)
+        elif pg is not None: _torcer(rig, lado, pg, sx)
     # respiração: caixa torácica e abdômen
     r = p['resp']
     for n, k in (('spine03', .035), ('spine02', .045), ('spine04', .03)):

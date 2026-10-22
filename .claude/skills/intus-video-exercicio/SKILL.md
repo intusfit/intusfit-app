@@ -170,7 +170,15 @@ Mais realista que o 3D. Com o vídeo de um professor da Intus (nunca de outro ca
    erro só com clipe do erro gravado de verdade (sem ele, `"erros": []`).
 `real/pose_ler.py` (MediaPipe, modelo `pose_landmarker_heavy.task` baixado do site público do Google;
 precisa `LD_LIBRARY_PATH` com a libEGL do Chromium do Playwright) lê as juntas quadro a quadro: é o
-caminho para levar o movimento real para a modelo 3D (ainda não ligado ao `clipes.py`).
+caminho para levar o movimento real para a modelo 3D:
+   - vídeo filmado de lado: `real/mocap_lado.py pose.json 1280 720 0.4 mocap.json` mede os ângulos no
+     plano da imagem (o sagital), no mesmo formato da pose; a profundidade do MediaPipe erra muito de
+     lado (os antebraços apareciam cruzando o corpo), por isso não é usada;
+   - `real/mocap.py` (direções em 3D) só para vídeo de frente ou 45°, ainda não validado;
+   - no roteiro de clipes: `"rep": {"dur": n/fps, "mocap": "mocap.json", "pose": "base", "polegar":
+     {"L": [ângulo embaixo, ângulo em cima, polegar embaixo, polegar em cima], "R": 90}}`. Braços e
+     inclinação do tronco vêm do vídeo; pernas, contato e o resto, da pose base. Exemplo:
+     `3d/roteiros/rosca-mocap-clipes.json` (movimento do Luiz no vídeo "Bíceps", 16,6 a 19,0 s).
 Gravação ideal para isso: tripé, de lado e de 45°, fundo sem gente, sem legenda, 3 a 5 repetições.
 
 ## Galeria (onde o Luiz assiste e baixa)
