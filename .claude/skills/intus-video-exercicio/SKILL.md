@@ -136,7 +136,24 @@ sentada; com `apoio_z` o ponto mais baixo da pele da bacia encosta no colchonete
 `equipamentos`: `halteres`, `barra` (anilha de 45 cm), `rodinha`, `banco` ([x, y, altura, largura,
 comprimento]), `colchonete` ([x, y, largura, comprimento]). `cabelo: "coque_alto"` prende o cabelo
 em exercício de cabeça para baixo (o rabo cai como cortina no rosto). Chave de pose com `_L`/`_R`
-vale só de um lado (rosca alternada). Prontos: prancha, rosca alternada, levantamento terra,
+vale só de um lado (rosca alternada).
+
+Movimentos que a modelo já sabe (`3d/pose.py`, use em qualquer exercício novo):
+- `polegar`: giro do antebraço (pronação e supinação), para onde aponta o lado do polegar. 0 = para
+  fora; com o antebraço pendurado, 90 = pegada neutra (palma para a coxa); com o antebraço para cima,
+  180 = polegar para dentro (palma para a frente). Interpola entre poses, então a palma gira durante o
+  movimento. Rosca alternada: 90 embaixo, 0 no alto (palma para cima). Arnold: 0 (palmas para você) ->
+  180 (palmas para a frente). O halter acompanha a mão sozinho.
+- `planoBraco`: gira o braço inteiro para a frente em torno do eixo vertical do ombro. 30 = plano da
+  escápula (cotovelo 30° à frente do corpo), pedido do Luiz para desenvolvimento e elevação lateral.
+- `pe`: 90 = sola no chão (o osso do pé aponta 24° para baixo e isso é compensado). Roteiro antigo
+  com o pé deitado de costas (rodinha) usa -119.
+Corpo: `BARRIGA_RECUO_BASE` (modelo.py) recua a frente do abdômen até a linha das costelas sem mexer
+na largura da cintura; no Editor é o controle "Barriga para dentro (sem afinar a cintura)". Logo: no
+short, na frente da coxa esquerda e no meio da frente logo abaixo do cós. `3d/teste_corpo.py` renderiza
+lado, diagonal, logo e pés para conferir o corpo.
+
+Prontos: prancha, rosca alternada, levantamento terra,
 canivete fletido, rodinha, desenvolvimento Arnold. Exercício em máquina ou cabo exige modelar o
 aparelho antes. Depuração: `ESCONDER=short` esconde um objeto no quadro; `PONTA=short` imprime os
 vértices da roupa mais longe da pele (achou a ponta do short na lombar, que vinha da suavização da

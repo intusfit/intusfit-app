@@ -76,8 +76,8 @@ def imagem_logo(tam=512):
     """Só os triângulos da logo da Intus (mesma geometria do favicon.svg, grade 32x32), em tons claros
     para aparecer no tecido preto. Fundo transparente."""
     import numpy as np
-    tri = (((14, 0), (32, 0), (32, 18), (.95, .95, .95, 1)), ((8, 6), (26, 6), (26, 24), (.62, .62, .62, .92)),
-           ((2, 12), (20, 12), (20, 30), (.40, .40, .40, .9)))
+    tri = (((14, 0), (32, 0), (32, 18), (1., 1., 1., 1)), ((8, 6), (26, 6), (26, 24), (.66, .66, .66, 1)),
+           ((2, 12), (20, 12), (20, 30), (.36, .36, .36, 1)))
     yy, xx = np.mgrid[0:tam, 0:tam] + .5; x = xx * 32 / tam; y = 32 - yy * 32 / tam   # y da imagem cresce para cima
     px = np.zeros((tam, tam, 4), dtype=np.float32)
     for (a, b, c, cor) in tri:
@@ -89,6 +89,7 @@ def imagem_logo(tam=512):
         px[dentro, :3] = px[dentro, :3] * (1 - al) + np.array(cor[:3]) * al
         px[dentro, 3] = 1 - (1 - px[dentro, 3]) * (1 - al)
     # o svg tem y para baixo: inverte para a imagem do Blender (linha 0 embaixo)
+    if 'logo-intus-icone' in bpy.data.images: return bpy.data.images['logo-intus-icone']
     img = bpy.data.images.new('logo-intus-icone', tam, tam, alpha=True)
     img.pixels.foreach_set(px[::-1].ravel() if False else px.ravel()); img.pack()
     return img
@@ -137,6 +138,17 @@ def material_corpo(m, ap):
     n.L.new(b.outputs[0], out.inputs['Surface'])
     return mat
 
+def _logo(n, cor, xs, z, cx, cz, lado, onde):
+    """desenha os triângulos da logo (quadrado de `lado` m centrado em cx, cz nas coordenadas de repouso)"""
+    lu = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', xs, cx), lado), .5)
+    lv = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', z, cz), lado), .5)
+    vec = n.N.new('ShaderNodeCombineXYZ'); n.L.new(lu, vec.inputs[0]); n.L.new(lv, vec.inputs[1])
+    tex = n.N.new('ShaderNodeTexImage'); tex.image = imagem_logo(); tex.extension = 'CLIP'; tex.interpolation = 'Cubic'
+    n.L.new(vec.outputs[0], tex.inputs['Vector'])
+    f = n.e(tex.outputs['Alpha'], onde)
+    mx = n.N.new('ShaderNodeMix'); mx.data_type = 'RGBA'; n.L.new(f, mx.inputs['Factor']); n.L.new(cor, mx.inputs['A']); n.L.new(tex.outputs['Color'], mx.inputs['B'])
+    return mx.outputs['Result']
+
 def material_tecido(m, ap, peca):
     """Roupa de verdade: casca separada do corpo, recortada pela mesma máscara do desenho (borda nítida),
     com trama de malha, brilho de tecido e a logo no short."""
@@ -159,14 +171,10 @@ def material_tecido(m, ap, peca):
         cor = n.mixc(n.entre(z, m['zcintura'] + .006, m['zcintura'] + .03, .0012), base_cor, tuple(min(1, x * 1.6 + .01) for x in base_cor))
         cor = n.mixc(n.entre(z, m['zbarra'] - .01, m['zbarra'] + .008, .001), cor, srgb(ap['roupa']['detalhe']))
         # logo (só os triângulos) na frente da coxa esquerda, perto da barra
-        lw = .072; lu = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', xs, m['logo_x']), lw), .5)
-        lv = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', z, m['logo_z']), lw), .5)
-        vec = n.N.new('ShaderNodeCombineXYZ'); n.L.new(lu, vec.inputs[0]); n.L.new(lv, vec.inputs[1])
-        tex = n.N.new('ShaderNodeTexImage'); tex.image = imagem_logo(); tex.extension = 'CLIP'; tex.interpolation = 'Cubic'
-        n.L.new(vec.outputs[0], tex.inputs['Vector'])
-        logo = n.e(tex.outputs['Alpha'], n.menor(y, m['logo_y'], .004), n.entre(z, m['zbarra'] + .012, m['zcintura'], .001))
-        mx = n.N.new('ShaderNodeMix'); mx.data_type = 'RGBA'; n.L.new(logo, mx.inputs['Factor']); n.L.new(cor, mx.inputs['A']); n.L.new(tex.outputs['Color'], mx.inputs['B'])
-        cor = mx.outputs['Result']
+        cor = _logo(n, cor, xs, z, m['logo_x'], m['logo_z'], .095,
+                    n.e(n.menor(y, m['logo_y'], .004), n.entre(z, m['zbarra'] + .012, m['zcintura'], .001)))
+        # e outra no meio da frente, logo abaixo do cós (aparece de frente e na diagonal)
+        cor = _logo(n, cor, xs, z, 0.0, m['zcintura'] - .028, .062, n.e(frente, n.entre(z, m['zpelve'], m['zcintura'] + .004, .001)))
     # trama da malha: relevo fino nas coordenadas de repouso (acompanha o corpo)
     tc = n.N.new('ShaderNodeTexCoord'); onda = n.N.new('ShaderNodeTexWave'); onda.inputs['Scale'].default_value = 900
     onda.wave_type = 'BANDS'; onda.bands_direction = 'Z'; n.L.new(tc.outputs['Generated'], onda.inputs['Vector'])
@@ -247,6 +255,25 @@ def _prender_na_cabeca(o, rig):
 MACROS_BASE = dict(gender=0.0, age=0.45, muscle=0.74, weight=0.46, height=0.55, proportions=0.9, cupsize=0.45, firmness=0.8)
 ALVOS_BASE = (('buttocks', 'buttocks-volume-incr', 1.0), ('stomach', 'stomach-tone-incr', .7),
               ('torso', 'measure-waist-circ-decr', .35), ('stomach', 'stomach-navel-in', .5))
+BARRIGA_RECUO_BASE = .9     # pedido do Luiz (22/10/2026): barriga menos projetada, cintura igual
+
+def recuo_barriga(co, vg, m):
+    """{vértice: dy} que leva a frente do abdômen de volta até a linha das costelas (dy > 0 = para trás)"""
+    zrib = m['zbusto'] - .025
+    rib = [c.y for i, c in enumerate(co) if 'body' in vg[i] and abs(c.x) < .03 and abs(c.z - zrib) < .012]
+    if not rib: return {}
+    y_rib = min(rib) + .006; z0, z1 = m['zpelve'] - .07, m['zbusto'] - .01
+    def suave(a, b, x):
+        t = max(0.0, min(1.0, (x - a) / (b - a))); return t * t * (3 - 2 * t)
+    d = {}
+    for i, c in enumerate(co):
+        if 'body' not in vg[i] or c.y >= m['yc'] or not (z0 < c.z < z1): continue
+        exc = y_rib - c.y
+        if exc <= 0: continue
+        w = suave(z0, z0 + .07, c.z) * (1 - suave(z1 - .05, z1, c.z)) * (1 - suave(.07, .14, abs(c.x)))
+        if w > 0: d[i] = exc * w
+    return d
+
 AJUSTES_ARQ = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ajustes.json')
 
 def controles():
@@ -312,9 +339,17 @@ def criar_modelo(ajustes=None, para_editor=False, aparencia=None):
     tronco = [co[i] for i, s in enumerate(vg) if 'body' in s and m['zbusto'] < co[i].z < m['zombro'] and abs(co[i].x) < .12]
     m['yc'] = (min(c.y for c in tronco) + max(c.y for c in tronco)) / 2
     m['altura'] = max(c.z for c in co)
+    # barriga para dentro sem afinar a cintura: recua só para trás (eixo y) o que passa da linha das costelas
+    f = BARRIGA_RECUO_BASE + float((ajustes or {}).get('barriga_recuo', 0) or 0) * .6
+    d = recuo_barriga(co, vg, m)
+    if f and d:
+        sk = h.shape_key_add(name='barriga-recuo', from_mix=False); inv = h.matrix_world.to_3x3().inverted()
+        for i, dy in d.items():
+            sk.data[i].co = sk.data[i].co + inv @ Vector((0, dy * f, 0)); co[i] = co[i] + Vector((0, dy * f, 0))
+        sk.value = 1.0
     olho = media('helper-l-eye')[0]; olho_z, olho_y = olho.z, olho.y
     # posição da logo: frente da coxa esquerda (x > 0), um pouco para fora, perto da barra do short
-    m['logo_z'] = m['zbarra'] + .048
+    m['logo_z'] = m['zbarra'] + .062
     faixa_coxa = [c for i, c in enumerate(co) if 'body' in vg[i] and abs(c.z - m['logo_z']) < .01 and c.x > .02]
     m['logo_x'] = (min(c.x for c in faixa_coxa) + max(c.x for c in faixa_coxa)) / 2 + .006
     m['logo_y'] = sum(c.y for c in faixa_coxa) / len(faixa_coxa)

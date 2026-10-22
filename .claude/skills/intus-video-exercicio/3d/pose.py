@@ -18,10 +18,19 @@ def dirv(ang, lateral=0.0):
 
 PADRAO = dict(canela=0, coxa=0, tronco=0, lombar=0, toracica=0, pelve=0, pescoco=0, cabecaInc=0,
               braco=180, antebraco=180, pe=90, dedos=None, resp=0.5, abreBraco=0.0, abrePerna=0.0,
-              abdBraco=0.0, abdAnte=0.0, mao=0.0)
+              abdBraco=0.0, abdAnte=0.0, mao=0.0, polegar=None, planoBraco=0.0)
 # Qualquer chave de braço/perna aceita um sufixo _L ou _R para valer só de um lado (ex.: braco_L=60 na
 # rosca alternada). abdBraco/abdAnte: abertura lateral em graus (gira a direção do segmento para fora,
 # em torno do eixo frente-trás). mao: 0 = mão aberta, 1 = fechada segurando (pegada).
+# pe: 90 = pé apoiado no chão como na posição de repouso (sola plana); o osso do pé aponta ~24° para baixo
+#   e isso é compensado aqui, então 90 com a canela vertical deixa a sola no chão.
+# polegar: giro do antebraço (pronação/supinação), em graus, dizendo para onde aponta o lado do polegar.
+#   0 = para fora; com o antebraço para cima, + gira para trás (90 = polegar para trás, 180 = para dentro);
+#   com o antebraço pendurado, + gira para a frente (90 = pegada neutra, palma virada para a coxa).
+#   Ex.: rosca alternada 90 -> 0 (palma vira para cima ao subir); Arnold 0 -> 180 (palmas para você ->
+#   palmas para a frente). None = não gira (como antes).
+# planoBraco: gira o braço inteiro em torno do eixo vertical do ombro, + = para a frente (30 = plano da
+#   escápula, cotovelo 30° à frente do corpo).
 
 def preparar(rig):
     # filhos das vértebras que respiram não herdam a escala (só a caixa torácica/abdômen expande)
@@ -53,6 +62,39 @@ def _apontar(rig, nome, d):
     sc = pb.scale.copy(); pb.matrix = m; pb.scale = sc
     bpy.context.view_layer.update()
 
+_PE_OFF = {}
+def _pe_off(rig, lado):
+    """quanto o osso do pé aponta para baixo da horizontal na posição de repouso (graus)"""
+    if lado not in _PE_OFF:
+        y = rig.data.bones['foot.' + lado].matrix_local.col[1].to_3d().normalized()
+        _PE_OFF[lado] = math.degrees(math.atan2(-y.z, -y.y))
+    return _PE_OFF[lado]
+
+def _girar_z(v, graus):
+    a = math.radians(graus); c, s_ = math.cos(a), math.sin(a)
+    return Vector((v.x * c - v.y * s_, v.x * s_ + v.y * c, v.z)).normalized()
+
+def _torcer(rig, lado, alvo, sx):
+    """gira o antebraço em torno do próprio eixo até o lado do polegar apontar para `alvo` (graus)"""
+    from mathutils import Quaternion
+    a = (ponto(rig, 'lowerarm02.' + lado, 't') - ponto(rig, 'lowerarm01.' + lado)).normalized()
+    fora = Vector((sx, 0, 0))
+    ref = fora - a * fora.dot(a)
+    if ref.length < .25: ref = Vector((0, 0, 1)) - a * a.z     # antebraço apontando para o lado
+    ref.normalize()
+    alvo_v = Quaternion(a, math.radians(alvo) * sx) @ ref
+    for _ in range(3):
+        e = ponto(rig, 'finger2-1.' + lado) - ponto(rig, 'finger5-1.' + lado); e = e - a * e.dot(a)
+        if e.length < 1e-6: return
+        e.normalize()
+        ang = math.atan2(a.dot(e.cross(alvo_v)), e.dot(alvo_v))
+        if abs(ang) < math.radians(.5): return
+        for n, k in (('lowerarm01.', .4), ('lowerarm02.', .6)):
+            pb = rig.pose.bones[n + lado]
+            eixo_local = pb.matrix.to_3x3().inverted() @ (rig.matrix_world.to_3x3().inverted() @ a)
+            pb.rotation_quaternion = pb.rotation_quaternion @ Quaternion(eixo_local.normalized(), ang * k)
+            bpy.context.view_layer.update()
+
 def aplicar(rig, p, delta=0.0, fixos=()):
     """Aplica a pose. `delta` gira o corpo inteiro (menos os segmentos em `fixos`)."""
     p = {**PADRAO, **p}
@@ -75,7 +117,7 @@ def aplicar(rig, p, delta=0.0, fixos=()):
         lat = p.get('abrePerna_' + lado, p['abrePerna']) * sx
         _apontar(rig, 'upperleg01.' + lado, dirv(L_('coxa') + 180, lat)); _apontar(rig, 'upperleg02.' + lado, dirv(L_('coxa') + 180, lat))
         _apontar(rig, 'lowerleg01.' + lado, dirv(L_('canela') + 180, lat)); _apontar(rig, 'lowerleg02.' + lado, dirv(L_('canela') + 180, lat))
-        _apontar(rig, 'foot.' + lado, dirv(L_('pe')))
+        _apontar(rig, 'foot.' + lado, dirv(L_('pe') + _pe_off(rig, lado)))
         if p['dedos'] is not None:
             for t in range(1, 6):
                 for k in (1, 2, 3):
@@ -83,9 +125,12 @@ def aplicar(rig, p, delta=0.0, fixos=()):
                     if n in rig.pose.bones: _apontar(rig, n, dirv(A('dedos')))
         la = p.get('abreBraco_' + lado, p['abreBraco']) * sx
         ab = p.get('abdBraco_' + lado, p['abdBraco']); aa = p.get('abdAnte_' + lado, p['abdAnte'])
-        for n in ('upperarm01.', 'upperarm02.'): _apontar(rig, n + lado, _abrir(dirv(L_('braco'), la), ab, sx))
-        for n in ('lowerarm01.', 'lowerarm02.'): _apontar(rig, n + lado, _abrir(dirv(L_('antebraco'), la), aa, sx))
+        pl = p.get('planoBraco_' + lado, p['planoBraco']) * -sx       # + = para a frente (-Y)
+        for n in ('upperarm01.', 'upperarm02.'): _apontar(rig, n + lado, _girar_z(_abrir(dirv(L_('braco'), la), ab, sx), pl))
+        for n in ('lowerarm01.', 'lowerarm02.'): _apontar(rig, n + lado, _girar_z(_abrir(dirv(L_('antebraco'), la), aa, sx), pl))
         _fechar_mao(rig, lado, p.get('mao_' + lado, p['mao']))
+        pg = p.get('polegar_' + lado, p['polegar'])
+        if pg is not None: _torcer(rig, lado, pg, sx)
     # respiração: caixa torácica e abdômen
     r = p['resp']
     for n, k in (('spine03', .035), ('spine02', .045), ('spine04', .03)):

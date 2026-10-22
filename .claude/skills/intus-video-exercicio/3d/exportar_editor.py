@@ -107,6 +107,12 @@ for c in modelo.controles():
             oprops.set_value(c['macro'], alvo, entity_reference=h); ts.reapply_macro_details(h)
             morfos[c['id'] + sinal] = empacotar(posicoes() - base)
             oprops.set_value(c['macro'], b, entity_reference=h); ts.reapply_macro_details(h)
+    elif c.get('recuo'):
+        # barriga para dentro: a forma 'barriga-recuo' já está no corpo base com o valor padrão; o controle soma ou tira
+        k_ = h.data.shape_keys.key_blocks['barriga-recuo']; k_.slider_max = 3; b_ = modelo.BARRIGA_RECUO_BASE
+        for sinal, f in (('+', b_ + .6), ('-', max(0.0, b_ - .6))):
+            k_.value = f / b_; morfos[c['id'] + sinal] = empacotar(posicoes() - base)
+        k_.value = 1.0
     elif 'expressao' in c:
         base_ex = os.path.join(dados, 'expression', 'units')
         kb = []
