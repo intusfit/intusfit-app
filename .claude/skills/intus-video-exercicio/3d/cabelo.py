@@ -107,7 +107,7 @@ class Cabelo:
             L = .18 + .4 * comp
             for i in range(int(4000 + 3000 * vol)):                # rabo: sai do elástico e cai
                 off = rng.normal(0, .007 + .006 * vol, 3)
-                self.livres.append((b + off, np.array([0, .7, -.3]) + rng.normal(0, .15, 3), L * (.8 + .3 * rng.random())))
+                self.livres.append((b + off, np.array([0, .35, -1.]) + rng.normal(0, .12, 3), L * (.8 + .3 * rng.random())))
             self.nucleo = (b, .012)
         else:                                                         # solto
             L = .12 + .5 * comp
@@ -178,7 +178,7 @@ class Cabelo:
         M = np.array(T); R3 = M[:3, :3]; t = M[:3, 3]
         A = self.A0 @ R3.T + t; d = self.D0 @ R3.T
         g = np.array([0, 0, -1.]); seg = (self.LL / (self.KL - 1))[:, None]
-        gp = .42 if self.ap['estilo'] == 'solto' else .26
+        gp = {'solto': .42, 'rabo': .5}.get(self.ap['estilo'], .26)
         esf = self._esferas(T); pts = [A]; p = A.copy()
         for k in range(1, self.KL):
             d = d * (1 - gp) + g * gp + self.ruido[:, k] * .25

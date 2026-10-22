@@ -19,7 +19,7 @@ const { chromium } = require('playwright');
 
 const [roteiroArq, clipe, saida] = process.argv.slice(2);
 if (!roteiroArq || !clipe || !saida) { console.error('uso: node renderizar-ia.js <roteiro.json> <clipe.mp4> <saida.mp4>'); process.exit(1); }
-const FFMPEG = process.env.FFMPEG || 'ffmpeg', FPS = 30;
+const FFMPEG = process.env.FFMPEG || 'ffmpeg', FPS = Number(process.env.FPS || 30);
 const R = JSON.parse(fs.readFileSync(roteiroArq, 'utf8'));
 
 function quadros(arq, rep, pasta) {
