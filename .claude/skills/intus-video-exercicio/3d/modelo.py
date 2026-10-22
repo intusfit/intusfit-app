@@ -127,11 +127,13 @@ def criar_modelo():
     ts = importlib.import_module(base + '.services.targetservice').TargetService
     dados = os.path.join(os.path.dirname(importlib.import_module(base).__file__), 'data', 'targets')
     mac = ts.get_default_macro_info_dict()
-    mac.update(dict(gender=0.0, age=0.45, muscle=0.74, weight=0.46, height=0.55, proportions=0.9, cupsize=0.45, firmness=0.8))
+    mac.update(dict(gender=0.0, age=0.42, muscle=0.8, weight=0.56, height=0.55, proportions=1.0, cupsize=0.5, firmness=0.85))
     h = hs.create_human(macro_detail_dict=mac)
     # glúteo treinado, abdômen firme, cintura fina
-    for cat, nome, peso in (('buttocks', 'buttocks-volume-incr', 1.0), ('stomach', 'stomach-tone-incr', .7),
-                            ('torso', 'measure-waist-circ-decr', .35), ('stomach', 'stomach-navel-in', .5)):
+    for cat, nome, peso in (('buttocks', 'buttocks-volume-incr', 1.0), ('hip', 'hip-scale-depth-incr', .55),
+                            ('hip', 'hip-scale-horiz-incr', .25), ('pelvis', 'pelvis-tone-incr', .7),
+                            ('stomach', 'stomach-tone-incr', .6), ('torso', 'measure-waist-circ-decr', .45),
+                            ('stomach', 'stomach-navel-in', .5)):
         ts.load_target(h, os.path.join(dados, cat, nome + '.target.gz'), weight=peso)
     rig = hs.add_builtin_rig(h, 'default')
     for md in h.modifiers: md.show_viewport = False
@@ -177,15 +179,18 @@ def criar_modelo():
         for i in range(len(co)):
             if viz[i] and (val[i] > 0 or any(val[j] > 0 for j in viz[i])):
                 A['hs'].data[i].value = .5 * val[i] + .5 * sum(val[j] for j in viz[i]) / len(viz[i])
-    vis = h.vertex_groups.new(name='visivel'); vis.add([i for i, s in enumerate(vg) if 'body' in s], 1.0, 'REPLACE')
+    vis = h.vertex_groups.new(name='visivel'); vis.add([i for i, s in enumerate(vg) if s & {'body', 'helper-upper-teeth', 'helper-lower-teeth', 'helper-tongue'}], 1.0, 'REPLACE')
     for md in h.modifiers:
         if md.type == 'MASK': md.vertex_group = 'visivel'
     corpo = material_corpo(m); cab = material_simples('cabelo', CABELO, .5, coat=.08)
-    h.data.materials.clear(); h.data.materials.append(corpo); h.data.materials.append(cab)
+    dente = material_simples('dente', '#e8e2d6', .35); lingua = material_simples('lingua', '#9c4a4a', .45)
+    h.data.materials.clear()
+    for mm in (corpo, cab, dente, lingua): h.data.materials.append(mm)
     for p in h.data.polygons:
         p.use_smooth = True
-        p.material_index = 0
-    sub = h.modifiers.new('suave', 'SUBSURF'); sub.levels = 1; sub.render_levels = 1
+        gu = set().union(*[vg[i] for i in p.vertices])
+        p.material_index = 0 if 'body' in gu else (3 if 'helper-tongue' in gu else 2)
+    sub = h.modifiers.new('suave', 'SUBSURF'); sub.levels = 1; sub.render_levels = 2
 
     tn = h.copy(); tn.data = h.data.copy(); tn.name = 'tenis'; bpy.context.scene.collection.objects.link(tn)
     bm = bmesh.new(); bm.from_mesh(tn.data); bm.verts.ensure_lookup_table()
@@ -226,12 +231,48 @@ def criar_modelo():
         cu.bevel_depth = .0017; cu.bevel_resolution = 2
         ob = bpy.data.objects.new('sobrancelha.' + lado, cu); bpy.context.scene.collection.objects.link(ob)
         ob.data.materials.append(material_simples('sobrancelha', '#1d120c', .7, sheen=.4))
-        _prender_na_cabeca(ob, rig)
-    # ---- coque
-    ids = [i for i, s in enumerate(vg) if 'scalp' in s]
+        alvo_v = [min((i for i, g in enumerate(vg) if 'body' in g), key=lambda i: (co[i] - p).length) for p in pts]
+        # a sobrancelha vai presa a 3 vértices do rosto: segue a cabeça e o levantar da testa
+        tri = alvo_v[0], alvo_v[1], alvo_v[3]
+        m_ = ob.matrix_world.copy(); ob.parent = h; ob.parent_type = 'VERTEX_3'; ob.parent_vertices = tri
+        bpy.context.view_layer.update(); ob.matrix_world = m_
+    # ---- cabelo de fios: penteado para trás num coque volumoso + mechas soltas na frente
+    import cabelo
+    couro = [i for i in range(len(co)) if A['hs'].data[i].value > .45]
+    ids = [i for i, s_ in enumerate(vg) if 'scalp' in s_]
     topo = max((co[i] for i in ids), key=lambda v: v.z); tras = max((co[i] for i in ids), key=lambda v: v.y)
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=.05, location=(0, tras.y - .002, topo.z - .035), segments=32, ring_count=16)
-    cq = bpy.context.object; cq.name = 'coque'; cq.scale = (1, .92, .86); cq.data.materials.append(cab)
-    for p in cq.data.polygons: p.use_smooth = True
-    _prender_na_cabeca(cq, rig)
+    bun = Vector((0, tras.y + .012, topo.z - .03))
+    mfios = cabelo.material_cabelo()
+    _, centro, _ = cabelo.criar(h, rig, co, couro, bun, mfios)
+    m['mechas'] = cabelo.Mechas(rig, co, couro, centro, mfios)
+    m['h'] = h
     return h, rig, m
+
+# ---- expressões do rosto (alvos de unidade facial do MakeHuman, misturados por intensidade)
+EXPRESSOES = {
+    'neutra': {},
+    'feliz': {'mouth-corner-puller': .75, 'mouth-elevation': .15, 'eye-left-slit': .3, 'eye-right-slit': .3,
+              'eyebrows-left-up': .15, 'eyebrows-right-up': .15},
+    'esforco': {'eyebrows-left-down': .55, 'eyebrows-right-down': .55, 'eye-left-slit': .5, 'eye-right-slit': .5,
+                'mouth-compression': .6, 'nose-left-elevation': .35, 'nose-right-elevation': .35, 'mouth-retraction': .25},
+    'sofrimento': {'eyebrows-left-inner-up': .85, 'eyebrows-right-inner-up': .85, 'eye-left-closure': .5, 'eye-right-closure': .5,
+                   'mouth-depression-retraction': .55, 'mouth-parling': .35, 'nose-left-elevation': .45, 'nose-right-elevation': .45,
+                   'neck-platysma': .35},
+}
+def expressao(h, mistura):
+    """mistura: {'feliz': .6, 'esforco': .4} (pesos de 0 a 1). Carrega os alvos na primeira vez."""
+    import importlib as _il
+    ts = _il.import_module('bl_ext.user_default.mpfb.services.targetservice').TargetService
+    base = os.path.join(os.path.dirname(_il.import_module('bl_ext.user_default.mpfb').__file__), 'data', 'targets', 'expression', 'units')
+    alvo = {}
+    for nome, w in mistura.items():
+        for u, v in EXPRESSOES[nome].items(): alvo[u] = alvo.get(u, 0) + v * w
+    kb = h.data.shape_keys.key_blocks
+    todos = {u for e in EXPRESSOES.values() for u in e}
+    for u in todos:
+        for raca in ('caucasian', 'african'):
+            nk = 'ex-%s-%s' % (raca, u)
+            if nk not in kb:
+                if alvo.get(u, 0) == 0: continue
+                ts.load_target(h, os.path.join(base, raca, u + '.target.gz'), weight=0.0, name=nk)
+            kb[nk].value = min(1.0, alvo.get(u, 0)) * .5
