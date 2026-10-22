@@ -159,6 +159,20 @@ aparelho antes. Depuração: `ESCONDER=short` esconde um objeto no quadro; `PONT
 vértices da roupa mais longe da pele (achou a ponta do short na lombar, que vinha da suavização da
 virilha perto da borda da roupa).
 
+### Vídeo real (pessoa de verdade): versão curta
+
+Mais realista que o 3D. Com o vídeo de um professor da Intus (nunca de outro canal sem autorização):
+1. ache uma repetição sem legenda gravada por cima e sem corte de câmera (folha de quadros com ffmpeg
+   `fps=4,tile`); a câmera na mão faz o fim não bater com o começo, então
+2. `real/loop_suave.py <ffmpeg> <video> <t0> <t1> 0.4 rep.mp4` monta o loop dissolvendo o fim no começo;
+3. roteiro com `"tempos": {"intro": 1.5, "dica": 3.2, "fim": 2, "demoMin": 6}` e 3 dicas dá ~13 s
+   (exemplo: `roteiros-ia/rosca-video-real-curta.json`, trecho 17,0 a 19,0 s do vídeo "Bíceps" do Luiz);
+   erro só com clipe do erro gravado de verdade (sem ele, `"erros": []`).
+`real/pose_ler.py` (MediaPipe, modelo `pose_landmarker_heavy.task` baixado do site público do Google;
+precisa `LD_LIBRARY_PATH` com a libEGL do Chromium do Playwright) lê as juntas quadro a quadro: é o
+caminho para levar o movimento real para a modelo 3D (ainda não ligado ao `clipes.py`).
+Gravação ideal para isso: tripé, de lado e de 45°, fundo sem gente, sem legenda, 3 a 5 repetições.
+
 ## Galeria (onde o Luiz assiste e baixa)
 
 Tudo que for produzido entra na página **https://claude.ai/artifact/NHTznbab21EjEvrj4sxr5P**
