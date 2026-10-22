@@ -1,0 +1,244 @@
+<title>Editor da Modelo Intus</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: palco 3D grande à esquerda, painel de controles à direita (embaixo no celular) */
+:root{
+  --bg:#f2f3ef; --palco:#dfe1db; --card:#ffffff; --card2:#eceee8; --borda:#d6d9d0; --texto:#141614; --muted:#5d625a;
+  --accent:#3f8f00; --accent-txt:#ffffff; --trilha:#cfd3c8;
+  --f-disp:'Archivo','Inter',system-ui,sans-serif; --f-corpo:'Inter',system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f0f0f; --palco:#191919; --card:#161616; --card2:#202020; --borda:#2a2a2a; --texto:#f0f0f0; --muted:#9a9a9a;
+  --accent:#7FFF00; --accent-txt:#0f0f0f; --trilha:#333; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0f0f0f; --palco:#191919; --card:#161616; --card2:#202020; --borda:#2a2a2a; --texto:#f0f0f0; --muted:#9a9a9a;
+  --accent:#7FFF00; --accent-txt:#0f0f0f; --trilha:#333; color-scheme:dark }
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--texto);font-family:var(--f-corpo);font-size:14px;-webkit-font-smoothing:antialiased}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;height:100%;padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+@media (max-width:860px){.app{grid-template-columns:1fr;height:auto}.palco{height:62vh;min-height:360px}}
+.palco{position:relative;background:var(--palco);border:1px solid var(--borda);border-radius:16px;overflow:hidden;min-width:0;min-height:0}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.vistas{position:absolute;left:12px;top:12px;display:flex;flex-wrap:wrap;gap:6px}
+.vistas button,.btn{font:600 13px var(--f-corpo);border:1px solid var(--borda);background:var(--card);color:var(--texto);border-radius:999px;padding:7px 13px;cursor:pointer}
+.vistas button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-txt)}
+.dica{position:absolute;left:12px;bottom:10px;font-size:12px;color:var(--muted)}
+.carregando[hidden]{display:none}
+.carregando{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:600}
+.painel{display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0}
+.topo{background:var(--card);border:1px solid var(--borda);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+h1{font-family:var(--f-disp);font-weight:900;font-size:24px;margin:0;line-height:1.1}
+.sub{color:var(--muted);margin:0;font-size:13px;line-height:1.45}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-txt)}
+.btn:disabled{opacity:.5;cursor:default}
+.status{font-size:12.5px;color:var(--muted);min-height:1.2em}
+.btn:focus-visible,.vistas button:focus-visible,input[type=range]:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lista{overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px;min-height:0}
+details{background:var(--card);border:1px solid var(--borda);border-radius:14px;padding:4px 14px}
+summary{cursor:pointer;font-weight:700;padding:10px 0;display:flex;justify-content:space-between;align-items:center;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary .qtd{font-weight:600;font-size:12px;color:var(--accent)}
+.ctl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:8px 0;border-top:1px solid var(--borda)}
+.ctl label{font-weight:600;font-size:13px}
+.ctl .val{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);text-align:right;min-width:38px;cursor:pointer}
+.ctl input{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+.ctl.mudou label{color:var(--accent)}
+.nota{font-size:12px;color:var(--muted);padding:2px 0 10px;margin:0}
+</style>
+
+<div class="app">
+  <div class="palco" id="palco">
+    <canvas id="c" aria-label="Modelo 3D da Intus"></canvas>
+    <div class="vistas" role="group" aria-label="Vista">
+      <button type="button" data-vista="frente" aria-pressed="true">Frente</button>
+      <button type="button" data-vista="lado">Lado</button>
+      <button type="button" data-vista="costas">Costas</button>
+      <button type="button" data-vista="tres">3/4 costas</button>
+      <button type="button" data-vista="rosto">Rosto</button>
+    </div>
+    <div class="dica">Arraste para girar · role ou pince para aproximar</div>
+    <div class="carregando" id="carregando">Carregando a modelo...</div>
+  </div>
+  <div class="painel">
+    <div class="topo">
+      <h1>Editor da Modelo</h1>
+      <p class="sub">Ajuste o corpo e o rosto. Cada controle vai de −100 a +100, e o zero é a modelo atual. Ao salvar, os valores ficam guardados e os próximos vídeos usam exatamente esta modelo. A prévia não tem o cabelo de fios nem a iluminação final.</p>
+      <div class="acoes">
+        <button class="btn pri" type="button" id="salvar">Salvar modelo</button>
+        <button class="btn" type="button" id="voltar">Voltar ao salvo</button>
+        <button class="btn" type="button" id="zerar">Zerar tudo</button>
+        <button class="btn" type="button" id="copiar">Copiar valores</button>
+      </div>
+      <div class="status" id="status" aria-live="polite"></div>
+    </div>
+    <div class="lista" id="lista"></div>
+  </div>
+</div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const status = t => { $('status').textContent = t; };
+function b64(s, T){ const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); }
+
+let D, base, n, morfos = {}, valores = {}, salvos = {}, db = null;
+const cena = new THREE.Scene();
+const render = new THREE.WebGLRenderer({ canvas: $('c'), antialias: true });
+render.setPixelRatio(Math.min(devicePixelRatio, 2));
+const cam = new THREE.PerspectiveCamera(30, 1, .05, 50);
+const ctl = new OrbitControls(cam, $('c')); ctl.enableDamping = true; ctl.target.set(0, .9, 0);
+cena.add(new THREE.HemisphereLight(0xffffff, 0x404040, 1.6));
+const chave = new THREE.DirectionalLight(0xfff2e6, 2.4); chave.position.set(2, 3, 3); cena.add(chave);
+const recorte = new THREE.DirectionalLight(0xe8f4ff, 1.2); recorte.position.set(-2, 2.5, -3); cena.add(recorte);
+const chao = new THREE.Mesh(new THREE.CircleGeometry(.9, 48), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: .9 }));
+chao.rotation.x = -Math.PI / 2; cena.add(chao);
+let corpo, olhos = [], coque, grupoModelo = new THREE.Group(); cena.add(grupoModelo);
+
+function corDeFundo(){ const c = getComputedStyle(document.documentElement).getPropertyValue('--palco').trim(); cena.background = new THREE.Color(c || '#191919'); }
+corDeFundo(); matchMedia('(prefers-color-scheme: dark)').addEventListener('change', corDeFundo);
+new MutationObserver(corDeFundo).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+function tamanho(){ const r = $('palco').getBoundingClientRect(); render.setSize(r.width, r.height, false); cam.aspect = r.width / r.height; cam.updateProjectionMatrix(); }
+new ResizeObserver(tamanho).observe($('palco'));
+const VISTAS = { frente: [0, 1.05, 3.6, 0, .9, 0], lado: [3.6, 1.05, 0, 0, .9, 0], costas: [0, 1.05, -3.6, 0, .9, 0],
+                 tres: [-2.4, 1.1, -2.6, 0, .9, 0], rosto: [.35, 1.55, .95, 0, 1.5, 0] };
+function vista(v){ const p = VISTAS[v]; cam.position.set(p[0], p[1], p[2]); ctl.target.set(p[3], p[4], p[5]);
+  document.querySelectorAll('.vistas button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.vista === v))); }
+document.querySelectorAll('.vistas button').forEach(b => b.addEventListener('click', () => vista(b.dataset.vista)));
+
+// Blender (Z para cima, rosto para −Y) → three (Y para cima, rosto para +Z)
+const conv = (x, y, z) => [x, z, -y];
+
+function montar(){
+  base = b64(D.pos, Float32Array); n = D.n;
+  const pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const c = conv(base[3 * i], base[3 * i + 1], base[3 * i + 2]); pos.set(c, 3 * i); }
+  base = pos.slice();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const cor8 = b64(D.cor, Uint8Array), cor = new Float32Array(n * 3);
+  for (let i = 0; i < n * 3; i++) cor[i] = Math.pow(cor8[i] / 255, 2.2);
+  g.setAttribute('color', new THREE.BufferAttribute(cor, 3));
+  g.setIndex(new THREE.BufferAttribute(b64(D.tri, Uint16Array), 1));
+  g.computeVertexNormals();
+  corpo = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .55, metalness: 0 }));
+  grupoModelo.add(corpo);
+  for (const [k, m] of Object.entries(D.morfos)) {
+    const i = b64(m.i, Uint16Array), d = b64(m.d, Int16Array), f = new Float32Array(d.length);
+    for (let j = 0; j < d.length; j += 3) { const c = conv(d[j], d[j + 1], d[j + 2]); f[j] = c[0] * D.escala_delta; f[j + 1] = c[1] * D.escala_delta; f[j + 2] = c[2] * D.escala_delta; }
+    morfos[k] = { i, f };
+  }
+  // olhos: esfera branca com íris escura voltada para a frente
+  const tx = document.createElement('canvas'); tx.width = tx.height = 128; const x = tx.getContext('2d');
+  x.fillStyle = '#ece6dc'; x.fillRect(0, 0, 128, 128); x.fillStyle = '#4a2e1c'; x.beginPath(); x.arc(32, 64, 15, 0, 7); x.fill();
+  x.fillStyle = '#0b0706'; x.beginPath(); x.arc(32, 64, 7, 0, 7); x.fill();
+  const matOlho = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(tx), roughness: .2 });
+  for (const o of D.olhos) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(o[3], 24, 16), matOlho);
+    s.userData.c = conv(o[0], o[1], o[2]); olhos.push(s); grupoModelo.add(s);
+  }
+  const cq = D.coque; coque = new THREE.Mesh(new THREE.SphereGeometry(cq[3], 24, 16), new THREE.MeshStandardMaterial({ color: 0x1a100a, roughness: .55 }));
+  coque.userData.c = conv(cq[0], cq[1], cq[2]); grupoModelo.add(coque);
+  vizinhos(olhos); vizinhos([coque]);
+}
+// objetos soltos (olhos, coque) acompanham a média do deslocamento da pele em volta
+function vizinhos(objs){
+  for (const o of objs) { const c = o.userData.c, r = [];
+    for (let i = 0; i < n; i++) { const dx = base[3 * i] - c[0], dy = base[3 * i + 1] - c[1], dz = base[3 * i + 2] - c[2]; if (dx * dx + dy * dy + dz * dz < .0009) r.push(i); }
+    o.userData.viz = r; }
+}
+
+function controleDe(id){ return D.controles.find(c => c.id === id); }
+function aplicar(){
+  const pos = corpo.geometry.attributes.position.array; pos.set(base);
+  let escala = 1;
+  for (const c of D.controles) {
+    const v = valores[c.id] || 0; if (!v) continue;
+    if (c.escala) { escala = 1 + v * (v > 0 ? c.max - 1 : 1 - c.min); continue; }
+    const m = c.expressao ? morfos[c.id + '+'] : morfos[c.id + (v > 0 ? '+' : '-')]; if (!m) continue;
+    const w = c.expressao ? Math.max(0, v) : Math.abs(v), { i, f } = m;
+    for (let k = 0; k < i.length; k++) { const p = 3 * i[k]; pos[p] += f[3 * k] * w; pos[p + 1] += f[3 * k + 1] * w; pos[p + 2] += f[3 * k + 2] * w; }
+  }
+  corpo.geometry.attributes.position.needsUpdate = true; corpo.geometry.computeVertexNormals();
+  for (const o of [...olhos, coque]) { let sx = 0, sy = 0, sz = 0; const r = o.userData.viz, c = o.userData.c;
+    for (const i of r) { sx += pos[3 * i] - base[3 * i]; sy += pos[3 * i + 1] - base[3 * i + 1]; sz += pos[3 * i + 2] - base[3 * i + 2]; }
+    const k = r.length || 1; o.position.set(c[0] + sx / k, c[1] + sy / k, c[2] + sz / k); }
+  grupoModelo.scale.setScalar(escala);
+}
+
+function fmt(v){ const n = Math.round(v * 100); return (n > 0 ? '+' : '') + n; }
+function montarControles(){
+  const grupos = {};
+  for (const c of D.controles) (grupos[c.grupo] = grupos[c.grupo] || []).push(c);
+  const lista = $('lista'); lista.innerHTML = '';
+  Object.entries(grupos).forEach(([g, cs], gi) => {
+    const det = document.createElement('details'); if (gi < 2) det.open = true;
+    const sum = document.createElement('summary'); sum.innerHTML = '<span></span><span class="qtd"></span>'; sum.firstChild.textContent = g;
+    det.appendChild(sum);
+    if (g.startsWith('Expressão')) { const p = document.createElement('p'); p.className = 'nota'; p.textContent = 'Só para ver como o rosto reage. A expressão muda ao longo de cada vídeo e não é salva com a modelo.'; det.appendChild(p); }
+    for (const c of cs) {
+      const d = document.createElement('div'); d.className = 'ctl'; d.dataset.id = c.id;
+      const id = 'r-' + c.id, lab = document.createElement('label'); lab.htmlFor = id; lab.textContent = c.rotulo;
+      const val = document.createElement('span'); val.className = 'val'; val.title = 'Clique para voltar a zero';
+      const r = document.createElement('input'); r.type = 'range'; r.id = id; r.min = c.expressao ? 0 : -1; r.max = 1; r.step = .01; r.value = valores[c.id] || 0;
+      r.addEventListener('input', () => { valores[c.id] = +r.value; atualizarRotulos(); agendar(); });
+      val.addEventListener('click', () => { valores[c.id] = 0; r.value = 0; atualizarRotulos(); agendar(); });
+      d.append(lab, val, r); det.appendChild(d);
+    }
+    lista.appendChild(det);
+  });
+  atualizarRotulos();
+}
+function atualizarRotulos(){
+  document.querySelectorAll('.ctl').forEach(d => { const v = valores[d.dataset.id] || 0; d.querySelector('.val').textContent = fmt(v); d.classList.toggle('mudou', Math.abs(v) > .004);
+    d.querySelector('input').value = v; });
+  document.querySelectorAll('details').forEach(det => { const k = [...det.querySelectorAll('.ctl.mudou')].length; det.querySelector('.qtd').textContent = k ? k + ' alterado' + (k > 1 ? 's' : '') : ''; });
+  const dif = JSON.stringify(soCorpo(valores)) !== JSON.stringify(soCorpo(salvos));
+  $('voltar').disabled = !dif;
+  if (dif) status('Alterações não salvas.');
+}
+let pendente = false; function agendar(){ if (!pendente) { pendente = true; requestAnimationFrame(() => { pendente = false; aplicar(); }); } }
+function soCorpo(v){ const o = {}; for (const c of D.controles) if (!c.expressao && Math.abs(v[c.id] || 0) > .004) o[c.id] = Math.round((v[c.id] || 0) * 100) / 100; return o; }
+
+$('zerar').addEventListener('click', () => { valores = {}; atualizarRotulos(); aplicar(); });
+$('voltar').addEventListener('click', () => { valores = { ...salvos }; atualizarRotulos(); aplicar(); status('De volta à modelo salva.'); });
+$('copiar').addEventListener('click', () => {
+  const txt = JSON.stringify(soCorpo(valores));
+  try { navigator.clipboard.writeText(txt).then(() => status('Valores copiados.'), () => status(txt)); } catch (e) { status(txt); }
+});
+$('salvar').addEventListener('click', async () => {
+  if (!db) { status('Salvar não está disponível nesta visualização. Use "Copiar valores" e me mande o texto.'); return; }
+  $('salvar').disabled = true; status('Salvando...');
+  try {
+    const v = soCorpo(valores);
+    await db.doc('modelo/ajustes').set({ valores: v, salvo_em: new Date().toISOString(), versao: 1 });
+    salvos = { ...v }; status('Modelo salva. Os próximos vídeos usam estes valores.'); atualizarRotulos();
+  } catch (e) { status('Não consegui salvar (' + (e && e.code || 'erro') + '). Use "Copiar valores" e me mande o texto.'); }
+  $('salvar').disabled = false;
+});
+
+(function laco(){ ctl.update(); render.render(cena, cam); requestAnimationFrame(laco); })();
+
+(async () => {
+  try { D = await (await fetch('modelo.json')).json(); }
+  catch (e) { $('carregando').textContent = 'Não consegui carregar a modelo. Recarregue a página.'; return; }
+  montar(); montarControles(); vista('frente'); tamanho(); aplicar(); $('carregando').hidden = true;
+  status('Carregando a modelo salva...');
+  try {
+    db = window.claude && claude.use ? await claude.use('db') : null;
+    if (db) { const s = await db.doc('modelo/ajustes').get(); const d = s.data && s.data();
+      if (d && d.valores) { salvos = { ...d.valores }; valores = { ...salvos }; atualizarRotulos(); aplicar();
+        status('Modelo salva em ' + new Date(d.salvo_em).toLocaleString('pt-BR') + '.'); }
+      else status('Ainda não há modelo salva: esta é a original.'); }
+    else status('Prévia sem salvar: use "Copiar valores" para me mandar os ajustes.');
+  } catch (e) { status('Não consegui ler a modelo salva. Os ajustes ainda podem ser copiados.'); }
+})();
+</script>

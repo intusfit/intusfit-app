@@ -48,11 +48,33 @@ class Nos:
         else: self.L.new(a, x.inputs['A'])
         x.inputs['B'].default_value = v; return x.outputs['Result']
 
+def imagem_logo(tam=512):
+    """Só os triângulos da logo da Intus (mesma geometria do favicon.svg, grade 32x32), em tons claros
+    para aparecer no tecido preto. Fundo transparente."""
+    import numpy as np
+    tri = (((14, 0), (32, 0), (32, 18), (.95, .95, .95, 1)), ((8, 6), (26, 6), (26, 24), (.62, .62, .62, .92)),
+           ((2, 12), (20, 12), (20, 30), (.40, .40, .40, .9)))
+    yy, xx = np.mgrid[0:tam, 0:tam] + .5; x = xx * 32 / tam; y = 32 - yy * 32 / tam   # y da imagem cresce para cima
+    px = np.zeros((tam, tam, 4), dtype=np.float32)
+    for (a, b, c, cor) in tri:
+        # triângulo retângulo: dentro se x <= x_dir, y >= y_cima... teste geral por sinais
+        def lado(p1, p2): return (x - p2[0]) * (p1[1] - p2[1]) - (p1[0] - p2[0]) * (y - p2[1])
+        d1, d2, d3 = lado(a, b), lado(b, c), lado(c, a)
+        dentro = ~(((d1 < 0) | (d2 < 0) | (d3 < 0)) & ((d1 > 0) | (d2 > 0) | (d3 > 0)))
+        al = cor[3]
+        px[dentro, :3] = px[dentro, :3] * (1 - al) + np.array(cor[:3]) * al
+        px[dentro, 3] = 1 - (1 - px[dentro, 3]) * (1 - al)
+    # o svg tem y para baixo: inverte para a imagem do Blender (linha 0 embaixo)
+    img = bpy.data.images.new('logo-intus-icone', tam, tam, alpha=True)
+    img.pixels.foreach_set(px[::-1].ravel() if False else px.ravel()); img.pack()
+    return img
+
 def material_corpo(m):
     mat = bpy.data.materials.new('corpo'); mat.use_nodes = True; n = Nos(mat); n.N.clear()
     out = n.N.new('ShaderNodeOutputMaterial'); b = n.N.new('ShaderNodeBsdfPrincipled')
     b.inputs['Subsurface Radius'].default_value = (1, .45, .3); b.inputs['Subsurface Scale'].default_value = .005
     z, ax, y, br, lb, hs = n.attr('zr'), n.attr('ax'), n.attr('yr'), n.attr('br'), n.attr('lb'), n.attr('hs')
+    xs = n.attr('xs')
     corpo = n.menor(br, .35, .05)
     frente = n.menor(y, m['yc'], .004); costas = n.op('SUBTRACT', 1.0, frente)
     z1 = m['zbusto']; zo = m['zombro']
@@ -81,6 +103,16 @@ def material_corpo(m):
         cor = n.mixc(fac, cor, c)
     cabelo = n.maior(hs, .5, .06)
     cor = n.mixc(cabelo, cor, srgb(CABELO))
+    # logo (só os triângulos) na frente da coxa esquerda, perto da barra do short
+    lw = .072; lu = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', xs, m['logo_x']), lw), .5)
+    lv = n.op('ADD', n.op('DIVIDE', n.op('SUBTRACT', z, m['logo_z']), lw), .5)
+    vec = n.N.new('ShaderNodeCombineXYZ'); n.L.new(lu, vec.inputs[0]); n.L.new(lv, vec.inputs[1])
+    tex = n.N.new('ShaderNodeTexImage'); tex.image = imagem_logo(); tex.extension = 'CLIP'; tex.interpolation = 'Cubic'
+    n.L.new(vec.outputs[0], tex.inputs['Vector'])
+    na_frente = n.menor(y, m['logo_y'], .004)
+    logo = n.e(tex.outputs['Alpha'], na_frente, corpo, n.entre(z, m['zbarra'] + .012, m['zcintura'], .001))
+    mx = n.N.new('ShaderNodeMix'); mx.data_type = 'RGBA'; n.L.new(logo, mx.inputs['Factor']); n.L.new(cor, mx.inputs['A']); n.L.new(tex.outputs['Color'], mx.inputs['B'])
+    cor = mx.outputs['Result']
     roupa = n.ou(top, short)
     n.L.new(cor, b.inputs['Base Color'])
     n.L.new(n.mixf(cabelo, n.mixf(roupa, .46, .7), .5), b.inputs['Roughness'])
@@ -120,20 +152,50 @@ def _prender_na_cabeca(o, rig):
     m_ = o.matrix_world.copy(); o.parent = rig; o.parent_type = 'BONE'; o.parent_bone = 'head'
     bpy.context.view_layer.update(); o.matrix_world = m_
 
-def criar_modelo():
+MACROS_BASE = dict(gender=0.0, age=0.45, muscle=0.74, weight=0.46, height=0.55, proportions=0.9, cupsize=0.45, firmness=0.8)
+ALVOS_BASE = (('buttocks', 'buttocks-volume-incr', 1.0), ('stomach', 'stomach-tone-incr', .7),
+              ('torso', 'measure-waist-circ-decr', .35), ('stomach', 'stomach-navel-in', .5))
+AJUSTES_ARQ = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ajustes.json')
+
+def controles():
+    import json
+    return json.load(open(AJUSTES_ARQ, encoding='utf-8'))['controles']
+
+def macros_com_ajustes(ajustes):
+    mac = dict(MACROS_BASE)
+    for c in controles():
+        v = float((ajustes or {}).get(c['id'], 0) or 0)
+        if 'macro' in c and v:
+            b = mac[c['macro']]; mac[c['macro']] = b + v * ((c['max'] - b) if v > 0 else (b - c['min']))
+    return mac
+
+def arquivos_do_alvo(rel):
+    """'legs/l-upperleg-muscle-incr' -> o do lado esquerdo e o do direito; outros, ele mesmo."""
+    cat, nome = rel.split('/')
+    return [(cat, nome)] + ([(cat, 'r-' + nome[2:])] if nome.startswith('l-') else [])
+
+def aplicar_alvos(h, ts, dados, ajustes):
+    for c in controles():
+        v = float((ajustes or {}).get(c['id'], 0) or 0)
+        if not v or 'mais' not in c: continue
+        for cat, nome in arquivos_do_alvo(c['mais'] if v > 0 else c['menos']):
+            ts.load_target(h, os.path.join(dados, cat, nome + '.target.gz'), weight=abs(v), name='aj-%s-%s' % (c['id'], nome))
+
+def criar_modelo(ajustes=None, para_editor=False):
+    """ajustes: {id do controle (3d/ajustes.json): valor de -1 a 1}, salvos pelo Editor da Modelo."""
     addon_utils.enable('bl_ext.user_default.mpfb', default_set=True)
     base = 'bl_ext.user_default.mpfb'
     hs = importlib.import_module(base + '.services.humanservice').HumanService
     ts = importlib.import_module(base + '.services.targetservice').TargetService
     dados = os.path.join(os.path.dirname(importlib.import_module(base).__file__), 'data', 'targets')
     mac = ts.get_default_macro_info_dict()
-    mac.update(dict(gender=0.0, age=0.45, muscle=0.74, weight=0.46, height=0.55, proportions=0.9, cupsize=0.45, firmness=0.8))
+    mac.update(macros_com_ajustes(ajustes))
     h = hs.create_human(macro_detail_dict=mac)
     # glúteo treinado, abdômen firme, cintura fina
-    # corpo do modelo original (aprovado pelo Luiz: estilo das personagens do GTA)
-    for cat, nome, peso in (('buttocks', 'buttocks-volume-incr', 1.0), ('stomach', 'stomach-tone-incr', .7),
-                            ('torso', 'measure-waist-circ-decr', .35), ('stomach', 'stomach-navel-in', .5)):
+    # corpo do modelo original (aprovado pelo Luiz: estilo das personagens do GTA) + ajustes do editor
+    for cat, nome, peso in ALVOS_BASE:
         ts.load_target(h, os.path.join(dados, cat, nome + '.target.gz'), weight=peso)
+    aplicar_alvos(h, ts, dados, ajustes)
     rig = hs.add_builtin_rig(h, 'default')
     for md in h.modifiers: md.show_viewport = False
     dg = bpy.context.evaluated_depsgraph_get(); ev = h.evaluated_get(dg); me = ev.to_mesh()
@@ -157,13 +219,18 @@ def criar_modelo():
     m['yc'] = (min(c.y for c in tronco) + max(c.y for c in tronco)) / 2
     m['altura'] = max(c.z for c in co)
     olho = media('helper-l-eye')[0]; olho_z, olho_y = olho.z, olho.y
+    # posição da logo: frente da coxa esquerda (x > 0), um pouco para fora, perto da barra do short
+    m['logo_z'] = m['zbarra'] + .048
+    faixa_coxa = [c for i, c in enumerate(co) if 'body' in vg[i] and abs(c.z - m['logo_z']) < .01 and c.x > .02]
+    m['logo_x'] = (min(c.x for c in faixa_coxa) + max(c.x for c in faixa_coxa)) / 2 + .006
+    m['logo_y'] = sum(c.y for c in faixa_coxa) / len(faixa_coxa)
     cabeca = [co[i] for i, s_ in enumerate(vg) if 'scalp' in s_]
     orelha_y = (min(c.y for c in cabeca) + max(c.y for c in cabeca)) / 2 + .025   # atrás da orelha
     # atributos de repouso para o shader
     braco = ('upperarm', 'lowerarm', 'wrist', 'finger', 'metacarpal')   # ombro/clavícula ficam com o tronco (alças do top)
-    A = {k: h.data.attributes.new(k, 'FLOAT', 'POINT') for k in ('zr', 'yr', 'ax', 'br', 'lb', 'hs')}
+    A = {k: h.data.attributes.new(k, 'FLOAT', 'POINT') for k in ('zr', 'yr', 'ax', 'br', 'lb', 'hs', 'xs')}
     for i, c in enumerate(co):
-        A['zr'].data[i].value = c.z; A['yr'].data[i].value = c.y; A['ax'].data[i].value = abs(c.x)
+        A['zr'].data[i].value = c.z; A['yr'].data[i].value = c.y; A['ax'].data[i].value = abs(c.x); A['xs'].data[i].value = c.x
         A['br'].data[i].value = min(1.0, sum(w for g, w in pesos[i].items() if g.startswith(braco)))
         A['lb'].data[i].value = pesos[i].get('lips', 0.0)
         # cabelo: couro cabeludo, menos a lateral do rosto (o grupo do MakeHuman desce até a bochecha)
@@ -178,6 +245,13 @@ def criar_modelo():
         for i in range(len(co)):
             if viz[i] and (val[i] > 0 or any(val[j] > 0 for j in viz[i])):
                 A['hs'].data[i].value = .5 * val[i] + .5 * sum(val[j] for j in viz[i]) / len(viz[i])
+    m['escala'] = 1.0
+    for c in controles():
+        if c.get('escala'):
+            v = float((ajustes or {}).get(c['id'], 0) or 0)
+            m['escala'] = 1 + v * ((c['max'] - 1) if v > 0 else (1 - c['min']))
+    if para_editor:
+        return dict(h=h, rig=rig, co=co, vg=vg, m=m, A=A, ts=ts, hs=hs, dados=dados, mac=mac)
     vis = h.vertex_groups.new(name='visivel'); vis.add([i for i, s in enumerate(vg) if s & {'body', 'helper-upper-teeth', 'helper-lower-teeth', 'helper-tongue'}], 1.0, 'REPLACE')
     for md in h.modifiers:
         if md.type == 'MASK': md.vertex_group = 'visivel'
@@ -250,6 +324,8 @@ def criar_modelo():
     mfios = cabelo.material_cabelo()
     _, centro, _ = cabelo.criar(h, rig, co, couro, bun, mfios)
     m['mechas'] = cabelo.Mechas(rig, co, couro, centro, mfios)
+    rig.scale = (m['escala'],) * 3; bpy.context.view_layer.update()
+    m['ztorn_mundo'] = m['ztorn'] * m['escala']
     m['h'] = h
     return h, rig, m
 

@@ -31,6 +31,22 @@ site, e isto aqui não é para ficar acessível pela web.
 - **MP4 nunca entra no repositório**: o `git push` na `main` publica tudo no site. Gere no
   scratchpad e entregue o arquivo ao Luiz (SendUserFile).
 
+## Editor da Modelo (o Luiz ajusta corpo e rosto; os vídeos usam o que ele salvar)
+
+- Página: **https://claude.ai/artifact/RHMCrq1bo9vzM4gU3xZnvN** (fonte em `editor/index.html`; o
+  arquivo pesado `modelo.json`, ~2 MB, é gerado e NÃO vai para o repositório).
+- 44 controles definidos em `3d/ajustes.json` (corpo, glúteo e pernas, braços, rosto, olhos, nariz e
+  boca, expressão só para teste), cada um de −1 a +1 (0 = modelo atual). Macros do MakeHuman
+  (músculo, peso, proporções, busto) e alvos de forma (`l-` carrega os dois lados); altura é escala.
+- Os valores salvos ficam no banco da página: `ArtifactData get`, collection `modelo`, doc
+  `ajustes` → `{valores: {id: valor}}`. Passe esse dicionário para `modelo.criar_modelo(valores)`.
+- Mudou `ajustes.json`, a forma base ou as cores? Gere de novo `modelo.json` com
+  `bpyenv/bin/python 3d/exportar_editor.py 3d <saida>/modelo.json` e republique a página com o
+  arquivo em `files` (mesma URL).
+- A prévia é aproximada (cores por vértice, sem cabelo de fios nem logo); o render final é no Blender.
+- Logo: só os triângulos (geometria do `favicon.svg`), em tons claros, na frente da coxa esquerda
+  do short (`imagem_logo()` e `m['logo_*']` em `modelo.py`).
+
 ## Caminho atual: clipe gerado por IA (decisão do Luiz, 22/10/2026)
 
 O Luiz reprovou o boneco 2D ("robótico") e também o 3D feito aqui no Blender ("ficou bem ruim").
