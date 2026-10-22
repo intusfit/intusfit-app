@@ -115,6 +115,33 @@ linha do alinhamento; cena de erro vai para a pose errada, segura, corrige e mos
 Limites conhecidos: mãos e dedos ficam na pose de repouso (sem halter na mão ainda), roupa é
 pintada no corpo (sem tecido solto), rosto sem sobrancelha. Não há equipamento 3D modelado.
 
+### Caminho atual: uma repetição em 3D + texto por cima (`3d/clipes.py`)
+
+O que vale hoje (substitui `animar.py` para vídeo novo): renderiza só UMA repetição e os clipes de
+erro com a modelo salva no Editor, e o `renderizar-ia.js` repete a repetição em loop e põe o texto.
+
+```bash
+# modelo salva no Editor: ArtifactData get modelo/ajustes (out_dir <scratchpad>/salvo)
+<scratchpad>/bpyenv/bin/python 3d/clipes.py 3d <scratchpad>/salvo/modelo/ajustes.json \
+    3d/roteiros/rosca-alternada-clipes.json <scratchpad>/clp-rosca --fps 24
+#   --so rep:0,erro1:24 --amostras 6   testa quadros soltos antes (SONDA=wrist.L imprime juntas)
+# cada pasta (rep, erro1, erro2) vira MP4: ffmpeg -framerate 24 -i q%04d.png -c:v libx264 -pix_fmt yuv420p
+FPS=24 NODE_PATH=... FFMPEG=... CHROME=... node renderizar-ia.js roteiros-ia/rosca-alternada-modelo.json rep.mp4 saida.mp4
+#   os "clipe" dos erros no roteiro são relativos à pasta do roteiro (clipes/erro1.mp4)
+```
+
+Roteiro de clipes: `contato` = `antebraco` (prancha), `pes` (em pé), `quadril` (deitada ou
+sentada; com `apoio_z` o ponto mais baixo da pele da bacia encosta no colchonete ou no banco) ou
+`joelhos_maos` (rodinha: joelhos no chão, braço calculado para a mão chegar em `mao_z`).
+`equipamentos`: `halteres`, `barra` (anilha de 45 cm), `rodinha`, `banco` ([x, y, altura, largura,
+comprimento]), `colchonete` ([x, y, largura, comprimento]). `cabelo: "coque_alto"` prende o cabelo
+em exercício de cabeça para baixo (o rabo cai como cortina no rosto). Chave de pose com `_L`/`_R`
+vale só de um lado (rosca alternada). Prontos: prancha, rosca alternada, levantamento terra,
+canivete fletido, rodinha, desenvolvimento Arnold. Exercício em máquina ou cabo exige modelar o
+aparelho antes. Depuração: `ESCONDER=short` esconde um objeto no quadro; `PONTA=short` imprime os
+vértices da roupa mais longe da pele (achou a ponta do short na lombar, que vinha da suavização da
+virilha perto da borda da roupa).
+
 ## Galeria (onde o Luiz assiste e baixa)
 
 Tudo que for produzido entra na página **https://claude.ai/artifact/NHTznbab21EjEvrj4sxr5P**

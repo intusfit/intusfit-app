@@ -17,7 +17,11 @@ def dirv(ang, lateral=0.0):
     return v.normalized()
 
 PADRAO = dict(canela=0, coxa=0, tronco=0, lombar=0, toracica=0, pelve=0, pescoco=0, cabecaInc=0,
-              braco=180, antebraco=180, pe=90, dedos=None, resp=0.5, abreBraco=0.0, abrePerna=0.0)
+              braco=180, antebraco=180, pe=90, dedos=None, resp=0.5, abreBraco=0.0, abrePerna=0.0,
+              abdBraco=0.0, abdAnte=0.0, mao=0.0)
+# Qualquer chave de braço/perna aceita um sufixo _L ou _R para valer só de um lado (ex.: braco_L=60 na
+# rosca alternada). abdBraco/abdAnte: abertura lateral em graus (gira a direção do segmento para fora,
+# em torno do eixo frente-trás). mao: 0 = mão aberta, 1 = fechada segurando (pegada).
 
 def preparar(rig):
     # filhos das vértebras que respiram não herdam a escala (só a caixa torácica/abdômen expande)
@@ -25,6 +29,21 @@ def preparar(rig):
         b = rig.data.bones.get(n)
         if b: b.inherit_scale = 'NONE'
     for pb in rig.pose.bones: pb.rotation_mode = 'QUATERNION'
+
+def _abrir(v, graus, lado_x):
+    """gira o vetor em torno do eixo Y (frente-trás) para o lado de fora (lado_x = +1 esquerda, -1 direita)"""
+    if not graus: return v
+    a = math.radians(graus) * lado_x
+    return Vector((v.x * math.cos(a) - v.z * math.sin(a), v.y, v.x * math.sin(a) + v.z * math.cos(a))).normalized()
+
+def _fechar_mao(rig, lado, k):
+    if k <= 0: return
+    for f in range(1, 6):
+        for j in (1, 2, 3):
+            nb = 'finger%d-%d.%s' % (f, j, lado)
+            if nb not in rig.pose.bones: continue
+            pb = rig.pose.bones[nb]; ang = math.radians((35 if f == 1 else 75) * k * (1.0 if j > 1 else .8))
+            pb.rotation_quaternion = pb.rotation_quaternion @ Matrix.Rotation(ang, 4, 'X').to_quaternion()
 
 def _apontar(rig, nome, d):
     pb = rig.pose.bones[nome]; rest = pb.bone.matrix_local.to_3x3()
@@ -52,18 +71,21 @@ def aplicar(rig, p, delta=0.0, fixos=()):
     _apontar(rig, 'neck01', dirv(cab)); _apontar(rig, 'neck02', dirv(cab + p['cabecaInc'] * .4))
     _apontar(rig, 'neck03', dirv(cab + p['cabecaInc'] * .7)); _apontar(rig, 'head', dirv(cab + p['cabecaInc']))
     for lado, sx in (('L', 1), ('R', -1)):
-        lat = p['abrePerna'] * sx
-        _apontar(rig, 'upperleg01.' + lado, dirv(A('coxa') + 180, lat)); _apontar(rig, 'upperleg02.' + lado, dirv(A('coxa') + 180, lat))
-        _apontar(rig, 'lowerleg01.' + lado, dirv(A('canela') + 180, lat)); _apontar(rig, 'lowerleg02.' + lado, dirv(A('canela') + 180, lat))
-        _apontar(rig, 'foot.' + lado, dirv(A('pe')))
+        L_ = lambda k: p.get(k + '_' + lado, p[k]) + (0 if k in fixos else delta)    # valor do lado (ou o comum)
+        lat = p.get('abrePerna_' + lado, p['abrePerna']) * sx
+        _apontar(rig, 'upperleg01.' + lado, dirv(L_('coxa') + 180, lat)); _apontar(rig, 'upperleg02.' + lado, dirv(L_('coxa') + 180, lat))
+        _apontar(rig, 'lowerleg01.' + lado, dirv(L_('canela') + 180, lat)); _apontar(rig, 'lowerleg02.' + lado, dirv(L_('canela') + 180, lat))
+        _apontar(rig, 'foot.' + lado, dirv(L_('pe')))
         if p['dedos'] is not None:
             for t in range(1, 6):
                 for k in (1, 2, 3):
                     n = 'toe%d-%d.%s' % (t, k, lado)
                     if n in rig.pose.bones: _apontar(rig, n, dirv(A('dedos')))
-        la = p['abreBraco'] * sx
-        for n in ('upperarm01.', 'upperarm02.'): _apontar(rig, n + lado, dirv(A('braco'), la))
-        for n in ('lowerarm01.', 'lowerarm02.'): _apontar(rig, n + lado, dirv(A('antebraco'), la))
+        la = p.get('abreBraco_' + lado, p['abreBraco']) * sx
+        ab = p.get('abdBraco_' + lado, p['abdBraco']); aa = p.get('abdAnte_' + lado, p['abdAnte'])
+        for n in ('upperarm01.', 'upperarm02.'): _apontar(rig, n + lado, _abrir(dirv(L_('braco'), la), ab, sx))
+        for n in ('lowerarm01.', 'lowerarm02.'): _apontar(rig, n + lado, _abrir(dirv(L_('antebraco'), la), aa, sx))
+        _fechar_mao(rig, lado, p.get('mao_' + lado, p['mao']))
     # respiração: caixa torácica e abdômen
     r = p['resp']
     for n, k in (('spine03', .035), ('spine02', .045), ('spine04', .03)):

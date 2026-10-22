@@ -192,8 +192,17 @@ def _casca(h, nome, manter, mat, folga=.0026, cortes=None):
         kb = cs.data.shape_keys.key_blocks if cs.data.shape_keys else []
         for i in borda:
             z0 = zr[i].value; alvo = cortes[0] if abs(z0 - cortes[0]) < abs(z0 - cortes[1]) else cortes[1]
-            dz = alvo - z0; cs.data.vertices[i].co.z += dz; zr[i].value = alvo
+            dz = alvo - z0
+            if abs(dz) > .03: continue      # borda interna (ex.: entre os glúteos): esticar até a barra cria uma ponta
+            cs.data.vertices[i].co.z += dz; zr[i].value = alvo
             for k_ in kb: k_.data[i].co.z += dz
+    if 'fenda' in cs.vertex_groups:   # sem suavizar perto da borda da roupa: a borda aberta escorrega e vira ponta
+        bm = bmesh.new(); bm.from_mesh(cs.data); bm.verts.ensure_lookup_table()
+        perto = {v.index for v in bm.verts if v.is_boundary}
+        for _ in range(3): perto |= {e.other_vert(bm.verts[i]).index for i in list(perto) for e in bm.verts[i].link_edges}
+        gf = cs.vertex_groups['fenda'].index   # e só no vinco de baixo (a faixa de peso .5 da lombar também escorrega)
+        perto |= {v.index for v in cs.data.vertices if any(e.group == gf and e.weight <= .5 for e in v.groups)}
+        bm.free(); cs.vertex_groups['fenda'].remove(list(perto))
     for md in list(cs.modifiers):
         if md.type in ('MASK', 'SUBSURF'): cs.modifiers.remove(md)
     d = cs.modifiers.new('folga', 'DISPLACE'); d.direction = 'NORMAL'; d.strength = folga; d.mid_level = 0
