@@ -19,10 +19,18 @@
  * que deixa o renderizar.js gerar o MP4 quadro a quadro, sempre igual, sem gravar a tela.
  * O conteúdo vem de window.ROTEIRO (um JSON por exercício, em roteiros/).
  *
- * Boneco visto de LADO, virado para a direita. Cada pose diz o ângulo de cada segmento
- * em graus, medido a partir da vertical para cima: 0 = em pé reto, positivo = inclinado
- * para a frente (direita), negativo = para trás. Exemplos: canela 30 = joelho à frente
- * do pé; coxa -90 = coxa deitada apontando para trás (quadril atrás do joelho).
+ * Duas vistas (campo "vista" do roteiro, e de cada erro):
+ *  - "lado" (padrão): boneco de perfil, virado para a direita. Cada pose diz o ângulo de cada
+ *    segmento em graus a partir da vertical para cima: 0 = em pé reto, positivo = para a frente
+ *    (direita), negativo = para trás. canela = tornozelo→joelho, coxa = joelho→quadril,
+ *    tronco = quadril→ombro, pe = tornozelo→ponta do pé (opcional; sem ele o pé fica no chão),
+ *    braco = ombro→cotovelo, antebraco = cotovelo→mão (180 = pendurado).
+ *    "ancora" {junta, x, y} prende uma junta num ponto (ex.: quadril no colchonete, joelho no
+ *    chão, ponta do pé na prancha). Sem âncora o tornozelo fica na origem (exercício em pé).
+ *  - "frente" / "costas": boneco frontal. Pose: prof (0 em pé … 1 agachado), joelhoAbre
+ *    (+ abre, − joelho entrando), pesAbre (metade da distância entre os pés), abd (braços
+ *    abertos para o lado, 0 = junto do corpo, 90 = altura do ombro), cotovelo (dobra a mais),
+ *    encolher (ombros subindo em direção às orelhas).
  */
 var R = window.ROTEIRO || null;
 var W = 1920, H = 1080;
@@ -34,13 +42,16 @@ if (window.LOGO_DATA) LOGO.src = window.LOGO_DATA;
 var COR = { fundo: '#0f0f0f', cartao: '#161616', borda: '#2a2a2a', texto: '#f0f0f0', muted: '#9a9a9a',
             verde: '#7FFF00', vermelho: '#ff4d4d', corpo: '#e9e9e9', corpoSombra: '#8c8c8c', equip: '#bdbdbd' };
 var FONTE = 'Inter, "Inter Display", system-ui, sans-serif';
+// "erro" (um) ou "erros" (lista): cada erro vira uma cena de errado + certo
+var ERROS = R ? (Array.isArray(R.erros) ? R.erros : (R.erro ? [R.erro] : [])) : [];
+var VISTA = R ? (R.vista || 'lado') : 'lado';
 
 // ── tempos das cenas (segundos) ──
 var T_INTRO = 2.6, T_DICA = 3.2, T_ERRO_CADA = 2.6, T_OUTRO = 2.6;
 function linhaDoTempo(){
   var nDicas = (R.dicas || []).length;
   var iniDemo = T_INTRO, fimDemo = iniDemo + 0.6 + nDicas * T_DICA + 0.4;
-  var iniErro = fimDemo, fimErro = R.erro ? iniErro + 2 * T_ERRO_CADA : iniErro;
+  var iniErro = fimDemo, fimErro = iniErro + ERROS.length * 2 * T_ERRO_CADA;
   return { iniDemo: iniDemo, fimDemo: fimDemo, iniErro: iniErro, fimErro: fimErro, total: fimErro + T_OUTRO };
 }
 var LT = R ? linhaDoTempo() : null;
@@ -56,7 +67,6 @@ function lerp(a, b, k){ return a + (b - a) * k; }
 
 // ── esqueleto ──
 var L = { canela: .46, coxa: .46, tronco: .56, pescoco: .07, cabeca: .115, braco: .30, antebraco: .28, pe: .25, calcanhar: .06 };
-var SEG = ['canela', 'coxa', 'tronco', 'pe', 'braco', 'antebraco', 'cabecaInc'];
 function misturar(a, b, k){
   var o = {};
   Object.keys(a).forEach(function(n){ o[n] = typeof a[n] === 'number' && typeof b[n] === 'number' ? lerp(a[n], b[n], k) : (k < .5 ? a[n] : b[n]); });
@@ -64,7 +74,7 @@ function misturar(a, b, k){
   return o;
 }
 // pose no instante tm do ciclo de repetição (sequencia = [[nomePose, segundos, rotulo], ...])
-function poseNoCiclo(tm, sobrescrever){
+function poseNoCiclo(tm){
   var seq = R.movimento.sequencia, poses = R.movimento.poses;
   var total = seq.reduce(function(s, p){ return s + p[1]; }, 0);
   var x = ((tm % total) + total) % total, acum = 0;
@@ -72,9 +82,7 @@ function poseNoCiclo(tm, sobrescrever){
     var de = poses[seq[(i - 1 + seq.length) % seq.length][0]], para = poses[seq[i][0]];
     if (x <= acum + seq[i][1]) {
       var k = suave((x - acum) / seq[i][1]);
-      var p = misturar(de, para, k);
-      if (sobrescrever) p = misturar(p, Object.assign({}, p, sobrescrever), 1);
-      return { pose: p, rotulo: seq[i][2] || '', fase: (x - acum) / seq[i][1] };
+      return { pose: misturar(de, para, k), rotulo: seq[i][2] || '', fase: (x - acum) / seq[i][1] };
     }
     acum += seq[i][1];
   }
@@ -83,44 +91,69 @@ function poseNoCiclo(tm, sobrescrever){
 // direção de um segmento com ângulo g (graus a partir da vertical, + = frente)
 function dir(g){ return { x: Math.sin(rad(g)), y: Math.cos(rad(g)) }; }   // y para CIMA
 function soma(p, g, l){ var d = dir(g); return { x: p.x + d.x * l, y: p.y + d.y * l }; }
-// IK de 2 ossos (ombro→cotovelo→mão), cotovelo dobrando para trás/baixo
+// IK de 2 ossos (ombro→cotovelo→mão)
 function ik(ombro, alvo, l1, l2, cotoveloParaTras){
   var dx = alvo.x - ombro.x, dy = alvo.y - ombro.y, d = Math.min(Math.hypot(dx, dy), l1 + l2 - 1e-4);
   var a = Math.atan2(dy, dx), b = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1));
   var ang = a + (cotoveloParaTras ? b : -b);
   return { x: ombro.x + Math.cos(ang) * l1, y: ombro.y + Math.sin(ang) * l1 };
 }
-function montar(p){
-  var tornozelo = { x: 0, y: 0 };
-  // calcanhar levantado gira o pé em torno da ponta e sobe o tornozelo
-  var lev = p.calcanhar || 0;
-  var ponta = { x: L.pe - L.calcanhar, y: 0 };
-  if (lev) { tornozelo = { x: ponta.x - Math.cos(rad(lev)) * (L.pe - L.calcanhar), y: Math.sin(rad(lev)) * (L.pe - L.calcanhar) }; }
-  var calc = { x: tornozelo.x - Math.cos(rad(lev)) * L.calcanhar, y: tornozelo.y - Math.sin(rad(lev)) * L.calcanhar };
+function ikBaixo(ombro, alvo, l1, l2){   // escolhe o cotovelo mais baixo das duas soluções
+  var a = ik(ombro, alvo, l1, l2, true), b = ik(ombro, alvo, l1, l2, false);
+  return a.y < b.y ? a : b;
+}
+
+// ── vista de lado ──
+function montarLado(p){
+  var tornozelo = { x: 0, y: 0 }, calc, ponta;
+  if (typeof p.pe === 'number') {
+    // pé solto (deitado, ajoelhado, prancha): segue o ângulo pedido
+    calc = soma(tornozelo, p.pe + 180, L.calcanhar);
+    ponta = soma(tornozelo, p.pe, L.pe - L.calcanhar);
+  } else {
+    // pé no chão; calcanhar levantado gira o pé em torno da ponta e sobe o tornozelo
+    var lev = p.calcanhar || 0;
+    ponta = { x: L.pe - L.calcanhar, y: 0 };
+    if (lev) tornozelo = { x: ponta.x - Math.cos(rad(lev)) * (L.pe - L.calcanhar), y: Math.sin(rad(lev)) * (L.pe - L.calcanhar) };
+    calc = { x: tornozelo.x - Math.cos(rad(lev)) * L.calcanhar, y: tornozelo.y - Math.sin(rad(lev)) * L.calcanhar };
+  }
   var joelho = soma(tornozelo, p.canela, L.canela);
   var quadril = soma(joelho, p.coxa, L.coxa);
   var ombro = soma(quadril, p.tronco, L.tronco);
   var pesc = soma(ombro, p.tronco + (p.cabecaInc || 0), L.pescoco);
   var cabeca = soma(pesc, p.tronco + (p.cabecaInc || 0), L.cabeca);
   var j = { tornozelo: tornozelo, calc: calc, ponta: ponta, joelho: joelho, quadril: quadril, ombro: ombro, pesc: pesc, cabeca: cabeca };
-  // barra nas costas: um pouco atrás e acima do ombro, perpendicular ao tronco
-  var n = dir(p.tronco - 90);
-  if (R.equipamento === 'barra_costas') {
-    j.barra = { x: ombro.x + n.x * .07 + dir(p.tronco).x * .03, y: ombro.y + n.y * .07 + dir(p.tronco).y * .03 };
-    j.mao = { x: j.barra.x + dir(p.tronco).x * .0, y: j.barra.y };
-    j.cotovelo = ik(ombro, j.mao, L.braco, L.antebraco, true);   // cotovelo para baixo/trás
-  } else if (typeof p.braco === 'number') {
-    j.cotovelo = soma(ombro, p.braco, L.braco);
-    j.mao = soma(j.cotovelo, p.antebraco, L.antebraco);
-  } else {
-    j.cotovelo = soma(ombro, 180, L.braco); j.mao = soma(j.cotovelo, 180, L.antebraco);
+  // apoio fixo: move o boneco inteiro para a junta escolhida ficar no ponto pedido
+  var an = R.ancora;
+  if (an && j[an.junta]) {
+    var dx = (an.x || 0) - j[an.junta].x, dy = (an.y || 0) - j[an.junta].y;
+    Object.keys(j).forEach(function(k){ j[k] = { x: j[k].x + dx, y: j[k].y + dy }; });
   }
+  var o = j.ombro;
+  if (R.equipamento === 'barra_costas') {
+    // barra nas costas: um pouco atrás e acima do ombro, perpendicular ao tronco
+    var n = dir(p.tronco - 90);
+    j.barra = { x: o.x + n.x * .07 + dir(p.tronco).x * .03, y: o.y + n.y * .07 + dir(p.tronco).y * .03 };
+    j.mao = { x: j.barra.x, y: j.barra.y };
+    j.cotovelo = ik(o, j.mao, L.braco, L.antebraco, true);   // cotovelo para baixo/trás
+  } else if (R.equipamento === 'rodinha') {
+    // braços esticados até a roda, que corre no chão
+    var raio = .11, comp = L.braco + L.antebraco;
+    var ang = Math.acos(clamp((raio - o.y) / comp, -1, 1)) * 180 / Math.PI;
+    j.cotovelo = soma(o, ang, L.braco); j.mao = soma(j.cotovelo, ang, L.antebraco);
+    j.roda = { x: j.mao.x, y: raio };
+  } else if (typeof p.braco === 'number') {
+    j.cotovelo = soma(o, p.braco, L.braco);
+    j.mao = soma(j.cotovelo, typeof p.antebraco === 'number' ? p.antebraco : p.braco, L.antebraco);
+  } else {
+    j.cotovelo = soma(o, 180, L.braco); j.mao = soma(j.cotovelo, 180, L.antebraco);
+  }
+  j.joelhos = j.joelho; j.ombros = j.ombro;
   return j;
 }
 
-// ── desenho do boneco ──
-function desenharBoneco(p, ox, oy, esc, destaque, corContorno){
-  var j = montar(p);
+function desenharLado(p, ox, oy, esc, destaque, corContorno){
+  var j = montarLado(p);
   var P = function(q){ return [ox + q.x * esc, oy - q.y * esc]; };
   var linha = function(a, b, larg, cor){
     var A = P(a), B = P(b);
@@ -128,13 +161,21 @@ function desenharBoneco(p, ox, oy, esc, destaque, corContorno){
     X.beginPath(); X.moveTo(A[0], A[1]); X.lineTo(B[0], B[1]); X.stroke();
   };
   var musc = R.musculosSegmentos || [];
-  var cor = function(seg){ return corContorno || (destaque && musc.indexOf(seg) >= 0 ? COR.verde : COR.corpo); };
+  var tem = function(s){ return musc.indexOf(s) >= 0; };
+  var abdomen = tem('tronco') || tem('abdomen');
+  var cor = function(seg){ return corContorno || (destaque && (tem(seg) || (seg === 'tronco' && abdomen)) ? COR.verde : COR.corpo); };
+  // colchonete no chão, atrás de tudo
+  if (R.colchonete) {
+    var M1 = P({ x: R.colchonete[0], y: .035 }), M2 = P({ x: R.colchonete[1], y: 0 });
+    retArred(M1[0], M1[1], M2[0] - M1[0], M2[1] - M1[1], 8); X.fillStyle = '#26301f'; X.fill();
+    X.strokeStyle = '#3c4a30'; X.lineWidth = 2; X.stroke();
+  }
   // brilho atrás dos músculos trabalhados
   if (destaque && !corContorno) {
     X.save(); X.shadowColor = COR.verde; X.shadowBlur = 40;
-    if (musc.indexOf('coxa') >= 0) linha(j.joelho, j.quadril, .11, 'rgba(127,255,0,.35)');
-    if (musc.indexOf('canela') >= 0) linha(j.tornozelo, j.joelho, .09, 'rgba(127,255,0,.35)');
-    if (musc.indexOf('tronco') >= 0) linha(j.quadril, j.ombro, .13, 'rgba(127,255,0,.3)');
+    if (tem('coxa')) linha(j.joelho, j.quadril, .11, 'rgba(127,255,0,.35)');
+    if (tem('canela')) linha(j.tornozelo, j.joelho, .09, 'rgba(127,255,0,.35)');
+    if (abdomen) linha(j.quadril, j.ombro, .13, 'rgba(127,255,0,.3)');
     X.restore();
   }
   // anilha ATRÁS do corpo (senão cobre a cabeça e o tronco e o movimento some)
@@ -147,20 +188,121 @@ function desenharBoneco(p, ox, oy, esc, destaque, corContorno){
   linha(j.calc, j.ponta, .05, corContorno || COR.corpo);
   linha(j.tornozelo, j.joelho, .085, cor('canela'));
   linha(j.joelho, j.quadril, .105, cor('coxa'));
-  if (musc.indexOf('gluteo') >= 0 && destaque && !corContorno) {
+  if (tem('gluteo') && destaque && !corContorno) {
     var Q = P(j.quadril); X.fillStyle = COR.verde; X.beginPath(); X.arc(Q[0], Q[1], .075 * esc, 0, Math.PI * 2); X.fill();
   }
   linha(j.quadril, j.ombro, .13, cor('tronco'));
   linha(j.ombro, j.pesc, .06, corContorno || COR.corpo);
   var Cc = P(j.cabeca); X.fillStyle = corContorno || COR.corpo; X.beginPath(); X.arc(Cc[0], Cc[1], L.cabeca * esc * .95, 0, Math.PI * 2); X.fill();
-  // equipamento
-  linha(j.ombro, j.cotovelo, .07, corContorno || COR.corpoSombra);
+  linha(j.ombro, j.cotovelo, .07, corContorno || (destaque && tem('ombro') ? COR.verde : COR.corpoSombra));
   linha(j.cotovelo, j.mao, .06, corContorno || COR.corpoSombra);
   if (j.barra) {   // ponta da barra (vista de lado) por cima da mão
     var Bb = P(j.barra);
     X.fillStyle = corContorno || COR.equip; X.beginPath(); X.arc(Bb[0], Bb[1], .035 * esc, 0, Math.PI * 2); X.fill();
   }
+  if (j.roda) {
+    var Rd = P(j.roda);
+    X.fillStyle = '#242424'; X.strokeStyle = corContorno || COR.equip; X.lineWidth = .02 * esc;
+    X.beginPath(); X.arc(Rd[0], Rd[1], .11 * esc, 0, Math.PI * 2); X.fill(); X.stroke();
+    X.fillStyle = corContorno || COR.equip; X.beginPath(); X.arc(Rd[0], Rd[1], .028 * esc, 0, Math.PI * 2); X.fill();
+  }
   return { j: j, P: P };
+}
+
+// ── vista de frente / de costas ──
+function montarFrente(p){
+  var prof = p.prof || 0, pa = p.pesAbre != null ? p.pesAbre : .17, enc = p.encolher || 0;
+  var tz = .07;
+  var quadY = lerp(tz + .9, .52, prof), joeY = lerp(tz + .45, .43, prof);
+  var kx = pa + .02 + .05 * prof + (p.joelhoAbre || 0);
+  var ombY = quadY + L.tronco * lerp(1, .8, prof) + enc;
+  var sw = .2 - enc * .35;
+  var j = {
+    tornE: { x: -pa, y: tz }, tornD: { x: pa, y: tz },
+    peE: { x: -pa - .1, y: .02 }, peD: { x: pa + .1, y: .02 },
+    joeE: { x: -kx, y: joeY }, joeD: { x: kx, y: joeY },
+    quaE: { x: -.1, y: quadY }, quaD: { x: .1, y: quadY }, quadril: { x: 0, y: quadY },
+    ombE: { x: -sw, y: ombY }, ombD: { x: sw, y: ombY }
+  };
+  j.pesc = { x: 0, y: ombY + .03 - enc * .6 };
+  j.cabeca = { x: 0, y: j.pesc.y + .07 + L.cabeca };
+  if (R.equipamento === 'barra_costas') {
+    var by = ombY + .04;
+    j.barraE = { x: -.66, y: by }; j.barraD = { x: .66, y: by };
+    j.maoE = { x: -.36, y: by }; j.maoD = { x: .36, y: by };
+    j.cotE = ikBaixo(j.ombE, j.maoE, L.braco, L.antebraco); j.cotD = ikBaixo(j.ombD, j.maoD, L.braco, L.antebraco);
+  } else {
+    var abd = p.abd || 0, cot = p.cotovelo || 0;
+    // braço direito: abre para a direita; o esquerdo é o espelho
+    var d1 = { x: Math.sin(rad(abd)), y: -Math.cos(rad(abd)) }, d2 = { x: Math.sin(rad(abd + cot)), y: -Math.cos(rad(abd + cot)) };
+    j.cotD = { x: j.ombD.x + d1.x * L.braco, y: j.ombD.y + d1.y * L.braco };
+    j.maoD = { x: j.cotD.x + d2.x * L.antebraco, y: j.cotD.y + d2.y * L.antebraco };
+    j.cotE = { x: j.ombE.x - d1.x * L.braco, y: j.ombE.y + d1.y * L.braco };
+    j.maoE = { x: j.cotE.x - d2.x * L.antebraco, y: j.cotE.y + d2.y * L.antebraco };
+  }
+  // nomes usados para marcar o erro
+  j.joelhos = [j.joeE, j.joeD]; j.ombros = [j.ombE, j.ombD]; j.ombro = j.ombD; j.joelho = j.joeD; j.maos = [j.maoE, j.maoD];
+  return j;
+}
+
+function desenharFrente(p, ox, oy, esc, destaque, corContorno, costas){
+  var j = montarFrente(p);
+  var P = function(q){ return [ox + q.x * esc, oy - q.y * esc]; };
+  var linha = function(a, b, larg, cor){
+    var A = P(a), B = P(b);
+    X.strokeStyle = cor; X.lineWidth = larg * esc; X.lineCap = 'round';
+    X.beginPath(); X.moveTo(A[0], A[1]); X.lineTo(B[0], B[1]); X.stroke();
+  };
+  var musc = R.musculosSegmentos || [];
+  var tem = function(s){ return musc.indexOf(s) >= 0; };
+  var verde = function(s){ return !corContorno && destaque && tem(s); };
+  var corpo = corContorno || COR.corpo;
+  if (j.barraE) {   // barra atrás da cabeça, anilhas nas pontas
+    linha(j.barraE, j.barraD, .035, corContorno || COR.equip);
+    [j.barraE, j.barraD].forEach(function(b){
+      var B = P(b); X.fillStyle = '#242424'; X.strokeStyle = corContorno || '#6b6b6b'; X.lineWidth = .012 * esc;
+      retArred(B[0] - .035 * esc, B[1] - .2 * esc, .07 * esc, .4 * esc, 6); X.fill(); X.stroke();
+    });
+  }
+  // pernas
+  [['E', -1], ['D', 1]].forEach(function(l){
+    var s = l[0];
+    linha(j['torn' + s], j['pe' + s], .05, corpo);
+    linha(j['torn' + s], j['joe' + s], .085, verde('canela') ? COR.verde : corpo);
+    linha(j['joe' + s], j['qua' + s], .105, verde('coxa') ? COR.verde : corpo);
+  });
+  // tronco (trapézio do quadril aos ombros)
+  var a = P(j.quaE), b = P(j.quaD), c = P(j.ombD), d = P(j.ombE);
+  X.fillStyle = (verde('tronco') || verde('abdomen')) ? COR.verde : corpo;
+  X.beginPath(); X.moveTo(a[0] - .04 * esc, a[1]); X.lineTo(b[0] + .04 * esc, b[1]); X.lineTo(c[0], c[1]); X.lineTo(d[0], d[1]); X.closePath(); X.fill();
+  X.strokeStyle = X.fillStyle; X.lineWidth = .06 * esc; X.lineJoin = 'round'; X.stroke();
+  if (costas) {   // coluna, para não confundir costas com frente
+    var t1 = P(j.quadril), t2 = P({ x: 0, y: j.ombD.y - .02 });
+    X.strokeStyle = corContorno ? 'rgba(0,0,0,.25)' : '#9a9a9a'; X.lineWidth = .012 * esc;
+    X.beginPath(); X.moveTo(t1[0], t1[1]); X.lineTo(t2[0], t2[1]); X.stroke();
+  }
+  linha({ x: 0, y: j.ombD.y }, j.pesc, .06, corpo);
+  var Cc = P(j.cabeca); X.fillStyle = corpo; X.beginPath(); X.arc(Cc[0], Cc[1], L.cabeca * esc * .95, 0, Math.PI * 2); X.fill();
+  // braços
+  [['E'], ['D']].forEach(function(l){
+    var s = l[0];
+    if (verde('ombro')) { var O = P(j['omb' + s]); X.fillStyle = COR.verde; X.beginPath(); X.arc(O[0], O[1], .07 * esc, 0, Math.PI * 2); X.fill(); }
+    linha(j['omb' + s], j['cot' + s], .07, corContorno || COR.corpoSombra);
+    linha(j['cot' + s], j['mao' + s], .06, corContorno || COR.corpoSombra);
+    if (R.equipamento === 'halteres') {   // haltere na mão, de lado
+      var M = P(j['mao' + s]), dd = { x: j['mao' + s].x - j['cot' + s].x, y: j['mao' + s].y - j['cot' + s].y };
+      var n = Math.hypot(dd.x, dd.y) || 1, px = -dd.y / n, py = dd.x / n;   // perpendicular ao antebraço
+      var A1 = [M[0] - px * .09 * esc, M[1] + py * .09 * esc], A2 = [M[0] + px * .09 * esc, M[1] - py * .09 * esc];
+      X.strokeStyle = corContorno || COR.equip; X.lineWidth = .025 * esc; X.beginPath(); X.moveTo(A1[0], A1[1]); X.lineTo(A2[0], A2[1]); X.stroke();
+      [A1, A2].forEach(function(q){ X.fillStyle = '#2b2b2b'; X.strokeStyle = corContorno || COR.equip; X.lineWidth = .012 * esc; X.beginPath(); X.arc(q[0], q[1], .045 * esc, 0, Math.PI * 2); X.fill(); X.stroke(); });
+    }
+  });
+  return { j: j, P: P };
+}
+
+function desenharFig(vista, p, ox, oy, esc, destaque, corContorno){
+  return vista === 'lado' ? desenharLado(p, ox, oy, esc, destaque, corContorno)
+                          : desenharFrente(p, ox, oy, esc, destaque, corContorno, vista === 'costas');
 }
 
 // ── texto ──
@@ -181,15 +323,21 @@ function logo(x, y, h, alfa){ if (LOGO.complete && LOGO.naturalWidth) { X.save()
 
 // ── palco (cartão da esquerda com o boneco) ──
 var PALCO = { x: 80, y: 130, w: 960, h: 860 };
-function palco(t, conteudo, alfa){
+var NOME_VISTA = { lado: 'VISTA LATERAL', frente: 'VISTA DE FRENTE', costas: 'VISTA DE COSTAS' };
+function palco(t, vista, conteudo, alfa){
   X.save(); X.globalAlpha = alfa;
   retArred(PALCO.x, PALCO.y, PALCO.w, PALCO.h, 28); X.fillStyle = COR.cartao; X.fill();
   X.strokeStyle = COR.borda; X.lineWidth = 2; X.stroke();
   var chao = PALCO.y + PALCO.h - 175;   // espaço embaixo para o texto da fase
   X.strokeStyle = '#333'; X.lineWidth = 3; X.beginPath(); X.moveTo(PALCO.x + 60, chao); X.lineTo(PALCO.x + PALCO.w - 60, chao); X.stroke();
   X.save(); retArred(PALCO.x, PALCO.y, PALCO.w, PALCO.h, 28); X.clip();
-  conteudo(PALCO.x + PALCO.w * .5, chao, 360);
+  var lado = vista === 'lado';
+  conteudo(PALCO.x + PALCO.w * (lado ? (R.palcoX || .5) : .5), chao, lado ? (R.escala || 360) : 320);   // de frente, menor: braços sobem acima da cabeça
   X.restore();
+  // etiqueta: de que lado se está vendo
+  X.font = '800 22px ' + FONTE; var nv = NOME_VISTA[vista] || '', lw = X.measureText(nv).width + 36;
+  retArred(PALCO.x + 28, PALCO.y + 28, lw, 42, 21); X.fillStyle = '#222'; X.fill();
+  X.fillStyle = '#bdbdbd'; X.textAlign = 'left'; X.textBaseline = 'middle'; X.fillText(nv, PALCO.x + 46, PALCO.y + 50);
   X.restore();
 }
 
@@ -197,14 +345,21 @@ function palco(t, conteudo, alfa){
 function cenaIntro(t){
   var a = surge(t, .1, .6) * some(t, T_INTRO, .45);
   texto('COMO FAZER', W / 2, 420, 34, 800, COR.verde, 'center', a);
-  texto(R.nome, W / 2, 530, 104, 900, COR.texto, 'center', a * surge(t, .25, .6));
+  var tam = 104; X.font = '900 ' + tam + 'px ' + FONTE;
+  while (X.measureText(R.nome).width > 1700 && tam > 60) { tam -= 4; X.font = '900 ' + tam + 'px ' + FONTE; }
+  texto(R.nome, W / 2, 530, tam, 900, COR.texto, 'center', a * surge(t, .25, .6));
   texto((R.musculos || []).join('  ·  '), W / 2, 610, 40, 500, COR.muted, 'center', a * surge(t, .5, .6));
   logo(W / 2 - 90, 760, 52, a * .9);
 }
 
 function painelDireito(titulo, alfa){
-  texto(R.nome, 1110, 230, 60, 900, COR.texto, 'left', alfa);
-  texto((R.musculos || []).join('  ·  '), 1110, 285, 30, 500, COR.muted, 'left', alfa);
+  var tam = 60; X.font = '900 ' + tam + 'px ' + FONTE;
+  while (X.measureText(R.nome).width > 720 && tam > 40) { tam -= 2; X.font = '900 ' + tam + 'px ' + FONTE; }
+  texto(R.nome, 1110, 230, tam, 900, COR.texto, 'left', alfa);
+  // lista de músculos: diminui a letra até caber na coluna (antes cortava na margem)
+  var mus = (R.musculos || []).join('  ·  '), tm = 30; X.font = '500 ' + tm + 'px ' + FONTE;
+  while (X.measureText(mus).width > 740 && tm > 20) { tm -= 1; X.font = '500 ' + tm + 'px ' + FONTE; }
+  texto(mus, 1110, 285, tm, 500, COR.muted, 'left', alfa);
   if (titulo) texto(titulo, 1110, 375, 26, 800, COR.verde, 'left', alfa);
 }
 
@@ -212,7 +367,7 @@ function cenaDemo(t){
   var tl = t - LT.iniDemo, dur = LT.fimDemo - LT.iniDemo;
   var a = surge(tl, 0, .5) * some(tl, dur, .4);
   var c = poseNoCiclo(tl);
-  palco(t, function(ox, oy, esc){ desenharBoneco(c.pose, ox, oy, esc, true); }, a);
+  palco(t, VISTA, function(ox, oy, esc){ desenharFig(VISTA, c.pose, ox, oy, esc, true); }, a);
   // indicador de cadência: rótulo da fase + barra
   if (c.rotulo) {
     X.save(); X.globalAlpha = a;
@@ -242,29 +397,37 @@ function cenaDemo(t){
   logo(80, 52, 40, a);
 }
 
+// pose do erro: objeto pronto ("errada"/"certa") ou pose do movimento + "ajuste"
+function poseDoErro(e, errado){
+  if (errado && e.errada) return e.errada;
+  if (!errado && e.certa) return e.certa;
+  var base = R.movimento.poses[e.pose || 'baixo'];
+  return errado ? Object.assign({}, base, e.ajuste || {}) : base;
+}
+
 function cenaErro(t){
-  var tl = t - LT.iniErro, dur = LT.fimErro - LT.iniErro;
-  var a = surge(tl, 0, .4) * some(tl, dur, .35);
-  var errado = tl < T_ERRO_CADA;
-  var tc = errado ? tl : tl - T_ERRO_CADA;
-  var cx = surge(tc, 0, .35);
-  // segura a pose do erro (fim da descida) para ficar claro
-  var p = R.movimento.poses[R.erro.pose || 'baixo'];
-  if (errado) p = Object.assign({}, p, R.erro.ajuste || {});
-  palco(t, function(ox, oy, esc){
-    var b = desenharBoneco(p, ox, oy, esc, false, errado ? COR.vermelho : COR.verde);
-    var alvo = b.j[R.erro.marcar || 'calc'];
-    if (alvo) {
-      var M = b.P(alvo);
+  var tl = t - LT.iniErro, bloco = 2 * T_ERRO_CADA;
+  var i = Math.min(ERROS.length - 1, Math.floor(tl / bloco)), e = ERROS[i];
+  var te = tl - i * bloco;
+  var a = surge(te, 0, .4) * some(te, bloco, .35);
+  var errado = te < T_ERRO_CADA;
+  var cx = surge(errado ? te : te - T_ERRO_CADA, 0, .35);
+  var vista = e.vista || VISTA;
+  var p = poseDoErro(e, errado);
+  palco(t, vista, function(ox, oy, esc){
+    var b = desenharFig(vista, p, ox, oy, esc, false, errado ? COR.vermelho : COR.verde);
+    var alvo = b.j[e.marcar || 'calc'];
+    (Array.isArray(alvo) ? alvo : (alvo ? [alvo] : [])).forEach(function(q){
+      var M = b.P(q);
       X.save(); X.globalAlpha = cx; X.strokeStyle = errado ? COR.vermelho : COR.verde; X.lineWidth = 6;
       X.beginPath(); X.arc(M[0], M[1], 58, 0, Math.PI * 2); X.stroke(); X.restore();
-    }
+    });
   }, a);
-  painelDireito('ERRO COMUM', a);
-  var titulo = errado ? '✗  ' + R.erro.errado : '✓  ' + R.erro.certo;
+  painelDireito(ERROS.length > 1 ? 'ERRO COMUM ' + (i + 1) + ' DE ' + ERROS.length : 'ERRO COMUM', a);
+  var titulo = errado ? '✗  ' + e.errado : '✓  ' + e.certo;
   var linhas = quebrar(titulo, 700, 44, 800);
   linhas.forEach(function(l, k){ texto(l, 1110, 480 + k * 56, 44, 800, errado ? COR.vermelho : COR.verde, 'left', a * cx); });
-  var expl = quebrar(errado ? (R.erro.porque || '') : (R.erro.comoCorrigir || ''), 700, 32, 500);
+  var expl = quebrar(errado ? (e.porque || '') : (e.comoCorrigir || ''), 700, 32, 500);
   expl.forEach(function(l, k){ texto(l, 1110, 500 + linhas.length * 56 + 20 + k * 42, 32, 500, '#cfcfcf', 'left', a * cx); });
   logo(80, 52, 40, a);
 }
