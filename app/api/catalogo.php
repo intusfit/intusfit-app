@@ -1881,6 +1881,15 @@ if ($action === 'midia_upload') {
 
 // ═══════════════ FIGURINHAS (tela de conclusão de treino) ═══════════════
 if ($action === 'figurinhas_config') {
+    if ($method === 'GET' && !empty($_GET['anterior'])) {
+        // Lista que estava salva antes da última gravação (rede de segurança; só administrador).
+        if (empty($_ctx['admin'])) $_negar(403, 'somente administrador');
+        $st = $pdo->prepare("SELECT valor FROM intus_config WHERE chave = 'figurinhas_config_anterior'");
+        $st->execute();
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        echo ($row && $row['valor']) ? $row['valor'] : json_encode(['itens' => []]);
+        exit;
+    }
     if ($method === 'GET') {
         $st = $pdo->prepare("SELECT valor FROM intus_config WHERE chave = 'figurinhas_config'");
         $st->execute();
@@ -1894,7 +1903,21 @@ if ($action === 'figurinhas_config') {
     }
     if ($method === 'PUT' || $method === 'POST') {
         $b = jsonBody();
+        // Corpo vazio ou sem a lista virava "[]" e o app voltava às 6 figurinhas de fábrica, apagando a lista do administrador.
+        if (!isset($b['itens']) || !is_array($b['itens'])) {
+            http_response_code(422);
+            echo json_encode(['ok' => false, 'error' => 'lista de figurinhas invalida']);
+            exit;
+        }
         $valor = json_encode($b);
+        // Guarda a lista de antes: um salvamento errado deixa de ser definitivo.
+        $st = $pdo->prepare("SELECT valor FROM intus_config WHERE chave = 'figurinhas_config'");
+        $st->execute();
+        $ant = $st->fetch(PDO::FETCH_ASSOC);
+        if ($ant && $ant['valor'] && $ant['valor'] !== $valor) {
+            $st = $pdo->prepare("REPLACE INTO intus_config (chave, valor) VALUES ('figurinhas_config_anterior', ?)");
+            $st->execute([$ant['valor']]);
+        }
         $st = $pdo->prepare("REPLACE INTO intus_config (chave, valor) VALUES ('figurinhas_config', ?)");
         $st->execute([$valor]);
         echo json_encode(['ok' => true]);

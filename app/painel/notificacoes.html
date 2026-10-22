@@ -753,20 +753,56 @@ const FIGURINHAS_DEFAULTS = [
 let _figurinhasData = null;
 const FIG_MAX = 150;
 
-function carregarFigurinhas() {
+let _figAviso = '';        // lista salva no servidor veio num formato inesperado: o que aparece é o padrão de fábrica, não o que estava salvo
+let _figCarregadas = 0;    // quantas figurinhas vieram do servidor (para avisar antes de salvar uma lista muito menor)
+let _figAnterior = 0;      // quantas tinha a lista guardada antes da última gravação (0 = não há)
+
+async function _figLer(anterior) {
+  const tk = (typeof Auth !== 'undefined' && Auth.getToken) ? (Auth.getToken() || '') : (localStorage.getItem('mx-token') || '');
+  const headers = { 'Cache-Control': 'no-cache' };
+  if (tk) headers['Authorization'] = 'Bearer ' + tk;
+  const res = await fetch(API_BASE + '/catalogo.php?action=figurinhas_config' + (anterior ? '&anterior=1' : ''), { cache: 'no-store', headers });
+  if (!res.ok) throw new Error('o servidor respondeu ' + res.status);
+  const t = await res.text();
+  try { return JSON.parse(t); } catch (e) { throw new Error('resposta ilegível do servidor'); }
+}
+
+async function carregarFigurinhas() {
   const cont = document.getElementById('figurinhas-container');
   if (!cont) return;
   if (_figurinhasData) { renderFigurinhasSection(); return; }
-  const aplicar = (c) => {
-    const itens = (c && Array.isArray(c.itens)) ? c.itens : null;
-    // Lista vazia salva pelo admin é uma escolha VÁLIDA (excluiu todas) — só cai nos
-    // padrões quando o servidor não tem config nenhuma (itens === null).
-    _figurinhasData = itens ? itens.slice() : FIGURINHAS_DEFAULTS.slice();
+  // Nunca troca uma falha de leitura pelo padrão de fábrica: o painel já mostrou as 6 de emoji como se fossem as reais
+  // e um "Salvar" teria apagado a lista do administrador.
+  try {
+    const c = await _figLer(false);
+    if (c && Array.isArray(c.itens)) {
+      // Lista vazia salva pelo admin é uma escolha VÁLIDA (excluiu todas).
+      _figurinhasData = c.itens.slice();
+      _figAviso = '';
+    } else {
+      _figurinhasData = FIGURINHAS_DEFAULTS.slice();
+      _figAviso = 'O servidor não devolveu uma lista de figurinhas válida. O que aparece abaixo é só o padrão de fábrica, não o que estava salvo.';
+    }
+    _figCarregadas = _figAviso ? 0 : _figurinhasData.length;
+    try { const a = await _figLer(true); _figAnterior = (a && Array.isArray(a.itens)) ? a.itens.length : 0; } catch (e) { _figAnterior = 0; }
     renderFigurinhasSection();
-  };
-  if (typeof API !== 'undefined' && typeof API.getFigurinhasConfig === 'function') {
-    API.getFigurinhasConfig().then(aplicar).catch(() => aplicar(null));
-  } else { aplicar(null); }
+  } catch (e) {
+    cont.innerHTML = '<div class="ntf-card"><h3 style="margin:0 0 6px;">Não consegui carregar as figurinhas</h3>' +
+      '<p class="ntf-desc">' + esc(e.message || 'falha') + '. Nada foi alterado e nada foi salvo. Tente de novo; se continuar, saia e entre no painel.</p>' +
+      '<button class="ntf-save" onclick="carregarFigurinhas()">Tentar de novo</button></div>';
+  }
+}
+
+async function restaurarFigurinhasAnterior() {
+  try {
+    const a = await _figLer(true);
+    if (!a || !Array.isArray(a.itens) || !a.itens.length) { toast('Não há lista anterior guardada.'); return; }
+    if (!confirm('Trazer para a tela a lista que estava salva antes da última gravação (' + a.itens.length + ' figurinhas)? Ela só vale para os alunos depois que você clicar em "Salvar figurinhas".')) return;
+    _figurinhasData = a.itens.slice();
+    _figAviso = '';
+    renderFigurinhasSection();
+    toast('Lista anterior carregada na tela. Confira e clique em "Salvar figurinhas".');
+  } catch (e) { toast('⚠️ Não consegui ler a lista anterior: ' + (e.message || 'erro')); }
 }
 
 function _figCardHtml(it, i) {
@@ -794,10 +830,16 @@ function renderFigurinhasSection() {
   const grid = _figurinhasData.length
     ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">' + _figurinhasData.map((it, i) => _figCardHtml(it, i)).join('') + '</div>'
     : '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;">Nenhuma figurinha ainda. Adicione uma abaixo. 👇</div>';
+  const aviso = _figAviso
+    ? '<div style="margin-bottom:12px;padding:10px 12px;border-radius:10px;border:1px solid rgba(248,113,113,.5);background:rgba(248,113,113,.1);color:#f87171;font-size:12px;font-weight:600;">⚠️ ' + esc(_figAviso) + ' Não clique em Salvar sem conferir.</div>'
+    : '';
+  const botaoAnterior = _figAnterior
+    ? '<button onclick="restaurarFigurinhasAnterior()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">↩ Voltar à lista anterior (' + _figAnterior + ')</button>'
+    : '';
   cont.innerHTML =
-    '<div class="ntf-card">' +
+    '<div class="ntf-card">' + aviso +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
-        '<div><h3 style="margin:0;">Figurinhas cadastradas</h3><p class="ntf-desc" style="margin:2px 0 0;"><b>' + _figurinhasData.length + '</b> / ' + FIG_MAX + '</p></div>' +
+        '<div><h3 style="margin:0;">Figurinhas cadastradas</h3><p class="ntf-desc" style="margin:2px 0 0;"><b>' + _figurinhasData.length + '</b> / ' + FIG_MAX + '</p></div>' + botaoAnterior +
       '</div>' +
       '<div style="margin-top:12px;">' + grid + '</div>' +
     '</div>' +
@@ -913,6 +955,9 @@ async function _figUpload(input) {
 
 async function salvarFigurinhas() {
   if (!_figurinhasData) return;
+  if (_figAviso && !confirm('A lista que está na tela é o padrão de fábrica, não o que estava salva no servidor. Salvar agora troca a lista de TODOS os alunos por esta. Quer salvar mesmo assim?')) return;
+  if (_figCarregadas >= 6 && _figurinhasData.length < _figCarregadas / 2 &&
+      !confirm('Você carregou ' + _figCarregadas + ' figurinhas e está salvando ' + _figurinhasData.length + '. Quer mesmo reduzir a lista de todos os alunos?')) return;
   // Migra qualquer figurinha antiga em base64 para arquivo (deixa a config leve e confiável).
   let migradas = 0;
   for (const it of _figurinhasData) {
@@ -923,6 +968,9 @@ async function salvarFigurinhas() {
   const cfg = { itens: _figurinhasData };
   const r = await API.saveConfigVerificado('figurinhas_config', cfg, 'intus-figurinhas-config');
   if (r.persistido) {
+    _figAviso = ''; _figCarregadas = _figurinhasData.length;
+    try { const a = await _figLer(true); _figAnterior = (a && Array.isArray(a.itens)) ? a.itens.length : 0; } catch (e) {}
+    renderFigurinhasSection();
     toast('Figurinhas salvas no servidor ✓' + (migradas ? ' (' + migradas + ' convertidas para arquivo)' : '') + ' — já valem para todos os alunos.');
   } else {
     toast('⚠️ Salvou localmente, mas NÃO confirmou no servidor. As figurinhas podem não aparecer para os alunos — verifique a conexão e salve de novo.');
