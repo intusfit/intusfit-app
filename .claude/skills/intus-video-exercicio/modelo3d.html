@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Intus · vídeo de exercício 3D</title>
+<style>html,body{margin:0;background:#0f0f0f;overflow:hidden}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<img id="logo" src="../../../app/painel/logo-intus-dark.png" style="display:none">
+<script>
+/*
+ * Compositor do vídeo 3D (1920×1080). O corpo vem pronto do Blender (3d/animar.py): um PNG por
+ * quadro + meta.json com a cena, a fase, a respiração e a posição das juntas na tela. Aqui só se
+ * desenha o que vai por cima: painel de texto, fase, respiração, linha de alinhamento e erros.
+ *
+ *   desenhar(qi, img)  pinta o quadro qi usando a imagem 3D já carregada
+ * window.ROTEIRO = roteiro 3D (3d/roteiros/*.json), window.META = meta.json, window.LOGO_DATA = logo.
+ */
+var R = window.ROTEIRO, M = window.META;
+var W = 1920, H = 1080, C = document.getElementById('c'), X = C.getContext('2d');
+var LOGO = document.getElementById('logo'); if (window.LOGO_DATA) LOGO.src = window.LOGO_DATA;
+var COR = { fundo: '#0f0f0f', cartao: '#161616', borda: '#2a2a2a', texto: '#f0f0f0', muted: '#9a9a9a',
+            verde: '#7FFF00', vermelho: '#ff4d4d', azul: '#6cc4ff' };
+var FONTE = 'Inter, system-ui, sans-serif';
+var PALCO = { x: 40, y: 104, w: 1200, h: 750 };
+var PX = 1290, PW = 590;   // painel da direita
+
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+function suave(x){ x = clamp(x, 0, 1); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+function texto(t, x, y, tam, peso, cor, alinh, alfa){
+  X.save(); X.globalAlpha = alfa == null ? 1 : alfa; X.font = peso + ' ' + tam + 'px ' + FONTE;
+  X.fillStyle = cor; X.textAlign = alinh || 'left'; X.textBaseline = 'alphabetic'; X.fillText(t, x, y); X.restore();
+}
+function quebrar(t, larg, tam, peso){
+  X.font = peso + ' ' + tam + 'px ' + FONTE;
+  var pal = String(t).split(' '), linhas = [], at = '';
+  pal.forEach(function(p){ var tst = at ? at + ' ' + p : p; if (X.measureText(tst).width > larg && at) { linhas.push(at); at = p; } else at = tst; });
+  if (at) linhas.push(at); return linhas;
+}
+function retArred(x, y, w, h, r){ X.beginPath(); X.moveTo(x + r, y); X.arcTo(x + w, y, x + w, y + h, r); X.arcTo(x + w, y + h, x, y + h, r); X.arcTo(x, y + h, x, y, r); X.arcTo(x, y, x + w, y, r); X.closePath(); }
+function logo(x, y, h, alfa){ if (LOGO.complete && LOGO.naturalWidth) { X.save(); X.globalAlpha = alfa; X.drawImage(LOGO, x, y, h * LOGO.naturalWidth / LOGO.naturalHeight, h); X.restore(); } }
+function tela(p){ return [PALCO.x + p[0] * PALCO.w, PALCO.y + p[1] * PALCO.h]; }
+function cena(i){ return R.cenas[i]; }
+// quanto tempo a cena já está na tela e quanto falta (para entrar e sair com suavidade)
+function entrada(info, d){ return suave(info.tl / (d || .45)); }
+function saida(info, d){ return 1 - suave((info.tl - (info.dur - (d || .4))) / (d || .4)); }
+
+function titulo(alfa, rotulo){
+  var tam = 58; X.font = '900 ' + tam + 'px ' + FONTE;
+  while (X.measureText(R.nome).width > PW && tam > 38) { tam -= 2; X.font = '900 ' + tam + 'px ' + FONTE; }
+  texto(R.nome, PX, 190, tam, 900, COR.texto, 'left', alfa);
+  // músculos quebram em até duas linhas em vez de encolher a letra
+  var ml = quebrar((R.musculos || []).join('  ·  '), PW, 26, 500).slice(0, 2);
+  ml.forEach(function(l, k){ texto(l, PX, 238 + k * 34, 26, 500, COR.muted, 'left', alfa); });
+  if (rotulo) texto(rotulo, PX, 318 + (ml.length - 1) * 30, 24, 800, COR.verde, 'left', alfa);
+}
+
+// linha ombro → quadril → tornozelo (o que o professor olha numa prancha)
+function linhaCorpo(j, cor, alfa, ideal){
+  var nomes = R.linha || ['ombro', 'quadril', 'tornozelo'], pts = nomes.map(function(n){ return tela(j[n]); });
+  X.save(); X.globalAlpha = alfa; X.lineCap = 'round'; X.lineJoin = 'round';
+  if (ideal) {   // a linha reta que deveria ser
+    X.setLineDash([14, 12]); X.strokeStyle = 'rgba(255,255,255,.75)'; X.lineWidth = 4;
+    X.beginPath(); X.moveTo(pts[0][0], pts[0][1]); X.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]); X.stroke(); X.setLineDash([]);
+  }
+  X.strokeStyle = cor; X.lineWidth = 6; X.beginPath();
+  pts.forEach(function(p, k){ k ? X.lineTo(p[0], p[1]) : X.moveTo(p[0], p[1]); }); X.stroke();
+  pts.forEach(function(p){ X.beginPath(); X.arc(p[0], p[1], 11, 0, Math.PI * 2); X.fillStyle = '#0f0f0f'; X.fill(); X.lineWidth = 5; X.stroke(); });
+  X.restore();
+}
+
+function respiracao(info, alfa){
+  if (!info.respira) return;
+  var x = PALCO.x + 34, y = PALCO.y + 30, w = 430, h = 92, ins = info.respira === 'inspira';
+  X.save(); X.globalAlpha = alfa;
+  retArred(x, y, w, h, 46); X.fillStyle = 'rgba(15,15,15,.78)'; X.fill();
+  var r = 18 + 16 * info.resp;
+  X.beginPath(); X.arc(x + 46, y + h / 2, 34, 0, Math.PI * 2); X.strokeStyle = 'rgba(108,196,255,.35)'; X.lineWidth = 3; X.stroke();
+  X.beginPath(); X.arc(x + 46, y + h / 2, r, 0, Math.PI * 2); X.fillStyle = COR.azul; X.globalAlpha = alfa * .9; X.fill();
+  X.restore();
+  texto(ins ? 'Puxe o ar pelo nariz' : 'Solte o ar pela boca', x + 98, y + 42, 28, 800, COR.texto, 'left', alfa);
+  texto(ins ? 'abdômen continua firme' : 'devagar, sem soltar a barriga', x + 98, y + 72, 21, 500, COR.muted, 'left', alfa);
+}
+
+function faseEmbaixo(rot, progresso, alfa, cor){
+  var y = PALCO.y + PALCO.h + 62;
+  texto(rot, PALCO.x + 4, y, 34, 800, cor || COR.texto, 'left', alfa);
+  X.save(); X.globalAlpha = alfa;
+  retArred(PALCO.x + 4, y + 26, PALCO.w - 8, 12, 6); X.fillStyle = '#262626'; X.fill();
+  if (progresso != null) { retArred(PALCO.x + 4, y + 26, (PALCO.w - 8) * clamp(progresso, 0, 1), 12, 6); X.fillStyle = cor || COR.verde; X.fill(); }
+  X.restore();
+}
+
+function desenhar(qi, img){
+  var info = M.q[String(qi)], c = cena(info.cena);
+  X.fillStyle = COR.fundo; X.fillRect(0, 0, W, H);
+  // palco com o 3D
+  X.save(); retArred(PALCO.x, PALCO.y, PALCO.w, PALCO.h, 26); X.clip();
+  if (img) X.drawImage(img, PALCO.x, PALCO.y, PALCO.w, PALCO.h);
+  X.restore();
+  X.save(); retArred(PALCO.x, PALCO.y, PALCO.w, PALCO.h, 26); X.strokeStyle = COR.borda; X.lineWidth = 2; X.stroke(); X.restore();
+  logo(PALCO.x, 40, 38, 1);
+
+  if (c.tipo === 'intro') {
+    var a = entrada(info, .6);
+    texto('COMO FAZER', PX, 400, 28, 800, COR.verde, 'left', a);
+    var linhas = quebrar(R.nome, PW, 76, 900);
+    linhas.forEach(function(l, k){ texto(l, PX, 490 + k * 84, 76, 900, COR.texto, 'left', suave((info.tl - .2) / .6)); });
+    quebrar((R.musculos || []).join(' · '), PW, 30, 500).forEach(function(l, k){
+      texto(l, PX, 490 + linhas.length * 84 + 10 + k * 40, 30, 500, COR.muted, 'left', suave((info.tl - .45) / .6)); });
+    faseEmbaixo('Prepare o colchonete', null, a, COR.muted);
+  }
+
+  else if (c.tipo === 'demo') {
+    var a = entrada(info) * saida(info), passo = c.passos[info.passo], extra = passo[3] || {};
+    titulo(a, 'PASSO A PASSO');
+    var y = 370;
+    c.dicas.forEach(function(d, i){
+      if (i > info.dica) return;
+      var atual = i === info.dica, ls = quebrar(d, PW - 70, 30, 600), alt = 28 + ls.length * 40;
+      X.save(); X.globalAlpha = a; retArred(PX - 14, y - 6, PW + 14, alt, 14);
+      X.fillStyle = atual ? 'rgba(127,255,0,.08)' : 'rgba(255,255,255,.02)'; X.fill();
+      X.strokeStyle = atual ? 'rgba(127,255,0,.45)' : COR.borda; X.lineWidth = 2; X.stroke(); X.restore();
+      texto(String(i + 1), PX + 10, y + 34, 30, 900, atual ? COR.verde : COR.muted, 'left', a);
+      ls.forEach(function(l, k){ texto(l, PX + 50, y + 34 + k * 40, 30, 600, atual ? COR.texto : '#bdbdbd', 'left', a); });
+      y += alt + 14;
+    });
+    if (extra.respira) {
+      // segurando: a linha do corpo mostra o alinhamento certo
+      var ap = suave((info.progresso * passo[1]) / .6);
+      linhaCorpo(info.j, COR.verde, .9 * ap * a, false);
+      respiracao(info, ap * a);
+    }
+    faseEmbaixo(info.fase, info.progresso, a);
+  }
+
+  else if (c.tipo === 'erro') {
+    var a = entrada(info) * saida(info), errado = info.estado === 'errado';
+    var nErros = R.cenas.filter(function(x){ return x.tipo === 'erro'; }).length;
+    var iErro = R.cenas.slice(0, info.cena).filter(function(x){ return x.tipo === 'erro'; }).length;
+    titulo(a, nErros > 1 ? 'ERRO COMUM ' + (iErro + 1) + ' DE ' + nErros : 'ERRO COMUM');
+    var cor = errado ? COR.vermelho : COR.verde;
+    var tt = (errado ? '✗  ' + c.errado : '✓  ' + c.certo), ls = quebrar(tt, PW, 42, 800);
+    var ap = errado ? suave((info.tl - .3) / .5) : suave((info.tl - info.dur * .62) / .4);
+    ls.forEach(function(l, k){ texto(l, PX, 420 + k * 54, 42, 800, cor, 'left', a * ap); });
+    quebrar(errado ? c.porque : c.comoCorrigir, PW, 30, 500).forEach(function(l, k){
+      texto(l, PX, 440 + ls.length * 54 + 16 + k * 42, 30, 500, '#cfcfcf', 'left', a * ap); });
+    var al = clamp(info.k != null ? (errado ? info.k : 1) : 1, 0, 1);
+    linhaCorpo(info.j, cor, a * (errado ? Math.max(.25, al) : 1), true);
+    if (c.marcar && info.j[c.marcar]) {
+      var m = tela(info.j[c.marcar]);
+      X.save(); X.globalAlpha = a * ap; X.strokeStyle = cor; X.lineWidth = 6;
+      X.beginPath(); X.arc(m[0], m[1], 64, 0, Math.PI * 2); X.stroke(); X.restore();
+    }
+    faseEmbaixo(errado ? 'Assim não' : 'Assim sim', null, a, cor);
+  }
+
+  else {   // fim
+    var a = entrada(info, .6);
+    logo(PX, 380, 64, a);
+    quebrar(R.fechamento || 'Dúvida na execução? Fale com o seu professor pelo app.', PW, 38, 700).forEach(function(l, k){
+      texto(l, PX, 520 + k * 50, 38, 700, COR.texto, 'left', a); });
+    texto('intusfit.com.br', PX, 660, 28, 500, COR.muted, 'left', a);
+    faseEmbaixo('Bom treino', null, a, COR.muted);
+  }
+}
+</script>
+</body>
+</html>

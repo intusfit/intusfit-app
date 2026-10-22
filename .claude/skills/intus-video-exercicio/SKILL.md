@@ -31,6 +31,45 @@ site, e isto aqui não é para ficar acessível pela web.
 - **MP4 nunca entra no repositório**: o `git push` na `main` publica tudo no site. Gere no
   scratchpad e entregue o arquivo ao Luiz (SendUserFile).
 
+## Dois modelos: 3D realista (padrão) e boneco 2D
+
+O Luiz achou o boneco 2D "robótico" (22/10/2026) e escolheu o **3D realista**: corpo humano do
+MakeHuman (malha e alvos CC0, via MPFB 2) com esqueleto, renderizado no Blender (Cycles, CPU).
+Coluna em 5 vértebras, pelve inclinando, respiração (caixa torácica e abdômen expandem) e
+micro-movimento. Use o 3D para vídeo novo; o 2D (`modelo.html`) fica para rascunho rápido.
+
+```
+3d/instalar.sh            Blender como módulo Python (bpy, Python 3.13 via uv) + MPFB 2
+3d/cena.py                corpo (pele, top, legging e tênis desenhados no shader), luzes, câmera
+3d/pose.py                pose por ângulos no plano lateral (mesma convenção do 2D) + respiração
+3d/animar.py              linha do tempo do roteiro -> um PNG por quadro + meta.json (juntas na tela)
+3d/roteiros/*.json        roteiro 3D: poses, cenas (intro, demo com passos, erros, fim), textos
+modelo3d.html             texto por cima: painel, fase, respiração, linha ombro-quadril-tornozelo
+renderizar3d.js           junta quadros + texto -> MP4 e capa
+```
+
+Passo a passo:
+
+```bash
+bash 3d/instalar.sh <scratchpad>
+# quadros 3D: ~9 s por quadro (1200x750, 10 amostras, 4 núcleos). 36 s de vídeo a 24 fps = ~2 h.
+# Rode em segundo plano; se parar, rode de novo: quadros prontos são pulados.
+<scratchpad>/bpyenv/bin/python 3d/animar.py 3d 3d/roteiros/abdominal-prancha.json <scratchpad>/q-prancha --fps 24 --amostras 10
+#   --so 0,120,480  renderiza só esses quadros (confira poses ANTES do vídeo inteiro)
+NODE_PATH=... FFMPEG=... CHROME=... node renderizar3d.js 3d/roteiros/abdominal-prancha.json <scratchpad>/q-prancha <saida>.mp4
+```
+
+Pose (graus a partir da vertical para cima, + = para a frente do aluno): `canela`, `coxa`, `tronco`,
+`braco`, `antebraco`, `pe`, `dedos` como no 2D, mais `lombar`/`toracica` (+ arredonda, − arqueia),
+`pelve` (+ anteversão), `pescoco`, `cabecaInc`, `abreBraco`/`abrePerna` (abertura lateral) e `resp`
+(0 vazio a 1 cheio). `contato: "antebraco"` prende o cotovelo no chão e gira o corpo até o pé (ou
+o joelho) tocar o chão; exercício em pé ou deitado precisa de outro modo de contato em
+`animar.py/assentar()`. Passo de demo com `{"respira": true}` mostra o indicador de respiração e a
+linha do alinhamento; cena de erro vai para a pose errada, segura, corrige e mostra o certo.
+
+Limites conhecidos: mãos e dedos ficam na pose de repouso (sem halter na mão ainda), roupa é
+pintada no corpo (sem tecido solto), rosto sem sobrancelha. Não há equipamento 3D modelado.
+
 ## Galeria (onde o Luiz assiste e baixa)
 
 Tudo que for produzido entra na página **https://claude.ai/artifact/NHTznbab21EjEvrj4sxr5P**
