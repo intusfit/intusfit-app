@@ -44,7 +44,7 @@ confere('decodificar: novo', ['indicacao', 'i2'], atd_passo_decodificar('indicac
 $padrao = atd_funis_padrao();
 $ids = array_column($padrao, 'id');
 confere('padrao: ids de funil sem repeticao', count($ids), count(array_unique($ids)));
-confere('padrao: funis esperados', ['teste-gratis', 'chamou-whatsapp', 'indicacao', 'reativacao', 'recuperacao-teste'], $ids);
+confere('padrao: funis esperados', ['teste-gratis', 'chamou-whatsapp', 'indicacao', 'reativacao', 'recuperacao-teste', 'fechamento'], $ids);
 confere('padrao: teste gratis tem 7 mensagens', ['t1', 't2', 't3', 't4', 't5', 't6', 't7'], array_column($padrao[0]['mensagens'], 'id'));
 $tpls = [];
 foreach ($padrao as $f) {
@@ -160,12 +160,12 @@ confere('funil novo: hora limitada a 23', 23, $novo['mensagens'][0]['hora']);
 confere('funil novo: dia negativo vira 0', 0, $novo['mensagens'][0]['dia']);
 confere('funil novo: condicao invalida vira todos', 'todos', $novo['mensagens'][0]['condicao']);
 confere('funil novo: tipo invalido vira agendada', 'agendada', $novo['mensagens'][0]['tipo']);
-confere('funis: salvar passa a guardar tudo (padroes + novo)', 6, count(atd_funis($pdo)));
+confere('funis: salvar passa a guardar tudo (padroes + novo)', 7, count(atd_funis($pdo)));
 $editado = atd_funil_por_id($pdo, 'teste-gratis');
 $editado['mensagens'][0]['texto'] = 'Oi {{1}}, texto editado.';
 atd_funil_salvar($pdo, $editado);
 confere('funil editado: grava', 'Oi {{1}}, texto editado.', atd_funil_por_id($pdo, 'teste-gratis')['mensagens'][0]['texto']);
-confere('funil editado: nao duplica', 6, count(atd_funis($pdo)));
+confere('funil editado: nao duplica', 7, count(atd_funis($pdo)));
 atd_funil_restaurar($pdo, 'teste-gratis');
 confere('funil restaurado: volta ao texto de fabrica', $padrao[0]['mensagens'][0]['texto'], atd_funil_por_id($pdo, 'teste-gratis')['mensagens'][0]['texto']);
 confere('funil restaurar: id que nao e de fabrica', null, atd_funil_restaurar($pdo, 'funil-novo'));
@@ -677,7 +677,7 @@ verdade('biblioteca: não repete a leitura do estado do WhatsApp (vem de trLeads
 $pdo = banco();
 $ex = atd_exportar($pdo);
 confere('exportar: versao', 1, $ex['versao']);
-confere('exportar: funis', 5, count($ex['funis']));
+confere('exportar: funis', 6, count($ex['funis']));
 confere('exportar: cada mensagem leva o passo da agenda', 'indicacao:i1', $ex['funis'][2]['mensagens'][0]['passo']);
 $tplNomes = array_column($ex['templates_meta'], 'nome');
 verdade('exportar: templates da Meta listados', in_array('intus_t1_boas_vindas', $tplNomes, true) && in_array('intus_c7_retomada', $tplNomes, true));
@@ -726,6 +726,48 @@ if (is_file($pagina)) {
     verdade('pagina: Voltar ao painel no lugar do Sair', strpos($h, 'href="/app/painel/index.html"') !== false && strpos($h, 'btn-sair') === false && strpos($h, '>Sair<') === false);
     verdade('pagina: aba Leads e bloco de captação', strpos($h, 'data-aba="leads"') !== false && strpos($h, 'blocoCaptacao') !== false);
 }
+
+// ── Fechamento: marca "uma opção por plano", copy sem erro e tela ─────────────────────────────────────
+$pdoF = banco();
+$fechF = atd_funil_por_id($pdoF, 'fechamento');
+confere('fechamento: f3, f5 e f6 são as mensagens por plano', ['f3', 'f5', 'f6'], array_values(array_map(fn($m) => $m['id'], array_filter($fechF['mensagens'], fn($m) => !empty($m['por_plano'])))));
+$errosF = [];
+foreach ($fechF['mensagens'] as $m) { foreach (atd_analisar_copy($m['texto'])['itens'] as $it) { if ($it['nivel'] === 'erro') $errosF[] = $m['id'] . ':' . $it['regra']; } }
+confere('fechamento: nenhuma mensagem de fábrica tem erro de copy (travessão, promessa, "não é X, é Y")', [], $errosF);
+$fechF['mensagens'][0]['por_plano'] = true; $fechF['mensagens'][1]['por_plano'] = 'sim'; unset($fechF['mensagens'][2]['por_plano']);
+$salvoF = atd_funil_salvar($pdoF, $fechF);
+confere('por_plano: salvar guarda como verdadeiro/falso', [true, true, false], [$salvoF['mensagens'][0]['por_plano'], $salvoF['mensagens'][1]['por_plano'], $salvoF['mensagens'][2]['por_plano']]);
+$semFech = array_values(array_filter(atd_funis_padrao(), fn($f) => $f['id'] !== 'fechamento'));
+$pdoG = banco(); atd_cfg_gravar($pdoG, 'atd_funis', $semFech);
+verdade('fechamento: funil novo de fábrica aparece mesmo para quem já tinha salvo os funis', in_array('fechamento', array_column(atd_funis($pdoG), 'id'), true));
+$pg = atd_planos_contexto($pdoF);
+confere('planos: o resumo da Central conta 9 planos', 9, count($pg['lista']));
+$ep0 = file_get_contents(__DIR__ . '/../app/api/atendimento.php');
+verdade('endpoint: o resumo entrega os planos à tela', strpos($ep0, "'planos' => atd_planos_contexto(\$pdo)") !== false);
+$pgn = __DIR__ . '/../atendimento/index.html';
+if (is_file($pgn)) {
+    $hp = file_get_contents($pgn);
+    verdade('pagina: caixa "uma opção para cada plano", variáveis 4 a 8 e cartão dos planos', strpos($hp, 'data-m="por_plano"') !== false && strpos($hp, "['8', 'Prova social']") !== false && strpos($hp, 'function cartaoPlanos') !== false);
+}
+
+// ── Laboratório: planos oficiais e só provas autorizadas entram no pedido ao Claude ───────────────────
+$pdoL = banco();
+provas_salvar($pdoL, ['pessoa_nome' => 'Marina Alves', 'sexo' => 'F', 'autorizacao' => 'divulgar', 'uso_ia' => 1, 'tempo_txt' => '4 meses', 'resultado_txt' => 'Voltou a usar as roupas antigas.'], 1, 'Luiz', true);
+provas_salvar($pdoL, ['pessoa_nome' => 'Paula Reservada', 'autorizacao' => 'interna', 'uso_ia' => 1, 'resultado_txt' => 'caso reservado da equipe'], 1, 'Luiz', true);
+provas_salvar($pdoL, ['pessoa_nome' => 'Rita Pendente', 'autorizacao' => 'pendente', 'resultado_txt' => 'nem a IA pode ver'], 1, 'Luiz', true);
+$sis = atd_prompt_sistema($pdoL, ['conceitos' => []]);
+verdade('prompt: leva os planos e valores oficiais', strpos($sis, 'PLANOS E VALORES OFICIAIS') !== false && strpos($sis, '• Treino: trimestral R$ 897') !== false);
+verdade('prompt: leva a prova autorizada, só com o primeiro nome', strpos($sis, 'A Marina') !== false && strpos($sis, 'Alves') === false);
+verdade('prompt: prova só interna ou sem autorização nunca vai ao texto de venda', strpos($sis, 'caso reservado') === false && strpos($sis, 'nem a IA pode ver') === false && strpos($sis, 'Reservada') === false);
+verdade('prompt: a regra de preço manda usar só os valores oficiais', strpos($sis, 'Só fale preço com os PLANOS E VALORES OFICIAIS') !== false && strpos($sis, 'Não fale o preço da Consultoria Premium') === false);
+$pdoV = banco();
+verdade('prompt: sem nenhuma prova cadastrada não aparece a seção de provas', strpos(atd_prompt_sistema($pdoV, ['conceitos' => []]), 'PROVAS SOCIAIS') === false);
+
+$exp = atd_exportar($pdoL);
+confere('exportar: leva os 9 planos, as 8 variáveis e só a prova liberada para o robô', [9, 8, 0], [count($exp['planos']), count($exp['regras']['variaveis']), count($exp['provas_robo'])]);
+provas_salvar($pdoL, ['pessoa_nome' => 'Bia Robo', 'autorizacao' => 'divulgar', 'uso_robo' => 1, 'resultado_txt' => 'Mais disposição.'], 1, 'Luiz', true);
+$exp2 = atd_exportar($pdoL);
+confere('exportar: prova autorizada para o robô entra com texto pronto e sem sobrenome', [1, true], [count($exp2['provas_robo']), strpos($exp2['provas_robo'][0]['texto'], 'Bia') !== false && !isset($exp2['provas_robo'][0]['pessoa_nome'])]);
 
 echo "\n";
 if ($falhas) {

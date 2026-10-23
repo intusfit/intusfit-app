@@ -21,6 +21,7 @@
  */
 
 require_once __DIR__ . '/_atendimento.php';
+require_once __DIR__ . '/_provas.php';
 
 const ATD_M_ORIGENS = ['organico', 'pago', 'todos'];
 const ATD_M_ULTIMO_PASSO_DIAS = 2;       // quanto tempo o último passo do funil continua valendo
@@ -110,8 +111,36 @@ function atd_manual_registro_gravar(PDO $pdo, string $chave, array $reg): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function atd_manual_mensagem(array $funil, string $msgId): ?array {
+    $msgId = explode('@', $msgId, 2)[0];   // "f5@combo-tri": a mensagem f5 para o plano combo-tri
     foreach ($funil['mensagens'] ?? [] as $m) { if (($m['id'] ?? '') === $msgId) return $m; }
     return null;
+}
+
+/** Nome para mostrar: nas mensagens "uma opção por plano" (id@plano) acrescenta o plano. */
+function atd_manual_nome_msg(?array $m, string $mid, array $planosPorId): string {
+    $partes = explode('@', $mid, 2);
+    $nome = $m['nome'] ?? $partes[0];
+    if (isset($partes[1], $planosPorId[$partes[1]])) $nome .= ' · ' . $planosPorId[$partes[1]]['nome'];
+    return $nome;
+}
+
+/** O que as mensagens de fechamento precisam além do nome: planos e valores (Gestão de Planos) e as provas sociais liberadas para o robô. */
+function atd_manual_ctx_base(PDO $pdo): array {
+    return ['planos' => atd_planos_contexto($pdo), 'provas' => function_exists('provas_carregar_robo') ? provas_carregar_robo($pdo) : []];
+}
+/** Contexto de UMA pessoa: {{4}} os planos e {{8}} a prova social que mais combina com ela. */
+function atd_manual_ctx(array $base, array $pessoa): array {
+    $ctx = ['planos_bloco' => $base['planos']['bloco']];
+    if (function_exists('provas_escolher')) { $pv = provas_escolher($base['provas'], $pessoa); $ctx['prova'] = $pv ? provas_texto($pv) : ''; }
+    return $ctx;
+}
+
+/** Plano de um passo "id@plano" tem de existir e a mensagem tem de ser "uma opção por plano". */
+function atd_manual_plano_do_passo(PDO $pdo, array $funil, string $mid): bool {
+    if (strpos($mid, '@') === false) return true;
+    $m = atd_manual_mensagem($funil, $mid);
+    if (!$m || empty($m['por_plano'])) return false;
+    return in_array(explode('@', $mid, 2)[1], array_column(atd_planos($pdo), 'id'), true);
 }
 
 /**
@@ -141,24 +170,35 @@ function atd_manual_agenda(PDO $pdo, array $p, array $funisPorId, DateTimeImmuta
  * Todas as mensagens prontas da Central (de todos os funis) com texto, para a equipe escolher qual enviar.
  * Cada item: passo, funil, funil_nome, funil_status, mensagem, nome, aprovada e o modelo (texto com {{1}}).
  */
-function atd_manual_biblioteca(array $funis): array {
+function atd_manual_biblioteca(array $funis, array $planos = []): array {
     $out = [];
     foreach ($funis as $f) {
         foreach ($f['mensagens'] ?? [] as $m) {
             if (trim((string)($m['texto'] ?? '')) === '') continue;
-            $out[] = [
-                'passo' => atd_passo((string)$f['id'], (string)$m['id']), 'funil' => $f['id'], 'funil_nome' => $f['nome'], 'funil_status' => $f['status'] ?? 'rascunho',
-                'mensagem' => $m['id'], 'nome' => $m['nome'], 'aprovada' => !empty($m['aprovada']), 'modelo' => $m,
-            ];
+            $base = ['funil' => $f['id'], 'funil_nome' => $f['nome'], 'funil_status' => $f['status'] ?? 'rascunho', 'aprovada' => !empty($m['aprovada']), 'modelo' => $m];
+            if (!empty($m['por_plano']) && $planos) {
+                $usaLink = strpos((string)$m['texto'], '{{5}}') !== false;
+                foreach ($planos as $pl) {   // uma opção para cada plano de Gestão de Planos
+                    $id = $m['id'] . '@' . $pl['id'];
+                    $out[] = ['passo' => atd_passo((string)$f['id'], $id), 'mensagem' => $id, 'nome' => $m['nome'] . ' · ' . $pl['nome'], 'plano' => $pl, 'plano_id' => $pl['id'], 'falta_link' => $usaLink && $pl['link'] === ''] + $base;
+                }
+                continue;
+            }
+            $out[] = ['passo' => atd_passo((string)$f['id'], (string)$m['id']), 'mensagem' => $m['id'], 'nome' => $m['nome'], 'plano' => null, 'plano_id' => null, 'falta_link' => false] + $base;
         }
     }
     return $out;
 }
 
+/** A biblioteca como vai para a tela: sem o modelo cru nem o plano inteiro. */
+function atd_manual_biblioteca_publica(array $bib): array {
+    return array_map(fn($b) => array_diff_key($b, ['modelo' => 1, 'plano' => 1]), $bib);
+}
+
 /** Texto de cada mensagem da biblioteca já com o nome da pessoa: [passo => texto]. */
-function atd_manual_opcoes(array $biblioteca, string $nome, string $indicador): array {
+function atd_manual_opcoes(array $biblioteca, string $nome, string $indicador, array $ctx = []): array {
     $o = [];
-    foreach ($biblioteca as $b) $o[$b['passo']] = atd_render_mensagem($b['modelo'], $nome, $indicador);
+    foreach ($biblioteca as $b) $o[$b['passo']] = atd_render_mensagem($b['modelo'], $nome, $indicador, $ctx + ['plano' => $b['plano'] ?? null]);
     return $o;
 }
 
@@ -318,7 +358,9 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
         $candidatos[] = $p;
     }
     $regs = atd_manual_registros($pdo, array_column($candidatos, 'chave'));
-    $biblioteca = atd_manual_biblioteca($funis);
+    $ctxBase = atd_manual_ctx_base($pdo);
+    $planosPorId = array_column($ctxBase['planos']['lista'], null, 'id');
+    $biblioteca = atd_manual_biblioteca($funis, $ctxBase['planos']['lista']);
 
     $paraEnviar = []; $aguardando = []; $resultado = []; $enviadasHoje = 0; $hoje = $agora->format('Y-m-d');
     foreach ($candidatos as $p) {
@@ -349,18 +391,19 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
         if ($a) {
             $f = $porId[$a[3]] ?? null; $m = $f ? atd_manual_mensagem($f, $a[4]) : null;
             if ($f && $m && trim((string)$m['texto']) !== '') {
-                $texto = atd_render_mensagem($m, (string)$p['nome'], (string)($p['indicado_por'] ?? ''));
+                $ctxP = atd_manual_ctx($ctxBase, $p);
+                $texto = atd_render_mensagem($m, (string)$p['nome'], (string)($p['indicado_por'] ?? ''), $ctxP);
                 $paraEnviar[] = [
                     'chave' => $p['chave'], 'tipo' => $p['tipo'], 'id' => $p['id'], 'nome' => $p['nome'], 'whatsapp' => $p['whatsapp'], 'telefone' => $p['telefone'],
                     'etapa' => $p['etapa'], 'etapa_rotulo' => $p['etapa_rotulo'], 'canal' => $p['canal'], 'campanha' => $p['utm']['campaign'] ?? null, 'origem_tipo' => $p['origem_tipo'],
                     'treinos' => $p['treinos'] ?? 0, 'criado_em' => $p['criado_em'],
-                    'funil' => $f['id'], 'funil_nome' => $f['nome'], 'funil_status' => $f['status'], 'passo' => $a[0], 'mensagem' => $m['id'], 'mensagem_nome' => $m['nome'],
+                    'funil' => $f['id'], 'funil_nome' => $f['nome'], 'funil_status' => $f['status'], 'passo' => $a[0], 'mensagem' => $m['id'], 'mensagem_nome' => atd_manual_nome_msg($m, $a[4], $planosPorId),
                     'aprovada' => !empty($m['aprovada']), 'lado' => $a[5] ?? null, 'texto' => $texto, 'devida_em' => wa_fmt($a[1]),
                     'atraso_horas' => max(0, (int)floor(($agora->getTimestamp() - $a[1]->getTimestamp()) / 3600)),
                     'ja_contatado' => ($p['grupo_contato'] ?? '') === 'contatado' || ($p['grupo_contato'] ?? '') === 'retorno',
                     'recuperacao' => $emRec ? ['dias' => atd_manual_dias_do_fim_do_teste($p, $agora), 'estimado' => (atd_manual_fim_do_teste($p)[1] ?? false)] : null,
                     'temperatura' => atd_manual_temperatura($p, $reg),
-                    'opcoes' => atd_manual_opcoes($biblioteca, (string)$p['nome'], (string)($p['indicado_por'] ?? '')),
+                    'opcoes' => atd_manual_opcoes($biblioteca, (string)$p['nome'], (string)($p['indicado_por'] ?? ''), $ctxP),
                 ];
                 continue;
             }
@@ -379,7 +422,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
                 $f = $porId[$fid] ?? null; $m = $f ? atd_manual_mensagem($f, $mid) : null;
                 $aguardando[] = [
                     'chave' => $p['chave'], 'nome' => $p['nome'], 'whatsapp' => $p['whatsapp'], 'telefone' => $p['telefone'], 'etapa_rotulo' => $p['etapa_rotulo'], 'canal' => $p['canal'],
-                    'passo' => $ult['passo'], 'mensagem_nome' => $m['nome'] ?? $mid, 'funil_nome' => $f['nome'] ?? $fid, 'enviada_em' => $ult['em'], 'por' => $ult['por'] ?? '',
+                    'passo' => $ult['passo'], 'mensagem_nome' => atd_manual_nome_msg($m, $mid, $planosPorId), 'funil_nome' => $f['nome'] ?? $fid, 'enviada_em' => $ult['em'], 'por' => $ult['por'] ?? '',
                 ];
             }
         }
@@ -393,7 +436,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
     foreach ($resultado as $passo => $r) {
         [$fid, $mid] = atd_passo_decodificar($passo);
         $f = $porId[$fid] ?? null; $m = $f ? atd_manual_mensagem($f, $mid) : null;
-        $placar[] = $r + ['funil_nome' => $f['nome'] ?? $fid, 'mensagem_nome' => $m['nome'] ?? $mid, 'taxa' => $r['enviadas'] ? round($r['responderam'] / $r['enviadas'] * 100, 1) : null];
+        $placar[] = $r + ['funil_nome' => $f['nome'] ?? $fid, 'mensagem_nome' => atd_manual_nome_msg($m, $mid, $planosPorId), 'taxa' => $r['enviadas'] ? round($r['responderam'] / $r['enviadas'] * 100, 1) : null];
     }
     usort($placar, fn($a, $b) => strcmp($a['passo'], $b['passo']));
 
@@ -404,7 +447,8 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
         'cfg' => $cfg, 'agora' => wa_fmt($agora), 'no_horario' => wa_hora_permitida($agora, (int)$aj['horario_ini'], (int)$aj['horario_fim']),
         'horario' => [(int)$aj['horario_ini'], (int)$aj['horario_fim']],
         'para_enviar' => $paraEnviar, 'aguardando' => $aguardando, 'placar' => $placar,
-        'biblioteca' => array_map(fn($b) => array_diff_key($b, ['modelo' => 1]), $biblioteca),
+        'biblioteca' => atd_manual_biblioteca_publica($biblioteca),
+        'planos' => ['valores_padrao' => $ctxBase['planos']['valores_padrao'], 'sem_link' => $ctxBase['planos']['sem_link'], 'provas_liberadas' => count($ctxBase['provas'])],
         'resumo' => $res + ['para_enviar' => count($paraEnviar), 'aguardando' => count($aguardando), 'enviadas_hoje' => $enviadasHoje],
         'meta' => ['usada' => false, 'configurada' => wa_config_whatsapp($pdo) !== null, 'automacao_ligada' => $mestre],
     ];
@@ -431,11 +475,13 @@ function atd_manual_perfil(PDO $pdo, string $chave, ?DateTimeImmutable $agora = 
     if (!$p) return null;
     $reg = atd_manual_registros($pdo, [$chave])[$chave] ?? ['passos' => []];
     $funis = atd_funis($pdo);
-    $bib = atd_manual_biblioteca($funis);
+    $ctxBase = atd_manual_ctx_base($pdo);
+    $planosPorId = array_column($ctxBase['planos']['lista'], null, 'id');
+    $bib = atd_manual_biblioteca($funis, $ctxBase['planos']['lista']);
     $porId = [];
     foreach ($funis as $f) $porId[$f['id']] = $f;
     $p['temperatura'] = atd_manual_temperatura($p, $reg);
-    $p['opcoes'] = atd_manual_opcoes($bib, (string)$p['nome'], (string)($p['indicado_por'] ?? ''));
+    $p['opcoes'] = atd_manual_opcoes($bib, (string)$p['nome'], (string)($p['indicado_por'] ?? ''), atd_manual_ctx($ctxBase, $p));
     // mensagem que a Central sugere agora: a da recuperação, se for o caso, senão a da etapa
     $sug = isset($p['sugestao']['funil'], $p['sugestao']['mensagem']) ? atd_passo((string)$p['sugestao']['funil'], (string)$p['sugestao']['mensagem']) : null;
     $rec = null;
@@ -453,12 +499,12 @@ function atd_manual_perfil(PDO $pdo, string $chave, ?DateTimeImmutable $agora = 
     foreach (($reg['passos'] ?? []) as $passo => $info) {
         [$fid, $mid] = atd_passo_decodificar((string)$passo);
         $f = $porId[$fid] ?? null; $m = $f ? atd_manual_mensagem($f, $mid) : null;
-        $tratados[] = ['passo' => $passo, 'estado' => $info['estado'] ?? '', 'em' => $info['em'] ?? '', 'por' => $info['por'] ?? '', 'funil_nome' => $f['nome'] ?? $fid, 'mensagem_nome' => $m['nome'] ?? $mid];
+        $tratados[] = ['passo' => $passo, 'estado' => $info['estado'] ?? '', 'em' => $info['em'] ?? '', 'por' => $info['por'] ?? '', 'funil_nome' => $f['nome'] ?? $fid, 'mensagem_nome' => atd_manual_nome_msg($m, $mid, $planosPorId)];
     }
     usort($tratados, fn($a, $b) => strcmp((string)$b['em'], (string)$a['em']));
     $p['passos_tratados'] = $tratados;
     $p['origem_tipo'] = atd_manual_origem($p);
-    return ['ok' => true, 'pessoa' => $p, 'biblioteca' => array_map(fn($b) => array_diff_key($b, ['modelo' => 1]), $bib), 'agora' => wa_fmt($agora)];
+    return ['ok' => true, 'pessoa' => $p, 'biblioteca' => atd_manual_biblioteca_publica($bib), 'planos' => ['valores_padrao' => $ctxBase['planos']['valores_padrao'], 'sem_link' => $ctxBase['planos']['sem_link'], 'provas_liberadas' => count($ctxBase['provas'])], 'agora' => wa_fmt($agora)];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -496,7 +542,7 @@ function atd_manual_acao(PDO $pdo, array $b, int $idusuario, string $usuarioNome
         [$fid, $mid] = atd_passo_decodificar($passo);
         $f = atd_funil_por_id($pdo, $fid);
         $m = $f ? atd_manual_mensagem($f, $mid) : null;
-        if (!$f || !$m || atd_passo($fid, $mid) !== $passo) return ['ok' => false, 'erro' => 'Mensagem do funil não encontrada.', 'ja' => false];
+        if (!$f || !$m || atd_passo($fid, $mid) !== $passo || !atd_manual_plano_do_passo($pdo, $f, $mid)) return ['ok' => false, 'erro' => 'Mensagem do funil não encontrada.', 'ja' => false];
         $antes = $reg['passos'][$passo]['estado'] ?? null;
         // repetir o mesmo toque não duplica; marcar como enviada um passo que tinha sido pulado vale
         if ($antes === 'enviada' || ($antes !== null && $acao === 'pular')) return ['ok' => true, 'erro' => null, 'ja' => true];
@@ -506,13 +552,13 @@ function atd_manual_acao(PDO $pdo, array $b, int $idusuario, string $usuarioNome
         if ($acao === 'enviada' && $sug !== '' && $sug !== $passo && !isset($reg['passos'][$sug])) {
             [$sf, $sm] = atd_passo_decodificar($sug);
             $sfun = atd_funil_por_id($pdo, $sf);
-            if ($sfun && atd_manual_mensagem($sfun, $sm) && atd_passo($sf, $sm) === $sug) {
+            if ($sfun && atd_manual_mensagem($sfun, $sm) && atd_passo($sf, $sm) === $sug && atd_manual_plano_do_passo($pdo, $sfun, $sm)) {
                 $reg['passos'][$sug] = ['estado' => 'substituida', 'por_passo' => $passo, 'em' => wa_fmt($agora), 'por' => $por];
             }
         }
         atd_manual_registro_gravar($pdo, $chave, $reg);
         if ($acao === 'enviada') {
-            $r = trContatoRegistrar($pdo, ['chave' => $chave, 'status' => 'chamado', 'canal' => 'whatsapp_link', 'telefone' => $tel, 'nota' => 'Central: ' . $f['nome'] . ' · ' . $m['nome']], $idusuario, $usuarioNome, $ts);
+            $r = trContatoRegistrar($pdo, ['chave' => $chave, 'status' => 'chamado', 'canal' => 'whatsapp_link', 'telefone' => $tel, 'nota' => 'Central: ' . $f['nome'] . ' · ' . atd_manual_nome_msg($m, $mid, array_column(atd_planos($pdo), null, 'id'))], $idusuario, $usuarioNome, $ts);
             if (!$r['ok']) return ['ok' => true, 'erro' => 'Marquei a mensagem como enviada, mas não consegui registrar o contato: ' . $r['erro'], 'ja' => false];
         }
         return ['ok' => true, 'erro' => null, 'ja' => false];

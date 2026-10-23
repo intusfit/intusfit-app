@@ -19,6 +19,7 @@
 
 require_once __DIR__ . '/_wa.php';
 require_once __DIR__ . '/_atendimento_conteudo.php';
+require_once __DIR__ . '/_provas.php';
 require_once __DIR__ . '/_trafego.php';   // só trRelatorio e trGarantirTabelas (versão já publicada)
 
 const ATD_MAX_MENSAGENS_FUNIL = 30;
@@ -128,6 +129,7 @@ function atd_limpar_mensagem(array $m, int $pos): array {
         'categoria' => $cat,
         'template' => preg_replace('/[^a-z0-9_]/', '', strtolower((string)($m['template'] ?? ''))),
         'aprovada' => !empty($m['aprovada']),
+        'por_plano' => !empty($m['por_plano']),   // uma opção para cada plano de Gestão de Planos ({{5}}, {{6}} e {{7}})
         'texto' => atd_texto_limpo($m['texto'] ?? '', ATD_MAX_TEXTO_MENSAGEM),
         'conceito' => atd_texto_limpo($m['conceito'] ?? '', 120),
         'por_que' => atd_texto_limpo($m['por_que'] ?? '', 600),
@@ -136,7 +138,7 @@ function atd_limpar_mensagem(array $m, int $pos): array {
 
 /** Valida e normaliza um funil vindo da tela. Lança InvalidArgumentException com texto para o usuário. */
 /** Funis de fábrica criados depois do primeiro lançamento da Central: aparecem para quem já salvou os funis. */
-const ATD_FUNIS_NOVOS = ['recuperacao-teste'];
+const ATD_FUNIS_NOVOS = ['recuperacao-teste', 'fechamento'];
 
 function atd_limpar_funil(array $f): array {
     $id = atd_slug((string)($f['id'] ?? ''), 24);
@@ -672,10 +674,11 @@ function atd_prompt_sistema(PDO $pdo, array $p): string {
        . "- Não crie urgência falsa. Só cite prazo que existe (o teste grátis dura 3 dias).\n"
        . "- Não invente depoimento, número de alunos, desconto, vaga limitada ou benefício.\n"
        . "- O teste grátis é só de treino. Não inclui dieta.\n"
-       . "- Não fale o preço da Consultoria Premium. Quando pedirem preço ou quiserem fechar, passe para uma pessoa da equipe.\n"
+       . "- Só fale preço com os PLANOS E VALORES OFICIAIS listados abaixo, que vêm de Gestão de Planos. Nunca invente valor, desconto, parcelamento ou bônus. Desconto, condição especial e parcelamento diferente passam para uma pessoa da equipe.\n"
        . "- Não opine sobre dor, lesão, doença, remédio ou suplemento. Passe para um professor.\n"
        . "- Frases curtas, uma ideia e uma pergunta por mensagem, no máximo um emoji, sem caixa alta, sem clichês de IA.\n"
-       . "- Variáveis de template: {{1}} nome, {{2}} link, {{3}} nome de quem indicou. Em template, não comece nem termine com variável.\n\n";
+       . "- Variáveis: {{1}} nome, {{2}} link do app, {{3}} nome de quem indicou, {{4}} planos e valores, {{5}} link de pagamento do plano, {{6}} nome do plano, {{7}} valor do plano, {{8}} prova social real. Em template da Meta, não comece nem termine com variável.\n"
+       . "- Técnica de venda com ética: pedir licença, perguntar antes de afirmar, recomendar um plano com o motivo, tratar a objeção como informação e deixar sempre a saída digna (SAIR).\n\n";
     $ids = array_map('strval', (array)($p['conceitos'] ?? []));
     if ($ids) {
         $s .= "CONCEITOS DA INTUS PARA APLICAR NESTE PEDIDO:\n";
@@ -683,6 +686,20 @@ function atd_prompt_sistema(PDO $pdo, array $p): string {
             if (!in_array((string)$c['id'], $ids, true)) continue;
             $s .= "## " . $c['titulo'] . "\n" . $c['resumo'] . "\nComo aplicar: " . $c['como_aplicar'] . "\nArmadilha: " . $c['armadilha'] . "\n\n";
         }
+    }
+    try {
+        $pc = atd_planos_contexto($pdo);
+        $s .= "PLANOS E VALORES OFICIAIS (Gestão de Planos):\n" . $pc['bloco'] . "\n\n";
+    } catch (Throwable $e) {}
+    if (function_exists('provas_para_ia')) {
+        try {
+            $ps = array_values(array_filter(provas_para_ia($pdo, 12), fn($x) => !empty($x['pode_divulgar'])));
+            if ($ps) {
+                $s .= "PROVAS SOCIAIS REAIS E AUTORIZADAS (só estas podem ser citadas; nunca invente outra e nunca cite sobrenome):\n";
+                foreach (array_slice($ps, 0, 8) as $x) $s .= "- " . $x['texto_pronto'] . "\n";
+                $s .= "\n";
+            }
+        } catch (Throwable $e) {}
     }
     $s .= "FATOS DOS PRODUTOS (não invente nada além disto):\n";
     foreach (atd_conceitos($pdo) as $c) {
@@ -1240,8 +1257,62 @@ function atd_primeiro_nome(string $nome): string {
     return $p === '(sem' ? '' : $p;
 }
 
-/** Texto de uma mensagem de funil já com o nome, o link do app e quem indicou. Sem nome a frase se ajusta. */
-function atd_render_mensagem(array $msg, string $nome, string $indicador = ''): string {
+/**
+ * Planos e valores OFICIAIS, os mesmos de Gestão de Planos (intus_config.planos_config: v-<familia>-<periodo> e lk-<familia>-<periodo>).
+ * Valor sem nada salvo usa o inicial que a própria Gestão de Planos e o cadastro mostram (ATD_PLANOS_PADRAO); `valor_padrao` avisa.
+ * Link de pagamento só vale se for https://; vazio quando não foi cadastrado.
+ */
+const ATD_PLANOS_PADRAO = ['treino' => [897, 1678, 2987], 'dieta' => [997, 1689, 2997], 'combo' => [1497, 2597, 4597]];
+const ATD_PLANOS_FAMILIAS = ['treino' => 'Treino', 'dieta' => 'Dieta', 'combo' => 'Treino + Dieta'];
+const ATD_PLANOS_PERIODOS = ['tri' => ['Trimestral', 3], 'sem' => ['Semestral', 6], 'anual' => ['Anual', 12]];
+
+function atd_dinheiro(float $v): string {
+    $inteiro = abs($v - round($v)) < 0.005;
+    return 'R$ ' . number_format($v, $inteiro ? 0 : 2, ',', '.');
+}
+
+function atd_planos(PDO $pdo): array {
+    $cfg = atd_cfg_ler($pdo, 'planos_config', []);
+    if (!is_array($cfg)) $cfg = [];
+    $out = [];
+    foreach (ATD_PLANOS_FAMILIAS as $fk => $fnome) {
+        $i = 0;
+        foreach (ATD_PLANOS_PERIODOS as $pk => [$pnome, $meses]) {
+            $v = isset($cfg['v-' . $fk . '-' . $pk]) ? (float)str_replace(',', '.', (string)$cfg['v-' . $fk . '-' . $pk]) : 0.0;
+            $padrao = $v <= 0;
+            if ($padrao) $v = (float)ATD_PLANOS_PADRAO[$fk][$i];
+            $link = trim((string)($cfg['lk-' . $fk . '-' . $pk] ?? ''));
+            if (!preg_match('#^https://[^\s<>"\']+$#i', $link)) $link = '';
+            $out[] = ['id' => $fk . '-' . $pk, 'familia' => $fk, 'familia_nome' => $fnome, 'periodo' => $pk, 'periodo_nome' => $pnome, 'meses' => $meses,
+                'nome' => $fnome . ' ' . mb_strtolower($pnome), 'valor' => $v, 'valor_txt' => atd_dinheiro($v), 'mensal_txt' => atd_dinheiro($v / $meses), 'link' => $link, 'valor_padrao' => $padrao];
+            $i++;
+        }
+    }
+    return $out;
+}
+
+/** Texto de {{4}}: uma linha por família com os três períodos. */
+function atd_planos_bloco(array $planos): string {
+    $linhas = [];
+    foreach (ATD_PLANOS_FAMILIAS as $fk => $fnome) {
+        $p = array_values(array_filter($planos, fn($x) => $x['familia'] === $fk));
+        if (!$p) continue;
+        $linhas[] = '• ' . $fnome . ': ' . implode(', ', array_map(fn($x) => mb_strtolower($x['periodo_nome']) . ' ' . $x['valor_txt'], $p));
+    }
+    return implode("\n", $linhas);
+}
+
+function atd_planos_contexto(PDO $pdo): array {
+    $l = atd_planos($pdo);
+    return ['lista' => $l, 'bloco' => atd_planos_bloco($l), 'valores_padrao' => count(array_filter($l, fn($p) => $p['valor_padrao'])), 'sem_link' => count(array_filter($l, fn($p) => $p['link'] === ''))];
+}
+
+/**
+ * Texto da mensagem com os dados da pessoa. $ctx traz o que as mensagens de fechamento usam:
+ *   planos_bloco => {{4}} (planos e valores) · plano => {{5}} link, {{6}} nome e {{7}} valor do plano escolhido · prova => {{8}} (prova social)
+ * Link de pagamento ainda não cadastrado e prova ainda não escolhida aparecem entre colchetes, para ninguém mandar sem ver.
+ */
+function atd_render_mensagem(array $msg, string $nome, string $indicador = '', array $ctx = []): string {
     $primeiro = atd_primeiro_nome($nome);
     $modelo = (string)($msg['texto'] ?? '');
     if ($primeiro === '') {
@@ -1250,7 +1321,16 @@ function atd_render_mensagem(array $msg, string $nome, string $indicador = ''): 
         if ($abriuComNome) $modelo = mb_strtoupper(mb_substr($modelo, 0, 1)) . mb_substr($modelo, 1);
         $modelo = str_replace(' {{1}}', '', $modelo);
     }
-    return atd_renderizar($modelo, ['1' => $primeiro, '2' => ATD_LINK_APP, '3' => $indicador]);
+    $vars = ['1' => $primeiro, '2' => ATD_LINK_APP, '3' => $indicador];
+    if (!empty($ctx['planos_bloco'])) $vars['4'] = (string)$ctx['planos_bloco'];
+    if (!empty($ctx['plano']) && is_array($ctx['plano'])) {
+        $pl = $ctx['plano'];
+        $vars['5'] = ($pl['link'] ?? '') !== '' ? (string)$pl['link'] : '[cadastre o link de pagamento deste plano em Gestão de Planos]';
+        $vars['6'] = (string)$pl['nome'];
+        $vars['7'] = (string)$pl['valor_txt'];
+    }
+    if (array_key_exists('prova', $ctx)) $vars['8'] = ($ctx['prova'] !== null && $ctx['prova'] !== '') ? (string)$ctx['prova'] : '[cadastre uma prova social em Quadro de Resultados, Provas sociais]';
+    return atd_renderizar($modelo, $vars);
 }
 
 /** Texto pronto da Central para uma etapa, com o nome da pessoa. null se não houver mensagem para a etapa. */
@@ -1455,8 +1535,11 @@ function atd_exportar(PDO $pdo): array {
         'regras' => [
             'horario' => [(int)$aj['horario_ini'], (int)$aj['horario_fim']], 'max_proativas_dia' => (int)$aj['max_proativas_dia'],
             'fuso' => 'America/Sao_Paulo', 'janela_horas' => 24, 'condicoes' => ATD_CONDICOES,
-            'variaveis' => ['1' => 'nome', '2' => 'link', '3' => 'indicador'],
+            'variaveis' => ['1' => 'nome', '2' => 'link do app', '3' => 'indicador', '4' => 'planos e valores', '5' => 'link de pagamento do plano', '6' => 'nome do plano', '7' => 'valor do plano', '8' => 'prova social'],
         ],
+        'planos' => atd_planos($pdo),
+        'provas_robo' => array_map(fn($p) => ['id' => $p['idprova'], 'objetivo' => $p['objetivo'], 'sexo' => $p['sexo'], 'destaque' => $p['destaque'], 'texto' => provas_texto($p),
+            'midias' => array_map(fn($m) => ['tipo' => $m['tipo'], 'momento' => $m['momento'], 'url' => $m['url']], $p['midias'])], provas_carregar_robo($pdo)),
         'funis' => $funis,
         'templates_meta' => $templates,
         'testes_ab' => array_values(array_filter(atd_testes($pdo), fn($t) => ($t['status'] ?? '') === 'rodando')),

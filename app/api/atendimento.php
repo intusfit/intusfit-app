@@ -81,7 +81,7 @@ try {
                 'funis_padrao' => array_column(atd_funis_padrao(), 'id'),
                 'conceitos' => atd_conceitos($pdo), 'conceitos_padrao' => array_column(atd_conceitos_padrao(), 'id'),
                 'refs' => atd_refs_resumo(atd_refs($pdo)), 'tags' => ATD_TAGS_REF,
-                'testes' => atd_testes($pdo),
+                'testes' => atd_testes($pdo), 'planos' => atd_planos_contexto($pdo),
             ]);
         }
         case 'dashboard': {

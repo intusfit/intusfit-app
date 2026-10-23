@@ -335,6 +335,62 @@ $ed['mensagens'][0]['texto'] = '';
 atd_funil_salvar($pdo, $ed);
 verdade('mensagem sem texto não aparece como item vazio', array_filter(atd_manual_fila($pdo, $agora)['para_enviar'], fn($i) => trim($i['texto']) === '') === []);
 
+// ── Fechamento: planos e valores reais, uma opção por plano, link de pagamento ─────────────────────────
+$pl = atd_planos($pdo);
+confere('planos: 9 (3 famílias x 3 períodos), com id família-período', [9, 'treino-tri', 'combo-anual'], [count($pl), $pl[0]['id'], $pl[8]['id']]);
+confere('planos: sem Gestão de Planos salva, valem os iniciais e avisa que são os iniciais', [true, 'R$ 897', 'R$ 299'], [count(array_filter($pl, fn($p) => $p['valor_padrao'])) === 9, $pl[0]['valor_txt'], $pl[0]['mensal_txt']]);
+atd_cfg_gravar($pdo, 'planos_config', ['v-treino-tri' => '950,50', 'lk-treino-tri' => 'https://pague.exemplo.com/t3', 'lk-dieta-sem' => 'http://inseguro.exemplo.com/x', 'lk-combo-anual' => 'javascript:alert(1)', 'v-combo-sem' => '2800']);
+$pl = array_column(atd_planos($pdo), null, 'id');
+confere('planos: valor salvo manda (com vírgula) e deixa de ser "inicial"', ['R$ 950,50', false, 'R$ 2.800', false], [$pl['treino-tri']['valor_txt'], $pl['treino-tri']['valor_padrao'], $pl['combo-sem']['valor_txt'], $pl['combo-sem']['valor_padrao']]);
+confere('planos: só link https vale (http e javascript viram vazio)', ['https://pague.exemplo.com/t3', '', ''], [$pl['treino-tri']['link'], $pl['dieta-sem']['link'], $pl['combo-anual']['link']]);
+$ctxP = atd_planos_contexto($pdo);
+confere('planos: o contexto conta valores iniciais e planos sem link', [7, 8], [$ctxP['valores_padrao'], $ctxP['sem_link']]);
+verdade('planos: o bloco {{4}} traz uma linha por família com os valores', substr_count($ctxP['bloco'], "\n") === 2 && strpos($ctxP['bloco'], 'trimestral R$ 950,50') !== false);
+
+$fech = atd_funil_por_id($pdo, 'fechamento');
+$msgF = fn(string $id) => array_values(array_filter($fech['mensagens'], fn($m) => $m['id'] === $id))[0];
+$r5 = atd_render_mensagem($msgF('f5'), 'Ana Souza', '', ['plano' => $pl['treino-tri']]);
+verdade('render: f5 leva o nome, o plano, o valor e o link', strpos($r5, 'Combinado, Ana!') === 0 && strpos($r5, 'plano Treino trimestral (R$ 950,50): https://pague.exemplo.com/t3') !== false && strpos($r5, '{{') === false);
+$r5b = atd_render_mensagem($msgF('f5'), 'Ana Souza', '', ['plano' => $pl['dieta-sem']]);
+verdade('render: plano sem link mostra o aviso entre colchetes, nunca um link inventado', strpos($r5b, '[cadastre o link de pagamento deste plano') !== false && strpos($r5b, 'http') === false);
+$r7 = atd_render_mensagem($msgF('f7'), 'Ana Souza', '', ['prova' => 'A Bia treinou 3 meses.']);
+$r7b = atd_render_mensagem($msgF('f7'), 'Ana Souza', '', ['prova' => '']);
+verdade('render: prova social entra em {{8}}; sem prova mostra o aviso', strpos($r7, 'A Bia treinou 3 meses.') !== false && strpos($r7b, '[cadastre uma prova social') !== false);
+$r2 = atd_render_mensagem($msgF('f2'), 'Ana Souza', '', ['planos_bloco' => $ctxP['bloco']]);
+verdade('render: f2 mostra o bloco dos planos', strpos($r2, '• Treino: trimestral R$ 950,50') !== false);
+
+$bib = atd_manual_biblioteca(atd_funis($pdo), $ctxP['lista']);
+$bf = array_values(array_filter($bib, fn($b) => $b['funil'] === 'fechamento'));
+$porPlano = array_values(array_filter($bf, fn($b) => $b['plano_id'] !== null));
+confere('biblioteca: f3, f5 e f6 viram uma opção por plano (27) e as outras 9 mensagens ficam únicas', [27, 9], [count($porPlano), count($bf) - count($porPlano)]);
+$b5 = array_values(array_filter($bf, fn($b) => $b['mensagem'] === 'f5@treino-tri'))[0] ?? null;
+confere('biblioteca: o passo do plano é funil:mensagem@plano e cabe nos 30 caracteres', ['fechamento:f5@treino-tri', false], [$b5['passo'] ?? null, (bool)array_filter($bib, fn($b) => strlen($b['passo']) > 30)]);
+confere('biblioteca: opção sem link de pagamento avisa (f5 sim, f3 não precisa de link)', [false, true, false], [$b5['falta_link'], array_values(array_filter($bf, fn($b) => $b['mensagem'] === 'f5@dieta-sem'))[0]['falta_link'], array_values(array_filter($bf, fn($b) => $b['mensagem'] === 'f3@dieta-sem'))[0]['falta_link']]);
+verdade('biblioteca pública: sem o modelo cru nem o plano inteiro', !isset(atd_manual_biblioteca_publica($bib)[0]['modelo']) && !isset(atd_manual_biblioteca_publica($bib)[0]['plano']));
+
+$pfe = atd_manual_perfil($pdo, 'a2', $agora);
+$ops = $pfe['pessoa']['opcoes'];
+verdade('perfil: as opções por plano já vêm com o plano e o link certos', strpos($ops['fechamento:f5@treino-tri'] ?? '', 'Treino trimestral (R$ 950,50): https://pague.exemplo.com/t3') !== false && strpos($ops['fechamento:f3@combo-sem'] ?? '', 'Treino + Dieta semestral, que fica em R$ 2.800') !== false);
+confere('perfil: resumo dos planos (iniciais, sem link, provas liberadas)', [7, 8, 0], [$pfe['planos']['valores_padrao'], $pfe['planos']['sem_link'], $pfe['planos']['provas_liberadas']]);
+
+// {{8}}: prova social só da que o robô pode usar
+provas_salvar($pdo, ['pessoa_nome' => 'Marina Alves', 'sexo' => 'F', 'objetivo' => 'emagrecimento', 'tempo_txt' => '4 meses', 'autorizacao' => 'divulgar', 'uso_robo' => 1, 'resultado_txt' => 'Voltou a usar as roupas antigas.'], 1, 'Luiz', true);
+provas_salvar($pdo, ['pessoa_nome' => 'Carol Reservada', 'objetivo' => 'emagrecimento', 'autorizacao' => 'interna', 'uso_ia' => 1, 'uso_robo' => 1, 'resultado_txt' => 'caso interno da equipe', 'destaque' => 1], 1, 'Luiz', true);
+$pfp = atd_manual_perfil($pdo, 'a2', $agora);
+$f7 = $pfp['pessoa']['opcoes']['fechamento:f7'] ?? '';
+verdade('prova social: a mensagem f7 leva a história autorizada, só com o primeiro nome', strpos($f7, 'A Marina treinou por 4 meses com a Intus.') !== false && strpos($f7, 'Alves') === false);
+verdade('prova social: caso só interno nunca vai para a mensagem, mesmo em destaque e com a chave do robô', strpos($f7, 'caso interno') === false);
+confere('prova social: o resumo conta as provas liberadas para o robô', 1, $pfp['planos']['provas_liberadas']);
+
+// ação com passo por plano
+confere('ação: passo por plano que não existe é recusado', false, atd_manual_acao($pdo, ['chave' => 'a2', 'acao' => 'enviada', 'passo' => 'fechamento:f5@ouro-vip'], 1, 'Luiz', $agora)['ok']);
+confere('ação: plano em mensagem que não é "por plano" é recusado', false, atd_manual_acao($pdo, ['chave' => 'a2', 'acao' => 'enviada', 'passo' => 'fechamento:f2@treino-tri'], 1, 'Luiz', $agora)['ok']);
+$ra = atd_manual_acao($pdo, ['chave' => 'a2', 'acao' => 'enviada', 'passo' => 'fechamento:f5@treino-tri'], 1, 'Luiz', $agora);
+confere('ação: enviar o link do plano escolhido vale', true, $ra['ok']);
+$nota = $pdo->query("SELECT nota FROM intus_lead_contato WHERE chave = 'a2' ORDER BY idlc DESC LIMIT 1")->fetchColumn();
+confere('ação: o contato registrado diz qual plano foi enviado', 'Central: Fechamento: planos, valores, pagamento e acesso · Enviar o link de pagamento · Treino trimestral', $nota);
+confere('ação: repetir o mesmo toque não duplica', true, atd_manual_acao($pdo, ['chave' => 'a2', 'acao' => 'enviada', 'passo' => 'fechamento:f5@treino-tri'], 1, 'Luiz', $agora)['ja']);
+
 // ── Estrutura: nada fala com a Meta ─────────────────────────────────────────
 $lib = file_get_contents(__DIR__ . '/../app/api/_atd_manual.php');
 $ep = file_get_contents(__DIR__ . '/../app/api/atendimento.php');

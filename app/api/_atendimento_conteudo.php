@@ -228,6 +228,101 @@ function atd_funis_padrao(): array {
                 ],
             ],
         ],
+        [
+            'id' => 'fechamento',
+            'nome' => 'Fechamento: planos, valores, pagamento e acesso',
+            'status' => 'rascunho',
+            'gatilho' => 'A pessoa quer contratar, perguntou preço ou respondeu com interesse. Vale para qualquer funil: as mensagens aparecem na lista de escolha de todo lead',
+            'objetivo' => 'Levar da dúvida ao pagamento com honestidade: apresentar os planos e valores reais (os de Gestão de Planos), enviar o link do plano escolhido, confirmar e agradecer, entregar o acesso ou chamar uma pessoa da equipe.',
+            'variaveis' => ['1' => 'nome', '2' => 'link do app', '4' => 'planos e valores', '5' => 'link de pagamento do plano', '6' => 'nome do plano', '7' => 'valor do plano', '8' => 'prova social'],
+            'padrao' => true,
+            'mensagens' => [
+                [
+                    'id' => 'f1', 'nome' => 'Abrir o fechamento (pedir licença)', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Oi {{1}}, aqui é a Cora, assistente virtual da Intus. Pelo que você me contou, o que você quer é treinar com alguém te orientando de perto. Posso te mostrar os planos e quanto cada um custa?',
+                    'conceito' => 'Pedido de permissão',
+                    'por_que' => 'Pedir licença antes de falar de preço mostra respeito e faz o preço aparecer como resposta a um pedido da própria pessoa. A pergunta é de sim ou não, então responder custa pouco.',
+                ],
+                [
+                    'id' => 'f2', 'nome' => 'Planos e valores', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Claro, {{1}}! Estes são os planos da Intus:
+
+{{4}}
+
+Em todos eles um profissional da Intus monta e acompanha o seu plano de perto. Qual deles parece mais com o que você precisa agora?',
+                    'conceito' => 'Transparência e escolha',
+                    'por_que' => 'Mostrar todos os planos e valores de uma vez, sem esconder nada, gera confiança. Terminar com uma pergunta de escolha (qual deles) leva a pessoa a decidir entre opções, e não entre comprar ou não comprar. Os valores vêm de Gestão de Planos.',
+                ],
+                [
+                    'id' => 'f3', 'nome' => 'Recomendar um plano', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false, 'por_plano' => true,
+                    'texto' => 'Pelo que você me contou, eu começaria pelo plano {{6}}, que fica em {{7}}. Ele inclui o acompanhamento de um profissional da Intus. Quer que eu te mande o link para garantir o seu?',
+                    'conceito' => 'Recomendação assumida',
+                    'por_que' => 'Quem está em dúvida costuma agradecer uma sugestão clara. A recomendação vem com o motivo (o que a pessoa contou) e termina em um próximo passo pequeno: receber o link. Há uma opção para cada plano.',
+                ],
+                [
+                    'id' => 'f4', 'nome' => 'Quando o valor pesa', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Entendo, {{1}}, olhar para o valor é normal. Me conta: o que faria esse investimento valer a pena para você? Se preferir, eu chamo uma pessoa da equipe para ver com você as formas de pagamento.',
+                    'conceito' => 'Escutar a objeção real',
+                    'por_que' => 'Perguntar o que faria valer a pena transforma "está caro" em informação: pode ser prazo, forma de pagamento ou dúvida sobre o método. Oferecer uma pessoa da equipe evita improvisar condição que a Intus não aprovou.',
+                ],
+                [
+                    'id' => 'f5', 'nome' => 'Enviar o link de pagamento', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false, 'por_plano' => true,
+                    'texto' => 'Combinado, {{1}}! Aqui está o link do plano {{6}} ({{7}}): {{5}}
+
+Assim que o pagamento for confirmado eu libero o seu acesso. Se aparecer qualquer dúvida na hora de pagar, é só me chamar.',
+                    'conceito' => 'Próximo passo claro',
+                    'por_que' => 'A pessoa recebe o plano e o valor que combinou junto com o link, sem ter que procurar nada. Avisar o que acontece depois do pagamento (acesso liberado) tira a insegurança de pagar. O link vem de Gestão de Planos, plano a plano.',
+                ],
+                [
+                    'id' => 'f6', 'nome' => 'Lembrar o link (quem não pagou)', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false, 'por_plano' => true,
+                    'texto' => 'Oi {{1}}, o link do plano {{6}} continua disponível: {{5}}
+
+Se ainda ficou alguma dúvida, me conta que eu te ajudo ou chamo uma pessoa da equipe.',
+                    'conceito' => 'Lembrete sem pressão',
+                    'por_que' => 'Um lembrete curto, com o link à mão e uma saída para a dúvida, recupera quem só se distraiu. Não inventa urgência: o plano continua disponível mesmo.',
+                ],
+                [
+                    'id' => 'f7', 'nome' => 'Prova social (história real)', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => '{{1}}, uma história real para você ver como é o acompanhamento: {{8}}
+
+Cada pessoa tem o seu ritmo, mas conhecer um caso parecido costuma ajudar a decidir. Quer ver os planos de novo?',
+                    'conceito' => 'Prova social verdadeira',
+                    'por_que' => 'A história vem do Banco de provas sociais (Quadro de Resultados), só de quem autorizou o uso. Dizer que cada pessoa tem o seu ritmo mantém a honestidade e não promete resultado.',
+                ],
+                [
+                    'id' => 'f8', 'nome' => 'Preciso pensar (isolar a dúvida)', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Claro, {{1}}, pensa com calma. Para eu te ajudar a decidir, qual é a sua maior dúvida hoje: o valor, o formato do acompanhamento ou o momento?',
+                    'conceito' => 'Isolar a objeção',
+                    'por_que' => 'Oferecer três respostas prováveis facilita responder e mostra qual é o verdadeiro obstáculo, sem pressionar.',
+                ],
+                [
+                    'id' => 'f9', 'nome' => 'Pagamento confirmado: agradecer', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => '{{1}}, recebi a confirmação do seu pagamento. Obrigada pela confiança! Já vou te mandar o seu acesso.',
+                    'conceito' => 'Gratidão e reforço da decisão',
+                    'por_que' => 'Agradecer logo após o pagamento confirma que a decisão foi boa e abre a conversa do acesso.',
+                ],
+                [
+                    'id' => 'f10', 'nome' => 'Enviar o acesso', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Seu acesso está liberado, {{1}}! Entre pelo app com o e-mail e a senha que você cadastrou: {{2}}
+
+O primeiro passo é preencher a anamnese dentro do app, porque é com ela que o profissional monta o seu plano. Se tiver qualquer dificuldade para entrar, me chama aqui que uma pessoa da equipe te ajuda.',
+                    'conceito' => 'Primeiro passo pequeno',
+                    'por_que' => 'Quem acabou de pagar precisa saber o que fazer agora. Um único primeiro passo (a anamnese) evita que o acesso fique parado.',
+                ],
+                [
+                    'id' => 'f11', 'nome' => 'Chamar uma pessoa da equipe', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Vou chamar uma pessoa da equipe para continuar com você por aqui, {{1}}. Ela vai ver tudo o que a gente conversou. Pode ser?',
+                    'conceito' => 'Passagem para humano',
+                    'por_que' => 'Para desconto, parcelamento especial, dúvida de saúde ou qualquer coisa que o assistente não deva decidir, a passagem é honesta e a pessoa não precisa repetir a história.',
+                ],
+                [
+                    'id' => 'f12', 'nome' => 'Despedida sem pressão', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Tudo bem, {{1}}. Fico por aqui sem insistir. Se mudar de ideia, os planos e o link continuam disponíveis: é só me chamar. Se preferir não receber mais mensagens, responda SAIR.',
+                    'conceito' => 'Saída digna',
+                    'por_que' => 'Encerrar com respeito protege a marca, mantém o caminho de volta aberto e a opção SAIR protege o número.',
+                ],
+            ],
+        ],
     ];
 }
 

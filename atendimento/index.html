@@ -247,7 +247,7 @@ a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-u
 (function(){
 'use strict';
 var API = '/app/api/atendimento.php';
-var S = { tok: 0, aba: 'fila', dados: null, funilSel: null, sujo: {}, labModo: 'gerar', labSub: 'escrever', dias: 30, dash: null, ultimaGeracao: null, vars: { '1': 'Ana', '2': 'https://intusfit.com.br/app', '3': 'Carlos' } };
+var S = { tok: 0, aba: 'fila', dados: null, funilSel: null, sujo: {}, labModo: 'gerar', labSub: 'escrever', dias: 30, dash: null, ultimaGeracao: null, vars: { '1': 'Ana', '2': 'https://intusfit.com.br/app', '3': 'Carlos', '4': '[planos e valores de Gestão de Planos]', '5': '[link de pagamento do plano]', '6': 'Treino trimestral', '7': 'R$ 897', '8': '[história real do Banco de provas]' } };
 
 /* ---------- utilidades ---------- */
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -993,7 +993,21 @@ function campoVars(){
     + '<div class="campo"><label for="v1">{{1}} Nome</label><input type="text" id="v1" data-var="1" value="' + esc(S.vars['1']) + '"></div>'
     + '<div class="campo"><label for="v2">{{2}} Link</label><input type="text" id="v2" data-var="2" value="' + esc(S.vars['2']) + '"></div>'
     + '<div class="campo"><label for="v3">{{3}} Quem indicou</label><input type="text" id="v3" data-var="3" value="' + esc(S.vars['3']) + '"></div></div>'
+    + '<details class="conf" style="margin-top:8px"><summary>Fechamento: planos, link e prova social</summary><div class="grade g3" style="margin-top:8px">'
+    + [['4', 'Planos e valores'], ['5', 'Link de pagamento'], ['6', 'Nome do plano'], ['7', 'Valor do plano'], ['8', 'Prova social']].map(function(o){ return '<div class="campo"><label for="v' + o[0] + '">{{' + o[0] + '}} ' + o[1] + '</label><input type="text" id="v' + o[0] + '" data-var="' + o[0] + '" value="' + esc(S.vars[o[0]]) + '"></div>'; }).join('')
+    + '</div><p class="dica">Na hora de atender, estes cinco vêm sozinhos: planos e valores e links de Gestão de Planos, e a prova social do Quadro de Resultados.</p></details>'
     + '<p class="dica">Os botões "Copiar pronto" trocam as variáveis por estes valores. "Copiar com variáveis" mantém {{1}} e {{2}} para cadastrar o template na Meta.</p></div>';
+}
+function cartaoPlanos(){
+  var pl = S.dados.planos; if (!pl) return '';
+  var h = '<div class="card" style="margin-bottom:12px"><div class="secao-titulo">Planos e valores que o fechamento usa</div>'
+    + '<p class="dica">Estas mensagens aparecem na lista de escolha de todo lead, em qualquer funil. Os valores e links vêm de Gestão de Planos, em <a href="/app/painel/premium.html">Planos</a>; aqui só leitura.</p>';
+  if (pl.valores_padrao) h += '<p class="dica" style="color:var(--warn)">' + pl.valores_padrao + ' plano(s) ainda usam o valor inicial, porque não há valor salvo em Gestão de Planos.</p>';
+  if (pl.sem_link) h += '<p class="dica" style="color:var(--warn)">' + pl.sem_link + ' plano(s) sem link de pagamento. A mensagem mostra um aviso entre colchetes no lugar do link.</p>';
+  h += '<div class="tabela-rolar"><table><thead><tr><th>Plano</th><th>Valor</th><th>Por mês</th><th>Link de pagamento</th></tr></thead><tbody>'
+    + pl.lista.map(function(p){ return '<tr><td>' + esc(p.nome) + '</td><td>' + esc(p.valor_txt) + (p.valor_padrao ? ' <span class="badge ambar">inicial</span>' : '') + '</td><td>' + esc(p.mensal_txt) + '</td><td>' + (p.link ? '<span class="badge verde">cadastrado</span>' : '<span class="badge ambar">falta</span>') + '</td></tr>'; }).join('')
+    + '</tbody></table></div></div>';
+  return h;
 }
 function detalheFunil(f){
   var h = campoVars();
@@ -1005,6 +1019,7 @@ function detalheFunil(f){
     + '<button class="btn mini" data-acao="duplicar">Duplicar como variante</button>'
     + (S.dados.funis_padrao.indexOf(f.id) >= 0 ? '<button class="btn mini" data-acao="restaurar">Restaurar texto de fábrica</button>' : '<button class="btn mini perigo" data-acao="excluir-funil">Excluir funil</button>')
     + '</div></div>';
+  if (f.id === 'fechamento') h += cartaoPlanos();
   f.mensagens.forEach(function(m, i){ h += cartaoMsg(f, m, i); });
   h += '<div class="linha" style="margin-top:12px"><button class="btn" data-acao="nova-msg">+ Adicionar mensagem</button></div>';
   h += '<div class="barra-salvar"><button class="btn primario" data-acao="salvar-funil"' + (S.sujo[f.id] ? '' : ' disabled') + '>Salvar funil</button><span class="dica" id="dica-salvar">' + (S.sujo[f.id] ? 'Há alterações sem salvar.' : 'Tudo salvo.') + '</span></div>';
@@ -1037,6 +1052,7 @@ function cartaoMsg(f, m, i){
     + '<div class="campo"><label>Nome do template na Meta</label><input type="text" data-m="template" value="' + esc(m.template) + '" placeholder="vazio = texto livre"></div>'
     + '<div class="campo"><label>Conceito usado</label><input type="text" data-m="conceito" value="' + esc(m.conceito) + '"></div></div>'
     + '<div class="campo"><label>Por que esta mensagem existe</label><textarea data-m="por_que" rows="2">' + esc(m.por_que) + '</textarea></div>'
+    + '<label class="marcar" style="display:inline-flex;margin-right:8px"><span style="display:inline-flex;gap:8px;align-items:center;background:var(--card2);border:1px solid var(--borda);border-radius:8px;padding:5px 10px"><input type="checkbox" data-m="por_plano"' + (m.por_plano ? ' checked' : '') + ' style="accent-color:var(--accent)"> Uma opção para cada plano ({{5}}, {{6}}, {{7}})</span></label>'
     + '<label class="marcar" style="display:inline-flex"><span style="display:inline-flex;gap:8px;align-items:center;background:var(--card2);border:1px solid var(--borda);border-radius:8px;padding:5px 10px"><input type="checkbox" data-m="aprovada"' + (m.aprovada ? ' checked' : '') + ' style="accent-color:var(--accent)"> Texto aprovado pelo Luiz</span></label>'
     + '<div class="linha" style="margin-top:10px"><button class="btn mini" data-acao="subir"' + (i === 0 ? ' disabled' : '') + '>Subir</button><button class="btn mini" data-acao="descer"' + (i === f.mensagens.length - 1 ? ' disabled' : '') + '>Descer</button><button class="btn mini perigo" data-acao="remover-msg">Remover mensagem</button></div></details></div>';
   return h;
