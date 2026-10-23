@@ -24,7 +24,9 @@ require_once __DIR__ . '/_atendimento.php';
 
 const ATD_M_ORIGENS = ['organico', 'pago', 'todos'];
 const ATD_M_ULTIMO_PASSO_DIAS = 2;       // quanto tempo o último passo do funil continua valendo
-const ATD_M_ESPERA_RESPOSTA_DIAS = 3;    // quanto tempo uma pessoa fica em "aguardando resposta"
+const ATD_M_ESPERA_RESPOSTA_DIAS = 3;
+const ATD_M_RECUP_FUNIL = 'recuperacao-teste';   // funil de quem fez o teste, nunca recebeu mensagem e já passou da hora
+const ATD_M_RECUP_MIN_DIAS = 5;                  // dias depois do fim do teste para a pessoa entrar na recuperação    // quanto tempo uma pessoa fica em "aguardando resposta"
 const ATD_M_MEDIUM_PAGO = '/^(cpc|ppc|paid|paidsocial|paid_social|paid-social|ads|anuncio|anúncio|trafego_pago|trafego-pago|pago|display)$/iu';
 
 /** Configuração. Na primeira leitura grava o padrão: orgânico, leads dos últimos 2 dias. */
@@ -170,6 +172,60 @@ function atd_manual_passo_agora(array $agenda, array $registro, array $p, DateTi
     return $a;
 }
 
+/** Dias inteiros desde o fim do teste (negativo se ainda não acabou), ou null se a pessoa não tem teste. */
+function atd_manual_dias_do_fim_do_teste(array $p, DateTimeImmutable $agora): ?int {
+    $vence = (string)($p['teste']['vence'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}/', $vence)) return null;
+    try { $v = new DateTimeImmutable(substr($vence, 0, 10) . ' 00:00:00', wa_tz()); } catch (Throwable $e) { return null; }
+    return (int)floor(($agora->setTime(0, 0, 0)->getTimestamp() - $v->getTimestamp()) / 86400);
+}
+
+/**
+ * Recuperação: conta cujo teste grátis terminou há ATD_M_RECUP_MIN_DIAS dias ou mais, que não virou cliente e a quem NADA foi enviado
+ * (nenhuma mensagem marcada aqui, nenhum contato em Pessoas Captadas, nenhuma mensagem pelo WhatsApp da Intus). Quem já começou a receber
+ * a recuperação continua nela até o fim da sequência.
+ */
+function atd_manual_em_recuperacao(array $p, array $reg, DateTimeImmutable $agora): bool {
+    if (($p['tipo'] ?? '') !== 'conta' || ($p['etapa'] ?? '') !== 'teste_expirado') return false;
+    foreach (($reg['passos'] ?? []) as $passo => $info) {
+        if (strpos((string)$passo, ATD_M_RECUP_FUNIL . ':') === 0) return true;
+    }
+    $dias = atd_manual_dias_do_fim_do_teste($p, $agora);
+    if ($dias === null || $dias < ATD_M_RECUP_MIN_DIAS) return false;
+    foreach (($reg['passos'] ?? []) as $info) { if (($info['estado'] ?? '') === 'enviada') return false; }
+    if (($p['grupo_contato'] ?? 'nunca') !== 'nunca') return false;
+    return (int)($p['wa']['enviadas'] ?? 0) === 0;
+}
+
+/**
+ * Passo da recuperação que vale agora. O primeiro vale desde o dia marcado no funil (contado do fim do teste); cada um dos seguintes
+ * espera, depois do envio do anterior, o mesmo intervalo que o funil tem entre eles. Quem respondeu sai da sequência.
+ */
+function atd_manual_passo_recuperacao(array $funil, array $reg, array $p, DateTimeImmutable $agora, int $ini, int $fim): ?array {
+    $vence = (string)($p['teste']['vence'] ?? '');
+    try { $base = new DateTimeImmutable(substr($vence, 0, 10) . ' 00:00:00', wa_tz()); } catch (Throwable $e) { return null; }
+    $prevEnvio = null; $prevQuando = null;
+    foreach (atd_agenda_do_funil($funil, $base, $ini, $fim) as [$passo, $quando, $cond]) {
+        $estado = $reg['passos'][$passo]['estado'] ?? null;
+        if ($estado === 'enviada' || $estado === 'substituida') {   // trocada por outra mensagem também conta como contato feito
+            try { $prevEnvio = new DateTimeImmutable((string)$reg['passos'][$passo]['em'], wa_tz()); } catch (Throwable $e) { return null; }
+            $prevQuando = $quando;
+            continue;
+        }
+        if ($estado !== null) { $prevQuando = $quando; continue; }   // pulada ou trocada por outra: segue para o próximo
+        if (!atd_manual_condicao_ok($cond, $p)) return null;
+        $due = $quando;
+        if ($prevEnvio && $prevQuando) {
+            $espera = max(0, $quando->getTimestamp() - $prevQuando->getTimestamp());
+            $apos = wa_proximo_horario_valido($prevEnvio->modify('+' . $espera . ' seconds'), $ini, $fim);
+            if ($apos > $due) $due = $apos;
+        }
+        [, $mid] = atd_passo_decodificar($passo);
+        return $agora >= $due ? [$passo, $due, $cond, $funil['id'], $mid, null] : null;
+    }
+    return null;
+}
+
 /**
  * Monta a fila de hoje. Devolve:
  *  cfg, agora, no_horario, horario, para_enviar[], aguardando[], resumo{}, resultado{}, meta{}.
@@ -183,7 +239,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
     $porId = [];
     foreach ($funis as $f) $porId[$f['id']] = $f;
 
-    $candidatos = []; $res = ['leads_no_periodo' => count($L['pessoas']), 'fora_da_origem' => 0, 'sem_telefone' => 0, 'pediram_para_sair' => 0, 'encerrados' => 0, 'conversa_de_pessoa' => 0, 'sem_passo_agora' => 0];
+    $candidatos = []; $res = ['leads_no_periodo' => count($L['pessoas']), 'fora_da_origem' => 0, 'sem_telefone' => 0, 'pediram_para_sair' => 0, 'encerrados' => 0, 'conversa_de_pessoa' => 0, 'sem_passo_agora' => 0, 'em_recuperacao' => 0];
     foreach ($L['pessoas'] as $p) {
         $org = atd_manual_origem($p);
         if ($cfg['origem'] !== 'todos' && $org !== $cfg['origem']) { $res['fora_da_origem']++; continue; }
@@ -218,7 +274,10 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
             unset($r);
         }
 
-        $a = atd_manual_passo_agora($agenda, $reg, $p, $agora);
+        $frec = $porId[ATD_M_RECUP_FUNIL] ?? null;
+        $emRec = $frec && atd_manual_em_recuperacao($p, $reg, $agora);
+        $a = $emRec ? atd_manual_passo_recuperacao($frec, $reg, $p, $agora, (int)$aj['horario_ini'], (int)$aj['horario_fim']) : atd_manual_passo_agora($agenda, $reg, $p, $agora);
+        if ($emRec) $res['em_recuperacao']++;
         if ($a) {
             $f = $porId[$a[3]] ?? null; $m = $f ? atd_manual_mensagem($f, $a[4]) : null;
             if ($f && $m && trim((string)$m['texto']) !== '') {
@@ -231,6 +290,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
                     'aprovada' => !empty($m['aprovada']), 'lado' => $a[5] ?? null, 'texto' => $texto, 'devida_em' => wa_fmt($a[1]),
                     'atraso_horas' => max(0, (int)floor(($agora->getTimestamp() - $a[1]->getTimestamp()) / 3600)),
                     'ja_contatado' => ($p['grupo_contato'] ?? '') === 'contatado' || ($p['grupo_contato'] ?? '') === 'retorno',
+                    'recuperacao' => $emRec ? ['dias' => atd_manual_dias_do_fim_do_teste($p, $agora)] : null,
                     'opcoes' => atd_manual_opcoes($biblioteca, (string)$p['nome'], (string)($p['indicado_por'] ?? '')),
                 ];
                 continue;

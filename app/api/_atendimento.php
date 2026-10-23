@@ -135,6 +135,9 @@ function atd_limpar_mensagem(array $m, int $pos): array {
 }
 
 /** Valida e normaliza um funil vindo da tela. Lança InvalidArgumentException com texto para o usuário. */
+/** Funis de fábrica criados depois do primeiro lançamento da Central: aparecem para quem já salvou os funis. */
+const ATD_FUNIS_NOVOS = ['recuperacao-teste'];
+
 function atd_limpar_funil(array $f): array {
     $id = atd_slug((string)($f['id'] ?? ''), 24);
     if ($id === '') $id = atd_slug((string)($f['nome'] ?? ''), 24);
@@ -171,6 +174,12 @@ function atd_funis(PDO $pdo): array {
     if (!is_array($salvo)) return atd_funis_padrao();
     $out = [];
     foreach ($salvo as $f) { if (is_array($f)) $out[] = $f; }
+    // funil de fábrica criado depois do último salvamento: entra sozinho, a não ser que a pessoa o tenha excluído
+    $tem = array_column($out, 'id');
+    $excluidos = atd_cfg_ler($pdo, 'atd_funis_excluidos', []);
+    foreach (atd_funis_padrao() as $f) {
+        if (in_array($f['id'], ATD_FUNIS_NOVOS, true) && !in_array($f['id'], $tem, true) && !in_array($f['id'], (array)$excluidos, true)) $out[] = $f;
+    }
     return $out;
 }
 
@@ -195,6 +204,10 @@ function atd_funil_excluir(PDO $pdo, string $id): bool {
     $lista = atd_funis($pdo);
     $fica = array_values(array_filter($lista, fn($f) => ($f['id'] ?? '') !== $id));
     if (count($fica) === count($lista)) return false;
+    if (in_array($id, ATD_FUNIS_NOVOS, true)) {
+        $ex = (array)atd_cfg_ler($pdo, 'atd_funis_excluidos', []);
+        if (!in_array($id, $ex, true)) { $ex[] = $id; atd_cfg_gravar($pdo, 'atd_funis_excluidos', array_values($ex)); }
+    }
     atd_cfg_gravar($pdo, 'atd_funis', $fica);
     return true;
 }

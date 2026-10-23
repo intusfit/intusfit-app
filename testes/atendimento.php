@@ -44,7 +44,7 @@ confere('decodificar: novo', ['indicacao', 'i2'], atd_passo_decodificar('indicac
 $padrao = atd_funis_padrao();
 $ids = array_column($padrao, 'id');
 confere('padrao: ids de funil sem repeticao', count($ids), count(array_unique($ids)));
-confere('padrao: funis esperados', ['teste-gratis', 'chamou-whatsapp', 'indicacao', 'reativacao'], $ids);
+confere('padrao: funis esperados', ['teste-gratis', 'chamou-whatsapp', 'indicacao', 'reativacao', 'recuperacao-teste'], $ids);
 confere('padrao: teste gratis tem 7 mensagens', ['t1', 't2', 't3', 't4', 't5', 't6', 't7'], array_column($padrao[0]['mensagens'], 'id'));
 $tpls = [];
 foreach ($padrao as $f) {
@@ -160,12 +160,12 @@ confere('funil novo: hora limitada a 23', 23, $novo['mensagens'][0]['hora']);
 confere('funil novo: dia negativo vira 0', 0, $novo['mensagens'][0]['dia']);
 confere('funil novo: condicao invalida vira todos', 'todos', $novo['mensagens'][0]['condicao']);
 confere('funil novo: tipo invalido vira agendada', 'agendada', $novo['mensagens'][0]['tipo']);
-confere('funis: salvar passa a guardar tudo (padroes + novo)', 5, count(atd_funis($pdo)));
+confere('funis: salvar passa a guardar tudo (padroes + novo)', 6, count(atd_funis($pdo)));
 $editado = atd_funil_por_id($pdo, 'teste-gratis');
 $editado['mensagens'][0]['texto'] = 'Oi {{1}}, texto editado.';
 atd_funil_salvar($pdo, $editado);
 confere('funil editado: grava', 'Oi {{1}}, texto editado.', atd_funil_por_id($pdo, 'teste-gratis')['mensagens'][0]['texto']);
-confere('funil editado: nao duplica', 5, count(atd_funis($pdo)));
+confere('funil editado: nao duplica', 6, count(atd_funis($pdo)));
 atd_funil_restaurar($pdo, 'teste-gratis');
 confere('funil restaurado: volta ao texto de fabrica', $padrao[0]['mensagens'][0]['texto'], atd_funil_por_id($pdo, 'teste-gratis')['mensagens'][0]['texto']);
 confere('funil restaurar: id que nao e de fabrica', null, atd_funil_restaurar($pdo, 'funil-novo'));
@@ -677,7 +677,7 @@ verdade('biblioteca: não repete a leitura do estado do WhatsApp (vem de trLeads
 $pdo = banco();
 $ex = atd_exportar($pdo);
 confere('exportar: versao', 1, $ex['versao']);
-confere('exportar: funis', 4, count($ex['funis']));
+confere('exportar: funis', 5, count($ex['funis']));
 confere('exportar: cada mensagem leva o passo da agenda', 'indicacao:i1', $ex['funis'][2]['mensagens'][0]['passo']);
 $tplNomes = array_column($ex['templates_meta'], 'nome');
 verdade('exportar: templates da Meta listados', in_array('intus_t1_boas_vindas', $tplNomes, true) && in_array('intus_c7_retomada', $tplNomes, true));

@@ -181,6 +181,53 @@ function atd_funis_padrao(): array {
                 ],
             ],
         ],
+        [
+            'id' => 'recuperacao-teste',
+            'nome' => 'Recuperação de quem fez o teste e não recebeu nada',
+            'status' => 'rascunho',
+            'gatilho' => 'Teste grátis terminado há 5 dias ou mais, pessoa que nunca recebeu mensagem da Intus, sem pedido de saída. O dia conta a partir do fim do teste',
+            'objetivo' => 'Retomar com honestidade o contato com quem se cadastrou, não foi chamado na época e deixou o teste passar. Reconhece o silêncio da Intus, pergunta e oferece ajuda, sem pressão.',
+            'variaveis' => ['1' => 'nome'],
+            'padrao' => true,
+            'mensagens' => [
+                [
+                    'id' => 'rec1', 'nome' => 'Retomada (reconhece o silêncio)', 'tipo' => 'agendada', 'dia' => 5, 'hora' => 10, 'condicao' => 'sem_resposta', 'categoria' => 'marketing', 'template' => 'intus_rec1_retomada', 'aprovada' => false,
+                    'texto' => 'Oi {{1}}, aqui é da Intus. Você se cadastrou no teste grátis do nosso treino e eu acabei não te chamar por aqui na época, desculpa por isso. Ainda faz sentido para você começar a treinar com acompanhamento de um profissional? Se sim, me responde que eu vejo como te ajudar a dar o primeiro passo.',
+                    'conceito' => 'Reciprocidade e honestidade',
+                    'por_que' => 'Assumir que a falha foi nossa tira a culpa da pessoa e abre a conversa. A pergunta é de sim ou não, então responder custa pouco. Não promete novo teste nem condição.',
+                ],
+                [
+                    'id' => 'rec2', 'nome' => 'Segunda tentativa (descobrir o que pesa)', 'tipo' => 'agendada', 'dia' => 8, 'hora' => 18, 'condicao' => 'sem_resposta', 'categoria' => 'marketing', 'template' => 'intus_rec2_segunda', 'aprovada' => false,
+                    'texto' => 'Oi {{1}}, passei por aqui de novo para saber se você ainda quer treinar com a Intus. Se hoje o que pesa é falta de tempo, de ideia do que fazer na academia ou de alguém para te orientar, me conta qual é o seu caso que eu te respondo com calma.',
+                    'conceito' => 'Descobrir a objeção real',
+                    'por_que' => 'Oferece três respostas prováveis sem empurrar nenhuma. Toda resposta vira dado para melhorar o funil.',
+                ],
+                [
+                    'id' => 'rec3', 'nome' => 'Despedida', 'tipo' => 'agendada', 'dia' => 13, 'hora' => 10, 'condicao' => 'sem_resposta', 'categoria' => 'marketing', 'template' => 'intus_rec3_despedida', 'aprovada' => false,
+                    'texto' => 'Oi {{1}}, vou encerrar por aqui para não te incomodar. Se mais para frente você quiser retomar o treino com a Intus, é só me mandar um oi. Se preferir não receber mais mensagens, responda SAIR.',
+                    'conceito' => 'Saída digna',
+                    'por_que' => 'Encerrar com respeito protege a marca e mantém o caminho de volta aberto. A opção SAIR protege o número.',
+                ],
+                [
+                    'id' => 'rec-treinou', 'nome' => 'Alternativa: quem chegou a treinar', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Oi {{1}}, aqui é da Intus. Você testou o treino com a gente e eu queria saber como foi para você. Ficou alguma dúvida sobre o app ou sobre ter um profissional acompanhando o seu treino? Se quiser continuar, me responde aqui que eu te explico como funciona.',
+                    'conceito' => 'Reconhecer o que a pessoa já fez',
+                    'por_que' => 'Quem treinou já deu o passo difícil. Começar pelo treino que ela fez mostra atenção e leva à conversa sobre continuar. Use no lugar da rec1 quando a pessoa tem treino registrado.',
+                ],
+                [
+                    'id' => 'rec-parado', 'nome' => 'Alternativa: quem não chegou a treinar', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Oi {{1}}, aqui é da Intus. O seu teste grátis passou sem você ter feito o primeiro treino, e isso acontece com bastante gente. Quer que eu te ajude a abrir o app e escolher por onde começar? Me responde aqui que eu te acompanho nisso.',
+                    'conceito' => 'Reduzir a barreira de começar',
+                    'por_que' => 'Quem não treinou geralmente travou no começo. A oferta é de ajuda concreta e pequena, sem cobrar o treino perdido. Use no lugar da rec1 quando a pessoa não tem treino registrado.',
+                ],
+                [
+                    'id' => 'rec-premium', 'nome' => 'Alternativa: explicar a Consultoria Premium', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Oi {{1}}, aqui é da Intus. Quem passa pelo teste costuma ficar com dúvida de como é o acompanhamento no dia a dia. Posso te explicar como funciona a Consultoria Premium, sem compromisso? É só me responder aqui.',
+                    'conceito' => 'Convite para conversa',
+                    'por_que' => 'Para quem já conhece o app e só precisa entender o acompanhamento. O pedido é por uma conversa, não por uma compra; preço e fechamento ficam para uma pessoa da equipe.',
+                ],
+            ],
+        ],
     ];
 }
 

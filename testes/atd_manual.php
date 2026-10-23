@@ -217,6 +217,53 @@ confere('escolha: pular o que já foi enviado não desfaz o envio', ['enviada', 
 $htmlEsc = file_get_contents(__DIR__ . '/../atendimento/index.html');
 verdade('escolha: a tela tem o seletor de mensagem e manda a sugerida junto', strpos($htmlEsc, 'data-fila-msg') !== false && strpos($htmlEsc, 'passo_sugerido') !== false);
 
+// ── Recuperação: teste terminado há 5 dias ou mais, sem nenhuma mensagem enviada ─────────
+conta($pdo, 13, 'Rita Recup', '(45) 99111-0014', '2026-10-08 09:00:00');
+mat($pdo, 13, 'Teste grátis', '2026-10-08', '2026-10-11');                       // o teste acabou há 9 dias
+conta($pdo, 14, 'Dora Recente', '(45) 99111-0015', '2026-10-14 09:00:00');
+mat($pdo, 14, 'Teste grátis', '2026-10-14', '2026-10-17');                       // acabou há 3 dias: ainda é o funil normal
+conta($pdo, 15, 'Cida Contatada', '(45) 99111-0016', '2026-10-08 09:00:00');
+mat($pdo, 15, 'Teste grátis', '2026-10-08', '2026-10-11');                       // acabou há 9 dias, mas já falaram com ela
+trContatoRegistrar($pdo, ['chave' => 'a15', 'status' => 'chamado', 'canal' => 'ligacao', 'telefone' => '5545991110016'], 1, 'Luiz', $agora->getTimestamp());
+conta($pdo, 16, 'Vera Treinou', '(45) 99111-0017', '2026-10-08 09:00:00');
+mat($pdo, 16, 'Teste grátis', '2026-10-08', '2026-10-11');
+treino($pdo, 16, '2026-10-09');
+$fr = atd_manual_fila($pdo, $agora);
+confere('recuperação: quem fez o teste há 9 dias e não recebeu nada entra com a primeira mensagem', ['recuperacao-teste:rec1', 'recuperacao-teste', 9], [item($fr, 'Rita Recup')['passo'] ?? null, item($fr, 'Rita Recup')['funil'] ?? null, item($fr, 'Rita Recup')['recuperacao']['dias'] ?? null]);
+confere('recuperação: o texto sai com o nome e sem variável solta', true, strpos(item($fr, 'Rita Recup')['texto'], 'Oi Rita, aqui é da Intus.') === 0 && strpos(item($fr, 'Rita Recup')['texto'], '{{') === false);
+confere('recuperação: teste que acabou há menos de 5 dias segue o funil normal', [true, null], [strpos((string)(item($fr, 'Dora Recente')['passo'] ?? 'x'), 'recuperacao') === false, item($fr, 'Dora Recente')['recuperacao'] ?? null]);
+confere('recuperação: quem já foi contatado por fora não entra', null, item($fr, 'Cida Contatada')['recuperacao'] ?? null);
+confere('recuperação: quem treinou também entra (a equipe troca para a alternativa de quem treinou)', 'recuperacao-teste:rec1', item($fr, 'Vera Treinou')['passo'] ?? null);
+confere('recuperação: as alternativas estão no seletor', true, isset(item($fr, 'Vera Treinou')['opcoes']['recuperacao-teste:rec-treinou'], item($fr, 'Vera Treinou')['opcoes']['recuperacao-teste:rec-parado'], item($fr, 'Vera Treinou')['opcoes']['recuperacao-teste:rec-premium']));
+confere('recuperação: o resumo conta quem está nela', 2, $fr['resumo']['em_recuperacao']);
+// enviar a primeira: a pessoa sai da fila e a segunda só vence depois do intervalo do funil (3 dias e 8 horas)
+$r = atd_manual_acao($pdo, ['chave' => 'a13', 'acao' => 'enviada', 'passo' => 'recuperacao-teste:rec1', 'passo_sugerido' => 'recuperacao-teste:rec1', 'telefone' => '5545991110014'], 1, 'Luiz', $agora);
+confere('recuperação: marcar a primeira como enviada', true, $r['ok']);
+confere('recuperação: depois de enviada ela sai da fila', null, item(atd_manual_fila($pdo, $agora), 'Rita Recup'));
+confere('recuperação: a segunda não vence antes do intervalo', null, item(atd_manual_fila($pdo, em('2026-10-23 19:00:00')), 'Rita Recup'));
+confere('recuperação: a segunda vence depois do intervalo, mesmo com contato registrado pela primeira', 'recuperacao-teste:rec2', item(atd_manual_fila($pdo, em('2026-10-23 20:30:00')), 'Rita Recup')['passo'] ?? null);
+confere('recuperação: a segunda continua valendo dias depois (não expira como o funil normal)', 'recuperacao-teste:rec2', item(atd_manual_fila($pdo, em('2026-11-05 12:00:00')), 'Rita Recup')['passo'] ?? null);
+atd_manual_acao($pdo, ['chave' => 'a13', 'acao' => 'enviada', 'passo' => 'recuperacao-teste:rec2', 'passo_sugerido' => 'recuperacao-teste:rec2', 'telefone' => '5545991110014'], 1, 'Luiz', em('2026-10-23 20:40:00'));
+confere('recuperação: a despedida espera o intervalo seguinte', [null, 'recuperacao-teste:rec3'], [item(atd_manual_fila($pdo, em('2026-10-26 12:00:00')), 'Rita Recup'), item(atd_manual_fila($pdo, em('2026-10-28 13:00:00')), 'Rita Recup')['passo'] ?? null]);
+atd_manual_acao($pdo, ['chave' => 'a13', 'acao' => 'enviada', 'passo' => 'recuperacao-teste:rec3', 'passo_sugerido' => 'recuperacao-teste:rec3', 'telefone' => '5545991110014'], 1, 'Luiz', em('2026-10-28 12:10:00'));
+confere('recuperação: terminada a sequência a pessoa não volta', null, item(atd_manual_fila($pdo, em('2026-12-01 12:00:00')), 'Rita Recup'));
+conta($pdo, 17, 'Nina Ja Enviada', '(45) 99111-0018', '2026-10-08 09:00:00');
+mat($pdo, 17, 'Teste grátis', '2026-10-08', '2026-10-11');
+atd_manual_registro_gravar($pdo, 'a17', ['passos' => ['t6' => ['estado' => 'enviada', 'em' => '2026-10-12 10:00:00', 'por' => 'Luiz']]]);   // recebeu a t6 pela fila, sem contato registrado
+confere('recuperação: quem já recebeu qualquer mensagem pela fila não entra', null, item(atd_manual_fila($pdo, $agora), 'Nina Ja Enviada')['recuperacao'] ?? null);
+// a alternativa escolhida resolve a primeira, e quem respondeu sai da sequência
+atd_manual_acao($pdo, ['chave' => 'a16', 'acao' => 'enviada', 'passo' => 'recuperacao-teste:rec-treinou', 'passo_sugerido' => 'recuperacao-teste:rec1', 'telefone' => '5545991110017'], 1, 'Luiz', $agora);
+confere('recuperação: a alternativa enviada resolve a primeira e a segunda ainda espera', null, item(atd_manual_fila($pdo, em('2026-10-21 12:00:00')), 'Vera Treinou'));
+atd_manual_acao($pdo, ['chave' => 'a16', 'acao' => 'respondeu', 'telefone' => '5545991110017'], 1, 'Luiz', $agora);
+confere('recuperação: quem respondeu não recebe a segunda', null, item(atd_manual_fila($pdo, em('2026-10-30 12:00:00')), 'Vera Treinou'));
+// funil novo aparece para quem já salvou os funis antes de ele existir
+$pdoV = banco();
+atd_cfg_gravar($pdoV, 'atd_funis', array_values(array_filter(atd_funis_padrao(), fn($f) => $f['id'] !== 'recuperacao-teste')));
+confere('funil novo de fábrica aparece mesmo com funis já salvos', true, atd_funil_por_id($pdoV, 'recuperacao-teste') !== null);
+atd_funil_excluir($pdoV, 'recuperacao-teste');
+confere('funil novo excluído pela pessoa não volta sozinho', null, atd_funil_por_id($pdoV, 'recuperacao-teste'));
+verdade('textos da recuperação passam no analisador sem erro', (function () { foreach (atd_funis_padrao() as $f) { if ($f['id'] !== 'recuperacao-teste') continue; foreach ($f['mensagens'] as $m) { foreach (atd_analisar_copy($m['texto'], ['template' => $m['categoria'] !== 'texto livre', 'ultima' => $m['id'] === 'rec3'])['itens'] as $i) { if ($i['nivel'] === 'erro') return false; } } return true; } return false; })());
+
 // ── Funil editado vale na hora; funil sem texto não vira mensagem em branco ─
 $ed = atd_funil_por_id($pdo, 'teste-gratis');
 $ed['mensagens'][0]['texto'] = 'Texto novo para {{1}}.';
