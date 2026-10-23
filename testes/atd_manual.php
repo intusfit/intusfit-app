@@ -371,6 +371,7 @@ verdade('biblioteca pública: sem o modelo cru nem o plano inteiro', !isset(atd_
 $pfe = atd_manual_perfil($pdo, 'a2', $agora);
 $ops = $pfe['pessoa']['opcoes'];
 verdade('perfil: as opções por plano já vêm com o plano e o link certos', strpos($ops['fechamento:f5@treino-tri'] ?? '', 'Treino trimestral (R$ 950,50): https://pague.exemplo.com/t3') !== false && strpos($ops['fechamento:f3@combo-sem'] ?? '', 'Treino + Dieta semestral, que fica em R$ 2.800') !== false);
+verdade('c5 (quer saber dos planos): apresenta os planos e valores reais e mantém a saída para uma pessoa', strpos($ops['chamou-whatsapp:c5'] ?? '', '• Treino: trimestral R$ 950,50') !== false && strpos($ops['chamou-whatsapp:c5'] ?? '', 'uma pessoa da equipe') !== false && strpos($ops['chamou-whatsapp:c5'] ?? '', '{{') === false && !preg_match('/[\x{2014}\x{2013}]/u', $ops['chamou-whatsapp:c5'] ?? ''));
 confere('perfil: resumo dos planos (iniciais, sem link, provas liberadas)', [7, 8, 0], [$pfe['planos']['valores_padrao'], $pfe['planos']['sem_link'], $pfe['planos']['provas_liberadas']]);
 
 // {{8}}: prova social só da que o robô pode usar

@@ -110,10 +110,14 @@ function atd_funis_padrao(): array {
                     'por_que' => 'Dar a experiência antes de pedir qualquer compromisso. O link leva ao cadastro oficial, que cria a conta de verdade.',
                 ],
                 [
-                    'id' => 'c5', 'nome' => 'Quer saber da Premium', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
-                    'texto' => 'Boa pergunta. Para te explicar a Consultoria Premium direitinho, vou chamar uma pessoa da equipe para continuar essa conversa com você por aqui. Pode ser?',
-                    'conceito' => 'Passagem para humano',
-                    'por_que' => 'Preço e fechamento são conversa de pessoa. O robô avisa que vai passar, sem inventar valor e sem prometer horário.',
+                    'id' => 'c5', 'nome' => 'Quer saber dos planos', 'tipo' => 'resposta', 'condicao' => 'todos', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
+                    'texto' => 'Boa pergunta, {{1}}! Estes são os planos da Intus:
+
+{{4}}
+
+Em todos eles um profissional da Intus monta e acompanha o seu plano de perto. Qual deles parece mais com o que você precisa agora? Se preferir, eu chamo uma pessoa da equipe para conversar com você por aqui.',
+                    'conceito' => 'Transparência e escolha',
+                    'por_que' => 'Quem pergunta dos planos quer ver os valores. Mostrar tudo de uma vez, com os números oficiais de Gestão de Planos, gera confiança, e terminar com uma pergunta de escolha leva ao próximo passo (o funil Fechamento cuida do link). A saída para uma pessoa continua à vista.',
                 ],
                 [
                     'id' => 'c6', 'nome' => 'Silêncio de 3 horas', 'tipo' => 'silencio', 'minutos' => 180, 'condicao' => 'sem_resposta', 'categoria' => 'texto livre', 'template' => '', 'aprovada' => false,
