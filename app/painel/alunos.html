@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
-  <script src="_mock.js?v=20261021a"></script>
+  <script src="_mock.js?v=20261023a"></script>
   <script src="api.js?v=20261021b"></script>
+  <script src="kanban.js?v=20261023b"></script>
+  <script src="perfil-atendimento.js?v=20261023a"></script>
   <style>
     .th-sort { cursor: pointer; user-select: none; white-space: nowrap; transition: color .15s; }
     .th-sort:hover { color: var(--green, #7FFF00); }
@@ -274,6 +276,7 @@ function filtrados() {
 
 function render() {
   const lista = filtrados();
+  const modoCli = VerModo.get('clientes', 'lista');
   const podeIncluir = hasPerm('at_incluir');
   const podeEditar  = hasPerm('at_editar');
 
@@ -391,7 +394,8 @@ function render() {
           <option value="vencimento"      ${ordenacao==='vencimento'     ?'selected':''}>Vencimento</option>
           <option value="status"          ${ordenacao==='status'         ?'selected':''}>Status</option>
         </select>
-        <span style="font-size:12px;color:var(--text-muted);margin-left:auto;">${lista.length} resultado${lista.length!==1?'s':''}</span>
+        <span style="margin-left:auto;">${VerModo.barra('clientes', [['lista', 'Lista', '☰'], ['quadro', 'Quadro', '▥']], 'render', modoCli)}</span>
+        <span style="font-size:12px;color:var(--text-muted);">${lista.length} resultado${lista.length!==1?'s':''}</span>
         <span title="Versão do api.js carregada agora. Se não mudar depois de um upload, o arquivo novo não entrou." style="font-size:10px;color:var(--text-dim,#777);margin-left:10px;border:1px solid var(--border);border-radius:5px;padding:1px 6px;">build ${(typeof API !== 'undefined' && API.BUILD) ? API.BUILD : '—'}</span>
         ${filtro === 'bloqueados' && isAdmin() && totalBloq > 0 ? `<button class="btn btn-danger btn-sm" style="margin-left:8px;" onclick="excluirTodosBloqueados()">Excluir todos bloqueados (${totalBloq})</button>` : ''}
       </div>
@@ -413,6 +417,8 @@ function render() {
           ? `<div style="padding:40px;text-align:center;color:var(--text-muted);">Carregando...</div>`
           : erro
           ? `<div style="padding:40px;text-align:center;color:#ff6b6b;">${erro}</div>`
+          : modoCli === 'quadro' && lista.length > 0
+          ? `<div id="cli-quadro" style="padding:8px 6px 0;"></div>`
           : lista.length === 0
           ? `<div style="padding:40px;text-align:center;color:var(--text-muted);">
                ${busca ? 'Nenhum cliente encontrado.'
@@ -484,6 +490,8 @@ function render() {
     </div>
   `;
 
+  if (modoCli === 'quadro' && !loading && !erro && lista.length) _montarQuadroClientes(lista);
+
   const inp = document.getElementById('inp-busca');
   if (inp) inp.addEventListener('input', e => {
     busca = e.target.value; render();
@@ -499,6 +507,35 @@ function render() {
 }
 
 function setFiltro(f) { filtro = f; render(); }
+
+// ── Quadro de clientes (só visualização: nada é gravado aqui; "Abrir" leva à ficha de sempre) ──
+// Mesma lista, filtros e busca da tabela. A coluna segue o selo da tabela: bloqueado, lead, novo, ativo ou inativo (situacaoDoAluno).
+let _quadroCli = null;
+function _montarQuadroClientes(lista) {
+  const alvo = document.getElementById('cli-quadro'); if (!alvo) return;
+  if (_quadroCli) { _quadroCli.destruir(); _quadroCli = null; }
+  const _allProfs = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
+  const abre = hasPerm('at_editar') || hasPerm('at_ver') || hasPerm('nt_incluir') || hasPerm('nt_editar');
+  const col = a => { const s = situacaoDoAluno(a); return s.bloqueado ? 'bloq' : isLead(a) ? 'lead' : isNovoCadastro(a) ? 'novo' : s.ativo ? 'ativo' : 'inativo'; };
+  const cartoes = lista.map(a => {
+    const plano = getPlanoAtleta(a.idatleta);
+    const profs = (a.professores_responsaveis || []).map(id => { const p = _allProfs.find(u => Number(u.idusuario) === Number(id)); return p ? (p.nome || '').split(' ')[0] : ''; }).filter(Boolean).join(', ');
+    const venc = plano && plano.dtvencimento ? new Date(plano.dtvencimento + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+    return { id: String(a.idatleta), coluna: col(a), bloqueado: true, html:
+      '<div style="display:flex;gap:8px;align-items:center;">' + avatarHtml(a.idatleta, a.nome, 30) + '<div style="min-width:0;flex:1;"><div class="kb-cartao-nome">' + esc(a.nome) + '</div><div class="kb-meta">' + esc(a.telefone || a.email || '') + '</div></div></div>' +
+      '<div>' + (plano ? '<span class="kb-pill">' + esc(String(plano.dshistorico || 'Matrícula').substring(0, 24)) + '</span>' : '<span class="kb-pill">sem matrícula</span>') + (venc ? '<span class="kb-pill">vence ' + esc(venc) + '</span>' : '') +
+      (profs ? '<span class="kb-pill">👤 ' + esc(profs) + '</span>' : '') + '</div>' +
+      '<div class="kb-acoes">' + (abre ? '<button type="button" data-kbc="' + a.idatleta + '">Abrir</button>' : '') + '' + (isAdmin() ? '<a href="perfil.html?id=' + a.idatleta + '">Perfil</a>' : '') + '</div>' };
+  });
+  alvo.classList.add('kb-painel');
+  alvo.onclick = ev => { const b = ev.target.closest('[data-kbc]'); if (b) abrirMiniFicha(Number(b.getAttribute('data-kbc'))); };
+  _quadroCli = Kanban.montar(alvo, { colunas: [
+    { id: 'lead', titulo: 'Leads', tom: 'ambar', soltar: false, dica: 'Teste grátis e captação.' },
+    { id: 'novo', titulo: 'Novos (7 dias)', tom: 'azul', soltar: false },
+    { id: 'ativo', titulo: 'Ativos', tom: 'verde', soltar: false },
+    { id: 'inativo', titulo: 'Inativos', tom: '', soltar: false, dica: 'Passou da carência sem plano.' },
+    { id: 'bloq', titulo: 'Bloqueados', tom: 'verm', soltar: false }], cartoes, vazio: 'Ninguém aqui.' });
+}
 
 function toggleSort(col) {
   const ascMap = { nome: 'alfabetica', professor: 'professor', plano: 'plano', vencimento: 'vencimento', status: 'status', cadastro: 'cadastro_asc' };
@@ -562,6 +599,7 @@ async function abrirMiniFicha(id) {
         <button class="modal-close" onclick="closeModal()" style="position:static;font-size:22px;">×</button>
       </div>
 
+      ${isAdmin() ? '<div id="mf-atend-faixa"></div>' : ''}
       <!-- QUICK STATS -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:1px;background:var(--border,#2a2a2a);">
         <div style="background:var(--bg2,#1a1a1a);padding:12px 14px;text-align:center;">
@@ -616,6 +654,7 @@ async function abrirMiniFicha(id) {
         <button class="mini-tab" onclick="miniTab('notas',${id})">📝 Notas</button>
         <button class="mini-tab" onclick="miniTab('dados',${id})">⚙️ Cadastro</button>
         <button class="mini-tab" onclick="miniTab('anamnese',${id})">📋 Anamnese</button>
+        ${isAdmin() ? `<button class="mini-tab" onclick="miniTab('atendimento',${id})">💬 Atendimento</button>` : ''}
       </div>
       <div id="mini-tab-content" style="padding:16px 24px;max-height:62vh;overflow-y:auto;">
         <div style="text-align:center;color:var(--text-muted);padding:20px;font-size:12px;">Carregando...</div>
@@ -629,7 +668,7 @@ async function abrirMiniFicha(id) {
             : `<button class="btn btn-danger btn-sm" onclick="toggleBloqueio(${id},'S');closeModal();">Bloquear</button>`) : ''}
           ${podeEditarCliente ? `<button class="btn btn-secondary btn-sm" onclick="desconectarAparelhos(${id}, '${(a.nome||'').replace(/'/g, "\\'")}')" title="Encerra a sessão deste aluno em todos os aparelhos. Ele entra de novo com o código dele.">📱 Desconectar aparelhos</button>` : ''}
         </div>
-        <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+        <span style="display:flex;gap:8px;">${isAdmin() ? `<a class="btn btn-secondary" href="perfil.html?id=${id}">Perfil completo</a>` : ''}<button class="btn btn-secondary" onclick="closeModal()">Fechar</button></span>
       </div>
     </div>
   `);
@@ -638,9 +677,12 @@ async function abrirMiniFicha(id) {
   style.textContent = `.modal-box{max-width:1120px!important;width:96%!important;}.mini-tab{background:none;border:none;color:var(--text-muted);font-size:11px;font-weight:700;padding:10px 12px;cursor:pointer;border-bottom:2px solid transparent;font-family:inherit;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;transition:color .15s,border-color .15s;}.mini-tab.active{color:var(--green);border-bottom-color:var(--green);}.mini-tab:hover{color:var(--text);}@media(max-width:600px){.modal-box{max-width:100%!important;margin:8px!important;border-radius:12px!important;}}`;
   document.querySelector('.modal-overlay')?.appendChild(style);
 
-  miniTab('treinos', id);
+  _faixaAtend = null;
+  if (isAdmin() && document.getElementById('mf-atend-faixa')) _faixaAtend = PerfilAtendimento.faixa(document.getElementById('mf-atend-faixa'), 'a' + id, () => miniTab('atendimento', id));
+  miniTab(isAdmin() && isLead(a) ? 'atendimento' : 'treinos', id);
 }
 
+let _faixaAtend = null;
 let miniTabAtivo = 'treinos';
 let _fichaReadOnly = false;
 
@@ -648,7 +690,7 @@ function miniTab(tab, id) {
   miniTabAtivo = tab;
   document.querySelectorAll('.mini-tab').forEach(t => t.classList.remove('active'));
   const tabs = document.querySelectorAll('.mini-tab');
-  const tabMap = ['treinos','frequencia','matriculas','avaliacoes','notas','dados','anamnese'];
+  const tabMap = ['treinos','frequencia','matriculas','avaliacoes','notas','dados','anamnese','atendimento'];
   const idx = tabMap.indexOf(tab);
   if (idx >= 0 && tabs[idx]) tabs[idx].classList.add('active');
 
@@ -659,6 +701,15 @@ function miniTab(tab, id) {
   else if (tab === 'notas') carregarMiniNotas(id);
   else if (tab === 'dados') carregarMiniDados(id);
   else if (tab === 'anamnese') carregarMiniAnamnese(id);
+  else if (tab === 'atendimento') carregarMiniAtendimento(id);
+}
+
+// Atendimento do cliente (temperatura, mensagens prontas, contatos): bloco compartilhado com perfil.html; só administrador.
+function carregarMiniAtendimento(id) {
+  const el = document.getElementById('mini-tab-content');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:13px;">Só o administrador vê o atendimento.</div>'; return; }
+  PerfilAtendimento.montar(el, 'a' + id, { aoMudar: () => { if (_faixaAtend) _faixaAtend.recarregar(); } });
 }
 
 async function carregarMiniTreinos(id) {

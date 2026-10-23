@@ -155,6 +155,24 @@ const PESSOAS = () => [
   eq('na Central, "Retornar depois" grava o retorno para daqui a 2 dias', [pr2.b.status, /^\d{4}-\d{2}-\d{2}$/.test(pr2.b.retorno_em || '')], ['retornar', true]);
   await ce.pg.fill('#q-busca', 'daniel'); await ce.pg.waitForTimeout(250);
   eq('a busca filtra o quadro', await ce.pg.evaluate(() => [...document.querySelectorAll('.kb-card')].map(c => c.getAttribute('data-id'))), ['a2']);
+  // barra de rolagem horizontal também em cima, espelhando a de baixo
+  await ce.pg.selectOption('#q-agrupar', 'etapa'); await ce.pg.waitForTimeout(500);
+  const topo = await ce.pg.evaluate(() => { const t = document.querySelector('.kb-topo'), q = document.querySelector('.kb'); return { acima: !!t && !!q && t.compareDocumentPosition(q) & Node.DOCUMENT_POSITION_FOLLOWING ? true : false, visivel: !!t && getComputedStyle(t).display !== 'none', larguraIgual: !!t && Math.abs(t.firstChild.getBoundingClientRect().width - q.scrollWidth) <= 1 }; });
+  eq('com mais colunas do que cabem, a barra de cima aparece, acima do quadro e com a mesma largura útil', topo, { acima: true, visivel: true, larguraIgual: true });
+  const sinc = await ce.pg.evaluate(async () => {
+    const t = document.querySelector('.kb-topo'), q = document.querySelector('.kb'), w = ms => new Promise(r => setTimeout(r, ms));
+    // o quadro encaixa nas colunas (a cada 300 px), então os testes usam posições de encaixe
+    t.scrollLeft = 300; await w(150); const aCima = Math.abs(q.scrollLeft - 300) <= 3 && Math.abs(t.scrollLeft - 300) <= 3;
+    q.scrollLeft = 600; await w(150); const aBaixo = Math.abs(t.scrollLeft - 600) <= 3 && Math.abs(q.scrollLeft - 600) <= 3;
+    return { aCima, aBaixo };
+  });
+  eq('mexer na barra de cima move o quadro e mexer no quadro move a barra de cima', sinc, { aCima: true, aBaixo: true });
+  const cabe = await ce.pg.evaluate(() => {
+    const d = document.createElement('div'); d.style.width = '900px'; document.body.appendChild(d);
+    const q = Kanban.montar(d, { colunas: [{ id: 'a', titulo: 'A' }, { id: 'b', titulo: 'B' }], cartoes: [], vazio: '-' });
+    const t = d.querySelector('.kb-topo'); const some = getComputedStyle(t).display === 'none'; q.destruir(); d.remove(); return some;
+  });
+  eq('quando o quadro cabe na tela a barra de cima some', cabe, true);
   await ce.pg.setViewportSize({ width: 375, height: 800 }); await ce.pg.waitForTimeout(250);
   eq('no celular a página não rola para o lado (só o quadro)', await ce.pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   eq('sem erro de script na Central', ce.er, []);

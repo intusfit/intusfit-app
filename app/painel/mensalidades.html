@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Matrículas — Intus</title>
-  <script src="_mock.js?v=20261021a"></script>
+  <script src="_mock.js?v=20261023a"></script>
   <script src="api.js?v=20261021b"></script>
+  <script src="kanban.js?v=20261023b"></script>
   <style>
     /* ── MODAL EXTRA WIDTH ── */
     .modal-box.wide { max-width: 560px; }
@@ -412,6 +413,7 @@ function render() {
   const _tipRecebido = Tip.historico({ titulo: 'Recebido', rotulos: _serieMeses.rotulos, valores: _serieMeses.recebido, i: 11, fmt: v => _hideValues ? 'R$ •••' : fmtMoeda(v), anteriores: 5 }) +
     '<div class="tip-n">' + _serieMeses.pagamentos[11] + ' pagamento(s) este mês. Por data de pagamento, sem filtro de período.</div>';
 
+  const modoMat = VerModo.get('matriculas', 'lista');
   main.innerHTML = `
     ${faixaSobras}
     ${_bannerInativar()}
@@ -515,11 +517,13 @@ function render() {
           <option value="valor_asc"       ${ordenacao==='valor_asc'?'selected':''}>Valor ↑</option>` : ''}
           <option value="pagamento"       ${ordenacao==='pagamento'?'selected':''}>Pagamento</option>
         </select>
-        <span style="font-size:12px;color:var(--text-muted);margin-left:auto;">${matriculas.length} matrícula${matriculas.length!==1?'s':''}${itens.length!==matriculas.length ? ` · ${itens.length} ciclos` : ''}</span>
+        <span style="margin-left:auto;">${VerModo.barra('matriculas', [['lista', 'Lista', '☰'], ['quadro', 'Quadro', '▥']], 'render', modoMat)}</span>
+        <span style="font-size:12px;color:var(--text-muted);">${matriculas.length} matrícula${matriculas.length!==1?'s':''}${itens.length!==matriculas.length ? ` · ${itens.length} ciclos` : ''}</span>
       </div>
 
       <!-- Tabela -->
-      <table class="data-table">
+      ${modoMat === 'quadro' ? '<div id="mat-quadro" style="padding:6px 4px 0;"></div>' : ''}
+      <table class="data-table" ${modoMat === 'quadro' ? 'style="display:none;"' : ''}>
         <thead><tr>
           <th style="cursor:pointer;white-space:nowrap;" onclick="mtSort('nome')">Cliente ${mtSortIcon('nome')}</th>
           <th>Descrição</th>
@@ -531,14 +535,47 @@ function render() {
           <th></th>
         </tr></thead>
         <tbody>
-          ${matriculas.map(mat => renderMatricula(mat, podeVerValores, isAdmin)).join('')}
-          ${matriculas.length === 0
+          ${modoMat === 'quadro' ? '' : matriculas.map(mat => renderMatricula(mat, podeVerValores, isAdmin)).join('')}
+          ${modoMat !== 'quadro' && matriculas.length === 0
             ? `<tr><td colspan="${podeVerValores ? 8 : 7}" style="text-align:center;padding:32px;color:var(--text-dim);">Nenhuma matrícula neste filtro.</td></tr>`
             : ''}
         </tbody>
       </table>
     </div>
   `;
+  if (modoMat === 'quadro') _montarQuadroMatriculas(matriculas, podeVerValores);
+}
+
+// ── Quadro de matrículas (só visualização: nada é gravado aqui; "Abrir" leva ao editor de sempre) ──
+// Cada cartão é uma matrícula (a mesma lista, filtros e ordem da tabela). A coluna vem de statusEfetivo(), que lê API.situacaoCobranca.
+let _quadroMat = null;
+function _montarQuadroMatriculas(matriculas, podeVerValores) {
+  const alvo = document.getElementById('mat-quadro'); if (!alvo) return;
+  if (_quadroMat) { _quadroMat.destruir(); _quadroMat = null; }
+  const COL = { pendente: 'pendente', vencida: 'vencida', aguardando: 'aguardando', programada: 'programada', ativa_paga: 'ok', trancada: 'trancada', encerrada: 'fim', renovada: 'fim', inativa: 'inativa', cancelada: 'inativa' };
+  const ST = { pendente: 'Ativa · pendente', vencida: 'Vencida', aguardando: 'Aguardando renovação', programada: 'A cobrar mais tarde', ativa_paga: 'Ativa · paga', trancada: 'Trancada', encerrada: 'Encerrada', renovada: 'Ciclo concluído', inativa: 'Inativa', cancelada: 'Cancelada' };
+  const edita = hasPerm('mt_editar');
+  const cartoes = matriculas.map(mat => {
+    const m = mat.atual, st = statusEfetivo(m), ven = String(m.dtvencimento || '').slice(0, 10), ini = String(m.dtinicio || '').slice(0, 10);
+    return { id: String(mat.key), coluna: COL[st] || 'pendente', bloqueado: true, html:
+      '<div class="kb-cartao-nome">' + esc(m.nmathleta || ('Cliente #' + m.idatleta)) + '</div>' +
+      '<div class="kb-meta">' + esc(m.dshistorico || m.tipo_plano || 'Matrícula') + '</div>' +
+      '<div>' + '<span class="kb-pill">' + esc(ST[st] || st) + '</span>' + (ven ? '<span class="kb-pill">vence ' + esc(fmtData(ven)) + '</span>' : '') +
+      (podeVerValores ? '<span class="kb-pill">' + esc(fmtMoedaV(m.vlpagar)) + '</span>' : '') + (mat.cycles.length > 1 ? '<span class="kb-pill">' + mat.cycles.length + ' ciclos</span>' : '') + '</div>' +
+      '<div class="kb-acoes">' + (edita ? '<button type="button" data-kbm="' + m.idmensalidade + '">Abrir</button>' : '') +
+      '<a href="alunos.html?busca=' + encodeURIComponent(m.nmathleta || '') + '">Cliente</a></div>' };
+  });
+  alvo.classList.add('kb-painel');
+  alvo.onclick = ev => { const b = ev.target.closest('[data-kbm]'); if (b) abrirModalEditar(Number(b.getAttribute('data-kbm'))); };
+  _quadroMat = Kanban.montar(alvo, { colunas: [
+    { id: 'pendente', titulo: 'Pendentes', tom: 'ambar', soltar: false, dica: 'Cobrança do ciclo em aberto, ainda dentro da tolerância.' },
+    { id: 'vencida', titulo: 'Vencidas', tom: 'verm', soltar: false, dica: 'Passou da tolerância de cobrança.' },
+    { id: 'aguardando', titulo: 'Aguardando renovação', tom: 'azul', soltar: false },
+    { id: 'programada', titulo: 'A cobrar mais tarde', tom: 'azul', soltar: false },
+    { id: 'ok', titulo: 'Ativas e em dia', tom: 'verde', soltar: false },
+    { id: 'trancada', titulo: 'Trancadas', tom: '', soltar: false },
+    { id: 'fim', titulo: 'Encerradas', tom: '', soltar: false },
+    { id: 'inativa', titulo: 'Inativas e canceladas', tom: '', soltar: false }], cartoes, vazio: 'Nenhuma matrícula aqui.' });
 }
 
 function esc(s) {

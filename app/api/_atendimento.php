@@ -1300,13 +1300,14 @@ function atd_ids_leads_clientes(PDO $pdo, ?string $tbl, string $de, string $ate)
  * Cada pessoa sai com o estado no WhatsApp e a mensagem sugerida da Central para a etapa dela.
  * $de e $ate: 'Y-m-d' (data de cadastro).
  */
-function atd_leads(PDO $pdo, string $de, string $ate, ?DateTimeImmutable $agora = null): array {
+function atd_leads(PDO $pdo, string $de, string $ate, ?DateTimeImmutable $agora = null, ?array $soIds = null): array {
     wa_garantir_tabelas($pdo);
     trGarantirTabelas($pdo);
     $agora = $agora ?: wa_agora();
     $funis = atd_funis($pdo);
     $tbl = atd_tabela_atleta($pdo);
-    $T = trLeads($pdo, $de, $ate, $tbl, $agora->getTimestamp(), atd_ids_leads_clientes($pdo, $tbl, $de, $ate));
+    // $soIds: o perfil de UMA pessoa pede só aquela conta (qualquer data), sem varrer o período
+    $T = trLeads($pdo, $de, $ate, $tbl, $agora->getTimestamp(), $soIds !== null ? $soIds : atd_ids_leads_clientes($pdo, $tbl, $de, $ate));
     $pessoas = $T['pessoas'];
 
     // Contato sem conta cujo telefone ou e-mail já é de uma conta: é a mesma pessoa, fica só a conta

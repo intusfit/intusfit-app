@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Perfil — Intus</title>
+  <script src="_mock.js?v=20261023a"></script>
+  <script src="api.js?v=20261021b"></script>
+  <script src="perfil-atendimento.js?v=20261023a"></script>
+  <style>
+    .pf-topo { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:18px; background:var(--bg2); border:1px solid var(--border); border-radius:14px; margin-bottom:16px; }
+    .pf-topo h1 { margin:0; font-size:22px; color:var(--text); }
+    .pf-sub { font-size:12.5px; color:var(--text-muted); margin-top:4px; line-height:1.55; }
+    .pf-pill { display:inline-block; font-size:11px; font-weight:700; padding:3px 9px; border-radius:99px; border:1px solid var(--border); color:var(--text-muted); margin:0 6px 4px 0; }
+    .pf-pill.ok { color:var(--green); border-color:var(--green); } .pf-pill.ruim { color:#f87171; border-color:#f8717166; } .pf-pill.aviso { color:#fbbf24; border-color:#fbbf2466; }
+    .pf-grade { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:16px; margin-top:16px; align-items:start; }
+    .pf-sec { background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:16px; }
+    .pf-sec h3 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); display:flex; align-items:center; gap:8px; }
+    .pf-sec h3 a { margin-left:auto; font-size:11.5px; text-transform:none; letter-spacing:0; color:var(--green); text-decoration:none; font-weight:700; }
+    .pf-lin { display:flex; gap:10px; align-items:center; padding:9px 0; border-top:1px solid var(--border); font-size:13px; color:var(--text); }
+    .pf-lin:first-of-type { border-top:none; }
+    .pf-lin .grow { flex:1; min-width:0; } .pf-lin .mut { font-size:11.5px; color:var(--text-muted); }
+    .pf-btn { font:inherit; font-size:12px; font-weight:700; padding:6px 11px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--text); cursor:pointer; text-decoration:none; white-space:nowrap; }
+    .pf-vazio { font-size:12.5px; color:var(--text-muted); padding:6px 0; }
+    .pf-aviso { padding:14px; border-radius:10px; border:1px solid #fbbf2466; background:#fbbf2414; font-size:13px; }
+  </style>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Clientes');
+const main = document.getElementById('main-content');
+if (!(Sessao.atual() && Sessao.atual().admin)) {
+  main.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted);"><div style="font-size:40px;margin-bottom:8px;">🔒</div><div style="font-weight:700;color:var(--text);margin-bottom:4px;">Acesso restrito</div><div style="font-size:13px;">O perfil reúne telefone, e-mail, atendimento e matrículas e é só do administrador.</div></div>';
+  throw new Error('sem permissao');
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const dia = d => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? m[3] + '/' + m[2] + '/' + m[1] : '—'; };
+const hojeIso = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const P = new URLSearchParams(location.search);
+const chave = P.get('chave') || (P.get('id') ? 'a' + parseInt(P.get('id'), 10) : '');
+const ehConta = /^a\d+$/.test(chave), idat = ehConta ? parseInt(chave.slice(1), 10) : 0;
+const ST_COB = { paga: ['Paga', 'ok'], paga_no_anterior: ['Paga na linha anterior', 'ok'], renovada: ['Ciclo concluído', ''], renovar: ['Renovar', 'aviso'], programada: ['A cobrar mais tarde', ''], pendente: ['Pendente', 'aviso'], vencida: ['Vencida', 'ruim'], inativa: ['Inativa', ''], encerrada: ['Encerrada', ''], cancelada: ['Cancelada', ''], trancada: ['Trancada', ''] };
+
+async function seguro(p, padrao) { try { const r = await p; return r == null ? padrao : r; } catch (e) { return padrao; } }
+
+async function iniciar() {
+  if (!/^[al]\d+$/.test(chave)) { main.innerHTML = '<div class="pf-aviso">Abra o perfil a partir da lista de Clientes ou de Pessoas Captadas.</div>'; return; }
+  main.innerHTML = '<div class="pf-vazio" style="padding:30px;text-align:center;">Carregando o perfil...</div>';
+  let atleta = null, mens = [], fichas = [], planos = [], sess = [], avals = [], usuarios = [];
+  if (ehConta) {
+    [atleta, mens, fichas, planos, sess, avals] = await Promise.all([
+      seguro(API.getAtleta(idat), null), seguro(API.listarMensalidades(''), []), seguro(API.listarFichas(), []),
+      seguro(API.listarPlanosNutricionais(idat), []), seguro(API.listarSessoes(idat), []), seguro(API.listarAvaliacoes(idat), [])]);
+    if (!atleta) { main.innerHTML = '<div class="pf-aviso">Não encontrei este cliente. <a href="alunos.html">Voltar para Clientes</a></div>'; return; }
+    mens = (Array.isArray(mens) ? mens : []).filter(m => Number(m.idatleta) === idat);
+    fichas = (Array.isArray(fichas) ? fichas : []).filter(f => Number(f.idatleta) === idat);
+    planos = (Array.isArray(planos) ? planos : []).filter(p => Number(p.idatleta) === idat);
+    sess = Array.isArray(sess) ? sess : []; avals = Array.isArray(avals) ? avals : [];
+  }
+  try { usuarios = JSON.parse(localStorage.getItem('intus-usuarios') || '[]'); } catch (e) {}
+  desenhar(atleta, mens, fichas, planos, sess, avals, usuarios);
+}
+
+async function desenhar(a, mens, fichas, planos, sess, avals, usuarios) {
+  let nome, tel = '', email = '', head = '';
+  if (a) {
+    nome = a.nome; tel = a.telefone || ''; email = a.email || '';
+    const sit = API.situacaoPlano(a, mens);
+    const profs = (a.professores_responsaveis || []).map(id => { const u = usuarios.find(x => Number(x.idusuario) === Number(id)); return u ? u.nome : ''; }).filter(Boolean);
+    const idade = a.dtnascimento ? Math.floor((Date.now() - new Date(a.dtnascimento + 'T00:00:00').getTime()) / 31557600000) : null;
+    head = '<div>' + avatarHtml(idat, a.nome, 64) + '</div><div style="flex:1;min-width:220px;"><h1>' + esc(a.nome) + '</h1><div style="margin-top:6px;">' +
+      (sit.bloqueado ? '<span class="pf-pill ruim">Bloqueado</span>' : sit.ativo ? '<span class="pf-pill ok" title="' + esc(sit.motivo) + '">Ativo</span>' : '<span class="pf-pill" title="' + esc(sit.motivo) + '">Inativo</span>') +
+      (sit.lead ? '<span class="pf-pill aviso">Lead</span>' : '') + (sit.motivo ? '<span class="pf-pill">' + esc(sit.motivo) + '</span>' : '') + '</div>' +
+      '<div class="pf-sub">' + [tel ? '📱 ' + esc(tel) : '', email ? '📧 ' + esc(email) : '', idade != null ? idade + ' anos' : '', a.dtcadastro ? 'cadastro ' + dia(a.dtcadastro) : '', profs.length ? '👤 ' + esc(profs.join(', ')) : ''].filter(Boolean).join(' · ') + '</div></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;"><a class="pf-btn" href="alunos.html?busca=' + encodeURIComponent(a.nome) + '">Abrir cadastro</a><a class="pf-btn" href="captados.html">Pessoas Captadas</a></div>';
+  } else {
+    // contato sem conta: o nome e o telefone vêm do próprio atendimento
+    let d = null;
+    try { const tk = (typeof Auth !== 'undefined' && Auth.getToken) ? Auth.getToken() : ''; const r = await fetch(API_BASE + '/atendimento.php?action=perfil&chave=' + encodeURIComponent(chave), { headers: { Authorization: 'Bearer ' + tk } }); d = await r.json(); } catch (e) {}
+    if (!d || !d.pessoa) { main.innerHTML = '<div class="pf-aviso">Não encontrei esta pessoa. <a href="captados.html">Voltar para Pessoas Captadas</a></div>'; return; }
+    nome = d.pessoa.nome; tel = d.pessoa.telefone || ''; email = d.pessoa.email || '';
+    head = '<div style="flex:1;min-width:220px;"><h1>' + esc(nome) + '</h1><div style="margin-top:6px;"><span class="pf-pill aviso">Contato sem conta</span></div><div class="pf-sub">' + [tel ? '📱 ' + esc(tel) : '', email ? '📧 ' + esc(email) : '', d.pessoa.objetivo ? 'objetivo: ' + esc(d.pessoa.objetivo) : '', 'deixou o contato em ' + esc(String(d.pessoa.criado_em || '').slice(0, 10).split('-').reverse().join('/'))].filter(Boolean).join(' · ') + '</div></div>' +
+      '<div><a class="pf-btn" href="captados.html">Pessoas Captadas</a></div>';
+  }
+  document.title = nome + ' — Perfil — Intus';
+  let h = '<div class="pf-topo">' + head + '</div><div id="pf-atend"></div>';
+
+  if (a) {
+    const ordM = mens.slice().sort((x, y) => String(y.dtvencimento || '').localeCompare(String(x.dtvencimento || '')));
+    h += '<div class="pf-grade">';
+    h += '<div class="pf-sec"><h3>💳 Matrículas' + (ordM.length ? '<a href="mensalidades.html?m=' + ordM[0].idmensalidade + '">Abrir na tela de Matrículas</a>' : '') + '</h3>' +
+      (ordM.length ? ordM.slice(0, 8).map(m => { const st = API.situacaoCobranca(m, mens).estado, r = ST_COB[st] || [st, '']; return '<div class="pf-lin"><div class="grow"><b>' + esc(m.dshistorico || m.tipo_plano || 'Matrícula') + '</b><div class="mut">' + dia(m.dtinicio) + ' → ' + dia(m.dtvencimento) + (hasPerm('mt_editar') ? ' · ' + esc(fmtMoeda(m.vlpagar)) : '') + '</div></div><span class="pf-pill ' + r[1] + '">' + esc(r[0]) + '</span><a class="pf-btn" href="mensalidades.html?m=' + m.idmensalidade + '">Abrir</a></div>'; }).join('') + (ordM.length > 8 ? '<div class="pf-vazio">e mais ' + (ordM.length - 8) + ' ciclo(s) na tela de Matrículas.</div>' : '') : '<div class="pf-vazio">Nenhuma matrícula registrada.</div>') + '</div>';
+
+    const hoje = hojeIso();
+    const fOrd = fichas.slice().sort((x, y) => String(y.dtinicio || '').localeCompare(String(x.dtinicio || '')));
+    const ultimas = sess.slice().sort((x, y) => String(y.dtsessao || '').localeCompare(String(x.dtsessao || ''))).slice(0, 5);
+    h += '<div class="pf-sec"><h3>🏋️ Treinos' + (fOrd.length ? '<a href="treinos.html?ficha=' + fOrd[0].idficha + '">Abrir na tela de Treinos</a>' : '') + '</h3>' +
+      (fOrd.length ? fOrd.slice(0, 5).map(f => { const ativa = f.ativo !== false && f.ativo !== 0 && f.ativo !== '0', ven = f.dtfim && String(f.dtfim).slice(0, 10) < hoje; return '<div class="pf-lin"><div class="grow"><b>' + esc(f.nmficha || 'Ficha sem nome') + '</b><div class="mut">' + dia(f.dtinicio) + (f.dtfim ? ' → ' + dia(f.dtfim) : ' · sem prazo') + '</div></div><span class="pf-pill ' + (!ativa ? '' : ven ? 'ruim' : 'ok') + '">' + (!ativa ? 'Inativa' : ven ? 'Vencida' : 'Ativa') + '</span><a class="pf-btn" href="treinos.html?ficha=' + f.idficha + '">Abrir</a></div>'; }).join('') : '<div class="pf-vazio">Nenhuma ficha de treino.</div>') +
+      '<div class="pf-vazio" style="margin-top:8px;">' + (sess.length ? sess.length + ' treino(s) registrado(s); o último em ' + dia(ultimas[0] && ultimas[0].dtsessao) + '.' : 'Nenhum treino registrado ainda.') + '</div>' +
+      (ultimas.length ? '<div class="mut" style="font-size:11.5px;color:var(--text-muted);">' + ultimas.map(s => esc(dia(s.dtsessao).slice(0, 5) + (s.divisao ? ' (' + s.divisao + ')' : ''))).join(' · ') + '</div>' : '') + '</div>';
+
+    const pOrd = planos.slice().sort((x, y) => String(y.dtinicio || '').localeCompare(String(x.dtinicio || '')));
+    h += '<div class="pf-sec"><h3>🥗 Nutrição<a href="nutricao.html">Abrir Nutrição</a></h3>' +
+      (pOrd.length ? pOrd.slice(0, 4).map(p => { const at = p.ativo !== false && p.ativo !== 0 && p.ativo !== '0'; return '<div class="pf-lin"><div class="grow"><b>' + esc(p.titulo || 'Plano alimentar') + '</b><div class="mut">' + dia(p.dtinicio) + (p.dtfim ? ' → ' + dia(p.dtfim) : '') + '</div></div><span class="pf-pill ' + (at ? 'ok' : '') + '">' + (at ? 'Ativo' : 'Inativo') + '</span></div>'; }).join('') : '<div class="pf-vazio">Nenhum plano alimentar.</div>') + '</div>';
+
+    const aOrd = avals.slice().sort((x, y) => String(y.dtavaliacao || y.data || '').localeCompare(String(x.dtavaliacao || x.data || '')));
+    h += '<div class="pf-sec"><h3>📊 Avaliações<a href="avaliacoes.html">Abrir Avaliações</a></h3>' +
+      (aOrd.length ? '<div class="pf-vazio">' + aOrd.length + ' avaliação(ões); a última em ' + dia(aOrd[0].dtavaliacao || aOrd[0].data) + '.</div>' : '<div class="pf-vazio">Nenhuma avaliação registrada.</div>') + '</div>';
+    h += '</div>';
+  }
+  main.innerHTML = h;
+  PerfilAtendimento.montar(document.getElementById('pf-atend'), chave, {});
+}
+iniciar();
+</script>
+</body>
+</html>

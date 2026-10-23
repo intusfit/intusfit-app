@@ -11,12 +11,14 @@
  *   });
  *   q.atualizar(novosCartoes);  q.destruir();
  *
- * Cores: a página define --kb-bg (fundo do quadro), --kb-col, --kb-card, --kb-borda, --kb-texto, --kb-muted, --kb-accent
- * (e, se quiser, --kb-verde, --kb-ambar, --kb-azul, --kb-verm) a partir das variáveis dela. Aqui não há cor fixa.
+ * Telas do painel usam a classe .kb-painel no elemento (já mapeia as variáveis do painel). Em outras páginas, defina --kb-bg (fundo do quadro), --kb-col, --kb-card, --kb-borda, --kb-texto, --kb-muted, --kb-accent
+ * (e, se quiser, --kb-verde, --kb-ambar, --kb-azul, --kb-verm) a partir das variáveis dela. Só a classe .kb-painel usa tons fixos (nas bordas das colunas).
  */
 (function (global) {
   var CSS = ''
+    + '.kb-conter{contain:inline-size;max-width:100%}'
     + '.kb{display:flex;gap:12px;align-items:flex-start;overflow-x:auto;padding:2px 2px 12px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}'
+    + '.kb-topo{overflow-x:auto;overflow-y:hidden;height:16px;margin:0 2px 6px;-webkit-overflow-scrolling:touch}.kb-topo>div{height:1px}'
     + '.kb-col{flex:0 0 288px;max-width:288px;background:var(--kb-col);border:1px solid var(--kb-borda);border-top:3px solid var(--kb-borda);border-radius:12px;display:flex;flex-direction:column;scroll-snap-align:start}'
     + '.kb-t-verde{border-top-color:var(--kb-verde,var(--kb-accent))}.kb-t-ambar{border-top-color:var(--kb-ambar,var(--kb-accent))}'
     + '.kb-t-azul{border-top-color:var(--kb-azul,var(--kb-accent))}.kb-t-verm{border-top-color:var(--kb-verm,var(--kb-accent))}'
@@ -33,6 +35,10 @@
     + '.kb-mv select{width:100%;min-height:34px;font-size:12.5px;background:var(--kb-bg);color:var(--kb-texto);border:1px solid var(--kb-borda);border-radius:8px;padding:4px 8px}'
     + '.kb-vazio{font-size:12px;color:var(--kb-muted);text-align:center;padding:14px 6px}'
     + '.kb-mais{margin:2px 0 0;min-height:34px;border-radius:8px;border:1px solid var(--kb-borda);background:var(--kb-bg);color:var(--kb-texto);cursor:pointer;font-size:12.5px;font-weight:600}'
+    + '.kb-painel{--kb-bg:var(--bg);--kb-col:var(--bg2);--kb-card:var(--bg3,var(--bg));--kb-borda:var(--border);--kb-texto:var(--text);--kb-muted:var(--text-muted);--kb-accent:var(--green);--kb-verde:#4ade80;--kb-ambar:#fbbf24;--kb-azul:#38bdf8;--kb-verm:#f87171}'
+    + '.kb-cartao-nome{font-weight:800;font-size:13.5px;color:var(--kb-texto);text-decoration:none;overflow-wrap:anywhere}.kb-meta{font-size:11.5px;color:var(--kb-muted);margin-top:2px}'
+    + '.kb-pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:99px;border:1px solid var(--kb-borda);color:var(--kb-muted);margin:4px 4px 0 0}'
+    + '.kb-acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.kb-acoes button,.kb-acoes a{font:inherit;font-size:12px;font-weight:700;padding:5px 10px;border-radius:8px;border:1px solid var(--kb-borda);background:transparent;color:var(--kb-texto);cursor:pointer;text-decoration:none}'
     + '@media (max-width:640px){.kb-col{flex-basis:84vw;max-width:84vw}}';
 
   function injetarCss() {
@@ -43,10 +49,13 @@
 
   function montar(alvo, cfg) {
     injetarCss();
+    // o quadro rola por dentro: sem isto a largura das colunas empurra o painel inteiro para o lado em telas com layout flexível
+    alvo.classList.add('kb-conter');
     var porColuna = cfg.porColuna || 25;
     var mostrar = {};                                        // coluna -> quantos cartões aparecem
     var editavel = typeof cfg.mover === 'function';
-    var arrastando = null;
+    var arrastando = null, ajustarTopo = function () {};
+    var aoRedimensionar = function () { ajustarTopo(); };
 
     function colunaDe(id) { for (var i = 0; i < cfg.colunas.length; i++) { if (cfg.colunas[i].id === id) return cfg.colunas[i]; } return null; }
     function destinos(exceto) { return cfg.colunas.filter(function (c) { return c.soltar !== false && c.id !== exceto; }); }
@@ -54,7 +63,7 @@
     function desenhar() {
       var antes = {}, x = 0, quadro = alvo.querySelector('.kb');
       if (quadro) { x = quadro.scrollLeft; [].forEach.call(quadro.querySelectorAll('.kb-corpo'), function (b) { antes[b.parentNode.getAttribute('data-col')] = b.scrollTop; }); }
-      var h = '<div class="kb" role="list">';
+      var h = '<div class="kb-topo" aria-hidden="true"><div></div></div><div class="kb" role="list">';
       cfg.colunas.forEach(function (col) {
         var lista = cfg.cartoes.filter(function (c) { return c.coluna === col.id; });
         var lim = mostrar[col.id] || porColuna;
@@ -76,8 +85,18 @@
         h += '</div></section>';
       });
       alvo.innerHTML = h + '</div>';
-      var q2 = alvo.querySelector('.kb');
+      var q2 = alvo.querySelector('.kb'), topo = alvo.querySelector('.kb-topo'), lock = null;
       q2.scrollLeft = x;
+      // barra de rolagem também em cima: espelha a de baixo (e some quando o quadro cabe na tela)
+      ajustarTopo = function () {
+        if (!document.body.contains(q2)) return;
+        topo.firstChild.style.width = q2.scrollWidth + 'px';
+        topo.style.display = q2.scrollWidth > q2.clientWidth + 1 ? '' : 'none';
+        topo.scrollLeft = q2.scrollLeft;
+      };
+      topo.addEventListener('scroll', function () { if (lock === 'q') { lock = null; return; } lock = 't'; q2.scrollLeft = topo.scrollLeft; });
+      q2.addEventListener('scroll', function () { if (lock === 't') { lock = null; return; } lock = 'q'; topo.scrollLeft = q2.scrollLeft; });
+      ajustarTopo(); setTimeout(ajustarTopo, 200);
       [].forEach.call(q2.querySelectorAll('.kb-col'), function (s) { var b = s.querySelector('.kb-corpo'), v = antes[s.getAttribute('data-col')]; if (v) b.scrollTop = v; });
     }
 
@@ -126,6 +145,7 @@
       var id = m.getAttribute('data-kb-mais'); mostrar[id] = (mostrar[id] || porColuna) + porColuna; desenhar();
     }
 
+    window.addEventListener('resize', aoRedimensionar);
     alvo.addEventListener('dragstart', aoDragStart);
     alvo.addEventListener('dragend', aoDragEnd);
     alvo.addEventListener('dragover', aoDragOver);
@@ -139,7 +159,7 @@
       destruir: function () {
         alvo.removeEventListener('dragstart', aoDragStart); alvo.removeEventListener('dragend', aoDragEnd);
         alvo.removeEventListener('dragover', aoDragOver); alvo.removeEventListener('drop', aoDrop);
-        alvo.removeEventListener('change', aoMudar); alvo.removeEventListener('click', aoClicar); alvo.innerHTML = '';
+        alvo.removeEventListener('change', aoMudar); alvo.removeEventListener('click', aoClicar); window.removeEventListener('resize', aoRedimensionar); alvo.innerHTML = '';
       }
     };
   }

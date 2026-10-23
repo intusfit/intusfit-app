@@ -893,7 +893,21 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
     .intus-logo-full { display: block; height: 34px; object-fit: contain; }
 
     /* ── NAV ── */
-    .sidebar-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+    .sidebar-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; --scroll-thumb: rgba(255,255,255,.16); --scroll-thumb-h: rgba(127,255,0,.55); }
+
+    /* ── Barras de rolagem: finas, arredondadas e discretas, no tom do painel ──
+       Chrome, Edge, Safari e Opera usam o pseudo-elemento; o Firefox usa as propriedades padrão. A cor vem de
+       --scroll-thumb / --scroll-thumb-h (o menu lateral define as dele, sempre sobre fundo escuro); sem elas vale
+       um cinza neutro que funciona nos dois temas. */
+    *::-webkit-scrollbar { width: 10px; height: 10px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: var(--scroll-thumb, rgba(128,128,128,.38)); border: 3px solid transparent; background-clip: padding-box; border-radius: 99px; min-height: 36px; min-width: 36px; }
+    *::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-h, rgba(128,128,128,.7)); border: 3px solid transparent; background-clip: padding-box; }
+    *::-webkit-scrollbar-corner { background: transparent; }
+    *::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+    @supports not selector(::-webkit-scrollbar) {
+      * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb, rgba(128,128,128,.45)) transparent; }
+    }
     .nav-link {
       display: flex; align-items: center; gap: 10px;
       padding: 9px 12px; border-radius: 8px;

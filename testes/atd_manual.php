@@ -310,6 +310,22 @@ confere('temperatura: a lista de leads leva a temperatura de cada pessoa (a fixa
 $ffila = atd_manual_fila($pdo, $agora);
 verdade('temperatura: cada item da fila leva a temperatura', (function () use ($ffila) { foreach ($ffila['para_enviar'] as $i) { if (!isset($i['temperatura']['nivel'])) return false; } return count($ffila['para_enviar']) > 0; })());
 
+// ── Perfil de atendimento de uma pessoa (conta ou contato), em qualquer data de cadastro ──────────────────
+confere('perfil: chave inválida ou pessoa que não existe devolve nada', [null, null, null], [atd_manual_perfil($pdo, 'x9', $agora), atd_manual_perfil($pdo, 'a99999', $agora), atd_manual_perfil($pdo, 'l99999', $agora)]);
+$pf = atd_manual_perfil($pdo, 'a18', $agora);
+verdade('perfil: o Tomas (cadastro antigo, sem matrícula de teste) é encontrado mesmo fora do período da fila', $pf && $pf['ok'] && $pf['pessoa']['nome'] === 'Tomas Greenaway');
+confere('perfil: traz etapa, temperatura e a mensagem de recuperação como sugerida', ['so_conta', true, 'recuperacao-teste:rec1', true], [$pf['pessoa']['etapa'], isset($pf['pessoa']['temperatura']['nivel']), $pf['pessoa']['passo_sugerido'], $pf['pessoa']['recuperacao']['estimado']]);
+confere('perfil: leva o texto de todas as mensagens com o nome dele e a biblioteca sem o modelo cru', [true, true], [strpos($pf['pessoa']['opcoes']['recuperacao-teste:rec1'], 'Oi Tomas, aqui é da Intus.') === 0, !isset($pf['biblioteca'][0]['modelo']) && count($pf['biblioteca']) > 7]);
+$pfl = atd_manual_perfil($pdo, 'l' . $idLia, $agora);
+confere('perfil: contato sem conta também tem perfil, com o convite do funil de conversa', ['Lia Contato', 'contato', 'chamou-whatsapp:c4'], [$pfl['pessoa']['nome'] ?? null, $pfl['pessoa']['etapa'] ?? null, $pfl['pessoa']['passo_sugerido'] ?? null]);
+$pfr = atd_manual_perfil($pdo, 'a13', $agora);
+confere('perfil: lista os passos já tratados, do mais recente para o mais antigo, com nome do funil e da mensagem', [3, 'recuperacao-teste:rec3', 'Despedida'], [count($pfr['pessoa']['passos_tratados']), $pfr['pessoa']['passos_tratados'][0]['passo'], $pfr['pessoa']['passos_tratados'][0]['mensagem_nome']]);
+atd_manual_acao($pdo, ['chave' => 'a18', 'acao' => 'temperatura', 'valor' => 'morno'], 1, 'Luiz', $agora);
+confere('perfil: mostra a temperatura fixada pela equipe', [true, 'morno'], [atd_manual_perfil($pdo, 'a18', $agora)['pessoa']['temperatura']['manual'], atd_manual_perfil($pdo, 'a18', $agora)['pessoa']['temperatura']['nivel']]);
+atd_manual_acao($pdo, ['chave' => 'a18', 'acao' => 'temperatura', 'valor' => 'auto'], 1, 'Luiz', $agora);
+$epCode = file_get_contents(__DIR__ . '/../app/api/atendimento.php');
+verdade('perfil: a rota existe e só roda depois da checagem de administrador', strpos($epCode, "case 'perfil'") !== false && strpos($epCode, "case 'perfil'") > strpos($epCode, "'admin'") );
+
 // ── Funil editado vale na hora; funil sem texto não vira mensagem em branco ─
 $ed = atd_funil_por_id($pdo, 'teste-gratis');
 $ed['mensagens'][0]['texto'] = 'Texto novo para {{1}}.';

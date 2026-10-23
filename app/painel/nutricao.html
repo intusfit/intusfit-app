@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
-  <script src="_mock.js?v=20261021a"></script>
+  <script src="_mock.js?v=20261023a"></script>
   <script src="api.js?v=20261021b"></script>
+  <script src="kanban.js?v=20261023b"></script>
   <script src="alimentos-db.js?v=20261009a"></script>
   <script src="importar-pdf.js?v=20261009a"></script>
   <style>
@@ -533,6 +534,7 @@ function render() {
   });
   if (filtroAtleta > 0) lista = lista.filter(pl => Number(pl.idatleta) === filtroAtleta);
   const nAtivos = lista.filter(planoAtivo).length, nInativos = lista.length - nAtivos;
+  const _paraQuadro = lista;   // o quadro mostra ativos e inativos, já separados por situação
   lista = lista.filter(pl => planoAtivo(pl) === filtroPlanoAtivo);
   const modoPlanos = VerModo.get('nutricao-planos', 'compacto');
 
@@ -544,22 +546,48 @@ function render() {
       ${hasPerm('nt_incluir') ? `<button class="btn btn-primary" onclick="abrirModalNovo()">+ Novo Plano</button>` : ''}
       ${hasPerm('nt_incluir') ? `<button class="btn btn-secondary" onclick="abrirImportarPlano()" title="Cria um plano a partir de um arquivo .json no formato do Intus (migração de plano feito em outro lugar)">⬆ Importar plano</button>` : ''}
       <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        ${VerModo.barra('nutricao-planos', [['cartoes', 'Cartões', '▦'], ['compacto', 'Compacto', '▤'], ['miniaturas', 'Miniaturas', '▪'], ['lista', 'Lista', '☰']], 'mudarModoPlanos', modoPlanos)}
+        ${VerModo.barra('nutricao-planos', [['cartoes', 'Cartões', '▦'], ['compacto', 'Compacto', '▤'], ['miniaturas', 'Miniaturas', '▪'], ['lista', 'Lista', '☰'], ['quadro', 'Quadro', '▥']], 'mudarModoPlanos', modoPlanos)}
         <button class="btn btn-secondary" onclick="abrirMeusAlimentos()">🍎 Alimentos da equipe</button>
       </span>
       <button class="btn btn-secondary" onclick="abrirCalculadoraGET()">Calculadora GEB/GET</button>
     </div>
 
     <div style="padding:20px;">
-      ${lista.length === 0 ? `
+      ${lista.length === 0 && modoPlanos !== 'quadro' ? `
         <div class="empty-state">
           <div style="font-size:40px;margin-bottom:12px;">🥗</div>
           <p>${filtroPlanoAtivo ? 'Nenhum plano nutricional ativo' : 'Nenhum plano nutricional inativo'}${filtroAtleta > 0 ? ' para este aluno' : ''}.</p>
           <p style="margin-top:8px;">${filtroPlanoAtivo ? 'Crie um plano alimentar com refeições estruturadas e metas de macros.' : 'Planos inativos ficam aqui e o aluno não os vê no app. Dá para ativar de novo quando quiser.'}</p>
         </div>
-      ` : (modoPlanos === 'lista' ? _planosLista(lista) : '<div class="vm-grid m-' + modoPlanos + '">' + lista.map(pl => renderPlanoCard(pl, modoPlanos)).join('') + '</div>')}
+      ` : (modoPlanos === 'quadro' ? '<div id="plano-quadro"></div>' : modoPlanos === 'lista' ? _planosLista(lista) : '<div class="vm-grid m-' + modoPlanos + '">' + lista.map(pl => renderPlanoCard(pl, modoPlanos)).join('') + '</div>')}
     </div>
   `;
+  if (modoPlanos === 'quadro') _montarQuadroPlanos(_paraQuadro);
+}
+
+// ── Quadro de planos alimentares (só visualização: nada é gravado aqui; "Abrir plano" leva ao plano de sempre) ──
+// Segue planoAtivo() desta tela. "Vencidos" e "vencem em 7 dias" são planos ativos cuja data final já passou ou está perto.
+let _quadroPlanos = null;
+function _montarQuadroPlanos(lista) {
+  const alvo = document.getElementById('plano-quadro'); if (!alvo) return;
+  if (_quadroPlanos) { _quadroPlanos.destruir(); _quadroPlanos = null; }
+  const hoje = new Date().toISOString().slice(0, 10), lim = new Date(); lim.setDate(lim.getDate() + 7); const limite = lim.toISOString().slice(0, 10);
+  const col = pl => { if (!planoAtivo(pl)) return 'inativos'; const f = String(pl.dtfim || '').slice(0, 10); return !f ? 'ativos' : f < hoje ? 'vencidos' : f <= limite ? 'vencem' : 'ativos'; };
+  const cartoes = lista.map(pl => {
+    const nome = getNomeAtleta(pl.idatleta), t = _totaisPlano(pl);
+    return { id: String(pl.idplano), coluna: col(pl), bloqueado: true, html:
+      '<div style="display:flex;gap:8px;align-items:center;">' + avatarHtml(pl.idatleta, nome, 30) + '<div style="min-width:0;flex:1;"><div class="kb-cartao-nome">' + esc(nome) + '</div><div class="kb-meta">' + esc(pl.titulo || 'Plano alimentar') + '</div></div></div>' +
+      '<div>' + (t.kcal ? '<span class="kb-pill">' + t.kcal + ' kcal</span><span class="kb-pill">P ' + t.prot + '</span><span class="kb-pill">C ' + t.carb + '</span><span class="kb-pill">G ' + t.gord + '</span>' : '<span class="kb-pill">sem alimentos</span>') +
+      '<span class="kb-pill">' + t.nRef + ' refeições</span>' + (pl.dtfim ? '<span class="kb-pill">até ' + esc(fmtDate(pl.dtfim)) + '</span>' : '') + '</div>' +
+      '<div class="kb-acoes"><button type="button" data-kbp="' + pl.idplano + '">Abrir plano</button>' + (Sessao.atual()?.admin ? '<a href="perfil.html?id=' + pl.idatleta + '">Perfil</a>' : '') + '</div>' };
+  });
+  alvo.classList.add('kb-painel');
+  alvo.onclick = ev => { const b = ev.target.closest('[data-kbp]'); if (b) verPlano(Number(b.getAttribute('data-kbp'))); };
+  _quadroPlanos = Kanban.montar(alvo, { colunas: [
+    { id: 'vencidos', titulo: 'Planos vencidos', tom: 'verm', soltar: false, dica: 'Ativos, mas a data final já passou.' },
+    { id: 'vencem', titulo: 'Vencem em até 7 dias', tom: 'ambar', soltar: false },
+    { id: 'ativos', titulo: 'Ativos', tom: 'verde', soltar: false },
+    { id: 'inativos', titulo: 'Inativos', tom: '', soltar: false, dica: 'O aluno não vê estes planos no app.' }], cartoes, vazio: 'Nenhum plano aqui.' });
 }
 
 function _planoCartaoGrande(pl) {

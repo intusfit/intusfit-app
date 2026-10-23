@@ -410,6 +410,57 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
     ];
 }
 
+/**
+ * Perfil de atendimento de UMA pessoa (conta `a<id>` ou contato sem conta `l<id>`), em qualquer data de cadastro: etapa, origem,
+ * temperatura (calculada e fixada), estado no WhatsApp, histórico de contatos, passos já tratados e as mensagens prontas já com o
+ * nome dela. Usa as mesmas regras da fila e da aba Leads; não decide nada novo. null se a pessoa não existe.
+ */
+function atd_manual_perfil(PDO $pdo, string $chave, ?DateTimeImmutable $agora = null): ?array {
+    $agora = $agora ?: wa_agora();
+    if (!atd_manual_chave_valida($chave)) return null;
+    $id = (int)substr($chave, 1);
+    if ($chave[0] === 'a') {
+        $L = atd_leads($pdo, '2000-01-01', '2000-01-01', $agora, [$id]);
+    } else {
+        try { $st = $pdo->prepare('SELECT criado_em FROM intus_lead WHERE idlead = ?'); $st->execute([$id]); $d = (string)$st->fetchColumn(); } catch (Throwable $e) { $d = ''; }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}/', $d)) return null;
+        $L = atd_leads($pdo, substr($d, 0, 10), substr($d, 0, 10), $agora, []);
+    }
+    $p = null;
+    foreach ($L['pessoas'] as $x) { if ($x['chave'] === $chave) { $p = $x; break; } }
+    if (!$p) return null;
+    $reg = atd_manual_registros($pdo, [$chave])[$chave] ?? ['passos' => []];
+    $funis = atd_funis($pdo);
+    $bib = atd_manual_biblioteca($funis);
+    $porId = [];
+    foreach ($funis as $f) $porId[$f['id']] = $f;
+    $p['temperatura'] = atd_manual_temperatura($p, $reg);
+    $p['opcoes'] = atd_manual_opcoes($bib, (string)$p['nome'], (string)($p['indicado_por'] ?? ''));
+    // mensagem que a Central sugere agora: a da recuperação, se for o caso, senão a da etapa
+    $sug = isset($p['sugestao']['funil'], $p['sugestao']['mensagem']) ? atd_passo((string)$p['sugestao']['funil'], (string)$p['sugestao']['mensagem']) : null;
+    $rec = null;
+    $frec = $porId[ATD_M_RECUP_FUNIL] ?? null;
+    if ($frec && atd_manual_em_recuperacao($p, $reg, $agora)) {
+        $aj = wa_ajustes($pdo);
+        $a = atd_manual_passo_recuperacao($frec, $reg, $p, $agora, (int)$aj['horario_ini'], (int)$aj['horario_fim']);
+        if ($a) $sug = $a[0];
+        $f = atd_manual_fim_do_teste($p);
+        $rec = ['dias' => atd_manual_dias_do_fim_do_teste($p, $agora), 'estimado' => $f ? $f[1] : false, 'passo' => $a ? $a[0] : null];
+    }
+    $p['passo_sugerido'] = ($sug !== null && isset($p['opcoes'][$sug])) ? $sug : null;
+    $p['recuperacao'] = $rec;
+    $tratados = [];
+    foreach (($reg['passos'] ?? []) as $passo => $info) {
+        [$fid, $mid] = atd_passo_decodificar((string)$passo);
+        $f = $porId[$fid] ?? null; $m = $f ? atd_manual_mensagem($f, $mid) : null;
+        $tratados[] = ['passo' => $passo, 'estado' => $info['estado'] ?? '', 'em' => $info['em'] ?? '', 'por' => $info['por'] ?? '', 'funil_nome' => $f['nome'] ?? $fid, 'mensagem_nome' => $m['nome'] ?? $mid];
+    }
+    usort($tratados, fn($a, $b) => strcmp((string)$b['em'], (string)$a['em']));
+    $p['passos_tratados'] = $tratados;
+    $p['origem_tipo'] = atd_manual_origem($p);
+    return ['ok' => true, 'pessoa' => $p, 'biblioteca' => array_map(fn($b) => array_diff_key($b, ['modelo' => 1]), $bib), 'agora' => wa_fmt($agora)];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Ações da equipe sobre uma pessoa da fila
 // ─────────────────────────────────────────────────────────────────────────────

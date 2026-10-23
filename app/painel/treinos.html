@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Treinos — Intus</title>
-  <script src="_mock.js?v=20261021a"></script>
+  <script src="_mock.js?v=20261023a"></script>
   <script src="api.js?v=20261021b"></script>
+  <script src="kanban.js?v=20261023b"></script>
   <style>
     /* COMBO (autocomplete dropdown) */
     .combo-wrap { position:relative; width:100%; }
@@ -514,9 +515,9 @@ function renderLista() {
           </div>`;
         })() : ''}
         <span style="font-size:12px;color:var(--text-muted);">${fichasComInfo.length} ficha${fichasComInfo.length!==1?'s':''}</span>
-        <span style="margin-left:auto;">${VerModo.barra('treinos-fichas', [['cartoes', 'Cartões', '▦'], ['compacto', 'Compacto', '▤'], ['miniaturas', 'Miniaturas', '▪'], ['lista', 'Lista', '☰']], 'mudarModoFichas', modoFichas)}</span>
+        <span style="margin-left:auto;">${VerModo.barra('treinos-fichas', [['cartoes', 'Cartões', '▦'], ['compacto', 'Compacto', '▤'], ['miniaturas', 'Miniaturas', '▪'], ['lista', 'Lista', '☰'], ['quadro', 'Quadro', '▥']], 'mudarModoFichas', modoFichas)}</span>
       </div>
-      ${fichasComInfo.length === 0 ? `
+      ${fichasComInfo.length === 0 && modoFichas !== 'quadro' ? `
         <div class="card" style="padding:50px 20px;text-align:center;color:var(--text-muted);">
           <div style="font-size:40px;margin-bottom:12px;">📋</div>
           <p>Nenhuma ficha de treino ainda.</p>
@@ -557,9 +558,75 @@ function renderLista() {
       })}
     </div>
   `;
+  if (modoFichas === 'quadro') _montarQuadroFichas();
 }
 
 function mudarModoFichas() { render(); }
+
+// ── Quadro de fichas (só visualização: nada é gravado aqui; clicar abre o editor de sempre) ──
+// As colunas seguem as mesmas definições da lista e dos alertas desta tela (fichaFlagAtiva, fichaExpirada, "a vencer" em 7 dias
+// sem outro treino atualizado, "sem treino ativo" só para aluno ativo). Mostra todas as fichas, ativas e inativas.
+let _quadroFichas = null;
+function _classificarFichasQuadro() {
+  const info = f => {
+    const aluno = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
+    const exs = treinos.filter(t => Number(t.idficha) === Number(f.idficha));
+    return { ...f, aluno, exs, divs: API.ordenarDivisoes(exs.map(t => t.divisao || 'A'), f) };
+  };
+  let lista = fichas.map(info);
+  if (filtroProfs.length > 0) lista = lista.filter(f => { const profs = f.aluno?.professores_responsaveis || []; return filtroProfs.some(id => profs.map(Number).includes(Number(id))); });
+  if (buscaTreino) { const q = buscaTreino.toLowerCase(); lista = lista.filter(f => (f.nmficha || '').toLowerCase().includes(q) || (f.aluno?.nome || '').toLowerCase().includes(q) || (f.observacao || '').toLowerCase().includes(q)); }
+  const hoje = new Date().toISOString().slice(0, 10);
+  const lim = new Date(); lim.setDate(lim.getDate() + 7); const limiteStr = lim.toISOString().slice(0, 10);
+  const todasAtivas = fichas.filter(fichaFlagAtiva).filter(f => !fichaExpirada(f));
+  const temAtualizado = f => todasAtivas.some(g => Number(g.idficha) !== Number(f.idficha) && Number(g.idatleta) === Number(f.idatleta) && (!g.dtfim || g.dtfim > limiteStr));
+  const col = f => {
+    if (fichaFlagAtiva(f) && f.dtfim && String(f.dtfim).slice(0, 10) <= limiteStr && !temAtualizado(f)) return String(f.dtfim).slice(0, 10) < hoje ? 'vencidas' : 'vencem';
+    return fichaAtivaEfetiva(f) ? 'andamento' : 'inativas';
+  };
+  const cartoes = lista.map(f => ({ ficha: f, coluna: col(f) }));
+  // alunos ativos sem nenhuma ficha ativa (mesma regra do alerta da tela)
+  const comFicha = new Set(todasAtivas.map(f => Number(f.idatleta)));
+  const ehModelo = a => a.email === 'modelo.masculino@intusfit.local' || a.email === 'modelo.feminino@intusfit.local';
+  let sem = atletas.filter(a => !comFicha.has(Number(a.idatleta)) && !ehModelo(a) && alunoAtivo(a));
+  if (filtroProfs.length > 0) sem = sem.filter(a => { const profs = a.professores_responsaveis || []; return filtroProfs.some(id => profs.map(Number).includes(Number(id))); });
+  if (buscaTreino) { const q = buscaTreino.toLowerCase(); sem = sem.filter(a => (a.nome || '').toLowerCase().includes(q)); }
+  return { cartoes, sem };
+}
+function _montarQuadroFichas() {
+  const alvo = document.getElementById('fichas-quadro'); if (!alvo) return;
+  if (_quadroFichas) { _quadroFichas.destruir(); _quadroFichas = null; }
+  const { cartoes, sem } = _classificarFichasQuadro();
+  const podeIncluir = hasPerm('tr_incluir');
+  const cartaoFicha = f => {
+    const nome = f.aluno ? f.aluno.nome : 'Aluno removido';
+    return '<div style="display:flex;gap:8px;align-items:center;">' + (f.aluno ? avatarHtml(f.idatleta, nome, 30) : '') +
+      '<div style="min-width:0;flex:1;"><div class="kb-cartao-nome">' + esc(nome) + '</div><div class="kb-meta">' + esc(f.nmficha || 'Ficha sem nome') + '</div></div></div>' +
+      '<div>' + (f.dtfim ? _fichaSituacao(f) : '<span class="fc-pill">sem prazo</span>') + '<span class="kb-pill">' + f.divs.length + ' divisões</span><span class="kb-pill">' + f.exs.length + ' exercícios</span>' +
+      (_profsDe(f) ? '<span class="kb-pill">👤 ' + esc(_profsDe(f)) + '</span>' : '') + '</div>' +
+      '<div class="kb-acoes"><button type="button" data-kbf="' + f.idficha + '">Abrir ficha</button><button type="button" data-kbh="' + f.idatleta + '" title="Histórico do aluno">📊</button></div>';
+  };
+  const cfg = {
+    colunas: [
+      { id: 'sem', titulo: 'Aluno ativo sem treino', tom: 'verm', soltar: false, dica: 'Precisa de uma ficha nova.' },
+      { id: 'vencidas', titulo: 'Fichas vencidas', tom: 'verm', soltar: false, dica: 'Passou do prazo e o aluno não tem outra ficha atualizada.' },
+      { id: 'vencem', titulo: 'Vencem em até 7 dias', tom: 'ambar', soltar: false },
+      { id: 'andamento', titulo: 'Em andamento', tom: 'verde', soltar: false },
+      { id: 'inativas', titulo: 'Inativas', tom: '', soltar: false }],
+    cartoes: sem.map(a => ({ id: 'a' + a.idatleta, coluna: 'sem', bloqueado: true,
+        html: '<div style="display:flex;gap:8px;align-items:center;">' + avatarHtml(a.idatleta, a.nome, 30) + '<div style="min-width:0;flex:1;"><div class="kb-cartao-nome">' + esc(a.nome) + '</div><div class="kb-meta">nenhuma ficha ativa</div></div></div>' +
+          (podeIncluir ? '<div class="kb-acoes"><button type="button" data-kbn="' + a.idatleta + '">Criar ficha</button></div>' : '') }))
+      .concat(cartoes.map(c => ({ id: 'f' + c.ficha.idficha, coluna: c.coluna, bloqueado: true, html: cartaoFicha(c.ficha) }))),
+    vazio: 'Nenhuma ficha aqui.'
+  };
+  alvo.classList.add('kb-painel');
+  alvo.onclick = ev => {
+    const f = ev.target.closest('[data-kbf]'); if (f) { abrirFicha(Number(f.getAttribute('data-kbf'))); return; }
+    const h = ev.target.closest('[data-kbh]'); if (h) { verHistorico(Number(h.getAttribute('data-kbh'))); return; }
+    const n = ev.target.closest('[data-kbn]'); if (n) novoTreinoParaAluno(Number(n.getAttribute('data-kbn')));
+  };
+  _quadroFichas = Kanban.montar(alvo, cfg);
+}
 function _profsDe(f) {
   if (!f.aluno || !f.aluno.professores_responsaveis) return '';
   const allU = JSON.parse(localStorage.getItem('intus-usuarios') || '[]');
@@ -576,6 +643,7 @@ function _fichaSituacao(f) {
 function fmtDataBR(d) { return d ? new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') : ''; }
 // Lista de fichas em cada modo; "grande" é o cartão completo de sempre (um por linha).
 function _fichasPorModo(lista, modo, podeIncluir, grande) {
+  if (modo === 'quadro') return '<div id="fichas-quadro"></div>';
   if (modo === 'compacto') {
     return '<div class="vm-grid m-compacto">' + lista.map(f => {
       const nome = f.aluno ? f.aluno.nome : 'Aluno removido';

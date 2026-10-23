@@ -5,6 +5,7 @@
  * GET  ?action=resumo                       prontidão + funis + conceitos + referências + testes
  * GET  ?action=dashboard&dias=30            métricas do WhatsApp, resultado dos testes A/B, captação (Tráfego) e resumo de leads
  * GET  ?action=leads&dias=30                 leads do período (Clientes + Tráfego e Captação + WhatsApp), com a mensagem sugerida
+ * GET  ?action=perfil&chave=a12|l3        perfil de atendimento de uma pessoa (etapa, temperatura, contatos, mensagens prontas)
  * GET  ?action=manual_estado               fila de hoje do atendimento manual (sem a Meta): configuração, o que enviar agora e quem aguarda resposta
  * POST ?action=manual_config | manual_acao   salvar origem e data de início; marcar enviada, pular, respondeu ou encerrar
  * GET  ?action=exportar                     pacote JSON para a automação
@@ -97,6 +98,11 @@ try {
             $L = atd_leads($pdo, $de, $ate);
             $L['pessoas'] = atd_manual_enriquecer_leads($pdo, $L['pessoas']);
             atd_resp(200, ['ok' => true] + $L);
+        }
+        case 'perfil': {
+            $r = atd_manual_perfil($pdo, (string)($_GET['chave'] ?? ''));
+            if (!$r) atd_resp(404, ['ok' => false, 'erro' => 'Pessoa não encontrada.']);
+            atd_resp(200, $r);
         }
         case 'manual_estado':
             atd_resp(200, ['ok' => true] + atd_manual_fila($pdo));
