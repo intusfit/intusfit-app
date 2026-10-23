@@ -91,6 +91,12 @@ const itens = [
   eq('relatório marca os três jeitos de entrar', [...new Set(r.relatorio.map(x => x.tipo))].sort(), ['catalogo', 'so_calorias', 'texto']);
   eq('nome da refeição em minúsculas vira com inicial maiúscula', p.refeicoes[1].nome, 'Almoço');
 
+  // CVE-2024-4367: o pdf.js 3.x só fica protegido com isEvalSupported: false no getDocument.
+  let opcoes = null;
+  const libFalsa = { getDocument: (o) => { opcoes = o; return { promise: Promise.resolve({ numPages: 0 }) }; } };
+  await IP.lerItens(new ArrayBuffer(4), libFalsa);
+  eq('leitor de PDF abre com isEvalSupported: false (CVE-2024-4367)', opcoes && opcoes.isEvalSupported, false);
+
   console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
   process.exit(ruim ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
