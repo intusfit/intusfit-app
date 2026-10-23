@@ -26,6 +26,9 @@ const ATD_M_ORIGENS = ['organico', 'pago', 'todos'];
 const ATD_M_ULTIMO_PASSO_DIAS = 2;       // quanto tempo o último passo do funil continua valendo
 const ATD_M_ESPERA_RESPOSTA_DIAS = 3;
 const ATD_M_RECUP_FUNIL = 'recuperacao-teste';   // funil de quem fez o teste, nunca recebeu mensagem e já passou da hora
+const ATD_M_TESTE_DIAS = 3;                      // duração do teste grátis, usada quando a conta não tem matrícula de teste registrada
+const ATD_M_RECUP_JANELA_DIAS = 30;              // a recuperação alcança quem se cadastrou até tantos dias atrás, mesmo antes da data inicial da fila
+const ATD_M_TEMPERATURAS = ['quente', 'morno', 'frio'];
 const ATD_M_RECUP_MIN_DIAS = 5;                  // dias depois do fim do teste para a pessoa entrar na recuperação    // quanto tempo uma pessoa fica em "aguardando resposta"
 const ATD_M_MEDIUM_PAGO = '/^(cpc|ppc|paid|paidsocial|paid_social|paid-social|ads|anuncio|anúncio|trafego_pago|trafego-pago|pago|display)$/iu';
 
@@ -172,12 +175,68 @@ function atd_manual_passo_agora(array $agenda, array $registro, array $p, DateTi
     return $a;
 }
 
-/** Dias inteiros desde o fim do teste (negativo se ainda não acabou), ou null se a pessoa não tem teste. */
-function atd_manual_dias_do_fim_do_teste(array $p, DateTimeImmutable $agora): ?int {
+/**
+ * Temperatura do lead (quente, morno ou frio), calculada do comportamento; a equipe pode fixar outra à mão.
+ * Pontos: respondeu +3, pediu atendimento humano +2, treinou +2 (3 treinos ou mais +1), abriu o app +1, retorno marcado +1,
+ * matrícula criada e a pagar +4, teste acabou sem treinar -1, cadastro de mais de 21 dias sem nenhum uso -1.
+ * 4 ou mais = quente, 2 ou 3 = morno, menos = frio. Cliente não tem temperatura; encerrado é frio.
+ */
+function atd_manual_temperatura_auto(array $p): array {
+    if (($p['etapa'] ?? '') === 'cliente') return ['nivel' => 'cliente', 'pontos' => null, 'motivos' => ['já é cliente']];
+    if (($p['grupo_contato'] ?? '') === 'encerrado') return ['nivel' => 'frio', 'pontos' => 0, 'motivos' => ['pediu para sair ou foi encerrado']];
+    $pts = 0; $m = [];
+    $treinos = (int)($p['treinos'] ?? 0);
+    $respondeu = atd_manual_respondeu($p);
+    if (($p['etapa'] ?? '') === 'negociando') { $pts += 4; $m[] = 'tem matrícula criada, falta pagar'; }
+    if ($respondeu) { $pts += 3; $m[] = 'respondeu'; }
+    if (!empty($p['wa']['precisa_humano'])) { $pts += 2; $m[] = 'pediu atendimento humano'; }
+    if ($treinos >= 1) { $pts += 2; $m[] = 'treinou no teste'; }
+    if ($treinos >= 3) { $pts += 1; $m[] = '3 treinos ou mais'; }
+    if (!empty($p['abriu_app'])) { $pts += 1; $m[] = 'abriu o app'; }
+    if (($p['grupo_contato'] ?? '') === 'retorno') { $pts += 1; $m[] = 'retorno marcado'; }
+    if (($p['etapa'] ?? '') === 'teste_expirado' && $treinos === 0) { $pts -= 1; $m[] = 'teste acabou sem treinar'; }
+    $cad = substr((string)($p['criado_em'] ?? ''), 0, 10);
+    if ($cad !== '' && $treinos === 0 && !$respondeu && empty($p['abriu_app']) && (int)floor((time() - strtotime($cad)) / 86400) > 21) { $pts -= 1; $m[] = 'cadastro antigo sem uso'; }
+    return ['nivel' => $pts >= 4 ? 'quente' : ($pts >= 2 ? 'morno' : 'frio'), 'pontos' => $pts, 'motivos' => $m];
+}
+
+/** Temperatura que vale: a fixada pela equipe, se houver, senão a calculada. */
+function atd_manual_temperatura(array $p, array $reg): array {
+    $auto = atd_manual_temperatura_auto($p);
+    $man = $reg['temperatura']['nivel'] ?? null;
+    if ($auto['nivel'] !== 'cliente' && in_array($man, ATD_M_TEMPERATURAS, true)) {
+        return ['nivel' => $man, 'manual' => true, 'auto' => $auto['nivel'], 'motivos' => $auto['motivos'], 'em' => $reg['temperatura']['em'] ?? null, 'por' => $reg['temperatura']['por'] ?? ''];
+    }
+    return ['nivel' => $auto['nivel'], 'manual' => false, 'auto' => $auto['nivel'], 'motivos' => $auto['motivos'], 'em' => null, 'por' => ''];
+}
+
+/** Acrescenta `temperatura` a cada pessoa de atd_leads (usa o registro guardado de cada uma). */
+function atd_manual_enriquecer_leads(PDO $pdo, array $pessoas): array {
+    $regs = atd_manual_registros($pdo, array_column($pessoas, 'chave'));
+    foreach ($pessoas as $i => $p) $pessoas[$i]['temperatura'] = atd_manual_temperatura($p, $regs[$p['chave']] ?? ['passos' => []]);
+    return $pessoas;
+}
+
+/**
+ * Fim do teste grátis: [data, estimado]. Vem da matrícula de teste; conta do teste grátis SEM matrícula de teste registrada
+ * (cadastrou pela página e nunca ganhou a matrícula) usa o cadastro mais ATD_M_TESTE_DIAS dias, marcado como estimado.
+ */
+function atd_manual_fim_do_teste(array $p): ?array {
     $vence = (string)($p['teste']['vence'] ?? '');
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}/', $vence)) return null;
-    try { $v = new DateTimeImmutable(substr($vence, 0, 10) . ' 00:00:00', wa_tz()); } catch (Throwable $e) { return null; }
-    return (int)floor(($agora->setTime(0, 0, 0)->getTimestamp() - $v->getTimestamp()) / 86400);
+    if (preg_match('/^\d{4}-\d{2}-\d{2}/', $vence)) {
+        try { return [new DateTimeImmutable(substr($vence, 0, 10) . ' 00:00:00', wa_tz()), false]; } catch (Throwable $e) {}
+    }
+    if (($p['tipo'] ?? '') === 'conta' && in_array($p['etapa'] ?? '', ['so_conta', 'abriu_app', 'treinando'], true) && !empty($p['criado_em'])) {
+        try { return [(new DateTimeImmutable(substr((string)$p['criado_em'], 0, 10) . ' 00:00:00', wa_tz()))->modify('+' . ATD_M_TESTE_DIAS . ' day'), true]; } catch (Throwable $e) {}
+    }
+    return null;
+}
+
+/** Dias inteiros desde o fim do teste (negativo se ainda não acabou), ou null se não dá para saber. */
+function atd_manual_dias_do_fim_do_teste(array $p, DateTimeImmutable $agora): ?int {
+    $f = atd_manual_fim_do_teste($p);
+    if (!$f) return null;
+    return (int)floor(($agora->setTime(0, 0, 0)->getTimestamp() - $f[0]->getTimestamp()) / 86400);
 }
 
 /**
@@ -186,7 +245,7 @@ function atd_manual_dias_do_fim_do_teste(array $p, DateTimeImmutable $agora): ?i
  * a recuperação continua nela até o fim da sequência.
  */
 function atd_manual_em_recuperacao(array $p, array $reg, DateTimeImmutable $agora): bool {
-    if (($p['tipo'] ?? '') !== 'conta' || ($p['etapa'] ?? '') !== 'teste_expirado') return false;
+    if (($p['tipo'] ?? '') !== 'conta' || !in_array($p['etapa'] ?? '', ['teste_expirado', 'so_conta', 'abriu_app', 'treinando'], true)) return false;
     foreach (($reg['passos'] ?? []) as $passo => $info) {
         if (strpos((string)$passo, ATD_M_RECUP_FUNIL . ':') === 0) return true;
     }
@@ -202,8 +261,9 @@ function atd_manual_em_recuperacao(array $p, array $reg, DateTimeImmutable $agor
  * espera, depois do envio do anterior, o mesmo intervalo que o funil tem entre eles. Quem respondeu sai da sequência.
  */
 function atd_manual_passo_recuperacao(array $funil, array $reg, array $p, DateTimeImmutable $agora, int $ini, int $fim): ?array {
-    $vence = (string)($p['teste']['vence'] ?? '');
-    try { $base = new DateTimeImmutable(substr($vence, 0, 10) . ' 00:00:00', wa_tz()); } catch (Throwable $e) { return null; }
+    $fimTeste = atd_manual_fim_do_teste($p);
+    if (!$fimTeste) return null;
+    $base = $fimTeste[0];
     $prevEnvio = null; $prevQuando = null;
     foreach (atd_agenda_do_funil($funil, $base, $ini, $fim) as [$passo, $quando, $cond]) {
         $estado = $reg['passos'][$passo]['estado'] ?? null;
@@ -234,19 +294,26 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
     $agora = $agora ?: wa_agora();
     $cfg = atd_manual_cfg($pdo, $agora);
     $aj = wa_ajustes($pdo);
-    $L = atd_leads($pdo, $cfg['desde'], $agora->format('Y-m-d'), $agora);
+    // a recuperação alcança quem se cadastrou até ATD_M_RECUP_JANELA_DIAS dias atrás, mesmo antes da data inicial; o resto respeita a data
+    $busca = min($cfg['desde'], $agora->modify('-' . ATD_M_RECUP_JANELA_DIAS . ' day')->format('Y-m-d'));
+    $L = atd_leads($pdo, $busca, $agora->format('Y-m-d'), $agora);
     $funis = atd_funis($pdo);
     $porId = [];
     foreach ($funis as $f) $porId[$f['id']] = $f;
 
-    $candidatos = []; $res = ['leads_no_periodo' => count($L['pessoas']), 'fora_da_origem' => 0, 'sem_telefone' => 0, 'pediram_para_sair' => 0, 'encerrados' => 0, 'conversa_de_pessoa' => 0, 'sem_passo_agora' => 0, 'em_recuperacao' => 0];
+    $noPeriodo = 0;
+    foreach ($L['pessoas'] as $p) { if (substr((string)$p['criado_em'], 0, 10) >= $cfg['desde']) $noPeriodo++; }
+    $candidatos = []; $res = ['leads_no_periodo' => $noPeriodo, 'antes_da_data' => 0, 'fora_da_origem' => 0, 'sem_telefone' => 0, 'pediram_para_sair' => 0, 'encerrados' => 0, 'conversa_de_pessoa' => 0, 'sem_passo_agora' => 0, 'em_recuperacao' => 0];
     foreach ($L['pessoas'] as $p) {
+        $antiga = substr((string)$p['criado_em'], 0, 10) < $cfg['desde'];   // antes da data inicial: só entra se for caso de recuperação
+        if ($antiga && atd_manual_fim_do_teste($p) === null) { $res['antes_da_data']++; continue; }
+        $conta = function (string $k) use (&$res, $antiga) { if (!$antiga) $res[$k]++; };
         $org = atd_manual_origem($p);
-        if ($cfg['origem'] !== 'todos' && $org !== $cfg['origem']) { $res['fora_da_origem']++; continue; }
-        if (!($p['wa']['telefone_valido'] ?? false)) { $res['sem_telefone']++; continue; }
-        if (!empty($p['wa']['saiu'])) { $res['pediram_para_sair']++; continue; }
-        if (($p['grupo_contato'] ?? '') === 'encerrado') { $res['encerrados']++; continue; }
-        if (in_array($p['etapa'], ['cliente', 'negociando'], true)) { $res['conversa_de_pessoa']++; continue; }
+        if ($cfg['origem'] !== 'todos' && $org !== $cfg['origem']) { $conta('fora_da_origem'); continue; }
+        if (!($p['wa']['telefone_valido'] ?? false)) { $conta('sem_telefone'); continue; }
+        if (!empty($p['wa']['saiu'])) { $conta('pediram_para_sair'); continue; }
+        if (($p['grupo_contato'] ?? '') === 'encerrado') { $conta('encerrados'); continue; }
+        if (in_array($p['etapa'], ['cliente', 'negociando'], true)) { $conta('conversa_de_pessoa'); continue; }
         $p['origem_tipo'] = $org;
         $candidatos[] = $p;
     }
@@ -256,6 +323,9 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
     $paraEnviar = []; $aguardando = []; $resultado = []; $enviadasHoje = 0; $hoje = $agora->format('Y-m-d');
     foreach ($candidatos as $p) {
         $reg = $regs[$p['chave']] ?? ['passos' => []];
+        $frec = $porId[ATD_M_RECUP_FUNIL] ?? null;
+        $emRec = $frec && atd_manual_em_recuperacao($p, $reg, $agora);
+        if (!$emRec && substr((string)$p['criado_em'], 0, 10) < $cfg['desde']) { $res['antes_da_data']++; continue; }
         try { $criado = new DateTimeImmutable((string)$p['criado_em'], wa_tz()); } catch (Throwable $e) { continue; }
         $agenda = atd_manual_agenda($pdo, $p, $porId, $criado);
 
@@ -274,8 +344,6 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
             unset($r);
         }
 
-        $frec = $porId[ATD_M_RECUP_FUNIL] ?? null;
-        $emRec = $frec && atd_manual_em_recuperacao($p, $reg, $agora);
         $a = $emRec ? atd_manual_passo_recuperacao($frec, $reg, $p, $agora, (int)$aj['horario_ini'], (int)$aj['horario_fim']) : atd_manual_passo_agora($agenda, $reg, $p, $agora);
         if ($emRec) $res['em_recuperacao']++;
         if ($a) {
@@ -290,7 +358,8 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
                     'aprovada' => !empty($m['aprovada']), 'lado' => $a[5] ?? null, 'texto' => $texto, 'devida_em' => wa_fmt($a[1]),
                     'atraso_horas' => max(0, (int)floor(($agora->getTimestamp() - $a[1]->getTimestamp()) / 3600)),
                     'ja_contatado' => ($p['grupo_contato'] ?? '') === 'contatado' || ($p['grupo_contato'] ?? '') === 'retorno',
-                    'recuperacao' => $emRec ? ['dias' => atd_manual_dias_do_fim_do_teste($p, $agora)] : null,
+                    'recuperacao' => $emRec ? ['dias' => atd_manual_dias_do_fim_do_teste($p, $agora), 'estimado' => (atd_manual_fim_do_teste($p)[1] ?? false)] : null,
+                    'temperatura' => atd_manual_temperatura($p, $reg),
                     'opcoes' => atd_manual_opcoes($biblioteca, (string)$p['nome'], (string)($p['indicado_por'] ?? '')),
                 ];
                 continue;
@@ -345,7 +414,7 @@ function atd_manual_fila(PDO $pdo, ?DateTimeImmutable $agora = null): array {
 // Ações da equipe sobre uma pessoa da fila
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ATD_M_ACOES = ['enviada', 'pular', 'respondeu', 'encerrar'];
+const ATD_M_ACOES = ['enviada', 'pular', 'respondeu', 'encerrar', 'temperatura'];
 
 /**
  * Registra o que a pessoa da equipe fez. 'enviada' e 'pular' guardam o passo (e não voltam); 'enviada' também registra o
@@ -363,6 +432,14 @@ function atd_manual_acao(PDO $pdo, array $b, int $idusuario, string $usuarioNome
     $reg = atd_manual_registros($pdo, [$chave])[$chave] ?? ['passos' => []];
     $por = mb_substr(trim($usuarioNome), 0, 60);
 
+    if ($acao === 'temperatura') {
+        $v = (string)($b['valor'] ?? '');
+        if ($v === 'auto') unset($reg['temperatura']);
+        elseif (in_array($v, ATD_M_TEMPERATURAS, true)) $reg['temperatura'] = ['nivel' => $v, 'em' => wa_fmt($agora), 'por' => $por];
+        else return ['ok' => false, 'erro' => 'Escolha quente, morno, frio ou automática.', 'ja' => false];
+        atd_manual_registro_gravar($pdo, $chave, $reg);
+        return ['ok' => true, 'erro' => null, 'ja' => false];
+    }
     if ($acao === 'enviada' || $acao === 'pular') {
         $passo = (string)($b['passo'] ?? '');
         [$fid, $mid] = atd_passo_decodificar($passo);

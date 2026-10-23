@@ -7,7 +7,10 @@
   <title>Pessoas Captadas — Intus</title>
   <script src="_mock.js?v=20261021a"></script>
   <script src="api.js?v=20261021b"></script>
+  <script src="kanban.js?v=20261023a"></script>
   <style>
+    .cp-kb { --kb-bg:var(--bg); --kb-col:var(--bg2); --kb-card:var(--bg); --kb-borda:var(--border); --kb-texto:var(--text); --kb-muted:var(--text-muted); --kb-accent:var(--brand); --kb-verde:#4ade80; --kb-ambar:#fbbf24; --kb-azul:#38bdf8; --kb-verm:#f87171; padding:12px; }
+    .cp-kb .cp-nome { font-size:14px; }
     .cp-topo { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:14px; }
     .cp-topo h1 { font-size:20px; margin:0; color:var(--text); }
     .cp-sub { font-size:12.5px; color:var(--text-muted); margin-top:2px; }
@@ -16,7 +19,7 @@
     .cp-chip { padding:7px 12px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--text-muted); font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
     .cp-chip.on { background:var(--green); border-color:var(--green); color:#000; }
     body.theme-light .cp-chip.on { color:#fff; }
-    .cp-in, .cp-sel { padding:8px 11px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12.5px; font-family:inherit; }
+    .cp-in, .cp-sel, .cp-vista { padding:8px 11px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:12.5px; font-family:inherit; }
     .cp-etapas { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); gap:10px; margin-bottom:12px; }
     .cp-et { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:11px 13px; cursor:pointer; text-align:left; font-family:inherit; color:var(--text); border-top-width:3px; }
     .cp-et .n { font-size:24px; font-weight:800; font-variant-numeric:tabular-nums; }
@@ -129,6 +132,8 @@ const ST_CONTATO = { chamado: 'Chamado', respondeu: 'Respondeu', retornar: 'Reto
 const ST_COR = { chamado: '#38bdf8', respondeu: '#4ade80', retornar: '#fbbf24', sem_resposta: '#9ca3af', sem_interesse: '#f87171', fechou: '#22c55e', numero_errado: '#f87171', nota: '#9ca3af' };
 const ENCERRADOS = ['sem_interesse', 'fechou', 'numero_errado'];
 let filtroContato = '', histAberto = {}, modalAberto = false;
+let vista = 'lista';   // lista | etapa | atendimento
+try { const v = localStorage.getItem('intus-captados-vista'); if (['lista', 'etapa', 'atendimento'].includes(v)) vista = v; } catch (e) {}
 const hoje = () => (dados && dados.hoje) || hojeISO();
 function grupoContato(p) {   // 0 retorno vencido, 1 ainda não contatado, 2 já contatado, 3 encerrado, 4 cliente
   if (p.etapa === 'cliente') return 4;
@@ -214,9 +219,69 @@ function linhaHtml(p) {
     '<td data-r="Já falamos com a pessoa?">' + controleHtml(p) + '</td>' +
     '<td data-r="Contatar"><div class="cp-acoes">' + botoes + '</div></td></tr>';
 }
+// ── quadro (kanban): por etapa do funil (só leitura) ou por situação do atendimento (arrastar registra o contato) ──
+const QD_ETAPAS = [['contato', 'Contato sem conta', ''], ['so_conta', 'Só criou a conta', ''], ['abriu_app', 'Abriu o app', 'azul'], ['treinando', 'Treinando no teste', 'verde'], ['teste_expirado', 'Teste acabou, sem comprar', 'ambar'], ['negociando', 'Matrícula a pagar', 'azul'], ['cliente', 'Cliente', 'verde']].map(([id, titulo, tom]) => ({ id, titulo, tom }));
+const QD_ATEND = [
+  { id: 'para_chamar', titulo: 'Para chamar', tom: 'ambar', soltar: false, dica: 'Ninguém falou com a pessoa ainda.' },
+  { id: 'chamado', titulo: 'Chamado, aguardando', tom: 'azul', dica: 'Arraste para cá quem você acabou de chamar.' },
+  { id: 'respondeu', titulo: 'Respondeu', tom: 'verde' },
+  { id: 'retornar', titulo: 'Retornar depois', tom: 'ambar', dica: 'Fica marcado para daqui a 2 dias.' },
+  { id: 'fechou', titulo: 'Fechou', tom: 'verde' },
+  { id: 'encerrado', titulo: 'Sem interesse', tom: 'verm', dica: 'Sai das filas de contato.' },
+  { id: 'cliente', titulo: 'Já é cliente', tom: 'verde', soltar: false }];
+const QD_STATUS = { chamado: 'chamado', respondeu: 'respondeu', retornar: 'retornar', fechou: 'fechou', encerrado: 'sem_interesse' };
+function colunaAtend(p) {
+  if (p.etapa === 'cliente') return 'cliente';
+  if (p.wa && p.wa.saiu) return 'encerrado';
+  const u = p.controle && p.controle.ultimo;
+  if (!u) return 'para_chamar';
+  if (ENCERRADOS.includes(u.status)) return u.status === 'fechou' ? 'fechou' : 'encerrado';
+  if (u.status === 'respondeu') return 'respondeu';
+  if (u.status === 'retornar') return 'retornar';
+  return 'chamado';
+}
+function cartaoQuadro(p) {
+  const w = p.wa || {}, u = p.controle && p.controle.ultimo, ch = esc(p.chave), c = quando(p.criado_em);
+  const zap = p.whatsapp && p.mensagem ? 'https://wa.me/' + p.whatsapp + '?text=' + encodeURIComponent(p.mensagem) : (p.whatsapp ? 'https://wa.me/' + p.whatsapp : '');
+  const nomeHtml = p.tipo === 'conta' && p.id ? '<a href="alunos.html?busca=' + encodeURIComponent(p.nome) + '" title="Abrir no cadastro de clientes">' + esc(p.nome) + '</a>' : esc(p.nome);
+  const meta = [p.medido ? (NOMES_CANAL[p.canal] || p.canal || 'sem canal') : 'origem não medida', 'cadastro ' + c.t];
+  if (p.tipo === 'conta') meta.push(p.treinos ? nf(p.treinos) + ' treino(s)' : 'nenhum treino');
+  const pode = p.etapa !== 'cliente' && !w.saiu;
+  return '<div class="cp-nome">' + nomeHtml + '</div>' +
+    '<div style="margin:4px 0">' + (vista === 'etapa' ? '' : etapaBadge(p)) + (w.saiu ? ' <span class="cp-st" style="color:#f87171">pediu para sair</span>' : '') + '</div>' +
+    '<div class="cp-mut">' + esc(meta.join(' · ')) + '</div>' +
+    (u ? '<div class="cp-mut">' + esc(ST_CONTATO[u.status] || u.status) + ' · ' + esc(u.usuario || 'alguém') + ' · ' + esc(haQuanto(u.criado_em)) + '</div>' : (p.etapa !== 'cliente' ? '<div class="cp-mut">ainda não contatado</div>' : '')) +
+    (pode ? '<div class="cp-acoes" style="margin-top:8px">' + (zap ? '<a class="cp-btn zap peq" target="_blank" rel="noopener" href="' + esc(zap) + '" onclick="aoChamar(\'' + ch + '\')">💬 WhatsApp</a>' : '') + '<button class="cp-btn peq" onclick="abrirResultado(\'' + ch + '\')">Anotar</button></div>' : '');
+}
+function desenharQuadro(tab, l) {
+  tab.innerHTML = '<div id="cp-kb" class="cp-kb"></div>';
+  const alvo = document.getElementById('cp-kb');
+  const porEtapa = vista === 'etapa';
+  const cfg = {
+    colunas: porEtapa ? QD_ETAPAS : QD_ATEND,
+    cartoes: l.map(p => ({ id: p.chave, coluna: porEtapa ? p.etapa : colunaAtend(p), html: cartaoQuadro(p), bloqueado: p.etapa === 'cliente' || !!(p.wa && p.wa.saiu) })),
+    vazio: 'Ninguém aqui.'
+  };
+  if (!porEtapa) {
+    cfg.mover = function (chave, de, para) {
+      const p = pessoaPor(chave), st = QD_STATUS[para]; if (!p || !st) return;
+      if (para === 'encerrado' && !confirm('Marcar ' + p.nome + ' como sem interesse?')) return;
+      const b = { chave: chave, status: st, canal: 'outro', nota: 'Quadro de Pessoas Captadas', telefone: p.whatsapp };
+      if (st === 'retornar') b.retorno_em = somaDias(hojeISO(), 2);
+      return postar('contato', b).then(j => { aplicarControle(chave, j.controle); }).catch(e => { aviso('Não consegui mover: ' + e.message); });
+    };
+  }
+  Kanban.montar(alvo, cfg);
+}
+function setVista(v) { vista = v; try { localStorage.setItem('intus-captados-vista', v); } catch (e) {} desenharLista(); }
 function desenharLista() {
   const l = filtradas();
   const tab = document.getElementById('cp-lista');
+  if (vista !== 'lista') {
+    if (l.length) desenharQuadro(tab, l); else tab.innerHTML = '<div class="cp-vazio">' + (dados.pessoas.length ? 'Ninguém com esse filtro.' : 'Ninguém captado neste período.') + '</div>';
+    document.getElementById('cp-contagem').textContent = nf(l.length) + ' de ' + nf(dados.pessoas.length) + ' pessoa(s)';
+    return;
+  }
   tab.innerHTML = l.length ? '<table class="cp-tab"><thead><tr><th>Pessoa</th><th>Contato</th><th>Etapa do funil</th><th>Como chegou</th><th>Cadastro</th><th>No app</th><th>Já falamos com a pessoa?</th><th></th></tr></thead><tbody>' + l.map(linhaHtml).join('') + '</tbody></table>'
     : '<div class="cp-vazio">' + (dados.pessoas.length ? 'Ninguém com esse filtro.' : 'Ninguém captado neste período.') + '</div>';
   document.getElementById('cp-contagem').textContent = nf(l.length) + ' de ' + nf(dados.pessoas.length) + ' pessoa(s)';
@@ -233,6 +298,7 @@ function desenhar() {
     (dados.sem_medicao ? '<div class="cp-aviso"><b>' + nf(dados.sem_medicao) + '</b> destas pessoas não têm a origem medida (cadastro de antes de 19/10/2026 ou feito com o navegador bloqueando a medição). Aparecem aqui mesmo assim, só sem canal e campanha.</div>' : '') +
     '<div class="cp-barra"><input class="cp-in" id="cp-busca" placeholder="Buscar por nome, telefone ou e-mail" oninput="busca=this.value;desenharLista()" value="' + esc(busca) + '">' +
     '<select class="cp-sel" onchange="ordem=this.value;desenharLista()"><option value="recentes"' + (ordem === 'recentes' ? ' selected' : '') + '>Mais recentes primeiro</option><option value="prioridade"' + (ordem === 'prioridade' ? ' selected' : '') + '>Quem contatar primeiro</option></select>' +
+    '<select class="cp-vista" onchange="setVista(this.value)" aria-label="Como mostrar"><option value="lista"' + (vista === 'lista' ? ' selected' : '') + '>Ver em lista</option><option value="etapa"' + (vista === 'etapa' ? ' selected' : '') + '>Quadro por etapa do funil</option><option value="atendimento"' + (vista === 'atendimento' ? ' selected' : '') + '>Quadro do atendimento (arrastar)</option></select>' +
     '<button class="cp-btn" onclick="exportarCsv()">Baixar planilha (CSV)</button><span class="cp-mut" id="cp-contagem"></span></div>' +
     '<div class="cp-card" id="cp-lista"></div>' +
     '<div class="cp-att" id="cp-att"></div>';

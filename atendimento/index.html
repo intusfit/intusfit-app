@@ -189,6 +189,8 @@ details.conf summary{cursor:pointer;color:var(--muted);font-size:13px;font-weigh
 .lead{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 14px;padding:14px 0;border-bottom:1px solid var(--borda)}
 .lead:last-child{border-bottom:0}
 .lead-corpo{min-width:0}
+.kb-wrap{--kb-bg:var(--bg);--kb-col:var(--card2);--kb-card:var(--card);--kb-borda:var(--borda);--kb-texto:var(--texto);--kb-muted:var(--muted);--kb-accent:var(--accent);--kb-verde:var(--accent);--kb-ambar:var(--warn);--kb-azul:var(--info);--kb-verm:var(--erro)}
+.kb-wrap .lead-nome{font-size:14px}
 .lead-topo{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:2px}
 .lead-nome{font-weight:700;font-size:15px;color:var(--texto);overflow-wrap:anywhere}
 a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-underline-offset:3px}
@@ -228,6 +230,7 @@ a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-u
       <button class="aba" role="tab" data-aba="painel">Painel</button>
       <button class="aba" role="tab" data-aba="fila">Fila de hoje <span class="n" id="n-fila">0</span></button>
       <button class="aba" role="tab" data-aba="leads">Leads</button>
+      <button class="aba" role="tab" data-aba="quadro">Quadro</button>
       <button class="aba" role="tab" data-aba="funis">Funis e copys</button>
       <button class="aba" role="tab" data-aba="lab">Laboratório de copy</button>
       <button class="aba" role="tab" data-aba="refs">Referências <span class="n" id="n-refs">0</span></button>
@@ -239,6 +242,7 @@ a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-u
 </div>
 </div>
 
+<script src="/app/painel/kanban.js?v=20261023a"></script>
 <script>
 (function(){
 'use strict';
@@ -347,6 +351,7 @@ function desenhar(){
   if (S.aba === 'painel') return telaPainel(c);
   if (S.aba === 'fila') return telaFila(c);
   if (S.aba === 'leads') return telaLeads(c);
+  if (S.aba === 'quadro') return telaQuadro(c);
   if (S.aba === 'funis') return telaFunis(c);
   if (S.aba === 'lab') return telaLab(c);
   if (S.aba === 'refs') return telaRefs(c);
@@ -693,6 +698,7 @@ function registrarChamado(p, c){
       p.grupo_contato = 'contatado';
     }
     if (S.aba === 'leads') { var y = window.scrollY; pintarLeads(c); window.scrollTo(0, y); }
+    else if (S.aba === 'quadro') desenharQuadro(c);
   })
   .catch(function(e){ toast('Abri o WhatsApp, mas não consegui registrar o contato: ' + e.message); });
 }
@@ -750,6 +756,172 @@ function leadHtml(p, i){
     + (texto ? '<button class="btn mini" data-lead-copiar="' + i + '">Copiar mensagem</button>' : '')
     + '</div></div>';
   return h;
+}
+
+/* ================= QUADRO (kanban de leads) ================= */
+var QF = { agrupar: 'etapa', busca: '' };
+S.qOver = {};      // chave da pessoa -> coluna em que ela já aparece enquanto o servidor confirma a mudança
+S.quadroPor = {};  // chave -> pessoa, do quadro que está na tela
+var QUADRO_ETAPAS = [
+  { id: 'contato', titulo: 'Contato sem conta', tom: '' },
+  { id: 'so_conta', titulo: 'Só criou a conta', tom: '' },
+  { id: 'abriu_app', titulo: 'Abriu o app', tom: 'azul' },
+  { id: 'treinando', titulo: 'Treinando no teste', tom: 'verde' },
+  { id: 'teste_expirado', titulo: 'Teste acabou, sem comprar', tom: 'ambar' },
+  { id: 'negociando', titulo: 'Matrícula a pagar', tom: 'azul' },
+  { id: 'cliente', titulo: 'Cliente', tom: 'verde' }
+];
+var QUADRO_ATEND = [
+  { id: 'para_chamar', titulo: 'Para chamar', tom: 'ambar', soltar: false, dica: 'Ninguém falou com a pessoa ainda.' },
+  { id: 'chamado', titulo: 'Chamado, aguardando', tom: 'azul', dica: 'Arraste para cá quem você acabou de chamar.' },
+  { id: 'respondeu', titulo: 'Respondeu', tom: 'verde' },
+  { id: 'retornar', titulo: 'Retornar depois', tom: 'ambar', dica: 'Fica marcado para daqui a 2 dias.' },
+  { id: 'fechou', titulo: 'Fechou', tom: 'verde' },
+  { id: 'encerrado', titulo: 'Sem interesse', tom: 'verm', dica: 'Sai da fila de hoje e não recebe mais mensagens daqui.' },
+  { id: 'cliente', titulo: 'Já é cliente', tom: 'verde', soltar: false }
+];
+var QUADRO_TEMP = [
+  { id: 'quente', titulo: 'Quente', tom: 'verm', dica: 'Respondeu, treinou ou já tem matrícula criada.' },
+  { id: 'morno', titulo: 'Morno', tom: 'ambar', dica: 'Mostrou algum interesse.' },
+  { id: 'frio', titulo: 'Frio', tom: 'azul', dica: 'Pouco uso e nenhuma resposta.' },
+  { id: 'cliente', titulo: 'Já é cliente', tom: 'verde', soltar: false }
+];
+var TEMP_ROTULO = { quente: 'Quente', morno: 'Morno', frio: 'Frio', cliente: 'Cliente' };
+var TEMP_COR = { quente: 'verm', morno: 'ambar', frio: 'azul', cliente: 'verde' };
+var TEMP_ORDEM = { quente: 0, morno: 1, frio: 2, cliente: 3 };
+var STATUS_DA_COLUNA = { chamado: 'chamado', respondeu: 'respondeu', retornar: 'retornar', fechou: 'fechou', encerrado: 'sem_interesse' };
+var QUADRO_AJUDA = {
+  etapa: 'A etapa muda sozinha conforme a pessoa usa o app e paga, por isso aqui só dá para olhar. Para organizar o seu atendimento use "Atendimento" ou "Temperatura".',
+  atendimento: 'Arraste o cartão (ou use "Mover para") para registrar o que aconteceu. Cada movimento fica em Pessoas Captadas como contato feito.',
+  temperatura: 'A temperatura é calculada pelo comportamento. Arraste para fixar a sua avaliação; escolha "Automática" no cartão para voltar ao cálculo.'
+};
+
+function telaQuadro(c){
+  if (S.aba !== 'quadro') return;
+  var tok = ++S.tok;
+  c.innerHTML = '<p class="carregando">Montando o quadro...</p>';
+  api('leads', null, '&dias=' + S.dias).then(function(d){ if (tok !== S.tok) return; S.leads = d; S.qOver = {}; pintarQuadro(c); })
+  .catch(function(e){ falha(e); if (tok === S.tok) c.innerHTML = '<div class="aviso erro">' + esc(e.message) + '</div>'; });
+}
+function pintarQuadro(c){
+  var h = '<div class="card"><div class="linha" style="margin-bottom:8px"><h2 style="font-size:18px">Quadro de leads</h2><span class="badge verde">kanban</span><span class="espaco"></span><button class="btn mini" id="q-atualizar">Atualizar</button></div>'
+    + '<div class="linha" style="align-items:flex-end;gap:12px">'
+    + '<div class="campo" style="margin:0"><label for="q-agrupar">Organizar por</label><select id="q-agrupar">'
+    + [['etapa', 'Etapa do funil'], ['atendimento', 'Atendimento'], ['temperatura', 'Temperatura']].map(function(o){ return '<option value="' + o[0] + '"' + (QF.agrupar === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>'
+    + '<div class="campo" style="margin:0"><label for="sel-dias">Cadastrados nos</label><select id="sel-dias">'
+    + [7, 14, 30, 60, 90].map(function(n){ return '<option value="' + n + '"' + (S.dias === n ? ' selected' : '') + '>últimos ' + n + ' dias</option>'; }).join('') + '</select></div>'
+    + '<div class="campo" style="margin:0;flex:1;min-width:180px"><label for="q-busca">Buscar</label><input type="text" id="q-busca" placeholder="Nome, telefone ou e-mail" value="' + esc(QF.busca) + '"></div></div>'
+    + '<p class="dica" id="q-ajuda" style="margin-top:8px"></p></div>'
+    + '<div id="quadro-alvo" class="kb-wrap" style="margin-top:12px"></div>';
+  c.innerHTML = h;
+  $('#q-atualizar', c).addEventListener('click', function(){ telaQuadro(c); });
+  $('#q-agrupar', c).addEventListener('change', function(){ QF.agrupar = this.value; desenharQuadro(c); });
+  $('#sel-dias', c).addEventListener('change', function(){ S.dias = parseInt(this.value, 10); telaQuadro(c); });
+  $('#q-busca', c).addEventListener('input', function(){ QF.busca = this.value; desenharQuadro(c); });
+  c.onclick = function(ev){
+    var ch = ev.target.closest('[data-q-chamar]');
+    if (ch) { var pc = S.quadroPor[ch.getAttribute('data-q-chamar')]; if (pc) registrarChamado(pc, c); return; }
+    var cp = ev.target.closest('[data-q-copiar]');
+    if (cp) { var p = S.quadroPor[cp.getAttribute('data-q-copiar')]; if (p) copiar(textoDoLead(p), 'Mensagem copiada, pronta para colar'); }
+  };
+  c.onchange = function(ev){
+    var t = ev.target.closest('[data-q-temp]'); if (!t) return;
+    fixarTemperatura(c, t.getAttribute('data-q-temp'), t.value);
+  };
+  desenharQuadro(c);
+}
+function colunaAtendimento(p){
+  if (S.qOver[p.chave]) return S.qOver[p.chave];
+  if (p.etapa === 'cliente') return 'cliente';
+  if (p.wa && p.wa.saiu) return 'encerrado';
+  var u = p.controle && p.controle.ultimo;
+  if (!u) return 'para_chamar';
+  if (p.grupo_contato === 'encerrado') return u.status === 'fechou' ? 'fechou' : 'encerrado';
+  if (u.status === 'respondeu') return 'respondeu';
+  if (u.status === 'retornar') return 'retornar';
+  return 'chamado';
+}
+function pessoasDoQuadro(){
+  var q = QF.busca.trim().toLowerCase(), qd = q.replace(/\D/g, '');
+  return (S.leads.pessoas || []).filter(function(p){
+    if (!q) return true;
+    var alvo = (p.nome + ' ' + (p.email || '')).toLowerCase();
+    return alvo.indexOf(q) >= 0 || (qd.length >= 4 && String(p.whatsapp || '').indexOf(qd) >= 0);
+  });
+}
+function cartaoQuadro(p){
+  var w = p.wa || {}, t = p.temperatura || { nivel: 'frio', auto: 'frio', manual: false, motivos: [] }, texto = textoDoLead(p);
+  var link = (p.whatsapp && !w.saiu && p.etapa !== 'cliente') ? 'https://wa.me/' + p.whatsapp + (texto ? '?text=' + encodeURIComponent(texto) : '') : '';
+  var ch = esc(p.chave);
+  var nome = p.tipo === 'conta' ? '<a class="lead-nome" href="/app/painel/alunos.html?busca=' + encodeURIComponent(p.nome) + '" title="Abrir em Clientes">' + esc(p.nome) + '</a>' : '<span class="lead-nome">' + esc(p.nome) + '</span>';
+  var meta = [rotuloCanal(p.canal || 'sem_medicao'), 'cadastro ' + fmtDataHora(p.criado_em)];
+  if (p.tipo === 'conta') meta.push(p.treinos ? p.treinos + ' treino' + (p.treinos > 1 ? 's' : '') : 'nenhum treino');
+  var uc = p.controle && p.controle.ultimo;
+  var h = '<div class="lead-topo">' + nome + '</div>'
+    + '<div style="margin:4px 0"><span class="badge ' + (TEMP_COR[t.nivel] || '') + '" title="' + esc((t.motivos || []).join(', ') || 'sem sinais de interesse') + '">' + esc(TEMP_ROTULO[t.nivel] || t.nivel) + (t.manual ? ' · fixada' : '') + '</span>'
+    + (QF.agrupar !== 'etapa' ? ' <span class="badge ' + (COR_ETAPA[p.etapa] || '') + '">' + esc(p.etapa_rotulo) + '</span>' : '')
+    + (w.saiu ? ' <span class="badge verm">pediu para sair</span>' : '') + '</div>'
+    + '<div class="msg-meta">' + esc(meta.join(' · ')) + '</div>'
+    + (uc ? '<div class="msg-meta">' + esc(uc.status_rotulo || uc.status) + ' em ' + fmtDataHora(uc.criado_em) + (uc.usuario ? ' por ' + esc(uc.usuario) : '') + '</div>'
+          : (p.etapa !== 'cliente' ? '<div class="msg-meta">ninguém falou com a pessoa ainda</div>' : ''))
+    + '<div class="linha" style="margin-top:8px;gap:6px">'
+    + (link ? '<a class="btn mini primario" data-q-chamar="' + ch + '" href="' + esc(link) + '" target="_blank" rel="noopener noreferrer">WhatsApp</a>' : '')
+    + (texto && !w.saiu ? '<button type="button" class="btn mini" data-q-copiar="' + ch + '">Copiar</button>' : '') + '</div>';
+  if (t.nivel !== 'cliente') {
+    h += '<label class="kb-mv">Temperatura<select data-q-temp="' + ch + '"><option value="auto"' + (t.manual ? '' : ' selected') + '>Automática (' + esc((TEMP_ROTULO[t.auto] || t.auto).toLowerCase()) + ')</option>'
+      + ['quente', 'morno', 'frio'].map(function(n){ return '<option value="' + n + '"' + (t.manual && t.nivel === n ? ' selected' : '') + '>' + TEMP_ROTULO[n] + '</option>'; }).join('') + '</select></label>';
+  }
+  return h;
+}
+function cartoesDoQuadro(){
+  var pessoas = pessoasDoQuadro().slice();
+  S.quadroPor = {};
+  pessoas.forEach(function(p){ S.quadroPor[p.chave] = p; });
+  var tn = function(p){ var n = (p.temperatura && p.temperatura.nivel) || 'frio'; return TEMP_ORDEM[n] === undefined ? 9 : TEMP_ORDEM[n]; };
+  pessoas.sort(function(a, b){ return QF.agrupar === 'temperatura' ? String(b.criado_em || '').localeCompare(String(a.criado_em || '')) : (tn(a) - tn(b)) || String(b.criado_em || '').localeCompare(String(a.criado_em || '')); });
+  return pessoas.map(function(p){
+    var col = QF.agrupar === 'etapa' ? p.etapa : QF.agrupar === 'atendimento' ? colunaAtendimento(p) : ((p.temperatura && p.temperatura.nivel) || 'frio');
+    return { id: p.chave, coluna: col, html: cartaoQuadro(p), bloqueado: p.etapa === 'cliente' || !!(p.wa && p.wa.saiu) };
+  });
+}
+function gravarTemperatura(chave, valor){
+  var p = S.quadroPor[chave]; if (!p) return Promise.resolve();
+  return api('manual_acao', { chave: chave, acao: 'temperatura', valor: valor }).then(function(){
+    var t = p.temperatura || { auto: 'frio', motivos: [] };
+    p.temperatura = valor === 'auto' ? { nivel: t.auto, manual: false, auto: t.auto, motivos: t.motivos } : { nivel: valor, manual: true, auto: t.auto, motivos: t.motivos };
+    toast(valor === 'auto' ? 'Temperatura automática' : 'Temperatura fixada: ' + TEMP_ROTULO[valor].toLowerCase());
+  });
+}
+function fixarTemperatura(c, chave, valor){
+  return gravarTemperatura(chave, valor).then(function(){ desenharQuadro(c); }, function(e){ falha(e); desenharQuadro(c); });
+}
+function isoMaisDias(n){ var d = new Date(Date.now() + n * 86400000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+function desenharQuadro(c){
+  var alvo = $('#quadro-alvo', c); if (!alvo) return;
+  $('#q-ajuda', c).textContent = QUADRO_AJUDA[QF.agrupar];
+  if (S.quadro) { S.quadro.destruir(); S.quadro = null; }
+  var colunas = QF.agrupar === 'etapa' ? QUADRO_ETAPAS : QF.agrupar === 'atendimento' ? QUADRO_ATEND : QUADRO_TEMP;
+  var cfg = { colunas: colunas, cartoes: cartoesDoQuadro(), vazio: 'Ninguém aqui.' };
+  if (QF.agrupar === 'atendimento') {
+    cfg.mover = function(id, de, para){
+      var p = S.quadroPor[id], st = STATUS_DA_COLUNA[para]; if (!p || !st) return;
+      if (para === 'encerrado' && !confirm('Marcar ' + p.nome + ' como sem interesse? Ela sai da fila de hoje e não recebe mais mensagens daqui.')) return;
+      var corpo = { chave: p.chave, status: st, canal: 'outro', telefone: p.whatsapp, nota: 'Quadro da Central' };
+      if (st === 'retornar') corpo.retorno_em = isoMaisDias(2);
+      S.qOver[p.chave] = para;
+      return fetch('/app/api/trafego.php?action=contato', { method: 'POST', headers: { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) })
+        .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j.error || ('Erro ' + r.status)); return j; }); })
+        .then(function(){ return api('leads', null, '&dias=' + S.dias); })
+        .then(function(d){ S.leads = d; delete S.qOver[p.chave]; toast('Movida para "' + colunas.filter(function(x){ return x.id === para; })[0].titulo + '"'); return cartoesDoQuadro(); })
+        .catch(function(e){ delete S.qOver[p.chave]; if (e.message !== 'sessão') toast('Não consegui mover: ' + e.message); return cartoesDoQuadro(); });
+    };
+  } else if (QF.agrupar === 'temperatura') {
+    cfg.mover = function(id, de, para){
+      if (!S.quadroPor[id]) return;
+      return gravarTemperatura(id, para).then(function(){ return cartoesDoQuadro(); }, function(e){ falha(e); return cartoesDoQuadro(); });
+    };
+  }
+  S.quadro = Kanban.montar(alvo, cfg);
 }
 
 /* ---------- Captação (resumo de Tráfego e Captação) dentro do Painel ---------- */

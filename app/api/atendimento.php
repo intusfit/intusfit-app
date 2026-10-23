@@ -94,7 +94,9 @@ try {
         case 'leads': {
             $dias = max(1, min(365, (int)($_GET['dias'] ?? 30)));
             [$de, $ate] = atd_periodo($dias);
-            atd_resp(200, ['ok' => true] + atd_leads($pdo, $de, $ate));
+            $L = atd_leads($pdo, $de, $ate);
+            $L['pessoas'] = atd_manual_enriquecer_leads($pdo, $L['pessoas']);
+            atd_resp(200, ['ok' => true] + $L);
         }
         case 'manual_estado':
             atd_resp(200, ['ok' => true] + atd_manual_fila($pdo));

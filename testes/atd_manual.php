@@ -90,7 +90,7 @@ confere('fila: Ana recebe a boas-vindas (t1)', ['teste-gratis', 't1', 't1'], [it
 confere('fila: Bia, que não treinou, recebe a t2', 't2', item($f, 'Bia Lima')['passo']);
 confere('fila: Carla treinou, então a t2 (sem treino) não é dela', null, item($f, 'Carla Dias'));
 confere('fila: Dani está no último dia do teste (t5)', 't5', item($f, 'Dani Reis')['passo']);
-confere('fila: Fran, 8 dias depois, recebe a t6 (a t7 só às 18h)', 't6', item($f, 'Fran Melo')['passo']);
+confere('fila: Fran fez o cadastro há 8 dias, sem matrícula de teste e sem nada enviado: entra na recuperação', 'recuperacao-teste:rec1', item($f, 'Fran Melo')['passo']);
 confere('fila: contato sem conta recebe o convite c4 do funil de conversa', ['chamou-whatsapp:c4', 'chamou-whatsapp'], [item($f, 'Lia Contato')['passo'], item($f, 'Lia Contato')['funil']]);
 confere('fila: origem paga fica fora', null, item($f, 'Eva Paga'));
 confere('fila: quem pediu para sair fica fora', null, item($f, 'Gabi Saiu'));
@@ -184,6 +184,7 @@ confere('aguardando: quem recebeu e não respondeu aparece por até 3 dias', [tr
 confere('aguardando: passados 3 dias a Kika sai da espera', false, item_aguardando(atd_manual_fila($pdo, em('2026-10-23 12:01:00')), 'Kika Social'));
 atd_cfg_gravar($pdo, 'atd_testes', []);
 // o último passo do funil vale só por 2 dias; depois disso a pessoa sai da fila, não fica com a mensagem velha
+$rd = atd_manual_registros($pdo, ['a4'])['a4']; $rd['passos']['t1'] = ['estado' => 'enviada', 'em' => '2026-10-17 09:30:00', 'por' => 'Luiz']; atd_manual_registro_gravar($pdo, 'a4', $rd);   // já recebeu a t1: segue o funil normal, não a recuperação
 confere('último passo: a Dani recebe a t7 às 18h do dia 8', 't7', item(atd_manual_fila($pdo, em('2026-10-25 19:00:00')), 'Dani Reis')['passo'] ?? null);
 confere('último passo: ainda vale no dia seguinte', 't7', item(atd_manual_fila($pdo, em('2026-10-26 12:00:00')), 'Dani Reis')['passo'] ?? null);
 confere('último passo: passados 2 dias a Dani sai da fila', null, item(atd_manual_fila($pdo, em('2026-10-27 18:30:00')), 'Dani Reis'));
@@ -204,7 +205,7 @@ confere('escolha: fica gravado o que foi enviado e a sugerida vira "substituída
 $fe2 = atd_manual_fila($pdo, $agora);
 confere('escolha: a pessoa sai da fila e vai para aguardando com a mensagem escolhida', [null, 'Convite depois do teste'], [item($fe2, 'Luna Escolha'), (array_values(array_filter($fe2['aguardando'], fn($x) => $x['nome'] === 'Luna Escolha'))[0]['mensagem_nome'] ?? null)]);
 $plac = array_values(array_filter($fe2['placar'], fn($x) => $x['passo'] === 't6'))[0] ?? null;
-confere('escolha: o placar conta só a enviada, a substituída não entra', [1, true], [$plac['enviadas'] ?? 0, !in_array($luna['passo'], array_column(array_filter($fe2['placar'], fn($x) => $x['passo'] === $luna['passo'] && $luna['passo'] !== 't6'), 'passo'), true)]);
+confere('escolha: o placar conta só a enviada; a substituída (t1) fica só com o envio que já existia da Dani', [1, 1], [$plac['enviadas'] ?? 0, array_sum(array_column(array_filter($fe2['placar'], fn($x) => $x['passo'] === $luna['passo']), 'enviadas'))]);
 confere('escolha: mensagem que não existe é recusada', false, atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'enviada', 'passo' => 'inventado:z9', 'passo_sugerido' => 't1'], 1, 'Luiz', $agora)['ok']);
 // passo pulado e depois enviado de verdade: vale (antes ficava preso como "já tratado")
 atd_manual_acao($pdo, ['chave' => 'a12', 'acao' => 'pular', 'passo' => 't4'], 1, 'Luiz', $agora);
@@ -263,6 +264,51 @@ confere('funil novo de fábrica aparece mesmo com funis já salvos', true, atd_f
 atd_funil_excluir($pdoV, 'recuperacao-teste');
 confere('funil novo excluído pela pessoa não volta sozinho', null, atd_funil_por_id($pdoV, 'recuperacao-teste'));
 verdade('textos da recuperação passam no analisador sem erro', (function () { foreach (atd_funis_padrao() as $f) { if ($f['id'] !== 'recuperacao-teste') continue; foreach ($f['mensagens'] as $m) { foreach (atd_analisar_copy($m['texto'], ['template' => $m['categoria'] !== 'texto livre', 'ultima' => $m['id'] === 'rec3'])['itens'] as $i) { if ($i['nivel'] === 'erro') return false; } } return true; } return false; })());
+
+// ── Caso do Tomas: conta do teste grátis SEM matrícula de teste, cadastrada há 18 dias, fora da data inicial ───────
+conta($pdo, 18, 'Tomas Greenaway', '(45) 98836-3372', '2026-10-02 21:03:00');          // sem matrícula de teste, nada enviado
+conta($pdo, 19, 'Velha Demais', '(45) 99111-0019', '2026-09-05 10:00:00');             // 45 dias: além da janela da recuperação
+conta($pdo, 20, 'Recebeu Antes', '(45) 99111-0020', '2026-10-02 21:03:00');            // mesma idade, mas já recebeu uma mensagem pela fila
+atd_manual_registro_gravar($pdo, 'a20', ['passos' => ['t1' => ['estado' => 'enviada', 'em' => '2026-10-02 22:00:00', 'por' => 'Luiz']]]);
+conta($pdo, 21, 'Wanda Recebeu Zap', '(45) 99111-0021', '2026-10-02 21:03:00');          // a Intus já mandou mensagem pelo WhatsApp (fora da fila)
+$cw = wa_contato_obter_ou_criar($pdo, '5545991110021', 'Wanda Recebeu Zap', $agora);
+$pdo->exec("INSERT INTO intus_wa_mensagem (idcontato, direcao, origem, tipo, texto, status, criado_em) VALUES ({$cw['idcontato']}, 'S', 'sequencia', 'text', 'x', 'enviada', '2026-10-03 10:00:00')");
+atd_manual_cfg_gravar($pdo, ['origem' => 'organico', 'desde' => '2026-10-19'], $agora);
+$ft = atd_manual_fila($pdo, $agora);
+$tomas = item($ft, 'Tomas Greenaway');
+confere('Tomas: aparece na fila mesmo com a data inicial recente, na recuperação', ['recuperacao-teste:rec1', true, 15], [$tomas['passo'] ?? null, $tomas['recuperacao']['estimado'] ?? null, $tomas['recuperacao']['dias'] ?? null]);
+confere('Tomas: o teste dele terminou há 15 dias (cadastro + 3 dias de teste)', 15, $tomas['recuperacao']['dias'] ?? null);
+confere('data inicial: quem é antigo e NÃO é caso de recuperação continua de fora', [null, null], [item($ft, 'Recebeu Antes'), item($ft, 'Cida Contatada')]);
+confere('recuperação: quem já recebeu mensagem pelo WhatsApp da Intus não entra', null, item($ft, 'Wanda Recebeu Zap'));
+confere('recuperação: quem virou cliente ou tem matrícula a pagar nunca volta a ela, mesmo com passo registrado', [false, false], [atd_manual_em_recuperacao(['tipo' => 'conta', 'etapa' => 'cliente'], ['passos' => ['recuperacao-teste:rec1' => ['estado' => 'enviada']]], $agora), atd_manual_em_recuperacao(['tipo' => 'conta', 'etapa' => 'negociando'], ['passos' => ['recuperacao-teste:rec1' => ['estado' => 'enviada']]], $agora)]);
+confere('janela: cadastro de 45 dias fica de fora da recuperação', null, item($ft, 'Velha Demais'));
+confere('recuperação por data: o resumo diz quantos ficaram antes da data', true, $ft['resumo']['antes_da_data'] >= 2);
+atd_manual_cfg_gravar($pdo, ['origem' => 'organico', 'desde' => '2026-10-01'], $agora);
+
+// ── Temperatura: calculada pelo comportamento, fixada pela equipe ────────────────────────────────────────────
+$tp = fn(array $p) => atd_manual_temperatura_auto($p)['nivel'];
+confere('temperatura: sem uso nenhum é fria', 'frio', $tp(['etapa' => 'so_conta', 'treinos' => 0, 'criado_em' => '2026-10-19 10:00:00', 'wa' => [], 'controle' => []]));
+confere('temperatura: abriu o app e treinou uma vez é morna', 'morno', $tp(['etapa' => 'treinando', 'treinos' => 1, 'abriu_app' => true, 'criado_em' => '2026-10-19 10:00:00', 'wa' => [], 'controle' => []]));
+confere('temperatura: treinou 3 vezes e respondeu é quente', 'quente', $tp(['etapa' => 'treinando', 'treinos' => 3, 'abriu_app' => true, 'wa' => ['respondeu' => true], 'controle' => []]));
+confere('temperatura: matrícula criada e a pagar é quente', 'quente', $tp(['etapa' => 'negociando', 'treinos' => 0, 'wa' => [], 'controle' => []]));
+confere('temperatura: teste acabou sem treinar é fria', 'frio', $tp(['etapa' => 'teste_expirado', 'treinos' => 0, 'criado_em' => '2026-10-15 10:00:00', 'abriu_app' => true, 'wa' => [], 'controle' => []]));
+confere('temperatura: cliente não tem temperatura', 'cliente', $tp(['etapa' => 'cliente', 'treinos' => 9, 'wa' => [], 'controle' => []]));
+confere('temperatura: quem pediu para sair ou foi encerrado é frio, mesmo treinando', 'frio', $tp(['etapa' => 'treinando', 'treinos' => 5, 'grupo_contato' => 'encerrado', 'wa' => [], 'controle' => []]));
+confere('temperatura: resposta registrada em Pessoas Captadas conta', 'morno', $tp(['etapa' => 'so_conta', 'treinos' => 0, 'criado_em' => '2026-10-19 10:00:00', 'wa' => [], 'controle' => ['historico' => [['status' => 'respondeu']]]]));
+$r = atd_manual_acao($pdo, ['chave' => 'a18', 'acao' => 'temperatura', 'valor' => 'quente'], 1, 'Luiz', $agora);
+$tt = atd_manual_temperatura(['etapa' => 'so_conta', 'treinos' => 0, 'criado_em' => '2026-10-19 10:00:00', 'wa' => [], 'controle' => []], atd_manual_registros($pdo, ['a18'])['a18']);
+confere('temperatura: a equipe fixa quente e fica registrado quem fixou', [true, 'quente', true, 'frio', 'Luiz'], [$r['ok'], $tt['nivel'], $tt['manual'], $tt['auto'], $tt['por']]);
+$r = atd_manual_acao($pdo, ['chave' => 'a18', 'acao' => 'temperatura', 'valor' => 'auto'], 1, 'Luiz', $agora);
+$tt = atd_manual_temperatura(['etapa' => 'so_conta', 'treinos' => 0, 'criado_em' => '2026-10-19 10:00:00', 'wa' => [], 'controle' => []], atd_manual_registros($pdo, ['a18'])['a18']);
+confere('temperatura: "automática" devolve ao cálculo', ['frio', false], [$tt['nivel'], $tt['manual']]);
+confere('temperatura: valor inventado é recusado', false, atd_manual_acao($pdo, ['chave' => 'a18', 'acao' => 'temperatura', 'valor' => 'fervendo'], 1, 'Luiz', $agora)['ok']);
+atd_manual_acao($pdo, ['chave' => 'a18', 'acao' => 'temperatura', 'valor' => 'quente'], 1, 'Luiz', $agora);
+$tc = atd_manual_temperatura(['etapa' => 'cliente', 'treinos' => 1, 'wa' => [], 'controle' => []], atd_manual_registros($pdo, ['a18'])['a18']);
+confere('temperatura: fixar à mão não vale para cliente', 'cliente', $tc['nivel']);
+$enr = atd_manual_enriquecer_leads($pdo, [['chave' => 'a18', 'etapa' => 'so_conta', 'treinos' => 0, 'criado_em' => '2026-10-19 10:00:00', 'wa' => [], 'controle' => []], ['chave' => 'a2', 'etapa' => 'so_conta', 'treinos' => 0, 'criado_em' => '2026-10-19 10:00:00', 'wa' => [], 'controle' => []]]);
+confere('temperatura: a lista de leads leva a temperatura de cada pessoa (a fixada e a calculada)', ['quente', true, 'frio', false], [$enr[0]['temperatura']['nivel'], $enr[0]['temperatura']['manual'], $enr[1]['temperatura']['nivel'], $enr[1]['temperatura']['manual']]);
+$ffila = atd_manual_fila($pdo, $agora);
+verdade('temperatura: cada item da fila leva a temperatura', (function () use ($ffila) { foreach ($ffila['para_enviar'] as $i) { if (!isset($i['temperatura']['nivel'])) return false; } return count($ffila['para_enviar']) > 0; })());
 
 // ── Funil editado vale na hora; funil sem texto não vira mensagem em branco ─
 $ed = atd_funil_por_id($pdo, 'teste-gratis');
