@@ -2123,15 +2123,33 @@ const API = {
   // Contas modelo do sistema (usadas no teste gratis) nunca sao bloqueadas.
   _ehModelo: (a) => !!a && (a.email === 'modelo.masculino@intusfit.local' || a.email === 'modelo.feminino@intusfit.local'),
 
-  // Lead = veio do autocadastro/captura, ou (legado) nao tem professor vinculado.
-  ehLead: (a) => {
+  // Matricula de CLIENTE: plano pago, pendente de pagamento ou bonificado/cortesia de presente. So o teste gratis fica de fora
+  // (e a matricula cancelada, criada por engano). "Cortesia" NAO e teste: o teste do app vem como "Teste Gratis (N dias)",
+  // e uma bonificacao e plano de verdade (mesma regra do servidor, _plano_aluno.php). Diferente de ehTestePlano, que
+  // trata cortesia como sem periodicidade para a COBRANCA: aqui a pergunta e outra (a pessoa virou cliente?).
+  ehMatriculaDeCliente: (m) => {
+    if (!m) return false;
+    if (String(m.stmatricula || '').toLowerCase() === 'cancelada') return false;
+    const alvo = (String(m.tipo_plano || '') + ' ' + String(m.dshistorico || '')).toLowerCase();
+    return !/\bteste\b|gr[aá]tis|trial|degusta|experimental/.test(alvo);
+  },
+
+  // Lead = veio do autocadastro/captura, ou (legado) nao tem professor vinculado. DEIXA de ser lead ao ganhar uma matricula de
+  // cliente (paga ou bonificada), qualquer que seja o caminho que a criou (painel, parcelamento, edicao do teste, webhook):
+  // quem passa a lista de matriculas recebe a regra completa. Sem a lista (chamada antiga) vale so a origem do cadastro.
+  ehLead: (a, mensalidades) => {
     if (!a) return false;
     if (API._ehModelo(a)) return false;
     const o = String(a.origem || '').toLowerCase();
-    if (o === 'app' || o === 'captura' || o === 'lead') return true;
     if (o === 'professor' || o === 'cliente') return false;
-    const p = a.professores_responsaveis;
-    return !(Array.isArray(p) && p.length > 0);
+    let lead;
+    if (o === 'app' || o === 'captura' || o === 'lead') lead = true;
+    else { const p = a.professores_responsaveis; lead = !(Array.isArray(p) && p.length > 0); }
+    if (lead && Array.isArray(mensalidades)) {
+      const id = Number(a.idatleta);
+      if (mensalidades.some(m => Number(m.idatleta) === id && API.ehMatriculaDeCliente(m))) return false;
+    }
+    return lead;
   },
 
   // Retorna { estado, ativo, inativo, bloqueado, motivo, diasVencido, lead }
@@ -2142,7 +2160,7 @@ const API = {
   // Inativo e bloqueado ficam FORA da lista de ativos e perdem acesso ao app.
   situacaoPlano: (atleta, mensalidades) => {
     const hojeStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    const lead = API.ehLead(atleta);
+    const lead = API.ehLead(atleta, mensalidades);
     const R = (estado, motivo, diasVencido) => ({
       estado: estado, ativo: estado === 'ativo', inativo: estado === 'inativo',
       bloqueado: estado === 'bloqueado', motivo: motivo || '',
@@ -2732,7 +2750,8 @@ const API = {
     try {
       const atletas = Store.get('atletas');
       const atleta = atletas.find(a => Number(a.idatleta) === Number(data.idatleta));
-      if (atleta && API.ehLead(atleta)) {
+      // (teste gratis criado pelo painel nao tira a pessoa de lead: so matricula de cliente, paga ou bonificada)
+      if (atleta && API.ehLead(atleta) && API.ehMatriculaDeCliente(data)) {
         await API.editarAtleta(data.idatleta, { origem: 'professor' });
         atleta.origem = 'professor';
         Store.set('atletas', atletas);

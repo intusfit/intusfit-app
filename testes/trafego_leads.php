@@ -172,5 +172,40 @@ $php = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/trafeg
 eq('leads, contato e responder_wa passam pela mesma porta de administrador do relatório', preg_match("/'leads', 'contato', 'responder_wa'\], true\)/", $php) === 1 && strpos($php, "empty(\$ctx['admin'])") !== false && strpos($php, "if (\$action === 'leads')") > strpos($php, "empty(\$ctx['admin'])") && strpos($php, "if (\$action === 'contato' || \$action === 'responder_wa')") > strpos($php, "empty(\$ctx['admin'])"), true);
 eq('registrar contato e responder pelo WhatsApp só aceitam POST', substr_count($php, "'use POST'") >= 1, true);
 
+echo "\n══ Matrícula bonificada também faz a pessoa virar cliente (23/10/2026) ══\n";
+$pdo2 = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$pdo2->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+$pdo2->exec("CREATE TABLE atleta (idatleta INTEGER PRIMARY KEY, nome TEXT, email TEXT, telefone TEXT, origem TEXT, dt_cadastro TEXT, ultimo_acesso TEXT, indicado_por_idatleta INT, stbloqueio TEXT)");
+$pdo2->exec("CREATE TABLE intus_mensalidade (idmensalidade INTEGER PRIMARY KEY AUTOINCREMENT, idatleta INT, dshistorico TEXT, tipo_plano TEXT, dtinicio TEXT, dtvencimento TEXT, stpgto TEXT, vlpagar REAL, vlpagamento REAL, stmatricula TEXT)");
+$pdo2->exec("CREATE TABLE intus_sessao (idsessao INTEGER PRIMARY KEY AUTOINCREMENT, idatleta INT, dtsessao TEXT, nao_contar INT DEFAULT 0, tipo TEXT)");
+$pdo2->exec("CREATE TABLE intus_acesso (idacesso INTEGER PRIMARY KEY AUTOINCREMENT, user_tipo TEXT, user_id INT, evento TEXT, criado_em TEXT)");
+$pdo2->exec("CREATE TABLE intus_lead (idlead INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, whatsapp TEXT, email TEXT, objetivo TEXT, origem TEXT, status TEXT, indicado_por_idatleta INT, criado_em TEXT)");
+foreach ([[1, 'Bonificado Pago'], [2, 'Cortesia Zero'], [3, 'Presente Bonificado'], [4, 'Teste Cortesia'], [5, 'Cliente Cancelado'], [6, 'Pago Sem Valor']] as [$i, $n]) {
+    $pdo2->prepare("INSERT INTO atleta (idatleta, nome, email, telefone, origem, dt_cadastro) VALUES (?,?,?,?,?,?)")->execute([$i, $n, "x$i@t.com", "4590000000$i", 'landing-teste-gratis', '2026-10-18 10:00:00']);
+}
+$m = fn($id, $hist, $tipo, $pg, $vlpagar, $vlpag, $st = 'ativa') => $pdo2->prepare("INSERT INTO intus_mensalidade (idatleta, dshistorico, tipo_plano, dtinicio, dtvencimento, stpgto, vlpagar, vlpagamento, stmatricula) VALUES (?,?,?,?,?,?,?,?,?)")->execute([$id, $hist, $tipo, '2026-10-18', '2026-11-18', $pg, $vlpagar, $vlpag, $st]);
+$m(1, 'Plano Bonificado', 'Bonificado', 'S', 0, 0);                               // bonificado, já "pago" com valor zero
+$m(2, 'Mensalidade', 'Personal', 'N', 0, null);                                    // nada a pagar (valor do ciclo zero), ainda não "baixado"
+$m(3, 'Cortesia Premium 30 dias', 'Consultoria', 'N', 300, null);                  // o próprio plano diz cortesia
+$m(4, 'Teste Grátis (3 dias)', 'Cortesia', 'S', 0, 0);                             // o teste do app: tipo "Cortesia" mas é TESTE
+$m(5, 'Teste Grátis (3 dias)', 'Cortesia', 'S', 0, 0);
+$m(5, 'Trimestral', 'Trimestral', 'N', 450, null, 'cancelada');                    // matrícula de cliente cancelada por engano: não conta
+$m(6, 'Mensal', 'Mensal', 'S', 150, null);                                          // paga, sem valor registrado na baixa
+$r2 = trLeads($pdo2, '2026-10-01', '2026-10-19', 'atleta', $t0);
+$p2 = []; foreach ($r2['pessoas'] as $p) $p2[$p['nome']] = $p;
+eq('plano bonificado com valor zero: virou cliente', [$p2['Bonificado Pago']['etapa'], $p2['Bonificado Pago']['matricula']['pago'], $p2['Bonificado Pago']['matricula']['bonificada']], ['cliente', true, true]);
+eq('nada a pagar (valor do ciclo zero): virou cliente', [$p2['Cortesia Zero']['etapa'], $p2['Cortesia Zero']['matricula']['bonificada']], ['cliente', true]);
+eq('plano que diz cortesia: virou cliente', $p2['Presente Bonificado']['etapa'], 'cliente');
+eq('o teste do app ("Cortesia" no tipo, "Teste Grátis" no histórico) NÃO vira cliente', [$p2['Teste Cortesia']['etapa'], $p2['Teste Cortesia']['matricula']], ['so_conta', null]);
+eq('matrícula de cliente cancelada não conta', [$p2['Cliente Cancelado']['etapa'], $p2['Cliente Cancelado']['matricula']], ['so_conta', null]);
+eq('paga sem valor registrado na baixa: virou cliente', $p2['Pago Sem Valor']['etapa'], 'cliente');
+eq('quem virou cliente não recebe mensagem de venda', [$p2['Bonificado Pago']['mensagem'], $p2['Cortesia Zero']['mensagem']], ['', '']);
+eq('trMatriculaDeCliente: teste e cancelada ficam de fora, o resto é cliente', [
+    trMatriculaDeCliente(['dshistorico' => 'Teste Grátis (3 dias)', 'tipo_plano' => 'Cortesia']),
+    trMatriculaDeCliente(['dshistorico' => 'Mensal', 'stmatricula' => 'cancelada']),
+    trMatriculaDeCliente(['dshistorico' => 'Mensal']),
+    trMatriculaDeCliente(['dshistorico' => 'Bonificado', 'tipo_plano' => 'Cortesia']),
+], [false, false, true, true]);
+
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Início — Intus</title>
   <script src="_mock.js?v=20261023a"></script>
-  <script src="api.js?v=20261021b"></script>
+  <script src="api.js?v=20261024a"></script>
   <style>
     .checklist-card { padding: 16px; }
     .checklist-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -319,7 +319,7 @@ function carregarDados() {
   const _sit = (a) => (typeof API !== 'undefined' && API.situacaoPlano)
     ? API.situacaoPlano(a, mensalidades)
     : { ativo: a.stbloqueio !== 'S', inativo: false, bloqueado: a.stbloqueio === 'S', lead: false };
-  const _lead = (a) => (typeof API !== 'undefined' && API.ehLead) ? API.ehLead(a) : false;
+  const _lead = (a) => (typeof API !== 'undefined' && API.ehLead) ? API.ehLead(a, mensalidades) : false;
 
   // === TREINOS (fichas — dtfim determina validade; se não tiver, considera 90 dias após dtinicio)
   const hoje = new Date(); hoje.setHours(0,0,0,0);
@@ -436,7 +436,7 @@ function carregarDados() {
   const totalCadastros = atletas.length;
   const crescimento = calcCrescimento(atletas, mensalidades, fichas, _vizMeses);
 
-  return { atletas, mensVencidas, mensAVencer, treVencidos, treAVencer,
+  return { atletas, mensalidades, mensVencidas, mensAVencer, treVencidos, treAVencer,
            receberVencidas, receberAVencer, recebidoMes, previsao30d,
            totalAlunos, alunosAtivos, alunosInativos, treinosAtivos, msgNaoLidas,
            totalCadastros, crescimento };
@@ -570,7 +570,9 @@ function gerarSugestoesChecklist() {
 }
 
 // Leads = alunos vindos do /app (autocadastro) ou de página de captura (teste grátis)
-function _isLeadIdx(a) {
+// Deixa de ser lead ao ganhar matrícula paga ou bonificada: a regra mora em API.ehLead (api.js); `mens` é a lista de matrículas.
+function _isLeadIdx(a, mens) {
+  if (typeof API !== 'undefined' && typeof API.ehLead === 'function') return API.ehLead(a, mens);
   const o = String(a.origem || '').toLowerCase();
   if (o === 'app' || o === 'captura' || o === 'lead') return true;
   if (o === 'professor' || o === 'cliente') return false;
@@ -578,8 +580,8 @@ function _isLeadIdx(a) {
   const temProf = Array.isArray(a.professores_responsaveis) && a.professores_responsaveis.length > 0;
   return !temProf;
 }
-function _isLeadNovoIdx(a) {
-  if (!_isLeadIdx(a)) return false;
+function _isLeadNovoIdx(a, mens) {
+  if (!_isLeadIdx(a, mens)) return false;
   let vistos = []; try { vistos = JSON.parse(localStorage.getItem('intus-leads-vistos') || '[]').map(Number); } catch (e) {}
   if (vistos.includes(Number(a.idatleta))) return false;
   if (!a.dtcadastro) return true;
@@ -1059,7 +1061,7 @@ function renderCrescimento(c) {
 function render() {
   const d = carregarDados();
   const admin = isAdmin();
-  const lnovos = (d.atletas || []).filter(_isLeadNovoIdx);
+  const lnovos = (d.atletas || []).filter(a => _isLeadNovoIdx(a, d.mensalidades));
 
   const nome = (Sessao.atual()?.nome || 'Professor').split(' ')[0];
   const saudacao = (() => {

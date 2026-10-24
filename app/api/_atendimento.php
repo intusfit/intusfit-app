@@ -1368,6 +1368,9 @@ function atd_ids_leads_clientes(PDO $pdo, ?string $tbl, string $de, string $ate)
             if (atd_conta_eh_lead($r, $cOri, $cEmail)) $ids[] = (int)$r[$cId];
         }
     } catch (Throwable $e) { wa_log_erro($e); }
+    // Quem ganhou matrícula de cliente (paga ou bonificada) segue aqui de propósito: a Central e Pessoas Captadas mostram o funil inteiro,
+    // então a pessoa aparece na etapa "Virou cliente" (trLeads) e conta na conversão do canal, mas sai da fila de atendimento.
+    // Em Clientes e no painel inicial ela deixa de ser lead (API.ehLead, api.js).
     return $ids;
 }
 

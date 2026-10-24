@@ -444,9 +444,28 @@ function trParaBrt(string $utc): string
     try { return (new DateTime($utc, new DateTimeZone('UTC')))->setTimezone(new DateTimeZone(TR_FUSO))->format('Y-m-d H:i:s'); } catch (Throwable $e) { return $utc; }
 }
 
+/**
+ * Matrícula de TESTE grátis (a criada pelo cadastro do app é "Teste Grátis (N dias)"). "Cortesia" NÃO é teste: é plano bonificado, dado de presente,
+ * e quem o recebe virou cliente (mesma regra de _plano_aluno.php e de API.ehMatriculaDeCliente, api.js).
+ */
 function trEhPlanoTeste(array $m): bool
 {
-    return preg_match('/\bteste\b|gr[aá]tis|trial|degusta|experimental|cortesia/iu', (string)($m['tipo_plano'] ?? '') . ' ' . (string)($m['dshistorico'] ?? '')) === 1;
+    return preg_match('/\bteste\b|gr[aá]tis|trial|degusta|experimental/iu', (string)($m['tipo_plano'] ?? '') . ' ' . (string)($m['dshistorico'] ?? '')) === 1;
+}
+
+/** Matrícula de CLIENTE: paga, a pagar ou bonificada. Só o teste grátis e a matrícula cancelada ficam de fora. Mesma regra de API.ehMatriculaDeCliente (api.js). */
+function trMatriculaDeCliente(array $m): bool
+{
+    if (strtolower((string)($m['stmatricula'] ?? '')) === 'cancelada') return false;
+    return !trEhPlanoTeste($m);
+}
+
+/** Matrícula bonificada: o plano diz cortesia/bonificado/brinde/gratuito ou não há nada a pagar (valor do ciclo zero). Só vale para matrícula de cliente. */
+function trMatriculaBonificada(array $m): bool
+{
+    if (!trMatriculaDeCliente($m)) return false;
+    if (preg_match('/bonific|cortesia|brinde|gratuit|isen/iu', (string)($m['tipo_plano'] ?? '') . ' ' . (string)($m['dshistorico'] ?? '')) === 1) return true;
+    return isset($m['vlpagar']) && $m['vlpagar'] !== '' && (float)$m['vlpagar'] <= 0;
 }
 
 /**
@@ -500,7 +519,7 @@ function trLeads(PDO $pdo, string $de, string $ate, ?string $tblAtleta, ?int $ts
     $treinos = []; $mats = []; $abert = [];
     if ($ids) {
         try { $st = $pdo->prepare("SELECT idatleta, COUNT(*) AS n, MIN(dtsessao) AS p, MAX(dtsessao) AS u FROM intus_sessao WHERE idatleta IN ($ph) AND (nao_contar IS NULL OR nao_contar = 0) GROUP BY idatleta"); $st->execute($ids); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $treinos[(int)$r['idatleta']] = $r; } catch (Throwable $e) {}
-        try { $st = $pdo->prepare("SELECT idatleta, dshistorico, tipo_plano, dtinicio, dtvencimento, stpgto, vlpagamento, stmatricula FROM intus_mensalidade WHERE idatleta IN ($ph)"); $st->execute($ids); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $mats[(int)$r['idatleta']][] = $r; } catch (Throwable $e) {}
+        try { $st = $pdo->prepare("SELECT * FROM intus_mensalidade WHERE idatleta IN ($ph)"); $st->execute($ids);   /* * de propósito: vlpagar e stmatricula podem faltar num banco antigo */ foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $mats[(int)$r['idatleta']][] = $r; } catch (Throwable $e) {}
         try { $st = $pdo->prepare("SELECT user_id, COUNT(*) AS n, MAX(criado_em) AS u FROM intus_acesso WHERE user_tipo = 'aluno' AND evento IN ('abertura','login') AND user_id IN ($ph) GROUP BY user_id"); $st->execute($ids); foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $abert[(int)$r['user_id']] = $r; } catch (Throwable $e) {}
     }
     // Nomes de quem indicou
@@ -533,16 +552,22 @@ function trLeads(PDO $pdo, string $de, string $ate, ?string $tblAtleta, ?int $ts
             // "abriu o app": houve abertura registrada; sem a tabela de acessos, vale o último acesso uns minutos depois do cadastro
             $p['abriu_app'] = $p['aberturas'] > 0 || ($ult && $criadoTs && strtotime((string)$ult) - $criadoTs > 600);
             $p['bloqueado'] = isset($r['stbloqueio']) && $r['stbloqueio'] === 'S';
-            $pago = false; $pend = false; $teste = null; $planoPago = null; $valor = null;
+            $pago = false; $pend = false; $teste = null; $planoPago = null; $valor = null; $bonif = false;
             foreach ($mats[$id] ?? [] as $m) {
-                if (strtolower((string)($m['stmatricula'] ?? '')) === 'cancelada') continue;
-                if (trEhPlanoTeste($m)) { $teste = ['inicio' => $m['dtinicio'], 'vence' => $m['dtvencimento']]; continue; }
-                if (($m['stpgto'] ?? '') === 'S' && (float)($m['vlpagamento'] ?? 0) > 0) { $pago = true; $planoPago = $m['tipo_plano'] ?: $m['dshistorico']; $valor = (float)$m['vlpagamento']; }
+                if (!trMatriculaDeCliente($m)) {
+                    if (strtolower((string)($m['stmatricula'] ?? '')) !== 'cancelada') $teste = ['inicio' => $m['dtinicio'], 'vence' => $m['dtvencimento']];
+                    continue;
+                }
+                // Virou cliente = matrícula paga OU bonificada (valor zero, cortesia): quem ganhou um plano de presente não é mais lead.
+                if (($m['stpgto'] ?? '') === 'S' || trMatriculaBonificada($m)) {
+                    $pago = true; $planoPago = $m['tipo_plano'] ?: $m['dshistorico']; $valor = (float)($m['vlpagamento'] ?? 0);
+                    if (trMatriculaBonificada($m) && $valor <= 0) $bonif = true;
+                }
                 elseif (($m['stpgto'] ?? '') === 'N') { $pend = true; $planoPago = $planoPago ?: ($m['tipo_plano'] ?: $m['dshistorico']); }
             }
             if ($teste) { $teste['dias_restantes'] = (int)round((strtotime((string)$teste['vence']) - strtotime($hoje)) / 86400); $teste['expirou'] = $teste['dias_restantes'] < 0; }
             $p['teste'] = $teste;
-            $p['matricula'] = ($pago || $pend) ? ['plano' => $planoPago, 'pago' => $pago, 'valor' => $valor] : null;
+            $p['matricula'] = ($pago || $pend) ? ['plano' => $planoPago, 'pago' => $pago, 'valor' => $valor, 'bonificada' => $bonif] : null;
             $etapa = $pago ? 'cliente' : ($pend ? 'negociando' : (($teste && $teste['expirou']) ? 'teste_expirado' : ($p['treinos'] > 0 ? 'treinando' : ($p['abriu_app'] ? 'abriu_app' : 'so_conta'))));
         } elseif ($p['tipo'] === 'contato' && isset($leadsRows[$p['id']])) {
             $r = $leadsRows[$p['id']];
