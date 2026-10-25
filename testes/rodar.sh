@@ -43,6 +43,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "login do aluno e faixa de notificação" node login_aluno.js
   passo "teste grátis no app: sem Feed nem comentário" node teste_gratis_front.js
   passo "publicar nunca fica travado (figurinha, logo, servidor mudo)" node publicar_travado.js
+  passo "compartilhar treino/cardio: figurinha e informações movem e redimensionam (foto, câmera, vídeo), nada sai cortado" node compartilhar_pecas.js
   passo "faixa de notificação some de verdade (iPhone com ilha)" node aviso_notificacao.js
   passo "cobrança: ciclo pago na linha de cima avisa quando vence" node cobranca_paga_anterior.js
   passo "aviso de mensalidade no sino do aluno" node aviso_mensalidade_aluno.js

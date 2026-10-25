@@ -1709,13 +1709,22 @@ function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'log
 // todo template segue a mesma regra: uma faixa fina no topo (só a logo) e uma
 // faixa fina embaixo (nome/treino/estatísticas), no máximo ~1/3 da altura do
 // cartão juntas — o resto fica transparente pra foto aparecer inteira.
-function _shareFigMini(fig, escala) {
-  // Quem chama já decide se a figurinha entra ou não (passando fig ou null) —
-  // ver _composeIncluirFig — não depende mais de um estado global aqui dentro.
+// A figurinha é uma peça SOLTA (data-ov="fig"), separada do bloco de informações (data-ov="info"): cada uma tem a própria posição e o
+// próprio tamanho (ver _ovGestos). Aqui ela só nasce no lugar de partida, logo acima do bloco; quem quiser, move e redimensiona.
+// Quem chama já decide se a figurinha entra ou não (passando fig ou null) — ver _composeIncluirFig.
+function _shareFigSolta(fig, escala, grande) {
   if (!fig) return '';
-  if (fig.tipo === 'img' && fig.src) return `<img src="${esc(fig.src)}" style="width:${_sPx(44,escala)};height:${_sPx(44,escala)};object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'"/>`;
-  return `<div style="font-size:${_sPx(38,escala)};line-height:1;flex-shrink:0;">${esc(fig.emoji||'💪')}</div>`;
+  const sombra = 'filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));';
+  if (fig.tipo === 'img' && fig.src) { const t = _sPx(grande ? 112 : 64, escala); return `<img data-ov="fig" src="${esc(fig.src)}" alt="" style="display:block;width:${t};height:${t};object-fit:contain;flex-shrink:0;${sombra}" onerror="this.style.display='none'"/>`; }
+  return `<div data-ov="fig" style="font-size:${_sPx(grande ? 96 : 54, escala)};line-height:1;flex-shrink:0;${sombra}">${esc(fig.emoji || '💪')}</div>`;
 }
+// Coluna de partida: figurinha em cima, bloco embaixo, ancorada a SHARE_INFO_FUNDO do fundo (cresce para cima). Cada filho recebe depois o
+// deslocamento e a escala do aluno, então a coluna só decide onde as peças começam.
+function _shareColunaHtml(figHtml, blocoHtml, escala, centrada) {
+  return `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};display:flex;flex-direction:column;align-items:${centrada ? 'center' : 'flex-start'};gap:${_sPx(centrada ? 12 : 8, escala)};">${figHtml}${blocoHtml}</div>`;
+}
+// Texto que não cabe numa linha de verdade ganha reticências AQUI (e não por CSS): a prévia e a imagem final passam pelo mesmo texto.
+function _shareTruncar(txt, max) { const t = String(txt == null ? '' : txt).trim(); return t.length > max ? t.slice(0, max - 1).trimEnd() + '…' : t; }
 // BUG real: em largura de celular de verdade (a prévia é min(78vw,300px) —
 // a 375px de tela isso é ~292px, mais estreito que os 300px fixos usados
 // nos testes em viewport largo), as 4 células mediam a própria largura de
@@ -1780,18 +1789,21 @@ function _shareRecordeBadgeHtml(info, escala) {
     <div style="font-size:${_sPx(11.5,escala)};font-weight:700;color:#fff;margin-top:2px;line-height:1.4;">${linhas}</div>
   </div>`;
 }
-function _shareBarraInferior(info, fig, nivel, escala) {
+function _shareBarraInferior(info, nivel, escala) {
   const n = nivel || 0;
   let html = '';
   html += _shareRecordeBadgeHtml(info, escala);
   if (n < 2) {
-    html += `<div style="display:flex;align-items:center;gap:${_sPx(12,escala)};">
-      ${_shareFigMini(fig, escala)}
-      <div style="flex:1;min-width:0;text-align:left;">
-        <div style="font-size:${_sPx(13,escala)};color:#ddd;line-height:1.2;overflow-wrap:anywhere;">${esc(info.nomeAluno)}</div>
-        <div style="font-size:${_sPx(17,escala)};font-weight:900;color:#fff;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${esc(info.nomeTreino)}</div>
+    // A logo fica na linha do nome do aluno, não ao lado do treino: dividindo a largura com ela (e antes com a figurinha) o nome do
+    // treino sobrava com ~57 px e palavras como "Metabólica" saíam cortadas nos modelos em 9:16.
+    const nomeTreino = _shareTruncar(info.nomeTreino, 64);
+    const fonteTreino = nomeTreino.length <= 26 ? 17 : (nomeTreino.length <= 42 ? 15 : 13.5);
+    html += `<div style="text-align:left;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:${_sPx(10,escala)};">
+        <div style="flex:1;min-width:0;font-size:${_sPx(13,escala)};color:#ddd;line-height:1.2;overflow-wrap:anywhere;">${esc(_shareTruncar(info.nomeAluno, 32))}</div>
+        <img src="${_shareLogoSrc(false)}" alt="Intus" style="height:${_sPx(14,escala)};width:auto;flex-shrink:0;opacity:.95;"/>
       </div>
-      <img src="${_shareLogoSrc(false)}" alt="Intus" style="height:${_sPx(14,escala)};width:auto;flex-shrink:0;align-self:flex-start;margin-top:${_sPx(3,escala)};opacity:.95;"/>
+      <div style="margin-top:${_sPx(2,escala)};font-size:${_sPx(fonteTreino,escala)};font-weight:900;color:#fff;line-height:1.15;overflow-wrap:anywhere;">${esc(nomeTreino)}</div>
     </div>`;
   }
   if (n < 1) html += _shareStatsRow(info, escala);
@@ -1819,20 +1831,22 @@ const SHARE_LOGO_TOPO = '9%';    // logo virou selo no canto superior direito
 const SHARE_LADO = '5%';         // margem lateral — 7% deixava pouca largura pras 4 células de estatística
 function _tplTransparenteHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
+  const n = nivel || 0;
   return `<div class="share-card" style="${bg}">
-    ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
-      ${_shareBarraInferior(info, fig, nivel, escala)}
-    </div>` : ''}
+    ${n < 3 ? _shareColunaHtml(_shareFigSolta(fig, escala, false), `<div data-ov="info" style="align-self:stretch;box-sizing:border-box;padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
+      ${_shareBarraInferior(info, nivel, escala)}
+    </div>`, escala, false) : ''}
     ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
 function _tplFotoHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:linear-gradient(160deg,#2a2f22,#0f0f0f 70%);`;
+  const n = nivel || 0;
   return `<div class="share-card" style="${bg}">
-    ${(nivel||0) < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.6);border-radius:${_sPx(16,escala)};">
-      <div style="font-size:${_sPx(12.5,escala)};color:#7FFF00;font-weight:800;margin-bottom:${_sPx(6,escala)};">${info.tipo==='cardio' ? esc(info.nomeTreino) : info.pctCompleto+'% COMPLETO'}</div>
-      ${_shareBarraInferior(info, fig, nivel, escala)}
-    </div>` : ''}
+    ${n < 3 ? _shareColunaHtml(_shareFigSolta(fig, escala, false), `<div data-ov="info" style="align-self:stretch;box-sizing:border-box;padding:${_sPx(16,escala)} ${_sPx(18,escala)};background:rgba(10,10,10,.6);border-radius:${_sPx(16,escala)};">
+      <div style="font-size:${_sPx(12.5,escala)};color:#7FFF00;font-weight:800;margin-bottom:${_sPx(6,escala)};">${info.tipo==='cardio' ? esc(_shareTruncar(info.nomeTreino, 40)) : info.pctCompleto+'% COMPLETO'}</div>
+      ${_shareBarraInferior(info, nivel, escala)}
+    </div>`, escala, false) : ''}
     ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
@@ -1841,16 +1855,13 @@ function _tplStoryHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const n = nivel || 0;
   return `<div class="share-card" style="${bg}">
     ${soBloco ? '' : _infoMolduraHtml('story', escala)}
-    ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};padding:${_sPx(16,escala)} ${_sPx(17,escala)};background:rgba(10,10,10,.75);border:1px solid rgba(127,255,0,.3);border-radius:${_sPx(15,escala)};">
-      ${n < 2 ? `<div style="display:flex;align-items:center;gap:${_sPx(9,escala)};margin-bottom:${_sPx(7,escala)};">
-        ${_shareFigMini(fig, escala)}
-        <div style="font-size:${_sPx(12,escala)};color:#bbb;letter-spacing:.05em;">HOJE EU TREINEI</div>
-      </div>` : ''}
+    ${n < 3 ? _shareColunaHtml(_shareFigSolta(fig, escala, false), `<div data-ov="info" style="align-self:stretch;box-sizing:border-box;padding:${_sPx(16,escala)} ${_sPx(17,escala)};background:rgba(10,10,10,.75);border:1px solid rgba(127,255,0,.3);border-radius:${_sPx(15,escala)};">
+      ${n < 2 ? `<div style="font-size:${_sPx(12,escala)};color:#bbb;letter-spacing:.05em;margin-bottom:${_sPx(7,escala)};">HOJE EU TREINEI</div>` : ''}
       ${n < 1 ? `<div style="display:flex;align-items:center;gap:${_sPx(10,escala)};">
         <div style="font-size:${_sPx(34,escala)};font-weight:900;color:#7FFF00;flex-shrink:0;">${info.tipo==='cardio' ? (info.distKm||0).toFixed(1)+'km' : info.pctCompleto+'%'}</div>
-        <div style="flex:1;min-width:0;"><div style="font-size:${_sPx(15,escala)};font-weight:800;color:#fff;line-height:1.15;overflow-wrap:anywhere;">${esc(info.nomeTreino)}</div>${(info.tipo==='cardio' ? (info.kcal!=null) : !!info.volume) ? `<div style="font-size:${_sPx(12,escala)};color:#ccc;margin-top:${_sPx(2,escala)};">${info.tipo==='cardio' ? Math.round(info.kcal)+' kcal' : info.volume.toLocaleString('pt-BR')+' kg'}</div>` : ''}</div>
+        <div style="flex:1;min-width:0;"><div style="font-size:${_sPx(15,escala)};font-weight:800;color:#fff;line-height:1.15;overflow-wrap:anywhere;">${esc(_shareTruncar(info.nomeTreino, 64))}</div>${(info.tipo==='cardio' ? (info.kcal!=null) : !!info.volume) ? `<div style="font-size:${_sPx(12,escala)};color:#ccc;margin-top:${_sPx(2,escala)};">${info.tipo==='cardio' ? Math.round(info.kcal)+' kcal' : info.volume.toLocaleString('pt-BR')+' kg'}</div>` : ''}</div>
       </div>` : ''}
-    </div>` : ''}
+    </div>`, escala, false) : ''}
     ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
@@ -1867,24 +1878,17 @@ const _FILTRO_VIBRANTE = 'saturate(1.55) contrast(1.2) brightness(1.03)';
 function _tplFigurinhaGrandeHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const bg = bgImg === 'LIVE' ? 'background:transparent;' : bgImg ? `background:url('${bgImg}') center/cover;` : `background:repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 0/20px 20px;`;
   const n = nivel || 0;
-  const temFig = fig && n < 3;
-  const figGrandeHtml = !temFig ? '' : (fig.tipo === 'img' && fig.src)
-    ? `<img src="${esc(fig.src)}" style="width:${_sPx(112,escala)};height:${_sPx(112,escala)};object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'"/>`
-    : `<div style="font-size:${_sPx(96,escala)};line-height:1;filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));">${esc(fig.emoji||'💪')}</div>`;
   return `<div class="share-card" style="${bg}">
-    ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};display:flex;flex-direction:column;align-items:center;gap:${_sPx(12,escala)};">
-      ${figGrandeHtml}
-      <div style="width:100%;padding:${_sPx(14,escala)} ${_sPx(16,escala)};box-sizing:border-box;background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
+    ${n < 3 ? _shareColunaHtml(_shareFigSolta(fig, escala, true), `<div data-ov="info" style="align-self:stretch;box-sizing:border-box;padding:${_sPx(14,escala)} ${_sPx(16,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
         ${_shareRecordeBadgeHtml(info, escala)}
         ${n < 2 ? `<div style="display:flex;align-items:center;justify-content:center;text-align:center;">
           <div style="min-width:0;">
-            <div style="font-size:${_sPx(13,escala)};color:#ddd;line-height:1.2;overflow-wrap:anywhere;">${esc(info.nomeAluno)}</div>
-            <div style="font-size:${_sPx(17,escala)};font-weight:900;color:#fff;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${esc(info.nomeTreino)}</div>
+            <div style="font-size:${_sPx(13,escala)};color:#ddd;line-height:1.2;overflow-wrap:anywhere;">${esc(_shareTruncar(info.nomeAluno, 32))}</div>
+            <div style="font-size:${_sPx(17,escala)};font-weight:900;color:#fff;line-height:1.15;overflow-wrap:anywhere;">${esc(_shareTruncar(info.nomeTreino, 64))}</div>
           </div>
         </div>` : ''}
         ${n < 1 ? `<div style="display:flex;justify-content:center;">${_shareStatsRow(info, escala)}</div>` : ''}
-      </div>
-    </div>` : ''}
+      </div>`, escala, true) : ''}
     ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
@@ -1897,14 +1901,14 @@ function _tplFraseHtml(info, fig, bgImg, isLight, nivel, escala, soBloco) {
   const frase = info.mensagem || (typeof getMensagemFinal === 'function' ? getMensagemFinal() : '');
   const n = nivel || 0;
   return `<div class="share-card" style="${bg}">
-    ${n < 3 ? `<div style="position:absolute;left:${SHARE_LADO};right:${SHARE_LADO};bottom:${SHARE_INFO_FUNDO};">
+    ${n < 3 ? _shareColunaHtml(_shareFigSolta(fig, escala, false), `<div data-ov="info" style="align-self:stretch;box-sizing:border-box;">
       ${frase && n < 2 ? `<div style="text-align:center;padding:${_sPx(18,escala)} ${_sPx(16,escala)};background:rgba(10,10,10,.62);border-radius:${_sPx(16,escala)};margin-bottom:${_sPx(14,escala)};">
-        <div style="font-size:${_sPx(20,escala)};font-weight:900;color:#fff;line-height:1.35;text-shadow:0 2px 6px rgba(0,0,0,.6);">${esc(frase)}</div>
+        <div style="font-size:${_sPx(20,escala)};font-weight:900;color:#fff;line-height:1.35;text-shadow:0 2px 6px rgba(0,0,0,.6);overflow-wrap:anywhere;">${esc(frase)}</div>
       </div>` : ''}
       <div style="padding:${_sPx(14,escala)} ${_sPx(16,escala)};background:rgba(10,10,10,.58);border-radius:${_sPx(16,escala)};">
-        ${_shareBarraInferior(info, fig, nivel, escala)}
+        ${_shareBarraInferior(info, nivel, escala)}
       </div>
-    </div>` : ''}
+    </div>`, escala, false) : ''}
     ${soBloco ? '' : _shareLogoRodape(isLight, escala)}
   </div>`;
 }
@@ -2054,13 +2058,17 @@ async function _compositarInfoNaFoto(dataUrl) {
   // texto/figurinha no mesmo tamanho relativo de sempre — a foto pode ser
   // bem maior que isso (resolução nativa), então renderiza numa largura CSS
   // razoável e depois escala o html2canvas pra bater com o pixel real da foto.
-  const cssW = Math.min(340, img.width);
+  // Na MESMA largura em que a prévia foi desenhada: assim as quebras de linha e as posições das duas peças saem iguais ao que o aluno viu.
+  const cssW = _composePrevW > 0 ? _composePrevW : _composeLarguraBase();
   const cssH = cssW * (img.height / img.width);
   const escala = _shareEscalaComAltura(cssW, img.height / img.width);
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + cssW + 'px;height:' + cssH + 'px;pointer-events:none;';
   host.innerHTML = layout.render(_composeInfoParaRender(), fig, 'LIVE', isLight, 0, escala, true);
   document.body.appendChild(host);
+  const est = _composeEstados();
+  _ovAplicarEstados(host, cssW, cssH, est);
+  host.querySelectorAll('[data-ov]').forEach(function (el) { _ovManterDentro(el, host, est[el.getAttribute('data-ov')] || { x: 0, y: 0, s: 1 }, est, host); });   // nenhuma peça sai cortada da imagem
   try {
     const node = host.querySelector('.share-card');
     // O html2canvas clona a PÁGINA INTEIRA (feed com dezenas de fotos, o editor com as imagens do carrossel em base64...) e não tem prazo próprio:
@@ -2074,7 +2082,7 @@ async function _compositarInfoNaFoto(dataUrl) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
     _infoMolduraDesenhar(ctx, _composeInfoLayoutIdx, img.width, img.height);   // moldura fixa, não acompanha a figurinha
-    _ovDesenhar(ctx, infoCanvas, _composeInfoT, img.width, img.height);   // na posição e no tamanho que o aluno ajustou
+    ctx.drawImage(infoCanvas, 0, 0, img.width, img.height);   // as peças já estão na posição e no tamanho que o aluno ajustou
     return canvas.toDataURL('image/jpeg', 0.88);
   } finally {
     host.remove();
@@ -2192,14 +2200,21 @@ async function _composeAcao(tipo) {
       return;
     }
 
+    if (_composeExternoOcupado) return;   // toque repetido enquanto a imagem ainda está sendo gerada
+    _composeExternoOcupado = true;
+    try {
     toast('Gerando imagem...');
-    const dataUrl = await _composeImagemFinal();
-    const blob = await _dataUrlParaBlob(dataUrl);
     const fname = 'intus-' + dataHojeLocal() + '.jpg';
+    // O que sai para fora do app é o post inteiro: a foto final (com figurinha, informações e logo), as outras fotos do carrossel e os vídeos.
+    // Antes saía só a capa, mesmo num post de vídeo ou de várias fotos.
+    const arquivos = await _composeArquivosExternos(fname);
+    if (!arquivos.length) { toast('Não achei nada para compartilhar.'); return; }
+    const primeiraFoto = arquivos.find(f => /^image\//.test(f.type));
 
     if (tipo === 'copiar') {
+      if (!primeiraFoto) { toast('Copiar só funciona com foto. Use Salvar para o vídeo.'); return; }
       if (!navigator.clipboard || !window.ClipboardItem) { toast('Seu navegador não suporta copiar imagem — tente Salvar.'); return; }
-      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': blob })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': await _blobParaPng(primeiraFoto) })]);   // o Chrome só aceita PNG na área de transferência
       toast('Imagem copiada! ✅');
       return;
     }
@@ -2208,21 +2223,47 @@ async function _composeAcao(tipo) {
       // anexada — isso só existe via Web Share API, que abre o seletor do
       // sistema (o WhatsApp/Instagram aparecem ali, geralmente entre as
       // primeiras opções). É a única forma real de entregar a imagem pro app.
-      const file = new File([blob], fname, { type: 'image/jpeg' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: 'Meu treino Intus' }); return; }
+      if (navigator.canShare && navigator.canShare({ files: arquivos })) {
+        const legenda = String((document.getElementById('feed-compose-legenda') || {}).value || _feedComposeCaption || '').trim();
+        try { await navigator.share({ files: arquivos, title: 'Meu treino Intus', text: legenda || undefined }); return; }
         catch (e) { if (e && e.name === 'AbortError') return; }
       }
     }
-    // 'salvar', ou compartilhamento sem suporte a Web Share com arquivo: mostra
-    // a imagem NA PRÓPRIA TELA pra salvar com toque-e-segure (Salvar Imagem /
-    // Adicionar à Galeria), que no celular vai direto pra galeria de fotos.
-    _shareMostrarParaSalvar(blob, fname);
+    // 'salvar', ou compartilhamento sem suporte a Web Share com arquivo: foto única aparece NA PRÓPRIA TELA pra salvar com
+    // toque-e-segure (Salvar Imagem / Adicionar à Galeria), que no celular vai direto pra galeria; vários arquivos e vídeo baixam.
+    if (arquivos.length === 1 && primeiraFoto) _shareMostrarParaSalvar(primeiraFoto, fname);
+    else await _baixarArquivos(arquivos);
+    } finally { _composeExternoOcupado = false; }
   } catch (e) {
     if (e && e.name === 'AbortError') return; // usuário cancelou o share nativo
     console.error('compartilhar:', e);
     toast(tipo === 'feed' || tipo === 'perfil' ? 'Não consegui publicar: ' + (e.message || 'erro desconhecido') : 'Não consegui gerar a imagem agora.');
   }
+}
+var _composeExternoOcupado = false;
+// A área de transferência do Chrome só aceita PNG; a imagem do post é JPEG. Converte antes de copiar.
+async function _blobParaPng(blob) {
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0);
+  return await new Promise(function (res, rej) { c.toBlob(function (b) { b ? res(b) : rej(new Error('png')); }, 'image/png'); });
+}
+// Arquivos do post para WhatsApp, Instagram, Copiar e Salvar: a imagem final (se o post não é de vídeo), as fotos extras do carrossel já
+// recortadas e com filtro, e os vídeos já preparados.
+async function _composeArquivosExternos(fname) {
+  const arquivos = [];
+  const ehVideoCapa = !!(_composeVideoCapa && _composeExtras[0] && _composeExtras[0].tipo === 'video');
+  if (!ehVideoCapa) arquivos.push(new File([await _dataUrlParaBlob(await _composeImagemFinal())], fname, { type: 'image/jpeg' }));
+  for (let i = 0; i < _composeExtras.length; i++) {
+    const it = _composeExtras[i];
+    if (it.tipo === 'video' && it.file) {
+      const ext = /webm/.test(it.mime || '') ? 'webm' : 'mp4';
+      arquivos.push(new File([it.file], 'intus-video-' + (i + 1) + '.' + ext, { type: it.mime || it.file.type || 'video/mp4' }));
+    } else if (it.tipo === 'imagem' && it.src) {
+      arquivos.push(new File([await _dataUrlParaBlob(await _composeProcessarExtra(it.src))], fname.replace(/\.jpg$/, '-' + (i + 2) + '.jpg'), { type: 'image/jpeg' }));
+    }
+  }
+  return arquivos;
 }
 
 function _shareMostrarParaSalvar(blob, fname) {
@@ -3875,9 +3916,13 @@ let _composeOrigem = 'post'; // 'post' | 'treino' | 'cardio'
 let _composeInfo = null;
 let _composeInfoOn = false;
 let _composeInfoLayoutIdx = 0;
-let _composeInfoT = { x: 0, y: 0, s: 1 };   // posição e tamanho da figurinha na foto (ver _ovGestos)
-let _composeAjustando = false;              // modo de ajuste ligado: a figurinha recebe o dedo em vez de a tela rolar
-function _composeInfoReset() { _composeInfoT.x = 0; _composeInfoT.y = 0; _composeInfoT.s = 1; _composeAjustando = false; }
+let _composeInfoT = { x: 0, y: 0, s: 1 };   // posição e tamanho do bloco de informações (ver _ovGestos)
+let _composeFigT = { x: 0, y: 0, s: 1 };    // posição e tamanho da figurinha, independentes do bloco
+let _composeAjustando = false;              // modo de ajuste ligado: as peças recebem o dedo em vez de a tela rolar
+let _composeAlvo = 'fig';                   // a peça que o dedo move: 'fig' (figurinha) ou 'info' (informações)
+let _composePrevW = 0;                      // largura (px) em que a prévia foi desenhada: a imagem final é montada nessa mesma largura
+function _composeEstados() { return { fig: _composeFigT, info: _composeInfoT }; }
+function _composeInfoReset() { _composeInfoT.x = 0; _composeInfoT.y = 0; _composeInfoT.s = 1; _composeFigT.x = 0; _composeFigT.y = 0; _composeFigT.s = 1; _composeAjustando = false; _composeAlvo = 'fig'; }
 let _composeFig = null;
 let _composeIncluirFig = true;
 // Foto escolhida que parece CAPTURA DE TELA (proporção de celular, 2:1 ou mais alta). Print da tela de conquista, do ranking, do app: não leva
@@ -3947,30 +3992,63 @@ function _composeInfoDisponivel() {
   return { treino, cardio };
 }
 
-// Gestos de arrastar e pinça na figurinha da foto. Só recebe o dedo no modo "Ajustar figurinha": fora dele a tela
-// rola normalmente (a figurinha cobre a foto toda e roubaria a rolagem).
+// Largura da coluna do compositor: o contêiner tem no máximo 340 px e 16 px de margem de cada lado. A prévia (foto ou câmera) e as medidas do bloco
+// de informações usam este valor, senão a prévia passava de 308 px e saía deslocada para a direita em celulares de 372 px ou mais.
+function _composeLarguraBase() { return Math.max(200, Math.min(window.innerWidth, 340) - 32); }
+// Gestos de arrastar e pinça nas duas peças (figurinha e informações), na foto E na câmera ao vivo. Só recebem o dedo no modo "Ajustar":
+// fora dele a tela rola normalmente (as peças cobrem a foto toda e roubariam a rolagem).
 var _composeGestos = null;
 function _composeAtivarGestosInfo() {
   const camada = document.getElementById('feed-compose-info-layer');
   const moldura = document.getElementById('feed-compose-preview');
   _composeGestos = null;
-  if (!camada || !moldura || !_feedComposeImg) return;
-  _composeGestos = _ovGestos(moldura, camada, _composeInfoT);
+  if (!camada || !moldura) return;
+  _composeGestos = _ovGestos(moldura, camada, _composeEstados(), { alvo: function () { return _composeAlvo; }, escolher: _composeEscolherAlvo });
   _composeAplicarAjuste();
 }
+function _composePecaExiste(nome) { return nome === 'fig' ? !!(_composeIncluirFig && _composeFig) : !!_composeInfo; }
 function _composeAplicarAjuste() {
   const camada = document.getElementById('feed-compose-info-layer');
-  if (camada) { camada.style.pointerEvents = _composeAjustando ? 'auto' : 'none'; camada.style.outline = _composeAjustando ? '2px dashed #7FFF00' : 'none'; }
-  const b = document.getElementById('feed-ajustar-btn'); if (b) b.textContent = _composeAjustando ? '✓ Pronto' : '✋ Ajustar figurinha';
-  const r = document.getElementById('feed-ajustar-reset'); if (r) r.style.display = _composeAjustando ? 'inline-block' : 'none';
-  const d = document.getElementById('feed-ajustar-dica'); if (d) d.style.display = _composeAjustando ? 'block' : 'none';
+  if (_composeAjustando && !_composePecaExiste(_composeAlvo)) _composeAlvo = _composePecaExiste('fig') ? 'fig' : 'info';
+  if (camada) {
+    camada.style.pointerEvents = _composeAjustando ? 'auto' : 'none';
+    camada.querySelectorAll('[data-ov]').forEach(function (el) {
+      const ativa = _composeAjustando && el.getAttribute('data-ov') === _composeAlvo;
+      el.style.outline = ativa ? '2px dashed #7FFF00' : 'none'; el.style.outlineOffset = '3px';
+    });
+  }
+  const b = document.getElementById('feed-ajustar-btn'); if (b) { b.textContent = _composeAjustando ? '✓ Pronto' : '✋ Mover e redimensionar'; b.style.background = _composeAjustando ? '#7FFF00' : b.dataset.bg; b.style.color = _composeAjustando ? '#0f1a00' : b.dataset.cor; }
+  const c = document.getElementById('feed-ajuste-ctl'); if (c) c.style.display = _composeAjustando ? 'block' : 'none';
+  ['fig', 'info'].forEach(function (n) {
+    const ch = document.getElementById('feed-alvo-' + n); if (!ch) return;
+    const on = n === _composeAlvo;
+    ch.style.borderColor = on ? '#7FFF00' : ch.dataset.bd; ch.style.background = on ? 'rgba(127,255,0,.14)' : ch.dataset.bg;
+  });
 }
 function _composeToggleAjuste() { _composeAjustando = !_composeAjustando; _composeAplicarAjuste(); }
-function _composeCentralizarInfo() { if (_composeGestos) _composeGestos.reiniciar(); }
+function _composeEscolherAlvo(nome) { if (!_composePecaExiste(nome)) return; _composeAlvo = nome; _composeAplicarAjuste(); }
+function _composeTamanho(fator) { if (_composeGestos) _composeGestos.escalar(fator, _composeAlvo); }
+function _composePadrao() { if (_composeGestos) _composeGestos.reiniciar(_composeAlvo); }
+// Barra de ajuste, logo abaixo da prévia (nada fica por cima da foto): ligar o modo, escolher a peça, aumentar, diminuir e voltar ao padrão.
+function _composeAjusteHtml(cardBg, borda, txt, muted) {
+  const chip = function (id, rot) { return '<button id="feed-alvo-' + id + '" data-bg="' + cardBg + '" data-bd="' + borda + '" onclick="_composeEscolherAlvo(\'' + id + '\')" style="flex:1;min-width:0;padding:8px 2px;border-radius:9px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;background:' + cardBg + ';border:1.5px solid ' + borda + ';color:' + txt + ';font-family:inherit;">' + rot + '</button>'; };
+  const mini = function (rot, fn, tit) { return '<button onclick="' + fn + '" title="' + tit + '" aria-label="' + tit + '" style="width:40px;padding:8px 0;border-radius:9px;font-size:16px;font-weight:900;cursor:pointer;background:' + cardBg + ';border:1.5px solid ' + borda + ';color:' + txt + ';font-family:inherit;line-height:1;">' + rot + '</button>'; };
+  return '<div id="feed-ajuste" style="margin-top:8px;">' +
+    '<button id="feed-ajustar-btn" data-bg="' + cardBg + '" data-cor="' + txt + '" onclick="_composeToggleAjuste()" style="width:100%;padding:10px 6px;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';font-family:inherit;"></button>' +
+    '<div id="feed-ajuste-ctl" style="display:none;margin-top:8px;">' +
+      '<div style="display:flex;gap:6px;align-items:stretch;">' +
+        (_composePecaExiste('fig') ? chip('fig', 'Figurinha') : '') + chip('info', 'Informações') +
+        mini('−', '_composeTamanho(0.88)', 'Diminuir') + mini('+', '_composeTamanho(1.14)', 'Aumentar') +
+        '<button onclick="_composePadrao()" title="Voltar ao lugar de partida" style="padding:8px 10px;border-radius:9px;font-size:12px;font-weight:800;cursor:pointer;background:' + cardBg + ';border:1.5px solid ' + borda + ';color:' + txt + ';font-family:inherit;">↺</button>' +
+      '</div>' +
+      '<div style="font-size:11px;color:' + muted + ';line-height:1.45;margin-top:6px;text-align:center;">Toque na figurinha ou nas informações e arraste. Com dois dedos (ou os botões + e −) você muda o tamanho.</div>' +
+    '</div></div>';
+}
 
 function _composeToggleInfo() {
   if (_composeFotoCaptura) return;
   _composeInfoOn = !_composeInfoOn;
+  _composeAjustando = false;
   _renderComposeFeed();
 }
 
@@ -4048,9 +4126,10 @@ function _renderComposeFeed() {
   // Proporção (altura/largura) do que aparece na prévia: a do vídeo, ou a da foto já recortada. A moldura toma essa proporção
   // inteira e só encolhe a largura se ficar alta demais para a tela, em vez de cortar a imagem num 4:5 fixo.
   const ratioHW = itemVideo ? ((itemVideo.w && itemVideo.h) ? itemVideo.h / itemVideo.w : 16 / 9) : (_feedComposeImg ? (_composeImgRatio || 1.25) : 0);
-  const larguraDisp = Math.min(window.innerWidth - 32, 340);
+  const larguraDisp = _composeLarguraBase();
   const larguraPrev = ratioHW ? Math.round(Math.min(larguraDisp, window.innerHeight * 0.62 / ratioHW)) : 0;
   const larguraPrevCss = larguraPrev ? 'width:' + larguraPrev + 'px;margin:0 auto;aspect-ratio:' + (1 / ratioHW).toFixed(4) + ';' : 'width:100%;';
+  _composePrevW = larguraPrev || larguraDisp;
 
   // Prévia (só visual, não é o que vira pixel — isso é _composeImagemFinal
   // na hora de publicar/salvar) da camada de informação por cima da foto
@@ -4065,8 +4144,8 @@ function _renderComposeFeed() {
     // formato escolhido no seletor (story/quadrado/retrato) — nos dois casos
     // é a MESMA proporção que o quadro da prévia vai ocupar na tela.
     const ratioAtual = _feedComposeImg ? _composeImgRatio : (1 / (FEED_EDITOR_RATIOS[_composeRatioPre] || FEED_EDITOR_RATIOS.retrato));
-    const escalaPrev = _shareEscalaComAltura(_feedComposeImg ? Math.min(Math.min(window.innerWidth - 32, 340), window.innerHeight * 0.62 / ratioAtual) : Math.min(window.innerWidth - 32, 340), ratioAtual);
-    infoPreviewHtml = _infoMolduraHtml(_composeInfoLayoutIdx, escalaPrev) + '<div id="feed-compose-info-layer" style="position:absolute;inset:0;pointer-events:none;transform-origin:50% 50%;transform:' + _ovTransformCss(_composeInfoT) + ';">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev, true) + '</div>';
+    const escalaPrev = _shareEscalaComAltura(_feedComposeImg ? Math.min(larguraDisp, window.innerHeight * 0.62 / ratioAtual) : larguraDisp, ratioAtual);
+    infoPreviewHtml = _infoMolduraHtml(_composeInfoLayoutIdx, escalaPrev) + '<div id="feed-compose-info-layer" style="position:absolute;inset:0;pointer-events:none;">' + layout.render(_composeInfoParaRender(), _composeIncluirFig ? _composeFig : null, 'LIVE', isLight, 0, escalaPrev, true) + '</div>';
   }
 
   // Dimensão da prévia (foto OU câmera ao vivo, ver _composeRatioPre) — as
@@ -4108,7 +4187,6 @@ function _renderComposeFeed() {
             ? '<video id="feed-compose-video" src="' + (itemVideo._url || '') + '" poster="' + _feedComposeImg + '" controls playsinline preload="metadata" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;"></video>' +
               '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;z-index:3;">🔄 Trocar</button>'
             : '<img src="' + _feedComposeImg + '" style="display:block;width:100%;height:100%;object-fit:cover;"/>' + infoPreviewHtml + '<img src="' + logoSrc + '" style="position:absolute;bottom:10px;right:10px;height:18px;opacity:.9;"/>' +
-            ((_composeInfoOn && _composeInfo) ? '<div style="position:absolute;bottom:8px;left:8px;display:flex;gap:6px;z-index:3;"><button id="feed-ajustar-btn" onclick="_composeToggleAjuste()" style="padding:7px 11px;border-radius:9px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;"></button><button id="feed-ajustar-reset" onclick="_composeCentralizarInfo()" style="padding:7px 10px;border-radius:9px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;display:none;">↺ Centralizar</button></div><div id="feed-ajustar-dica" style="position:absolute;top:44px;left:8px;right:8px;text-align:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none;display:none;z-index:3;">Arraste a figurinha. Com dois dedos, aumente ou diminua.</div>' : '') +
             '<button onclick="_reabrirEditorFotoFeed()" style="position:absolute;top:8px;right:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">✏️ Editar</button>' +
             '<button onclick="_composeTrocarFoto()" style="position:absolute;top:8px;left:8px;padding:6px 10px;border-radius:8px;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">🔄 Trocar</button>')
           : (camAtiva
@@ -4129,6 +4207,7 @@ function _renderComposeFeed() {
                   '<button onclick="_composeEscolherGaleria()" style="padding:12px 6px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:' + cardBg + ';border:1px solid ' + borda + ';color:' + txt + ';">🖼️ Escolher da galeria</button>' +
                 '</div>')) +
       '</div>' +
+      ((infoPreviewHtml && !itemVideo && !_composeFotoCaptura) ? _composeAjusteHtml(cardBg, borda, txt, muted) : '') +
       (_feedComposeImg ? '' :
         // Dimensão escolhida ANTES de tirar/escolher a foto (ver _composeRatioPre)
         // — vale pra prévia ao vivo da câmera e vira o ponto de partida do
@@ -4779,7 +4858,9 @@ function _vtAbrir(f, resolve) {
   _vt = {
     url: url, file: f, video: null, dur: 0, ini: 0, fim: 0, resolve: resolve, cancelado: false, codificando: false, pronto: false,
     filtro: '', aba: 'cortar', ajustando: false, vw: 0, vh: 0, filtroOk: _vtFiltroSuportado(), ultSeek: 0, poster: '',
-    T: doCompositor ? { x: _composeInfoT.x, y: _composeInfoT.y, s: _composeInfoT.s } : { x: 0, y: 0, s: 1 },
+    TI: doCompositor ? { x: _composeInfoT.x, y: _composeInfoT.y, s: _composeInfoT.s } : { x: 0, y: 0, s: 1 },   // bloco de informações
+    TF: doCompositor ? { x: _composeFigT.x, y: _composeFigT.y, s: _composeFigT.s } : { x: 0, y: 0, s: 1 },        // figurinha
+    alvo: 'fig',
     info: doCompositor
       ? { on: true, dados: _composeInfo, layoutIdx: _composeInfoLayoutIdx, incluirFig: _composeIncluirFig, recorde: _composeIncluirRecorde, fig: _composeFig }
       : { on: false, dados: null, layoutIdx: 0, incluirFig: true, recorde: true, fig: null },
@@ -4799,7 +4880,7 @@ function _vtAbrir(f, resolve) {
         '<div id="vt-camada" style="position:absolute;inset:0;display:none;pointer-events:none;"></div>' +
         '<div id="vt-fixos" style="position:absolute;inset:0;pointer-events:none;"></div>' +
         '<div id="vt-play" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;"><span id="vt-play-ico" style="width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;padding-left:4px;">▶</span></div>' +
-        '<div id="vt-dica" style="position:absolute;top:8px;left:8px;right:8px;text-align:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none;display:none;">Arraste a figurinha. Com dois dedos, aumente ou diminua.</div>' +
+        '<div id="vt-dica" style="position:absolute;top:8px;left:8px;right:8px;text-align:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none;display:none;">Toque na figurinha ou nas informações e arraste. Com dois dedos, mude o tamanho.</div>' +
         '<div id="vt-carregando" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;background:rgba(0,0,0,.6);padding:16px;text-align:center;">Abrindo o vídeo...</div>' +
       '</div>' +
       '<div id="vt-controles" style="display:none;margin-top:14px;">' +
@@ -4885,7 +4966,7 @@ function _vtMedirFrame() {
   let w = maxW, h = w * s.vh / s.vw;
   if (h > maxH) { h = maxH; w = h * s.vw / s.vh; }
   fr.style.width = Math.round(w) + 'px'; fr.style.height = Math.round(h) + 'px'; fr.style.aspectRatio = 'auto'; fr.style.maxHeight = 'none';
-  _vtMontarFixos();
+  _vtMontarCamada();   // refaz as peças na largura nova (e as moldura/logo fixas)
 }
 
 function _vtResumo() {
@@ -5042,11 +5123,13 @@ function _vtPainelFigurinhas(k) {
       return '<div onclick="_vtLayout(' + i + ')" title="' + esc(l.nome) + '" style="flex:1;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;border:1px solid ' + (on ? k.acento : (k.isLight ? '#ddd' : '#333')) + ';background:' + (on ? (k.isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';">' + l.emoji + '</div>';
     }).join('') + '</div>' +
     '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:' + k.txt + ';margin-bottom:10px;cursor:pointer;"><input type="checkbox" ' + (s.info.incluirFig ? 'checked' : '') + ' onchange="_vtToggleFig(this.checked)" style="width:16px;height:16px;accent-color:#7FFF00;"/> Incluir a figurinha de hoje</label>' +
-    '<div style="display:flex;gap:8px;">' +
-      '<button onclick="_vtAjustar()" style="flex:1;padding:11px;border-radius:12px;border:none;background:' + (s.ajustando ? '#7FFF00' : (k.isLight ? '#eee' : '#222')) + ';color:' + (s.ajustando ? '#0f1a00' : k.txt) + ';font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;">' + (s.ajustando ? '✓ Pronto' : '✋ Ajustar figurinha') + '</button>' +
-      '<button onclick="_vtCentralizar()" style="padding:11px 14px;border-radius:12px;border:none;background:' + (k.isLight ? '#eee' : '#222') + ';color:' + k.txt + ';font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;">↺ Centralizar</button>' +
-    '</div>' +
-    '<div style="font-size:11.5px;color:' + k.muted + ';margin-top:8px;line-height:1.5;">Toque em "Ajustar figurinha" e arraste no vídeo. Com dois dedos você aumenta ou diminui.</div>';
+    '<button onclick="_vtAjustar()" style="width:100%;padding:11px;border-radius:12px;border:none;background:' + (s.ajustando ? '#7FFF00' : (k.isLight ? '#eee' : '#222')) + ';color:' + (s.ajustando ? '#0f1a00' : k.txt) + ';font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;">' + (s.ajustando ? '✓ Pronto' : '✋ Mover e redimensionar') + '</button>' +
+    (s.ajustando ? (function () {
+      const chip = function (id, rot) { const on = s.alvo === id; return '<button onclick="_vtEscolherAlvo(\'' + id + '\')" style="flex:1;min-width:0;padding:9px 2px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;font-family:inherit;border:1.5px solid ' + (on ? k.acento : (k.isLight ? '#ddd' : '#333')) + ';background:' + (on ? (k.isLight ? '#e8f7d8' : 'rgba(127,255,0,.12)') : 'transparent') + ';color:' + k.txt + ';">' + rot + '</button>'; };
+      const mini = function (rot, fn, tit) { return '<button onclick="' + fn + '" title="' + tit + '" aria-label="' + tit + '" style="width:40px;padding:9px 0;border-radius:10px;font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;border:1.5px solid ' + (k.isLight ? '#ddd' : '#333') + ';background:transparent;color:' + k.txt + ';line-height:1;">' + rot + '</button>'; };
+      return '<div style="display:flex;gap:6px;margin-top:8px;">' + (s.info.incluirFig && s.info.fig ? chip('fig', 'Figurinha') : '') + chip('info', 'Informações') + mini('−', '_vtTamanho(0.88)', 'Diminuir') + mini('+', '_vtTamanho(1.14)', 'Aumentar') + mini('↺', '_vtCentralizar()', 'Voltar ao lugar de partida') + '</div>';
+    })() : '') +
+    '<div style="font-size:11.5px;color:' + k.muted + ';margin-top:8px;line-height:1.5;">Toque em "Mover e redimensionar", escolha a peça e arraste no vídeo. Com dois dedos (ou os botões + e −) você muda o tamanho.</div>';
   }
   return h;
 }
@@ -5058,18 +5141,28 @@ function _vtInfo(tipo) {
     const dados = tipo === 'cardio' ? disp.cardio : disp.treino;
     if (!dados) return;
     s.info = { on: true, dados: dados, layoutIdx: 0, incluirFig: true, recorde: true, fig: dados.fig || _figPick(_figurinhasList()) };
-    s.T.x = 0; s.T.y = 0; s.T.s = 1;
+    s.TI.x = 0; s.TI.y = 0; s.TI.s = 1; s.TF.x = 0; s.TF.y = 0; s.TF.s = 1; s.alvo = 'fig';
   }
   _vtMontarCamada(); _vtAbas();
 }
 function _vtLayout(i) { if (!_vt || _vt.codificando) return; _vt.info.layoutIdx = i; _vtMontarCamada(); _vtAbas(); }
 function _vtToggleFig(on) { if (!_vt || _vt.codificando) return; _vt.info.incluirFig = !!on; _vtMontarCamada(); }
-function _vtCentralizar() { if (_vt && _vt.gestos) _vt.gestos.reiniciar(); }
+function _vtCentralizar() { if (_vt && _vt.gestos) _vt.gestos.reiniciar(_vt.alvo); }
+function _vtTamanho(fator) { if (_vt && _vt.gestos) _vt.gestos.escalar(fator, _vt.alvo); }
+function _vtEscolherAlvo(nome) {
+  const s = _vt; if (!s || s.alvo === nome) return;
+  if (nome === 'fig' && !(s.info.incluirFig && s.info.fig)) return;
+  s.alvo = nome; _vtAjustar(s.ajustando); _vtAbas();
+}
 function _vtAjustar(forcar) {
   const s = _vt; if (!s) return;
   s.ajustando = (forcar === undefined) ? !s.ajustando : !!forcar;
   const cam = document.getElementById('vt-camada');
-  if (cam) { cam.style.pointerEvents = s.ajustando && s.info.on ? 'auto' : 'none'; cam.style.outline = s.ajustando && s.info.on ? '2px dashed #7FFF00' : 'none'; }
+  if (s.ajustando && s.alvo === 'fig' && !(s.info.incluirFig && s.info.fig)) s.alvo = 'info';
+  if (cam) {
+    cam.style.pointerEvents = s.ajustando && s.info.on ? 'auto' : 'none';
+    cam.querySelectorAll('[data-ov]').forEach(function (el) { const ativa = s.ajustando && s.info.on && el.getAttribute('data-ov') === s.alvo; el.style.outline = ativa ? '2px dashed #7FFF00' : 'none'; el.style.outlineOffset = '3px'; });
+  }
   const d = document.getElementById('vt-dica'); if (d) d.style.display = s.ajustando && s.info.on ? 'block' : 'none';
   if (forcar === undefined) _vtAbas();
 }
@@ -5096,8 +5189,10 @@ function _vtMontarCamada() {
   const info = (s.info.recorde || !dados.recordes || !dados.recordes.length) ? dados : (function () { const c2 = Object.assign({}, dados); delete c2.recordes; return c2; })();
   cam.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(w, h / w), true);
   cam.style.display = 'block';
-  if (!s.gestos) s.gestos = _ovGestos(fr, cam, s.T);
+  const est = { fig: s.TF, info: s.TI };
+  if (!s.gestos) s.gestos = _ovGestos(fr, cam, est, { alvo: function () { return s.alvo; }, escolher: _vtEscolherAlvo });
   else s.gestos.aplicar();
+  cam.querySelectorAll('[data-ov]').forEach(function (el) { _ovManterDentro(el, fr, est[el.getAttribute('data-ov')] || { x: 0, y: 0, s: 1 }, est, cam); });
   _vtAjustar(s.ajustando);
 }
 function _vtToqueFrame() { if (_vt && !_vt.ajustando) _vtPlayPause(); }
@@ -5136,14 +5231,23 @@ async function _vtCamadaCanvas(s, w, h) {
   const layout = INFO_LAYOUTS[s.info.layoutIdx] || INFO_LAYOUTS[0];
   const dados = s.info.dados;
   const info = (s.info.recorde || !dados.recordes || !dados.recordes.length) ? dados : (function () { const c2 = Object.assign({}, dados); delete c2.recordes; return c2; })();
-  const cssW = Math.min(340, w), cssH = cssW * h / w;
+  // Na mesma largura da moldura que o aluno viu (o vídeo gravado é só uma versão maior dela).
+  const fr = document.getElementById('vt-frame');
+  const cssW = (fr && fr.clientWidth) || Math.min(340, w), cssH = cssW * h / w;
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + cssW + 'px;height:' + cssH + 'px;pointer-events:none;';
   host.innerHTML = layout.render(info, s.info.incluirFig ? s.info.fig : null, 'LIVE', k.isLight, 0, _shareEscalaComAltura(cssW, h / w), true);
   document.body.appendChild(host);
+  const est = { fig: s.TF, info: s.TI };
+  _ovAplicarEstados(host, cssW, cssH, est);
+  host.querySelectorAll('[data-ov]').forEach(function (el) { _ovManterDentro(el, host, est[el.getAttribute('data-ov')] || { x: 0, y: 0, s: 1 }, est, host); });
   try {
     const node = host.querySelector('.share-card');
-    return await html2canvas(node, { scale: w / cssW, backgroundColor: null, useCORS: true });
+    // Só a figurinha precisa ser clonada (o html2canvas copia a página inteira e já travou o iPhone), e imagem que não abre não pode segurar a preparação.
+    return await html2canvas(node, {
+      scale: w / cssW, backgroundColor: null, useCORS: true, imageTimeout: 8000,
+      ignoreElements: (el) => !(el === host || host.contains(el) || el.contains(host)) && document.body.contains(el) && el !== document.body,
+    });
   } catch (e) { return null; }
   finally { host.remove(); }
 }
@@ -5251,7 +5355,7 @@ async function _vtGravar(s, modo) {
         if (s.cancelado) { res('cancelado'); return; }
         try { ctx.filter = filtroCss || 'none'; ctx.drawImage(v, 0, 0, w, h); ctx.filter = 'none'; } catch (e) {}
         if (s.info && s.info.on) { try { _infoMolduraDesenhar(ctx, s.info.layoutIdx, w, h); } catch (e) {} }   // moldura fixa
-        if (camadaImg) { try { _ovDesenhar(ctx, camadaImg, s.T, w, h); } catch (e) {} }
+        if (camadaImg) { try { ctx.drawImage(camadaImg, 0, 0, w, h); } catch (e) {} }
         if (!poster) { try { poster = canvas.toDataURL('image/jpeg', 0.85); } catch (e) {} }   // capa: já com filtro e figurinha, sem a logo (ela entra ao publicar)
         if (logoImg) {
           const lh = Math.round(h * 0.035), lw = lh * (logoImg.width / logoImg.height), mg = w * 0.03;
@@ -14674,31 +14778,73 @@ function _amzAbaParceirosHtml(isLight) {
 }
 
 // ═══════════════ GESTOS SOBRE A MÍDIA (arrastar e pinça) ═══════════════
-// Move e muda o tamanho de uma camada (a figurinha com as informações) sobre uma foto ou um vídeo. `estado` é
-// {x, y, s}: x e y são a distância do centro da moldura, em fração da largura e da altura; s é a escala (1 = tamanho
-// original). O mesmo estado vira o desenho final (foto: _compositarInfoNaFoto; vídeo: _vtGravar), então o que o aluno
-// vê é o que sai. Um dedo arrasta; dois dedos fazem a pinça (aumentar, diminuir e mover juntos); no computador, a roda
-// do mouse muda o tamanho.
-var _ESCALA_MIN = 0.35, _ESCALA_MAX = 3;
+// Move e muda o tamanho das PEÇAS que ficam sobre uma foto, a câmera ou um vídeo: a figurinha (data-ov="fig") e o bloco de informações
+// do treino (data-ov="info"). Cada peça tem o próprio estado {x, y, s}: x e y são o deslocamento a partir do lugar de partida, em fração
+// da largura e da altura da moldura; s é a escala (1 = tamanho de partida). O mesmo estado vira o desenho final (foto: _compositarInfoNaFoto;
+// vídeo: _vtCamadaCanvas), então o que o aluno vê é o que sai. Um dedo arrasta a peça escolhida, dois dedos fazem a pinça (tamanho) e, no
+// computador, a roda do mouse muda o tamanho. A peça nunca sai da moldura: ao arrastar ou aumentar ela é empurrada de volta para dentro.
+var _OV_ESCALA_MIN = 0.4, _OV_ESCALA_MAX = 4;
 function _ovLimitar(v, a, b) { return Math.min(b, Math.max(a, v)); }
-function _ovTransformCss(e) { return 'translate(' + (e.x * 100) + '%,' + (e.y * 100) + '%) scale(' + e.s + ')'; }
-function _ovGestos(moldura, camada, estado, aoMudar) {
+// Aplica o deslocamento e a escala de cada peça (px relativos à moldura de largura W e altura H).
+function _ovAplicarEstados(raiz, W, H, estados) {
+  raiz.querySelectorAll('[data-ov]').forEach(function (el) {
+    const e = estados[el.getAttribute('data-ov')]; if (!e) return;
+    el.style.transformOrigin = '50% 50%';
+    el.style.transform = 'translate(' + (e.x * W).toFixed(2) + 'px,' + (e.y * H).toFixed(2) + 'px) scale(' + e.s.toFixed(4) + ')';
+  });
+}
+// Empurra a peça para dentro da moldura (e a encolhe se ficou maior que ela). Mede o retângulo real, já com a transformação aplicada.
+function _ovManterDentro(el, moldura, e, estados, raiz) {
+  const W = moldura.clientWidth || 1, H = moldura.clientHeight || 1;
+  for (let i = 0; i < 3; i++) {
+    const m = moldura.getBoundingClientRect(), r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    if (r.width > m.width + 0.5 || r.height > m.height + 0.5) {
+      const f = Math.min(m.width / r.width, m.height / r.height);
+      e.s = Math.max(_OV_ESCALA_MIN * 0.5, e.s * f);
+      _ovAplicarEstados(raiz, W, H, estados);
+      continue;
+    }
+    let dx = 0, dy = 0;
+    if (r.left < m.left - 0.5) dx = m.left - r.left; else if (r.right > m.right + 0.5) dx = m.right - r.right;
+    if (r.top < m.top - 0.5) dy = m.top - r.top; else if (r.bottom > m.bottom + 0.5) dy = m.bottom - r.bottom;
+    if (!dx && !dy) return;
+    e.x += dx / W; e.y += dy / H;
+    _ovAplicarEstados(raiz, W, H, estados);
+  }
+}
+// ctl: { alvo() -> 'fig'|'info' (a peça que o gesto move), escolher(nome) (o aluno tocou numa peça), aoMudar() }
+function _ovGestos(moldura, camada, estados, ctl) {
   const ptrs = new Map();
   let gesto = null;
-  const aplicar = function () { camada.style.transform = _ovTransformCss(estado); };
+  const W = function () { return moldura.clientWidth || 1; }, H = function () { return moldura.clientHeight || 1; };
+  const peca = function (nome) { return camada.querySelector('[data-ov="' + nome + '"]'); };
+  const aplicar = function () { _ovAplicarEstados(camada, W(), H(), estados); };
   const dist = function (a, b) { return Math.hypot(a.x - b.x, a.y - b.y); };
-  const centro = function (pts) { return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }; };
+  const centro = function (a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+  const alvoAtual = function () { const n = ctl.alvo(); return peca(n) ? n : (peca('info') ? 'info' : (peca('fig') ? 'fig' : null)); };
+  // A peça debaixo do dedo (com folga, a figurinha é pequena); se o dedo caiu fora de todas, vale a que já estava escolhida.
+  const peloToque = function (x, y) {
+    let melhor = null, area = Infinity;
+    camada.querySelectorAll('[data-ov]').forEach(function (el) {
+      const r = el.getBoundingClientRect(), f = 14;
+      if (x >= r.left - f && x <= r.right + f && y >= r.top - f && y <= r.bottom + f && r.width * r.height < area) { area = r.width * r.height; melhor = el.getAttribute('data-ov'); }
+    });
+    return melhor;
+  };
   const iniciar = function () {
-    const pts = Array.from(ptrs.values());
-    if (pts.length === 1) gesto = { tipo: 'arrasto', px: pts[0].x, py: pts[0].y, x0: estado.x, y0: estado.y };
-    else if (pts.length >= 2) gesto = { tipo: 'pinca', d0: Math.max(1, dist(pts[0], pts[1])), s0: estado.s, c0: centro(pts), x0: estado.x, y0: estado.y };
+    const pts = Array.from(ptrs.values()), nome = alvoAtual();
+    if (!nome) { gesto = null; return; }
+    const e = estados[nome];
+    if (pts.length === 1) gesto = { tipo: 'arrasto', nome: nome, px: pts[0].x, py: pts[0].y, x0: e.x, y0: e.y };
+    else if (pts.length >= 2) gesto = { tipo: 'pinca', nome: nome, d0: Math.max(1, dist(pts[0], pts[1])), s0: e.s, c0: centro(pts[0], pts[1]), x0: e.x, y0: e.y };
     else gesto = null;
   };
   camada.style.touchAction = 'none';
-  camada.style.transformOrigin = '50% 50%';
   aplicar();
   camada.addEventListener('pointerdown', function (e) {
     try { camada.setPointerCapture(e.pointerId); } catch (x) {}
+    if (ptrs.size === 0) { const n = peloToque(e.clientX, e.clientY); if (n && ctl.escolher) ctl.escolher(n); }
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     iniciar();
     e.preventDefault();
@@ -14706,20 +14852,21 @@ function _ovGestos(moldura, camada, estado, aoMudar) {
   camada.addEventListener('pointermove', function (e) {
     if (!ptrs.has(e.pointerId)) return;
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const r = moldura.getBoundingClientRect();
-    if (!r.width || !r.height || !gesto) return;
-    const pts = Array.from(ptrs.values());
+    if (!gesto) return;
+    const pts = Array.from(ptrs.values()), est = estados[gesto.nome], el = peca(gesto.nome);
+    if (!el) return;
     if (gesto.tipo === 'arrasto' && pts.length === 1) {
-      estado.x = _ovLimitar(gesto.x0 + (pts[0].x - gesto.px) / r.width, -0.8, 0.8);
-      estado.y = _ovLimitar(gesto.y0 + (pts[0].y - gesto.py) / r.height, -0.8, 0.8);
+      est.x = gesto.x0 + (pts[0].x - gesto.px) / W();
+      est.y = gesto.y0 + (pts[0].y - gesto.py) / H();
     } else if (gesto.tipo === 'pinca' && pts.length >= 2) {
-      estado.s = _ovLimitar(gesto.s0 * dist(pts[0], pts[1]) / gesto.d0, _ESCALA_MIN, _ESCALA_MAX);
-      const c = centro(pts);
-      estado.x = _ovLimitar(gesto.x0 + (c.x - gesto.c0.x) / r.width, -0.8, 0.8);
-      estado.y = _ovLimitar(gesto.y0 + (c.y - gesto.c0.y) / r.height, -0.8, 0.8);
-    }
+      est.s = _ovLimitar(gesto.s0 * dist(pts[0], pts[1]) / gesto.d0, _OV_ESCALA_MIN, _OV_ESCALA_MAX);
+      const c = centro(pts[0], pts[1]);
+      est.x = gesto.x0 + (c.x - gesto.c0.x) / W();
+      est.y = gesto.y0 + (c.y - gesto.c0.y) / H();
+    } else return;
     aplicar();
-    if (aoMudar) aoMudar(estado);
+    _ovManterDentro(el, moldura, est, estados, camada);
+    if (ctl.aoMudar) ctl.aoMudar();
     e.preventDefault();
   });
   const fim = function (e) {
@@ -14729,21 +14876,20 @@ function _ovGestos(moldura, camada, estado, aoMudar) {
   };
   camada.addEventListener('pointerup', fim);
   camada.addEventListener('pointercancel', fim);
-  camada.addEventListener('wheel', function (e) {
-    e.preventDefault();
-    estado.s = _ovLimitar(estado.s * (e.deltaY < 0 ? 1.06 : 0.94), _ESCALA_MIN, _ESCALA_MAX);
-    aplicar();
-    if (aoMudar) aoMudar(estado);
-  }, { passive: false });
-  return { aplicar: aplicar, reiniciar: function () { estado.x = 0; estado.y = 0; estado.s = 1; aplicar(); if (aoMudar) aoMudar(estado); } };
-}
-// Desenha a camada (um canvas do tamanho da moldura) com o mesmo deslocamento e escala que o aluno ajustou.
-function _ovDesenhar(ctx, camadaCanvas, estado, W, H) {
-  ctx.save();
-  ctx.translate(W / 2 + estado.x * W, H / 2 + estado.y * H);
-  ctx.scale(estado.s, estado.s);
-  ctx.drawImage(camadaCanvas, -W / 2, -H / 2, W, H);
-  ctx.restore();
+  const escalar = function (fator, nome) {
+    nome = nome || alvoAtual(); const el = nome && peca(nome); if (!el) return;
+    const est = estados[nome];
+    est.s = _ovLimitar(est.s * fator, _OV_ESCALA_MIN, _OV_ESCALA_MAX);
+    aplicar(); _ovManterDentro(el, moldura, est, estados, camada);
+    if (ctl.aoMudar) ctl.aoMudar();
+  };
+  camada.addEventListener('wheel', function (e) { e.preventDefault(); escalar(e.deltaY < 0 ? 1.06 : 0.94); }, { passive: false });
+  return {
+    aplicar: aplicar,
+    escalar: escalar,
+    // Volta ao lugar e ao tamanho de partida (só a peça pedida, ou as duas).
+    reiniciar: function (nome) { Object.keys(estados).forEach(function (k) { if (!nome || nome === k) { estados[k].x = 0; estados[k].y = 0; estados[k].s = 1; } }); aplicar(); if (ctl.aoMudar) ctl.aoMudar(); },
+  };
 }
 
 // ═══════════════ BAIXAR POST ═══════════════
@@ -16611,7 +16757,7 @@ async function _cqExterno(tipo) {
     const fname = 'intus-conquista-' + dataHojeLocal() + '.jpg';
     if (tipo === 'copiar') {
       if (!navigator.clipboard || !window.ClipboardItem) { toast('Seu navegador não suporta copiar imagem. Tente Salvar.'); return; }
-      await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': blob })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': await _blobParaPng(blob) })]);   // o Chrome só aceita PNG na área de transferência
       toast('Imagem copiada! ✅');
       return;
     }
