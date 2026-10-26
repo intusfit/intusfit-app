@@ -7,13 +7,17 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 let ok = 0, ruim = 0;
 function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.stringify(esperado); if (a === b) { ok++; console.log('  OK    ' + rot); } else { ruim++; console.log('  FALHA ' + rot + '\n          esperado ' + b + '\n          obtido   ' + a); } }
 function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== undefined) console.log('          ' + JSON.stringify(extra)); }
-const dia = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+// "Hoje" congelado, no navegador (page.clock) e aqui. Sem isso o teste muda de resposta conforme o dia e a hora em que roda
+// (toISOString é UTC: à noite no Brasil ele já está no dia seguinte e "vence em 3 dias" vira 4).
+const HOJE = '2026-10-21';
+const dia = (n) => { const d = new Date(HOJE + 'T12:00:00'); d.setDate(d.getDate() + n); const p = (x) => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
 const M = (extra) => Object.assign({ idmensalidade: 1, idatleta: 7, dshistorico: 'Personal 4x', tipo_plano: 'mensal', dtinicio: dia(-27), dtvencimento: dia(3), stpgto: 'S', stmatricula: 'ativa', vlpagar: 1000, recorrencia: 'mensal' }, extra || {});
 
 (async () => {
   const srv = http.createServer((req, res) => { let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/aluno.html'; const f = path.join(RAIZ, p); if (!f.startsWith(RAIZ) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('n'); } res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res); });
   await new Promise(r => srv.listen(8107, '127.0.0.1', r));
   const b = await chromium.launch(); const page = await b.newPage({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  await page.clock.setFixedTime(HOJE + 'T12:00:00');
   const erros = []; page.on('pageerror', e => erros.push(String(e.message)));
   await page.route(/\/app\/api\//, r => r.abort('failed'));
   await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); });

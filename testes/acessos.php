@@ -35,15 +35,17 @@ $antes = (int)$pdo->query("SELECT COUNT(*) FROM intus_acesso")->fetchColumn();
 intusRegistrarAcesso($pdo, 'aluno', 0, 'x', 'login');
 eq('usuário 0 é ignorado', (int)$pdo->query("SELECT COUNT(*) FROM intus_acesso")->fetchColumn() === $antes);
 
-// 2) horário: 15:00 UTC = 12:00 em Brasília; em Lisboa (UTC+1 em outubro) = 16:00
+// 2) horário: 15:00 UTC = 12:00 em Brasília; em Lisboa depende do dia (UTC+1 no horário de verão, UTC+0 no inverno),
+// então o esperado sai do próprio fuso (a rota só olha os últimos dias, não dá para fixar uma data de verão).
 limpar($pdo);
 $hoje = gmdate('Y-m-d');
+$horaLisboa = (int)(new DateTime("$hoje 15:00:00", new DateTimeZone('UTC')))->setTimezone(new DateTimeZone('Europe/Lisbon'))->format('G');
 $pdo->exec("INSERT INTO intus_acesso (user_tipo,user_id,user_nome,evento,ip,pais,cidade,fuso_local,criado_em) VALUES ('aluno',1,'','treino','9.9.9.9','PT','Lisboa','Europe/Lisbon','$hoje 15:00:00')");
 $pdo->exec("INSERT INTO intus_acesso (user_tipo,user_id,user_nome,evento,ip,pais,cidade,fuso_local,criado_em) VALUES ('aluno',2,'Bia','abertura','8.8.8.8','BR','Cascavel','','$hoje 15:30:00')");
 [$cod, $j] = rota($pdo, ['admin' => true, 'idusuario' => 1], false, 'acessos_painel');
 eq('quadro responde 200', $cod === 200 && isset($j['hora_br']), json_encode($j));
 eq('treino às 15:00 UTC conta na hora 12 de Brasília', ($j['hora_br']['treino'][12] ?? 0) === 1, json_encode($j['hora_br']['treino'] ?? null));
-eq('o mesmo treino conta na hora 16 do fuso do aluno (Lisboa)', ($j['hora_local']['treino'][16] ?? 0) === 1, json_encode($j['hora_local']['treino'] ?? null));
+eq("o mesmo treino conta na hora $horaLisboa do fuso do aluno (Lisboa)", ($j['hora_local']['treino'][$horaLisboa] ?? 0) === 1, json_encode($j['hora_local']['treino'] ?? null));
 eq('acesso sem fuso do aparelho usa o horário de Brasília nos dois quadros', ($j['hora_br']['abertura'][12] ?? 0) === 1 && ($j['hora_local']['abertura'][12] ?? 0) === 1);
 eq('fuso diferente de Brasília aparece na lista de fusos', ($j['fusos'][0]['fuso'] ?? '') === 'Europe/Lisbon');
 $loc = array_column($j['locais'], 'n', 'local');
@@ -52,7 +54,7 @@ $nomes = array_column($j['recentes'], 'nome', 'user_id');
 eq('nome do aluno vem do cadastro quando o registro não tem nome', ($nomes[1] ?? '') === 'Ana Souza', json_encode($nomes));
 eq('administrador vê o IP', isset($j['recentes'][0]['ip']) && $j['recentes'][0]['ip'] !== null);
 $lis = null; foreach ($j['recentes'] as $x) if ($x['user_id'] === 1) $lis = $x;
-eq('mostra o horário local do aluno quando difere de Brasília (16:00)', $lis && $lis['hora_local'] === '16:00', json_encode($lis));
+eq('mostra o horário local do aluno quando difere de Brasília (' . sprintf('%02d:00', $horaLisboa) . ')', $lis && $lis['hora_local'] === sprintf('%02d:00', $horaLisboa), json_encode($lis));
 
 // 3) escopo do professor: só os alunos dele, sem IP
 $pdo->exec("INSERT INTO intus_acesso (user_tipo,user_id,user_nome,evento,ip,criado_em) VALUES ('aluno',3,'Caio','treino','7.7.7.7','$hoje 14:00:00')");
