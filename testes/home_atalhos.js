@@ -97,6 +97,42 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await page.evaluate(() => { _rankingTab = 'semana'; trocarView('home'); abrirQuadroMedalhas(); }); await page.waitForTimeout(1200);
   eq('a metade Medalhas da Home abre direto no quadro', await page.evaluate(() => _rankingTab), 'medalhas');
 
+  console.log('\n══ Profundidade no Ranking, nas Medalhas e em outras telas ══');
+  await page.evaluate(() => {
+    const d = n => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString().slice(0, 10); };
+    const sessoes = []; let id = 1;
+    [[1, 5], [2, 4], [7, 3]].forEach(([a, n]) => { for (let k = 0; k < n; k++) sessoes.push({ idsessao: id++, idatleta: a, dtsessao: d(k), pontos: 10, tipo: 'musculacao', divisao: 'A' }); });
+    _rankingData = { sessoes, atletas: { 1: 'Marina Souza', 2: 'Carlos Lima', 7: 'Aluna Teste' }, avatars: {}, comentarios: [{ idcomentario: 1, idatleta: 2, nome_atleta: 'Carlos Lima', texto: 'Bora!', dtcriacao: new Date().toISOString().slice(0, 19).replace('T', ' ') }] };
+    _rankingTab = 'semana'; trocarView('ranking'); _renderRankingView();
+  });
+  await page.waitForTimeout(400);
+  const medirRk = () => page.evaluate(() => {
+    const v = document.getElementById('v-ranking');
+    const linhas = [...v.querySelectorAll(':scope > div[onclick^="abrirPerfilRanking"], :scope > div > div[onclick^="abrirPerfilRanking"]')];
+    const outras = linhas.filter(e => !/\(você\)/.test(e.innerText));
+    const sh = e => getComputedStyle(e).boxShadow;
+    const mural = v.querySelector('[data-mural-card]');
+    return { n: linhas.length, semSombra: linhas.filter(e => sh(e) === 'none').length, fundoOutras: [...new Set(outras.map(e => getComputedStyle(e).backgroundColor))], card: getComputedStyle(document.body).getPropertyValue('--card-home').trim(), mural: mural ? sh(mural) !== 'none' : null };
+  });
+  for (const claro of [false, true]) {
+    await page.evaluate(c => { document.body.classList.toggle('tema-claro', c); _renderRankingView(); }, claro);
+    const r = await medirRk();
+    const nome = claro ? 'tema claro' : 'tema escuro';
+    ver(nome + ': cada participante é um cartão com sombra', r.n >= 3 && r.semSombra === 0, r);
+    ver(nome + ': o mural dos membros também tem sombra', r.mural === true, r);
+  }
+  await page.evaluate(() => { document.body.classList.remove('tema-claro'); _renderRankingView(); });
+  const rkEsc = await medirRk();
+  eq('tema escuro: a linha dos outros participantes usa a cor de cartão da Home (mais clara que o fundo)', rkEsc.fundoOutras, ['rgb(38, 38, 38)']);
+  await page.evaluate(() => { _rankingTab = 'medalhas'; _renderRankingView(); });
+  eq('Medalhas: a tabela e o quadro do rodapé têm sombra', await page.evaluate(() => [...document.querySelectorAll('#v-ranking .pf')].filter(e => getComputedStyle(e).boxShadow !== 'none').length >= 3), true);
+  const outrasTelas = await page.evaluate(() => {
+    const c = _nutriCores(); let extras = null;
+    try { _extras.lista = [{ id: 'm1', titulo: 'Aulas', emoji: '🎬', itens: [], criado_em: '2020-01-01T00:00:00Z' }]; renderExtras(); const t = document.querySelector('#v-extras [onclick^="extrasModulo"]'); extras = t ? getComputedStyle(t).boxShadow !== 'none' : false; } catch (e) { extras = String(e); }
+    return { nutri: /box-shadow:var\(--prof\)/.test(c.card) && c.borda === 'var(--borda-forte)', extras };
+  });
+  eq('Nutrição e Extras usam o mesmo cartão com sombra', outrasTelas, { nutri: true, extras: true });
+
   console.log('\n══ Estrutura ══');
   const html = fs.readFileSync(path.join(RAIZ, 'aluno.html'), 'utf8');
   eq('nenhum "—" ou "não é X, é Y" novo nos textos da Home', /Ver mais.*—|não é [^.]{1,40}, é /.test(html.slice(html.indexOf('function _homeMaisHtml'), html.indexOf('function _homeMaisHtml') + 1500)), false);
