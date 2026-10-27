@@ -441,12 +441,12 @@ function pinta(){
 }
 
 // ---------- linha do tempo em faixas ----------
-function pps(){ var w = Math.max(200, $('rolo').clientWidth - 24); return Math.max(1, w / Math.max(dur(), 1)) * zoomTL; }
+function pps(){ var w = Math.max(200, $('rolo').clientWidth - 70); return Math.max(1, w / Math.max(dur(), 1)) * zoomTL; }
 function itemTempo(x){ return x.sempre ? { ini:0, fim:dur() } : { ini:x.ini || 0, fim:x.fim || 0 }; }
 function faixas(){ return [['texto', 'Texto', P.textos || []], ['imagem', 'Imagem', P.imagens || []], ['sombra', 'Sombra', P.sombras || []]]; }
 function desenhaTimeline(){
   if (!P) return;
-  var int = $('tlint'), rot = $('tl-rot'), p = pps(), d = dur(), larg = Math.max($('rolo').clientWidth, d * p + 40), M = mapa();
+  var int = $('tlint'), rot = $('tl-rot'), p = pps(), d = dur(), larg = Math.max($('rolo').clientWidth, d * p + 70), M = mapa();
   int.innerHTML = ''; rot.innerHTML = ''; int.style.width = larg + 'px';
   function rotulo(txt, h, corB){ var r = el('div', null, txt); r.style.height = h + 'px'; if (corB) r.style.borderLeft = '3px solid ' + corB; rot.appendChild(r); }
   var rg = el('div', 'regua'); rg.style.width = larg + 'px';
@@ -461,6 +461,8 @@ function desenhaTimeline(){
     c.appendChild(el('span', 'sub', (m.fim - m.ini).toFixed(1) + ' s' + (m.s.recorte ? ' · recorte' : '') + (m.s.cheia ? ' · tela inteira' : '') + (m.s.limpo ? ' · sem elementos' : '')));
     fv.appendChild(c); });
   if (P.final && P.final.ativo){ var cfim = el('div', 'clip fim'); cfim.style.left = (durFala() * p) + 'px'; cfim.style.width = (T_FIM * p) + 'px'; cfim.appendChild(el('span', 'rot', 'Cartão final')); fv.appendChild(cfim); }
+  var mais = el('button', 'mais', '+'); mais.type = 'button'; mais.title = 'Adicionar vídeo, imagem ou logo no fim'; mais.setAttribute('aria-label', 'Adicionar no fim da linha do tempo');
+  mais.style.left = (d * p + 8) + 'px'; mais.onclick = function(ev){ ev.stopPropagation(); abrirAdicionar(); }; fv.appendChild(mais);
   int.appendChild(fv); rotulo('Vídeo', 54, '#4f7a24');
   faixas().forEach(function(fx){
     var tipo = fx[0], itens = fx[2], fins = [], vias = itens.map(function(x){ var it = itemTempo(x), v = 0; while (fins[v] != null && fins[v] > it.ini + .01) v++; fins[v] = it.fim; return v; });
@@ -484,7 +486,7 @@ function desenhaTimeline(){
 function atualizaTudo(){ recalc(); desenhaTimeline(); pinta(); }
 var tl = null;
 $('tlint').addEventListener('pointerdown', function(e){
-  if (!P) return; var int = $('tlint'), p = pps(), t = (e.clientX - int.getBoundingClientRect().left) / p, c = e.target.closest('.clip');
+  if (!P || e.target.closest('.mais')) return; var int = $('tlint'), p = pps(), t = (e.clientX - int.getBoundingClientRect().left) / p, c = e.target.closest('.clip');
   int.setPointerCapture(e.pointerId);
   if (!c || !c.dataset.k){ tl = { modo:'scrub' }; scrub(t); return; }
   var k = c.dataset.k, i = +c.dataset.i, r = c.getBoundingClientRect(), borda = e.clientX - r.left <= 8 ? 'ini' : r.right - e.clientX <= 8 ? 'fim' : null;
@@ -913,8 +915,43 @@ function painelBiblioteca(C){
   });
   C.appendChild(itens.length ? g : el('p', 'nota-ajuda', bibFiltro === 'video' ? 'Nenhum vídeo ainda. Envie introduções, vinhetas e encerramentos para usar em qualquer projeto.' : 'Nada aqui ainda.'));
 }
-function porImagem(x){
-  P.imagens.push({ url:x.url, nome:x.nome, x:W / 2, y:Math.round(H * .4), w:Math.round(W * (x.tipo === 'logo' ? .4 : .6)), ini:+T.toFixed(2), fim:+Math.min(dur(), T + 4).toFixed(2), sempre:false, opacidade:1, raio:x.tipo === 'foto' ? 24 : 0 });
+// Botão "+" no fim da linha do tempo: tudo o que dá para acrescentar, num lugar só.
+var addFiltro = 'video';
+function abrirAdicionar(){
+  if (!P) return; pausar();
+  var box = el('div', 'grupo');
+  function pinta2(){
+    box.innerHTML = '';
+    box.appendChild(chips([['video', 'Vídeos da biblioteca'], ['imagem', 'Logos e fotos'], ['projeto', 'Outros projetos']], addFiltro, function(v){ addFiltro = v; pinta2(); }));
+    if (addFiltro === 'projeto'){
+      var l = el('div', 'lista');
+      Object.keys(projetos).sort().forEach(function(id){ var X = projetos[id], d = (X.trechos || []).reduce(function(a, s){ return a + s.fim - s.ini; }, 0);
+        l.appendChild(el('div', 'item', [el('span', 't', d.toFixed(0) + ' s'), el('b', null, (X.nome || id) + (id === P.id ? ' (este)' : '')),
+          botao('Adicionar no fim', function(){ fecha(); adicionarProjeto(id, 'fim'); })])); });
+      box.appendChild(l);
+    } else {
+      var itens = itensBib().filter(function(x){ return addFiltro === 'video' ? x.tipo === 'video' : x.tipo !== 'video'; }), g = el('div', 'bib');
+      itens.forEach(function(x){
+        var mini = el('div', 'mini'), m;
+        if (x.tipo === 'video'){ m = el('video'); m.src = x.url + '#t=0.5'; m.muted = true; m.preload = 'metadata'; m.playsInline = true; }
+        else { m = el('img'); m.src = x.url; m.alt = x.nome; }
+        mini.appendChild(m);
+        var b = x.tipo === 'video' ? botao('Adicionar no fim', function(){ fecha(); inserirVideoBib(x, 'fim'); })
+          : botao('Pôr no fim', function(){ fecha(); porImagem(x, Math.max(0, durFala() - 4)); });
+        g.appendChild(el('div', 'cel', [mini, el('div', 'info', [el('b', null, x.nome), el('span', 't', x.tipo === 'video' ? 'vídeo' + (x.dur ? ' · ' + x.dur.toFixed(1) + ' s' : '') : x.tipo), el('div', 'acoes', [b])])]));
+      });
+      box.appendChild(itens.length ? g : el('p', 'nota-ajuda', addFiltro === 'video' ? 'Nenhum vídeo na biblioteca ainda. Envie um aqui embaixo.' : 'Nada aqui ainda.'));
+    }
+    box.appendChild(el('div', 'linha', [
+      botao('Enviar vídeo do computador', function(){ fecha(); enviarVideoMontagem('fim'); }),
+      botao('Guardar arquivo na biblioteca', function(){ fecha(); aba = 'biblioteca'; abrePainel(); })]));
+  }
+  pinta2();
+  dialogo('Adicionar no fim do vídeo', 'Vídeos entram como um trecho novo depois do último. Logos e fotos entram por cima dos últimos segundos (dá para arrastar na faixa Imagem depois).', [['Fechar', fecha]], box);
+  $('caixa').style.maxWidth = '720px';
+}
+function porImagem(x, inicio){
+  P.imagens.push({ url:x.url, nome:x.nome, x:W / 2, y:Math.round(H * .4), w:Math.round(W * (x.tipo === 'logo' ? .4 : .6)), ini:+(inicio == null ? T : inicio).toFixed(2), fim:+Math.min(dur(), (inicio == null ? T : inicio) + 4).toFixed(2), sempre:false, opacidade:1, raio:x.tipo === 'foto' ? 24 : 0 });
   imgDe(x.url); selEl = 'imagem:' + (P.imagens.length - 1); atualizaTudo(); agendaSalvar('Pôr ' + x.nome + ' na tela'); seleciona(); }
 function enviarBib(tipo){
   if (!assets){ dialogo('Envio indisponível', 'Só quem edita esta página pode enviar arquivos.', [['Ok', fecha]]); return; }
@@ -1151,7 +1188,7 @@ $('b-novo').onclick = function(){
 };
 
 // ---------- exportar, Drive e versões em alta ----------
-function dialogo(tit, txt, botoes, extra){ var c = $('caixa'); c.innerHTML = ''; c.appendChild(el('h2', null, tit)); if (txt) c.appendChild(el('p', 'nota-ajuda', txt)); if (extra) c.appendChild(extra);
+function dialogo(tit, txt, botoes, extra){ var c = $('caixa'); c.style.maxWidth = ''; c.innerHTML = ''; c.appendChild(el('h2', null, tit)); if (txt) c.appendChild(el('p', 'nota-ajuda', txt)); if (extra) c.appendChild(extra);
   var l = el('div', 'linha'); botoes.forEach(function(b, i){ var x = botao(b[0], b[1]); if (i === botoes.length - 1 && botoes.length > 1) x.className = 'btn pri'; l.appendChild(x); }); c.appendChild(l); $('modal').hidden = false; }
 function fecha(){ $('modal').hidden = true; }
 function esperaSeek(V, t){ return new Promise(function(ok){ if (Math.abs(V.currentTime - t) < .001 && V.readyState >= 2){ ok(); return; } var f = function(){ V.removeEventListener('seeked', f); ok(); }; V.addEventListener('seeked', f); V.currentTime = t; }); }
