@@ -35,3 +35,15 @@ Página: https://claude.ai/artifact/Et9xVsHjrTYxxqug5UKJH6 (privada do Luiz). Fo
   guia da área do Instagram (só na prévia), desfazer/refazer e histórico (no navegador, 60 passos).
   O `reel.py` não lê `layout`/`textos`/`tarja`: a versão em alta agora deve usar o próprio desenho
   da página (rodar a página com o vídeo original), não o `reel.py`.
+- Versão 3 (27/10/2026): estrutura de editor profissional (ferramentas à esquerda, prévia no centro,
+  propriedades à direita, linha do tempo em faixas Vídeo/Texto/Imagem/Sombra/Legenda; no celular, abas
+  embaixo e painéis em gaveta). Fonte dividida em `intus-cut/casca.html` (HTML e CSS) e `intus-cut/app.js`;
+  `modelo.html` é a junção dos dois (a logo entra no lugar de `__LOGO__`). Novidades no projeto:
+  `formato` (reel, story, shorts, feed45, quadrado, youtube), `fontes` (outros vídeos da montagem, cópia
+  de mídia/palavras/planos/notas), `trechos[].de|recorte|cheia|limpo`, `sombras`, `imagens`, `ia`
+  (versão feita pela IA: tipo, formato, orientação, status previa/aprovado). Coleções do banco da página:
+  `projetos`, `biblioteca` (logos, fotos, vídeos enviados), `renders` (pedidos de versão em alta),
+  `config/drive` (pasta "Intus Cut" no Drive). Logos fixas da biblioteca publicadas em `lib/`.
+- A edição por IA roda dentro da página (capacidade `sample`), lendo as falas de cada vídeo da linha
+  do tempo; o resultado vira um projeto novo. "Salvar no Drive" usa o conector Google Drive do próprio
+  Luiz (`create_file`, arquivo até 16 MB).
