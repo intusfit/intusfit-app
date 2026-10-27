@@ -1332,13 +1332,16 @@ function _frasesCustom(campo) {
 
 // Figurinhas de conclusão de treino (gerenciadas pelo admin). Fallback: padrões abaixo.
 let _figurinhasConfig = null;
+// Última lista boa vinda do servidor, guardada no aparelho: se a busca do dia falhar ou
+// ainda não tiver terminado quando o treino acaba, vale esta e não o padrão de fábrica.
+try {
+  const _fc = JSON.parse(localStorage.getItem('intus-fig-cfg') || 'null');
+  if (_fc && Array.isArray(_fc.itens) && _fc.itens.length) _figurinhasConfig = _fc;
+} catch (e) {}
+// Só aparece se o aparelho nunca conseguiu ler a lista do servidor. Neutra de propósito:
+// as figurinhas de fábrica antigas (ex.: Alcateia do Ferro) já foram excluídas pelo Luiz.
 const _FIGURINHAS_FALLBACK = [
-  { tipo:'emoji', emoji:'💪🔥', legenda:'MODO MONSTRO ATIVADO', cor:'#f59e0b' },
-  { tipo:'emoji', emoji:'🦍',   legenda:'VIROU GORILA HOJE',    cor:'#a3e635' },
-  { tipo:'emoji', emoji:'🐱💪', legenda:'GATO SARADO APROVA',   cor:'#22d3ee' },
-  { tipo:'emoji', emoji:'🏆',   legenda:'LENDA EM CONSTRUÇÃO',  cor:'#fbbf24' },
-  { tipo:'emoji', emoji:'🐺',   legenda:'ALCATEIA DO FERRO',    cor:'#818cf8' },
-  { tipo:'emoji', emoji:'🚀',   legenda:'FOGUETE NÃO TEM RÉ',   cor:'#f472b6' },
+  { tipo:'emoji', emoji:'💪🔥', legenda:'TREINO CONCLUÍDO', cor:'#7FFF00' },
 ];
 function _figurinhasList() {
   const arr = _figurinhasConfig && Array.isArray(_figurinhasConfig.itens) ? _figurinhasConfig.itens : null;
@@ -2288,10 +2291,29 @@ function _shareMostrarParaSalvar(blob, fname) {
   document.body.appendChild(ov);
 }
 
+// Busca a lista de figurinhas do servidor com novas tentativas (antes era uma só, em silêncio)
+// e de novo ao voltar a internet ou ao voltar para o app, no máximo a cada 10 min.
+let _figCarregadaEm = 0;
+function _figurinhasCarregar(tentativa) {
+  tentativa = tentativa || 0;
+  return _fetchConfigDireto('figurinhas_config').then(function(c){
+    if (c && typeof c === 'object' && Array.isArray(c.itens)) {
+      _figurinhasConfig = c;
+      _figCarregadaEm = Date.now();
+      try { if (c.itens.length) localStorage.setItem('intus-fig-cfg', JSON.stringify(c)); else localStorage.removeItem('intus-fig-cfg'); } catch (e) {}
+    }
+  }).catch(function(){
+    var espera = [3000, 10000, 30000][tentativa];
+    if (espera) setTimeout(function(){ _figurinhasCarregar(tentativa + 1); }, espera);
+  });
+}
 (function(){
-  _fetchConfigDireto('figurinhas_config').then(function(c){
-    if (c && typeof c === 'object' && Array.isArray(c.itens)) _figurinhasConfig = c;
-  }).catch(function(){});
+  _figurinhasCarregar(0);
+  function _figAtualizarSePrecisar() {
+    if (Date.now() - _figCarregadaEm > 600000) _figurinhasCarregar(2);
+  }
+  window.addEventListener('online', _figAtualizarSePrecisar);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) _figAtualizarSePrecisar(); });
 })();
 
 // Baseline das conquistas no início (para a comemoração pós-treino funcionar)
