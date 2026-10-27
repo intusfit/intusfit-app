@@ -1,6 +1,7 @@
 # reel.py <cortes.json> <id do corte> <saida.mp4> [--so-quadro t]
 # Monta um reel vertical (1080x1920) de um trecho da entrevista:
-# cortes nas pausas, enquadramento 4:5 que segue quem está na tela, gancho, legenda palavra a palavra
+# cortes só nas pausas longas, enquadramento fixo por plano da TV (sem balançar), largo o bastante
+# para mostrar o corpo de quem está no plano, gancho, legenda palavra a palavra
 # (palavra falada alternando amarelo e verde Intus), assinatura @luiznunest / @intusfit e cartão final.
 import sys, os, json, math, subprocess, numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -8,9 +9,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 E = os.path.dirname(os.path.abspath(__file__))
 VID = os.path.join(E, 'orig', 'entrevista.mp4')
 FPS = 30; W, H = 1080, 1920
-JAN_Y, JAN_W, JAN_H = 230, 1080, 1350          # janela do vídeo no reel
-SRC_W, SRC_H = 624, 780                         # recorte 4:5 acima da tarja da TV (a tarja começa em y 780)
-FAIXA_Y0, FAIXA_Y1 = 1150, 1390                 # legendas por cima do vídeo, na parte de baixo
+JAN_Y, JAN_W, JAN_H = 230, 1080, 1350          # área do vídeo no reel (fundo desfocado quando o plano é largo)
+SRC_H = 780                                     # só acima da tarja da TV (a tarja começa em y 780)
+SRC_MIN, SRC_MAX = 624, 1500                    # largura do recorte no original: 624 = 4:5 (close), até 1500 (dois no plano)
+AUDIO_LIMPO = os.path.join(E, 'sep', 'audio_limpo.wav')
 AMARELO, VERDE, BRANCO, FUNDO = (255, 214, 10), (127, 255, 0), (245, 245, 245), (15, 15, 15)
 FONTE_X = '/usr/share/fonts/opentype/inter/Inter-ExtraBold.otf'
 FONTE_B = '/usr/share/fonts/opentype/inter/Inter-Bold.otf'
@@ -39,7 +41,7 @@ palavras.sort(key=lambda w: w['i'])
 trechos = []
 for w in palavras:
     ini, fim = w['i'] - .08, w['f'] + .16
-    if trechos and ini - trechos[-1][1] < .45 and trechos[-1][2] == w['parte']: trechos[-1][1] = max(trechos[-1][1], fim)
+    if trechos and ini - trechos[-1][1] < .8 and trechos[-1][2] == w['parte']: trechos[-1][1] = max(trechos[-1][1], fim)
     else: trechos.append([ini, fim, w['parte']])
 # linha do tempo do reel: cada trecho em sequência
 mapa, t_out = [], 0.0
@@ -61,31 +63,31 @@ for w in palavras:
     if txt[-1] in '.?!,': grupos.append(g); g = []
 if g: grupos.append(g)
 
-# ---------- 2. enquadramento ----------
+# ---------- 2. enquadramento: um recorte fixo por plano da TV ----------
 Q = PE['quadros']
-def alvo(q, ant):
-    ps = [p for p in q['p'] if (p['y1'] - p['y0']) > 220]
-    if not ps: return ant
-    ps.sort(key=lambda p: -(p['x1'] - p['x0']) * (p['y1'] - p['y0'])); ps = ps[:2]
-    if len(ps) == 1: return ps[0]['cab'][0]
-    x0, x1 = min(p['x0'] for p in ps), max(p['x1'] for p in ps)
-    if x1 - x0 < SRC_W - 70: return (x0 + x1) / 2
-    luiz = min(ps, key=lambda p: p['escuro'])          # camisa preta
-    if any(a <= q['t'] <= b for a, b in CFG.get('apresentadora', [])):   # ela está falando: mostra ela
-        return max(ps, key=lambda p: p['escuro'])['cab'][0]
-    return luiz['ombro'][0]
-cx_src, ant, ult_corte = [], 960, -1
-for q in Q:
-    t = q['t']; c = alvo(q, ant)
-    novo = any(ult_corte < k <= t for k in CORTES)
-    ant = c if novo or not cx_src else ant * .6 + c * .4
-    cx_src.append((t, ant, novo)); ult_corte = t
-def cx_em(t):
-    i = max(0, min(len(cx_src) - 1, int(t / .5)))
-    j = min(len(cx_src) - 1, i + 1)
-    if cx_src[j][2]: return cx_src[i][1]
-    k = (t - cx_src[i][0]) / .5
-    return cx_src[i][1] * (1 - k) + cx_src[j][1] * k
+def plano_de(t): return sum(1 for k in CORTES if k <= t)
+_PLANO = {}
+def enquadra(t):
+    pid = plano_de(t)
+    if pid in _PLANO: return _PLANO[pid]
+    a = CORTES[pid - 1] if pid > 0 else 0.0; b = CORTES[pid] if pid < len(CORTES) else 1e9
+    xs0, xs1, larg, cab = [], [], [], []
+    for q in Q:
+        if not (a + .2 <= q['t'] <= b - .2): continue
+        ps = sorted([p for p in q['p'] if (p['y1'] - p['y0']) > 180], key=lambda p: -(p['x1'] - p['x0']))[:2]
+        if not ps: continue
+        xs0.append(min(p['x0'] for p in ps)); xs1.append(max(p['x1'] for p in ps))
+        larg.append(ps[0]['x1'] - ps[0]['x0']); cab.append(ps[0]['cab'][0])
+    if not larg: r = (960, 1300)
+    elif np.median(larg) > 520:
+        r = (float(np.median(cab)), SRC_MIN)                         # close (pessoa larga na tela): 4:5 no rosto
+    else:
+        # plano aberto: o detector às vezes não vê a apresentadora (roupa clara no fundo claro), então o recorte
+        # é largo de propósito (mínimo 1250 px) e puxado para o centro da cena, para ninguém ficar cortado
+        x0, x1 = min(xs0) - 70, max(xs1) + 70
+        lw = float(min(max(x1 - x0, 1250), SRC_MAX)); cx = (x0 + x1) / 2 * .55 + 960 * .45
+        r = (cx, lw)
+    _PLANO[pid] = r; return r
 
 # ---------- 3. desenho ----------
 def texto_centro(d, txt, y, f, cor, borda=6):
@@ -112,7 +114,7 @@ def desenha_gancho(d, grande, t):
             d.text((x, y), p, font=f, fill=cor, stroke_width=7 if grande else 5, stroke_fill=(0, 0, 0))
             x += d.textlength(p + ' ', font=f)
         y += alt
-def desenha_legenda(d, t):
+def desenha_legenda(d, t, y_topo):
     gi = None
     for k, g in enumerate(grupos):
         if g[0]['ri'] - .05 <= t <= (grupos[k + 1][0]['ri'] - .05 if k + 1 < len(grupos) else g[-1]['rf'] + .4): gi = k
@@ -125,7 +127,7 @@ def desenha_legenda(d, t):
     if larg > W - 80:                       # grupo largo demais: duas linhas
         meio = max(1, len(ps) // 2); linhas = [list(range(meio)), list(range(meio, len(ps)))]
     else: linhas = [list(range(len(ps)))]
-    y = (FAIXA_Y0 + FAIXA_Y1) / 2 - len(linhas) * 52 - 10
+    y = y_topo
     for ln in linhas:
         larg = sum(d.textlength(ps[i], font=fg if i == ativa else f) for i in ln) + d.textlength(' ', font=f) * (len(ln) - 1)
         x = (W - larg) / 2
@@ -136,23 +138,41 @@ def desenha_legenda(d, t):
         y += 110
 def base_canvas():
     c = Image.new('RGB', (W, H), FUNDO); return c
-GRAD420 = Image.linear_gradient('L').resize((W, 420)).point(lambda v: int(v * .62))
+GRAD = Image.linear_gradient('L').resize((W, 200)).point(lambda v: int(v * .45))
+NOTAS = CFG.get('notas', [])
+def desenha_nota(d, t_src, y):
+    for a, b, txt, cor in NOTAS:
+        if a <= t_src <= b:
+            f = fonte(FONTE_X, 46); larg = d.textlength(txt, font=f)
+            cc = {'verde': VERDE, 'vermelho': (255, 77, 77), 'branco': BRANCO}[cor]
+            d.rounded_rectangle(((W - larg) / 2 - 28, y, (W + larg) / 2 + 28, y + 76), 38, fill=(15, 15, 15))
+            d.text(((W - larg) / 2, y + 12), txt, font=f, fill=cc)
 def quadro_fala(frame, t, idx_trecho, t_src):
     c = base_canvas()
-    z = 1.0 if idx_trecho % 2 == 0 else 1.08
-    sw, sh = SRC_W / z, SRC_H / z
-    cx = min(max(cx_em(t_src), sw / 2), 1920 - sw / 2)
-    y0 = (SRC_H - sh) * .3
-    im = Image.fromarray(frame).crop((int(cx - sw / 2), int(y0), int(cx + sw / 2), int(y0 + sh))).resize((JAN_W, JAN_H), Image.LANCZOS)
-    c.paste(im, (0, JAN_Y))
+    cx, sw = enquadra(t_src)
+    cx = min(max(cx, sw / 2), 1920 - sw / 2)
+    img = Image.fromarray(frame)
+    jh = int(round(SRC_H * W / sw))                  # altura da janela no reel (1350 no close)
+    jan = img.crop((int(cx - sw / 2), 0, int(cx + sw / 2), SRC_H)).resize((W, jh), Image.LANCZOS)
+    if jh < JAN_H - 4:
+        # fundo: o mesmo plano ampliado e desfocado, para não sobrar faixa preta
+        bw = SRC_H * W / JAN_H; bx = min(max(cx, bw / 2), 1920 - bw / 2)
+        fundo = img.crop((int(bx - bw / 2), 0, int(bx + bw / 2), SRC_H)).resize((W // 6, JAN_H // 6)).filter(ImageFilter.GaussianBlur(6)).resize((W, JAN_H))
+        fundo = Image.blend(fundo, Image.new('RGB', (W, JAN_H), (0, 0, 0)), .55)
+        c.paste(fundo, (0, JAN_Y)); jy = int(JAN_Y + (JAN_H - jh) / 2 - 110)     # centrado, com a legenda logo abaixo
+    else: jy = JAN_Y
+    c.paste(jan, (0, jy))
     d = ImageDraw.Draw(c)
-    # escurece de leve a parte de baixo do vídeo para a legenda ler bem
-    c.paste(Image.new('RGB', (W, 420), (0, 0, 0)), (0, JAN_Y + JAN_H - 420), GRAD420)
+    if jh >= JAN_H - 4:      # close: legenda por cima, com uma sombra curta
+        c.paste(Image.new('RGB', (W, 200), (0, 0, 0)), (0, JAN_Y + JAN_H - 200), GRAD); y_leg = JAN_Y + JAN_H - 175
+    else:                    # plano largo: legenda embaixo da imagem, sem cobrir ninguém
+        y_leg = min(jy + jh + 60, JAN_Y + JAN_H - 175)
     if t < T_GANCHO:
         esc = Image.new('RGBA', (W, JAN_H), (0, 0, 0, 120)); c.paste(esc, (0, JAN_Y), esc); d = ImageDraw.Draw(c)
         desenha_gancho(d, True, t)
     else: desenha_gancho(d, False, t)
-    desenha_legenda(d, t)
+    desenha_nota(d, t_src, jy + 30)
+    desenha_legenda(d, t, y_leg)
     # assinatura e barra de progresso
     fa = fonte(FONTE_B, 36); s = '@luiznunest   ·   @intusfit'
     d.text(((W - d.textlength(s, font=fa)) / 2, 1660), s, font=fa, fill=(200, 200, 200))
@@ -163,9 +183,10 @@ def quadro_fim(t):
     c = base_canvas(); d = ImageDraw.Draw(c); k = min(1, t / .35)
     lg = logo.copy(); lg.thumbnail((520, 160)); c.paste(lg, ((W - lg.width) // 2, 560), lg)
     texto_centro(d, 'SIGA PARA MAIS DICAS', 790, fonte(FONTE_X, 64), BRANCO, 0)
-    texto_centro(d, '@luiznunest', 900, fonte(FONTE_X, 96), AMARELO, 0)
+    texto_centro(d, '@luiznunest', 900, fonte(FONTE_X, 96), BRANCO, 0)
     texto_centro(d, '@intusfit', 1020, fonte(FONTE_X, 96), VERDE, 0)
-    texto_centro(d, 'Treinos e o app com treinos grátis no link da bio', 1170, fonte(FONTE_M, 40), (190, 190, 190), 0)
+    texto_centro(d, 'Te levamos ao próximo nível.', 1180, fonte(FONTE_B, 46), (215, 215, 215), 0)
+    texto_centro(d, 'Do iniciante ao atleta.', 1245, fonte(FONTE_B, 46), (215, 215, 215), 0)
     if k < 1: c = Image.blend(Image.new('RGB', (W, H), FUNDO), c, k)
     return c
 
@@ -180,7 +201,7 @@ if SO is not None:
 aud = SAIDA + '.wav'
 fil = ''.join('[0:a]atrim=%.3f:%.3f,asetpts=PTS-STARTPTS,afade=t=in:d=0.02,afade=t=out:st=%.3f:d=0.03[a%d];' % (a, b, max(0, b - a - .03), i) for i, (a, b, _) in enumerate(trechos))
 fil += ''.join('[a%d]' % i for i in range(len(trechos))) + 'concat=n=%d:v=0:a=1,apad=pad_dur=%.2f[ao]' % (len(trechos), T_FIM)
-subprocess.run(['ffmpeg', '-loglevel', 'error', '-y', '-i', VID, '-filter_complex', fil, '-map', '[ao]', '-ar', '48000', '-t', '%.3f' % DUR, aud], check=True)
+subprocess.run(['ffmpeg', '-loglevel', 'error', '-y', '-i', AUDIO_LIMPO if os.path.exists(AUDIO_LIMPO) else VID, '-filter_complex', fil, '-map', '[ao]', '-ar', '48000', '-t', '%.3f' % DUR, aud], check=True)
 enc = subprocess.Popen(['ffmpeg', '-loglevel', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', '%dx%d' % (W, H), '-r', str(FPS), '-i', '-', '-i', aud,
                         '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-shortest', '-movflags', '+faststart', SAIDA], stdin=subprocess.PIPE)
 n_out = 0
