@@ -97,6 +97,9 @@ const INTUS_LOGO_FULL_SVG = `<img class="intus-logo-full" src="logo-intus-dark.p
 // ── PERMISSÕES & USUÁRIOS ────────────────────────────────────────────────
 // Store local (localStorage) para usuários/professores com controle de acessos.
 // Integra com as páginas do painel — uma alteração aqui reflete em todas.
+// Editor de vídeo Intus Cut (página do claude.ai, abre em outra aba).
+const INTUS_CUT_URL = 'https://claude.ai/artifact/Et9xVsHjrTYxxqug5UKJH6';
+
 const PERM_KEYS = [
   // Clientes
   { key: 'at_ver',      label: 'Ver clientes',         grupo: 'Clientes'     },
@@ -151,6 +154,9 @@ const PERM_KEYS = [
   // alunos" — quando outros professores tiverem acesso, cada um vera so os
   // numeros dos clientes dele, e essa separacao precisa comecar fechada.
   { key: 'fin_empresa', label: 'Ver o caixa da empresa (toda a operação: Caixa, Eduzz, Analytics)', grupo: 'Financeiro', restrita: true },
+  // Intus Cut (editor de vídeo): só mostra o atalho no menu. O editor é uma página do claude.ai
+  // do Luiz; quem ganhar a chave também precisa receber o compartilhamento da página por ele.
+  { key: 'cut_ver',     label: 'Usar o Intus Cut (editor de vídeo; a página também precisa ser compartilhada pelo Luiz)', grupo: 'Intus Cut' },
 ];
 
 function _permsAllTrue() {
@@ -659,6 +665,7 @@ function renderLayout(activePage) {
     { href: 'feed.html',         icon: ICONS.camera,   label: 'Feed',         show: true },
     { href: 'resultados.html',   icon: ICONS.crown,    label: 'Quadro de Resultados', show: true },
     { href: 'extras.html',       icon: ICONS.video,    label: 'Extras',       show: !!user.admin },
+    { href: INTUS_CUT_URL,       icon: ICONS.video,    label: 'Intus Cut',    show: hasPerm('cut_ver'), externo: true },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },
     { href: 'configuracoes.html',icon: ICONS.gear,     label: 'Configurações',show: !!user.admin },
@@ -668,7 +675,7 @@ function renderLayout(activePage) {
   const links = nav.map(n => {
     const active = activePage === n.label;
     return `
-    <a href="${n.href}" class="nav-link${active?' active':''}">
+    <a href="${n.href}" class="nav-link${active?' active':''}"${n.externo ? ' target="_blank" rel="noopener"' : ''}>
       <span class="nav-icon">${n.icon}</span>
       <span class="nav-label">${n.label}</span>
     </a>`;
