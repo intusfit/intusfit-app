@@ -32,6 +32,13 @@ MODULOS = [
 ]
 
 
+# Módulos em que o rosto ocupa a faixa do título: o selo EXTRAS e o título descem para o espaço vazio de baixo (y do início do título).
+# Lives e aulas exclusivas: o rosto vai até y~410, então o título só começa abaixo dele, sobre a camiseta escura.
+TITULO_Y = {
+    'lives-e-aulas-exclusivas': 442,
+}
+
+
 # capas de aulas com outra pessoa: (módulo, nº da aula) -> (foto, centralização). Aulas 4 (Remédios para Emagrecer) e 6 (Lipedema) de Lives e aulas
 # exclusivas são com o Prof. Ricardo.
 FOTOS_AULA = {
@@ -167,10 +174,12 @@ def capa_modulo(slug, titulo, cor_hex, foto, centro, layout, qtd, pasta_fotos, s
     dr.rectangle([0, 0, 12, H], fill=cor)
     # logo
     img, m = logo_branca(250); base.paste(img, (52, 46), m)
-    # selo EXTRAS
+    # selo EXTRAS (desce junto com o título nos módulos de TITULO_Y)
+    y_titulo = TITULO_Y.get(slug)
+    y_selo = 150 if y_titulo is None else y_titulo - 68
     f_sel = fonte(26, fonte_arq); t = 'EXTRAS'; tw = dr.textlength(t, font=f_sel)
-    dr.rectangle([54, 150, 54 + tw + 36, 150 + 44], fill=LIMA)
-    dr.text((54 + 18, 150 + 5), t, font=f_sel, fill=(10, 20, 0))
+    dr.rectangle([54, y_selo, 54 + tw + 36, y_selo + 44], fill=LIMA)
+    dr.text((54 + 18, y_selo + 5), t, font=f_sel, fill=(10, 20, 0))
     # título
     f_tit = fonte(88, fonte_arq)
     linhas = quebrar(titulo, f_tit, 520, dr)
@@ -178,7 +187,7 @@ def capa_modulo(slug, titulo, cor_hex, foto, centro, layout, qtd, pasta_fotos, s
     while len(linhas) > 4 and tam > 60:
         tam -= 6; f_tit = fonte(tam, fonte_arq); linhas = quebrar(titulo, f_tit, 520, dr)
     alt = int(tam * 1.04)
-    y = 250
+    y = 250 if y_titulo is None else y_titulo
     for l in linhas:
         dr.text((52 + 3, y + 3), l, font=f_tit, fill=(0, 0, 0))
         dr.text((52, y), l, font=f_tit, fill=(255, 255, 255))

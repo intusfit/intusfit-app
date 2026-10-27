@@ -33,7 +33,7 @@ const EXTRAS_TIPOS = ['video', 'live', 'material', 'link'];
 // Versão das imagens de capa que moram no próprio site (app/painel/extras/capas). Sobe quando as capas forem refeitas (junto com VERSAO em
 // tools/extras/gerar-catalogo.py). O servidor acrescenta ?v=<versão> a toda capa do site na hora de ENTREGAR, mesmo em catálogo já salvo pelo
 // administrador: sem isso o Cloudflare e o navegador seguem servindo a imagem antiga no mesmo endereço por horas.
-const EXTRAS_CAPAS_VERSAO = '4';
+const EXTRAS_CAPAS_VERSAO = '5';
 const EXTRAS_MAX_MODULOS = 60;
 const EXTRAS_MAX_ITENS = 200;
 const EXTRAS_MAX_SELECIONADOS = 500;
