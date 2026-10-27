@@ -89,6 +89,25 @@ def enquadra(t):
         r = (cx, lw)
     _PLANO[pid] = r; return r
 
+# ---------- projeto para o editor Intus Cut (--projeto saida.json base_s) ----------
+if '--projeto' in args:
+    out, base = args[args.index('--projeto') + 1], float(args[args.index('--projeto') + 2])
+    ini_t, fim_t = trechos[0][0], trechos[-1][1]
+    planos = []
+    for k in range(len(CORTES) + 1):
+        a = CORTES[k - 1] if k > 0 else 0.0; b = CORTES[k] if k < len(CORTES) else 1e9
+        if b < ini_t - 1 or a > fim_t + 1: continue
+        cx, lw = enquadra((max(a, ini_t) + min(b, fim_t)) / 2)
+        planos.append({'ini': round(max(a, base) - base, 3), 'fim': round(min(b, fim_t + 1.5) - base, 3), 'cx': round(cx, 1), 'larg': round(lw, 1)})
+    json.dump({'id': CFG['id'], 'nome': CFG['gancho'], 'gancho': CFG['gancho'], 'destaque': CFG.get('destaque_gancho', []),
+               'trechos': [{'ini': round(a - base, 3), 'fim': round(b - base, 3)} for a, b, _ in trechos],
+               'palavras': [{'p': w['p'].strip(), 'i': round(w['i'] - base, 3), 'f': round(w['f'] - base, 3)} for w in palavras if w['p'].strip()],
+               'planos': planos, 'notas': [{'ini': round(a - base, 3), 'fim': round(b - base, 3), 'texto': t, 'cor': c} for a, b, t, c in CFG.get('notas', [])],
+               'audio': {'voz': 1.0, 'musica': .14}, 'estilo': {'cores': ['amarelo', 'verde'], 'tamanho': 84, 'maiusculas': True, 'palavras_por_grupo': 3},
+               'final': {'ativo': True, 'chamada': 'SIGA PARA MAIS DICAS', 'slogan': 'Te levamos ao próximo nível. Do iniciante ao atleta.'},
+               'origem': {'video': 'entrevista RIC', 'base_s': base}}, open(out, 'w'), ensure_ascii=False)
+    print('projeto', out, 'de', round(ini_t, 2), 'a', round(fim_t, 2)); sys.exit()
+
 # ---------- 3. desenho ----------
 def texto_centro(d, txt, y, f, cor, borda=6):
     w = d.textlength(txt, font=f); d.text(((W - w) / 2, y), txt, font=f, fill=cor, stroke_width=borda, stroke_fill=(0, 0, 0))
