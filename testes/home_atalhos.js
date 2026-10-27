@@ -63,6 +63,23 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await page.evaluate(() => { _extras.lista[0].itens[0].criado_em = '2020-01-01T00:00:00Z'; localStorage.setItem(_extrasChave('visto'), new Date().toISOString()); _extrasAtualizarEntradas(); });
   eq('depois de visto, a etiqueta some', await page.evaluate(() => !!document.querySelector('.h-novo')), false);
 
+  console.log('\n══ Profundidade dos cartões e ícone branco do Extras ══');
+  const prof = () => page.evaluate(() => {
+    const sel = ['.h-hoje', '.h-dest', '.h-sem', '.h-rk', '.h-at'];
+    const cs = sel.map(s => { const e = document.querySelector('#v-home ' + s); return [s, e ? getComputedStyle(e).boxShadow : null]; });
+    const ex = [...document.querySelectorAll('#h-dir .h-atalhos > .h-at')].find(e => /Extras/.test(e.innerText));
+    const ic = ex ? getComputedStyle(ex.querySelector('.ic')) : null;
+    return { cs, extras: ic ? ic.backgroundImage : '', borda: getComputedStyle(document.querySelector('#v-home .h-at')).borderTopColor };
+  });
+  for (const claro of [false, true]) {
+    await page.evaluate(c => { document.body.classList.toggle('tema-claro', c); renderHome(); }, claro);
+    const p = await prof();
+    const nome = claro ? 'tema claro' : 'tema escuro';
+    ver(nome + ': Treinos, Cardio, Sua semana, Ranking e os atalhos têm sombra', p.cs.every(([s, v]) => v === null ? ['.h-hoje', '.h-dest'].includes(s) : v !== 'none'), p.cs);
+    ver(nome + ': o ícone do Extras é branco (não verde)', /255, 255, 255/.test(p.extras) && !/76, 201, 79/.test(p.extras), p.extras);
+  }
+  await page.evaluate(() => { document.body.classList.remove('tema-claro'); renderHome(); });
+
   console.log('\n══ Tela Ranking e Medalhas ══');
   await page.evaluate(() => abrirRanking()); await page.waitForTimeout(1500);
   let rt = await page.evaluate(() => { const v = document.getElementById('v-ranking'); const bs = [...v.querySelectorAll('button[aria-pressed]')]; return { titulo: v.innerText.includes('Ranking e Medalhas'), seg: bs.map(x => [x.innerText.trim(), x.getAttribute('aria-pressed')]), dourado: !!v.querySelector('button[aria-label="Quadro de medalhas"]'), voltar: /‹ Ranking/.test(v.innerText) }; });
