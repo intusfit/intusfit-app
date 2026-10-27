@@ -50,7 +50,8 @@
   async function lerItens(arrayBuffer, pdfjsLib) {
     var lib = pdfjsLib || root.pdfjsLib;
     if (!lib) throw new Error('Leitor de PDF não carregou.');
-    var pdf = await lib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+    // isEvalSupported: false fecha a CVE-2024-4367 (pdf.js < 4.2.67 executa código de fonte de um PDF preparado).
+    var pdf = await lib.getDocument({ data: new Uint8Array(arrayBuffer), isEvalSupported: false }).promise;
     var itens = [];
     for (var p = 1; p <= pdf.numPages; p++) {
       var pag = await pdf.getPage(p);
