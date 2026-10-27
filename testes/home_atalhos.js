@@ -142,7 +142,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   const medirEvo = () => page.evaluate(() => {
     const sh = e => !!e && getComputedStyle(e).boxShadow !== 'none';
     const v = document.getElementById('v-historico');
-    return { marcador: sh(v.querySelector('[onclick^="abrirDetalheMarcador"]')), graficos: sh(v.querySelector('details')), historico: null };
+    return { marcador: sh(v.querySelector('[onclick^="abrirDetalheMarcador"]')), graficos: sh(v.querySelector('details')) && sh([...v.querySelectorAll('div')].find(e => /^Treinos por semana/.test(e.innerText) && getComputedStyle(e).borderRadius === '12px')) && sh([...v.querySelectorAll('div')].find(e => /^Começou com quanto/.test(e.innerText) && getComputedStyle(e).borderRadius === '12px')), historico: null };
   });
   const medirLinha = () => page.evaluate(() => { const v = document.getElementById('v-historico'); const h = v.querySelector('.hist-card'), c = v.querySelector('.card'); const sh = e => !!e && getComputedStyle(e).boxShadow !== 'none'; return { sessao: sh(h), calendario: sh(c), fundo: h ? getComputedStyle(h).backgroundColor : null, bordaEsq: h ? getComputedStyle(h).borderLeftWidth : null }; });
   for (const claro of [false, true]) {
@@ -154,7 +154,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
     await page.evaluate(() => { renderPerfil(); trocarView('perfil'); }); await page.waitForTimeout(300);
     const pf = await page.evaluate(() => { const v = document.getElementById('v-perfil'); const tabs = document.getElementById('pf-tabbtn-conquistas'); const barra = tabs && tabs.parentElement; const placar = [...v.querySelectorAll('.pf')].length; return { barra: !!barra && getComputedStyle(barra).boxShadow !== 'none', cartoes: placar }; });
     const nome = claro ? 'tema claro' : 'tema escuro';
-    ver(nome + ': Evoluções: marcadores e caixa "Ver série por série" com sombra', e1.marcador && e1.graficos, e1);
+    ver(nome + ': Evoluções: marcadores, gráficos (Treinos por semana, Começou com quanto) e "Ver série por série" com sombra', e1.marcador && e1.graficos, e1);
     ver(nome + ': Evoluções: cada sessão do histórico e o calendário com sombra', e2.sessao && e2.calendario, e2);
     ver(nome + ': Perfil: barra de abas e cartões com sombra', pf.barra && pf.cartoes >= 2, pf);
     if (!claro) eq('tema escuro: a sessão do histórico mantém o tom de sempre', e2.fundo, 'rgb(20, 20, 20)');
@@ -179,6 +179,9 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   ver('nome do alimento grande (16 px) e quantidade em destaque (13,5 px)', nut.nome >= 16 && nut.qtd >= 13.5, nut);
   ver('título da refeição grande (17 px) e cartões dentro da tela', nut.cab >= 17 && nut.semEstouro, nut);
   eq('a quantidade aparece como etiqueta própria, com a medida e os gramas', nut.qtdTexto, '2 unidades (100 g)');
+  const dash = await page.evaluate(() => { const v = document.getElementById('v-nutricao'); const c = [...v.querySelectorAll('div')].find(e => /Aderência dos últimos 7 dias/.test(e.innerText) && getComputedStyle(e).borderRadius === '14px' && /Proteína/.test(e.innerText)); return c ? { alt: Math.round(c.getBoundingClientRect().height), txt: c.innerText } : null; });
+  ver('resumo do plano compacto (até 205 px de altura, antes ~370)', dash && dash.alt <= 205, dash && dash.alt);
+  ver('o resumo mantém todos os elementos (macros, próxima refeição, água e aderência)', dash && ['Proteína', 'Carbo', 'Gordura', 'Próxima refeição', 'Água hoje', '+ copo', 'Aderência dos últimos 7 dias', 'Calorias estimadas'].every(x => dash.txt.indexOf(x) >= 0), dash && dash.txt);
   await page.evaluate(() => { _nutri.tela = 'home'; trocarView('home'); });
 
   console.log('\n══ Estrutura ══');

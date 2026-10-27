@@ -461,7 +461,7 @@ window.IntusEvolucao = (function () {
     var borda   = isLight ? '#e5e5e5' : '#1e1e1e';
 
     if (!series.length || rotulos.length < 1) {
-      return '<div style="border:1px solid ' + borda + ';background:' + fundo + ';border-radius:12px;padding:22px;text-align:center;color:' + tinta2 + ';font-size:12.5px;line-height:1.5;">' +
+      return '<div style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:22px;text-align:center;color:' + tinta2 + ';font-size:12.5px;line-height:1.5;">' +
         (cfg.titulo ? '<div style="font-size:13px;font-weight:800;color:' + tinta + ';margin-bottom:6px;">' + esc(cfg.titulo) + '</div>' : '') +
         esc(cfg.vazio || 'Ainda não há registros suficientes para desenhar a evolução.') +
       '</div>';
@@ -575,7 +575,7 @@ window.IntusEvolucao = (function () {
       detalhes: cfg.detalhes || null,
     };
 
-    return '<div class="evo-card" data-evo="' + id + '" style="border:1px solid ' + borda + ';background:' + fundo + ';border-radius:12px;padding:14px;">' +
+    return '<div class="evo-card" data-evo="' + id + '" style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:14px;">' +
       (cfg.titulo ? '<div style="font-size:13px;font-weight:800;color:' + tinta + ';">' + esc(cfg.titulo) + '</div>' : '') +
       (cfg.sub ? '<div style="font-size:11.5px;color:' + tinta2 + ';margin-top:2px;line-height:1.45;">' + esc(cfg.sub) + '</div>' : '') +
       '<div style="position:relative;display:flex;align-items:flex-start;margin-top:12px;">' +
@@ -710,7 +710,7 @@ window.IntusEvolucao = (function () {
     var corCtx = isLight ? '#9bbf78' : '#3f6b1a';
 
     if (!itens.length) {
-      return '<div style="border:1px solid ' + borda + ';background:' + fundo + ';border-radius:12px;padding:20px;text-align:center;color:' + tinta2 + ';font-size:12.5px;">' +
+      return '<div style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:20px;text-align:center;color:' + tinta2 + ';font-size:12.5px;">' +
         esc(cfg.vazio || 'Ainda não há registros suficientes.') + '</div>';
     }
 
@@ -763,7 +763,7 @@ window.IntusEvolucao = (function () {
         '</div>'
       : '';
 
-    return '<div style="border:1px solid ' + borda + ';background:' + fundo + ';border-radius:12px;padding:14px;">' +
+    return '<div style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:14px;">' +
       (cfg.titulo ? '<div style="font-size:13px;font-weight:800;color:' + tinta + ';">' + esc(cfg.titulo) + '</div>' : '') +
       (cfg.sub ? '<div style="font-size:11.5px;color:' + tinta2 + ';margin-top:2px;line-height:1.45;">' + esc(cfg.sub) + '</div>' : '') +
       '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:10px;">' + svg + '</div>' +
@@ -793,7 +793,7 @@ window.IntusEvolucao = (function () {
     var trilho   = isLight ? '#e6e6e6' : '#262626';
 
     if (!itens.length) {
-      return '<div style="border:1px solid ' + borda + ';background:' + fundo + ';border-radius:12px;padding:20px;text-align:center;color:' + tinta2 + ';font-size:12.5px;line-height:1.55;">' +
+      return '<div style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:20px;text-align:center;color:' + tinta2 + ';font-size:12.5px;line-height:1.55;">' +
         esc(cfg.vazio || 'Assim que você repetir um exercício em duas sessões diferentes, a comparação aparece aqui.') + '</div>';
     }
 
@@ -832,7 +832,7 @@ window.IntusEvolucao = (function () {
       '</div>';
     }).join('');
 
-    return '<div style="border:1px solid ' + borda + ';background:' + fundo + ';border-radius:12px;padding:14px;">' +
+    return '<div style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:14px;">' +
       (cfg.titulo ? '<div style="font-size:13px;font-weight:800;color:' + tinta + ';">' + esc(cfg.titulo) + '</div>' : '') +
       (cfg.sub ? '<div style="font-size:11.5px;color:' + tinta2 + ';margin-top:2px;line-height:1.45;">' + esc(cfg.sub) + '</div>' : '') +
       '<div style="margin-top:6px;">' + linhas + '</div>' +
