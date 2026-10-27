@@ -1,0 +1,631 @@
+<title>Intus Cut</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Sora:wght@600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
+<style>
+/* Layout: ilha de edição escura. Prévia 9:16 à esquerda, painel de ferramentas em abas à direita,
+   linha do tempo de largura total embaixo. Uma cor de destaque (o verde da Intus) só para o que está ativo. */
+:root{
+  --chao:#0b0d0a; --mesa:#131611; --painel:#1a1e17; --painel2:#222720; --linha:#2d3328;
+  --texto:#eef1ea; --suave:#9aa493; --fraco:#6c7466;
+  --verde:#7fff00; --verde-esc:#14210a; --amarelo:#ffd60a; --vermelho:#ff5c5c;
+  --f-marca:'Sora','Inter',system-ui,sans-serif; --f-ui:'Inter',system-ui,-apple-system,sans-serif; --f-tempo:'JetBrains Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--chao);color:var(--texto);font:14px/1.45 var(--f-ui);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+.app{display:grid;grid-template-rows:auto 1fr auto;height:100%;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px;gap:12px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.marca{font:800 20px var(--f-marca);letter-spacing:-.01em;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.marca i{width:22px;height:22px;display:inline-block;background:linear-gradient(135deg,var(--verde) 0 50%,transparent 50%);border:2px solid var(--verde);border-radius:3px}
+.marca b{color:var(--verde);font-weight:800}
+select,input[type=text],input[type=number],textarea{background:var(--painel2);border:1px solid var(--linha);border-radius:8px;padding:7px 10px;min-width:0}
+textarea{resize:vertical;width:100%}
+.esp{flex:1}
+.pilula{font:600 12px var(--f-ui);color:var(--suave);padding:4px 10px;border:1px solid var(--linha);border-radius:999px;white-space:nowrap}
+.pilula.ok{color:var(--verde);border-color:#3a5a1a}
+.pilula.erro{color:var(--vermelho);border-color:#5a2a2a}
+.btn{background:var(--painel2);border:1px solid var(--linha);border-radius:8px;padding:7px 12px;font-weight:600;white-space:nowrap}
+.btn:hover{border-color:#46503f}
+.btn.pri{background:var(--verde);color:#0b0d0a;border-color:var(--verde)}
+.btn.peq{padding:4px 9px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:default}
+.meio{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:12px;min-height:0}
+.palco{display:flex;flex-direction:column;gap:8px;min-height:0;align-items:center}
+.tela{position:relative;height:100%;min-height:0;aspect-ratio:9/16;max-width:100%;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--linha)}
+.tela canvas{width:100%;height:100%;display:block}
+.vazio-tela{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--suave)}
+.transporte{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+.tc{font:600 13px var(--f-tempo);color:var(--suave);font-variant-numeric:tabular-nums;min-width:120px;text-align:center}
+.painel{background:var(--mesa);border:1px solid var(--linha);border-radius:12px;display:flex;flex-direction:column;min-height:0;min-width:0}
+.abas{display:flex;gap:2px;padding:6px;border-bottom:1px solid var(--linha);flex-wrap:wrap}
+.abas button{background:none;border:0;border-radius:7px;padding:7px 12px;color:var(--suave);font-weight:600}
+.abas button[aria-selected=true]{background:var(--painel2);color:var(--texto)}
+.conteudo{padding:14px;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:14px}
+.grupo{display:flex;flex-direction:column;gap:8px}
+.grupo h3{margin:0;font:700 11.5px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--suave)}
+.linha{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.linha label{color:var(--suave);font-size:13px}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo span{font-size:12px;color:var(--suave)}
+input[type=range]{accent-color:var(--verde);width:100%}
+.nota-ajuda{color:var(--fraco);font-size:12.5px;margin:0;max-width:64ch}
+.lista{display:flex;flex-direction:column;gap:6px}
+.item{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;background:var(--painel);border:1px solid var(--linha);border-radius:8px;padding:6px 8px}
+.item.ativo{border-color:#4f7a24;background:var(--verde-esc)}
+.item .t{font:500 12px var(--f-tempo);color:var(--suave);font-variant-numeric:tabular-nums;white-space:nowrap}
+.palavras{display:flex;flex-wrap:wrap;gap:5px}
+.palavras input{width:auto;min-width:3ch;padding:3px 6px;font-size:13px;border-radius:6px}
+.palavras input.agora{border-color:var(--verde);color:var(--verde)}
+.palavras input.fora{opacity:.35}
+.fonte-ve{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden;border:1px solid var(--linha);cursor:grab;touch-action:none}
+.fonte-ve canvas{width:100%;height:100%;display:block}
+.tempo{background:var(--mesa);border:1px solid var(--linha);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.trilha{position:relative;height:46px;background:var(--painel);border-radius:8px;overflow:hidden;cursor:pointer;touch-action:none}
+.trilha .bloco{position:absolute;top:6px;bottom:6px;background:#2c3d1c;border:1px solid #4f7a24;border-radius:6px;overflow:hidden}
+.trilha .bloco.sel{background:#3f5a20;border-color:var(--verde)}
+.trilha .bloco.fim{background:#2a2a33;border-color:#4a4a5a}
+.trilha .bloco span{position:absolute;left:6px;top:3px;font:600 11px var(--f-tempo);color:#cfe8b0;white-space:nowrap}
+.trilha .cabeca{position:absolute;top:0;bottom:0;width:2px;background:var(--verde);pointer-events:none}
+.fonteb{position:relative;height:22px;background:var(--painel);border-radius:6px;overflow:hidden;cursor:pointer}
+.fonteb .k{position:absolute;top:0;bottom:0;background:#4f7a24}
+.fonteb .g{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,#2a2f26 0 6px,#20241d 6px 12px)}
+.fonteb .g.sel{outline:2px solid var(--amarelo);outline-offset:-2px}
+.fonteb .cabeca{position:absolute;top:0;bottom:0;width:2px;background:var(--amarelo)}
+.rotulo-tl{display:flex;justify-content:space-between;font-size:12px;color:var(--fraco)}
+.prog{height:6px;background:var(--painel2);border-radius:3px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--verde);width:0}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
+.caixa{background:var(--mesa);border:1px solid var(--linha);border-radius:12px;padding:18px;max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px}
+.caixa h2{margin:0;font:700 18px var(--f-marca)}
+@media (max-width:900px){
+  .meio{grid-template-columns:1fr}
+  .tela{height:auto;width:min(100%,360px)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <header>
+    <div class="marca"><i aria-hidden="true"></i>Intus <b>Cut</b></div>
+    <select id="sel-proj" aria-label="Projeto"></select>
+    <button class="btn peq" id="b-dup" type="button">Duplicar</button>
+    <button class="btn peq" id="b-novo" type="button">Novo com vídeo</button>
+    <span class="esp"></span>
+    <span class="pilula" id="estado">Carregando</span>
+    <button class="btn" id="b-hq" type="button" title="O Claude renderiza a partir do vídeo original da TV">Pedir versão em alta</button>
+    <button class="btn pri" id="b-exp" type="button">Exportar MP4</button>
+  </header>
+
+  <div class="meio">
+    <div class="palco">
+      <div class="tela">
+        <canvas id="tela" width="1080" height="1920" aria-label="Prévia do reel"></canvas>
+        <div class="vazio-tela" id="vazio" hidden>Nenhum projeto ainda. Crie um com "Novo com vídeo" ou peça ao Claude para preparar os cortes de uma entrevista.</div>
+      </div>
+      <div class="transporte">
+        <button class="btn peq" id="b-ini" type="button" aria-label="Voltar ao início">⏮</button>
+        <button class="btn peq" id="b-q-" type="button" aria-label="Quadro anterior">−1q</button>
+        <button class="btn pri" id="b-play" type="button">Reproduzir</button>
+        <button class="btn peq" id="b-q+" type="button" aria-label="Próximo quadro">+1q</button>
+        <span class="tc" id="tc">00:00.00 / 00:00.00</span>
+      </div>
+    </div>
+
+    <section class="painel" aria-label="Ferramentas">
+      <div class="abas" role="tablist">
+        <button role="tab" data-aba="cortes" aria-selected="true">Cortes</button>
+        <button role="tab" data-aba="quadro">Enquadramento</button>
+        <button role="tab" data-aba="legenda">Legendas</button>
+        <button role="tab" data-aba="textos">Gancho e textos</button>
+        <button role="tab" data-aba="audio">Áudio</button>
+      </div>
+      <div class="conteudo" id="conteudo"></div>
+    </section>
+  </div>
+
+  <div class="tempo">
+    <div class="rotulo-tl"><span>Reel (o que fica no vídeo final)</span><span id="dur-rotulo"></span></div>
+    <div class="trilha" id="trilha" aria-label="Linha do tempo do reel"></div>
+    <div class="rotulo-tl"><span>Gravação original: verde entra, listrado fica de fora (clique num trecho listrado para trazer de volta)</span></div>
+    <div class="fonteb" id="fonteb" aria-label="Gravação original"></div>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden><div class="caixa" id="caixa"></div></div>
+
+<video id="v" muted playsinline preload="auto" crossorigin="anonymous" hidden></video>
+<audio id="a-voz" preload="auto" hidden></audio>
+<audio id="a-mus" preload="auto" hidden></audio>
+
+<script>
+(function(){
+'use strict';
+// ---------- constantes do reel (as mesmas do reel.py) ----------
+var W = 1080, H = 1920, FPS = 30, JAN_Y = 230, JAN_H = 1350, SRC_H = 780, ORIG_W = 1920;
+var T_GANCHO_PADRAO = 2.6, T_FIM = 2.8;
+var COR = { amarelo:'#ffd60a', verde:'#7fff00', branco:'#f5f5f5', vermelho:'#ff4d4d', fundo:'#0f0f0f' };
+var LOGO = new Image(); LOGO.src = 'data:image/png;base64,__LOGO__';
+var $ = function(id){ return document.getElementById(id); };
+var tela = $('tela'), ctx = tela.getContext('2d');
+var V = $('v'), AV = $('a-voz'), AM = $('a-mus');
+
+// ---------- estado ----------
+var db = null, assets = null, downloads = null;
+var projetos = {}, P = null, T = 0, tocando = false, selTrecho = 0, aba = 'cortes', salvarTimer = null, lacunaSel = null;
+
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function fmt(t){ t = Math.max(0, t || 0); var m = Math.floor(t / 60), s = t - m * 60; return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s.toFixed(2); }
+function estado(txt, tipo){ var e = $('estado'); e.textContent = txt; e.className = 'pilula' + (tipo ? ' ' + tipo : ''); }
+
+// ---------- linha do tempo ----------
+function trechos(){ return (P && P.trechos || []).slice().sort(function(a, b){ return a.ini - b.ini; }); }
+function mapa(){ var o = 0; return trechos().map(function(s){ var r = { ini:s.ini, fim:s.fim, o:o }; o += s.fim - s.ini; return r; }); }
+function durFala(){ return mapa().reduce(function(a, m){ return a + m.fim - m.ini; }, 0); }
+function dur(){ return durFala() + (P && P.final && P.final.ativo ? T_FIM : 0); }
+function fonteEm(t){ var M = mapa(); for (var i = 0; i < M.length; i++){ var m = M[i]; if (t < m.o + m.fim - m.ini - 1e-6) return { i:i, ts:m.ini + t - m.o }; } return null; }
+function reelEm(ts){ var M = mapa(); for (var i = 0; i < M.length; i++){ var m = M[i]; if (ts >= m.ini && ts <= m.fim) return m.o + ts - m.ini; } return null; }
+function plano(ts){
+  var ps = P.planos || [], melhor = null;
+  for (var i = 0; i < ps.length; i++){ if (ts >= ps[i].ini && ts < ps[i].fim) return ps[i]; if (!melhor || Math.abs(ps[i].ini - ts) < Math.abs(melhor.ini - ts)) melhor = ps[i]; }
+  return melhor || { ini:0, fim:1e9, cx:960, larg:1250, y:0 };
+}
+function grupos(){
+  var est = P.estilo || {}, max = est.palavras_por_grupo || 3, ws = [];
+  (P.palavras || []).forEach(function(w){ var ri = reelEm(w.i); if (ri == null || !String(w.p).trim()) return;
+    var rf = reelEm(Math.min(w.f, mapa().filter(function(m){ return w.i >= m.ini && w.i <= m.fim; })[0].fim)); ws.push({ p:String(w.p).trim(), ri:ri, rf:rf == null ? ri + .3 : rf }); });
+  var gs = [], g = [];
+  ws.forEach(function(w){
+    if (g.length && (g.length >= max || (g.concat([w]).map(function(x){ return x.p; }).join(' ').length > 18) || w.ri - g[g.length - 1].rf > .35)){ gs.push(g); g = []; }
+    g.push(w); if (/[.?!,]$/.test(w.p)){ gs.push(g); g = []; }
+  });
+  if (g.length) gs.push(g); return gs;
+}
+
+// ---------- desenho de um quadro (a prévia e a exportação usam o mesmo) ----------
+var aux = document.createElement('canvas'); aux.width = 36; aux.height = 45; var auxc = aux.getContext('2d');
+function texto(c, t, x, y, tam, peso, cor, borda, alin){
+  c.font = peso + ' ' + tam + 'px Inter, system-ui, sans-serif'; c.textAlign = alin || 'left'; c.textBaseline = 'top';
+  if (borda){ c.lineJoin = 'round'; c.lineWidth = borda * 2; c.strokeStyle = '#000'; c.strokeText(t, x, y); }
+  c.fillStyle = cor; c.fillText(t, x, y);
+}
+function quebra(c, txt, tam, larg){ c.font = '800 ' + tam + 'px Inter, system-ui, sans-serif'; var ls = [], at = '';
+  txt.split(/\s+/).forEach(function(p){ var t = (at + ' ' + p).trim(); if (c.measureText(t).width > larg && at){ ls.push(at); at = p; } else at = t; });
+  return ls.concat([at]); }
+function desenha(c, t, video){
+  c.fillStyle = COR.fundo; c.fillRect(0, 0, W, H);
+  var DF = durFala();
+  if (t >= DF && P.final && P.final.ativo){ desenhaFim(c, t - DF); return; }
+  var f = fonteEm(Math.min(t, DF - 1e-3)); if (!f) return;
+  var pl = plano(f.ts), sw = Math.min(Math.max(pl.larg, 300), ORIG_W);
+  var sh = Math.min(SRC_H, sw * JAN_H / W);
+  var cx = Math.min(Math.max(pl.cx, sw / 2), ORIG_W - sw / 2), y0 = Math.min(Math.max(pl.y || 0, 0), SRC_H - sh);
+  var k = video.videoWidth ? video.videoWidth / ORIG_W : 1, jh = Math.round(sh * W / sw), jy;
+  if (video.readyState >= 2){
+    if (jh < JAN_H - 4){
+      var bw = SRC_H * W / JAN_H, bx = Math.min(Math.max(cx, bw / 2), ORIG_W - bw / 2);
+      auxc.drawImage(video, (bx - bw / 2) * k, 0, bw * k, SRC_H * k, 0, 0, 36, 45);
+      c.imageSmoothingEnabled = true; c.drawImage(aux, 0, JAN_Y, W, JAN_H);
+      c.fillStyle = 'rgba(0,0,0,.55)'; c.fillRect(0, JAN_Y, W, JAN_H);
+      jy = Math.round(JAN_Y + (JAN_H - jh) / 2 - 110);
+    } else jy = JAN_Y;
+    c.drawImage(video, (cx - sw / 2) * k, y0 * k, sw * k, sh * k, 0, jy, W, jh);
+  } else jy = JAN_Y;
+  var yLeg;
+  if (jh >= JAN_H - 4){
+    var gr = c.createLinearGradient(0, JAN_Y + JAN_H - 200, 0, JAN_Y + JAN_H); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.45)');
+    c.fillStyle = gr; c.fillRect(0, JAN_Y + JAN_H - 200, W, 200); yLeg = JAN_Y + JAN_H - 175;
+  } else yLeg = Math.min(jy + jh + 60, JAN_Y + JAN_H - 175);
+  yLeg += (P.estilo && P.estilo.ajuste_y) || 0;
+  var tg = P.t_gancho || T_GANCHO_PADRAO;
+  if (t < tg){ c.fillStyle = 'rgba(0,0,0,.47)'; c.fillRect(0, JAN_Y, W, JAN_H); desenhaGancho(c, true); } else desenhaGancho(c, false);
+  desenhaNotas(c, f.ts, jy + 30);
+  desenhaLegenda(c, t, yLeg);
+  var s = '@luiznunest   ·   @intusfit'; texto(c, s, W / 2, 1660, 36, 700, '#c8c8c8', 0, 'center');
+  if (LOGO.complete && LOGO.naturalWidth){ var lw = 240, lh = lw * LOGO.naturalHeight / LOGO.naturalWidth; c.drawImage(LOGO, (W - lw) / 2, 1740, lw, lh); }
+  c.fillStyle = COR.verde; c.fillRect(0, H - 10, W * Math.min(1, t / dur()), 10);
+}
+function desenhaGancho(c, grande){
+  var tam = grande ? 92 : 58, alt = grande ? 104 : 68, dest = (P.destaque || []).map(function(x){ return x.toLowerCase(); });
+  var ls = quebra(c, (P.gancho || '').toUpperCase(), tam, W - 120);
+  var y = grande ? JAN_Y + 330 - ls.length * alt / 2 : 118 - ls.length * alt / 2;
+  ls.forEach(function(ln){
+    c.font = '800 ' + tam + 'px Inter, system-ui, sans-serif'; var x = (W - c.measureText(ln).width) / 2;
+    ln.split(' ').forEach(function(p){ var limpa = p.replace(/[.,?!:]/g, '').toLowerCase();
+      texto(c, p, x, y, tam, 800, dest.indexOf(limpa) >= 0 || dest.indexOf(p.toLowerCase()) >= 0 ? COR.verde : COR.branco, grande ? 7 : 5);
+      x += c.measureText(p + ' ').width; });
+    y += alt;
+  });
+}
+function desenhaNotas(c, ts, y){
+  (P.notas || []).forEach(function(n){ if (ts < n.ini || ts > n.fim) return;
+    c.font = '800 46px Inter, system-ui, sans-serif'; var l = c.measureText(n.texto).width, x0 = (W - l) / 2 - 28;
+    c.fillStyle = '#0f0f0f'; c.beginPath(); if (c.roundRect) c.roundRect(x0, y, l + 56, 76, 38); else c.rect(x0, y, l + 56, 76); c.fill();
+    texto(c, n.texto, W / 2, y + 14, 46, 800, COR[n.cor] || COR.branco, 0, 'center'); });
+}
+function desenhaLegenda(c, t, y){
+  var gs = GRUPOS || [], gi = -1;
+  for (var k = 0; k < gs.length; k++){ var g = gs[k], fim = k + 1 < gs.length ? gs[k + 1][0].ri - .05 : g[g.length - 1].rf + .4; if (t >= g[0].ri - .05 && t <= fim) gi = k; }
+  if (gi < 0) return;
+  var est = P.estilo || {}, cores = (est.cores && est.cores.length ? est.cores : ['amarelo', 'verde']), tam = est.tamanho || 84, tg = Math.round(tam * 1.1);
+  var g = gs[gi], cor = COR[cores[gi % cores.length]] || COR.verde, maius = est.maiusculas !== false;
+  var ps = g.map(function(w){ return maius ? w.p.toUpperCase() : w.p; }), ativa = 0;
+  g.forEach(function(w, i){ if (w.ri <= t + .03) ativa = i; });
+  function larg(idx){ var s = 0; idx.forEach(function(i, n){ c.font = '800 ' + (i === ativa ? tg : tam) + 'px Inter, system-ui, sans-serif'; s += c.measureText(ps[i]).width + (n ? c.measureText(' ').width : 0); }); return s; }
+  var todas = ps.map(function(_, i){ return i; }), linhas = larg(todas) > W - 80 ? [todas.slice(0, Math.max(1, ps.length >> 1)), todas.slice(Math.max(1, ps.length >> 1))] : [todas];
+  linhas.forEach(function(ln){
+    var x = (W - larg(ln)) / 2;
+    ln.forEach(function(i){ var tt = i === ativa ? tg : tam;
+      texto(c, ps[i], x, y - (i === ativa ? 6 : 0), tt, 800, i === ativa ? cor : COR.branco, 7);
+      c.font = '800 ' + tt + 'px Inter, system-ui, sans-serif'; x += c.measureText(ps[i] + ' ').width; });
+    y += Math.round(tam * 1.31);
+  });
+}
+function desenhaFim(c, t){
+  c.globalAlpha = Math.min(1, t / .35);
+  if (LOGO.complete && LOGO.naturalWidth){ var lw = 520, lh = lw * LOGO.naturalHeight / LOGO.naturalWidth; c.drawImage(LOGO, (W - lw) / 2, 560, lw, lh); }
+  var fi = P.final || {};
+  texto(c, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, 790, 64, 800, COR.branco, 0, 'center');
+  texto(c, '@luiznunest', W / 2, 900, 96, 800, COR.branco, 0, 'center');
+  texto(c, '@intusfit', W / 2, 1020, 96, 800, COR.verde, 0, 'center');
+  var sl = String(fi.slogan || '').split(/(?<=\.)\s+/);
+  sl.forEach(function(l, i){ texto(c, l, W / 2, 1180 + i * 65, 46, 700, '#d7d7d7', 0, 'center'); });
+  c.globalAlpha = 1;
+}
+
+// ---------- reprodução ----------
+var GRUPOS = [], ultimoQuadro = 0, relogio = 0;
+function recalc(){ GRUPOS = P ? grupos() : []; }
+function irPara(t, semMidia){
+  T = Math.max(0, Math.min(t, Math.max(0, dur() - 1 / FPS)));
+  var f = fonteEm(Math.min(T, durFala() - 1e-3));
+  if (f && !semMidia){ if (Math.abs(V.currentTime - f.ts) > .04) V.currentTime = f.ts; sincAudio(f.ts, true); }
+  pinta();
+}
+function sincAudio(ts, forcar){ [AV, AM].forEach(function(a){ if (!a.src) return; if (forcar || Math.abs(a.currentTime - ts) > .15) { try { a.currentTime = ts; } catch (e) {} } }); }
+function volumes(){ var au = P.audio || {}; AV.volume = Math.min(1, au.voz == null ? 1 : au.voz); AM.volume = Math.min(1, au.musica == null ? .14 : au.musica); }
+function tocar(){
+  if (!P) return; if (T >= dur() - .05) irPara(0);
+  tocando = true; $('b-play').textContent = 'Pausar'; volumes(); relogio = performance.now() - T * 1000;
+  var f = fonteEm(T); if (f){ V.currentTime = f.ts; sincAudio(f.ts, true); }
+  V.play().catch(function(){}); [AV, AM].forEach(function(a){ if (a.src) a.play().catch(function(){}); });
+  requestAnimationFrame(passo);
+}
+function pausar(){ tocando = false; $('b-play').textContent = 'Reproduzir'; V.pause(); AV.pause(); AM.pause(); }
+var trechoAtual = -1;
+function passo(){
+  if (!tocando) return;
+  T = (performance.now() - relogio) / 1000;
+  if (T >= dur()){ pausar(); irPara(dur() - 1 / FPS); return; }
+  var f = fonteEm(Math.min(T, durFala() - 1e-3));
+  if (T >= durFala()){ V.pause(); AV.pause(); AM.pause(); }
+  else if (f){
+    if (f.i !== trechoAtual || Math.abs(V.currentTime - f.ts) > .25){ V.currentTime = f.ts; sincAudio(f.ts, true); trechoAtual = f.i; }
+    else sincAudio(f.ts, false);
+    if (V.paused) V.play().catch(function(){}); [AV, AM].forEach(function(a){ if (a.src && a.paused) a.play().catch(function(){}); });
+  }
+  pinta(); requestAnimationFrame(passo);
+}
+function pinta(){
+  if (!P) return; desenha(ctx, T, V);
+  $('tc').textContent = fmt(T) + ' / ' + fmt(dur());
+  var d = dur(); var cab = $('trilha').querySelector('.cabeca'); if (cab) cab.style.left = (T / d * 100) + '%';
+  var f = fonteEm(Math.min(T, durFala() - 1e-3)), fc = $('fonteb').querySelector('.cabeca');
+  if (fc && f) fc.style.left = (f.ts / fonteDur() * 100) + '%';
+  if (aba === 'quadro') pintaFonte();
+  if (aba === 'legenda') marcaPalavra(f && f.ts);
+}
+V.addEventListener('seeked', function(){ if (!tocando) pinta(); });
+V.addEventListener('loadeddata', function(){ pinta(); });
+
+// ---------- trilhas ----------
+function fonteDur(){ return (P && P.midia && P.midia.duracao) || V.duration || Math.max.apply(null, trechos().map(function(s){ return s.fim; }).concat([1])); }
+function desenhaTrilhas(){
+  var tr = $('trilha'), d = dur(), M = mapa(); tr.innerHTML = '';
+  M.forEach(function(m, i){ var b = document.createElement('div'); b.className = 'bloco' + (i === selTrecho ? ' sel' : '');
+    b.style.left = (m.o / d * 100) + '%'; b.style.width = ((m.fim - m.ini) / d * 100) + '%';
+    var s = document.createElement('span'); s.textContent = (i + 1) + ' · ' + (m.fim - m.ini).toFixed(1) + 's'; b.appendChild(s); tr.appendChild(b); });
+  if (P.final && P.final.ativo){ var b = document.createElement('div'); b.className = 'bloco fim'; b.style.left = (durFala() / d * 100) + '%'; b.style.width = (T_FIM / d * 100) + '%';
+    var s = document.createElement('span'); s.textContent = 'final'; b.appendChild(s); tr.appendChild(b); }
+  var c = document.createElement('div'); c.className = 'cabeca'; tr.appendChild(c);
+  var fb = $('fonteb'), fd = fonteDur(); fb.innerHTML = '';
+  var prev = 0;
+  trechos().forEach(function(s, i){
+    if (s.ini - prev > .05){ var g = document.createElement('div'); g.className = 'g' + (lacunaSel && Math.abs(lacunaSel.ini - prev) < .01 ? ' sel' : ''); g.style.left = (prev / fd * 100) + '%'; g.style.width = ((s.ini - prev) / fd * 100) + '%'; g.dataset.ini = prev; g.dataset.fim = s.ini; fb.appendChild(g); }
+    var k = document.createElement('div'); k.className = 'k'; k.style.left = (s.ini / fd * 100) + '%'; k.style.width = ((s.fim - s.ini) / fd * 100) + '%'; fb.appendChild(k); prev = s.fim; });
+  if (fd - prev > .05){ var g = document.createElement('div'); g.className = 'g' + (lacunaSel && Math.abs(lacunaSel.ini - prev) < .01 ? ' sel' : ''); g.style.left = (prev / fd * 100) + '%'; g.style.width = ((fd - prev) / fd * 100) + '%'; g.dataset.ini = prev; g.dataset.fim = fd; fb.appendChild(g); }
+  var fc = document.createElement('div'); fc.className = 'cabeca'; fb.appendChild(fc);
+  $('dur-rotulo').textContent = 'duração ' + d.toFixed(1) + ' s' + (d > 90 ? ' · acima de 90 s' : '');
+  pinta();
+}
+function arrastaTrilha(e){ var r = $('trilha').getBoundingClientRect(), t = (e.clientX - r.left) / r.width * dur();
+  var M = mapa(); M.forEach(function(m, i){ if (t >= m.o && t < m.o + m.fim - m.ini) selTrecho = i; }); pausar(); irPara(t); }
+$('trilha').addEventListener('pointerdown', function(e){ $('trilha').setPointerCapture(e.pointerId); arrastaTrilha(e); desenhaTrilhas(); if (aba === 'cortes') abaCortes(); });
+$('trilha').addEventListener('pointermove', function(e){ if (e.buttons) arrastaTrilha(e); });
+$('fonteb').addEventListener('click', function(e){
+  var g = e.target.closest('.g'); if (!g){ lacunaSel = null; desenhaTrilhas(); return; }
+  lacunaSel = { ini:+g.dataset.ini, fim:+g.dataset.fim }; aba = 'cortes'; marcaAba(); abaCortes(); desenhaTrilhas();
+});
+
+// ---------- edição: cortes ----------
+function mudou(){ recalc(); desenhaTrilhas(); agendaSalvar(); }
+function dividir(){ var f = fonteEm(T); if (!f) return; var s = trechos()[f.i]; if (f.ts - s.ini < .15 || s.fim - f.ts < .15) return;
+  var novo = { ini:f.ts, fim:s.fim }; s.fim = f.ts; P.trechos = trechos().concat([novo]); selTrecho = f.i + 1; mudou(); abaCortes(); }
+function remover(i){ var ts = trechos(); if (ts.length <= 1) return; ts.splice(i, 1); P.trechos = ts; selTrecho = Math.min(i, ts.length - 1); mudou(); irPara(Math.min(T, dur())); abaCortes(); }
+function incluirLacuna(){ if (!lacunaSel) return; var ts = trechos();
+  ts.push({ ini:lacunaSel.ini, fim:lacunaSel.fim }); ts.sort(function(a, b){ return a.ini - b.ini; });
+  var j = []; ts.forEach(function(s){ var u = j[j.length - 1]; if (u && s.ini - u.fim < .02) u.fim = Math.max(u.fim, s.fim); else j.push({ ini:s.ini, fim:s.fim }); });
+  P.trechos = j; lacunaSel = null; mudou(); abaCortes(); }
+function abaCortes(){
+  var ts = trechos(), C = $('conteudo'); C.innerHTML = '';
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Cortar'), el('div', 'linha', [
+    botao('Dividir no cursor (S)', dividir), botao('Remover trecho selecionado (Del)', function(){ remover(selTrecho); })]),
+    el('p', 'nota-ajuda', 'Clique na linha do tempo para escolher um trecho. Ajuste o início e o fim em décimos de segundo; o que fica de fora aparece listrado na gravação original e pode voltar.')]));
+  if (lacunaSel){
+    C.appendChild(el('div', 'grupo', [el('h3', null, 'Trecho fora do reel'), el('p', 'nota-ajuda', fmt(lacunaSel.ini) + ' a ' + fmt(lacunaSel.fim) + ' da gravação (' + (lacunaSel.fim - lacunaSel.ini).toFixed(1) + ' s).'),
+      el('div', 'linha', [botao('Trazer de volta para o reel', incluirLacuna), botao('Ver na gravação', function(){ pausar(); V.currentTime = lacunaSel.ini; })])]));
+  }
+  var lista = el('div', 'lista');
+  ts.forEach(function(s, i){
+    var ini = num(s.ini, function(v){ s.ini = Math.min(v, s.fim - .1); mudou(); }), fim = num(s.fim, function(v){ s.fim = Math.max(v, s.ini + .1); mudou(); });
+    var it = el('div', 'item' + (i === selTrecho ? ' ativo' : ''), [el('span', 't', String(i + 1)),
+      el('div', 'linha', [el('label', null, 'início'), ini, nudge(s, 'ini'), el('label', null, 'fim'), fim, nudge(s, 'fim')]),
+      botao('×', function(){ remover(i); }, 'Remover trecho ' + (i + 1))]);
+    it.addEventListener('click', function(e){ if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return; selTrecho = i; var m = mapa()[i]; irPara(m.o); desenhaTrilhas(); abaCortes(); });
+    lista.appendChild(it);
+  });
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Trechos do reel (' + ts.length + ')'), lista]));
+}
+function nudge(s, k){ return el('span', 'linha', [botao('−', function(){ s[k] = +(s[k] - .1).toFixed(2); if (s.fim - s.ini < .1) s[k] += .1; mudou(); abaCortes(); }, 'Recuar 0,1 s'), botao('+', function(){ s[k] = +(s[k] + .1).toFixed(2); if (s.fim - s.ini < .1) s[k] -= .1; mudou(); abaCortes(); }, 'Avançar 0,1 s')]); }
+
+// ---------- edição: enquadramento ----------
+var fcv = null, fcx = null;
+function abaQuadro(){
+  var C = $('conteudo'); C.innerHTML = '';
+  var f = fonteEm(Math.min(T, durFala() - 1e-3)); if (!f){ C.appendChild(el('p', 'nota-ajuda', 'Leve o cursor para um trecho com vídeo.')); return; }
+  var pl = plano(f.ts);
+  var box = el('div', 'fonte-ve'); fcv = document.createElement('canvas'); fcv.width = 640; fcv.height = 360; fcx = fcv.getContext('2d'); box.appendChild(fcv);
+  var arr = null;
+  box.addEventListener('pointerdown', function(e){ box.setPointerCapture(e.pointerId); arr = { x:e.clientX, y:e.clientY, cx:pl.cx, yy:pl.y || 0 }; });
+  box.addEventListener('pointermove', function(e){ if (!arr) return; var r = box.getBoundingClientRect(), k = ORIG_W / r.width;
+    pl.cx = Math.round(arr.cx + (e.clientX - arr.x) * k); pl.y = Math.round(arr.yy + (e.clientY - arr.y) * k); limita(pl); pinta(); syncCampos(); });
+  box.addEventListener('pointerup', function(){ if (arr){ arr = null; agendaSalvar(); } });
+  var zoom = range(300, ORIG_W, 10, pl.larg, function(v){ pl.larg = v; limita(pl); pinta(); agendaSalvar(); });
+  function syncCampos(){ zoom.value = pl.larg; }
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Plano ' + fmt(pl.ini) + ' a ' + fmt(Math.min(pl.fim, fonteDur()))), box,
+    el('p', 'nota-ajuda', 'Arraste o retângulo verde para enquadrar. Vale para o plano inteiro da TV (até a próxima troca de câmera), então a imagem não balança.')]));
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Largura do recorte'), zoom, el('div', 'linha', [
+    botao('Close (rosto)', function(){ pl.larg = 624; limita(pl); syncCampos(); pinta(); agendaSalvar(); }),
+    botao('Aberto (corpo inteiro)', function(){ pl.larg = 1250; pl.y = 0; limita(pl); syncCampos(); pinta(); agendaSalvar(); }),
+    botao('Tela toda', function(){ pl.larg = ORIG_W; pl.cx = 960; pl.y = 0; syncCampos(); pinta(); agendaSalvar(); }),
+    botao('Copiar para o próximo plano', function(){ var ps = P.planos || [], i = ps.indexOf(pl); if (ps[i + 1]){ ps[i + 1].cx = pl.cx; ps[i + 1].larg = pl.larg; ps[i + 1].y = pl.y || 0; agendaSalvar(); } })])]));
+  pintaFonte();
+}
+function limita(pl){ var sh = Math.min(SRC_H, pl.larg * JAN_H / W); pl.cx = Math.min(Math.max(pl.cx, pl.larg / 2), ORIG_W - pl.larg / 2); pl.y = Math.min(Math.max(pl.y || 0, 0), SRC_H - sh); }
+function pintaFonte(){
+  if (!fcx || !document.body.contains(fcv)) return; var f = fonteEm(Math.min(T, durFala() - 1e-3)); if (!f) return; var pl = plano(f.ts);
+  fcx.fillStyle = '#000'; fcx.fillRect(0, 0, 640, 360); if (V.readyState >= 2) fcx.drawImage(V, 0, 0, 640, 360);
+  var k = 640 / ORIG_W, sh = Math.min(SRC_H, pl.larg * JAN_H / W);
+  fcx.fillStyle = 'rgba(0,0,0,.55)'; fcx.fillRect(0, SRC_H * k, 640, 360 - SRC_H * k);
+  fcx.strokeStyle = '#7fff00'; fcx.lineWidth = 3; fcx.strokeRect((pl.cx - pl.larg / 2) * k, (pl.y || 0) * k, pl.larg * k, sh * k);
+  fcx.fillStyle = 'rgba(255,214,10,.85)'; fcx.font = '600 12px Inter'; fcx.fillText('tarja da TV fica de fora', 8, SRC_H * k + 16);
+}
+
+// ---------- edição: legendas ----------
+function abaLegenda(){
+  var C = $('conteudo'); C.innerHTML = ''; var est = P.estilo = P.estilo || {};
+  var corSel = el('select'); [['amarelo,verde', 'Alterna amarelo e verde'], ['verde', 'Só verde Intus'], ['amarelo', 'Só amarelo'], ['branco', 'Branco']].forEach(function(o){ var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; corSel.appendChild(op); });
+  corSel.value = (est.cores || ['amarelo', 'verde']).join(','); corSel.onchange = function(){ est.cores = corSel.value.split(','); mudou(); };
+  var porG = el('select'); [1, 2, 3, 4].forEach(function(n){ var op = document.createElement('option'); op.value = n; op.textContent = n + (n > 1 ? ' palavras' : ' palavra'); porG.appendChild(op); });
+  porG.value = est.palavras_por_grupo || 3; porG.onchange = function(){ est.palavras_por_grupo = +porG.value; mudou(); };
+  var mai = document.createElement('input'); mai.type = 'checkbox'; mai.id = 'mai'; mai.checked = est.maiusculas !== false; mai.onchange = function(){ est.maiusculas = mai.checked; mudou(); };
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Estilo'), el('div', 'linha', [campo('Cor da palavra falada', corSel), campo('Por vez na tela', porG), el('label', null, [mai, ' Maiúsculas'])]),
+    campo('Tamanho', range(56, 110, 2, est.tamanho || 84, function(v){ est.tamanho = v; pinta(); agendaSalvar(); })),
+    campo('Altura (sobe ou desce a legenda)', range(-300, 300, 10, est.ajuste_y || 0, function(v){ est.ajuste_y = v; pinta(); agendaSalvar(); }))]));
+  var box = el('div', 'palavras');
+  (P.palavras || []).forEach(function(w, i){
+    var inp = document.createElement('input'); inp.type = 'text'; inp.value = w.p; inp.size = Math.max(2, w.p.length); inp.dataset.i = i; inp.title = fmt(w.i);
+    if (reelEm(w.i) == null) inp.className = 'fora';
+    inp.onfocus = function(){ var r = reelEm(w.i); if (r != null){ pausar(); irPara(r); } };
+    inp.oninput = function(){ w.p = inp.value; inp.size = Math.max(2, inp.value.length); recalc(); pinta(); agendaSalvar(); };
+    box.appendChild(inp);
+  });
+  var nova = el('input'); nova.type = 'text'; nova.placeholder = 'Texto para inserir no cursor'; nova.id = 'leg-nova';
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Texto da legenda'), el('p', 'nota-ajuda', 'Cada caixa é uma palavra, no tempo em que ela é falada. Corrija direto. Apague o texto da caixa para a palavra sumir. As apagadas no fundo estão em trechos cortados.'), box,
+    el('div', 'linha', [nova, botao('Inserir no cursor', function(){ var f = fonteEm(T), tx = nova.value.trim(); if (!f || !tx) return;
+      var ps = tx.split(/\s+/), d = .32; ps.forEach(function(p, k){ P.palavras.push({ p:p, i:+(f.ts + k * d).toFixed(3), f:+(f.ts + (k + 1) * d).toFixed(3) }); });
+      P.palavras.sort(function(a, b){ return a.i - b.i; }); nova.value = ''; mudou(); abaLegenda(); })])]));
+}
+function marcaPalavra(ts){ if (ts == null) return; var ins = $('conteudo').querySelectorAll('.palavras input');
+  ins.forEach(function(inp){ var w = P.palavras[+inp.dataset.i]; inp.classList.toggle('agora', w && ts >= w.i && ts <= w.f + .05); }); }
+
+// ---------- edição: gancho e textos ----------
+function abaTextos(){
+  var C = $('conteudo'); C.innerHTML = '';
+  var g = el('textarea'); g.id = 'gancho'; g.rows = 2; g.value = P.gancho || ''; g.oninput = function(){ P.gancho = g.value; P.nome = g.value; pinta(); agendaSalvar(); nomesSelect(); };
+  var d = el('input'); d.type = 'text'; d.id = 'destaque'; d.value = (P.destaque || []).join(', '); d.oninput = function(){ P.destaque = d.value.split(',').map(function(x){ return x.trim(); }).filter(Boolean); pinta(); agendaSalvar(); };
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Gancho'), campo('Frase dos primeiros segundos (fica de título no topo depois)', g), campo('Palavras em verde (separe por vírgula)', d),
+    campo('Tempo do gancho grande (s)', range(1, 5, .1, P.t_gancho || T_GANCHO_PADRAO, function(v){ P.t_gancho = v; pinta(); agendaSalvar(); }))]));
+  var lista = el('div', 'lista');
+  (P.notas || []).forEach(function(n, i){
+    var tx = el('input'); tx.type = 'text'; tx.value = n.texto; tx.oninput = function(){ n.texto = tx.value; pinta(); agendaSalvar(); };
+    var cor = el('select'); ['verde', 'vermelho', 'branco'].forEach(function(c){ var op = document.createElement('option'); op.value = c; op.textContent = c; cor.appendChild(op); }); cor.value = n.cor; cor.onchange = function(){ n.cor = cor.value; pinta(); agendaSalvar(); };
+    lista.appendChild(el('div', 'item', [el('span', 't', fmt(n.ini)), el('div', 'linha', [tx, cor, el('label', null, 'dura'), num(n.fim - n.ini, function(v){ n.fim = n.ini + Math.max(.3, v); pinta(); agendaSalvar(); })]),
+      botao('×', function(){ P.notas.splice(i, 1); pinta(); agendaSalvar(); abaTextos(); }, 'Apagar marcação')]));
+  });
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Marcações na tela'), el('p', 'nota-ajuda', 'Etiqueta no alto da imagem, como "CERTO" ou "ERRADO". Começa no cursor e dura o tempo escolhido.'), lista,
+    botao('Adicionar marcação no cursor', function(){ var f = fonteEm(T); if (!f) return; P.notas = P.notas || []; P.notas.push({ ini:+f.ts.toFixed(2), fim:+(f.ts + 3).toFixed(2), texto:'CERTO', cor:'verde' }); pinta(); agendaSalvar(); abaTextos(); })]));
+  var fi = P.final = P.final || { ativo:true };
+  var at = el('input'); at.type = 'checkbox'; at.id = 'fim-ativo'; at.checked = !!fi.ativo; at.onchange = function(){ fi.ativo = at.checked; mudou(); };
+  var ch = el('input'); ch.type = 'text'; ch.id = 'fim-chamada'; ch.value = fi.chamada || ''; ch.oninput = function(){ fi.chamada = ch.value; pinta(); agendaSalvar(); };
+  var sl = el('input'); sl.type = 'text'; sl.id = 'fim-slogan'; sl.value = fi.slogan || ''; sl.oninput = function(){ fi.slogan = sl.value; pinta(); agendaSalvar(); };
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Cartão final'), el('label', null, [at, ' Mostrar o cartão final (2,8 s)']), campo('Chamada', ch), campo('Slogan', sl),
+    botao('Ver o cartão final', function(){ pausar(); irPara(durFala() + 1); })]));
+}
+
+// ---------- edição: áudio ----------
+function abaAudio(){
+  var C = $('conteudo'); C.innerHTML = ''; var au = P.audio = P.audio || { voz:1, musica:.14 };
+  var temMus = !!(P.midia && P.midia.musica);
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Volumes'),
+    campo('Voz: ' + Math.round(au.voz * 100) + '%', range(0, 1.5, .01, au.voz, function(v, r){ au.voz = v; r.previousSibling.textContent = 'Voz: ' + Math.round(v * 100) + '%'; volumes(); agendaSalvar(); })),
+    temMus ? campo('Música de fundo: ' + Math.round(au.musica * 100) + '%', range(0, 1, .01, au.musica, function(v, r){ au.musica = v; r.previousSibling.textContent = 'Música de fundo: ' + Math.round(v * 100) + '%'; volumes(); agendaSalvar(); }))
+           : el('p', 'nota-ajuda', 'Este vídeo não tem a música separada da voz. O Claude separa as duas quando prepara o projeto.'),
+    el('p', 'nota-ajuda', 'A voz já vem tratada (graves que embolam, clareza e volume constante), sem mudar o tom. Na prévia o volume acima de 100% não aparece; na exportação, sim.')]));
+}
+
+// ---------- ajudantes de interface ----------
+function el(tag, cls, filhos){ var e = document.createElement(tag); if (cls) e.className = cls;
+  if (typeof filhos === 'string') e.textContent = filhos; else (filhos || []).forEach(function(f){ e.appendChild(typeof f === 'string' ? document.createTextNode(f) : f); }); return e; }
+function botao(txt, fn, aria){ var b = el('button', 'btn peq', txt); b.type = 'button'; if (aria) b.setAttribute('aria-label', aria); b.onclick = fn; return b; }
+function num(v, fn){ var i = el('input'); i.type = 'number'; i.step = '0.05'; i.value = (+v).toFixed(2); i.style.width = '86px'; i.onchange = function(){ var x = parseFloat(i.value); if (!isNaN(x)) fn(x); }; return i; }
+function range(mi, ma, st, v, fn){ var r = el('input'); r.type = 'range'; r.min = mi; r.max = ma; r.step = st; r.value = v; r.oninput = function(){ fn(+r.value, r); }; return r; }
+function campo(rot, ctrl){ return el('div', 'campo', [el('span', null, rot), ctrl]); }
+function marcaAba(){ document.querySelectorAll('.abas button').forEach(function(b){ b.setAttribute('aria-selected', String(b.dataset.aba === aba)); }); }
+function mostraAba(){ marcaAba(); if (!P) return; ({ cortes:abaCortes, quadro:abaQuadro, legenda:abaLegenda, textos:abaTextos, audio:abaAudio })[aba](); }
+document.querySelectorAll('.abas button').forEach(function(b){ b.onclick = function(){ aba = b.dataset.aba; mostraAba(); }; });
+
+// ---------- projetos: abrir, salvar ----------
+function nomesSelect(){ var s = $('sel-proj'), atual = P && P.id; s.innerHTML = '';
+  Object.keys(projetos).sort().forEach(function(id){ var o = document.createElement('option'); o.value = id; o.textContent = projetos[id].nome || id; s.appendChild(o); });
+  if (atual) s.value = atual; }
+function abrir(id){
+  pausar(); P = projetos[id]; if (!P) return; $('vazio').hidden = true; T = 0; selTrecho = 0; lacunaSel = null; trechoAtual = -1;
+  var m = P.midia || {}; V.src = m.video || ''; AV.src = m.voz || ''; AM.src = m.musica || ''; if (!m.musica) AM.removeAttribute('src');
+  V.addEventListener('loadedmetadata', function f(){ V.removeEventListener('loadedmetadata', f); if (!P.midia.duracao) P.midia.duracao = V.duration; desenhaTrilhas(); irPara(0); });
+  recalc(); nomesSelect(); desenhaTrilhas(); mostraAba(); try { localStorage.setItem('intuscut-ultimo', id); } catch (e) {}
+}
+$('sel-proj').onchange = function(){ abrir($('sel-proj').value); };
+function agendaSalvar(){ estado('Alterações não salvas'); clearTimeout(salvarTimer); salvarTimer = setTimeout(salvar, 1200); }
+function salvar(){
+  if (!P) return; P.atualizado_em = new Date().toISOString();
+  if (!db){ try { localStorage.setItem('intuscut-' + P.id, JSON.stringify(P)); estado('Salvo só neste navegador'); } catch (e) { estado('Não foi possível salvar', 'erro'); } return; }
+  var meu = P;
+  db.doc('projetos/' + meu.id).set({ nome:meu.nome || meu.id, atualizado_em:meu.atualizado_em, render:meu.render || '', dados:JSON.stringify(meu) })
+    .then(function(){ if (meu === P) estado('Salvo', 'ok'); })
+    .catch(function(e){ estado(e && e.code === 'permission_denied' ? 'Sem permissão para salvar' : 'Falhou ao salvar, tente de novo', 'erro'); });
+}
+$('b-dup').onclick = function(){ if (!P) return; var c = clone(P); c.id = P.id.replace(/-v\d+$/, '') + '-v' + Date.now().toString(36).slice(-4); c.nome = (P.nome || P.id) + ' (cópia)'; c.render = '';
+  projetos[c.id] = c; abrir(c.id); salvar(); };
+$('b-hq').onclick = function(){ if (!P) return; P.render = 'pedido'; salvar();
+  dialogo('Pedido de versão em alta registrado', 'Diga ao Claude "renderiza o ' + (P.nome || P.id) + ' do Intus Cut". Ele lê este projeto e gera o MP4 a partir do vídeo original da TV, com a mesma edição.', [['Entendi', fecha]]); };
+
+// ---------- novo projeto com vídeo próprio ----------
+$('b-novo').onclick = function(){
+  if (!assets){ dialogo('Envio de vídeo indisponível', 'Só quem edita esta página pode enviar vídeos. Mande o vídeo ao Claude que ele prepara o projeto, com legenda e música separada.', [['Ok', fecha]]); return; }
+  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'video/mp4,video/quicktime,video/webm';
+  inp.onchange = function(){ var f = inp.files[0]; if (!f) return;
+    if (f.size > 20 * 1024 * 1024){ dialogo('Vídeo grande demais', 'O limite aqui é 20 MB. Para vídeos maiores (como uma entrevista inteira), mande ao Claude: ele corta, transcreve e prepara os projetos.', [['Ok', fecha]]); return; }
+    estado('Enviando vídeo...');
+    assets.upload(f).then(function(r){
+      var id = 'video-' + Date.now().toString(36), tmp = document.createElement('video'); tmp.preload = 'metadata'; tmp.src = r.url;
+      tmp.onloadedmetadata = function(){ var d = tmp.duration || 30;
+        projetos[id] = { id:id, nome:f.name.replace(/\.[^.]+$/, ''), gancho:'Escreva o gancho aqui', destaque:[], trechos:[{ ini:0, fim:+d.toFixed(2) }], palavras:[],
+          planos:[{ ini:0, fim:d + 1, cx:960, larg:1250, y:0 }], notas:[], audio:{ voz:1, musica:0 }, estilo:{ cores:['amarelo', 'verde'], tamanho:84, maiusculas:true, palavras_por_grupo:3 },
+          final:{ ativo:true, chamada:'SIGA PARA MAIS DICAS', slogan:'Te levamos ao próximo nível. Do iniciante ao atleta.' }, midia:{ video:r.url, voz:r.url, musica:'', duracao:d, asset:r.id } };
+        abrir(id); salvar(); };
+    }).catch(function(e){ estado('O envio falhou: ' + ((e && e.code) || 'erro'), 'erro'); });
+  };
+  inp.click();
+};
+
+// ---------- exportar MP4 no navegador ----------
+function dialogo(tit, txt, botoes, extra){ var c = $('caixa'); c.innerHTML = ''; c.appendChild(el('h2', null, tit)); c.appendChild(el('p', 'nota-ajuda', txt)); if (extra) c.appendChild(extra);
+  var l = el('div', 'linha'); botoes.forEach(function(b){ var x = botao(b[0], b[1]); if (b[2]) x.className = 'btn pri'; l.appendChild(x); }); c.appendChild(l); $('modal').hidden = false; }
+function fecha(){ $('modal').hidden = true; }
+function esperaSeek(t){ return new Promise(function(ok){ if (Math.abs(V.currentTime - t) < .001 && V.readyState >= 2){ ok(); return; } var f = function(){ V.removeEventListener('seeked', f); ok(); }; V.addEventListener('seeked', f); V.currentTime = t; }); }
+async function decodifica(url, ac){ if (!url) return null; var b = await (await fetch(url)).arrayBuffer(); return await ac.decodeAudioData(b); }
+async function exportar(){
+  if (!P) return;
+  if (!window.VideoEncoder || !window.AudioEncoder || !window.Mp4Muxer){ dialogo('Exportação indisponível neste navegador', 'Use o Chrome ou o Edge no computador. Ou peça a versão em alta ao Claude.', [['Ok', fecha]]); return; }
+  pausar(); var barra = el('div', 'prog', [el('i')]), info = el('p', 'nota-ajuda', 'Preparando...'), cancelado = false, box = el('div', 'grupo', [barra, info]);
+  dialogo('Exportando o reel', 'Deixe esta aba aberta. Um reel de 1 minuto leva de 1 a 3 minutos.', [['Cancelar', function(){ cancelado = true; fecha(); }]], box);
+  try {
+    var SR = 48000, d = dur(), DF = durFala(), N = Math.round(d * FPS);
+    var vcfg = { codec:'avc1.640028', width:W, height:H, bitrate:8000000, framerate:FPS };
+    if (!(await VideoEncoder.isConfigSupported(vcfg)).supported) vcfg.codec = 'avc1.4d0028';
+    var acfg = { codec:'mp4a.40.2', sampleRate:SR, numberOfChannels:2, bitrate:160000 };
+    var temAac = (await AudioEncoder.isConfigSupported(acfg)).supported;
+    var muxer = new Mp4Muxer.Muxer({ target:new Mp4Muxer.ArrayBufferTarget(), video:{ codec:'avc', width:W, height:H }, audio:temAac ? { codec:'aac', sampleRate:SR, numberOfChannels:2 } : undefined, fastStart:'in-memory' });
+    var ve = new VideoEncoder({ output:function(ch, meta){ muxer.addVideoChunk(ch, meta); }, error:function(e){ throw e; } }); ve.configure(vcfg);
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H; var c2 = cv.getContext('2d');
+    for (var k = 0; k < N; k++){
+      if (cancelado) return;
+      var t = k / FPS; if (t < DF){ var f = fonteEm(t); if (f) await esperaSeek(f.ts); }
+      desenha(c2, t, V);
+      var vf = new VideoFrame(cv, { timestamp:Math.round(k * 1e6 / FPS), duration:Math.round(1e6 / FPS) }); ve.encode(vf, { keyFrame:k % 60 === 0 }); vf.close();
+      while (ve.encodeQueueSize > 8) await new Promise(function(r){ setTimeout(r, 5); });
+      if (k % 10 === 0){ barra.firstChild.style.width = (k / N * 85) + '%'; info.textContent = 'Imagem: quadro ' + k + ' de ' + N; }
+    }
+    await ve.flush();
+    if (temAac){
+      info.textContent = 'Áudio...'; var ac = new AudioContext({ sampleRate:SR });
+      var bv = await decodifica(P.midia.voz, ac), bm = P.midia.musica ? await decodifica(P.midia.musica, ac) : null; ac.close();
+      var total = Math.round(d * SR), L = new Float32Array(total), R = new Float32Array(total), gv = P.audio.voz, gm = P.audio.musica || 0, pos = 0, rampa = Math.round(.015 * SR);
+      mapa().forEach(function(m){ var a = Math.round(m.ini * SR), n = Math.round((m.fim - m.ini) * SR);
+        for (var i = 0; i < n && pos + i < total; i++){ var e = Math.min(1, i / rampa, (n - i) / rampa);
+          [[bv, gv], [bm, gm]].forEach(function(par){ var b = par[0]; if (!b || !par[1]) return; var j = a + i; if (j >= b.length) return;
+            var l = b.getChannelData(0)[j], r = b.numberOfChannels > 1 ? b.getChannelData(1)[j] : l; L[pos + i] += l * par[1] * e; R[pos + i] += r * par[1] * e; }); }
+        pos += n; });
+      for (var i = 0; i < total; i++){ L[i] = Math.max(-1, Math.min(1, L[i])); R[i] = Math.max(-1, Math.min(1, R[i])); }
+      var ae = new AudioEncoder({ output:function(ch, meta){ muxer.addAudioChunk(ch, meta); }, error:function(e){ throw e; } }); ae.configure(acfg);
+      for (var s = 0; s < total; s += 1024){ var n = Math.min(1024, total - s), dados = new Float32Array(n * 2); dados.set(L.subarray(s, s + n), 0); dados.set(R.subarray(s, s + n), n);
+        var ad = new AudioData({ format:'f32-planar', sampleRate:SR, numberOfFrames:n, numberOfChannels:2, timestamp:Math.round(s * 1e6 / SR), data:dados }); ae.encode(ad); ad.close(); }
+      await ae.flush();
+    }
+    muxer.finalize(); barra.firstChild.style.width = '100%';
+    var blob = new Blob([muxer.target.buffer], { type:'video/mp4' }), nome = (P.id || 'reel') + '.mp4';
+    if (downloads){ info.textContent = 'Pronto (' + (blob.size / 1048576).toFixed(1) + ' MB). Confirme o download.';
+      await downloads.save({ filename:nome, data:blob }); fecha(); estado('MP4 exportado', 'ok'); }
+    else { var vid = el('video'); vid.src = URL.createObjectURL(blob); vid.controls = true; vid.style.width = '100%'; box.appendChild(vid); info.textContent = 'Pronto. Use o menu do vídeo para salvar.'; }
+    if (!temAac) estado('Exportado sem áudio: este navegador não grava AAC', 'erro');
+  } catch (e) { info.textContent = 'A exportação falhou: ' + (e && (e.message || e.code) || e) + '. Tente no Chrome do computador, ou peça a versão em alta ao Claude.'; }
+}
+$('b-exp').onclick = exportar;
+
+// ---------- teclado e transporte ----------
+$('b-play').onclick = function(){ tocando ? pausar() : tocar(); };
+$('b-ini').onclick = function(){ pausar(); irPara(0); };
+$('b-q-').onclick = function(){ pausar(); irPara(T - 1 / FPS); };
+$('b-q+').onclick = function(){ pausar(); irPara(T + 1 / FPS); };
+document.addEventListener('keydown', function(e){
+  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || !P) return;
+  if (e.code === 'Space'){ e.preventDefault(); tocando ? pausar() : tocar(); }
+  else if (e.key === 'ArrowLeft'){ pausar(); irPara(T - (e.shiftKey ? 1 : 1 / FPS)); }
+  else if (e.key === 'ArrowRight'){ pausar(); irPara(T + (e.shiftKey ? 1 : 1 / FPS)); }
+  else if (e.key === 's' || e.key === 'S'){ dividir(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace'){ remover(selTrecho); }
+});
+
+// ---------- carregar ----------
+function carregarLocais(){ try { for (var i = 0; i < localStorage.length; i++){ var k = localStorage.key(i); if (k.indexOf('intuscut-') === 0 && k !== 'intuscut-ultimo'){ var p = JSON.parse(localStorage.getItem(k)); if (p && p.id && !projetos[p.id]) projetos[p.id] = p; } } } catch (e) {} }
+function pronto(){
+  nomesSelect(); var ids = Object.keys(projetos).sort();
+  if (!ids.length){ $('vazio').hidden = false; estado(db ? 'Nenhum projeto' : 'Sem conexão com o banco'); ctx.fillStyle = '#0f0f0f'; ctx.fillRect(0, 0, W, H); return; }
+  var ult = null; try { ult = localStorage.getItem('intuscut-ultimo'); } catch (e) {}
+  if (!P) abrir(projetos[ult] ? ult : ids[0]);
+  estado(db ? 'Salvo' : 'Salvando só neste navegador', db ? 'ok' : '');
+}
+ctx.fillStyle = '#0f0f0f'; ctx.fillRect(0, 0, W, H);
+document.fonts && document.fonts.ready.then(function(){ if (P) pinta(); });
+if (window.claude && claude.use){
+  Promise.all([claude.use('db'), claude.use('assets'), claude.use('downloads')]).then(function(r){
+    db = r[0]; assets = r[1]; downloads = r[2];
+    if (!db){ carregarLocais(); pronto(); return; }
+    var primeiro = true;
+    db.collection('projetos').onSnapshot(function(snap){
+      snap.docs.forEach(function(dc){ var x = dc.data(); if (!x || !x.dados) return; try { var p = JSON.parse(x.dados); p.id = dc.id;
+        if (!projetos[dc.id] || !P || P.id !== dc.id) projetos[dc.id] = p; } catch (e) {} });
+      if (primeiro){ primeiro = false; pronto(); } else nomesSelect();
+    }, function(){ estado('Sem acesso ao banco', 'erro'); carregarLocais(); pronto(); });
+  }).catch(function(){ carregarLocais(); pronto(); });
+} else { carregarLocais(); pronto(); }
+})();
+</script>
