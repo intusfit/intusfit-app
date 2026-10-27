@@ -664,9 +664,9 @@
     .h-at .ic { width:25px; height:25px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:900; line-height:1; color:#fff; }
     .h-at .tt { font-size:10.5px; font-weight:700; color:var(--texto); text-align:center; line-height:1.2; }
     /* Ranking e Medalhas num cartão só: duas metades que abrem as duas abas da mesma tela. */
-    .h-rk { display:grid; grid-template-columns:1fr 1fr; background:var(--card-bg); border:1px solid var(--borda); border-radius:16px; margin-bottom:8px; overflow:hidden; }
-    .h-rk > div { padding:10px 12px; cursor:pointer; min-width:0; touch-action:manipulation; transition:background .08s; }
-    .h-rk > div + div { border-left:1px solid var(--borda); }
+    .h-rk { flex:1; min-width:0; display:flex; flex-direction:column; background:var(--card-bg); border:1px solid var(--borda); border-radius:16px; overflow:hidden; }
+    .h-rk > div { flex:1; padding:10px 12px; cursor:pointer; min-width:0; touch-action:manipulation; transition:background .08s; }
+    .h-rk > div + div { border-top:1px solid var(--borda); }
     .h-rk > div:active { background:var(--sup); }
     .h-rk .cab { font-size:14px; font-weight:800; color:var(--texto); }
     .h-rk .num { font-size:25px; font-weight:900; color:var(--texto); line-height:1; font-variant-numeric:tabular-nums; }
@@ -7467,13 +7467,14 @@ var _HOME_GRAD = {
   extras: 'linear-gradient(135deg,#1f6b2a,#4cc94f)', feed: 'linear-gradient(135deg,#1f3f6b,#4a90e2)', amigos: 'linear-gradient(135deg,#0a5c7a,#38bdf8)',
   agua: 'linear-gradient(135deg,#0a5c7a,#38bdf8)', mais: 'linear-gradient(135deg,#3a3a3a,#8a8a8a)'
 };
+function _homeExtrasLista() { return (_extras && _extras.lista) || (typeof _extrasCacheLer === 'function' && _extrasCacheLer()) || []; }
 // Um atalho quadrado: ícone colorido e só o título (sem subtítulo). `tag` = etiqueta no canto (ex.: "novo").
 function _homeTile(js, grad, ic, tit, tag) {
   return `<div class="h-at" onclick="${js}">${tag ? `<span class="h-novo">${tag}</span>` : ''}<div class="ic" style="background:${grad};">${ic}</div><div class="tt">${tit}</div></div>`;
 }
 // Ver mais / Ver menos: o ícone é um quadrado como os outros, com + (fechado) ou − (aberto). A etiqueta "novo" aparece quando há Extras novo dentro.
 function _homeMaisTileHtml(aberto, horizontal) {
-  const tag = (typeof _extrasTemNovo === 'function' && _extras && _extras.lista && _extras.lista.length && _extrasTemNovo()) ? '<span class="h-novo" id="h-maisatalhos-novo">novo</span>' : '';
+  const tag = (horizontal && typeof _extrasTemNovo === 'function' && _extras && _extras.lista && _extras.lista.length && _extrasTemNovo()) ? '<span class="h-novo" id="h-maisatalhos-novo">novo</span>' : '';
   const ic = `<div class="ic" id="h-maisatalhos-ic" style="background:${_HOME_GRAD.mais};font-size:17px;">${aberto ? '−' : '+'}</div>`;
   const lbl = `<div class="tt"><span id="h-maisatalhos-label">${aberto ? 'Ver menos' : 'Ver mais'}</span></div>`;
   return horizontal
@@ -7499,11 +7500,15 @@ function _homeDirHtml(aberto) {
   const compacto = !!card;   // só o cartão da refeição pede o espaço; a água sozinha não muda o modelo padrão
   _homeRefAssin = _homeRefAssinatura();
   if (!compacto) {
-    // Modelo padrão: quatro atalhos numa fileira, só com o título.
-    return `<div class="h-atalhos" style="margin-bottom:0;">
+    // Modelo padrão: cinco atalhos mais o Ver mais, em duas colunas, só com o título.
+    // O quinto é o Extras (com a etiqueta novo) quando o aluno tem algo liberado; senão, a Central do Aluno.
+    const temExtras = _homeExtrasLista().length > 0;
+    return `<div class="h-atalhos" style="grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr;flex:1;margin-bottom:0;">
       ${_homeTile("navegar('nutricao')", _HOME_GRAD.nutri, '🥗', 'Nutrição')}
       ${_homeTile("renderHistorico();trocarView('historico');", _HOME_GRAD.evol, '📈', 'Evoluções')}
       ${_homeTile("renderPerfil();trocarView('perfil');", _HOME_GRAD.conq, '🏅', 'Conquistas')}
+      ${_homeTile("navegar('avaliacoes')", _HOME_GRAD.aval, '📋', 'Avaliações')}
+      ${temExtras ? _homeTile("navegar('extras')", _HOME_GRAD.extras, '🎁', 'Extras', _extrasTemNovo() ? 'novo' : '') : _homeTile("navegar('mensagens')", _HOME_GRAD.central, '💬', 'Central do Aluno')}
       ${_homeMaisTileHtml(aberto, false)}
     </div>`;
   }
@@ -7517,16 +7522,19 @@ function _homeMaisHtml() {
   const t = (js, grad, ic, tit, mais, tag, aria) => `<div class="h-at${mais ? ' h-mais' : ''}" onclick="${js}"${aria ? ` aria-label="${aria}" title="${aria}"` : ''}>${mais ? '<span class="h-plus" aria-hidden="true">+</span>' : ''}${tag ? `<span class="h-novo">${tag}</span>` : ''}<div class="ic" style="background:${grad};">${ic}</div><div class="tt">${tit}</div></div>`;
   const compacto = _homeRefAtiva() && _homeRefCartaoHtml() !== '';
   const semPlano = (function () { try { return _homeRefPlano() === null; } catch (e) { return false; } })();
-  const temExtras = !!(_extras && _extras.lista && _extras.lista.length);
+  const temExtras = _homeExtrasLista().length > 0;
+  // No modelo padrão a grade principal já leva Nutrição, Evoluções, Conquistas, Avaliações e Extras (ou a Central do Aluno, sem Extras).
+  const central = t("navegar('mensagens')", _HOME_GRAD.central, '💬', 'Central do Aluno');
+  const extras = t("navegar('extras')", _HOME_GRAD.extras, '🎁', 'Extras', false, _extrasTemNovo() ? 'novo' : '');
   return (!_homeAguaAtiva() ? t("homeRestaurar('agua')", _HOME_GRAD.agua, '💧', 'Água', true, '', 'Fixar a água na tela inicial') : '') +
     (!_homeRefAtiva() && !semPlano ? t("homeRestaurar('ref')", _HOME_GRAD.nutri, '🍽️', 'Refeição', true, '', 'Fixar a próxima refeição na tela inicial') : '') +
     (compacto ? t("navegar('nutricao')", _HOME_GRAD.nutri, '🥗', 'Nutrição') +
       t("renderHistorico();trocarView('historico');", _HOME_GRAD.evol, '📈', 'Evoluções') +
-      t("renderPerfil();trocarView('perfil');", _HOME_GRAD.conq, '🏅', 'Conquistas') : '') +
-    t("navegar('avaliacoes')", _HOME_GRAD.aval, '📋', 'Avaliações') +
-    t("navegar('mensagens')", _HOME_GRAD.central, '💬', 'Central do Aluno') +
+      t("renderPerfil();trocarView('perfil');", _HOME_GRAD.conq, '🏅', 'Conquistas') +
+      t("navegar('avaliacoes')", _HOME_GRAD.aval, '📋', 'Avaliações') : '') +
+    (compacto || temExtras ? central : '') +
     t('abrirPerfilDados()', _HOME_GRAD.perfil, '👤', 'Meu Perfil') +
-    (temExtras ? t("navegar('extras')", _HOME_GRAD.extras, '🎁', 'Extras', false, _extrasTemNovo() ? 'novo' : '') : '');
+    (compacto && temExtras ? extras : '');
 }
 // Minimizar: o cartão sai da tela inicial e a opção passa a ficar em "Ver mais" (miniatura com "+", que fixa de novo). Desligar de vez continua sendo na Nutrição.
 function _homeMinBtn(tipo) {
@@ -8012,8 +8020,9 @@ function renderHome() {
     </div>
     ${_homeAguaHtml()}
 
-    <!-- Ranking e Medalhas num cartão só (duas metades que abrem as duas abas da mesma tela);
-         embaixo, os atalhos numa fileira, só com o título. -->
+    <!-- Ranking e Medalhas num cartão só (duas partes, uma sobre a outra, que abrem as duas abas da mesma tela),
+         na metade esquerda; na direita, os atalhos só com o título. -->
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:stretch;">
     <div class="h-rk">
       <div onclick="abrirRanking()">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
@@ -8048,7 +8057,8 @@ function renderHome() {
         ` : ''}
       </div>
     </div>
-    <div id="h-dir" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">${_homeDirHtml(false)}</div>
+    <div id="h-dir" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">${_homeDirHtml(false)}</div>
+    </div>
 
     <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;">${_homeMaisHtml()}
     </div>

@@ -1,4 +1,4 @@
-// Tela inicial do aluno (aluno.html): Ranking e Medalhas num cartão só, atalhos só com o título, Extras como atalho em "Ver mais", + e − no Ver mais.
+// Tela inicial do aluno (aluno.html): Ranking e Medalhas num cartão só (metade esquerda), à direita cinco atalhos mais o Ver mais, só com o título; Extras como atalho (com etiqueta novo); + e − no Ver mais.
 // E a tela Ranking e Medalhas, com o seletor único no topo das duas abas.
 //   cd testes && INTUS_DIR=../app/painel node home_atalhos.js
 const { chromium } = require('playwright');
@@ -23,16 +23,19 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
 
   console.log('\n══ Ranking e Medalhas num cartão só ══');
   const rk = await page.evaluate(() => { const c = document.querySelector('.h-rk'); return { existe: !!c, metades: c ? c.children.length : 0, txt: c ? c.innerText : '', cliques: c ? [...c.children].map(e => e.getAttribute('onclick')) : [] }; });
-  eq('um cartão com duas metades', [rk.existe, rk.metades], [true, 2]);
+  eq('um cartão com duas partes (Ranking sobre Medalhas)', [rk.existe, rk.metades], [true, 2]);
+  const prop = await page.evaluate(() => { const c = document.querySelector('.h-rk').getBoundingClientRect(), d = document.getElementById('h-dir').getBoundingClientRect(); return { cartao: Math.round(c.width), direita: Math.round(d.width), esq: c.left < d.left, mesmoTopo: Math.abs(c.top - d.top) < 2, mesmaAltura: Math.abs(c.height - d.height) < 3 }; });
+  ver('o cartão ocupa a metade esquerda e os atalhos a metade direita, na mesma altura', Math.abs(prop.cartao - prop.direita) <= 4 && prop.esq && prop.mesmoTopo && prop.mesmaAltura, prop);
   eq('cada metade abre a sua aba', rk.cliques, ['abrirRanking()', 'abrirQuadroMedalhas()']);
   ver('o cartão traz Ranking e Medalhas', /Ranking/.test(rk.txt) && /Medalhas/.test(rk.txt), rk.txt);
   eq('não sobraram os dois cartões separados (.h-mini)', await page.evaluate(() => document.querySelectorAll('#v-home .h-mini').length), 0);
 
   console.log('\n══ Atalhos só com o título ══');
   const at = await page.evaluate(() => [...document.querySelectorAll('#h-dir .h-atalhos > .h-at')].map(e => ({ tt: e.querySelector('.tt').innerText.trim(), filhos: e.children.length, ic: e.querySelector('.ic').innerText.trim() })));
-  eq('quatro atalhos: Nutrição, Evoluções, Conquistas e Ver mais', at.map(x => x.tt), ['Nutrição', 'Evoluções', 'Conquistas', 'Ver mais']);
+  eq('cinco atalhos mais o Ver mais (sem Extras, o quinto é a Central do Aluno)', at.map(x => x.tt), ['Nutrição', 'Evoluções', 'Conquistas', 'Avaliações', 'Central do Aluno', 'Ver mais']);
+  eq('em duas colunas', await page.evaluate(() => getComputedStyle(document.querySelector('#h-dir .h-atalhos')).gridTemplateColumns.split(' ').length), 2);
   ver('cada atalho tem só ícone e título (nada de subtítulo)', at.every(x => x.filhos === 2), at);
-  eq('o ícone do Ver mais é um +', at[3].ic, '+');
+  eq('o ícone do Ver mais é um +', at[5].ic, '+');
   const tam = await page.evaluate(() => { const i = document.querySelector('#h-dir .h-at .ic'); const r = i.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
   ver('ícones levemente menores (25 px, antes 28)', tam[0] === 25 && tam[1] === 25, tam);
   const larg = await page.evaluate(() => document.documentElement.scrollWidth);
@@ -46,18 +49,19 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   t = await page.evaluate(() => ({ ic: document.getElementById('h-maisatalhos-ic').textContent, lbl: document.getElementById('h-maisatalhos-label').textContent, vis: getComputedStyle(document.getElementById('h-maisatalhos')).display }));
   eq('fechado: ícone + e "Ver mais"', t, { ic: '+', lbl: 'Ver mais', vis: 'none' });
   const painel = await page.evaluate(() => [...document.querySelectorAll('#h-maisatalhos .tt')].map(e => e.innerText.trim()));
-  ver('nomes novos: Central do Aluno e Meu Perfil', painel.includes('Central do Aluno') && painel.includes('Meu Perfil') && !painel.includes('Central') && !painel.includes('Perfil'), painel);
+  ver('nome novo: Meu Perfil (e nada de "Perfil" ou "Central" soltos)', painel.includes('Meu Perfil') && !painel.includes('Central') && !painel.includes('Perfil'), painel);
   eq('o painel Ver mais não tem subtítulos', await page.evaluate(() => [...document.querySelectorAll('#h-maisatalhos .h-at')].every(e => e.querySelector('.tt') && e.querySelectorAll('div').length === 2)), true);
 
   console.log('\n══ Extras ══');
-  eq('sem Extras liberado, não há atalho nem etiqueta', await page.evaluate(() => [/Extras/.test(document.getElementById('h-maisatalhos').innerText), !!document.getElementById('h-maisatalhos-novo')]), [false, false]);
+  eq('sem Extras liberado, não há atalho nem etiqueta', await page.evaluate(() => [/Extras/.test(document.getElementById('h-dir').innerText + document.getElementById('h-maisatalhos').innerText), !!document.querySelector('.h-novo')]), [false, false]);
   await page.evaluate(() => { _extras.lista = [{ id: 'm1', titulo: 'Aulas', emoji: '🎁', itens: [{ id: 'a', titulo: 'x', criado_em: new Date().toISOString() }], criado_em: new Date().toISOString() }]; try { localStorage.removeItem(_extrasChave('visto')); } catch (e) {} _extrasAtualizarEntradas(); });
-  const ex = await page.evaluate(() => { const t = [...document.querySelectorAll('#h-maisatalhos .h-at')].find(e => /Extras/.test(e.innerText)); return { existe: !!t, novo: t ? !!t.querySelector('.h-novo') : false, onclick: t ? t.getAttribute('onclick') : '', tagMais: !!document.getElementById('h-maisatalhos-novo'), barra: !!document.getElementById('h-extras') }; });
-  eq('com Extras: atalho quadrado em Ver mais com a etiqueta novo', [ex.existe, ex.novo, ex.onclick], [true, true, "navegar('extras')"]);
-  eq('o Ver mais também mostra a etiqueta novo (para quem não abriu)', ex.tagMais, true);
-  eq('a barra larga antiga não existe', ex.barra, false);
+  const ex = await page.evaluate(() => { const t = [...document.querySelectorAll('#h-dir .h-atalhos > .h-at')].find(e => /Extras/.test(e.innerText)); return { existe: !!t, novo: t ? !!t.querySelector('.h-novo') : false, onclick: t ? t.getAttribute('onclick') : '', tiles: [...document.querySelectorAll('#h-dir .h-atalhos > .h-at')].map(e => e.querySelector('.tt').innerText.trim()), painel: [...document.querySelectorAll('#h-maisatalhos .tt')].map(e => e.innerText.trim()), barra: !!document.getElementById('h-extras'), tagMais: !!document.getElementById('h-maisatalhos-novo') }; });
+  eq('com Extras: atalho quadrado na grade principal, com a etiqueta novo', [ex.existe, ex.novo, ex.onclick], [true, true, "navegar('extras')"]);
+  eq('a grade principal fica Nutrição, Evoluções, Conquistas, Avaliações, Extras e Ver mais', ex.tiles, ['Nutrição', 'Evoluções', 'Conquistas', 'Avaliações', 'Extras', 'Ver mais']);
+  ver('a Central do Aluno passa para o Ver mais', ex.painel.includes('Central do Aluno') && ex.painel.includes('Meu Perfil'), ex.painel);
+  eq('a barra larga antiga não existe e o Ver mais não repete a etiqueta', [ex.barra, ex.tagMais], [false, false]);
   await page.evaluate(() => { _extras.lista[0].itens[0].criado_em = '2020-01-01T00:00:00Z'; localStorage.setItem(_extrasChave('visto'), new Date().toISOString()); _extrasAtualizarEntradas(); });
-  eq('depois de visto, as duas etiquetas somem', await page.evaluate(() => [!!document.querySelector('#h-maisatalhos .h-novo'), !!document.getElementById('h-maisatalhos-novo')]), [false, false]);
+  eq('depois de visto, a etiqueta some', await page.evaluate(() => !!document.querySelector('.h-novo')), false);
 
   console.log('\n══ Tela Ranking e Medalhas ══');
   await page.evaluate(() => abrirRanking()); await page.waitForTimeout(1500);

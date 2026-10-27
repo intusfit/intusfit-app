@@ -135,14 +135,14 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await ap.waitForTimeout(800);
   await ap.evaluate(() => { localStorage.removeItem('intus-extras-visto-7'); _extras.lista = null; _extras.ts = 0; });
   ver('o menu lateral tem o item Extras, escondido até haver algo visível', await ap.evaluate(() => { const m = document.getElementById('menu-extras'); return !!m && m.style.display === 'none'; }));
-  eq('sem nada carregado, "Ver mais" não tem o atalho do Extras', await ap.evaluate(() => /Extras/.test(_homeMaisHtml())), false);
+  eq('sem nada carregado, a Home não tem o atalho do Extras', await ap.evaluate(() => /Extras/.test(_homeDirHtml(false) + _homeMaisHtml())), false);
   await ap.evaluate(() => _extrasCarregar(true));
   ver('com conteúdo visível: o item do menu aparece', await ap.evaluate(() => document.getElementById('menu-extras').style.display !== 'none'));
-  const home = await ap.evaluate(() => { document.getElementById('v-home') && renderHome(); return { mais: _homeMaisHtml(), barra: !!document.getElementById('h-extras'), noPainel: document.getElementById('h-maisatalhos') ? document.getElementById('h-maisatalhos').innerText : '', toggle: _homeMaisTileHtml(false, false) }; });
-  ver('o atalho "Extras" está em Ver mais, quadrado como os outros, com a etiqueta novo', /navegar\('extras'\)/.test(home.mais) && /Extras/.test(home.mais) && /class="h-novo">novo</.test(home.mais), home.mais.slice(0, 400));
+  const home = await ap.evaluate(() => { document.getElementById('v-home') && renderHome(); return { mais: _homeDirHtml(false), barra: !!document.getElementById('h-extras'), noPainel: document.getElementById('h-maisatalhos') ? document.getElementById('h-maisatalhos').innerText : '', toggle: _homeMaisTileHtml(false, false) }; });
+  ver('o atalho "Extras" está na grade principal da Home, quadrado como os outros, com a etiqueta novo', /navegar\('extras'\)/.test(home.mais) && /Extras/.test(home.mais) && /class="h-novo">novo</.test(home.mais), home.mais.slice(0, 400));
   ver('o atalho não tem subtítulo (só o título)', !/conteúdos? em/.test(home.mais) && !/aulas, lives e bônus/.test(home.mais));
   ver('a barra larga do Extras não existe mais', home.barra === false);
-  ver('o "Ver mais" fechado mostra + e a etiqueta novo quando há Extras novo', /<div class="ic"[^>]*>\+<\/div>/.test(home.toggle) && /h-novo/.test(home.toggle), home.toggle);
+  ver('o "Ver mais" fechado mostra o ícone +', /<div class="ic"[^>]*>\+<\/div>/.test(home.toggle), home.toggle);
   ver('a Home chama o carregamento do Extras (está no renderHome)', fs.readFileSync(path.join(RAIZ, 'aluno.html'), 'utf8').includes('${_extrasHomeHtml()}'));
   await ap.evaluate(() => navegar('extras')); await ap.waitForTimeout(400);
   const tela = await ap.evaluate(() => ({ ativa: window._viewAtual, txt: document.getElementById('v-extras').innerText }));
