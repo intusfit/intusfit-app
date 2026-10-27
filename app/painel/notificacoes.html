@@ -854,9 +854,9 @@ function renderFigurinhasSection() {
         '</div>' +
         // URL
         '<div>' +
-          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">🔗 Ou cole o link de uma imagem</div>' +
-          '<div style="display:flex;gap:6px;">' +
-            '<input class="ntf-input" id="fig-url" placeholder="https://.../figurinha.gif" style="flex:1;"/>' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">🔗 Ou cole o link de uma imagem (pode colar vários, um por linha)</div>' +
+          '<div style="display:flex;gap:6px;align-items:flex-start;">' +
+            '<textarea class="ntf-input" id="fig-url" rows="2" placeholder="https://.../figurinha.gif" style="flex:1;resize:vertical;"></textarea>' +
             '<button onclick="_figAddUrl()" style="flex-shrink:0;padding:8px 14px;border-radius:8px;border:1px solid rgba(127,255,0,.4);background:rgba(127,255,0,.1);color:#7FFF00;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;">Adicionar</button>' +
           '</div>' +
         '</div>' +
@@ -878,14 +878,25 @@ function renderFigurinhasSection() {
 function _figSetLegenda(i, v) { if (_figurinhasData && _figurinhasData[i]) _figurinhasData[i].legenda = v; }
 function removeFigurinha(i) { if (!_figurinhasData) return; _figurinhasData.splice(i, 1); renderFigurinhasSection(); }
 
+// Aceita um ou vários links (um por linha, ou separados por espaço ou vírgula). Caminho que começa com /app/img/ vira o link completo deste site.
+// Link que já está na lista é ignorado, e nada é gravado até clicar em "Salvar figurinhas".
+function _figLinkCompleto(t) { return /^\/app\/img\//.test(t) ? location.origin + t : t; }
 function _figAddUrl() {
   const inp = document.getElementById('fig-url'); if (!inp) return;
-  const url = (inp.value || '').trim();
-  if (!/^https?:\/\//i.test(url)) { toast('Cole um link válido (começando com http).'); return; }
-  if (_figurinhasData.length >= FIG_MAX) { toast('Limite de ' + FIG_MAX + ' figurinhas atingido.'); return; }
-  _figurinhasData.push({ tipo:'img', src:url, legenda:'' });
+  const links = (inp.value || '').split(/[\s,]+/).map(x => x.trim()).filter(Boolean).map(_figLinkCompleto);
+  if (!links.length || links.some(u => !/^https?:\/\//i.test(u))) { toast('Cole um link válido (começando com http).'); return; }
+  const jaTem = new Set(_figurinhasData.map(f => _figLinkCompleto(String(f.src || ''))));
+  let novos = 0, repetidos = 0, cheio = false;
+  links.forEach(u => {
+    if (jaTem.has(u)) { repetidos++; return; }
+    if (_figurinhasData.length >= FIG_MAX) { cheio = true; return; }
+    _figurinhasData.push({ tipo:'img', src:u, legenda:'' });
+    jaTem.add(u); novos++;
+  });
   inp.value = '';
   renderFigurinhasSection();
+  if (cheio) toast('Limite de ' + FIG_MAX + ' figurinhas atingido.');
+  else if (links.length > 1 || repetidos) toast(novos + ' adicionada' + (novos === 1 ? '' : 's') + (repetidos ? ' (' + repetidos + ' já estava' + (repetidos === 1 ? '' : 'm') + ' na lista)' : '') + '. Clique em "Salvar figurinhas" para publicar.');
 }
 
 function _figAddEmoji() {

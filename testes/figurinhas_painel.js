@@ -99,6 +99,19 @@ async function cenario(b, nome, cfg) {
   ver('é escolha válida: mostra "Nenhuma figurinha ainda", sem aviso', /Nenhuma figurinha ainda/.test(await texto(pg)) && !/padrão de fábrica/.test(await texto(pg)));
   await pg.close();
 
+  console.log('\n══ Colar vários links de uma vez (restaurar uma lista) ══');
+  ({ pg, S } = await cenario(b, 'colar', { get: { itens: [img(1), img(2)] }, dialogoAceita: true }));
+  const colar = txt => pg.evaluate(t => { document.getElementById('fig-url').value = t; _figAddUrl(); return _figurinhasData.map(f => f.src); }, txt);
+  let srcs = await colar('/app/img/uploads/fig_3.jpg\n/app/img/uploads/fig_4.jpg\r\nhttps://exemplo.com/a.gif, /app/img/uploads/fig_1.jpg');
+  eq('cola 4 links de uma vez, ignora o que já estava na lista e completa o caminho do site', srcs.length, 5);
+  ver('caminho /app/img/... vira link completo', srcs.some(x => /^http:\/\/127\.0\.0\.1:\d+\/app\/img\/uploads\/fig_3\.jpg$/.test(x)), srcs);
+  eq('colar o mesmo conjunto de novo não duplica', (await colar('/app/img/uploads/fig_3.jpg\n/app/img/uploads/fig_4.jpg')).length, 5);
+  eq('texto que não é link não adiciona nada', (await colar('qualquer coisa')).length, 5);
+  eq('nada é gravado até clicar em Salvar', S.puts.length, 0);
+  await pg.evaluate(() => salvarFigurinhas()); await pg.waitForTimeout(400);
+  eq('ao salvar, o servidor recebe a lista com os 5', S.puts.length === 1 && S.puts[0].itens.length, 5);
+  await pg.close();
+
   await b.close(); srv.close();
   console.log('\n' + ok + ' ok, ' + ruim + ' falhas');
   process.exit(ruim ? 1 : 0);
