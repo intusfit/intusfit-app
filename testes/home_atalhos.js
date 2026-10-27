@@ -161,6 +161,26 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   }
   await page.evaluate(() => { document.body.classList.remove('tema-claro'); trocarView('home'); });
 
+  console.log('\n══ Nutrição: cardápio com alimentos grandes e em destaque ══');
+  await page.evaluate(() => navegar('nutricao')); await page.waitForTimeout(1000);
+  await page.evaluate(() => {
+    const it = (nome, q, mn, g, kcal) => ({ food_id: 1, nome, quantidade: q, medida_id: mn ? 'u' : 'g', medida_nome: mn || 'g', medida_g: mn ? g / q : 1, gramas: g, nutrientes: { energia_kcal: kcal }, substitutos: [] });
+    _nutri.plano = { titulo: 'Plano', calorias: 1800, proteina: 130, carboidrato: 180, gordura: 55, refeicoes: [{ horario: '07:30', nome: 'Café da manhã', itens_estruturados: [it('Ovo de galinha, inteiro, cozido', 2, 'unidade', 100, 143), it('Aveia em flocos', 20, '', 20, 78)] }] };
+    _nutri.regs = []; _nutri.pesos = []; _nutri.tela = 'plano'; _nutri.visao = 'hoje'; _nutriRender(); nutriAbrir(0);
+  });
+  await page.waitForTimeout(300);
+  const nut = await page.evaluate(() => {
+    const v = document.getElementById('v-nutricao'); const fs = e => e ? parseFloat(getComputedStyle(e).fontSize) : 0;
+    const item = v.querySelector('.nutri-item'); const nome = item && item.querySelector('div[style*="flex:1"] > div'); const qtd = item && item.querySelector('div[style*="flex:1"] > span');
+    const cab = v.querySelector('[id^="nutri-ref-"] > div');
+    return { itens: v.querySelectorAll('.nutri-item').length, nome: fs(nome), qtd: fs(qtd), qtdTexto: qtd ? qtd.innerText : '', cab: fs(cab && cab.querySelector('div[style*="flex:1"] > div')), semEstouro: [...v.querySelectorAll('[id^="nutri-ref-"], .nutri-item')].every(e => e.getBoundingClientRect().right <= window.innerWidth) };
+  });
+  eq('o cardápio mostra cada alimento num cartão próprio', nut.itens, 2);
+  ver('nome do alimento grande (16 px) e quantidade em destaque (13,5 px)', nut.nome >= 16 && nut.qtd >= 13.5, nut);
+  ver('título da refeição grande (17 px) e cartões dentro da tela', nut.cab >= 17 && nut.semEstouro, nut);
+  eq('a quantidade aparece como etiqueta própria, com a medida e os gramas', nut.qtdTexto, '2 unidades (100 g)');
+  await page.evaluate(() => { _nutri.tela = 'home'; trocarView('home'); });
+
   console.log('\n══ Estrutura ══');
   const html = fs.readFileSync(path.join(RAIZ, 'aluno.html'), 'utf8');
   eq('nenhum "—" ou "não é X, é Y" novo nos textos da Home', /Ver mais.*—|não é [^.]{1,40}, é /.test(html.slice(html.indexOf('function _homeMaisHtml'), html.indexOf('function _homeMaisHtml') + 1500)), false);
