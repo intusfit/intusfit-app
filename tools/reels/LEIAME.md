@@ -29,3 +29,9 @@ Página: https://claude.ai/artifact/Et9xVsHjrTYxxqug5UKJH6 (privada do Luiz). Fo
   a partir do vídeo original da TV.
 - Novo vídeo: até 20 MB pela página (sem legenda automática). Entrevista inteira: mandar ao Claude,
   que transcreve (`transcrever.py`), rastreia (`rastrear.py`), separa a voz e cria os projetos.
+- Versão 2 (27/10/2026): todo elemento da prévia é arrastável (logo, @, legenda, gancho, marcações,
+  textos livres, vídeo) e tem posição, tamanho e visibilidade na aba Elementos (`dados.layout`).
+  Tarja da TV por plano (`planos[].tarja`), textos livres (`dados.textos`), ordem livre dos trechos,
+  guia da área do Instagram (só na prévia), desfazer/refazer e histórico (no navegador, 60 passos).
+  O `reel.py` não lê `layout`/`textos`/`tarja`: a versão em alta agora deve usar o próprio desenho
+  da página (rodar a página com o vídeo original), não o `reel.py`.
