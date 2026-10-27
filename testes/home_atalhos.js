@@ -123,7 +123,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   }
   await page.evaluate(() => { document.body.classList.remove('tema-claro'); _renderRankingView(); });
   const rkEsc = await medirRk();
-  eq('tema escuro: a linha dos outros participantes usa a cor de cartão da Home (mais clara que o fundo)', rkEsc.fundoOutras, ['rgb(38, 38, 38)']);
+  eq('tema escuro: a linha dos outros participantes mantém o tom de sempre do cartão (#1a1a1a), só com sombra e contorno', rkEsc.fundoOutras, ['rgb(26, 26, 26)']);
   await page.evaluate(() => { _rankingTab = 'medalhas'; _renderRankingView(); });
   eq('Medalhas: a tabela e o quadro do rodapé têm sombra', await page.evaluate(() => [...document.querySelectorAll('#v-ranking .pf')].filter(e => getComputedStyle(e).boxShadow !== 'none').length >= 3), true);
   const outrasTelas = await page.evaluate(() => {
@@ -132,6 +132,34 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
     return { nutri: /box-shadow:var\(--prof\)/.test(c.card) && c.borda === 'var(--borda-forte)', extras };
   });
   eq('Nutrição e Extras usam o mesmo cartão com sombra', outrasTelas, { nutri: true, extras: true });
+
+  console.log('\n══ Evoluções e Perfil ══');
+  await page.evaluate(() => {
+    const d = n => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString().slice(0, 10); };
+    const ss = []; for (let i = 0; i < 6; i++) ss.push({ idsessao: 500 + i, idatleta: 7, dtsessao: d(i * 2), divisao: ['A', 'B', 'C'][i % 3], tipo: 'musculacao', duracao_seg: 3300, pontos: 10, itens: [{ exercicio: 'Supino reto', series: [{ peso: 40 + i, reps: 10 }] }] });
+    localStorage.setItem('intus-sessoes-treino', JSON.stringify(ss));
+  });
+  const medirEvo = () => page.evaluate(() => {
+    const sh = e => !!e && getComputedStyle(e).boxShadow !== 'none';
+    const v = document.getElementById('v-historico');
+    return { marcador: sh(v.querySelector('[onclick^="abrirDetalheMarcador"]')), graficos: sh(v.querySelector('details')), historico: null };
+  });
+  const medirLinha = () => page.evaluate(() => { const v = document.getElementById('v-historico'); const h = v.querySelector('.hist-card'), c = v.querySelector('.card'); const sh = e => !!e && getComputedStyle(e).boxShadow !== 'none'; return { sessao: sh(h), calendario: sh(c), fundo: h ? getComputedStyle(h).backgroundColor : null, bordaEsq: h ? getComputedStyle(h).borderLeftWidth : null }; });
+  for (const claro of [false, true]) {
+    await page.evaluate(c => { document.body.classList.toggle('tema-claro', c); renderHistorico(); trocarView('historico'); }, claro);
+    await page.waitForTimeout(300);
+    const e1 = await medirEvo();
+    await page.evaluate(() => _historicoTrocarTab('linha')); await page.waitForTimeout(200);
+    const e2 = await medirLinha();
+    await page.evaluate(() => { renderPerfil(); trocarView('perfil'); }); await page.waitForTimeout(300);
+    const pf = await page.evaluate(() => { const v = document.getElementById('v-perfil'); const tabs = document.getElementById('pf-tabbtn-conquistas'); const barra = tabs && tabs.parentElement; const placar = [...v.querySelectorAll('.pf')].length; return { barra: !!barra && getComputedStyle(barra).boxShadow !== 'none', cartoes: placar }; });
+    const nome = claro ? 'tema claro' : 'tema escuro';
+    ver(nome + ': Evoluções: marcadores e caixa "Ver série por série" com sombra', e1.marcador && e1.graficos, e1);
+    ver(nome + ': Evoluções: cada sessão do histórico e o calendário com sombra', e2.sessao && e2.calendario, e2);
+    ver(nome + ': Perfil: barra de abas e cartões com sombra', pf.barra && pf.cartoes >= 2, pf);
+    if (!claro) eq('tema escuro: a sessão do histórico mantém o tom de sempre', e2.fundo, 'rgb(20, 20, 20)');
+  }
+  await page.evaluate(() => { document.body.classList.remove('tema-claro'); trocarView('home'); });
 
   console.log('\n══ Estrutura ══');
   const html = fs.readFileSync(path.join(RAIZ, 'aluno.html'), 'utf8');
