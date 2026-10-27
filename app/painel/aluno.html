@@ -17,7 +17,7 @@
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261024a"></script>
-  <script src="ajuda.js?v=20261019a" defer></script>
+  <script src="ajuda.js?v=20261027a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -659,10 +659,19 @@
     .h-zap svg { width:19px; height:19px; flex-shrink:0; }
 
     .h-atalhos { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-bottom:7px; }
-    .h-at { background:var(--card-bg); border:1px solid var(--borda); border-radius:14px; padding:7px 5px;
-            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; cursor:pointer; min-height:58px; transition:transform .08s; }
-    .h-at .ic { width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+    .h-at { background:var(--card-bg); border:1px solid var(--borda); border-radius:14px; padding:7px 4px;
+            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; cursor:pointer; min-height:56px; transition:transform .08s; touch-action:manipulation; position:relative; }
+    .h-at .ic { width:25px; height:25px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:900; line-height:1; color:#fff; }
     .h-at .tt { font-size:10.5px; font-weight:700; color:var(--texto); text-align:center; line-height:1.2; }
+    /* Ranking e Medalhas num cartão só: duas metades que abrem as duas abas da mesma tela. */
+    .h-rk { display:grid; grid-template-columns:1fr 1fr; background:var(--card-bg); border:1px solid var(--borda); border-radius:16px; margin-bottom:8px; overflow:hidden; }
+    .h-rk > div { padding:10px 12px; cursor:pointer; min-width:0; touch-action:manipulation; transition:background .08s; }
+    .h-rk > div + div { border-left:1px solid var(--borda); }
+    .h-rk > div:active { background:var(--sup); }
+    .h-rk .cab { font-size:14px; font-weight:800; color:var(--texto); }
+    .h-rk .num { font-size:25px; font-weight:900; color:var(--texto); line-height:1; font-variant-numeric:tabular-nums; }
+    .h-rk .pe { font-size:11.5px; color:var(--muted); margin-top:3px; }
+    .h-novo { position:absolute; top:-6px; right:5px; background:#7FFF00; color:#0f1a00; font-size:8px; font-weight:900; letter-spacing:.3px; padding:1px 5px; border-radius:99px; line-height:1.3; text-transform:uppercase; }
     .h-hoje:active, .h-sem:active, .h-mini:active, .h-dest:active, .h-at:active { transform:scale(.985); }
 
     /* Cartão da refeição na tela inicial (opcional): ocupa a coluna da direita do bloco Ranking/Medalhas. */
@@ -7451,75 +7460,73 @@ function _homeRefCartaoHtml() {
 //    passa a mostrar, por sorteio a cada abertura do app, outra função para o aluno ir conhecendo (a Nutrição continua em "Ver mais").
 // `aberto` = o painel "Ver mais" já está aberto (só muda o rótulo).
 var _homeSeed = Math.floor(Math.random() * 100000);
+// Cores dos ícones dos atalhos da tela inicial (as mesmas em todo lugar onde o atalho aparece).
+var _HOME_GRAD = {
+  nutri: 'linear-gradient(135deg,#7a1f3d,#e0567c)', evol: 'linear-gradient(135deg,#2a3550,#5b7bd5)', conq: 'linear-gradient(135deg,#a06a10,#ffb020)',
+  aval: 'linear-gradient(135deg,#1f4a4a,#3fb0a0)', central: 'linear-gradient(135deg,#5a2a5e,#c060d0)', perfil: 'linear-gradient(135deg,#3a3a3a,#8a8a8a)',
+  extras: 'linear-gradient(135deg,#1f6b2a,#4cc94f)', feed: 'linear-gradient(135deg,#1f3f6b,#4a90e2)', amigos: 'linear-gradient(135deg,#0a5c7a,#38bdf8)',
+  agua: 'linear-gradient(135deg,#0a5c7a,#38bdf8)', mais: 'linear-gradient(135deg,#3a3a3a,#8a8a8a)'
+};
+// Um atalho quadrado: ícone colorido e só o título (sem subtítulo). `tag` = etiqueta no canto (ex.: "novo").
+function _homeTile(js, grad, ic, tit, tag) {
+  return `<div class="h-at" onclick="${js}">${tag ? `<span class="h-novo">${tag}</span>` : ''}<div class="ic" style="background:${grad};">${ic}</div><div class="tt">${tit}</div></div>`;
+}
+// Ver mais / Ver menos: o ícone é um quadrado como os outros, com + (fechado) ou − (aberto). A etiqueta "novo" aparece quando há Extras novo dentro.
+function _homeMaisTileHtml(aberto, horizontal) {
+  const tag = (typeof _extrasTemNovo === 'function' && _extras && _extras.lista && _extras.lista.length && _extrasTemNovo()) ? '<span class="h-novo" id="h-maisatalhos-novo">novo</span>' : '';
+  const ic = `<div class="ic" id="h-maisatalhos-ic" style="background:${_HOME_GRAD.mais};font-size:17px;">${aberto ? '−' : '+'}</div>`;
+  const lbl = `<div class="tt"><span id="h-maisatalhos-label">${aberto ? 'Ver menos' : 'Ver mais'}</span></div>`;
+  return horizontal
+    ? `<div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" class="h-at" style="flex-direction:row;gap:7px;min-height:44px;">${tag}${ic}${lbl}</div>`
+    : `<div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" class="h-at">${tag}${ic}${lbl}</div>`;
+}
 function _homeSorteio() {
   const c = [
-    { ic: '🥗', t: 'Nutrição', js: "navegar('nutricao')" },
-    { ic: '📈', t: 'Evoluções', js: "renderHistorico();trocarView('historico');" },
-    { ic: '🏅', t: 'Conquistas', js: "renderPerfil();trocarView('perfil');" },
-    { ic: '📋', t: 'Avaliações', js: "navegar('avaliacoes')" },
-    { ic: '💬', t: 'Central', js: "navegar('mensagens')" },
-    { ic: '📰', t: 'Feed', js: "navegar('feed')" },
-    { ic: '❓', t: 'Ajuda', js: 'abrirTutorial()' },
+    { ic: '🥗', t: 'Nutrição', js: "navegar('nutricao')", g: _HOME_GRAD.nutri },
+    { ic: '📈', t: 'Evoluções', js: "renderHistorico();trocarView('historico');", g: _HOME_GRAD.evol },
+    { ic: '🏅', t: 'Conquistas', js: "renderPerfil();trocarView('perfil');", g: _HOME_GRAD.conq },
+    { ic: '📋', t: 'Avaliações', js: "navegar('avaliacoes')", g: _HOME_GRAD.aval },
+    { ic: '💬', t: 'Central do Aluno', js: "navegar('mensagens')", g: _HOME_GRAD.central },
+    { ic: '📰', t: 'Feed', js: "navegar('feed')", g: _HOME_GRAD.feed },
+    { ic: '❓', t: 'Ajuda', js: 'abrirTutorial()', g: _HOME_GRAD.perfil },
   ];
-  try { if (typeof _conexoesOn === 'function' ? _conexoesOn() : _conexoesOn) c.push({ ic: '👥', t: 'Amigos', js: "navegar('amigos')" }, { ic: '🏆', t: 'Desafios', js: "navegar('desafios')" }); } catch (e) {}
+  try { if (typeof _conexoesOn === 'function' ? _conexoesOn() : _conexoesOn) c.push({ ic: '👥', t: 'Amigos', js: "navegar('amigos')", g: _HOME_GRAD.amigos }, { ic: '🏆', t: 'Desafios', js: "navegar('desafios')", g: _HOME_GRAD.conq }); } catch (e) {}
   return c[_homeSeed % c.length];
 }
 function _homeDirHtml(aberto) {
   if (aberto === undefined) { const p = document.getElementById('h-maisatalhos'); aberto = !!(p && p.style.display === 'grid'); }
-  const rotMais = aberto ? 'Ver menos' : 'Ver mais';
   const card = _homeRefAtiva() ? _homeRefCartaoHtml() : '';
-  const compacto = !!card;   // só o cartão da refeição pede o espaço da coluna; a água sozinha não muda o modelo padrão
+  const compacto = !!card;   // só o cartão da refeição pede o espaço; a água sozinha não muda o modelo padrão
   _homeRefAssin = _homeRefAssinatura();
-  const maisTile = (alto) => alto
-    ? `<div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" class="h-at" style="flex:1;margin:0;">
-        <div class="h-at-ic" style="width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;line-height:1;background:var(--borda);color:var(--muted);">⋯</div>
-        <div id="h-maisatalhos-label" class="tt">${rotMais}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;line-height:1.25;">Evoluções, Conquistas e mais</div>
-      </div>`
-    : `<div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" class="h-at" style="flex:1;margin:0;"><span style="font-size:17px;line-height:1;">⋯</span><span class="tt" style="text-align:left;white-space:nowrap;"><span id="h-maisatalhos-label">${rotMais}</span></span></div>`;
   if (!compacto) {
-    // Modelo padrão, como antes
-    return `<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-      <div class="h-at" onclick="navegar('nutricao')" style="margin:0;">
-        <div class="ic" style="background:linear-gradient(135deg,#7a1f3d,#e0567c);">🥗</div>
-        <div class="tt">Nutrição</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Plano alimentar</div>
-      </div>
-      <div class="h-at" onclick="renderHistorico();trocarView('historico');" style="margin:0;">
-        <div class="ic" style="background:linear-gradient(135deg,#2a3550,#5b7bd5);">📈</div>
-        <div class="tt">Evoluções</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Histórico</div>
-      </div>
-      <div class="h-at" onclick="renderPerfil();trocarView('perfil');" style="margin:0;">
-        <div class="ic" style="background:linear-gradient(135deg,#a06a10,#ffb020);">🏅</div>
-        <div class="tt">Conquistas</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">Distintivos</div>
-      </div>
-      <div id="h-maisatalhos-toggle" onclick="_toggleMaisAtalhosHome()" style="border-radius:14px;border:1px solid var(--borda);background:var(--card-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:7px 5px;margin:0;">
-        <div class="h-at-ic" style="width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;line-height:1;background:var(--borda);color:var(--muted);">⋯</div>
-        <div id="h-maisatalhos-label" style="font-size:10.5px;font-weight:700;color:var(--texto);text-align:center;line-height:1.2;">${rotMais}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;line-height:1.25;">Avaliações, Central, Perfil</div>
-      </div>
+    // Modelo padrão: quatro atalhos numa fileira, só com o título.
+    return `<div class="h-atalhos" style="margin-bottom:0;">
+      ${_homeTile("navegar('nutricao')", _HOME_GRAD.nutri, '🥗', 'Nutrição')}
+      ${_homeTile("renderHistorico();trocarView('historico');", _HOME_GRAD.evol, '📈', 'Evoluções')}
+      ${_homeTile("renderPerfil();trocarView('perfil');", _HOME_GRAD.conq, '🏅', 'Conquistas')}
+      ${_homeMaisTileHtml(aberto, false)}
     </div>`;
   }
   const sorteado = _homeSorteio();
-  const mini = `<div class="h-at" onclick="${sorteado.js}" style="flex:1;flex-direction:row;gap:6px;min-height:0;height:44px;margin:0;padding:0 6px;"><span style="font-size:17px;line-height:1;">${sorteado.ic}</span><span class="tt" style="text-align:left;white-space:nowrap;">${sorteado.t}</span></div>`;
-  return card + `<div style="display:flex;gap:6px;">${mini}${maisTile(false)}</div>`;
+  const mini = `<div class="h-at" onclick="${sorteado.js}" style="flex-direction:row;gap:7px;min-height:44px;"><div class="ic" style="background:${sorteado.g};">${sorteado.ic}</div><div class="tt">${sorteado.t}</div></div>`;
+  return card + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">${mini}${_homeMaisTileHtml(aberto, true)}</div>`;
 }
 // Painel "Ver mais": Avaliações, Central e Perfil sempre; Evoluções, Conquistas e Nutrição entram quando algum cartão está fixado na Home;
 // e a água e a refeição aparecem como miniatura com "+" para fixar na tela inicial enquanto não estão fixadas.
 function _homeMaisHtml() {
-  const t = (js, grad, ic, tit, sub, mais) => `<div class="h-at${mais ? ' h-mais' : ''}" onclick="${js}">${mais ? '<span class="h-plus" aria-hidden="true">+</span>' : ''}<div class="ic" style="background:${grad};">${ic}</div><div class="tt">${tit}</div><div style="font-size:10px;color:var(--muted);margin-top:1px;text-align:center;">${sub}</div></div>`;
+  const t = (js, grad, ic, tit, mais, tag, aria) => `<div class="h-at${mais ? ' h-mais' : ''}" onclick="${js}"${aria ? ` aria-label="${aria}" title="${aria}"` : ''}>${mais ? '<span class="h-plus" aria-hidden="true">+</span>' : ''}${tag ? `<span class="h-novo">${tag}</span>` : ''}<div class="ic" style="background:${grad};">${ic}</div><div class="tt">${tit}</div></div>`;
   const compacto = _homeRefAtiva() && _homeRefCartaoHtml() !== '';
   const semPlano = (function () { try { return _homeRefPlano() === null; } catch (e) { return false; } })();
-  return (!_homeAguaAtiva() ? t("homeRestaurar('agua')", 'linear-gradient(135deg,#0a5c7a,#38bdf8)', '💧', 'Água', 'Fixar na tela', true) : '') +
-    (!_homeRefAtiva() && !semPlano ? t("homeRestaurar('ref')", 'linear-gradient(135deg,#7a1f3d,#e0567c)', '🍽️', 'Refeição', 'Fixar na tela', true) : '') +
-    (compacto ? t("navegar('nutricao')", 'linear-gradient(135deg,#7a1f3d,#e0567c)', '🥗', 'Nutrição', 'Plano alimentar') +
-      t("renderHistorico();trocarView('historico');", 'linear-gradient(135deg,#2a3550,#5b7bd5)', '📈', 'Evoluções', 'Histórico') +
-      t("renderPerfil();trocarView('perfil');", 'linear-gradient(135deg,#a06a10,#ffb020)', '🏅', 'Conquistas', 'Distintivos') : '') +
-    t("navegar('avaliacoes')", 'linear-gradient(135deg,#1f4a4a,#3fb0a0)', '📋', 'Avaliações', 'Medidas') +
-    t("navegar('mensagens')", 'linear-gradient(135deg,#5a2a5e,#c060d0)', '💬', 'Central', 'Mensagens') +
-    t('abrirPerfilDados()', 'linear-gradient(135deg,#3a3a3a,#8a8a8a)', '👤', 'Perfil', 'Matrícula');
+  const temExtras = !!(_extras && _extras.lista && _extras.lista.length);
+  return (!_homeAguaAtiva() ? t("homeRestaurar('agua')", _HOME_GRAD.agua, '💧', 'Água', true, '', 'Fixar a água na tela inicial') : '') +
+    (!_homeRefAtiva() && !semPlano ? t("homeRestaurar('ref')", _HOME_GRAD.nutri, '🍽️', 'Refeição', true, '', 'Fixar a próxima refeição na tela inicial') : '') +
+    (compacto ? t("navegar('nutricao')", _HOME_GRAD.nutri, '🥗', 'Nutrição') +
+      t("renderHistorico();trocarView('historico');", _HOME_GRAD.evol, '📈', 'Evoluções') +
+      t("renderPerfil();trocarView('perfil');", _HOME_GRAD.conq, '🏅', 'Conquistas') : '') +
+    t("navegar('avaliacoes')", _HOME_GRAD.aval, '📋', 'Avaliações') +
+    t("navegar('mensagens')", _HOME_GRAD.central, '💬', 'Central do Aluno') +
+    t('abrirPerfilDados()', _HOME_GRAD.perfil, '👤', 'Meu Perfil') +
+    (temExtras ? t("navegar('extras')", _HOME_GRAD.extras, '🎁', 'Extras', false, _extrasTemNovo() ? 'novo' : '') : '');
 }
 // Minimizar: o cartão sai da tela inicial e a opção passa a ficar em "Ver mais" (miniatura com "+", que fixa de novo). Desligar de vez continua sendo na Nutrição.
 function _homeMinBtn(tipo) {
@@ -8005,53 +8012,48 @@ function renderHome() {
     </div>
     ${_homeAguaHtml()}
 
-    <!-- Ranking+Medalhas empilhados numa coluna; do lado, os atalhos menos
-         usados no dia a dia ficam atrás de "Ver mais" — o objetivo é o feed
-         já espiar na primeira dobra, sem esconder nada, só reordenar peso. -->
-    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:stretch;">
-      <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
-        <div class="h-mini" onclick="abrirRanking()" style="flex:1;margin:0;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-            <div class="cab" style="font-size:14px;font-weight:800;letter-spacing:normal;text-transform:none;color:var(--texto);">🥇 Ranking</div>
-            ${(_sem.posicao && _diffPts) ? `<span style="font-size:10px;font-weight:800;color:${_diffPts > 0 ? 'var(--link-ex)' : (isLight ? '#c0392b' : '#ff6b6b')};background:${_diffPts > 0 ? 'var(--marca-fraca)' : (isLight ? 'rgba(192,57,43,.1)' : 'rgba(255,107,107,.12)')};padding:2px 7px;border-radius:6px;white-space:nowrap;flex-shrink:0;">${_diffPts > 0 ? '▲' : '▼'} ${Math.abs(_diffPts)} pts</span>` : ''}
-          </div>
-          <div style="display:flex;align-items:baseline;gap:5px;margin-top:3px;">
-            ${_sem.posicao
-              ? `<span class="num">${_sem.posicao}º</span><span style="font-size:12px;font-weight:700;color:var(--muted);">de ${_sem.participantes || '?'}</span>`
-              : `<span class="num">${_sem.pts}</span><span style="font-size:12px;font-weight:700;color:var(--muted);">pts</span>`}
-          </div>
-          <div class="pe">${_sem.posicao ? _sem.pts + ' pts nesta semana' : (_sem.participantes ? 'entre ' + _sem.participantes + ' participantes' : 'na semana · ver posição')}</div>
-          ${(_sem.posicao > 1 && _proximoPts != null && _proximoPts > _sem.pts) ? `
-          <div class="h-barra" style="height:4px;margin-top:5px;"><i style="width:${Math.max(4, Math.min(100, Math.round((_sem.pts / _proximoPts) * 100)))}%;"></i></div>
-          <div style="font-size:10.5px;color:var(--muted);margin-top:3px;">${_proximoPts - _sem.pts} pts para o ${_sem.posicao - 1}º lugar</div>
-          ` : ''}
+    <!-- Ranking e Medalhas num cartão só (duas metades que abrem as duas abas da mesma tela);
+         embaixo, os atalhos numa fileira, só com o título. -->
+    <div class="h-rk">
+      <div onclick="abrirRanking()">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+          <div class="cab">🥇 Ranking</div>
+          ${(_sem.posicao && _diffPts) ? `<span style="font-size:10px;font-weight:800;color:${_diffPts > 0 ? 'var(--link-ex)' : (isLight ? '#c0392b' : '#ff6b6b')};background:${_diffPts > 0 ? 'var(--marca-fraca)' : (isLight ? 'rgba(192,57,43,.1)' : 'rgba(255,107,107,.12)')};padding:2px 7px;border-radius:6px;white-space:nowrap;flex-shrink:0;">${_diffPts > 0 ? '▲' : '▼'} ${Math.abs(_diffPts)} pts</span>` : ''}
         </div>
-        <div class="h-mini" onclick="abrirQuadroMedalhas()" style="flex:1;margin:0;">
-          <div class="cab" style="font-size:14px;font-weight:800;letter-spacing:normal;text-transform:none;color:var(--texto);">🏅 Medalhas</div>
-          <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
-            ${[['🥇', _med.ouro], ['🥈', _med.prata], ['🥉', _med.bronze]].map(([ic, n]) => `
-            <div style="display:flex;align-items:baseline;gap:4px;">
-              <span style="font-size:15px;line-height:1;${n ? '' : 'filter:grayscale(1);opacity:.4;'}">${ic}</span>
-              <span style="font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;color:${n ? 'var(--texto)' : 'var(--muted)'};">${n}</span>
-            </div>`).join('')}
-          </div>
-          <div class="pe">${_med.pos
-            ? _med.pos + 'º no quadro' + (_med.total ? ' de ' + _med.total : '')
-            : 'ver quadro completo'}</div>
-          ${(_med.pos && _med.total > 1) ? `
-          <div class="h-barra" style="height:4px;margin-top:5px;"><i style="width:${Math.max(4, Math.round(((_med.total - _med.pos + 1) / _med.total) * 100))}%;background:linear-gradient(90deg,#a06a10,#ffb020);"></i></div>
-          ` : ''}
+        <div style="display:flex;align-items:baseline;gap:5px;margin-top:3px;">
+          ${_sem.posicao
+            ? `<span class="num">${_sem.posicao}º</span><span style="font-size:12px;font-weight:700;color:var(--muted);">de ${_sem.participantes || '?'}</span>`
+            : `<span class="num">${_sem.pts}</span><span style="font-size:12px;font-weight:700;color:var(--muted);">pts</span>`}
         </div>
+        <div class="pe">${_sem.posicao ? _sem.pts + ' pts nesta semana' : (_sem.participantes ? 'entre ' + _sem.participantes + ' participantes' : 'na semana · ver posição')}</div>
+        ${(_sem.posicao > 1 && _proximoPts != null && _proximoPts > _sem.pts) ? `
+        <div class="h-barra" style="height:4px;margin-top:5px;"><i style="width:${Math.max(4, Math.min(100, Math.round((_sem.pts / _proximoPts) * 100)))}%;"></i></div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:3px;">${_proximoPts - _sem.pts} pts para o ${_sem.posicao - 1}º lugar</div>
+        ` : ''}
       </div>
-      <div id="h-dir" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">${_homeDirHtml(false)}</div>
+      <div onclick="abrirQuadroMedalhas()">
+        <div class="cab">🏅 Medalhas</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+          ${[['🥇', _med.ouro], ['🥈', _med.prata], ['🥉', _med.bronze]].map(([ic, n]) => `
+          <div style="display:flex;align-items:baseline;gap:4px;">
+            <span style="font-size:15px;line-height:1;${n ? '' : 'filter:grayscale(1);opacity:.4;'}">${ic}</span>
+            <span style="font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;color:${n ? 'var(--texto)' : 'var(--muted)'};">${n}</span>
+          </div>`).join('')}
+        </div>
+        <div class="pe">${_med.pos
+          ? _med.pos + 'º no quadro' + (_med.total ? ' de ' + _med.total : '')
+          : 'ver quadro completo'}</div>
+        ${(_med.pos && _med.total > 1) ? `
+        <div class="h-barra" style="height:4px;margin-top:5px;"><i style="width:${Math.max(4, Math.round(((_med.total - _med.pos + 1) / _med.total) * 100))}%;background:linear-gradient(90deg,#a06a10,#ffb020);"></i></div>
+        ` : ''}
+      </div>
     </div>
+    <div id="h-dir" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">${_homeDirHtml(false)}</div>
 
     <div id="h-maisatalhos" style="display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;">${_homeMaisHtml()}
     </div>
 
-    ${_extrasHomeHtml()}
-
-    ${renderFeedHomePreview()}
+    ${_extrasHomeHtml()}${renderFeedHomePreview()}
 
     <div style="margin-top:20px;text-align:center;padding:20px;background:${isLight ? 'rgba(0,0,0,.03)' : 'rgba(255,255,255,.03)'};border-radius:12px;">
       <a href="https://instagram.com/intusfit" target="_blank" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:${isLight ? '#2d8a00' : '#7FFF00'};">
@@ -17234,10 +17236,12 @@ function _diasAtrasTxt(dtsessao) {
 function _toggleMaisAtalhosHome() {
   const el = document.getElementById('h-maisatalhos');
   const label = document.getElementById('h-maisatalhos-label');
+  const ic = document.getElementById('h-maisatalhos-ic');
   if (!el) return;
   const abrir = el.style.display === 'none' || !el.style.display;
   el.style.display = abrir ? 'grid' : 'none';
   if (label) label.textContent = abrir ? 'Ver menos' : 'Ver mais';
+  if (ic) ic.textContent = abrir ? '−' : '+';
 }
 
 // Rotulo curto da data de corte do quadro, no formato que voce pediu: 08/2026.
@@ -17695,7 +17699,7 @@ function _renderRankingView() {
 
 
   // O titulo do topo acompanha a tela: quem esta no quadro nao esta no ranking.
-  let html = rankingHeader(_rankingTab === 'medalhas' ? '🏅 Quadro de Medalhas' : '🥇 Ranking');
+  let html = rankingHeader('🏆 Ranking e Medalhas');
 
   // ── CONTROLES DO RANKING ────────────────────────────────────────────────
   // Duas colunas com pesos diferentes. À esquerda, as duas telas que a pessoa
@@ -17765,13 +17769,19 @@ function _renderRankingView() {
   // medalhas saiu daqui: virou tela propria, com botao no rodape.
   const _emMedalhas = _rankingTab === 'medalhas';
 
+  // Ranking e Medalhas são duas abas da mesma tela: o seletor fica no topo das duas.
+  const _segBtn = function (ativo, estilo, onclick, rotulo) {
+    return '<button onclick="' + onclick + '" aria-pressed="' + (ativo ? 'true' : 'false') + '" style="display:flex;align-items:center;justify-content:center;gap:7px;min-height:42px;border-radius:11px;cursor:pointer;font-family:inherit;font-size:13.5px;' +
+      'font-weight:' + (ativo ? '800' : '600') + ';' + (ativo ? estilo : 'background:transparent;color:var(--muted);border:1px solid transparent;') + '">' + rotulo + '</button>';
+  };
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:15px;background:var(--card-bg);border:1px solid var(--borda);margin-bottom:12px;">' +
+    _segBtn(!_emMedalhas, 'background:var(--marca-fraca);color:var(--link-ex);border:1px solid var(--link-ex);', "if(_rankingTab==='medalhas')_rankingTab='semana';_renderRankingView();", '🥇 Ranking') +
+    _segBtn(_emMedalhas, 'background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));color:' + (isLight ? '#7c5e10' : '#facc15') + ';border:1px solid rgba(240,165,0,.55);', "_rankingTab='medalhas';_renderRankingView();", '🏅 Medalhas') +
+  '</div>';
+
   if (_emMedalhas) {
-    // Cabecalho proprio do quadro. Sem fita de periodo: o quadro e acumulado.
-    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">' +
-        '<button onclick="_rankingTab=\'semana\';_renderRankingView();" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:10px;border:1px solid var(--borda);background:var(--card-bg);color:var(--muted);font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;min-height:38px;">‹ Ranking</button>' +
-        '<div style="flex:1;text-align:right;font-size:15px;font-weight:800;color:var(--texto);">Quadro de Medalhas</div>' +
-      '</div>' +
-      '<div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 2px 10px;">Acumulado desde ' + _medalhaDesde().split('-').reverse().join('/') + '</div>';
+    // Quadro acumulado: sem fita de periodo.
+    html += '<div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 2px 10px;">Quadro de medalhas · acumulado desde ' + _medalhaDesde().split('-').reverse().join('/') + '</div>';
   } else {
     html += '<div style="overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:0 -16px 9px;padding:0 16px;">' +
         '<div style="display:flex;gap:7px;width:max-content;">' +
@@ -17817,18 +17827,6 @@ function _renderRankingView() {
         '<div style="display:flex;gap:4px;flex:1;min-width:0;">' +
           rkLinhaCurta('historico', _rankingTab === 'historico', '🏆', 'Top 5 das semanas') +
           rkLinhaCurta('meses_anteriores', _rankingTab === 'meses_anteriores', '👑', 'Top 10 dos meses') +
-          // Caminho direto para o quadro, sem precisar voltar para a tela inicial.
-          // Destacado de propósito (fundo dourado) — "quadro de medalhas" é
-          // destino importante demais pra passar despercebido igual a um filtro
-          // qualquer. Mesmo formato de 2 linhas do Top 5/Top 10 (não mais só um
-          // ícone) pra caber o nome escrito por extenso.
-          '<button aria-label="Quadro de medalhas" title="Quadro de medalhas" onclick="_rankingTab=\'medalhas\';_renderRankingView();" ' +
-            'style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:1px;padding:7px 5px;border-radius:10px;cursor:pointer;overflow:hidden;flex:1;min-width:0;' +
-            'font-family:inherit;min-height:38px;white-space:nowrap;font-size:10px;font-weight:800;line-height:1.15;' +
-            'background:linear-gradient(160deg,rgba(255,207,77,.22),rgba(240,165,0,.12));color:' + (isLight ? '#7c5e10' : '#facc15') + ';' +
-            'border:1.5px solid rgba(240,165,0,.55);box-shadow:0 0 0 1px rgba(240,165,0,.08);">' +
-            '<span style="width:100%;text-align:center;">🎖️ Quadro de</span><span style="width:100%;text-align:center;font-size:8.5px;font-weight:700;opacity:.9;">Medalhas</span>' +
-          '</button>' +
         '</div>' +
       '</div>';
   }
@@ -21971,24 +21969,17 @@ async function _extrasCarregar(forcar) {
   return _extras.carregando;
 }
 // Home e menu: só aparecem quando existe algo visível para este aluno.
-function _extrasHomeInner() {
-  if (!_extras.lista || !_extras.lista.length) return '';
-  const isLight = document.body.classList.contains('tema-claro'), n = _extrasTotal(), novo = _extrasTemNovo();
-  return '<div onclick="navegar(\'extras\')" role="button" style="display:flex;align-items:center;gap:12px;padding:13px 14px;margin:0 0 10px;border-radius:14px;cursor:pointer;border:1px solid ' + (isLight ? 'rgba(92,184,0,.4)' : 'rgba(127,255,0,.28)') + ';background:' + (isLight ? 'rgba(92,184,0,.07)' : 'rgba(127,255,0,.05)') + ';">' +
-    '<div style="font-size:26px;line-height:1;">🎁</div>' +
-    '<div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:900;color:var(--texto);">Extras' + (novo ? ' <span style="background:#7FFF00;color:#0f1a00;font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:99px;vertical-align:middle;">NOVO</span>' : '') + '</div>' +
-    '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' + n + ' conteúdo' + (n > 1 ? 's' : '') + ' em ' + _extras.lista.length + ' módulo' + (_extras.lista.length > 1 ? 's' : '') + ': aulas, lives e bônus</div></div>' +
-    '<div style="font-size:20px;color:var(--muted);">›</div></div>';
-}
+// O atalho do Extras mora no painel "Ver mais" da Home (com a etiqueta "novo"); aqui só se dispara o carregamento depois de pintar.
 function _extrasHomeHtml() {
   if (idAtleta) setTimeout(() => { _extrasCarregar(); }, 0);
-  return '<div id="h-extras">' + _extrasHomeInner() + '</div>';
+  return '';
 }
 function _extrasAtualizarEntradas() {
   const tem = !!(_extras.lista && _extras.lista.length);
   const mi = document.getElementById('menu-extras'); if (mi) mi.style.display = tem ? '' : 'none';
   const b = document.getElementById('menu-extras-badge'); if (b) b.style.display = tem && _extrasTemNovo() ? 'inline-block' : 'none';
-  const h = document.getElementById('h-extras'); if (h) h.innerHTML = _extrasHomeInner();
+  const pm = document.getElementById('h-maisatalhos'); if (pm) pm.innerHTML = _homeMaisHtml();
+  const dir = document.getElementById('h-dir'); if (dir && typeof _homeDirHtml === 'function') dir.innerHTML = _homeDirHtml();
 }
 function renderExtras() {
   const box = document.getElementById('v-extras'); if (!box) return;

@@ -46,6 +46,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "compartilhar treino/cardio: figurinha e informações movem e redimensionam (foto, câmera, vídeo), nada sai cortado" node compartilhar_pecas.js
   passo "faixa de notificação some de verdade (iPhone com ilha)" node aviso_notificacao.js
   passo "figurinha do fim do treino nunca volta ao padrão antigo" node figurinhas_aluno.js
+  passo "tela inicial: ranking e medalhas num cartão, atalhos só com título, Extras e Ver mais com + e −" node home_atalhos.js
   passo "cobrança: ciclo pago na linha de cima avisa quando vence" node cobranca_paga_anterior.js
   passo "aviso de mensalidade no sino do aluno" node aviso_mensalidade_aluno.js
   passo "valor recebido editável na baixa e na renovação" node valor_recebido.js
