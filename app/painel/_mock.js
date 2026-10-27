@@ -98,7 +98,7 @@ const INTUS_LOGO_FULL_SVG = `<img class="intus-logo-full" src="logo-intus-dark.p
 // Store local (localStorage) para usuários/professores com controle de acessos.
 // Integra com as páginas do painel — uma alteração aqui reflete em todas.
 // Editor de vídeo Intus Cut (página do claude.ai, abre em outra aba).
-const INTUS_CUT_URL = 'https://claude.ai/artifact/Et9xVsHjrTYxxqug5UKJH6';
+const INTUS_CUT_URL = '/intus-cut/';
 
 const PERM_KEYS = [
   // Clientes
@@ -156,7 +156,7 @@ const PERM_KEYS = [
   { key: 'fin_empresa', label: 'Ver o caixa da empresa (toda a operação: Caixa, Eduzz, Analytics)', grupo: 'Financeiro', restrita: true },
   // Intus Cut (editor de vídeo): só mostra o atalho no menu. O editor é uma página do claude.ai
   // do Luiz; quem ganhar a chave também precisa receber o compartilhamento da página por ele.
-  { key: 'cut_ver',     label: 'Usar o Intus Cut (editor de vídeo; a página também precisa ser compartilhada pelo Luiz)', grupo: 'Intus Cut' },
+  { key: 'cut_ver',     label: 'Usar o Intus Cut (editor de vídeo; o servidor confere esta permissão)', grupo: 'Intus Cut' },
 ];
 
 function _permsAllTrue() {
@@ -665,7 +665,7 @@ function renderLayout(activePage) {
     { href: 'feed.html',         icon: ICONS.camera,   label: 'Feed',         show: true },
     { href: 'resultados.html',   icon: ICONS.crown,    label: 'Quadro de Resultados', show: true },
     { href: 'extras.html',       icon: ICONS.video,    label: 'Extras',       show: !!user.admin },
-    { href: INTUS_CUT_URL,       icon: ICONS.video,    label: 'Intus Cut',    show: hasPerm('cut_ver'), externo: true },
+    { href: INTUS_CUT_URL,       icon: ICONS.video,    label: 'Intus Cut',    show: hasPerm('cut_ver') },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },
     { href: 'configuracoes.html',icon: ICONS.gear,     label: 'Configurações',show: !!user.admin },

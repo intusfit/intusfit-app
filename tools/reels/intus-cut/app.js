@@ -128,7 +128,7 @@ function plano(ts, de){
 function grupos(){
   var est = P.estilo || {}, max = est.palavras_por_grupo || 3, ws = [];
   mapa().forEach(function(m){ if (m.s.limpo) return; (fonte(m.de).palavras || []).forEach(function(w){ if (w.i < m.ini || w.i > m.fim || !String(w.p).trim()) return;
-    var ri = m.o + w.i - m.ini; ws.push({ p:String(w.p).trim(), ri:ri, rf:ri + Math.max(.05, Math.min(w.f, m.fim) - w.i) }); }); });
+    var ri = m.o + w.i - m.ini; ws.push({ p:String(w.p).trim(), ri:ri, rf:ri + Math.max(.05, Math.min(w.f, m.fim) - w.i), de:m.de, si:w.i }); }); });
   ws.sort(function(a, b){ return a.ri - b.ri; });
   var gs = [], g = [];
   ws.forEach(function(w){
@@ -355,9 +355,10 @@ function alvo(id){
   if (id === 'janela'){ var f = fAgora(); return f ? (f.s.recorte || plano(f.ts, f.de)) : null; }
   return lay(id);
 }
-var arr = null;
+var arr = null, ultToque = { t:0, id:'' };
 guia.addEventListener('pointerdown', function(e){
-  if (!P) return; var p = ponto(e), b = acha(p); selEl = b ? b.id : null; pintaGuia();
+  if (!P) return; var p = ponto(e), b = acha(p);
+  var agora = Date.now(); if (b && b.id === 'legenda' && ultToque.id === 'legenda' && agora - ultToque.t < 450){ ultToque = { t:0, id:'' }; editarFraseEm(T); return; } ultToque = { t:agora, id:b ? b.id : '' }; selEl = b ? b.id : null; pintaGuia();
   if (!b){ inspetor(); desenhaTimeline(); return; }
   guia.setPointerCapture(e.pointerId); var o = alvo(b.id), f = fAgora();
   arr = { id:b.id, p:p, o:o, ini:clone(o), jy:lay('janela').y, shift:e.shiftKey, mexeu:false, livre:!!(f && f.s.recorte), geo:f ? geometria(f) : null, de:f ? f.de : '', redim:noCanto(p, b) };
@@ -476,7 +477,7 @@ function desenhaTimeline(){
   });
   var fl = el('div', 'faixa'); fl.style.height = '30px'; fl.style.width = larg + 'px';
   GRUPOS.forEach(function(g){ var a = g[0].ri, z = g[g.length - 1].rf, c = el('div', 'clip leg'); c.style.left = (a * p) + 'px'; c.style.width = Math.max(4, (z - a) * p) + 'px'; c.style.top = '5px'; c.style.bottom = '5px';
-    var r = el('span', 'rot', g.map(function(w){ return w.p; }).join(' ')); r.style.top = '2px'; c.appendChild(r); fl.appendChild(c); });
+    var r = el('span', 'rot', g.map(function(w){ return w.p; }).join(' ')); r.style.top = '2px'; c.appendChild(r); c.title = 'Toque duas vezes para editar o texto'; fl.appendChild(c); });
   int.appendChild(fl); rotulo('Legenda', 30, '#353c2e');
   var ins = el('div', 'insere'); ins.hidden = true; int.appendChild(ins);
   var cab = el('div', 'cabeca'); cab.style.left = (T * p) + 'px'; int.appendChild(cab);
@@ -487,6 +488,7 @@ function atualizaTudo(){ recalc(); desenhaTimeline(); pinta(); }
 var tl = null;
 $('tlint').addEventListener('pointerdown', function(e){
   if (!P || e.target.closest('.mais')) return; var int = $('tlint'), p = pps(), t = (e.clientX - int.getBoundingClientRect().left) / p, c = e.target.closest('.clip');
+  if (c && c.classList.contains('leg')){ var ag = Date.now(); if (ag - (window._tqLeg || 0) < 450){ window._tqLeg = 0; editarFraseEm(t); return; } window._tqLeg = ag; } else window._tqLeg = 0;
   int.setPointerCapture(e.pointerId);
   if (!c || !c.dataset.k){ tl = { modo:'scrub' }; scrub(t); return; }
   var k = c.dataset.k, i = +c.dataset.i, r = c.getBoundingClientRect(), borda = e.clientX - r.left <= 8 ? 'ini' : r.right - e.clientX <= 8 ? 'fim' : null;
@@ -770,7 +772,7 @@ var CARDS = {
   geral: function(){ var G = lay('geral'); return cartao('geral', 'Imagem e fundo', [el('div', 'grade2', [deslize(G, 'brilho', 'Brilho', .5, 1.6, .01, 'Brilho', pct), deslize(G, 'contraste', 'Contraste', .5, 1.8, .01, 'Contraste', pct),
     deslize(G, 'saturacao', 'Saturação', 0, 2, .01, 'Saturação', pct), corIn(G, 'fundo', 'Cor do fundo', 'Cor do fundo')])]); },
   legenda: function(){ var Lg = lay('legenda'); return cartao('legenda', 'Legenda', [chk(Lg, 'visivel', 'Mostrar legenda', 'Legenda'), el('div', 'grade2', [deslize(Lg, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover legenda'), deslize(Lg, 'dy', 'Vertical', -H, 500, 2, 'Mover legenda'),
-    deslize(Lg, 'borda', 'Contorno', 0, 14, 1, 'Contorno da legenda')]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda'), el('p', 'nota-ajuda', 'Tamanho, cores e texto: painel Legendas.')]); },
+    deslize(Lg, 'borda', 'Contorno', 0, 14, 1, 'Contorno da legenda')]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda'), el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho e cores: painel Legendas.')]); },
   gancho: function(){ var Gc = lay('gancho'); return cartao('gancho', 'Título do topo (depois do gancho)', [chk(Gc, 'visivel', 'Mostrar', 'Título do topo'), el('div', 'grade2', [deslize(Gc, 'x', 'Horizontal', 0, W, 2, 'Mover título'), deslize(Gc, 'y', 'Vertical', 0, H, 2, 'Mover título'),
     deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct), corIn(Gc, 'cor', 'Cor do destaque', 'Cor do destaque')])]); },
   gancho_grande: function(){ var GG = lay('gancho_grande'); return cartao('gancho_grande', 'Gancho grande (primeiros segundos)', [chk(GG, 'visivel', 'Mostrar', 'Gancho grande'), el('div', 'grade2', [deslize(GG, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover gancho'), deslize(GG, 'dy', 'Vertical', -800, H, 2, 'Mover gancho'),
@@ -867,24 +869,86 @@ function painelLegenda(C){
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Estilo'), el('div', 'linha', [campo('Palavra falada', alt), el('label', 'chk', [c1, ' cor 1']), el('label', 'chk', [c2, ' cor 2']), el('label', 'chk', [cb, ' demais'])]),
     el('div', 'linha', [campo('Por vez na tela', porG), chk(est, 'maiusculas', 'Maiúsculas', 'Maiúsculas', function(){ setTimeout(atualizaTudo); })]),
     el('div', 'grade2', [deslize(est, 'tamanho', 'Tamanho', 40, 140, 2, 'Tamanho da legenda'), deslize(est, 'aumento', 'Destaque da palavra', 1, 1.5, .01, 'Destaque da palavra', pct)])]));
+  var fino = !!est._fino;
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Texto da legenda'), el('p', 'nota-ajuda', 'Escreva o que quiser em cada frase: corrigir, trocar, juntar ou apagar palavras. O tempo da frase continua o mesmo. Deixe a frase vazia para ela sumir. Dica: toque duas vezes na legenda do vídeo para editar a frase que está na tela.'),
+    el('label', 'chk', [(function(){ var c = el('input'); c.type = 'checkbox'; c.checked = fino; c.onchange = function(){ est._fino = c.checked; mostraAba(); }; return c; })(), ' Ajuste fino, palavra por palavra'])]));
   chavesUsadas().forEach(function(key){
-    var F = fonte(key), box = el('div', 'palavras'); F.palavras = F.palavras || [];
-    F.palavras.forEach(function(w, i){
-      var inp = el('input'); inp.type = 'text'; inp.value = w.p; inp.size = Math.max(2, w.p.length); inp.dataset.i = i; inp.dataset.de = key; inp.title = fmt(w.i);
-      if (reelEm(w.i, key) == null) inp.className = 'fora';
-      inp.onfocus = function(){ var r = reelEm(w.i, key); if (r != null){ pausar(); irPara(r); } };
-      inp.oninput = function(){ w.p = inp.value; inp.size = Math.max(2, inp.value.length); recalc(); pinta(); agendaSalvar('Corrigir legenda'); };
-      box.appendChild(inp);
+    var F = fonte(key); F.palavras = F.palavras || [];
+    if (fino){
+      var box = el('div', 'palavras');
+      F.palavras.forEach(function(w, i){
+        var inp = el('input'); inp.type = 'text'; inp.value = w.p; inp.size = Math.max(2, w.p.length); inp.dataset.i = i; inp.dataset.de = key; inp.title = fmt(w.i);
+        if (reelEm(w.i, key) == null) inp.className = 'fora';
+        inp.onfocus = function(){ var r = reelEm(w.i, key); if (r != null){ pausar(); irPara(r); } };
+        inp.oninput = function(){ w.p = inp.value; inp.size = Math.max(2, inp.value.length); recalc(); pinta(); agendaSalvar('Corrigir legenda'); };
+        box.appendChild(inp);
+      });
+      C.appendChild(el('div', 'grupo', [el('h3', null, nomeFonte(key)), F.palavras.length ? box : el('p', 'nota-ajuda', 'Sem legenda neste vídeo.')]));
+      return;
+    }
+    var lista = el('div', 'frases'), fr = frasesDe(key), vis = 0;
+    fr.forEach(function(q){
+      var r = reelEm(q.ini, key), dentro = r != null; if (dentro) vis++;
+      var tx = el('textarea'); tx.rows = 1; tx.value = q.texto; tx.spellcheck = true;
+      var tempo = el('button', 'tempo', dentro ? fmt(r) : 'cortado'); tempo.type = 'button'; tempo.title = 'Ir para este ponto';
+      tempo.onclick = function(){ var rr = reelEm(q.ini, key); if (rr != null){ pausar(); irPara(rr); } };
+      var x = el('button', 'apaga', '✕'); x.type = 'button'; x.title = 'Apagar esta frase';
+      var linha = el('div', 'frase' + (dentro ? '' : ' fora'), [tempo, tx, x]); linha.dataset.de = key; linha.dataset.ini = q.ini; linha.dataset.fim = q.fim;
+      function ajusta(){ tx.style.height = 'auto'; tx.style.height = tx.scrollHeight + 'px'; }
+      tx.onfocus = function(){ var rr = reelEm(q.ini, key); if (rr != null){ pausar(); irPara(rr); } };
+      tx.oninput = function(){ ajusta(); var n = reescreveFrase(key, q, tx.value); recalc(); pinta(); desenhaTimeline(); agendaSalvar('Editar legenda'); if (!n) linha.classList.add('vazia'); else linha.classList.remove('vazia'); };
+      x.onclick = function(){ reescreveFrase(key, q, ''); mudou('Apagar frase da legenda'); mostraAba(); };
+      lista.appendChild(linha); requestAnimationFrame(ajusta);
     });
-    C.appendChild(el('div', 'grupo', [el('h3', null, 'Texto · ' + nomeFonte(key)), F.palavras.length ? box : el('p', 'nota-ajuda', 'Sem legenda automática neste vídeo. Use "Inserir no cursor" ou um texto livre.')]));
+    C.appendChild(el('div', 'grupo', [el('h3', null, nomeFonte(key) + (fr.length ? ' · ' + vis + ' frases no vídeo' : '')), fr.length ? lista : el('p', 'nota-ajuda', 'Sem legenda neste vídeo. Escreva abaixo para inserir no cursor.')]));
   });
-  var nova = el('input'); nova.type = 'text'; nova.placeholder = 'Texto para inserir no cursor';
-  C.appendChild(el('div', 'grupo', [el('p', 'nota-ajuda', 'Cada caixa é uma palavra no tempo em que é falada. Apague o texto para ela sumir. As apagadas no fundo estão em trechos cortados.'),
-    el('div', 'linha', [nova, botao('Inserir no cursor', function(){ var f = fonteEm(T), tx = nova.value.trim(); if (!f || !tx) return; var F = fonte(f.de); F.palavras = F.palavras || [];
-      tx.split(/\s+/).forEach(function(p, k){ F.palavras.push({ p:p, i:+(f.ts + k * .32).toFixed(3), f:+(f.ts + (k + 1) * .32).toFixed(3) }); });
-      F.palavras.sort(function(a, b){ return a.i - b.i; }); nova.value = ''; mudou('Inserir legenda'); mostraAba(); })])]));
+  var nova = el('textarea'); nova.rows = 2; nova.placeholder = 'Nova frase para entrar no ponto do cursor';
+  var segs = el('input'); segs.type = 'number'; segs.min = .5; segs.max = 30; segs.step = .5; segs.value = 2.5;
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Inserir frase'), nova, el('div', 'linha', [campo('Duração (s)', segs), botao('Inserir no cursor', function(){
+      var f = fonteEm(T), tx = nova.value.trim(); if (!f || !tx){ estado(f ? 'Escreva a frase' : 'Ponha o cursor num trecho de vídeo', 'erro'); return; }
+      var F = fonte(f.de); F.palavras = F.palavras || []; var d = cl(+segs.value || 2.5, .3, 30);
+      F.palavras = F.palavras.filter(function(w){ return w.i < f.ts - 1e-3 || w.i > f.ts + d; });
+      distribui(tx, f.ts, f.ts + d).forEach(function(w){ F.palavras.push(w); }); F.palavras.sort(function(a, b){ return a.i - b.i; });
+      nova.value = ''; mudou('Inserir frase na legenda'); mostraAba(); })]),
+    el('p', 'nota-ajuda', 'A frase nova substitui o que já havia de legenda nesse intervalo.')]));
 }
-function marcaPalavra(f){ if (!f) return; $('conteudo').querySelectorAll('.palavras input').forEach(function(inp){ var w = (fonte(inp.dataset.de).palavras || [])[+inp.dataset.i]; inp.classList.toggle('agora', !!w && inp.dataset.de === f.de && f.ts >= w.i && f.ts <= w.f + .05); }); }
+// Frases da legenda de um vídeo: quebra no ponto final, na vírgula longa, em pausa da fala ou a cada 8 palavras.
+function frasesDe(key){
+  var ws = fonte(key).palavras || [], out = [], cur = null;
+  ws.forEach(function(w){ if (!String(w.p).trim()) return;
+    if (cur && (w.i - cur.fim > .6 || cur.n >= 12)){ out.push(cur); cur = null; }
+    if (!cur) cur = { ini:w.i, fim:w.f, ultimo:w.i, partes:[], n:0 };
+    cur.partes.push(String(w.p).trim()); cur.fim = Math.max(cur.fim, w.f); cur.ultimo = w.i; cur.n++;
+    var pw = String(w.p).trim(); if (w.fq || /[.?!]$/.test(pw) || (cur.n >= 6 && /[,;:]$/.test(pw))){ out.push(cur); cur = null; } });
+  if (cur) out.push(cur);
+  out.forEach(function(q){ q.texto = q.partes.join(' '); delete q.partes; }); return out;
+}
+// Espalha as palavras de um texto entre ini e fim, cada uma com tempo proporcional ao tamanho.
+function distribui(texto, ini, fim){
+  var ps = String(texto).trim().split(/\s+/).filter(Boolean); if (!ps.length) return [];
+  var pesos = ps.map(function(p){ return Math.max(2, p.length) + 1; }), tot = pesos.reduce(function(a, b){ return a + b; }, 0), t = ini, d = Math.max(.1, fim - ini), out = [];
+  ps.forEach(function(p, k){ var dd = d * pesos[k] / tot; out.push({ p:p, i:+t.toFixed(3), f:+(t + dd).toFixed(3) }); t += dd; }); out[out.length - 1].fq = 1; return out;
+}
+// Troca o texto de uma frase sem mexer no tempo dela. Devolve quantas palavras ficaram.
+function reescreveFrase(key, q, texto){
+  var F = fonte(key); F.palavras = (F.palavras || []).filter(function(w){ return w.i < q.ini - 1e-4 || w.i > q.ultimo + 1e-4; });
+  var novas = distribui(texto, q.ini, q.fim); novas.forEach(function(w){ F.palavras.push(w); }); F.palavras.sort(function(a, b){ return a.i - b.i; });
+  q.ultimo = novas.length ? novas[novas.length - 1].i : q.ini; return novas.length;
+}
+// Abre a frase que está tocando (ou a do tempo pedido) para editar numa janela.
+function editarFraseEm(t){
+  var f = fonteEm(t == null ? T : t); if (!f){ estado('Nenhuma legenda neste ponto', 'erro'); return; }
+  var fr = frasesDe(f.de), q = null; fr.forEach(function(x){ if (!q && f.ts >= x.ini - .05 && f.ts <= x.fim + .3) q = x; });
+  if (!q){ var melhor = null; fr.forEach(function(x){ var dd = Math.min(Math.abs(x.ini - f.ts), Math.abs(x.fim - f.ts)); if (dd < 1.5 && (!melhor || dd < melhor.d)) melhor = { q:x, d:dd }; }); q = melhor && melhor.q; }
+  pausar(); var tx = el('textarea'); tx.rows = 3; tx.style.width = '100%';
+  if (q) tx.value = q.texto; else tx.placeholder = 'Não há legenda aqui. Escreva para criar uma frase de 2,5 s neste ponto.';
+  dialogo(q ? 'Editar a legenda' : 'Nova legenda neste ponto', 'Deixe vazio para apagar a frase.', [['Cancelar', fecha], ['Salvar', function(){
+    if (q) reescreveFrase(f.de, q, tx.value);
+    else if (tx.value.trim()){ var F = fonte(f.de); F.palavras = F.palavras || []; distribui(tx.value, f.ts, f.ts + 2.5).forEach(function(w){ F.palavras.push(w); }); F.palavras.sort(function(a, b){ return a.i - b.i; }); }
+    fecha(); mudou('Editar legenda'); if (aba === 'legenda') mostraAba(); }]], tx);
+  setTimeout(function(){ tx.focus(); tx.select(); }, 50);
+}
+function marcaPalavra(f){ if (!f) return; $('conteudo').querySelectorAll('.frase').forEach(function(l){ l.classList.toggle('agora', l.dataset.de === f.de && f.ts >= +l.dataset.ini - .02 && f.ts <= +l.dataset.fim + .05); }); $('conteudo').querySelectorAll('.palavras input').forEach(function(inp){ var w = (fonte(inp.dataset.de).palavras || [])[+inp.dataset.i]; inp.classList.toggle('agora', !!w && inp.dataset.de === f.de && f.ts >= w.i && f.ts <= w.f + .05); }); }
 function painelAudio(C){
   var au = P.audio = P.audio || { voz:1, musica:.14 }; if (au.musica == null) au.musica = .14;
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Volumes'), deslize(au, 'voz', 'Voz', 0, 1.5, .01, 'Volume da voz', pct), deslize(au, 'musica', 'Música de fundo', 0, 1, .01, 'Volume da música', pct),
