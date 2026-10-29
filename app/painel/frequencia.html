@@ -1035,6 +1035,7 @@ function abrirDetalheAluno(idatleta) {
           <span style="font-weight:600;font-size:12px;color:var(--text);">${ehCardioS?(API.programaDoComentario(s) ? '🔥 <b>'+esc(API.programaDoComentario(s).titulo)+'</b> · ' : '🏃 ')+esc(s.cardio_tipo||'Cardio')+(s.cardio_rpe?' · esforço '+s.cardio_rpe+'/10':(s.cardio_intensidade?' · '+esc(s.cardio_intensidade):'')):(API.foraProtocolo(s)?'Fora do protocolo':'Div. '+esc(s.divisao||'?'))} ${s.marcado_como_feito ? '☑️' : '✅'}</span>
           <span style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
             <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${data}${s.hora_conclusao ? ' às '+s.hora_conclusao : ''}</span>
+            ${_isAdminUser && !ehCardioS ? `<button onclick="corrigirDuracaoSessao(${s.idsessao},${idatleta})" title="Corrigir a duração deste treino (o app registrou o tempo errado)" style="background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);color:#d97706;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;line-height:1;">⏱ Corrigir duração</button>` : ''}
             ${_isAdminUser ? `<button onclick="excluirSessaoReal(${s.idsessao},${idatleta})" title="Excluir esta sessão do ranking (permanente)" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4);color:#f87171;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;line-height:1;">🗑</button>` : ''}
           </span>
         </div>
@@ -1081,6 +1082,40 @@ async function verCardioFoto(idsessao) {
     }
   } catch (e) {
     ov.innerHTML = '<div style="color:#fff;text-align:center;">Erro ao carregar a foto.<br><br><button onclick="document.getElementById(\'cardio-foto-modal\').remove()" style="padding:8px 18px;border-radius:8px;border:none;background:#333;color:#fff;cursor:pointer;">Fechar</button></div>';
+  }
+}
+
+// Correção de duração (só admin, treino de musculação): o app registrou o tempo errado (caso da Rosângela, 29/10/2026: 1h14 virou 0:36 e o
+// treino ficou como "não conta"). Regrava a MESMA sessão com a duração informada, mantendo séries, comentário e hora de conclusão, e a devolve
+// ao ranking (nao_contar = 0). Os pontos acompanham a duração: o ranking os calcula a partir dela (API.pontosSessaoRank). Nada é apagado.
+async function corrigirDuracaoSessao(idsessao, idatleta) {
+  if (!_isAdminUser) return;
+  const s = sessoes.find(x => Number(x.idsessao) === Number(idsessao));
+  if (!s || s.tipo === 'cardio' || s.cardio_tipo) return;
+  // O PUT regrava os itens: sem a lista de séries aqui, apagaria o treino. Prefere recusar.
+  if (!Array.isArray(s.itens)) { alert('Não consegui ler as séries deste treino, então não vou regravá-lo. Atualize a página e tente de novo.'); return; }
+  const atualMin = Math.round((s.duracao_seg || 0) / 60);
+  const txt = prompt('Duração real do treino, em minutos.\n\nHoje está registrado: ' + atualMin + ' min.', String(atualMin));
+  if (txt === null) return;
+  const min = parseInt(String(txt).replace(/\D/g, ''), 10);
+  if (!(min >= 5 && min <= 240)) { alert('Informe de 5 a 240 minutos.'); return; }
+  const atleta = atletas.find(a => Number(a.idatleta) === Number(s.idatleta));
+  if (!confirm('Corrigir a duração do treino de ' + (atleta ? atleta.nome : 'aluno #' + s.idatleta) + ' em ' + new Date((s.dtsessao || '').slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') + ' de ' + atualMin + ' min para ' + min + ' min?\n\nO treino volta a contar na frequência e no ranking. As séries e o comentário continuam iguais.')) return;
+  try {
+    const token = (window.Auth && Auth.getToken) ? Auth.getToken() : (localStorage.getItem('mx-token') || '');
+    const r = await fetch(API_BASE + '/treinos.php?action=sessoes&id=' + Number(idsessao), {
+      method: 'PUT', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ duracao_seg: min * 60, nao_contar: 0, comentario: s.comentario == null ? null : s.comentario, marcado_como_feito: s.marcado_como_feito ? 1 : 0, itens: s.itens, hora_conclusao: s.hora_conclusao || '' }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || ('o servidor respondeu ' + r.status));
+    s.duracao_seg = min * 60; s.nao_contar = 0; s.alerta_duracao = null;
+    render();
+    abrirDetalheAluno(Number(idatleta || s.idatleta));
+    alert('Duração corrigida para ' + min + ' min. O treino já conta no ranking.');
+  } catch (e) {
+    alert('Não consegui corrigir a duração: ' + (e.message || 'falha de conexão'));
   }
 }
 

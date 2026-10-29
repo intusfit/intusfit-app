@@ -57,6 +57,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "Editor de ficha: arrastar, modo ampla e miniatura do celular do aluno" node editor_ficha.js
   passo "Clientes: ordenar pela data de cadastro (leads)" node clientes_ordem.js
 passo "Treino em andamento: reabrir o app não zera o relógio" node treino_retomar.js
+passo "Frequência: corrigir a duração de um treino (admin)" node frequencia_corrigir.js
   passo "figurinhas do painel: falha de leitura nunca vira o padrão de fábrica" node figurinhas_painel.js
   passo "treino fora do protocolo: marcar aluno e post colaborativo" node fora_protocolo_colab.js
   passo "laboratório do WhatsApp: tela" node wa_teste_front.js
