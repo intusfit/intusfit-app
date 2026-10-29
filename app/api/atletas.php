@@ -216,6 +216,9 @@ function rowToAtleta($row, $map) {
     if ($map['col_block']) $out['stbloqueio']   = $row[$map['col_block']] ?? 'N';
     if ($map['col_obs'])   $out['observacao']   = $row[$map['col_obs']]   ?? '';
     if ($map['col_dtcad']) $out['dtcadastro']   = $row[$map['col_dtcad']] ?? null;
+    // Data e hora do cadastro: o autocadastro (aluno_login.php) grava dt_cadastro como DATETIME; dtcadastro, quando existe, guarda só o dia.
+    $_hc = $row['dt_cadastro'] ?? ($out['dtcadastro'] ?? null);
+    $out['dtcadastro_hora'] = ($_hc !== null && $_hc !== '') ? (string)$_hc : null;
     if ($map['col_profs']) {
         $raw = $row[$map['col_profs']] ?? null;
         $out['professores_responsaveis'] = is_string($raw) ? (json_decode($raw, true) ?: []) : [];

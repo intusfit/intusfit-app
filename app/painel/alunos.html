@@ -25,6 +25,8 @@ const main = document.getElementById('main-content');
 
 let atletas = [];
 let mensalidades = [];
+let fichas = [];
+let fichasOk = false; // false = não deu para ler as fichas: não mostrar "sem treino" (seria alarme falso)
 let busca = (() => { try { return new URLSearchParams(location.search).get('busca') || ''; } catch (e) { return ''; } })();
 let filtro = 'ativos';
 let ordenacao = 'alfabetica';
@@ -47,10 +49,13 @@ async function carregar() {
   _carregando = true;
   loading = true; erro = null; render();
   try {
-    const [listaA, listaM] = await Promise.all([
+    const [listaA, listaM, listaF] = await Promise.all([
       API.listarAtletas('', true),
-      API.listarMensalidades ? API.listarMensalidades().catch(() => []) : Promise.resolve([])
+      API.listarMensalidades ? API.listarMensalidades().catch(() => []) : Promise.resolve([]),
+      API.listarFichas ? API.listarFichas().then(l => Array.isArray(l) ? l : null).catch(() => null) : Promise.resolve(null)
     ]);
+    fichasOk = Array.isArray(listaF);
+    fichas = fichasOk ? listaF : [];
     const todosAtletas = Array.isArray(listaA) ? listaA : [];
     const usr = Sessao.atual();
     const uid = Number(usr?.idusuario || 0);
@@ -162,9 +167,27 @@ function estaInativo(a)   { return situacaoDoAluno(a).inativo; }
 // Inativos e bloqueados ficam de fora; leads contam so no bloco de leads.
 function estaAtivo(a) { return situacaoDoAluno(a).ativo && !isLead(a); }
 
-function _cadChave(a, vazio) { return a.dtcadastro ? String(a.dtcadastro).slice(0, 10) : vazio; }
+// O servidor manda dtcadastro_hora (AAAA-MM-DD HH:MM:SS) quando existe; dtcadastro pode ter só o dia.
+function _cadBruto(a) { return String(a.dtcadastro_hora || a.dtcadastro || '').replace('T', ' ').slice(0, 19); }
+function _cadChave(a, vazio) { return _cadBruto(a) || vazio; }
 // new Date('AAAA-MM-DD') vale meia-noite UTC e, no Brasil, mostrava o dia anterior
-function _cadFmt(a) { return a.dtcadastro ? new Date(String(a.dtcadastro).slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+function _cadFmt(a) { const b = _cadBruto(a); return b ? new Date(b.slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+// hora só quando o cadastro guardou hora (00:00 é o dia sem hora)
+function _cadHora(a) { const m = _cadBruto(a).match(/ (\d{2}:\d{2})(?::\d{2})?$/); return m && m[1] !== '00:00' ? m[1] : ''; }
+function _cadFmtHora(a) { const h = _cadHora(a); return _cadFmt(a) + (h ? ' ' + h : ''); }
+// Mesma regra do app do aluno (carregarFicha): ficha ativa e dentro do período
+function temTreinoAtivo(a) {
+  const d = new Date(), hoje = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  return fichas.some(f => Number(f.idatleta) === Number(a.idatleta) && f.ativo !== 0 && f.ativo !== '0' && f.ativo !== false
+    && !(f.dtinicio && String(f.dtinicio).slice(0, 10) > hoje) && !(f.dtfim && String(f.dtfim).slice(0, 10) < hoje));
+}
+// Lead com conta: mostra se o treino do teste chegou
+function treinoLeadHtml(a) {
+  if (!fichasOk || !isLead(a)) return '';
+  return temTreinoAtivo(a)
+    ? '<div style="font-size:10px;color:#16a34a;margin-top:3px;white-space:nowrap;" title="Tem ficha de treino ativa e dentro do prazo, a mesma que aparece no app">🏋 treino ativo</div>'
+    : '<div style="font-size:10px;color:#d97706;margin-top:3px;white-space:nowrap;" title="Nenhuma ficha ativa e dentro do prazo: o aluno abre o app e não vê treino">⚠ sem treino ativo</div>';
+}
 
 function filtrados() {
   const q = (busca || '').toLowerCase().trim();
@@ -437,7 +460,7 @@ function render() {
                 <th style="width:44px;">#</th>
                 <th class="${sortCls('nome')}" onclick="toggleSort('nome')">Nome <span class="sort-arrow">${sortIcon('nome')}</span></th>
                 ${(ordenacao === 'aniversario' || filtro === 'aniver') ? '<th style="width:110px;">Aniversário</th><th style="width:60px;">Idade</th>' : '<th style="width:110px;">Telefone</th>'}
-                <th class="${sortCls('cadastro')}" onclick="toggleSort('cadastro')" style="width:90px;">Cadastro <span class="sort-arrow">${sortIcon('cadastro')}</span></th>
+                <th class="${sortCls('cadastro')}" onclick="toggleSort('cadastro')" style="width:130px;">Cadastro <span class="sort-arrow">${sortIcon('cadastro')}</span></th>
                 <th style="width:120px;">Indicado por</th>
                 <th class="${sortCls('professor')}" onclick="toggleSort('professor')" style="width:120px;">Professor <span class="sort-arrow">${sortIcon('professor')}</span></th>
                 <th class="${sortCls('plano')}" onclick="toggleSort('plano')" style="width:130px;">Plano <span class="sort-arrow">${sortIcon('plano')}</span></th>
@@ -462,7 +485,7 @@ function render() {
                     ${(ordenacao === 'aniversario' || filtro === 'aniver')
                       ? `<td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${_dtNascFmt}</td><td style="font-size:12px;font-weight:700;color:var(--text);">${_idade !== null ? _idade : '—'}</td>`
                       : `<td class="td-date">${esc(a.telefone || '—')}</td>`}
-                    <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${_cadFmt(a)}</td>
+                    <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${_cadFmtHora(a)}</td>
                     <td style="font-size:11px;color:var(--text-muted);">${(function(){
                         if (!a.indicado_por_idatleta) return '<span style="color:var(--text-dim);">—</span>';
                         const ref = atletas.find(x => Number(x.idatleta) === Number(a.indicado_por_idatleta));
@@ -474,7 +497,7 @@ function render() {
                     <td>${(function(){
                         const s = situacaoDoAluno(a);
                         if (s.bloqueado) return '<span class="pill pill-red" title="' + esc(s.motivo || 'bloqueado') + '">Bloqueado</span>';
-                        if (isLead(a)) return '<span class="pill" style="background:rgba(251,191,36,.15);color:#d97706;border:1px solid rgba(251,191,36,.35);">Lead</span>';
+                        if (isLead(a)) return '<span class="pill" style="background:rgba(251,191,36,.15);color:#d97706;border:1px solid rgba(251,191,36,.35);">Lead</span>' + treinoLeadHtml(a);
                         if (isNovoCadastro(a)) return '<span class="pill pill-blue">Novo</span>';
                         if (s.ativo) return '<span class="pill pill-green" title="' + esc(s.motivo || 'plano vigente') + '">Ativo</span>';
                         return '<span class="pill" style="background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.35);" title="' + esc(s.motivo || '') + '">Inativo</span>';
@@ -531,7 +554,7 @@ function _montarQuadroClientes(lista) {
     return { id: String(a.idatleta), coluna: col(a), bloqueado: true, html:
       '<div style="display:flex;gap:8px;align-items:center;">' + avatarHtml(a.idatleta, a.nome, 30) + '<div style="min-width:0;flex:1;"><div class="kb-cartao-nome">' + esc(a.nome) + '</div><div class="kb-meta">' + esc(a.telefone || a.email || '') + '</div></div></div>' +
       '<div>' + (plano ? '<span class="kb-pill">' + esc(String(plano.dshistorico || 'Matrícula').substring(0, 24)) + '</span>' : '<span class="kb-pill">sem matrícula</span>') + (venc ? '<span class="kb-pill">vence ' + esc(venc) + '</span>' : '') +
-      (profs ? '<span class="kb-pill">👤 ' + esc(profs) + '</span>' : '') + (a.dtcadastro ? '<span class="kb-pill">cadastro ' + esc(_cadFmt(a)) + '</span>' : '') + '</div>' +
+      (profs ? '<span class="kb-pill">👤 ' + esc(profs) + '</span>' : '') + (a.dtcadastro || a.dtcadastro_hora ? '<span class="kb-pill">cadastro ' + esc(_cadFmtHora(a)) + '</span>' : '') + (fichasOk && isLead(a) ? '<span class="kb-pill">' + (temTreinoAtivo(a) ? '🏋 treino ativo' : '⚠ sem treino ativo') + '</span>' : '') + '</div>' +
       '<div class="kb-acoes">' + (abre ? '<button type="button" data-kbc="' + a.idatleta + '">Abrir</button>' : '') + '' + (isAdmin() ? '<a href="perfil.html?id=' + a.idatleta + '">Perfil</a>' : '') + '</div>' };
   });
   alvo.classList.add('kb-painel');

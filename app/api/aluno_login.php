@@ -462,39 +462,9 @@ try {
                     ->execute([$newId, "Teste Grátis ({$testeDias} dias)", $dtInicio, $dtVenc, 0, 'S', $dtInicio, 0, 'Cortesia']);
             } catch (Throwable $e) { /* segue sem bloquear cadastro */ }
 
-            // ── Copiar fichas do Modelo (H ou M) ──
-            $modeloGenero = ($genero === 'F') ? 'F' : 'M';
-            try {
-                // Buscar atleta modelo pelo email especial
-                $modeloEmail = ($modeloGenero === 'F') ? 'modelo.feminino@intusfit.local' : 'modelo.masculino@intusfit.local';
-                $stModelo = $pdo->prepare("SELECT $col_id FROM `$tabela` WHERE $col_email = ? LIMIT 1");
-                $stModelo->execute([$modeloEmail]);
-                $modeloId = $stModelo->fetchColumn();
-
-                if ($modeloId) {
-                    // Buscar fichas ativas do modelo
-                    $stFichas = $pdo->prepare("SELECT * FROM intus_ficha WHERE idatleta = ? AND ativo = 1");
-                    $stFichas->execute([$modeloId]);
-                    $fichasModelo = $stFichas->fetchAll(PDO::FETCH_ASSOC);
-
-                    foreach ($fichasModelo as $fm) {
-                        // Criar cópia da ficha para o novo aluno
-                        $pdo->prepare("INSERT INTO intus_ficha (idatleta, nmficha, dtinicio, dtfim, observacao, ativo, alongamentos, div_nomes) VALUES (?, ?, ?, ?, ?, 1, ?, ?)")
-                            ->execute([$newId, $fm['nmficha'], $dtInicio, $dtVenc, $fm['observacao'] ?? '', $fm['alongamentos'] ?? null, $fm['div_nomes'] ?? null]);
-                        $novaFichaId = (int)$pdo->lastInsertId();
-
-                        // Copiar treinos/exercícios da ficha modelo
-                        $stTreinos = $pdo->prepare("SELECT * FROM intus_treino WHERE idficha = ?");
-                        $stTreinos->execute([$fm['idficha']]);
-                        $treinosModelo = $stTreinos->fetchAll(PDO::FETCH_ASSOC);
-
-                        foreach ($treinosModelo as $tr) {
-                            $pdo->prepare("INSERT INTO intus_treino (idficha, idexercicio, nmexercicio, divisao, qtdserie, qtdrepeticao, repeticoes, tempopausa, intervalo, metodo, observacao, substitutos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                                ->execute([$novaFichaId, $tr['idexercicio'] ?? 0, $tr['nmexercicio'] ?? '', $tr['divisao'] ?? 'A', $tr['qtdserie'] ?? 4, $tr['qtdrepeticao'] ?? 12, $tr['repeticoes'] ?? '', $tr['tempopausa'] ?? 60, $tr['intervalo'] ?? '', $tr['metodo'] ?? '', $tr['observacao'] ?? '', $tr['substitutos'] ?? null]);
-                        }
-                    }
-                }
-            } catch (Throwable $e) { /* treinos modelo opcionais — não bloqueia */ }
+            // ── Copiar fichas do Modelo (H ou M): todas as colunas, ver _teste_gratis.php ──
+            require_once __DIR__ . '/_teste_gratis.php';
+            intusCopiarFichasModelo($pdo, $tabela, $col_id, $col_email, $newId, (string)$genero, $dtInicio, $dtVenc);
         }
 
         // Notificar por email sobre novo cadastro
