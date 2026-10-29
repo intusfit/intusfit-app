@@ -8858,7 +8858,29 @@ function abrirInfoAlong(idx) {
   trocarView('exinfo');
 }
 
+// Este treino JÁ está rodando? (o relógio começou depois de o aluno escolher a divisão e ainda não foi parado.)
+// Sessão nova, escolhida por cima de outro treino, tem `inicio` posterior ao relógio antigo e não entra aqui.
+function _treinoEmAndamentoDaSessao() {
+  return !!(treinoTimer && sessaoAtual && sessaoAtual.idficha && _treinoStartSaved > 0 && _treinoStartSaved >= (sessaoAtual.inicio || 0));
+}
+// Quando o treino começou DE VERDADE: o início do relógio, ou a primeira série marcada se ela for anterior. Uma série só pode
+// ser marcada depois que o treino começou, então o relógio nunca pode estar adiante dela (foi o que aconteceu quando o
+// relógio reiniciou no meio do treino e um treino de 1h14 saiu com 0:36).
+function _treinoInicioMs() {
+  let ini = _treinoStartSaved || treinoStart || (sessaoAtual && sessaoAtual.inicio) || Date.now();
+  const piso = (sessaoAtual && sessaoAtual.inicio) || 0;
+  try {
+    Object.values((sessaoAtual && sessaoAtual.dados) || {}).forEach(arr => (arr || []).forEach(s => {
+      if (s && s.ts > 0 && s.ts >= piso && s.ts < ini) ini = s.ts;
+    }));
+  } catch (e) {}
+  return ini;
+}
+
 async function iniciarMusculacao() {
+  // O aluno voltou à tela de alongamentos (gesto de voltar) com o treino rodando e tocou em "Iniciar Musculação" de novo:
+  // só volta à musculação. Refazer a contagem e o relógio zerava o tempo, com as séries já marcadas.
+  if (_treinoEmAndamentoDaSessao()) { renderMusculacao(); trocarView('muscu'); return; }
   await showCountdown();
   startTreinoTimer();
   renderMusculacao();
@@ -9437,7 +9459,7 @@ function autoAdvanceExercicio(idtreino) {
 
 // ═══════════════ FINALIZAR ═══════════════
 function confirmarFinalizarTreino() {
-  const duracao = Math.round((Date.now() - (_treinoStartSaved || treinoStart || sessaoAtual.inicio)) / 1000);
+  const duracao = Math.round((Date.now() - _treinoInicioMs()) / 1000);
   const min = Math.floor(duracao / 60);
   const isLight = document.body.classList.contains('tema-claro');
   const bg = isLight ? '#fff' : '#1a1a1a';
@@ -9472,7 +9494,7 @@ function confirmarFinalizarTreino() {
 
 function finalizarTreino() {
   sessaoAtual.comentario = document.getElementById('comentario-treino')?.value || '';
-  const duracao = Math.round((Date.now() - (_treinoStartSaved || treinoStart || sessaoAtual.inicio)) / 1000);
+  const duracao = Math.round((Date.now() - _treinoInicioMs()) / 1000);
 
   if (duracao < 300) {
     _confirmarFinalizacaoCurta(duracao);

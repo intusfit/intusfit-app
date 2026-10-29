@@ -4,6 +4,11 @@
 const fs = require('fs');
 const DIR = (process.env.INTUS_DIR || '.') + '/';
 const ARQS = fs.readdirSync(DIR).filter(f => /\.(html|js)$/.test(f));
+// A base já foi gravada, por engano, a partir da pasta de testes: a guarda passou meses sem olhar nenhuma tela do painel.
+if (!ARQS.includes('aluno.html') || !ARQS.includes('api.js')) {
+  console.log('FALHA  INTUS_DIR (' + DIR + ') não é a pasta do painel: não tem aluno.html e api.js. Use INTUS_DIR=../app/painel');
+  process.exit(1);
+}
 function inventario() {
   const out = {};
   ARQS.forEach(f => {

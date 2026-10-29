@@ -35,9 +35,9 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
         { idtreino: 21, idficha: 5, divisao: 'B', idexercicio: 3, nmexercicio: 'Remada', qtdserie: 3, repeticoes: '12', intervalo: '01:00' },
       ]));
       const exs = [{ idtreino: 11, idficha: 5, divisao: divSalva, idexercicio: 1, nmexercicio: 'Agachamento', qtdserie: 3 }];
-      const serie = (feita) => ({ peso: feita ? '40' : '', reps: feita ? '12' : '', repTarget: '12', intervalo: '01:00', tecnica: '', feita });
+      const serie = (feita) => ({ peso: feita ? '40' : '', reps: feita ? '12' : '', repTarget: '12', intervalo: '01:00', tecnica: '', feita, ts: feita ? inicio + 5 * 60000 : undefined });
       localStorage.setItem('intus-treino-ativo', JSON.stringify({
-        sessao: { idficha: 5, divisao: divSalva, divisaoLabel: 'Divisão ' + divSalva, nomeFicha: 'Treino ABC', exercicios: exs, alongamentos: [], dados: { 11: [serie(true), serie(true), serie(false)] }, inicio: inicio, comentario: '', activeIdx: 0 },
+        sessao: { idficha: 5, divisao: divSalva, divisaoLabel: 'Divisão ' + divSalva, nomeFicha: 'Treino ABC', exercicios: exs, alongamentos: [{ nome: 'Peitoral', tempo: '30s', divisao: divSalva }], dados: { 11: [serie(true), serie(true), serie(false)] }, inicio: inicio, comentario: '', activeIdx: 0 },
         treinoStart: inicio, emMusculacao: true, ultimaAtividade: agora - salvoHa * 60000, salvoEm: agora - salvoHa * 60000,
       }));
     }, [salvoHaMin, divisaoSalva]);
@@ -81,6 +81,27 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   eq('abriu a pergunta (dismiss = cancelou)', page._dialogos || 0, 1);
   e = await estado(page);
   eq('cancelando, o treino A guardado não foi apagado', [e.rodando, JSON.parse(await page.evaluate(() => localStorage.getItem('intus-treino-ativo'))).sessao.divisao], [false, 'A']);
+  await ctx.close();
+
+  console.log('\n══ Treino rodando: voltar à tela de alongamentos e tocar em "Iniciar Musculação" de novo não zera o relógio ══');
+  ({ page, erros, ctx } = await abrir(5, 'A'));
+  e = await estado(page);
+  ver('a retomada automática entrou (5 min) e o relógio está em cerca de 74 min', e.rodando && e.decorridoMin >= 73 && e.decorridoMin <= 75, e);
+  await page.evaluate(() => { trocarView('along'); renderAlongamentos(); iniciarMusculacao(); });
+  await page.waitForTimeout(6500); // passaria a contagem 3, 2, 1 e o relógio recomeçaria
+  e = await estado(page);
+  ver('o relógio continua em cerca de 74 min (antes voltava a zero)', e.decorridoMin >= 73 && e.decorridoMin <= 76, e);
+  eq('as séries continuam marcadas e a tela é a da musculação', [e.feitas, e.tela], [2, 'muscu']);
+  eq('sem contagem 3, 2, 1 na tela', await page.evaluate(() => document.getElementById('countdown-overlay').classList.contains('open')), false);
+  eq('sem erro de script', erros, []);
+
+  console.log('\n══ Rede de segurança: a duração nunca é menor que o tempo desde a 1ª série marcada ══');
+  await page.evaluate(() => { _treinoStartSaved = Date.now() - 36000; treinoStart = _treinoStartSaved; });   // relógio reiniciado há 36 s, como no caso da Rosângela
+  const seg = await page.evaluate(() => Math.round((Date.now() - _treinoInicioMs()) / 1000));
+  ver('mesmo com o relógio reiniciado, a duração sai de cerca de 69 min (1ª série marcada), e não de 36 s', seg >= 4100 && seg <= 4200, seg);
+  await page.evaluate(() => { Object.values(sessaoAtual.dados).forEach(a => a.forEach(x => { delete x.ts; })); });
+  const seg2 = await page.evaluate(() => Math.round((Date.now() - _treinoInicioMs()) / 1000));
+  ver('sem horário de série, vale o relógio (comportamento de sempre)', seg2 >= 30 && seg2 <= 45, seg2);
   await ctx.close();
 
   console.log('\n══ Sem nada guardado, escolher um treino começa um novo (comportamento de sempre) ══');

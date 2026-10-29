@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Suíte de testes do Intus Fit.
 #   uso:  INTUS_DIR="/caminho/para/painel" ./rodar.sh
-# Sem INTUS_DIR, assume que a pasta do painel é a pasta-mãe desta.
+# Sem INTUS_DIR, usa app/painel deste repositório (a pasta-mãe, nos pacotes antigos em que testes/ ficava dentro do painel).
 set -uo pipefail
-export INTUS_DIR="${INTUS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+_raiz="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -z "${INTUS_DIR:-}" ]; then if [ -f "$_raiz/app/painel/aluno.html" ]; then INTUS_DIR="$_raiz/app/painel"; else INTUS_DIR="$_raiz"; fi; fi
+export INTUS_DIR
 export INTUS_BASE="$(cd "$(dirname "$0")" && pwd)"
 cd "$INTUS_BASE"
 echo "painel: $INTUS_DIR"; echo
