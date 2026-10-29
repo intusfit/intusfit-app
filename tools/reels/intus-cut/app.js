@@ -55,9 +55,9 @@ function padrao(k){
   var d = {
     geral:   { fundo:'#0f0f0f', brilho:1, contraste:1, saturacao:1 },
     janela:  vert ? { y:230, h:1350, preencher:'desfoque', alinhar:-110 } : { y:0, h:H, preencher:'desfoque', alinhar:0 },
-    legenda: { visivel:true, dx:0, dy:vert ? 0 : -50, borda:7, fundo:false },
-    gancho:  { visivel:true, x:W / 2, y:vert ? 118 : Math.round(H * .1), escala:vert ? 1 : .9, cor:'#7fff00' },
-    gancho_grande: { visivel:true, dx:0, dy:vert ? 0 : Math.round(H * .42 - 330), escala:vert ? 1 : .9, escurecer:.47 },
+    legenda: { visivel:true, dx:0, dy:vert ? 0 : -50, borda:7, fundo:false, largura:W - 80, por_linha:0, car_linha:0, entrelinha:1.31 },
+    gancho:  { visivel:true, x:W / 2, y:vert ? 118 : Math.round(H * .1), escala:vert ? 1 : .9, cor:'#7fff00', largura:W - 120, por_linha:0, car_linha:0, entrelinha:1.17 },
+    gancho_grande: { visivel:true, dx:0, dy:vert ? 0 : Math.round(H * .42 - 330), escala:vert ? 1 : .9, escurecer:.47, largura:W - 120, por_linha:0, car_linha:0, entrelinha:1.13 },
     arrobas: { visivel:true, x:W / 2, y:vert ? 1660 : H - 56, escala:vert ? 1 : .8, texto:'@luiznunest   ·   @intusfit', cor:'#c8c8c8' },
     logo:    { visivel:true, x:vert ? W / 2 : W - 140, y:vert ? 1740 : 28, largura:vert ? 240 : 200, url:'' },
     notas:   { dx:0, dy:0, escala:1 },
@@ -132,7 +132,7 @@ function grupos(){
   ws.sort(function(a, b){ return a.ri - b.ri; });
   var gs = [], g = [];
   ws.forEach(function(w){
-    if (g.length && (g.length >= max || (g.concat([w]).map(function(x){ return x.p; }).join(' ').length > 18) || w.ri - g[g.length - 1].rf > .35)){ gs.push(g); g = []; }
+    if (g.length && (g.length >= max || (g.concat([w]).map(function(x){ return x.p; }).join(' ').length > (est.car_vez || 18)) || w.ri - g[g.length - 1].rf > .35)){ gs.push(g); g = []; }
     g.push(w); if (/[.?!,]$/.test(w.p)){ gs.push(g); g = []; }
   });
   if (g.length) gs.push(g); return gs;
@@ -161,9 +161,12 @@ function texto(c, t, x, y, tam, peso, cr, borda, alin){
   if (borda){ c.lineJoin = 'round'; c.lineWidth = borda * 2; c.strokeStyle = '#000'; c.strokeText(t, x, y); }
   c.fillStyle = cr; c.fillText(t, x, y); return c.measureText(t).width;
 }
-function quebra(c, txt, tam, larg){ c.font = fonteCss(tam); var ls = [], at = '';
-  txt.split(/\s+/).forEach(function(p){ var t = (at + ' ' + p).trim(); if (c.measureText(t).width > larg && at){ ls.push(at); at = p; } else at = t; });
+function quebra(c, txt, tam, larg, porLinha, carLinha, peso){ c.font = fonteCss(tam, peso); var ls = [], at = '', n = 0;
+  String(txt).split(/\s+/).filter(Boolean).forEach(function(p){ var t = (at + ' ' + p).trim();
+    if (at && (c.measureText(t).width > larg || (porLinha > 0 && n >= porLinha) || (carLinha > 0 && t.length > carLinha))){ ls.push(at); at = p; n = 1; } else { at = t; n++; } });
   return ls.concat([at]); }
+// Quebra respeitando também as linhas que a pessoa separou com Enter.
+function quebraTudo(c, txt, tam, larg, porLinha, carLinha, peso){ var out = []; String(txt).split('\n').forEach(function(l){ out = out.concat(l.trim() ? quebra(c, l, tam, larg, porLinha, carLinha, peso) : ['']); }); return out; }
 function caixa(reg, id, x, y, w, h, opc){ if (reg) reg.push({ id:id, x:x, y:y, w:w, h:h, borda:!!(opc && opc.borda), redim:!!(opc && opc.redim) }); }
 function pill(c, x, y, w, h, r, cr){ c.fillStyle = cr; c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); c.fill(); }
 function noTempo(x, t){ return x.sempre || (t >= x.ini && t <= x.fim); }
@@ -243,8 +246,8 @@ function desenhaImagens(c, t, reg){
 }
 function desenhaGancho(c, grande, reg, J){
   var g = grande ? lay('gancho_grande') : lay('gancho'), e = g.escala;
-  var tam = (grande ? 92 : 58) * e, alt = (grande ? 104 : 68) * e, dest = (P.destaque || []).map(function(x){ return x.toLowerCase(); });
-  var ls = quebra(c, (P.gancho || '').toUpperCase(), tam, W - 120), corD = lay('gancho').cor;
+  var tam = (grande ? 92 : 58) * e, alt = tam * (g.entrelinha || (grande ? 1.13 : 1.17)), dest = (P.destaque || []).map(function(x){ return x.toLowerCase(); });
+  var ls = quebraTudo(c, (P.gancho || '').toUpperCase(), tam, g.largura || W - 120, g.por_linha || 0, g.car_linha || 0), corD = lay('gancho').cor;
   var cxm = grande ? W / 2 + g.dx : g.x, y = grande ? J.y + 330 + g.dy - ls.length * alt / 2 : g.y - ls.length * alt / 2, y0 = y, wmax = 0;
   ls.forEach(function(ln){
     c.font = fonteCss(tam); var lw = c.measureText(ln).width, x = cxm - lw / 2; wmax = Math.max(wmax, lw);
@@ -253,7 +256,7 @@ function desenhaGancho(c, grande, reg, J){
       x += c.measureText(p + ' ').width; });
     y += alt;
   });
-  caixa(reg, grande ? 'gancho_grande' : 'gancho', cxm - wmax / 2, y0, wmax, y - y0);
+  var lb = Math.max(wmax, Math.min(W, g.largura || wmax)); caixa(reg, grande ? 'gancho_grande' : 'gancho', cxm - lb / 2, y0, lb, y - y0, { redim:true });
 }
 function desenhaNotas(c, f, y, reg){
   var N = lay('notas'), tam = 46 * N.escala;
@@ -272,8 +275,12 @@ function desenhaLegenda(c, t, y, reg){
   var ps = g.map(function(w){ return maius ? w.p.toUpperCase() : w.p; }), ativa = 0;
   g.forEach(function(w, i){ if (w.ri <= t + .03) ativa = i; });
   function larg(idx){ var s = 0; idx.forEach(function(i, n){ c.font = fonteCss(i === ativa ? tg : tam); s += c.measureText(ps[i]).width + (n ? c.measureText(' ').width : 0); }); return s; }
-  var todas = ps.map(function(_, i){ return i; }), linhas = larg(todas) > W - 80 ? [todas.slice(0, Math.max(1, ps.length >> 1)), todas.slice(Math.max(1, ps.length >> 1))] : [todas];
-  var y0 = y, xmin = W, xmax = 0, lh = Math.round(tam * 1.31), cxm = W / 2 + L.dx;
+  var linhas = [], at = [], LW = L.largura || W - 80, PL = L.por_linha || 0, CL = L.car_linha || 0;
+  ps.forEach(function(_, i){ var t = at.concat([i]), txt = t.map(function(j){ return ps[j]; }).join(' ');
+    if (at.length && (larg(t) > LW || (PL > 0 && at.length >= PL) || (CL > 0 && txt.length > CL))){ linhas.push(at); at = [i]; } else at = t; });
+  if (at.length) linhas.push(at);
+  if (!PL && !CL && linhas.length === 2){ var todas = ps.map(function(_, i){ return i; }), meio = Math.max(1, ps.length >> 1); linhas = [todas.slice(0, meio), todas.slice(meio)]; }
+  var y0 = y, xmin = W, xmax = 0, lh = Math.round(tam * (L.entrelinha || 1.31)), cxm = W / 2 + L.dx;
   if (L.fundo){ var wl = Math.max.apply(null, linhas.map(larg)); pill(c, cxm - wl / 2 - 26, y - 14, wl + 52, linhas.length * lh + 14, 22, 'rgba(0,0,0,.72)'); }
   linhas.forEach(function(ln){
     var lw = larg(ln), x = cxm - lw / 2; xmin = Math.min(xmin, x); xmax = Math.max(xmax, x + lw);
@@ -282,16 +289,16 @@ function desenhaLegenda(c, t, y, reg){
       c.font = fonteCss(tt); x += c.measureText(ps[i] + ' ').width; });
     y += lh;
   });
-  caixa(reg, 'legenda', xmin, y0 - 8, xmax - xmin, y - y0);
+  var lbl = Math.max(xmax - xmin, Math.min(W, LW)); caixa(reg, 'legenda', cxm - lbl / 2, y0 - 8, lbl, y - y0, { redim:true });
 }
 function desenhaTextos(c, t, reg){
   (P.textos || []).forEach(function(x, i){ if (!noTempo(x, t) || !x.texto) return;
-    var ls = String(x.texto).split('\n'), tam = x.tam || 60, lh = tam * 1.2, wmax = 0;
+    var tam = x.tam || 60, lh = tam * (x.entrelinha || 1.2), wmax = 0, ls = quebraTudo(c, x.texto, tam, x.largura || 1e9, x.por_linha || 0, x.car_linha || 0, x.peso || 800);
     c.font = fonteCss(tam, x.peso || 800); ls.forEach(function(l){ wmax = Math.max(wmax, c.measureText(l).width); });
     var y0 = x.y - ls.length * lh / 2;
     if (x.fundo) pill(c, x.x - wmax / 2 - tam * .4, y0 - tam * .2, wmax + tam * .8, ls.length * lh + tam * .3, tam * .35, 'rgba(15,15,15,.88)');
     ls.forEach(function(l, n){ texto(c, l, x.x, y0 + n * lh, tam, x.peso || 800, x.cor || COR.branco, x.borda ? 5 : 0, 'center'); });
-    caixa(reg, 'texto:' + i, x.x - wmax / 2, y0, wmax, ls.length * lh); });
+    var lbt = Math.max(wmax, x.largura ? Math.min(W, x.largura) : 0); caixa(reg, 'texto:' + i, x.x - lbt / 2, y0, lbt, ls.length * lh, { redim:true }); });
 }
 function desenhaFim(c, t, reg){
   c.globalAlpha = Math.min(1, t / .35);
@@ -379,7 +386,11 @@ guia.addEventListener('pointermove', function(e){
       if (arr.redim){ o.w = Math.max(40, i.w + dx); o.h = Math.max(40, i.h + dy); } else { o.x = i.x + dx; o.y = i.y + dy; } break;
     case 'imagem':
       if (arr.redim){ o.w = Math.max(30, i.w + dx * 2); } else { o.x = i.x + dx; o.y = i.y + dy; } break;
-    case 'legenda': case 'gancho_grande': case 'notas': o.dx = i.dx + dx; o.dy = i.dy + dy; break;
+    case 'legenda': if (arr.redim){ o.largura = Math.round(cl((i.largura || W - 80) + dx * 2, 160, W)); P.estilo = P.estilo || {}; if (arr.tam0 == null) arr.tam0 = P.estilo.tamanho || 84; P.estilo.tamanho = Math.round(cl(arr.tam0 + dy / 3, 30, 160)); recalc(); break; } o.dx = i.dx + dx; o.dy = i.dy + dy; break;
+    case 'gancho': case 'gancho_grande': if (arr.redim){ o.largura = Math.round(cl((i.largura || W - 120) + dx * 2, 160, W)); o.escala = +cl((i.escala || 1) + dy / 300, .3, 3).toFixed(2); break; }
+      if (arr.id === 'gancho'){ o.x = i.x + dx; o.y = i.y + dy; } else { o.dx = i.dx + dx; o.dy = i.dy + dy; } break;
+    case 'texto': if (arr.redim){ o.largura = Math.round(cl((i.largura || 600) + dx * 2, 120, W)); o.tam = Math.round(cl((i.tam || 60) + dy / 3, 16, 240)); break; } o.x = i.x + dx; o.y = i.y + dy; break;
+    case 'notas': o.dx = i.dx + dx; o.dy = i.dy + dy; break;
     case 'final': break;
     default: o.x = i.x + dx; o.y = i.y + dy;
   }
@@ -776,11 +787,11 @@ var CARDS = {
   geral: function(){ var G = lay('geral'); return cartao('geral', 'Imagem e fundo', [el('div', 'grade2', [deslize(G, 'brilho', 'Brilho', .5, 1.6, .01, 'Brilho', pct), deslize(G, 'contraste', 'Contraste', .5, 1.8, .01, 'Contraste', pct),
     deslize(G, 'saturacao', 'Saturação', 0, 2, .01, 'Saturação', pct), corIn(G, 'fundo', 'Cor do fundo', 'Cor do fundo')])]); },
   legenda: function(){ var Lg = lay('legenda'); return cartao('legenda', 'Legenda', [chk(Lg, 'visivel', 'Mostrar legenda', 'Legenda'), el('div', 'grade2', [deslize(Lg, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover legenda'), deslize(Lg, 'dy', 'Vertical', -H, 500, 2, 'Mover legenda'),
-    deslize(Lg, 'borda', 'Contorno', 0, 14, 1, 'Contorno da legenda')]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda'), el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho e cores: painel Legendas.')]); },
+    deslize(Lg, 'borda', 'Contorno', 0, 14, 1, 'Contorno da legenda')]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda')].concat(camposCaixa(Lg, 'legenda', W - 80, 1.31), [ el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho e cores: painel Legendas.')])); },
   gancho: function(){ var Gc = lay('gancho'); return cartao('gancho', 'Título do topo (depois do gancho)', camposGancho(false).concat([chk(Gc, 'visivel', 'Mostrar', 'Título do topo'), el('div', 'grade2', [deslize(Gc, 'x', 'Horizontal', 0, W, 2, 'Mover título'), deslize(Gc, 'y', 'Vertical', 0, H, 2, 'Mover título'),
-    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct), corIn(Gc, 'cor', 'Cor do destaque', 'Cor do destaque')])])); },
+    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct), corIn(Gc, 'cor', 'Cor do destaque', 'Cor do destaque')])], camposCaixa(Gc, 'título', W - 120, 1.17))); },
   gancho_grande: function(){ var GG = lay('gancho_grande'); return cartao('gancho_grande', 'Gancho grande (primeiros segundos)', camposGancho(true).concat([chk(GG, 'visivel', 'Mostrar', 'Gancho grande'), el('div', 'grade2', [deslize(GG, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover gancho'), deslize(GG, 'dy', 'Vertical', -800, H, 2, 'Mover gancho'),
-    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])])); },
+    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])], camposCaixa(GG, 'gancho', W - 120, 1.13))); },
   arrobas: function(){ var A = lay('arrobas'), at = el('input'); at.type = 'text'; at.value = A.texto; at.oninput = function(){ A.texto = at.value; pinta(); agendaSalvar('Texto do @'); };
     return cartao('arrobas', '@ do rodapé', [chk(A, 'visivel', 'Mostrar', '@ do rodapé'), campo('Texto', at), el('div', 'grade2', [deslize(A, 'x', 'Horizontal', 0, W, 2, 'Mover @'), deslize(A, 'y', 'Vertical', 0, H, 2, 'Mover @'),
       deslize(A, 'escala', 'Tamanho', .5, 3, .02, 'Tamanho do @', pct), corIn(A, 'cor', 'Cor', 'Cor do @')]), rodapeBotoes()]); },
@@ -837,13 +848,21 @@ function editarTextoDe(id){
   else return;
   dialogo(titulo, '', [['Pronto', function(){ if (salvarFn){ salvarFn(); agendaSalvar(titulo); } fecha(); atualizaTudo(); inspetor(); if (aba === 'textos') mostraAba(); }]], box);
 }
+// Controles da caixa de texto: largura, palavras e caracteres por linha, espaço entre linhas.
+function camposCaixa(o, nome, largPadrao, entrePadrao){
+  if (o.largura == null) o.largura = largPadrao; if (o.por_linha == null) o.por_linha = 0; if (o.car_linha == null) o.car_linha = 0; if (o.entrelinha == null) o.entrelinha = entrePadrao;
+  var auto = function(v){ return +v ? v : 'automático'; }, cx = function(v){ return Math.round(v / W * 100) + '% da tela'; };
+  return [el('div', 'grade2', [deslize(o, 'largura', 'Largura da caixa', 120, W, 2, 'Largura: ' + nome, cx), deslize(o, 'entrelinha', 'Espaço entre linhas', .8, 2.2, .01, 'Entrelinha: ' + nome, function(v){ return (+v).toFixed(2); }),
+    deslize(o, 'por_linha', 'Palavras por linha', 0, 12, 1, 'Palavras por linha: ' + nome, auto), deslize(o, 'car_linha', 'Caracteres por linha', 0, 60, 1, 'Caracteres por linha: ' + nome, auto)]),
+    el('p', 'nota-ajuda', 'Na prévia, puxe o quadradinho verde do canto da caixa: para o lado muda a largura, para baixo muda o tamanho da letra. Em "automático" a linha quebra só pela largura. Enter no texto também quebra a linha.')];
+}
 function rodapeBotoes(){ var A = lay('arrobas'), LG = lay('logo'); return el('div', 'linha', [
   botao('▲ Rodapé', function(){ A.y -= 20; LG.y -= 20; pinta(); agendaSalvar('Subir rodapé'); inspetor(); }), botao('▼ Rodapé', function(){ A.y += 20; LG.y += 20; pinta(); agendaSalvar('Descer rodapé'); inspetor(); }),
   formato().guia === 'reel' ? botao('Tirar da área do Instagram', function(){ A.y = 1420; LG.y = 1490; pinta(); agendaSalvar('Rodapé acima do Instagram'); inspetor(); }) : el('span')]); }
 function cardTexto(i){ var x = P.textos[i], id = 'texto:' + i, tx = el('textarea'); tx.rows = 2; tx.value = x.texto; tx.oninput = function(){ x.texto = tx.value; pinta(); desenhaTimeline(); agendaSalvar('Texto livre'); };
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Texto ' + (i + 1)), acoesItem(id)]), tx,
     el('div', 'grade2', [deslize(x, 'tam', 'Tamanho', 20, 220, 1, 'Tamanho do texto'), deslize(x, 'x', 'Horizontal', 0, W, 2, 'Mover texto'), deslize(x, 'y', 'Vertical', 0, H, 2, 'Mover texto')]),
-    el('div', 'linha', [corIn(x, 'cor', 'Cor', 'Cor do texto'), chk(x, 'fundo', 'Caixa escura', 'Caixa do texto'), chk(x, 'borda', 'Contorno', 'Contorno do texto')])].concat(tempoItem(x, 'Texto'))); }
+    el('div', 'linha', [corIn(x, 'cor', 'Cor', 'Cor do texto'), chk(x, 'fundo', 'Caixa escura', 'Caixa do texto'), chk(x, 'borda', 'Contorno', 'Contorno do texto')])].concat(camposCaixa(x, 'texto', W, 1.2), tempoItem(x, 'Texto'))); }
 function cardSombra(i){ var s = P.sombras[i], id = 'sombra:' + i;
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Sombra ' + (i + 1)), acoesItem(id)]),
     el('div', 'linha', [campo('Tipo', opcoes(s, 'tipo', [['vinheta', 'Vinheta'], ['gradiente', 'Degradê'], ['retangulo', 'Retângulo']], 'Tipo da sombra')),
@@ -908,11 +927,14 @@ function painelLegenda(C){
   function upd(){ est.cores = alt.value === '2' ? [c1.value, c2.value] : [c1.value]; c2.disabled = alt.value !== '2'; recalc(); pinta(); agendaSalvar('Cores da legenda'); }
   alt.onchange = upd; c1.oninput = upd; c2.oninput = upd; c2.disabled = alt.value !== '2';
   var cb = el('input'); cb.type = 'color'; cb.value = est.cor_base || COR.branco; cb.oninput = function(){ est.cor_base = cb.value; pinta(); agendaSalvar('Cor base da legenda'); };
-  var porG = sel([1, 2, 3, 4, 5].map(function(n){ return [n, n + (n > 1 ? ' palavras' : ' palavra')]; }), est.palavras_por_grupo || 3); porG.onchange = function(){ est.palavras_por_grupo = +porG.value; mudou('Palavras por vez'); };
+  var porG = sel([1, 2, 3, 4, 5, 6, 7, 8, 10, 12].map(function(n){ return [n, n + (n > 1 ? ' palavras' : ' palavra')]; }), est.palavras_por_grupo || 3); porG.onchange = function(){ est.palavras_por_grupo = +porG.value; mudou('Palavras por vez'); };
+  if (est.car_vez == null) est.car_vez = 18;
   if (est.aumento == null) est.aumento = 1.1; if (est.tamanho == null) est.tamanho = 84; if (est.maiusculas == null) est.maiusculas = true;
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Estilo'), el('div', 'linha', [campo('Palavra falada', alt), el('label', 'chk', [c1, ' cor 1']), el('label', 'chk', [c2, ' cor 2']), el('label', 'chk', [cb, ' demais'])]),
     el('div', 'linha', [campo('Por vez na tela', porG), chk(est, 'maiusculas', 'Maiúsculas', 'Maiúsculas', function(){ setTimeout(atualizaTudo); })]),
-    el('div', 'grade2', [deslize(est, 'tamanho', 'Tamanho', 40, 140, 2, 'Tamanho da legenda'), deslize(est, 'aumento', 'Destaque da palavra', 1, 1.5, .01, 'Destaque da palavra', pct)])]));
+    el('div', 'grade2', [deslize(est, 'tamanho', 'Tamanho', 40, 140, 2, 'Tamanho da legenda'), deslize(est, 'aumento', 'Destaque da palavra', 1, 1.5, .01, 'Destaque da palavra', pct),
+      deslize(est, 'car_vez', 'Caracteres na tela por vez', 6, 80, 1, 'Caracteres por vez')]),
+    el('p', 'nota-ajuda', 'Largura da caixa, palavras e caracteres por linha e espaço entre linhas: toque na legenda da prévia (ou em Layout > Legenda).')]));
   var fino = !!est._fino;
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Texto da legenda'), el('p', 'nota-ajuda', 'Escreva o que quiser em cada frase: corrigir, trocar, juntar ou apagar palavras. O tempo da frase continua o mesmo. Deixe a frase vazia para ela sumir. Dica: toque duas vezes na legenda do vídeo para editar a frase que está na tela.'),
     el('label', 'chk', [(function(){ var c = el('input'); c.type = 'checkbox'; c.checked = fino; c.onchange = function(){ est._fino = c.checked; mostraAba(); }; return c; })(), ' Ajuste fino, palavra por palavra'])]));
