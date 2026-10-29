@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Treinos — Intus</title>
-  <script src="_mock.js?v=20261027b"></script>
+  <script src="_mock.js?v=20261028a"></script>
   <script src="api.js?v=20261027a"></script>
   <script src="kanban.js?v=20261023b"></script>
   <style>
@@ -188,6 +188,106 @@
       .ex-card .ex-header { flex-wrap:wrap; }
       .along-card .along-fields { grid-template-columns:1fr 1fr; }
     }
+
+    /* ── EDITOR DE FICHA: arrastar, visão ampla e celular do aluno (27/10/2026) ── */
+    .ed-wrap { display:flex; flex-direction:column; gap:16px; max-width:900px; margin:0 auto; }
+    .ed-wrap.ed-ampla, .ed-wrap.ed-celular { max-width:1560px; }
+    .ed-cols { display:block; }
+    .ed-wrap.ed-celular .ed-cols { display:grid; grid-template-columns:minmax(0,1fr) 372px; gap:20px; align-items:start; }
+    .ed-main { display:flex; flex-direction:column; gap:16px; min-width:0; }
+    .ed-top { display:flex; flex-direction:column; gap:16px; }
+    .ed-wrap.ed-ampla .ed-top, .ed-wrap.ed-celular .ed-top { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+    .ed-wrap.ed-ampla .ex-card .ex-fields, .ed-wrap.ed-celular .ex-card .ex-fields { grid-template-columns:90px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.25fr); }
+    .ed-wrap.ed-ampla .ex-card .rep-pill, .ed-wrap.ed-celular .ex-card .rep-pill,
+    .ed-wrap.ed-ampla .ex-card .carga-pill, .ed-wrap.ed-celular .ex-card .carga-pill { width:56px; min-width:0; padding:5px 3px; }
+    .ed-wrap.ed-ampla .ex-card select.rep-pill, .ed-wrap.ed-celular .ex-card select.rep-pill { width:calc(50% - 3px); font-size:11px; }
+    .ed-wrap.ed-ampla .along-card .along-fields, .ed-wrap.ed-celular .along-card .along-fields { grid-template-columns:90px 160px 1fr; }
+    .ed-side { position:sticky; top:72px; align-self:start; }
+    @media (max-width:1180px) {
+      .ed-wrap.ed-celular .ed-cols { display:block; }
+      .ed-wrap.ed-celular .ed-side { display:none; }
+      .ed-wrap.ed-ampla .ed-top, .ed-wrap.ed-celular .ed-top { grid-template-columns:1fr; }
+    }
+    .ed-modos { display:inline-flex; border:1px solid var(--border); border-radius:9px; overflow:hidden; background:var(--bg2); margin-left:auto; }
+    .ed-modos button { padding:7px 12px; font-size:12px; font-weight:700; font-family:inherit; border:none; background:transparent; color:var(--text-muted); cursor:pointer; white-space:nowrap; }
+    .ed-modos button + button { border-left:1px solid var(--border); }
+    .ed-modos button.on { background:var(--green-dim); color:var(--brand); }
+
+    /* alça de arrastar e marcas de destino */
+    .dnd-alca { display:inline-flex; align-items:center; justify-content:center; width:26px; height:34px; flex-shrink:0; border-radius:7px; cursor:grab; color:var(--text-muted); font-size:17px; line-height:1; user-select:none; border:1px dashed transparent; }
+    .dnd-alca:hover { color:var(--brand); border-color:var(--border); background:var(--bg3); }
+    .dnd-alca:active { cursor:grabbing; }
+    .ex-card .ex-header .dnd-alca { align-self:flex-end; }
+    .ex-card.dnd-arrastando, .along-card.dnd-arrastando { opacity:.35; }
+    .ex-card.dnd-antes, .along-card.dnd-antes { box-shadow:0 -3px 0 0 var(--brand), var(--prof-painel); }
+    .ex-card.dnd-depois, .along-card.dnd-depois { box-shadow:0 3px 0 0 var(--brand), var(--prof-painel); }
+    .ex-card .ex-num, .along-card .ex-num { font-size:12px; font-weight:800; color:var(--text-muted); min-width:20px; text-align:center; align-self:flex-end; padding-bottom:9px; }
+    .tab-btn.dnd-sobre { outline:2px dashed var(--brand); outline-offset:-3px; }
+
+    /* ── CELULAR DO ALUNO (miniatura) ── */
+    .mini-aparelho { width:372px; padding:14px 14px 18px; border-radius:44px; background:#0a0a0a; border:2px solid #3a3a3a; box-shadow:0 18px 40px -10px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.05); position:relative; }
+    body.theme-light .mini-aparelho { border-color:#1f2937; box-shadow:0 18px 40px -10px rgba(0,0,0,.35); }
+    .mini-aparelho::before { content:''; position:absolute; top:9px; left:50%; width:78px; height:6px; margin-left:-39px; border-radius:4px; background:#262626; }
+    .mini-moldura { width:342px; height:640px; overflow:hidden; border-radius:28px; background:#000; margin-top:8px; position:relative; }
+    .mini-app { --m-bg:#0f0f0f; --m-txt:#f0f0f0; --m-muted:#888; --m-card:#141414; --m-card-bd:#1e1e1e; --m-det-bd:#2a2a2a; --m-cell:rgba(255,255,255,.03); --m-serie:#0d0d0d; --m-serie-bd:#1a1a1a; --m-input:#111; --m-input-bd:#222; --m-alvo:#ffcf4d; --m-alvo-bg:rgba(255,207,77,.10); --m-alvo-bd:rgba(255,207,77,.28); --m-verde:#7FFF00; --m-link:#7FFF00; --m-along:#121218; --m-along-bd:#1e1e28;
+      width:390px; height:730px; transform:scale(.877); transform-origin:0 0; background:var(--m-bg); color:var(--m-txt); font-family:'Inter',sans-serif; font-size:14px; overflow-y:auto; overflow-x:hidden; position:relative; scrollbar-width:none; }
+    .mini-app::-webkit-scrollbar { display:none; }
+    .mini-app.claro { --m-bg:#f4f4f4; --m-txt:#1a1a1a; --m-muted:#666; --m-card:#fff; --m-card-bd:#e5e5e5; --m-det-bd:#e0e0e0; --m-cell:rgba(0,0,0,.035); --m-serie:#fafafa; --m-serie-bd:#e5e5e5; --m-input:#fff; --m-input-bd:#ddd; --m-alvo:#8a5a00; --m-alvo-bg:rgba(138,90,0,.08); --m-alvo-bd:rgba(138,90,0,.22); --m-verde:#5cb800; --m-link:#2f7d00; --m-along:#fff; --m-along-bd:#e5e5e5; }
+    .mini-app * { box-sizing:border-box; }
+    .mi-barra { position:sticky; top:0; z-index:3; display:flex; align-items:center; gap:8px; padding:11px 14px; background:var(--m-bg); border-bottom:1px solid var(--m-card-bd); }
+    .mi-barra .mi-volta { font-size:13px; color:var(--m-muted); font-weight:600; }
+    .mi-barra .mi-tit { flex:1; min-width:0; font-size:13px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mi-barra .mi-cron { font-size:12px; font-weight:800; color:var(--m-verde); font-variant-numeric:tabular-nums; }
+    .mi-corpo { padding:6px 14px 30px; }
+    .mi-lista-tit { font-size:12px; font-weight:700; color:var(--m-muted); text-transform:uppercase; letter-spacing:1px; margin:12px 0 10px; }
+    .mi-dica { font-size:11px; color:var(--m-muted); margin:-6px 0 10px; }
+    .mi-row { display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--m-card); border:1.5px solid var(--m-card-bd); border-radius:10px; margin-bottom:6px; cursor:pointer; }
+    .mi-row.ativo { border-color:var(--m-verde); }
+    .mi-row .mi-num { width:24px; height:24px; border-radius:6px; background:linear-gradient(135deg,#7FFF00,#40c000); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:11px; font-weight:900; color:#000; }
+    .mi-row .mi-nome { flex:1; min-width:0; font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mi-row .mi-uni { font-size:9px; background:rgba(96,165,250,.15); color:#60a5fa; padding:1px 5px; border-radius:4px; font-weight:700; vertical-align:middle; margin-left:4px; }
+    .mi-row .mi-btn { width:24px; height:24px; border-radius:6px; border:1px solid var(--m-det-bd); background:var(--m-cell); color:var(--m-muted); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; opacity:.45; }
+    .mi-det { background:var(--m-card); border:1.5px solid var(--m-verde); border-top:none; border-radius:0 0 10px 10px; margin-top:-8px; margin-bottom:8px; padding:12px; }
+    .mi-grade { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--m-det-bd); border-radius:8px; overflow:hidden; margin-bottom:6px; }
+    .mi-grade.c2 { grid-template-columns:repeat(2,1fr); }
+    .mi-grade > div { padding:8px 10px; border-right:1px solid var(--m-det-bd); border-bottom:1px solid var(--m-det-bd); font-size:13px; font-weight:700; text-align:center; }
+    .mi-grade > div.rot { font-size:10px; font-weight:600; color:var(--m-muted); text-transform:uppercase; letter-spacing:.5px; background:var(--m-cell); padding:6px 10px; }
+    .mi-obs { font-size:12px; color:#ffd700; background:rgba(255,215,0,.06); border:1px solid rgba(255,215,0,.25); border-radius:8px; padding:10px 12px; margin-top:8px; font-weight:600; }
+    .mini-app.claro .mi-obs { color:#8a6a00; background:rgba(200,160,0,.08); }
+    .mi-hist { margin-top:8px; text-align:right; font-size:12px; font-weight:700; color:var(--m-link); text-decoration:underline; text-underline-offset:3px; }
+    .mi-serie { display:grid; grid-template-columns:58px 1fr 1fr 44px; gap:7px; align-items:center; background:var(--m-serie); border:1.5px solid var(--m-serie-bd); border-radius:10px; padding:8px; margin-bottom:6px; }
+    .mi-serie.atual { border-color:var(--m-verde); }
+    .mi-serie .mi-cel { text-align:center; background:var(--m-alvo-bg); border:1px solid var(--m-alvo-bd); border-radius:8px; padding:4px 2px; }
+    .mi-serie .mi-s { font-size:9.5px; color:var(--m-muted); font-weight:800; letter-spacing:.06em; }
+    .mi-serie .mi-alvo { font-size:19px; color:var(--m-alvo); font-weight:900; line-height:1.05; margin-top:1px; }
+    .mi-serie .mi-alvo.longo { font-size:12.5px; line-height:1.15; }
+    .mi-serie .mi-un { font-size:8.5px; color:var(--m-muted); font-weight:800; text-transform:uppercase; letter-spacing:.07em; margin-top:1px; }
+    .mi-serie .mi-campo { background:var(--m-input); border:1px solid var(--m-input-bd); border-radius:8px; padding:9px 6px; color:var(--m-muted); font-size:13px; font-weight:700; text-align:center; }
+    .mi-serie .mi-ok { width:44px; height:44px; border-radius:9px; border:1px solid var(--m-serie-bd); background:var(--m-cell); display:flex; align-items:center; justify-content:center; font-size:17px; }
+    .mi-tec { grid-column:1/-1; display:flex; align-items:center; gap:6px; margin-bottom:2px; padding:5px 9px; border-radius:8px; }
+    .mi-tec b { font-size:10.5px; font-weight:900; text-transform:uppercase; letter-spacing:.4px; }
+    .mi-tec span { flex:1; min-width:0; font-size:10.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mi-grupo { border:2px solid rgba(127,255,0,.25); border-radius:16px; padding:10px; margin:16px 0 12px; position:relative; }
+    .mi-grupo.super { border-color:rgba(255,165,0,.4); } .mi-grupo.triset { border-color:rgba(138,43,226,.4); } .mi-grupo.circuito { border-color:rgba(0,191,255,.4); }
+    .mi-grupo .mi-gl { position:absolute; top:-10px; left:16px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1px; padding:2px 8px; border-radius:6px; color:#000; }
+    .mi-grupo.super .mi-gl { background:#ff9500; } .mi-grupo.triset .mi-gl { background:#9b59ff; color:#fff; } .mi-grupo.circuito .mi-gl { background:#00bfff; }
+    .mi-grupo .mi-gd { font-size:11px; color:var(--m-muted); text-align:center; padding:6px 0 4px; font-style:italic; }
+    .mi-along { display:flex; align-items:flex-start; gap:12px; padding:14px; background:var(--m-along); border:1px solid var(--m-along-bd); border-radius:12px; margin-bottom:8px; }
+    .mi-along.ativo { border-color:#667eea; }
+    .mi-along .mi-an { width:32px; height:32px; border-radius:10px; background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; font-size:12px; font-weight:900; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:2px; }
+    .mi-along .mi-ab { flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
+    .mi-along .mi-at { font-size:14px; font-weight:600; }
+    .mi-along .mi-am { display:flex; gap:8px; flex-wrap:wrap; }
+    .mi-along .mi-am span { font-size:11px; color:var(--m-muted); background:var(--m-cell); padding:3px 8px; border-radius:6px; }
+    .mi-along .mi-ai { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; padding:8px 12px; border-radius:8px; font-size:12px; font-weight:700; white-space:nowrap; align-self:center; }
+    .mi-iniciar { margin-top:22px; padding:16px; border-radius:12px; text-align:center; font-size:16px; font-weight:800; color:#000; background:linear-gradient(135deg,#7FFF00,#5fd000); box-shadow:0 4px 20px rgba(127,255,0,.3); }
+    .mi-vazio { padding:34px 12px; text-align:center; font-size:13px; color:var(--m-muted); }
+    .mini-abas { display:flex; gap:6px; margin-top:12px; }
+    .mini-abas button, .mini-tema { flex:1; padding:8px 6px; font-size:12px; font-weight:700; font-family:inherit; border-radius:9px; border:1px solid var(--border); background:var(--bg2); color:var(--text-muted); cursor:pointer; }
+    .mini-abas button.on { border-color:var(--brand); color:var(--brand); background:var(--green-dim); }
+    .mini-tema { flex:0 0 40px; }
+    .mini-aviso { font-size:11.5px; line-height:1.45; color:var(--text-muted); margin-top:10px; }
+    .mini-aviso.alerta { color:#f59e0b; font-weight:600; }
     .linha-link:hover { background: rgba(127,255,0,.07); }
     .linha-link:hover > div > div:first-child { color: var(--brand); }
   </style>
@@ -1039,13 +1139,19 @@ function renderEditor() {
   const alunoAtual = atletas.find(a => Number(a.idatleta) === Number(editorState.atletaId));
   const exsDaTab = editorState.exercicios.filter(e => (e.divisao||'A') === editorState.tabAtiva && !e._placeholder);
 
+  const modo = _edModo();
+  const _miniEl = document.getElementById('mini-tela');
+  const _miniTopo = _miniEl ? _miniEl.scrollTop : 0;
   main.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:16px;max-width:900px;margin:0 auto;">
-      <div style="display:flex;align-items:center;gap:12px;">
+    <div class="ed-wrap ed-${modo}">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <button class="btn btn-secondary btn-sm" onclick="voltarLista()">← Voltar</button>
         <h1 style="font-size:20px;font-weight:800;color:var(--text);margin:0;">🏋️ Treino</h1>
         <span style="font-size:12px;color:var(--text-muted);">${readOnly ? 'visualizar' : (isEdit ? 'modificar' : 'novo')}</span>
+        ${_edModosHtml(modo)}
       </div>
+      <div class="ed-cols"><div class="ed-main">
+      <div class="ed-top">
 
       <!-- NOME DO TREINO -->
       <div class="card" style="padding:18px;">
@@ -1091,6 +1197,8 @@ function renderEditor() {
         </div>
       </div>
 
+      </div>
+
       <!-- DIVISÕES (tabs logo abaixo do cliente) -->
       <div class="card" style="padding:14px 18px;overflow:visible;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -1099,7 +1207,7 @@ function renderEditor() {
               const count = editorState.exercicios.filter(e => (e.divisao||'A') === d && !e._placeholder).length;
               const divName = editorState.divNomes && editorState.divNomes[d] ? editorState.divNomes[d] : 'Divisão ' + d;
               const isActive = d === editorState.tabAtiva;
-              const dragAttrs = readOnly ? '' : `draggable="true" ondragstart="_divDragStart(event,'${d}')" ondragover="_divDragOver(event)" ondrop="_divDrop(event,'${d}')" ondragend="_divDragEnd(event)"`;
+              const dragAttrs = readOnly ? '' : `draggable="true" ondragstart="_divDragStart(event,'${d}')" ondragover="_divDragOver(event)" ondrop="_divDrop(event,'${d}')" ondragend="_divDragEnd(event)" ondragleave="this.classList.remove('dnd-sobre')"`;
               return `<button class="tab-btn${isActive?' active':''}" ${dragAttrs} onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')" title="${readOnly ? '' : 'Arraste para reordenar'}">${!readOnly ? '<span style="opacity:.45;cursor:grab;">⠿</span> ' : ''}${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
             }).join('')}
           </div>
@@ -1144,8 +1252,13 @@ function renderEditor() {
         <button class="btn btn-secondary" onclick="voltarLista()">${readOnly ? '← Voltar' : 'Cancelar'}</button>
         ${!readOnly && (hasPerm('tr_editar') || !isEdit) ? `<button class="btn btn-primary" onclick="salvarFichaCompleta()">💾 Salvar</button>` : ''}
       </div>
+      </div>${modo === 'celular' ? `<aside class="ed-side">${miniHtml()}</aside>` : ''}</div>
     </div>
   `;
+  if (modo === 'celular') {
+    const m = document.getElementById('mini-tela');
+    if (m) m.scrollTop = _miniTopo;
+  }
 
   if (!readOnly) {
     document.getElementById('ed-nome').addEventListener('input', e => { editorState.nome = e.target.value; });
@@ -1165,8 +1278,9 @@ function renderAlongSection() {
   let html = '<div style="margin-bottom:12px;">';
   alongsDaTab.forEach((al, idx) => {
     html += `
-      <div class="along-card">
+      <div class="along-card" data-dnd="al" data-i="${idx}"${ro ? '' : ` ondragover="dndSobre(event,'al',${idx})" ondrop="dndSolto(event,'al',${idx})"`}>
         <div class="along-header">
+          ${ro ? '' : `<span class="dnd-alca" draggable="true" title="Arraste para mudar a posição" ondragstart="dndInicio(event,'al',${idx})" ondragend="dndFim()" style="height:28px;">⠿</span>`}
           <span style="font-size:12px;color:var(--text-muted);font-weight:700;min-width:20px;">${idx+1}.</span>
           ${ro ? `<input type="text" class="along-combo-input" value="${esc(al.nome || al.nmalong || '')}" disabled style="flex:1;"/>` : `
           <div class="along-combo-wrap" style="flex:1;" id="along-combo-wrap-${idx}">
@@ -1252,6 +1366,7 @@ function setupAllAlongCombos() {
         input.value = editorState.alongamentos[realIdx].nome;
       }
       list.classList.remove('open');
+      _miniAgendar();
     }
 
     input.addEventListener('focus', () => { busca = ''; activeIdx2 = -1; list.classList.add('open'); renderL(); });
@@ -1374,9 +1489,12 @@ function renderExCard(ex, idx, total) {
     '</select>';
   }
 
+  const dnd = ro ? '' : ` ondragover="dndSobre(event,'ex',${idx})" ondrop="dndSolto(event,'ex',${idx})"`;
   return `
-    <div class="ex-card">
+    <div class="ex-card" data-dnd="ex" data-i="${idx}"${dnd}>
       <div class="ex-header">
+        ${ro ? '' : `<span class="dnd-alca" draggable="true" title="Arraste para mudar a posição" ondragstart="dndInicio(event,'ex',${idx})" ondragend="dndFim()">⠿</span>`}
+        <span class="ex-num">${idx + 1}</span>
         <div class="form-group" style="flex:1;margin:0;min-width:200px;position:relative;">
           <label class="label">Exercício</label>
           ${ro ? `<input type="text" class="input" value="${esc(ex.nmexercicio || ex.nome || '')}" disabled/>` : `
@@ -1571,9 +1689,10 @@ function _divDragStart(ev, d) {
   try { ev.dataTransfer.setData('text/plain', d); } catch (e) {}
   ev.currentTarget.style.opacity = '.4';
 }
-function _divDragOver(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; }
+function _divDragOver(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; if (_dnd && _dnd.tipo === 'ex') ev.currentTarget.classList.add('dnd-sobre'); }
 function _divDrop(ev, dAlvo) {
   ev.preventDefault();
+  if (_dnd && _dnd.tipo === 'ex') { _dndParaDivisao(dAlvo); return; }
   const origem = _dragDivLetra;
   if (!origem || origem === dAlvo) return;
   const divs = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
@@ -1859,6 +1978,7 @@ function setupAllExCombos() {
       }
       list.classList.remove('open');
       input.value = found ? found.nmexercicio : '';
+      _miniAgendar();
     }
 
     input.addEventListener('focus', () => { busca = ''; activeIdx2 = -1; list.classList.add('open'); renderL(); });
@@ -1941,6 +2061,278 @@ async function salvarNovoExercicio(realIdx) {
     renderEditor();
   } catch (e) { showToast(e.message || 'Erro ao cadastrar.', 'error'); }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// ARRASTAR PARA REORDENAR (exercícios e alongamentos)
+// ═══════════════════════════════════════════════════════════════
+// Só a alça ⠿ é arrastável: assim os campos de texto, os selects e as caixas de
+// série continuam selecionáveis com o mouse. A posição nova vale para a divisão
+// aberta; os itens das outras divisões ficam exatamente onde estavam no vetor.
+// Soltar o exercício sobre a aba de outra divisão leva o exercício para o fim dela.
+let _dnd = null; // { tipo: 'ex' | 'al', de: índice dentro da divisão }
+function _dndLimpar() {
+  document.querySelectorAll('.dnd-antes, .dnd-depois, .dnd-arrastando').forEach(el => el.classList.remove('dnd-antes', 'dnd-depois', 'dnd-arrastando'));
+  document.querySelectorAll('.tab-btn.dnd-sobre').forEach(el => el.classList.remove('dnd-sobre'));
+}
+function dndInicio(ev, tipo, i) {
+  _dnd = { tipo, de: i };
+  const card = ev.currentTarget.closest('[data-dnd]');
+  ev.dataTransfer.effectAllowed = 'move';
+  try { ev.dataTransfer.setData('text/plain', tipo + ':' + i); } catch (e) {}
+  if (card && ev.dataTransfer.setDragImage) ev.dataTransfer.setDragImage(card, 22, 22);
+  if (card) setTimeout(() => card.classList.add('dnd-arrastando'), 0);
+}
+function dndSobre(ev, tipo, i) {
+  if (!_dnd || _dnd.tipo !== tipo) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  const card = ev.currentTarget;
+  const r = card.getBoundingClientRect();
+  const depois = ev.clientY > r.top + r.height / 2;
+  document.querySelectorAll('.dnd-antes, .dnd-depois').forEach(el => { if (el !== card) el.classList.remove('dnd-antes', 'dnd-depois'); });
+  card.classList.toggle('dnd-antes', !depois);
+  card.classList.toggle('dnd-depois', depois);
+}
+function dndSolto(ev, tipo, i) {
+  if (!_dnd || _dnd.tipo !== tipo) return;
+  ev.preventDefault();
+  const r = ev.currentTarget.getBoundingClientRect();
+  const depois = ev.clientY > r.top + r.height / 2;
+  let para = depois ? i + 1 : i;
+  const de = _dnd.de;
+  if (de < para) para--;
+  _dnd = null;
+  _dndLimpar();
+  _dndReordenar(tipo, de, para);
+}
+function dndFim() { _dnd = null; _dndLimpar(); }
+function _dndReordenar(tipo, de, para) {
+  const ehEx = tipo === 'ex';
+  const lista = ehEx ? editorState.exercicios : editorState.alongamentos;
+  const daDivisao = x => (x.divisao || 'A') === editorState.tabAtiva && !(ehEx && x._placeholder);
+  const itens = lista.filter(daDivisao);
+  if (de < 0 || de >= itens.length || para < 0 || para >= itens.length || de === para) return;
+  const [m] = itens.splice(de, 1);
+  itens.splice(para, 0, m);
+  let k = 0;
+  for (let j = 0; j < lista.length; j++) if (daDivisao(lista[j])) lista[j] = itens[k++];
+  if (ehEx) editorState.miniAtivo = para; else editorState.miniAlong = para;
+  renderEditor();
+}
+// exercício arrastado até a aba de outra divisão
+function _dndParaDivisao(dAlvo) {
+  if (!_dnd || _dnd.tipo !== 'ex' || dAlvo === editorState.tabAtiva) return false;
+  const itens = editorState.exercicios.filter(e => (e.divisao || 'A') === editorState.tabAtiva && !e._placeholder);
+  const ex = itens[_dnd.de];
+  _dnd = null; _dndLimpar();
+  if (!ex) return true;
+  const real = editorState.exercicios.indexOf(ex);
+  editorState.exercicios.splice(real, 1);
+  ex.divisao = dAlvo;
+  editorState.exercicios.push(ex);
+  showToast('Exercício movido para ' + ((editorState.divNomes && editorState.divNomes[dAlvo]) || 'Divisão ' + dAlvo) + '.');
+  renderEditor();
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MODO DO EDITOR E MINIATURA DO CELULAR DO ALUNO
+// ═══════════════════════════════════════════════════════════════
+function _edModo() {
+  let m = null;
+  try { m = localStorage.getItem('intus-ed-modo'); } catch (e) {}
+  if (m !== 'normal' && m !== 'ampla' && m !== 'celular') m = window.innerWidth >= 1280 ? 'celular' : 'normal';
+  return m;
+}
+function edModo(m) {
+  try { localStorage.setItem('intus-ed-modo', m); } catch (e) {}
+  renderEditor();
+}
+function _edModosHtml(modo) {
+  const b = (m, rot, tit) => `<button type="button" class="${modo === m ? 'on' : ''}" title="${tit}" onclick="edModo('${m}')">${rot}</button>`;
+  return `<div class="ed-modos">${b('normal', 'Normal', 'Ficha estreita, uma coluna')}${b('ampla', 'Ampla', 'Usa a largura toda da tela')}${b('celular', 'Ampla + celular', 'Ficha larga com a miniatura do que o aluno vê no celular')}</div>`;
+}
+
+// Mesmos textos e cores do app do aluno (TECNICA_INFO em aluno.html).
+const MINI_TEC = {
+  drop:      { nome: 'Drop set',        cor: '#e11d48', txt: 'Ao falhar, tire peso na hora e continue sem descanso. Repita até não sair mais.' },
+  restpause: { nome: 'Rest-pause',      cor: '#c2410c', txt: 'Ao falhar, descanse de 10 a 15 segundos e volte com a mesma carga. Repita 2 ou 3 vezes.' },
+  cluster:   { nome: 'Cluster',         cor: '#7c3aed', txt: 'Faça poucas repetições, pare de 10 a 20 segundos e siga, até completar o total.' },
+  backoff:   { nome: 'Back-off',        cor: '#0891b2', txt: 'Reduza a carga em relação às séries anteriores e faça mais repetições.' },
+  falha:     { nome: 'Até a falha',     cor: '#b45309', txt: 'Vá até não conseguir mais uma repetição com técnica correta.' },
+  isometria: { nome: 'Isometria final', cor: '#4f46e5', txt: 'Na última repetição, segure a posição parado pelo tempo que aguentar.' },
+  negativa:  { nome: 'Negativa lenta',  cor: '#0d9488', txt: 'Desça o peso bem devagar, de 4 a 6 segundos em cada repetição.' },
+};
+const MINI_METODO = {
+  super:    ['⚡ Super Série', 'Dinâmica: Faça 1 série de cada exercício, depois descanse e repita.'],
+  triset:   ['🔥 Triset', 'Dinâmica: Faça 1 série de cada exercício (3), depois descanse e repita.'],
+  circuito: ['🔄 Circuito', 'Dinâmica: Complete 1 série de cada exercício em sequência, descanse e repita.'],
+};
+
+// O aluno recebe a ficha como o servidor guarda (repetições e intervalo viram texto
+// "a/b/c"); a miniatura repete a leitura que o aluno.html faz ao iniciar o treino.
+function _miniExercicios() {
+  return editorState.exercicios.filter(e => (e.divisao || 'A') === editorState.tabAtiva && !e._placeholder && (e.idexercicio || (e.nmexercicio || '').trim()));
+}
+function _miniNome(ex) {
+  const c = exercicios.find(e => Number(e.idexercicio) === Number(ex.idexercicio));
+  return (c && c.nmexercicio) || ex.nmexercicio || 'Exercício';
+}
+function _miniSeries(ex) {
+  const n = Math.max(1, parseInt(ex.qtdserie) || 3);
+  const repStr = String(ex.repeticoes || ex.qtdrepeticao || '12');
+  const perSerie = repStr.includes('/') ? repStr.split('/').map(s => s.trim()) : null;
+  const intStr = String(ex.intervalo || (ex.tempopausa ? formatSeg(ex.tempopausa) : '01:00'));
+  const perInt = intStr.includes('/') ? intStr.split('/').map(s => s.trim()) : null;
+  const tec = Array.isArray(ex.tecnicas_por_serie) ? ex.tecnicas_por_serie : [];
+  return Array.from({ length: n }, (_, i) => ({
+    alvo: perSerie ? (perSerie[i] || perSerie[perSerie.length - 1]) : repStr,
+    intervalo: perInt ? (perInt[i] || perInt[perInt.length - 1]) : intStr,
+    tecnica: tec[i] || '',
+  }));
+}
+function _miniLinhaEx(ex, i, aberto) {
+  const series = _miniSeries(ex);
+  let det = '';
+  if (aberto) {
+    const tut = ex.tut || '';
+    const reps = esc(ex.repeticoes || ex.qtdrepeticao || '12');
+    det = `<div class="mi-det">
+      <div class="mi-grade"><div class="rot">Séries</div><div class="rot">Carga</div><div class="rot">Intervalo</div>
+        <div>Séries: 1 de ${series.length}</div><div>—</div><div>${esc(series[0].intervalo)}</div></div>
+      <div class="mi-grade c2"><div class="rot">Rep.</div><div class="rot">T.U.T(e.t.c.t)</div><div>${reps}</div><div>${tut ? esc(tut) : '—'}</div></div>
+      ${ex.observacao ? `<div class="mi-obs">💡 ${esc(ex.observacao)}</div>` : ''}
+      <div class="mi-hist">📈 Ver histórico deste exercício</div>
+      <div style="margin-top:10px;">${series.map((s, k) => {
+        const t = s.tecnica ? MINI_TEC[s.tecnica] : null;
+        const tec = t ? `<div class="mi-tec" style="background:${t.cor}1f;border:1px solid ${t.cor}59;"><b style="color:${t.cor};">${esc(t.nome)}</b><span>${esc(t.txt)}</span><b style="color:${t.cor};">?</b></div>` : '';
+        return `<div class="mi-serie${k === 0 ? ' atual' : ''}">${tec}
+          <div class="mi-cel"><div class="mi-s">S${k + 1}</div><div class="mi-alvo${String(s.alvo).length > 4 ? ' longo' : ''}">${esc(s.alvo)}</div><div class="mi-un">reps</div></div>
+          <div class="mi-campo">kg</div><div class="mi-campo">${esc(s.alvo)}</div><div class="mi-ok">⬜</div></div>`;
+      }).join('')}</div>
+    </div>`;
+  }
+  return `<div class="mi-row${aberto ? ' ativo' : ''}" data-mi="${i}" onclick="miniAbrir(${i})">
+      <div class="mi-num">${i + 1}</div>
+      <div class="mi-nome">${esc(_miniNome(ex))}${ex.unilateral ? '<span class="mi-uni">UNI</span>' : ''}</div>
+      <div class="mi-btn">⇄</div><div class="mi-btn">?</div>
+    </div>${det}`;
+}
+function _miniMusculacao() {
+  const exs = _miniExercicios();
+  if (!exs.length) return '<div class="mi-vazio">Nenhum exercício nesta divisão ainda.</div>';
+  let ativo = editorState.miniAtivo == null ? 0 : editorState.miniAtivo;
+  if (ativo >= exs.length) ativo = exs.length - 1;
+  let html = '<div class="mi-lista-tit">📋 LISTA DE EXERCÍCIOS</div><div class="mi-dica">Clique sobre o exercício para mais detalhes.</div>';
+  const tam = { super: 2, triset: 3 };
+  let i = 0;
+  while (i < exs.length) {
+    const metodo = exs[i].metodo || '';
+    if (metodo && MINI_METODO[metodo]) {
+      let fim = i + 1;
+      while (fim < exs.length && exs[fim].metodo === metodo) fim++;
+      const t = tam[metodo] || (fim - i);
+      for (let ini = i; ini < fim; ini += t) {
+        const f = Math.min(ini + t, fim);
+        if (f - ini === 1) { html += _miniLinhaEx(exs[ini], ini, ini === ativo); continue; }
+        html += `<div class="mi-grupo ${metodo}"><div class="mi-gl">${MINI_METODO[metodo][0]}</div><div class="mi-gd">${MINI_METODO[metodo][1]}</div>`;
+        for (let g = ini; g < f; g++) html += _miniLinhaEx(exs[g], g, g === ativo);
+        html += '</div>';
+      }
+      i = fim;
+    } else { html += _miniLinhaEx(exs[i], i, i === ativo); i++; }
+  }
+  return html + '<div class="mi-iniciar" style="background:linear-gradient(135deg,#7FFF00,#5fd000);margin-top:26px;">✅ Finalizar Treino</div>';
+}
+function _miniAlongamentos() {
+  const als = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva);
+  const nomeDiv = (editorState.divNomes && editorState.divNomes[editorState.tabAtiva]) || 'Divisão ' + editorState.tabAtiva;
+  if (!als.length) return '<div class="mi-vazio">Nenhum alongamento nesta divisão. O aluno vai direto para a musculação.</div>';
+  const ativo = editorState.miniAlong == null ? -1 : editorState.miniAlong;
+  return `<div class="mi-lista-tit" style="text-transform:none;font-size:15px;color:var(--m-txt);letter-spacing:0;">🧘 Alongamentos · ${esc(nomeDiv)}</div>
+    <div class="mi-dica" style="margin-top:0;">Realize antes de iniciar a musculação.</div>` +
+    als.map((al, i) => {
+      const s = parseInt(al.series) || 1;
+      return `<div class="mi-along${i === ativo ? ' ativo' : ''}" data-mi="${i}"><div class="mi-an">${i + 1}</div>
+        <div class="mi-ab"><div class="mi-at">${esc(al.nome || al.nmalongamento || 'Alongamento')}</div>
+          <div class="mi-am"><span>⏱ ${esc(String(al.tempo || '30s'))}</span><span>🔁 ${s} série${s > 1 ? 's' : ''}</span>${al.obs ? `<span>💬 ${esc(al.obs)}</span>` : ''}</div></div>
+        <div class="mi-ai">Ver explicação</div></div>`;
+    }).join('') + '<div class="mi-iniciar">🔥 Iniciar Musculação</div>';
+}
+function _miniTelaInterna() {
+  const nomeDiv = (editorState.divNomes && editorState.divNomes[editorState.tabAtiva]) || 'Divisão ' + editorState.tabAtiva;
+  const aba = editorState.miniAba === 'along' ? 'along' : 'muscu';
+  return `<div class="mi-barra"><span class="mi-volta">← Voltar</span><span class="mi-tit">${esc(nomeDiv)}</span><span class="mi-cron">00:00</span></div>
+    <div class="mi-corpo">${aba === 'along' ? _miniAlongamentos() : _miniMusculacao()}</div>`;
+}
+function _miniClasse() {
+  let t = 'escuro';
+  try { t = localStorage.getItem('intus-ed-mini-tema') === 'claro' ? 'claro' : 'escuro'; } catch (e) {}
+  return t === 'claro' ? 'mini-app claro' : 'mini-app';
+}
+function miniHtml() {
+  const nAl = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva).length;
+  const nEx = _miniExercicios().length;
+  const aba = editorState.miniAba === 'along' ? 'along' : 'muscu';
+  const aviso = editorState.ativo ? '' : '<div class="mini-aviso alerta">⚠ Esta ficha está Inativa: o aluno só vê depois que você marcar Ativo.</div>';
+  return `<div class="mini-aparelho"><div class="mini-moldura"><div class="${_miniClasse()}" id="mini-tela">${_miniTelaInterna()}</div></div></div>
+    <div class="mini-abas">
+      <button type="button" class="${aba === 'along' ? 'on' : ''}" onclick="miniAba('along')">🧘 Alongamentos (${nAl})</button>
+      <button type="button" class="${aba === 'muscu' ? 'on' : ''}" onclick="miniAba('muscu')">🏋️ Exercícios (${nEx})</button>
+      <button type="button" class="mini-tema" title="Tema claro ou escuro do app" onclick="miniTema()">🌓</button>
+    </div>
+    ${aviso}
+    <div class="mini-aviso">Miniatura do que o aluno vê no celular, ao vivo, com a divisão aberta. Toque num exercício dela, ou clique num campo da ficha, para ver os detalhes.</div>`;
+}
+let _miniTimer = null;
+function _miniAtualizar(rolar) {
+  const el = document.getElementById('mini-tela');
+  if (!el) return;
+  const topo = el.scrollTop;
+  el.className = _miniClasse();
+  el.innerHTML = _miniTelaInterna();
+  el.scrollTop = topo;
+  const abas = document.querySelectorAll('.mini-abas button:not(.mini-tema)');
+  if (abas.length === 2) {
+    const along = editorState.miniAba === 'along';
+    abas[0].classList.toggle('on', along); abas[1].classList.toggle('on', !along);
+    const nAl = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva).length;
+    abas[0].textContent = '🧘 Alongamentos (' + nAl + ')';
+    abas[1].textContent = '🏋️ Exercícios (' + _miniExercicios().length + ')';
+  }
+  if (rolar) {
+    const alvo = el.querySelector(editorState.miniAba === 'along' ? '.mi-along.ativo' : '.mi-row.ativo');
+    if (alvo) el.scrollTop = Math.max(0, alvo.offsetTop - 56);
+  }
+}
+function _miniAgendar() {
+  clearTimeout(_miniTimer);
+  _miniTimer = setTimeout(() => _miniAtualizar(false), 140);
+}
+function miniAba(a) { editorState.miniAba = a; _miniAtualizar(false); }
+function miniAbrir(i) { editorState.miniAtivo = editorState.miniAtivo === i ? -1 : i; _miniAtualizar(false); }
+function miniTema() {
+  let t = 'escuro';
+  try { t = localStorage.getItem('intus-ed-mini-tema') === 'claro' ? 'claro' : 'escuro'; localStorage.setItem('intus-ed-mini-tema', t === 'claro' ? 'escuro' : 'claro'); } catch (e) {}
+  _miniAtualizar(false);
+}
+// A miniatura acompanha tudo o que se digita ou escolhe na ficha, e mostra o item em foco.
+(function ligarMiniatura() {
+  const alvo = document.getElementById('main-content');
+  if (!alvo || alvo.__miniLigada) return;
+  alvo.__miniLigada = true;
+  alvo.addEventListener('input', () => { if (document.getElementById('mini-tela')) _miniAgendar(); });
+  alvo.addEventListener('change', () => { if (document.getElementById('mini-tela')) _miniAgendar(); });
+  alvo.addEventListener('focusin', ev => {
+    if (!document.getElementById('mini-tela') || !ev.target.closest) return;
+    const c = ev.target.closest('[data-dnd]');
+    if (!c) return;
+    const i = parseInt(c.dataset.i);
+    if (c.dataset.dnd === 'ex') { editorState.miniAba = 'muscu'; editorState.miniAtivo = i; }
+    else { editorState.miniAba = 'along'; editorState.miniAlong = i; }
+    _miniAtualizar(true);
+  });
+})();
 
 // ═══════════════════════════════════════════════════════════════
 // ADICIONAR / REMOVER / REORDENAR EXERCÍCIOS

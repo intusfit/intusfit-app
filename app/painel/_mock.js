@@ -1021,6 +1021,25 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
     .stat-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
     .stat-value { font-size: 22px; font-weight: 700; color: #fff; line-height: 1.2; }
 
+    /* ── PROFUNDIDADE DAS CAIXAS (27/10/2026) ─────────────────────────────────
+       Mesmo sistema do app do aluno: sombra suave nos dois temas e, no escuro, contorno mais realçado
+       (o tom do cartão não muda). No claro, só a sombra: as regras body.theme-light de cada tela
+       mandam na cor da borda. A regra tem especificidade 0,2,0 (.app-shell duplicado + :where()): vence
+       a regra base de cada tela (que carrega depois deste arquivo), mas hover/estado ativo continuam valendo. Escopo .app-shell: o
+       aluno.html também carrega este arquivo e tem o sistema dele. */
+    :root { --borda-forte: #444; --prof-painel: 0 1px 0 rgba(255,255,255,.10) inset, 0 0 0 1px rgba(255,255,255,.04), 0 6px 18px -4px rgba(255,255,255,.09), 0 2px 5px rgba(0,0,0,.6); }
+    body.theme-light { --borda-forte: #d2d2d2; --prof-painel: 0 1px 0 rgba(255,255,255,.9) inset, 0 1px 2px rgba(0,0,0,.10), 0 5px 14px -3px rgba(0,0,0,.14); }
+    .app-shell.app-shell :where(.card, .stat-card, .av-card, .dash-tile, .feed-card, .cp-card, .cp-et, .cfg-card, .d-card, .stat-mini, .ex-mod,
+      .fd-card, .freq-stat, .cal-stat, .cal-card, .cal-side-card, .freq-athlete-card, .overview-tile, .fin-card, .ntf-card, .nt-kpi,
+      .plano-card, .ft-card, .pf-topo, .pf-sec, .prof-card, .rs-card, .pv-card, .tf-kpi, .tf-card, .ficha-card, .fc-cp, .fc-mini,
+      .fc-tab, .ex-card, .along-card, .section-header, .rs-form, .toggle-row, .calc-card, .pv-meal, .refeicao-block, .ref-editor,
+      .perm-grupo, .pv-hero, .micro-panel, .ix-painel) { box-shadow: var(--prof-painel); }
+    :where(body:not(.theme-light)) .app-shell.app-shell :where(.card, .stat-card, .av-card, .dash-tile, .feed-card, .cp-card, .cp-et, .cfg-card, .d-card,
+      .stat-mini, .ex-mod, .fd-card, .freq-stat, .cal-stat, .cal-card, .cal-side-card, .freq-athlete-card, .overview-tile, .fin-card,
+      .ntf-card, .nt-kpi, .plano-card, .ft-card, .pf-topo, .pf-sec, .prof-card, .rs-card, .pv-card, .tf-kpi, .tf-card, .ficha-card,
+      .fc-cp, .fc-mini, .fc-tab, .ex-card, .along-card, .section-header, .rs-form, .toggle-row, .calc-card, .pv-meal, .refeicao-block,
+      .ref-editor, .perm-grupo, .pv-hero, .micro-panel, .ix-painel) { border-color: var(--borda-forte); }
+
     /* ── GRID 2 COLS ── */
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
     @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
