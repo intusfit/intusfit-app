@@ -195,7 +195,7 @@ troca_funcao('abrir', r"""async function abrir(id){
   var M = midiaDe('');
   if (M.v.readyState >= 1 && !P.midia.duracao) P.midia.duracao = M.v.duration;
   else M.v.addEventListener('loadedmetadata', function f(){ M.v.removeEventListener('loadedmetadata', f); if (P && !P.midia.duracao && isFinite(M.v.duration)) P.midia.duracao = M.v.duration; desenhaTimeline(); irPara(T); });
-  recalc(); nomesSelect(); histAbrir(); desenhaTimeline(); mostraAba(); faixaIA(); irPara(0); try { localStorage.setItem('intuscut-ultimo', id); } catch (e) {}
+  recalc(); nomesSelect(); histAbrir(); desenhaTimeline(); mostraAba(); faixaIA(); irPara(0); garanteFontes(); try { localStorage.setItem('intuscut-ultimo', id); } catch (e) {}
 }""")
 troca_funcao('salvar', r"""var salvando = null, salvarDeNovo = false;
 function salvar(){
