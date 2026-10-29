@@ -8711,6 +8711,18 @@ function selecionarTreino(idficha, divisao) {
     if (!confirm('Você já tem o treino "' + (sessaoAtual.nomeFicha || 'Divisão ' + sessaoAtual.divisao) + '" em andamento. Trocar agora reinicia o cronômetro dele. Continuar mesmo assim?')) {
       return;
     }
+  } else {
+    // O app foi reaberto (o iPhone descarta a página em segundo plano): o treino em andamento só existe no aparelho
+    // (intus-treino-ativo), não na memória. Sem esta checagem, escolher o treino na lista abria uma sessão nova, zerava
+    // o relógio, apagava as séries já marcadas e sobrescrevia o que estava guardado (treino de 1h14 terminou com 0:36).
+    const salvo = carregarTreinoAtivo();
+    if (salvo && _temProgressoTreino(salvo)) {
+      if (Number(salvo.sessao.idficha) === Number(idficha) && salvo.sessao.divisao === divisao) {
+        if (retomarTreinoAtivo(false)) return;
+      } else if (!confirm('Você já tem o treino "' + (salvo.sessao.nomeFicha || 'Divisão ' + salvo.sessao.divisao) + '" em andamento. Trocar agora apaga o progresso e reinicia o cronômetro dele. Continuar mesmo assim?')) {
+        return;
+      }
+    }
   }
   const fichas = carregarFicha();
   const ficha = fichas.find(f => Number(f.idficha) === Number(idficha));
@@ -23967,7 +23979,8 @@ function mostrarDicaTema() {
   mostrarDicaTema();
   _criarBannerTreino();
   retomarTreinoAtivo(true); // só entra direto no treino se houver progresso recente
-  _enviarPendente(false);   // treino finalizado que não chegou ao servidor da última vez
+  atualizarBannerTreino(window._viewAtual || 'home'); // passou do prazo da retomada automática: o aviso "treino em andamento" tem de aparecer na Início
+  _enviarPendente(false);  // treino finalizado que não chegou ao servidor da última vez
   _cardioEnviarFila(false); // idem para os cardios
   if (_abriuRapido) _syncP.then(function () {
     try { if (window._viewAtual === 'home' && !treinoTimer) { renderHome(); atualizarBadgeMensagens(); } } catch (e) {}
