@@ -24,7 +24,7 @@ def troca_funcao(nome, novo_txt):
 
 # ---------- constantes ----------
 rep("var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c' };", "var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c', camada:'#6b3f8f' };")
-rep("imagem:'Imagem', geral:'Imagem e fundo' };", "imagem:'Imagem', geral:'Imagem e fundo', camada:'Sobreposição' };")
+rep("geral:'Imagem e fundo', final:'Cartão final' };", "geral:'Imagem e fundo', final:'Cartão final', camada:'Sobreposição' };")
 js = js.replace("url:'lib/logo-", "url:'/app/painel/logo-")
 rep("var db = null, assets = null, downloads = null, sampleNs = null;", "var assets = true;")
 
@@ -154,8 +154,8 @@ troca_funcao('apagarBib', r"""function apagarBib(x){
 }
 function tirarBib(x, apagar){ api('bib_excluir', { id:x.id, apagar_arquivo:!!apagar }).then(function(){ delete BIB[x.id]; mostraAba(); estado('Tirado da biblioteca', 'ok'); }).catch(function(e){ dialogo('Não consegui tirar', e.message || '', [['Ok', fecha]]); }); }""")
 troca_funcao('escolherArquivo', r"""function escolherArquivo(accept, pronto){
-  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept;
-  inp.onchange = async function(){ var f = inp.files[0]; if (!f) return; var nome = f.name.replace(/\.[^.]+$/, '');
+  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept; inp.style.display = 'none'; document.body.appendChild(inp);
+  inp.onchange = async function(){ var f = inp.files[0]; setTimeout(function(){ inp.remove(); }, 0); if (!f) return; var nome = f.name.replace(/\.[^.]+$/, '');
     try {
       if (/^image\//.test(f.type)){ estado('Enviando ' + f.name + '...'); var im = await reduzirImagem(f), r = await api('imagem', { dataurl:im.dataurl, nome:nome }); estado('Enviado', 'ok'); pronto({ url:r.url, token:'' }, nome, { w:r.w, h:r.h }); return; }
       if (f.size > (LIMITES.video_bytes || 2147483648)){ dialogo('Arquivo grande demais', 'O limite é ' + Math.round((LIMITES.video_bytes || 2147483648) / 1073741824) + ' GB por vídeo.', [['Ok', fecha]]); return; }
@@ -173,7 +173,7 @@ rep("  if (!sampleNs) C.appendChild(el('p', 'nota-ajuda', 'A IA não está dispo
     "  C.appendChild(el('p', 'nota-ajuda', 'Usa o Claude da Intus (a mesma chave da Central de atendimento). Até ' + (LIMITES.ia_dia || 40) + ' montagens por dia; hoje: ' + (LIMITES.ia_hoje || 0) + '.'));")
 rep("  if (!sampleNs || iaJob) return;", "  if (iaJob) return;")
 rep("""    var r = await sampleNs.json(prompt, { signal:iaJob.ctrl.signal, cache:false, modelTier:'complex', onText:function(u){ if (iaJob) iaJob.chars = (u.text || '').length; } });""",
-    """    var rr = await api('ia', { pedido:prompt }); if (!iaJob) return; LIMITES.ia_hoje = (LIMITES.ia_hoje || 0) + 1; var r = rr.resposta;""")
+    """    var rr = await api('ia', { pedido:prompt, imagens:Q.imagens }); if (!iaJob) return; LIMITES.ia_hoje = (LIMITES.ia_hoje || 0) + 1; var r = rr.resposta;""")
 rep("""    var msg = { cancelled:'Cancelado.', not_granted:'A página não tem permissão para usar o Claude. Abra no claude.ai e permita.', rate_limited:'Muitos pedidos agora. Espere um pouco e tente de novo.', invalid_json:'A IA respondeu num formato que não deu para ler. Tente de novo, talvez com orientações mais curtas.', prompt_too_large:'Os vídeos têm fala demais para um pedido só. Deixe menos vídeos na linha do tempo.' }[e && e.code] || ('A IA não conseguiu montar agora (' + ((e && e.code) || 'erro') + ').');
     if (!(e && e.code === 'cancelled')) dialogo('Edição automática não concluída', msg, [['Ok', fecha]]); else estado(msg);""",
 """    if (e && e.code === 'sem_acesso') return;

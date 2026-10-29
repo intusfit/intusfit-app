@@ -94,6 +94,20 @@ $n = 0; $http400 = function ($c, $k, $fb) use (&$n) { $n++; return $fb ? ['statu
 eq('repete sem o fallback quando a API recusa', cut_ia($pdo, 'x', $http400)['ok'] && $n === 2, true);
 eq('resposta que não é JSON', cut_ia($pdo, 'x', fn() => ['status' => 200, 'json' => ['content' => [['type' => 'text', 'text' => 'oi']]]])['ok'], false);
 eq('chave recusada', cut_ia($pdo, 'x', fn() => ['status' => 401, 'json' => []])['erro'], 'A chave do Claude foi recusada.');
+echo "\n══ IA com quadros do vídeo ══\n";
+$jpg = 'data:image/jpeg;base64,' . base64_encode("\xFF\xD8\xFF" . str_repeat('a', 300));
+$png = 'data:image/png;base64,' . base64_encode("\x89PNG" . str_repeat('b', 300));
+$falso = 'data:image/jpeg;base64,' . base64_encode('<?php echo 1; ?>' . str_repeat('c', 300));
+$ims = cut_ia_imagens([$jpg, $png, $falso, 'https://x/a.jpg', 123, 'data:image/svg+xml;base64,AAAA']);
+eq('aceita só JPEG e PNG de verdade', count($ims), 2);
+eq('formato da imagem para o Claude', $ims[0]['source']['media_type'] ?? null, 'image/jpeg');
+eq('no máximo ' . CUT_IA_QUADROS . ' quadros', count(cut_ia_imagens(array_fill(0, 40, $jpg))), CUT_IA_QUADROS);
+eq('lista que não é lista', cut_ia_imagens('x'), []);
+$chamadas = [];
+cut_ia($pdo, 'monte com imagens', $http, [$jpg, $png]);
+$cont = $chamadas[0]['messages'][0]['content'] ?? [];
+eq('o pedido leva as imagens antes do texto', [$cont[0]['type'] ?? '', $cont[1]['type'] ?? '', $cont[2]['type'] ?? ''], ['image', 'image', 'text']);
+eq('o texto do pedido vai junto', $cont[2]['text'] ?? '', 'monte com imagens');
 cut_gravar($pdo, 'cut_ia_uso', [gmdate('Y-m-d') => CUT_IA_DIA]);
 eq('limite do dia', cut_ia($pdo, 'x', $http)['ok'], false);
 
