@@ -186,10 +186,15 @@ function garanteFontes(){ if (!P) return Promise.resolve(); var ids = {}; JSON.s
 function selFonte(o, k, hist){ var s = sel(FONTES.map(function(f){ return [f[0], f[1]]; }), o[k] || 'inter');
   Array.prototype.forEach.call(s.options, function(op){ op.style.fontFamily = '"' + fonteDe(op.value)[2] + '"'; });
   s.onchange = function(){ o[k] = s.value; carregaFonte(s.value).then(function(){ recalc(); pinta(); }); pinta(); agendaSalvar(hist); }; return campo('Fonte', s); }
+// Contorno e sombra do texto que está sendo desenhado (cada elemento guarda os seus; null = como sempre foi).
+var ESTILO_ATUAL = null;
+function bordaDe(o, padrao){ return o && o.contorno != null && o.contorno !== '' ? +o.contorno : padrao; }
 function texto(c, t, x, y, tam, peso, cr, borda, alin){
-  c.font = fonteCss(tam, peso); c.textAlign = alin || 'left'; c.textBaseline = 'top';
-  if (borda){ c.lineJoin = 'round'; c.lineWidth = borda * 2; c.strokeStyle = '#000'; c.strokeText(t, x, y); }
-  c.fillStyle = cr; c.fillText(t, x, y); return c.measureText(t).width;
+  var E = ESTILO_ATUAL;
+  c.font = fonteCss(tam, peso); c.textAlign = alin || 'left'; c.textBaseline = 'top'; c.save();
+  if (E && E.sombra){ c.shadowColor = rgba(E.cor_sombra || '#000000', E.sombra_forca == null ? .7 : +E.sombra_forca); c.shadowBlur = E.sombra_desf == null ? 12 : +E.sombra_desf; c.shadowOffsetX = c.shadowOffsetY = E.sombra_dist == null ? 6 : +E.sombra_dist; }
+  if (borda){ c.lineJoin = 'round'; c.lineWidth = borda * 2; c.strokeStyle = (E && E.cor_contorno) || '#000'; c.strokeText(t, x, y); c.shadowColor = 'rgba(0,0,0,0)'; }
+  c.fillStyle = cr; c.fillText(t, x, y); c.restore(); return c.measureText(t).width;
 }
 function quebra(c, txt, tam, larg, porLinha, carLinha, peso){ c.font = fonteCss(tam, peso); var ls = [], at = '', n = 0;
   String(txt).split(/\s+/).filter(Boolean).forEach(function(p){ var t = (at + ' ' + p).trim();
@@ -241,7 +246,7 @@ function desenha(c, t, reg){
   desenhaTextos(c, t, reg);
   if (limpo) return;
   var Ar = lay('arrobas');
-  if (Ar.visivel && Ar.texto){ var faA = FONTE_ATUAL; FONTE_ATUAL = Ar.fonte || null; var tam = 36 * Ar.escala, w = texto(c, Ar.texto, Ar.x, Ar.y, tam, 700, Ar.cor, 0, 'center'); FONTE_ATUAL = faA; caixa(reg, 'arrobas', Ar.x - w / 2, Ar.y, w, tam * 1.2); }
+  if (Ar.visivel && Ar.texto){ var faA = FONTE_ATUAL; FONTE_ATUAL = Ar.fonte || null; ESTILO_ATUAL = Ar; var tam = 36 * Ar.escala, w = texto(c, Ar.texto, Ar.x, Ar.y, tam, 700, Ar.cor, bordaDe(Ar, 0), 'center'); FONTE_ATUAL = faA; ESTILO_ATUAL = null; caixa(reg, 'arrobas', Ar.x - w / 2, Ar.y, w, tam * 1.2); }
   var LG = lay('logo'), lo = logoAtual();
   if (LG.visivel && lo.complete && lo.naturalWidth){ var lh = LG.largura * lo.naturalHeight / lo.naturalWidth; c.drawImage(lo, LG.x - LG.largura / 2, LG.y, LG.largura, lh); caixa(reg, 'logo', LG.x - LG.largura / 2, LG.y, LG.largura, lh); }
   var B = lay('barra');
@@ -276,33 +281,33 @@ function desenhaImagens(c, t, reg){
   });
 }
 function desenhaGancho(c, grande, reg, J){
-  var g = grande ? lay('gancho_grande') : lay('gancho'), e = g.escala, fa = FONTE_ATUAL; FONTE_ATUAL = g.fonte || null;
+  var g = grande ? lay('gancho_grande') : lay('gancho'), e = g.escala, fa = FONTE_ATUAL; FONTE_ATUAL = g.fonte || null; ESTILO_ATUAL = g;
   var tam = (grande ? 92 : 58) * e, alt = tam * (g.entrelinha || (grande ? 1.13 : 1.17)), dest = (P.destaque || []).map(function(x){ return x.toLowerCase(); });
   var ls = quebraTudo(c, (P.gancho || '').toUpperCase(), tam, g.largura || W - 120, g.por_linha || 0, g.car_linha || 0), corD = g.cor || lay('gancho').cor, corT = g.cor_texto || COR.branco;
   var cxm = grande ? W / 2 + g.dx : g.x, y = grande ? J.y + 330 + g.dy - ls.length * alt / 2 : g.y - ls.length * alt / 2, y0 = y, wmax = 0;
   ls.forEach(function(ln){
     c.font = fonteCss(tam); var lw = c.measureText(ln).width, x = cxm - lw / 2; wmax = Math.max(wmax, lw);
     ln.split(' ').forEach(function(p){ var limpa = p.replace(/[.,?!:]/g, '').toLowerCase();
-      texto(c, p, x, y, tam, 800, dest.indexOf(limpa) >= 0 || dest.indexOf(p.toLowerCase()) >= 0 ? corD : corT, (grande ? 7 : 5) * e);
+      texto(c, p, x, y, tam, 800, dest.indexOf(limpa) >= 0 || dest.indexOf(p.toLowerCase()) >= 0 ? corD : corT, bordaDe(g, grande ? 7 : 5) * e);
       x += c.measureText(p + ' ').width; });
     y += alt;
   });
-  var lb = Math.max(wmax, Math.min(W, g.largura || wmax)); caixa(reg, grande ? 'gancho_grande' : 'gancho', cxm - lb / 2, y0, lb, y - y0, { redim:true }); FONTE_ATUAL = fa;
+  var lb = Math.max(wmax, Math.min(W, g.largura || wmax)); caixa(reg, grande ? 'gancho_grande' : 'gancho', cxm - lb / 2, y0, lb, y - y0, { redim:true }); FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaNotas(c, f, y, reg){
-  var N = lay('notas'), tam = 46 * N.escala, fa = FONTE_ATUAL; FONTE_ATUAL = N.fonte || null;
+  var N = lay('notas'), tam = 46 * N.escala, fa = FONTE_ATUAL; FONTE_ATUAL = N.fonte || null; ESTILO_ATUAL = N;
   (fonte(f.de).notas || []).forEach(function(n){ if (f.ts < n.ini || f.ts > n.fim) return;
     c.font = fonteCss(tam); var l = c.measureText(n.texto).width, x0 = W / 2 + N.dx - l / 2 - 28 * N.escala, yy = y + N.dy;
     pill(c, x0, yy, l + 56 * N.escala, 76 * N.escala, 38 * N.escala, '#0f0f0f');
-    texto(c, n.texto, W / 2 + N.dx, yy + 14 * N.escala, tam, 800, cor(n.cor), 0, 'center');
+    texto(c, n.texto, W / 2 + N.dx, yy + 14 * N.escala, tam, 800, cor(n.cor), bordaDe(N, 0), 'center');
     caixa(reg, 'notas', x0, yy, l + 56 * N.escala, 76 * N.escala); });
-  FONTE_ATUAL = fa;
+  FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaLegenda(c, t, y, reg){
   var gs = GRUPOS || [], gi = -1;
   for (var k = 0; k < gs.length; k++){ var g = gs[k], fim = k + 1 < gs.length ? gs[k + 1][0].ri - .05 : g[g.length - 1].rf + .4; if (t >= g[0].ri - .05 && t <= fim) gi = k; }
   if (gi < 0) return;
-  var est = P.estilo || {}, L = lay('legenda'), cores = (est.cores && est.cores.length ? est.cores : ['amarelo', 'verde']), tam = est.tamanho || 84, tg = Math.round(tam * (est.aumento || 1.1)), fa = FONTE_ATUAL; FONTE_ATUAL = est.fonte || null;
+  var est = P.estilo || {}, L = lay('legenda'), cores = (est.cores && est.cores.length ? est.cores : ['amarelo', 'verde']), tam = est.tamanho || 84, tg = Math.round(tam * (est.aumento || 1.1)), fa = FONTE_ATUAL; FONTE_ATUAL = est.fonte || null; ESTILO_ATUAL = L;
   var g = gs[gi], cr = cor(cores[gi % cores.length]), maius = est.maiusculas !== false, base = est.cor_base || COR.branco;
   var ps = g.map(function(w){ return maius ? w.p.toUpperCase() : w.p; }), ativa = 0;
   g.forEach(function(w, i){ if (w.ri <= t + .03) ativa = i; });
@@ -321,29 +326,29 @@ function desenhaLegenda(c, t, y, reg){
       c.font = fonteCss(tt); x += c.measureText(ps[i] + ' ').width; });
     y += lh;
   });
-  var lbl = Math.max(xmax - xmin, Math.min(W, LW)); caixa(reg, 'legenda', cxm - lbl / 2, y0 - 8, lbl, y - y0, { redim:true }); FONTE_ATUAL = fa;
+  var lbl = Math.max(xmax - xmin, Math.min(W, LW)); caixa(reg, 'legenda', cxm - lbl / 2, y0 - 8, lbl, y - y0, { redim:true }); FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaTextos(c, t, reg){
   var fa = FONTE_ATUAL;
-  (P.textos || []).forEach(function(x, i){ if (!noTempo(x, t) || !x.texto) return; FONTE_ATUAL = x.fonte || null;
+  (P.textos || []).forEach(function(x, i){ if (!noTempo(x, t) || !x.texto) return; FONTE_ATUAL = x.fonte || null; ESTILO_ATUAL = x;
     var tam = x.tam || 60, lh = tam * (x.entrelinha || 1.2), wmax = 0, ls = quebraTudo(c, x.texto, tam, x.largura || 1e9, x.por_linha || 0, x.car_linha || 0, x.peso || 800);
     c.font = fonteCss(tam, x.peso || 800); ls.forEach(function(l){ wmax = Math.max(wmax, c.measureText(l).width); });
     var y0 = x.y - ls.length * lh / 2;
     if (x.fundo) pill(c, x.x - wmax / 2 - tam * .4, y0 - tam * .2, wmax + tam * .8, ls.length * lh + tam * .3, tam * .35, 'rgba(15,15,15,.88)');
-    ls.forEach(function(l, n){ texto(c, l, x.x, y0 + n * lh, tam, x.peso || 800, x.cor || COR.branco, x.borda ? 5 : 0, 'center'); });
+    ls.forEach(function(l, n){ texto(c, l, x.x, y0 + n * lh, tam, x.peso || 800, x.cor || COR.branco, bordaDe(x, x.borda ? 5 : 0), 'center'); });
     var lbt = Math.max(wmax, x.largura ? Math.min(W, x.largura) : 0); caixa(reg, 'texto:' + i, x.x - lbt / 2, y0, lbt, ls.length * lh, { redim:true }); });
-  FONTE_ATUAL = fa;
+  FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaFim(c, t, reg){
   c.globalAlpha = Math.min(1, t / .35);
   var vert = H / W > 1.5, e = vert ? 1 : Math.min(W, H) / 1920 * 1.6, cy = vert ? 0 : (H - 1920 * e) / 2, lo = logoAtual();
   if (lo.complete && lo.naturalWidth){ var lw = 520 * e, lh = lw * lo.naturalHeight / lo.naturalWidth; c.drawImage(lo, (W - lw) / 2, cy + 560 * e, lw, lh); }
-  var fi = P.final || {}, fa = FONTE_ATUAL; FONTE_ATUAL = fi.fonte || null;
-  texto(c, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e, 800, fi.cor_chamada || COR.branco, 0, 'center');
-  texto(c, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, fi.cor_linha1 || COR.branco, 0, 'center');
-  texto(c, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, fi.cor_linha2 || COR.verde, 0, 'center');
-  String(fi.slogan || '').split(/(?<=\.)\s+/).forEach(function(l, i){ texto(c, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, fi.cor_slogan || '#d7d7d7', 0, 'center'); });
-  c.globalAlpha = 1; FONTE_ATUAL = fa; caixa(reg, 'final', 40, cy + 540 * e, W - 80, 820 * e);
+  var fi = P.final || {}, fa = FONTE_ATUAL, bf = bordaDe(fi, 0); FONTE_ATUAL = fi.fonte || null; ESTILO_ATUAL = fi;
+  texto(c, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e, 800, fi.cor_chamada || COR.branco, bf, 'center');
+  texto(c, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, fi.cor_linha1 || COR.branco, bf, 'center');
+  texto(c, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, fi.cor_linha2 || COR.verde, bf, 'center');
+  String(fi.slogan || '').split(/(?<=\.)\s+/).forEach(function(l, i){ texto(c, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, fi.cor_slogan || '#d7d7d7', bf, 'center'); });
+  c.globalAlpha = 1; FONTE_ATUAL = fa; ESTILO_ATUAL = null; caixa(reg, 'final', 40, cy + 540 * e, W - 80, 820 * e);
 }
 
 // ---------- guia por cima da prévia (nunca sai no vídeo) ----------
@@ -836,18 +841,18 @@ var CARDS = {
   geral: function(){ var G = lay('geral'); return cartao('geral', 'Imagem e fundo', [el('div', 'grade2', [deslize(G, 'brilho', 'Brilho', .5, 1.6, .01, 'Brilho', pct), deslize(G, 'contraste', 'Contraste', .5, 1.8, .01, 'Contraste', pct),
     deslize(G, 'saturacao', 'Saturação', 0, 2, .01, 'Saturação', pct), corIn(G, 'fundo', 'Cor do fundo', 'Cor do fundo')])]); },
   legenda: function(){ var Lg = lay('legenda'); return cartao('legenda', 'Legenda', camposLegendaAgora().concat([selFonte(P.estilo = P.estilo || {}, 'fonte', 'Fonte da legenda'), coresLegenda(P.estilo), chk(Lg, 'visivel', 'Mostrar legenda', 'Legenda'), el('div', 'grade2', [deslize(Lg, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover legenda'), deslize(Lg, 'dy', 'Vertical', -H, 500, 2, 'Mover legenda'),
-    deslize(Lg, 'borda', 'Contorno', 0, 14, 1, 'Contorno da legenda')]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda')]).concat(camposCaixa(Lg, 'legenda', W - 80, 1.31), [ el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho da letra e palavras por vez: painel Legendas.')])); },
+]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda')], camposEstilo(Lg, 'legenda', 7, 'borda')).concat(camposCaixa(Lg, 'legenda', W - 80, 1.31), [ el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho da letra e palavras por vez: painel Legendas.')])); },
   gancho: function(){ var Gc = lay('gancho'); return cartao('gancho', 'Título do topo (depois do gancho)', camposGancho(false).concat([selFonte(Gc, 'fonte', 'Fonte do título'), coresGancho(Gc), chk(Gc, 'visivel', 'Mostrar', 'Título do topo'), el('div', 'grade2', [deslize(Gc, 'x', 'Horizontal', 0, W, 2, 'Mover título'), deslize(Gc, 'y', 'Vertical', 0, H, 2, 'Mover título'),
-    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct)])], camposCaixa(Gc, 'título', W - 120, 1.17))); },
+    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct)])], camposCaixa(Gc, 'título', W - 120, 1.17), camposEstilo(Gc, 'título', 5))); },
   gancho_grande: function(){ var GG = lay('gancho_grande'); return cartao('gancho_grande', 'Gancho grande (primeiros segundos)', camposGancho(true).concat([selFonte(GG, 'fonte', 'Fonte do gancho'), coresGancho(GG), chk(GG, 'visivel', 'Mostrar', 'Gancho grande'), el('div', 'grade2', [deslize(GG, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover gancho'), deslize(GG, 'dy', 'Vertical', -800, H, 2, 'Mover gancho'),
-    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])], camposCaixa(GG, 'gancho', W - 120, 1.13))); },
+    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])], camposCaixa(GG, 'gancho', W - 120, 1.13), camposEstilo(GG, 'gancho', 7))); },
   arrobas: function(){ var A = lay('arrobas'), at = el('input'); at.type = 'text'; at.value = A.texto; at.oninput = function(){ A.texto = at.value; pinta(); agendaSalvar('Texto do @'); };
     return cartao('arrobas', '@ do rodapé', [chk(A, 'visivel', 'Mostrar', '@ do rodapé'), campo('Texto', at), selFonte(A, 'fonte', 'Fonte do @'), el('div', 'grade2', [deslize(A, 'x', 'Horizontal', 0, W, 2, 'Mover @'), deslize(A, 'y', 'Vertical', 0, H, 2, 'Mover @'),
-      deslize(A, 'escala', 'Tamanho', .5, 3, .02, 'Tamanho do @', pct), corIn(A, 'cor', 'Cor', 'Cor do @')]), rodapeBotoes()]); },
+      deslize(A, 'escala', 'Tamanho', .5, 3, .02, 'Tamanho do @', pct), corIn(A, 'cor', 'Cor', 'Cor do @')])].concat(camposEstilo(A, '@ do rodapé', 0), [rodapeBotoes()])); },
   logo: function(){ var LG = lay('logo'); return cartao('logo', 'Logo do rodapé', [chk(LG, 'visivel', 'Mostrar', 'Logo'), el('div', 'grade2', [deslize(LG, 'x', 'Horizontal', 0, W, 2, 'Mover logo'), deslize(LG, 'y', 'Vertical', 0, H - 20, 2, 'Mover logo'),
     deslize(LG, 'largura', 'Largura (px)', 60, 900, 2, 'Tamanho da logo')]), el('p', 'nota-ajuda', 'Para trocar a logo: Biblioteca, "Usar no rodapé".'), rodapeBotoes()]); },
   notas: function(){ var N = lay('notas'); return cartao('notas', 'Marcações (CERTO, ERRADO...)', camposNotasAgora().concat([selFonte(N, 'fonte', 'Fonte das marcações'), el('div', 'grade2', [deslize(N, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover marcações'), deslize(N, 'dy', 'Vertical', -400, H, 2, 'Mover marcações'),
-    deslize(N, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho das marcações', pct)])])); },
+    deslize(N, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho das marcações', pct)])], camposEstilo(N, 'marcações', 0))); },
   final: function(){ return cartao('final', 'Cartão final', camposFinal()); },
   barra: function(){ var B = lay('barra'); return cartao('barra', 'Barra de progresso', [chk(B, 'visivel', 'Mostrar', 'Barra de progresso'), chk(B, 'embaixo', 'Embaixo (desmarcado = no topo)', 'Posição da barra'),
     el('div', 'grade2', [deslize(B, 'altura', 'Espessura', 2, 40, 1, 'Espessura da barra'), corIn(B, 'cor', 'Cor', 'Cor da barra')])]); },
@@ -881,7 +886,7 @@ function camposFinal(){
   if (!fi.cor_chamada) fi.cor_chamada = COR.branco; if (!fi.cor_linha1) fi.cor_linha1 = COR.branco; if (!fi.cor_linha2) fi.cor_linha2 = COR.verde; if (!fi.cor_slogan) fi.cor_slogan = '#d7d7d7';
   return [chk(fi, 'ativo', 'Mostrar o cartão final (2,8 s)', 'Cartão final', function(){ setTimeout(atualizaTudo); }), tin('chamada', 'Chamada', 'SIGA PARA MAIS DICAS'),
     el('div', 'grade2', [tin('linha1', 'Primeiro @', '@luiznunest'), tin('linha2', 'Segundo @', '@intusfit')]), tin('slogan', 'Slogan'), selFonte(fi, 'fonte', 'Fonte do cartão final'),
-    el('div', 'linha', [corIn(fi, 'cor_chamada', 'Chamada', 'Cor da chamada'), corIn(fi, 'cor_linha1', '1º @', 'Cor do 1º @'), corIn(fi, 'cor_linha2', '2º @', 'Cor do 2º @'), corIn(fi, 'cor_slogan', 'Slogan', 'Cor do slogan')])];
+    el('div', 'linha', [corIn(fi, 'cor_chamada', 'Chamada', 'Cor da chamada'), corIn(fi, 'cor_linha1', '1º @', 'Cor do 1º @'), corIn(fi, 'cor_linha2', '2º @', 'Cor do 2º @'), corIn(fi, 'cor_slogan', 'Slogan', 'Cor do slogan')])].concat(camposEstilo(fi, 'cartão final', 0));
 }
 function temTexto(id){ return /^(legenda|gancho|gancho_grande|arrobas|notas|final|texto:\d+)$/.test(id || ''); }
 // Toque duplo num texto da prévia ou da linha do tempo: abre o texto numa janela, em qualquer aparelho.
@@ -916,6 +921,17 @@ function camposLegendaAgora(){
       reescreveFrase(a.f.de, criada, tx.value); recalc(); pinta(); desenhaTimeline(); agendaSalvar('Nova legenda'); }; }
   return [campo('Texto da legenda neste ponto (' + fmt(T) + ')', tx), el('div', 'linha', [botao('Frase do ponto atual', function(){ inspetor(); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })])];
 }
+// Contorno e sombra de um texto: cor e espessura do contorno; sombra com cor, força, desfoque e distância.
+function camposEstilo(o, nome, padrao, k){ k = k || 'contorno';
+  if (o[k] == null || o[k] === '') o[k] = padrao; if (!o.cor_contorno) o.cor_contorno = '#000000'; if (!o.cor_sombra) o.cor_sombra = '#000000';
+  if (o.sombra_forca == null) o.sombra_forca = .7; if (o.sombra_desf == null) o.sombra_desf = 12; if (o.sombra_dist == null) o.sombra_dist = 6;
+  var px = function(v){ return +v ? v + ' px' : 'sem contorno'; };
+  var out = [el('div', 'campo', [el('b', null, 'Contorno e sombra')]), el('div', 'grade2', [deslize(o, k, 'Contorno', 0, 24, 1, 'Contorno: ' + nome, px), corIn(o, 'cor_contorno', 'Cor do contorno', 'Cor do contorno: ' + nome)]),
+    chk(o, 'sombra', 'Sombra atrás do texto', 'Sombra: ' + nome, function(){ setTimeout(inspetor); })];
+  if (o.sombra) out.push(el('div', 'grade2', [corIn(o, 'cor_sombra', 'Cor da sombra', 'Cor da sombra: ' + nome), deslize(o, 'sombra_forca', 'Força', 0, 1, .01, 'Força da sombra: ' + nome, pct),
+    deslize(o, 'sombra_desf', 'Desfoque', 0, 60, 1, 'Desfoque da sombra: ' + nome, function(v){ return v + ' px'; }), deslize(o, 'sombra_dist', 'Distância', -30, 40, 1, 'Distância da sombra: ' + nome, function(v){ return v + ' px'; })]));
+  return out;
+}
 // Controles da caixa de texto: largura, palavras e caracteres por linha, espaço entre linhas.
 function camposCaixa(o, nome, largPadrao, entrePadrao){
   if (o.largura == null) o.largura = largPadrao; if (o.por_linha == null) o.por_linha = 0; if (o.car_linha == null) o.car_linha = 0; if (o.entrelinha == null) o.entrelinha = entrePadrao;
@@ -930,7 +946,7 @@ function rodapeBotoes(){ var A = lay('arrobas'), LG = lay('logo'); return el('di
 function cardTexto(i){ var x = P.textos[i], id = 'texto:' + i, tx = el('textarea'); tx.rows = 2; tx.value = x.texto; tx.oninput = function(){ x.texto = tx.value; pinta(); desenhaTimeline(); agendaSalvar('Texto livre'); };
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Texto ' + (i + 1)), acoesItem(id)]), tx, selFonte(x, 'fonte', 'Fonte do texto'),
     el('div', 'grade2', [deslize(x, 'tam', 'Tamanho', 20, 220, 1, 'Tamanho do texto'), deslize(x, 'x', 'Horizontal', 0, W, 2, 'Mover texto'), deslize(x, 'y', 'Vertical', 0, H, 2, 'Mover texto')]),
-    el('div', 'linha', [corIn(x, 'cor', 'Cor', 'Cor do texto'), chk(x, 'fundo', 'Caixa escura', 'Caixa do texto'), chk(x, 'borda', 'Contorno', 'Contorno do texto')])].concat(camposCaixa(x, 'texto', W, 1.2), tempoItem(x, 'Texto'))); }
+    el('div', 'linha', [corIn(x, 'cor', 'Cor', 'Cor do texto'), chk(x, 'fundo', 'Caixa escura', 'Caixa do texto')])].concat(camposEstilo(x, 'texto', x.borda ? 5 : 0), camposCaixa(x, 'texto', W, 1.2), tempoItem(x, 'Texto'))); }
 function cardSombra(i){ var s = P.sombras[i], id = 'sombra:' + i;
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Sombra ' + (i + 1)), acoesItem(id)]),
     el('div', 'linha', [campo('Tipo', opcoes(s, 'tipo', [['vinheta', 'Vinheta'], ['gradiente', 'Degradê'], ['retangulo', 'Retângulo']], 'Tipo da sombra')),
