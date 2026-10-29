@@ -177,7 +177,8 @@ try {
         require_once __DIR__ . '/_wa.php';
         require_once __DIR__ . '/_atendimento.php';
         @set_time_limit(140);
-        $r = cut_ia($pdo, (string)($corpo()['pedido'] ?? ''));
+        $c = $corpo();
+        $r = cut_ia($pdo, (string)($c['pedido'] ?? ''), null, $c['imagens'] ?? []);
         _cutResp($r['ok'] ? 200 : 400, $r);
     }
     _cutResp(400, ['ok' => false, 'erro' => 'ação inválida']);

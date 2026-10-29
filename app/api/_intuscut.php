@@ -207,7 +207,28 @@ function cut_ia_somar(PDO $pdo): void { $u = cut_ler($pdo, 'cut_ia_uso', []); $d
  * com as falas dos vídeos; aqui só se põe o limite diário e se extrai o JSON da resposta.
  * $http: callable(string corpo, string chave, bool comFallback): array{status,json,erro} (para testes).
  */
-function cut_ia(PDO $pdo, string $pedido, ?callable $http = null): array {
+/**
+ * Quadros do vídeo que a tela manda junto (para a IA ver o que acontece). Só JPEG, PNG ou WEBP em base64,
+ * no máximo CUT_IA_QUADROS imagens, cada uma até 600 KB. O que não servir é descartado em silêncio.
+ */
+const CUT_IA_QUADROS = 24;
+function cut_ia_imagens($lista): array {
+    $out = [];
+    if (!is_array($lista)) return $out;
+    foreach ($lista as $d) {
+        if (count($out) >= CUT_IA_QUADROS) break;
+        if (!is_string($d) || strlen($d) > 820000) continue;
+        if (!preg_match('#^data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$#', $d, $m)) continue;
+        $bin = base64_decode($m[2], true);
+        if ($bin === false || strlen($bin) < 100 || strlen($bin) > 600000) continue;
+        $assina = ['jpeg' => "\xFF\xD8\xFF", 'png' => "\x89PNG", 'webp' => 'RIFF'];
+        if (strncmp($bin, $assina[$m[1]], strlen($assina[$m[1]])) !== 0) continue;
+        $out[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/' . $m[1], 'data' => $m[2]]];
+    }
+    return $out;
+}
+
+function cut_ia(PDO $pdo, string $pedido, ?callable $http = null, $imagens = []): array {
     $pedido = trim($pedido);
     if ($pedido === '') return ['ok' => false, 'erro' => 'pedido vazio'];
     if (strlen($pedido) > 240000) return ['ok' => false, 'erro' => 'Os vídeos têm fala demais para um pedido só. Deixe menos vídeos na linha do tempo.'];
@@ -218,7 +239,7 @@ function cut_ia(PDO $pdo, string $pedido, ?callable $http = null): array {
     $modelo = function_exists('wa_ajustes') ? (wa_ajustes($pdo)['modelo'] ?? 'claude-opus-5-5') : 'claude-opus-5-5';
     $corpo = json_encode(['model' => $modelo, 'max_tokens' => 8000, 'output_config' => ['effort' => 'medium'], 'fallbacks' => 'default',
         'system' => 'Você edita vídeos curtos para as redes da Intus Fit. Responda sempre só com o JSON pedido, sem texto antes ou depois.',
-        'messages' => [['role' => 'user', 'content' => $pedido]]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        'messages' => [['role' => 'user', 'content' => array_merge(cut_ia_imagens($imagens), [['type' => 'text', 'text' => $pedido]])]]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $chamar = $http ?: 'atd_http_claude';
     $r = $chamar($corpo, $chave, true);
     if (($r['status'] ?? 0) === 400 && preg_match('/fallback|beta/i', json_encode($r['json'] ?? '') ?: '')) {

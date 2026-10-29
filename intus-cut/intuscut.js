@@ -14,7 +14,7 @@ var T_GANCHO_PADRAO = 2.6, T_FIM = 2.8;
 var COR = { amarelo:'#ffd60a', verde:'#7fff00', branco:'#f5f5f5', vermelho:'#ff4d4d', fundo:'#0f0f0f' };
 var CORES_FONTE = ['#4f7a24', '#2d6f8c', '#8a5a2b', '#6b3f8f', '#8f2f4f', '#3f7f6f'];
 var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c', camada:'#6b3f8f' };
-var NOMES = { janela:'Vídeo', legenda:'Legenda', gancho:'Título do topo', gancho_grande:'Gancho grande', arrobas:'@ do rodapé', logo:'Logo', notas:'Marcação', barra:'Barra de progresso', texto:'Texto', sombra:'Sombra', imagem:'Imagem', geral:'Imagem e fundo', camada:'Sobreposição' };
+var NOMES = { janela:'Vídeo', legenda:'Legenda', gancho:'Título do topo', gancho_grande:'Gancho grande', arrobas:'@ do rodapé', logo:'Logo', notas:'Marcação', barra:'Barra de progresso', texto:'Texto', sombra:'Sombra', imagem:'Imagem', geral:'Imagem e fundo', final:'Cartão final', camada:'Sobreposição' };
 var BIB_FIXOS = [
   { id:'fixo-1', tipo:'logo', nome:'Intus, branca', url:'/app/painel/logo-intus-dark.png', fixo:true },
   { id:'fixo-2', tipo:'logo', nome:'Intus, branca grande', url:'/app/painel/logo-intus-branco.png', fixo:true },
@@ -188,7 +188,7 @@ function desenha(c, t, reg){
   var G = lay('geral');
   c.fillStyle = G.fundo; c.fillRect(0, 0, W, H);
   var DF = durFala();
-  if (t >= DF && P.final && P.final.ativo){ desenhaFim(c, t - DF); return; }
+  if (t >= DF && P.final && P.final.ativo){ desenhaFim(c, t - DF, reg); return; }
   var f = fonteEm(Math.min(t, DF - 1e-3)); if (!f) return;
   var J = lay('janela'), g = geometria(f), video = midiaDe(f.de).v, k = video.videoWidth ? video.videoWidth / ORIG_W : 1, limpo = !!f.s.limpo;
   if (video.readyState >= 2){
@@ -310,7 +310,7 @@ function desenhaTextos(c, t, reg){
     ls.forEach(function(l, n){ texto(c, l, x.x, y0 + n * lh, tam, x.peso || 800, x.cor || COR.branco, x.borda ? 5 : 0, 'center'); });
     caixa(reg, 'texto:' + i, x.x - wmax / 2, y0, wmax, ls.length * lh); });
 }
-function desenhaFim(c, t){
+function desenhaFim(c, t, reg){
   c.globalAlpha = Math.min(1, t / .35);
   var vert = H / W > 1.5, e = vert ? 1 : Math.min(W, H) / 1920 * 1.6, cy = vert ? 0 : (H - 1920 * e) / 2, lo = logoAtual();
   if (lo.complete && lo.naturalWidth){ var lw = 520 * e, lh = lw * lo.naturalHeight / lo.naturalWidth; c.drawImage(lo, (W - lw) / 2, cy + 560 * e, lw, lh); }
@@ -319,7 +319,7 @@ function desenhaFim(c, t){
   texto(c, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, COR.branco, 0, 'center');
   texto(c, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, COR.verde, 0, 'center');
   String(fi.slogan || '').split(/(?<=\.)\s+/).forEach(function(l, i){ texto(c, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, '#d7d7d7', 0, 'center'); });
-  c.globalAlpha = 1;
+  c.globalAlpha = 1; caixa(reg, 'final', 40, cy + 540 * e, W - 80, 820 * e);
 }
 
 // ---------- guia por cima da prévia (nunca sai no vídeo) ----------
@@ -376,7 +376,7 @@ function alvo(id){
 var arr = null, ultToque = { t:0, id:'' };
 guia.addEventListener('pointerdown', function(e){
   if (!P) return; var p = ponto(e), b = acha(p);
-  var agora = Date.now(); if (b && b.id === 'legenda' && ultToque.id === 'legenda' && agora - ultToque.t < 450){ ultToque = { t:0, id:'' }; editarFraseEm(T); return; } ultToque = { t:agora, id:b ? b.id : '' }; selEl = b ? b.id : null; pintaGuia();
+  var agora = Date.now(); if (b && b.id === ultToque.id && temTexto(b.id) && agora - ultToque.t < 450){ ultToque = { t:0, id:'' }; editarTextoDe(b.id); return; } ultToque = { t:agora, id:b ? b.id : '' }; selEl = b ? b.id : null; pintaGuia();
   if (!b){ inspetor(); desenhaTimeline(); return; }
   guia.setPointerCapture(e.pointerId); var o = alvo(b.id), f = fAgora();
   arr = { id:b.id, p:p, o:o, ini:clone(o), jy:lay('janela').y, shift:e.shiftKey, mexeu:false, livre:!!(f && f.s.recorte), geo:f ? geometria(f) : null, de:f ? f.de : '', redim:noCanto(p, b) };
@@ -400,6 +400,7 @@ guia.addEventListener('pointermove', function(e){
     case 'camada':
       if (arr.redim){ o.w = Math.max(60, i.w + dx); o.h = o.forma === 'circulo' ? o.w : Math.max(60, i.h + dy); } else { o.x = i.x + dx; o.y = i.y + dy; } break;
     case 'legenda': case 'gancho_grande': case 'notas': o.dx = i.dx + dx; o.dy = i.dy + dy; break;
+    case 'final': break;
     default: o.x = i.x + dx; o.y = i.y + dy;
   }
   pinta();
@@ -509,7 +510,8 @@ function atualizaTudo(){ recalc(); desenhaTimeline(); pinta(); }
 var tl = null;
 $('tlint').addEventListener('pointerdown', function(e){
   if (!P || e.target.closest('.mais')) return; var int = $('tlint'), p = pps(), t = (e.clientX - int.getBoundingClientRect().left) / p, c = e.target.closest('.clip');
-  if (c && c.classList.contains('leg')){ var ag = Date.now(); if (ag - (window._tqLeg || 0) < 450){ window._tqLeg = 0; editarFraseEm(t); return; } window._tqLeg = ag; } else window._tqLeg = 0;
+  var alvoTq = c && c.classList.contains('leg') ? 'leg' : c && c.dataset.k === 'texto' ? 'texto:' + c.dataset.i : c && c.classList.contains('fim') ? 'final' : '';
+  if (alvoTq){ var ag = Date.now(); if (alvoTq === window._tqAlvo && ag - (window._tqLeg || 0) < 450){ window._tqLeg = 0; window._tqAlvo = ''; if (alvoTq === 'leg') editarFraseEm(t); else editarTextoDe(alvoTq); return; } window._tqLeg = ag; window._tqAlvo = alvoTq; } else { window._tqLeg = 0; window._tqAlvo = ''; }
   int.setPointerCapture(e.pointerId);
   if (!c || !c.dataset.k){ tl = { modo:'scrub' }; scrub(t); return; }
   var k = c.dataset.k, i = +c.dataset.i, r = c.getBoundingClientRect(), borda = e.clientX - r.left <= 8 ? 'ini' : r.right - e.clientX <= 8 ? 'fim' : null;
@@ -642,6 +644,8 @@ function painelMidia(C){
   var ts = trechos(), c = clipLe();
   var onde = sel([['fim', 'no final'], ['inicio', 'no início'], ['cursor', 'no cursor']]);
   var proj = sel(Object.keys(projetos).sort().map(function(id){ return [id, (projetos[id].nome || id) + (id === P.id ? ' (este)' : '')]; }));
+  var nv = el('button', 'btn pri', '＋ Nova edição com um vídeo seu'); nv.type = 'button'; nv.onclick = function(){ $('b-novo').click(); };
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Começar uma edição nova'), nv, el('p', 'nota-ajuda', 'Escolha um vídeo do celular ou do computador. Ele vira um projeto novo e você decide se edita à mão ou pede a edição à IA.')]));
   var gr = el('button', 'btn rec', '● Gravar react ou explicação'); gr.type = 'button'; gr.onclick = abrirEstudio;
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Gravar ao vivo'), gr, el('p', 'nota-ajuda', 'Abre a câmera por cima deste vídeo. Você pausa, volta e avança o fundo enquanto explica, até 5 minutos.')]));
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Sobrepor um vídeo (react, comparativo)'), el('div', 'linha', [botao('Projeto escolhido abaixo', function(){ sobreporProjetoAsync(proj.value); }), botao('Enviar vídeo e sobrepor', function(){ enviarVideoMontagem('fim', true); })]),
@@ -805,22 +809,66 @@ var CARDS = {
     deslize(G, 'saturacao', 'Saturação', 0, 2, .01, 'Saturação', pct), corIn(G, 'fundo', 'Cor do fundo', 'Cor do fundo')])]); },
   legenda: function(){ var Lg = lay('legenda'); return cartao('legenda', 'Legenda', [chk(Lg, 'visivel', 'Mostrar legenda', 'Legenda'), el('div', 'grade2', [deslize(Lg, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover legenda'), deslize(Lg, 'dy', 'Vertical', -H, 500, 2, 'Mover legenda'),
     deslize(Lg, 'borda', 'Contorno', 0, 14, 1, 'Contorno da legenda')]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda'), el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho e cores: painel Legendas.')]); },
-  gancho: function(){ var Gc = lay('gancho'); return cartao('gancho', 'Título do topo (depois do gancho)', [chk(Gc, 'visivel', 'Mostrar', 'Título do topo'), el('div', 'grade2', [deslize(Gc, 'x', 'Horizontal', 0, W, 2, 'Mover título'), deslize(Gc, 'y', 'Vertical', 0, H, 2, 'Mover título'),
-    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct), corIn(Gc, 'cor', 'Cor do destaque', 'Cor do destaque')])]); },
-  gancho_grande: function(){ var GG = lay('gancho_grande'); return cartao('gancho_grande', 'Gancho grande (primeiros segundos)', [chk(GG, 'visivel', 'Mostrar', 'Gancho grande'), el('div', 'grade2', [deslize(GG, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover gancho'), deslize(GG, 'dy', 'Vertical', -800, H, 2, 'Mover gancho'),
-    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])]); },
+  gancho: function(){ var Gc = lay('gancho'); return cartao('gancho', 'Título do topo (depois do gancho)', camposGancho(false).concat([chk(Gc, 'visivel', 'Mostrar', 'Título do topo'), el('div', 'grade2', [deslize(Gc, 'x', 'Horizontal', 0, W, 2, 'Mover título'), deslize(Gc, 'y', 'Vertical', 0, H, 2, 'Mover título'),
+    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct), corIn(Gc, 'cor', 'Cor do destaque', 'Cor do destaque')])])); },
+  gancho_grande: function(){ var GG = lay('gancho_grande'); return cartao('gancho_grande', 'Gancho grande (primeiros segundos)', camposGancho(true).concat([chk(GG, 'visivel', 'Mostrar', 'Gancho grande'), el('div', 'grade2', [deslize(GG, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover gancho'), deslize(GG, 'dy', 'Vertical', -800, H, 2, 'Mover gancho'),
+    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])])); },
   arrobas: function(){ var A = lay('arrobas'), at = el('input'); at.type = 'text'; at.value = A.texto; at.oninput = function(){ A.texto = at.value; pinta(); agendaSalvar('Texto do @'); };
     return cartao('arrobas', '@ do rodapé', [chk(A, 'visivel', 'Mostrar', '@ do rodapé'), campo('Texto', at), el('div', 'grade2', [deslize(A, 'x', 'Horizontal', 0, W, 2, 'Mover @'), deslize(A, 'y', 'Vertical', 0, H, 2, 'Mover @'),
       deslize(A, 'escala', 'Tamanho', .5, 3, .02, 'Tamanho do @', pct), corIn(A, 'cor', 'Cor', 'Cor do @')]), rodapeBotoes()]); },
   logo: function(){ var LG = lay('logo'); return cartao('logo', 'Logo do rodapé', [chk(LG, 'visivel', 'Mostrar', 'Logo'), el('div', 'grade2', [deslize(LG, 'x', 'Horizontal', 0, W, 2, 'Mover logo'), deslize(LG, 'y', 'Vertical', 0, H - 20, 2, 'Mover logo'),
     deslize(LG, 'largura', 'Largura (px)', 60, 900, 2, 'Tamanho da logo')]), el('p', 'nota-ajuda', 'Para trocar a logo: Biblioteca, "Usar no rodapé".'), rodapeBotoes()]); },
-  notas: function(){ var N = lay('notas'); return cartao('notas', 'Marcações (CERTO, ERRADO...)', [el('div', 'grade2', [deslize(N, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover marcações'), deslize(N, 'dy', 'Vertical', -400, H, 2, 'Mover marcações'),
-    deslize(N, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho das marcações', pct)])]); },
+  notas: function(){ var N = lay('notas'); return cartao('notas', 'Marcações (CERTO, ERRADO...)', camposNotasAgora().concat([el('div', 'grade2', [deslize(N, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover marcações'), deslize(N, 'dy', 'Vertical', -400, H, 2, 'Mover marcações'),
+    deslize(N, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho das marcações', pct)])])); },
+  final: function(){ return cartao('final', 'Cartão final', camposFinal()); },
   barra: function(){ var B = lay('barra'); return cartao('barra', 'Barra de progresso', [chk(B, 'visivel', 'Mostrar', 'Barra de progresso'), chk(B, 'embaixo', 'Embaixo (desmarcado = no topo)', 'Posição da barra'),
     el('div', 'grade2', [deslize(B, 'altura', 'Espessura', 2, 40, 1, 'Espessura da barra'), corIn(B, 'cor', 'Cor', 'Cor da barra')])]); },
   sombra: function(){ var S = lay('sombra'); return cartao('sombra', 'Sombra automática atrás da legenda', [chk(S, 'visivel', 'Mostrar', 'Sombra da legenda'), el('div', 'grade2', [deslize(S, 'altura', 'Altura', 40, 800, 5, 'Altura da sombra da legenda'),
     deslize(S, 'opacidade', 'Intensidade', 0, 1, .01, 'Intensidade da sombra da legenda', pct)])]); }
 };
+// Texto do gancho: o mesmo texto vira o gancho grande dos primeiros segundos e, depois, o título do topo.
+function camposGancho(comTempo){
+  var g = el('textarea'); g.rows = 2; g.value = P.gancho || ''; g.placeholder = 'Escreva o gancho';
+  g.oninput = function(){ P.gancho = g.value; P.nome = g.value || P.nome; pinta(); agendaSalvar('Texto do gancho'); nomesSelect(); };
+  var d = el('input'); d.type = 'text'; d.value = (P.destaque || []).join(', '); d.placeholder = 'ex.: CASA, ROTINA';
+  d.oninput = function(){ P.destaque = d.value.split(',').map(function(x){ return x.trim(); }).filter(Boolean); pinta(); agendaSalvar('Destaque do gancho'); };
+  var out = [campo('Texto do gancho', g), campo('Palavras em destaque (separe por vírgula)', d)];
+  if (comTempo){ if (P.t_gancho == null) P.t_gancho = T_GANCHO_PADRAO; out.push(deslize(P, 't_gancho', 'Tempo do gancho grande (s)', 0, 8, .1, 'Tempo do gancho')); }
+  return out;
+}
+// Marcações (CERTO, ERRADO...) que aparecem neste ponto do vídeo.
+function camposNotasAgora(){
+  var f = fAgora(); if (!f) return [];
+  var F = fonte(f.de), agora = (F.notas || []).filter(function(n){ return f.ts >= n.ini && f.ts <= n.fim; });
+  var out = agora.map(function(n){ var tx = el('input'); tx.type = 'text'; tx.value = n.texto;
+    tx.oninput = function(){ n.texto = tx.value; pinta(); agendaSalvar('Texto da marcação'); };
+    return campo('Texto da marcação', tx); });
+  if (!agora.length) out.push(el('p', 'nota-ajuda', 'Nenhuma marcação neste ponto. Crie no painel Textos.'));
+  return out;
+}
+function camposFinal(){
+  var fi = P.final = P.final || { ativo:true };
+  function tin(k, rot, pad){ var i = el('input'); i.type = 'text'; i.value = fi[k] || ''; i.placeholder = pad || ''; i.oninput = function(){ fi[k] = i.value; pinta(); agendaSalvar('Cartão final'); }; return campo(rot, i); }
+  return [chk(fi, 'ativo', 'Mostrar o cartão final (2,8 s)', 'Cartão final', function(){ setTimeout(atualizaTudo); }), tin('chamada', 'Chamada', 'SIGA PARA MAIS DICAS'),
+    el('div', 'grade2', [tin('linha1', 'Primeiro @', '@luiznunest'), tin('linha2', 'Segundo @', '@intusfit')]), tin('slogan', 'Slogan')];
+}
+function temTexto(id){ return /^(legenda|gancho|gancho_grande|arrobas|notas|final|texto:\d+)$/.test(id || ''); }
+// Toque duplo num texto da prévia ou da linha do tempo: abre o texto numa janela, em qualquer aparelho.
+function editarTextoDe(id){
+  if (!P || !id) return; pausar();
+  if (id === 'legenda'){ editarFraseEm(T); return; }
+  var t = id.split(':'), box = el('div', 'grupo'), salvarFn = null, titulo = 'Editar texto';
+  if (t[0] === 'texto' && P.textos[+t[1]]){ var x = P.textos[+t[1]], tx = el('textarea'); tx.rows = 3; tx.value = x.texto; box.appendChild(tx); titulo = 'Editar texto';
+    salvarFn = function(){ x.texto = tx.value; }; setTimeout(function(){ tx.focus(); tx.select(); }, 50); }
+  else if (id === 'gancho' || id === 'gancho_grande'){ titulo = 'Editar o gancho'; camposGancho(id === 'gancho_grande').forEach(function(n){ box.appendChild(n); });
+    box.appendChild(el('p', 'nota-ajuda', 'O mesmo texto aparece grande nos primeiros segundos e depois como título do topo.')); setTimeout(function(){ var a = box.querySelector('textarea'); if (a){ a.focus(); a.select(); } }, 50); }
+  else if (id === 'arrobas'){ var A = lay('arrobas'), at = el('input'); at.type = 'text'; at.value = A.texto; box.appendChild(campo('Texto do rodapé', at)); titulo = 'Editar o @ do rodapé';
+    salvarFn = function(){ A.texto = at.value; }; setTimeout(function(){ at.focus(); at.select(); }, 50); }
+  else if (id === 'notas'){ titulo = 'Editar marcação'; camposNotasAgora().forEach(function(n){ box.appendChild(n); }); }
+  else if (id === 'final'){ titulo = 'Editar o cartão final'; camposFinal().forEach(function(n){ box.appendChild(n); }); }
+  else return;
+  dialogo(titulo, '', [['Pronto', function(){ if (salvarFn){ salvarFn(); agendaSalvar(titulo); } fecha(); atualizaTudo(); inspetor(); if (aba === 'textos') mostraAba(); }]], box);
+}
 function rodapeBotoes(){ var A = lay('arrobas'), LG = lay('logo'); return el('div', 'linha', [
   botao('▲ Rodapé', function(){ A.y -= 20; LG.y -= 20; pinta(); agendaSalvar('Subir rodapé'); inspetor(); }), botao('▼ Rodapé', function(){ A.y += 20; LG.y += 20; pinta(); agendaSalvar('Descer rodapé'); inspetor(); }),
   formato().guia === 'reel' ? botao('Tirar da área do Instagram', function(){ A.y = 1420; LG.y = 1490; pinta(); agendaSalvar('Rodapé acima do Instagram'); inspetor(); }) : el('span')]); }
@@ -843,11 +891,7 @@ function cardImagem(i){ var m = P.imagens[i], id = 'imagem:' + i;
 // ---------- painéis da esquerda ----------
 var TITULOS = { midia:'Mídia e montagem', biblioteca:'Biblioteca', ia:'Edição automática (IA)', textos:'Textos', legenda:'Legendas', efeitos:'Sombras e efeitos', layout:'Layout', audio:'Áudio', historico:'Histórico', ajustes:'Propriedades' };
 function painelTextos(C){
-  var g = el('textarea'); g.rows = 2; g.value = P.gancho || ''; g.oninput = function(){ P.gancho = g.value; P.nome = g.value; pinta(); agendaSalvar('Texto do gancho'); nomesSelect(); };
-  var d = el('input'); d.type = 'text'; d.value = (P.destaque || []).join(', '); d.oninput = function(){ P.destaque = d.value.split(',').map(function(x){ return x.trim(); }).filter(Boolean); pinta(); agendaSalvar('Destaque do gancho'); };
-  if (P.t_gancho == null) P.t_gancho = T_GANCHO_PADRAO;
-  C.appendChild(el('div', 'grupo', [el('h3', null, 'Gancho'), campo('Frase dos primeiros segundos (depois vira o título do topo)', g), campo('Palavras em destaque (separe por vírgula)', d),
-    deslize(P, 't_gancho', 'Tempo do gancho grande (s)', 0, 8, .1, 'Tempo do gancho')]));
+  C.appendChild(el('div', 'grupo', [el('h3', null, 'Gancho')].concat(camposGancho(true), [el('p', 'nota-ajuda', 'Dica: toque duas vezes em qualquer texto da prévia (gancho, legenda, textos, @, marcações, cartão final) para editar ali mesmo.')])));
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Textos na tela'), el('div', 'linha', [
       botao('+ Texto no cursor', function(){ P.textos.push({ texto:'SEU TEXTO', ini:+T.toFixed(2), fim:+Math.min(dur(), T + 3).toFixed(2), x:W / 2, y:Math.round(H * .47), tam:64, cor:'#ffffff', fundo:true, borda:false });
         selEl = 'texto:' + (P.textos.length - 1); atualizaTudo(); agendaSalvar('Adicionar texto'); seleciona(); }),
@@ -1063,8 +1107,8 @@ function apagarBib(x){
 }
 function tirarBib(x, apagar){ api('bib_excluir', { id:x.id, apagar_arquivo:!!apagar }).then(function(){ delete BIB[x.id]; mostraAba(); estado('Tirado da biblioteca', 'ok'); }).catch(function(e){ dialogo('Não consegui tirar', e.message || '', [['Ok', fecha]]); }); }
 function escolherArquivo(accept, pronto){
-  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept;
-  inp.onchange = async function(){ var f = inp.files[0]; if (!f) return; var nome = f.name.replace(/\.[^.]+$/, '');
+  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept; inp.style.display = 'none'; document.body.appendChild(inp);
+  inp.onchange = async function(){ var f = inp.files[0]; setTimeout(function(){ inp.remove(); }, 0); if (!f) return; var nome = f.name.replace(/\.[^.]+$/, '');
     try {
       if (/^image\//.test(f.type)){ estado('Enviando ' + f.name + '...'); var im = await reduzirImagem(f), r = await api('imagem', { dataurl:im.dataurl, nome:nome }); estado('Enviado', 'ok'); pronto({ url:r.url, token:'' }, nome, { w:r.w, h:r.h }); return; }
       if (f.size > (LIMITES.video_bytes || 2147483648)){ dialogo('Arquivo grande demais', 'O limite é ' + Math.round((LIMITES.video_bytes || 2147483648) / 1073741824) + ' GB por vídeo.', [['Ok', fecha]]); return; }
@@ -1081,10 +1125,33 @@ var iaPed = { tipo:'reel', formato:'reel', dur:'auto', obs:'' }, iaJob = null;
 try { Object.assign(iaPed, JSON.parse(localStorage.getItem('intuscut-ia') || '{}')); } catch (e) {}
 function guardaIa(){ try { localStorage.setItem('intuscut-ia', JSON.stringify(iaPed)); } catch (e) {} }
 function palavrasTimeline(){ return chavesUsadas().reduce(function(a, k){ return a + ((fonte(k).palavras || []).length); }, 0); }
-function etaIa(){ return Math.round(25 + palavrasTimeline() / 30); }
+function etaIa(){ return Math.round(35 + palavrasTimeline() / 30); }
+// Quadros dos vídeos da linha do tempo, para a IA "ver" o que acontece (vídeos sem fala também ganham edição).
+async function quadrosParaIA(){
+  var ks = chavesUsadas(), MAX = 24, lista = [], imagens = [];
+  var pesos = ks.map(function(k){ return Math.max(1, fonteDur(k)); }), tot = pesos.reduce(function(a, b){ return a + b; }, 0);
+  for (var i = 0; i < ks.length; i++){
+    var k = ks[i], d = fonteDur(k), n = Math.max(2, Math.min(16, Math.round(MAX * pesos[i] / tot))), src = midiaDe(k).v.currentSrc || midiaDe(k).v.src;
+    if (!src || !d) continue;
+    var v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous'; v.src = src;
+    var ok = await new Promise(function(r){ var t = setTimeout(function(){ r(false); }, 15000); v.onloadeddata = function(){ clearTimeout(t); r(true); }; v.onerror = function(){ clearTimeout(t); r(false); }; });
+    if (!ok) continue;
+    for (var j = 0; j < n && imagens.length < MAX; j++){
+      if (!iaJob) return { lista:[], imagens:[] };
+      var t = +(d * (j + .5) / n).toFixed(1);
+      var foi = await new Promise(function(r){ var to = setTimeout(function(){ r(false); }, 6000); v.onseeked = function(){ clearTimeout(to); r(true); }; v.currentTime = t; });
+      if (!foi || !v.videoWidth) continue;
+      var e = Math.min(1, 448 / Math.max(v.videoWidth, v.videoHeight)), cv = document.createElement('canvas'); cv.width = Math.round(v.videoWidth * e); cv.height = Math.round(v.videoHeight * e);
+      try { cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height); imagens.push(cv.toDataURL('image/jpeg', .62)); lista.push([k || 'principal', t]); } catch (er) { break; }
+    }
+    v.removeAttribute('src'); v.load();
+  }
+  return { lista:lista, imagens:imagens };
+}
 function tipoIa(){ return TIPOS_IA.filter(function(t){ return t[0] === iaPed.tipo; })[0] || TIPOS_IA[0]; }
 function painelIA(C){
-  C.appendChild(el('p', 'nota-ajuda', 'A IA lê a fala dos vídeos que estão na linha do tempo (a gravação inteira de cada um) e monta uma versão nova: escolhe os trechos, a ordem, o gancho e os textos. O projeto atual não muda: a versão nova abre como outro projeto para você revisar.'));
+  C.appendChild(el('p', 'nota-ajuda', 'A IA assiste a quadros dos vídeos que estão na linha do tempo e lê a fala, quando houver. Depois monta uma versão nova: escolhe os trechos, a ordem, o gancho e os textos. O projeto atual não muda: a versão nova abre como outro projeto para você revisar.'));
+  var nv = botao('＋ Começar com outro vídeo', function(){ $('b-novo').click(); }); C.appendChild(nv);
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Tipo de vídeo'), chips(TIPOS_IA.map(function(t){ return [t[0], t[1]]; }), iaPed.tipo, function(v){ iaPed.tipo = v; guardaIa(); mostraAba(); })]));
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Formato'), chips(Object.keys(FORMATOS).map(function(k){ return [k, FORMATOS[k].n]; }), iaPed.formato, function(v){ iaPed.formato = v; guardaIa(); mostraAba(); })]));
   var dsel = sel([['auto', 'Automática (' + tipoIa()[2].join(' a ') + ' s)'], ['15', '15 s'], ['30', '30 s'], ['45', '45 s'], ['60', '60 s'], ['90', '90 s'], ['180', '3 min']], iaPed.dur);
@@ -1092,7 +1159,7 @@ function painelIA(C){
   var obs = el('textarea'); obs.rows = 4; obs.placeholder = 'Ex.: começar pela pergunta da Débora, terminar chamando para o teste grátis, sem a parte do ombro.'; obs.value = iaPed.obs; obs.oninput = function(){ iaPed.obs = obs.value; guardaIa(); };
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Duração'), dsel]));
   C.appendChild(el('div', 'grupo', [el('h3', null, 'Orientações para a edição'), obs]));
-  C.appendChild(el('p', 'nota-ajuda', 'Vídeos usados: ' + chavesUsadas().map(function(k){ var n = (fonte(k).palavras || []).length; return nomeFonte(k) + ' (' + (n ? n + ' palavras' : 'sem fala') + ')'; }).join(', ') + '.'));
+  C.appendChild(el('p', 'nota-ajuda', 'Vídeos usados: ' + chavesUsadas().map(function(k){ var n = (fonte(k).palavras || []).length; return nomeFonte(k) + ' (' + (n ? n + ' palavras' : 'sem fala: a IA usa só as imagens') + ')'; }).join(', ') + '.'));
   var b = el('button', 'btn pri', iaJob ? 'A IA está montando...' : 'Criar versão com IA · previsão ~' + etaIa() + ' s'); b.type = 'button'; b.disabled = !!iaJob || !IA_OK;
   b.onclick = rodarIA; C.appendChild(b);
   C.appendChild(el('p', 'nota-ajuda', 'Usa o Claude da Intus (a mesma chave da Central de atendimento). Até ' + (LIMITES.ia_dia || 40) + ' montagens por dia; hoje: ' + (LIMITES.ia_hoje || 0) + '.'));
@@ -1100,7 +1167,7 @@ function painelIA(C){
 }
 function cartaoJob(){
   var c = el('div', 'cartao'), bar = el('div', 'prog', [el('i')]), info = el('p', 'nota-ajuda', '');
-  c.appendChild(el('b', null, 'Montando a versão de visualização')); c.appendChild(bar); c.appendChild(info);
+  c.appendChild(el('b', null, (iaJob && iaJob.fase) || 'Montando a versão de visualização')); c.appendChild(bar); c.appendChild(info);
   c.appendChild(botao('Cancelar', function(){ iaJob = null; faixaIA(); mostraAba(); estado('Cancelado'); }));
   function atual(){ if (!iaJob || !document.body.contains(c)) return; var s = (Date.now() - iaJob.ini) / 1000;
     bar.firstChild.style.width = Math.min(96, s / iaJob.eta * 100) + '%';
@@ -1127,18 +1194,21 @@ async function rodarIA(){
   if (iaJob) return;
   var tipo = tipoIa(), F = FORMATOS[iaPed.formato] || FORMATOS.reel, alvoS = iaPed.dur === 'auto' ? tipo[2][0] + ' a ' + tipo[2][1] : iaPed.dur;
   var fontesIa = chavesUsadas().map(function(k){ return { id:k || 'principal', nome:nomeFonte(k), duracao:+fonteDur(k).toFixed(1), falas:falasDe(k) }; });
+  iaJob = { ini:Date.now(), eta:etaIa(), ctrl:new AbortController(), chars:0, fase:'Olhando o vídeo' }; mostraAba(); faixaIA();
+  var Q = await quadrosParaIA().catch(function(){ return { lista:[], imagens:[] }; }); if (!iaJob) return;
   var prompt = ['Você edita vídeos curtos da Intus Fit, consultoria online de treino e nutrição do Luiz Nunes (é consultoria online, não academia).',
     'Monte um vídeo do tipo "' + tipo[1] + '", formato ' + F.n + ', com ' + alvoS + ' segundos no total.',
-    'Regras: escolha trechos de fala completos, com começo, meio e fim claros; corte em pausas, nunca no meio de palavra; pode mudar a ordem se a história ficar melhor; os 3 primeiros segundos precisam prender; não prometa resultado, prazo ou número; não use travessão nem a construção "não é X, é Y"; português do Brasil.',
+    Q.lista.length ? 'Junto com este pedido vão ' + Q.lista.length + ' imagens (quadros dos vídeos), nesta ordem, no formato [id do vídeo, segundo]: ' + JSON.stringify(Q.lista) + '. Use as imagens para entender o que acontece em cada momento, principalmente nos vídeos sem fala (exercício, demonstração, bastidores): escolha os melhores momentos e corte as partes paradas ou repetidas.' : '',
+    'Regras: quando houver fala, escolha trechos de fala completos, com começo, meio e fim claros; corte em pausas, nunca no meio de palavra; pode mudar a ordem se a história ficar melhor; os 3 primeiros segundos precisam prender; não prometa resultado, prazo ou número; não use travessão nem a construção "não é X, é Y"; português do Brasil.',
     'Vídeos sem fala (vinheta, introdução) podem entrar inteiros no começo ou no fim, se fizer sentido.',
     iaPed.obs ? 'Orientações do Luiz: ' + iaPed.obs : '',
     'Vídeos disponíveis, com as falas no formato [início_s, fim_s, "texto"] no tempo da gravação de cada um:',
     JSON.stringify(fontesIa),
     'Responda só com JSON: {"nome":"título curto do projeto","gancho":"frase de até 8 palavras para a tela nos primeiros segundos","destaque":["1 ou 2 palavras do gancho"],"trechos":[{"fonte":"id do vídeo","ini":segundos,"fim":segundos}],"textos":[{"texto":"texto curto na tela","ini":segundos_no_video_final,"fim":segundos_no_video_final,"posicao":"topo|meio|baixo"}],"explicacao":"uma frase dizendo a lógica da montagem"}. Os trechos ficam na ordem em que vão aparecer.'
   ].filter(Boolean).join('\n\n');
-  iaJob = { ini:Date.now(), eta:etaIa(), ctrl:new AbortController(), chars:0 }; mostraAba(); faixaIA();
+  iaJob.fase = 'Montando a edição'; mostraAba(); faixaIA();
   try {
-    var rr = await api('ia', { pedido:prompt }); if (!iaJob) return; LIMITES.ia_hoje = (LIMITES.ia_hoje || 0) + 1; var r = rr.resposta;
+    var rr = await api('ia', { pedido:prompt, imagens:Q.imagens }); if (!iaJob) return; LIMITES.ia_hoje = (LIMITES.ia_hoje || 0) + 1; var r = rr.resposta;
     var seg = Math.round((Date.now() - iaJob.ini) / 1000); iaJob = null; aplicarIA(r, tipo, seg);
   } catch (e) {
     iaJob = null; faixaIA(); mostraAba();
@@ -1274,8 +1344,12 @@ $('b-novo').onclick = function(){
     projetos[id] = { id:id, nome:nome, formato:vert ? 'reel' : 'youtube', gancho:'Escreva o gancho aqui', destaque:[], trechos:[{ ini:0, fim:+d.toFixed(2), cheia:vert }], palavras:[],
       planos:[{ ini:0, fim:d + 1, cx:960, larg:ORIG_W, y:0, tarja:true }], notas:[], textos:[], sombras:[], imagens:[], audio:{ voz:1, musica:0 }, estilo:{ cores:['amarelo', 'verde'], tamanho:84, maiusculas:true, palavras_por_grupo:3 },
       camadas:[], final:{ ativo:true, chamada:'SIGA PARA MAIS DICAS', slogan:'Te levamos ao próximo nível. Do iniciante ao atleta.' }, midia:{ video:r.url, voz:r.url, musica:'', duracao:d, alt:info.w ? ORIG_W * info.h / info.w : 1080 } };
-    abrir(id); salvar(); });
+    Promise.resolve(abrir(id)).then(function(){ salvar(); oferecerIA(nome); }); });
 };
+function oferecerIA(nome){
+  dialogo('Vídeo pronto para editar', '"' + nome + '" virou um projeto novo. Você pode editar à mão ou pedir à IA uma primeira versão (ela assiste a quadros do vídeo e, se houver, lê a fala).',
+    [['Editar eu mesmo', fecha], ['Pedir edição à IA', function(){ fecha(); aba = 'ia'; abrePainel(); }]]);
+}
 
 // ---------- exportar, Drive e versões em alta ----------
 function dialogo(tit, txt, botoes, extra){ var c = $('caixa'); c.style.maxWidth = ''; c.innerHTML = ''; c.appendChild(el('h2', null, tit)); if (txt) c.appendChild(el('p', 'nota-ajuda', txt)); if (extra) c.appendChild(extra);
