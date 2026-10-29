@@ -214,7 +214,10 @@
     .ed-modos button.on { background:var(--green-dim); color:var(--brand); }
 
     /* alça de arrastar e marcas de destino */
-    .dnd-alca { display:inline-flex; align-items:center; justify-content:center; width:26px; height:34px; flex-shrink:0; border-radius:7px; cursor:grab; color:var(--text-muted); font-size:17px; line-height:1; user-select:none; border:1px dashed transparent; }
+    .dnd-alca { display:inline-flex; align-items:center; justify-content:center; width:26px; height:34px; flex-shrink:0; border-radius:7px; cursor:grab; color:var(--text-muted); font-size:17px; line-height:1; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; touch-action:none; border:1px dashed transparent; }
+    @media (pointer:coarse) { .dnd-alca { width:42px; height:46px; font-size:22px; border-color:var(--border); background:var(--bg3); } }
+    .dnd-fantasma { position:fixed; left:0; top:0; z-index:100000; pointer-events:none; max-width:260px; padding:9px 14px; border-radius:10px; background:var(--bg2); color:var(--text); border:1px solid var(--brand); box-shadow:0 12px 30px rgba(0,0,0,.45); font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.95; }
+    body.theme-light .dnd-fantasma { box-shadow:0 12px 30px rgba(0,0,0,.2); }
     .dnd-alca:hover { color:var(--brand); border-color:var(--border); background:var(--bg3); }
     .dnd-alca:active { cursor:grabbing; }
     .ex-card .ex-header .dnd-alca { align-self:flex-end; }
@@ -1207,7 +1210,7 @@ function renderEditor() {
               const count = editorState.exercicios.filter(e => (e.divisao||'A') === d && !e._placeholder).length;
               const divName = editorState.divNomes && editorState.divNomes[d] ? editorState.divNomes[d] : 'Divisão ' + d;
               const isActive = d === editorState.tabAtiva;
-              const dragAttrs = readOnly ? '' : `draggable="true" ondragstart="_divDragStart(event,'${d}')" ondragover="_divDragOver(event)" ondrop="_divDrop(event,'${d}')" ondragend="_divDragEnd(event)" ondragleave="this.classList.remove('dnd-sobre')"`;
+              const dragAttrs = readOnly ? '' : `draggable="true" ondragstart="_divDragStart(event,'${d}')" ondragover="_divDragOver(event)" ondrop="_divDrop(event,'${d}')" ondragend="_divDragEnd(event)"`;
               return `<button class="tab-btn${isActive?' active':''}" ${dragAttrs} onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')" title="${readOnly ? '' : 'Arraste para reordenar'}">${!readOnly ? '<span style="opacity:.45;cursor:grab;">⠿</span> ' : ''}${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
             }).join('')}
           </div>
@@ -1278,9 +1281,9 @@ function renderAlongSection() {
   let html = '<div style="margin-bottom:12px;">';
   alongsDaTab.forEach((al, idx) => {
     html += `
-      <div class="along-card" data-dnd="al" data-i="${idx}"${ro ? '' : ` ondragover="dndSobre(event,'al',${idx})" ondrop="dndSolto(event,'al',${idx})"`}>
+      <div class="along-card" data-dnd="al" data-i="${idx}">
         <div class="along-header">
-          ${ro ? '' : `<span class="dnd-alca" draggable="true" title="Arraste para mudar a posição" ondragstart="dndInicio(event,'al',${idx})" ondragend="dndFim()" style="height:28px;">⠿</span>`}
+          ${ro ? '' : `<span class="dnd-alca" title="Arraste para mudar a posição" onpointerdown="dndPtrIni(event,'al',${idx})" style="height:28px;">⠿</span>`}
           <span style="font-size:12px;color:var(--text-muted);font-weight:700;min-width:20px;">${idx+1}.</span>
           ${ro ? `<input type="text" class="along-combo-input" value="${esc(al.nome || al.nmalong || '')}" disabled style="flex:1;"/>` : `
           <div class="along-combo-wrap" style="flex:1;" id="along-combo-wrap-${idx}">
@@ -1489,11 +1492,10 @@ function renderExCard(ex, idx, total) {
     '</select>';
   }
 
-  const dnd = ro ? '' : ` ondragover="dndSobre(event,'ex',${idx})" ondrop="dndSolto(event,'ex',${idx})"`;
   return `
-    <div class="ex-card" data-dnd="ex" data-i="${idx}"${dnd}>
+    <div class="ex-card" data-dnd="ex" data-i="${idx}">
       <div class="ex-header">
-        ${ro ? '' : `<span class="dnd-alca" draggable="true" title="Arraste para mudar a posição" ondragstart="dndInicio(event,'ex',${idx})" ondragend="dndFim()">⠿</span>`}
+        ${ro ? '' : `<span class="dnd-alca" title="Arraste para mudar a posição" onpointerdown="dndPtrIni(event,'ex',${idx})">⠿</span>`}
         <span class="ex-num">${idx + 1}</span>
         <div class="form-group" style="flex:1;margin:0;min-width:200px;position:relative;">
           <label class="label">Exercício</label>
@@ -1689,10 +1691,9 @@ function _divDragStart(ev, d) {
   try { ev.dataTransfer.setData('text/plain', d); } catch (e) {}
   ev.currentTarget.style.opacity = '.4';
 }
-function _divDragOver(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; if (_dnd && _dnd.tipo === 'ex') ev.currentTarget.classList.add('dnd-sobre'); }
+function _divDragOver(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; }
 function _divDrop(ev, dAlvo) {
   ev.preventDefault();
-  if (_dnd && _dnd.tipo === 'ex') { _dndParaDivisao(dAlvo); return; }
   const origem = _dragDivLetra;
   if (!origem || origem === dAlvo) return;
   const divs = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
@@ -2070,42 +2071,103 @@ async function salvarNovoExercicio(realIdx) {
 // aberta; os itens das outras divisões ficam exatamente onde estavam no vetor.
 // Soltar o exercício sobre a aba de outra divisão leva o exercício para o fim dela.
 let _dnd = null; // { tipo: 'ex' | 'al', de: índice dentro da divisão }
+let _ptr = null; // arrasto em andamento (mouse, dedo ou caneta)
 function _dndLimpar() {
   document.querySelectorAll('.dnd-antes, .dnd-depois, .dnd-arrastando').forEach(el => el.classList.remove('dnd-antes', 'dnd-depois', 'dnd-arrastando'));
   document.querySelectorAll('.tab-btn.dnd-sobre').forEach(el => el.classList.remove('dnd-sobre'));
 }
-function dndInicio(ev, tipo, i) {
+// Arrasto por eventos de ponteiro, no lugar do arrastar nativo do navegador, que não existe
+// no tablet e no celular. A alça tem touch-action:none (o dedo nela não rola a página), um
+// bloco flutuante segue o dedo, a página rola sozinha perto das bordas e soltar fora de um
+// destino não muda nada.
+function dndPtrIni(ev, tipo, i) {
+  if (_ptr || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+  const alca = ev.currentTarget;
+  const card = alca.closest('[data-dnd]');
+  if (!card) return;
+  ev.preventDefault();
+  try { alca.setPointerCapture(ev.pointerId); } catch (e) {}
   _dnd = { tipo, de: i };
-  const card = ev.currentTarget.closest('[data-dnd]');
-  ev.dataTransfer.effectAllowed = 'move';
-  try { ev.dataTransfer.setData('text/plain', tipo + ':' + i); } catch (e) {}
-  if (card && ev.dataTransfer.setDragImage) ev.dataTransfer.setDragImage(card, 22, 22);
-  if (card) setTimeout(() => card.classList.add('dnd-arrastando'), 0);
+  const fant = document.createElement('div');
+  fant.className = 'dnd-fantasma';
+  const inp = card.querySelector('input.combo-input, input.along-combo-input');
+  fant.textContent = '⠿ ' + (i + 1) + ' · ' + ((inp && inp.value) || (tipo === 'ex' ? 'Exercício' : 'Alongamento'));
+  document.body.appendChild(fant);
+  card.classList.add('dnd-arrastando');
+  _ptr = { id: ev.pointerId, alca, card, tipo, de: i, x: ev.clientX, y: ev.clientY, alvo: null, depois: false, aba: null, fant, raf: 0 };
+  alca.addEventListener('pointermove', dndPtrMov);
+  alca.addEventListener('pointerup', dndPtrFim);
+  alca.addEventListener('pointercancel', dndPtrFim);
+  dndPtrMov(ev);
+  _ptr.raf = requestAnimationFrame(_dndRolar);
 }
-function dndSobre(ev, tipo, i) {
-  if (!_dnd || _dnd.tipo !== tipo) return;
-  ev.preventDefault();
-  ev.dataTransfer.dropEffect = 'move';
-  const card = ev.currentTarget;
-  const r = card.getBoundingClientRect();
-  const depois = ev.clientY > r.top + r.height / 2;
-  document.querySelectorAll('.dnd-antes, .dnd-depois').forEach(el => { if (el !== card) el.classList.remove('dnd-antes', 'dnd-depois'); });
-  card.classList.toggle('dnd-antes', !depois);
-  card.classList.toggle('dnd-depois', depois);
+function _dndAlvoSob() {
+  const P = _ptr;
+  P.fant.style.display = 'none';
+  const el = document.elementFromPoint(P.x, P.y);
+  P.fant.style.display = '';
+  document.querySelectorAll('.dnd-antes, .dnd-depois').forEach(e => e.classList.remove('dnd-antes', 'dnd-depois'));
+  document.querySelectorAll('.tab-btn.dnd-sobre').forEach(e => e.classList.remove('dnd-sobre'));
+  P.alvo = null; P.aba = null;
+  if (!el || !el.closest) return;
+  const c = el.closest('[data-dnd="' + P.tipo + '"]');
+  if (c) {
+    const r = c.getBoundingClientRect();
+    P.depois = P.y > r.top + r.height / 2;
+    P.alvo = c;
+    if (c !== P.card) c.classList.add(P.depois ? 'dnd-depois' : 'dnd-antes');
+    return;
+  }
+  const t = P.tipo === 'ex' ? el.closest('.tab-btn') : null;
+  if (t && !t.classList.contains('active')) { t.classList.add('dnd-sobre'); P.aba = t; }
 }
-function dndSolto(ev, tipo, i) {
-  if (!_dnd || _dnd.tipo !== tipo) return;
-  ev.preventDefault();
-  const r = ev.currentTarget.getBoundingClientRect();
-  const depois = ev.clientY > r.top + r.height / 2;
-  let para = depois ? i + 1 : i;
-  const de = _dnd.de;
-  if (de < para) para--;
+function dndPtrMov(ev) {
+  const P = _ptr;
+  if (!P || ev.pointerId !== P.id) return;
+  P.x = ev.clientX; P.y = ev.clientY;
+  P.fant.style.transform = 'translate(' + (P.x + 14) + 'px,' + (P.y + 10) + 'px)';
+  _dndAlvoSob();
+}
+// rolagem automática da página quando o dedo chega perto do topo ou do fim da tela
+function _dndRolar() {
+  const P = _ptr;
+  if (!P) return;
+  const topo = 84, fim = window.innerHeight - 70;
+  let v = 0;
+  if (P.y < topo) v = -Math.ceil((topo - P.y) / 6);
+  else if (P.y > fim) v = Math.ceil((P.y - fim) / 6);
+  if (v) { window.scrollBy(0, Math.max(-28, Math.min(28, v))); _dndAlvoSob(); }
+  P.raf = requestAnimationFrame(_dndRolar);
+}
+function dndPtrFim(ev) {
+  const P = _ptr;
+  if (!P || ev.pointerId !== P.id) return;
+  cancelAnimationFrame(P.raf);
+  P.alca.removeEventListener('pointermove', dndPtrMov);
+  P.alca.removeEventListener('pointerup', dndPtrFim);
+  P.alca.removeEventListener('pointercancel', dndPtrFim);
+  try { P.alca.releasePointerCapture(P.id); } catch (e) {}
+  P.fant.remove();
+  const cancelou = ev.type === 'pointercancel';
+  _ptr = null;
+  if (!cancelou && P.alvo && P.alvo !== P.card) {
+    const i = parseInt(P.alvo.dataset.i);
+    let para = P.depois ? i + 1 : i;
+    if (P.de < para) para--;
+    _dndLimpar();
+    const de = P.de, tipo = P.tipo;
+    _dnd = null;
+    _dndReordenar(tipo, de, para);
+    return;
+  }
+  if (!cancelou && P.aba) {
+    const d = P.aba.getAttribute('onclick').match(/trocarTab\('([^']+)'\)/);
+    _dndLimpar();
+    if (d && _dndParaDivisao(d[1])) return;
+  }
   _dnd = null;
   _dndLimpar();
-  _dndReordenar(tipo, de, para);
 }
-function dndFim() { _dnd = null; _dndLimpar(); }
 function _dndReordenar(tipo, de, para) {
   const ehEx = tipo === 'ex';
   const lista = ehEx ? editorState.exercicios : editorState.alongamentos;

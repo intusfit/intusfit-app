@@ -52,7 +52,7 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
       await page.mouse.move(a.x + 13, a.y + 14); await page.mouse.down();
       await page.mouse.move(a.x + 40, a.y - 10, { steps: 4 });
       const ty = pos === 'fim' ? t.y + t.height - 5 : t.y + 5;
-      await page.mouse.move(t.x + 200, ty, { steps: 10 });
+      await page.mouse.move(t.x + Math.min(200, t.width / 2), ty, { steps: 10 });
       await page.mouse.up(); await page.waitForTimeout(300);
     };
     const nomes = () => page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'A').map(e => e.nmexercicio));
@@ -79,8 +79,7 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     let na = await nomesAl();
     ok(na.join('|') === 'Alongamento de ombros|Alongamento de peitoral', 'arrastar alongamento: ' + na.join('|'));
     // exercicio solto na aba da divisão B
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.locator('.ex-card .dnd-alca').nth(0).dragTo(page.locator('.tab-btn').nth(1));
+    await arrastar(page.locator('.ex-card .dnd-alca').nth(0), page.locator('.tab-btn').nth(1), 'topo');
     await page.waitForTimeout(300);
     ok(await page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'B').map(e => e.nmexercicio).join('|') === 'Agachamento livre|Supino reto'), 'exercicio solto na aba B vai para o fim de B');
     ok(await page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'A').length === 3), 'A ficou com 3');
@@ -111,6 +110,75 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     const topo = await page.evaluate(() => Math.round(document.querySelector('.ed-side').getBoundingClientRect().top));
     ok(topo >= 60 && topo <= 90, 'miniatura fica fixa ao rolar (top=' + topo + ')');
     ok(erros.length === 0, 'sem erro de página ' + erros.join(';'));
+    await ctx.close();
+  }
+  // ── toque (tablet e celular): dedo na alça, CDP dispara eventos de toque de verdade ──
+  for (const [rot, vw, vh] of [['tablet', 820, 1180], ['celular', 390, 844]]) {
+    const ctx = await b.newContext({ viewport: { width: vw, height: vh }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage(); const erros = []; page.on('pageerror', e => erros.push(String(e.message)));
+    await page.route(/\/app\/api\//, r => r.abort('failed'));
+    await page.addInitScript(() => { localStorage.setItem('mx-token', 'local-t'); localStorage.setItem('mx-user', JSON.stringify({ idusuario: 1, nome: 'Luiz', tipo: 'admin', admin: true })); localStorage.removeItem('intus-ed-modo'); });
+    await page.goto('http://127.0.0.1:8127/treinos.html', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => {
+      exercicios = [1, 2, 3, 4, 5, 6].map(i => ({ idexercicio: i, nmexercicio: 'Ex ' + i }));
+      alongamentos = []; atletas = [{ idatleta: 7, nome: 'Aluna Teste' }]; editFichaId = null;
+      editorState = { init: true, fichaId: null, nome: 'f', atletaId: 7, observacao: '', dtinicio: '2026-10-27', validade: '', ativo: true, divNomes: {}, divOrdem: ['A', 'B'], tabAtiva: 'A', secaoAlong: true, secaoEx: true,
+        exercicios: [1, 2, 3, 4, 5, 6].map(i => ({ divisao: 'A', idexercicio: i, nmexercicio: 'Ex ' + i, qtdserie: 3, repeticoes: '12', intervalo: '01:00', tempopausa: 60 })).concat([{ divisao: 'B', idexercicio: 1, nmexercicio: 'Ex 1', qtdserie: 3, repeticoes: '12', intervalo: '01:00', tempopausa: 60 }]),
+        alongamentos: [1, 2, 3].map(i => ({ divisao: 'A', idalongamento: 1, nome: 'Along ' + i, series: 1, tempo: '30s', obs: '' })) };
+      view = 'editor'; render();
+    });
+    await page.waitForTimeout(500);
+    const cdp = await ctx.newCDPSession(page);
+    const toque = async (de, passos) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: de.x, y: de.y, id: 1 }] });
+      for (const q of passos) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: q.x, y: q.y, id: 1 }] }); await page.waitForTimeout(40); }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(350);
+    };
+    const centro = async loc => { const r = await loc.boundingBox(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height, top: r.y }; };
+    const lista = () => page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'A').map(e => e.nmexercicio.replace('Ex ', '')).join(''));
+    console.log('--- toque', rot);
+    ok(await page.evaluate(() => getComputedStyle(document.querySelector('.dnd-alca')).touchAction === 'none'), rot + ': alça com touch-action none');
+    ok(await page.evaluate(() => document.querySelector('.dnd-alca').getBoundingClientRect().width >= 40), rot + ': alça grande o bastante para o dedo');
+    // 1) rolagem automática: dedo na alça levado até a borda de baixo da tela e mantido ali
+    await page.evaluate(() => document.querySelectorAll('.ex-card')[0].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => window.scrollBy(0, -90)); await page.waitForTimeout(150);
+    const rolInicio = await page.evaluate(() => window.scrollY);
+    const alca = await centro(page.locator('.ex-card .dnd-alca').nth(0));
+    const passos = [];
+    for (let k = 1; k <= 10; k++) passos.push({ x: alca.x + 20, y: alca.y + (vh - 20 - alca.y) * k / 10 });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: alca.x, y: alca.y, id: 1 }] });
+    for (const q of passos) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: q.x, y: q.y, id: 1 }] }); await page.waitForTimeout(40); }
+    await page.waitForTimeout(700);
+    const rolDepois = await page.evaluate(() => window.scrollY);
+    ok(rolDepois > rolInicio + 40, rot + ': a página rola sozinha com o dedo na borda de baixo (' + rolInicio + ' -> ' + rolDepois + ')');
+    ok(await page.evaluate(() => !!document.querySelector('.dnd-fantasma')), rot + ': bloco flutuante segue o dedo');
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForTimeout(350);
+    const l1 = await lista();
+    ok(l1 !== '123456' && [...l1].sort().join('') === '123456', rot + ': o exercício mudou de lugar sem perder nenhum (' + l1 + ')');
+    ok(await page.evaluate(() => !document.querySelector('.dnd-fantasma') && !document.querySelector('.dnd-arrastando')), rot + ': sem bloco flutuante nem marca presa');
+    // 2) destino exato, tela alta para não haver rolagem: 1º exercício para depois do 2º
+    await page.setViewportSize({ width: vw, height: 3400 }); await page.waitForTimeout(250);
+    await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(150);
+    const antes = await lista();
+    const a2 = await centro(page.locator('.ex-card .dnd-alca').nth(0));
+    const t2 = await centro(page.locator('.ex-card').nth(1));
+    await toque({ x: a2.x, y: a2.y }, [{ x: a2.x + 10, y: a2.y + 20 }, { x: t2.x, y: t2.top + t2.h - 6 }, { x: t2.x, y: t2.top + t2.h - 5 }]);
+    const depois = await lista();
+    ok(depois === antes[1] + antes[0] + antes.slice(2), rot + ': 1º vai para depois do 2º (' + antes + ' -> ' + depois + ')');
+    // soltar fora de qualquer alvo não muda nada
+    const a3 = await centro(page.locator('.ex-card .dnd-alca').nth(0));
+    await toque({ x: a3.x, y: a3.y }, [{ x: a3.x + 8, y: a3.y + 8 }, { x: 4, y: a3.y }]);
+    ok(await lista() === depois, rot + ': soltar fora não muda a ordem');
+    // alongamento
+    await page.evaluate(() => document.querySelectorAll('.along-card')[0].scrollIntoView({ block: 'center' })); await page.waitForTimeout(150);
+    const b1 = await centro(page.locator('.along-card .dnd-alca').nth(0));
+    const b3 = await centro(page.locator('.along-card').nth(2));
+    await toque({ x: b1.x, y: b1.y }, [{ x: b1.x + 10, y: b1.y + 20 }, { x: b3.x, y: b3.top + b3.h - 5 }, { x: b3.x, y: b3.top + b3.h - 4 }]);
+    ok(await page.evaluate(() => editorState.alongamentos.filter(a => a.divisao === 'A').map(a => a.nome).join('|')) === 'Along 2|Along 3|Along 1', rot + ': alongamento arrastado com o dedo');
+    ok(erros.length === 0, rot + ': sem erro de página ' + erros.join(';'));
     await ctx.close();
   }
   await b.close(); srv.close();
