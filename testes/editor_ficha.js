@@ -55,12 +55,22 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
       await page.mouse.move(t.x + Math.min(200, t.width / 2), ty, { steps: 10 });
       await page.mouse.up(); await page.waitForTimeout(300);
     };
+    const arrastarAba = async (pg, de, para, depois) => {
+      await pg.evaluate(() => window.scrollTo(0, 0)); await pg.waitForTimeout(100);
+      const a = await pg.locator('.tab-btn .tab-alca').nth(de).boundingBox();
+      const t = await pg.locator('.tab-btn').nth(para).boundingBox();
+      await pg.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await pg.mouse.down();
+      await pg.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 8, { steps: 3 });
+      await pg.mouse.move(depois ? t.x + t.width - 6 : t.x + 6, t.y + t.height / 2, { steps: 10 });
+      await pg.mouse.up(); await pg.waitForTimeout(300);
+    };
     const nomes = () => page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'A').map(e => e.nmexercicio));
     const nomesAl = () => page.evaluate(() => editorState.alongamentos.filter(e => e.divisao === 'A').map(e => e.nome));
     console.log('--- tema', tema);
     ok((await page.evaluate(() => document.querySelector('.ed-wrap').className)).includes('ed-celular'), 'modo padrao celular em tela larga');
     ok(await page.evaluate(() => !!document.getElementById('mini-tela')), 'miniatura aparece');
-    ok((await page.locator('.dnd-alca').count()) === 4 + 2, 'alças: 4 exercicios + 2 alongamentos da divisão A');
+    ok((await page.locator('.ex-card .dnd-alca, .along-card .dnd-alca').count()) === 4 + 2, 'alças: 4 exercicios + 2 alongamentos da divisão A');
+    ok((await page.locator('.tab-btn .tab-alca').count()) === 2, 'alça em cada aba de divisão');
 
     // arrastar de verdade: exercicio 4 (Rosca) para antes do 1
     await arrastar(page.locator('.ex-card .dnd-alca').nth(3), page.locator('.ex-card').nth(0), 'topo');
@@ -83,6 +93,20 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     await page.waitForTimeout(300);
     ok(await page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'B').map(e => e.nmexercicio).join('|') === 'Agachamento livre|Supino reto'), 'exercicio solto na aba B vai para o fim de B');
     ok(await page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'A').length === 3), 'A ficou com 3');
+    // abas de divisão: arrastar a alça da aba muda a ordem e NÃO troca de aba
+    await page.evaluate(() => { editorState.exercicios.push({ divisao: 'C', idexercicio: 5, nmexercicio: 'Agachamento livre', qtdserie: 3, repeticoes: '8', intervalo: '01:00', tempopausa: 60 }); renderEditor(); });
+    await page.waitForTimeout(300);
+    const ordemDiv = () => page.evaluate(() => [...document.querySelectorAll('.tab-btn[data-d]')].map(t => t.dataset.d).join(''));
+    ok(await ordemDiv() === 'ABC', 'abas começam em A B C');
+    await arrastarAba(page, 1, 2, true); // B para depois de C
+    ok(await ordemDiv() === 'ACB', 'arrastar a aba B para depois de C: ' + await ordemDiv());
+    ok(await page.evaluate(() => editorState.tabAtiva === 'A'), 'arrastar uma aba não troca a aba aberta');
+    ok(await page.evaluate(() => editorState.divOrdem.join('') === 'ACB'), 'a ordem fica em divOrdem (é o que vai para a ficha)');
+    await arrastarAba(page, 2, 0, false); // B para antes de A
+    ok(await ordemDiv() === 'BAC', 'arrastar a aba B para antes de A: ' + await ordemDiv());
+    // arrastar uma aba e soltar nela mesma não reordena nem abre a aba
+    await arrastarAba(page, 1, 1, true);
+    ok(await page.evaluate(() => editorState.tabAtiva === 'A'), 'arrastar uma aba e soltar nela mesma não troca a aba aberta');
     // miniatura reflete a ordem
     const mini = await page.evaluate(() => [...document.querySelectorAll('#mini-tela .mi-row .mi-nome')].map(e => e.firstChild.textContent));
     ok(mini.join('|') === 'Crucifixo|Rosca direta|Tríceps corda', 'miniatura na mesma ordem: ' + mini.join('|'));
@@ -139,8 +163,9 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     const centro = async loc => { const r = await loc.boundingBox(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height, top: r.y }; };
     const lista = () => page.evaluate(() => editorState.exercicios.filter(e => e.divisao === 'A').map(e => e.nmexercicio.replace('Ex ', '')).join(''));
     console.log('--- toque', rot);
-    ok(await page.evaluate(() => getComputedStyle(document.querySelector('.dnd-alca')).touchAction === 'none'), rot + ': alça com touch-action none');
-    ok(await page.evaluate(() => document.querySelector('.dnd-alca').getBoundingClientRect().width >= 40), rot + ': alça grande o bastante para o dedo');
+    ok(await page.evaluate(() => getComputedStyle(document.querySelector('.ex-card .dnd-alca')).touchAction === 'none'), rot + ': alça com touch-action none');
+    ok(await page.evaluate(() => getComputedStyle(document.querySelector('.tab-alca')).touchAction === 'none'), rot + ': alça da aba com touch-action none');
+    ok(await page.evaluate(() => document.querySelector('.ex-card .dnd-alca').getBoundingClientRect().width >= 40 && document.querySelector('.tab-alca').getBoundingClientRect().width >= 32), rot + ': alças grandes o bastante para o dedo');
     // 1) rolagem automática: dedo na alça levado até a borda de baixo da tela e mantido ali
     await page.evaluate(() => document.querySelectorAll('.ex-card')[0].scrollIntoView({ block: 'start' }));
     await page.evaluate(() => window.scrollBy(0, -90)); await page.waitForTimeout(150);
@@ -178,6 +203,20 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     const b3 = await centro(page.locator('.along-card').nth(2));
     await toque({ x: b1.x, y: b1.y }, [{ x: b1.x + 10, y: b1.y + 20 }, { x: b3.x, y: b3.top + b3.h - 5 }, { x: b3.x, y: b3.top + b3.h - 4 }]);
     ok(await page.evaluate(() => editorState.alongamentos.filter(a => a.divisao === 'A').map(a => a.nome).join('|')) === 'Along 2|Along 3|Along 1', rot + ': alongamento arrastado com o dedo');
+    // abas de divisão com o dedo (3 divisões; tela alta para não rolar)
+    await page.evaluate(() => { editorState.exercicios.push({ divisao: 'C', idexercicio: 3, nmexercicio: 'Ex 3', qtdserie: 3, repeticoes: '12', intervalo: '01:00', tempopausa: 60 }); editorState.divOrdem = ['A', 'B', 'C']; renderEditor(); });
+    await page.waitForTimeout(300); await page.evaluate(() => window.scrollTo(0, 0));
+    const ordemT = () => page.evaluate(() => [...document.querySelectorAll('.tab-btn[data-d]')].map(t => t.dataset.d).join(''));
+    const c0 = await centro(page.locator('.tab-btn .tab-alca').nth(0));
+    const tC = await centro(page.locator('.tab-btn').nth(2));
+    ok(tC.x + tC.w / 2 < vw + 2, rot + ': a aba C está dentro da tela');
+    await toque({ x: c0.x, y: c0.y }, [{ x: c0.x + 10, y: c0.y + 6 }, { x: tC.x + tC.w / 2 - 6, y: tC.y }, { x: tC.x + tC.w / 2 - 5, y: tC.y }]);
+    ok(await ordemT() === 'BCA', rot + ': aba A arrastada com o dedo para depois de C (' + await ordemT() + ')');
+    ok(await page.evaluate(() => editorState.tabAtiva === 'A' && editorState.divOrdem.join('') === 'BCA'), rot + ': aba aberta não mudou e divOrdem acompanha');
+    const c1 = await centro(page.locator('.tab-btn .tab-alca').nth(1));
+    await toque({ x: c1.x, y: c1.y }, [{ x: c1.x + 8, y: c1.y + 8 }, { x: 4, y: c1.y }]);
+    ok(await ordemT() === 'BCA', rot + ': soltar a aba fora não muda a ordem');
+    ok(await page.evaluate(() => editorState.tabAtiva === 'A'), rot + ': soltar a aba fora também não abre a aba');
     ok(erros.length === 0, rot + ': sem erro de página ' + erros.join(';'));
     await ctx.close();
   }

@@ -53,6 +53,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "lead que ganha matrícula paga ou bonificada deixa de ser lead" node lead_cliente.js
   passo "Extras: painel e área do aluno" node extras_front.js
   passo "Editor de ficha: arrastar, modo ampla e miniatura do celular do aluno" node editor_ficha.js
+  passo "Clientes: ordenar pela data de cadastro (leads)" node clientes_ordem.js
   passo "figurinhas do painel: falha de leitura nunca vira o padrão de fábrica" node figurinhas_painel.js
   passo "treino fora do protocolo: marcar aluno e post colaborativo" node fora_protocolo_colab.js
   passo "laboratório do WhatsApp: tela" node wa_teste_front.js

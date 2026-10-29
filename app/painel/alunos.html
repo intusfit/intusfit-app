@@ -162,6 +162,10 @@ function estaInativo(a)   { return situacaoDoAluno(a).inativo; }
 // Inativos e bloqueados ficam de fora; leads contam so no bloco de leads.
 function estaAtivo(a) { return situacaoDoAluno(a).ativo && !isLead(a); }
 
+function _cadChave(a, vazio) { return a.dtcadastro ? String(a.dtcadastro).slice(0, 10) : vazio; }
+// new Date('AAAA-MM-DD') vale meia-noite UTC e, no Brasil, mostrava o dia anterior
+function _cadFmt(a) { return a.dtcadastro ? new Date(String(a.dtcadastro).slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+
 function filtrados() {
   const q = (busca || '').toLowerCase().trim();
   let lista = atletas;
@@ -267,9 +271,10 @@ function filtrados() {
       return sb - sa || (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
     });
   } else if (ordenacao === 'cadastro') {
-    lista.sort((a, b) => (b.dtcadastro || '0000').localeCompare(a.dtcadastro || '0000'));
+    // dtcadastro guarda só o dia; no mesmo dia vale a ordem de cadastro (idatleta maior = mais novo). Sem data vai para o fim.
+    lista.sort((a, b) => _cadChave(b, '0000').localeCompare(_cadChave(a, '0000')) || Number(b.idatleta) - Number(a.idatleta));
   } else if (ordenacao === 'cadastro_asc') {
-    lista.sort((a, b) => (a.dtcadastro || '9999').localeCompare(b.dtcadastro || '9999'));
+    lista.sort((a, b) => _cadChave(a, '9999').localeCompare(_cadChave(b, '9999')) || Number(a.idatleta) - Number(b.idatleta));
   } else if (ordenacao === 'alfabetica_desc') {
     lista.sort((a, b) => (b.nome || '').localeCompare(a.nome || '', 'pt-BR'));
   }
@@ -388,8 +393,8 @@ function render() {
         <select class="input" id="sel-ordem" style="width:auto;min-width:140px;">
           <option value="alfabetica"      ${ordenacao==='alfabetica'     ?'selected':''}>A-Z (nome)</option>
           <option value="alfabetica_desc" ${ordenacao==='alfabetica_desc'?'selected':''}>Z-A (nome)</option>
-          <option value="cadastro"        ${ordenacao==='cadastro'       ?'selected':''}>Mais recentes</option>
-          <option value="cadastro_asc"    ${ordenacao==='cadastro_asc'   ?'selected':''}>Mais antigos</option>
+          <option value="cadastro"        ${ordenacao==='cadastro'       ?'selected':''}>Cadastro: mais recente primeiro</option>
+          <option value="cadastro_asc"    ${ordenacao==='cadastro_asc'   ?'selected':''}>Cadastro: mais antigo primeiro</option>
           <option value="professor"       ${ordenacao==='professor'      ?'selected':''}>Professor</option>
           <option value="plano"           ${ordenacao==='plano'          ?'selected':''}>Plano</option>
           <option value="aniversario"     ${ordenacao==='aniversario'    ?'selected':''}>Aniversário</option>
@@ -457,7 +462,7 @@ function render() {
                     ${(ordenacao === 'aniversario' || filtro === 'aniver')
                       ? `<td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${_dtNascFmt}</td><td style="font-size:12px;font-weight:700;color:var(--text);">${_idade !== null ? _idade : '—'}</td>`
                       : `<td class="td-date">${esc(a.telefone || '—')}</td>`}
-                    <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${a.dtcadastro ? new Date(a.dtcadastro).toLocaleDateString('pt-BR') : '—'}</td>
+                    <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${_cadFmt(a)}</td>
                     <td style="font-size:11px;color:var(--text-muted);">${(function(){
                         if (!a.indicado_por_idatleta) return '<span style="color:var(--text-dim);">—</span>';
                         const ref = atletas.find(x => Number(x.idatleta) === Number(a.indicado_por_idatleta));
@@ -501,14 +506,14 @@ function render() {
     if (again) { again.focus(); again.setSelectionRange(busca.length, busca.length); }
   });
   const sel = document.getElementById('sel-filtro');
-  if (sel) sel.addEventListener('change', e => { filtro = e.target.value; render(); });
+  if (sel) sel.addEventListener('change', e => { setFiltro(e.target.value); });
   const selOrdem = document.getElementById('sel-ordem');
   if (selOrdem) selOrdem.addEventListener('change', e => { ordenacao = e.target.value; render(); });
   document.getElementById('sel-genero')?.addEventListener('change', e => { filtroGenero = e.target.value; render(); });
   document.getElementById('sel-prof')?.addEventListener('change', e => { filtroProf = e.target.value; render(); });
 }
 
-function setFiltro(f) { filtro = f; render(); }
+function setFiltro(f) { filtro = f; if (f === 'leads' && ordenacao === 'alfabetica') ordenacao = 'cadastro'; render(); }
 
 // ── Quadro de clientes (só visualização: nada é gravado aqui; "Abrir" leva à ficha de sempre) ──
 // Mesma lista, filtros e busca da tabela. A coluna segue o selo da tabela: bloqueado, lead, novo, ativo ou inativo (situacaoDoAluno).
@@ -526,7 +531,7 @@ function _montarQuadroClientes(lista) {
     return { id: String(a.idatleta), coluna: col(a), bloqueado: true, html:
       '<div style="display:flex;gap:8px;align-items:center;">' + avatarHtml(a.idatleta, a.nome, 30) + '<div style="min-width:0;flex:1;"><div class="kb-cartao-nome">' + esc(a.nome) + '</div><div class="kb-meta">' + esc(a.telefone || a.email || '') + '</div></div></div>' +
       '<div>' + (plano ? '<span class="kb-pill">' + esc(String(plano.dshistorico || 'Matrícula').substring(0, 24)) + '</span>' : '<span class="kb-pill">sem matrícula</span>') + (venc ? '<span class="kb-pill">vence ' + esc(venc) + '</span>' : '') +
-      (profs ? '<span class="kb-pill">👤 ' + esc(profs) + '</span>' : '') + '</div>' +
+      (profs ? '<span class="kb-pill">👤 ' + esc(profs) + '</span>' : '') + (a.dtcadastro ? '<span class="kb-pill">cadastro ' + esc(_cadFmt(a)) + '</span>' : '') + '</div>' +
       '<div class="kb-acoes">' + (abre ? '<button type="button" data-kbc="' + a.idatleta + '">Abrir</button>' : '') + '' + (isAdmin() ? '<a href="perfil.html?id=' + a.idatleta + '">Perfil</a>' : '') + '</div>' };
   });
   alvo.classList.add('kb-painel');

@@ -226,6 +226,13 @@
     .ex-card.dnd-depois, .along-card.dnd-depois { box-shadow:0 3px 0 0 var(--brand), var(--prof-painel); }
     .ex-card .ex-num, .along-card .ex-num { font-size:12px; font-weight:800; color:var(--text-muted); min-width:20px; text-align:center; align-self:flex-end; padding-bottom:9px; }
     .tab-btn.dnd-sobre { outline:2px dashed var(--brand); outline-offset:-3px; }
+    .tab-btn { white-space:nowrap; }
+    @media (max-width:700px) { .tab-bar { flex:1 1 100% !important; flex-wrap:wrap; } }
+    .tab-btn .tab-alca { width:18px; height:24px; font-size:14px; vertical-align:middle; margin-right:2px; opacity:.55; }
+    @media (pointer:coarse) { .tab-btn .tab-alca { width:34px; height:36px; font-size:18px; opacity:1; } }
+    .tab-btn.dnd-arrastando { opacity:.35; }
+    .tab-btn.dnd-antes { box-shadow:-3px 0 0 0 var(--brand); }
+    .tab-btn.dnd-depois { box-shadow:3px 0 0 0 var(--brand); }
 
     /* ── CELULAR DO ALUNO (miniatura) ── */
     .mini-aparelho { width:372px; padding:14px 14px 18px; border-radius:44px; background:#0a0a0a; border:2px solid #3a3a3a; box-shadow:0 18px 40px -10px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.05); position:relative; }
@@ -1210,8 +1217,7 @@ function renderEditor() {
               const count = editorState.exercicios.filter(e => (e.divisao||'A') === d && !e._placeholder).length;
               const divName = editorState.divNomes && editorState.divNomes[d] ? editorState.divNomes[d] : 'Divisão ' + d;
               const isActive = d === editorState.tabAtiva;
-              const dragAttrs = readOnly ? '' : `draggable="true" ondragstart="_divDragStart(event,'${d}')" ondragover="_divDragOver(event)" ondrop="_divDrop(event,'${d}')" ondragend="_divDragEnd(event)"`;
-              return `<button class="tab-btn${isActive?' active':''}" ${dragAttrs} onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')" title="${readOnly ? '' : 'Arraste para reordenar'}">${!readOnly ? '<span style="opacity:.45;cursor:grab;">⠿</span> ' : ''}${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
+              return `<button class="tab-btn${isActive?' active':''}" data-dnd="div" data-d="${d}" data-nome="${esc(divName)}" onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')">${!readOnly ? `<span class="dnd-alca tab-alca" title="Arraste para reordenar" onpointerdown="dndPtrIni(event,'div','${d}')">⠿</span> ` : ''}${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
             }).join('')}
           </div>
           ${!readOnly ? `<button class="btn btn-secondary btn-sm" onclick="adicionarDivisao()">+ Divisão</button>
@@ -1682,30 +1688,17 @@ function updateMetodo(idx, val) { const r = getExReal(idx); if (r >= 0) editorSt
 function voltarLista() { view = 'lista'; editorState = {}; render(); }
 function trocarTab(d) { editorState.tabAtiva = d; renderEditor(); }
 
-// Reordenar divisões arrastando as abas — a ordem final fica em editorState.divOrdem
-// e é salva na ficha (divOrdem), refletindo na tela de escolha de treino do aluno.
-let _dragDivLetra = null;
-function _divDragStart(ev, d) {
-  _dragDivLetra = d;
-  ev.dataTransfer.effectAllowed = 'move';
-  try { ev.dataTransfer.setData('text/plain', d); } catch (e) {}
-  ev.currentTarget.style.opacity = '.4';
-}
-function _divDragOver(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; }
-function _divDrop(ev, dAlvo) {
-  ev.preventDefault();
-  const origem = _dragDivLetra;
+// Reordenar divisões: arrastar a alça ⠿ da aba (dndPtrIni, tipo 'div'). A ordem final fica em
+// editorState.divOrdem e é salva na ficha (divOrdem), refletindo na tela de escolha de treino do aluno.
+function _divReordenar(origem, dAlvo, depois) {
   if (!origem || origem === dAlvo) return;
   const divs = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
-  const fromIdx = divs.indexOf(origem);
-  const toIdx = divs.indexOf(dAlvo);
-  if (fromIdx < 0 || toIdx < 0) return;
-  divs.splice(fromIdx, 1);
-  divs.splice(toIdx, 0, origem);
+  if (divs.indexOf(origem) < 0 || divs.indexOf(dAlvo) < 0) return;
+  divs.splice(divs.indexOf(origem), 1);
+  divs.splice(divs.indexOf(dAlvo) + (depois ? 1 : 0), 0, origem);
   editorState.divOrdem = divs;
   renderEditor();
 }
-function _divDragEnd(ev) { _dragDivLetra = null; if (ev.currentTarget) ev.currentTarget.style.opacity = ''; }
 function renomearDivisao(d) {
   const atual = (editorState.divNomes && editorState.divNomes[d]) ? editorState.divNomes[d] : 'Divisão ' + d;
   const novo = prompt('Nome da divisão ' + d + ':', atual);
@@ -2091,10 +2084,11 @@ function dndPtrIni(ev, tipo, i) {
   const fant = document.createElement('div');
   fant.className = 'dnd-fantasma';
   const inp = card.querySelector('input.combo-input, input.along-combo-input');
-  fant.textContent = '⠿ ' + (i + 1) + ' · ' + ((inp && inp.value) || (tipo === 'ex' ? 'Exercício' : 'Alongamento'));
+  fant.textContent = tipo === 'div' ? '⠿ ' + (card.dataset.nome || 'Divisão ' + i)
+    : '⠿ ' + (i + 1) + ' · ' + ((inp && inp.value) || (tipo === 'ex' ? 'Exercício' : 'Alongamento'));
   document.body.appendChild(fant);
   card.classList.add('dnd-arrastando');
-  _ptr = { id: ev.pointerId, alca, card, tipo, de: i, x: ev.clientX, y: ev.clientY, alvo: null, depois: false, aba: null, fant, raf: 0 };
+  _ptr = { id: ev.pointerId, alca, card, tipo, de: i, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, alvo: null, depois: false, aba: null, fant, raf: 0 };
   alca.addEventListener('pointermove', dndPtrMov);
   alca.addEventListener('pointerup', dndPtrFim);
   alca.addEventListener('pointercancel', dndPtrFim);
@@ -2113,12 +2107,12 @@ function _dndAlvoSob() {
   const c = el.closest('[data-dnd="' + P.tipo + '"]');
   if (c) {
     const r = c.getBoundingClientRect();
-    P.depois = P.y > r.top + r.height / 2;
+    P.depois = P.tipo === 'div' ? P.x > r.left + r.width / 2 : P.y > r.top + r.height / 2;
     P.alvo = c;
     if (c !== P.card) c.classList.add(P.depois ? 'dnd-depois' : 'dnd-antes');
     return;
   }
-  const t = P.tipo === 'ex' ? el.closest('.tab-btn') : null;
+  const t = P.tipo === 'ex' ? el.closest('.tab-btn') : null; // exercício solto na aba de outra divisão
   if (t && !t.classList.contains('active')) { t.classList.add('dnd-sobre'); P.aba = t; }
 }
 function dndPtrMov(ev) {
@@ -2150,6 +2144,18 @@ function dndPtrFim(ev) {
   P.fant.remove();
   const cancelou = ev.type === 'pointercancel';
   _ptr = null;
+  if (P.tipo === 'div' && Math.hypot(P.x - P.x0, P.y - P.y0) > 6) {
+    // o clique que vem depois de arrastar não pode trocar de aba
+    const calar = e => { e.stopPropagation(); e.preventDefault(); };
+    document.addEventListener('click', calar, true);
+    setTimeout(() => document.removeEventListener('click', calar, true), 80);
+  }
+  if (!cancelou && P.tipo === 'div') {
+    _dnd = null;
+    _dndLimpar();
+    if (P.alvo && P.alvo !== P.card) _divReordenar(P.de, P.alvo.dataset.d, P.depois);
+    return;
+  }
   if (!cancelou && P.alvo && P.alvo !== P.card) {
     const i = parseInt(P.alvo.dataset.i);
     let para = P.depois ? i + 1 : i;
