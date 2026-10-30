@@ -8,11 +8,11 @@
 <title>CDD Painel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="cdd.css?v=20261020c">
+<link rel="stylesheet" href="cdd.css?v=20261029a">
 </head>
 <body>
 <div id="app"></div>
-<script src="cdd.js?v=20261020c"></script>
+<script src="cdd.js?v=20261029a"></script>
 <script>
 (function () {
   var $app = document.getElementById('app');
@@ -65,7 +65,7 @@
     ['pos-pascoa', 'Desafio Pós Páscoa'], ['21-dias-verao', '21 Dias para o Verão'], ['desafio-carnaval', 'Desafio de Carnaval'], ['ceia-de-natal', 'Ceia de Natal 21 dias'], ['bbb-2024', 'BBB 2024']];
 
   /* ---------- esqueleto ---------- */
-  var ABAS = [['resumo', '📊', 'Resumo'], ['alunas', '👩', 'Alunas'], ['conteudo', '🎬', 'Conteúdo'], ['exercicios', '🏋️', 'Exercícios'], ['comentarios', '💬', 'Comentários'], ['anamneses', '📝', 'Anamneses'], ['conta', '⚙️', 'Ajustes']];
+  var ABAS = [['resumo', '📊', 'Resumo'], ['alunas', '👩', 'Alunas'], ['vendas', '💰', 'Vendas'], ['conteudo', '🎬', 'Conteúdo'], ['exercicios', '🏋️', 'Exercícios'], ['comentarios', '💬', 'Comentários'], ['anamneses', '📝', 'Anamneses'], ['conta', '⚙️', 'Ajustes']];
   function esqueleto() {
     var atual = ABAS.filter(function (x) { return x[0] === aba; })[0];
     $app.innerHTML = '<div class="pn"><aside class="pn-menu" id="menu"><div class="logo-caixa"><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt="CDD"><img class="logo-claro" src="marca/logo-cdd-preta.png" alt="CDD"></div><div class="sub">Painel da equipe</div>' +
@@ -79,7 +79,7 @@
     $app.querySelectorAll('[data-tema-btn]').forEach(function (b) { b.onclick = function () { CDD.alternarTema(); }; });
     CDD.aplicarMeta();
   }
-  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, anamneses: abaAnamneses, conta: abaConta })[aba](); window.scrollTo(0, 0); }
+  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, vendas: abaVendas, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, anamneses: abaAnamneses, conta: abaConta })[aba](); window.scrollTo(0, 0); }
 
   /* ---------- resumo ---------- */
   async function abaResumo() {
@@ -102,6 +102,87 @@
       this.disabled = false; cache.conteudo = null;
       $('impr').innerHTML = x.ok ? msg('Pronto: ' + x.data.modulos_novos + ' módulos novos, ' + x.data.aulas_novas + ' aulas novas, ' + x.data.aulas_atualizadas + ' aulas com vídeo preenchido, ' + x.data.fichas_novas + ' fichas de treino e ' + x.data.exercicios_novos + ' exercícios novos na base.', 'ok') : msg(x.data.mensagem);
     };
+  }
+
+  /* ---------- vendas (ofertas, cupons, pagamentos e a ligação com o gateway) ---------- */
+  function brl(n) { return 'R$ ' + (Number(n) || 0).toFixed(2).replace('.', ','); }
+  var RES_TXT = { aluna_criada_email_enviado: 'aluna criada, e-mail enviado', aluna_criada_email_falhou: 'aluna criada, e-mail NÃO saiu (use o link)', liberada_email_enviado: 'liberada, e-mail enviado', liberada_email_falhou: 'liberada, e-mail NÃO saiu (use o link)',
+    renovada: 'renovada', duplicado: 'repetido (ignorado)', produto_desconhecido: 'outro produto (ignorado)', oferta_inativa: 'oferta desligada', suspensa_por_reembolso: 'reembolso, acesso suspenso', assinatura_cancelada: 'assinatura cancelada', cobranca_atrasada: 'cobrança atrasada',
+    sem_email: 'sem e-mail válido (verificar)', aluna_nao_encontrada: 'aluna não encontrada', ignorado: 'ignorado', recebido: 'recebido' };
+  async function abaVendas() {
+    var v = $('v'); v.innerHTML = '<div class="vazio">Carregando...</div>';
+    var rs = await Promise.all([CDD.api('a_com_painel'), CDD.api('a_com_ofertas'), CDD.api('a_com_cupons'), CDD.api('a_com_pagamentos')]);
+    if (!rs[0].ok) { v.innerHTML = msg(rs[0].data.mensagem); return; }
+    var p = rs[0].data, ofertas = rs[1].data.ofertas || [], cupons = rs[2].data.cupons || [], pags = rs[3].data.pagamentos || [];
+    function n(rot, val, emoji) { return '<div class="card"><div style="font-size:22px">' + emoji + '</div><div style="font-size:26px;font-weight:800">' + val + '</div><div class="mut">' + rot + '</div></div>'; }
+    var gw = p.gateways.eduzz;
+    var h = '<div class="kpis">' + n('vendas nos últimos 30 dias', p.vendas_30d, '🛒') + n('receita nos últimos 30 dias', brl(p.receita_30d), '💰') + n('reembolsos (30 dias)', p.reembolsos_30d, '↩️') + n('matrículas ativas', p.matriculas_ativas, '✅') + n('vencem em 7 dias', p.vencendo_7d, '⏰') + '</div>';
+    h += '<div class="card" style="margin-top:12px"><h3>Ligação com o Eduzz (cadastro e liberação automáticos)</h3>' +
+      '<p class="mut">Quando uma venda é paga, a aluna é cadastrada, a matrícula é liberada e ela recebe o link para criar a senha. Reembolso suspende o acesso. Cadastre este endereço em <b>Eduzz &gt; Webhooks &gt; Novo webhook</b> (eventos de fatura e de contrato) e cole o <b>token de origem</b> (origin) do Eduzz abaixo.</p>' +
+      '<label>Endereço para o Eduzz chamar</label><div class="copiavel"><input id="gw-url" readonly value="' + esc(location.origin + location.pathname.replace(/\/[^\/]*$/, '') + '/api/api.php?a=webhook&g=eduzz') + '"><button class="btn" id="gw-cp">Copiar</button></div>' +
+      '<div class="espaco"></div><label>Token de origem do Eduzz ' + (gw.segredo_cadastrado ? '<span class="tag ok">cadastrado</span>' : '<span class="tag erro">falta cadastrar</span>') + '</label>' +
+      '<div class="linha"><input id="gw-seg" type="password" autocomplete="new-password" placeholder="' + (gw.segredo_cadastrado ? 'Cadastrado (cole um novo para trocar)' : 'Cole aqui o token') + '"><button class="btn pri" id="gw-sv">Salvar</button></div><div id="gw-msg"></div></div>';
+    h += '<div class="card"><div class="linha" style="justify-content:space-between"><h3>Ofertas (o que se vende)</h3><div class="linha"><button class="btn peq" id="of-pad">Carregar padrão do Eduzz</button><button class="btn peq pri" id="of-nova">Nova oferta</button></div></div>' +
+      '<p class="mut">Cada oferta liga um produto do gateway à duração do acesso. Produto que não está aqui é ignorado (o Eduzz avisa de todos os produtos da conta).</p>';
+    h += ofertas.length ? '<div class="tbl"><table><thead><tr><th>Oferta</th><th>Código no gateway</th><th>Acesso</th><th>Valor</th><th>Situação</th><th></th></tr></thead><tbody>' + ofertas.map(function (o) {
+      return '<tr><td><b>' + esc(o.nome) + '</b>' + (o.link ? '<div class="mut"><a href="' + esc(o.link) + '" target="_blank" rel="noopener">link de venda</a></div>' : '') + '</td><td class="num">' + esc(o.gateway) + ' ' + esc(o.ref_gateway) + '</td><td class="num">' + o.meses + (o.meses === 1 ? ' mês' : ' meses') + '</td><td class="num">' + (o.valor === null ? '' : brl(o.valor)) + '</td><td><span class="tag ' + (o.ativo ? 'ok' : '') + '">' + (o.ativo ? 'vendendo' : 'desligada') + '</span></td><td><button class="btn peq" data-of="' + o.idoferta + '">Editar</button></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="vazio">Nenhuma oferta ainda. Use "Carregar padrão do Eduzz".</div>';
+    h += '</div>';
+    h += '<div class="card"><div class="linha" style="justify-content:space-between"><h3>Cupons de desconto</h3><button class="btn peq pri" id="cp-novo">Novo cupom</button></div>' +
+      '<p class="mut">O desconto é aplicado no checkout do gateway: o cupom precisa existir lá com o mesmo código. Aqui ele fica no catálogo e as vendas pagas com ele são contadas.</p>';
+    h += cupons.length ? '<div class="tbl"><table><thead><tr><th>Código</th><th>Desconto</th><th>Oferta</th><th>Validade</th><th>Vendas</th><th>Situação</th><th></th></tr></thead><tbody>' + cupons.map(function (c) {
+      return '<tr><td><b>' + esc(c.codigo) + '</b>' + (c.obs ? '<div class="mut">' + esc(c.obs) + '</div>' : '') + '</td><td class="num">' + (c.tipo === 'percentual' ? c.valor + '%' : brl(c.valor)) + '</td><td>' + esc(c.oferta || 'todas') + '</td><td class="num">' + (c.validade ? CDD.dataBR(c.validade) : 'sem fim') + '</td><td class="num">' + c.usos + '</td><td><span class="tag ' + (c.ativo ? 'ok' : '') + '">' + (c.ativo ? 'ativo' : 'desligado') + '</span></td><td><button class="btn peq" data-cp="' + c.idcupom + '">Editar</button></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="vazio">Nenhum cupom.</div>';
+    h += '</div>';
+    h += '<div class="card"><h3>Pagamentos recentes</h3>' + (pags.length ? '<div class="tbl"><table><thead><tr><th>Aluna</th><th>Oferta</th><th>Valor</th><th>Forma</th><th>Cupom</th><th>Data</th><th>Situação</th></tr></thead><tbody>' + pags.map(function (x) {
+      return '<tr><td><b>' + esc(x.nome || '') + '</b><div class="mut">' + esc(x.email || '') + '</div></td><td>' + esc(x.oferta || '') + '</td><td class="num">' + brl(x.valor) + '</td><td>' + esc(x.forma || '') + '</td><td>' + esc(x.cupom || '') + '</td><td class="num">' + (x.pago_em ? CDD.dataBR(x.pago_em) : '') + '</td><td><span class="tag ' + (x.status === 'pago' ? 'ok' : 'erro') + '">' + esc(x.status) + '</span></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="vazio">Nenhum pagamento recebido ainda.</div>') + '</div>';
+    h += '<div class="card"><h3>Últimos avisos do gateway</h3>' + (p.eventos.length ? '<div class="tbl"><table><thead><tr><th>Quando</th><th>Tipo</th><th>Resultado</th></tr></thead><tbody>' + p.eventos.map(function (e) {
+      return '<tr><td class="num">' + esc(e.criado_em) + '</td><td>' + esc(e.tipo) + ' (' + esc(e.origem) + ')</td><td>' + esc(RES_TXT[e.resultado] || e.resultado || '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="vazio">Nenhum aviso recebido ainda.</div>') + '</div>';
+    v.innerHTML = h;
+
+    $('gw-cp').onclick = function () { var i = $('gw-url'); i.select(); try { document.execCommand('copy'); } catch (e) {} this.textContent = 'Copiado'; };
+    $('gw-sv').onclick = async function () {
+      var x = await CDD.api('a_com_gateway', { body: { gateway: 'eduzz', segredo: $('gw-seg').value.trim() } });
+      $('gw-msg').innerHTML = x.ok ? msg('Token salvo. Ele não aparece mais em nenhum lugar.', 'ok') : msg(x.data.mensagem); if (x.ok) setTimeout(abaVendas, 900);
+    };
+    $('of-pad').onclick = async function () { var x = await CDD.api('a_com_padroes', { body: {} }); if (x.ok) abaVendas(); else alert(x.data.mensagem); };
+    $('of-nova').onclick = function () { editarOferta(null); };
+    $('cp-novo').onclick = function () { editarCupom(null, ofertas); };
+    var oPorId = {}; ofertas.forEach(function (o) { oPorId[o.idoferta] = o; });
+    var cPorId = {}; cupons.forEach(function (c) { cPorId[c.idcupom] = c; });
+    v.querySelectorAll('[data-of]').forEach(function (b) { b.onclick = function () { editarOferta(oPorId[b.getAttribute('data-of')]); }; });
+    v.querySelectorAll('[data-cp]').forEach(function (b) { b.onclick = function () { editarCupom(cPorId[b.getAttribute('data-cp')], ofertas); }; });
+  }
+  function editarOferta(o) {
+    o = o || { idoferta: 0, nome: '', gateway: 'eduzz', ref_gateway: '', meses: 1, valor: '', link: '', ativo: 1 };
+    modal('<h3>' + (o.idoferta ? 'Editar oferta' : 'Nova oferta') + '</h3><label>Nome</label><input id="o-nome" value="' + esc(o.nome) + '">' +
+      '<div class="linha"><div style="flex:1"><label>Gateway</label><input id="o-gw" value="' + esc(o.gateway) + '"></div><div style="flex:1"><label>Código do produto no gateway</label><input id="o-ref" value="' + esc(o.ref_gateway) + '"></div></div>' +
+      '<div class="linha"><div style="flex:1"><label>Duração do acesso (meses)</label><input id="o-me" type="number" min="1" max="60" value="' + o.meses + '"></div><div style="flex:1"><label>Valor (R$)</label><input id="o-va" value="' + (o.valor === null ? '' : o.valor) + '"></div></div>' +
+      '<label>Link de venda</label><input id="o-li" value="' + esc(o.link || '') + '"><label class="chk"><input type="checkbox" id="o-at"' + (o.ativo ? ' checked' : '') + '><span>Oferta ligada (venda paga libera a aluna)</span></label><div id="o-msg"></div>' +
+      '<div class="linha" style="margin-top:12px"><button class="btn pri" id="o-ok">Salvar</button><button class="btn" id="o-fx">Cancelar</button></div>', function (m) {
+      m.querySelector('#o-fx').onclick = m.fechar;
+      m.querySelector('#o-ok').onclick = async function () {
+        var x = await CDD.api('a_com_ofertas', { body: { idoferta: o.idoferta, nome: m.querySelector('#o-nome').value, gateway: m.querySelector('#o-gw').value.trim().toLowerCase(), ref_gateway: m.querySelector('#o-ref').value.trim(), meses: parseInt(m.querySelector('#o-me').value, 10), valor: m.querySelector('#o-va').value, link: m.querySelector('#o-li').value, ativo: m.querySelector('#o-at').checked } });
+        if (!x.ok) { m.querySelector('#o-msg').innerHTML = msg(x.data.mensagem); return; } m.fechar(); abaVendas();
+      };
+    });
+  }
+  function editarCupom(c, ofertas) {
+    c = c || { idcupom: 0, codigo: '', tipo: 'percentual', valor: '', idoferta: null, validade: '', limite_uso: '', ativo: 1, obs: '' };
+    modal('<h3>' + (c.idcupom ? 'Editar cupom' : 'Novo cupom') + '</h3><label>Código</label><input id="c-cod" value="' + esc(c.codigo) + '">' +
+      '<div class="linha"><div style="flex:1"><label>Tipo</label><select id="c-tp"><option value="percentual"' + (c.tipo === 'percentual' ? ' selected' : '') + '>Porcentagem</option><option value="valor"' + (c.tipo === 'valor' ? ' selected' : '') + '>Valor em R$</option></select></div><div style="flex:1"><label>Desconto</label><input id="c-va" value="' + esc(String(c.valor)) + '"></div></div>' +
+      '<label>Vale para</label><select id="c-of"><option value="0">Todas as ofertas</option>' + ofertas.map(function (o) { return '<option value="' + o.idoferta + '"' + (c.idoferta === o.idoferta ? ' selected' : '') + '>' + esc(o.nome) + '</option>'; }).join('') + '</select>' +
+      '<div class="linha"><div style="flex:1"><label>Validade (AAAA-MM-DD, vazio = sem fim)</label><input id="c-vd" value="' + esc(c.validade || '') + '"></div><div style="flex:1"><label>Limite de usos (vazio = sem limite)</label><input id="c-lm" value="' + (c.limite_uso || '') + '"></div></div>' +
+      '<label>Observação</label><input id="c-ob" value="' + esc(c.obs || '') + '"><label class="chk"><input type="checkbox" id="c-at"' + (c.ativo ? ' checked' : '') + '><span>Cupom ativo</span></label><div id="c-msg"></div>' +
+      '<div class="linha" style="margin-top:12px"><button class="btn pri" id="c-ok">Salvar</button><button class="btn" id="c-fx">Cancelar</button></div>', function (m) {
+      m.querySelector('#c-fx').onclick = m.fechar;
+      m.querySelector('#c-ok').onclick = async function () {
+        var x = await CDD.api('a_com_cupons', { body: { idcupom: c.idcupom, codigo: m.querySelector('#c-cod').value, tipo: m.querySelector('#c-tp').value, valor: m.querySelector('#c-va').value, idoferta: parseInt(m.querySelector('#c-of').value, 10), validade: m.querySelector('#c-vd').value, limite_uso: m.querySelector('#c-lm').value, obs: m.querySelector('#c-ob').value, ativo: m.querySelector('#c-at').checked } });
+        if (!x.ok) { m.querySelector('#c-msg').innerHTML = msg(x.data.mensagem); return; } m.fechar(); abaVendas();
+      };
+    });
   }
 
   /* ---------- alunas ---------- */

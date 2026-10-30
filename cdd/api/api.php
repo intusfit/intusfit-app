@@ -46,6 +46,7 @@ try {
         if (strlen($raw) > 400000) { http_response_code(413); echo json_encode(['error' => 'corpo_grande', 'mensagem' => 'Pedido grande demais.']); exit; }
         $j = json_decode($raw, true);
         $corpo = is_array($j) ? $j : [];
+        if (!$corpo && !empty($_POST)) $corpo = $_POST;   // aviso do gateway em formulário (x-www-form-urlencoded)
     }
     $token = trim((string)($_SERVER['HTTP_X_CDD_TOKEN'] ?? ''));
     if ($token === '' && preg_match('/^Bearer\s+(\S+)/i', (string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''), $m)) $token = $m[1];

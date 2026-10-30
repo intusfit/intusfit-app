@@ -14,10 +14,11 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 5;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições
+const CDD_ESQUEMA = 6;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos)
 require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
 require_once __DIR__ . '/_bemestar.php';
+require_once __DIR__ . '/_comercial.php';
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -265,7 +266,7 @@ function cddDdl(): array {
             status VARCHAR(10) NOT NULL,
             PRIMARY KEY (idaluna, data, refeicao)
         ) $c",
-    ];
+    ] + cddComercialDdl($c);
 }
 
 function cddGarantirTabelas(PDO $pdo): void {
@@ -770,6 +771,8 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     $get = ($metodo === 'GET');
 
     /* ---- públicas ---- */
+    if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz', 20), $b, $base);
+
     if ($acao === 'saude') {
         return cddResp(200, ['ok' => true, 'cadastro_aberto' => cddConfig($pdo, 'cadastro_aberto', '1') === '1',
                              'instalacao_aberta' => cddConfig($pdo, 'instalacao_aberta', '0') === '1']);
@@ -944,6 +947,9 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
 function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, array $ctx, int $idadmin): array {
     $get = ($metodo === 'GET');
     $base = $ctx['base'] ?? '';
+
+    $com = cddComercialAdmin($pdo, $metodo, $acao, $q, $b, $ctx);
+    if ($com !== null) return $com;
 
     if ($acao === 'a_resumo' && $get) {
         $n = function ($sql) use ($pdo) { return (int)$pdo->query($sql)->fetchColumn(); };
