@@ -47,3 +47,10 @@ Página: https://claude.ai/artifact/Et9xVsHjrTYxxqug5UKJH6 (privada do Luiz). Fo
 - A edição por IA roda dentro da página (capacidade `sample`), lendo as falas de cada vídeo da linha
   do tempo; o resultado vira um projeto novo. "Salvar no Drive" usa o conector Google Drive do próprio
   Luiz (`create_file`, arquivo até 16 MB).
+
+## Edição pedida ao Claude vira projeto do Intus Cut (30/10/2026)
+1. Vídeo do Drive do Luiz baixado para a pasta de rascunho (nunca no git), transcrição com `transcrever.py`.
+2. Roteiro em `edicoes/<id>.json` (`fonte.drive_id` do Drive, trechos na ordem do vídeo final, `legenda` e `etiqueta` por trecho).
+3. `python3 esqueleto.py edicoes/<id>.json transcricao.json ../../intus-cut/claude` grava o esqueleto e sobe a versão se mudou.
+4. Commit e push: no próximo acesso o Intus Cut oferece "Trazer agora" e copia o vídeo do Drive do Luiz para o Drive da Intus.
+Mesmo id sobrescreve o projeto `cl-<id>`; vídeo ou pedido novo usa id novo. O MP4 renderizado pode ir junto pela conversa, como prévia.

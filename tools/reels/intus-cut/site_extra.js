@@ -89,6 +89,45 @@ async function importarModelo(){
   }]], box);
 }
 
+// ---------- edições do Claude: esqueletos em /intus-cut/claude/ ----------
+// claude/index.json lista as edições ({id, nome, versao, fonte:{drive_id, nome, dur, w, h}}); claude/<id>.json é o projeto sem vídeo.
+// Cada uma vira o projeto 'cl-<id>'. Versão maior do mesmo id sobrescreve o projeto (a situação do painel de vídeos fica).
+// O vídeo vem do Drive do Luiz pelo link compartilhado e é copiado para o Drive da Intus uma vez por arquivo (drive_iniciar/drive_parte).
+var CLAUDE_PEND = [];
+async function sincronizarClaude(lista){
+  var ix; try { ix = await (await fetch('claude/index.json', { cache:'no-store' })).json(); } catch (e){ return; }
+  var tem = {}; (lista || []).forEach(function(p){ tem[p.id] = p; });
+  CLAUDE_PEND = (ix.projetos || []).filter(function(e){ var x = tem['cl-' + e.id]; return e && e.id && e.fonte && (!x || (+x.claude || 0) < (+e.versao || 1)); });
+  if (!CLAUDE_PEND.length) return;
+  var box = el('div', 'grupo');
+  CLAUDE_PEND.forEach(function(e){ box.appendChild(el('div', 'item', [el('b', null, (tem['cl-' + e.id] ? '↻ Atualizada: ' : '＋ Nova: ') + e.nome), el('span', 't', e.resumo || '')])); });
+  box.appendChild(el('p', 'nota-ajuda', 'O vídeo original vem do seu Google Drive para o Drive da Intus (só na primeira vez de cada vídeo). Edição atualizada substitui o projeto com o mesmo nome; o que você mudou nele à mão é trocado pela versão nova.'));
+  dialogo(CLAUDE_PEND.length === 1 ? 'O Claude preparou uma edição' : 'O Claude preparou ' + CLAUDE_PEND.length + ' edições', 'Cada uma abre aqui como projeto editável: cortes, legendas, etiquetas e cartão final.', [['Depois', fecha], ['Trazer agora', function(){ trazerClaude(CLAUDE_PEND); }]], box);
+}
+async function trazerClaude(pend){
+  var prog = janelaProgresso('Trazendo as edições do Claude'), ult = null;
+  try {
+    for (var i = 0; i < pend.length; i++){ var e = pend[i];
+      var esq = await (await fetch('claude/' + e.id + '.json', { cache:'no-store' })).json();
+      var m = await videoDoDrive(e.fonte, function(f){ prog((i + f) / pend.length, 'Vídeo de "' + e.nome + '": ' + Math.round(f * 100) + '%'); });
+      var p = clone(esq); p.id = 'cl-' + e.id; p.claude = { id:e.id, versao:+e.versao || 1 }; p.midia = m;
+      await api('salvar', { projeto:p }); delete p._parcial; projetos[p.id] = p; ult = p.id;
+      if (P && P.id === p.id) P = null;
+    }
+    CLAUDE_PEND = []; fecha(); nomesSelect(); if (ult){ $('vazio').hidden = true; abrir(ult); } estado('Edições do Claude prontas para editar', 'ok');
+  } catch (err){ if (err && err.code === 'sem_acesso') return; dialogo('Não terminou', ((err && err.message) || 'Tente de novo.') + ' O que já foi copiado não se perde: tente de novo e ele continua de onde parou.', [['Fechar', fecha], ['Tentar de novo', function(){ trazerClaude(pend); }]]); }
+}
+async function videoDoDrive(f, aoProg){
+  var r = await api('drive_iniciar', { drive_id:f.drive_id, nome:f.nome || 'video', duracao:f.dur || 0 }), tent = 0;
+  aoProg(r.total ? r.recebido / r.total : 0);
+  while (!r.concluido){
+    var x = null; try { x = await api('drive_parte&id=' + r.id, {}); } catch (e){ if (e && e.code === 'sem_acesso') throw e; if (++tent > 6) throw e; await espera(2000 * tent); continue; }
+    tent = 0; r.concluido = x.concluido; r.recebido = x.recebido; aoProg(r.total ? r.recebido / r.total : 1);
+  }
+  aoProg(1);
+  return { video:r.url, voz:r.url, musica:'', duracao:f.dur || 0, alt:f.w && f.h ? ORIG_W * f.h / f.w : 1080 };
+}
+
 // Celular: o que não cabe no topo (formato, gravar, novo com vídeo, duplicar, quadro PNG) fica no menu "Mais".
 $('b-mais').onclick = function(){
   var sf = $('sel-formato'), s2 = sel([].map.call(sf.options, function(o){ return [o.value, o.textContent]; }), sf.value);
