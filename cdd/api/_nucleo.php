@@ -19,6 +19,7 @@ require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
 require_once __DIR__ . '/_bemestar.php';
 require_once __DIR__ . '/_comercial.php';
+require_once __DIR__ . '/_sso.php';
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -771,6 +772,7 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     $get = ($metodo === 'GET');
 
     /* ---- públicas ---- */
+    if ($acao === 'sso' && !$get) return cddSsoEntrar($pdo, cddStr($b['bilhete'] ?? '', 900), $ip);
     if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz3', 20), $b, $base, $ctx);
 
     if ($acao === 'saude') {

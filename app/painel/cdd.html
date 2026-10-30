@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>CDD — Intus</title>
+<style>
+  body{font-family:Inter,system-ui,sans-serif;background:#0f0f0f;color:#f0f0f0;display:grid;place-items:center;min-height:100vh;margin:0;padding:20px;text-align:center}
+  .c{max-width:420px}
+  h1{font-size:20px;margin:0 0 8px}
+  p{color:#aaa;font-size:14px;line-height:1.5;margin:6px 0}
+  a{color:#7FFF00}
+</style>
+</head>
+<body>
+<div class="c">
+  <h1 id="t">Abrindo o painel do CDD...</h1>
+  <p id="m">Você entra com a sua conta da Intus, sem digitar senha de novo.</p>
+  <p><a href="index.html">Voltar ao painel da Intus</a></p>
+</div>
+<script>
+(async function () {
+  var t = document.getElementById('t'), m = document.getElementById('m'), tok = '';
+  try { tok = localStorage.getItem('mx-token') || ''; } catch (e) {}
+  if (!tok) { location.replace('login.html'); return; }
+  try {
+    var r = await fetch('/app/api/cdd_sso.php?action=bilhete', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tok } });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.ok && j.ok && j.url) { location.replace(j.url); return; }
+    if (r.status === 401) { location.replace('login.html'); return; }
+    t.textContent = r.status === 403 ? 'Sem acesso ao CDD' : 'Não consegui abrir o CDD';
+    m.textContent = j.erro || 'Tente de novo em instantes.';
+  } catch (e) { t.textContent = 'Sem conexão'; m.textContent = 'Confira a internet e tente de novo.'; }
+})();
+</script>
+</body>
+</html>

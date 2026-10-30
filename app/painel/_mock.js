@@ -157,6 +157,8 @@ const PERM_KEYS = [
   // Intus Cut (editor de vídeo): só mostra o atalho no menu. O editor é uma página do claude.ai
   // do Luiz; quem ganhar a chave também precisa receber o compartilhamento da página por ele.
   { key: 'cut_ver',     label: 'Usar o Intus Cut (editor de vídeo; o servidor confere esta permissão)', grupo: 'Intus Cut' },
+  // Painel do Código da Definição (vendas, matrículas, leads). Entra sem senha nova, por bilhete de 60 s (app/api/cdd_sso.php, que confere a chave).
+  { key: 'cdd_ver',     label: 'Acessar o painel do CDD (matrículas, vendas e leads; o servidor confere esta permissão)', grupo: 'CDD' },
 ];
 
 function _permsAllTrue() {
@@ -666,6 +668,7 @@ function renderLayout(activePage) {
     { href: 'resultados.html',   icon: ICONS.crown,    label: 'Quadro de Resultados', show: true },
     { href: 'extras.html',       icon: ICONS.video,    label: 'Extras',       show: !!user.admin },
     { href: INTUS_CUT_URL,       icon: ICONS.video,    label: 'Intus Cut',    show: hasPerm('cut_ver') },
+    { href: 'cdd.html',          icon: ICONS.crown,    label: 'CDD',          show: hasPerm('cdd_ver') },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },
     { href: 'configuracoes.html',icon: ICONS.gear,     label: 'Configurações',show: !!user.admin },

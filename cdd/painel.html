@@ -70,7 +70,7 @@
     var atual = ABAS.filter(function (x) { return x[0] === aba; })[0];
     $app.innerHTML = '<div class="pn"><aside class="pn-menu" id="menu"><div class="logo-caixa"><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt="CDD"><img class="logo-claro" src="marca/logo-cdd-preta.png" alt="CDD"></div><div class="sub">Painel da equipe</div>' +
       ABAS.map(function (x) { return '<button class="it' + (aba === x[0] ? ' on' : '') + '" data-aba="' + x[0] + '"><span class="e">' + x[1] + '</span>' + x[2] + '</button>'; }).join('') +
-      '<div class="rod"><a class="btn" href="index.html" target="_blank" rel="noopener">👀 Ver como aluna</a><button class="btn perigo" id="sai">Sair</button></div></aside>' +
+      '<div class="rod"><a class="btn" href="index.html" target="_blank" rel="noopener">👀 Ver como aluna</a><a class="btn" href="https://intusfit.com.br/app/painel/index.html">⬅ Painel da Intus</a><button class="btn perigo" id="sai">Sair</button></div></aside>' +
       '<div class="pn-fundo" id="fundo"></div><div class="pn-corpo"><div class="pn-cab"><div class="linha"><button class="iconbtn pn-burger" id="bg" aria-label="Menu">☰</button><h1>' + atual[1] + ' ' + atual[2] + '</h1></div><div class="acoes"><button class="iconbtn" data-tema-btn aria-label="Alternar tema"></button></div></div><div class="pn-cont" id="v"></div></div></div>';
     $app.querySelectorAll('[data-aba]').forEach(function (b) { b.onclick = function () { aba = b.getAttribute('data-aba'); render(); }; });
     $('sai').onclick = async function () { await CDD.api('logout', { body: {} }); CDD.guardar(''); telaEntrar(); };
@@ -535,6 +535,14 @@
   }
 
   async function iniciar() {
+    // vindo do painel da Intus: #sso=<bilhete> troca por uma sessão de equipe (7 dias) sem pedir senha
+    var mh = /[#&]sso=([A-Za-z0-9_.\-]+)/.exec(location.hash || '');
+    if (mh) {
+      history.replaceState(null, '', location.pathname + location.search);   // o bilhete não fica na barra de endereço
+      var rs = await CDD.api('sso', { body: { bilhete: mh[1] } });
+      if (rs.ok) CDD.guardar(rs.data.token);
+      else return telaEntrar(rs.data && rs.data.mensagem ? rs.data.mensagem : 'Não consegui entrar pelo painel da Intus.');
+    }
     if (!CDD.token()) {
       var s = await CDD.api('saude');
       return telaEntrar('', !!(s.ok && s.data.instalacao_aberta));
