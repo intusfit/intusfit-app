@@ -107,9 +107,86 @@ function cddGatewayEduzz(array $p): ?array {
     ];
 }
 
+
+/** Forma de pagamento do Eduzz v3 (data.paymentMethod). */
+function cddEduzz3Forma($v): string {
+    $v = strtolower((string)$v);
+    if ($v === '') return '';
+    if (strpos($v, 'credit') !== false || strpos($v, 'card') !== false || strpos($v, 'cart') !== false) return 'cartao';
+    if (strpos($v, 'pix') !== false) return 'pix';
+    if (strpos($v, 'slip') !== false || strpos($v, 'boleto') !== false) return 'boleto';
+    return 'outro';
+}
+
+/** Data ISO (UTC, como o Eduzz envia) para o horário local do servidor. Vazio se não for uma data. */
+function cddIsoParaLocal($iso): string {
+    $iso = (string)$iso;
+    if ($iso === '') return '';
+    try { $d = new DateTime($iso); $d->setTimezone(new DateTimeZone(date_default_timezone_get())); return $d->format('Y-m-d H:i:s'); }
+    catch (Throwable $e) { return ''; }
+}
+
+/**
+ * Adaptador do webhook NOVO do Eduzz (Developer Hub, "v3"): {id, event: "myeduzz.invoice_paid", sentDate, data: {...}}, assinado em x-signature.
+ * Fatura: data.id, data.buyer, data.price.value, data.items[].productId. Contrato: contract.*, products[].id, customer.* (pode vir dentro de data).
+ * Gera o MESMO evento comum do adaptador antigo (gateway 'eduzz'), então as ofertas valem para os dois e o mesmo aviso nunca é processado duas vezes.
+ */
+function cddGatewayEduzz3(array $p): ?array {
+    $nome = strtolower(trim((string)($p['event'] ?? '')));
+    $nome = preg_replace('/^myeduzz\./', '', $nome);
+    $d = isset($p['data']) && is_array($p['data']) ? $p['data'] : $p;   // contrato pode vir sem o envelope
+    if ($nome === '' && empty($d['contract']) && empty($d['items'])) return null;
+    $contrato = isset($d['contract']) && is_array($d['contract']) ? $d['contract'] : [];
+    $statusC = strtolower((string)($contrato['status'] ?? ''));
+    $tipo = 'ignorado';
+    if ($nome === 'invoice_paid') $tipo = 'pago';
+    elseif ($nome === 'invoice_refunded') $tipo = 'reembolsado';
+    elseif (strpos($nome, 'contract_') === 0 || $contrato) {
+        if (strpos($statusC, 'cancel') !== false) $tipo = 'contrato_cancelado';
+        elseif (preg_match('/overdue|delayed|late|suspend|defaulter|inadimpl/', $statusC)) $tipo = 'atrasado';
+    }
+    // produto: o primeiro item que o CDD conhece fica por conta do processamento; aqui devolvemos a lista e o primeiro
+    $prods = [];
+    foreach ((array)($d['items'] ?? []) as $it) if (is_array($it) && isset($it['productId'])) $prods[] = (string)$it['productId'];
+    foreach ((array)($d['products'] ?? []) as $it) if (is_array($it) && isset($it['id'])) $prods[] = (string)$it['id'];
+    $comprador = isset($d['buyer']) && is_array($d['buyer']) ? $d['buyer'] : (isset($d['customer']) && is_array($d['customer']) ? $d['customer'] : []);
+    $tel = '';
+    if (!empty($comprador['cellphone'])) $tel = (string)$comprador['cellphone'];
+    elseif (!empty($comprador['phone'])) $tel = is_array($comprador['phone']) ? ((string)($comprador['phone']['countryCode'] ?? '') . (string)($comprador['phone']['areaCode'] ?? '') . (string)($comprador['phone']['number'] ?? '')) : (string)$comprador['phone'];
+    $fatura = $tipo === 'pago' || $tipo === 'reembolsado' ? (string)($d['id'] ?? '') : '';
+    $idContrato = (string)($contrato['id'] ?? '');
+    $cupom = '';
+    foreach (['coupon', 'couponCode', 'discountCoupon'] as $k) { if (!empty($d[$k])) { $cupom = is_array($d[$k]) ? (string)($d[$k]['code'] ?? '') : (string)$d[$k]; break; } }
+    $pagoEm = $tipo === 'pago' ? cddIsoParaLocal($d['paidAt'] ?? ($p['sentDate'] ?? '')) : '';
+    $chave = $fatura !== '' ? $fatura : ('c' . $idContrato . ':' . $statusC);
+    return [
+        'gateway' => 'eduzz', 'tipo' => $tipo, 'nome_evento' => $nome,
+        'id_externo' => 'eduzz:' . $chave . ':' . $nome,
+        'produto' => $prods[0] ?? '', 'produtos' => $prods, 'fatura' => $fatura, 'contrato' => $idContrato,
+        'nome' => (string)($comprador['name'] ?? ''), 'email' => (string)($comprador['email'] ?? ''), 'telefone' => $tel,
+        'valor' => (float)($d['price']['value'] ?? 0),
+        'forma' => cddEduzz3Forma($d['paymentMethod'] ?? ($contrato['payment']['method'] ?? '')),
+        'cupom' => cddStr($cupom, 40), 'utm' => cddStr((string)($d['utm']['source'] ?? ''), 80),
+        'pago_em' => $pagoEm,
+    ];
+}
+
+/** Confere a assinatura do aviso: HMAC-SHA256 do corpo exato com a chave secreta, em hexadecimal ou base64. */
+function cddAssinaturaConfere(string $raw, string $chave, string $enviada): bool {
+    $enviada = trim($enviada);
+    if ($raw === '' || $chave === '' || $enviada === '') return false;
+    $bin = hash_hmac('sha256', $raw, $chave, true);
+    return hash_equals(bin2hex($bin), strtolower($enviada)) || hash_equals(base64_encode($bin), $enviada);
+}
+
 /** Adaptadores disponíveis. Para um gateway novo: escreva cddGatewayXxx($payload) e liste aqui, com o campo de segredo dele. */
 function cddGatewaysConhecidos(): array {
-    return ['eduzz' => ['adaptador' => 'cddGatewayEduzz', 'campo_segredo' => 'origin_secret', 'config' => 'eduzz_origin']];
+    return [
+        // webhook novo do Eduzz (Developer Hub): assinado com HMAC no cabeçalho x-signature. É o que vale daqui para frente.
+        'eduzz3' => ['adaptador' => 'cddGatewayEduzz3', 'auth' => 'hmac', 'config' => 'eduzz3_chave'],
+        // webhook antigo (token no corpo). O Eduzz o desliga em 11/01/2027 e já não deixa cadastrar novos.
+        'eduzz' => ['adaptador' => 'cddGatewayEduzz', 'auth' => 'campo', 'campo_segredo' => 'origin_secret', 'config' => 'eduzz_origin'],
+    ];
 }
 
 /* ───────────────────────── Processamento ───────────────────────── */
@@ -146,8 +223,12 @@ function cddSomarMeses(string $dataBase, int $meses, int $dias): string {
  */
 function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
     $resultado = 'ok'; $idaluna = null;
-    $st = $pdo->prepare('SELECT * FROM cdd_oferta WHERE gateway = ? AND ref_gateway = ?'); $st->execute([$ev['gateway'], $ev['produto']]);
-    $oferta = $st->fetch();
+    $oferta = false;
+    foreach (array_unique(array_merge([(string)$ev['produto']], (array)($ev['produtos'] ?? []))) as $refProd) {
+        $st = $pdo->prepare('SELECT * FROM cdd_oferta WHERE gateway = ? AND ref_gateway = ? ORDER BY ativo DESC'); $st->execute([$ev['gateway'], $refProd]);
+        $achou = $st->fetch();
+        if ($achou) { $oferta = $achou; if ((int)$achou['ativo'] === 1) break; }
+    }
     if (!$oferta || (int)$oferta['ativo'] !== 1) {
         // sem id_externo de propósito: se a oferta for cadastrada depois, o mesmo aviso (reenviado pelo gateway) ainda pode ser processado
         $res = $oferta ? 'oferta_inativa' : 'produto_desconhecido';
@@ -238,14 +319,18 @@ function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
 }
 
 /** Entrada do aviso (webhook). Autentica pelo segredo guardado, traduz pelo adaptador e processa. */
-function cddComercialWebhook(PDO $pdo, string $gateway, array $payload, string $base): array {
+function cddComercialWebhook(PDO $pdo, string $gateway, array $payload, string $base, array $ctx = []): array {
     $gws = cddGatewaysConhecidos();
     if (!isset($gws[$gateway])) return cddErro(404, 'gateway_desconhecido', 'Gateway desconhecido.');
     $g = $gws[$gateway];
     $segredo = cddConfig($pdo, $g['config'], '');
     if ($segredo === '') return cddErro(503, 'gateway_nao_configurado', 'O segredo deste gateway ainda não foi cadastrado no painel.');
-    $enviado = (string)($payload[$g['campo_segredo']] ?? '');
-    if ($enviado === '' || !hash_equals($segredo, $enviado)) return cddErro(401, 'nao_autorizado', 'Não autorizado.');
+    if (($g['auth'] ?? 'campo') === 'hmac') {
+        if (!cddAssinaturaConfere((string)($ctx['raw'] ?? ''), $segredo, (string)($ctx['assinatura'] ?? ''))) return cddErro(401, 'nao_autorizado', 'Não autorizado.');
+    } else {
+        $enviado = (string)($payload[$g['campo_segredo']] ?? '');
+        if ($enviado === '' || !hash_equals($segredo, $enviado)) return cddErro(401, 'nao_autorizado', 'Não autorizado.');
+    }
     $ev = call_user_func($g['adaptador'], $payload);
     if (!$ev) return cddResp(200, ['ok' => true, 'resultado' => 'sem_evento']);
     try { [$ok, $res] = cddComercialProcessar($pdo, $ev, $base); }
@@ -275,7 +360,7 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
             'vendas_30d' => (int)$qt30, 'receita_30d' => round((float)$rec30, 2), 'reembolsos_30d' => $ref30,
             'matriculas_ativas' => (int)$n("SELECT COUNT(*) FROM cdd_matricula WHERE status = 'ativa'"),
             'vencendo_7d' => $vencendo,
-            'gateways' => ['eduzz' => ['segredo_cadastrado' => cddConfig($pdo, 'eduzz_origin', '') !== '', 'url_aviso' => rtrim($base, '/') . '/api/api.php?a=webhook&g=eduzz']],
+            'gateways' => ['eduzz3' => ['segredo_cadastrado' => cddConfig($pdo, 'eduzz3_chave', '') !== '', 'url_aviso' => rtrim($base, '/') . '/api/api.php?a=webhook&g=eduzz3']],
             'eventos' => $eventos,
         ]);
     }

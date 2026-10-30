@@ -667,7 +667,7 @@ eq('segredo curto é recusado', $s === 422);
 [$s, $d] = req('a_com_gateway', 'POST', [], ['gateway' => 'eduzz', 'segredo' => 'segredo-teste-123'], $tAdmin);
 eq('admin cadastra o segredo', $s === 200, $s . ' ' . json_encode($d));
 [$s, $d] = req('a_com_painel', 'GET', [], [], $tAdmin);
-eq('o painel diz que o segredo está cadastrado e nunca o mostra', $s === 200 && $d['gateways']['eduzz']['segredo_cadastrado'] === true && strpos(json_encode($d), 'segredo-teste-123') === false);
+eq('o painel não confunde o webhook antigo com o novo (chave nova ainda vazia) e nunca mostra segredos', $s === 200 && $d['gateways']['eduzz3']['segredo_cadastrado'] === false && strpos(json_encode($d), 'segredo-teste-123') === false);
 [$s, $d] = req('webhook', 'POST', ['g' => 'eduzz'], $aviso('invoice_paid', ['origin_secret' => 'errado-errado']));
 eq('segredo errado é recusado (401) e não cria ninguém', $s === 401 && $qtCamila() === 0);
 [$s, $d] = req('webhook', 'POST', ['g' => 'outro'], $aviso('invoice_paid'));
@@ -725,6 +725,58 @@ eq('a lista de cupons mostra quantas vendas pagas usaram cada um (reembolsada n�
 eq('a lista de pagamentos traz nome e e-mail da aluna', $s === 200 && count($d['pagamentos']) >= 3 && $d['pagamentos'][0]['email'] !== null);
 [$s, $d] = req('a_com_painel', 'GET', [], [], $tAdmin);
 eq('o painel soma vendas e receita dos últimos 30 dias', $d['vendas_30d'] >= 3 && $d['receita_30d'] > 698);
+
+echo "\nWebhook novo do Eduzz (Developer Hub): aviso assinado com HMAC\n";
+$chaveV3 = 'chave-secreta-v3-xyz';
+$reqV3 = function (array $corpo, ?string $chave = null, string $codif = 'hex') use ($pdo, $ctx) {
+    $raw = json_encode($corpo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $bin = hash_hmac('sha256', $raw, $chave ?? 'chave-secreta-v3-xyz', true);
+    $c = $ctx; $c['raw'] = $raw; $c['assinatura'] = $codif === 'b64' ? base64_encode($bin) : bin2hex($bin);
+    return cddTratar($pdo, 'POST', 'webhook', ['g' => 'eduzz3'], $corpo, '', $c);
+};
+$fatura3 = function ($ev, $extra = []) { return array_merge(['id' => 'ev-' . mt_rand(), 'event' => $ev, 'sentDate' => '2026-10-30T14:45:00.000Z',
+    'data' => ['id' => '5551', 'status' => 'paid', 'buyer' => ['name' => 'Bianca Lima', 'email' => 'Bianca.Lima@Exemplo.com', 'cellphone' => '45988887777'],
+    'price' => ['currency' => 'BRL', 'value' => 119.0], 'paymentMethod' => 'creditCard', 'installments' => 1, 'utm' => ['source' => 'instagram'],
+    'items' => [['productId' => '999', 'name' => 'Outro produto', 'price' => ['value' => 10]], ['productId' => '2411829', 'name' => 'CDD mensal', 'price' => ['currency' => 'BRL', 'value' => 119.0]]]]], $extra); };
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_paid'));
+eq('chave do webhook novo ainda não cadastrada: 503', $s === 503);
+[$s, $d] = req('a_com_gateway', 'POST', [], ['gateway' => 'eduzz3', 'segredo' => $chaveV3], $tAdmin);
+eq('admin cadastra a chave do webhook novo', $s === 200);
+[$s, $d] = req('a_com_painel', 'GET', [], [], $tAdmin);
+eq('o painel mostra o endereço novo e que a chave está cadastrada, sem mostrá-la', $d['gateways']['eduzz3']['segredo_cadastrado'] === true && strpos($d['gateways']['eduzz3']['url_aviso'], 'g=eduzz3') !== false && strpos(json_encode($d), $chaveV3) === false);
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_paid'), 'chave-errada-123');
+eq('assinatura com chave errada é recusada (401)', $s === 401);
+$raw = json_encode($fatura3('myeduzz.invoice_paid'));
+$c = $ctx; $c['raw'] = $raw; $c['assinatura'] = '';
+eq('sem assinatura é recusado (401)', cddTratar($pdo, 'POST', 'webhook', ['g' => 'eduzz3'], json_decode($raw, true), '', $c)[0] === 401);
+$c['raw'] = $raw; $c['assinatura'] = hash_hmac('sha256', $raw . ' ', $chaveV3);
+eq('corpo alterado depois de assinado é recusado (401)', cddTratar($pdo, 'POST', 'webhook', ['g' => 'eduzz3'], json_decode($raw, true), '', $c)[0] === 401);
+$qtBia = function () use ($pdo) { return (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = 'bianca.lima@exemplo.com'")->fetchColumn(); };
+eq('nada foi criado pelos avisos recusados', $qtBia() === 0);
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_paid'));
+eq('fatura paga com vários itens acha o produto do CDD, cria a aluna e libera', $s === 200 && strpos($d['resultado'], 'aluna_criada') === 0 && $qtBia() === 1, json_encode($d));
+$bia = $pdo->query("SELECT * FROM cdd_aluna WHERE email = 'bianca.lima@exemplo.com'")->fetch();
+$mb = $pdo->query("SELECT * FROM cdd_matricula WHERE idaluna = " . (int)$bia['idaluna'])->fetch();
+eq('plano mensal: matrícula de 1 mês mais carência', $mb['expira_em'] === cddSomarMeses(cddHoje(), 1, CDD_CARENCIA_DIAS) && $mb['origem'] === 'eduzz');
+$pgb = $pdo->query("SELECT * FROM cdd_pagamento WHERE ref_externa = '5551'")->fetch();
+eq('pagamento registrado: valor, cartão e origem do tráfego', $pgb && (float)$pgb['valor'] === 119.0 && $pgb['forma'] === 'cartao' && $pgb['utm'] === 'instagram' && $pgb['status'] === 'pago');
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_paid'));
+eq('o mesmo aviso reenviado (assinatura em base64 também vale) é ignorado', $d['resultado'] === 'duplicado' || $s === 200);
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_paid'), null, 'b64');
+eq('assinatura em base64 é aceita e o aviso repetido não duplica', $s === 200 && $d['resultado'] === 'duplicado' && (int)$pdo->query("SELECT COUNT(*) FROM cdd_pagamento WHERE ref_externa = '5551'")->fetchColumn() === 1);
+$contrato3 = function ($status, $ev) { return ['id' => 'ct-' . mt_rand(), 'event' => $ev, 'sentDate' => '2026-11-30T10:00:00.000Z', 'data' => [
+    'products' => [['id' => '2411829', 'name' => 'CDD mensal']], 'contract' => ['id' => '4111', 'status' => $status, 'payment' => ['method' => 'creditCard']],
+    'customer' => ['name' => 'Bianca Lima', 'email' => 'bianca.lima@exemplo.com', 'phone' => ['countryCode' => '55', 'areaCode' => '45', 'number' => '988887777']]]]; };
+[$s, $d] = $reqV3($contrato3('overdue', 'myeduzz.contract_updated'));
+eq('contrato atrasado só anota; o acesso segue', $d['resultado'] === 'cobranca_atrasada' && cddMatricula($pdo, (int)$bia['idaluna'])['ativa'] === true);
+[$s, $d] = $reqV3($contrato3('canceled', 'myeduzz.contract_updated'));
+eq('contrato cancelado mantém o acesso até o fim do período pago', $d['resultado'] === 'assinatura_cancelada' && cddMatricula($pdo, (int)$bia['idaluna'])['ativa'] === true);
+[$s, $d] = $reqV3($contrato3('upToDate', 'myeduzz.contract_created'));
+eq('contrato novo em dia não muda nada (o acesso vem da fatura paga)', $d['resultado'] === 'ignorado');
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_refunded', ['data' => ['id' => '5551', 'status' => 'refunded', 'buyer' => ['name' => 'Bianca Lima', 'email' => 'bianca.lima@exemplo.com'], 'price' => ['value' => 119.0], 'items' => [['productId' => '2411829']]]]));
+eq('reembolso pelo webhook novo suspende e marca o pagamento', $d['resultado'] === 'suspensa_por_reembolso' && cddMatricula($pdo, (int)$bia['idaluna'])['ativa'] === false && $pdo->query("SELECT status FROM cdd_pagamento WHERE ref_externa = '5551'")->fetchColumn() === 'reembolsado');
+[$s, $d] = $reqV3(['id' => 'x', 'event' => 'myeduzz.invoice_paid', 'data' => ['id' => '5560', 'buyer' => ['name' => 'Fulana', 'email' => 'fulana@exemplo.com'], 'price' => ['value' => 49], 'items' => [['productId' => '2938605']]]]);
+eq('produto que não é do CDD (outro produto da conta) é só registrado', $d['resultado'] === 'produto_desconhecido' && (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = 'fulana@exemplo.com'")->fetchColumn() === 0);
 
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');

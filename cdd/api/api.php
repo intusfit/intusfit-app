@@ -40,7 +40,7 @@ try {
     $metodo = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
     if ($metodo === 'OPTIONS') { http_response_code(204); exit; }
     $acao = preg_replace('/[^a-z_]/', '', strtolower((string)($_GET['a'] ?? '')));
-    $corpo = [];
+    $corpo = []; $raw = '';
     if ($metodo !== 'GET') {
         $raw = (string)file_get_contents('php://input');
         if (strlen($raw) > 400000) { http_response_code(413); echo json_encode(['error' => 'corpo_grande', 'mensagem' => 'Pedido grande demais.']); exit; }
@@ -57,7 +57,7 @@ try {
     $base = ($https ? 'https://' : 'http://') . $host . $pasta;
     // Domínio próprio via Cloudflare Worker: o Worker avisa o endereço público; só vale este valor exato (não dá para apontar links para outro lugar).
     if (trim((string)($_SERVER['HTTP_X_CDD_BASE'] ?? '')) === 'https://codigodadefinicao.com.br/app') $base = 'https://codigodadefinicao.com.br/app';
-    $ctx = ['ip' => cddIpCliente(), 'base' => $base, 'seed' => __DIR__ . '/dados/seed-conteudo.json'];
+    $ctx = ['ip' => cddIpCliente(), 'base' => $base, 'seed' => __DIR__ . '/dados/seed-conteudo.json', 'raw' => $raw, 'assinatura' => (string)($_SERVER['HTTP_X_SIGNATURE'] ?? '')];
 
     [$status, $dados] = cddTratar(cddDB(), $metodo, $acao, $_GET, $corpo, $token, $ctx);
     http_response_code($status);

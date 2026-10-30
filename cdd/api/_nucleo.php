@@ -771,7 +771,7 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     $get = ($metodo === 'GET');
 
     /* ---- públicas ---- */
-    if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz', 20), $b, $base);
+    if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz3', 20), $b, $base, $ctx);
 
     if ($acao === 'saude') {
         return cddResp(200, ['ok' => true, 'cadastro_aberto' => cddConfig($pdo, 'cadastro_aberto', '1') === '1',
