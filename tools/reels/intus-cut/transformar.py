@@ -160,6 +160,11 @@ troca_funcao('escolherArquivo', r"""function escolherArquivo(accept, pronto){
       if (/^image\//.test(f.type)){ estado('Enviando ' + f.name + '...'); var im = await reduzirImagem(f), r = await api('imagem', { dataurl:im.dataurl, nome:nome }); estado('Enviado', 'ok'); pronto({ url:r.url, token:'' }, nome, { w:r.w, h:r.h }); return; }
       if (f.size > (LIMITES.video_bytes || 2147483648)){ dialogo('Arquivo grande demais', 'O limite é ' + Math.round((LIMITES.video_bytes || 2147483648) / 1073741824) + ' GB por vídeo.', [['Ok', fecha]]); return; }
       var info = await sondarVideo(f), prog = janelaProgresso('Enviando ' + f.name + ' (' + (f.size / 1048576).toFixed(0) + ' MB)');
+      if (/^video\//.test(f.type) && f.size <= CONV_MAX && await ehHevc(f)){
+        if (await leHevc()){ try { var h = await paraH264(f, function(x){ prog(x, 'Preparando a versão que abre em qualquer computador: ' + Math.round(x * 100) + '%'); });
+            if (h){ f = new File([h], nome + '.mp4', { type:'video/mp4' }); info = await sondarVideo(f); } } catch (x) { estado('Não consegui converter do formato do iPhone; enviando o original', 'erro'); } }
+        else estado('Vídeo no formato do iPhone (HEVC): este computador pode não conseguir mostrá-lo', 'erro');
+      }
       var up = await enviarArquivo(f, nome, info, function(x){ prog(x, 'Enviando ao Drive da Intus: ' + Math.round(x * 100) + '%'); });
       BLOBS[up.url] = Promise.resolve(info.local); fecha(); estado('Vídeo enviado', 'ok'); pronto(up, nome, info);
     } catch (e){ if (e && e.code === 'sem_acesso') return; dialogo('O envio não terminou', (e && e.message) || 'Tente de novo.', [['Ok', fecha]]); }

@@ -1257,6 +1257,11 @@ function escolherArquivo(accept, pronto){
       if (/^image\//.test(f.type)){ estado('Enviando ' + f.name + '...'); var im = await reduzirImagem(f), r = await api('imagem', { dataurl:im.dataurl, nome:nome }); estado('Enviado', 'ok'); pronto({ url:r.url, token:'' }, nome, { w:r.w, h:r.h }); return; }
       if (f.size > (LIMITES.video_bytes || 2147483648)){ dialogo('Arquivo grande demais', 'O limite é ' + Math.round((LIMITES.video_bytes || 2147483648) / 1073741824) + ' GB por vídeo.', [['Ok', fecha]]); return; }
       var info = await sondarVideo(f), prog = janelaProgresso('Enviando ' + f.name + ' (' + (f.size / 1048576).toFixed(0) + ' MB)');
+      if (/^video\//.test(f.type) && f.size <= CONV_MAX && await ehHevc(f)){
+        if (await leHevc()){ try { var h = await paraH264(f, function(x){ prog(x, 'Preparando a versão que abre em qualquer computador: ' + Math.round(x * 100) + '%'); });
+            if (h){ f = new File([h], nome + '.mp4', { type:'video/mp4' }); info = await sondarVideo(f); } } catch (x) { estado('Não consegui converter do formato do iPhone; enviando o original', 'erro'); } }
+        else estado('Vídeo no formato do iPhone (HEVC): este computador pode não conseguir mostrá-lo', 'erro');
+      }
       var up = await enviarArquivo(f, nome, info, function(x){ prog(x, 'Enviando ao Drive da Intus: ' + Math.round(x * 100) + '%'); });
       BLOBS[up.url] = Promise.resolve(info.local); fecha(); estado('Vídeo enviado', 'ok'); pronto(up, nome, info);
     } catch (e){ if (e && e.code === 'sem_acesso') return; dialogo('O envio não terminou', (e && e.message) || 'Tente de novo.', [['Ok', fecha]]); }
@@ -1683,6 +1688,55 @@ async function importarModelo(){
   }]], box);
 }
 
+// ---------- vídeo do iPhone (HEVC) em H.264, que qualquer computador abre ----------
+// O Chrome de muitos computadores não toca HEVC, o formato padrão do iPhone. O primeiro aparelho que lê HEVC (iPhone, Mac ou PC
+// com placa de vídeo compatível) grava uma versão H.264 (6 Mbps, até 30 quadros/s, mesmo tamanho) com o conversor do Feedback em
+// vídeo e ela passa a ser o vídeo do projeto; a original fica em midia.original. Projeto que ainda está em HEVC tem midia.hevc.
+var EDITOR_VIDEO = '/feedback-video/editor.js?v=20261030a', CONV_MAX = 1200 * 1048576, HEVC_OK = null, HEVC_AVISADO = {};
+async function ehHevc(blob){
+  async function tem(b){ var u = new Uint8Array(await b.arrayBuffer()); for (var i = 0; i + 4 <= u.length; i++) if (u[i] === 0x68 && u[i + 1] === 0x76 && u[i + 2] === 0x63 && u[i + 3] === 0x43) return true; return false; }
+  var n = 8 * 1048576; return await tem(blob.slice(0, n)) || (blob.size > n && await tem(blob.slice(Math.max(n, blob.size - n))));
+}
+async function leHevc(){
+  if (HEVC_OK !== null) return HEVC_OK; HEVC_OK = false;
+  if (!window.VideoDecoder || !window.VideoEncoder) return false;
+  try { HEVC_OK = !!(await VideoDecoder.isConfigSupported({ codec:'hvc1.1.6.L153.B0', codedWidth:1080, codedHeight:1920 })).supported; } catch (e) {}
+  return HEVC_OK;
+}
+function carregaEditorVideo(){
+  if (window.IntusEditorVideo) return Promise.resolve();
+  return new Promise(function(ok, ruim){ var s = document.createElement('script'); s.src = EDITOR_VIDEO;
+    s.onload = function(){ window.IntusEditorVideo ? ok() : ruim(new Error('conversor indisponível')); }; s.onerror = function(){ ruim(new Error('não consegui baixar o conversor de vídeo')); }; document.head.appendChild(s); });
+}
+/** Blob H.264, ou null quando o vídeo já não é HEVC. */
+async function paraH264(blob, aoProg){ await carregaEditorVideo(); var r = await IntusEditorVideo.paraH264(blob, aoProg); return r && !r.pulado ? r.blob : null; }
+/** Mídia de projeto em HEVC -> mídia com a versão H.264 enviada ao Drive da Intus. Sem como ler HEVC aqui, marca midia.hevc. */
+async function midiaCompativel(m, nome, prog){
+  m = clone(m);
+  if (!(await leHevc())){ m.hevc = true; return m; }
+  prog(0, 'Baixando o vídeo para preparar a versão de computador...');
+  var b = await baixarFaixas(m.original || m.video, 0);
+  var h = await paraH264(b, function(x){ prog(x * .7, 'Preparando a versão que abre em qualquer computador: ' + Math.round(x * 100) + '%'); }); b = null;
+  if (!h){ delete m.hevc; return m; }
+  var base = String(nome || 'video').replace(/\.[^.]+$/, '').slice(0, 30);
+  var up = await enviarArquivo(new File([h], base + '-computador.mp4', { type:'video/mp4' }), base + '-computador', { dur:m.duracao }, function(x){ prog(.7 + x * .3, 'Enviando a versão de computador: ' + Math.round(x * 100) + '%'); });
+  BLOBS[up.url] = Promise.resolve(URL.createObjectURL(h));
+  m.original = m.original || m.video; m.video = up.url; m.voz = up.url; delete m.hevc;
+  return m;
+}
+/** Ao abrir um projeto que ainda está em HEVC: converte aqui, ou explica onde abrir. */
+async function verificaHevc(){
+  if (!P || !P.midia || !P.midia.hevc || HEVC_AVISADO[P.id]) return;
+  var id = P.id; HEVC_AVISADO[id] = true;
+  if (!(await leHevc())){ dialogo('Vídeo no formato do iPhone', 'O vídeo deste projeto ainda está em HEVC, o formato do iPhone, e este computador não lê esse formato. Abra o projeto uma vez no iPhone (ou num Mac): o Intus Cut prepara sozinho a versão que abre em qualquer computador.', [['Ok', fecha]]); return; }
+  dialogo('Preparar a versão para computador', 'O vídeo deste projeto está em HEVC, o formato do iPhone, que muitos computadores não abrem. Este aparelho consegue gravar uma versão em H.264 que abre em qualquer um. Leva alguns minutos: deixe a tela aberta.', [['Depois', fecha], ['Preparar agora', async function(){
+    var prog = janelaProgresso('Versão para computador');
+    try { var X = projetos[id], m = await midiaCompativel(X.midia, X.nome, prog); X.midia = m; await api('salvar', { projeto:X }); fecha(); if (P && P.id === id) abrir(id); estado('Pronto: o vídeo abre em qualquer computador', 'ok'); }
+    catch (e){ if (e && e.code === 'sem_acesso') return; dialogo('Não deu para converter', ((e && e.message) || 'Erro desconhecido') + '. O projeto continua como estava.', [['Ok', fecha]]); }
+  }]]);
+}
+abrir = (function(orig){ return function(){ var r = orig.apply(this, arguments); Promise.resolve(r).then(function(){ setTimeout(verificaHevc, 600); }); return r; }; })(abrir);
+
 // ---------- edições do Claude: esqueletos em /intus-cut/claude/ ----------
 // claude/index.json lista as edições ({id, nome, versao, fonte:{drive_id, nome, dur, w, h}}); claude/<id>.json é o projeto sem vídeo.
 // Cada uma vira o projeto 'cl-<id>'. Versão maior do mesmo id sobrescreve o projeto (a situação do painel de vídeos fica).
@@ -1704,6 +1758,11 @@ async function trazerClaude(pend){
     for (var i = 0; i < pend.length; i++){ var e = pend[i];
       var esq = await (await fetch('claude/' + e.id + '.json', { cache:'no-store' })).json();
       var m = await videoDoDrive(e.fonte, function(f){ prog((i + f) / pend.length, 'Vídeo de "' + e.nome + '": ' + Math.round(f * 100) + '%'); });
+      if (e.fonte.codec === 'hevc'){
+        var ant = null; try { ant = (await api('projeto&id=cl-' + e.id)).projeto; } catch (x) {}
+        if (ant && ant.midia && ant.midia.original === m.video && !ant.midia.hevc) m = ant.midia;   // versão de computador já feita antes
+        else { try { m = await midiaCompativel(m, e.fonte.nome, function(f, t){ prog((i + f) / pend.length, t); }); } catch (x) { m.hevc = true; } }
+      }
       var p = clone(esq); p.id = 'cl-' + e.id; p.claude = { id:e.id, versao:+e.versao || 1 }; p.midia = m;
       await api('salvar', { projeto:p }); delete p._parcial; projetos[p.id] = p; ult = p.id;
       if (P && P.id === p.id) P = null;

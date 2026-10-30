@@ -88,6 +88,14 @@
     try { return new Uint8Array(esds.esd.descs[0].descs[0].data); } catch (e) { return null; }
   }
 
+  // MOV do iPhone (e do ffmpeg): a configuração do AAC fica dentro de uma caixa 'wave' que o mp4box não lê. Sem ela,
+  // monta-se a do AAC-LC a partir da taxa e dos canais (é o que o iPhone grava).
+  function ascAacLc(taxa, canais) {
+    var i = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350].indexOf(taxa);
+    if (i < 0 || !canais) return null;
+    return new Uint8Array([(2 << 3) | (i >> 1), ((i & 1) << 7) | (canais << 3)]);
+  }
+
   function segs(am, campo) { return am[campo] / am.timescale; }
 
   // ---------- cortes ----------
@@ -125,6 +133,8 @@
     return carregarLibs().then(function () { return lerMp4(blob); }).then(function (m) {
       estado.m = m;
       var vt = m.vt, at = m.at, vid = m.vid, aud = m.aud;
+      // opts.soSe (RegExp): só recodifica se o codec do vídeo bater (ex.: /^(hvc1|hev1)/ para o HEVC do iPhone); senão devolve { pulado, codec }.
+      if (opts.soSe && !opts.soSe.test(vt.codec || '')) return { pulado: true, codec: vt.codec };
       var t0 = Math.min(segs(vid[0], 'cts'), aud.length ? segs(aud[0], 'cts') : Infinity);
       var ultimo = vid[vid.length - 1];
       var duracao = segs(ultimo, 'cts') + segs(ultimo, 'duration') - t0;
@@ -143,12 +153,13 @@
 
       // ----- áudio: copia os quadros que ficam, sem recodificar -----
       if (at) {
-        var asc = descricaoAudio(m.arq, at.id), primeiroAudio = true;
+        var asc = descricaoAudio(m.arq, at.id) || ascAacLc(at.audio.sample_rate, at.audio.channel_count), primeiroAudio = true;
+        var codecA = /^mp4a\.\d/.test(at.codec || '') ? at.codec : 'mp4a.40.2';
         aud.forEach(function (a) {
           var t = segs(a, 'cts') - t0, d = segs(a, 'duration');
           var ini = mapa(t), fim = mapa(t + d - 0.0005);
           if (ini === null || fim === null || fim - ini > d * 1.5) return;
-          var meta = primeiroAudio ? { decoderConfig: { codec: at.codec, numberOfChannels: at.audio.channel_count, sampleRate: at.audio.sample_rate, description: asc || undefined } } : undefined;
+          var meta = primeiroAudio ? { decoderConfig: { codec: codecA, numberOfChannels: at.audio.channel_count, sampleRate: at.audio.sample_rate, description: asc || undefined } } : undefined;
           primeiroAudio = false;
           muxer.addAudioChunkRaw(a.data, 'key', Math.round(ini * 1e6), Math.round(d * 1e6), meta);
         });
@@ -167,18 +178,20 @@
         });
         return finalizar(estado, duracao, progresso);
       }
-      return recodificarVideo(estado, vt, vid, t0, mapa, descVideo, W, H, progresso).then(function () {
+      return recodificarVideo(estado, vt, vid, t0, mapa, descVideo, W, H, progresso, opts).then(function () {
         var tirado = cortes.reduce(function (s, c) { return s + (c.fim - c.ini); }, 0);
         return finalizar(estado, duracao - tirado, progresso);
       });
     });
   }
 
-  function recodificarVideo(estado, vt, vid, t0, mapa, descVideo, W, H, progresso) {
-    var erro = null, precisaChave = true, desdeChave = 0, feitos = 0;
+  // opts.bps (bits por segundo) e opts.fpsMax (descarta quadros acima disso, ex.: 60 -> 30) são opcionais; sem eles vale o padrão dos feedbacks.
+  function recodificarVideo(estado, vt, vid, t0, mapa, descVideo, W, H, progresso, opts) {
+    opts = opts || {};
+    var erro = null, precisaChave = true, desdeChave = 0, feitos = 0, proxT = -1, passo = opts.fpsMax ? 1 / opts.fpsMax : 0;
     var area = W * H;
     var codec = area <= 921600 ? 'avc1.42001f' : area <= 2073600 ? 'avc1.420028' : 'avc1.420033';
-    var cfgEnc = { codec: codec, width: W, height: H, bitrate: BPS_REENCODE, framerate: 15, latencyMode: 'quality', avc: { format: 'avc' } };
+    var cfgEnc = { codec: codec, width: W, height: H, bitrate: opts.bps || BPS_REENCODE, framerate: opts.fpsMax || 15, latencyMode: 'quality', avc: { format: 'avc' } };
     return VideoEncoder.isConfigSupported(cfgEnc).then(function (r) {
       if (!r.supported) throw new Error('este navegador não consegue recodificar o vídeo');
       var cfgDec = { codec: vt.codec, codedWidth: W, codedHeight: H, description: descVideo || undefined };
@@ -194,9 +207,10 @@
             try {
               var tm = mapa(frame.timestamp / 1e6 - t0);
               if (tm === null) { precisaChave = true; frame.close(); return; }
+              if (passo) { if (tm < proxT - 0.004) { frame.close(); return; } proxT = Math.max(proxT + passo, tm + passo - 0.004); }
               var novo = new VideoFrame(frame, { timestamp: Math.round(tm * 1e6) });
               frame.close();
-              var chave = precisaChave || desdeChave >= CHAVE_A_CADA;
+              var chave = precisaChave || desdeChave >= (opts.chaveACada || CHAVE_A_CADA);
               enc.encode(novo, { keyFrame: chave });
               novo.close();
               if (chave) { precisaChave = false; desdeChave = 0; } else desdeChave++;
@@ -270,6 +284,8 @@
     carregarLibs: carregarLibs,
     aplicarCortes: aplicarCortes,
     otimizar: function (blob, aoProgredir) { return aplicarCortes(blob, [], aoProgredir, { copiar: true }); },
+    // Vídeo do iPhone (HEVC) em H.264, que qualquer navegador de computador toca. Vídeo que já não é HEVC volta { pulado: true }.
+    paraH264: function (blob, aoProgredir, opts) { opts = opts || {}; return aplicarCortes(blob, [], aoProgredir, { soSe: /^(hvc1|hev1)/, bps: opts.bps || 6000000, fpsMax: opts.fpsMax || 30, chaveACada: 60 }); },
     picos: picos
   };
 })();
