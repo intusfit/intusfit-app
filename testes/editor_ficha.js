@@ -127,10 +127,11 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-row').length > 0 && !document.querySelector('#mini-tela .mi-along')), 'botão Iniciar Musculação da miniatura abre a musculação');
     await page.locator('#mini-tela .mi-volta').click(); await page.waitForTimeout(200);
     ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-along').length === 2), 'Voltar da miniatura volta aos alongamentos');
-    // trocar de divisão cai nos alongamentos e ainda dá para ir à musculação pelo celular
+    // trocar de divisão (com o celular parado nos alongamentos) abre a prévia direto na musculação
     await page.evaluate(() => trocarTab('B')); await page.waitForTimeout(300);
-    await page.locator('#mini-tela .mi-iniciar').first().click(); await page.waitForTimeout(200);
-    ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-row').length > 0 && !document.querySelector('#mini-tela .mi-along')), 'após trocar a divisão, o celular chega à musculação da B');
+    ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-row').length > 0 && !document.querySelector('#mini-tela .mi-along')), 'após trocar a divisão, a prévia do celular abre na musculação');
+    await page.locator('#mini-tela .mi-volta').click(); await page.waitForTimeout(200);
+    ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-along').length > 0), 'e dá para voltar aos alongamentos da divisão B pelo celular');
     await page.evaluate(() => trocarTab('A')); await page.waitForTimeout(200);
     // Normal + celular: uma coluna estreita com a miniatura ao lado
     await page.evaluate(() => edModo('ncelular')); await page.waitForTimeout(300);
