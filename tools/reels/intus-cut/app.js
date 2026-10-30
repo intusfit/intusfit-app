@@ -172,6 +172,10 @@ function selFonte(o, k, hist){ var s = sel(FONTES.map(function(f){ return [f[0],
   s.onchange = function(){ o[k] = s.value; carregaFonte(s.value).then(function(){ recalc(); pinta(); }); pinta(); agendaSalvar(hist); }; return campo('Fonte', s); }
 // Contorno e sombra do texto que está sendo desenhado (cada elemento guarda os seus; null = como sempre foi).
 var ESTILO_ATUAL = null;
+// Fundo colorido atrás do texto: cor e opacidade de cada elemento (padrões = como sempre foi).
+function fundoCor(o, corPad, opPad){ return rgba(/^#[0-9a-f]{6}$/i.test((o && o.cor_fundo) || '') ? o.cor_fundo : corPad, o && o.fundo_opac != null && o.fundo_opac !== '' ? +o.fundo_opac : opPad); }
+function fundoLinha(c, o, t, x, y, tam, peso, alin){ if (!o || !o.fundo || !t) return; c.font = fonteCss(tam, peso); var w = c.measureText(t).width, x0 = alin === 'center' ? x - w / 2 : x;
+  pill(c, x0 - tam * .35, y - tam * .18, w + tam * .7, tam * 1.36, tam * .3, fundoCor(o, '#000000', .6)); }
 function bordaDe(o, padrao){ return o && o.contorno != null && o.contorno !== '' ? +o.contorno : padrao; }
 function texto(c, t, x, y, tam, peso, cr, borda, alin){
   var E = ESTILO_ATUAL;
@@ -229,7 +233,7 @@ function desenha(c, t, reg){
   desenhaTextos(c, t, reg);
   if (limpo) return;
   var Ar = lay('arrobas');
-  if (Ar.visivel && Ar.texto){ var faA = FONTE_ATUAL; FONTE_ATUAL = Ar.fonte || null; ESTILO_ATUAL = Ar; var tam = 36 * Ar.escala, w = texto(c, Ar.texto, Ar.x, Ar.y, tam, 700, Ar.cor, bordaDe(Ar, 0), 'center'); FONTE_ATUAL = faA; ESTILO_ATUAL = null; caixa(reg, 'arrobas', Ar.x - w / 2, Ar.y, w, tam * 1.2); }
+  if (Ar.visivel && Ar.texto){ var faA = FONTE_ATUAL; FONTE_ATUAL = Ar.fonte || null; ESTILO_ATUAL = Ar; var tam = 36 * Ar.escala; fundoLinha(c, Ar, Ar.texto, Ar.x, Ar.y, tam, 700, 'center'); var w = texto(c, Ar.texto, Ar.x, Ar.y, tam, 700, Ar.cor, bordaDe(Ar, 0), 'center'); FONTE_ATUAL = faA; ESTILO_ATUAL = null; caixa(reg, 'arrobas', Ar.x - w / 2, Ar.y, w, tam * 1.2); }
   var LG = lay('logo'), lo = logoAtual();
   if (LG.visivel && lo.complete && lo.naturalWidth){ var lh = LG.largura * lo.naturalHeight / lo.naturalWidth; c.drawImage(lo, LG.x - LG.largura / 2, LG.y, LG.largura, lh); caixa(reg, 'logo', LG.x - LG.largura / 2, LG.y, LG.largura, lh); }
   var B = lay('barra');
@@ -268,6 +272,7 @@ function desenhaGancho(c, grande, reg, J){
   var tam = (grande ? 92 : 58) * e, alt = tam * (g.entrelinha || (grande ? 1.13 : 1.17)), dest = (P.destaque || []).map(function(x){ return x.toLowerCase(); });
   var ls = quebraTudo(c, (P.gancho || '').toUpperCase(), tam, g.largura || W - 120, g.por_linha || 0, g.car_linha || 0), corD = g.cor || lay('gancho').cor, corT = g.cor_texto || COR.branco;
   var cxm = grande ? W / 2 + g.dx : g.x, y = grande ? J.y + 330 + g.dy - ls.length * alt / 2 : g.y - ls.length * alt / 2, y0 = y, wmax = 0;
+  if (g.fundo){ c.font = fonteCss(tam); var wf = Math.max.apply(null, ls.map(function(l){ return c.measureText(l).width; }).concat([0])); pill(c, cxm - wf / 2 - tam * .4, y - tam * .2, wf + tam * .8, ls.length * alt + tam * .25, tam * .35, fundoCor(g, '#000000', .6)); }
   ls.forEach(function(ln){
     c.font = fonteCss(tam); var lw = c.measureText(ln).width, x = cxm - lw / 2; wmax = Math.max(wmax, lw);
     ln.split(' ').forEach(function(p){ var limpa = p.replace(/[.,?!:]/g, '').toLowerCase();
@@ -281,7 +286,7 @@ function desenhaNotas(c, f, y, reg){
   var N = lay('notas'), tam = 46 * N.escala, fa = FONTE_ATUAL; FONTE_ATUAL = N.fonte || null; ESTILO_ATUAL = N;
   (fonte(f.de).notas || []).forEach(function(n){ if (f.ts < n.ini || f.ts > n.fim) return;
     c.font = fonteCss(tam); var l = c.measureText(n.texto).width, x0 = W / 2 + N.dx - l / 2 - 28 * N.escala, yy = y + N.dy;
-    pill(c, x0, yy, l + 56 * N.escala, 76 * N.escala, 38 * N.escala, '#0f0f0f');
+    if (N.fundo !== false) pill(c, x0, yy, l + 56 * N.escala, 76 * N.escala, 38 * N.escala, fundoCor(N, '#0f0f0f', 1));
     texto(c, n.texto, W / 2 + N.dx, yy + 14 * N.escala, tam, 800, cor(n.cor), bordaDe(N, 0), 'center');
     caixa(reg, 'notas', x0, yy, l + 56 * N.escala, 76 * N.escala); });
   FONTE_ATUAL = fa; ESTILO_ATUAL = null;
@@ -301,7 +306,7 @@ function desenhaLegenda(c, t, y, reg){
   if (at.length) linhas.push(at);
   if (!PL && !CL && linhas.length === 2){ var todas = ps.map(function(_, i){ return i; }), meio = Math.max(1, ps.length >> 1); linhas = [todas.slice(0, meio), todas.slice(meio)]; }
   var y0 = y, xmin = W, xmax = 0, lh = Math.round(tam * (L.entrelinha || 1.31)), cxm = W / 2 + L.dx;
-  if (L.fundo){ var wl = Math.max.apply(null, linhas.map(larg)); pill(c, cxm - wl / 2 - 26, y - 14, wl + 52, linhas.length * lh + 14, 22, 'rgba(0,0,0,.72)'); }
+  if (L.fundo){ var wl = Math.max.apply(null, linhas.map(larg)); pill(c, cxm - wl / 2 - 26, y - 14, wl + 52, linhas.length * lh + 14, 22, fundoCor(L, '#000000', .72)); }
   linhas.forEach(function(ln){
     var lw = larg(ln), x = cxm - lw / 2; xmin = Math.min(xmin, x); xmax = Math.max(xmax, x + lw);
     ln.forEach(function(i){ var tt = i === ativa ? tg : tam;
@@ -317,7 +322,7 @@ function desenhaTextos(c, t, reg){
     var tam = x.tam || 60, lh = tam * (x.entrelinha || 1.2), wmax = 0, ls = quebraTudo(c, x.texto, tam, x.largura || 1e9, x.por_linha || 0, x.car_linha || 0, x.peso || 800);
     c.font = fonteCss(tam, x.peso || 800); ls.forEach(function(l){ wmax = Math.max(wmax, c.measureText(l).width); });
     var y0 = x.y - ls.length * lh / 2;
-    if (x.fundo) pill(c, x.x - wmax / 2 - tam * .4, y0 - tam * .2, wmax + tam * .8, ls.length * lh + tam * .3, tam * .35, 'rgba(15,15,15,.88)');
+    if (x.fundo) pill(c, x.x - wmax / 2 - tam * .4, y0 - tam * .2, wmax + tam * .8, ls.length * lh + tam * .3, tam * .35, fundoCor(x, '#0f0f0f', .88));
     ls.forEach(function(l, n){ texto(c, l, x.x, y0 + n * lh, tam, x.peso || 800, x.cor || COR.branco, bordaDe(x, x.borda ? 5 : 0), 'center'); });
     var lbt = Math.max(wmax, x.largura ? Math.min(W, x.largura) : 0); caixa(reg, 'texto:' + i, x.x - lbt / 2, y0, lbt, ls.length * lh, { redim:true }); });
   FONTE_ATUAL = fa; ESTILO_ATUAL = null;
@@ -327,10 +332,10 @@ function desenhaFim(c, t, reg){
   var vert = H / W > 1.5, e = vert ? 1 : Math.min(W, H) / 1920 * 1.6, cy = vert ? 0 : (H - 1920 * e) / 2, lo = logoAtual();
   if (lo.complete && lo.naturalWidth){ var lw = 520 * e, lh = lw * lo.naturalHeight / lo.naturalWidth; c.drawImage(lo, (W - lw) / 2, cy + 560 * e, lw, lh); }
   var fi = P.final || {}, fa = FONTE_ATUAL, bf = bordaDe(fi, 0); FONTE_ATUAL = fi.fonte || null; ESTILO_ATUAL = fi;
-  texto(c, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e, 800, fi.cor_chamada || COR.branco, bf, 'center');
-  texto(c, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, fi.cor_linha1 || COR.branco, bf, 'center');
-  texto(c, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, fi.cor_linha2 || COR.verde, bf, 'center');
-  String(fi.slogan || '').split(/(?<=\.)\s+/).forEach(function(l, i){ texto(c, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, fi.cor_slogan || '#d7d7d7', bf, 'center'); });
+  fundoLinha(c, fi, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e, 800, 'center'); texto(c, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e, 800, fi.cor_chamada || COR.branco, bf, 'center');
+  fundoLinha(c, fi, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, 'center'); texto(c, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, fi.cor_linha1 || COR.branco, bf, 'center');
+  fundoLinha(c, fi, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, 'center'); texto(c, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, fi.cor_linha2 || COR.verde, bf, 'center');
+  String(fi.slogan || '').split(/(?<=\.)\s+/).forEach(function(l, i){ fundoLinha(c, fi, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, 'center'); texto(c, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, fi.cor_slogan || '#d7d7d7', bf, 'center'); });
   c.globalAlpha = 1; FONTE_ATUAL = fa; ESTILO_ATUAL = null; caixa(reg, 'final', 40, cy + 540 * e, W - 80, 820 * e);
 }
 
@@ -360,6 +365,7 @@ function pintaGuia(){
     var nm = NOMES[b.id.split(':')[0]] || b.id; gctx.font = '700 ' + Math.round(28 * esc) + 'px Inter, sans-serif'; gctx.textAlign = 'left'; var lw = gctx.measureText(nm).width + 24;
     var lx = cl(b.x - 10, 0, W - lw), ly = b.y - 52 < 0 ? Math.min(b.y + 14, H - 52) : b.y - 52;
     gctx.fillStyle = '#7fff00'; gctx.fillRect(lx, ly, lw, 40 * esc); gctx.fillStyle = '#0a0b09'; gctx.textBaseline = 'top'; gctx.fillText(nm, lx + 12, ly + 6 * esc); gctx.restore(); }
+  pintaImas();
 }
 $('b-ig').onclick = function(){ mostrarIG = !mostrarIG; try { localStorage.setItem('intuscut-ig', mostrarIG ? '1' : '0'); } catch (e) {} marcaIG(); pintaGuia(); };
 function marcaIG(){ $('b-ig').classList.toggle('on', mostrarIG); }
@@ -384,19 +390,52 @@ function alvo(id){
   if (id === 'janela'){ var f = fAgora(); return f ? (f.s.recorte || plano(f.ts, f.de)) : null; }
   return lay(id);
 }
+// Ímã do enquadramento: ao arrastar, a caixa gruda no centro da tela, nos terços, na margem de segurança e nas bordas
+// e centros dos outros elementos, e as linhas aparecem enquanto o dedo estiver na tela. Segurar Alt desliga o ímã.
+function ima(a, dx, dy){
+  var r = guia.getBoundingClientRect(), tol = Math.max(6, 9 * W / (r.width || W)), b = a.b0, m = Math.round(W * .055), g = [];
+  var alvosX = [[W / 2, 'centro'], [W / 3, 'terço'], [W * 2 / 3, 'terço'], [m, 'margem'], [W - m, 'margem']],
+      alvosY = [[H / 2, 'centro'], [H / 3, 'terço'], [H * 2 / 3, 'terço'], [m, 'margem'], [H - m, 'margem']];
+  a.outros.forEach(function(o){ [o.x, o.x + o.w / 2, o.x + o.w].forEach(function(v){ alvosX.push([v, 'elemento']); }); [o.y, o.y + o.h / 2, o.y + o.h].forEach(function(v){ alvosY.push([v, 'elemento']); }); });
+  function melhor(pontos, alvos){ var mel = null; pontos.forEach(function(pt){ alvos.forEach(function(al){ var d = al[0] - pt; if (Math.abs(d) <= tol && (!mel || (al[1] === 'centro' ? Math.abs(d) <= Math.abs(mel.d) + 3 : mel.tipo !== 'centro' && Math.abs(d) < Math.abs(mel.d)) || (mel.tipo === 'centro' && al[1] !== 'centro' && Math.abs(d) + 3 < Math.abs(mel.d)))) mel = { d:d, v:al[0], tipo:al[1] }; }); }); return mel; }
+  var bx = b.x + dx, by = b.y + dy, mx = melhor([bx, bx + b.w / 2, bx + b.w], alvosX), my = melhor([by, by + b.h / 2, by + b.h], alvosY);
+  if (mx){ dx += Math.round(mx.d); g.push({ x:mx.v, tipo:mx.tipo }); }
+  if (my){ dy += Math.round(my.d); g.push({ y:my.v, tipo:my.tipo }); }
+  var chave = g.map(function(q){ return (q.x != null ? 'x' + q.x : 'y' + q.y); }).join();
+  if (chave && chave !== a.ultIma && navigator.vibrate) try { navigator.vibrate(8); } catch (e) {}
+  a.ultIma = chave; a.caixaAgora = { x:b.x + dx, y:b.y + dy, w:b.w, h:b.h };
+  return { dx:dx, dy:dy, guias:g };
+}
+function pintaImas(){
+  if (!arr || !arr.mexeu || arr.redim || arr.id === 'janela' || arr.id === 'final') return;
+  var r = guia.getBoundingClientRect(), esc = W / (r.width || W); gctx.save();
+  gctx.setLineDash([4 * esc, 5 * esc]); gctx.lineWidth = 1 * esc; gctx.strokeStyle = 'rgba(255,255,255,.35)';
+  gctx.beginPath(); gctx.moveTo(W / 2, 0); gctx.lineTo(W / 2, H); gctx.moveTo(0, H / 2); gctx.lineTo(W, H / 2); gctx.stroke();
+  gctx.setLineDash([]); gctx.lineWidth = 1.5 * esc; gctx.font = '700 ' + Math.round(10 * esc) + 'px Inter, sans-serif'; gctx.textBaseline = 'top';
+  (arr.guias || []).forEach(function(q){
+    var cor = q.tipo === 'centro' ? '#ff3df2' : q.tipo === 'elemento' ? '#3db8ff' : '#ffb020'; gctx.strokeStyle = cor; gctx.fillStyle = cor;
+    gctx.beginPath(); if (q.x != null){ gctx.moveTo(q.x, 0); gctx.lineTo(q.x, H); } else { gctx.moveTo(0, q.y); gctx.lineTo(W, q.y); } gctx.stroke();
+    var rot = q.tipo === 'elemento' ? 'alinhado' : q.tipo; gctx.textAlign = 'left';
+    if (q.x != null) gctx.fillText(rot, Math.min(q.x + 4 * esc, W - 60 * esc), 4 * esc); else gctx.fillText(rot, 4 * esc, Math.max(4, q.y - 14 * esc));
+  });
+  gctx.restore();
+}
 var arr = null, ultToque = { t:0, id:'' };
 guia.addEventListener('pointerdown', function(e){
   if (!P) return; var p = ponto(e), b = acha(p);
   var agora = Date.now(); if (b && b.id === ultToque.id && temTexto(b.id) && agora - ultToque.t < 450){ ultToque = { t:0, id:'' }; editarTextoDe(b.id); return; } ultToque = { t:agora, id:b ? b.id : '' }; selEl = b ? b.id : null; pintaGuia();
   if (!b){ inspetor(); desenhaTimeline(); return; }
   guia.setPointerCapture(e.pointerId); var o = alvo(b.id), f = fAgora();
-  arr = { id:b.id, p:p, o:o, ini:clone(o), jy:lay('janela').y, shift:e.shiftKey, mexeu:false, livre:!!(f && f.s.recorte), geo:f ? geometria(f) : null, de:f ? f.de : '', redim:noCanto(p, b) };
+  arr = { id:b.id, p:p, o:o, ini:clone(o), jy:lay('janela').y, shift:e.shiftKey, mexeu:false, livre:!!(f && f.s.recorte), geo:f ? geometria(f) : null, de:f ? f.de : '', redim:noCanto(p, b),
+    b0:{ x:b.x, y:b.y, w:b.w, h:b.h }, outros:CAIXAS.filter(function(x){ return x.id !== b.id && x.id !== 'janela' && x.id !== 'final'; }).map(function(x){ return { x:x.x, y:x.y, w:x.w, h:x.h }; }), guias:[] };
   seleciona();
 });
 guia.addEventListener('pointermove', function(e){
   if (!arr){ if (P){ var pp = ponto(e), b = acha(pp); guia.style.cursor = b ? (selEl === b.id && noCanto(pp, b) ? 'nwse-resize' : 'move') : 'default'; } return; }
   if (!arr.o) return; var p = ponto(e), dx = Math.round(p.x - arr.p.x), dy = Math.round(p.y - arr.p.y), o = arr.o, i = arr.ini;
   if (Math.abs(dx) + Math.abs(dy) > 2) arr.mexeu = true;
+  arr.guias = [];
+  if (!arr.redim && arr.id !== 'janela' && arr.id !== 'final' && !e.altKey){ var im = ima(arr, dx, dy); dx = im.dx; dy = im.dy; arr.guias = im.guias; }
   switch (arr.id.split(':')[0]){
     case 'janela':
       if (arr.shift){ lay('janela').y = arr.jy + dy; break; }
@@ -418,8 +457,8 @@ guia.addEventListener('pointermove', function(e){
   }
   pinta();
 });
-guia.addEventListener('pointerup', function(){ if (arr && arr.mexeu){ var nm = NOMES[arr.id.split(':')[0]];
-  agendaSalvar(arr.redim ? 'Redimensionar ' + nm.toLowerCase() : (arr.id === 'janela' && !arr.shift ? 'Enquadrar ' : 'Mover ') + nm.toLowerCase()); inspetor(); } arr = null; });
+guia.addEventListener('pointerup', function(){ var tinha = arr && arr.guias && arr.guias.length; if (tinha){ arr.guias = []; } if (arr && arr.mexeu){ var nm = NOMES[arr.id.split(':')[0]];
+  agendaSalvar(arr.redim ? 'Redimensionar ' + nm.toLowerCase() : (arr.id === 'janela' && !arr.shift ? 'Enquadrar ' : 'Mover ') + nm.toLowerCase()); inspetor(); } arr = null; if (tinha) pintaGuia(); });
 guia.addEventListener('wheel', function(e){
   if (!P) return; var b = acha(ponto(e)); if (!b) return; e.preventDefault(); selEl = b.id;
   var s = e.deltaY < 0 ? 1 : -1, o = alvo(b.id), id = b.id.split(':')[0], f = fAgora(); if (!o) return;
@@ -809,18 +848,18 @@ var CARDS = {
   geral: function(){ var G = lay('geral'); return cartao('geral', 'Imagem e fundo', [el('div', 'grade2', [deslize(G, 'brilho', 'Brilho', .5, 1.6, .01, 'Brilho', pct), deslize(G, 'contraste', 'Contraste', .5, 1.8, .01, 'Contraste', pct),
     deslize(G, 'saturacao', 'Saturação', 0, 2, .01, 'Saturação', pct), corIn(G, 'fundo', 'Cor do fundo', 'Cor do fundo')])]); },
   legenda: function(){ var Lg = lay('legenda'); return cartao('legenda', 'Legenda', camposLegendaAgora().concat([selFonte(P.estilo = P.estilo || {}, 'fonte', 'Fonte da legenda'), coresLegenda(P.estilo), chk(Lg, 'visivel', 'Mostrar legenda', 'Legenda'), el('div', 'grade2', [deslize(Lg, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover legenda'), deslize(Lg, 'dy', 'Vertical', -H, 500, 2, 'Mover legenda'),
-]), chk(Lg, 'fundo', 'Caixa escura atrás', 'Caixa da legenda')], camposEstilo(Lg, 'legenda', 7, 'borda')).concat(camposCaixa(Lg, 'legenda', W - 80, 1.31), [ el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho da letra e palavras por vez: painel Legendas.')])); },
+])], camposFundo(Lg, 'legenda', '#000000', .72), camposEstilo(Lg, 'legenda', 7, 'borda')).concat(camposCaixa(Lg, 'legenda', W - 80, 1.31), [ el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho da letra e palavras por vez: painel Legendas.')])); },
   gancho: function(){ var Gc = lay('gancho'); return cartao('gancho', 'Título do topo (depois do gancho)', camposGancho(false).concat([selFonte(Gc, 'fonte', 'Fonte do título'), coresGancho(Gc), chk(Gc, 'visivel', 'Mostrar', 'Título do topo'), el('div', 'grade2', [deslize(Gc, 'x', 'Horizontal', 0, W, 2, 'Mover título'), deslize(Gc, 'y', 'Vertical', 0, H, 2, 'Mover título'),
-    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct)])], camposCaixa(Gc, 'título', W - 120, 1.17), camposEstilo(Gc, 'título', 5))); },
+    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct)])], camposCaixa(Gc, 'título', W - 120, 1.17), camposFundo(Gc, 'título', '#000000', .6), camposEstilo(Gc, 'título', 5))); },
   gancho_grande: function(){ var GG = lay('gancho_grande'); return cartao('gancho_grande', 'Gancho grande (primeiros segundos)', camposGancho(true).concat([selFonte(GG, 'fonte', 'Fonte do gancho'), coresGancho(GG), chk(GG, 'visivel', 'Mostrar', 'Gancho grande'), el('div', 'grade2', [deslize(GG, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover gancho'), deslize(GG, 'dy', 'Vertical', -800, H, 2, 'Mover gancho'),
-    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])], camposCaixa(GG, 'gancho', W - 120, 1.13), camposEstilo(GG, 'gancho', 7))); },
+    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])], camposCaixa(GG, 'gancho', W - 120, 1.13), camposFundo(GG, 'gancho', '#000000', .6), camposEstilo(GG, 'gancho', 7))); },
   arrobas: function(){ var A = lay('arrobas'), at = el('input'); at.type = 'text'; at.value = A.texto; at.oninput = function(){ A.texto = at.value; pinta(); agendaSalvar('Texto do @'); };
     return cartao('arrobas', '@ do rodapé', [chk(A, 'visivel', 'Mostrar', '@ do rodapé'), campo('Texto', at), selFonte(A, 'fonte', 'Fonte do @'), el('div', 'grade2', [deslize(A, 'x', 'Horizontal', 0, W, 2, 'Mover @'), deslize(A, 'y', 'Vertical', 0, H, 2, 'Mover @'),
-      deslize(A, 'escala', 'Tamanho', .5, 3, .02, 'Tamanho do @', pct), corIn(A, 'cor', 'Cor', 'Cor do @')])].concat(camposEstilo(A, '@ do rodapé', 0), [rodapeBotoes()])); },
+      deslize(A, 'escala', 'Tamanho', .5, 3, .02, 'Tamanho do @', pct), corIn(A, 'cor', 'Cor', 'Cor do @')])].concat(camposFundo(A, '@ do rodapé', '#000000', .6), camposEstilo(A, '@ do rodapé', 0), [rodapeBotoes()])); },
   logo: function(){ var LG = lay('logo'); return cartao('logo', 'Logo do rodapé', [chk(LG, 'visivel', 'Mostrar', 'Logo'), el('div', 'grade2', [deslize(LG, 'x', 'Horizontal', 0, W, 2, 'Mover logo'), deslize(LG, 'y', 'Vertical', 0, H - 20, 2, 'Mover logo'),
     deslize(LG, 'largura', 'Largura (px)', 60, 900, 2, 'Tamanho da logo')]), el('p', 'nota-ajuda', 'Para trocar a logo: Biblioteca, "Usar no rodapé".'), rodapeBotoes()]); },
   notas: function(){ var N = lay('notas'); return cartao('notas', 'Marcações (CERTO, ERRADO...)', camposNotasAgora().concat([selFonte(N, 'fonte', 'Fonte das marcações'), el('div', 'grade2', [deslize(N, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover marcações'), deslize(N, 'dy', 'Vertical', -400, H, 2, 'Mover marcações'),
-    deslize(N, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho das marcações', pct)])], camposEstilo(N, 'marcações', 0))); },
+    deslize(N, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho das marcações', pct)])], camposFundo(N, 'marcações', '#0f0f0f', 1, true), camposEstilo(N, 'marcações', 0))); },
   final: function(){ return cartao('final', 'Cartão final', camposFinal()); },
   barra: function(){ var B = lay('barra'); return cartao('barra', 'Barra de progresso', [chk(B, 'visivel', 'Mostrar', 'Barra de progresso'), chk(B, 'embaixo', 'Embaixo (desmarcado = no topo)', 'Posição da barra'),
     el('div', 'grade2', [deslize(B, 'altura', 'Espessura', 2, 40, 1, 'Espessura da barra'), corIn(B, 'cor', 'Cor', 'Cor da barra')])]); },
@@ -854,7 +893,7 @@ function camposFinal(){
   if (!fi.cor_chamada) fi.cor_chamada = COR.branco; if (!fi.cor_linha1) fi.cor_linha1 = COR.branco; if (!fi.cor_linha2) fi.cor_linha2 = COR.verde; if (!fi.cor_slogan) fi.cor_slogan = '#d7d7d7';
   return [chk(fi, 'ativo', 'Mostrar o cartão final (2,8 s)', 'Cartão final', function(){ setTimeout(atualizaTudo); }), tin('chamada', 'Chamada', 'SIGA PARA MAIS DICAS'),
     el('div', 'grade2', [tin('linha1', 'Primeiro @', '@luiznunest'), tin('linha2', 'Segundo @', '@intusfit')]), tin('slogan', 'Slogan'), selFonte(fi, 'fonte', 'Fonte do cartão final'),
-    el('div', 'linha', [corIn(fi, 'cor_chamada', 'Chamada', 'Cor da chamada'), corIn(fi, 'cor_linha1', '1º @', 'Cor do 1º @'), corIn(fi, 'cor_linha2', '2º @', 'Cor do 2º @'), corIn(fi, 'cor_slogan', 'Slogan', 'Cor do slogan')])].concat(camposEstilo(fi, 'cartão final', 0));
+    el('div', 'linha', [corIn(fi, 'cor_chamada', 'Chamada', 'Cor da chamada'), corIn(fi, 'cor_linha1', '1º @', 'Cor do 1º @'), corIn(fi, 'cor_linha2', '2º @', 'Cor do 2º @'), corIn(fi, 'cor_slogan', 'Slogan', 'Cor do slogan')])].concat(camposFundo(fi, 'cartão final', '#000000', .6), camposEstilo(fi, 'cartão final', 0));
 }
 function temTexto(id){ return /^(legenda|gancho|gancho_grande|arrobas|notas|final|texto:\d+)$/.test(id || ''); }
 // Toque duplo num texto da prévia ou da linha do tempo: abre o texto numa janela, em qualquer aparelho.
@@ -889,6 +928,13 @@ function camposLegendaAgora(){
       reescreveFrase(a.f.de, criada, tx.value); recalc(); pinta(); desenhaTimeline(); agendaSalvar('Nova legenda'); }; }
   return [campo('Texto da legenda neste ponto (' + fmt(T) + ')', tx), el('div', 'linha', [botao('Frase do ponto atual', function(){ inspetor(); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })])];
 }
+// Fundo colorido atrás de um texto: liga/desliga, cor e opacidade.
+function camposFundo(o, nome, corPad, opPad, ligadoPad){
+  if (o.fundo == null) o.fundo = !!ligadoPad; if (!o.cor_fundo) o.cor_fundo = corPad; if (o.fundo_opac == null || o.fundo_opac === '') o.fundo_opac = opPad;
+  var out = [chk(o, 'fundo', 'Fundo colorido atrás do texto', 'Fundo: ' + nome, function(){ setTimeout(inspetor); })];
+  if (o.fundo) out.push(el('div', 'grade2', [corIn(o, 'cor_fundo', 'Cor do fundo', 'Cor do fundo: ' + nome), deslize(o, 'fundo_opac', 'Opacidade do fundo', 0, 1, .01, 'Opacidade do fundo: ' + nome, pct)]));
+  return out;
+}
 // Contorno e sombra de um texto: cor e espessura do contorno; sombra com cor, força, desfoque e distância.
 function camposEstilo(o, nome, padrao, k){ k = k || 'contorno';
   if (o[k] == null || o[k] === '') o[k] = padrao; if (!o.cor_contorno) o.cor_contorno = '#000000'; if (!o.cor_sombra) o.cor_sombra = '#000000';
@@ -914,7 +960,7 @@ function rodapeBotoes(){ var A = lay('arrobas'), LG = lay('logo'); return el('di
 function cardTexto(i){ var x = P.textos[i], id = 'texto:' + i, tx = el('textarea'); tx.rows = 2; tx.value = x.texto; tx.oninput = function(){ x.texto = tx.value; pinta(); desenhaTimeline(); agendaSalvar('Texto livre'); };
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Texto ' + (i + 1)), acoesItem(id)]), tx, selFonte(x, 'fonte', 'Fonte do texto'),
     el('div', 'grade2', [deslize(x, 'tam', 'Tamanho', 20, 220, 1, 'Tamanho do texto'), deslize(x, 'x', 'Horizontal', 0, W, 2, 'Mover texto'), deslize(x, 'y', 'Vertical', 0, H, 2, 'Mover texto')]),
-    el('div', 'linha', [corIn(x, 'cor', 'Cor', 'Cor do texto'), chk(x, 'fundo', 'Caixa escura', 'Caixa do texto')])].concat(camposEstilo(x, 'texto', x.borda ? 5 : 0), camposCaixa(x, 'texto', W, 1.2), tempoItem(x, 'Texto'))); }
+    el('div', 'linha', [corIn(x, 'cor', 'Cor', 'Cor do texto'), ])].concat(camposFundo(x, 'texto', '#0f0f0f', .88), camposEstilo(x, 'texto', x.borda ? 5 : 0), camposCaixa(x, 'texto', W, 1.2), tempoItem(x, 'Texto'))); }
 function cardSombra(i){ var s = P.sombras[i], id = 'sombra:' + i;
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Sombra ' + (i + 1)), acoesItem(id)]),
     el('div', 'linha', [campo('Tipo', opcoes(s, 'tipo', [['vinheta', 'Vinheta'], ['gradiente', 'Degradê'], ['retangulo', 'Retângulo']], 'Tipo da sombra')),

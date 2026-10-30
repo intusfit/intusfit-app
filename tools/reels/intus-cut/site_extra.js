@@ -88,3 +88,12 @@ async function importarModelo(){
     } catch (e){ dialogo('O envio não terminou', (e && e.message) || 'Tente de novo.', [['Ok', fecha]]); }
   }]], box);
 }
+
+// Celular: o que não cabe no topo (formato, gravar, novo com vídeo, duplicar, quadro PNG) fica no menu "Mais".
+$('b-mais').onclick = function(){
+  var sf = $('sel-formato'), s2 = sel([].map.call(sf.options, function(o){ return [o.value, o.textContent]; }), sf.value);
+  s2.onchange = function(){ sf.value = s2.value; sf.onchange(); fecha(); };
+  function item(rot, id){ var x = botao(rot, function(){ fecha(); $(id).click(); }); x.style.justifyContent = 'flex-start'; return x; }
+  var lista = el('div', 'mais-lista', [campo('Formato do vídeo', s2), item('● Gravar react ou explicação', 'b-rec'), item('＋ Nova edição com um vídeo seu', 'b-novo'), item('Duplicar este projeto', 'b-dup'), item('Baixar o quadro atual (PNG)', 'b-capa')]);
+  dialogo('Mais opções', $('estado').textContent, [['Fechar', fecha]], lista);
+};
