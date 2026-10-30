@@ -4,7 +4,7 @@
 # Mesmo id = mesmo projeto: se o conteúdo mudou, a versão sobe e o Intus Cut oferece substituir o projeto 'cl-<id>'.
 # Id novo = projeto novo. O vídeo fica no Drive do Luiz (compartilhado por link) e é copiado pelo servidor ao trazer.
 #
-# edicao.json: {id, nome, resumo, gancho, destaque[], t_gancho, fonte:{drive_id, nome, dur, w, h},
+# edicao.json: {id, nome, resumo, gancho, destaque[], t_gancho, fonte:{drive_id, nome, dur, w, h, codec ('hevc' = vídeo do iPhone)},
 #               trechos:[{ini, fim, legenda:bool, etiqueta:'A'|'M'|null}], notas_dy, final:{...}}
 import sys, json, os, hashlib, datetime
 
@@ -35,8 +35,9 @@ proj = {
     'final': E.get('final', {'ativo': True, 'chamada': 'SIGA PARA MAIS DICAS', 'slogan': 'Te levamos ao próximo nível. Do iniciante ao atleta.'}),
     'layout': {'notas': {'dx': 0, 'dy': E.get('notas_dy', 250), 'escala': 1}},
 }
+FONTE = {k: E['fonte'][k] for k in ('drive_id', 'nome', 'dur', 'w', 'h', 'codec') if k in E['fonte']}
 corpo = json.dumps(proj, ensure_ascii=False, separators=(',', ':'))
-hsh = hashlib.sha256(corpo.encode()).hexdigest()[:16]
+hsh = hashlib.sha256((corpo + json.dumps(FONTE, sort_keys=True)).encode()).hexdigest()[:16]
 os.makedirs(PASTA, exist_ok=True)
 ix_path = os.path.join(PASTA, 'index.json')
 ix = json.load(open(ix_path)) if os.path.exists(ix_path) else {'projetos': []}
@@ -46,7 +47,7 @@ if ant and ant.get('hash') == hsh:
 open(os.path.join(PASTA, E['id'] + '.json'), 'w').write(corpo)
 item = {'id': E['id'], 'nome': E['nome'], 'resumo': E.get('resumo', ''), 'versao': (ant['versao'] + 1) if ant else 1, 'hash': hsh,
         'atualizado_em': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'fonte': {k: E['fonte'][k] for k in ('drive_id', 'nome', 'dur', 'w', 'h')}}
+        'fonte': FONTE}
 ix['projetos'] = [x for x in ix['projetos'] if x['id'] != E['id']] + [item]
 json.dump(ix, open(ix_path, 'w'), ensure_ascii=False, indent=1)
 print(('atualizado' if ant else 'novo') + ':', E['id'], 'versão', item['versao'], len(palavras), 'palavras', len(notas), 'etiquetas')

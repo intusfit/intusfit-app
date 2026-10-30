@@ -54,3 +54,4 @@ Página: https://claude.ai/artifact/Et9xVsHjrTYxxqug5UKJH6 (privada do Luiz). Fo
 3. `python3 esqueleto.py edicoes/<id>.json transcricao.json ../../intus-cut/claude` grava o esqueleto e sobe a versão se mudou.
 4. Commit e push: no próximo acesso o Intus Cut oferece "Trazer agora" e copia o vídeo do Drive do Luiz para o Drive da Intus.
 Mesmo id sobrescreve o projeto `cl-<id>`; vídeo ou pedido novo usa id novo. O MP4 renderizado pode ir junto pela conversa, como prévia.
+Vídeo do iPhone: ponha `"codec": "hevc"` em `fonte` (confira com `ffprobe`); o Intus Cut converte para H.264 no primeiro aparelho que ler HEVC, para abrir em qualquer computador.
