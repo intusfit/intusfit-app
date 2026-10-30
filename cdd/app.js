@@ -11,8 +11,14 @@
   var LOGO = '<div class="logo"><div class="logo-caixa">' + IMG2 + '</div></div>';
   var MARCA = '<a class="marca" href="#/"><span class="marca-img">' + IMG2 + '</span></a>';
   var MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-  var ZAP = 'https://wa.me/5545999574107?text=' + encodeURIComponent('Oi! Preciso de ajuda no app do Código da Definição.');
-  var LINK_SENHA_ZAP = 'https://wa.me/5545999574107?text=' + encodeURIComponent('Oi! Esqueci a minha senha do app do Código da Definição. Pode me enviar um novo link de acesso? Meu e-mail de cadastro é: ');
+  // WhatsApp de atendimento da Intus/CDD. Toda mensagem sai com [CDD] e, logada, com nome e e-mail da aluna, para a equipe identificar de quem é.
+  var ZAP_NUM = '5545991156006';
+  function zapAjuda() {
+    var eu = (typeof estado !== 'undefined' && estado && estado.eu) ? estado.eu : null;
+    var quem = eu ? ' Sou ' + (eu.nome || 'aluna') + (eu.email ? ' (' + eu.email + ')' : '') + '.' : '';
+    return 'https://wa.me/' + ZAP_NUM + '?text=' + encodeURIComponent('[CDD] Oi!' + quem + ' Preciso de ajuda no app do Código da Definição.');
+  }
+  var LINK_SENHA_ZAP = 'https://wa.me/' + ZAP_NUM + '?text=' + encodeURIComponent('[CDD] Oi! Esqueci a minha senha do app do Código da Definição. Pode me enviar um novo link de acesso? Meu nome e meu e-mail de cadastro são: ');
   var LINK_SENHA_EMAIL = 'mailto:contato@codigodadefinicao.com.br?subject=' + encodeURIComponent('Esqueci a minha senha do app') + '&body=' + encodeURIComponent('Oi! Esqueci a senha do app do Código da Definição. Pode me enviar um novo link de acesso?' + String.fromCharCode(10, 10) + 'Meu nome:' + String.fromCharCode(10) + 'Meu e-mail de cadastro: ');
 
   /* ───────── utilidades ───────── */
@@ -147,7 +153,7 @@
       : 'Seu acesso está pausado. Fale com a equipe do CDD.';
     return '<div class="card hero"><h2>Olá, ' + esc(primeiro(estado.eu.nome)) + ' 👋</h2><p style="margin-top:6px">' + esc(texto) + '</p><span class="grande-emoji">⏳</span></div>' +
       (estado.anamneseEnviada ? '' : '<a class="banner" href="#/anamnese" style="margin-top:12px"><span class="em">📝</span><div><b>Adiante a sua anamnese</b><span class="mut">Enquanto a matrícula não sai, você já pode responder. Leva uns 5 minutos.</span></div></a>') +
-      '<a class="btn grande" style="margin-top:12px" href="' + ZAP + '" target="_blank" rel="noopener">💬 Falar com a equipe</a>';
+      '<a class="btn grande" style="margin-top:12px" href="' + zapAjuda() + '" target="_blank" rel="noopener">💬 Falar com a equipe</a>';
   }
   function sessaoExpirou(r) { if (r.status === 401) { CDD.guardar(''); estado = { eu: null }; telaLogin('Sua sessão expirou. Entre de novo.', 'aviso'); return true; } return false; }
 
@@ -519,7 +525,7 @@
       h += '<div class="ex-list-title" style="margin-top:20px">🏡 Tarefa de casa</div>' + tarefas.map(function (t) { return '<div class="card suave" style="margin-top:8px"><b>' + esc(t.exercicio) + '</b>' + (t.f.obs ? '<div class="mut">' + esc(t.f.obs) + '</div>' : '') + (t.f.video ? '<div style="margin-top:8px">' + botaoVideo(t.f.video) + '</div>' : '') + '</div>'; }).join('');
     }
     h += '<div class="comment-box card" style="margin-top:18px"><h3>💬 Comentário do treino</h3><p class="mut" style="margin-bottom:6px">Visível para a equipe.</p><textarea id="comentario-treino" placeholder="Como foi o treino hoje? Deixe uma nota..."></textarea></div>' +
-      '<div class="fim-box"><button class="btn pri grande" id="fim">' + (TR.jaSalvo ? '✅ Atualizar treino' : '✅ Finalizar treino') + '</button><a class="btn grande" style="margin-top:10px;opacity:.85" href="' + ZAP + '" target="_blank" rel="noopener">💬 Precisa de ajuda? Chama a gente</a></div></div>';
+      '<div class="fim-box"><button class="btn pri grande" id="fim">' + (TR.jaSalvo ? '✅ Atualizar treino' : '✅ Finalizar treino') + '</button><a class="btn grande" style="margin-top:10px;opacity:.85" href="' + zapAjuda() + '" target="_blank" rel="noopener">💬 Precisa de ajuda? Chama a gente</a></div></div>';
     $app.innerHTML = h; ligarVideos($app);
     document.getElementById('comentario-treino').value = TR.comentario;
     document.getElementById('comentario-treino').oninput = function () { TR.comentario = this.value; guardarRasc(); };
@@ -890,8 +896,8 @@
       '<a class="banner" href="#/jornada/conquistas" style="border-left-color:var(--accent)"><span class="em">🏅</span><div><b>Conquistas</b><span class="mut">' + (h.conquistas_ganhas || 0) + ' de ' + (h.conquistas_total || 0) + ' conquistadas</span></div></a>' +
       '<div class="card" style="margin-top:12px"><h3>🌗 Aparência</h3><p class="mut" style="margin:2px 0 10px">Tema claro ou escuro, como ficar melhor para você.</p><button class="btn" data-tema-btn id="tm"></button></div>' +
       '<div class="card"><h3>🔑 Trocar senha</h3><div id="aviso"></div><form id="f"><label for="at">Senha atual</label><input id="at" type="password" autocomplete="current-password" required><label for="nv">Nova senha (mínimo 8 caracteres)</label><input id="nv" type="password" autocomplete="new-password" minlength="8" required><div class="espaco"></div><button class="btn pri">Trocar senha</button></form></div>' +
-      (estado.eu.papel === 'admin' ? '<a class="btn pri grande" style="margin-top:12px" href="painel.html">⚙️ Abrir o painel da equipe</a>' : '') +
-      '<a class="btn grande" style="margin-top:12px" href="' + ZAP + '" target="_blank" rel="noopener">💬 Falar com a equipe</a><button class="btn perigo grande" id="sai" style="margin-top:10px">Sair da conta</button>';
+      (estado.eu.papel === 'admin' ? '<a class="btn pri grande" style="margin-top:12px" href="painel">⚙️ Abrir o painel da equipe</a>' : '') +
+      '<a class="btn grande" style="margin-top:12px" href="' + zapAjuda() + '" target="_blank" rel="noopener">💬 Falar com a equipe</a><button class="btn perigo grande" id="sai" style="margin-top:10px">Sair da conta</button>';
     ligarTema(v);
     document.getElementById('sai').onclick = async function () { await CDD.api('logout', { body: {} }); CDD.guardar(''); estado = { eu: null }; TR = null; location.hash = '#/'; telaLogin(); };
     document.getElementById('f').onsubmit = async function (e) {

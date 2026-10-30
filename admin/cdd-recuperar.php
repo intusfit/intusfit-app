@@ -2,7 +2,7 @@
 /**
  * Recuperar a senha do administrador do CDD (Código da Definição), na área logada do admin da Intus.
  *
- * O painel do CDD (cdd/painel.html) tem login próprio e não manda e-mail de troca de senha para a equipe. Quando a senha do administrador do
+ * O painel do CDD (cdd/painel) tem login próprio e não manda e-mail de troca de senha para a equipe. Quando a senha do administrador do
  * CDD se perde, esta página troca: entra com o login do admin da Intus, escolhe a conta e digita a senha nova duas vezes. A senha nunca é
  * mostrada nem gravada em texto: só o hash (bcrypt) vai para a tabela cdd_aluna. Só mexe em contas de administrador do CDD.
  */
@@ -70,14 +70,14 @@ try { $admins = cddRecuperarAdmins($pdo); } catch (Throwable $e) { $admins = [];
 </head>
 <body>
 <h2>Senha do administrador do CDD</h2>
-<p>Use quando a senha do painel do CDD (<code>/cdd/painel.html</code>) se perder. Você digita a senha nova duas vezes. Ela não aparece em lugar nenhum depois e não é enviada por e-mail.</p>
+<p>Use quando a senha do painel do CDD (<code>/cdd/painel</code>) se perder. Você digita a senha nova duas vezes. Ela não aparece em lugar nenhum depois e não é enviada por e-mail.</p>
 
-<?php if ($aviso): ?><div class="aviso<?= $aviso[0] ? '' : ' erro' ?>"><?= h($aviso[1]) ?><?php if ($aviso[0]): ?> Agora entre em <a href="/cdd/painel.html">/cdd/painel.html</a> com o e-mail da conta e a senha nova. Se aparecer "muitas tentativas", espere 15 minutos.<?php endif; ?></div><?php endif; ?>
+<?php if ($aviso): ?><div class="aviso<?= $aviso[0] ? '' : ' erro' ?>"><?= h($aviso[1]) ?><?php if ($aviso[0]): ?> Agora entre em <a href="/cdd/painel">/cdd/painel</a> com o e-mail da conta e a senha nova. Se aparecer "muitas tentativas", espere 15 minutos.<?php endif; ?></div><?php endif; ?>
 
 <?php if (!empty($semTabela)): ?>
-  <div class="aviso erro">O CDD ainda não foi instalado neste banco (a tabela cdd_aluna não existe). Abra <a href="/cdd/painel.html">/cdd/painel.html</a> e use "Primeiro acesso" com o e-mail do dono.</div>
+  <div class="aviso erro">O CDD ainda não foi instalado neste banco (a tabela cdd_aluna não existe). Abra <a href="/cdd/painel">/cdd/painel</a> e use "Primeiro acesso" com o e-mail do dono.</div>
 <?php elseif (!$admins): ?>
-  <div class="aviso erro">Não existe conta de administrador do CDD. Abra <a href="/cdd/painel.html">/cdd/painel.html</a> e use "Primeiro acesso" (só funciona se a instalação ainda estiver aberta).</div>
+  <div class="aviso erro">Não existe conta de administrador do CDD. Abra <a href="/cdd/painel">/cdd/painel</a> e use "Primeiro acesso" (só funciona se a instalação ainda estiver aberta).</div>
 <?php else: ?>
 <form method="post" autocomplete="off">
   <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
