@@ -53,7 +53,10 @@ try {
     $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https') || (($_SERVER['HTTP_CF_VISITOR'] ?? '') !== '' && strpos($_SERVER['HTTP_CF_VISITOR'], 'https') !== false);
     $host = preg_replace('/[^a-z0-9.\-:]/i', '', (string)($_SERVER['HTTP_HOST'] ?? ''));
     $pasta = rtrim(str_replace(chr(92), '/', dirname(dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/cdd/api/api.php')))), '/');
-    $ctx = ['ip' => cddIpCliente(), 'base' => ($https ? 'https://' : 'http://') . $host . $pasta, 'seed' => __DIR__ . '/dados/seed-conteudo.json'];
+    $base = ($https ? 'https://' : 'http://') . $host . $pasta;
+    // Domínio próprio via Cloudflare Worker: o Worker avisa o endereço público; só vale este valor exato (não dá para apontar links para outro lugar).
+    if (trim((string)($_SERVER['HTTP_X_CDD_BASE'] ?? '')) === 'https://codigodadefinicao.com.br/app') $base = 'https://codigodadefinicao.com.br/app';
+    $ctx = ['ip' => cddIpCliente(), 'base' => $base, 'seed' => __DIR__ . '/dados/seed-conteudo.json'];
 
     [$status, $dados] = cddTratar(cddDB(), $metodo, $acao, $_GET, $corpo, $token, $ctx);
     http_response_code($status);
