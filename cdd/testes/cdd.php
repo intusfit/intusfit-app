@@ -778,6 +778,10 @@ eq('reembolso pelo webhook novo suspende e marca o pagamento', $d['resultado'] =
 [$s, $d] = $reqV3(['id' => 'x', 'event' => 'myeduzz.invoice_paid', 'data' => ['id' => '5560', 'buyer' => ['name' => 'Fulana', 'email' => 'fulana@exemplo.com'], 'price' => ['value' => 49], 'items' => [['productId' => '2938605']]]]);
 eq('produto que não é do CDD (outro produto da conta) é só registrado', $d['resultado'] === 'produto_desconhecido' && (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = 'fulana@exemplo.com'")->fetchColumn() === 0);
 
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_paid', ['data' => ['id' => '5570', 'buyer' => ['name' => 'Carla', 'email' => 'carla@exemplo.com'], 'price' => ['value' => 119], 'items' => [['productId' => '2411829']]]]));
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_chargeback', ['data' => ['id' => '5570', 'buyer' => ['email' => 'carla@exemplo.com'], 'items' => [['productId' => '2411829']]]]));
+eq('chargeback suspende o acesso como o reembolso', $d['resultado'] === 'suspensa_por_reembolso', json_encode($d));
+
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
 eq('o CDD não inclui nenhum arquivo PHP da Intus (só lê as constantes do banco)', preg_match_all('~(?:require|include)(?:_once)?\s*\(?\s*__DIR__\s*\.\s*\'([^\']+)\'~', $fonte, $mm) && count(array_filter($mm[1], function ($p) { return strpos($p, 'app/api') !== false; })) === 0);
