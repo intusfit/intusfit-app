@@ -7,7 +7,8 @@
 <meta name="description" content="<?= s($c['seo']['description']) ?>">
 <!-- Favicon -->
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/marca/icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/marca/icons/apple-touch-icon.png">
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="<?= $baseUrl ?>/">
