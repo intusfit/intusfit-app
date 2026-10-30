@@ -249,6 +249,7 @@ troca_funcao('salvarDrive', r"""async function salvarDrive(blob, nome, d){
     BLOBS[up.url] = Promise.resolve(URL.createObjectURL(blob));
     await guardaNaBib({ tipo:'video', nome:'Exportado · ' + nome.replace(/\.[^.]+$/, ''), url:up.url, dur:d, w:W, h:H, exportado:true });
     if (P){ P.exportado = { url:up.url, em:new Date().toISOString() }; salvar(); }
+    if (P && window.cutAutoPronto) cutAutoPronto(P.id);
     dialogo('Salvo no Drive da Intus', 'O vídeo está guardado no Google Drive da Intus e na Biblioteca, em Vídeos (com a etiqueta "exportado"), para baixar de qualquer aparelho.', [['Ok', fecha]]);
   } catch (e){ if (e && e.code === 'sem_acesso') return; dialogo('Não salvou no Drive', (e && e.message) || 'Tente de novo.', [['Ok', fecha]]); }
 }
@@ -275,7 +276,7 @@ troca_funcao('pastaDrive', "")
 m = re.search(r'^function carregarLocais\(\)', js, re.M)
 js = js[:m.start()] + r"""function pronto(){
   nomesSelect(); var ids = Object.keys(projetos);
-  if (!ids.length){ var v = $('vazio'); v.hidden = false; v.innerHTML = ''; v.appendChild(el('div', 'grupo', [el('b', null, 'Nenhum projeto ainda.'), el('div', 'linha', [botao('Novo com vídeo', function(){ $('b-novo').click(); }), botao('Trazer os cortes da entrevista na RIC', importarModelo)])])); estado('Sem projetos'); return; }
+  if (!ids.length){ var v = $('vazio'); v.hidden = false; v.innerHTML = ''; v.appendChild(el('div', 'grupo', [el('b', null, 'Nenhum projeto ainda.'), el('div', 'linha', [botao('Novo com vídeo', function(){ $('b-novo').click(); }), botao('Trazer os cortes da entrevista na RIC', importarModelo)]), el('p', 'nota-ajuda', 'Os projetos que você editou na versão antiga do Intus Cut (a página do claude.ai) não vêm sozinhos: use "Trazer os cortes da entrevista na RIC" no computador, com o vídeo da entrevista, e eles voltam com as suas edições.'), el('div', 'linha', [botao('🎬 Meus vídeos', abrirPainelVideos)])])); estado('Sem projetos'); return; }
   var ult = null; try { ult = localStorage.getItem('intuscut-ultimo'); } catch (e) {}
   if (!P) abrir(projetos[ult] ? ult : $('sel-proj').value || ids[0]);
 }

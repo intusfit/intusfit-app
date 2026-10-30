@@ -91,6 +91,7 @@ try {
         $id = (string)($corpo()['id'] ?? '');
         _cutResp(cut_excluir($pdo, $id) ? 200 : 404, ['ok' => true]);
     }
+    if ($action === 'status') { $r = cut_status($pdo, $corpo(), $ctx); _cutResp($r['ok'] ? 200 : 400, $r); }
     if ($action === 'bib_salvar') { $r = cut_bib_salvar($pdo, $corpo()['item'] ?? null, $ctx); _cutResp($r['ok'] ? 200 : 400, $r); }
     if ($action === 'bib_excluir') {
         $b = $corpo(); $tirado = cut_bib_excluir($pdo, (string)($b['id'] ?? ''));

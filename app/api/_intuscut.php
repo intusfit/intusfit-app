@@ -123,11 +123,48 @@ function cut_salvar(PDO $pdo, $projeto, array $ctx): array {
     cut_gravar($pdo, 'cut_p_' . $id, $json);
     $idx = cut_ler($pdo, 'cut_index', []);
     $antes = $idx[$id] ?? [];
-    $idx[$id] = ['nome' => $projeto['nome'], 'formato' => cut_texto($projeto['formato'] ?? 'reel', 20), 'atualizado_em' => $agora,
+    $idx[$id] = cut_status_campos($antes) + ['nome' => $projeto['nome'], 'formato' => cut_texto($projeto['formato'] ?? 'reel', 20), 'atualizado_em' => $agora,
                  'criado_por' => $antes['criado_por'] ?? (int)($ctx['idusuario'] ?? 0), 'por' => (int)($ctx['idusuario'] ?? 0), 'por_nome' => cut_texto($ctx['nmusuario'] ?? '', 80),
                  'ia' => !empty($projeto['ia']) ? cut_texto($projeto['ia']['status'] ?? '', 20) : ''];
     cut_gravar($pdo, 'cut_index', $idx);
     return ['ok' => true, 'atualizado_em' => $agora];
+}
+
+// ---------- painel de vídeos: situação de cada projeto (fica no índice, não no projeto) ----------
+const CUT_STATUS = ['editando', 'pronto', 'agendado', 'postado', 'arquivado'];
+const CUT_REDES = ['instagram', 'tiktok', 'youtube', 'facebook', 'whatsapp', 'outro'];
+/** Só os campos de situação de uma entrada do índice (para não se perderem quando o projeto é salvo de novo). */
+function cut_status_campos(array $e): array {
+    $out = [];
+    foreach (['status', 'agendado_para', 'postado_em', 'redes', 'link', 'obs', 'status_em', 'status_por'] as $k) if (array_key_exists($k, $e)) $out[$k] = $e[$k];
+    return $out;
+}
+function cut_data_ok($v): string { $v = trim((string)$v); return preg_match('/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/', $v) ? $v : ''; }
+/**
+ * Muda a situação de um projeto: editando, pronto, agendado (com data), postado (data, redes, link) ou arquivado.
+ * Devolve ['ok' => true, 'item' => entrada do índice] ou ['ok' => false, 'erro' => ...].
+ */
+function cut_status(PDO $pdo, $d, array $ctx): array {
+    if (!is_array($d)) return ['ok' => false, 'erro' => 'pedido inválido'];
+    $id = (string)($d['id'] ?? '');
+    $idx = cut_ler($pdo, 'cut_index', []);
+    if (!cut_id_valido($id) || !isset($idx[$id]) || !is_array($idx[$id])) return ['ok' => false, 'erro' => 'projeto não encontrado'];
+    $st = (string)($d['status'] ?? '');
+    if (!in_array($st, CUT_STATUS, true)) return ['ok' => false, 'erro' => 'situação inválida'];
+    $e = $idx[$id];
+    $e['status'] = $st;
+    if (array_key_exists('agendado_para', $d)) $e['agendado_para'] = cut_data_ok($d['agendado_para']);
+    if (array_key_exists('postado_em', $d)) $e['postado_em'] = cut_data_ok($d['postado_em']);
+    if (array_key_exists('redes', $d)) $e['redes'] = array_values(array_unique(array_filter((array)$d['redes'], fn($r) => in_array($r, CUT_REDES, true))));
+    if (array_key_exists('link', $d)) { $l = trim((string)$d['link']); $e['link'] = preg_match('#^https://[^\s<>"]{3,500}$#', $l) ? $l : ''; }
+    if (array_key_exists('obs', $d)) $e['obs'] = cut_texto($d['obs'], 300);
+    if ($st === 'agendado' && empty($e['agendado_para'])) return ['ok' => false, 'erro' => 'informe a data do agendamento'];
+    if ($st === 'postado' && empty($e['postado_em'])) $e['postado_em'] = gmdate('Y-m-d');
+    $e['status_em'] = gmdate('Y-m-d\TH:i:s\Z');
+    $e['status_por'] = cut_texto($ctx['nmusuario'] ?? '', 80);
+    $idx[$id] = $e;
+    cut_gravar($pdo, 'cut_index', $idx);
+    return ['ok' => true, 'item' => ['id' => $id] + $e];
 }
 
 /** Toda url/video/voz/musica/partes dentro do projeto (e das fontes) precisa ser deste site. */

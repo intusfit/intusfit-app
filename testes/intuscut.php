@@ -72,6 +72,23 @@ eq('link externo', cut_bib_salvar($pdo, ['tipo' => 'foto', 'url' => 'https://x/a
 eq('tira', cut_bib_excluir($pdo, $r['item']['id'])['nome'] ?? null, 'React');
 eq('biblioteca vazia', count(cut_bib($pdo)), 0);
 
+echo "\n══ Painel de vídeos: situação ══\n";
+cut_salvar($pdo, $p, $prof);
+eq('situação inválida recusada', cut_status($pdo, ['id' => $p['id'], 'status' => 'xyz'], $adm)['ok'], false);
+eq('projeto que não existe recusado', cut_status($pdo, ['id' => 'nao-existe', 'status' => 'pronto'], $adm)['ok'], false);
+eq('agendado sem data recusado', cut_status($pdo, ['id' => $p['id'], 'status' => 'agendado'], $adm)['ok'], false);
+$r = cut_status($pdo, ['id' => $p['id'], 'status' => 'postado', 'redes' => ['instagram', 'orkut'], 'link' => 'https://instagram.com/p/abc', 'postado_em' => '2026-10-30'], $adm);
+eq('marca como postado', $r['ok'], true);
+eq('rede desconhecida descartada', $r['item']['redes'] ?? null, ['instagram']);
+eq('link http recusado vira vazio', cut_status($pdo, ['id' => $p['id'], 'status' => 'postado', 'link' => 'javascript:alert(1)'], $adm)['item']['link'] ?? null, '');
+cut_status($pdo, ['id' => $p['id'], 'status' => 'postado', 'link' => 'https://instagram.com/p/abc'], $adm);
+$p3 = $p; $p3['nome'] = 'Editado de novo'; cut_salvar($pdo, $p3, $prof);
+$l = cut_lista($pdo)[0];
+eq('salvar o projeto não apaga a situação', $l['status'] ?? null, 'postado');
+eq('salvar o projeto não apaga o link', $l['link'] ?? null, 'https://instagram.com/p/abc');
+eq('nome atualizado', $l['nome'] ?? null, 'Editado de novo');
+cut_excluir($pdo, $p['id']);
+
 echo "\n══ Envio de vídeo ══\n";
 eq('mp4 do celular', cut_validar_envio(['mime' => 'video/mp4', 'tamanho' => 5e8, 'duracao' => 60])[0] ?? null, 'video/mp4');
 eq('gravação webm com codecs', cut_validar_envio(['mime' => 'video/webm;codecs=vp9,opus', 'tamanho' => 1000])[0] ?? null, 'video/webm');
@@ -113,6 +130,7 @@ eq('limite do dia', cut_ia($pdo, 'x', $http)['ok'], false);
 
 echo "\n══ O endpoint confere o login em toda ação ══\n";
 $src = file_get_contents(__DIR__ . '/../app/api/intuscut.php');
+eq('endpoint tem a rota de situação', strpos($src, "'status'") !== false && strpos($src, 'cut_status(') !== false, true);
 eq('usa o contexto de login do painel', strpos($src, 'getAuthContext') !== false, true);
 eq('recusa sem acesso ao Intus Cut', strpos($src, 'cut_pode(') !== false, true);
 $posPode = strpos($src, 'cut_pode('); $posAcao = strpos($src, "'inicio'");

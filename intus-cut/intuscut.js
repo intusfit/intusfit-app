@@ -1570,6 +1570,7 @@ async function salvarDrive(blob, nome, d){
     BLOBS[up.url] = Promise.resolve(URL.createObjectURL(blob));
     await guardaNaBib({ tipo:'video', nome:'Exportado · ' + nome.replace(/\.[^.]+$/, ''), url:up.url, dur:d, w:W, h:H, exportado:true });
     if (P){ P.exportado = { url:up.url, em:new Date().toISOString() }; salvar(); }
+    if (P && window.cutAutoPronto) cutAutoPronto(P.id);
     dialogo('Salvo no Drive da Intus', 'O vídeo está guardado no Google Drive da Intus e na Biblioteca, em Vídeos (com a etiqueta "exportado"), para baixar de qualquer aparelho.', [['Ok', fecha]]);
   } catch (e){ if (e && e.code === 'sem_acesso') return; dialogo('Não salvou no Drive', (e && e.message) || 'Tente de novo.', [['Ok', fecha]]); }
 }
@@ -1687,9 +1688,100 @@ $('b-mais').onclick = function(){
   var sf = $('sel-formato'), s2 = sel([].map.call(sf.options, function(o){ return [o.value, o.textContent]; }), sf.value);
   s2.onchange = function(){ sf.value = s2.value; sf.onchange(); fecha(); };
   function item(rot, id){ var x = botao(rot, function(){ fecha(); $(id).click(); }); x.style.justifyContent = 'flex-start'; return x; }
-  var lista = el('div', 'mais-lista', [campo('Formato do vídeo', s2), item('● Gravar react ou explicação', 'b-rec'), item('＋ Nova edição com um vídeo seu', 'b-novo'), item('Duplicar este projeto', 'b-dup'), item('Baixar o quadro atual (PNG)', 'b-capa')]);
+  var lista = el('div', 'mais-lista', [campo('Formato do vídeo', s2), item('● Gravar react ou explicação', 'b-rec'), item('＋ Nova edição com um vídeo seu', 'b-novo'), item('Duplicar este projeto', 'b-dup'), item('Baixar o quadro atual (PNG)', 'b-capa'), item('🎬 Meus vídeos (painel)', 'b-videos')]);
   dialogo('Mais opções', $('estado').textContent, [['Fechar', fecha]], lista);
 };
+
+// ---------- Painel de vídeos: em edição, prontos, agendados, postados e arquivados ----------
+// A situação fica no índice do servidor (action=status), então todo aparelho vê a mesma coisa.
+var PV = { lista:[], filtro:'ativos', busca:'' };
+var PV_ST = [['editando', 'Em edição', '✏️'], ['pronto', 'Pronto para postar', '✅'], ['agendado', 'Agendado', '📅'], ['postado', 'Postado', '🚀'], ['arquivado', 'Arquivado', '🗄️']];
+var PV_REDES = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['facebook', 'Facebook'], ['whatsapp', 'WhatsApp'], ['outro', 'Outro']];
+function pvSt(x){ return x.status || 'editando'; }
+function pvData(v){ if (!v) return ''; var m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(v); if (!m) return ''; return m[3] + '/' + m[2] + (m[4] && v.length <= 16 ? ' ' + m[4] + ':' + m[5] : ''); }
+function pvQuando(iso){ if (!iso) return ''; var d = new Date(iso); if (isNaN(d)) return ''; return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }); }
+async function abrirPainelVideos(){
+  var ov = $('pv'); if (!ov){ ov = el('div', 'pv'); ov.id = 'pv'; document.body.appendChild(ov); }
+  ov.hidden = false; ov.innerHTML = ''; ov.appendChild(el('div', 'pv-topo', [el('b', null, '🎬 Meus vídeos'), el('span', 'nota-ajuda', 'Carregando...')]));
+  try { var r = await api('inicio'); PV.lista = r.projetos || []; (r.projetos || []).forEach(function(p){ if (!projetos[p.id]) projetos[p.id] = { id:p.id, nome:p.nome, formato:p.formato, atualizado_em:p.atualizado_em, _parcial:true }; }); nomesSelect(); }
+  catch (e){ if (e && e.code === 'sem_acesso') return; ov.innerHTML = ''; ov.appendChild(el('div', 'pv-topo', [el('b', null, '🎬 Meus vídeos'), botao('Fechar', fechaPainelVideos)])); ov.appendChild(el('p', 'nota-ajuda', 'Não consegui ler a lista. Confira a internet.')); return; }
+  pintaPainelVideos();
+}
+function fechaPainelVideos(){ var ov = $('pv'); if (ov) ov.hidden = true; }
+function pintaPainelVideos(){
+  var ov = $('pv'); if (!ov) return; ov.innerHTML = '';
+  var conta = {}; PV_ST.forEach(function(s){ conta[s[0]] = 0; }); PV.lista.forEach(function(x){ conta[pvSt(x)] = (conta[pvSt(x)] || 0) + 1; });
+  var busca = el('input'); busca.type = 'search'; busca.placeholder = 'Buscar pelo nome'; busca.value = PV.busca; busca.oninput = function(){ PV.busca = busca.value; pintaLista(); };
+  var novo = botao('＋ Nova edição', function(){ fechaPainelVideos(); $('b-novo').click(); }); novo.className = 'btn pri';
+  ov.appendChild(el('div', 'pv-topo', [el('b', null, '🎬 Meus vídeos'), el('span', 'pv-esp'), novo, botao('✕ Fechar', fechaPainelVideos, 'Fechar o painel de vídeos')]));
+  var cards = el('div', 'pv-num');
+  [['ativos', 'Todos ativos', PV.lista.length - conta.arquivado, '🎞️']].concat(PV_ST.map(function(s){ return [s[0], s[1], conta[s[0]], s[2]]; })).forEach(function(c){
+    var b = el('button', 'pv-n' + (PV.filtro === c[0] ? ' on' : ''), [el('span', 'pv-ic', c[3]), el('b', null, String(c[2])), el('span', null, c[1])]); b.type = 'button';
+    b.onclick = function(){ PV.filtro = c[0]; pintaPainelVideos(); }; cards.appendChild(b); });
+  ov.appendChild(cards); ov.appendChild(busca);
+  var corpo = el('div', 'pv-corpo'); ov.appendChild(corpo);
+  function pintaLista(){
+    corpo.innerHTML = ''; var q = PV.busca.trim().toLowerCase();
+    var itens = PV.lista.filter(function(x){ var st = pvSt(x); return (PV.filtro === 'ativos' ? st !== 'arquivado' : st === PV.filtro) && (!q || String(x.nome || '').toLowerCase().indexOf(q) >= 0); });
+    if (!itens.length){ corpo.appendChild(el('p', 'nota-ajuda', PV.lista.length ? 'Nada nesta situação.' : 'Nenhum vídeo ainda. Comece em "＋ Nova edição".')); return; }
+    var grupos = PV.filtro === 'ativos' ? PV_ST.filter(function(s){ return s[0] !== 'arquivado'; }) : PV_ST.filter(function(s){ return s[0] === PV.filtro; });
+    grupos.forEach(function(g){
+      var dela = itens.filter(function(x){ return pvSt(x) === g[0]; });
+      if (g[0] === 'agendado') dela.sort(function(a, b){ return String(a.agendado_para || '').localeCompare(String(b.agendado_para || '')); });
+      else if (g[0] === 'postado') dela.sort(function(a, b){ return String(b.postado_em || '').localeCompare(String(a.postado_em || '')); });
+      var col = el('section', 'pv-col', [el('h3', null, g[2] + ' ' + g[1] + ' · ' + dela.length)]);
+      if (!dela.length) col.appendChild(el('p', 'nota-ajuda', 'Nenhum.'));
+      dela.forEach(function(x){ col.appendChild(cartaoVideo(x)); }); corpo.appendChild(col); });
+  }
+  pintaLista();
+}
+function cartaoVideo(x){
+  var st = pvSt(x), meta = [(FORMATOS[x.formato] ? FORMATOS[x.formato].n : 'Reel'), 'editado ' + pvQuando(x.atualizado_em) + (x.por_nome ? ' por ' + x.por_nome.split(' ')[0] : '')];
+  var info = [];
+  if (st === 'agendado' && x.agendado_para) info.push('📅 ' + pvData(x.agendado_para));
+  if (st === 'postado' && x.postado_em) info.push('🚀 ' + pvData(x.postado_em));
+  if (x.redes && x.redes.length) info.push(x.redes.map(function(r){ var n = PV_REDES.filter(function(q){ return q[0] === r; })[0]; return n ? n[1] : r; }).join(', '));
+  if (x.ia) info.push('IA: ' + x.ia);
+  var s = sel(PV_ST.map(function(q){ return [q[0], q[2] + ' ' + q[1]]; }), st); s.setAttribute('aria-label', 'Situação de ' + (x.nome || 'vídeo'));
+  s.onchange = function(){ var v = s.value; if (v === 'agendado' || v === 'postado') detalhesVideo(x, v); else mudaStatusVideo(x, { status:v }); };
+  var abrirB = botao('Abrir', function(){ fechaPainelVideos(); abrir(x.id); }); abrirB.className = 'btn pri peq';
+  var kids = [el('b', 'pv-nome', x.nome || x.id), el('span', 'nota-ajuda', meta.join(' · '))];
+  if (info.length) kids.push(el('span', 'pv-info', info.join(' · ')));
+  if (x.obs) kids.push(el('span', 'nota-ajuda', '📝 ' + x.obs));
+  var acoes = el('div', 'linha', [abrirB, s, botao('Detalhes', function(){ detalhesVideo(x, st); })]);
+  if (x.link){ var a = el('a', 'btn peq', '🔗 Ver post'); a.href = x.link; a.target = '_blank'; a.rel = 'noopener'; acoes.appendChild(a); }
+  kids.push(acoes);
+  return el('div', 'pv-card st-' + st, kids);
+}
+function detalhesVideo(x, st){
+  var cx = el('div', 'grupo'), stSel = sel(PV_ST.map(function(q){ return [q[0], q[2] + ' ' + q[1]]; }), st);
+  var ag = el('input'); ag.type = 'datetime-local'; ag.value = (x.agendado_para || '').slice(0, 16);
+  var po = el('input'); po.type = 'date'; po.value = (x.postado_em || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  var lk = el('input'); lk.type = 'url'; lk.placeholder = 'https://instagram.com/p/...'; lk.value = x.link || '';
+  var ob = el('textarea'); ob.rows = 2; ob.maxLength = 300; ob.value = x.obs || ''; ob.placeholder = 'Legenda usada, ideia de repostar, etc.';
+  var redes = el('div', 'linha'), marc = {}; PV_REDES.forEach(function(r){ var c = el('input'); c.type = 'checkbox'; c.checked = (x.redes || []).indexOf(r[0]) >= 0; marc[r[0]] = c; redes.appendChild(el('label', 'chk', [c, ' ' + r[1]])); });
+  var cAg = campo('Data e hora do agendamento', ag), cPo = campo('Data da postagem', po);
+  function mostra(){ cAg.hidden = stSel.value !== 'agendado'; cPo.hidden = stSel.value !== 'postado'; }
+  stSel.onchange = mostra; mostra();
+  [campo('Situação', stSel), cAg, cPo, el('div', 'campo', [el('span', null, 'Onde vai ou foi postado'), redes]), campo('Link do post (opcional)', lk), campo('Anotação (opcional)', ob)].forEach(function(n){ cx.appendChild(n); });
+  dialogo(x.nome || 'Vídeo', '', [['Cancelar', function(){ fecha(); pintaPainelVideos(); }], ['Salvar', async function(){
+    var d = { status:stSel.value, link:lk.value.trim(), obs:ob.value, redes:PV_REDES.map(function(r){ return r[0]; }).filter(function(r){ return marc[r].checked; }) };
+    if (d.link && !/^https:\/\//.test(d.link)){ alert('O link precisa começar com https://'); return; }
+    if (d.status === 'agendado'){ if (!ag.value){ alert('Escolha a data do agendamento.'); return; } d.agendado_para = ag.value; }
+    if (d.status === 'postado') d.postado_em = po.value;
+    if (await mudaStatusVideo(x, d)) fecha();
+  }]], cx);
+}
+async function mudaStatusVideo(x, d){
+  d.id = x.id;
+  try { var r = await api('status', d); var i = PV.lista.findIndex(function(q){ return q.id === x.id; }); if (i >= 0) PV.lista[i] = Object.assign({}, PV.lista[i], r.item); estado('Situação salva', 'ok'); pintaPainelVideos(); return true; }
+  catch (e){ if (e && e.code === 'sem_acesso') return false; alert((e && e.message) || 'Não consegui salvar a situação.'); pintaPainelVideos(); return false; }
+}
+// Ao salvar a exportação no Drive, o vídeo que estava em edição passa a "Pronto para postar".
+window.cutAutoPronto = function(id){
+  api('inicio').then(function(r){ var x = (r.projetos || []).filter(function(q){ return q.id === id; })[0]; if (x && pvSt(x) === 'editando') return api('status', { id:id, status:'pronto' }); }).catch(function(){});
+};
+$('b-videos').onclick = abrirPainelVideos;
 
 // ---------- sobreposições de vídeo (react, comparativo, janela no canto) ----------
 // Cada camada toca um vídeo (de P.fontes) por cima do vídeo principal, num retângulo ou bolha,
@@ -1953,7 +2045,7 @@ document.addEventListener('keydown', function(e){
 // ---------- carregar ----------
 function pronto(){
   nomesSelect(); var ids = Object.keys(projetos);
-  if (!ids.length){ var v = $('vazio'); v.hidden = false; v.innerHTML = ''; v.appendChild(el('div', 'grupo', [el('b', null, 'Nenhum projeto ainda.'), el('div', 'linha', [botao('Novo com vídeo', function(){ $('b-novo').click(); }), botao('Trazer os cortes da entrevista na RIC', importarModelo)])])); estado('Sem projetos'); return; }
+  if (!ids.length){ var v = $('vazio'); v.hidden = false; v.innerHTML = ''; v.appendChild(el('div', 'grupo', [el('b', null, 'Nenhum projeto ainda.'), el('div', 'linha', [botao('Novo com vídeo', function(){ $('b-novo').click(); }), botao('Trazer os cortes da entrevista na RIC', importarModelo)]), el('p', 'nota-ajuda', 'Os projetos que você editou na versão antiga do Intus Cut (a página do claude.ai) não vêm sozinhos: use "Trazer os cortes da entrevista na RIC" no computador, com o vídeo da entrevista, e eles voltam com as suas edições.'), el('div', 'linha', [botao('🎬 Meus vídeos', abrirPainelVideos)])])); estado('Sem projetos'); return; }
   var ult = null; try { ult = localStorage.getItem('intuscut-ultimo'); } catch (e) {}
   if (!P) abrir(projetos[ult] ? ult : $('sel-proj').value || ids[0]);
 }
