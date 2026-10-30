@@ -816,6 +816,47 @@ eq('conta de equipe bloqueada no CDD não entra pelo bilhete', $s === 403 && $d[
 [$s, $d] = req('sso', 'POST', [], ['bilhete' => 'lixo'], '', '10.8.8.10');
 eq('lixo no lugar do bilhete é recusado', $s === 401);
 
+echo "\nLeads: captura, funil e venda que marca ganho\n";
+$leadOk = ['nome' => 'Helena Prado', 'email' => 'Helena.Prado@Exemplo.com', 'whatsapp' => '(45) 99811-2233', 'objetivo' => 'Definir o abdômen', 'aceite' => true, 'origem' => 'captura', 'utm_source' => 'instagram', 'utm_campaign' => 'cdd-out'];
+[$s, $d] = req('lead', 'POST', [], $leadOk, '', '10.7.7.1');
+eq('lead válido é gravado e devolve o link do WhatsApp com [CDD]', $s === 200 && $d['ok'] === true && strpos($d['zap'], 'wa.me/5545991156006') !== false && strpos(urldecode($d['zap']), '[CDD]') !== false, json_encode($d));
+$l = $pdo->query("SELECT * FROM cdd_lead WHERE email = 'helena.prado@exemplo.com'")->fetch();
+eq('e-mail em minúsculas, WhatsApp só com dígitos e 55, status novo, origem e utm guardados', $l && $l['whatsapp'] === '5545998112233' && $l['status'] === 'novo' && $l['origem'] === 'captura' && $l['utm_source'] === 'instagram' && $l['optin_em'] !== null);
+[$s, $d] = req('lead', 'POST', [], array_merge($leadOk, ['nome' => 'Helena P.', 'objetivo' => '']), '', '10.7.7.2');
+eq('o mesmo e-mail não duplica (atualiza o lead)', $s === 200 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_lead WHERE email = 'helena.prado@exemplo.com'")->fetchColumn() === 1);
+eq('campo vazio não apaga o que já estava preenchido', $pdo->query("SELECT objetivo FROM cdd_lead WHERE email = 'helena.prado@exemplo.com'")->fetchColumn() === 'Definir o abdômen');
+[$s, $d] = req('lead', 'POST', [], array_merge($leadOk, ['email' => '', 'nome' => 'Helena de novo']), '', '10.7.7.3');
+eq('o mesmo WhatsApp com outro e-mail não duplica nem troca o e-mail que já estava', (int)$pdo->query("SELECT COUNT(*) FROM cdd_lead WHERE whatsapp = '5545998112233'")->fetchColumn() === 1);
+[$s, $d] = req('lead', 'POST', [], array_merge($leadOk, ['aceite' => false, 'email' => 'x1@exemplo.com']), '', '10.7.7.4');
+eq('sem o aceite de contato não grava', $s === 422 && $d['error'] === 'aceite_obrigatorio' && (int)$pdo->query("SELECT COUNT(*) FROM cdd_lead WHERE email = 'x1@exemplo.com'")->fetchColumn() === 0);
+[$s, $d] = req('lead', 'POST', [], ['nome' => 'Sem contato', 'aceite' => true], '', '10.7.7.5');
+eq('sem WhatsApp nem e-mail não grava', $s === 422 && $d['error'] === 'contato_obrigatorio');
+[$s, $d] = req('lead', 'POST', [], ['nome' => 'A', 'email' => 'a@exemplo.com', 'aceite' => true], '', '10.7.7.6');
+eq('nome curto demais não grava', $s === 422);
+[$s, $d] = req('lead', 'POST', [], ['nome' => 'Telefone Ruim', 'whatsapp' => '12345', 'aceite' => true], '', '10.7.7.7');
+eq('telefone que não parece telefone é recusado quando é o único contato', $s === 422);
+[$s, $d] = req('lead', 'POST', [], array_merge($leadOk, ['site' => 'http://spam', 'email' => 'robo@exemplo.com']), '', '10.7.7.8');
+eq('robô que preenche o campo-isca recebe sucesso e nada é gravado', $s === 200 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_lead WHERE email = 'robo@exemplo.com'")->fetchColumn() === 0);
+$limite = 0; for ($i = 0; $i < 12; $i++) { [$s] = req('lead', 'POST', [], array_merge($leadOk, ['email' => 'rajada' . $i . '@exemplo.com']), '', '10.7.7.99'); if ($s === 429) $limite++; }
+eq('rajada do mesmo IP é limitada (429)', $limite > 0);
+[$s, $d] = req('a_leads', 'GET', [], [], $tAna);
+eq('aluna não vê os leads (403)', $s === 403);
+[$s, $d] = req('a_leads', 'GET', [], [], $tAdmin);
+eq('admin vê os leads, com a contagem do funil e o link do WhatsApp', $s === 200 && $d['contagem']['novo'] >= 1 && count($d['leads']) >= 1 && strpos($d['leads'][count($d['leads']) - 1]['zap'], 'wa.me/') !== false, json_encode($d['contagem']));
+$idHelena = (int)$pdo->query("SELECT idlead FROM cdd_lead WHERE whatsapp = '5545998112233'")->fetchColumn();
+[$s, $d] = req('a_lead_atualizar', 'POST', [], ['idlead' => $idHelena, 'status' => 'contatado', 'obs' => 'Falei pelo WhatsApp'], $tAdmin);
+eq('equipe marca como contatado e anota; o horário do contato fica gravado', $s === 200 && $pdo->query("SELECT status FROM cdd_lead WHERE idlead = $idHelena")->fetchColumn() === 'contatado' && $pdo->query("SELECT contato_em FROM cdd_lead WHERE idlead = $idHelena")->fetchColumn() !== null, $s . ' ' . json_encode($d));
+[$s, $d] = req('a_lead_atualizar', 'POST', [], ['idlead' => $idHelena, 'status' => 'inventado'], $tAdmin);
+eq('situação inventada é recusada', $s === 422);
+[$s, $d] = req('a_leads', 'GET', ['status' => 'contatado'], [], $tAdmin);
+eq('o filtro por situação funciona', count($d['leads']) === 1 && $d['leads'][0]['status'] === 'contatado');
+// a Helena compra o mensal: o lead vira ganho sozinho
+[$s, $d] = $reqV3($fatura3('myeduzz.invoice_paid', ['data' => ['id' => '6001', 'buyer' => ['name' => 'Helena Prado', 'email' => 'helena.prado@exemplo.com'], 'price' => ['value' => 119], 'items' => [['productId' => '2411829']]]]));
+eq('venda paga com o e-mail do lead marca o lead como ganho e liga à aluna', $pdo->query("SELECT status FROM cdd_lead WHERE idlead = $idHelena")->fetchColumn() === 'ganho' && (int)$pdo->query("SELECT idaluna FROM cdd_lead WHERE idlead = $idHelena")->fetchColumn() > 0);
+[$s, $d] = req('a_com_pendentes', 'GET', [], [], $tAdmin);
+$pend = array_column($d['pendentes'] ?? [], 'email');
+eq('quem foi liberada e ainda não criou a senha aparece na lista de pendentes', $s === 200 && in_array('helena.prado@exemplo.com', $pend, true));
+
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
 eq('o CDD não inclui nenhum arquivo PHP da Intus (só lê as constantes do banco)', preg_match_all('~(?:require|include)(?:_once)?\s*\(?\s*__DIR__\s*\.\s*\'([^\']+)\'~', $fonte, $mm) && count(array_filter($mm[1], function ($p) { return strpos($p, 'app/api') !== false; })) === 0);

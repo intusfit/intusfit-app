@@ -14,12 +14,13 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 6;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos)
+const CDD_ESQUEMA = 7;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads
 require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
 require_once __DIR__ . '/_bemestar.php';
 require_once __DIR__ . '/_comercial.php';
 require_once __DIR__ . '/_sso.php';
+require_once __DIR__ . '/_leads.php';
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -267,7 +268,7 @@ function cddDdl(): array {
             status VARCHAR(10) NOT NULL,
             PRIMARY KEY (idaluna, data, refeicao)
         ) $c",
-    ] + cddComercialDdl($c);
+    ] + cddComercialDdl($c) + cddLeadsDdl($c);
 }
 
 function cddGarantirTabelas(PDO $pdo): void {
@@ -772,6 +773,7 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     $get = ($metodo === 'GET');
 
     /* ---- públicas ---- */
+    if ($acao === 'lead' && !$get) return cddLeadReceber($pdo, $b, $ip);
     if ($acao === 'sso' && !$get) return cddSsoEntrar($pdo, cddStr($b['bilhete'] ?? '', 900), $ip);
     if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz3', 20), $b, $base, $ctx);
 
@@ -950,6 +952,8 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
     $get = ($metodo === 'GET');
     $base = $ctx['base'] ?? '';
 
+    $ld = cddLeadsAdmin($pdo, $metodo, $acao, $q, $b);
+    if ($ld !== null) return $ld;
     $com = cddComercialAdmin($pdo, $metodo, $acao, $q, $b, $ctx);
     if ($com !== null) return $com;
 

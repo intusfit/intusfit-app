@@ -65,7 +65,7 @@
     ['pos-pascoa', 'Desafio Pós Páscoa'], ['21-dias-verao', '21 Dias para o Verão'], ['desafio-carnaval', 'Desafio de Carnaval'], ['ceia-de-natal', 'Ceia de Natal 21 dias'], ['bbb-2024', 'BBB 2024']];
 
   /* ---------- esqueleto ---------- */
-  var ABAS = [['resumo', '📊', 'Resumo'], ['alunas', '👩', 'Alunas'], ['vendas', '💰', 'Vendas'], ['conteudo', '🎬', 'Conteúdo'], ['exercicios', '🏋️', 'Exercícios'], ['comentarios', '💬', 'Comentários'], ['anamneses', '📝', 'Anamneses'], ['conta', '⚙️', 'Ajustes']];
+  var ABAS = [['resumo', '📊', 'Resumo'], ['alunas', '👩', 'Alunas'], ['vendas', '💰', 'Vendas'], ['leads', '🎯', 'Leads'], ['atendimento', '💬', 'Atendimento'], ['conteudo', '🎬', 'Conteúdo'], ['exercicios', '🏋️', 'Exercícios'], ['comentarios', '💬', 'Comentários'], ['anamneses', '📝', 'Anamneses'], ['conta', '⚙️', 'Ajustes']];
   function esqueleto() {
     var atual = ABAS.filter(function (x) { return x[0] === aba; })[0];
     $app.innerHTML = '<div class="pn"><aside class="pn-menu" id="menu"><div class="logo-caixa"><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt="CDD"><img class="logo-claro" src="marca/logo-cdd-preta.png" alt="CDD"></div><div class="sub">Painel da equipe</div>' +
@@ -79,7 +79,7 @@
     $app.querySelectorAll('[data-tema-btn]').forEach(function (b) { b.onclick = function () { CDD.alternarTema(); }; });
     CDD.aplicarMeta();
   }
-  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, vendas: abaVendas, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, anamneses: abaAnamneses, conta: abaConta })[aba](); window.scrollTo(0, 0); }
+  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, vendas: abaVendas, leads: abaLeads, atendimento: abaAtendimento, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, anamneses: abaAnamneses, conta: abaConta })[aba](); window.scrollTo(0, 0); }
 
   /* ---------- resumo ---------- */
   async function abaResumo() {
@@ -183,6 +183,67 @@
         if (!x.ok) { m.querySelector('#c-msg').innerHTML = msg(x.data.mensagem); return; } m.fechar(); abaVendas();
       };
     });
+  }
+
+  /* ---------- leads e atendimento ---------- */
+  var LEAD_ST = { novo: ['novo', 'aviso'], contatado: ['contatado', ''], negociando: ['negociando', ''], ganho: ['ganho', 'ok'], perdido: ['perdido', 'erro'] };
+  var MODELOS = [
+    ['Primeiro contato', '[CDD] Oi, {nome}! Aqui é a equipe do Código da Definição. Vi que você pediu informações sobre o programa. Posso te explicar como funciona?'],
+    ['Retomada', '[CDD] Oi, {nome}! Passando para saber se ficou alguma dúvida sobre o Código da Definição. Posso te ajudar a escolher o plano?'],
+    ['Link de compra (anual)', '[CDD] {nome}, aqui está o link do plano anual: https://sun.eduzz.com/1344531 . O acesso é liberado sozinho assim que o pagamento é confirmado.'],
+    ['Link de compra (mensal)', '[CDD] {nome}, aqui está o link do plano mensal: https://sun.eduzz.com/2411829 . O acesso é liberado sozinho assim que o pagamento é confirmado.'],
+    ['Acesso não chegou', '[CDD] Oi, {nome}! Vi que o seu acesso foi liberado, mas você ainda não criou a senha. Vou te mandar um novo link por aqui. Confira também o e-mail e a caixa de spam.']
+  ];
+  async function abaLeads() {
+    var v = $('v'); v.innerHTML = '<div class="vazio">Carregando...</div>';
+    var filtro = '', busca = '';
+    async function carregar() {
+      var r = await CDD.api('a_leads', { q: { status: filtro, busca: busca } });
+      if (!r.ok) { $('lt').innerHTML = msg(r.data.mensagem); return; }
+      var c = r.data.contagem, l = r.data.leads;
+      $('lk').innerHTML = ['novo', 'contatado', 'negociando', 'ganho', 'perdido'].map(function (k) { return '<button class="card" style="text-align:left;cursor:pointer;' + (filtro === k ? 'border-color:var(--accent)' : '') + '" data-f="' + k + '"><div style="font-size:26px;font-weight:800">' + c[k] + '</div><div class="mut">' + LEAD_ST[k][0] + '</div></button>'; }).join('');
+      $('lk').querySelectorAll('[data-f]').forEach(function (b) { b.onclick = function () { filtro = filtro === b.getAttribute('data-f') ? '' : b.getAttribute('data-f'); carregar(); }; });
+      if (!l.length) { $('lt').innerHTML = '<div class="card vazio">Nenhum lead' + (filtro ? ' nesta situação' : ' ainda') + '. Os cadastros das páginas de captura e de vendas aparecem aqui.</div>'; return; }
+      $('lt').innerHTML = '<div class="tbl"><table><thead><tr><th>Lead</th><th>Origem</th><th>Situação</th><th>Anotação</th><th></th></tr></thead><tbody>' + l.map(function (x) {
+        return '<tr><td><b>' + esc(x.nome) + '</b><div class="mut">' + esc(x.email || '') + (x.email && x.whatsapp ? ' · ' : '') + esc(x.whatsapp || '') + '</div>' + (x.objetivo ? '<div class="mut">' + esc(x.objetivo) + '</div>' : '') + '<div class="mut">' + esc(CDD.dataBR(x.criado_em)) + '</div></td>' +
+          '<td>' + esc(x.origem) + (x.utm_source ? '<div class="mut">' + esc(x.utm_source) + (x.utm_campaign ? ' / ' + esc(x.utm_campaign) : '') + '</div>' : '') + '</td>' +
+          '<td><select data-st="' + x.idlead + '">' + ['novo', 'contatado', 'negociando', 'ganho', 'perdido'].map(function (k) { return '<option value="' + k + '"' + (x.status === k ? ' selected' : '') + '>' + LEAD_ST[k][0] + '</option>'; }).join('') + '</select></td>' +
+          '<td><input data-ob="' + x.idlead + '" value="' + esc(x.obs || '') + '" placeholder="Anotar" maxlength="500"></td>' +
+          '<td>' + (x.zap ? '<a class="btn peq pri" href="' + esc(x.zap) + '" target="_blank" rel="noopener">WhatsApp</a>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+      $('lt').querySelectorAll('[data-st]').forEach(function (s) { s.onchange = async function () { await CDD.api('a_lead_atualizar', { body: { idlead: parseInt(s.getAttribute('data-st'), 10), status: s.value } }); carregar(); }; });
+      $('lt').querySelectorAll('[data-ob]').forEach(function (i) { i.onchange = async function () { await CDD.api('a_lead_atualizar', { body: { idlead: parseInt(i.getAttribute('data-ob'), 10), obs: i.value } }); }; });
+    }
+    v.innerHTML = '<div class="linha" style="justify-content:space-between;margin-bottom:12px"><h2>Leads</h2><div class="linha"><a class="btn peq" href="captura" target="_blank" rel="noopener">Página de captura</a><a class="btn peq" href="vendas" target="_blank" rel="noopener">Página de vendas</a></div></div>' +
+      '<div class="kpis" id="lk"></div><input id="lb" placeholder="Buscar por nome, e-mail ou WhatsApp" style="margin:12px 0"><div id="lt"><div class="vazio">Carregando...</div></div>';
+    var t; $('lb').oninput = function () { clearTimeout(t); t = setTimeout(function () { busca = $('lb').value; carregar(); }, 300); };
+    carregar();
+  }
+
+  async function abaAtendimento() {
+    var v = $('v'); v.innerHTML = '<div class="vazio">Carregando...</div>';
+    var rs = await Promise.all([CDD.api('a_leads', { q: { status: 'novo' } }), CDD.api('a_com_pendentes')]);
+    if (!rs[0].ok) { v.innerHTML = msg(rs[0].data.mensagem); return; }
+    var fila = (rs[0].data.leads || []).slice().reverse(), pend = (rs[1].data && rs[1].data.pendentes) || [];
+    var h = '<div class="card"><h3>WhatsApp de atendimento</h3><p class="mut">Número da Intus e do CDD: 55 45 99115-6006. Toda mensagem que sai das páginas e do app do CDD começa com <b>[CDD]</b> e, quando a aluna está logada, traz o nome e o e-mail dela. No WhatsApp, pesquise por [CDD] para filtrar as conversas do programa. A conversa completa e os funis automáticos ficam na central de atendimento da Intus.</p>' +
+      '<div class="linha" style="margin-top:8px"><a class="btn pri" href="https://intusfit.com.br/atendimento/" target="_blank" rel="noopener">Abrir a central de atendimento da Intus</a><a class="btn" href="https://wa.me/' + '5545991156006' + '" target="_blank" rel="noopener">Abrir o WhatsApp</a></div></div>';
+    h += '<div class="card"><h3>Leads para chamar (' + fila.length + ')</h3>' + (fila.length ? '<div class="tbl"><table><thead><tr><th>Lead</th><th>Chegou</th><th></th></tr></thead><tbody>' + fila.map(function (x) {
+      return '<tr><td><b>' + esc(x.nome) + '</b><div class="mut">' + esc(x.whatsapp || x.email || '') + '</div></td><td class="num">' + esc(CDD.dataBR(x.criado_em)) + '</td><td>' + (x.zap ? '<a class="btn peq pri" data-chamar="' + x.idlead + '" href="' + esc(x.zap) + '" target="_blank" rel="noopener">Chamar</a>' : '<span class="mut">sem WhatsApp</span>') + '</td></tr>';
+    }).join('') + '</tbody></table></div><p class="mut">Ao clicar em Chamar, o lead passa para "contatado".</p>' : '<div class="vazio">Nenhum lead novo esperando.</div>') + '</div>';
+    h += '<div class="card"><h3>Alunas liberadas que ainda não criaram a senha (' + pend.length + ')</h3><p class="mut">Pagaram ou foram matriculadas, mas não abriram o link. Gere um novo link e mande pelo WhatsApp.</p>' + (pend.length ? '<div class="tbl"><table><thead><tr><th>Aluna</th><th>Acesso até</th><th></th></tr></thead><tbody>' + pend.map(function (x) {
+      return '<tr><td><b>' + esc(x.nome) + '</b><div class="mut">' + esc(x.email) + '</div></td><td class="num">' + (x.expira_em ? esc(CDD.dataBR(x.expira_em)) : 'sem fim') + '</td><td><button class="btn peq" data-link="' + x.idaluna + '">Novo link</button></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="vazio">Ninguém pendente.</div>') + '</div>';
+    h += '<div class="card"><h3>Mensagens prontas</h3><p class="mut">Troque {nome} pelo nome da pessoa. Todas começam com [CDD].</p>' + MODELOS.map(function (m, i) {
+      return '<div style="margin-top:10px"><b>' + esc(m[0]) + '</b><div class="copiavel"><input readonly value="' + esc(m[1]) + '" id="md' + i + '"><button class="btn" data-cp="' + i + '">Copiar</button></div></div>';
+    }).join('') + '</div>';
+    v.innerHTML = h;
+    v.querySelectorAll('[data-chamar]').forEach(function (a) { a.onclick = function () { CDD.api('a_lead_atualizar', { body: { idlead: parseInt(a.getAttribute('data-chamar'), 10), status: 'contatado' } }); a.textContent = 'Chamado'; }; });
+    v.querySelectorAll('[data-cp]').forEach(function (b) { b.onclick = function () { var i = $('md' + b.getAttribute('data-cp')); i.select(); try { document.execCommand('copy'); } catch (e) {} b.textContent = 'Copiado'; }; });
+    v.querySelectorAll('[data-link]').forEach(function (b) { b.onclick = async function () {
+      var x = await CDD.api('a_aluna_link', { body: { idaluna: parseInt(b.getAttribute('data-link'), 10) } });
+      var a = pend.filter(function (p) { return String(p.idaluna) === b.getAttribute('data-link'); })[0];
+      mostrarLink(x, a ? a.nome : '');
+    }; });
   }
 
   /* ---------- alunas ---------- */

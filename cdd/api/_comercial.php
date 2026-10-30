@@ -288,6 +288,7 @@ function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
                 ->execute([$idaluna, 'ativa', $ev['gateway'], cddStr($ev['contrato'] ?: $ev['fatura'], 80), $hoje, $novoFim, cddStr('Venda: ' . $oferta['nome'], 300), cddAgora()]);
         }
         cddRegistrarEvento($pdo, $idaluna, 'matricula_venda', $ev['gateway']);
+        cddLeadGanho($pdo, $email, $idaluna);   // o lead com este e-mail vira "ganho"
         // link de acesso: só para quem ainda não tem senha
         if ($novo || empty($aluna['senha_hash'])) {
             $lk = cddNovaAtivacao($pdo, $idaluna, $base);
