@@ -122,6 +122,23 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     // aba alongamentos
     await page.evaluate(() => miniAba('along')); await page.waitForTimeout(200);
     ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-along').length === 2), 'miniatura mostra 2 alongamentos');
+    // dentro do celular: Iniciar Musculação leva à musculação e Voltar traz de volta aos alongamentos
+    await page.locator('#mini-tela .mi-iniciar').click(); await page.waitForTimeout(200);
+    ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-row').length > 0 && !document.querySelector('#mini-tela .mi-along')), 'botão Iniciar Musculação da miniatura abre a musculação');
+    await page.locator('#mini-tela .mi-volta').click(); await page.waitForTimeout(200);
+    ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-along').length === 2), 'Voltar da miniatura volta aos alongamentos');
+    // trocar de divisão cai nos alongamentos e ainda dá para ir à musculação pelo celular
+    await page.evaluate(() => trocarTab('B')); await page.waitForTimeout(300);
+    await page.locator('#mini-tela .mi-iniciar').first().click(); await page.waitForTimeout(200);
+    ok(await page.evaluate(() => document.querySelectorAll('#mini-tela .mi-row').length > 0 && !document.querySelector('#mini-tela .mi-along')), 'após trocar a divisão, o celular chega à musculação da B');
+    await page.evaluate(() => trocarTab('A')); await page.waitForTimeout(200);
+    // Normal + celular: uma coluna estreita com a miniatura ao lado
+    await page.evaluate(() => edModo('ncelular')); await page.waitForTimeout(300);
+    ok(await page.evaluate(() => !!document.getElementById('mini-tela') && document.querySelector('.ed-wrap').offsetWidth <= 1360 && document.querySelector('.ed-wrap.ed-ncelular .ed-top').getBoundingClientRect().width < 1000 && getComputedStyle(document.querySelector('.ed-top')).display === 'flex'), 'modo Normal + celular: ficha em uma coluna e miniatura ao lado');
+    // Ampla: exercícios em duas colunas
+    await page.evaluate(() => edModo('ampla')); await page.waitForTimeout(300);
+    ok(await page.evaluate(() => { const c = [...document.querySelectorAll('#ex-cards .ex-card')]; return c.length >= 2 && Math.abs(c[0].getBoundingClientRect().top - c[1].getBoundingClientRect().top) < 5 && c[0].getBoundingClientRect().left < c[1].getBoundingClientRect().left; }), 'modo ampla: exercícios lado a lado');
+    await page.evaluate(() => edModo('celular')); await page.waitForTimeout(200);
     // modos
     await page.evaluate(() => edModo('ampla')); await page.waitForTimeout(300);
     ok(await page.evaluate(() => !document.getElementById('mini-tela') && document.querySelector('.ed-wrap').offsetWidth > 1200), 'modo ampla sem celular, largo');

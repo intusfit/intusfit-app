@@ -192,8 +192,9 @@
     /* ── EDITOR DE FICHA: arrastar, visão ampla e celular do aluno (27/10/2026) ── */
     .ed-wrap { display:flex; flex-direction:column; gap:16px; max-width:900px; margin:0 auto; }
     .ed-wrap.ed-ampla, .ed-wrap.ed-celular { max-width:1560px; }
+    .ed-wrap.ed-ncelular { max-width:1340px; }
     .ed-cols { display:block; }
-    .ed-wrap.ed-celular .ed-cols { display:grid; grid-template-columns:minmax(0,1fr) 372px; gap:20px; align-items:start; }
+    .ed-wrap.ed-celular .ed-cols, .ed-wrap.ed-ncelular .ed-cols { display:grid; grid-template-columns:minmax(0,1fr) 372px; gap:20px; align-items:start; }
     .ed-main { display:flex; flex-direction:column; gap:16px; min-width:0; }
     .ed-top { display:flex; flex-direction:column; gap:16px; }
     .ed-wrap.ed-ampla .ed-top, .ed-wrap.ed-celular .ed-top { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
@@ -202,10 +203,14 @@
     .ed-wrap.ed-ampla .ex-card .carga-pill, .ed-wrap.ed-celular .ex-card .carga-pill { width:56px; min-width:0; padding:5px 3px; }
     .ed-wrap.ed-ampla .ex-card select.rep-pill, .ed-wrap.ed-celular .ex-card select.rep-pill { width:calc(50% - 3px); font-size:11px; }
     .ed-wrap.ed-ampla .along-card .along-fields, .ed-wrap.ed-celular .along-card .along-fields { grid-template-columns:90px 160px 1fr; }
+    /* Ampla: alongamentos e exercícios lado a lado (duas colunas), em vez de um cartão esticado na largura toda */
+    .ed-wrap.ed-ampla .ed-lista-al, .ed-wrap.ed-ampla #ex-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; align-items:start; }
+    .ed-wrap.ed-ampla .ed-lista-al > .add-ex-btn, .ed-wrap.ed-ampla #ex-cards > .add-ex-btn { grid-column:1 / -1; }
     .ed-side { position:sticky; top:72px; align-self:start; }
     @media (max-width:1180px) {
-      .ed-wrap.ed-celular .ed-cols { display:block; }
-      .ed-wrap.ed-celular .ed-side { display:none; }
+      .ed-wrap.ed-celular .ed-cols, .ed-wrap.ed-ncelular .ed-cols { display:block; }
+      .ed-wrap.ed-celular .ed-side, .ed-wrap.ed-ncelular .ed-side { display:none; }
+      .ed-wrap.ed-ampla .ed-lista-al, .ed-wrap.ed-ampla #ex-cards { display:block; }
       .ed-wrap.ed-ampla .ed-top, .ed-wrap.ed-celular .ed-top { grid-template-columns:1fr; }
     }
     .ed-modos { display:inline-flex; border:1px solid var(--border); border-radius:9px; overflow:hidden; background:var(--bg2); margin-left:auto; }
@@ -1261,10 +1266,10 @@ function renderEditor() {
         <button class="btn btn-secondary" onclick="voltarLista()">${readOnly ? '← Voltar' : 'Cancelar'}</button>
         ${!readOnly && (hasPerm('tr_editar') || !isEdit) ? `<button class="btn btn-primary" onclick="salvarFichaCompleta()">💾 Salvar</button>` : ''}
       </div>
-      </div>${modo === 'celular' ? `<aside class="ed-side">${miniHtml()}</aside>` : ''}</div>
+      </div>${(modo === 'celular' || modo === 'ncelular') ? `<aside class="ed-side">${miniHtml()}</aside>` : ''}</div>
     </div>
   `;
-  if (modo === 'celular') {
+  if (modo === 'celular' || modo === 'ncelular') {
     const m = document.getElementById('mini-tela');
     if (m) m.scrollTop = _miniTopo;
   }
@@ -1284,7 +1289,7 @@ function renderEditor() {
 function renderAlongSection() {
   const ro = _editorReadOnly;
   const alongsDaTab = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva);
-  let html = '<div style="margin-bottom:12px;">';
+  let html = '<div class="ed-lista-al" style="margin-bottom:12px;">';
   alongsDaTab.forEach((al, idx) => {
     html += `
       <div class="along-card" data-dnd="al" data-i="${idx}">
@@ -2209,7 +2214,7 @@ function _dndParaDivisao(dAlvo) {
 function _edModo() {
   let m = null;
   try { m = localStorage.getItem('intus-ed-modo'); } catch (e) {}
-  if (m !== 'normal' && m !== 'ampla' && m !== 'celular') m = window.innerWidth >= 1280 ? 'celular' : 'normal';
+  if (m !== 'normal' && m !== 'ampla' && m !== 'celular' && m !== 'ncelular') m = window.innerWidth >= 1280 ? 'celular' : 'normal';
   return m;
 }
 function edModo(m) {
@@ -2218,7 +2223,7 @@ function edModo(m) {
 }
 function _edModosHtml(modo) {
   const b = (m, rot, tit) => `<button type="button" class="${modo === m ? 'on' : ''}" title="${tit}" onclick="edModo('${m}')">${rot}</button>`;
-  return `<div class="ed-modos">${b('normal', 'Normal', 'Ficha estreita, uma coluna')}${b('ampla', 'Ampla', 'Usa a largura toda da tela')}${b('celular', 'Ampla + celular', 'Ficha larga com a miniatura do que o aluno vê no celular')}</div>`;
+  return `<div class="ed-modos">${b('normal', 'Normal', 'Ficha estreita, uma coluna')}${b('ncelular', 'Normal + celular', 'Ficha em uma coluna com a miniatura do que o aluno vê no celular')}${b('ampla', 'Ampla', 'Usa a largura toda da tela')}${b('celular', 'Ampla + celular', 'Ficha larga com a miniatura do que o aluno vê no celular')}</div>`;
 }
 
 // Mesmos textos e cores do app do aluno (TECNICA_INFO em aluno.html).
@@ -2315,7 +2320,7 @@ function _miniMusculacao() {
 function _miniAlongamentos() {
   const als = editorState.alongamentos.filter(a => (a.divisao || 'A') === editorState.tabAtiva);
   const nomeDiv = (editorState.divNomes && editorState.divNomes[editorState.tabAtiva]) || 'Divisão ' + editorState.tabAtiva;
-  if (!als.length) return '<div class="mi-vazio">Nenhum alongamento nesta divisão. O aluno vai direto para a musculação.</div>';
+  if (!als.length) return '<div class="mi-vazio">Nenhum alongamento nesta divisão. O aluno vai direto para a musculação.</div><div class="mi-iniciar" style="cursor:pointer;" onclick="miniAba(\'muscu\')">🔥 Iniciar Musculação</div>';
   const ativo = editorState.miniAlong == null ? -1 : editorState.miniAlong;
   return `<div class="mi-lista-tit" style="text-transform:none;font-size:15px;color:var(--m-txt);letter-spacing:0;">🧘 Alongamentos · ${esc(nomeDiv)}</div>
     <div class="mi-dica" style="margin-top:0;">Realize antes de iniciar a musculação.</div>` +
@@ -2325,12 +2330,12 @@ function _miniAlongamentos() {
         <div class="mi-ab"><div class="mi-at">${esc(al.nome || al.nmalongamento || 'Alongamento')}</div>
           <div class="mi-am"><span>⏱ ${esc(String(al.tempo || '30s'))}</span><span>🔁 ${s} série${s > 1 ? 's' : ''}</span>${al.obs ? `<span>💬 ${esc(al.obs)}</span>` : ''}</div></div>
         <div class="mi-ai">Ver explicação</div></div>`;
-    }).join('') + '<div class="mi-iniciar">🔥 Iniciar Musculação</div>';
+    }).join('') + '<div class="mi-iniciar" style="cursor:pointer;" onclick="miniAba(\'muscu\')">🔥 Iniciar Musculação</div>';
 }
 function _miniTelaInterna() {
   const nomeDiv = (editorState.divNomes && editorState.divNomes[editorState.tabAtiva]) || 'Divisão ' + editorState.tabAtiva;
   const aba = editorState.miniAba === 'along' ? 'along' : 'muscu';
-  return `<div class="mi-barra"><span class="mi-volta">← Voltar</span><span class="mi-tit">${esc(nomeDiv)}</span><span class="mi-cron">00:00</span></div>
+  return `<div class="mi-barra"><span class="mi-volta" ${aba === 'muscu' ? 'style="cursor:pointer;" onclick="miniAba(\'along\')"' : ''}>← Voltar</span><span class="mi-tit">${esc(nomeDiv)}</span><span class="mi-cron">00:00</span></div>
     <div class="mi-corpo">${aba === 'along' ? _miniAlongamentos() : _miniMusculacao()}</div>`;
 }
 function _miniClasse() {
