@@ -668,6 +668,7 @@ function renderLayout(activePage) {
     { href: 'resultados.html',   icon: ICONS.crown,    label: 'Quadro de Resultados', show: true },
     { href: 'extras.html',       icon: ICONS.video,    label: 'Extras',       show: !!user.admin },
     { href: INTUS_CUT_URL,       icon: ICONS.video,    label: 'Intus Cut',    show: hasPerm('cut_ver') },
+    { href: '../../conteudo/',   icon: ICONS.camera,   label: 'Conteúdo',     show: hasPerm('cut_ver') },
     { href: 'cdd.html',          icon: ICONS.crown,    label: 'CDD',          show: hasPerm('cdd_ver') },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },

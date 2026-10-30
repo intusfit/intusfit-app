@@ -2047,6 +2047,7 @@ function pronto(){
   nomesSelect(); var ids = Object.keys(projetos);
   if (!ids.length){ var v = $('vazio'); v.hidden = false; v.innerHTML = ''; v.appendChild(el('div', 'grupo', [el('b', null, 'Nenhum projeto ainda.'), el('div', 'linha', [botao('Novo com vídeo', function(){ $('b-novo').click(); }), botao('Trazer os cortes da entrevista na RIC', importarModelo)]), el('p', 'nota-ajuda', 'Os projetos que você editou na versão antiga do Intus Cut (a página do claude.ai) não vêm sozinhos: use "Trazer os cortes da entrevista na RIC" no computador, com o vídeo da entrevista, e eles voltam com as suas edições.'), el('div', 'linha', [botao('🎬 Meus vídeos', abrirPainelVideos)])])); estado('Sem projetos'); return; }
   var ult = null; try { ult = localStorage.getItem('intuscut-ultimo'); } catch (e) {}
+  try { var pedido = new URLSearchParams(location.search).get('projeto'); if (pedido && projetos[pedido]) ult = pedido; } catch (e) {}  // vindo da Central de conteúdo
   if (!P) abrir(projetos[ult] ? ult : $('sel-proj').value || ids[0]);
 }
 if (innerWidth <= 820) $('app').classList.add('sem-painel');
