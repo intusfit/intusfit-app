@@ -140,7 +140,7 @@ function cddGatewayEduzz3(array $p): ?array {
     $statusC = strtolower((string)($contrato['status'] ?? ''));
     $tipo = 'ignorado';
     if ($nome === 'invoice_paid') $tipo = 'pago';
-    elseif ($nome === 'invoice_refunded') $tipo = 'reembolsado';
+    elseif ($nome === 'invoice_refunded' || $nome === 'invoice_chargeback') $tipo = 'reembolsado';   // chargeback tira o acesso como o reembolso
     elseif (strpos($nome, 'contract_') === 0 || $contrato) {
         if (strpos($statusC, 'cancel') !== false) $tipo = 'contrato_cancelado';
         elseif (preg_match('/overdue|delayed|late|suspend|defaulter|inadimpl/', $statusC)) $tipo = 'atrasado';
