@@ -23,7 +23,7 @@ def troca_funcao(nome, novo_txt):
     js = js[:ini] + novo_txt.rstrip() + '\n' + js[fim:]
 
 # ---------- constantes ----------
-rep("var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c' };", "var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c', camada:'#6b3f8f' };")
+rep("var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c', el:'#8c6d1f' };", "var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c', el:'#8c6d1f', camada:'#6b3f8f' };")
 rep("geral:'Imagem e fundo', final:'Cartão final' };", "geral:'Imagem e fundo', final:'Cartão final', camada:'Sobreposição' };")
 js = js.replace("url:'lib/logo-", "url:'/app/painel/logo-")
 rep("var db = null, assets = null, downloads = null, sampleNs = null;", "var assets = true;")

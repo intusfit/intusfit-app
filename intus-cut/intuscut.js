@@ -13,7 +13,7 @@ var W = 1080, H = 1920, FPS = 30, SRC_H = 780, ORIG_W = 1920;
 var T_GANCHO_PADRAO = 2.6, T_FIM = 2.8;
 var COR = { amarelo:'#ffd60a', verde:'#7fff00', branco:'#f5f5f5', vermelho:'#ff4d4d', fundo:'#0f0f0f' };
 var CORES_FONTE = ['#4f7a24', '#2d6f8c', '#8a5a2b', '#6b3f8f', '#8f2f4f', '#3f7f6f'];
-var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c', camada:'#6b3f8f' };
+var COR_FAIXA = { texto:'#2d6f8c', imagem:'#8a5a2b', sombra:'#4c525c', el:'#8c6d1f', camada:'#6b3f8f' };
 var NOMES = { janela:'Vídeo', legenda:'Legenda', gancho:'Título do topo', gancho_grande:'Gancho grande', arrobas:'@ do rodapé', logo:'Logo', notas:'Marcação', barra:'Barra de progresso', texto:'Texto', sombra:'Sombra', imagem:'Imagem', geral:'Imagem e fundo', final:'Cartão final', camada:'Sobreposição' };
 var BIB_FIXOS = [
   { id:'fixo-1', tipo:'logo', nome:'Intus, branca', url:'/app/painel/logo-intus-dark.png', fixo:true },
@@ -250,7 +250,13 @@ function desenha(c, t, reg){
   desenhaTextos(c, t, reg);
   if (limpo) return;
   var Ar = lay('arrobas');
-  if (Ar.visivel && Ar.texto){ var faA = FONTE_ATUAL; FONTE_ATUAL = Ar.fonte || null; ESTILO_ATUAL = Ar; var tam = 36 * Ar.escala; fundoLinha(c, Ar, Ar.texto, Ar.x, Ar.y, tam, 700, 'center'); var w = texto(c, Ar.texto, Ar.x, Ar.y, tam, 700, Ar.cor, bordaDe(Ar, 0), 'center'); FONTE_ATUAL = faA; ESTILO_ATUAL = null; caixa(reg, 'arrobas', Ar.x - w / 2, Ar.y, w, tam * 1.2); }
+  if (Ar.visivel && Ar.texto){ var faA = FONTE_ATUAL; FONTE_ATUAL = Ar.fonte || null; ESTILO_ATUAL = Ar; var tam = 36 * Ar.escala, lhA = tam * (Ar.entrelinha || 1.2);
+    var lsA = quebraTudo(c, Ar.texto, tam, Ar.largura || 1e9, Ar.por_linha || 0, Ar.car_linha || 0, 700), w = 0;
+    c.font = fonteCss(tam, 700); lsA.forEach(function(l){ w = Math.max(w, c.measureText(l).width); });
+    var thA = lsA.length * lhA, hbA = Math.max(thA, +Ar.altura || 0), topA = Ar.y + thA / 2 - hbA / 2;
+    if (Ar.fundo && hbA > thA + 1) pill(c, Ar.x - w / 2 - tam * .35, topA - tam * .18, w + tam * .7, hbA + tam * .36, tam * .3, fundoCor(Ar, '#000000', .6));
+    lsA.forEach(function(l, n){ if (!(Ar.fundo && hbA > thA + 1)) fundoLinha(c, Ar, l, Ar.x, Ar.y + n * lhA, tam, 700, 'center'); texto(c, l, Ar.x, Ar.y + n * lhA, tam, 700, Ar.cor, bordaDe(Ar, 0), 'center'); });
+    FONTE_ATUAL = faA; ESTILO_ATUAL = null; var lbA = Math.max(w, Ar.largura ? Math.min(W, Ar.largura) : 0); caixa(reg, 'arrobas', Ar.x - lbA / 2, topA, lbA, hbA, { redim:true }); }
   var LG = lay('logo'), lo = logoAtual();
   if (LG.visivel && lo.complete && lo.naturalWidth){ var lh = LG.largura * lo.naturalHeight / lo.naturalWidth; c.drawImage(lo, LG.x - LG.largura / 2, LG.y, LG.largura, lh); caixa(reg, 'logo', LG.x - LG.largura / 2, LG.y, LG.largura, lh); }
   var B = lay('barra');
@@ -289,7 +295,8 @@ function desenhaGancho(c, grande, reg, J){
   var tam = (grande ? 92 : 58) * e, alt = tam * (g.entrelinha || (grande ? 1.13 : 1.17)), dest = (P.destaque || []).map(function(x){ return x.toLowerCase(); });
   var ls = quebraTudo(c, (P.gancho || '').toUpperCase(), tam, g.largura || W - 120, g.por_linha || 0, g.car_linha || 0), corD = g.cor || lay('gancho').cor, corT = g.cor_texto || COR.branco;
   var cxm = grande ? W / 2 + g.dx : g.x, y = grande ? J.y + 330 + g.dy - ls.length * alt / 2 : g.y - ls.length * alt / 2, y0 = y, wmax = 0;
-  if (g.fundo){ c.font = fonteCss(tam); var wf = Math.max.apply(null, ls.map(function(l){ return c.measureText(l).width; }).concat([0])); pill(c, cxm - wf / 2 - tam * .4, y - tam * .2, wf + tam * .8, ls.length * alt + tam * .25, tam * .35, fundoCor(g, '#000000', .6)); }
+  var thG = ls.length * alt, hbG = Math.max(thG, +g.altura || 0), topG = y + thG / 2 - hbG / 2;
+  if (g.fundo){ c.font = fonteCss(tam); var wf = Math.max.apply(null, ls.map(function(l){ return c.measureText(l).width; }).concat([0])); if (hbG > thG + 1) wf = Math.max(wf, Math.min(W, g.largura || wf) - tam * .8); pill(c, cxm - wf / 2 - tam * .4, topG - tam * .2, wf + tam * .8, hbG + tam * .25, tam * .35, fundoCor(g, '#000000', .6)); }
   ls.forEach(function(ln){
     c.font = fonteCss(tam); var lw = c.measureText(ln).width, x = cxm - lw / 2; wmax = Math.max(wmax, lw);
     ln.split(' ').forEach(function(p){ var limpa = p.replace(/[.,?!:]/g, '').toLowerCase();
@@ -297,15 +304,15 @@ function desenhaGancho(c, grande, reg, J){
       x += c.measureText(p + ' ').width; });
     y += alt;
   });
-  var lb = Math.max(wmax, Math.min(W, g.largura || wmax)); caixa(reg, grande ? 'gancho_grande' : 'gancho', cxm - lb / 2, y0, lb, y - y0, { redim:true }); FONTE_ATUAL = fa; ESTILO_ATUAL = null;
+  var lb = Math.max(wmax, Math.min(W, g.largura || wmax)); caixa(reg, grande ? 'gancho_grande' : 'gancho', cxm - lb / 2, topG, lb, hbG, { redim:true }); FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaNotas(c, f, y, reg){
   var N = lay('notas'), tam = 46 * N.escala, fa = FONTE_ATUAL; FONTE_ATUAL = N.fonte || null; ESTILO_ATUAL = N;
   (fonte(f.de).notas || []).forEach(function(n){ if (f.ts < n.ini || f.ts > n.fim) return;
-    c.font = fonteCss(tam); var l = c.measureText(n.texto).width, x0 = W / 2 + N.dx - l / 2 - 28 * N.escala, yy = y + N.dy;
-    if (N.fundo !== false) pill(c, x0, yy, l + 56 * N.escala, 76 * N.escala, 38 * N.escala, fundoCor(N, '#0f0f0f', 1));
-    texto(c, n.texto, W / 2 + N.dx, yy + 14 * N.escala, tam, 800, cor(n.cor), bordaDe(N, 0), 'center');
-    caixa(reg, 'notas', x0, yy, l + 56 * N.escala, 76 * N.escala); });
+    c.font = fonteCss(tam); var l = c.measureText(n.texto).width, pw = Math.max(l + 56 * N.escala, +N.largura || 0), ph = Math.max(76 * N.escala, +N.altura || 0), x0 = W / 2 + N.dx - pw / 2, yy = y + N.dy;
+    if (N.fundo !== false) pill(c, x0, yy, pw, ph, Math.min(38 * N.escala, ph / 2), fundoCor(N, '#0f0f0f', 1));
+    texto(c, n.texto, W / 2 + N.dx, yy + (ph - tam) / 2 - N.escala, tam, 800, cor(n.cor), bordaDe(N, 0), 'center');
+    caixa(reg, 'notas', x0, yy, pw, ph, { redim:true }); });
   FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaLegenda(c, t, y, reg){
@@ -323,7 +330,8 @@ function desenhaLegenda(c, t, y, reg){
   if (at.length) linhas.push(at);
   if (!PL && !CL && linhas.length === 2){ var todas = ps.map(function(_, i){ return i; }), meio = Math.max(1, ps.length >> 1); linhas = [todas.slice(0, meio), todas.slice(meio)]; }
   var y0 = y, xmin = W, xmax = 0, lh = Math.round(tam * (L.entrelinha || 1.31)), cxm = W / 2 + L.dx;
-  if (L.fundo){ var wl = Math.max.apply(null, linhas.map(larg)); pill(c, cxm - wl / 2 - 26, y - 14, wl + 52, linhas.length * lh + 14, 22, fundoCor(L, '#000000', .72)); }
+  var thL = linhas.length * lh, hbL = Math.max(thL, +L.altura || 0), topL = y + thL / 2 - hbL / 2;
+  if (L.fundo){ var wl = Math.max.apply(null, linhas.map(larg)); if (hbL > thL + 1) wl = Math.max(wl, Math.min(W, LW) - 52); pill(c, cxm - wl / 2 - 26, topL - 14, wl + 52, hbL + 14, 22, fundoCor(L, '#000000', .72)); }
   linhas.forEach(function(ln){
     var lw = larg(ln), x = cxm - lw / 2; xmin = Math.min(xmin, x); xmax = Math.max(xmax, x + lw);
     ln.forEach(function(i){ var tt = i === ativa ? tg : tam;
@@ -331,28 +339,28 @@ function desenhaLegenda(c, t, y, reg){
       c.font = fonteCss(tt); x += c.measureText(ps[i] + ' ').width; });
     y += lh;
   });
-  var lbl = Math.max(xmax - xmin, Math.min(W, LW)); caixa(reg, 'legenda', cxm - lbl / 2, y0 - 8, lbl, y - y0, { redim:true }); FONTE_ATUAL = fa; ESTILO_ATUAL = null;
+  var lbl = Math.max(xmax - xmin, Math.min(W, LW)); caixa(reg, 'legenda', cxm - lbl / 2, topL - 8, lbl, hbL, { redim:true }); FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaTextos(c, t, reg){
   var fa = FONTE_ATUAL;
   (P.textos || []).forEach(function(x, i){ if (!noTempo(x, t) || !x.texto) return; FONTE_ATUAL = x.fonte || null; ESTILO_ATUAL = x;
     var tam = x.tam || 60, lh = tam * (x.entrelinha || 1.2), wmax = 0, ls = quebraTudo(c, x.texto, tam, x.largura || 1e9, x.por_linha || 0, x.car_linha || 0, x.peso || 800);
     c.font = fonteCss(tam, x.peso || 800); ls.forEach(function(l){ wmax = Math.max(wmax, c.measureText(l).width); });
-    var y0 = x.y - ls.length * lh / 2;
-    if (x.fundo) pill(c, x.x - wmax / 2 - tam * .4, y0 - tam * .2, wmax + tam * .8, ls.length * lh + tam * .3, tam * .35, fundoCor(x, '#0f0f0f', .88));
+    var y0 = x.y - ls.length * lh / 2, thT = ls.length * lh, hbT = Math.max(thT, +x.altura || 0), topT = x.y - hbT / 2, wfT = hbT > thT + 1 ? Math.max(wmax, Math.min(W, x.largura || wmax) - tam * .8) : wmax;
+    if (x.fundo) pill(c, x.x - wfT / 2 - tam * .4, topT - tam * .2, wfT + tam * .8, hbT + tam * .3, tam * .35, fundoCor(x, '#0f0f0f', .88));
     ls.forEach(function(l, n){ texto(c, l, x.x, y0 + n * lh, tam, x.peso || 800, x.cor || COR.branco, bordaDe(x, x.borda ? 5 : 0), 'center'); });
-    var lbt = Math.max(wmax, x.largura ? Math.min(W, x.largura) : 0); caixa(reg, 'texto:' + i, x.x - lbt / 2, y0, lbt, ls.length * lh, { redim:true }); });
+    var lbt = Math.max(wmax, x.largura ? Math.min(W, x.largura) : 0); caixa(reg, 'texto:' + i, x.x - lbt / 2, topT, lbt, hbT, { redim:true }); });
   FONTE_ATUAL = fa; ESTILO_ATUAL = null;
 }
 function desenhaFim(c, t, reg){
   c.globalAlpha = Math.min(1, t / .35);
   var vert = H / W > 1.5, e = vert ? 1 : Math.min(W, H) / 1920 * 1.6, cy = vert ? 0 : (H - 1920 * e) / 2, lo = logoAtual();
   if (lo.complete && lo.naturalWidth){ var lw = 520 * e, lh = lw * lo.naturalHeight / lo.naturalWidth; c.drawImage(lo, (W - lw) / 2, cy + 560 * e, lw, lh); }
-  var fi = P.final || {}, fa = FONTE_ATUAL, bf = bordaDe(fi, 0); FONTE_ATUAL = fi.fonte || null; ESTILO_ATUAL = fi;
-  fundoLinha(c, fi, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e, 800, 'center'); texto(c, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e, 800, fi.cor_chamada || COR.branco, bf, 'center');
-  fundoLinha(c, fi, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, 'center'); texto(c, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e, 800, fi.cor_linha1 || COR.branco, bf, 'center');
-  fundoLinha(c, fi, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, 'center'); texto(c, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e, 800, fi.cor_linha2 || COR.verde, bf, 'center');
-  String(fi.slogan || '').split(/(?<=\.)\s+/).forEach(function(l, i){ fundoLinha(c, fi, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, 'center'); texto(c, l, W / 2, cy + (1180 + i * 65) * e, 46 * e, 700, fi.cor_slogan || '#d7d7d7', bf, 'center'); });
+  var fi = P.final || {}, fa = FONTE_ATUAL, bf = bordaDe(fi, 0), fs = +fi.escala || 1; FONTE_ATUAL = fi.fonte || null; ESTILO_ATUAL = fi;
+  fundoLinha(c, fi, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e * fs, 800, 'center'); texto(c, fi.chamada || 'SIGA PARA MAIS DICAS', W / 2, cy + 790 * e, 64 * e * fs, 800, fi.cor_chamada || COR.branco, bf, 'center');
+  fundoLinha(c, fi, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e * fs, 800, 'center'); texto(c, fi.linha1 || '@luiznunest', W / 2, cy + 900 * e, 96 * e * fs, 800, fi.cor_linha1 || COR.branco, bf, 'center');
+  fundoLinha(c, fi, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e * fs, 800, 'center'); texto(c, fi.linha2 || '@intusfit', W / 2, cy + 1020 * e, 96 * e * fs, 800, fi.cor_linha2 || COR.verde, bf, 'center');
+  String(fi.slogan || '').split(/(?<=\.)\s+/).forEach(function(l, i){ fundoLinha(c, fi, l, W / 2, cy + (1180 + i * 65) * e, 46 * e * fs, 700, 'center'); texto(c, l, W / 2, cy + (1180 + i * 65) * e, 46 * e * fs, 700, fi.cor_slogan || '#d7d7d7', bf, 'center'); });
   c.globalAlpha = 1; FONTE_ATUAL = fa; ESTILO_ATUAL = null; caixa(reg, 'final', 40, cy + 540 * e, W - 80, 820 * e);
 }
 
@@ -467,15 +475,18 @@ guia.addEventListener('pointermove', function(e){
       if (arr.redim){ o.w = Math.max(30, i.w + dx * 2); } else { o.x = i.x + dx; o.y = i.y + dy; } break;
     case 'camada':
       if (arr.redim){ o.w = Math.max(60, i.w + dx); o.h = o.forma === 'circulo' ? o.w : Math.max(60, i.h + dy); } else { o.x = i.x + dx; o.y = i.y + dy; } break;
-    case 'legenda': if (arr.redim){ o.largura = Math.round(cl((i.largura || W - 80) + dx * 2, 160, W)); P.estilo = P.estilo || {}; if (arr.tam0 == null) arr.tam0 = P.estilo.tamanho || 84; P.estilo.tamanho = Math.round(cl(arr.tam0 + dy / 3, 30, 160)); recalc(); break; } o.dx = i.dx + dx; o.dy = i.dy + dy; break;
-    case 'gancho': case 'gancho_grande': if (arr.redim){ o.largura = Math.round(cl((i.largura || W - 120) + dx * 2, 160, W)); o.escala = +cl((i.escala || 1) + dy / 300, .3, 3).toFixed(2); break; }
+    case 'legenda': if (arr.redim && !arr.shift){ o.largura = Math.round(cl((i.largura || W - 80) + dx * 2, 160, W)); o.altura = altDe(dy); break; } if (arr.redim){ o.largura = Math.round(cl((i.largura || W - 80) + dx * 2, 160, W)); P.estilo = P.estilo || {}; if (arr.tam0 == null) arr.tam0 = P.estilo.tamanho || 84; P.estilo.tamanho = Math.round(cl(arr.tam0 + dy / 3, 30, 160)); recalc(); break; } o.dx = i.dx + dx; o.dy = i.dy + dy; break;
+    case 'gancho': case 'gancho_grande': if (arr.redim && !arr.shift){ o.largura = Math.round(cl((i.largura || W - 120) + dx * 2, 160, W)); o.altura = altDe(dy); break; } if (arr.redim){ o.largura = Math.round(cl((i.largura || W - 120) + dx * 2, 160, W)); o.escala = +cl((i.escala || 1) + dy / 300, .3, 3).toFixed(2); break; }
       if (arr.id === 'gancho'){ o.x = i.x + dx; o.y = i.y + dy; } else { o.dx = i.dx + dx; o.dy = i.dy + dy; } break;
-    case 'texto': if (arr.redim){ o.largura = Math.round(cl((i.largura || 600) + dx * 2, 120, W)); o.tam = Math.round(cl((i.tam || 60) + dy / 3, 16, 240)); break; } o.x = i.x + dx; o.y = i.y + dy; break;
-    case 'notas': o.dx = i.dx + dx; o.dy = i.dy + dy; break;
+    case 'texto': if (arr.redim && !arr.shift){ o.largura = Math.round(cl((i.largura || arr.b0.w || 600) + dx * 2, 120, W)); o.altura = altDe(dy); break; } if (arr.redim){ o.largura = Math.round(cl((i.largura || 600) + dx * 2, 120, W)); o.tam = Math.round(cl((i.tam || 60) + dy / 3, 16, 240)); break; } o.x = i.x + dx; o.y = i.y + dy; break;
+    case 'notas': if (arr.redim && !arr.shift){ o.largura = Math.round(cl(arr.b0.w + dx * 2, 40, W)); o.altura = altDe(dy); break; } if (arr.redim){ o.escala = +cl((i.escala || 1) + dy / 300, .3, 3).toFixed(2); break; } o.dx = i.dx + dx; o.dy = i.dy + dy; break;
+    case 'arrobas': if (arr.redim && !arr.shift){ o.largura = Math.round(cl((i.largura || arr.b0.w) + dx * 2, 80, W)); o.altura = altDe(dy); break; } if (arr.redim){ o.escala = +cl((i.escala || 1) + dy / 300, .3, 4).toFixed(2); break; } o.x = i.x + dx; o.y = i.y + dy; break;
     case 'final': break;
     default: o.x = i.x + dx; o.y = i.y + dy;
   }
   pinta();
+  // Altura da caixa: o canto desce e a caixa cresce para cima e para baixo (o texto fica no meio).
+  function altDe(d){ return Math.round(cl(arr.b0.h + d * 2, 0, H)); }
 });
 guia.addEventListener('pointerup', function(){ var tinha = arr && arr.guias && arr.guias.length; if (tinha){ arr.guias = []; } if (arr && arr.mexeu){ var nm = NOMES[arr.id.split(':')[0]];
   agendaSalvar(arr.redim ? 'Redimensionar ' + nm.toLowerCase() : (arr.id === 'janela' && !arr.shift ? 'Enquadrar ' : 'Mover ') + nm.toLowerCase()); inspetor(); } arr = null; if (tinha) pintaGuia(); });
@@ -555,7 +566,7 @@ function desenhaTimeline(){
     c.appendChild(el('span', 'rot', (m.i + 1) + ' · ' + nomeFonte(m.de)));
     c.appendChild(el('span', 'sub', (m.fim - m.ini).toFixed(1) + ' s' + (m.s.recorte ? ' · recorte' : '') + (m.s.cheia ? ' · tela inteira' : '') + (m.s.limpo ? ' · sem elementos' : '')));
     fv.appendChild(c); });
-  if (P.final && P.final.ativo){ var cfim = el('div', 'clip fim'); cfim.style.left = (durFala() * p) + 'px'; cfim.style.width = (T_FIM * p) + 'px'; cfim.appendChild(el('span', 'rot', 'Cartão final')); fv.appendChild(cfim); }
+  if (P.final && P.final.ativo){ var cfim = el('div', 'clip fim' + (selEl === 'final' ? ' sel' : '')); cfim.style.left = (durFala() * p) + 'px'; cfim.style.width = (T_FIM * p) + 'px'; cfim.appendChild(el('span', 'rot', 'Cartão final')); fv.appendChild(cfim); }
   var mais = el('button', 'mais', '+'); mais.type = 'button'; mais.title = 'Adicionar vídeo, imagem ou logo no fim'; mais.setAttribute('aria-label', 'Adicionar no fim da linha do tempo');
   mais.style.left = (d * p + 8) + 'px'; mais.onclick = function(ev){ ev.stopPropagation(); abrirAdicionar(); }; fv.appendChild(mais);
   int.appendChild(fv); rotulo('Vídeo', 54, '#4f7a24');
@@ -569,8 +580,24 @@ function desenhaTimeline(){
       r.style.top = '2px'; c.appendChild(r); f.appendChild(c); });
     int.appendChild(f); rotulo(fx[1], h, COR_FAIXA[tipo]);
   });
+  // Faixa "Elementos": tudo o que aparece na prévia e não tem faixa própria (gancho, título, marcações, @ e logo do rodapé).
+  // Tocar seleciona o elemento; a borda direita do gancho grande muda quanto tempo ele fica na tela.
+  var fala = durFala(), tg = P.t_gancho == null ? T_GANCHO_PADRAO : P.t_gancho, els = [];
+  els.push({ id:'gancho_grande', ini:0, fim:Math.min(tg, fala), n:'Gancho', vis:lay('gancho_grande').visivel, borda:true });
+  els.push({ id:'gancho', ini:Math.min(tg, fala), fim:fala, n:'Título do topo', vis:lay('gancho').visivel });
+  M.forEach(function(m){ (fonte(m.de).notas || []).forEach(function(nt){ var a = Math.max(nt.ini, m.ini), z = Math.min(nt.fim, m.fim); if (z > a) els.push({ id:'notas', ini:m.o + a - m.ini, fim:m.o + z - m.ini, n:nt.texto || 'Marcação', vis:true }); }); });
+  els.push({ id:'arrobas', ini:0, fim:fala, n:'@ do rodapé', vis:lay('arrobas').visivel && !!lay('arrobas').texto, via:1 });
+  els.push({ id:'logo', ini:0, fim:fala, n:'Logo do rodapé', vis:lay('logo').visivel, via:1, meio:true });
+  var fe = el('div', 'faixa'); fe.style.height = '56px'; fe.style.width = larg + 'px';
+  els.forEach(function(x){ if (x.fim - x.ini < .05) return; var c = el('div', 'clip el' + (selEl === x.id ? ' sel' : ''));
+    c.dataset.k = 'el'; c.dataset.id = x.id; if (x.borda) c.dataset.borda = '1';
+    var ini = x.meio ? x.ini + (x.fim - x.ini) / 2 : x.ini, fim = x.meio ? x.fim : (x.via ? x.ini + (x.fim - x.ini) / 2 - .02 : x.fim);
+    c.style.top = (4 + (x.via || 0) * 26) + 'px'; c.style.bottom = 'auto'; c.style.height = '22px'; c.style.left = (ini * p) + 'px'; c.style.width = Math.max(6, (fim - ini) * p) + 'px';
+    c.style.background = rgba(COR_FAIXA.el, x.vis ? .6 : .18); c.style.borderColor = COR_FAIXA.el; if (!x.vis) c.title = 'Escondido (ligue "Mostrar" no painel da direita)';
+    var r = el('span', 'rot', x.n + (x.vis ? '' : ' · escondido')); r.style.top = '2px'; c.appendChild(r); fe.appendChild(c); });
+  int.appendChild(fe); rotulo('Elementos', 56, COR_FAIXA.el);
   var fl = el('div', 'faixa'); fl.style.height = '30px'; fl.style.width = larg + 'px';
-  GRUPOS.forEach(function(g){ var a = g[0].ri, z = g[g.length - 1].rf, c = el('div', 'clip leg'); c.style.left = (a * p) + 'px'; c.style.width = Math.max(4, (z - a) * p) + 'px'; c.style.top = '5px'; c.style.bottom = '5px';
+  GRUPOS.forEach(function(g){ var a = g[0].ri, z = g[g.length - 1].rf, c = el('div', 'clip leg' + (selEl === 'legenda' && T >= a && T <= z ? ' sel' : '')); c.style.left = (a * p) + 'px'; c.style.width = Math.max(4, (z - a) * p) + 'px'; c.style.top = '5px'; c.style.bottom = '5px';
     var r = el('span', 'rot', g.map(function(w){ return w.p; }).join(' ')); r.style.top = '2px'; c.appendChild(r); c.title = 'Toque duas vezes para editar o texto'; fl.appendChild(c); });
   int.appendChild(fl); rotulo('Legenda', 30, '#353c2e');
   var ins = el('div', 'insere'); ins.hidden = true; int.appendChild(ins);
@@ -585,6 +612,11 @@ $('tlint').addEventListener('pointerdown', function(e){
   var alvoTq = c && c.classList.contains('leg') ? 'leg' : c && c.dataset.k === 'texto' ? 'texto:' + c.dataset.i : c && c.classList.contains('fim') ? 'final' : '';
   if (alvoTq){ var ag = Date.now(); if (alvoTq === window._tqAlvo && ag - (window._tqLeg || 0) < 450){ window._tqLeg = 0; window._tqAlvo = ''; if (alvoTq === 'leg') editarFraseEm(t); else editarTextoDe(alvoTq); return; } window._tqLeg = ag; window._tqAlvo = alvoTq; } else { window._tqLeg = 0; window._tqAlvo = ''; }
   int.setPointerCapture(e.pointerId);
+  if (c && c.dataset.k === 'el'){ var rr = c.getBoundingClientRect(); selEl = c.dataset.id; selTrecho = null;
+    if (c.dataset.borda && rr.right - e.clientX <= 10){ pausar(); tl = { modo:'tgancho', x0:e.clientX, v0:P.t_gancho == null ? T_GANCHO_PADRAO : P.t_gancho, p:p }; }
+    else { tl = { modo:'scrub' }; scrub(t, true); }
+    desenhaTimeline(); seleciona(); return; }
+  if (c && c.classList.contains('leg')){ selEl = 'legenda'; tl = { modo:'scrub' }; scrub(t, true); desenhaTimeline(); inspetor(); pintaGuia(); return; }
   if (!c || !c.dataset.k){ tl = { modo:'scrub' }; scrub(t); return; }
   var k = c.dataset.k, i = +c.dataset.i, r = c.getBoundingClientRect(), borda = e.clientX - r.left <= 8 ? 'ini' : r.right - e.clientX <= 8 ? 'fim' : null;
   var item = k === 'trecho' ? trechos()[i] : alvo(k + ':' + i);
@@ -595,10 +627,11 @@ $('tlint').addEventListener('pointerdown', function(e){
   lacunaSel = null; desenhaTimeline(); seleciona();
 });
 $('tlint').addEventListener('pointermove', function(e){
-  if (!tl){ if (P){ var c = e.target.closest('.clip'), cur = 'pointer'; if (c && c.dataset.k){ var r = c.getBoundingClientRect(); cur = (e.clientX - r.left <= 8 || r.right - e.clientX <= 8) ? 'ew-resize' : 'grab'; } $('tlint').style.cursor = cur; } return; }
+  if (!tl){ if (P){ var c = e.target.closest('.clip'), cur = 'pointer'; if (c && c.dataset.k === 'el'){ var r0 = c.getBoundingClientRect(); cur = c.dataset.borda && r0.right - e.clientX <= 10 ? 'ew-resize' : 'pointer'; } else if (c && c.dataset.k){ var r = c.getBoundingClientRect(); cur = (e.clientX - r.left <= 8 || r.right - e.clientX <= 8) ? 'ew-resize' : 'grab'; } $('tlint').style.cursor = cur; } return; }
   var int = $('tlint');
   if (tl.modo === 'scrub'){ if (e.buttons) scrub((e.clientX - int.getBoundingClientRect().left) / pps()); return; }
   var dx = e.clientX - tl.x0, dt = dx / tl.p;
+  if (tl.modo === 'tgancho'){ P.t_gancho = +cl(tl.v0 + dt, 0, 8).toFixed(1); tl.mexeu = true; desenhaTimeline(); irPara(Math.max(0, P.t_gancho - .05)); return; }
   if (tl.k === 'trecho'){
     var s = trechos()[tl.i];
     if (tl.modo === 'ini'){ s.ini = +cl(tl.s0.ini + dt, 0, s.fim - .1).toFixed(3); atualizaTudo(); irPara(mapa()[tl.i].o); }
@@ -625,6 +658,7 @@ $('tlint').addEventListener('pointermove', function(e){
 });
 $('tlint').addEventListener('pointerup', function(){
   if (!tl) return; var t0 = tl; tl = null;
+  if (t0.modo === 'tgancho'){ if (t0.mexeu) agendaSalvar('Tempo do gancho'); desenhaTimeline(); inspetor(); return; }
   if (t0.k === 'trecho'){
     if (t0.modo === 'ini' || t0.modo === 'fim') mudou('Aparar trecho ' + (t0.i + 1));
     else if (t0.modo === 'mover' && t0.alvo != null){ var ts = trechos(), s = ts.splice(t0.i, 1)[0]; ts.splice(t0.alvo, 0, s); selTrecho = t0.alvo; mudou('Mover trecho na linha do tempo'); irPara(mapa()[selTrecho].o); }
@@ -879,19 +913,19 @@ var CARDS = {
     deslize(J, 'alinhar', 'Vídeo dentro da janela', -400, 400, 2, 'Alinhar vídeo na janela'), campo('Sobra da janela', opcoes(J, 'preencher', [['desfoque', 'Imagem desfocada'], ['cor', 'Cor do fundo']], 'Fundo da janela'))])]); },
   geral: function(){ var G = lay('geral'); return cartao('geral', 'Imagem e fundo', [el('div', 'grade2', [deslize(G, 'brilho', 'Brilho', .5, 1.6, .01, 'Brilho', pct), deslize(G, 'contraste', 'Contraste', .5, 1.8, .01, 'Contraste', pct),
     deslize(G, 'saturacao', 'Saturação', 0, 2, .01, 'Saturação', pct), corIn(G, 'fundo', 'Cor do fundo', 'Cor do fundo')])]); },
-  legenda: function(){ var Lg = lay('legenda'); return cartao('legenda', 'Legenda', camposLegendaAgora().concat([selFonte(P.estilo = P.estilo || {}, 'fonte', 'Fonte da legenda'), coresLegenda(P.estilo), chk(Lg, 'visivel', 'Mostrar legenda', 'Legenda'), el('div', 'grade2', [deslize(Lg, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover legenda'), deslize(Lg, 'dy', 'Vertical', -H, 500, 2, 'Mover legenda'),
+  legenda: function(){ var Lg = lay('legenda'); P.estilo = P.estilo || {}; if (P.estilo.tamanho == null) P.estilo.tamanho = 84; return cartao('legenda', 'Legenda', camposLegendaAgora().concat([selFonte(P.estilo, 'fonte', 'Fonte da legenda'), deslize(P.estilo, 'tamanho', 'Tamanho da fonte', 30, 160, 1, 'Tamanho da legenda', function(v){ return v + ' px'; }), coresLegenda(P.estilo), chk(Lg, 'visivel', 'Mostrar legenda', 'Legenda'), el('div', 'grade2', [deslize(Lg, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover legenda'), deslize(Lg, 'dy', 'Vertical', -H, 500, 2, 'Mover legenda'),
 ])], camposFundo(Lg, 'legenda', '#000000', .72), camposEstilo(Lg, 'legenda', 7, 'borda')).concat(camposCaixa(Lg, 'legenda', W - 80, 1.31), [ el('div', 'linha', [botao('✏️ Editar esta frase', function(){ editarFraseEm(T); }), botao('Todo o texto da legenda', function(){ aba = 'legenda'; abrePainel(); })]), el('p', 'nota-ajuda', 'Tamanho da letra e palavras por vez: painel Legendas.')])); },
   gancho: function(){ var Gc = lay('gancho'); return cartao('gancho', 'Título do topo (depois do gancho)', camposGancho(false).concat([selFonte(Gc, 'fonte', 'Fonte do título'), coresGancho(Gc), chk(Gc, 'visivel', 'Mostrar', 'Título do topo'), el('div', 'grade2', [deslize(Gc, 'x', 'Horizontal', 0, W, 2, 'Mover título'), deslize(Gc, 'y', 'Vertical', 0, H, 2, 'Mover título'),
-    deslize(Gc, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho do título', pct)])], camposCaixa(Gc, 'título', W - 120, 1.17), camposFundo(Gc, 'título', '#000000', .6), camposEstilo(Gc, 'título', 5))); },
+    deslize(Gc, 'escala', 'Tamanho da fonte', .4, 2.5, .02, 'Tamanho do título', function(v){ return Math.round(58 * v) + ' px'; })])], camposCaixa(Gc, 'título', W - 120, 1.17), camposFundo(Gc, 'título', '#000000', .6), camposEstilo(Gc, 'título', 5))); },
   gancho_grande: function(){ var GG = lay('gancho_grande'); return cartao('gancho_grande', 'Gancho grande (primeiros segundos)', camposGancho(true).concat([selFonte(GG, 'fonte', 'Fonte do gancho'), coresGancho(GG), chk(GG, 'visivel', 'Mostrar', 'Gancho grande'), el('div', 'grade2', [deslize(GG, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover gancho'), deslize(GG, 'dy', 'Vertical', -800, H, 2, 'Mover gancho'),
-    deslize(GG, 'escala', 'Tamanho', .4, 2, .02, 'Tamanho do gancho', pct), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])], camposCaixa(GG, 'gancho', W - 120, 1.13), camposFundo(GG, 'gancho', '#000000', .6), camposEstilo(GG, 'gancho', 7))); },
+    deslize(GG, 'escala', 'Tamanho da fonte', .4, 2.5, .02, 'Tamanho do gancho', function(v){ return Math.round(92 * v) + ' px'; }), deslize(GG, 'escurecer', 'Escurecer o vídeo', 0, .9, .01, 'Escurecer gancho', pct)])], camposCaixa(GG, 'gancho', W - 120, 1.13), camposFundo(GG, 'gancho', '#000000', .6), camposEstilo(GG, 'gancho', 7))); },
   arrobas: function(){ var A = lay('arrobas'), at = el('input'); at.type = 'text'; at.value = A.texto; at.oninput = function(){ A.texto = at.value; pinta(); agendaSalvar('Texto do @'); };
     return cartao('arrobas', '@ do rodapé', [chk(A, 'visivel', 'Mostrar', '@ do rodapé'), campo('Texto', at), selFonte(A, 'fonte', 'Fonte do @'), el('div', 'grade2', [deslize(A, 'x', 'Horizontal', 0, W, 2, 'Mover @'), deslize(A, 'y', 'Vertical', 0, H, 2, 'Mover @'),
-      deslize(A, 'escala', 'Tamanho', .5, 3, .02, 'Tamanho do @', pct), corIn(A, 'cor', 'Cor', 'Cor do @')])].concat(camposFundo(A, '@ do rodapé', '#000000', .6), camposEstilo(A, '@ do rodapé', 0), [rodapeBotoes()])); },
+      deslize(A, 'escala', 'Tamanho da fonte', .5, 4, .02, 'Tamanho do @', function(v){ return Math.round(36 * v) + ' px'; }), corIn(A, 'cor', 'Cor', 'Cor do @')])].concat(camposCaixa(A, '@ do rodapé', 0, 1.2), camposFundo(A, '@ do rodapé', '#000000', .6), camposEstilo(A, '@ do rodapé', 0), [rodapeBotoes()])); },
   logo: function(){ var LG = lay('logo'); return cartao('logo', 'Logo do rodapé', [chk(LG, 'visivel', 'Mostrar', 'Logo'), el('div', 'grade2', [deslize(LG, 'x', 'Horizontal', 0, W, 2, 'Mover logo'), deslize(LG, 'y', 'Vertical', 0, H - 20, 2, 'Mover logo'),
     deslize(LG, 'largura', 'Largura (px)', 60, 900, 2, 'Tamanho da logo')]), el('p', 'nota-ajuda', 'Para trocar a logo: Biblioteca, "Usar no rodapé".'), rodapeBotoes()]); },
   notas: function(){ var N = lay('notas'); return cartao('notas', 'Marcações (CERTO, ERRADO...)', camposNotasAgora().concat([selFonte(N, 'fonte', 'Fonte das marcações'), el('div', 'grade2', [deslize(N, 'dx', 'Horizontal', -W / 2, W / 2, 2, 'Mover marcações'), deslize(N, 'dy', 'Vertical', -400, H, 2, 'Mover marcações'),
-    deslize(N, 'escala', 'Tamanho', .4, 2.5, .02, 'Tamanho das marcações', pct)])], camposFundo(N, 'marcações', '#0f0f0f', 1, true), camposEstilo(N, 'marcações', 0))); },
+    deslize(N, 'escala', 'Tamanho da fonte', .4, 3, .02, 'Tamanho das marcações', function(v){ return Math.round(46 * v) + ' px'; }), deslize(N, 'largura', 'Largura da caixa', 0, W, 2, 'Largura das marcações', function(v){ return +v ? v + ' px' : 'automático'; }), deslize(N, 'altura', 'Altura da caixa', 0, 500, 2, 'Altura das marcações', function(v){ return +v ? v + ' px' : 'automático'; })])], camposFundo(N, 'marcações', '#0f0f0f', 1, true), camposEstilo(N, 'marcações', 0))); },
   final: function(){ return cartao('final', 'Cartão final', camposFinal()); },
   barra: function(){ var B = lay('barra'); return cartao('barra', 'Barra de progresso', [chk(B, 'visivel', 'Mostrar', 'Barra de progresso'), chk(B, 'embaixo', 'Embaixo (desmarcado = no topo)', 'Posição da barra'),
     el('div', 'grade2', [deslize(B, 'altura', 'Espessura', 2, 40, 1, 'Espessura da barra'), corIn(B, 'cor', 'Cor', 'Cor da barra')])]); },
@@ -922,9 +956,9 @@ function camposNotasAgora(){
 function camposFinal(){
   var fi = P.final = P.final || { ativo:true };
   function tin(k, rot, pad){ var i = el('input'); i.type = 'text'; i.value = fi[k] || ''; i.placeholder = pad || ''; i.oninput = function(){ fi[k] = i.value; pinta(); agendaSalvar('Cartão final'); }; return campo(rot, i); }
-  if (!fi.cor_chamada) fi.cor_chamada = COR.branco; if (!fi.cor_linha1) fi.cor_linha1 = COR.branco; if (!fi.cor_linha2) fi.cor_linha2 = COR.verde; if (!fi.cor_slogan) fi.cor_slogan = '#d7d7d7';
+  if (fi.escala == null) fi.escala = 1; if (!fi.cor_chamada) fi.cor_chamada = COR.branco; if (!fi.cor_linha1) fi.cor_linha1 = COR.branco; if (!fi.cor_linha2) fi.cor_linha2 = COR.verde; if (!fi.cor_slogan) fi.cor_slogan = '#d7d7d7';
   return [chk(fi, 'ativo', 'Mostrar o cartão final (2,8 s)', 'Cartão final', function(){ setTimeout(atualizaTudo); }), tin('chamada', 'Chamada', 'SIGA PARA MAIS DICAS'),
-    el('div', 'grade2', [tin('linha1', 'Primeiro @', '@luiznunest'), tin('linha2', 'Segundo @', '@intusfit')]), tin('slogan', 'Slogan'), selFonte(fi, 'fonte', 'Fonte do cartão final'),
+    el('div', 'grade2', [tin('linha1', 'Primeiro @', '@luiznunest'), tin('linha2', 'Segundo @', '@intusfit')]), tin('slogan', 'Slogan'), selFonte(fi, 'fonte', 'Fonte do cartão final'), deslize(fi, 'escala', 'Tamanho da fonte', .6, 1.5, .01, 'Tamanho do cartão final', pct),
     el('div', 'linha', [corIn(fi, 'cor_chamada', 'Chamada', 'Cor da chamada'), corIn(fi, 'cor_linha1', '1º @', 'Cor do 1º @'), corIn(fi, 'cor_linha2', '2º @', 'Cor do 2º @'), corIn(fi, 'cor_slogan', 'Slogan', 'Cor do slogan')])].concat(camposFundo(fi, 'cartão final', '#000000', .6), camposEstilo(fi, 'cartão final', 0));
 }
 function temTexto(id){ return /^(legenda|gancho|gancho_grande|arrobas|notas|final|texto:\d+)$/.test(id || ''); }
@@ -981,17 +1015,18 @@ function camposEstilo(o, nome, padrao, k){ k = k || 'contorno';
 // Controles da caixa de texto: largura, palavras e caracteres por linha, espaço entre linhas.
 function camposCaixa(o, nome, largPadrao, entrePadrao){
   if (o.largura == null) o.largura = largPadrao; if (o.por_linha == null) o.por_linha = 0; if (o.car_linha == null) o.car_linha = 0; if (o.entrelinha == null) o.entrelinha = entrePadrao;
-  var auto = function(v){ return +v ? v : 'automático'; }, cx = function(v){ return Math.round(v / W * 100) + '% da tela'; };
-  return [el('div', 'grade2', [deslize(o, 'largura', 'Largura da caixa', 120, W, 2, 'Largura: ' + nome, cx), deslize(o, 'entrelinha', 'Espaço entre linhas', .8, 2.2, .01, 'Entrelinha: ' + nome, function(v){ return (+v).toFixed(2); }),
+  if (o.altura == null) o.altura = 0;
+  var auto = function(v){ return +v ? v : 'automático'; }, cx = function(v){ return +v ? Math.round(v / W * 100) + '% da tela' : 'automático'; }, px = function(v){ return +v ? v + ' px' : 'automático'; };
+  return [el('div', 'grade2', [deslize(o, 'largura', 'Largura da caixa', 0, W, 2, 'Largura: ' + nome, cx), deslize(o, 'altura', 'Altura da caixa', 0, Math.round(H * .6), 2, 'Altura: ' + nome, px), deslize(o, 'entrelinha', 'Espaço entre linhas', .8, 2.2, .01, 'Entrelinha: ' + nome, function(v){ return (+v).toFixed(2); }),
     deslize(o, 'por_linha', 'Palavras por linha', 0, 12, 1, 'Palavras por linha: ' + nome, auto), deslize(o, 'car_linha', 'Caracteres por linha', 0, 60, 1, 'Caracteres por linha: ' + nome, auto)]),
-    el('p', 'nota-ajuda', 'Na prévia, puxe o quadradinho verde do canto da caixa: para o lado muda a largura, para baixo muda o tamanho da letra. Em "automático" a linha quebra só pela largura. Enter no texto também quebra a linha.')];
+    el('p', 'nota-ajuda', 'Na prévia, puxe o quadradinho verde do canto da caixa: para o lado muda a largura, para cima ou para baixo muda a altura (o texto fica no meio). Segurando Shift no computador, o canto muda o tamanho da letra. Em "automático" a linha quebra só pela largura. Enter no texto também quebra a linha.')];
 }
 function rodapeBotoes(){ var A = lay('arrobas'), LG = lay('logo'); return el('div', 'linha', [
   botao('▲ Rodapé', function(){ A.y -= 20; LG.y -= 20; pinta(); agendaSalvar('Subir rodapé'); inspetor(); }), botao('▼ Rodapé', function(){ A.y += 20; LG.y += 20; pinta(); agendaSalvar('Descer rodapé'); inspetor(); }),
   formato().guia === 'reel' ? botao('Tirar da área do Instagram', function(){ A.y = 1420; LG.y = 1490; pinta(); agendaSalvar('Rodapé acima do Instagram'); inspetor(); }) : el('span')]); }
 function cardTexto(i){ var x = P.textos[i], id = 'texto:' + i, tx = el('textarea'); tx.rows = 2; tx.value = x.texto; tx.oninput = function(){ x.texto = tx.value; pinta(); desenhaTimeline(); agendaSalvar('Texto livre'); };
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Texto ' + (i + 1)), acoesItem(id)]), tx, selFonte(x, 'fonte', 'Fonte do texto'),
-    el('div', 'grade2', [deslize(x, 'tam', 'Tamanho', 20, 220, 1, 'Tamanho do texto'), deslize(x, 'x', 'Horizontal', 0, W, 2, 'Mover texto'), deslize(x, 'y', 'Vertical', 0, H, 2, 'Mover texto')]),
+    el('div', 'grade2', [deslize(x, 'tam', 'Tamanho da fonte', 16, 240, 1, 'Tamanho do texto', function(v){ return v + ' px'; }), deslize(x, 'x', 'Horizontal', 0, W, 2, 'Mover texto'), deslize(x, 'y', 'Vertical', 0, H, 2, 'Mover texto')]),
     el('div', 'linha', [corIn(x, 'cor', 'Cor', 'Cor do texto'), ])].concat(camposFundo(x, 'texto', '#0f0f0f', .88), camposEstilo(x, 'texto', x.borda ? 5 : 0), camposCaixa(x, 'texto', W, 1.2), tempoItem(x, 'Texto'))); }
 function cardSombra(i){ var s = P.sombras[i], id = 'sombra:' + i;
   return el('div', 'cartao' + (selEl === id ? ' sel' : ''), [el('div', 'topo', [el('b', null, 'Sombra ' + (i + 1)), acoesItem(id)]),
