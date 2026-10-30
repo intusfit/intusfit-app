@@ -294,6 +294,7 @@ window.addEventListener('beforeunload', function(e){ if (salvando || salvarTimer
     BIB = {}; (r.biblioteca || []).forEach(function(x){ BIB[x.id] = x; });
     if (!r.drive) estado('O Drive não está configurado: dá para editar, mas não enviar vídeos', 'erro');
     pronto(); if (r.drive) estado(EU && EU.nome ? 'Olá, ' + EU.nome.split(' ')[0] : 'Pronto', 'ok');
+    sincronizarClaude(r.projetos || []);
   } catch (e){ if (e.code !== 'sem_acesso') { estado('Sem conexão com o servidor', 'erro'); var v = $('vazio'); v.hidden = false; v.textContent = 'Não consegui falar com o servidor da Intus. Confira a internet e recarregue a página.'; } }
 })();
 })();

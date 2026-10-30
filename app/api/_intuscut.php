@@ -126,6 +126,7 @@ function cut_salvar(PDO $pdo, $projeto, array $ctx): array {
     $idx[$id] = cut_status_campos($antes) + ['nome' => $projeto['nome'], 'formato' => cut_texto($projeto['formato'] ?? 'reel', 20), 'atualizado_em' => $agora,
                  'criado_por' => $antes['criado_por'] ?? (int)($ctx['idusuario'] ?? 0), 'por' => (int)($ctx['idusuario'] ?? 0), 'por_nome' => cut_texto($ctx['nmusuario'] ?? '', 80),
                  'ia' => !empty($projeto['ia']) ? cut_texto($projeto['ia']['status'] ?? '', 20) : ''];
+    if (!empty($projeto['claude']['versao'])) $idx[$id]['claude'] = (int)$projeto['claude']['versao'];
     cut_gravar($pdo, 'cut_index', $idx);
     return ['ok' => true, 'atualizado_em' => $agora];
 }
@@ -219,6 +220,53 @@ function cut_bib_excluir(PDO $pdo, string $id): ?array {
     if ($tirado) cut_gravar($pdo, 'cut_bib', $b);
     return $tirado;
 }
+
+// ---------- vídeo vindo do Google Drive do Luiz (edições do Claude) ----------
+// O Claude publica o esqueleto da edição em /intus-cut/claude/; o vídeo original continua no Drive pessoal, compartilhado por link.
+// O servidor copia esse arquivo para o Drive da Intus em pedaços (drive_iniciar e drive_parte), uma vez por arquivo:
+// intus_config cut_drive_map {drive_id: idmidia} guarda qual envio corresponde a cada arquivo.
+const CUT_DRIVE_PARTE = 16 * 1024 * 1024;          // múltiplo de 256 KB, como o Drive exige
+function cut_drive_id_ok($id): bool { return is_string($id) && preg_match('/^[A-Za-z0-9_-]{20,80}$/', $id) === 1; }
+/** Só este endereço é buscado (o id é conferido acima): nada de URL vinda de fora. */
+function cut_drive_url(string $id): string { return 'https://drive.usercontent.google.com/download?id=' . $id . '&export=download&confirm=t'; }
+/**
+ * Lê os bytes [$ini, $fim] do arquivo compartilhado. Devolve ['status', 'corpo', 'total'].
+ * $http: callable(string url, string range): array{status, corpo, content_range} (para testes).
+ */
+function cut_drive_faixa(string $id, int $ini, int $fim, ?callable $http = null): array {
+    if (!cut_drive_id_ok($id)) return ['status' => 0, 'corpo' => '', 'total' => 0];
+    $http = $http ?: function ($url, $range) {
+        $cr = ''; $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 150, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS, CURLOPT_HTTPHEADER => ['Range: bytes=' . $range],
+            CURLOPT_HEADERFUNCTION => function ($c, $l) use (&$cr) { if (stripos($l, 'Content-Range:') === 0) $cr = trim(substr($l, 14)); return strlen($l); }]);
+        $corpo = curl_exec($ch); $st = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+        return ['status' => $st, 'corpo' => is_string($corpo) ? $corpo : '', 'content_range' => $cr];
+    };
+    $r = $http(cut_drive_url($id), $ini . '-' . $fim);
+    $total = preg_match('#/(\d+)$#', (string)($r['content_range'] ?? ''), $m) ? (int)$m[1] : 0;
+    return ['status' => (int)($r['status'] ?? 0), 'corpo' => (string)($r['corpo'] ?? ''), 'total' => $total];
+}
+/** Tipo do vídeo pelos primeiros bytes (MP4/MOV/WEBM). Devolve o mime ou '' quando não é vídeo. */
+function cut_mime_de_bytes(string $b): string {
+    if (strncmp($b, "\x1A\x45\xDF\xA3", 4) === 0) return 'video/webm';
+    $atomo = substr($b, 4, 4);
+    if ($atomo === 'ftyp') return substr($b, 8, 4) === 'qt  ' ? 'video/quicktime' : 'video/mp4';
+    if (in_array($atomo, ['moov', 'mdat', 'wide', 'free'], true)) return 'video/quicktime';
+    return '';
+}
+/** Confere o arquivo compartilhado antes de abrir o envio. Devolve [mime, total] ou string de erro. */
+function cut_drive_sondar(string $id, ?callable $http = null) {
+    if (!cut_drive_id_ok($id)) return 'Link do Drive inválido.';
+    $r = cut_drive_faixa($id, 0, 15, $http);
+    if ($r['status'] !== 206 || $r['total'] <= 0) return 'Não consegui ler o vídeo no Drive (HTTP ' . $r['status'] . '). Confira se ele está compartilhado como "Qualquer pessoa com o link".';
+    $mime = cut_mime_de_bytes($r['corpo']);
+    if ($mime === '') return 'O arquivo do Drive não é um vídeo MP4, MOV ou WEBM.';
+    if ($r['total'] > CUT_VIDEO_MAX) return 'Vídeo grande demais (máximo ' . round(CUT_VIDEO_MAX / 1073741824) . ' GB).';
+    return [$mime, $r['total']];
+}
+function cut_drive_map(PDO $pdo): array { return cut_ler($pdo, 'cut_drive_map', []); }
+function cut_drive_map_gravar(PDO $pdo, string $id, int $idmidia): void { $m = cut_drive_map($pdo); $m[$id] = $idmidia; cut_gravar($pdo, 'cut_drive_map', $m); }
 
 /** Token do vídeo a partir da url /app/api/midia.php?action=video&t=TOKEN. */
 function cut_token_de_url(string $u): string { return preg_match('/[?&]t=([0-9a-f]{32})/', $u, $m) ? $m[1] : ''; }
