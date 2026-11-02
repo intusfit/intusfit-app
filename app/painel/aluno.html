@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261027a"></script>
+  <script src="api.js?v=20261101a"></script>
   <script src="ajuda.js?v=20261027a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -1030,6 +1030,13 @@
     body.tema-claro .cl-tipo-chip { border-color: #e0e0e0; background: #fff; color: #777; }
     body.tema-claro .cl-tipo-chip.on { border-color: #5cb800; background: rgba(92,184,0,.1); color: #2d8a00; }
     .cl-hero { text-align: center; margin: 6px 0 22px; }
+    /* Antes de começar: tudo mais compacto para o botão Começar caber na primeira dobra */
+    .cl-pre { padding: 14px 14px 16px; }
+    .cl-pre .cl-tipo-chip { padding: 9px 6px; font-size: 12.5px; }
+    .cl-pre .cl-hero { margin: 4px 0 12px; }
+    .cl-pre .cl-hero-num { font-size: 52px; }
+    .cl-pre .cl-stat-box { padding: 10px 12px; }
+    .cl-pre > div[style*="margin-bottom:20px"] { margin-bottom: 14px !important; }
     .cl-hero-num {
       font-size: 64px; font-weight: 900; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums;
       background: linear-gradient(135deg, #fff, #7FFF00); -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -12972,7 +12979,7 @@ function _progEncerrar() {
     '<div style="font-size:30px;margin-bottom:6px;">⏹</div><div style="font-size:16px;font-weight:900;margin-bottom:8px;">Encerrar o programa?</div>' +
     '<div style="font-size:13px;color:#888;line-height:1.55;margin-bottom:16px;">Você fez ' + _progMin(Math.max(0, feito)) + ' de ' + _progMin(API.programaDuracao(p, _prog.sessao)) + '. ' + (podeSalvar ? 'Dá para registrar o que fez como cardio. Como o programa não foi concluído, ele não vale o ponto extra nem os distintivos.' : 'Com menos de 5 minutos não dá para registrar.') + '</div>' +
     (podeSalvar ? '<button class="btn btn-prim btn-full" onclick="document.getElementById(\'prog-fim-ov\').remove();_progConcluir(false)">Registrar o que fiz</button>' : '') +
-    '<button class="btn btn-sec btn-full" style="margin-top:8px;" onclick="document.getElementById(\'prog-fim-ov\').remove();_progParar();abrirProgramasCardio()">Encerrar sem registrar</button>' +
+    '<button class="btn btn-sec btn-full" style="margin-top:8px;" onclick="document.getElementById(\'prog-fim-ov\').remove();_progParar();abrirProgramasCardio();toast(\'Programa encerrado sem registrar.\')">Encerrar sem registrar</button>' +
     '<button class="btn btn-sec btn-full" style="margin-top:8px;border:none;" onclick="document.getElementById(\'prog-fim-ov\').remove()">Voltar ao programa</button></div>';
   document.body.appendChild(ov);
 }
@@ -13008,15 +13015,19 @@ async function _progResultado(p, completo, seg, dados) {
   _rankingData = null; _rkUltimaBusca = 0;
   const box = document.getElementById('v-cardio-prog'); if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
-  const valeu = completo && (dados && dados.motivo !== 'limite');
+  const valeu = completo && !(dados && dados.motivo);
+  const avisoMotivo = dados && (dados.motivo === 'duracao' || dados.motivo === 'ritmo')
+    ? '<div style="margin:12px auto 0;max-width:320px;padding:10px 12px;border-radius:12px;text-align:left;font-size:12px;line-height:1.5;background:' + (isLight ? '#fff7ed' : 'rgba(251,146,60,.08)') + ';border:1px solid rgba(251,146,60,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ O tempo ou a distância parecem fora do normal para esta atividade. O cardio ficou no histórico, mas não soma pontos. Se foi engano, remova e registre de novo.</div>' : '';
+  const avisoPendente = dados && dados.pendente
+    ? '<div style="margin:12px auto 0;max-width:320px;padding:10px 12px;border-radius:12px;text-align:left;font-size:12px;line-height:1.5;background:' + (isLight ? '#fffbeb' : 'rgba(251,191,36,.08)') + ';border:1px solid rgba(251,191,36,.35);color:' + (isLight ? '#92400e' : '#fcd34d') + ';">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>' : '';
   box.innerHTML = '<div style="text-align:center;padding:30px 10px 10px;">' +
     '<div style="font-size:64px;line-height:1;margin-bottom:8px;">' + (completo ? '🎉' : '👏') + '</div>' +
     '<h2 class="sect-title" style="margin-bottom:6px;">' + (completo ? 'Programa concluído!' : 'Cardio registrado') + '</h2>' +
     '<div style="font-size:14px;color:#888;">' + p.emoji + ' ' + esc(p.titulo) + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + esc(p.sessoes[_prog.sessao].titulo) : '') + ' · ' + _progMin(seg) + '</div>' +
     '<div style="margin:18px auto 0;max-width:320px;padding:14px;border-radius:14px;text-align:left;font-size:13px;line-height:1.6;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1px solid rgba(127,255,0,.3);">' +
       '⏱ Pontos do tempo: <b>+' + (dados && dados.ptsExib != null ? dados.ptsExib : 0) + '</b>' + (dados && dados.motivo === 'limite' ? ' <span style="color:#888;">(o limite de cardios do dia já foi atingido)</span>' : '') + '<br>' +
-      (completo ? (valeu ? '⭐ Ponto extra do programa: <b>+1</b> (1 por dia com programa concluído)<br>🏅 Conta para os distintivos de programas' : '🏅 Programa concluído, mas o limite de cardios do dia já foi atingido: sem ponto extra hoje') : 'Programa não concluído: sem ponto extra nem distintivo.') +
-    '</div>' +
+      (completo ? (valeu ? '⭐ Ponto extra do programa: <b>+1</b> (1 por dia com programa concluído)<br>🏅 Conta para os distintivos de programas' : '🏅 Programa concluído, mas este cardio não soma pontos hoje: sem ponto extra') : 'Programa não concluído: sem ponto extra nem distintivo.') +
+    '</div>' + avisoMotivo + avisoPendente +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px;">' +
       '<button class="btn btn-prim" style="grid-column:1 / -1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="_progCompartilhar()">📸 Compartilhar cardio</button>' +
       '<button class="btn btn-sec" onclick="trocarView(\'home\');renderHome();">🏠 Início</button>' +
@@ -13631,7 +13642,8 @@ function _renderTelaEsforcoCardioLive(dados) {
   // Fecha (e desmonta o mapa, se tiver) ao tocar fora do cartão — mesma
   // lição do bug de "mapa fantasma": nunca deixar um Leaflet montado sem
   // dono depois que a tela que o criou some.
-  ov.onclick = function (e) { if (e.target === ov) { _cardioEsforcoFecharMapa(); ov.remove(); } };
+  // Tocar fora conclui do mesmo jeito que o botão (e mostra a confirmação), em vez de sumir sem dizer nada.
+  ov.onclick = function (e) { if (e.target === ov) _confirmarEsforcoCardioLive(); };
   if (temRota) _iniciarMapaRotaFinalCardio(dados.pontos);
   _cardioLiveEsforcoChange();
   _renderCardioLiveFotoArea();
@@ -13730,24 +13742,26 @@ function _renderCardioLiveFotoArea() {
 // chamava, e o aluno via "não registrou" mesmo o cardio já estando salvo.
 // Lê o esforço e a foto da tela de esforço e grava. Cardio ainda na fila (sem conexão): ajusta o item da fila, que vai com o esforço
 // certo quando for enviado. Cardio já no servidor: atualiza o registro. As leituras da tela acontecem ANTES do primeiro await.
+// Devolve o esforço que ficou valendo (o escolhido, ou 5 se o ajuste não pôde ser gravado), para a confirmação final mostrar os pontos certos.
 async function _salvarEsforcoCardioLive() {
   const dados = window._cardioEsforcoDados;
   const sl = document.getElementById('cle-rpe');
   const novoRpe = sl ? parseInt(sl.value) || 5 : 5;
   const foto = _cardioFoto;
   _cardioFoto = '';
-  if (!dados) return;
+  if (!dados) return 5;
   let idsessao = dados.idsessao || (dados.uid && _cardioUidParaId[dados.uid]) || null;
   if (!idsessao && dados.uid) {
     const ok = _cardioFilaAtualizar(dados.uid, Object.assign({ cardio_rpe: novoRpe, cardio_intensidade: rpeIntensidade(novoRpe), pontos: dados.motivo ? 0 : calcCardioPoints(dados.tipo, novoRpe, dados.min) }, foto ? { cardio_foto: foto } : {}));
-    if (ok) { if (novoRpe !== 5 || foto) toast('Esforço guardado junto com o cardio.'); return; }
+    if (ok) { if (novoRpe !== 5 || foto) toast('Esforço guardado junto com o cardio.'); return novoRpe; }
     idsessao = _cardioUidParaId[dados.uid] || null;   // saiu da fila no meio: já foi enviado
   }
-  if (!idsessao) return;
-  if (novoRpe === 5 && !foto) return; // esforço já é o padrão salvo e nenhuma foto nova: nada a fazer
+  if (!idsessao) return 5;
+  if (novoRpe === 5 && !foto) return 5; // esforço já é o padrão salvo e nenhuma foto nova: nada a fazer
   toast(foto ? 'Salvando esforço e foto...' : 'Salvando esforço...');
   const ok = await _atualizarEsforcoCardio(idsessao, novoRpe, dados.tipo, dados.min, dados.motivo, foto);
   if (ok) toast(foto ? 'Esforço e foto salvos! 💪' : 'Esforço atualizado! 💪');
+  return ok ? novoRpe : 5;
 }
 // Antes este botão só fechava a tela e abria o compartilhar: o esforço e a foto escolhidos aqui se perdiam (só "Concluir" gravava).
 function _compartilharCardioAoVivo() {
@@ -13760,11 +13774,20 @@ function _compartilharCardioAoVivo() {
   gravando.then(function () { try { if (window._viewAtual === 'cardio') renderCardio(); } catch (e) {} }).catch(function () {});
 }
 async function _confirmarEsforcoCardioLive() {
+  const dados = window._cardioEsforcoDados;
   const gravando = _salvarEsforcoCardioLive();   // lê a tela agora
   _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
-  await gravando;
+  const rpe = await gravando;
   renderCardio();
+  // Confirmação final, a mesma do cardio manual (pontos, limite do dia, aviso de valor fora do normal, compartilhar). Antes o
+  // "Concluir" fechava a tela sem dizer nada e a comemoração de conquistas nunca rodava para o cardio ao vivo.
+  if (!dados) return;
+  const ptsExib = dados.motivo ? 0 : _pontosCardioPolitica(calcCardioPoints(dados.tipo, rpe, dados.min));
+  mostrarResultadoCardio(ptsExib, dados.tipo, dados.min, dados.motivo, function () {
+    _rankingData = null; _rkUltimaBusca = 0;
+    _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
+  }, { tipo: dados.tipo, min: dados.min, distKm: dados.distKm || 0, pendente: dados.pendente });
 }
 
 function _renderCardioLive() {
@@ -13828,19 +13851,26 @@ function _renderCardioLive() {
       '</div>')
     : '<span id="cl-tempo" style="display:none;">00:00</span>'; // sem GPS o tempo mora só no hero; mantém o id p/ o mesmo updater funcionar
 
+  // Antes de começar o aviso é uma linha só, com o texto completo recolhido: o
+  // parágrafo inteiro empurrava o botão "Começar" para fora da primeira dobra.
   const avisoTemp = usaGps
-    ? '<div style="font-size:11.5px;line-height:1.5;color:#888;text-align:center;margin:0 4px 14px;">📌 Por enquanto a <b>distância</b> só é medida com precisão se esta tela ficar aberta no app (não bloqueie o celular nem troque de app). Se a tela apagar, o trecho sem sinal é estimado pelo seu ritmo médio e o <b>tempo</b> é sempre registrado. Isso é temporário até a publicação oficial do app nas lojas.</div>'
+    ? '<details style="font-size:11.5px;line-height:1.5;color:#888;text-align:center;margin:0 4px 8px;">' +
+        '<summary style="cursor:pointer;list-style:none;">📌 Mantenha esta tela aberta para medir a distância. <u>Saiba mais</u></summary>' +
+        '<div style="margin-top:6px;">Por enquanto a <b>distância</b> só é medida com precisão se esta tela ficar aberta no app (não bloqueie o celular nem troque de app). Se a tela apagar, o trecho sem sinal é estimado pelo seu ritmo médio e o <b>tempo</b> é sempre registrado. Isso é temporário até a publicação oficial do app nas lojas.</div>' +
+      '</details>'
     : '';
   // Antes de começar: cartão comum, escolher atividade. Rastreando: modo
   // imersivo (fundo solido, numero enorme, botão circular), no espírito de
   // apps de corrida de referência.
   box.innerHTML = !iniciado
     ? telaHeader('📍 Cardio ao vivo', 'cardio') +
-      '<div class="cl-glow-bg">' +
+      '<div class="cl-glow-bg cl-pre">' +
         '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">' + chips + '</div>' +
         paradoToggleHtml +
         avisoTemp +
-        heroHtml + rotaHtml + statsHtml +
+        // Sem mapa nem anéis antes de começar: eram um quadro vazio de ~170 px.
+        // O mapa nasce quando o rastreio inicia (_iniciarMapaCardioLive).
+        heroHtml + statsHtml +
         '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar' + (usaGps ? ' a rastrear' : '') + '</button>' +
       '</div>' +
       getFooterHtml()
