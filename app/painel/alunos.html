@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
   <script src="_mock.js?v=20261030b"></script>
-  <script src="api.js?v=20261027a"></script>
+  <script src="api.js?v=20261101a"></script>
   <script src="kanban.js?v=20261023b"></script>
   <script src="perfil-atendimento.js?v=20261023a"></script>
   <style>
@@ -1763,7 +1763,11 @@ function marcarPagoMini(idmens, idatleta) {
       ${venc ? `<div class="form-group"><label class="label">Multa/juros (R$) — vencida há ${atraso} dia(s)</label><input id="pgm-juros" class="input" type="number" min="0" step="0.01" value="0" oninput="_pgmJurosMudou()"/></div>` : ''}
       <div class="form-group"><label class="label">Valor recebido (R$)</label><input id="pgm-valor" class="input" type="number" min="0" step="0.01" value="${base}" oninput="_pgmValorMudou()"/>
         <div id="pgm-valor-nota" style="display:none;margin-top:6px;font-size:11.5px;line-height:1.45;color:var(--text-muted);"></div>
-        <label id="pgm-manter-wrap" style="display:none;margin-top:6px;font-size:12px;color:var(--text);cursor:pointer;"><input type="checkbox" id="pgm-manter"/> Cobrar este valor também nos próximos ciclos</label></div>
+        <label id="pgm-manter-wrap" style="display:none;margin-top:6px;font-size:12px;color:var(--text);cursor:pointer;"><input type="checkbox" id="pgm-manter"/> Cobrar este valor também nos próximos ciclos</label>
+        <div id="pgm-rest-wrap" style="display:none;margin-top:8px;padding:9px 10px;border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.08);border-radius:8px;font-size:12px;color:var(--text);">
+          <label style="cursor:pointer;display:flex;gap:6px;align-items:flex-start;"><input type="checkbox" id="pgm-rest" checked onchange="_pgmValorMudou(true)" style="margin-top:2px;"/> <span id="pgm-rest-txt"></span></label>
+          <div id="pgm-rest-data-wrap" style="margin-top:6px;display:flex;align-items:center;gap:8px;">Cobrar o restante em <input id="pgm-rest-data" class="input" type="date" value="${hoje}" style="max-width:160px;"/></div>
+        </div></div>
       <div class="form-group"><label class="label">Data do pagamento</label><input id="pgm-data" class="input" type="date" value="${hoje}"/></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-secondary btn-sm" onclick="miniTab('matriculas',${idatleta})">Cancelar</button>
@@ -1785,15 +1789,29 @@ function _pgmJurosMudou() {
 }
 function _pgmValorMudou(automatico) {
   const r = window._pgmRef || {}, m = _mAtual(r.idmens, r.idatleta);
-  const campo = document.getElementById('pgm-valor'), nota = document.getElementById('pgm-valor-nota'), manter = document.getElementById('pgm-manter-wrap');
+  const campo = document.getElementById('pgm-valor'), nota = document.getElementById('pgm-valor-nota'), manter = document.getElementById('pgm-manter-wrap'), restWrap = document.getElementById('pgm-rest-wrap');
   if (!m || !campo || !nota || !manter) return;
   if (automatico !== true) campo.dataset.sujo = '1';
   const j = Math.max(0, parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0);
   const c = API.calcularRecebimento(m, j, campo.value);
+  if (restWrap) restWrap.style.display = 'none';
   if (!c.ok) { nota.style.display = 'block'; nota.style.color = '#f87171'; nota.textContent = c.erro; manter.style.display = 'none'; return; }
   nota.style.color = 'var(--text-muted)';
   if (!c.diferente) { nota.style.display = 'none'; manter.style.display = 'none'; return; }
   nota.style.display = 'block';
+  // Parcela de plano parcelado paga a menos em Pix ou dinheiro: oferece manter o restante em aberto (regra em API.restanteDaBaixa)
+  const forma = document.getElementById('pgm-forma')?.value;
+  const rest = (forma === 'pix' || forma === 'dinheiro') ? API.restanteDaBaixa(m, c) : 0;
+  if (rest > 0 && restWrap) {
+    const marcado = !!document.getElementById('pgm-rest')?.checked;
+    restWrap.style.display = 'block';
+    document.getElementById('pgm-rest-txt').innerHTML = 'Manter o restante de <b>' + _pgmFmt(rest) + '</b> em aberto (dar baixa quando o aluno pagar)';
+    document.getElementById('pgm-rest-data-wrap').style.display = marcado ? 'flex' : 'none';
+    manter.style.display = 'none';
+    nota.innerHTML = 'Combinado: <b>' + _pgmFmt(c.padrao) + '</b>. Você está registrando <b>' + _pgmFmt(c.total) + '</b> (−' + _pgmFmt(Math.abs(c.diferenca)) + '). ' +
+      (marcado ? 'Esta parcela fica paga com ' + _pgmFmt(c.total) + ' e o restante vira uma cobrança em aberto.' : 'Sem manter o restante, o valor desta parcela passa a ser ' + _pgmFmt(c.vlpagarCiclo) + ' e a diferença não será mais cobrada.');
+    return;
+  }
   nota.innerHTML = 'Combinado: <b>' + _pgmFmt(c.padrao) + '</b>. Você está registrando <b>' + _pgmFmt(c.total) + '</b> (' + (c.diferenca > 0 ? '+' : '−') + _pgmFmt(Math.abs(c.diferenca)) + '). O valor desta cobrança passa a ser ' + _pgmFmt(c.vlpagarCiclo) + '; o próximo ciclo continua com ' + _pgmFmt(m.vlpagar) + ', a menos que você marque a opção abaixo.';
   manter.style.display = 'block';
 }
@@ -1801,6 +1819,7 @@ function _pgmForma() {
   const f = document.getElementById('pgm-forma')?.value;
   const n = document.getElementById('pgm-eduzz');
   if (n) n.style.display = f === 'eduzz' ? 'block' : 'none';
+  if (window._pgmRef) _pgmValorMudou(true);   // a oferta de manter o restante em aberto depende da forma (Pix ou dinheiro)
 }
 async function confirmarPagamentoMini(idmens, idatleta) {
   const m = _mAtual(idmens, idatleta); if (!m) return;
@@ -1812,14 +1831,24 @@ async function confirmarPagamentoMini(idmens, idatleta) {
   if (!calc.ok) { showToast(calc.erro, 'error'); return; }
   const total = calc.total, vlOriginal = parseFloat(m.vlpagar || 0);
   const manterValor = !!document.getElementById('pgm-manter')?.checked && calc.diferente;
+  // parcela paga a menos em Pix ou dinheiro: o restante fica em aberto numa linha nova (so se a caixa estiver marcada)
+  const restante = (forma === 'pix' || forma === 'dinheiro') && document.getElementById('pgm-rest')?.checked ? API.restanteDaBaixa(m, calc) : 0;
+  const cobrancaResto = document.getElementById('pgm-rest-data')?.value || '';
   try {
     if (juros > 0) m.vljuro = juros;
     await API.pagarMensalidade(m, data, total, calc.diferente ? { vlpagar: calc.vlpagarCiclo, vldesconto: calc.vldesconto } : null);
     if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); } catch (e) {} }
     m.forma_pgto = forma;
+    let avisoResto = '';
+    if (restante > 0) {
+      try {
+        await API.criarRestanteParcela(m, restante, { cobranca: cobrancaResto, forma: forma });
+        avisoResto = ' Restante de ' + _pgmFmt(restante) + ' mantido em aberto: dê baixa nele quando o aluno pagar.';
+      } catch (e) { showToast('Pagamento salvo, mas o restante não foi criado: ' + e.message + '. Crie a cobrança do restante manualmente.', 'error'); }
+    }
     const recKnown = String(m.recorrencia || '').toLowerCase() in _RECMESES_AL;
     const nv = await _gerarRenovacaoAl(m, { perguntar: !recKnown, vlpagar: manterValor ? calc.vlpagarCiclo : vlOriginal });
-    showToast('Pagamento registrado!' + (calc.diferente ? ' Valor recebido: ' + _pgmFmt(calc.total) + ' (combinado ' + _pgmFmt(calc.padrao) + ').' : '') + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
+    showToast('Pagamento registrado!' + avisoResto + (calc.diferente ? ' Valor recebido: ' + _pgmFmt(calc.total) + ' (combinado ' + _pgmFmt(calc.padrao) + ').' : '') + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
     try { mensalidades = await API.listarMensalidades(); } catch {}
     if (API.ehParcelada(m)) {
       const r = API.resumoParcelas(mensalidades.find(x => Number(x.idmensalidade) === Number(m.idmensalidade)) || m, mensalidades);

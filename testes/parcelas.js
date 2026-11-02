@@ -165,6 +165,54 @@ console.log('\n── Data de cada parcela ──');
   eq('parcela com data adiada ainda não vence antes dela', API.situacaoCobranca(L[1], L).estado, 'programada');
 }
 
+console.log('\n── Parcela paga a menos: restante fica em aberto ──');
+{
+  const API = carregar({ hoje: '2026-10-05' });
+  const L = linhas(API, base, []);                       // 3x de 200, nenhuma paga
+  const m = L[1];                                        // parcela 2/3
+  const c150 = API.calcularRecebimento(m, 0, '150');
+  eq('150 de 200: sobram 50 em aberto', API.restanteDaBaixa(m, c150), 50);
+  eq('valor igual ao combinado: nada em aberto', API.restanteDaBaixa(m, API.calcularRecebimento(m, 0, '200')), 0);
+  eq('valor MAIOR que o combinado: nada em aberto', API.restanteDaBaixa(m, API.calcularRecebimento(m, 0, '230')), 0);
+  const avulsa = { idmensalidade: 5, idatleta: 7, dshistorico: 'Mensal', dtinicio: '2026-10-01', dtvencimento: '2026-11-01', vlpagar: 200, stpgto: 'N' };
+  eq('plano que não é parcelado não usa isto', API.restanteDaBaixa(avulsa, API.calcularRecebimento(avulsa, 0, '150')), 0);
+  eq('com juros de 20: combinado 220, recebeu 190, restam 30', API.restanteDaBaixa(m, API.calcularRecebimento(m, 20, '190')), 30);
+
+  let criada = null;
+  API.criarMensalidade = async (corpo) => { criada = corpo; return { ok: true, idmensalidade: 999 }; };
+  API.criarRestanteParcela(m, 50, { cobranca: '2026-10-06', forma: 'pix' });
+  eq('restante: mesma parcela e mesma série', [criada.parcela_num, criada.parcela_total, criada.idmatricula_origem], [2, 3, 100]);
+  eq('restante: em aberto, sem desconto, valor certo', [criada.stpgto, criada.vlpagar, criada.vldesconto], ['N', 50, 0]);
+  eq('restante: cobrado na data combinada e vai até o fim da janela', [criada.dtinicio, criada.dtvencimento], ['2026-10-06', m.dtvencimento]);
+  eq('restante: nome marcado', criada.dshistorico, 'Trimestral Treino (2/3) · restante');
+  eq('restante: não gera ciclo sozinho', criada.recorrencia, null);
+  API.criarRestanteParcela(m, 10, { cobranca: '2027-03-01', forma: 'dinheiro' });
+  eq('data depois do fim da janela: janela ganha 1 dia', [criada.dtinicio, criada.dtvencimento], ['2027-03-01', '2027-03-02']);
+  API.criarRestanteParcela(Object.assign({}, m, { dshistorico: 'Trimestral Treino (2/3) · restante' }), 10, { cobranca: '2026-10-06' });
+  eq('restante do restante não repete a marca', criada.dshistorico, 'Trimestral Treino (2/3) · restante');
+
+  // série depois da baixa parcial: parcela 2 paga com 150 + restante de 50 aberto
+  const S = linhas(API, base, [1]);
+  S[1] = Object.assign({}, S[1], { stpgto: 'S', dtpagamento: '2026-11-02', vlpagar: 150, vlpagamento: 150 });
+  const R = { idmensalidade: 999, idatleta: 7, tipo_plano: 'Treino', stmatricula: 'ativa', forma_pgto: 'pix', idmatricula_origem: 100, parcela_num: 2, parcela_total: 3,
+    dshistorico: 'Trimestral Treino (2/3) · restante', dtinicio: '2026-11-03', dtvencimento: '2026-12-01', vlpagar: 50, vldesconto: 0, stpgto: 'N' };
+  const lista = [S[0], S[1], R, S[2]];
+  eq('reconhece a linha do restante', [API.ehRestante(R), API.ehRestante(S[1])], [true, false]);
+  eq('rótulo do restante', API.rotuloParcela(R), 'Parcela 2/3 (restante)');
+  eq('descrição base ignora a marca', API.descricaoBase(R), 'Trimestral Treino');
+  let rs = API.resumoParcelas(S[1], lista);
+  eq('resumo: parcela 2 ainda NÃO conta como paga (falta o restante)', [rs.pagas, rs.abertas, rs.valorRestante, rs.quitado], [1, 2, 250, false]);
+  eq('resumo: o que já entrou é contado', rs.valorPago, 350);
+  eq('resumo: o total do plano não muda', rs.valorTotal, 600);
+  const R2 = Object.assign({}, R, { stpgto: 'S', dtpagamento: '2026-11-04', vlpagamento: 50 });
+  rs = API.resumoParcelas(S[1], [S[0], S[1], R2, S[2]]);
+  eq('restante pago: parcela 2 passa a contar como paga uma vez só', [rs.pagas, rs.abertas, rs.valorRestante], [2, 1, 200]);
+  const ren = API.dadosRenovacaoParcelada(S[0], lista);
+  eq('renovação trata as duas linhas como UMA parcela de 200', [ren.parcelas, ren.valor, ren.valores], [3, 600, [200, 200]]);
+  const API2 = carregar({ hoje: '2026-11-10' });
+  eq('restante vencido (passou da tolerância) é dívida', API2.situacaoCobranca(R, lista).ehDivida, true);
+}
+
 console.log('\n── Não muda o que já funcionava ──');
 {
   const API = carregar({ hoje: '2026-10-05' });

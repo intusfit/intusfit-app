@@ -1884,10 +1884,44 @@ const API = {
   // Soma meses a uma data ISO, contando sempre a partir da data-base (sem acumular desvio de mes curto).
   _somarMeses: (iso, n) => API._recuarMeses(iso, -n),
 
-  // "Plano X (2/6)" → "Plano X"
-  descricaoBase: (m) => String((m && m.dshistorico) || 'Mensalidade').replace(/\s*\(\s*\d+\s*\/\s*\d+\s*\)\s*$/, '').trim() || 'Mensalidade',
+  // "Plano X (2/6)" → "Plano X"   ("Plano X (2/6) · restante" tambem)
+  descricaoBase: (m) => String((m && m.dshistorico) || 'Mensalidade').replace(/\s*·\s*restante\s*$/i, '').replace(/\s*\(\s*\d+\s*\/\s*\d+\s*\)\s*$/, '').trim() || 'Mensalidade',
 
-  rotuloParcela: (m) => API.ehParcelada(m) ? ('Parcela ' + (Number(m.parcela_num) || '?') + '/' + Number(m.parcela_total)) : '',
+  // Linha criada quando uma parcela foi paga a MENOS e o restante ficou em aberto (ver criarRestanteParcela).
+  ehRestante: (m) => API.ehParcelada(m) && /·\s*restante\s*$/i.test(String((m && m.dshistorico) || '')),
+
+  rotuloParcela: (m) => API.ehParcelada(m) ? ('Parcela ' + (Number(m.parcela_num) || '?') + '/' + Number(m.parcela_total) + (API.ehRestante(m) ? ' (restante)' : '')) : '',
+
+  // ── PARCELA PAGA A MENOS: MANTER O RESTANTE EM ABERTO ─────────────────────────────────────────────────────────────
+  // Sem isto, o valor recebido virava o valor da parcela e o que faltou sumia da conta (ou era empurrado para outro ciclo), e
+  // quando o aluno pagava o resto no dia seguinte nao havia onde dar baixa. Agora a linha paga fica com o que entrou e nasce uma
+  // linha NOVA da mesma parcela (mesmo parcela_num, mesma serie), em aberto, com o que faltou. A baixa dela e a baixa de sempre.
+  //   so vale para parcela de plano parcelado e para recebimento MENOR que o combinado (calc vem de calcularRecebimento).
+  //   devolve o valor que fica em aberto (0 = nao se aplica)
+  restanteDaBaixa: (m, calc) => {
+    if (!API.ehParcelada(m) || !calc || !calc.ok || !calc.diferente || !(calc.diferenca < 0)) return 0;
+    return Math.round((Number(calc.padrao) - Number(calc.total) + 1e-9) * 100) / 100;
+  },
+
+  // Cria a linha do restante. m = parcela que acabou de ser paga (com os dados de ANTES da baixa nao importa: so usa
+  // identificacao e datas), restante = restanteDaBaixa, o = { cobranca: 'AAAA-MM-DD' (quando o resto deve entrar), forma }.
+  criarRestanteParcela: async (m, restante, o) => {
+    o = o || {};
+    const hoje = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    const ini = /^\d{4}-\d{2}-\d{2}$/.test(String(o.cobranca || '')) ? o.cobranca : hoje;
+    let fim = String(m.dtvencimento || '').slice(0, 10);
+    if (!fim || fim <= ini) fim = API._deslocarDias(ini, 1);     // a janela precisa ter pelo menos 1 dia
+    const base = String(m.dshistorico || 'Mensalidade').replace(/\s*·\s*restante\s*$/i, '');
+    const corpo = {
+      idatleta: m.idatleta, nmathleta: m.nmathleta || '',
+      dshistorico: base + ' · restante', tipo_plano: m.tipo_plano || null,
+      dtinicio: ini, dtvencimento: fim, vlpagar: restante, vldesconto: 0, vljuro: 0, stpgto: 'N',
+      professor: m.professor || null, forma_pgto: o.forma || m.forma_pgto || null, recorrencia: null,
+      parcela_num: Number(m.parcela_num) || null, parcela_total: Number(m.parcela_total),
+      idmatricula_origem: Number(m.idmatricula_origem || m.idmensalidade),
+    };
+    return API.criarMensalidade(corpo);
+  },
 
   // Calcula as parcelas SEM gravar nada (a tela usa para mostrar a previa e para validar).
   //   o = { inicio:'AAAA-MM-DD', meses:P, parcelas:N, intervalo:1, valor:total, desconto:total, descricao }
@@ -2029,15 +2063,19 @@ const API = {
     if (!serie.length) return null;
     const liquido = (x) => +(parseFloat(x.vlpagar || 0) - parseFloat(x.vldesconto || 0)).toFixed(2);
     const validas = serie.filter(x => x.stmatricula !== 'cancelada');
-    const pagas = validas.filter(x => x.stpgto === 'S');
-    const abertas = validas.filter(x => x.stpgto !== 'S' && x.stmatricula !== 'encerrada');
+    // Parcela paga a menos tem DUAS linhas (a paga e o restante em aberto): conta uma vez, e so como paga quando nao resta nada dela.
+    const pagasL = validas.filter(x => x.stpgto === 'S');
+    const abertasL = validas.filter(x => x.stpgto !== 'S' && x.stmatricula !== 'encerrada');
+    const numsAbertos = new Set(abertasL.map(x => Number(x.parcela_num)));
+    const abertas = abertasL.filter((x, i) => abertasL.findIndex(y => Number(y.parcela_num) === Number(x.parcela_num)) === i);
+    const pagas = pagasL.filter((x, i) => !numsAbertos.has(Number(x.parcela_num)) && pagasL.findIndex(y => Number(y.parcela_num) === Number(x.parcela_num)) === i);
     const proximaLinha = abertas.slice().sort((a, b) => String(a.dtinicio || a.dtvencimento).localeCompare(String(b.dtinicio || b.dtvencimento)))[0] || null;
     return {
       total: Number(serie[0].parcela_total), pagas: pagas.length, abertas: abertas.length,
       valorTotal: +validas.reduce((s, x) => s + liquido(x), 0).toFixed(2),
-      valorPago: +pagas.reduce((s, x) => s + parseFloat(x.vlpagamento != null && x.vlpagamento !== '' ? x.vlpagamento : liquido(x)), 0).toFixed(2),
-      valorRestante: +abertas.reduce((s, x) => s + liquido(x), 0).toFixed(2),
-      quitado: abertas.length === 0 && pagas.length > 0,
+      valorPago: +pagasL.reduce((s, x) => s + parseFloat(x.vlpagamento != null && x.vlpagamento !== '' ? x.vlpagamento : liquido(x)), 0).toFixed(2),
+      valorRestante: +abertasL.reduce((s, x) => s + liquido(x), 0).toFixed(2),
+      quitado: abertasL.length === 0 && pagasL.length > 0,
       proxima: proximaLinha ? { idmensalidade: proximaLinha.idmensalidade, parcela: Number(proximaLinha.parcela_num), cobranca: API.dtCobranca(proximaLinha), valor: liquido(proximaLinha) } : null,
     };
   },
@@ -2049,8 +2087,18 @@ const API = {
 
   // Dados para renovar um plano parcelado: mesmo numero de parcelas, mesmo valor, comecando onde o anterior terminou.
   dadosRenovacaoParcelada: (m, lista) => {
-    const serie = API.serieParcelas(m, lista).filter(x => x.stmatricula !== 'cancelada');
-    if (!serie.length) return null;
+    const todas = API.serieParcelas(m, lista).filter(x => x.stmatricula !== 'cancelada');
+    if (!todas.length) return null;
+    // Parcela paga a menos tem duas linhas (a paga e o restante): para renovar, volta a ser UMA parcela com a soma das duas.
+    const serie = [];
+    todas.forEach(x => {
+      const igual = serie.find(y => Number(y.parcela_num) === Number(x.parcela_num));
+      if (!igual) { serie.push(Object.assign({}, x)); return; }
+      igual.vlpagar = parseFloat(igual.vlpagar || 0) + parseFloat(x.vlpagar || 0);
+      igual.vldesconto = parseFloat(igual.vldesconto || 0) + parseFloat(x.vldesconto || 0);
+      if (String(x.dtvencimento || '') > String(igual.dtvencimento || '')) igual.dtvencimento = x.dtvencimento;
+      if (x.dtinicio && String(x.dtinicio) < String(igual.dtinicio || '9999')) igual.dtinicio = x.dtinicio;
+    });
     const primeira = serie[0], ultima = serie[serie.length - 1];
     const ini = String(primeira.dtinicio || '').slice(0, 10), fim = String(ultima.dtvencimento || '').slice(0, 10);
     if (!ini || !fim) return null;
