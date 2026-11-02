@@ -44,6 +44,7 @@
 // Efeito ao subir: quem tiver login antigo guardado entra uma vez de novo.
 // Para voltar atras, troque false por true aqui e suba o arquivo.
 if (!defined('PERMITIR_TOKEN_LEGADO')) define('PERMITIR_TOKEN_LEGADO', false);
+require_once __DIR__ . '/_sessions.php';   // intusUsuarioInativo()
 
 function getAuthContext(PDO $pdo, string $tok): array {
     $ctx = ['idusuario' => 0, 'admin' => false, 'is_aluno' => false, 'nmusuario' => '', 'idatleta' => 0, 'token_legado' => false];
@@ -148,6 +149,11 @@ function getAuthContext(PDO $pdo, string $tok): array {
     if (!$row) {
         if (in_array($ctx['idusuario'], [1, 2])) $ctx['admin'] = true;
         return $ctx;
+    }
+
+    // Usuário inativado no painel: sem acesso, mesmo com a sessão ainda válida (id 0 = negado, como token desconhecido)
+    if (intusUsuarioInativo($pdo, $ctx['idusuario'])) {
+        return ['idusuario' => 0, 'admin' => false, 'is_aluno' => false, 'nmusuario' => '', 'idatleta' => 0, 'token_legado' => false];
     }
 
     if ($colNome) $ctx['nmusuario'] = $row[$colNome] ?? '';

@@ -108,6 +108,36 @@ function createSession(PDO $pdo, int $userId, string $type = 'prof', string $use
 }
 
 /**
+ * O usuário da equipe (professor, nutri, admin) foi inativado no painel? Confere a coluna de status
+ * (`stativo` ou `ativo`, 'N' ou 0) da tabela de usuários. Sem tabela, sem coluna, sem linha ou erro: false
+ * (não derruba ninguém por dúvida). A conta mestra (id 1) nunca conta como inativa: o painel também não deixa inativá-la.
+ * Sem isto a inativação só barrava o LOGIN, e quem já estava entrado seguia usando o painel até a sessão vencer (7 dias).
+ */
+function intusUsuarioInativo(PDO $pdo, int $idusuario): bool {
+    if ($idusuario <= 1) return false;
+    static $cache = [];
+    if (array_key_exists($idusuario, $cache)) return $cache[$idusuario];
+    $cache[$idusuario] = false;
+    try {
+        $tab = null;
+        foreach (['professor', 'usuario', 'usuarios', 'professores'] as $t) {
+            try { $pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $tab = $t; break; } catch (Throwable $e) {}
+        }
+        if (!$tab) return false;
+        $cols = array_column($pdo->query("SHOW COLUMNS FROM `$tab`")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+        $colId = null; foreach (['idusuario', 'idprofessor', 'id'] as $c) { if (in_array($c, $cols, true)) { $colId = $c; break; } }
+        $colAt = null; foreach (['stativo', 'ativo'] as $c) { if (in_array($c, $cols, true)) { $colAt = $c; break; } }
+        if (!$colId || !$colAt) return false;
+        $st = $pdo->prepare("SELECT `$colAt` FROM `$tab` WHERE `$colId` = ? LIMIT 1");
+        $st->execute([$idusuario]);
+        $v = $st->fetchColumn();
+        if ($v === false || $v === null) return false;
+        $cache[$idusuario] = ((string)$v === 'N' || (string)$v === '0');
+    } catch (Throwable $e) { /* na dúvida, não derruba */ }
+    return $cache[$idusuario];
+}
+
+/**
  * Valida um token server-side. Retorna dados da sessão ou null.
  * Tokens legacy (prof-*, aluno-*) passam direto com validação pelo formato.
  */
@@ -138,6 +168,9 @@ function validateSession(PDO $pdo, string $token): ?array {
     }
 
     if (!$row) return null;
+
+    // Equipe inativada no painel perde o acesso na hora, mesmo com sessão ainda válida
+    if ($row['user_type'] !== 'aluno' && intusUsuarioInativo($pdo, (int)$row['user_id'])) return null;
 
     // Atualizar last_used (e, para aluno, empurrar a validade: ver "MANTER CONECTADO" no topo do arquivo)
     try {

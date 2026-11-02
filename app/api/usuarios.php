@@ -625,6 +625,19 @@ try {
         }
         if ($col_ativo && array_key_exists('ativo', $body)) {
             $sets[] = "$col_ativo = ?"; $vals[] = inAtivo((bool)$body['ativo']);
+        } elseif (!$col_ativo && array_key_exists('ativo', $body) && !$body['ativo']) {
+            // A tabela não tinha coluna de status: o "Inativo" era aceito e ignorado em silêncio.
+            // Cria a coluna (autorizado pelo Luiz em 01/11/2026): todo usuário atual fica 'S' (ativo), nenhum dado é alterado.
+            try {
+                $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ativo` CHAR(1) NOT NULL DEFAULT 'S'");
+                $col_ativo = 'ativo';
+                $colmap['col_ativo'] = 'ativo';
+                $sets[] = "$col_ativo = ?"; $vals[] = inAtivo(false);
+            } catch (Throwable $e) {
+                http_response_code(500);
+                echo json_encode(['error' => 'nao foi possivel criar a coluna de status: nada foi inativado']);
+                exit;
+            }
         }
         if ($col_perms && (array_key_exists('permissoes', $body) || array_key_exists('admin', $body))) {
             $perms = $body['permissoes'] ?? null;
