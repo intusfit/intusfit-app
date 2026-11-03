@@ -122,6 +122,16 @@ console.log('\n── Pendências no painel inicial (API.postsIntus.pendentes) �
   eq('domingo 08/11: a semana nova (01 a 07/11) passa a faltar', pend([sem, mes], '2026-11-08'), ['semana:2026-11-01']);
   eq('1º de dezembro: o mês de novembro passa a faltar', pend([sem, mes], '2026-12-01').filter(x => x.startsWith('mes')), ['mes:2026-11-01']);
   eq('tamanhos: Top 5 e Top 10', API.postsIntus.pendentes([]).map(p => p.n), [5, 10]);
+  // "Marcar como lido": some só o período marcado e volta quando fecha o seguinte
+  const chave = (hoje) => API.postsIntus.chavePendente((hoje ? carregar({ hoje }) : API).postsIntus.pendentes([])[0]);
+  const comLidos = (posts, lidos, hoje) => (hoje ? carregar({ hoje }) : API).postsIntus.pendentes(posts, undefined, lidos).map(p => p.tipo + ':' + p.periodo.ini);
+  eq('chave do aviso é tipo:início do período', chave(), 'semana:2026-10-25');
+  eq('semana marcada como lida: sobra só o mês', comLidos([], ['semana:2026-10-25']), ['mes:2026-10-01']);
+  eq('os dois lidos: nada em destaque', comLidos([], ['semana:2026-10-25', 'mes:2026-10-01']), []);
+  eq('lido de outra semana não esconde a última', comLidos([], ['semana:2026-10-18']), ['semana:2026-10-25', 'mes:2026-10-01']);
+  eq('lista de lidos inválida é ignorada', comLidos([], null), ['semana:2026-10-25', 'mes:2026-10-01']);
+  eq('semana lida volta quando fecha a semana seguinte', (() => { const h = carregar({ hoje: '2026-11-08' }); return h.postsIntus.pendentes([], undefined, ['semana:2026-10-25']).map(p => p.tipo + ':' + p.periodo.ini); })(), ['semana:2026-11-01', 'mes:2026-10-01']);
+  eq('mês lido volta quando fecha o mês seguinte', (() => { const h = carregar({ hoje: '2026-12-01' }); return h.postsIntus.pendentes([], undefined, ['mes:2026-10-01']).filter(p => p.tipo === 'mes').map(p => p.periodo.ini); })(), ['2026-11-01']);
 }
 
 console.log('\n' + (ruim ? ruim + ' FALHA(S), ' + ok + ' ok.' : 'Tudo certo: ' + ok + ' conferências.'));

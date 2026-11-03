@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Início — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261103b"></script>
+  <script src="api.js?v=20261103c"></script>
   <style>
     .checklist-card { padding: 16px; }
     .checklist-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -76,6 +76,10 @@
     .rk-pend-tit { font-size: 15px; font-weight: 800; color: var(--text); }
     .rk-pend-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
     .rk-pend-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+    .rk-pend-item { flex: 1 1 240px; display: flex; flex-direction: column; gap: 6px; }
+    .rk-pend-item .rk-pend-btn { flex: 0 0 auto; }
+    .rk-pend-lido { align-self: flex-end; background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .rk-pend-lido:hover { color: var(--text); border-color: var(--text-muted); }
     .rk-pend-btn { flex: 1 1 240px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 10px; text-decoration: none; background: var(--brand, #7FFF00); color: #0f0f0f; font-weight: 800; font-size: 14px; }
     .rk-pend-btn small { display: block; font-weight: 600; font-size: 11.5px; opacity: .8; margin-top: 2px; }
     .rk-pend-btn:hover { filter: brightness(1.08); }
@@ -1115,10 +1119,13 @@ function render() {
         </div>
         <div class="rk-pend-btns">
           ${window._intusPend.map(p => `
-          <a class="rk-pend-btn" href="feed.html?top=${p.tipo}">
-            <span>${p.tipo === 'semana' ? '🥇 Publicar Top 5 da semana' : '🏆 Publicar Top 10 do mês'}<small>${esc(p.periodo.rotulo)}</small></span>
-            <span>›</span>
-          </a>`).join('')}
+          <div class="rk-pend-item">
+            <a class="rk-pend-btn" href="feed.html?top=${p.tipo}">
+              <span>${p.tipo === 'semana' ? '🥇 Publicar Top 5 da semana' : '🏆 Publicar Top 10 do mês'}<small>${esc(p.periodo.rotulo)}</small></span>
+              <span>›</span>
+            </a>
+            <button type="button" class="rk-pend-lido" onclick="marcarPendenteLido('${p.tipo}')" title="Esconde este aviso até fechar ${p.tipo === 'semana' ? 'a próxima semana' : 'o próximo mês'}">✓ Marcar como lido</button>
+          </div>`).join('')}
         </div>
       </div>` : ''}
 
@@ -1376,9 +1383,26 @@ async function preFetchBackend() {
   // Ranking da Intus (Top 5 da semana / Top 10 do mês) ainda não publicado no Feed: só o administrador publica
   try {
     if (isAdmin() && typeof API !== 'undefined' && API.postsIntus) {
-      window._intusPend = API.postsIntus.pendentes(await API.postsIntus.listar());
+      window._intusPendTodas = await API.postsIntus.listar();
+      window._intusPend = API.postsIntus.pendentes(window._intusPendTodas, undefined, pendentesLidos());
     } else window._intusPend = [];
   } catch (e) { window._intusPend = []; /* sem lista confiável, não acusa pendência */ }
+}
+
+// "Marcar como lido" do aviso de ranking pendente: guarda "tipo:início do período" neste navegador. A regra de qual período vale e de quando o
+// aviso volta (outro período, outra chave) está em API.postsIntus.pendentes.
+function pendentesLidos() {
+  try { const l = JSON.parse(localStorage.getItem('intus-pend-lidos') || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; }
+}
+function marcarPendenteLido(tipo) {
+  const p = (window._intusPend || []).find(x => x.tipo === tipo);
+  if (!p) return;
+  const lidos = pendentesLidos();
+  lidos.push(API.postsIntus.chavePendente(p));
+  try { localStorage.setItem('intus-pend-lidos', JSON.stringify(lidos.slice(-20))); } catch (e) {}
+  window._intusPend = API.postsIntus.pendentes(window._intusPendTodas || [], undefined, lidos);
+  if (typeof toast === 'function') toast('Aviso marcado como lido. Volta quando fechar ' + (tipo === 'semana' ? 'a próxima semana.' : 'o próximo mês.'));
+  render();
 }
 
 (async () => {

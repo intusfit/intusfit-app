@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261103b"></script>
+  <script src="api.js?v=20261103c"></script>
   <script src="ajuda.js?v=20261027a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -2873,6 +2873,8 @@ var _comentarioRespondendoA = {}; // idpost -> {id, nome} do comentário que o c
 
 async function carregarReacoesFeed(ids) {
   if (!ids || !ids.length) return;
+  const daIntus = ids.filter(i => Number(i) < 0).map(i => -Number(i));   // chave negativa = post da Intus (ver _alvoComentarioFeed)
+  if (daIntus.length) { await carregarReacoesIntus(daIntus); ids = ids.filter(i => Number(i) > 0); if (!ids.length) return; }
   try {
     const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=feed_post&ids=' + ids.join(',') + '&_=' + Date.now(),
       { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
@@ -2913,7 +2915,8 @@ async function reagirPost(idpost, emoji) {
   _reacoesFeed[k] = lista;
   _rxRedesenhar(idpost);
   try {
-    const corpo = { alvo_tipo: 'feed_post', alvo_id: Number(idpost) };
+    const alvo = _alvoComentarioFeed(idpost);   // post de aluno (feed_post) ou da Intus (intus_post, chave negativa)
+    const corpo = { alvo_tipo: alvo.tipo, alvo_id: alvo.id };
     if (emoji) { corpo.emoji = emoji; corpo.definir = true; } else { corpo.emoji = '❤️'; corpo.remover = true; }
     const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
       method: 'POST',
@@ -3117,6 +3120,88 @@ const _EMOJI_CATS = [
   ['❤️', 'Símbolos', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💤 ✅ ❌ ❗ ❓ ⚠️ ♻️ ➕ ➖ ✔️ ➡️ ⬆️ ⬇️ ⬅️ 🔝 🔜 🆗 🆒 🆕 🆓 🔥 ⭐ 🌟 ✨ ⚡ 💲 ♾️ ™️ ©️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🔶 🔷'],
   ['🚩', 'Bandeiras', '🇧🇷 🏁 🚩 🏴 🏳️ 🇺🇸 🇵🇹 🇪🇸 🇦🇷 🇨🇱 🇺🇾 🇵🇾 🇨🇴 🇲🇽 🇫🇷 🇮🇹 🇩🇪 🇬🇧 🇳🇱 🇯🇵 🇰🇷 🇨🇳 🇨🇦 🇦🇺'],
 ];
+// Palavras de busca (português, sem acento) de cada emoji: "emoji palavra palavra ...", uma linha por grupo de emojis. Além delas, o nome da
+// categoria também vale na busca ("comida", "animal", "esporte"...). Emoji sem linha aqui só aparece pela categoria.
+const _EMOJI_PALAVRAS_TXT = [
+  '😀 sorriso feliz alegre riso contente', '😃 sorriso feliz alegre animado', '😄 sorriso feliz rindo alegre', '😁 sorriso dentes feliz animado', '😆 rindo gargalhada feliz', '😅 suor alivio riso nervoso',
+  '😂 chorando de rir gargalhada engracado kkk lol', '🤣 rolando de rir gargalhada engracado kkk', '🥲 emocionado sorriso lagrima orgulhoso', '😊 sorriso fofo feliz timido', '😇 anjo santo inocente', '🙂 sorriso leve simples',
+  '🙃 de cabeca para baixo ironia brincadeira', '😉 piscadinha pisca flerte', '😌 aliviado tranquilo calmo paz', '😍 apaixonado olhos de coracao amei lindo', '🥰 apaixonado carinho amor coracoes', '😘 beijo beijinho amor',
+  '😗 beijo assobio', '😙 beijo sorriso', '😚 beijo olhos fechados', '😋 gostoso saboroso delicia lingua', '😛 lingua brincadeira', '😝 lingua olhos fechados careta', '😜 lingua piscadinha careta louco', '🤪 maluco doido louco',
+  '🤨 desconfiado sobrancelha duvida', '🧐 monoculo analisando curioso', '🤓 nerd estudioso oculos', '😎 oculos escuros legal estiloso maneiro', '🥸 disfarce bigode', '🤩 estrelas deslumbrado uau incrivel',
+  '🥳 festa comemorar parabens aniversario', '😏 sorriso malicioso convencido', '😒 desanimado tedio sem graca', '😞 triste decepcionado', '😔 triste pensativo', '😟 preocupado', '😕 confuso', '🙁 triste chateado',
+  '😣 aguentando persistir esforco', '😖 aflito confuso', '😫 cansado exausto', '😩 exausto cansado esgotado', '🥺 pidao suplica fofo carente', '😢 chorando triste lagrima', '😭 chorando muito choro soluco', '😤 determinado bufando raiva foco',
+  '😠 bravo raiva', '😡 furioso raiva vermelho', '🤬 palavrao xingando raiva', '🤯 mente explodindo chocado surpreso', '😳 envergonhado vergonha', '🥵 calor quente suando', '🥶 frio congelando gelado', '😱 grito assustado susto medo',
+  '😨 medo assustado', '😰 ansioso suor frio', '😥 triste aliviado', '😓 suor cansaco', '🤗 abraco carinho', '🤔 pensando duvida hmm', '🤭 risadinha segredo', '🤫 silencio segredo psiu', '🤥 mentiroso mentira',
+  '😶 sem boca calado', '😐 neutro sem graca', '😑 inexpressivo', '😬 constrangido tenso', '🙄 revirando os olhos impaciencia', '😯 surpreso', '😦 chocado', '😧 angustiado', '😮 surpreso uau boca aberta', '😲 espantado chocado',
+  '🥱 bocejo sono tedio', '😴 dormindo sono', '🤤 babando vontade', '😪 sonolento', '😵 tonto zonzo', '🤐 boca fechada segredo', '🥴 tonto bebado', '🤢 enjoado nausea', '🤮 vomitando', '🤧 espirro gripe resfriado',
+  '😷 mascara doente', '🤒 febre doente', '🤕 machucado curativo lesao', '🤑 dinheiro rico', '🤠 cowboy vaqueiro', '😈 diabinho travesso', '👿 diabo bravo', '👻 fantasma', '💀 caveira morto', '👽 alien extraterrestre',
+  '🤖 robo', '💩 coco cocô', '😺 gato sorrindo', '😸 gato rindo', '😹 gato rindo lagrimas', '😻 gato apaixonado', '😼 gato malicioso', '😽 gato beijo', '🙀 gato assustado', '😿 gato chorando', '😾 gato bravo',
+  '👍 joia positivo curtir legal ok bom', '👎 negativo nao curti ruim', '👌 ok perfeito beleza', '🤌 italiano pinca', '🤏 pouquinho pequeno', '✌️ paz vitoria dois', '🤞 dedos cruzados sorte', '🤟 te amo rock', '🤘 rock metal',
+  '🤙 ligue me hang loose', '👈 esquerda apontando', '👉 direita apontando', '👆 cima apontando', '👇 baixo apontando', '☝️ um dedo cima', '✋ mao parar', '🤚 mao', '🖖 vulcano spock', '👋 tchau ola acenando oi',
+  '🤝 aperto de mao acordo parceria parceiro', '🙏 obrigado por favor rezar gratidao agradecimento', '👏 palmas aplausos parabens', '🙌 maos para cima comemorar celebrar', '👐 maos abertas', '🤲 maos juntas',
+  '💪 forca musculo bracos bicep treino forte', '🦾 braco robotico forca mecanico', '🦵 perna', '🦶 pe', '✍️ escrevendo escrever', '👀 olhos olhando ver', '🧠 cerebro mente inteligente', '🫀 coracao orgao',
+  '👶 bebe', '🧒 crianca', '👦 menino', '👧 menina', '🧑 pessoa', '👨 homem', '👩 mulher', '🧓 idoso', '👴 idoso avo', '👵 idosa avo', '🧔 barba barbudo', '🙋 levantando a mao', '🤷 sei la duvida ombros', '🤦 facepalm vergonha alheia',
+  '🙆 ok braços', '🙅 nao proibido', '💁 recepcionista', '🙇 reverencia respeito',
+  '🐶 cachorro cao', '🐱 gato', '🐭 rato', '🐹 hamster', '🐰 coelho', '🦊 raposa', '🐻 urso', '🐼 panda', '🐨 coala', '🐯 tigre', '🦁 leao', '🐮 vaca', '🐷 porco', '🐸 sapo', '🐵 macaco', '🙈 macaco nao vejo', '🙉 macaco nao ouço',
+  '🙊 macaco nao falo', '🐔 galinha', '🐧 pinguim', '🐦 passaro', '🦅 aguia', '🦉 coruja', '🦇 morcego', '🐺 lobo', '🐗 javali', '🐴 cavalo', '🦄 unicornio', '🐝 abelha', '🐛 lagarta', '🦋 borboleta', '🐌 caracol', '🐞 joaninha',
+  '🐜 formiga', '🐢 tartaruga', '🐍 cobra', '🦎 lagarto', '🐙 polvo', '🦑 lula', '🦐 camarao', '🦀 caranguejo', '🐠 peixe', '🐟 peixe', '🐬 golfinho', '🐳 baleia', '🦈 tubarao', '🐊 jacare', '🐅 tigre', '🦓 zebra', '🦍 gorila',
+  '🐘 elefante', '🦒 girafa', '🐪 camelo', '🐕 cachorro cao', '🐈 gato', '🌵 cacto deserto', '🌴 palmeira coqueiro', '🌳 arvore', '🌲 pinheiro arvore', '🌱 broto planta', '🌿 folha planta erva', '☘️ trevo', '🍀 trevo sorte',
+  '🍁 folha outono', '🍂 folhas outono', '🌸 flor cerejeira', '🌹 rosa flor', '🌺 hibisco flor', '🌻 girassol flor', '🌼 flor margarida', '🌷 tulipa flor', '💐 buque flores', '🍄 cogumelo', '🌾 espiga trigo', '🔥 fogo chama pegando fogo quente',
+  '💧 gota agua suor', '🌊 onda mar agua', '⭐ estrela', '🌟 estrela brilhante', '✨ brilho brilhos magico', '⚡ raio energia relampago', '☀️ sol', '🌤️ sol nuvem', '⛅ sol nuvem', '☁️ nuvem', '🌧️ chuva', '⛈️ tempestade trovoada',
+  '❄️ neve gelo frio', '🌈 arco iris', '🌙 lua noite', '🌎 mundo terra planeta',
+  '🍎 maca fruta', '🍏 maca verde fruta', '🍐 pera fruta', '🍊 laranja fruta', '🍋 limao fruta', '🍌 banana fruta', '🍉 melancia fruta', '🍇 uva fruta', '🍓 morango fruta', '🫐 mirtilo fruta', '🍒 cereja fruta', '🍑 pessego fruta',
+  '🥭 manga fruta', '🍍 abacaxi fruta', '🥥 coco', '🥝 kiwi fruta', '🍅 tomate', '🥑 abacate', '🥦 brocolis', '🥬 verdura alface couve', '🥒 pepino', '🌽 milho', '🥕 cenoura', '🥔 batata', '🍠 batata doce', '🧄 alho', '🧅 cebola',
+  '🥐 croissant', '🍞 pao', '🥖 baguete pao', '🥨 pretzel', '🧀 queijo', '🥚 ovo', '🍳 ovo frito cafe da manha', '🥞 panqueca', '🧇 waffle', '🥓 bacon', '🥩 carne bife', '🍗 frango coxa', '🍖 carne', '🌭 cachorro quente', '🍔 hamburguer lanche',
+  '🍟 batata frita', '🍕 pizza', '🌮 taco', '🌯 burrito', '🥙 sanduiche', '🥗 salada', '🍝 macarrao massa', '🍜 lamen', '🍲 sopa panela', '🍣 sushi', '🍱 marmita', '🍚 arroz', '🍙 onigiri arroz', '🍤 camarao frito', '🍦 sorvete',
+  '🍩 rosquinha donut', '🍪 biscoito bolacha', '🎂 bolo aniversario', '🍰 bolo fatia', '🧁 cupcake', '🍫 chocolate', '🍬 bala doce', '🍭 pirulito', '🍯 mel', '🥛 leite', '☕ cafe', '🍵 cha', '🧃 suco', '🥤 refrigerante copo', '🍺 cerveja',
+  '🍻 cerveja brinde', '🍷 vinho', '🥂 brinde champanhe', '🍸 drink coquetel', '🍹 drink tropical',
+  '⚽ futebol bola', '🏀 basquete bola', '🏈 futebol americano', '⚾ beisebol', '🎾 tenis', '🏐 volei', '🏉 rugby', '🎱 sinuca bilhar', '🏓 ping pong', '🏸 badminton', '🏒 hoquei', '⛳ golfe', '🏹 arco e flecha', '🎣 pesca',
+  '🥊 luva boxe luta', '🥋 judo karate kimono luta', '🛹 skate', '🛼 patins', '🏂 snowboard', '⛷️ esqui', '🏋️ musculacao treino academia levantamento peso', '🤸 ginastica acrobacia', '🤾 handebol', '🚴 ciclismo bicicleta bike', '🚵 mountain bike',
+  '🏃 corrida correndo corredor', '🚶 caminhada andando', '🧘 yoga meditacao alongamento', '🏊 natacao nadando', '🤽 polo aquatico', '🚣 remo', '🧗 escalada', '⛹️ basquete', '🏌️ golfe', '🏄 surf', '🤺 esgrima', '🥅 gol',
+  '🎯 alvo meta objetivo foco na mosca', '🎽 camiseta corrida', '🏆 trofeu campeao vitoria', '🥇 medalha ouro primeiro lugar', '🥈 medalha prata segundo lugar', '🥉 medalha bronze terceiro lugar', '🏅 medalha', '🎖️ medalha militar',
+  '🎗️ fita laco', '🎉 festa comemorar parabens', '🎊 confete festa', '🎈 balao festa', '🎁 presente', '🎮 videogame', '🎲 dado jogo', '🎵 musica nota', '🎶 musica notas', '🎤 microfone cantar', '🎧 fone musica', '🎸 guitarra',
+  '🥁 bateria tambor', '🎬 cinema filme', '🎨 arte pintura',
+  '🚗 carro', '🚕 taxi', '🚌 onibus', '🚎 onibus', '🏎️ carro corrida', '🚓 policia', '🚑 ambulancia', '🚒 bombeiro', '🚲 bicicleta bike', '🛵 moto scooter', '🏍️ moto', '🚂 trem', '✈️ aviao viagem', '🚀 foguete rapido',
+  '🛸 disco voador', '⛵ barco veleiro', '🚤 lancha', '🚢 navio', '🏠 casa', '🏡 casa', '🏢 predio', '🏥 hospital', '🏫 escola', '🏖️ praia', '🏝️ ilha', '🏔️ montanha', '⛰️ montanha', '🌋 vulcao', '🗻 monte fuji montanha',
+  '🏕️ acampamento camping', '🌅 nascer do sol amanhecer', '🌄 nascer do sol', '🌇 por do sol', '🌃 noite cidade', '🌉 ponte', '🎡 roda gigante', '🎢 montanha russa', '🗺️ mapa', '🧭 bussola', '📍 local pino', '⛽ posto gasolina',
+  '🚦 semaforo', '🛣️ estrada', '🌍 mundo terra', '🌏 mundo terra',
+  '📱 celular telefone', '💻 notebook computador', '🖥️ computador', '⌚ relogio', '📷 camera foto', '📸 foto camera flash', '🎥 camera filmadora', '📺 televisao', '📻 radio', '🔋 bateria', '💡 ideia lampada', '🔦 lanterna',
+  '📚 livros estudo', '📖 livro', '✏️ lapis', '📝 anotacao escrever', '📌 alfinete fixado', '📎 clipe', '✂️ tesoura', '🔑 chave', '🔒 cadeado trancado', '🔔 sino notificacao', '🔕 sino mudo', '💬 conversa mensagem balao', '💭 pensamento',
+  '🧴 creme frasco', '🧼 sabao', '🧽 esponja', '🧹 vassoura', '🛏️ cama dormir', '🛒 carrinho compras', '💰 dinheiro saco', '💳 cartao credito', '💎 diamante joia', '⚖️ balanca equilibrio', '🔧 ferramenta chave inglesa', '🔨 martelo',
+  '⚙️ engrenagem configuracao', '🧲 ima', '🔬 microscopio ciencia', '🔭 telescopio', '💊 remedio comprimido', '💉 injecao seringa vacina', '🩺 estetoscopio medico', '🩹 curativo band aid', '🩸 sangue gota', '🧬 dna',
+  '🎓 formatura', '👑 coroa rei rainha', '👟 tenis sapato corrida', '👕 camiseta', '👖 calca jeans', '🧢 bone', '🕶️ oculos de sol', '🎒 mochila',
+  '❤️ coracao vermelho amor', '🧡 coracao laranja', '💛 coracao amarelo', '💚 coracao verde', '💙 coracao azul', '💜 coracao roxo', '🖤 coracao preto', '🤍 coracao branco', '🤎 coracao marrom', '💔 coracao partido', '❣️ coracao exclamacao',
+  '💕 dois coracoes amor', '💞 coracoes girando', '💓 coracao batendo', '💗 coracao crescendo', '💖 coracao brilhante', '💘 coracao flecha cupido', '💝 coracao presente laco', '💯 cem nota maxima perfeito', '💢 raiva', '💥 explosao boom impacto',
+  '💫 tontura estrela', '💦 gotas suor agua', '💨 correndo vento rapido', '💤 sono zzz', '✅ certo feito concluido ok check', '❌ errado x nao', '❗ exclamacao atencao', '❓ interrogacao pergunta', '⚠️ aviso atencao cuidado', '♻️ reciclar',
+  '➕ mais', '➖ menos', '✔️ certo check', '➡️ seta direita', '⬆️ seta cima', '⬇️ seta baixo', '⬅️ seta esquerda', '🔝 topo', '🔜 em breve', '🆗 ok', '🆒 legal cool', '🆕 novo', '🆓 gratis free', '💲 dinheiro cifrao',
+  '♾️ infinito', '™️ marca', '©️ direitos', '🔴 circulo vermelho', '🟠 circulo laranja', '🟡 circulo amarelo', '🟢 circulo verde', '🔵 circulo azul', '🟣 circulo roxo', '⚫ circulo preto', '⚪ circulo branco', '🔶 losango laranja', '🔷 losango azul',
+  '🇧🇷 brasil bandeira', '🏁 chegada corrida bandeira quadriculada', '🚩 bandeira vermelha', '🏴 bandeira preta', '🏳️ bandeira branca', '🇺🇸 estados unidos eua bandeira', '🇵🇹 portugal bandeira', '🇪🇸 espanha bandeira', '🇦🇷 argentina bandeira',
+  '🇨🇱 chile bandeira', '🇺🇾 uruguai bandeira', '🇵🇾 paraguai bandeira', '🇨🇴 colombia bandeira', '🇲🇽 mexico bandeira', '🇫🇷 franca bandeira', '🇮🇹 italia bandeira', '🇩🇪 alemanha bandeira', '🇬🇧 reino unido inglaterra bandeira',
+  '🇳🇱 holanda bandeira', '🇯🇵 japao bandeira', '🇰🇷 coreia bandeira', '🇨🇳 china bandeira', '🇨🇦 canada bandeira', '🇦🇺 australia bandeira',
+];
+const _EMOJI_PALAVRAS = (function () {
+  const m = {};
+  _EMOJI_PALAVRAS_TXT.forEach(function (l) { const i = l.indexOf(' '); if (i > 0) m[l.slice(0, i).replace(/️/g, '')] = l.slice(i + 1); });
+  return m;
+})();
+function _emojiNorm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+// Busca: cada palavra digitada tem de ser o começo de alguma palavra do emoji (ou do nome da categoria). Digitar o próprio emoji também acha.
+function _emojiBuscar(q) {
+  const termos = _emojiNorm(q).split(/\s+/).filter(Boolean);
+  if (!termos.length) return [];
+  const bruto = String(q || '').replace(/️/g, '').trim();
+  const achados = [], vistos = {};
+  _EMOJI_CATS.forEach(function (c) {
+    const cat = _emojiNorm(c[1]).split(/\s+/);
+    c[2].split(' ').filter(Boolean).forEach(function (e) {
+      if (vistos[e]) return;
+      const chave = e.replace(/️/g, '');
+      const palavras = _emojiNorm(_EMOJI_PALAVRAS[chave] || '').split(/\s+/).filter(Boolean).concat(cat);
+      if (chave === bruto || termos.every(function (t) { return palavras.some(function (w) { return w.indexOf(t) === 0; }); })) { vistos[e] = 1; achados.push(e); }
+    });
+  });
+  return achados;
+}
 const _EMOJI_POR_PAGINA = 42;   // 7 colunas x 6 linhas
 function _emojiRecentes() { try { const r = JSON.parse(localStorage.getItem('intus-emoji-recentes') || '[]'); return Array.isArray(r) ? r.slice(0, 28) : []; } catch (e) { return []; } }
 function _emojiLembrar(e) { try { const r = [e].concat(_emojiRecentes().filter(x => x !== e)).slice(0, 28); localStorage.setItem('intus-emoji-recentes', JSON.stringify(r)); } catch (err) {} }
@@ -3132,7 +3217,10 @@ function abrirSeletorEmoji(onPick, titulo) {
   const paginas = _emojiPaginas.map(p => '<div style="flex:0 0 100%;width:100%;height:100%;scroll-snap-align:start;scroll-snap-stop:always;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(6,1fr);">' +
     p.emojis.map(e => '<button type="button" data-e="' + e + '" onclick="_emojiEscolhido(this.getAttribute(\'data-e\'))" style="border:none;border-radius:10px;background:transparent;font-size:26px;line-height:1;cursor:pointer;padding:0;">' + e + '</button>').join('') + '</div>').join('');
   const abas = _emojiCats.map((c, i) => '<button type="button" id="ej-aba-' + i + '" onclick="_emojiIrCat(' + i + ')" title="' + c[1] + '" aria-label="' + c[1] + '" style="flex:1;min-width:34px;padding:7px 0;border:none;border-radius:10px;background:transparent;font-size:19px;cursor:pointer;filter:grayscale(.85);opacity:.7;">' + c[0] + '</button>').join('');
-  const corpo = '<div id="ej-nome" style="flex-shrink:0;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.05em;padding:2px 4px 4px;"></div>' +
+  const corpo = '<input id="ej-busca" type="search" placeholder="🔎 Buscar emoji (fogo, coração, riso...)" autocomplete="off" autocapitalize="off" oninput="_emojiBusca(this.value)" ' +
+      'style="flex-shrink:0;width:100%;box-sizing:border-box;margin:0 0 6px;padding:9px 14px;border-radius:12px;font-size:16px;font-family:inherit;border:1px solid ' + (isLight ? '#ddd' : '#333') + ';background:' + (isLight ? '#f4f4f4' : '#1d1d1d') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';outline:none;"/>' +
+    '<div id="ej-res" style="display:none;flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;"></div>' +
+    '<div id="ej-nome" style="flex-shrink:0;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.05em;padding:2px 4px 4px;"></div>' +
     '<div id="ej-pager" style="flex:1;min-height:0;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;">' + paginas + '</div>' +
     '<div id="ej-abas" style="flex-shrink:0;display:flex;gap:2px;padding-top:6px;border-top:1px solid ' + (isLight ? '#eee' : '#262626') + ';overflow-x:auto;scrollbar-width:none;">' + abas + '</div>';
   _comSheet('emoji-sheet', titulo || 'Escolha uma reação', corpo, 100400);
@@ -3145,6 +3233,18 @@ function abrirSeletorEmoji(onPick, titulo) {
     const pg = document.getElementById('ej-pager'); if (pg) pg.addEventListener('scroll', _emojiAoRolar, { passive: true });
   }
   _emojiMarcar(0);
+}
+// Com texto na busca, mostra só os resultados (uma grade que rola); vazio volta às categorias.
+function _emojiBusca(q) {
+  const res = document.getElementById('ej-res'); if (!res) return;
+  const buscando = String(q || '').trim() !== '';
+  ['ej-nome', 'ej-pager', 'ej-abas'].forEach(function (id) { const el = document.getElementById(id); if (el) el.style.display = buscando ? 'none' : (id === 'ej-pager' || id === 'ej-abas' ? 'flex' : 'block'); });
+  res.style.display = buscando ? 'block' : 'none';
+  if (!buscando) { res.innerHTML = ''; return; }
+  const lista = _emojiBuscar(q);
+  res.innerHTML = lista.length
+    ? '<div style="display:grid;grid-template-columns:repeat(7,1fr);">' + lista.map(function (e) { return '<button type="button" data-e="' + e + '" onclick="_emojiEscolhido(this.getAttribute(\'data-e\'))" style="border:none;border-radius:10px;background:transparent;font-size:26px;line-height:1;cursor:pointer;padding:9px 0;">' + e + '</button>'; }).join('') + '</div>'
+    : '<div style="text-align:center;padding:26px 10px;font-size:13px;color:#888;">Nenhum emoji encontrado para "' + esc(String(q).trim()) + '".</div>';
 }
 function _emojiMarcar(ci) {
   const isLight = document.body.classList.contains('tema-claro');
@@ -3454,9 +3554,18 @@ function _tempoRelativoFeed(dt) {
   return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
+// Nome para listas e cartões: primeiro nome e primeiro sobrenome, sem parar numa partícula ("Rosangela de Souza", não "Rosangela de").
+function _nomeCurto(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  if (partes.length <= 1) return partes[0] || '';
+  const particula = /^(d[aeo]s?|di|du|e|del|della|van|von)$/i;
+  let i = 1;
+  while (i < partes.length - 1 && particula.test(partes[i])) i++;
+  return partes.slice(0, i + 1).join(' ');
+}
 function _iniciaisNomeFeed(nome) {
-  const partes = String(nome || '?').trim().split(/\s+/);
-  return ((partes[0]?.[0] || '') + (partes[1]?.[0] || '')).toUpperCase() || '?';
+  const partes = _nomeCurto(nome || '?').split(/\s+/);
+  return ((partes[0]?.[0] || '') + (partes[partes.length - 1]?.[0] || '')).toUpperCase() || '?';
 }
 
 // Busca os posts no servidor. idatletaFiltro: só os posts de uma pessoa (usado
@@ -3495,10 +3604,11 @@ async function carregarFeedPosts(limite, idatletaFiltro, antesDe, rapido) {
 
 // ═══════════════ POSTS DA INTUS (oficiais, no topo do Feed) ═══════════════
 // Feitos pela equipe no painel (Feed > Posts da Intus): Top 5 da semana, Top 10 do mês, campanhas, promoções e avisos. Vêm no campo `intus` de
-// feed_posts (primeira página do Feed geral). O ranking é a foto do placar fechado, então não muda depois de publicado. Reação: só o ❤️,
+// feed_posts (primeira página do Feed geral). O ranking é a foto do placar fechado, então não muda depois de publicado. Reação: qualquer emoji,
 // na tabela de reações de sempre com alvo_tipo 'intus_post'.
 var _feedIntus = [];
-var _reacoesIntus = {};   // idpost -> [{emoji, autor_nome, meu}]
+// As reações do post da Intus usam o mesmo botão, a mesma barra e a mesma lista de quem reagiu dos posts dos alunos (_kudosHtml, reagirPost,
+// abrirReacoesPost, abrirQuemCurtiu). A chave é o idpost NEGATIVO (ver _alvoComentarioFeed) e as reações ficam em _reacoesFeed.
 async function carregarReacoesIntus(ids) {
   if (!ids || !ids.length) return;
   try {
@@ -3507,43 +3617,8 @@ async function carregarReacoesIntus(ids) {
     if (!r.ok) return;
     const j = await r.json();
     const obj = (j && typeof j === 'object') ? j : {};
-    ids.forEach(function (id) { const k = String(id); _reacoesIntus[k] = Array.isArray(obj[k]) ? obj[k] : []; });
+    ids.forEach(function (id) { const k = String(id); _reacoesFeed[String(-Number(id))] = Array.isArray(obj[k]) ? obj[k] : []; });
   } catch (e) {}
-}
-function _intusKudosHtml(id) {
-  const lista = _reacoesIntus[String(id)] || [];
-  const minha = lista.some(r => r.meu);
-  const isLight = document.body.classList.contains('tema-claro');
-  return '<span data-intus-kudos="' + id + '" style="display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:15px;">' +
-    '<button onclick="reagirIntus(' + id + ')" title="' + (minha ? 'Toque para tirar a curtida' : 'Curtir') + '" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;">' + (minha ? '❤️' : '🤍') + '</button>' +
-    (lista.length ? '<span style="font-weight:' + (minha ? '800' : '600') + ';color:' + (minha ? (isLight ? '#2d8a00' : '#7FFF00') : 'inherit') + ';">' + lista.length + '</span>' : '') +
-  '</span>';
-}
-function _intusRedesenhar(id) {
-  document.querySelectorAll('[data-intus-kudos="' + id + '"]').forEach(el => { el.outerHTML = _intusKudosHtml(id); });
-}
-async function reagirIntus(id) {
-  const k = String(id), antes = (_reacoesIntus[k] || []).slice();
-  const tinha = antes.some(r => r.meu);
-  const lista = antes.filter(r => !r.meu);
-  if (!tinha) lista.push({ emoji: '❤️', autor_tipo: 'aluno', autor_id: Number(idAtleta), autor_nome: 'Você', meu: true });
-  _reacoesIntus[k] = lista; _intusRedesenhar(id);
-  try {
-    const corpo = { alvo_tipo: 'intus_post', alvo_id: Number(id), emoji: '❤️' };
-    if (tinha) corpo.remover = true; else corpo.definir = true;
-    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
-      body: JSON.stringify(corpo),
-    });
-    if (!r.ok) throw new Error('falhou');
-  } catch (e) {
-    _reacoesIntus[k] = antes; _intusRedesenhar(id);
-    toast('Não deu para registrar sua curtida.');
-    return;
-  }
-  await carregarReacoesIntus([id]);
-  _intusRedesenhar(id);
 }
 function _intusMedalha(pos) { return pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : pos + 'º'; }
 function _intusPostHtml(p, isLight) {
@@ -3558,22 +3633,22 @@ function _intusPostHtml(p, isLight) {
     const eu = Number(idAtleta);
     const meu = p.dados.top.find(t => Number(t.id) === eu);
     const rotulo = (p.dados.periodo && p.dados.periodo.rotulo) || '';
-    corpo += '<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:' + accent + ';margin-bottom:8px;">' + esc(rotulo) + '</div>';
-    if (meu) corpo += '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';background:' + (isLight ? '#eef9de' : 'rgba(127,255,0,.1)') + ';border-radius:10px;padding:9px 11px;margin-bottom:8px;">' + _intusMedalha(Number(meu.pos)) + ' Você ficou em ' + Number(meu.pos) + 'º lugar com ' + Number(meu.pts) + ' pontos. Parabéns!</div>';
+    corpo += '<div style="font-size:12.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:' + accent + ';margin-bottom:16px;">' + esc(rotulo) + '</div>';
+    if (meu) corpo += '<div style="font-size:13.5px;font-weight:800;line-height:1.45;color:' + ink + ';background:' + (isLight ? '#eef9de' : 'rgba(127,255,0,.1)') + ';border-radius:10px;padding:11px 13px;margin-bottom:12px;">' + _intusMedalha(Number(meu.pos)) + ' Você ficou em ' + Number(meu.pos) + 'º lugar com ' + Number(meu.pts) + ' pontos. Parabéns!</div>';
     corpo += p.dados.top.map(t => {
       const nome = String(t.nome || 'Aluno'), av = _feedAvatarsMap[String(t.id)] || '', euSou = Number(t.id) === eu;
       const fundoAv = isLight ? '#e5e5e5' : '#2a2a2a';
       const avEl = av
         ? '<img src="' + esc(av) + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\'"/>'
         : '<div style="width:28px;height:28px;border-radius:50%;background:' + fundoAv + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + (isLight ? '#666' : '#aaa') + ';flex-shrink:0;">' + esc(_iniciaisNomeFeed(nome)) + '</div>';
-      return '<div onclick="abrirPerfilAluno(' + Number(t.id) + ')" style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;border-bottom:1px solid ' + (isLight ? '#f0f0f0' : '#222') + ';' + (euSou ? 'background:' + (isLight ? '#f6fbee' : 'rgba(127,255,0,.06)') + ';border-radius:8px;' : '') + '">' +
+      return '<div onclick="abrirPerfilAluno(' + Number(t.id) + ')" style="display:flex;align-items:center;gap:11px;padding:8px 4px;cursor:pointer;border-bottom:1px solid ' + (isLight ? '#f0f0f0' : '#222') + ';' + (euSou ? 'background:' + (isLight ? '#f6fbee' : 'rgba(127,255,0,.06)') + ';border-radius:8px;' : '') + '">' +
         '<div style="width:30px;text-align:center;font-size:' + (Number(t.pos) <= 3 ? '19px' : '12.5px') + ';font-weight:800;color:' + ink + ';">' + _intusMedalha(Number(t.pos)) + '</div>' + avEl +
-        '<div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0, 2).join(' ')) + (euSou ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+        '<div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(_nomeCurto(nome)) + (euSou ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
         '<div style="font-size:12.5px;font-weight:800;color:' + accent + ';">' + Number(t.pts) + ' pts</div></div>';
     }).join('');
   }
   const img = p.imagem ? '<img src="' + esc(p.imagem) + '" alt="" loading="lazy" style="width:100%;display:block;" onerror="this.style.display=\'none\'"/>' : '';
-  const texto = p.texto ? '<div style="font-size:12.5px;color:' + (isLight ? '#333' : '#ddd') + ';line-height:1.55;margin-top:' + (ehRank ? '10px' : '2px') + ';white-space:pre-wrap;word-wrap:break-word;">' + esc(p.texto) + '</div>' : '';
+  const texto = p.texto ? '<div style="font-size:15px;font-weight:500;color:' + (isLight ? '#1f1f1f' : '#f0f0f0') + ';line-height:1.65;margin-top:' + (ehRank ? '16px' : '6px') + ';' + (ehRank ? 'padding-top:14px;border-top:1px solid ' + (isLight ? '#e6e6e6' : '#2a2a2a') + ';' : '') + 'white-space:pre-wrap;word-wrap:break-word;">' + esc(p.texto) + '</div>' : '';
   const botao = (p.botao_link && /^https:\/\//i.test(p.botao_link))
     ? '<a href="' + esc(p.botao_link) + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:10px;border-radius:10px;background:' + (isLight ? '#5cb800' : '#7FFF00') + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:12px;font-weight:800;text-decoration:none;margin-top:12px;">' + esc(p.botao_texto || 'Saiba mais') + ' →</a>' : '';
   return '<div data-intus-post="' + Number(p.idpost) + '" style="background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#bfe39a' : 'rgba(127,255,0,.32)') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
@@ -3584,11 +3659,11 @@ function _intusPostHtml(p, isLight) {
       '<span style="font-size:10px;color:' + (isLight ? '#999' : '#888') + ';">' + (p.fixado ? '📌 ' : '') + _tempoRelativoFeed(dt) + '</span>' +
     '</div>' +
     (ehRank ? '' : img) +
-    '<div style="padding:' + (ehRank || !img ? '2px' : '12px') + ' 12px 11px;">' +
-      '<div style="font-size:15px;font-weight:800;color:' + ink + ';line-height:1.3;margin-bottom:' + (ehRank ? '4px' : '2px') + ';">' + icone + ' ' + esc(p.titulo) + '</div>' +
+    '<div style="padding:' + (ehRank || !img ? '6px' : '14px') + ' 14px 14px;">' +
+      '<div style="font-size:19px;font-weight:800;color:' + ink + ';line-height:1.3;margin-bottom:' + (ehRank ? '8px' : '6px') + ';">' + icone + ' ' + esc(p.titulo) + '</div>' +
       corpo + texto + botao +
-      '<div data-feed-card="' + (-Number(p.idpost)) + '" style="margin-top:10px;">' +
-        '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _intusKudosHtml(p.idpost) + _comentarioGatilhoHtml(-Number(p.idpost), isLight) + '</div>' +
+      '<div data-feed-card="' + (-Number(p.idpost)) + '" style="margin-top:14px;">' +
+        '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _kudosHtml(-Number(p.idpost)) + _comentarioGatilhoHtml(-Number(p.idpost), isLight) + '</div>' +
         _comentariosHtml(-Number(p.idpost), isLight) +
       '</div>' +
     '</div></div>';
@@ -3728,7 +3803,7 @@ function _feedCardHtml(post, isLight) {
     '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
       '<span onclick="abrirPerfilAluno(' + Number(post.idatleta) + ')" style="cursor:pointer;display:flex;flex-shrink:0;">' + avatarEl + '</span>' +
       '<div style="flex:1;min-width:0;">' +
-        '<div onclick="abrirPerfilAluno(' + Number(post.idatleta) + ')" style="cursor:pointer;font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0,2).join(' ')) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+        '<div onclick="abrirPerfilAluno(' + Number(post.idatleta) + ')" style="cursor:pointer;font-size:12.5px;font-weight:800;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(_nomeCurto(nome)) + (isMe ? ' <span style="color:' + (isLight?'#5cb800':'#7FFF00') + ';font-weight:700;">(você)</span>' : '') + '</div>' +
         _colabLinhaPost(post, isLight) +
         '<div style="font-size:10px;color:' + (isLight?'#999':'#888') + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
           // data-loc (não o texto embutido no onclick) porque localizacao é
@@ -3930,17 +4005,19 @@ function renderFeedHomePreview() {
   // Os primeiros posts aparecem assim que chegam. Antes a Home esperava, em fila, posts, curtidas e comentários da Intus, curtidas e
   // comentários dos posts (cinco ou seis idas ao servidor) e só então desenhava. Agora: desenha logo (com o que o aparelho já tem da
   // última vez, se tiver) e completa curtidas e comentários em paralelo, retocando cada cartão no lugar (_feedCompletarInteracoes).
-  const rodape = '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;margin-top:8px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
   const desenhar = (el, posts) => {
     _feedGlobalIdx = 0; _feedProximoExplicativo = 0; _feedUltimaVariante = null;
     el.innerHTML = headerHtml + _feedIntusHtml(isLight, 2) +
       '<div id="h-feed-home-posts">' + _feedPostsHtml(posts, isLight) + '</div>' +
-      '<div id="h-feed-home-pag"></div>' + rodape;
+      '<div id="h-feed-home-pag"></div>';
     _feedAtualizarPaginacao();
   };
-  const previos = (_feedPosts || []).slice(0, FEED_LOTE_HOME);
+  // O que já foi carregado (até FEED_LIMITE_AUTO_SCROLL posts) volta na hora quando a Home é refeita; só os primeiros são buscados de novo.
+  const previos = (_feedPosts || []).slice(0, FEED_LIMITE_AUTO_SCROLL);
+  const temMaisPrevio = (_feedPosts || []).length > FEED_LIMITE_AUTO_SCROLL ? true : _feedTemMais;
   const idsPrevios = previos.map(p => p.idpost).join(',');
-  carregarFeedPosts(FEED_LOTE_HOME, null, null, true).then(posts => {
+  carregarFeedPosts(FEED_LOTE_HOME, null, null, true).then(novos => {
+    let posts = novos;
     const el = document.getElementById('h-feed-home');   // a tela pode ter sido refeita enquanto esperava
     if (!el) return;
     if (!posts.length) {
@@ -3948,10 +4025,15 @@ function renderFeedHomePreview() {
         '<div onclick="renderHome()" style="text-align:center;font-size:12px;color:' + (isLight?'#666':'#999') + ';padding:14px;cursor:pointer;">Não consegui carregar os posts agora. Toque para tentar de novo.</div>';
       return;
     }
+    // Os primeiros posts são os mesmos do que já estava carregado: mantém os demais em vez de voltar a 4
+    if (previos.length > posts.length && posts.every((p, i) => previos[i] && previos[i].idpost === p.idpost)) {
+      _feedPosts = previos.slice(); _feedTemMais = temMaisPrevio; posts = _feedPosts;
+    }
     // Mesmos posts que já estavam na tela: não redesenha (não pisca nem apaga o que a pessoa está digitando)
     if (!(previos.length && el.querySelector('#h-feed-home-posts') && idsPrevios === posts.map(p => p.idpost).join(','))) desenhar(el, posts);
     else _feedAtualizarPaginacao();
     _feedCompletarInteracoes(posts);
+    _feedAutoCompletar();
   });
   const div = document.createElement('div');
   if (previos.length) { desenhar(div, previos); return '<div id="h-feed-home">' + div.innerHTML + '</div>'; }
@@ -3969,7 +4051,7 @@ async function _feedCompletarInteracoes(posts) {
     carregarReacoesIntus(idsI), carregarComentariosFeed(idsI.map(i => -Number(i))),
   ]);
   ids.forEach(id => { _rxRedesenhar(id); _atualizarLinhaComentarios(id); });
-  idsI.forEach(id => { _intusRedesenhar(id); _atualizarLinhaComentarios(-Number(id)); });
+  idsI.forEach(id => { _rxRedesenhar(-Number(id)); _atualizarLinhaComentarios(-Number(id)); });
 }
 
 // Tela cheia do feed, aberta pelo menu ou pelo "Ver feed completo" da home.
@@ -4043,7 +4125,7 @@ async function renderFeedCompleto() {
   html += '<div style="font-size:10.5px;color:' + (isLight?'#777':'#555') + ';margin-top:10px;padding:0 4px;">A participação no feed é opcional. Desligar em <b style="cursor:pointer;text-decoration:underline;" onclick="renderPerfil();trocarView(\'perfil\');">Meu Perfil</b> tira você do feed também — seus posts somem e você deixa de ver os dos outros.</div>';
   html += getFooterHtml();
   box.innerHTML = html;
-  if (posts.length && !souMeuPerfil) _feedAtualizarPaginacao();
+  if (posts.length && !souMeuPerfil) { _feedAtualizarPaginacao(); _feedAutoCompletar(); }
   if (souMeuPerfil) _feedMeuPerfilCarregar();
 }
 // Aba "Meu perfil" do Feed: o mesmo perfil social que abre ao tocar no nome em um post, desenhado na própria tela.
@@ -4072,12 +4154,17 @@ function _feedAtualizarPaginacao() {
   const box = document.getElementById(_feedContainerIds().pag);
   if (!box) return;
   const isLight = document.body.classList.contains('tema-claro');
+  const naHome = _feedModo === 'home';
+  const estiloBtn = 'padding:12px;border-radius:10px;border:1.5px dashed ' + (isLight?'#ccc':'#333') + ';background:transparent;color:' + (isLight?'#666':'#999') + ';font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;';
+  const abrirFeed = '<button onclick="navegar(\'feed\')" style="' + estiloBtn + 'flex:1;">Abrir o feed →</button>';
   if (!_feedTemMais) {
-    box.innerHTML = '';
+    // acabaram os posts: na Home sobra só o caminho para o Feed completo
+    box.innerHTML = naHome ? '<div style="display:flex;margin-top:8px;">' + abrirFeed + '</div>' : '';
     if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
     return;
   }
   if (_feedPosts.length < FEED_LIMITE_AUTO_SCROLL) {
+    // os posts até o limite chegam sozinhos (_feedAutoCompletar); a rolagem continua valendo como reforço
     box.innerHTML = '';
     if (!_feedScrollHandler) {
       _feedScrollHandler = _feedChecarScrollFeed;
@@ -4085,7 +4172,20 @@ function _feedAtualizarPaginacao() {
     }
   } else {
     if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
-    box.innerHTML = '<button onclick="_feedCarregarMais()" style="width:100%;padding:12px;border-radius:10px;border:1.5px dashed ' + (isLight?'#ccc':'#333') + ';background:transparent;color:' + (isLight?'#666':'#999') + ';font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;">▾ Ver mais posts</button>';
+    box.innerHTML = '<div style="display:flex;gap:8px;margin-top:8px;">' + (naHome ? abrirFeed : '') +
+      '<button onclick="_feedCarregarMais()" style="' + estiloBtn + 'flex:1;">▾ Carregar mais posts</button></div>';
+  }
+}
+
+// Completa sozinho, em segundo plano, os posts até FEED_LIMITE_AUTO_SCROLL, sem esperar a pessoa rolar. Depois disso só no botão.
+let _feedAutoToken = 0;
+async function _feedAutoCompletar() {
+  const token = ++_feedAutoToken;   // uma tela nova de Home/Feed interrompe a anterior
+  while (token === _feedAutoToken && _feedTemMais && _feedPosts.length < FEED_LIMITE_AUTO_SCROLL && document.getElementById(_feedContainerIds().posts)) {
+    if (_feedCarregandoMais) { await new Promise(r => setTimeout(r, 300)); continue; }
+    const antes = _feedPosts.length;
+    await _feedCarregarMais();
+    if (_feedPosts.length === antes) break;
   }
 }
 
@@ -4105,10 +4205,12 @@ async function _feedCarregarMais() {
   const pagBox = document.getElementById(ids.pag);
   if (pagBox) pagBox.innerHTML = '<div style="text-align:center;padding:10px;color:' + (isLight?'#999':'#777') + ';font-size:11.5px;">Carregando mais posts...</div>';
   const ultimoId = _feedPosts[_feedPosts.length - 1].idpost;
-  const novos = await carregarFeedPosts(FEED_LOTE, null, ultimoId);
+  // até o limite automático pede só o que falta (4 + 10 + 6 = 20); depois do limite, FEED_LOTE por clique
+  const faltam = FEED_LIMITE_AUTO_SCROLL - _feedPosts.length;
+  const novos = await carregarFeedPosts(faltam > 0 ? Math.min(FEED_LOTE, faltam) : FEED_LOTE, null, ultimoId);
   if (novos.length) {
-    await carregarReacoesFeed(novos.map(p => p.idpost));
-    await carregarComentariosFeed(novos.map(p => p.idpost));
+    const idsNovos = novos.map(p => p.idpost);
+    await Promise.all([carregarReacoesFeed(idsNovos), carregarComentariosFeed(idsNovos)]);
     const container = document.getElementById(ids.posts);
     if (container) container.insertAdjacentHTML('beforeend', _feedPostsHtml(novos, isLight));
   }
@@ -16173,7 +16275,7 @@ function _resultadoCardHtml(r, isLight) {
     '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
       '<div ' + (daEquipe ? '' : 'onclick="abrirPerfilAluno(' + idA + ')" ') + 'style="' + (daEquipe ? '' : 'cursor:pointer;') + 'display:flex;align-items:center;gap:9px;flex:1;min-width:0;">' + avatarEl +
         '<div style="min-width:0;">' +
-          '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0, 2).join(' ')) + (isMe ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+          '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(_nomeCurto(nome)) + (isMe ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
           '<div style="font-size:10px;color:' + muted + ';">' + _tempoRelativoFeed(dt) + (daEquipe ? ' · Aluno Intus' : '') + (r.periodo_txt ? ' · ⏱ ' + esc(r.periodo_txt) : '') + '</div>' +
         '</div></div>' +
       '<span style="flex-shrink:0;font-size:10.5px;font-weight:800;padding:4px 8px;border-radius:10px;background:' + (isLight ? 'rgba(92,184,0,.12)' : 'rgba(127,255,0,.10)') + ';color:' + accent + ';">' + (_RES_TAGS[r.tipo] || '🗣️ Depoimento') + '</span>' +
@@ -18190,14 +18292,14 @@ function _renderRankingView() {
           html += '<div onclick="abrirPerfilRanking('+r.id+')" style="cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06);display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid '+(isLight?'#f0f0f0':'rgba(255,255,255,.09)')+';">' +
             '<div style="width:24px;text-align:center;font-size:'+(pos<=3?'16px':'12px')+';font-weight:800;">'+medal+'</div>' +
             avatarEl +
-            '<div style="flex:1;font-size:12px;font-weight:'+(isMe?'800':'600')+';color:'+(isLight?'#1a1a1a':'#f0f0f0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(r.nome.split(' ').slice(0,2).join(' '))+(isMe?' <span style="color:'+(isLight?'#5cb800':'#7FFF00')+';">(você)</span>':'')+' <span style="font-size:10px;color:'+(isLight?'#bbb':'#555')+';">›</span></div>' +
+            '<div style="flex:1;font-size:12px;font-weight:'+(isMe?'800':'600')+';color:'+(isLight?'#1a1a1a':'#f0f0f0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(_nomeCurto(r.nome))+(isMe?' <span style="color:'+(isLight?'#5cb800':'#7FFF00')+';">(você)</span>':'')+' <span style="font-size:10px;color:'+(isLight?'#bbb':'#555')+';">›</span></div>' +
             '<div style="font-size:13px;font-weight:800;color:'+(isLight?'#5cb800':'#7FFF00')+';">'+ptsRank(r.pts)+'</div>' +
             '<div style="font-size:10px;color:'+(isLight?'#999':'#666')+';">pts</div>' +
           '</div>';
         });
         if (minhaPosSem > 5) {
           const avMe = avatarMap[String(meuId)] || '';
-          const nomeMe = (atletaUser.nome || nomeMap[meuId] || 'Você').split(' ').slice(0,2).join(' ');
+          const nomeMe = _nomeCurto(atletaUser.nome || nomeMap[meuId] || 'Você');
           const avMeEl = avMe ? '<img src="'+esc(avMe)+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\'"/>' : '<div style="width:28px;height:28px;border-radius:50%;background:'+(isLight?'#e5e5e5':'#333')+';display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:'+(isLight?'#666':'#aaa')+';flex-shrink:0;">'+esc(nomeMe.charAt(0).toUpperCase())+'</div>';
           html += '<div style="text-align:center;font-size:12px;color:'+(isLight?'#bbb':'#555')+';padding:2px 0;line-height:1;">⋯</div>';
           html += '<div onclick="abrirPerfilRanking('+meuId+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 4px;border-radius:8px;background:'+(isLight?'rgba(92,184,0,.08)':'rgba(127,255,0,.06)')+';border:1px solid '+(isLight?'rgba(92,184,0,.3)':'rgba(127,255,0,.2)')+';">' +
@@ -18266,14 +18368,14 @@ function _renderRankingView() {
           html += '<div onclick="abrirPerfilRanking('+r.id+')" style="cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.06);display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid '+(isLight?'#f0f0f0':'rgba(255,255,255,.09)')+';">' +
             '<div style="width:24px;text-align:center;font-size:'+(pos<=3?'16px':'12px')+';font-weight:800;">'+medal+'</div>' +
             avatarEl +
-            '<div style="flex:1;font-size:12px;font-weight:'+(isMe?'800':'600')+';color:'+(isLight?'#1a1a1a':'#f0f0f0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(r.nome.split(' ').slice(0,2).join(' '))+(isMe?' <span style="color:'+(isLight?'#5cb800':'#7FFF00')+';">(você)</span>':'')+' <span style="font-size:10px;color:'+(isLight?'#bbb':'#555')+';">›</span></div>' +
+            '<div style="flex:1;font-size:12px;font-weight:'+(isMe?'800':'600')+';color:'+(isLight?'#1a1a1a':'#f0f0f0')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(_nomeCurto(r.nome))+(isMe?' <span style="color:'+(isLight?'#5cb800':'#7FFF00')+';">(você)</span>':'')+' <span style="font-size:10px;color:'+(isLight?'#bbb':'#555')+';">›</span></div>' +
             '<div style="font-size:13px;font-weight:800;color:'+(isLight?'#5cb800':'#7FFF00')+';">'+ptsRank(r.pts)+'</div>' +
             '<div style="font-size:10px;color:'+(isLight?'#999':'#666')+';">pts</div>' +
           '</div>';
         });
         if (minhaPosMes > 10) {
           const avMe = avatarMap[String(meuId)] || '';
-          const nomeMe = (atletaUser.nome || nomeMap[meuId] || 'Você').split(' ').slice(0,2).join(' ');
+          const nomeMe = _nomeCurto(atletaUser.nome || nomeMap[meuId] || 'Você');
           const avMeEl = avMe ? '<img src="'+esc(avMe)+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\'"/>' : '<div style="width:28px;height:28px;border-radius:50%;background:'+(isLight?'#e5e5e5':'#333')+';display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:'+(isLight?'#666':'#aaa')+';flex-shrink:0;">'+esc(nomeMe.charAt(0).toUpperCase())+'</div>';
           html += '<div style="text-align:center;font-size:12px;color:'+(isLight?'#bbb':'#555')+';padding:2px 0;line-height:1;">⋯</div>';
           html += '<div onclick="abrirPerfilRanking('+meuId+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 4px;border-radius:8px;background:'+(isLight?'rgba(92,184,0,.08)':'rgba(127,255,0,.06)')+';border:1px solid '+(isLight?'rgba(92,184,0,.3)':'rgba(127,255,0,.2)')+';">' +
@@ -23415,7 +23517,7 @@ async function renderDesafioDetalheAluno(iddesafio) {
         ${ranking.length === 0 ? '<p style="font-size:12px;color:var(--c3);text-align:center;">Nenhum treino registrado ainda.</p>' :
           ranking.sort((a,b) => b.sessoes - a.sessoes).slice(0, 20).map((r, i) => {
             const at = atletas.find(a => Number(a.idatleta) === Number(r.idatleta));
-            const nome = at ? at.nome.split(' ').slice(0,2).join(' ') : 'Participante';
+            const nome = at ? _nomeCurto(at.nome) : 'Participante';
             const isMe = Number(r.idatleta) === Number(idAtleta);
             const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i+1)+'º';
             const pct = Math.round((r.sessoes / maxSessoes) * 100);

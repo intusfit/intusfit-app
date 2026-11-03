@@ -4208,15 +4208,19 @@ const API = {
     // O que ainda falta publicar (03/11/2026): a ÚLTIMA semana encerrada (Top 5) e o ÚLTIMO mês encerrado (Top 10). Só olha
     // esses dois períodos: o que ficou para trás e nunca saiu não vira cobrança eterna no painel. Post oculto ou vencido
     // conta como publicado (foi feito; apagar é que desfaz). `posts` vem de `listar`. `hoje` só existe para o teste.
-    pendentes: (posts, hoje) => {
+    // `lidos`: chaves "tipo:ini" que o administrador marcou como lidas (ver chavePendente). Marcar some com o aviso só daquele período;
+    // quando fecha a semana ou o mês seguinte o `ini` é outro e o aviso volta sozinho.
+    chavePendente: (p) => p.tipo + ':' + p.periodo.ini,
+    pendentes: (posts, hoje, lidos) => {
       const lista = Array.isArray(posts) ? posts : [];
+      const lido = Array.isArray(lidos) ? lidos : [];
       const feito = (tipo, ini) => lista.some((p) => p && p.tipo === tipo && p.dados && p.dados.periodo && p.dados.periodo.ini === ini);
       const out = [];
       const sem = API.periodosFechados('semana', 1, hoje)[0];
       if (sem && !feito('ranking_semana', sem.ini)) out.push({ tipo: 'semana', n: 5, periodo: sem });
       const mes = API.periodosFechados('mes', 1, hoje)[0];
       if (mes && !feito('ranking_mes', mes.ini)) out.push({ tipo: 'mes', n: 10, periodo: mes });
-      return out;
+      return out.filter((p) => lido.indexOf(API.postsIntus.chavePendente(p)) < 0);
     },
   },
 
