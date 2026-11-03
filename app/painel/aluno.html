@@ -9203,6 +9203,49 @@ function findCatalogo(catalogo, ex) {
   return byId || (ex.nmexercicio ? catalogo.find(c => c.nmexercicio && normExName(c.nmexercicio) === normExName(ex.nmexercicio)) : null) || {};
 }
 
+// "?" ao lado do T.U.T: explica o Tempo sob Tensão e as quatro fases do movimento (o número de 4 dígitos da prescrição, ex.: 3020). Se o
+// exercício tem um T.U.T válido, mostra também o que ele significa na prática.
+function abrirAjudaTut(tut) {
+  const isLight = document.body.classList.contains('tema-claro');
+  const ink = isLight ? '#1a1a1a' : '#f0f0f0', sub = isLight ? '#555' : '#aaa', acento = isLight ? '#2d8a00' : '#7FFF00';
+  const fundo = isLight ? '#f6f6f6' : '#1c1c1c';
+  const dig = String(tut || '').trim().toUpperCase();
+  const valido = /^[0-9]{4}$/.test(dig);
+  const isometrico = !dig;   // T.U.T em branco: exercício isométrico (prancha etc.)
+  const seg = (c) => c === '0' ? 'nenhuma' : c + (c === '1' ? ' segundo' : ' segundos');
+  const fases = [
+    ['⬇️', 'Excêntrico', 'a descida', 'O músculo se alonga e freia o peso. É quando você desce a barra, o halter ou a carga. Quanto mais controle aqui, mais o músculo trabalha.'],
+    ['⏸️', 'Transição (embaixo)', 'a pausa embaixo', 'O momento de parar no ponto mais baixo, com o músculo alongado, antes de inverter o movimento. Zero é não parar: inverte direto.'],
+    ['⬆️', 'Concêntrico', 'a subida', 'O músculo se contrai e vence o peso. É quando você empurra, puxa ou sobe a carga.'],
+    ['⏸️', 'Transição (em cima)', 'a pausa em cima', 'O momento de parar no ponto mais alto, apertando o músculo, antes de recomeçar a descida. Zero é não parar.'],
+  ];
+  const linhas = fases.map(function (f, i) {
+    return '<div style="display:flex;gap:12px;align-items:flex-start;background:' + fundo + ';border-radius:12px;padding:11px 12px;margin-bottom:8px;">' +
+      '<div style="flex-shrink:0;width:34px;height:34px;border-radius:50%;background:' + (isLight ? '#e8f7d8' : 'rgba(127,255,0,.14)') + ';color:' + acento + ';font-weight:900;font-size:16px;display:flex;align-items:center;justify-content:center;">' + (valido ? esc(dig[i]) : (i + 1)) + '</div>' +
+      '<div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:800;color:' + ink + ';">' + f[0] + ' ' + f[1] + (valido ? ' <span style="color:' + acento + ';font-weight:700;">· ' + esc(seg(dig[i])) + '</span>' : '') + '</div>' +
+      '<div style="font-size:12.5px;line-height:1.5;color:' + sub + ';margin-top:3px;">' + f[3] + '</div></div></div>';
+  }).join('');
+  let pratica = '';
+  if (valido) {
+    const total = dig.split('').reduce(function (s, c) { return s + Number(c); }, 0);
+    pratica = '<div style="border:1.5px solid ' + acento + ';border-radius:12px;padding:12px 14px;margin:4px 0 14px;font-size:13px;line-height:1.55;color:' + ink + ';">' +
+      '<b>No seu exercício: ' + esc(dig) + '.</b> Cada repetição tem 4 fases, nessa ordem: ' +
+      'descida: ' + esc(seg(dig[0])) + '; pausa embaixo: ' + esc(seg(dig[1])) + '; subida: ' + esc(seg(dig[2])) + '; pausa em cima: ' + esc(seg(dig[3])) + '.' +
+      (total > 0 ? ' Dá cerca de <b>' + total + ' segundos por repetição</b>.' : '') + '</div>';
+  }
+  if (isometrico) {
+    pratica = '<div style="border:1.5px solid ' + acento + ';border-radius:12px;padding:12px 14px;margin:4px 0 14px;font-size:13px;line-height:1.55;color:' + ink + ';">' +
+      '<b>Este exercício está sem T.U.T.</b> É o caso dos exercícios <b>isométricos</b>, como a prancha: o músculo trabalha segurando a posição parada, sem descer nem subir. ' +
+      'Não existem as 4 fases abaixo. O que vale é manter a posição pelo tempo da prescrição, com o corpo firme e respirando normalmente.</div>';
+  }
+  const corpo =
+    '<div style="font-size:13.5px;line-height:1.6;color:' + ink + ';margin-bottom:12px;"><b>T.U.T</b> é o <b>Time Under Tension</b>, o tempo sob tensão: quanto tempo o músculo fica trabalhando em cada repetição. ' +
+    'Controlar a velocidade deixa o treino mais eficiente do que só levantar o peso. O número de 4 dígitos diz quantos segundos gastar em cada fase do movimento, na ordem <b>E · T · C · T</b>:</div>' +
+    pratica + linhas +
+    '<div style="font-size:12px;line-height:1.5;color:' + sub + ';margin-top:6px;">Dica: conte os segundos mentalmente ("um, dois, três") em cada fase.</div>';
+  _comSheet('tut-sheet', '⏱️ Tempo sob tensão', corpo, 100500);
+}
+
 function renderExRow(ex, exIdx, catalogo) {
   const cat = findCatalogo(catalogo, ex);
   const prev = SessoesTreino.ultimoPorExercicio(idAtleta, ex.idexercicio);
@@ -9255,7 +9298,7 @@ function renderExRow(ex, exIdx, catalogo) {
       ${tut || repsLabel ? `
       <div class="detail-grid cols-2" style="margin-top:6px;">
         <div class="cell cell-label">Rep.</div>
-        <div class="cell cell-label">T.U.T(e.t.c.t)</div>
+        <div class="cell cell-label">T.U.T(e.t.c.t) <button type="button" onclick="event.stopPropagation();abrirAjudaTut('${String(tut).replace(/[^0-9]/g, '')}')" title="O que é o T.U.T?" aria-label="O que é o T.U.T?" style="width:18px;height:18px;margin-left:4px;padding:0;border-radius:50%;border:1px solid currentColor;background:transparent;color:inherit;font-size:11px;font-weight:800;line-height:1;cursor:pointer;vertical-align:middle;font-family:inherit;opacity:.85;">?</button></div>
         <div class="cell">${repsLabel}</div>
         <div class="cell">${tut ? esc(tut) : '—'}</div>
       </div>` : ''}
