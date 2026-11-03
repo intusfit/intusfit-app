@@ -4205,6 +4205,19 @@ const API = {
     apagar: (id) => apiFetch('/catalogo.php?action=post_intus&id=' + encodeURIComponent(id), { method: 'DELETE' }),
     // Sessões e nomes de quem participa do ranking (a mesma lista que os alunos veem).
     dadosRanking: () => apiFetch('/treinos.php?action=ranking'),
+    // O que ainda falta publicar (03/11/2026): a ÚLTIMA semana encerrada (Top 5) e o ÚLTIMO mês encerrado (Top 10). Só olha
+    // esses dois períodos: o que ficou para trás e nunca saiu não vira cobrança eterna no painel. Post oculto ou vencido
+    // conta como publicado (foi feito; apagar é que desfaz). `posts` vem de `listar`. `hoje` só existe para o teste.
+    pendentes: (posts, hoje) => {
+      const lista = Array.isArray(posts) ? posts : [];
+      const feito = (tipo, ini) => lista.some((p) => p && p.tipo === tipo && p.dados && p.dados.periodo && p.dados.periodo.ini === ini);
+      const out = [];
+      const sem = API.periodosFechados('semana', 1, hoje)[0];
+      if (sem && !feito('ranking_semana', sem.ini)) out.push({ tipo: 'semana', n: 5, periodo: sem });
+      const mes = API.periodosFechados('mes', 1, hoje)[0];
+      if (mes && !feito('ranking_mes', mes.ini)) out.push({ tipo: 'mes', n: 10, periodo: mes });
+      return out;
+    },
   },
 
   // Planos Admin (personal, promoções, condições especiais) ────────────

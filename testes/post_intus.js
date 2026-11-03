@@ -105,5 +105,24 @@ console.log('\n── Concordância com o app, dados aleatórios (semente fixa) 
   eq('180 conferências (60 rodadas x 3 períodos): nenhuma diferença do jeito do app', divergiu, 0);
 }
 
+console.log('\n── Pendências no painel inicial (API.postsIntus.pendentes) ──');
+{
+  const sem = { tipo: 'ranking_semana', dados: { periodo: { ini: '2026-10-25' } } };
+  const mes = { tipo: 'ranking_mes', dados: { periodo: { ini: '2026-10-01' } } };
+  const pend = (posts, hoje) => (hoje ? carregar({ hoje }) : API).postsIntus.pendentes(posts).map(p => p.tipo + ':' + p.periodo.ini);
+  eq('sem nenhum post: faltam a última semana e o último mês', pend([]), ['semana:2026-10-25', 'mes:2026-10-01']);
+  eq('semana publicada: falta só o mês', pend([sem]), ['mes:2026-10-01']);
+  eq('mês publicado: falta só a semana', pend([mes]), ['semana:2026-10-25']);
+  eq('os dois publicados: nada em destaque', pend([sem, mes]), []);
+  eq('post oculto (ativo 0) conta como publicado', pend([Object.assign({ ativo: 0 }, sem), mes]), []);
+  eq('post de outra semana não vale para a última', pend([{ tipo: 'ranking_semana', dados: { periodo: { ini: '2026-10-18' } } }, mes]), ['semana:2026-10-25']);
+  eq('Top 5 da semana não vale como Top 10 do mês', pend([{ tipo: 'ranking_mes', dados: { periodo: { ini: '2026-10-25' } } }, sem]), ['mes:2026-10-01']);
+  eq('campanha e aviso não contam', pend([{ tipo: 'campanha', dados: {} }, { tipo: 'aviso' }]), ['semana:2026-10-25', 'mes:2026-10-01']);
+  eq('lista inválida não quebra', pend(null), ['semana:2026-10-25', 'mes:2026-10-01']);
+  eq('domingo 08/11: a semana nova (01 a 07/11) passa a faltar', pend([sem, mes], '2026-11-08'), ['semana:2026-11-01']);
+  eq('1º de dezembro: o mês de novembro passa a faltar', pend([sem, mes], '2026-12-01').filter(x => x.startsWith('mes')), ['mes:2026-11-01']);
+  eq('tamanhos: Top 5 e Top 10', API.postsIntus.pendentes([]).map(p => p.n), [5, 10]);
+}
+
 console.log('\n' + (ruim ? ruim + ' FALHA(S), ' + ok + ' ok.' : 'Tudo certo: ' + ok + ' conferências.'));
 process.exit(ruim ? 1 : 0);

@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Início — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261103a"></script>
+  <script src="api.js?v=20261103b"></script>
   <style>
     .checklist-card { padding: 16px; }
     .checklist-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -68,6 +68,19 @@
       .lst-row { grid-template-columns: minmax(0, 1fr) auto; }
       .lst-valor, .lst-go { grid-column: 2; grid-row: 2; min-width: 0; }
     }
+    /* Cartão de destaque: ranking da Intus ainda não publicado no Feed (só administrador) */
+    .rk-pend { padding: 16px; border: 2px solid var(--brand, #7FFF00); background: linear-gradient(135deg, rgba(127,255,0,.16), rgba(127,255,0,.04)); animation: rk-pulso 2.4s ease-in-out infinite; }
+    body.theme-light .rk-pend { background: linear-gradient(135deg, rgba(90,170,0,.16), rgba(90,170,0,.04)); }
+    .rk-pend-topo { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .rk-pend-topo .ic { font-size: 28px; }
+    .rk-pend-tit { font-size: 15px; font-weight: 800; color: var(--text); }
+    .rk-pend-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .rk-pend-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+    .rk-pend-btn { flex: 1 1 240px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 10px; text-decoration: none; background: var(--brand, #7FFF00); color: #0f0f0f; font-weight: 800; font-size: 14px; }
+    .rk-pend-btn small { display: block; font-weight: 600; font-size: 11.5px; opacity: .8; margin-top: 2px; }
+    .rk-pend-btn:hover { filter: brightness(1.08); }
+    @keyframes rk-pulso { 0%, 100% { box-shadow: 0 0 0 0 rgba(127,255,0,.0); } 50% { box-shadow: 0 0 0 5px rgba(127,255,0,.22); } }
+    @media (prefers-reduced-motion: reduce) { .rk-pend { animation: none; } }
     .overview-tile .ov-icon { font-size: 20px; margin-bottom: 6px; }
     .overview-tile .ov-value { font-size: 22px; font-weight: 900; color: var(--text); font-variant-numeric: tabular-nums; }
     .overview-tile .ov-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 700; margin-top: 4px; }
@@ -1090,6 +1103,25 @@ function render() {
         </button>
       </div>
 
+      ${admin && (window._intusPend || []).length ? `
+      <!-- RANKING DA INTUS AINDA NÃO PUBLICADO: o clique que falta fica aqui, em destaque -->
+      <div class="card rk-pend">
+        <div class="rk-pend-topo">
+          <span class="ic">📣</span>
+          <div style="flex:1;">
+            <div class="rk-pend-tit">${window._intusPend.length > 1 ? 'Falta publicar o ranking no Feed' : 'Falta publicar o ' + (window._intusPend[0].tipo === 'semana' ? 'Top 5 da semana' : 'Top 10 do mês') + ' no Feed'}</div>
+            <div class="rk-pend-sub">Um clique abre a prévia, você confere e publica para todos os alunos.</div>
+          </div>
+        </div>
+        <div class="rk-pend-btns">
+          ${window._intusPend.map(p => `
+          <a class="rk-pend-btn" href="feed.html?top=${p.tipo}">
+            <span>${p.tipo === 'semana' ? '🥇 Publicar Top 5 da semana' : '🏆 Publicar Top 10 do mês'}<small>${esc(p.periodo.rotulo)}</small></span>
+            <span>›</span>
+          </a>`).join('')}
+        </div>
+      </div>` : ''}
+
       ${(window._exclusoesConta || []).length ? `
       <!-- PEDIDOS DE EXCLUSÃO DE CONTA (com o motivo informado pelo aluno) -->
       <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(248,113,113,.16),rgba(248,113,113,.04));border:1.5px solid rgba(248,113,113,.55);">
@@ -1341,6 +1373,12 @@ async function preFetchBackend() {
       window._exclusoesConta = (dash && Array.isArray(dash.exclusoes)) ? dash.exclusoes : [];
     }
   } catch (e) { /* silencioso */ }
+  // Ranking da Intus (Top 5 da semana / Top 10 do mês) ainda não publicado no Feed: só o administrador publica
+  try {
+    if (isAdmin() && typeof API !== 'undefined' && API.postsIntus) {
+      window._intusPend = API.postsIntus.pendentes(await API.postsIntus.listar());
+    } else window._intusPend = [];
+  } catch (e) { window._intusPend = []; /* sem lista confiável, não acusa pendência */ }
 }
 
 (async () => {

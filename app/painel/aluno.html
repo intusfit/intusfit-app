@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261103a"></script>
+  <script src="api.js?v=20261103b"></script>
   <script src="ajuda.js?v=20261027a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -2864,6 +2864,7 @@ var _feedProximoExplicativo = 0; // em que índice de post o próximo cartão ap
 var _feedUltimaVariante = null;  // pra nunca sortear a mesma variante duas vezes seguidas
 var _feedModo = 'feed';     // 'feed' (tela cheia) ou 'home' (prévia na inicial) — define quais IDs de container a paginação usa
 const FEED_LOTE = 10;               // quantos posts a API busca por vez
+const FEED_LOTE_HOME = 4;           // a Home busca só os primeiros para aparecer logo; a rolagem busca o resto, FEED_LOTE por vez
 const FEED_LIMITE_AUTO_SCROLL = 20; // até aqui a rolagem carrega sozinha; depois, só no toque em "Ver mais"
 var _reacoesFeed = {};      // idpost -> [{emoji, autor_nome, meu}]
 var _comentariosFeed = {};  // idpost -> [{idcomentario, resposta_a, autor_nome, texto, meu}]
@@ -3032,10 +3033,12 @@ function _kudosHtml(idpost) {
   // destacado quando a reação é sua; tocar nele curte ou tira) e o número abre a lista de quem reagiu.
   const botao = lista.length
     ? '<button onclick="_rxToque(' + idpost + ')" title="' + (minha ? 'Toque para tirar sua reação' : 'Curtir') + '" style="border:none;cursor:pointer;padding:3px 8px;border-radius:14px;font-size:19px;line-height:1;background:' + (minha ? (isLight ? '#e8f7d8' : 'rgba(127,255,0,.14)') : 'transparent') + ';">' + top + '</button>' +
-      '<span onclick="abrirQuemCurtiu(' + idpost + ')" title="Ver quem reagiu" style="cursor:pointer;font-weight:' + (minha ? '800' : '600') + ';color:' + (minha ? acento : 'inherit') + ';margin-left:-2px;">' + lista.length + '</span>'
+      // O número é o botão de "quem reagiu": área própria e folgada, com um vão antes (dos emojis, que curtem ou tiram a reação) e outro
+      // maior depois (do "＋", que abre a barra de reações). Antes ficava colado nos dois e o toque caía no vizinho (03/11/2026).
+      '<button onclick="abrirQuemCurtiu(' + idpost + ')" title="Ver quem reagiu" aria-label="Ver quem reagiu" style="border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:15px;line-height:1;font-weight:' + (minha ? '800' : '600') + ';color:' + (minha ? acento : 'inherit') + ';padding:10px 12px;margin:-10px 0 -10px 8px;min-width:34px;">' + lista.length + '</button>'
     : '<button onclick="_rxToque(' + idpost + ')" title="Curtir" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;">🤍</button>';
-  return '<span data-feed-kudos="' + idpost + '" style="display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:15px;">' + botao +
-    '<button onclick="abrirReacoesPost(' + idpost + ',event)" title="Mais reações" aria-label="Mais reações" style="border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer;padding:0;width:22px;height:22px;border-radius:50%;font-size:15px;line-height:1;font-family:inherit;">＋</button>' +
+  return '<span data-feed-kudos="' + idpost + '" style="display:inline-flex;align-items:center;gap:0;font-family:inherit;font-size:15px;">' + botao +
+    '<button onclick="abrirReacoesPost(' + idpost + ',event)" title="Mais reações" aria-label="Mais reações" style="border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer;padding:0;width:26px;height:26px;border-radius:50%;font-size:16px;line-height:1;font-family:inherit;margin-left:' + (lista.length ? '14px' : '10px') + ';">＋</button>' +
   '</span>';
 }
 
@@ -3459,7 +3462,9 @@ function _iniciaisNomeFeed(nome) {
 // Busca os posts no servidor. idatletaFiltro: só os posts de uma pessoa (usado
 // no perfil, "meus posts" estilo Strava). Sem filtro, é o feed geral.
 // antesDe: idpost do último post já carregado, pra paginar (ver _feedCarregarMais).
-async function carregarFeedPosts(limite, idatletaFiltro, antesDe) {
+// rapido (só a Home): volta assim que os posts chegam, sem esperar curtidas e comentários da Intus; quem chama completa depois
+// com _feedCompletarInteracoes.
+async function carregarFeedPosts(limite, idatletaFiltro, antesDe, rapido) {
   try {
     const token = localStorage.getItem('mx-token') || '';
     let url = API_BASE + '/catalogo.php?action=feed_posts&limite=' + (limite || 30);
@@ -3476,7 +3481,7 @@ async function carregarFeedPosts(limite, idatletaFiltro, antesDe) {
     // Posts oficiais da Intus: vêm só na primeira página do Feed geral. As curtidas chegam ANTES de o chamador desenhar (ver carregarReacoesFeed).
     if (!idatletaFiltro && !antesDe && j && Array.isArray(j.intus)) {
       _feedIntus = j.intus;
-      if (_feedIntus.length) {
+      if (_feedIntus.length && !rapido) {
         const idsI = _feedIntus.map(p => p.idpost);
         await Promise.all([carregarReacoesIntus(idsI), carregarComentariosFeed(idsI.map(i => -Number(i)))]);
       }
@@ -3922,24 +3927,49 @@ function renderFeedHomePreview() {
   _feedProximoExplicativo = 0;
   _feedUltimaVariante = null;
   if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
-  carregarFeedPosts(FEED_LOTE).then(async (posts) => {
-    if (!document.getElementById('h-feed-home')) return;
-    if (posts.length) {
-      // Reações e comentários precisam estar na memória ANTES de desenhar os cartões (como no Feed completo e no "Ver mais"):
-      // sem esperar, os posts nasciam sem as curtidas do aluno e nada os redesenhava depois que a resposta chegava.
-      const idsP = posts.map(p => p.idpost);
-      await Promise.all([carregarReacoesFeed(idsP), carregarComentariosFeed(idsP)]);
-    }
-    const el = document.getElementById('h-feed-home');   // a tela pode ter sido refeita enquanto esperava
-    if (!el) return;
-    if (!posts.length) { el.innerHTML = headerHtml + _feedIntusHtml(isLight, 2); return; }
+  // Os primeiros posts aparecem assim que chegam. Antes a Home esperava, em fila, posts, curtidas e comentários da Intus, curtidas e
+  // comentários dos posts (cinco ou seis idas ao servidor) e só então desenhava. Agora: desenha logo (com o que o aparelho já tem da
+  // última vez, se tiver) e completa curtidas e comentários em paralelo, retocando cada cartão no lugar (_feedCompletarInteracoes).
+  const rodape = '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;margin-top:8px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
+  const desenhar = (el, posts) => {
+    _feedGlobalIdx = 0; _feedProximoExplicativo = 0; _feedUltimaVariante = null;
     el.innerHTML = headerHtml + _feedIntusHtml(isLight, 2) +
       '<div id="h-feed-home-posts">' + _feedPostsHtml(posts, isLight) + '</div>' +
-      '<div id="h-feed-home-pag"></div>' +
-      '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;margin-top:8px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
+      '<div id="h-feed-home-pag"></div>' + rodape;
     _feedAtualizarPaginacao();
+  };
+  const previos = (_feedPosts || []).slice(0, FEED_LOTE_HOME);
+  const idsPrevios = previos.map(p => p.idpost).join(',');
+  carregarFeedPosts(FEED_LOTE_HOME, null, null, true).then(posts => {
+    const el = document.getElementById('h-feed-home');   // a tela pode ter sido refeita enquanto esperava
+    if (!el) return;
+    if (!posts.length) {
+      el.innerHTML = headerHtml + _feedIntusHtml(isLight, 2) +
+        '<div onclick="renderHome()" style="text-align:center;font-size:12px;color:' + (isLight?'#666':'#999') + ';padding:14px;cursor:pointer;">Não consegui carregar os posts agora. Toque para tentar de novo.</div>';
+      return;
+    }
+    // Mesmos posts que já estavam na tela: não redesenha (não pisca nem apaga o que a pessoa está digitando)
+    if (!(previos.length && el.querySelector('#h-feed-home-posts') && idsPrevios === posts.map(p => p.idpost).join(','))) desenhar(el, posts);
+    else _feedAtualizarPaginacao();
+    _feedCompletarInteracoes(posts);
   });
-  return '<div id="h-feed-home">' + headerHtml + '</div>';
+  const div = document.createElement('div');
+  if (previos.length) { desenhar(div, previos); return '<div id="h-feed-home">' + div.innerHTML + '</div>'; }
+  return '<div id="h-feed-home">' + headerHtml +
+    '<div style="text-align:center;padding:18px;color:' + (isLight?'#888':'#777') + ';font-size:12px;">Carregando posts...</div></div>';
+}
+
+// Curtidas e comentários dos posts (e dos cartões da Intus) em paralelo, depois de os cartões já estarem na tela; cada cartão é retocado no
+// lugar (o comentário preserva o que a pessoa digitou). Sem isto os posts nasciam sem as curtidas do aluno (ver 03/11/2026).
+async function _feedCompletarInteracoes(posts) {
+  const ids = (posts || []).map(p => p.idpost);
+  const idsI = (_feedIntus || []).map(p => p.idpost);
+  await Promise.all([
+    carregarReacoesFeed(ids), carregarComentariosFeed(ids),
+    carregarReacoesIntus(idsI), carregarComentariosFeed(idsI.map(i => -Number(i))),
+  ]);
+  ids.forEach(id => { _rxRedesenhar(id); _atualizarLinhaComentarios(id); });
+  idsI.forEach(id => { _intusRedesenhar(id); _atualizarLinhaComentarios(-Number(id)); });
 }
 
 // Tela cheia do feed, aberta pelo menu ou pelo "Ver feed completo" da home.
