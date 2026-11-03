@@ -4155,6 +4155,58 @@ const API = {
     return arr;
   },
 
+  // ── POST DA INTUS: TOP 5 DA SEMANA E TOP 10 DO MÊS (03/11/2026) ─────────────────────────────────────────
+  // Mesma conta que o app usa para dizer "você ficou no Top 5" (aluno.html, _perfilRankingStats): sessões do período
+  // (semana de domingo a sábado, ou mês civil), agregarPontosRank, pontos inteiros e posição densa. O corte é pela POSIÇÃO,
+  // então quem empata no último lugar entra junto (o Top 5 pode ter 6 nomes). Quem tem 0 ponto não entra.
+  // `sessoes` vem de treinos.php?action=ranking, que já traz só quem participa do ranking e não está bloqueado.
+  // `ini` e `fim` são 'AAAA-MM-DD' (inclusive).
+  topDoPeriodo: (sessoes, ini, fim, n, nomes, R) => {
+    const lista = (Array.isArray(sessoes) ? sessoes : []).filter((s) => { const d = API.dataRank(s); return d >= ini && d <= fim; });
+    const ag = API.agregarPontosRank(lista, R);
+    const rank = API.posicionarDenso(
+      Object.values(ag).map((a) => ({ id: a.id, pts: a.total })).sort((x, y) => y.pts - x.pts)
+    );
+    return rank
+      .filter((r) => API.ptsRank(r.pts) > 0 && r.pos <= n)
+      .map((r) => ({ id: r.id, nome: (nomes && nomes[r.id]) || '', pts: API.ptsRank(r.pts), pos: r.pos }));
+  },
+
+  // Períodos JÁ ENCERRADOS, do mais recente para o mais antigo: tipo 'semana' (domingo a sábado) ou 'mes' (mês civil).
+  // Placar fechado não se reescreve, então um período em andamento nunca é oferecido. `hoje` só existe para o teste.
+  periodosFechados: (tipo, qtd, hoje) => {
+    const h = hoje ? new Date(hoje) : new Date();
+    h.setHours(0, 0, 0, 0);
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const dm = (d) => String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+    const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const out = [];
+    if (tipo === 'mes') {
+      for (let k = 1; k <= qtd; k++) {
+        const ini = new Date(h.getFullYear(), h.getMonth() - k, 1), fim = new Date(h.getFullYear(), h.getMonth() - k + 1, 0);
+        out.push({ ini: iso(ini), fim: iso(fim), rotulo: MESES[ini.getMonth()] + ' de ' + ini.getFullYear() });
+      }
+    } else {
+      const dom = new Date(h); dom.setDate(dom.getDate() - dom.getDay());   // domingo desta semana (em andamento)
+      for (let k = 1; k <= qtd; k++) {
+        const ini = new Date(dom); ini.setDate(ini.getDate() - 7 * k);
+        const fim = new Date(ini); fim.setDate(fim.getDate() + 6);
+        out.push({ ini: iso(ini), fim: iso(fim), rotulo: dm(ini) + ' a ' + dm(fim) });
+      }
+    }
+    return out;
+  },
+
+  // Servidor dos posts da Intus (catalogo.php?action=post_intus). Escrever é só do administrador.
+  postsIntus: {
+    listar: async () => { const r = await apiFetch('/catalogo.php?action=post_intus&todos=1'); return (r && r.posts) || []; },
+    criar: (d) => apiFetch('/catalogo.php?action=post_intus', { method: 'POST', body: JSON.stringify(d) }),
+    editar: (d) => apiFetch('/catalogo.php?action=post_intus', { method: 'PUT', body: JSON.stringify(d) }),
+    apagar: (id) => apiFetch('/catalogo.php?action=post_intus&id=' + encodeURIComponent(id), { method: 'DELETE' }),
+    // Sessões e nomes de quem participa do ranking (a mesma lista que os alunos veem).
+    dadosRanking: () => apiFetch('/treinos.php?action=ranking'),
+  },
+
   // Planos Admin (personal, promoções, condições especiais) ────────────
   getPlanosAdmin: () => tryRemoteOrLocal(
     async () => {

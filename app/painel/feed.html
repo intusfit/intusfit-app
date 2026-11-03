@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Feed — Intus</title>
-  <script src="_mock.js?v=20261030b"></script>
-  <script src="api.js?v=20261101a"></script>
+  <script src="_mock.js?v=20261103a"></script>
+  <script src="api.js?v=20261103a"></script>
   <style>
     .fd-wrap { max-width: 640px; margin: 0 auto; }
     .fd-intro { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; }
@@ -41,6 +41,26 @@
     #fd-dd .it { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text); }
     #fd-dd .it:hover { background: var(--bg3); }
     #fd-dd .it small { display: block; font-size: 10.5px; color: var(--text-muted); }
+    .fd-intus { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 18px; }
+    .fd-intus h3 { margin: 0 0 4px; font-size: 14px; font-weight: 800; color: var(--text); }
+    .fd-intus .sub { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px; }
+    .fd-intus-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+    .fd-intus-btns button { padding: 11px 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit; line-height: 1.3; }
+    .fd-intus-btns button:hover { border-color: var(--green); }
+    .fd-ip { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+    .fd-ip .ic { font-size: 20px; flex-shrink: 0; }
+    .fd-ip .tt { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 700; color: var(--text); }
+    .fd-ip .tt small { display: block; font-weight: 500; font-size: 11px; color: var(--text-muted); }
+    .fd-ip .acoes { display: flex; gap: 4px; flex-shrink: 0; }
+    .fd-ip .acoes button { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .fd-st { display: inline-block; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; padding: 2px 7px; border-radius: 99px; margin-left: 6px; vertical-align: middle; background: var(--bg3); color: var(--text-muted); }
+    .fd-st.no_ar { background: rgba(127,255,0,.14); color: var(--green); }
+    .fd-st.agendado { background: rgba(255,184,0,.16); color: #d89a00; }
+    .ti-lin { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--bg3); margin-bottom: 6px; font-size: 13px; color: var(--text); }
+    .ti-lin .pos { width: 26px; font-weight: 800; text-align: center; }
+    .ti-lin .nm { flex: 1; min-width: 0; font-weight: 700; }
+    .ti-lin .pt { font-weight: 800; color: var(--green); }
+    .ti-aviso { font-size: 12px; line-height: 1.5; padding: 9px 11px; border-radius: 10px; background: rgba(255,184,0,.12); color: var(--text); margin-bottom: 10px; }
     .mcar-wrap { position: relative; }
     .mcar { display: flex; align-items: center; background: #000; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
     .mcar::-webkit-scrollbar { display: none; }
@@ -341,7 +361,7 @@ function render() {
   // guarda o que estava sendo digitado: o redesenho não pode apagar rascunho
   const rascunhos = {};
   document.querySelectorAll('[data-com-input]').forEach(i => { if (i.value) rascunhos[i.dataset.comInput] = i.value; });
-  main.innerHTML = '<div class="fd-wrap"><div class="fd-intro">Posts dos alunos que entraram no Feed. Como professor você curte, comenta, responde e marca alunos com @. Cada aluno só aparece aqui se escolheu participar do Feed.</div>' +
+  main.innerHTML = '<div class="fd-wrap">' + intusPainelHtml() + '<div class="fd-intro">Posts dos alunos que entraram no Feed. Como professor você curte, comenta, responde e marca alunos com @. Cada aluno só aparece aqui se escolheu participar do Feed.</div>' +
     (posts.length ? posts.map(cartaoHtml).join('') : '<div class="fd-vazio">' + (carregando ? 'Carregando...' : 'Nenhum post no Feed ainda.') + '</div>') +
     (temMais ? '<button class="fd-mais" onclick="carregar(' + (posts.length ? posts[posts.length - 1].idpost : 0) + ')">Carregar mais</button>' : '') + '</div>';
   Object.keys(rascunhos).forEach(id => { const i = document.querySelector('[data-com-input="' + id + '"]'); if (i) i.value = rascunhos[id]; });
@@ -352,6 +372,245 @@ function atualizarBloco(id) {
   const campo = card.querySelector('[data-com-input]'), rasc = campo ? campo.value : '';
   card.outerHTML = cartaoHtml(p);
   if (rasc) { const n = document.querySelector('[data-post="' + id + '"] [data-com-input]'); if (n) n.value = rasc; }
+}
+
+// ── Posts da Intus (só administrador) ──
+// Top 5 da semana, Top 10 do mês, campanhas e avisos, no topo do Feed de TODOS os alunos. O ranking é montado aqui com a mesma conta do
+// app (API.topDoPeriodo) e gravado como foto do placar fechado.
+const INTUS_TIPOS = { ranking_semana: ['🥇', 'Top 5 da semana'], ranking_mes: ['🏆', 'Top 10 do mês'], campanha: ['📢', 'Campanha'], aviso: ['ℹ️', 'Aviso'] };
+const INTUS_STATUS = { no_ar: 'no ar', agendado: 'agendado', vencido: 'vencido', oculto: 'oculto' };
+let postsIntus = [], _rkDados = null, _tiPeriodos = [], _tiTipo = 'semana', _intusImg = '';
+
+function dataCurta(s) {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? m[3] + '/' + m[2] + ' ' + m[4] + ':' + m[5] : '';
+}
+function paraInputData(d) { const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+
+async function carregarIntus() {
+  if (!_isAdmin) return;
+  try { postsIntus = await API.postsIntus.listar(); }
+  catch (e) { showToast('Não consegui carregar os posts da Intus: ' + (e.message || 'erro'), 'error'); }
+  render();
+}
+
+function intusPainelHtml() {
+  if (!_isAdmin) return '';
+  const linhas = postsIntus.map(p => {
+    const t = INTUS_TIPOS[p.tipo] || ['📢', p.tipo];
+    const quando = p.status === 'agendado' ? 'sai em ' + dataCurta(p.publicar_em) : (p.expira_em ? 'até ' + dataCurta(p.expira_em) : 'sem validade');
+    const per = p.dados && p.dados.periodo && p.dados.periodo.rotulo ? ' · ' + esc(p.dados.periodo.rotulo) : '';
+    return '<div class="fd-ip"><div class="ic">' + t[0] + '</div>' +
+      '<div class="tt">' + esc(p.titulo) + '<span class="fd-st ' + esc(p.status) + '">' + esc(INTUS_STATUS[p.status] || p.status) + '</span>' + (p.fixado ? '<span class="fd-st">📌 fixado</span>' : '') +
+      '<small>' + esc(t[1]) + per + ' · ' + esc(quando) + '</small></div>' +
+      '<div class="acoes">' +
+        '<button onclick="abrirComentariosIntus(' + p.idpost + ')" title="Ver e responder os comentários">💬</button>' +
+        '<button onclick="intusFixar(' + p.idpost + ',' + (p.fixado ? 0 : 1) + ')">' + (p.fixado ? 'Desafixar' : 'Fixar') + '</button>' +
+        '<button onclick="intusAtivo(' + p.idpost + ',' + (p.ativo ? 0 : 1) + ')">' + (p.ativo ? 'Ocultar' : 'Mostrar') + '</button>' +
+        '<button onclick="intusApagar(' + p.idpost + ')" title="Excluir">🗑️</button></div></div>';
+  }).join('');
+  return '<div class="fd-intus"><h3>📣 Posts da Intus</h3>' +
+    '<div class="sub">Aparecem no topo do Feed de todos os alunos. O ranking sai com a mesma conta de pontos do app, só de quem participa do ranking.</div>' +
+    '<div class="fd-intus-btns"><button onclick="abrirTopIntus(\'semana\')">🥇 Top 5<br>da semana</button><button onclick="abrirTopIntus(\'mes\')">🏆 Top 10<br>do mês</button><button onclick="abrirCampanhaIntus()">📢 Campanha<br>ou aviso</button></div>' +
+    (linhas || '<div class="sub" style="margin:0;">Nenhum post da Intus ainda.</div>') + '</div>';
+}
+
+async function intusFixar(id, v) {
+  try { await API.postsIntus.editar({ idpost: id, fixado: !!v }); } catch (e) { showToast('Não consegui fixar: ' + (e.message || 'erro'), 'error'); return; }
+  carregarIntus();
+}
+async function intusAtivo(id, v) {
+  try { await API.postsIntus.editar({ idpost: id, ativo: !!v }); } catch (e) { showToast('Não consegui alterar: ' + (e.message || 'erro'), 'error'); return; }
+  carregarIntus();
+}
+async function intusApagar(id) {
+  if (!confirm('Excluir este post da Intus? Some do Feed de todos os alunos e as reações dele também. Essa ação não pode ser desfeita. (Para só tirar do ar, use Ocultar.)')) return;
+  try { await API.postsIntus.apagar(id); } catch (e) { showToast('Não consegui excluir: ' + (e.message || 'erro'), 'error'); return; }
+  carregarIntus();
+}
+
+// ── Comentários de um post da Intus: a equipe lê, responde (aparece como "professor" no app) e exclui ──
+let _ciId = 0, _ciLista = [], _ciResp = null;
+async function abrirComentariosIntus(id) {
+  _ciId = id; _ciLista = []; _ciResp = null;
+  openModal('<div class="modal-header"><div class="modal-title">💬 Comentários do post</div><button class="modal-close" onclick="closeModal()">×</button></div>' +
+    '<div class="modal-body" id="cm-corpo"><div class="fd-vazio" style="padding:30px 0;">Carregando...</div></div>');
+  await cmCarregar();
+}
+async function cmCarregar() {
+  try {
+    const r = await api('/catalogo.php?action=comentarios_pub&alvo_tipo=intus_post&ids=' + _ciId + '&_=' + Date.now());
+    const j = r.ok ? await r.json() : {};
+    _ciLista = j[String(_ciId)] || [];
+  } catch (e) { showToast('Não consegui carregar os comentários.', 'error'); }
+  cmPintar();
+}
+function cmPintar() {
+  const box = document.getElementById('cm-corpo'); if (!box) return;
+  const rasc = (document.getElementById('cm-texto') || {}).value || '';
+  const porId = {}; _ciLista.forEach(c => { porId[c.idcomentario] = c; });
+  const porPai = {}, raizes = [];
+  _ciLista.forEach(c => { if (c.resposta_a && porId[c.resposta_a]) (porPai[c.resposta_a] = porPai[c.resposta_a] || []).push(c); else raizes.push(c); });
+  const linha = (c, nivel) => '<div class="fd-com"' + (nivel ? ' style="margin-left:' + (Math.min(nivel, 3) * 26) + 'px;"' : '') + '>' +
+    '<div style="flex:1;min-width:0;"><div class="fd-com-txt"><b>' + esc(c.autor_nome || 'Alguém') + '</b>' + (c.autor_tipo === 'aluno' ? '' : ' <span class="fd-selo">equipe</span>') + ' ' + esc(c.texto) + '</div>' +
+    '<div class="fd-com-sub"><span>' + quando(c.created_at) + '</span><span class="a" onclick="cmResponder(' + c.idcomentario + ')">Responder</span><span class="a" onclick="cmExcluir(' + c.idcomentario + ')">Excluir</span></div></div></div>' +
+    (porPai[c.idcomentario] || []).map(r => linha(r, nivel + 1)).join('');
+  const resp = _ciResp && porId[_ciResp] ? porId[_ciResp] : null;
+  box.innerHTML = (raizes.length ? raizes.map(c => linha(c, 0)).join('') : '<div class="fd-vazio" style="padding:24px 0;">Ainda sem comentários neste post.</div>') +
+    (resp ? '<div class="fd-chip">Respondendo a <b>' + esc(resp.autor_nome || 'Alguém') + '</b> <span style="cursor:pointer;font-weight:800;" onclick="cmResponder(0)">✕</span></div>' : '') +
+    '<div class="fd-envio"><input id="cm-texto" maxlength="1000" placeholder="Responder como equipe..." onkeydown="if(event.key===\'Enter\')cmEnviar()"/><button onclick="cmEnviar()">Enviar</button></div>';
+  const t = document.getElementById('cm-texto'); if (t && rasc) t.value = rasc;
+}
+function cmResponder(id) { _ciResp = id || null; cmPintar(); const t = document.getElementById('cm-texto'); if (t) t.focus(); }
+async function cmEnviar() {
+  const t = document.getElementById('cm-texto'); const texto = (t && t.value || '').trim(); if (!texto) return;
+  try {
+    const corpo = { alvo_tipo: 'intus_post', alvo_id: _ciId, texto: texto };
+    if (_ciResp) corpo.resposta_a = _ciResp;
+    const r = await apiJson('/catalogo.php?action=comentarios_pub', corpo);
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) { showToast('Não consegui enviar o comentário.', 'error'); return; }
+  t.value = ''; _ciResp = null;
+  await cmCarregar();
+}
+async function cmExcluir(id) {
+  if (!confirm('Excluir este comentário? As respostas dele também serão excluídas.')) return;
+  try { const r = await api('/catalogo.php?action=comentarios_pub&id=' + id, { method: 'DELETE' }); if (!r.ok) throw new Error('falhou'); }
+  catch (e) { showToast('Não consegui excluir o comentário.', 'error'); return; }
+  await cmCarregar();
+}
+
+// ── Top 5 da semana / Top 10 do mês ──
+async function abrirTopIntus(tipo) {
+  _tiTipo = tipo;
+  const ehSem = tipo === 'semana';
+  openModal('<div class="modal-header"><div class="modal-title">' + (ehSem ? '🥇 Top 5 da semana' : '🏆 Top 10 do mês') + '</div><button class="modal-close" onclick="closeModal()">×</button></div>' +
+    '<div class="modal-body" id="ti-corpo"><div class="fd-vazio" style="padding:30px 0;">Carregando o ranking...</div></div><div class="modal-footer" id="ti-rodape"></div>');
+  try {
+    // as regras reais de pontuação do painel precisam estar carregadas, senão a conta sai com os valores padrão
+    try { await API.getRankingRegras(); } catch (e) {}
+    _rkDados = await API.postsIntus.dadosRanking();
+  } catch (e) {
+    document.getElementById('ti-corpo').innerHTML = '<div class="ti-aviso">Não consegui carregar o ranking agora: ' + esc(e.message || 'erro') + '</div>';
+    return;
+  }
+  _tiPeriodos = API.periodosFechados(ehSem ? 'semana' : 'mes', ehSem ? 8 : 6);
+  const jaFeito = ini => postsIntus.some(p => p.tipo === (ehSem ? 'ranking_semana' : 'ranking_mes') && p.dados && p.dados.periodo && p.dados.periodo.ini === ini);
+  document.getElementById('ti-corpo').innerHTML =
+    '<div class="form-group"><label class="label">' + (ehSem ? 'Semana (domingo a sábado)' : 'Mês') + '</label>' +
+    '<select id="ti-per" class="input" onchange="tiAtualizar()">' + _tiPeriodos.map((p, i) => '<option value="' + i + '">' + esc(p.rotulo) + (jaFeito(p.ini) ? ' (já publicado)' : '') + '</option>').join('') + '</select></div>' +
+    '<div id="ti-previa" style="margin-top:12px;"></div>' +
+    '<div class="form-group" style="margin-top:10px;"><label class="label">Título</label><input id="ti-titulo" class="input" type="text" maxlength="160"/></div>' +
+    '<div class="form-group" style="margin-top:10px;"><label class="label">Texto do post (pode editar)</label><textarea id="ti-texto" class="input" rows="3" maxlength="1500"></textarea></div>' +
+    '<div class="form-group" style="margin-top:10px;"><label class="label">Publicar em (deixe vazio para publicar agora)</label><input id="ti-quando" class="input" type="datetime-local"/></div>' +
+    '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;color:var(--text);"><input id="ti-fixar" type="checkbox"/> Fixar no topo do Feed</label>';
+  document.getElementById('ti-rodape').innerHTML = '<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button id="ti-publicar" class="btn btn-primary" onclick="publicarTopIntus()">Publicar no Feed</button>';
+  tiAtualizar();
+}
+function tiAtual() {
+  const per = _tiPeriodos[Number((document.getElementById('ti-per') || {}).value || 0)] || _tiPeriodos[0];
+  const n = _tiTipo === 'semana' ? 5 : 10;
+  const top = API.topDoPeriodo((_rkDados && _rkDados.sessoes) || [], per.ini, per.fim, n, (_rkDados && _rkDados.atletas) || {});
+  return { per, n, top };
+}
+function tiAtualizar() {
+  const { per, n, top } = tiAtual();
+  const ehSem = _tiTipo === 'semana';
+  const medalha = pos => pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : pos + 'º';
+  const jaFeito = postsIntus.some(p => p.tipo === (ehSem ? 'ranking_semana' : 'ranking_mes') && p.dados && p.dados.periodo && p.dados.periodo.ini === per.ini);
+  document.getElementById('ti-previa').innerHTML =
+    (jaFeito ? '<div class="ti-aviso">Já existe um post de ranking para este período. Publicar de novo cria um segundo post igual.</div>' : '') +
+    (top.length
+      ? top.map(t => '<div class="ti-lin"><span class="pos">' + medalha(t.pos) + '</span><span class="nm">' + esc(t.nome || ('Aluno ' + t.id)) + '</span><span class="pt">' + t.pts + ' pts</span></div>').join('') +
+        (top.length > n ? '<div class="fd-chip">Mais de ' + n + ' nomes porque houve empate no último lugar, igual ao ranking do app.</div>' : '')
+      : '<div class="ti-aviso">Ninguém pontuou neste período (entre quem participa do ranking). Não há o que publicar.</div>');
+  document.getElementById('ti-titulo').value = ehSem ? 'Top 5 da semana' : 'Top 10 do mês';
+  document.getElementById('ti-texto').value = ehSem
+    ? 'Fechamos a semana de ' + per.rotulo + '. Parabéns a quem treinou e subiu no ranking. A próxima já começou, bora!'
+    : 'Fechamos ' + per.rotulo + '. Esses foram os ' + n + ' que mais pontuaram no mês. Parabéns, e bora para o próximo!';
+  const b = document.getElementById('ti-publicar'); if (b) b.disabled = !top.length;
+}
+async function publicarTopIntus() {
+  const { per, top } = tiAtual();
+  if (!top.length) return;
+  const btn = document.getElementById('ti-publicar'); if (btn) { btn.disabled = true; btn.textContent = 'Publicando...'; }
+  const quando = (document.getElementById('ti-quando').value || '').trim();
+  try {
+    await API.postsIntus.criar({
+      tipo: _tiTipo === 'semana' ? 'ranking_semana' : 'ranking_mes',
+      titulo: document.getElementById('ti-titulo').value.trim(),
+      texto: document.getElementById('ti-texto').value.trim(),
+      fixado: document.getElementById('ti-fixar').checked,
+      publicar_em: quando,
+      dados: { periodo: { ini: per.ini, fim: per.fim, rotulo: per.rotulo }, top },
+    });
+  } catch (e) {
+    showToast('Não consegui publicar: ' + (e.message || 'erro'), 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Publicar no Feed'; }
+    return;
+  }
+  closeModal();
+  showToast(quando ? 'Ranking agendado.' : 'Ranking publicado no Feed de todos os alunos.');
+  carregarIntus();
+}
+
+// ── Campanha, promoção ou aviso ──
+function abrirCampanhaIntus() {
+  _intusImg = '';
+  const venc = new Date(); venc.setDate(venc.getDate() + 14);
+  openModal('<div class="modal-header"><div class="modal-title">📢 Campanha, promoção ou aviso</div><button class="modal-close" onclick="closeModal()">×</button></div>' +
+    '<div class="modal-body">' +
+      '<div class="form-group"><label class="label">Tipo</label><select id="ci-tipo" class="input"><option value="campanha">Campanha ou promoção</option><option value="aviso">Aviso</option></select></div>' +
+      '<div class="form-group" style="margin-top:10px;"><label class="label">Título *</label><input id="ci-titulo" class="input" type="text" maxlength="160" placeholder="Ex.: Condição especial de fim de ano"/></div>' +
+      '<div class="form-group" style="margin-top:10px;"><label class="label">Texto</label><textarea id="ci-texto" class="input" rows="4" maxlength="1500" placeholder="O que o aluno precisa saber"></textarea></div>' +
+      '<div class="form-group" style="margin-top:10px;"><label class="label">Imagem (opcional)</label><input id="ci-arq" type="file" accept="image/png,image/jpeg,image/webp" onchange="intusLerImagem(this)"/><div id="ci-prev" style="margin-top:8px;"></div></div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">' +
+        '<div class="form-group"><label class="label">Texto do botão</label><input id="ci-bt" class="input" type="text" maxlength="60" placeholder="Saiba mais"/></div>' +
+        '<div class="form-group"><label class="label">Link do botão (https://)</label><input id="ci-bl" class="input" type="text" maxlength="480" placeholder="https://wa.me/..."/></div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">' +
+        '<div class="form-group"><label class="label">Publicar em (vazio = agora)</label><input id="ci-quando" class="input" type="datetime-local"/></div>' +
+        '<div class="form-group"><label class="label">Fica no Feed até</label><input id="ci-ate" class="input" type="datetime-local" value="' + paraInputData(venc) + '"/></div>' +
+      '</div>' +
+      '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;color:var(--text);"><input id="ci-fixar" type="checkbox"/> Fixar no topo do Feed</label>' +
+    '</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button id="ci-publicar" class="btn btn-primary" onclick="publicarCampanhaIntus()">Publicar no Feed</button></div>');
+}
+function intusLerImagem(input) {
+  const f = input.files && input.files[0];
+  if (!f) { _intusImg = ''; document.getElementById('ci-prev').innerHTML = ''; return; }
+  const url = URL.createObjectURL(f), img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+    _intusImg = c.toDataURL('image/jpeg', 0.85);
+    URL.revokeObjectURL(url);
+    document.getElementById('ci-prev').innerHTML = '<img src="' + _intusImg + '" style="max-width:100%;max-height:220px;border-radius:10px;"/>';
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); _intusImg = ''; showToast('Não consegui ler essa imagem.', 'error'); };
+  img.src = url;
+}
+async function publicarCampanhaIntus() {
+  const v = id => (document.getElementById(id).value || '').trim();
+  if (!v('ci-titulo')) { showToast('Escreva um título.', 'error'); return; }
+  if (!v('ci-texto') && !_intusImg) { showToast('Escreva um texto ou escolha uma imagem.', 'error'); return; }
+  if (v('ci-bl') && !/^https:\/\//i.test(v('ci-bl'))) { showToast('O link do botão precisa começar com https://', 'error'); return; }
+  const btn = document.getElementById('ci-publicar'); btn.disabled = true; btn.textContent = 'Publicando...';
+  const quando = v('ci-quando');
+  try {
+    await API.postsIntus.criar({
+      tipo: v('ci-tipo'), titulo: v('ci-titulo'), texto: v('ci-texto'), imagem: _intusImg,
+      botao_texto: v('ci-bt'), botao_link: v('ci-bl'), publicar_em: quando, expira_em: v('ci-ate'),
+      fixado: document.getElementById('ci-fixar').checked,
+    });
+  } catch (e) {
+    showToast('Não consegui publicar: ' + (e.message || 'erro'), 'error');
+    btn.disabled = false; btn.textContent = 'Publicar no Feed';
+    return;
+  }
+  closeModal();
+  showToast(quando ? 'Post agendado.' : 'Post publicado no Feed de todos os alunos.');
+  carregarIntus();
 }
 
 // ── ações ──
@@ -410,6 +669,7 @@ async function excluirPost(id) {
 
 render();
 carregar();
+carregarIntus();
 </script>
 </body>
 </html>

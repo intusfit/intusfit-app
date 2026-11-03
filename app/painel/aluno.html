@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261101a"></script>
+  <script src="api.js?v=20261103a"></script>
   <script src="ajuda.js?v=20261027a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -3059,17 +3059,25 @@ function abrirQuemCurtiu(idpost) {
   );
 }
 
+// ids positivos = posts de alunos (alvo 'feed_post'); ids NEGATIVOS = posts da Intus (alvo 'intus_post', id = o valor sem o sinal). O sinal só
+// existe aqui dentro do app, para um post da Intus e um post de aluno com o mesmo número não dividirem comentários, campo de texto e rascunho.
+function _alvoComentarioFeed(chave) { return Number(chave) < 0 ? { tipo: 'intus_post', id: -Number(chave) } : { tipo: 'feed_post', id: Number(chave) }; }
 async function carregarComentariosFeed(ids) {
   if (!ids || !ids.length) return;
+  const deAluno = ids.filter(i => Number(i) > 0), daIntus = ids.filter(i => Number(i) < 0).map(i => -Number(i));
+  if (deAluno.length) await _carregarComentariosDe('feed_post', deAluno, 1);
+  if (daIntus.length) await _carregarComentariosDe('intus_post', daIntus, -1);
+}
+async function _carregarComentariosDe(tipo, ids, sinal) {
   try {
-    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&alvo_tipo=feed_post&ids=' + ids.join(',') + '&_=' + Date.now(),
+    const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub&alvo_tipo=' + tipo + '&ids=' + ids.join(',') + '&_=' + Date.now(),
       { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
     const j = r.ok ? (await r.json()) : {};
     const dados = (j && typeof j === 'object') ? j : {};
     // Post que ficou sem nenhum comentário (ex.: o último foi excluído) não vem
     // na resposta; sem limpar, a lista antiga continuava na tela.
-    if (r.ok) ids.forEach(id => { if (!dados[String(id)]) delete _comentariosFeed[String(id)]; });
-    Object.assign(_comentariosFeed, dados);
+    if (r.ok) ids.forEach(id => { if (!dados[String(id)]) delete _comentariosFeed[String(sinal * id)]; });
+    Object.keys(dados).forEach(k => { _comentariosFeed[String(sinal * Number(k))] = dados[k]; });
     const idsC = [];
     Object.keys(dados).forEach(k => (dados[k] || []).forEach(c => idsC.push(c.idcomentario)));
     await carregarReacoesComentariosFeed(idsC);
@@ -3289,7 +3297,8 @@ async function enviarComentarioFeed(idpost) {
   _comentarioEnviando[idpost] = true;
   const resp = _comentarioRespondendoA[idpost];
   try {
-    const body = { alvo_tipo: 'feed_post', alvo_id: Number(idpost), texto: texto };
+    const alvoC = _alvoComentarioFeed(idpost);
+    const body = { alvo_tipo: alvoC.tipo, alvo_id: alvoC.id, texto: texto };
     if (resp && resp.id) body.resposta_a = resp.id;
     const r = await fetch(API_BASE + '/catalogo.php?action=comentarios_pub', {
       method: 'POST',
@@ -3464,11 +3473,124 @@ async function carregarFeedPosts(limite, idatletaFiltro, antesDe) {
     _feedAvatarsMap = (j && j.avatars) || {};
     const posts = (j && Array.isArray(j.posts)) ? j.posts : [];
     _feedTemMais = !!(j && j.temMais);
+    // Posts oficiais da Intus: vêm só na primeira página do Feed geral. As curtidas chegam ANTES de o chamador desenhar (ver carregarReacoesFeed).
+    if (!idatletaFiltro && !antesDe && j && Array.isArray(j.intus)) {
+      _feedIntus = j.intus;
+      if (_feedIntus.length) {
+        const idsI = _feedIntus.map(p => p.idpost);
+        await Promise.all([carregarReacoesIntus(idsI), carregarComentariosFeed(idsI.map(i => -Number(i)))]);
+      }
+    }
     // só guarda/acumula como "o feed" quando é a lista geral (sem filtro de atleta):
     // antesDe = lote seguinte, acumula; sem antesDe = carga nova, substitui.
     if (!idatletaFiltro) _feedPosts = antesDe ? _feedPosts.concat(posts) : posts;
     return posts;
   } catch (e) { console.warn('[feed] não consegui carregar:', e); _feedTemMais = false; return []; }
+}
+
+// ═══════════════ POSTS DA INTUS (oficiais, no topo do Feed) ═══════════════
+// Feitos pela equipe no painel (Feed > Posts da Intus): Top 5 da semana, Top 10 do mês, campanhas, promoções e avisos. Vêm no campo `intus` de
+// feed_posts (primeira página do Feed geral). O ranking é a foto do placar fechado, então não muda depois de publicado. Reação: só o ❤️,
+// na tabela de reações de sempre com alvo_tipo 'intus_post'.
+var _feedIntus = [];
+var _reacoesIntus = {};   // idpost -> [{emoji, autor_nome, meu}]
+async function carregarReacoesIntus(ids) {
+  if (!ids || !ids.length) return;
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes&alvo_tipo=intus_post&ids=' + ids.join(',') + '&_=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    const obj = (j && typeof j === 'object') ? j : {};
+    ids.forEach(function (id) { const k = String(id); _reacoesIntus[k] = Array.isArray(obj[k]) ? obj[k] : []; });
+  } catch (e) {}
+}
+function _intusKudosHtml(id) {
+  const lista = _reacoesIntus[String(id)] || [];
+  const minha = lista.some(r => r.meu);
+  const isLight = document.body.classList.contains('tema-claro');
+  return '<span data-intus-kudos="' + id + '" style="display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:15px;">' +
+    '<button onclick="reagirIntus(' + id + ')" title="' + (minha ? 'Toque para tirar a curtida' : 'Curtir') + '" style="border:none;background:transparent;cursor:pointer;padding:0;font-size:22px;line-height:1;">' + (minha ? '❤️' : '🤍') + '</button>' +
+    (lista.length ? '<span style="font-weight:' + (minha ? '800' : '600') + ';color:' + (minha ? (isLight ? '#2d8a00' : '#7FFF00') : 'inherit') + ';">' + lista.length + '</span>' : '') +
+  '</span>';
+}
+function _intusRedesenhar(id) {
+  document.querySelectorAll('[data-intus-kudos="' + id + '"]').forEach(el => { el.outerHTML = _intusKudosHtml(id); });
+}
+async function reagirIntus(id) {
+  const k = String(id), antes = (_reacoesIntus[k] || []).slice();
+  const tinha = antes.some(r => r.meu);
+  const lista = antes.filter(r => !r.meu);
+  if (!tinha) lista.push({ emoji: '❤️', autor_tipo: 'aluno', autor_id: Number(idAtleta), autor_nome: 'Você', meu: true });
+  _reacoesIntus[k] = lista; _intusRedesenhar(id);
+  try {
+    const corpo = { alvo_tipo: 'intus_post', alvo_id: Number(id), emoji: '❤️' };
+    if (tinha) corpo.remover = true; else corpo.definir = true;
+    const r = await fetch(API_BASE + '/catalogo.php?action=reacoes', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+    if (!r.ok) throw new Error('falhou');
+  } catch (e) {
+    _reacoesIntus[k] = antes; _intusRedesenhar(id);
+    toast('Não deu para registrar sua curtida.');
+    return;
+  }
+  await carregarReacoesIntus([id]);
+  _intusRedesenhar(id);
+}
+function _intusMedalha(pos) { return pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : pos + 'º'; }
+function _intusPostHtml(p, isLight) {
+  const accent = isLight ? '#2d8a00' : '#7FFF00';
+  const ink = isLight ? '#1a1a1a' : '#f0f0f0';
+  const muted = isLight ? '#666' : '#bbb';
+  const dt = new Date(String(p.publicar_em).replace(' ', 'T'));
+  const ehRank = p.tipo === 'ranking_semana' || p.tipo === 'ranking_mes';
+  const icone = p.tipo === 'ranking_semana' ? '🥇' : p.tipo === 'ranking_mes' ? '🏆' : p.tipo === 'aviso' ? 'ℹ️' : '📢';
+  let corpo = '';
+  if (ehRank && p.dados && Array.isArray(p.dados.top)) {
+    const eu = Number(idAtleta);
+    const meu = p.dados.top.find(t => Number(t.id) === eu);
+    const rotulo = (p.dados.periodo && p.dados.periodo.rotulo) || '';
+    corpo += '<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:' + accent + ';margin-bottom:8px;">' + esc(rotulo) + '</div>';
+    if (meu) corpo += '<div style="font-size:12.5px;font-weight:800;color:' + ink + ';background:' + (isLight ? '#eef9de' : 'rgba(127,255,0,.1)') + ';border-radius:10px;padding:9px 11px;margin-bottom:8px;">' + _intusMedalha(Number(meu.pos)) + ' Você ficou em ' + Number(meu.pos) + 'º lugar com ' + Number(meu.pts) + ' pontos. Parabéns!</div>';
+    corpo += p.dados.top.map(t => {
+      const nome = String(t.nome || 'Aluno'), av = _feedAvatarsMap[String(t.id)] || '', euSou = Number(t.id) === eu;
+      const fundoAv = isLight ? '#e5e5e5' : '#2a2a2a';
+      const avEl = av
+        ? '<img src="' + esc(av) + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\'"/>'
+        : '<div style="width:28px;height:28px;border-radius:50%;background:' + fundoAv + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + (isLight ? '#666' : '#aaa') + ';flex-shrink:0;">' + esc(_iniciaisNomeFeed(nome)) + '</div>';
+      return '<div onclick="abrirPerfilAluno(' + Number(t.id) + ')" style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;border-bottom:1px solid ' + (isLight ? '#f0f0f0' : '#222') + ';' + (euSou ? 'background:' + (isLight ? '#f6fbee' : 'rgba(127,255,0,.06)') + ';border-radius:8px;' : '') + '">' +
+        '<div style="width:30px;text-align:center;font-size:' + (Number(t.pos) <= 3 ? '19px' : '12.5px') + ';font-weight:800;color:' + ink + ';">' + _intusMedalha(Number(t.pos)) + '</div>' + avEl +
+        '<div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:' + ink + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nome.split(' ').slice(0, 2).join(' ')) + (euSou ? ' <span style="color:' + accent + ';font-weight:700;">(você)</span>' : '') + '</div>' +
+        '<div style="font-size:12.5px;font-weight:800;color:' + accent + ';">' + Number(t.pts) + ' pts</div></div>';
+    }).join('');
+  }
+  const img = p.imagem ? '<img src="' + esc(p.imagem) + '" alt="" loading="lazy" style="width:100%;display:block;" onerror="this.style.display=\'none\'"/>' : '';
+  const texto = p.texto ? '<div style="font-size:12.5px;color:' + (isLight ? '#333' : '#ddd') + ';line-height:1.55;margin-top:' + (ehRank ? '10px' : '2px') + ';white-space:pre-wrap;word-wrap:break-word;">' + esc(p.texto) + '</div>' : '';
+  const botao = (p.botao_link && /^https:\/\//i.test(p.botao_link))
+    ? '<a href="' + esc(p.botao_link) + '" target="_blank" rel="noopener" style="display:block;text-align:center;padding:10px;border-radius:10px;background:' + (isLight ? '#5cb800' : '#7FFF00') + ';color:' + (isLight ? '#fff' : '#0f1a00') + ';font-size:12px;font-weight:800;text-decoration:none;margin-top:12px;">' + esc(p.botao_texto || 'Saiba mais') + ' →</a>' : '';
+  return '<div data-intus-post="' + Number(p.idpost) + '" style="background:' + (isLight ? '#fff' : '#161616') + ';border:1px solid ' + (isLight ? '#bfe39a' : 'rgba(127,255,0,.32)') + ';border-radius:14px;overflow:hidden;margin-bottom:12px;">' +
+    '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px;">' +
+      '<img src="' + (isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus Fit" style="height:15px;flex-shrink:0;"/>' +
+      '<span style="font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:99px;background:' + (isLight ? 'rgba(92,184,0,.14)' : 'rgba(127,255,0,.14)') + ';color:' + accent + ';">Oficial</span>' +
+      '<span style="flex:1;"></span>' +
+      '<span style="font-size:10px;color:' + (isLight ? '#999' : '#888') + ';">' + (p.fixado ? '📌 ' : '') + _tempoRelativoFeed(dt) + '</span>' +
+    '</div>' +
+    (ehRank ? '' : img) +
+    '<div style="padding:' + (ehRank || !img ? '2px' : '12px') + ' 12px 11px;">' +
+      '<div style="font-size:15px;font-weight:800;color:' + ink + ';line-height:1.3;margin-bottom:' + (ehRank ? '4px' : '2px') + ';">' + icone + ' ' + esc(p.titulo) + '</div>' +
+      corpo + texto + botao +
+      '<div data-feed-card="' + (-Number(p.idpost)) + '" style="margin-top:10px;">' +
+        '<div data-feed-kudos-wrap style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;">' + _intusKudosHtml(p.idpost) + _comentarioGatilhoHtml(-Number(p.idpost), isLight) + '</div>' +
+        _comentariosHtml(-Number(p.idpost), isLight) +
+      '</div>' +
+    '</div></div>';
+}
+function _feedIntusHtml(isLight, max) {
+  const lista = (_feedIntus || []).slice(0, max || 20);
+  return lista.map(p => _intusPostHtml(p, isLight)).join('');
 }
 
 // Abre um mapa externo centrado no NOME do lugar (não temos lat/lng salvos —
@@ -3800,13 +3922,18 @@ function renderFeedHomePreview() {
   _feedProximoExplicativo = 0;
   _feedUltimaVariante = null;
   if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
-  carregarFeedPosts(FEED_LOTE).then((posts) => {
-    const el = document.getElementById('h-feed-home');
+  carregarFeedPosts(FEED_LOTE).then(async (posts) => {
+    if (!document.getElementById('h-feed-home')) return;
+    if (posts.length) {
+      // Reações e comentários precisam estar na memória ANTES de desenhar os cartões (como no Feed completo e no "Ver mais"):
+      // sem esperar, os posts nasciam sem as curtidas do aluno e nada os redesenhava depois que a resposta chegava.
+      const idsP = posts.map(p => p.idpost);
+      await Promise.all([carregarReacoesFeed(idsP), carregarComentariosFeed(idsP)]);
+    }
+    const el = document.getElementById('h-feed-home');   // a tela pode ter sido refeita enquanto esperava
     if (!el) return;
-    if (!posts.length) { el.innerHTML = headerHtml; return; }
-    carregarReacoesFeed(posts.map(p => p.idpost));
-    carregarComentariosFeed(posts.map(p => p.idpost));
-    el.innerHTML = headerHtml +
+    if (!posts.length) { el.innerHTML = headerHtml + _feedIntusHtml(isLight, 2); return; }
+    el.innerHTML = headerHtml + _feedIntusHtml(isLight, 2) +
       '<div id="h-feed-home-posts">' + _feedPostsHtml(posts, isLight) + '</div>' +
       '<div id="h-feed-home-pag"></div>' +
       '<div onclick="navegar(\'feed\')" style="text-align:center;font-size:11.5px;font-weight:800;color:' + (isLight?'#666':'#999') + ';padding:10px;margin-top:8px;border:1px dashed ' + (isLight?'#ddd':'#2a2a2a') + ';border-radius:12px;cursor:pointer;">Ver feed completo →</div>';
@@ -3866,6 +3993,7 @@ async function renderFeedCompleto() {
   html += _feedBuscaHtml(isLight);
   html += _feedChipsAmigosHtml(isLight);
   html += '<div style="display:flex;gap:8px;margin-bottom:14px;"><button class="btn btn-prim" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button><button class="btn btn-sec" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirPostTexto()">✍️ Escrever</button></div>';
+  if (!souMeuPerfil) html += _feedIntusHtml(isLight);   // posts oficiais da Intus, no topo
   if (souMeuPerfil) {
     html += '<div id="feed-meu-perfil" style="min-height:120px;"><div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando seu perfil...</div></div>';
   } else if (!posts.length) {
@@ -7506,7 +7634,7 @@ function _homeTile(js, grad, ic, tit, tag) {
 }
 // Ver mais / Ver menos: o ícone é um quadrado como os outros, com + (fechado) ou − (aberto). A etiqueta "novo" aparece quando há Extras novo dentro.
 function _homeMaisTileHtml(aberto, horizontal) {
-  const tag = (horizontal && typeof _extrasTemNovo === 'function' && _extras && _extras.lista && _extras.lista.length && _extrasTemNovo()) ? '<span class="h-novo" id="h-maisatalhos-novo">novo</span>' : '';
+  const tag = '';   // o Extras tem atalho próprio na tela inicial (grade ou espaço ao lado do Ver mais), então o Ver mais não carrega a etiqueta
   const ic = `<div class="ic" id="h-maisatalhos-ic" style="background:${_HOME_GRAD.mais};font-size:17px;">${aberto ? '−' : '+'}</div>`;
   const lbl = `<div class="tt"><span id="h-maisatalhos-label">${aberto ? 'Ver menos' : 'Ver mais'}</span></div>`;
   return horizontal
@@ -7531,10 +7659,10 @@ function _homeDirHtml(aberto) {
   const card = _homeRefAtiva() ? _homeRefCartaoHtml() : '';
   const compacto = !!card;   // só o cartão da refeição pede o espaço; a água sozinha não muda o modelo padrão
   _homeRefAssin = _homeRefAssinatura();
+  const temExtras = _homeExtrasLista().length > 0;
   if (!compacto) {
     // Modelo padrão: cinco atalhos mais o Ver mais, em duas colunas, só com o título.
     // O quinto é o Extras (com a etiqueta novo) quando o aluno tem algo liberado; senão, a Central do Aluno.
-    const temExtras = _homeExtrasLista().length > 0;
     return `<div class="h-atalhos" style="grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr;flex:1;margin-bottom:0;">
       ${_homeTile("navegar('nutricao')", _HOME_GRAD.nutri, '🥗', 'Nutrição')}
       ${_homeTile("renderHistorico();trocarView('historico');", _HOME_GRAD.evol, '📈', 'Evoluções')}
@@ -7544,8 +7672,11 @@ function _homeDirHtml(aberto) {
       ${_homeMaisTileHtml(aberto, false)}
     </div>`;
   }
-  const sorteado = _homeSorteio();
-  const mini = `<div class="h-at" onclick="${sorteado.js}" style="flex-direction:row;gap:7px;min-height:44px;"><div class="ic" style="background:${sorteado.g};">${sorteado.ic}</div><div class="tt">${sorteado.t}</div></div>`;
+  // Com o cartão da refeição fixado só sobra um espaço de atalho ao lado do Ver mais. Quem tem Extras liberado sempre vê o Extras ali (antes ele só aparecia
+  // dentro do Ver mais, e quem fixou a refeição achava que o botão tinha sumido); sem Extras, continua o atalho sorteado.
+  const sorteado = temExtras ? { js: "navegar('extras')", g: _HOME_GRAD.extras, ic: '🎁', t: 'Extras' } : _homeSorteio();
+  const tagNovo = temExtras && _extrasTemNovo() ? '<span class="h-novo">novo</span>' : '';
+  const mini = `<div class="h-at" onclick="${sorteado.js}" style="flex-direction:row;gap:7px;min-height:44px;">${tagNovo}<div class="ic" style="background:${sorteado.g};">${sorteado.ic}</div><div class="tt">${sorteado.t}</div></div>`;
   return card + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">${mini}${_homeMaisTileHtml(aberto, true)}</div>`;
 }
 // Painel "Ver mais": Avaliações, Central e Perfil sempre; Evoluções, Conquistas e Nutrição entram quando algum cartão está fixado na Home;
@@ -7557,7 +7688,6 @@ function _homeMaisHtml() {
   const temExtras = _homeExtrasLista().length > 0;
   // No modelo padrão a grade principal já leva Nutrição, Evoluções, Conquistas, Avaliações e Extras (ou a Central do Aluno, sem Extras).
   const central = t("navegar('mensagens')", _HOME_GRAD.central, '💬', 'Central do Aluno');
-  const extras = t("navegar('extras')", _HOME_GRAD.extras, '🎁', 'Extras', false, _extrasTemNovo() ? 'novo' : '');
   return (!_homeAguaAtiva() ? t("homeRestaurar('agua')", _HOME_GRAD.agua, '💧', 'Água', true, '', 'Fixar a água na tela inicial') : '') +
     (!_homeRefAtiva() && !semPlano ? t("homeRestaurar('ref')", _HOME_GRAD.nutri, '🍽️', 'Refeição', true, '', 'Fixar a próxima refeição na tela inicial') : '') +
     (compacto ? t("navegar('nutricao')", _HOME_GRAD.nutri, '🥗', 'Nutrição') +
@@ -7565,8 +7695,7 @@ function _homeMaisHtml() {
       t("renderPerfil();trocarView('perfil');", _HOME_GRAD.conq, '🏅', 'Conquistas') +
       t("navegar('avaliacoes')", _HOME_GRAD.aval, '📋', 'Avaliações') : '') +
     (compacto || temExtras ? central : '') +
-    t('abrirPerfilDados()', _HOME_GRAD.perfil, '👤', 'Meu Perfil') +
-    (compacto && temExtras ? extras : '');
+    t('abrirPerfilDados()', _HOME_GRAD.perfil, '👤', 'Meu Perfil');
 }
 // Minimizar: o cartão sai da tela inicial e a opção passa a ficar em "Ver mais" (miniatura com "+", que fixa de novo). Desligar de vez continua sendo na Nutrição.
 function _homeMinBtn(tipo) {
@@ -22067,9 +22196,13 @@ async function _extrasCarregar(forcar) {
       if (!r.ok) throw new Error('http ' + r.status);
       const j = await r.json();
       if (!j || !Array.isArray(j.categorias)) throw new Error('resposta');
-      _extras.lista = j.categorias; _extras.ts = Date.now();
+      _extras.lista = j.categorias; _extras.ts = Date.now(); _extras.tentativas = 0;
       try { localStorage.setItem(_extrasChave('lista'), JSON.stringify(j.categorias)); } catch (e) {}
-    } catch (e) { if (!_extras.lista) _extras.lista = _extrasCacheLer() || []; }   // sem internet: usa a cópia guardada
+    } catch (e) {
+      if (!_extras.lista) _extras.lista = _extrasCacheLer() || [];   // sem internet: usa a cópia guardada
+      // Sem rede e sem cópia (1º acesso, ou cópia apagada pelo aparelho) o atalho ficava sumido até a Home ser refeita: tenta de novo sozinho, até 3 vezes.
+      if (!_extras.lista.length && (_extras.tentativas = (_extras.tentativas || 0) + 1) <= 3) setTimeout(() => { _extrasCarregar(true); }, 8000 * _extras.tentativas);
+    }
     _extras.carregando = null;
     _extrasAtualizarEntradas();
     return _extras.lista;
@@ -22385,7 +22518,7 @@ document.addEventListener('input', (e) => {
 // Linha de notificação, usada na aba Notificações da Central. Medalha e
 // distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
-  const icones = { dm: '💬', curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', mensalidade: '💳', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯', colab_convite: '👥', colab_aceito: '👥' };
+  const icones = { dm: '💬', curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', mensalidade: '💳', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯', colab_convite: '👥', colab_aceito: '👥', intus_post: '📣' };
   const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro' || n.tipo === 'mensalidade';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
@@ -22405,12 +22538,15 @@ function _notifLinhaHtml(n, isLight) {
     desafio_convite: 'chamou você para um desafio',
     colab_convite: 'convidou você para um post colaborativo',
     colab_aceito: 'aceitou colaborar no seu post',
+    intus_post: 'publicou no Feed',
   }[n.tipo] || 'interagiu com você';
   const noNutri = n.alvo_tipo === 'nutri_dica' ? 'no mural de dicas' : (n.alvo_tipo === 'nutri_video' ? 'no mural do vídeo' : (n.alvo_tipo === 'nutri_receita' ? 'numa receita' : (n.alvo_tipo === 'feedback' ? 'no seu feedback em vídeo' : '')));
   const acaoFinal = (noNutri && (n.tipo === 'resposta' || n.tipo === 'comentario')) ? 'respondeu seu comentário ' + noNutri : acao;
   const principal = ehSistema
     ? '<b>' + esc(n.texto || '') + '</b>'
-    : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acaoFinal;
+    : (n.tipo === 'intus_post'
+      ? (/^Você ficou/.test(n.texto || '') ? '<b>Intus Fit:</b> ' + esc(n.texto) : '<b>Intus Fit</b> publicou no Feed: ' + esc(n.texto || ''))   // no ranking, quem está no placar recebe o texto pessoal
+      : '<b>' + esc(n.ator_nome || 'Alguém') + '</b> ' + acaoFinal);
   const comTrecho = n.tipo === 'dm' || n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || n.tipo === 'nutri_resposta' || n.tipo === 'turma_entrou' || n.tipo === 'desafio_convite' || (n.tipo === 'curtida' && noMural);
   const trecho = comTrecho && n.texto
     ? '<div style="font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“' + esc(n.texto) + '”</div>' : '';
@@ -22504,6 +22640,7 @@ function _notifAbrir(el) {
   if (tipo === 'dm') { _centralTab = 'chat'; _centralChatTarget = 'a:' + alvo; _chatAberta = true; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
   if (tipo === 'colab_convite') { _colabConviteSheet(alvo); return; }
+  if (tipo === 'intus_post' || el.dataset.alvotipo === 'intus_post') { _abrirPostIntus(alvo, tipo !== 'intus_post'); return; }
   if (tipo === 'mencao' && el.dataset.alvotipo === 'sessao') { if (Number(el.dataset.ator)) abrirPerfilAluno(Number(el.dataset.ator)); return; }   // "marcou você num treino": abre o perfil de quem treinou com você
   if (el.dataset.alvotipo === 'feedback') {   // resposta do professor ao comentário no feedback em vídeo: abre a lista de feedbacks
     navegar('avaliacoes');
@@ -22540,6 +22677,20 @@ function _notifAbrir(el) {
   // quando a notificação é de comentário, em vez de largar o aluno no topo do Feed.
   const comComentarios = tipo === 'comentario' || tipo === 'resposta' || tipo === 'curtida_comentario' || tipo === 'mencao';
   _abrirPostPorNotificacao(alvo, comComentarios);
+}
+
+// Post da Intus (aviso do sino): vai ao Feed e rola até o cartão, que fica no topo; com comentário ou resposta, já abre a conversa.
+function _abrirPostIntus(id, comComentarios) {
+  id = Number(id);
+  if (comComentarios) _comentariosAbertos[-id] = true;
+  _feedAba = 'todos';
+  navegar('feed');
+  let tent = 0;
+  const t = setInterval(() => {
+    const card = document.querySelector('#v-feed [data-intus-post="' + id + '"]');
+    if (card) { clearInterval(t); card.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    else if (++tent > 24) { clearInterval(t); toast('Esta publicação não está mais disponível.'); }
+  }, 250);
 }
 
 // Abre a publicação pelo número. Se ela ainda não está na memória do app (post antigo, de outra pessoa, fora da página carregada

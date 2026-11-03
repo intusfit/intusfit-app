@@ -2649,6 +2649,13 @@ if ($action === 'comentarios_pub') {
                 if (!$stV->fetchColumn()) { http_response_code(404); echo json_encode(['error' => $tipoCont . ' nao encontrado']); exit; }
             }
         }
+        // Post da Intus: só comenta num post que já está no ar (ativo e já publicado).
+        if ($tipo === 'intus_post') {
+            _intusPostGarantirTabela($pdo);
+            $stI = $pdo->prepare("SELECT 1 FROM intus_post_intus WHERE idpost = ? AND ativo = 1 AND publicar_em <= ?");
+            $stI->execute([$alvo, _intusAgoraBR()]);
+            if (!$stI->fetchColumn()) { http_response_code(404); echo json_encode(['error' => 'post nao encontrado']); exit; }
+        }
         // Se responde a outro comentário, confirma que o pai é do MESMO alvo —
         // sem isso um id de comentário de outro post viraria resposta aqui.
         $respostaA = (int)($b['resposta_a'] ?? 0);
@@ -2684,6 +2691,31 @@ if ($action === 'comentarios_pub') {
                 }
                 if ($dono > 0) $avisados['aluno:' . $dono] = 1;
                 // @menções no texto: avisa cada pessoa marcada que ainda não foi avisada por este comentário.
+                _notificarMencoes($pdo, $texto, $_autorTipo, $_autorId, $nome, $tipo, $alvo, $avisados);
+            } catch (Throwable $e) {}
+        }
+
+        // Post da Intus: resposta avisa o autor do comentário-pai; o que o aluno escreve avisa os administradores (a pergunta não fica sem
+        // resposta); @menções avisam quem foi marcado. Falha de aviso nunca derruba o comentário.
+        if ($tipo === 'intus_post') {
+            try {
+                $avisados = [];
+                if ($respostaA > 0) {
+                    $stPai = $pdo->prepare("SELECT autor_tipo, autor_id FROM intus_comentario_pub WHERE idcomentario = ?");
+                    $stPai->execute([$respostaA]);
+                    $pai = $stPai->fetch(PDO::FETCH_ASSOC);
+                    if ($pai) {
+                        $avisados[$pai['autor_tipo'] . ':' . (int)$pai['autor_id']] = 1;
+                        _criarNotificacao($pdo, $pai['autor_tipo'], (int)$pai['autor_id'], 'resposta', $_autorTipo, $_autorId, $nome, $tipo, $alvo, $texto);
+                    }
+                }
+                if ($_ehAluno) {
+                    foreach (_intusPostAdmins($pdo) as $idadm) {
+                        if (!empty($avisados['prof:' . $idadm])) continue;
+                        $avisados['prof:' . $idadm] = 1;
+                        _criarNotificacao($pdo, 'prof', $idadm, 'comentario', 'aluno', $_autorId, $nome, $tipo, $alvo, $texto);
+                    }
+                }
                 _notificarMencoes($pdo, $texto, $_autorTipo, $_autorId, $nome, $tipo, $alvo, $avisados);
             } catch (Throwable $e) {}
         }
@@ -2827,6 +2859,13 @@ if ($action === 'notificacoes') {
         // que já ficou órfão antes desta regra, sem mexer em nenhuma linha.
         $filtroAlvo = " AND (alvo_tipo <> 'feed_post' OR EXISTS (SELECT 1 FROM intus_feed_post p WHERE p.idpost = intus_notificacao.alvo_id AND p.ativo = 1))";
         $filtroAlvo .= " AND (alvo_tipo <> 'resultado' OR EXISTS (SELECT 1 FROM intus_resultado r WHERE r.idresultado = intus_notificacao.alvo_id AND r.ativo = 1))";
+        // Post da Intus oculto ou excluído também some do sino. O aviso do aluno nasce aqui, na primeira consulta depois que o post entra no ar
+        // (assim o post agendado avisa na hora certa, sem robô, e quem se cadastra depois também recebe os recentes).
+        try {
+            _intusPostGarantirTabela($pdo);
+            if ($_nTipo === 'aluno') _intusPostsNotificarAluno($pdo, (int)$_nId);
+            $filtroAlvo .= " AND (alvo_tipo <> 'intus_post' OR EXISTS (SELECT 1 FROM intus_post_intus ip WHERE ip.idpost = intus_notificacao.alvo_id AND ip.ativo = 1))";
+        } catch (Throwable $e) {}
         try {
             $pdo->query("SELECT 1 FROM intus_mensagem LIMIT 1");
             $filtroAlvo .= " AND (alvo_tipo <> 'chat' OR EXISTS (SELECT 1 FROM intus_mensagem m WHERE m.idmensagem = intus_notificacao.alvo_id))";
@@ -2902,12 +2941,332 @@ function _feedDetectarTabelaAtleta(PDO $pdo) {
     return null;
 }
 
+// ═══════════════ POSTS DA INTUS (oficiais, 03/11/2026) ═══════════════
+// Posts feitos pela equipe, visíveis a todos os alunos no topo do Feed: Top 5 da semana, Top 10 do mês, campanhas,
+// promoções e avisos. Tabela própria, porque o post de aluno exige um aluno como autor (idatleta) e passa por
+// opt-in e privacidade. Só administrador cria, edita e apaga. Os horários desta tabela são sempre de Brasília.
+// O ranking é uma FOTO do placar fechado: o painel monta com a mesma regra de pontos do app (api.js) e o servidor só guarda,
+// então o placar não muda depois de publicado. Quem sai do ranking depois some do post (ver _intusPostsParaLer).
+// Reação ao post: tabela de reações de sempre, com alvo_tipo 'intus_post'.
+if (!defined('INTUS_POST_TIPOS')) define('INTUS_POST_TIPOS', ['ranking_semana', 'ranking_mes', 'campanha', 'aviso']);
+
+function _intusAgoraBR(): string {
+    try { return (new DateTime('now', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d H:i:s'); }
+    catch (Throwable $e) { return date('Y-m-d H:i:s'); }
+}
+
+function _intusPostGarantirTabela(PDO $pdo): void {
+    static $ok = false;
+    if ($ok) return;
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_post_intus (
+            idpost       INT AUTO_INCREMENT PRIMARY KEY,
+            tipo         VARCHAR(20)  NOT NULL DEFAULT 'campanha',
+            titulo       VARCHAR(160) NOT NULL DEFAULT '',
+            texto        TEXT NULL,
+            imagem       VARCHAR(500) NOT NULL DEFAULT '',
+            botao_texto  VARCHAR(60)  NOT NULL DEFAULT '',
+            botao_link   VARCHAR(500) NOT NULL DEFAULT '',
+            dados        MEDIUMTEXT NULL,
+            fixado       TINYINT(1) NOT NULL DEFAULT 0,
+            publicar_em  DATETIME NOT NULL,
+            expira_em    DATETIME NULL,
+            ativo        TINYINT(1) NOT NULL DEFAULT 1,
+            criado_por   INT NOT NULL DEFAULT 0,
+            created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_vis (ativo, publicar_em)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_post_intus', ['titulo', 'texto', 'botao_texto', 'dados']);
+    $ok = true;
+}
+
+/** 'AAAA-MM-DD' ou 'AAAA-MM-DDTHH:MM' -> 'AAAA-MM-DD HH:MM:SS'; vazio ou inválido -> null. */
+function _intusPostData($v): ?string {
+    $v = trim((string)$v);
+    if ($v === '') return null;
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/', $v, $m)) return null;
+    $h = isset($m[4]) ? (int)$m[4] : 0; $mi = isset($m[5]) ? (int)$m[5] : 0; $s = isset($m[6]) ? (int)$m[6] : 0;
+    if (!checkdate((int)$m[2], (int)$m[3], (int)$m[1]) || $h > 23 || $mi > 59 || $s > 59) return null;
+    return sprintf('%04d-%02d-%02d %02d:%02d:%02d', (int)$m[1], (int)$m[2], (int)$m[3], $h, $mi, $s);
+}
+
+/** Foto do placar: só o que o app precisa para desenhar (posição, nome e pontos), com tamanho limitado. */
+function _intusPostLimparDados($d, string $tipo): ?array {
+    if (!is_array($d)) return null;
+    $top = [];
+    foreach ((array)($d['top'] ?? []) as $r) {
+        if (!is_array($r)) continue;
+        $id = (int)($r['id'] ?? 0);
+        if ($id <= 0) continue;
+        $top[] = ['id' => $id, 'nome' => mb_substr(trim((string)($r['nome'] ?? '')), 0, 80), 'pts' => (int)round((float)($r['pts'] ?? 0)), 'pos' => max(1, (int)($r['pos'] ?? 1))];
+        if (count($top) >= 30) break;
+    }
+    if (!$top) return null;
+    $per = is_array($d['periodo'] ?? null) ? $d['periodo'] : [];
+    return [
+        'n'       => $tipo === 'ranking_semana' ? 5 : 10,
+        'periodo' => ['ini' => mb_substr(trim((string)($per['ini'] ?? '')), 0, 10), 'fim' => mb_substr(trim((string)($per['fim'] ?? '')), 0, 10), 'rotulo' => mb_substr(trim((string)($per['rotulo'] ?? '')), 0, 60)],
+        'top'     => $top,
+    ];
+}
+
+/** Posts para ler. $todos = visão da equipe (inclui agendados, vencidos e ocultos); aluno só vê o que já está no ar. */
+function _intusPostsParaLer(PDO $pdo, bool $todos): array {
+    _intusPostGarantirTabela($pdo);
+    $agora = _intusAgoraBR();
+    if ($todos) {
+        $st = $pdo->query("SELECT * FROM intus_post_intus ORDER BY fixado DESC, publicar_em DESC, idpost DESC LIMIT 100");
+    } else {
+        $st = $pdo->prepare("SELECT * FROM intus_post_intus WHERE ativo = 1 AND publicar_em <= ? AND (expira_em IS NULL OR expira_em > ?) ORDER BY fixado DESC, publicar_em DESC, idpost DESC LIMIT 20");
+        $st->execute([$agora, $agora]);
+    }
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+    // Quem deixou o ranking (ou foi bloqueado) depois da publicação não aparece mais com nome no post.
+    $ids = [];
+    foreach ($rows as &$r) {
+        $r['dados'] = $r['dados'] ? json_decode((string)$r['dados'], true) : null;
+        if (is_array($r['dados'])) foreach ((array)($r['dados']['top'] ?? []) as $t) $ids[(int)$t['id']] = 1;
+    }
+    unset($r);
+    $fora = [];
+    if ($ids) {
+        $tbl = _feedDetectarTabelaAtleta($pdo);
+        if ($tbl) {
+            try {
+                $in = implode(',', array_map('intval', array_keys($ids)));
+                $okIds = array_map('intval', $pdo->query("SELECT idatleta FROM `$tbl` WHERE idatleta IN ($in) AND ranking_optin = 'S' AND (stbloqueio IS NULL OR stbloqueio != 'S')")->fetchAll(PDO::FETCH_COLUMN));
+                $fora = array_diff(array_keys($ids), $okIds);
+            } catch (Throwable $e) { $fora = []; }
+        }
+    }
+    $out = [];
+    foreach ($rows as $r) {
+        $dados = is_array($r['dados']) ? $r['dados'] : null;
+        if ($dados && $fora) $dados['top'] = array_values(array_filter($dados['top'], function ($t) use ($fora) { return !in_array((int)$t['id'], $fora, true); }));
+        $item = [
+            'idpost' => (int)$r['idpost'], 'tipo' => $r['tipo'], 'titulo' => $r['titulo'], 'texto' => (string)$r['texto'],
+            'imagem' => $r['imagem'], 'botao_texto' => $r['botao_texto'], 'botao_link' => $r['botao_link'],
+            'dados' => $dados, 'fixado' => (int)$r['fixado'], 'publicar_em' => $r['publicar_em'], 'expira_em' => $r['expira_em'],
+        ];
+        if ($todos) {
+            $item['ativo'] = (int)$r['ativo'];
+            $item['status'] = !(int)$r['ativo'] ? 'oculto' : ($r['publicar_em'] > $agora ? 'agendado' : (($r['expira_em'] && $r['expira_em'] <= $agora) ? 'vencido' : 'no_ar'));
+        }
+        $out[] = $item;
+    }
+    return $out;
+}
+
+/**
+ * Aviso no sino (tipo 'intus_post') para UM aluno, de cada post que já está no ar e foi publicado nos últimos 14 dias. Roda na consulta do sino
+ * (que o app faz em toda tela), então não precisa de robô e o post agendado avisa quando entra no ar. Uma vez por post e aluno (a linha fica, lida ou não).
+ * No ranking, quem está no placar recebe o texto pessoal ("Você ficou em 2º lugar..."); os outros recebem o título. Nunca lança.
+ */
+function _intusPostsNotificarAluno(PDO $pdo, int $idatleta): void {
+    static $feito = [];
+    if ($idatleta <= 0 || isset($feito[$idatleta])) return;
+    $feito[$idatleta] = true;
+    try {
+        _intusPostGarantirTabela($pdo);
+        $agora = _intusAgoraBR();
+        $desde = date('Y-m-d H:i:s', strtotime($agora . ' -14 days'));
+        $st = $pdo->prepare("SELECT idpost, titulo, dados FROM intus_post_intus WHERE ativo = 1 AND publicar_em <= ? AND publicar_em >= ? AND (expira_em IS NULL OR expira_em > ?) ORDER BY publicar_em DESC, idpost DESC LIMIT 10");
+        $st->execute([$agora, $desde, $agora]);
+        $posts = $st->fetchAll(PDO::FETCH_ASSOC);
+        if (!$posts) return;
+        $in = implode(',', array_map(function ($p) { return (int)$p['idpost']; }, $posts));
+        $ja = array_map('intval', $pdo->query("SELECT alvo_id FROM intus_notificacao WHERE destino_tipo = 'aluno' AND destino_id = " . (int)$idatleta . " AND tipo = 'intus_post' AND alvo_tipo = 'intus_post' AND alvo_id IN ($in)")->fetchAll(PDO::FETCH_COLUMN));
+        $noRanking = null;   // o aluno participa do ranking agora? (só quem participa recebe o texto pessoal; o post também não mostra quem saiu)
+        foreach (array_reverse($posts) as $p) {   // do mais antigo para o mais novo: o mais novo fica no topo do sino
+            $id = (int)$p['idpost'];
+            if (in_array($id, $ja, true)) continue;
+            $texto = (string)$p['titulo'];
+            $dados = $p['dados'] ? json_decode((string)$p['dados'], true) : null;
+            if (is_array($dados) && $noRanking === null) {
+                $noRanking = false;
+                $tblA = _feedDetectarTabelaAtleta($pdo);
+                if ($tblA) {
+                    try { $noRanking = (bool)$pdo->query("SELECT 1 FROM `$tblA` WHERE idatleta = " . (int)$idatleta . " AND ranking_optin = 'S' AND (stbloqueio IS NULL OR stbloqueio != 'S')")->fetchColumn(); } catch (Throwable $e) { $noRanking = false; }
+                }
+            }
+            if (is_array($dados) && $noRanking) {
+                foreach ((array)($dados['top'] ?? []) as $t) {
+                    if ((int)($t['id'] ?? 0) === $idatleta) { $texto = 'Você ficou em ' . (int)$t['pos'] . 'º lugar no ' . $texto . '. Parabéns!'; break; }
+                }
+            }
+            _criarNotificacao($pdo, 'aluno', $idatleta, 'intus_post', 'sistema', 1, 'Intus Fit', 'intus_post', $id, $texto, true);
+        }
+    } catch (Throwable $e) {}
+}
+
+/** Administradores (para avisar que um aluno comentou num post da Intus). */
+function _intusPostAdmins(PDO $pdo): array {
+    $ids = [];
+    try { foreach ($pdo->query("SELECT idprofessor FROM professor WHERE tpacesso = 'A'")->fetchAll(PDO::FETCH_COLUMN) as $a) $ids[] = (int)$a; } catch (Throwable $e) {}
+    if (!$ids) $ids[] = 1;
+    return array_values(array_unique(array_filter($ids)));
+}
+
+/** Imagem do post: data URI vira arquivo em /img/intus; URL https passa como está. Devolve [url, erro]. */
+function _intusPostImagem(string $raw): array {
+    $raw = trim($raw);
+    if ($raw === '') return ['', null];
+    if (preg_match('#^https://[^\s"<>]{1,480}$#i', $raw)) return [$raw, null];
+    if (!preg_match('#^data:image/(png|jpe?g|webp);base64,(.+)$#is', $raw, $m)) return ['', 'formato de imagem invalido'];
+    $bin = base64_decode($m[2], true);
+    if ($bin === false || strlen($bin) > 6 * 1024 * 1024) return ['', 'imagem invalida ou grande demais'];
+    $ext = _intusExtImagem($bin);
+    if ($ext === '') return ['', 'o arquivo nao e uma imagem valida'];
+    $dir = __DIR__ . '/../img/intus';
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    if (!is_dir($dir) || !is_writable($dir)) return ['', 'sem permissao de escrita'];
+    try { $rand = bin2hex(random_bytes(6)); } catch (Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 12); }
+    $fname = 'intus_' . time() . '_' . $rand . '.' . $ext;
+    if (@file_put_contents($dir . '/' . $fname, $bin) === false) return ['', 'falha ao salvar imagem'];
+    if (function_exists('gdriveBackup')) { try { gdriveBackup($bin, $fname, 'image/' . ($ext === 'jpg' ? 'jpeg' : $ext)); } catch (Throwable $e) {} }
+    return [_appBaseUrl() . '/img/intus/' . $fname, null];
+}
+
+if ($action === 'post_intus') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    _intusPostGarantirTabela($pdo);
+
+    if ($method === 'GET') {
+        $todos = !$_ehAluno && !empty($_ctx['admin']) && ($_GET['todos'] ?? '') === '1';
+        echo json_encode(['posts' => _intusPostsParaLer($pdo, $todos)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // Daqui para baixo só o administrador.
+    if ($_ehAluno || empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+
+    if ($method === 'POST' || $method === 'PUT') {
+        $b = jsonBody();
+        $id = $method === 'PUT' ? (int)($b['idpost'] ?? 0) : 0;
+        $atual = null;
+        if ($method === 'PUT') {
+            $sa = $pdo->prepare("SELECT * FROM intus_post_intus WHERE idpost = ?");
+            $sa->execute([$id]);
+            $atual = $sa->fetch(PDO::FETCH_ASSOC);
+            if (!$atual) { http_response_code(404); echo json_encode(['error' => 'post nao encontrado']); exit; }
+        }
+        $campos = [];
+        $tem = function ($k) use ($b) { return array_key_exists($k, $b); };
+
+        if ($method === 'POST') {
+            $tipo = (string)($b['tipo'] ?? 'campanha');
+            if (!in_array($tipo, INTUS_POST_TIPOS, true)) { http_response_code(400); echo json_encode(['error' => 'tipo invalido']); exit; }
+            $campos['tipo'] = $tipo;
+        } else {
+            $tipo = (string)$atual['tipo'];
+        }
+        if ($method === 'POST' || $tem('titulo')) {
+            $titulo = mb_substr(trim((string)($b['titulo'] ?? '')), 0, 160);
+            if ($titulo === '') { http_response_code(400); echo json_encode(['error' => 'titulo obrigatorio']); exit; }
+            $campos['titulo'] = $titulo;
+        }
+        if ($tem('texto')) $campos['texto'] = mb_substr(trim((string)$b['texto']), 0, 1500);
+        if ($tem('botao_link') || $tem('botao_texto')) {
+            $link = trim((string)($b['botao_link'] ?? ($atual['botao_link'] ?? '')));
+            $rot  = mb_substr(trim((string)($b['botao_texto'] ?? ($atual['botao_texto'] ?? ''))), 0, 60);
+            if ($link !== '' && !preg_match('#^https://[^\s"<>]{1,480}$#i', $link)) { http_response_code(400); echo json_encode(['error' => 'o link do botao precisa comecar com https://']); exit; }
+            if ($link !== '' && $rot === '') $rot = 'Saiba mais';
+            if ($link === '') $rot = '';
+            $campos['botao_link'] = $link; $campos['botao_texto'] = $rot;
+        }
+        if ($tem('imagem')) {
+            [$url, $erro] = _intusPostImagem((string)$b['imagem']);
+            if ($erro) { http_response_code(400); echo json_encode(['error' => $erro]); exit; }
+            $campos['imagem'] = $url;
+        }
+        if ($method === 'POST' && in_array($tipo, ['ranking_semana', 'ranking_mes'], true)) {
+            $dados = _intusPostLimparDados($b['dados'] ?? null, $tipo);
+            if (!$dados) { http_response_code(400); echo json_encode(['error' => 'o ranking esta vazio: ninguem pontuou neste periodo']); exit; }
+            // O nome vem do cadastro, não do navegador.
+            $tblA = _feedDetectarTabelaAtleta($pdo);
+            if ($tblA) {
+                try {
+                    $in = implode(',', array_map(function ($t) { return (int)$t['id']; }, $dados['top']));
+                    $nomes = [];
+                    foreach ($pdo->query("SELECT idatleta, nome FROM `$tblA` WHERE idatleta IN ($in)")->fetchAll(PDO::FETCH_ASSOC) as $rn) $nomes[(int)$rn['idatleta']] = (string)$rn['nome'];
+                    foreach ($dados['top'] as &$t) { if (isset($nomes[$t['id']]) && $nomes[$t['id']] !== '') $t['nome'] = mb_substr($nomes[$t['id']], 0, 80); }
+                    unset($t);
+                } catch (Throwable $e) {}
+            }
+            $campos['dados'] = json_encode($dados, JSON_UNESCAPED_UNICODE);
+        }
+        if ($tem('fixado')) $campos['fixado'] = !empty($b['fixado']) ? 1 : 0;
+        if ($tem('ativo'))  $campos['ativo']  = !empty($b['ativo']) ? 1 : 0;
+        if ($method === 'POST' || $tem('publicar_em')) {
+            $pub = _intusPostData($b['publicar_em'] ?? '');
+            if ($tem('publicar_em') && trim((string)$b['publicar_em']) !== '' && $pub === null) { http_response_code(400); echo json_encode(['error' => 'data de publicacao invalida']); exit; }
+            $campos['publicar_em'] = $pub ?? _intusAgoraBR();
+        }
+        if ($tem('expira_em') || $method === 'POST') {
+            $exp = _intusPostData($b['expira_em'] ?? '');
+            if ($tem('expira_em') && trim((string)$b['expira_em']) !== '' && $exp === null) { http_response_code(400); echo json_encode(['error' => 'data de validade invalida']); exit; }
+            if ($exp === null && $method === 'POST') {
+                // Validade padrão: ranking some do topo sozinho; campanha e aviso ficam 14 dias (a equipe pode mudar ou tirar).
+                $dias = $tipo === 'ranking_semana' ? 8 : ($tipo === 'ranking_mes' ? 32 : 14);
+                $exp = date('Y-m-d H:i:s', strtotime($campos['publicar_em'] . ' +' . $dias . ' days'));
+            }
+            $campos['expira_em'] = $exp;
+        }
+        if ($method === 'POST' && empty($campos['texto']) && empty($campos['imagem']) && empty($campos['dados'])) {
+            http_response_code(400); echo json_encode(['error' => 'escreva um texto ou escolha uma imagem']); exit;
+        }
+        if ($method === 'POST') {
+            $campos['criado_por'] = (int)($_ctx['idusuario'] ?? 0);
+            $cols = array_keys($campos);
+            $st = $pdo->prepare("INSERT INTO intus_post_intus (" . implode(',', $cols) . ") VALUES (" . implode(',', array_fill(0, count($cols), '?')) . ")");
+            $st->execute(array_values($campos));
+            echo json_encode(['ok' => true, 'idpost' => (int)$pdo->lastInsertId()]);
+            exit;
+        }
+        if (!$campos) { echo json_encode(['ok' => true]); exit; }
+        $sets = implode(', ', array_map(function ($c) { return "$c = ?"; }, array_keys($campos)));
+        $st = $pdo->prepare("UPDATE intus_post_intus SET $sets WHERE idpost = ?");
+        $st->execute(array_merge(array_values($campos), [$id]));
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $id = (int)($_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $pdo->prepare("DELETE FROM intus_post_intus WHERE idpost = ?")->execute([$id]);
+        try { $pdo->prepare("DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'intus_post' AND alvo_id = ?")->execute([$id]); } catch (Throwable $e) {}
+        // Comentários do post, as curtidas deles e os avisos do sino também saem.
+        try {
+            $sc = $pdo->prepare("SELECT idcomentario FROM intus_comentario_pub WHERE alvo_tipo = 'intus_post' AND alvo_id = ?");
+            $sc->execute([$id]);
+            $idsC = array_map('intval', $sc->fetchAll(PDO::FETCH_COLUMN));
+            if ($idsC) {
+                $inC = implode(',', $idsC);
+                $pdo->exec("DELETE FROM intus_reacao_pub WHERE alvo_tipo = 'feed_comentario' AND alvo_id IN ($inC)");
+                $pdo->exec("DELETE FROM intus_comentario_pub WHERE idcomentario IN ($inC)");
+            }
+            $pdo->prepare("DELETE FROM intus_notificacao WHERE alvo_tipo = 'intus_post' AND alvo_id = ?")->execute([$id]);
+        } catch (Throwable $e) {}
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    http_response_code(405); echo json_encode(['error' => 'metodo nao suportado']); exit;
+}
+
 if ($action === 'feed_posts') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
     if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
 
     if ($method === 'GET') {
+        // Posts da Intus: só no Feed geral, primeira página (o filtro "Amigos", o perfil de alguém e um post avulso não trazem).
+        $_intusLista = [];
+        if ((int)($_GET['idatleta'] ?? 0) <= 0 && (int)($_GET['idpost'] ?? 0) <= 0 && (int)($_GET['antes_de'] ?? 0) <= 0 && ($_GET['so_amigos'] ?? '') !== '1') {
+            try { $_intusLista = _intusPostsParaLer($pdo, false); } catch (Throwable $e) { $_intusLista = []; }
+        }
         $tbl = _feedDetectarTabelaAtleta($pdo);
         $optinIds = [];
         $nomeMap = [];
@@ -2957,7 +3316,7 @@ if ($action === 'feed_posts') {
 
         if (!count($visiveis)) {
             // Perfil de alguém que deixou as fotos privadas: avisa o app para mostrar "fotos privadas" em vez de "sem posts".
-            echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false, 'restrito' => null]);
+            echo json_encode(['posts' => [], 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => false, 'restrito' => null, 'intus' => $_intusLista], JSON_UNESCAPED_UNICODE);
             exit;
         }
         $ph = implode(',', array_fill(0, count($visiveis), '?'));
@@ -3035,7 +3394,7 @@ if ($action === 'feed_posts') {
                 if ((int)$sq->fetchColumn() > 0) $restritoAgora = 'privado';
             } catch (Throwable $e) {}
         }
-        echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => $temMais, 'restrito' => $restritoAgora], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['posts' => $posts, 'atletas' => $nomeMap, 'avatars' => $avatarMap, 'temMais' => $temMais, 'restrito' => $restritoAgora, 'intus' => $_intusLista], JSON_UNESCAPED_UNICODE);
         exit;
     }
 

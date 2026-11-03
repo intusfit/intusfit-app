@@ -63,6 +63,25 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await page.evaluate(() => { _extras.lista[0].itens[0].criado_em = '2020-01-01T00:00:00Z'; localStorage.setItem(_extrasChave('visto'), new Date().toISOString()); _extrasAtualizarEntradas(); });
   eq('depois de visto, a etiqueta some', await page.evaluate(() => !!document.querySelector('.h-novo')), false);
 
+  console.log('\n══ Extras com o cartão da refeição fixado (modo compacto) ══');
+  // Quem fixou a refeição ficava com um só espaço de atalho ao lado do Ver mais, sorteado, e o Extras ia para dentro do Ver mais: parecia que o botão tinha sumido.
+  const comp = await page.evaluate(() => {
+    const ra = window._homeRefAtiva, rc = window._homeRefCartaoHtml, exBak = _extras.lista, seedBak = _homeSeed;
+    window._homeRefAtiva = () => true; window._homeRefCartaoHtml = () => '<div id="h-ref-card">refeição</div>';
+    try {
+      const dir = document.createElement('div'); dir.innerHTML = _homeDirHtml(false);
+      const ats = [...dir.querySelectorAll('.h-at')].map(e => ({ tt: e.querySelector('.tt').innerText.trim(), novo: !!e.querySelector('.h-novo'), onclick: e.getAttribute('onclick') || '' }));
+      const mais = document.createElement('div'); mais.innerHTML = _homeMaisHtml();
+      const sorteios = new Set(); for (let i = 0; i < 12; i++) { _homeSeed = i; const d = document.createElement('div'); d.innerHTML = _homeDirHtml(false); sorteios.add([...d.querySelectorAll('.h-at')][0].querySelector('.tt').innerText.trim()); }
+      _extras.lista = []; const semEx = document.createElement('div'); semEx.innerHTML = _homeDirHtml(false);
+      return { ats, painel: [...mais.querySelectorAll('.tt')].map(e => e.innerText.trim()), sorteios: [...sorteios], semExtras: [...semEx.querySelectorAll('.h-at')][0].querySelector('.tt').innerText.trim() };
+    } finally { window._homeRefAtiva = ra; window._homeRefCartaoHtml = rc; _extras.lista = exBak; _homeSeed = seedBak; _extrasAtualizarEntradas(); }
+  });
+  eq('com Extras liberado, o atalho ao lado do Ver mais é sempre o Extras', [comp.ats[0].tt, comp.ats[0].onclick, comp.ats[1].tt], ['Extras', "navegar('extras')", 'Ver mais']);
+  eq('o sorteio não troca o Extras por outro atalho', comp.sorteios, ['Extras']);
+  eq('o Extras não se repete dentro do Ver mais', comp.painel.includes('Extras'), false);
+  eq('sem Extras liberado, volta o atalho sorteado', comp.semExtras !== 'Extras', true);
+
   console.log('\n══ Profundidade dos cartões e ícone branco do Extras ══');
   const prof = () => page.evaluate(() => {
     const sel = ['.h-hoje', '.h-dest', '.h-sem', '.h-rk', '.h-at'];
