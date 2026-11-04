@@ -549,7 +549,7 @@
     if (ativo) {
       var tutv = tut(f), antes = prev && prev.ultimo && prev.ultimo.series && prev.ultimo.series[sa] && prev.ultimo.series[sa].peso ? prev.ultimo.series[sa].peso + ' kg' : '—';
       h += '<div class="ex-detail open"><div class="dgrid"><div class="l">Série</div><div class="l">Carga anterior</div><div class="l">Intervalo</div><div class="v">' + (sa + 1) + ' de ' + it.series.length + '</div><div class="v">' + esc(antes) + '</div><div class="v">' + esc(f.intervalo || '1:00') + '</div></div>' +
-        '<div class="dgrid c2"><div class="l">Repetições</div><div class="l">T.U.T</div><div class="v">' + esc(f.repeticoes || '—') + '</div><div class="v">' + (tutv ? esc(tutv) : '—') + '</div></div>' +
+        '<div class="dgrid c2"><div class="l">Repetições</div><div class="l">T.U.T <button type="button" class="tut-q" data-act="tut" data-tut="' + esc(tutv || '') + '" aria-label="O que é o T.U.T?">?</button></div><div class="v">' + esc(f.repeticoes || '—') + '</div><div class="v">' + (tutv ? esc(tutv) : '—') + '</div></div>' +
         (f.metodo && !tutv ? '<div class="mut" style="margin-top:8px;text-align:center">' + esc(f.metodo) + '</div>' : '') + (f.obs ? '<div class="obs">💡 ' + esc(f.obs) + '</div>' : '') +
         '<div style="text-align:right;margin-top:6px"><button class="lk" data-act="hist" data-ix="' + it.ix + '">📈 Ver histórico deste exercício</button></div><div style="margin-top:6px">';
       it.series.forEach(function (s, k) {
@@ -583,6 +583,7 @@
     if (act !== 'exp') e.stopPropagation();
     if (act === 'exp') { if (e.target.closest && e.target.closest('[data-act="info"]')) return; TR.aberto = TR.aberto === ix ? -1 : ix; renderTreino(); return; }
     if (act === 'info') { abrirInfo(TR.itens[ix]); return; }
+    if (act === 'tut') { CDDTut.abrir(el.getAttribute('data-tut') || '', abrirModal); return; }
     if (act === 'hist') { abrirHistorico(TR.itens[ix]); return; }
     if (act === 'tec') { var t = TECNICA[el.getAttribute('data-t')]; if (t) { var m = abrirModal('<div style="font-size:15px;font-weight:900;color:' + t.cor + ';margin-bottom:8px">' + esc(t.nome) + '</div><p style="line-height:1.6">' + esc(t.txt) + '</p><div class="espaco"></div><button class="btn grande" data-f>Entendi</button>', true); m.querySelector('[data-f]').onclick = m.fechar; } return; }
     var it = TR.itens[ix];
