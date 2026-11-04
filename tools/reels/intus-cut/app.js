@@ -128,7 +128,7 @@ function plano(ts, de){
 function grupos(){
   var est = P.estilo || {}, max = est.palavras_por_grupo || 3, ws = [];
   mapa().forEach(function(m){ if (m.s.limpo) return; (fonte(m.de).palavras || []).forEach(function(w){ if (w.i < m.ini || w.i > m.fim || !String(w.p).trim()) return;
-    var ri = m.o + w.i - m.ini; ws.push({ p:String(w.p).trim(), ri:ri, rf:ri + Math.max(.05, Math.min(w.f, m.fim) - w.i), de:m.de, si:w.i }); }); });
+    var ri = m.o + w.i - m.ini; ws.push({ p:String(w.p).trim(), ri:ri, rf:ri + Math.max(.05, Math.min(w.f, m.fim) - w.i), te:m.o + m.fim - m.ini, de:m.de, si:w.i }); }); });
   ws.sort(function(a, b){ return a.ri - b.ri; });
   var gs = [], g = [];
   ws.forEach(function(w){
@@ -300,7 +300,9 @@ function desenhaNotas(c, f, y, reg){
 }
 function desenhaLegenda(c, t, y, reg){
   var gs = GRUPOS || [], gi = -1;
-  for (var k = 0; k < gs.length; k++){ var g = gs[k], fim = k + 1 < gs.length ? gs[k + 1][0].ri - .05 : g[g.length - 1].rf + .4; if (t >= g[0].ri - .05 && t <= fim) gi = k; }
+  // a legenda some no máximo 0,4 s depois do fim do corte em que foi falada (não fica sobre um corte seguinte sem fala)
+  for (var k = 0; k < gs.length; k++){ var g = gs[k], u = g[g.length - 1], fim = k + 1 < gs.length ? gs[k + 1][0].ri - .05 : u.rf + .4;
+    if (u.te != null) fim = Math.min(fim, Math.max(u.rf, u.te) + .4); if (t >= g[0].ri - .05 && t <= fim) gi = k; }
   if (gi < 0) return;
   var est = P.estilo || {}, L = lay('legenda'), cores = (est.cores && est.cores.length ? est.cores : ['amarelo', 'verde']), tam = est.tamanho || 84, tg = Math.round(tam * (est.aumento || 1.1)), fa = FONTE_ATUAL; FONTE_ATUAL = est.fonte || null; ESTILO_ATUAL = L;
   var g = gs[gi], cr = cor(cores[gi % cores.length]), maius = est.maiusculas !== false, base = est.cor_base || COR.branco;
