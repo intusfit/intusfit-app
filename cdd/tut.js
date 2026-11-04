@@ -26,6 +26,14 @@
     const c1 = [px - uy * h, py + ux * h], c2 = [px + uy * h, py - ux * h];
     return Math.hypot(c1[0] - hx, c1[1] - hy) <= Math.hypot(c2[0] - hx, c2[1] - hy) ? c1 : c2;
   }
+  // Mesma cadeia de 2 ossos, mas sempre do mesmo lado (lado = 1 ou -1), para o cotovelo/joelho não "virar" no meio do movimento.
+  function _tutIkLado(ax, ay, bx, by, l1, l2, lado) {
+    const dx = bx - ax, dy = by - ay, dist = Math.hypot(dx, dy) || 1;
+    const d = Math.min(Math.max(dist, Math.abs(l1 - l2) + 0.5), l1 + l2 - 0.01);
+    const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(l1 * l1 - a * a, 0));
+    const ux = dx / dist, uy = dy / dist, px = ax + ux * a, py = ay + uy * a;
+    return [px - uy * h * lado, py + ux * h * lado];
+  }
   // k = 0: músculo contraído; k = 1: músculo alongado. Cada exercício devolve as linhas do corpo, a cabeça, o peso e o cenário.
   const _TUT_DEMOS = [
     { nome: 'Agachamento', t: [3, 1, 1, 0], nota: 'Ao descer, o músculo alonga segurando a barra (fase 1). Ao levantar, ele contrai (fase 3).',
@@ -48,9 +56,19 @@
       } },
     { nome: 'Puxada na frente', t: [3, 1, 1, 0], nota: 'Aqui é o contrário: na fase 1 a barra volta para cima (o dorsal alonga). Puxá-la para baixo é a fase 3.',
       pose: function (k) {
-        const S = [98, 82], H = [112, 92 - 62 * k], E = _tutIk(S[0], S[1], H[0], H[1], 28, 28, S[0] - 22, S[1] + 36);
+        const S = [98, 82], H = [112, 92 - 62 * k], E = _tutIkLado(S[0], S[1], H[0], H[1], 28, 28, 1);
         return { fixo: [[78, 126, 124, 126], [128, 148, 152, 148], [112, 4, 112, H[1]]],
           l: [[96, 120, 98, 82], [96, 120, 132, 118], [132, 118, 136, 148], [S[0], S[1], E[0], E[1]], [E[0], E[1], H[0], H[1]]], cab: [98, 68], peso: H };
+      } },
+    { nome: 'Cadeira extensora', t: [3, 0, 2, 1], nota: 'A perna desce controlada, alongando o quadríceps (fase 1), e estende contraindo o músculo (fase 3), com uma pausa apertando no final (fase 4).',
+      pose: function (k) {
+        const hip = [78, 110], kn = [120, 110], f = (10 + 80 * (1 - k)) * Math.PI / 180, an = [kn[0] + 38 * Math.sin(f), kn[1] + 38 * Math.cos(f)];
+        return { fixo: [[56, 114, 104, 114], [64, 60, 58, 116]], l: [[hip[0], hip[1], 72, 66], [hip[0], hip[1], kn[0], kn[1]], [kn[0], kn[1], an[0], an[1]]], cab: [70, 52], peso: an };
+      } },
+    { nome: 'Elevação pélvica', t: [3, 0, 1, 2], nota: 'O quadril desce controlado, alongando o glúteo (fase 1), e sobe contraindo (fase 3), com uma pausa apertando no alto (fase 4).',
+      pose: function (k) {
+        const S = [52, 100], F = [124, 148], a = 38 * k * Math.PI / 180, hip = [S[0] + 48 * Math.cos(a), S[1] + 48 * Math.sin(a)], kn = _tutIkLado(hip[0], hip[1], F[0], F[1], 36, 36, -1);
+        return { fixo: [[30, 106, 74, 106], [38, 106, 38, 148], [112, 148, 138, 148]], l: [[S[0], S[1], hip[0], hip[1]], [hip[0], hip[1], kn[0], kn[1]], [kn[0], kn[1], F[0], F[1]]], cab: [40, 95], peso: [hip[0], hip[1] - 7] };
       } },
     { nome: 'Prancha', iso: true, t: [0, 0, 0, 0], nota: 'Exercício isométrico: o músculo trabalha parado, sem fases. Por isso o T.U.T fica em branco. Segure a posição.',
       pose: function () {
@@ -153,7 +171,7 @@
     const c = { ink: ink, sub: sub, on: acento, onTx: acentoTx, chip: cor('--line', '#2a2a35') };
     const demo = '<div style="background:' + fundo + ';border-radius:14px;padding:10px 10px 12px;margin:0 0 14px;">' +
       '<div id="tut-demo-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding-bottom:6px;"></div>' +
-      '<div style="position:relative;"><svg id="tut-demo-svg" viewBox="0 0 220 156" role="img" aria-label="Animação da cadência do movimento" style="width:100%;height:170px;display:block;"></svg><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt="Código da Definição" style="position:absolute;top:2px;right:4px;width:76px;height:auto;opacity:.9;pointer-events:none;"><img class="logo-claro" src="marca/logo-cdd-preta.png" alt="Código da Definição" style="position:absolute;top:2px;right:4px;width:76px;height:auto;opacity:.9;pointer-events:none;"></div>' +
+      '<div style="position:relative;"><svg id="tut-demo-svg" viewBox="0 0 220 156" role="img" aria-label="Animação da cadência do movimento" style="width:100%;height:170px;display:block;"></svg><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt="Código da Definição" style="position:absolute;top:2px;right:4px;width:100px;height:auto;opacity:1;pointer-events:none;"><img class="logo-claro" src="marca/logo-cdd-preta.png" alt="Código da Definição" style="position:absolute;top:2px;right:4px;width:100px;height:auto;opacity:1;pointer-events:none;"></div>' +
       '<div id="tut-demo-fase" style="text-align:center;font-size:14px;font-weight:800;color:' + ink + ';min-height:20px;margin:2px 0 8px;"></div>' +
       '<div id="tut-demo-cels" style="display:flex;gap:6px;"></div>' +
       '<div id="tut-demo-nota" style="font-size:12px;line-height:1.5;color:' + sub + ';margin-top:9px;"></div></div>';
