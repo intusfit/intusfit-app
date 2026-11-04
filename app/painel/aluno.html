@@ -3676,6 +3676,25 @@ function _feedIntusHtml(isLight, max) {
   const lista = (_feedIntus || []).slice(0, max || 20);
   return lista.map(p => _intusPostHtml(p, isLight)).join('');
 }
+// Só os fixados ficam no topo do Feed. Os demais posts da Intus entram na ordem da data de publicação, no meio dos posts dos alunos
+// (_feedPostsHtml): um post novo de aluno aparece acima de um Top 10 mais antigo.
+var _feedIntusMostrados = {};   // idpost da Intus já desenhados nesta montagem do Feed
+function _feedIntusFixadosHtml(isLight, max) {
+  const lista = (_feedIntus || []).filter(p => Number(p.fixado)).slice(0, max || 20);
+  lista.forEach(p => { _feedIntusMostrados[p.idpost] = 1; });
+  return lista.map(p => _intusPostHtml(p, isLight)).join('');
+}
+// Posts da Intus (não fixados, ainda não desenhados) publicados depois de `limite` (Date) ou, sem limite, todos os que faltam.
+function _feedIntusAteHtml(isLight, limite) {
+  let html = '';
+  (_feedIntus || []).forEach(p => {
+    if (_feedIntusMostrados[p.idpost]) return;
+    if (limite && new Date(String(p.publicar_em).replace(' ', 'T')) < limite) return;
+    _feedIntusMostrados[p.idpost] = 1;
+    html += _intusPostHtml(p, isLight);
+  });
+  return html;
+}
 
 // Abre um mapa externo centrado no NOME do lugar (não temos lat/lng salvos —
 // "localizacao" é texto livre digitado pelo aluno, ver catalogo.php). Lê o
@@ -4029,8 +4048,8 @@ function renderFeedHomePreview() {
   // comentários dos posts (cinco ou seis idas ao servidor) e só então desenhava. Agora: desenha logo (com o que o aparelho já tem da
   // última vez, se tiver) e completa curtidas e comentários em paralelo, retocando cada cartão no lugar (_feedCompletarInteracoes).
   const desenhar = (el, posts) => {
-    _feedGlobalIdx = 0; _feedProximoExplicativo = 0; _feedUltimaVariante = null;
-    el.innerHTML = headerHtml + _feedIntusHtml(isLight, 2) +
+    _feedGlobalIdx = 0; _feedProximoExplicativo = 0; _feedUltimaVariante = null; _feedIntusMostrados = {};
+    el.innerHTML = headerHtml + _feedIntusFixadosHtml(isLight, 2) +
       '<div id="h-feed-home-posts">' + _feedPostsHtml(posts, isLight) + '</div>' +
       '<div id="h-feed-home-pag"></div>';
     _feedAtualizarPaginacao();
@@ -4091,6 +4110,7 @@ const FEED_EXPLICATIVO_VARIANTES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 function _feedPostsHtml(posts, isLight) {
   let html = '';
   posts.forEach(p => {
+    html += _feedIntusAteHtml(isLight, new Date(String(p.created_at).replace(' ', 'T')));
     html += _feedCardHtml(p, isLight);
     if (_feedGlobalIdx === _feedProximoExplicativo) {
       let variante;
@@ -4107,6 +4127,7 @@ function _feedPostsHtml(posts, isLight) {
     }
     _feedGlobalIdx++;
   });
+  if (!_feedTemMais) html += _feedIntusAteHtml(isLight, null);   // acabaram os posts: o que sobrou da Intus (mais antigo que todos) fecha a lista
   return html;
 }
 
@@ -4120,6 +4141,7 @@ async function renderFeedCompleto() {
   _feedGlobalIdx = 0;
   _feedProximoExplicativo = 0;
   _feedUltimaVariante = null;
+  _feedIntusMostrados = {};
   const souMeuPerfil = _feedAba === 'meu';
   const posts = souMeuPerfil ? [] : await carregarFeedPosts(FEED_LOTE);   // em "Meu perfil" quem lista os posts é o perfil social
   await carregarReacoesFeed(posts.map(p => p.idpost));
@@ -4128,10 +4150,11 @@ async function renderFeedCompleto() {
   html += _feedBuscaHtml(isLight);
   html += _feedChipsAmigosHtml(isLight);
   html += '<div style="display:flex;gap:8px;margin-bottom:14px;"><button class="btn btn-prim" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirNovoPostFeed()">📸 Novo post</button><button class="btn btn-sec" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="abrirPostTexto()">✍️ Escrever</button></div>';
-  if (!souMeuPerfil) html += _feedIntusHtml(isLight);   // posts oficiais da Intus, no topo
+  if (!souMeuPerfil) html += _feedIntusFixadosHtml(isLight);   // só os posts oficiais fixados ficam no topo; os outros seguem a data (_feedPostsHtml)
   if (souMeuPerfil) {
     html += '<div id="feed-meu-perfil" style="min-height:120px;"><div style="text-align:center;padding:30px;color:' + (isLight?'#666':'#888') + ';font-size:13px;">Carregando seu perfil...</div></div>';
   } else if (!posts.length) {
+    html += _feedIntusAteHtml(isLight, null);
     html += '<div style="text-align:center;padding:40px 20px;">' +
       '<div style="font-size:44px;margin-bottom:12px;">📣</div>' +
       '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';margin-bottom:6px;">' + (souMeuPerfil ? 'Você ainda não publicou' : (_feedSoAmigos ? 'Seus amigos ainda não postaram' : 'Ainda não há posts por aqui')) + '</div>' +
