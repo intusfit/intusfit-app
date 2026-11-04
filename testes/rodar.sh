@@ -20,6 +20,7 @@ passo "nutrição: aderência, alertas e compras" node nutri.js
 passo "receitas: ids, fotos e informação nutricional" node receitas.js
 passo "parceria: sequência da dupla"      node parceria.js
 passo "post da Intus: Top 5 da semana e Top 10 do mês" node post_intus.js
+passo "T.U.T da ficha: o que é isométrico e o que é formato diferente" node tut.js
 passo "comunidade: turmas e desafios"      node comunidade.js
 passo "corte de vídeo: pontas e trecho"    node trecho.js
 passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
