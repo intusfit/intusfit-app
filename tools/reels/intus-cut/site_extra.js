@@ -150,16 +150,52 @@ async function sincronizarClaude(lista){
   if (!CLAUDE_PEND.length) return;
   var box = el('div', 'grupo');
   CLAUDE_PEND.forEach(function(e){ box.appendChild(el('div', 'item', [el('b', null, (tem['cl-' + e.id] ? '↻ Atualizada: ' : '＋ Nova: ') + e.nome), el('span', 't', e.resumo || '')])); });
-  box.appendChild(el('p', 'nota-ajuda', 'O vídeo original vem do seu Google Drive para o Drive da Intus (só na primeira vez de cada vídeo). Edição atualizada substitui o projeto com o mesmo nome; o que você mudou nele à mão é trocado pela versão nova.'));
+  var temArq = CLAUDE_PEND.some(function(e){ return e.fonte.arquivo; });
+  box.appendChild(el('p', 'nota-ajuda', (temArq ? 'O vídeo é o arquivo que o Claude mandou na conversa: baixe-o e escolha-o no próximo passo (só na primeira vez de cada vídeo). ' : 'O vídeo original vem do seu Google Drive para o Drive da Intus (só na primeira vez de cada vídeo). ') + 'Edição atualizada substitui o projeto com o mesmo nome; o que você mudou nele à mão é trocado pela versão nova.'));
   dialogo(CLAUDE_PEND.length === 1 ? 'O Claude preparou uma edição' : 'O Claude preparou ' + CLAUDE_PEND.length + ' edições', 'Cada uma abre aqui como projeto editável: cortes, legendas, etiquetas e cartão final.', [['Depois', fecha], ['Trazer agora', function(){ trazerClaude(CLAUDE_PEND); }]], box);
 }
-async function trazerClaude(pend){
+// Edição com fonte.arquivo: o vídeo é um MP4 H.264 que o Claude mandou na conversa (abre em qualquer computador).
+// O mesmo arquivo (nome e tamanho) já enviado antes é reaproveitado (midia.claude_arquivo); senão, pede-se o arquivo.
+function chaveArq(f){ return f.arquivo + ':' + f.tamanho; }
+async function arquivosJaEnviados(pend){
+  var ja = {};
+  for (var i = 0; i < pend.length; i++){ var e = pend[i]; if (!e.fonte.arquivo) continue;
+    try { var ant = (await api('projeto&id=cl-' + e.id)).projeto; if (ant && ant.midia && ant.midia.claude_arquivo === chaveArq(e.fonte) && ant.midia.video) ja[e.id] = ant.midia; } catch (x) {} }
+  return ja;
+}
+function pedirArquivosClaude(pend, ja){
+  var falta = pend.filter(function(e){ return e.fonte.arquivo && !ja[e.id]; }), campos = {}, box = el('div', 'grupo');
+  falta.forEach(function(e){ var i = el('input'); i.type = 'file'; i.accept = 'video/mp4,video/*'; campos[e.id] = i;
+    box.appendChild(campo(e.nome + ' · arquivo "' + e.fonte.arquivo + '" (' + (e.fonte.tamanho / 1048576).toFixed(1) + ' MB)', i)); });
+  box.appendChild(el('p', 'nota-ajuda', 'É o vídeo que o Claude mandou na conversa, já no formato que abre em qualquer computador. Baixe-o e escolha aqui; ele vai uma vez só para o Drive da Intus.'));
+  dialogo(falta.length === 1 ? 'Escolha o vídeo da edição' : 'Escolha os vídeos das edições', '', [['Cancelar', fecha], ['Enviar e abrir', function(){
+    var arqs = {};
+    for (var k = 0; k < falta.length; k++){ var e = falta[k], f = campos[e.id].files[0];
+      if (!f){ alert('Escolha o arquivo "' + e.fonte.arquivo + '".'); return; }
+      if (f.size !== e.fonte.tamanho){ alert('O arquivo escolhido para "' + e.nome + '" não é o que o Claude mandou (tamanho diferente). Procure por "' + e.fonte.arquivo + '".'); return; }
+      arqs[e.id] = f; }
+    trazerClaude(pend, { ja:ja, arquivos:arqs });
+  }]], box);
+}
+async function videoDoArquivo(e, f, aoProg){
+  var info = await sondarVideo(f), up = await enviarArquivo(f, 'claude-' + e.id, info, aoProg);
+  BLOBS[up.url] = Promise.resolve(info.local);
+  return { video:up.url, voz:up.url, musica:'', duracao:e.fonte.dur || info.dur || 0, alt:e.fonte.w && e.fonte.h ? ORIG_W * e.fonte.h / e.fonte.w : 1080, claude_arquivo:chaveArq(e.fonte) };
+}
+async function trazerClaude(pend, arq){
+  if (!arq && pend.some(function(e){ return e.fonte.arquivo; })){
+    estado('Conferindo as edições...'); var ja = await arquivosJaEnviados(pend);
+    if (pend.some(function(e){ return e.fonte.arquivo && !ja[e.id]; })) return pedirArquivosClaude(pend, ja);
+    arq = { ja:ja, arquivos:{} };
+  }
+  arq = arq || { ja:{}, arquivos:{} };
   var prog = janelaProgresso('Trazendo as edições do Claude'), ult = null;
   try {
     for (var i = 0; i < pend.length; i++){ var e = pend[i];
       var esq = await (await fetch('claude/' + e.id + '.json', { cache:'no-store' })).json();
-      var m = await videoDoDrive(e.fonte, function(f){ prog((i + f) / pend.length, 'Vídeo de "' + e.nome + '": ' + Math.round(f * 100) + '%'); });
-      if (e.fonte.codec === 'hevc'){
+      var aoProgV = function(f){ prog((i + f) / pend.length, 'Vídeo de "' + e.nome + '": ' + Math.round(f * 100) + '%'); };
+      var m = e.fonte.arquivo ? (arq.ja[e.id] || await videoDoArquivo(e, arq.arquivos[e.id], aoProgV)) : await videoDoDrive(e.fonte, aoProgV);
+      if (!e.fonte.arquivo && e.fonte.codec === 'hevc'){
         var ant = null; try { ant = (await api('projeto&id=cl-' + e.id)).projeto; } catch (x) {}
         if (ant && ant.midia && ant.midia.original === m.video && !ant.midia.hevc) m = ant.midia;   // versão de computador já feita antes
         else { try { m = await midiaCompativel(m, e.fonte.nome, function(f, t){ prog((i + f) / pend.length, t); }); } catch (x) { m.hevc = true; } }
@@ -169,7 +205,7 @@ async function trazerClaude(pend){
       if (P && P.id === p.id) P = null;
     }
     CLAUDE_PEND = []; fecha(); nomesSelect(); if (ult){ $('vazio').hidden = true; abrir(ult); } estado('Edições do Claude prontas para editar', 'ok');
-  } catch (err){ if (err && err.code === 'sem_acesso') return; dialogo('Não terminou', ((err && err.message) || 'Tente de novo.') + ' O que já foi copiado não se perde: tente de novo e ele continua de onde parou.', [['Fechar', fecha], ['Tentar de novo', function(){ trazerClaude(pend); }]]); }
+  } catch (err){ if (err && err.code === 'sem_acesso') return; dialogo('Não terminou', ((err && err.message) || 'Tente de novo.') + ' O que já foi copiado não se perde: tente de novo e ele continua de onde parou.', [['Fechar', fecha], ['Tentar de novo', function(){ trazerClaude(pend, arq); }]]); }
 }
 async function videoDoDrive(f, aoProg){
   var r = await api('drive_iniciar', { drive_id:f.drive_id, nome:f.nome || 'video', duracao:f.dur || 0 }), tent = 0;

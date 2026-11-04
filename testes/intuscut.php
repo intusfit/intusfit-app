@@ -163,7 +163,8 @@ $ix = cut_ler($pdo, 'cut_index', []);
 eq('a lista sabe a versão do Claude (para não trazer de novo)', $ix['cl-alongamento-mobilidade']['claude'] ?? null, 4);
 eq('versão nova do Claude mantém a situação do painel de vídeos', $ix['cl-alongamento-mobilidade']['status'] ?? null, 'pronto');
 $esq = json_decode(file_get_contents(__DIR__ . '/../intus-cut/claude/index.json'), true);
-eq('índice dos esqueletos: cada item tem id, versão e vídeo do Drive', array_values(array_filter($esq['projetos'], fn($e) => !cut_id_valido('cl-' . $e['id']) || empty($e['versao']) || !cut_drive_id_ok($e['fonte']['drive_id'] ?? ''))), []);
+eq('índice dos esqueletos: cada item tem id, versão e o vídeo (arquivo mandado pelo Claude ou link do Drive)', array_values(array_filter($esq['projetos'], fn($e) => !cut_id_valido('cl-' . $e['id']) || empty($e['versao'])
+    || !(cut_drive_id_ok($e['fonte']['drive_id'] ?? '') || (preg_match('/^[a-z0-9-]+\.mp4$/', (string)($e['fonte']['arquivo'] ?? '')) && (int)($e['fonte']['tamanho'] ?? 0) > 0)))), []);
 foreach ($esq['projetos'] as $e) { $p = json_decode(file_get_contents(__DIR__ . '/../intus-cut/claude/' . $e['id'] . '.json'), true);
     eq("esqueleto {$e['id']} tem trechos e nenhum vídeo dentro", [!empty($p['trechos']), empty($p['midia'])], [true, true]); }
 
