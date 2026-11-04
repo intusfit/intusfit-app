@@ -549,7 +549,7 @@
     if (ativo) {
       var tutv = tut(f), antes = prev && prev.ultimo && prev.ultimo.series && prev.ultimo.series[sa] && prev.ultimo.series[sa].peso ? prev.ultimo.series[sa].peso + ' kg' : '—';
       h += '<div class="ex-detail open"><div class="dgrid"><div class="l">Série</div><div class="l">Carga anterior</div><div class="l">Intervalo</div><div class="v">' + (sa + 1) + ' de ' + it.series.length + '</div><div class="v">' + esc(antes) + '</div><div class="v">' + esc(f.intervalo || '1:00') + '</div></div>' +
-        '<div class="dgrid c2"><div class="l">Repetições</div><div class="l">T.U.T. (e.t.c.t)</div><div class="v">' + esc(f.repeticoes || '—') + '</div><div class="v">' + (tutv ? esc(tutv) : '—') + '</div></div>' +
+        '<div class="dgrid c2"><div class="l">Repetições</div><div class="l">T.U.T</div><div class="v">' + esc(f.repeticoes || '—') + '</div><div class="v">' + (tutv ? esc(tutv) : '—') + '</div></div>' +
         (f.metodo && !tutv ? '<div class="mut" style="margin-top:8px;text-align:center">' + esc(f.metodo) + '</div>' : '') + (f.obs ? '<div class="obs">💡 ' + esc(f.obs) + '</div>' : '') +
         '<div style="text-align:right;margin-top:6px"><button class="lk" data-act="hist" data-ix="' + it.ix + '">📈 Ver histórico deste exercício</button></div><div style="margin-top:6px">';
       it.series.forEach(function (s, k) {
