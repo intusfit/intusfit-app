@@ -18157,6 +18157,21 @@ function _rodapeMedalhas(tabSem, tabMes, tinta, tinta2, borda, fundo, isLight, l
   return '<div style="margin-top:18px;">' + regras + mensagem + '</div>';
 }
 
+// Fita de períodos do Ranking: centraliza o período ativo (senão "1 ano" ou "Todo período" ficavam escondidos à direita) e esmaece só a borda
+// que ainda tem conteúdo para rolar, no lugar de uma pílula cortada pela metade.
+function _rkFitaAjustar(centralizar) {
+  const el = document.getElementById('rk-fita');
+  if (!el) return;
+  if (centralizar) {
+    const on = el.querySelector('[data-on="1"]');
+    if (on) el.scrollLeft = on.offsetLeft - (el.clientWidth - on.offsetWidth) / 2;
+  }
+  const max = el.scrollWidth - el.clientWidth;
+  const l = el.scrollLeft > 4 ? 28 : 0, r = el.scrollLeft < max - 4 ? 28 : 0;
+  const m = 'linear-gradient(to right,transparent 0,#000 ' + l + 'px,#000 calc(100% - ' + r + 'px),transparent 100%)';
+  el.style.webkitMaskImage = m;
+  el.style.maskImage = m;
+}
 function _renderRankingView() {
   const isLight = document.body.classList.contains('tema-claro');
   const box = document.getElementById('v-ranking');
@@ -18375,7 +18390,9 @@ function _renderRankingView() {
     // Quadro acumulado: sem fita de periodo.
     html += '<div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 2px 10px;">Quadro de medalhas · acumulado desde ' + _medalhaDesde().split('-').reverse().join('/') + '</div>';
   } else {
-    html += '<div style="overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:0 -16px 9px;padding:0 16px;">' +
+    // A fita precisa de folga em cima e embaixo: o overflow-y escondido cortava a sombra das pílulas e deixava a base reta, como se
+    // estivessem cortadas. O esmaecer das bordas (_rkFitaAjustar) mostra que há mais períodos pro lado em vez de uma pílula pela metade.
+    html += '<div id="rk-fita" onscroll="_rkFitaAjustar()" class="rk-fita" style="position:relative;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:-2px -16px 0;padding:2px 16px 12px;">' +
         '<div style="display:flex;gap:7px;width:max-content;">' +
           periodos.map(function (pp) {
             const on = _rankingTab === pp[0];
@@ -18390,9 +18407,11 @@ function _renderRankingView() {
               const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
               const pctMes = Math.min(100, Math.max(4, Math.round((hoje.getDate() / diasNoMes) * 100)));
               const corBarra = on ? (isLight ? 'rgba(255,255,255,.65)' : 'rgba(0,0,0,.4)') : (isLight ? '#2d8a00' : '#7FFF00');
-              barra = '<span style="position:absolute;left:0;bottom:0;height:3px;width:' + pctMes + '%;background:' + corBarra + ';"></span>';
+              // Trilho e barra recuados dos cantos: colada no canto da pílula a barra parecia um defeito de desenho.
+              barra = '<span style="position:absolute;left:16px;right:16px;bottom:5px;height:3px;border-radius:2px;background:' + (on ? (isLight ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.15)') : (isLight ? 'rgba(45,138,0,.16)' : 'rgba(127,255,0,.16)')) + ';"></span>' +
+                '<span style="position:absolute;left:16px;bottom:5px;height:3px;border-radius:2px;width:calc((100% - 32px) * ' + (pctMes / 100) + ');background:' + corBarra + ';"></span>';
             }
-            return '<button class="pf' + (on ? '' : ' pf-bg') + '" onclick="' + onclickAttr + '" style="position:relative;overflow:hidden;padding:9px 14px;border-radius:99px;white-space:nowrap;cursor:pointer;font-family:inherit;font-size:12.5px;min-height:38px;' +
+            return '<button class="pf' + (on ? '' : ' pf-bg') + '"' + (on ? ' data-on="1"' : '') + ' onclick="' + onclickAttr + '" style="position:relative;overflow:hidden;padding:9px 14px;border-radius:99px;white-space:nowrap;cursor:pointer;font-family:inherit;font-size:12.5px;min-height:38px;' +
               'font-weight:' + (on ? '800' : '600') + ';' +
               'background:' + (on ? 'var(--texto)' : 'var(--card-bg)') + ';' +
               'color:' + (on ? 'var(--card-bg)' : 'var(--muted)') + ';' +
@@ -18412,7 +18431,7 @@ function _renderRankingView() {
       // por extenso) — antes ele usava flex e sobrava espaço vazio nele
       // enquanto os 3 botões ficavam espremidos; agora o espaço que sobra vai
       // todo pro grupo dos 3 botões, que é quem precisava dele.
-      '<div style="display:flex;gap:6px;margin-bottom:10px;">' +
+      '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
         '<select class="pf pf-bg" aria-label="Categoria do ranking" onchange="_rankingCat=this.value;_renderRankingView();" style="' + _selCss.replace('width:100%;', 'width:128px;').replace('font-size:12.5px;', 'font-size:11.5px;').replace('padding:7px 28px 7px 10px;', 'padding:7px 22px 7px 8px;') + 'flex:none;">' +
           cats.map(c => '<option value="' + c[0] + '"' + (_rankingCat === c[0] ? ' selected' : '') + '>' + c[1] + '</option>').join('') +
         '</select>' +
@@ -18449,7 +18468,8 @@ function _renderRankingView() {
   } else if (_rankingTab === 'meses_anteriores') {
     _perLabel = 'Quem dominou cada mês encerrado';
   }
-  if (_perLabel) html += '<div style="font-size:11.5px;text-align:center;color:' + (isLight?'#999':'#666') + ';margin:0 2px 10px;">' + _perLabel + '</div>';
+  // Cinza claro demais (2,6:1) lia como texto apagado; agora em tom legível e com a mesma largura dos controles acima.
+  if (_perLabel) html += '<div style="font-size:12px;font-weight:600;text-align:center;color:' + (isLight?'#6b7076':'#9aa0a6') + ';margin:0 2px 12px;">' + _perLabel + '</div>';
 
   // Texto fixo explicando o ranking do mês, sempre visível nessa aba (não só
   // num toast na primeira entrada). Pedido do Luiz: o foco não é só disputa
@@ -18546,6 +18566,7 @@ function _renderRankingView() {
     html += _renderComentarios(data, isLight);
     html += getFooterHtml();
     box.innerHTML = html;
+    _rkFitaAjustar(true);
     return;
   }
 
@@ -18622,6 +18643,7 @@ function _renderRankingView() {
     html += _renderComentarios(data, isLight);
     html += getFooterHtml();
     box.innerHTML = html;
+    _rkFitaAjustar(true);
     return;
   }
 
@@ -18824,6 +18846,7 @@ function _renderRankingView() {
 
   html += getFooterHtml();
   box.innerHTML = html;
+  _rkFitaAjustar(true);
 }
 
 // Mural dos Membros: escrever é de quem tem plano de treino (matrícula) ativo; ler é aberto. O mural da Nutrição segue o plano alimentar.
