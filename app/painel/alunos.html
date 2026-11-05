@@ -8,7 +8,7 @@
   <script src="_mock.js?v=20261103a"></script>
   <script src="api.js?v=20261103c"></script>
   <script src="foto-util.js?v=20261105a"></script>
-<script src="foto-pose.js?v=20261105b"></script>
+<script src="foto-pose.js?v=20261105c"></script>
   <script src="kanban.js?v=20261023b"></script>
   <script src="perfil-atendimento.js?v=20261023a"></script>
   <style>
@@ -1054,13 +1054,35 @@ function _fotosSemAnalise(id) {
   return out;
 }
 
+// Posição de cada foto como aparece na tela: o protocolo tem UMA foto de cada posição por data (avaliações do mesmo dia
+// contam juntas), então as fotos da data são distribuídas em conjunto (duas "Perfil direito" viram "Perfil direito" e
+// "Perfil direito, braço elevado"). O que foi confirmado à mão fica como está; o que o servidor guarda não muda.
+const _poseEf = {};
+function _calcularPoseEfetiva(id) {
+  const base = _avPose[id] || {}, ef = {}, porDia = {};
+  (_avFotos[id] || []).forEach(av => {
+    const dia = String(av.dtavaliacao || '').slice(0, 10) || ('sem-' + av.idavaliacao);
+    (porDia[dia] = porDia[dia] || []).push(...(av.fotos || []).map(_chaveFoto));
+  });
+  Object.keys(porDia).forEach(dia => {
+    const chaves = [...new Set(porDia[dia])];
+    const res = IntusPose.atribuirPoses(chaves.map(k => {
+      const a = base[k];
+      return { an: a ? IntusPose.deServidor(a) : null, fixa: a && a.origem === 'manual' && a.pose ? a.pose : null };
+    }));
+    chaves.forEach((k, i) => { if (base[k]) ef[k] = Object.assign({}, base[k], { pose: res[i].pose, conf: res[i].conf, trocou: res[i].trocou }); });
+  });
+  _poseEf[id] = ef;
+}
+const _poseDe = (id, k) => (_poseEf[id] || {})[k] || (_avPose[id] || {})[k];
+
 function _seletorPose(id, avId, f) {
-  const k = _chaveFoto(f), a = (_avPose[id] || {})[k];
+  const k = _chaveFoto(f), a = _poseDe(id, k);
   const p = a ? a.pose : null;
   const manual = a && a.origem === 'manual';
   const duvida = a && !manual && p && a.conf < 0.75;
   const cor = !a ? '#555' : (manual ? 'var(--green)' : (!p ? '#f87171' : (duvida ? '#f59e0b' : 'var(--green)')));
-  const dica = !a ? 'Ainda não analisada' : (manual ? 'Confirmada por você' : (p ? 'Identificada automaticamente (confiança ' + Math.round(a.conf * 100) + '%)' + (duvida ? ' — confira' : '') : 'Pessoa não encontrada na foto — escolha a posição'));
+  const dica = !a ? 'Ainda não analisada' : (manual ? 'Confirmada por você' : (p ? (a.trocou ? 'Ajustada: já havia outra foto desta data com a posição parecida (confiança ' + Math.round(a.conf * 100) + '%) — confira' : 'Identificada automaticamente (confiança ' + Math.round(a.conf * 100) + '%)' + (duvida ? ' — confira' : '')) : 'Pessoa não encontrada na foto — escolha a posição'));
   const opcoes = ['<option value="">' + (a ? 'sem posição' : 'não analisada') + '</option>']
     .concat(Array.from({ length: 18 }, (_, n) => n + 1).map(n => '<option value="' + n + '"' + (p === n ? ' selected' : '') + '>' + esc(IntusPose.rotuloPose(n)) + '</option>')).join('');
   return '<select data-k="' + esc(k) + '" onchange="corrigirPose(' + id + ',' + avId + ',this)" title="' + esc(dica) + '" style="width:100%;margin-top:3px;font-size:9.5px;padding:2px;border-radius:5px;background:#111;color:var(--text);border:1px solid ' + cor + ';">' + opcoes + '</select>';
@@ -1070,7 +1092,7 @@ function _resumoPoses(id, av) {
   const fotos = Array.isArray(av.fotos) ? av.fotos : [];
   const tem = new Set();
   let sem = 0;
-  fotos.forEach(f => { const a = (_avPose[id] || {})[_chaveFoto(f)]; if (!a) sem++; else if (a.pose) tem.add(a.pose); });
+  fotos.forEach(f => { const a = _poseDe(id, _chaveFoto(f)); if (!a) sem++; else if (a.pose) tem.add(a.pose); });
   if (!fotos.length) return '';
   if (sem === fotos.length) return '<span style="color:var(--text-muted);">posições ainda não identificadas</span>';
   const faltam = [];
@@ -1086,6 +1108,7 @@ function _renderMiniAvaliacoes(id) {
   const avaliacoes = _avFotos[id] || [];
   const totalFotos = avaliacoes.reduce((s, av) => s + (Array.isArray(av.fotos) ? av.fotos.length : 0), 0);
   const pendentes = _fotosSemAnalise(id).length;
+  _calcularPoseEfetiva(id);
 
   const barra = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
@@ -1114,7 +1137,7 @@ function _renderMiniAvaliacoes(id) {
         const fotos = Array.isArray(av.fotos) ? av.fotos : [];
         const avId = av.idavaliacao || '';
         // na ordem do protocolo (01 a 18); sem posição por último. O índice original vale para remover.
-        const ordem = fotos.map((f, i) => { const a = (_avPose[id] || {})[_chaveFoto(f)]; return { f, i, n: a && a.pose ? a.pose : 99 }; })
+        const ordem = fotos.map((f, i) => { const a = _poseDe(id, _chaveFoto(f)); return { f, i, n: a && a.pose ? a.pose : 99 }; })
           .sort((x, y) => x.n - y.n || x.i - y.i);
         return `
         <div style="background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:12px;">

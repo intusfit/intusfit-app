@@ -399,7 +399,7 @@ try {
         foreach ($slotsIn as $i => $slotIn) {
             if (!is_array($slotIn)) $slotIn = [];
             $tag = trim((string)($slotIn['tag'] ?? ('Foto ' . ($i + 1))));
-            $zoom = max(1, min(4, (float)($slotIn['zoom'] ?? 1)));
+            $zoom = max(0.4, min(4, (float)($slotIn['zoom'] ?? 1)));
             $panX = max(0, min(1, (float)($slotIn['pan_x'] ?? 0.5)));
             $panY = max(0, min(1, (float)($slotIn['pan_y'] ?? 0.5)));
             $arquivo = $arquivosAntigos[$i] ?? null;

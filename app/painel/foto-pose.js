@@ -119,6 +119,10 @@
       // lado para onde o rosto aponta, em pé de perfil (+ = direita da imagem)
       narizX: (nariz.x - ombro.x) / tronco,
       punhoAcimaDoNariz: Math.min(pE.y, pD.y) < nariz.y - 0.15 * tronco,
+      // quanto o punho mais alto (altPunho) e o mais baixo (altPunhoMin) passam do nariz, em troncos (+ = acima)
+      altPunho: (nariz.y - Math.min(pE.y, pD.y)) / tronco,
+      altPunhoMin: (nariz.y - Math.max(pE.y, pD.y)) / tronco,
+      dxOmbros: oE.x - oD.x,
       doisPunhosAcima: Math.max(pE.y, pD.y) < nariz.y - 0.05 * tronco,
       // afastamento dos punhos em relação ao quadril, em larguras de ombro (de frente/costas)
       abertura: (Math.abs(pE.x - qE.x) + Math.abs(pD.x - qD.x)) / 2 / Math.max(1, dist(oE, oD)),
@@ -239,6 +243,121 @@
     return res;
   }
 
+  // ---------- Pontuação por posição (para decidir entre posições parecidas) ----------
+  // Mesmas medidas do `classificar`, mas contínuas: cada posição recebe de 0 a 1 ("quanto essa foto combina com
+  // ela"). Serve para o caso em que duas fotos da mesma data saem como a mesma posição (ex.: duas "Perfil
+  // direito", sendo uma delas a "Perfil direito, braço elevado"): o protocolo tem UMA foto de cada posição por
+  // data, então `atribuirPoses` escolhe a combinação que melhor explica as fotos todas juntas.
+  function sig(x) { return 1 / (1 + Math.exp(-x)); }
+  function lim(x, a, b) { return Math.max(a, Math.min(b, x)); }
+
+  function pontuar(an) {
+    var s = []; for (var i = 0; i <= TOTAL_POSES; i++) s.push(0);
+    if (!an || !an.lm || an.lm.length < 33) return s;
+    var m = medir(an);
+    var pDeit = Math.max(sig((m.angTronco - 72) / 6), sig((m.angTronco - 55) / 6) * sig((-0.3 - m.cosCoxa) / 0.1));
+    var pEmPe = sig((28 - m.angPernaMin) / 5) * sig((m.bh / m.bw - 1.2) / 0.15);
+    var gPe = (1 - pDeit) * pEmPe, gDeit = pDeit, gSent = (1 - pDeit) * (1 - pEmPe);
+
+    // em pé
+    var pPerfil = sig((0.3 - m.largOmbro) / 0.05);
+    var pDir = sig(m.narizX / 0.12);
+    var pBraco = sig((m.altPunho - 0.15) / 0.15);
+    s[4] = pPerfil * pDir * (1 - pBraco); s[5] = pPerfil * pDir * pBraco;
+    s[6] = pPerfil * (1 - pDir) * (1 - pBraco); s[7] = pPerfil * (1 - pDir) * pBraco;
+    var v1 = Math.tanh(m.dxOmbros / (0.25 * m.tronco));
+    var v2 = lim((m.pontaMenosCalc - 0.025) / 0.01, -1, 1);
+    var pFrente = sig(2.2 * (v1 + v2));
+    var pPerna = sig((Math.abs(m.difTornozelo) - 0.06) / 0.02);
+    var xLevantado = m.difTornozelo > 0 ? m.tornozeloEsqX : m.tornozeloDirX;
+    var sEsq = sig((m.centroX - xLevantado) / (0.4 * Math.max(1, m.largOmbro * m.tronco)));
+    var fc = 1 - pPerfil;
+    s[1] = fc * pFrente * (1 - pPerna); s[2] = fc * pFrente * pPerna * sEsq; s[3] = fc * pFrente * pPerna * (1 - sEsq);
+    var pCostas = 1 - pFrente, pUp = sig((m.altPunhoMin - 0.05) / 0.08), pAb = sig((m.abertura - 0.55) / 0.12);
+    s[10] = fc * pCostas * pUp; s[9] = fc * pCostas * (1 - pUp) * pAb; s[8] = fc * pCostas * (1 - pUp) * (1 - pAb);
+    for (i = 1; i <= 10; i++) s[i] *= gPe;
+
+    // deitado
+    var altE = m.tornAcimaE, altD = m.tornAcimaD, alto = Math.max(altE, altD);
+    var joelhoAlto = m['joelhoAcima' + (altE > altD ? 'E' : 'D')], angJ = m['angJoelho' + (altE > altD ? 'E' : 'D')];
+    var pFlex = sig((alto - 0.45) / 0.08) * sig((joelhoAlto - 0.45) / 0.1);
+    var pAltoD = sig((altD - altE) / 0.15);
+    s[11] = pFlex * pAltoD; s[12] = pFlex * (1 - pAltoD);
+    var pDob = sig((alto - 0.2) / 0.05), p45 = sig((100 - (180 - angJ)) / 12);
+    s[13] = (1 - pFlex) * (1 - pDob); s[14] = (1 - pFlex) * pDob * p45; s[15] = (1 - pFlex) * pDob * (1 - p45);
+    for (i = 11; i <= 15; i++) s[i] *= gDeit;
+
+    // sentado
+    var joelhoMin = Math.min(m.angJoelhoE, m.angJoelhoD);
+    var pAlc = sig((0.55 - m.distPunhoPe) / 0.1) * sig((joelhoMin - 125) / 10);
+    var pBorb = sig((100 - joelhoMin) / 10) * sig((0.6 - m.distTornozelos) / 0.1);
+    s[18] = pAlc; s[17] = (1 - pAlc) * pBorb; s[16] = (1 - pAlc) * (1 - pBorb);
+    for (i = 16; i <= 18; i++) s[i] *= gSent;
+    return s;
+  }
+
+  // Algoritmo húngaro (custo mínimo), n linhas <= m colunas; devolve, para cada linha, a coluna escolhida (0-based).
+  function hungaro(c, n, m) {
+    var u = [], v = [], p = [], way = [], i, j;
+    for (i = 0; i <= n; i++) u.push(0);
+    for (j = 0; j <= m; j++) { v.push(0); p.push(0); way.push(0); }
+    for (i = 1; i <= n; i++) {
+      p[0] = i; var j0 = 0, minv = [], usado = [];
+      for (j = 0; j <= m; j++) { minv.push(Infinity); usado.push(false); }
+      do {
+        usado[j0] = true;
+        var i0 = p[j0], delta = Infinity, j1 = 0;
+        for (j = 1; j <= m; j++) if (!usado[j]) {
+          var cur = c[i0 - 1][j - 1] - u[i0] - v[j];
+          if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+          if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+        }
+        for (j = 0; j <= m; j++) { if (usado[j]) { u[p[j]] += delta; v[j] -= delta; } else minv[j] -= delta; }
+        j0 = j1;
+      } while (p[j0] !== 0);
+      do { var jj = way[j0]; p[j0] = p[jj]; j0 = jj; } while (j0);
+    }
+    var res = []; for (i = 0; i < n; i++) res.push(-1);
+    for (j = 1; j <= m; j++) if (p[j]) res[p[j] - 1] = j - 1;
+    return res;
+  }
+
+  // Posições das fotos de UMA data. itens: [{ an, fixa }] (fixa = posição confirmada à mão, que não muda e
+  // reserva a posição). Devolve, na mesma ordem, [{ pose, conf, trocou }]. Cada posição vai para no máximo uma
+  // foto; quem perde a disputa fica com a próxima posição que mais combina, com confiança baixa (o painel pede
+  // conferência). Se a troca exigiria uma posição que não combina nada com a foto, ela mantém a posição
+  // original (fica repetida) em vez de ser jogada para qualquer lugar.
+  function atribuirPoses(itens) {
+    var res = itens.map(function () { return null; });
+    var reservadas = {}, livres = [];
+    itens.forEach(function (it, i) {
+      if (it.fixa) { res[i] = { pose: it.fixa, conf: 1, trocou: false }; reservadas[it.fixa] = true; return; }
+      if (!it.an || !it.an.lm || it.an.lm.length < 33) { res[i] = { pose: null, conf: 0, trocou: false }; return; }
+      livres.push({ i: i, cls: classificar(it.an), sc: pontuar(it.an) });
+    });
+    var poses = [];
+    for (var n = 1; n <= TOTAL_POSES; n++) if (!reservadas[n]) poses.push(n);
+    var escolha = {};   // índice em `livres` -> pose
+    if (livres.length && poses.length) {
+      var custo = function (f, pose) { return -Math.log(f.sc[pose] + 0.001); };
+      if (livres.length <= poses.length) {
+        var c1 = livres.map(function (f) { return poses.map(function (pose) { return custo(f, pose); }); });
+        hungaro(c1, livres.length, poses.length).forEach(function (col, r) { if (col >= 0) escolha[r] = poses[col]; });
+      } else {
+        var c2 = poses.map(function (pose) { return livres.map(function (f) { return custo(f, pose); }); });
+        hungaro(c2, poses.length, livres.length).forEach(function (col, r) { if (col >= 0) escolha[col] = poses[r]; });
+      }
+    }
+    livres.forEach(function (f, r) {
+      var indep = f.cls.pose, pose = escolha[r] || indep;
+      if (!indep) { res[f.i] = { pose: null, conf: 0, trocou: false }; return; }
+      if (pose === indep) { res[f.i] = { pose: pose, conf: f.cls.conf, trocou: false }; return; }
+      if (f.sc[pose] < 0.08) { res[f.i] = { pose: indep, conf: Math.min(f.cls.conf, 0.5), trocou: false }; return; }
+      res[f.i] = { pose: pose, conf: Math.round(Math.min(0.7, f.cls.conf, 0.7 * f.sc[pose] / Math.max(f.sc[indep], 0.001)) * 100) / 100, trocou: true };
+    });
+    return res;
+  }
+
   // ---------- Recorte ----------
   // Margens medidas nos relatórios reais: em pé, o corpo ocupa ~95% da altura com ~3% no topo e ~3% na base
   // (pés alinhados embaixo); deitado/sentado o corpo ocupa quase toda a largura.
@@ -257,41 +376,55 @@
 
   // Zoom/deslocamento (no modelo do editor: cobre o quadro, depois zoom e pan 0..1) para UMA foto, dado o
   // tamanho de corpo desejado `escala` (pixels do quadro por pixel da foto). escala null = melhor encaixe.
-  function recorte(an, pose, quadro, escala) {
+  // `afastar` deixa o zoom ir abaixo de 1 (até 0,4): a foto fica menor que o quadro e sobram faixas vazias dos
+  // lados (ou em cima/embaixo), o que é a única forma de mostrar o corpo inteiro num quadro mais largo que o
+  // corpo (ex.: quadrado). Com zoom abaixo de 1 o pan passa a posicionar a foto dentro do quadro.
+  function recorte(an, pose, quadro, escala, afastar) {
     quadro = quadro || quadroDaPose(pose);
     var cx = caixa(an), bw = cx.x1 - cx.x0, bh = cx.y1 - cx.y0;
     var emPe = !POSES[pose] || POSES[pose].grupo === 'pe';
     var cobre = Math.max(quadro.w / an.w, quadro.h / an.h);
     var ideal = Math.min((1 - MARG.topo - MARG.base) * quadro.h / bh, (1 - 2 * MARG.lado) * quadro.w / bw);
     var s = escala || ideal;
-    var zoom = Math.max(1, Math.min(4, s / cobre));
+    var zoom = Math.max(afastar ? 0.4 : 1, Math.min(4, s / cobre));
+    if (afastar && zoom < 1 && zoom >= 0.97) zoom = 1; // sobra de 3% não vale uma faixa vazia
     s = cobre * zoom;
     var sW = quadro.w / s, sH = quadro.h / s;
-    var folgaX = Math.max(0, an.w - sW), folgaY = Math.max(0, an.h - sH);
     var centroX = (cx.x0 + cx.x1) / 2;
-    var sx = centroX - sW / 2;
-    var sy = emPe ? (cx.y1 + MARG.base * sH - sH) : ((cx.y0 + cx.y1) / 2 - sH * 0.52);
     function pan(v, folga) { return folga > 0 ? Math.max(0, Math.min(1, v / folga)) : 0.5; }
-    return { zoom: Math.round(zoom * 100) / 100, panX: pan(sx, folgaX), panY: pan(sy, folgaY), escala: s, ideal: ideal, quadro: quadro };
+    // eixo em que a foto cobre o quadro: pan = início da janela / folga; eixo com faixa vazia: a posição da foto no quadro
+    var panX = sW <= an.w ? pan(centroX - sW / 2, an.w - sW)
+      : pan(quadro.w / 2 - centroX * s, quadro.w - an.w * s);
+    var panY;
+    if (emPe) panY = sH <= an.h ? pan(cx.y1 + MARG.base * sH - sH, an.h - sH) : pan(quadro.h * (1 - MARG.base) - cx.y1 * s, quadro.h - an.h * s);
+    else {
+      var cy = (cx.y0 + cx.y1) / 2;
+      panY = sH <= an.h ? pan(cy - sH * 0.52, an.h - sH) : pan(quadro.h * 0.52 - cy * s, quadro.h - an.h * s);
+    }
+    return { zoom: Math.round(zoom * 100) / 100, panX: panX, panY: panY, escala: s, ideal: ideal, quadro: quadro };
   }
 
-  // Recorte de um par Antes/Depois da mesma posição: mesmo tamanho de corpo nos dois lados.
-  function recortarPar(anA, anB, pose) {
-    var quadro = quadroDaPose(pose);
-    var rA = recorte(anA, pose, quadro, null), rB = recorte(anB, pose, quadro, null);
-    // tamanho do corpo no quadro = escala x referência; fica o MENOR dos dois (assim cabe nas duas)
-    var kA = rA.ideal * referencia(anA, pose), kB = rB.ideal * referencia(anB, pose);
-    var k = Math.min(kA, kB);
-    // o editor não afasta além de "cobrir o quadro" (zoom mínimo 1): se o tamanho combinado pedir menos que
-    // isso para algum lado, vale o menor possível dos dois (corpos iguais, com um pouco de corte, como nos
-    // relatórios reais) em vez de corpos de tamanhos diferentes
-    function minimo(an) { return Math.max(quadro.w / an.w, quadro.h / an.h) * referencia(an, pose); }
-    k = Math.max(k, minimo(anA), minimo(anB));
-    return {
-      quadro: quadro,
-      antes: recorte(anA, pose, quadro, k / referencia(anA, pose)),
-      depois: recorte(anB, pose, quadro, k / referencia(anB, pose))
-    };
+  function grupoDe(pose) { return POSES[pose] ? POSES[pose].grupo : 'pe'; }
+
+  // Recorte de várias fotos da MESMA posição (Antes/Depois, ou mais) num quadro dado: mesmo tamanho de corpo em
+  // todas (fica o menor, que cabe em todas). Sem `afastar` nenhuma foto sai com zoom abaixo de 1 (corpos iguais
+  // com um pouco de corte, como nos relatórios reais); com `afastar` o corpo sai inteiro, com faixas vazias se preciso.
+  function recortarVarios(ans, poses, quadro, afastar) {
+    var rs = ans.map(function (an, i) { return recorte(an, poses[i], quadro, null, afastar); });
+    if (ans.length < 2) return rs;
+    var g0 = grupoDe(poses[0]);
+    if (!poses.every(function (p) { return grupoDe(p) === g0; })) return rs;
+    var k = Infinity;
+    ans.forEach(function (an, i) { k = Math.min(k, rs[i].ideal * referencia(an, poses[i])); });
+    if (!afastar) ans.forEach(function (an, i) { k = Math.max(k, Math.max(quadro.w / an.w, quadro.h / an.h) * referencia(an, poses[i])); });
+    return ans.map(function (an, i) { return recorte(an, poses[i], quadro, k / referencia(an, poses[i]), afastar); });
+  }
+
+  // Recorte de um par Antes/Depois da mesma posição (formato do protocolo, sem faixas vazias).
+  function recortarPar(anA, anB, pose, quadroForcado) {
+    var quadro = quadroForcado || quadroDaPose(pose);
+    var r = recortarVarios([anA, anB], [pose, pose], quadro, false);
+    return { quadro: quadro, antes: r[0], depois: r[1] };
   }
 
   // Escolhe, entre várias fotos da mesma avaliação com a mesma posição, a melhor (maior confiança;
@@ -416,8 +549,8 @@
 
   var api = {
     POSES: POSES, TOTAL_POSES: TOTAL_POSES, rotuloPose: rotuloPose, quadroDaPose: quadroDaPose,
-    chaveDaFoto: chaveDaFoto, medir: medir, classificar: classificar, recorte: recorte,
-    recortarPar: recortarPar, melhorDaPose: melhorDaPose, caixa: caixa,
+    chaveDaFoto: chaveDaFoto, medir: medir, classificar: classificar, pontuar: pontuar, atribuirPoses: atribuirPoses, recorte: recorte,
+    recortarPar: recortarPar, recortarVarios: recortarVarios, melhorDaPose: melhorDaPose, caixa: caixa,
     carregarDetector: carregarDetector, detectar: detectar, analisarUrl: analisarUrl,
     deServidor: deServidor, paraServidor: paraServidor
   };

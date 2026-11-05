@@ -129,5 +129,41 @@ const volta = P.deServidor({ w: 100, h: 200, bb: [0, 0, 1, 1], lm: srv.lm.map(q 
 t('deServidor reconstrói [x, y, z, visibilidade] e a posição sai igual', volta && volta.lm[0].length === 4 && P.classificar(volta).pose === P.classificar({ w: 100, h: 200, bb: [0, 0, 1, 1], lm: modelo[0].lm }).pose);
 t('deServidor sem pontos = null', P.deServidor({ w: 1, h: 1, lm: null }) === null);
 
+// 7. Posições parecidas na mesma data: a pontuação por posição concorda com o classificador e a atribuição
+// (uma foto por posição) resolve as duplicadas
+const argmax = sc => { let b = 1; for (let i = 2; i <= 18; i++) if (sc[i] > sc[b]) b = i; return b; };
+modelo.concat(reais).forEach(c => t('pontuação concorda com o classificador: ' + c.rotulo, argmax(P.pontuar(c)) === P.classificar(c).pose));
+const poseDe = (lista) => P.atribuirPoses(lista.map(an => ({ an }))).map(x => x.pose);
+t('modelo inteiro numa data: 18 de 18', poseDe(modelo).every((p, i) => p === modelo[i].pose));
+const clonar = o => JSON.parse(JSON.stringify(o));
+function ambigua(pose, mexe) {   // o modelo com UMA foto "no limite" entre duas posições vizinhas
+  const g = modelo.map(clonar), i = g.findIndex(c => c.pose === pose); mexe(g[i]);
+  return { g, i, duro: P.classificar(g[i]).pose, atrib: P.atribuirPoses(g.map(an => ({ an })))[i] };
+}
+let a = ambigua(5, c => { const tr = P.medir(c).tronco / c.h; [15, 16].forEach(k => { c.lm[k][1] = Math.max(c.lm[k][1], c.lm[0][1] - 0.09 * tr); }); });
+t('braço elevado fraco: o classificador sozinho erra, a atribuição acerta e pede conferência', a.duro === 4 && a.atrib.pose === 5 && a.atrib.conf < 0.75, JSON.stringify(a.atrib));
+a = ambigua(3, c => { const alto = c.lm[27][1] < c.lm[28][1] ? 27 : 28, baixo = alto === 27 ? 28 : 27; c.lm[alto][1] = c.lm[baixo][1] - 0.035 * (P.medir(c).bh / c.h); });
+t('perna pouco fletida: a atribuição acerta o lado', a.atrib.pose === 3, JSON.stringify(a.atrib));
+// posição confirmada à mão fica e reserva o lugar
+const fx = P.atribuirPoses(modelo.map((an, i) => ({ an, fixa: i === 0 ? 8 : null })));
+t('posição manual não muda e vale confiança total', fx[0].pose === 8 && fx[0].conf === 1 && fx.slice(1).every(x => x.pose));
+// repetida de verdade (duas fotos iguais da mesma posição): não joga a segunda numa posição que não combina
+const rep = P.atribuirPoses([{ an: modelo[0] }, { an: modelo[0] }]).map(x => x.pose);
+t('duas fotos frontais: a segunda não é empurrada para uma posição sem sentido', rep[0] === 1 && (rep[1] === 1 || rep[1] === 2 || rep[1] === 3));
+t('sem pontos e sem pessoa ficam sem posição', P.atribuirPoses([{ an: null }, { an: { w: 1, h: 1, lm: null } }]).every(x => x.pose === null));
+t('mais fotos que posições não trava', P.atribuirPoses(modelo.concat(modelo).map(an => ({ an }))).length === 36);
+
+// 8. Recorte em qualquer quadro: "afastar" mostra o corpo inteiro
+const ped = modelo[0], foto = comoFotoDeCelular(ped);
+const quadrado = { w: 1080, h: 1080 };
+const rc = P.recorte(foto, 1, quadrado, null, false), ra = P.recorte(foto, 1, quadrado, null, true);
+t('quadrado sem afastar fica com zoom 1 (corpo cortado)', rc.zoom === 1);
+t('quadrado com afastar mostra o corpo inteiro (zoom < 1)', ra.zoom < 1 && ra.zoom >= 0.4);
+const em9x16 = P.recorte(foto, 1, { w: 675, h: 1200 }, null, true);
+t('9:16 não abre faixa vazia à toa (foto 3:4 em pé)', em9x16.zoom >= 1, 'zoom=' + em9x16.zoom);
+const rv = P.recortarVarios([foto, comoFotoDeCelular(modelo[0])], [1, 1], quadrado, true);
+t('recortarVarios: mesmo tamanho de corpo nas duas', Math.abs(rv[0].escala / rv[1].escala - 1) < 0.01);
+t('recortarPar aceita quadro próprio', P.recortarPar(foto, foto, 1, quadrado).quadro.w === 1080);
+
 console.log(ok + ' ok, ' + ruim + ' falhas');
 process.exit(ruim ? 1 : 0);

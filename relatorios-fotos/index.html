@@ -86,7 +86,22 @@ input{font-family:inherit}
 .status-zip{font-size:12px;color:var(--accent);min-width:140px}
 
 /* ── lista de linhas ── */
-.rows{max-width:1400px;margin:0 auto;padding:18px 20px 40px;display:flex;flex-direction:column;gap:14px}
+.rows{--zf:1;--cols:1;max-width:calc(1400px * var(--zf));margin:0 auto;padding:18px 20px 40px;display:flex;flex-direction:column;gap:14px}
+.rows.grade{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));align-items:start;max-width:none;width:calc(100% * var(--zf))}
+.rows.grade .btn-add-linha{grid-column:1/-1}
+.rows.grade .row-slots{flex-wrap:nowrap}
+.rows.grade .slot{flex:1 1 0;min-width:0;max-width:none}
+.barra-vista{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding:8px 20px;background:var(--card-bg);border-top:1px solid var(--borda);border-bottom:1px solid var(--borda);box-shadow:0 6px 16px rgba(0,0,0,.28)}
+.barra-vista .grupo{display:flex;align-items:center;gap:6px}
+.barra-vista .rot{font-size:11px;color:var(--muted-d);font-weight:700}
+.barra-vista .btn-mini{padding:7px 11px;font-size:12px}
+.barra-vista .btn-mini:disabled{opacity:.35;cursor:default}
+.barra-vista input[type=range]{width:130px;accent-color:var(--accent)}
+.barra-vista .pct{font-size:12px;font-weight:800;min-width:44px;text-align:center;color:var(--texto);cursor:pointer}
+.barra-vista .chk{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
+.barra-vista .st{font-size:12px;color:var(--accent)}
+.row-auto-status{font-size:11px;color:var(--accent);min-width:0}
+.row-auto-status.erro{color:#f59e0b}
 .row-card{background:var(--card-bg);border:1px solid var(--borda);border-radius:14px;padding:14px 16px}
 .row-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
 .row-card.arrastando-linha{opacity:.4}
@@ -106,7 +121,7 @@ input{font-family:inherit}
 .btn-add-foto:hover{border-color:var(--accent-borda);color:var(--accent)}
 
 .row-slots{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
-.slot{flex:1 1 260px;min-width:220px;max-width:420px}
+.slot{flex:1 1 calc(260px * var(--zf));min-width:calc(220px * var(--zf));max-width:calc(420px * var(--zf))}
 .slot.arrastando-slot{opacity:.4}
 .slot.alvo-slot{outline:2px dashed var(--accent);border-radius:10px}
 .slot-cabecalho{display:flex;align-items:center;gap:6px;margin-bottom:6px}
@@ -174,6 +189,10 @@ input{font-family:inherit}
 .rodape{max-width:1400px;margin:8px auto 0;padding:24px 20px 40px;text-align:center;border-top:1px solid var(--borda)}
 .logo-rodape{height:24px;opacity:.6;margin:0 auto}
 
+@media(max-width:900px){
+  .rows.grade{display:flex;flex-direction:column}
+  .rows.grade .row-slots{flex-wrap:wrap}
+}
 @media(max-width:640px){
   .row-slots{flex-direction:column}
   .slot{max-width:100%}
@@ -309,6 +328,32 @@ input{font-family:inherit}
   </div>
 </div>
 
+<div class="barra-vista" id="barra-vista">
+  <div class="grupo">
+    <button type="button" class="btn-mini" id="btn-desfazer" title="Desfazer a última alteração (Ctrl+Z)" disabled>↶ Desfazer</button>
+    <button type="button" class="btn-mini" id="btn-refazer" title="Refazer o que foi desfeito (Ctrl+Shift+Z ou Ctrl+Y)" disabled>↷ Refazer</button>
+  </div>
+  <div class="grupo">
+    <span class="rot">Zoom</span>
+    <button type="button" class="btn-mini" id="vz-menos" title="Diminuir as fotos">−</button>
+    <input type="range" id="vz-faixa" min="50" max="250" step="10" value="100">
+    <button type="button" class="btn-mini" id="vz-mais" title="Aumentar as fotos">+</button>
+    <span class="pct" id="vz-pct" title="Voltar para 100%">100%</span>
+  </div>
+  <div class="grupo" id="vc-grupo">
+    <span class="rot">Colunas</span>
+    <button type="button" class="btn-mini" data-cols="1">1</button>
+    <button type="button" class="btn-mini" data-cols="2">2</button>
+    <button type="button" class="btn-mini" data-cols="3">3</button>
+    <button type="button" class="btn-mini" data-cols="4">4</button>
+  </div>
+  <div class="grupo">
+    <button type="button" class="btn-mini" id="btn-auto-todas" title="Encontra o corpo em cada foto e refaz o recorte: corpo inteiro, centralizado, sem as laterais que sobram">✨ Auto-ajustar todas</button>
+    <label class="chk" title="Ao trocar o formato de uma linha (Corpo em pé, Quadrado, Retrato...) refaz o recorte sozinho"><input type="checkbox" id="chk-auto-formato" checked> auto-ajustar ao trocar o formato</label>
+    <span class="st" id="auto-global-status"></span>
+  </div>
+</div>
+
 <div class="rows" id="rows"></div>
 
 <div class="rodape">
@@ -328,7 +373,7 @@ input{font-family:inherit}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="/app/painel/foto-pose.js?v=20261105b"></script>
+<script src="/app/painel/foto-pose.js?v=20261105c"></script>
 <script>
 (function(){
 'use strict';
@@ -426,6 +471,7 @@ for (var i = 0; i < ROWS_COUNT; i++) rows.push(makeRow(i));
 var UNDO_LIMITE = 50;
 var UNDO_INTERVALO_MS = 600;
 var undoStack = [];
+var redoStack = [];
 var undoUltimaAssinatura = null;
 var undoUltimoSnapshot = null;
 var undoRestaurando = false;
@@ -474,19 +520,20 @@ function undoSincronizar(){
   if (undoUltimaAssinatura !== null && assinaturaAtual !== undoUltimaAssinatura) {
     undoStack.push(undoUltimoSnapshot);
     if (undoStack.length > UNDO_LIMITE) undoStack.shift();
+    redoStack = [];   // uma alteração nova encerra o "refazer"
+    atualizarBotoesDesfazer();
   }
   undoUltimaAssinatura = assinaturaAtual;
   undoUltimoSnapshot = undoSnapshotEstado();
 }
 function undoLimparHistorico(){
   undoStack = [];
+  redoStack = [];
+  atualizarBotoesDesfazer();
   undoUltimaAssinatura = null;
   undoUltimoSnapshot = null;
 }
-function desfazer(){
-  undoSincronizar();
-  if (!undoStack.length) return;
-  var estado = undoStack.pop();
+function restaurarEstado(estado){
   undoRestaurando = true;
   try {
     document.getElementById('input-aluno').value = estado.alunoNome;
@@ -512,6 +559,14 @@ function desfazer(){
       row.slots = dados.slots.map(function(s){ return Object.assign(makeSlot(s.tag), s); });
       rebuildRowSlots(row);
       applyDimensions(row, dados.width, dados.height, true);
+      // applyDimensions volta zoom e posição ao padrão: devolve os do estado guardado
+      row.slots.forEach(function(sl, k){
+        var d = dados.slots[k];
+        if (!sl.img) return;
+        sl.z = d.z; sl.panX = d.panX; sl.panY = d.panY;
+        row.els.slots[k].zoom.value = Math.round(d.z * 100);
+        renderSlotPreview(row, k);
+      });
     });
     atualizarBotaoAdd();
   } finally {
@@ -520,19 +575,43 @@ function desfazer(){
   undoUltimoSnapshot = undoSnapshotEstado();
   undoUltimaAssinatura = undoAssinaturaEstado();
 }
+function desfazer(){
+  undoSincronizar();
+  if (!undoStack.length) return;
+  redoStack.push(undoSnapshotEstado());
+  restaurarEstado(undoStack.pop());
+  atualizarBotoesDesfazer();
+}
+function refazer(){
+  undoSincronizar();
+  if (!redoStack.length) return;
+  undoStack.push(undoSnapshotEstado());
+  restaurarEstado(redoStack.pop());
+  atualizarBotoesDesfazer();
+}
+function atualizarBotoesDesfazer(){
+  var d = document.getElementById('btn-desfazer'), r = document.getElementById('btn-refazer');
+  if (d) d.disabled = !undoStack.length;
+  if (r) r.disabled = !redoStack.length;
+}
 setInterval(undoSincronizar, UNDO_INTERVALO_MS);
 // Clique é ação discreta (um botão = um passo de desfazer) e vale registrar na
 // hora, sem esperar o intervalo. Digitação fica só por conta do intervalo de
 // propósito — assim uma rajada de teclas conta como um passo só ao desfazer.
 document.addEventListener('click', undoSincronizar, true);
 document.addEventListener('keydown', function(e){
-  var teclaZ = e.key === 'z' || e.key === 'Z';
-  if (!teclaZ || !(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+  if (!(e.ctrlKey || e.metaKey)) return;
+  var k = String(e.key).toLowerCase();
+  var refaz = (k === 'z' && e.shiftKey) || (k === 'y' && !e.shiftKey);
+  var desfaz = k === 'z' && !e.shiftKey;
+  if (!refaz && !desfaz) return;
   var tag = (e.target && e.target.tagName) || '';
   if (tag === 'INPUT' || tag === 'TEXTAREA') return; // deixa o desfazer nativo do campo de texto agir
   e.preventDefault();
-  desfazer();
+  if (refaz) refazer(); else desfazer();
 });
+document.getElementById('btn-desfazer').addEventListener('click', desfazer);
+document.getElementById('btn-refazer').addEventListener('click', refazer);
 
 // ---------- Seleção de foto (rolagem do mouse só dá zoom na foto selecionada) ----------
 var slotAtivo = null;
@@ -571,7 +650,11 @@ function sourceRect(slot, destW, destH){
   var sW = destW / s, sH = destH / s;
   var slackX = Math.max(0, slot.naturalW - sW);
   var slackY = Math.max(0, slot.naturalH - sH);
-  return { sx: slot.panX * slackX, sy: slot.panY * slackY, sW: sW, sH: sH, slackX: slackX, slackY: slackY };
+  // zoom abaixo de 1: a foto fica menor que o quadro e sobra faixa vazia (barX/barY); aí o pan posiciona a foto no quadro
+  var barX = Math.max(0, destW - slot.naturalW * s), barY = Math.max(0, destH - slot.naturalH * s);
+  return { sx: slot.panX * slackX, sy: slot.panY * slackY, sW: Math.min(sW, slot.naturalW), sH: Math.min(sH, slot.naturalH),
+           dx: barX * slot.panX, dy: barY * slot.panY, dW: Math.min(destW, slot.naturalW * s), dH: Math.min(destH, slot.naturalH * s),
+           slackX: slackX, slackY: slackY, barX: barX, barY: barY };
 }
 
 function drawWatermark(ctx, destW, destH){
@@ -712,10 +795,15 @@ function desenharAnguloParcial(ctx, a, destW, destH){
   ctx.restore();
 }
 
+function pintarFundo(ctx, w, h){
+  ctx.fillStyle = appBg === 'claro' ? '#f4f4f4' : '#0d0d0d';
+  ctx.fillRect(0, 0, w, h);
+}
+
 function drawSlot(ctx, slot, destW, destH){
   if (!slot.img) return;
   var r = sourceRect(slot, destW, destH);
-  ctx.drawImage(slot.img, r.sx, r.sy, r.sW, r.sH, 0, 0, destW, destH);
+  ctx.drawImage(slot.img, r.sx, r.sy, r.sW, r.sH, r.dx, r.dy, r.dW, r.dH);
   if (slot.grade) drawGrade(ctx, destW, destH, slot.gradeV, slot.gradeH, slot.gradeLineOverrides);
   (slot.annotations || []).forEach(function(a){ desenharAnotacao(ctx, a, destW, destH); });
   drawWatermark(ctx, destW, destH);
@@ -727,6 +815,7 @@ function renderSlotPreview(row, idx){
   var sz = frameSize(row, idx);
   if (sz.w < 2 || sz.h < 2) return;
   slot.ctx = setupCanvas(slot.canvas, sz.w, sz.h);
+  pintarFundo(slot.ctx, sz.w, sz.h);
   drawSlot(slot.ctx, slot, sz.w, sz.h);
   desenharDestaqueLinha(slot.ctx, slot, sz.w, sz.h);
 }
@@ -737,6 +826,7 @@ function renderSlotPreviewComDraft(row, idx){
   var sz = frameSize(row, idx);
   if (sz.w < 2 || sz.h < 2) return;
   slot.ctx = setupCanvas(slot.canvas, sz.w, sz.h);
+  pintarFundo(slot.ctx, sz.w, sz.h);
   drawSlot(slot.ctx, slot, sz.w, sz.h);
   desenharDestaqueLinha(slot.ctx, slot, sz.w, sz.h);
   if (slot.draft) desenharAnotacao(slot.ctx, slot.draft, sz.w, sz.h);
@@ -1136,8 +1226,8 @@ function attachDrag(row, idx){
     var r = sourceRect(slot, sz.w, sz.h);
     var dx = e.clientX - slot.dragStart.x;
     var dy = e.clientY - slot.dragStart.y;
-    var dPanX = r.slackX > 0 ? -(dx * r.sW / sz.w) / r.slackX : 0;
-    var dPanY = r.slackY > 0 ? -(dy * r.sH / sz.h) / r.slackY : 0;
+    var dPanX = r.slackX > 0 ? -(dx * r.sW / sz.w) / r.slackX : (r.barX > 0 ? dx / r.barX : 0);
+    var dPanY = r.slackY > 0 ? -(dy * r.sH / sz.h) / r.slackY : (r.barY > 0 ? dy / r.barY : 0);
     slot.panX = clamp(slot.dragStart.panX + dPanX, 0, 1);
     slot.panY = clamp(slot.dragStart.panY + dPanY, 0, 1);
     renderSlotPreview(row, idx);
@@ -1177,7 +1267,7 @@ function attachDrag(row, idx){
     if (slotAtivo !== slot) return;
     e.preventDefault();
     var delta = e.deltaY < 0 ? 8 : -8;
-    var z = clamp(parseInt(row.els.slots[idx].zoom.value, 10) + delta, 100, 400);
+    var z = clamp(parseInt(row.els.slots[idx].zoom.value, 10) + delta, 40, 400);
     row.els.slots[idx].zoom.value = z;
     slot.z = z / 100;
     row.dirty = true;
@@ -1348,7 +1438,7 @@ function buildSlotEl(row, idx){
       '<input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.gif,.bmp,.tif,.tiff" class="slot-file" hidden>' +
     '</div>' +
     '<div class="slot-tools" hidden>' +
-      '<input type="range" min="100" max="400" value="100">' +
+      '<input type="range" min="40" max="400" value="100">' +
       '<button class="btn-mover-up" title="Trocar de lugar com a foto de cima">▲</button>' +
       '<button class="btn-mover-down" title="Trocar de lugar com a foto de baixo">▼</button>' +
       '<button class="btn-duplicar" title="Duplicar esta foto (com zoom, marcações, simetrógrafo) numa linha nova">⧉ Duplicar</button>' +
@@ -1581,6 +1671,7 @@ function buildRow(row){
       '<span class="row-num" draggable="true" title="Arrastar pra reordenar este comparativo">#' + String(row.id + 1).padStart(2, '0') + '</span>' +
       '<input type="text" class="row-label" placeholder="Nome deste comparativo (ex.: Frente, Perfil, Costas)">' +
       '<div class="row-dim">' +
+        '<button class="btn-mini btn-auto-linha" title="Encontra o corpo em cada foto desta linha e refaz o recorte: corpo inteiro, centralizado, sem as laterais que sobram">✨ Auto-ajustar</button>' +
         '<button class="btn-mini" data-orient data-w="900" data-h="1200">Retrato</button>' +
         '<button class="btn-mini" data-orient data-w="1200" data-h="900">Paisagem</button>' +
         '<button class="btn-mini" data-orient data-w="1080" data-h="1080">Quadrado</button>' +
@@ -1589,6 +1680,7 @@ function buildRow(row){
         '<span class="x">×</span>' +
         '<input type="number" class="row-h" min="100" max="4000" step="10" value="' + row.height + '">' +
       '</div>' +
+      '<span class="row-auto-status"></span>' +
       '<button class="btn-add-foto" title="Adicionar mais uma foto a este comparativo (até ' + SLOTS_MAX + ')">+ Foto</button>' +
       '<button class="btn-baixar-linha" disabled>Baixar PNG</button>' +
     '</div>' +
@@ -1613,8 +1705,11 @@ function buildRow(row){
       applyDimensions(row, w, h);
       el.querySelectorAll('[data-orient]').forEach(function(b){ b.classList.remove('on'); });
       btn.classList.add('on');
+      if (autoAoMudarFormato()) autoAjustarLinha(row);
     });
   });
+  row.els.autoStatus = el.querySelector('.row-auto-status');
+  el.querySelector('.btn-auto-linha').addEventListener('click', function(){ autoAjustarLinha(row); });
 
   el.querySelector('.btn-add-foto').addEventListener('click', function(){ adicionarSlot(row); });
 
@@ -1931,6 +2026,7 @@ document.getElementById('btn-aplicar-todos').addEventListener('click', function(
     row.els.w.value = w; row.els.h.value = h;
     applyDimensions(row, w, h);
   });
+  if (autoAoMudarFormato()) autoAjustarTodas();
 });
 
 document.getElementById('chk-todos').addEventListener('change', function(e){
@@ -1983,6 +2079,105 @@ window.addEventListener('resize', function(){
     renderAllPreviews();
   }, 150);
 });
+
+
+// ---------- Auto-ajuste do recorte ----------
+// Acha o corpo em cada foto da linha (detector de pose do foto-pose.js, no navegador) e refaz zoom e posição para
+// o quadro atual: corpo inteiro, centralizado, pés na base, sem as laterais que sobram; as fotos da mesma linha
+// ficam com o corpo do mesmo tamanho. Quando o quadro é mais largo que o corpo (ex.: quadrado) o corpo inteiro só
+// cabe com a foto menor que o quadro: sobra faixa vazia dos lados, na cor do relatório.
+function autoAoMudarFormato(){ return document.getElementById('chk-auto-formato').checked; }
+
+function statusAuto(row, texto, erro){
+  if (!row.els.autoStatus) return;
+  row.els.autoStatus.textContent = texto || '';
+  row.els.autoStatus.classList.toggle('erro', !!erro);
+}
+
+function corpoDoSlot(slot){
+  if (slot._corpo && slot._corpo.img === slot.img) return Promise.resolve(slot._corpo.an);
+  return IntusPose.detectar(slot.img).then(function(an){ slot._corpo = { img: slot.img, an: an }; return an; });
+}
+
+function autoAjustarLinha(row){
+  var idxs = [];
+  row.slots.forEach(function(s, i){ if (s.img) idxs.push(i); });
+  if (!idxs.length) { statusAuto(row, ''); return Promise.resolve(0); }
+  statusAuto(row, 'Procurando o corpo nas fotos…');
+  var quadro = { w: row.width, h: row.height };
+  return Promise.all(idxs.map(function(i){ return corpoDoSlot(row.slots[i]); })).then(function(ans){
+    var achados = [], poses = [], quais = [];
+    ans.forEach(function(an, k){
+      if (!an) return;
+      achados.push(an); poses.push(IntusPose.classificar(an).pose || 1); quais.push(idxs[k]);
+    });
+    if (!achados.length) { statusAuto(row, 'Não achei o corpo nas fotos.', true); return 0; }
+    if (quadro.w !== row.width || quadro.h !== row.height) return 0;   // o formato mudou enquanto procurava
+    var rs = IntusPose.recortarVarios(achados, poses, quadro, true);
+    quais.forEach(function(i, k){
+      var slot = row.slots[i];
+      slot.z = rs[k].zoom; slot.panX = rs[k].panX; slot.panY = rs[k].panY;
+      row.els.slots[i].zoom.value = Math.round(slot.z * 100);
+      renderSlotPreview(row, i);
+    });
+    row.dirty = true;
+    var sem = idxs.length - achados.length;
+    statusAuto(row, '✓ Recorte ajustado' + (sem ? ' (' + sem + ' foto sem corpo encontrado)' : ''), !!sem);
+    return achados.length;
+  }).catch(function(e){
+    statusAuto(row, 'Não consegui ajustar: ' + (e && e.message || e), true);
+    return 0;
+  });
+}
+
+var autoTodasRodando = false;
+function autoAjustarTodas(){
+  if (autoTodasRodando) return Promise.resolve();
+  var st = document.getElementById('auto-global-status');
+  var alvo = rows.slice(0, linhasVisiveis).filter(function(r){ return r.slots.some(function(s){ return s.img; }); });
+  if (!alvo.length) { st.textContent = 'Nenhuma linha com foto.'; return Promise.resolve(); }
+  autoTodasRodando = true;
+  var feitas = 0;
+  return alvo.reduce(function(p, row, k){
+    return p.then(function(){
+      st.textContent = 'Auto-ajustando… ' + (k + 1) + ' de ' + alvo.length + (k === 0 ? ' (na primeira vez baixa o detector, uns 12 MB)' : '');
+      return autoAjustarLinha(row).then(function(n){ if (n) feitas++; });
+    });
+  }, Promise.resolve()).then(function(){
+    st.textContent = '✓ ' + feitas + ' de ' + alvo.length + ' linha(s) ajustadas';
+    setTimeout(function(){ if (!autoTodasRodando) st.textContent = ''; }, 6000);
+  }).then(function(){ autoTodasRodando = false; }, function(){ autoTodasRodando = false; });
+}
+document.getElementById('btn-auto-todas').addEventListener('click', autoAjustarTodas);
+
+// ---------- Vista: zoom e colunas (só a visualização, não muda o relatório) ----------
+var VISTA = { zoom: 100, cols: 1, auto: true };
+try {
+  var vs = JSON.parse(localStorage.getItem('intus-relfotos-vista') || 'null');
+  if (vs) { VISTA.zoom = clamp(parseInt(vs.zoom, 10) || 100, 50, 250); VISTA.cols = clamp(parseInt(vs.cols, 10) || 1, 1, 4); VISTA.auto = vs.auto !== false; }
+} catch (e) {}
+function aplicarVista(redesenhar){
+  var el = document.getElementById('rows');
+  el.style.setProperty('--zf', VISTA.zoom / 100);
+  el.style.setProperty('--cols', VISTA.cols);
+  el.classList.toggle('grade', VISTA.cols > 1);
+  document.getElementById('vz-faixa').value = VISTA.zoom;
+  document.getElementById('vz-pct').textContent = VISTA.zoom + '%';
+  document.querySelectorAll('[data-cols]').forEach(function(b){ b.classList.toggle('on', +b.getAttribute('data-cols') === VISTA.cols); });
+  document.getElementById('chk-auto-formato').checked = VISTA.auto;
+  try { localStorage.setItem('intus-relfotos-vista', JSON.stringify(VISTA)); } catch (e) {}
+  if (redesenhar) { setTimeout(renderAllPreviews, 30); setTimeout(renderAllPreviews, 250); }
+}
+document.getElementById('vz-faixa').addEventListener('input', function(){ VISTA.zoom = clamp(parseInt(this.value, 10) || 100, 50, 250); aplicarVista(true); });
+document.getElementById('vz-menos').addEventListener('click', function(){ VISTA.zoom = clamp(VISTA.zoom - 10, 50, 250); aplicarVista(true); });
+document.getElementById('vz-mais').addEventListener('click', function(){ VISTA.zoom = clamp(VISTA.zoom + 10, 50, 250); aplicarVista(true); });
+document.getElementById('vz-pct').addEventListener('click', function(){ VISTA.zoom = 100; aplicarVista(true); });
+document.querySelectorAll('[data-cols]').forEach(function(b){
+  b.addEventListener('click', function(){ VISTA.cols = +b.getAttribute('data-cols'); aplicarVista(true); });
+});
+document.getElementById('chk-auto-formato').addEventListener('change', function(){ VISTA.auto = this.checked; aplicarVista(false); });
+aplicarVista(false);
+atualizarBotoesDesfazer();
 
 window.addEventListener('beforeunload', function(e){
   var temPendencia = rows.some(function(r){ return r.dirty; });
@@ -2545,9 +2740,29 @@ function _salvarPoseDaFoto(est, f, pose, sel){
   });
 }
 
+// Posição de cada foto de UMA data: o protocolo tem uma foto de cada posição por data, então as fotos são
+// distribuídas juntas (duas "Perfil direito" viram "Perfil direito" e "Perfil direito, braço elevado"), e o que
+// foi confirmado à mão fica como está. Vale só para a montagem; o que o servidor guarda não muda.
+function _mapaEfetivo(est){
+  var ef = {};
+  Object.keys(est.mapa).forEach(function(k){ ef[k] = est.mapa[k]; });
+  [est.fotosA, est.fotosD].forEach(function(fotos){
+    var itens = fotos.map(function(f){
+      var a = est.mapa[f.chave];
+      return { an: a ? IntusPose.deServidor(a) : null, fixa: a && a.origem === 'manual' && a.pose ? a.pose : null };
+    });
+    IntusPose.atribuirPoses(itens).forEach(function(r, i){
+      var a = est.mapa[fotos[i].chave];
+      if (a) ef[fotos[i].chave] = Object.assign({}, a, { pose: r.pose, conf: r.conf, trocou: r.trocou });
+    });
+  });
+  return ef;
+}
+
 function _previaMontagemAutomatica(est){
   var corpo = document.getElementById('importar-avaliacao-corpo');
-  var gA = _agruparPorPose(est.fotosA, est.mapa), gD = _agruparPorPose(est.fotosD, est.mapa);
+  var mapa = _mapaEfetivo(est);
+  var gA = _agruparPorPose(est.fotosA, mapa), gD = _agruparPorPose(est.fotosD, mapa);
   var pp = _parearPorPose(gA, gD), pares = pp.pares;
   var usadas = {};
   pares.forEach(function(p){ usadas[p.a.chave] = 'A'; usadas[p.d.chave] = 'D'; });
@@ -2567,7 +2782,7 @@ function _previaMontagemAutomatica(est){
   [['A', est.fotosA, est.dataA], ['D', est.fotosD, est.dataD]].forEach(function(lado){
     lado[1].forEach(function(f){
       if (usadas[f.chave] === lado[0]) return;
-      var a = est.mapa[f.chave];
+      var a = mapa[f.chave];
       var pose = a && a.pose ? a.pose : 0;
       var motivo = !pose ? 'sem posição identificada'
         : pp.repetidas.indexOf(pose) >= 0 ? 'a posição aparece com a mesma foto nas duas datas'
