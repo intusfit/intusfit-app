@@ -328,6 +328,7 @@ input{font-family:inherit}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/app/painel/foto-pose.js?v=20261105b"></script>
 <script>
 (function(){
 'use strict';
@@ -2330,7 +2331,8 @@ function abrirPainelImportarAvaliacao(){
         '<div class="tb-linha" style="margin-top:8px;">' +
         '<span style="font-size:12px;color:var(--muted);align-self:center;">Antes:</span><select class="cmp-antes"></select>' +
         '<span style="font-size:12px;color:var(--muted);align-self:center;">Depois:</span><select class="cmp-depois"></select>' +
-        '<button type="button" class="btn-mini cmp-ir">Montar comparativo</button></div>';
+        '<button type="button" class="btn-mini cmp-ir">Montar comparativo</button>' +
+        '<button type="button" class="btn-mini on cmp-auto" title="Identifica a posição de cada foto, junta Antes e Depois de cada posição e já recorta">⚡ Montar automático</button></div>';
       var sA = cmp.querySelector('.cmp-antes'), sD = cmp.querySelector('.cmp-depois');
       lista.forEach(function(av, i){ sA.add(new Option(rotulo(av), i)); sD.add(new Option(rotulo(av), i)); });
       sA.value = lista.length - 1; sD.value = 0;   // lista vem da mais nova pra mais velha: Antes = a mais antiga
@@ -2341,6 +2343,11 @@ function abrirPainelImportarAvaliacao(){
         document.getElementById('painel-importar-avaliacao').hidden = true;
         aplicarImportacaoColuna(A.fotos, 'antes');
         aplicarImportacaoColuna(D.fotos, 'depois');
+      });
+      cmp.querySelector('.cmp-auto').addEventListener('click', function(){
+        if (sA.value === sD.value) { alert('Escolha duas datas diferentes.'); return; }
+        var A = lista[+sA.value], D = lista[+sD.value];
+        montarAutomatico(A, D, rotulo(A), rotulo(D));
       });
       corpo.appendChild(cmp);
     }
@@ -2366,6 +2373,166 @@ function abrirPainelImportarAvaliacao(){
       corpo.appendChild(item);
     });
   }).catch(function(){ corpo.innerHTML = '<p class="aviso">Não consegui carregar as avaliações desse aluno.</p>'; });
+}
+
+// ---------- Montagem automática: identifica a posição de cada foto, pareia e recorta ----------
+// Pedido do Luiz: a ferramenta reconhece as 18 posições do Protocolo INTUS (app/painel/foto-pose.js),
+// junta a foto "Antes" e a "Depois" de cada posição e já deixa o recorte no padrão dos relatórios
+// (corpo inteiro, centralizado, pés alinhados, os dois lados com o corpo do mesmo tamanho).
+// A posição de cada foto fica guardada no SERVIDOR (fotos_analise.php): o que já foi identificado no
+// cadastro do aluno, ou corrigido à mão lá, entra aqui sem analisar de novo.
+function _htmlSeguro(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+function _fotosDaAvaliacao(av){
+  return (av.fotos || []).map(function(f){
+    var url = (f && f.url) || f;
+    return { url: url, chave: IntusPose.chaveDaFoto(url), idavaliacao: av.idavaliacao };
+  });
+}
+
+function _carregarAnalisesDoAluno(idatleta){
+  return apiGet('/fotos_analise.php?action=listar&idatleta=' + idatleta).then(function(r){
+    if (!r || !r.ok) throw new Error((r && r.erro) || 'não consegui ler as posições salvas');
+    var mapa = {};
+    (r.itens || []).forEach(function(it){ mapa[it.chave] = it; });
+    return mapa;
+  });
+}
+
+// Analisa (no navegador) só as fotos que ainda não têm posição ou pontos do corpo, e grava no servidor.
+function _garantirAnalises(idatleta, fotos, mapa, status){
+  var fila = fotos.filter(function(f){ var a = mapa[f.chave]; return !a || (!a.lm && a.pose); });
+  var lote = [], falhas = 0;
+  function gravar(){
+    if (!lote.length) return Promise.resolve();
+    var itens = lote; lote = [];
+    return apiPost('/fotos_analise.php?action=gravar', { idatleta: idatleta, itens: itens }).then(function(r){
+      if (!r || !r.ok) throw new Error((r && r.erro) || 'o servidor não confirmou');
+    });
+  }
+  return fila.reduce(function(p, f, i){
+    return p.then(function(){
+      status('Identificando as posições… foto ' + (i + 1) + ' de ' + fila.length + (i === 0 ? ' (na primeira vez baixa o detector, uns 12 MB)' : ''));
+      return IntusPose.analisarUrl(f.url).then(function(res){
+        var item = IntusPose.paraServidor(f.chave, f.idavaliacao, res);
+        var antigo = mapa[f.chave];
+        mapa[f.chave] = { chave: f.chave, pose: (antigo && antigo.origem === 'manual') ? antigo.pose : item.pose,
+          conf: (antigo && antigo.origem === 'manual') ? 1 : item.conf, origem: (antigo && antigo.origem === 'manual') ? 'manual' : 'auto',
+          w: item.w, h: item.h, bb: item.bb, lm: item.lm };
+        lote.push(item);
+        if (lote.length >= 6) return gravar();
+      }).catch(function(e){
+        if (/detector/i.test(e.message || '')) throw e;   // sem o detector não adianta tentar as outras
+        falhas++;
+      });
+    });
+  }, Promise.resolve()).then(gravar).then(function(){ return mapa; });
+}
+
+function _agruparPorPose(fotos, mapa){
+  var por = {}, sem = [];
+  fotos.forEach(function(f){
+    var a = mapa[f.chave];
+    if (a && a.pose && a.lm) {
+      (por[a.pose] = por[a.pose] || []).push({ url: f.url, pose: a.pose, conf: a.conf, origem: a.origem, an: IntusPose.deServidor(a) });
+    } else sem.push(f);
+  });
+  return { por: por, sem: sem };
+}
+
+function _primeiraLinhaLivre(){
+  var ultimo = -1;
+  for (var i = 0; i < linhasVisiveis; i++) {
+    if (rows[i].slots.some(function(s){ return !!s.img; })) ultimo = i;
+  }
+  return ultimo + 1;
+}
+
+function montarAutomatico(A, D, rotuloA, rotuloD){
+  var corpo = document.getElementById('importar-avaliacao-corpo');
+  corpo.innerHTML = '<p class="aviso" id="auto-status">Lendo as posições já identificadas…</p>';
+  function status(t){ var e = document.getElementById('auto-status'); if (e) e.textContent = t; }
+  var idatleta = alunoSelecionadoId;
+  var fotosA = _fotosDaAvaliacao(A), fotosD = _fotosDaAvaliacao(D);
+  _carregarAnalisesDoAluno(idatleta).then(function(mapa){
+    return _garantirAnalises(idatleta, fotosA.concat(fotosD), mapa, status);
+  }).then(function(mapa){
+    _previaMontagemAutomatica(_agruparPorPose(fotosA, mapa), _agruparPorPose(fotosD, mapa), rotuloA, rotuloD);
+  }).catch(function(e){
+    corpo.innerHTML = '<p class="aviso">Não consegui identificar as posições: ' + _htmlSeguro(e.message || e) + '</p>';
+  });
+}
+
+function _previaMontagemAutomatica(gA, gD, rotuloA, rotuloD){
+  var corpo = document.getElementById('importar-avaliacao-corpo');
+  var pares = [], soUm = [];
+  for (var n = 1; n <= IntusPose.TOTAL_POSES; n++) {
+    var a = IntusPose.melhorDaPose(gA.por[n] || []), d = IntusPose.melhorDaPose(gD.por[n] || []);
+    if (a && d) pares.push({ pose: n, a: a, d: d });
+    else if (a || d) soUm.push(n);
+  }
+  var semPos = gA.sem.length + gD.sem.length;
+  if (!pares.length) {
+    corpo.innerHTML = '<p class="aviso">Não achei nenhuma posição que apareça nas duas datas' + (semPos ? ' (' + semPos + ' foto(s) sem posição identificada)' : '') + '. Confira no cadastro do aluno, na aba Avaliações, a posição de cada foto.</p>';
+    return;
+  }
+  var duvida = pares.filter(function(p){ return (p.a.origem !== 'manual' && p.a.conf < 0.75) || (p.d.origem !== 'manual' && p.d.conf < 0.75); });
+  var lista = pares.map(function(p){
+    var baixa = (p.a.origem !== 'manual' && p.a.conf < 0.75) || (p.d.origem !== 'manual' && p.d.conf < 0.75);
+    return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">' +
+      '<img src="' + _htmlSeguro(p.a.url) + '" style="width:34px;height:45px;object-fit:cover;border-radius:4px;background:#111;">' +
+      '<img src="' + _htmlSeguro(p.d.url) + '" style="width:34px;height:45px;object-fit:cover;border-radius:4px;background:#111;">' +
+      '<span style="font-size:12px;">' + _htmlSeguro(IntusPose.rotuloPose(p.pose)) + '</span>' +
+      (baixa ? '<span style="font-size:11px;color:#f59e0b;">confira</span>' : '') + '</div>';
+  }).join('');
+  var nomes = function(arr){ return arr.map(function(x){ return x < 10 ? '0' + x : String(x); }).join(', '); };
+  corpo.innerHTML = '<div class="row-card">' +
+    '<div class="row-top"><strong>Montagem automática</strong></div>' +
+    '<p style="font-size:12px;color:var(--muted);margin:6px 0 0;">Antes: ' + _htmlSeguro(rotuloA) + ' · Depois: ' + _htmlSeguro(rotuloD) + '</p>' +
+    '<p style="font-size:13px;margin:8px 0 0;"><strong>' + pares.length + ' comparativo(s)</strong> em ordem do protocolo, já recortados (corpo inteiro, centralizado, pés alinhados e do mesmo tamanho nos dois lados).</p>' +
+    lista +
+    (soUm.length ? '<p style="font-size:12px;color:var(--muted);margin:10px 0 0;">Só aparecem numa das datas, ficam de fora: ' + nomes(soUm) + '.</p>' : '') +
+    (semPos ? '<p style="font-size:12px;color:var(--muted);margin:6px 0 0;">' + semPos + ' foto(s) sem posição identificada ficam de fora (corrija no cadastro do aluno, aba Avaliações).</p>' : '') +
+    (duvida.length ? '<p style="font-size:12px;color:#f59e0b;margin:6px 0 0;">Confira as marcadas em laranja: a identificação automática ficou com menos de 75% de confiança.</p>' : '') +
+    '<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:10px;"><input type="checkbox" id="auto-titulo"> Escrever o nome da posição como título de cada linha</label>' +
+    '<div class="tb-linha" style="margin-top:10px;"><button type="button" class="btn-mini on" id="auto-montar">Montar ' + pares.length + ' comparativo(s)</button>' +
+    '<button type="button" class="btn-mini" id="auto-cancelar">Cancelar</button></div></div>';
+  document.getElementById('auto-cancelar').addEventListener('click', function(){ document.getElementById('painel-importar-avaliacao').hidden = true; });
+  document.getElementById('auto-montar').addEventListener('click', function(){
+    var comTitulo = document.getElementById('auto-titulo').checked;
+    document.getElementById('painel-importar-avaliacao').hidden = true;
+    aplicarMontagemAutomatica(pares, comTitulo);
+  });
+}
+
+// Coloca cada par numa linha nova (depois das que já têm foto), com o formato de quadro e o recorte calculados.
+function aplicarMontagemAutomatica(pares, comTitulo){
+  var inicio = _primeiraLinhaLivre();
+  if (inicio + pares.length > ROWS_COUNT) {
+    alert('Não cabe: o relatório já tem ' + inicio + ' linha(s) com foto e a montagem precisa de ' + pares.length + ' (máximo de ' + ROWS_COUNT + '). Apague linhas ou comece um relatório novo.');
+    return;
+  }
+  var carregando = [];
+  pares.forEach(function(p, k){
+    var idx = inicio + k;
+    mostrarLinha(idx);
+    var row = rows[idx];
+    garantirSlotsNaLinha(row, 2);
+    var par = IntusPose.recortarPar(p.a.an, p.d.an, p.pose);
+    row.els.w.value = par.quadro.w; row.els.h.value = par.quadro.h;
+    applyDimensions(row, par.quadro.w, par.quadro.h, false);
+    row.slots[0].tag = 'Antes'; row.slots[1].tag = 'Depois';
+    row.label = comTitulo ? IntusPose.rotuloPose(p.pose) : '';
+    row.els.label.value = row.label;
+    [[0, p.a.url, par.antes], [1, p.d.url, par.depois]].forEach(function(x){
+      carregando.push(carregarFotoDoServidor(row, x[0], x[1], x[2].zoom, x[2].panX, x[2].panY).then(function(){
+        row.slots[x[0]].imgDirty = true; row.dirty = true;
+      }));
+    });
+  });
+  Promise.all(carregando).then(function(){
+    if (rows[inicio] && rows[inicio].el.scrollIntoView) rows[inicio].el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }).catch(function(){ alert('Não consegui carregar uma das fotos da montagem (link indisponível).'); });
 }
 
 function confirmarEImportarAvaliacao(av, destino){

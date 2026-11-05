@@ -8,6 +8,7 @@
   <script src="_mock.js?v=20261103a"></script>
   <script src="api.js?v=20261103c"></script>
   <script src="foto-util.js?v=20261105a"></script>
+<script src="foto-pose.js?v=20261105b"></script>
   <script src="kanban.js?v=20261023b"></script>
   <script src="perfil-atendimento.js?v=20261023a"></script>
   <style>
@@ -995,30 +996,105 @@ function _avReq(method, corpo) {
   }).then(r => r.json().catch(() => ({ error: 'resposta inválida do servidor (HTTP ' + r.status + ')' })));
 }
 const _fotoSrc = f => (f && f.url) || f || '';
+const _tokenPainel = () => 'Bearer ' + (localStorage.getItem('mx-token') || '');
+// Posição de cada foto (qual das 18 do Protocolo INTUS), guardada no servidor: app/api/fotos_analise.php.
+function _poseReq(action, corpo, query) {
+  const get = !corpo;
+  return fetch(API_BASE + '/fotos_analise.php?action=' + action + (query || ''), {
+    method: get ? 'GET' : 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': _tokenPainel() },
+    body: get ? undefined : JSON.stringify(corpo)
+  }).then(r => r.json().catch(() => ({ ok: false, erro: 'resposta inválida do servidor (HTTP ' + r.status + ')' })));
+}
+const _avPose = {};           // idatleta -> { chave da foto -> análise }
+const _identificando = {};    // idatleta -> true enquanto o navegador analisa as fotos
 
 async function carregarMiniAvaliacoes(id) {
   const box = document.getElementById('mini-tab-content');
   if (!box) return;
   box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">Carregando avaliações...</div>';
 
+  // Direto do servidor, sem cópia no navegador: se não carregar, avisa em vez de mostrar dado velho.
   let avaliacoes = [];
   try {
-    avaliacoes = await API.listarAvaliacoes(id);
+    const r = await fetch(API_BASE + '/catalogo.php?action=avaliacoes&atleta=' + encodeURIComponent(id), { headers: { 'Authorization': _tokenPainel() } });
+    avaliacoes = await r.json();
+    if (!r.ok || !Array.isArray(avaliacoes)) throw new Error((avaliacoes && avaliacoes.error) || ('HTTP ' + r.status));
   } catch(e) {
-    avaliacoes = JSON.parse(localStorage.getItem('intus-avaliacoes') || '[]')
-      .filter(av => Number(av.idatleta) === Number(id));
+    box.innerHTML = '<div style="text-align:center;padding:24px;color:#f87171;font-size:13px;">Não consegui carregar as avaliações (' + esc(e.message || e) + '). Confira a conexão e abra a aba de novo.</div>';
+    return;
   }
-  if (!Array.isArray(avaliacoes)) avaliacoes = [];
-  avaliacoes.sort((a,b) => (b.dtavaliacao||b.data||'').localeCompare(a.dtavaliacao||a.data||''));
+  avaliacoes.sort((a,b) => (b.dtavaliacao||'').localeCompare(a.dtavaliacao||''));
   _avFotos[id] = avaliacoes;
+
+  // Posição de cada foto (se a análise não carregar, as fotos aparecem do mesmo jeito, só sem o rótulo).
+  _avPose[id] = {};
+  try {
+    const rp = await _poseReq('listar', null, '&idatleta=' + encodeURIComponent(id));
+    if (rp && rp.ok) (rp.itens || []).forEach(it => { _avPose[id][it.chave] = it; });
+  } catch(e) {}
+  _renderMiniAvaliacoes(id);
+  // Fotos ainda sem posição (enviadas pelo app do aluno ou recém-subidas aqui): identifica sozinho.
+  if (_fotosSemAnalise(id).length && !_identificando[id]) setTimeout(() => identificarPosicoes(id), 50);
+}
+
+// ── Posição de cada foto (as 18 do Protocolo INTUS) ──
+const _avFalhou = {};         // idatleta -> chaves que o detector não conseguiu analisar nesta sessão
+const _chaveFoto = f => IntusPose.chaveDaFoto(_fotoSrc(f));
+
+function _fotosSemAnalise(id) {
+  const out = [];
+  (_avFotos[id] || []).forEach(av => (av.fotos || []).forEach(f => {
+    const k = _chaveFoto(f), a = (_avPose[id] || {})[k];
+    const falhou = _avFalhou[id] && _avFalhou[id].has(k);
+    if (falhou) return;
+    // sem registro = nunca analisada; registro manual sem pontos = posição já confirmada, mas falta o recorte
+    if (!a || (!a.lm && a.origem === 'manual')) out.push({ url: _fotoSrc(f), chave: k, idavaliacao: av.idavaliacao });
+  }));
+  return out;
+}
+
+function _seletorPose(id, avId, f) {
+  const k = _chaveFoto(f), a = (_avPose[id] || {})[k];
+  const p = a ? a.pose : null;
+  const manual = a && a.origem === 'manual';
+  const duvida = a && !manual && p && a.conf < 0.75;
+  const cor = !a ? '#555' : (manual ? 'var(--green)' : (!p ? '#f87171' : (duvida ? '#f59e0b' : 'var(--green)')));
+  const dica = !a ? 'Ainda não analisada' : (manual ? 'Confirmada por você' : (p ? 'Identificada automaticamente (confiança ' + Math.round(a.conf * 100) + '%)' + (duvida ? ' — confira' : '') : 'Pessoa não encontrada na foto — escolha a posição'));
+  const opcoes = ['<option value="">' + (a ? 'sem posição' : 'não analisada') + '</option>']
+    .concat(Array.from({ length: 18 }, (_, n) => n + 1).map(n => '<option value="' + n + '"' + (p === n ? ' selected' : '') + '>' + esc(IntusPose.rotuloPose(n)) + '</option>')).join('');
+  return '<select data-k="' + esc(k) + '" onchange="corrigirPose(' + id + ',' + avId + ',this)" title="' + esc(dica) + '" style="width:100%;margin-top:3px;font-size:9.5px;padding:2px;border-radius:5px;background:#111;color:var(--text);border:1px solid ' + cor + ';">' + opcoes + '</select>';
+}
+
+function _resumoPoses(id, av) {
+  const fotos = Array.isArray(av.fotos) ? av.fotos : [];
+  const tem = new Set();
+  let sem = 0;
+  fotos.forEach(f => { const a = (_avPose[id] || {})[_chaveFoto(f)]; if (!a) sem++; else if (a.pose) tem.add(a.pose); });
+  if (!fotos.length) return '';
+  if (sem === fotos.length) return '<span style="color:var(--text-muted);">posições ainda não identificadas</span>';
+  const faltam = [];
+  for (let n = 1; n <= 18; n++) if (!tem.has(n)) faltam.push(n < 10 ? '0' + n : String(n));
+  return '<span style="color:' + (tem.size === 18 ? 'var(--green)' : 'var(--text-muted)') + ';">' + tem.size + '/18 posições</span>' +
+    (faltam.length && faltam.length < 18 && !sem ? ' <span style="color:var(--text-muted);" title="Posições do protocolo que não aparecem nestas fotos">· faltam ' + faltam.join(', ') + '</span>' : '') +
+    (sem ? ' <span style="color:var(--text-muted);">· ' + sem + ' sem análise</span>' : '');
+}
+
+function _renderMiniAvaliacoes(id) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  const avaliacoes = _avFotos[id] || [];
   const totalFotos = avaliacoes.reduce((s, av) => s + (Array.isArray(av.fotos) ? av.fotos.length : 0), 0);
+  const pendentes = _fotosSemAnalise(id).length;
 
   const barra = `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
       <button class="btn btn-primary btn-sm" onclick="abrirFormFotosAvaliacao(${id})">📷 Adicionar fotos de avaliação</button>
       <button class="btn btn-secondary btn-sm" onclick="abrirRelatorioFotos(${id})" ${totalFotos ? '' : 'disabled title="Adicione fotos primeiro"'}>📋 Montar relatório de fotos</button>
+      <button class="btn btn-secondary btn-sm" onclick="identificarPosicoes(${id})" ${pendentes ? '' : 'disabled title="Todas as fotos já foram identificadas"'}>🔍 Identificar posições${pendentes ? ' (' + pendentes + ')' : ''}</button>
       <button class="btn btn-secondary btn-sm" onclick="novaAvaliacaoRapida(${id})">+ Nova Avaliação</button>
-    </div>`;
+    </div>
+    <div id="pose-status" style="font-size:11.5px;min-height:15px;margin-bottom:8px;color:var(--text-muted);">${totalFotos ? 'A posição de cada foto é identificada automaticamente no seu navegador (a foto não sai daqui). <span style="color:var(--green);">Verde</span> = segura · <span style="color:#f59e0b;">laranja</span> = confira · escolha na lista para corrigir.' : ''}</div>`;
 
   if (avaliacoes.length === 0) {
     box.innerHTML = barra + `
@@ -1033,10 +1109,13 @@ async function carregarMiniAvaliacoes(id) {
   box.innerHTML = barra + `
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${avaliacoes.map(av => {
-        const dt = av.dtavaliacao || av.data || '';
+        const dt = av.dtavaliacao || '';
         const dtFmt = dt ? new Date(dt.slice(0,10)+'T00:00:00').toLocaleDateString('pt-BR') : '—';
         const fotos = Array.isArray(av.fotos) ? av.fotos : [];
-        const avId = av.idavaliacao || av.id || '';
+        const avId = av.idavaliacao || '';
+        // na ordem do protocolo (01 a 18); sem posição por último. O índice original vale para remover.
+        const ordem = fotos.map((f, i) => { const a = (_avPose[id] || {})[_chaveFoto(f)]; return { f, i, n: a && a.pose ? a.pose : 99 }; })
+          .sort((x, y) => x.n - y.n || x.i - y.i);
         return `
         <div style="background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:12px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
@@ -1053,12 +1132,13 @@ async function carregarMiniAvaliacoes(id) {
           </div>
           ${fotos.length > 0 ? `
             <div style="margin-top:10px;border-top:1px solid var(--border,#2a2a2a);padding-top:8px;">
-              <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:6px;">📷 ${fotos.length} foto(s)</div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;">
-                ${fotos.map((f,i) => `
+              <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:6px;">📷 ${fotos.length} foto(s) · ${_resumoPoses(id, av)}</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px;">
+                ${ordem.map(({ f, i }) => `
                   <div style="position:relative;">
                     <img src="${esc(_fotoSrc(f))}" loading="lazy" style="width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border,#2a2a2a);background:#111;" onclick="ampliarFotoAvaliacao(this.src)"/>
                     <button onclick="removerFotoAvaliacao(${id},${avId},${i})" title="Tirar esta foto" style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.7);color:#fff;font-size:11px;line-height:1;cursor:pointer;">✕</button>
+                    ${_seletorPose(id, avId, f)}
                   </div>`).join('')}
               </div>
             </div>
@@ -1067,6 +1147,68 @@ async function carregarMiniAvaliacoes(id) {
         </div>`;
       }).join('')}
     </div>`;
+}
+
+// Roda o detector (no navegador) nas fotos que ainda não têm posição e grava o resultado no servidor.
+async function identificarPosicoes(id) {
+  if (_identificando[id]) return;
+  const fila = _fotosSemAnalise(id);
+  if (!fila.length) return;
+  _identificando[id] = true;
+  const st = () => document.getElementById('pose-status');
+  const dizer = (txt, erro) => { const e = st(); if (e) { e.style.color = erro ? '#f87171' : 'var(--green)'; e.textContent = txt; } };
+  _avFalhou[id] = _avFalhou[id] || new Set();
+  let lote = [], feitas = 0, semPessoa = 0;
+  const gravarLote = async () => {
+    if (!lote.length) return;
+    const r = await _poseReq('gravar', { idatleta: id, itens: lote });
+    if (!r || !r.ok) throw new Error((r && r.erro) || 'o servidor não confirmou');
+    lote = [];
+  };
+  try {
+    for (let i = 0; i < fila.length; i++) {
+      dizer('Identificando as posições… foto ' + (i + 1) + ' de ' + fila.length + (i === 0 ? ' (na primeira vez baixa o detector, uns 12 MB)' : ''));
+      const it = fila[i];
+      try {
+        const res = await IntusPose.analisarUrl(it.url);
+        if (!res.an) semPessoa++;
+        lote.push(IntusPose.paraServidor(it.chave, it.idavaliacao, res));
+        feitas++;
+        if (lote.length >= 6) await gravarLote();
+      } catch (e) {
+        if (/detector/i.test(e.message || '')) throw e;   // sem o detector não adianta tentar as outras
+        _avFalhou[id].add(it.chave);
+      }
+    }
+    await gravarLote();
+  } catch (e) {
+    _identificando[id] = false;
+    dizer('Não consegui identificar as posições: ' + (e.message || e), true);
+    return;
+  }
+  _identificando[id] = false;
+  // recarrega só a análise (as avaliações já estão na tela)
+  try {
+    const rp = await _poseReq('listar', null, '&idatleta=' + encodeURIComponent(id));
+    if (rp && rp.ok) { _avPose[id] = {}; (rp.itens || []).forEach(it => { _avPose[id][it.chave] = it; }); }
+  } catch (e) {}
+  if (document.getElementById('pose-status')) {
+    _renderMiniAvaliacoes(id);
+    const falhas = fila.length - feitas;
+    dizer(feitas + ' foto(s) identificada(s)' + (semPessoa ? '; em ' + semPessoa + ' não achei a pessoa (escolha a posição na lista)' : '') + (falhas ? '; ' + falhas + ' não abriram' : '') + '.', false);
+  }
+}
+
+// O professor escolheu a posição de uma foto na lista: vale para sempre e a análise automática não troca.
+async function corrigirPose(id, avId, sel) {
+  const chave = sel.dataset.k, pose = sel.value ? Number(sel.value) : null;
+  let r;
+  try { r = await _poseReq('pose', { idatleta: id, chave, pose, idavaliacao: avId }); } catch (e) { r = { ok: false, erro: e.message }; }
+  if (!r || !r.ok) { showToast('Não consegui salvar a posição: ' + ((r && r.erro) || 'sem resposta'), 'error'); _renderMiniAvaliacoes(id); return; }
+  const a = (_avPose[id] = _avPose[id] || {})[chave] || (_avPose[id][chave] = { chave, lm: null, w: 0, h: 0 });
+  Object.assign(a, { pose, conf: 1, origem: 'manual', idavaliacao: avId });
+  _renderMiniAvaliacoes(id);
+  if (_fotosSemAnalise(id).length && !_identificando[id]) setTimeout(() => identificarPosicoes(id), 50);
 }
 
 function abrirRelatorioFotos(idatleta) {
@@ -1179,6 +1321,7 @@ async function removerFotoAvaliacao(idatleta, idavaliacao, idx) {
   const restantes = av.fotos.filter((_, i) => i !== idx).map(_fotoSrc);
   const r = await _avReq('PUT', { idavaliacao: Number(idavaliacao), fotos: restantes, silencioso: true });
   if (!r || r.error || r.ok === false) { showToast('Erro: ' + ((r && r.error) || 'o servidor não confirmou'), 'error'); return; }
+  _poseReq('remover', { idatleta, chave: _chaveFoto(av.fotos[idx]) }).catch(() => {});
   showToast('Foto removida.');
   carregarMiniAvaliacoes(idatleta);
 }
@@ -1294,47 +1437,41 @@ function novaAvaliacaoRapida(idatleta) {
       <div class="form-group"><label class="label">Observações</label><textarea id="av-obs" class="input" rows="2" placeholder="Notas da avaliação..."></textarea></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-secondary btn-sm" onclick="miniTab('avaliacoes',${idatleta})">Cancelar</button>
-        <button class="btn btn-primary btn-sm" onclick="salvarAvaliacao(${idatleta})">Salvar</button>
+        <button class="btn btn-primary btn-sm" id="av-salvar" onclick="salvarAvaliacao(${idatleta})">Salvar</button>
       </div>
     </div>`;
 }
 
-function salvarAvaliacao(idatleta) {
-  const peso = document.getElementById('av-peso')?.value || '';
-  const altura = document.getElementById('av-altura')?.value || '';
-  const bf = document.getElementById('av-bf')?.value || '';
-  const braco = document.getElementById('av-braco')?.value || '';
-  const cintura = document.getElementById('av-cintura')?.value || '';
-  const quadril = document.getElementById('av-quadril')?.value || '';
-  const coxa = document.getElementById('av-coxa')?.value || '';
-  const obs = document.getElementById('av-obs')?.value || '';
-  const data = document.getElementById('av-data')?.value || new Date().toISOString().slice(0,10);
+async function salvarAvaliacao(idatleta) {
+  const v = id => (document.getElementById(id)?.value || '').trim();
+  const peso = v('av-peso'), altura = v('av-altura'), bf = v('av-bf');
+  const medidas = { braco: v('av-braco'), cintura: v('av-cintura'), quadril: v('av-quadril'), coxa: v('av-coxa') };
+  const obs = v('av-obs');
+  const data = v('av-data') || new Date().toISOString().slice(0,10);
 
-  if (!peso && !altura && !bf && !braco && !cintura && !quadril && !coxa) {
+  if (!peso && !altura && !bf && !Object.values(medidas).some(Boolean)) {
     return showToast('Preencha ao menos um campo de medida.', 'error');
   }
+  const num = x => (x === '' ? null : parseFloat(String(x).replace(',', '.')));
+  const corpo = { idatleta, dtavaliacao: data, observacao: obs, metodo: 'Medidas', silencioso: true };
+  if (num(peso) !== null) corpo.peso = num(peso);
+  if (num(altura) !== null) corpo.altura = num(altura) > 3 ? num(altura) / 100 : num(altura);   // o banco guarda em metros
+  if (num(bf) !== null) corpo.percgordura = num(bf);
+  const med = {};
+  Object.keys(medidas).forEach(k => { if (num(medidas[k]) !== null) med[k] = num(medidas[k]); });
+  if (Object.keys(med).length) corpo.medidas = med;
 
-  const imc = (peso && altura) ? (parseFloat(peso) / ((parseFloat(altura)/100) ** 2)).toFixed(1) : '';
-
-  const avaliacoes = JSON.parse(localStorage.getItem('intus-avaliacoes') || '[]');
-  avaliacoes.push({
-    id: 'av-' + Date.now(),
-    idatleta,
-    data,
-    peso, altura, bf, imc, braco, cintura, quadril, coxa, obs
-  });
-  localStorage.setItem('intus-avaliacoes', JSON.stringify(avaliacoes));
-  showToast('Avaliação salva!');
-  miniTab('avaliacoes', idatleta);
-}
-
-function removerAvaliacao(avId, idatleta) {
-  if (!confirm('Remover esta avaliação?')) return;
-  let avaliacoes = JSON.parse(localStorage.getItem('intus-avaliacoes') || '[]');
-  avaliacoes = avaliacoes.filter(a => a.id !== avId);
-  localStorage.setItem('intus-avaliacoes', JSON.stringify(avaliacoes));
-  showToast('Avaliação removida.');
-  miniTab('avaliacoes', idatleta);
+  const btn = document.getElementById('av-salvar');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await _avReq('POST', corpo);
+    if (!r || r.error || r.ok === false || !r.idavaliacao) throw new Error((r && r.error) || 'o servidor não confirmou o salvamento');
+    showToast('Avaliação salva!');
+    miniTab('avaliacoes', idatleta);
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    showToast('Não consegui salvar a avaliação: ' + (e.message || e), 'error');
+  }
 }
 
 function carregarMiniNotas(id) {
