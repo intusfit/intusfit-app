@@ -7,6 +7,7 @@
   <title>Clientes — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
   <script src="api.js?v=20261103c"></script>
+  <script src="foto-util.js?v=20261105a"></script>
   <script src="kanban.js?v=20261023b"></script>
   <script src="perfil-atendimento.js?v=20261023a"></script>
   <style>
@@ -979,6 +980,22 @@ function carregarMiniMatriculas(id) {
     </div>`;
 }
 
+// ── Avaliações do aluno no cadastro: fotos por data + atalho pro Relatório de Fotos ──
+// O professor sobe as fotos de avaliação aqui (arquivos + data) e depois monta o comparativo em
+// /relatorios-fotos/ ("Importar de avaliação"). As fotos vão como arquivo do servidor (catalogo.php
+// ?action=avaliacoes), em lotes pequenos pra não estourar o limite de envio da hospedagem.
+const _avFotos = {};          // idatleta -> avaliações da aba aberta
+let _fotosNovas = [];         // arquivos escolhidos no formulário "Adicionar fotos"
+
+function _avReq(method, corpo) {
+  return fetch(API_BASE + '/catalogo.php?action=avaliacoes', {
+    method,
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') },
+    body: JSON.stringify(corpo)
+  }).then(r => r.json().catch(() => ({ error: 'resposta inválida do servidor (HTTP ' + r.status + ')' })));
+}
+const _fotoSrc = f => (f && f.url) || f || '';
+
 async function carregarMiniAvaliacoes(id) {
   const box = document.getElementById('mini-tab-content');
   if (!box) return;
@@ -993,32 +1010,41 @@ async function carregarMiniAvaliacoes(id) {
   }
   if (!Array.isArray(avaliacoes)) avaliacoes = [];
   avaliacoes.sort((a,b) => (b.dtavaliacao||b.data||'').localeCompare(a.dtavaliacao||a.data||''));
+  _avFotos[id] = avaliacoes;
+  const totalFotos = avaliacoes.reduce((s, av) => s + (Array.isArray(av.fotos) ? av.fotos.length : 0), 0);
+
+  const barra = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="btn btn-primary btn-sm" onclick="abrirFormFotosAvaliacao(${id})">📷 Adicionar fotos de avaliação</button>
+      <button class="btn btn-secondary btn-sm" onclick="abrirRelatorioFotos(${id})" ${totalFotos ? '' : 'disabled title="Adicione fotos primeiro"'}>📋 Montar relatório de fotos</button>
+      <button class="btn btn-secondary btn-sm" onclick="novaAvaliacaoRapida(${id})">+ Nova Avaliação</button>
+    </div>`;
 
   if (avaliacoes.length === 0) {
-    box.innerHTML = `
+    box.innerHTML = barra + `
       <div style="text-align:center;padding:30px 16px;color:var(--text-muted);font-size:13px;">
-        <div style="font-size:36px;margin-bottom:10px;opacity:.6;">📊</div>
-        <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Nenhuma avaliação</div>
-        Registre avaliações físicas para acompanhar a evolução do aluno.
-        <div style="margin-top:14px;">
-          <button class="btn btn-primary btn-sm" onclick="novaAvaliacaoRapida(${id})">+ Nova Avaliação</button>
-        </div>
+        <div style="font-size:36px;margin-bottom:10px;opacity:.6;">📷</div>
+        <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Nenhuma avaliação ainda</div>
+        Adicione as fotos de avaliação com a data em que foram tiradas. Depois é só abrir o relatório de fotos e montar o comparativo.
       </div>`;
     return;
   }
 
-  box.innerHTML = `
+  box.innerHTML = barra + `
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${avaliacoes.map(av => {
         const dt = av.dtavaliacao || av.data || '';
-        const dtFmt = dt ? new Date(dt+'T00:00:00').toLocaleDateString('pt-BR') : '—';
-        const fotos = av.fotos || [];
+        const dtFmt = dt ? new Date(dt.slice(0,10)+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+        const fotos = Array.isArray(av.fotos) ? av.fotos : [];
         const avId = av.idavaliacao || av.id || '';
         return `
         <div style="background:rgba(0,0,0,.2);border:1px solid var(--border,#2a2a2a);border-radius:10px;padding:12px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
             <span style="font-size:12px;font-weight:700;color:var(--text);">${dtFmt}${av.metodo ? ' — <span style="font-size:10px;color:var(--text-muted);">' + esc(av.metodo) + '</span>' : ''}</span>
-            <button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px;opacity:.6;" onclick="excluirAvaliacaoAdmin(${avId},${id})">✕</button>
+            <span style="display:flex;gap:6px;">
+              <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 8px;" onclick="abrirFormFotosAvaliacao(${id},${avId})">+ fotos</button>
+              <button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px;opacity:.6;" onclick="excluirAvaliacaoAdmin(${avId},${id})" title="Excluir esta avaliação inteira">✕</button>
+            </span>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;">
             ${av.peso ? `<div style="text-align:center;"><div style="font-size:10px;color:var(--text-muted);">Peso</div><div style="font-size:13px;font-weight:700;color:var(--text);">${av.peso}kg</div></div>` : ''}
@@ -1028,19 +1054,133 @@ async function carregarMiniAvaliacoes(id) {
           ${fotos.length > 0 ? `
             <div style="margin-top:10px;border-top:1px solid var(--border,#2a2a2a);padding-top:8px;">
               <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:6px;">📷 ${fotos.length} foto(s)</div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:4px;">
-                ${fotos.slice(0,6).map((f,i) => `<img src="${f}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border,#2a2a2a);" onclick="ampliarFotoAvaliacao(${avId},${i})"/>`).join('')}
-                ${fotos.length > 6 ? `<div style="display:flex;align-items:center;justify-content:center;background:var(--bg-card);border-radius:6px;font-size:11px;font-weight:700;color:var(--text-muted);aspect-ratio:1;border:1px solid var(--border,#2a2a2a);">+${fotos.length - 6}</div>` : ''}
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;">
+                ${fotos.map((f,i) => `
+                  <div style="position:relative;">
+                    <img src="${esc(_fotoSrc(f))}" loading="lazy" style="width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border,#2a2a2a);background:#111;" onclick="ampliarFotoAvaliacao(this.src)"/>
+                    <button onclick="removerFotoAvaliacao(${id},${avId},${i})" title="Tirar esta foto" style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.7);color:#fff;font-size:11px;line-height:1;cursor:pointer;">✕</button>
+                  </div>`).join('')}
               </div>
             </div>
           ` : ''}
           ${av.observacao ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border,#2a2a2a);padding-top:6px;">${esc(av.observacao)}</div>` : ''}
         </div>`;
       }).join('')}
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px;">
-      <button class="btn btn-primary btn-sm" onclick="novaAvaliacaoRapida(${id})">+ Nova Avaliação</button>
     </div>`;
+}
+
+function abrirRelatorioFotos(idatleta) {
+  const a = (typeof atletas !== 'undefined' ? atletas : []).find(x => Number(x.idatleta) === Number(idatleta));
+  window.open('/relatorios-fotos/index.html?atleta=' + encodeURIComponent(idatleta) + '&nome=' + encodeURIComponent((a && a.nome) || '') + '&importar=1', '_blank');
+}
+
+// ----- formulário: data + arquivos -----
+function abrirFormFotosAvaliacao(idatleta, idavaliacao) {
+  const box = document.getElementById('mini-tab-content');
+  if (!box) return;
+  _fotosNovas = [];
+  const lista = _avFotos[idatleta] || [];
+  const av = idavaliacao ? lista.find(a => Number(a.idavaliacao) === Number(idavaliacao)) : null;
+  const data = av ? String(av.dtavaliacao).slice(0,10) : new Date().toISOString().slice(0,10);
+  box.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);">Adicionar fotos de avaliação</div>
+      <div class="form-group" style="max-width:220px;">
+        <label class="label">Data em que as fotos foram tiradas</label>
+        <input id="fa-data" class="input" type="date" value="${data}" ${av ? 'readonly' : ''} max="${new Date().toISOString().slice(0,10)}"/>
+      </div>
+      <div id="fa-drop" style="border:2px dashed var(--border,#2a2a2a);border-radius:12px;padding:22px;text-align:center;cursor:pointer;color:var(--text-muted);font-size:13px;">
+        <div style="font-size:28px;margin-bottom:6px;">📷</div>
+        Clique ou arraste as fotos aqui (várias de uma vez; aceita fotos do iPhone)
+        <input id="fa-arquivos" type="file" accept="image/*,.heic,.heif" multiple style="display:none;"/>
+      </div>
+      <div id="fa-previas" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;"></div>
+      <div style="font-size:11px;color:var(--text-muted);">Se já existir uma avaliação nessa data, as fotos entram nela. Depois, em "Montar relatório de fotos", dá para escolher a data e montar o comparativo.</div>
+      <div id="fa-status" style="font-size:12px;color:var(--green);min-height:16px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="miniTab('avaliacoes',${idatleta})">Cancelar</button>
+        <button class="btn btn-primary btn-sm" id="fa-enviar" onclick="enviarFotosAvaliacao(${idatleta})">Enviar fotos</button>
+      </div>
+    </div>`;
+  const drop = document.getElementById('fa-drop'), inp = document.getElementById('fa-arquivos');
+  drop.addEventListener('click', () => inp.click());
+  inp.addEventListener('change', () => { _addFotosNovas(inp.files); inp.value = ''; });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = 'var(--green)'; });
+  drop.addEventListener('dragleave', () => { drop.style.borderColor = ''; });
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.style.borderColor = ''; _addFotosNovas(e.dataTransfer.files); });
+}
+function _addFotosNovas(files) {
+  Array.from(files || []).forEach(f => { if (IntusFotos.ehImagem(f)) _fotosNovas.push(f); });
+  _renderPreviasFotosNovas();
+}
+function _renderPreviasFotosNovas() {
+  const wrap = document.getElementById('fa-previas');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  _fotosNovas.forEach((f, i) => {
+    const d = document.createElement('div');
+    d.style.position = 'relative';
+    const miniatura = IntusFotos.ehHeic(f)
+      ? '<div style="width:100%;aspect-ratio:3/4;border-radius:6px;background:#111;border:1px solid var(--border,#2a2a2a);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text-muted);text-align:center;padding:4px;">HEIC<br>(vai ser convertida)</div>'
+      : '<img style="width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:6px;border:1px solid var(--border,#2a2a2a);" src="' + URL.createObjectURL(f) + '"/>';
+    d.innerHTML = miniatura + '<button style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.7);color:#fff;font-size:11px;cursor:pointer;">✕</button>';
+    d.querySelector('button').addEventListener('click', () => { _fotosNovas.splice(i, 1); _renderPreviasFotosNovas(); });
+    wrap.appendChild(d);
+  });
+  const st = document.getElementById('fa-status');
+  if (st) st.textContent = _fotosNovas.length ? _fotosNovas.length + ' foto(s) escolhida(s).' : '';
+}
+
+async function enviarFotosAvaliacao(idatleta) {
+  const data = document.getElementById('fa-data')?.value;
+  const st = document.getElementById('fa-status'), btn = document.getElementById('fa-enviar');
+  if (!data) return showToast('Escolha a data das fotos.', 'error');
+  if (!_fotosNovas.length) return showToast('Escolha pelo menos uma foto.', 'error');
+  btn.disabled = true;
+  try {
+    const prontas = [];
+    for (let i = 0; i < _fotosNovas.length; i++) {
+      st.textContent = 'Preparando foto ' + (i + 1) + ' de ' + _fotosNovas.length + '…';
+      try { prontas.push(await IntusFotos.preparar(_fotosNovas[i])); }
+      catch (e) { throw new Error('"' + _fotosNovas[i].name + '": ' + (e.message || 'não consegui abrir')); }
+    }
+    // Se já existe avaliação nessa data, as fotos entram nela.
+    const existente = (_avFotos[idatleta] || []).find(a => String(a.dtavaliacao).slice(0,10) === data);
+    let idav = existente ? Number(existente.idavaliacao) : 0;
+    let atuais = existente ? (existente.fotos || []).map(_fotoSrc) : [];
+    // Lotes de ~2,5 MB: o servidor limita o tamanho de cada envio.
+    const lotes = []; let lote = [], tam = 0;
+    prontas.forEach(u => { if (lote.length && tam + u.length > 2500000) { lotes.push(lote); lote = []; tam = 0; } lote.push(u); tam += u.length; });
+    if (lote.length) lotes.push(lote);
+    for (let k = 0; k < lotes.length; k++) {
+      st.textContent = 'Enviando ' + (k + 1) + ' de ' + lotes.length + '…';
+      const corpo = idav
+        ? { idavaliacao: idav, fotos: atuais.concat(lotes[k]), silencioso: true }
+        : { idatleta, dtavaliacao: data, fotos: lotes[k], silencioso: true };
+      const r = await _avReq(idav ? 'PUT' : 'POST', corpo);
+      if (!r || r.error || r.ok === false) throw new Error((r && r.error) || 'o servidor não confirmou o envio');
+      if (!idav) idav = Number(r.idavaliacao);
+      atuais = Array.isArray(r.fotos) ? r.fotos : atuais.concat(lotes[k]);
+    }
+    showToast(prontas.length + ' foto(s) adicionada(s) à avaliação de ' + new Date(data + 'T00:00:00').toLocaleDateString('pt-BR') + '.');
+    _fotosNovas = [];
+    carregarMiniAvaliacoes(idatleta);
+  } catch (e) {
+    btn.disabled = false;
+    st.style.color = '#f87171';
+    st.textContent = 'Não consegui enviar: ' + (e.message || e) + '. O que já foi enviado antes do erro ficou salvo; confira a lista e tente de novo com o resto.';
+  }
+}
+
+async function removerFotoAvaliacao(idatleta, idavaliacao, idx) {
+  const av = (_avFotos[idatleta] || []).find(a => Number(a.idavaliacao) === Number(idavaliacao));
+  if (!av || !Array.isArray(av.fotos)) return;
+  if (!confirm('Tirar esta foto da avaliação? Não dá para desfazer.')) return;
+  const restantes = av.fotos.filter((_, i) => i !== idx).map(_fotoSrc);
+  const r = await _avReq('PUT', { idavaliacao: Number(idavaliacao), fotos: restantes, silencioso: true });
+  if (!r || r.error || r.ok === false) { showToast('Erro: ' + ((r && r.error) || 'o servidor não confirmou'), 'error'); return; }
+  showToast('Foto removida.');
+  carregarMiniAvaliacoes(idatleta);
 }
 
 async function carregarMiniAnamnese(id) {
@@ -1120,18 +1260,11 @@ async function excluirAvaliacaoAdmin(idavaliacao, idatleta) {
   }
 }
 
-function ampliarFotoAvaliacao(idavaliacao, idx) {
+function ampliarFotoAvaliacao(src) {
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:20px;';
   ov.onclick = function() { ov.remove(); };
-
-  // Find the photo from cached data
-  const allImgs = ov.querySelectorAll ? [] : [];
-  const avCard = event.target.closest('[style*="border-radius:10px"]');
-  const imgs = avCard ? avCard.querySelectorAll('img[onclick]') : [];
-  const src = event.target.src || '';
-
-  ov.innerHTML = '<img src="' + src + '" style="max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;"/>' +
+  ov.innerHTML = '<img src="' + String(src).replace(/"/g, '&quot;') + '" style="max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;"/>' +
     '<div style="position:absolute;top:16px;right:16px;color:#fff;font-size:24px;font-weight:700;cursor:pointer;">✕</div>';
   document.body.appendChild(ov);
 }

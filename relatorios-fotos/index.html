@@ -2027,6 +2027,18 @@ function entrarNaFerramenta(){
     carregarListaAvaliacoes();
   }).catch(function(){});
   _importarFotosDeAvaliacaoSePendente();
+  _prepararPeloLink();
+}
+
+// Aberto pelo cadastro do aluno ("Montar relatório de fotos"): ?atleta=ID&nome=...&importar=1
+// já deixa o aluno escolhido e abre a lista de avaliações pra importar as fotos.
+function _prepararPeloLink(){
+  var qs = new URLSearchParams(location.search), idA = parseInt(qs.get('atleta'), 10);
+  if (!idA) return;
+  alunoSelecionadoId = idA;
+  var inp = document.getElementById('input-aluno');
+  if (inp && qs.get('nome')) inp.value = qs.get('nome');
+  if (qs.get('importar')) abrirPainelImportarAvaliacao();
 }
 
 // ---------- Importar fotos direto de uma avaliação (sem baixar e re-enviar) ----------
@@ -2309,13 +2321,39 @@ function abrirPainelImportarAvaliacao(){
     lista = Array.isArray(lista) ? lista.filter(function(a){ return Array.isArray(a.fotos) && a.fotos.length; }) : [];
     if (!lista.length) { corpo.innerHTML = '<p class="aviso">Esse aluno não tem nenhuma avaliação física com fotos.</p>'; return; }
     corpo.innerHTML = '';
+    function rotulo(av){ return (av.dtavaliacao ? new Date(String(av.dtavaliacao).slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') : '(sem data)') + ' · ' + av.fotos.length + ' foto(s)'; }
+    // Comparativo rápido: uma data vira a coluna Antes e outra a Depois (foto 1 com foto 1, foto 2 com foto 2...).
+    if (lista.length >= 2) {
+      var cmp = document.createElement('div');
+      cmp.className = 'row-card';
+      cmp.innerHTML = '<div class="row-top"><strong>Comparativo rápido</strong></div>' +
+        '<div class="tb-linha" style="margin-top:8px;">' +
+        '<span style="font-size:12px;color:var(--muted);align-self:center;">Antes:</span><select class="cmp-antes"></select>' +
+        '<span style="font-size:12px;color:var(--muted);align-self:center;">Depois:</span><select class="cmp-depois"></select>' +
+        '<button type="button" class="btn-mini cmp-ir">Montar comparativo</button></div>';
+      var sA = cmp.querySelector('.cmp-antes'), sD = cmp.querySelector('.cmp-depois');
+      lista.forEach(function(av, i){ sA.add(new Option(rotulo(av), i)); sD.add(new Option(rotulo(av), i)); });
+      sA.value = lista.length - 1; sD.value = 0;   // lista vem da mais nova pra mais velha: Antes = a mais antiga
+      cmp.querySelector('.cmp-ir').addEventListener('click', function(){
+        if (sA.value === sD.value) { alert('Escolha duas datas diferentes.'); return; }
+        var A = lista[+sA.value], D = lista[+sD.value];
+        if (!confirm('Montar comparativo: ' + rotulo(A) + ' (Antes) com ' + rotulo(D) + ' (Depois)?')) return;
+        document.getElementById('painel-importar-avaliacao').hidden = true;
+        aplicarImportacaoColuna(A.fotos, 'antes');
+        aplicarImportacaoColuna(D.fotos, 'depois');
+      });
+      corpo.appendChild(cmp);
+    }
     lista.forEach(function(av){
       var item = document.createElement('div');
       item.className = 'row-card';
-      var dt = av.dtavaliacao ? new Date(av.dtavaliacao + 'T00:00:00').toLocaleDateString('pt-BR') : '(sem data)';
+      var dt = av.dtavaliacao ? new Date(String(av.dtavaliacao).slice(0, 10) + 'T00:00:00').toLocaleDateString('pt-BR') : '(sem data)';
       item.innerHTML =
         '<div class="row-top"><strong>' + dt + '</strong>' +
         '<span style="margin-left:8px;color:var(--muted)">' + av.fotos.length + ' foto(s)</span></div>' +
+        '<div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">' + av.fotos.slice(0, 8).map(function(f){
+          return '<img src="' + String((f && f.url) || f).replace(/"/g, '&quot;') + '" loading="lazy" style="width:44px;height:58px;object-fit:cover;border-radius:5px;background:#111;">';
+        }).join('') + '</div>' +
         '<div class="tb-linha" style="margin-top:8px;">' +
         '<span style="font-size:12px;color:var(--muted);align-self:center;">Importar como:</span>' +
         '<button type="button" class="btn-mini btn-imp-antes">Coluna Antes</button>' +

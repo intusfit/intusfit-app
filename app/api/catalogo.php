@@ -1402,12 +1402,15 @@ if ($action === 'avaliacoes') {
         ]);
         $newId = (int)$pdo->lastInsertId();
 
-        // Notificar admin por email quando fotos são enviadas
-        if ($fotos) {
+        // Notificar admin por email quando fotos são enviadas. O professor que sobe as fotos pelo
+        // cadastro do aluno manda silencioso=true (o aviso existe pra foto que o ALUNO envia).
+        $silencioso = !$_ehAluno && !empty($b['silencioso']);
+        if ($fotos && !$silencioso) {
             _notificarFotosAvaliacao($pdo, $idatleta, count($fotosArr), $b['dtavaliacao'] ?? date('Y-m-d'));
         }
 
-        echo json_encode(['ok' => true, 'idavaliacao' => $newId]);
+        // 'fotos' devolve como ficaram guardadas (o painel sobe em lotes e precisa da lista pra mandar o lote seguinte).
+        echo json_encode(['ok' => true, 'idavaliacao' => $newId, 'fotos' => $fotosArr]);
         exit;
     }
     if ($method === 'PUT') {
@@ -1419,14 +1422,31 @@ if ($action === 'avaliacoes') {
             if (array_key_exists($k, $b)) { $sets[] = "$k = ?"; $vals[] = $b[$k]; }
         }
         if (array_key_exists('medidas', $b)) { $sets[] = "medidas = ?"; $vals[] = is_array($b['medidas']) ? json_encode($b['medidas']) : null; }
-        $fotosArr = null;
-        if (array_key_exists('fotos', $b)) { $fotosArr = is_array($b['fotos']) ? _persistirFotos($b['fotos']) : []; $sets[] = "fotos = ?"; $vals[] = count($fotosArr) ? json_encode($fotosArr) : null; }
+        $fotosArr = null; $fotosAntigas = [];
+        if (array_key_exists('fotos', $b)) {
+            $stO = $pdo->prepare("SELECT fotos FROM intus_avaliacao WHERE idavaliacao = ? LIMIT 1");
+            $stO->execute([$id]);
+            $tmpO = json_decode((string)$stO->fetchColumn(), true);
+            if (is_array($tmpO)) $fotosAntigas = $tmpO;
+            $fotosArr = is_array($b['fotos']) ? _persistirFotos($b['fotos']) : [];
+            $sets[] = "fotos = ?"; $vals[] = count($fotosArr) ? json_encode($fotosArr) : null;
+        }
         if (empty($sets)) { echo json_encode(['ok' => true]); exit; }
         $vals[] = $id;
         $pdo->prepare("UPDATE intus_avaliacao SET " . implode(', ', $sets) . " WHERE idavaliacao = ?")->execute($vals);
 
-        // Notificar admin se novas fotos foram adicionadas
-        if (is_array($fotosArr) && count($fotosArr) > 0) {
+        // Foto tirada da avaliação (✕ no cadastro do aluno): apaga também o arquivo local, pra não sobrar
+        // foto de aluno solta no servidor. Só mexe em /img/avaliacoes/av_*.ext (nome que o próprio sistema gera).
+        if (is_array($fotosArr)) {
+            foreach ($fotosAntigas as $fa) {
+                $fa = is_string($fa) ? $fa : (is_array($fa) && isset($fa['url']) ? (string)$fa['url'] : '');
+                if ($fa === '' || in_array($fa, $fotosArr, true)) continue;
+                if (preg_match('#/img/avaliacoes/(av_[A-Za-z0-9_]+\.(?:jpg|png|gif|webp))$#', $fa, $mf)) @unlink(__DIR__ . '/../img/avaliacoes/' . $mf[1]);
+            }
+        }
+
+        // Notificar admin se novas fotos foram adicionadas (o professor pode pedir silêncio: silencioso=true)
+        if (is_array($fotosArr) && count($fotosArr) > 0 && !(!$_ehAluno && !empty($b['silencioso']))) {
             $idatleta = (int)($b['idatleta'] ?? 0);
             if ($idatleta <= 0) {
                 $stA = $pdo->prepare("SELECT idatleta FROM intus_avaliacao WHERE idavaliacao = ? LIMIT 1");
@@ -1439,7 +1459,7 @@ if ($action === 'avaliacoes') {
             }
         }
 
-        echo json_encode(['ok' => true]);
+        echo json_encode(['ok' => true, 'fotos' => $fotosArr]);
         exit;
     }
     if ($method === 'DELETE') {
