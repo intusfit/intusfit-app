@@ -9995,8 +9995,11 @@ function finalizarTreino() {
   sessaoAtual.comentario = document.getElementById('comentario-treino')?.value || '';
   const duracao = Math.round((Date.now() - _treinoInicioMs()) / 1000);
 
-  if (duracao < 300) {
-    _confirmarFinalizacaoCurta(duracao);
+  // Treino reaberto ("Voltar e continuar"): o cronômetro conta só o trecho novo, mas o que vale é o total com o que já estava salvo.
+  // Antes, retomar por 2 min de um treino de 44 aparecia como "Treino muito rápido" e, em "Finalizar mesmo assim", o treino inteiro
+  // era regravado como "não conta" (sem pontos nem frequência).
+  if ((sessaoAtual._continuarDuracaoAnterior || 0) + duracao < 300) {
+    _confirmarFinalizacaoCurta((sessaoAtual._continuarDuracaoAnterior || 0) + duracao);
     return;
   }
   _executarFinalizacao(duracao, false);
@@ -10026,7 +10029,7 @@ function _confirmarFinalizacaoCurta(duracao) {
       </p>
       <div style="display:flex;gap:10px;justify-content:center;">
         <button class="btn btn-sec" style="flex:1;min-height:40px;font-size:13px;" onclick="document.getElementById('overlay-curto').remove()">Voltar ao treino</button>
-        <button class="btn btn-prim" style="flex:1;min-height:40px;font-size:13px;" onclick="document.getElementById('overlay-curto').remove(); _executarFinalizacao(${duracao}, true)">Finalizar mesmo assim</button>
+        <button class="btn btn-prim" style="flex:1;min-height:40px;font-size:13px;" onclick="document.getElementById('overlay-curto').remove(); _executarFinalizacao(${duracao - (sessaoAtual._continuarDuracaoAnterior || 0)}, true)">Finalizar mesmo assim</button>
       </div>
     </div>
   `;
@@ -10104,7 +10107,7 @@ function _executarFinalizacao(duracao, naoContar) {
     dtsessao: dataHojeLocal(), duracao_seg: duracaoTotal,
     hora_conclusao: horaConclusao,
     alerta_duracao: alertaDuracao,
-    nao_contar: naoContar ? 1 : 0,
+    nao_contar: (naoContar && duracaoTotal < 300) ? 1 : 0,
     comentario: sessaoAtual.comentario,
     marcado_como_feito: !temDados,
     itens: temDados ? itens : itens.map(it => ({...it, series: []})),
@@ -23225,6 +23228,24 @@ window.addEventListener('popstate', function(e) {
       return;
     }
   }
+  // O que está ABERTO por cima da tela de fim fecha primeiro. Antes estes dois casos vinham depois do "Finalizou sem querer?": quem
+  // tocava em voltar para sair da foto do "Compartilhar treino" levava a pergunta por cima da foto, achava que a foto cancelava o
+  // treino e tocava em "Voltar e continuar" (caso do Eduardo, 06/11/2026: o treino reaberto, refinalizado em poucos minutos, não contou).
+  // Com a folha do histórico aberta, voltar deve fechar a folha e parar por aí. Sem isto, a tela de trás mudava por baixo enquanto a
+  // folha continuava na frente, e o aluno saía do treino sem entender como.
+  if (document.getElementById('ov-hist-ex')) {
+    fecharHistoricoExercicio();
+    history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
+    return;
+  }
+  // "Compartilhar treino/cardio" é o mesmo overlay do Novo post (#feed-compose-overlay), fora do sistema de views: sem este caso o gesto
+  // de voltar fechava a tela de baixo (ex.: 'fim', já finalizado) e voltava para 'muscu'; se havia um treino ATIVO abandonado no
+  // localStorage (TREINO_ATIVO_KEY) ele era retomado por baixo do overlay, e finalizá-lo criava uma SEGUNDA sessão (aluno Erick).
+  if (document.getElementById('feed-compose-overlay')) {
+    _fecharComposeFeed();
+    history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
+    return;
+  }
   // "Finalizou sem querer?" — pedido do Luiz. Na tela de fim do treino, o
   // gesto de voltar não sai direto: pergunta antes, com a chance de voltar
   // e dar sequência (ver _confirmarVoltarDoFim/_voltarParaContinuarTreino,
@@ -23238,11 +23259,6 @@ window.addEventListener('popstate', function(e) {
   // Com a folha do histórico aberta, voltar deve fechar a folha e parar por
   // aí. Sem isto, a tela de trás mudava por baixo enquanto a folha continuava
   // na frente, e o aluno saía do treino sem entender como.
-  if (document.getElementById('ov-hist-ex')) {
-    fecharHistoricoExercicio();
-    history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
-    return;
-  }
   // Bug real encontrado em produção: "Compartilhar treino" é outro overlay
   // fixo fora do sistema de views, igual o cardio ao vivo já foi. Sem este
   // caso, o gesto de voltar do celular fechava a tela de baixo (ex.: 'fim',
@@ -23256,11 +23272,6 @@ window.addEventListener('popstate', function(e) {
   // Compartilhar treino/cardio virou o mesmo overlay do Novo post
   // (#feed-compose-overlay, ver _renderComposeFeed) — a trava continua
   // valendo pros 3 casos, só mudou o id que ela observa.
-  if (document.getElementById('feed-compose-overlay')) {
-    _fecharComposeFeed();
-    history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
-    return;
-  }
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
   // Programa de cardio (detalhe, execução ou resultado): voltar do celular leva à lista de programas, não ao registro de cardio.
   if (window._viewAtual === 'cardio-prog' && _prog.tela !== 'lista') {

@@ -774,6 +774,9 @@ try {
             if (!_checkAtletaAccess($idat)) { http_response_code(403); echo json_encode(['error' => 'acesso negado']); exit; }
             $itens = isset($b['itens']) && is_array($b['itens']) ? json_encode($b['itens']) : null;
             $naoContar = (int)($b['nao_contar'] ?? 0);
+            // "Não conta" é só para treino com menos de 5 min (o app pergunta antes). Treino de 5 min ou mais nunca fica fora: protege o aluno
+            // que reabriu um treino já salvo e o regravou como teste (6/11/2026) e os apps instalados que ainda não têm a correção.
+            if ($naoContar && (int)($b['duracao_seg'] ?? 0) >= 300) $naoContar = 0;
             // Musculação = 5 pontos por sessão válida (MET médio 5.0)
             $pontos = ($naoContar ? 0 : 5.0);
             $horaConcl = (isset($b['hora_conclusao']) && $b['hora_conclusao'] !== '') ? substr((string)$b['hora_conclusao'], 0, 5) : null;
@@ -888,6 +891,7 @@ try {
             $b = jsonBody();
             $itens = isset($b['itens']) && is_array($b['itens']) ? json_encode($b['itens']) : null;
             $naoContar = (int)($b['nao_contar'] ?? 0);
+            if ($naoContar && (int)($b['duracao_seg'] ?? 0) >= 300) $naoContar = 0;   // mesma regra do POST: 5 min ou mais sempre conta
             $pontos = ($naoContar ? 0 : 5.0);
             $horaConcl = (isset($b['hora_conclusao']) && $b['hora_conclusao'] !== '') ? substr((string)$b['hora_conclusao'], 0, 5) : null;
             $duracao = (int)($b['duracao_seg'] ?? 0);
