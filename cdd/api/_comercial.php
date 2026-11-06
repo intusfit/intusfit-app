@@ -179,9 +179,128 @@ function cddAssinaturaConfere(string $raw, string $chave, string $enviada): bool
     return hash_equals(bin2hex($bin), strtolower($enviada)) || hash_equals(base64_encode($bin), $enviada);
 }
 
+/* ───────────────────────── Adaptador do Asaas ───────────────────────── */
+/*
+ * Como a venda chega: a aluna paga num LINK DE PAGAMENTO do Asaas (criado no painel do Asaas, um por plano). Cartão, Pix e boleto
+ * ficam na página do Asaas, nada disso passa por aqui. O Asaas avisa (webhook de cobranças) e este adaptador traduz para o evento comum.
+ *  - O produto da oferta é o ID do link de pagamento (a parte final de https://www.asaas.com/c/<id>), que vem em payment.paymentLink.
+ *  - O aviso só traz o id do cliente (payment.customer); nome, e-mail e telefone saem de GET /v3/customers/<id> (chave de API no painel).
+ *  - Aviso e consulta: o webhook é autenticado pelo cabeçalho asaas-access-token (token que o próprio painel gera); a chave de API
+ *    só serve para consultar. Nenhum dos dois é devolvido pela API do CDD depois de salvo.
+ *  - Cartão parcelado gera um aviso por parcela, todos com o mesmo payment.installment: só o primeiro libera (as demais viram "duplicado").
+ *  - O Asaas entrega "pelo menos uma vez": PAYMENT_CONFIRMED e PAYMENT_RECEIVED da mesma cobrança usam o mesmo id_externo.
+ */
+const CDD_ASAAS_URL = ['producao' => 'https://api.asaas.com/v3', 'sandbox' => 'https://api-sandbox.asaas.com/v3'];
+
+function cddAsaasForma($v): string {
+    $v = strtoupper((string)$v);
+    if ($v === 'PIX') return 'pix';
+    if ($v === 'CREDIT_CARD' || $v === 'DEBIT_CARD') return 'cartao';
+    if ($v === 'BOLETO') return 'boleto';
+    return $v === '' ? '' : 'outro';
+}
+
+/** Traduz um aviso do Asaas para o evento comum. Devolve null para o que o CDD não usa (criada, visualizada, etc.). */
+function cddGatewayAsaas(array $p): ?array {
+    $nome = strtoupper(trim((string)($p['event'] ?? '')));
+    if ($nome === '') return null;
+    $pay = isset($p['payment']) && is_array($p['payment']) ? $p['payment'] : [];
+    $sub = isset($p['subscription']) && is_array($p['subscription']) ? $p['subscription'] : [];
+    $tipo = null;
+    if (in_array($nome, ['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'], true)) $tipo = 'pago';
+    elseif (in_array($nome, ['PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED'], true)) $tipo = 'reembolsado';   // chargeback tira o acesso como o reembolso
+    elseif ($nome === 'PAYMENT_OVERDUE') $tipo = 'atrasado';
+    elseif (in_array($nome, ['SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED'], true)) $tipo = 'contrato_cancelado';
+    if ($tipo === null) return null;
+
+    $idPag = (string)($pay['id'] ?? '');
+    $idSub = (string)($sub['id'] ?? ($pay['subscription'] ?? ''));
+    $idParc = (string)($pay['installment'] ?? '');
+    if ($tipo === 'contrato_cancelado') { if ($idSub === '') return null; }
+    elseif ($idPag === '') return null;
+
+    // fatura = a cobrança; no cartão parcelado é o parcelamento inteiro (as parcelas são a mesma compra)
+    $fatura = $tipo === 'contrato_cancelado' ? '' : ($idParc !== '' ? 'i' . $idParc : $idPag);
+    if ($tipo === 'pago') $chave = $fatura;
+    elseif ($tipo === 'contrato_cancelado') $chave = 's' . $idSub;
+    else $chave = $idPag;
+    $dataPago = (string)($pay['confirmedDate'] ?? ($pay['paymentDate'] ?? ($pay['clientPaymentDate'] ?? '')));
+    $link = (string)($pay['paymentLink'] ?? ($sub['paymentLink'] ?? ''));
+    return [
+        'gateway' => 'asaas', 'tipo' => $tipo, 'nome_evento' => strtolower($nome),
+        'id_externo' => 'asaas:' . $chave . ':' . ($tipo === 'pago' ? 'pago' : strtolower($nome)),
+        'produto' => $link, 'produtos' => [], 'fatura' => $fatura, 'contrato' => $idSub,
+        'nome' => '', 'email' => '', 'telefone' => '',
+        'valor' => (float)($pay['value'] ?? 0),
+        'forma' => cddAsaasForma($pay['billingType'] ?? ''),
+        'cupom' => '', 'utm' => '',
+        'pago_em' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataPago) ? $dataPago . ' 00:00:00' : '',
+        // o que o enriquecimento precisa para consultar o Asaas
+        '_cliente' => (string)($pay['customer'] ?? ($sub['customer'] ?? '')),
+        '_assinatura' => $idSub, '_parcelamento' => $idParc,
+    ];
+}
+
+/** Chamada ao Asaas. Em teste, $GLOBALS['cddAsaasHttpFake'] (callable) responde no lugar da internet. Devolve [status HTTP, json]. */
+function cddAsaasChamar(PDO $pdo, string $metodo, string $caminho, ?array $corpo = null): array {
+    $chave = cddConfig($pdo, 'asaas_apikey', '');
+    if ($chave === '') throw new RuntimeException('chave_api_ausente', 503);
+    $amb = cddConfig($pdo, 'asaas_ambiente', 'producao') === 'sandbox' ? 'sandbox' : 'producao';
+    $url = CDD_ASAAS_URL[$amb] . $caminho;
+    if (!empty($GLOBALS['cddAsaasHttpFake']) && is_callable($GLOBALS['cddAsaasHttpFake'])) return call_user_func($GLOBALS['cddAsaasHttpFake'], $metodo, $url, $corpo);
+    if (!function_exists('curl_init')) throw new RuntimeException('asaas_sem_curl', 502);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_CUSTOMREQUEST => $metodo,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'access_token: ' . $chave, 'User-Agent: CDD-Intus'],
+        CURLOPT_POSTFIELDS => $corpo === null ? null : json_encode($corpo)]);
+    $r = curl_exec($ch); $st = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    if ($r === false) throw new RuntimeException('asaas_fora_do_ar', 502);
+    $j = json_decode((string)$r, true);
+    return [$st, is_array($j) ? $j : []];
+}
+
+/**
+ * Completa o evento com o que o aviso não traz: o ID do link (quando a cobrança é de uma assinatura), o comprador (nome, e-mail, telefone) e o valor
+ * total do cartão parcelado. Só consulta o Asaas quando a cobrança é de uma oferta do CDD: a conta serve também a outras vendas (as da Intus),
+ * e dados de cliente alheio não devem ser buscados. Falha de rede lança exceção (o Asaas tenta de novo; perder uma venda é pior).
+ */
+function cddAsaasEnriquecer(PDO $pdo, array $ev): array {
+    $get = function (string $caminho) use ($pdo) {
+        [$st, $j] = cddAsaasChamar($pdo, 'GET', $caminho);
+        if ($st === 401 || $st === 403) throw new RuntimeException('chave_api_recusada', 503);
+        if ($st < 200 || $st >= 300) throw new RuntimeException('asaas_erro_' . $st, 502);
+        return $j;
+    };
+    $ofertaDe = function (string $ref) use ($pdo) {
+        if ($ref === '') return false;
+        $st = $pdo->prepare("SELECT idoferta FROM cdd_oferta WHERE gateway = 'asaas' AND ref_gateway = ? AND ativo = 1"); $st->execute([$ref]);
+        return (bool)$st->fetchColumn();
+    };
+    if ($ev['produto'] === '' && !empty($ev['_assinatura'])) {
+        $a = $get('/subscriptions/' . rawurlencode($ev['_assinatura']));
+        $ev['produto'] = (string)($a['paymentLink'] ?? '');
+    }
+    if (!$ofertaDe($ev['produto'])) return $ev;   // não é do CDD: o processamento só registra
+    if (!empty($ev['_cliente'])) {
+        $c = $get('/customers/' . rawurlencode($ev['_cliente']));
+        $ev['nome'] = (string)($c['name'] ?? ''); $ev['email'] = (string)($c['email'] ?? '');
+        $ev['telefone'] = (string)(($c['mobilePhone'] ?? '') !== '' ? $c['mobilePhone'] : ($c['phone'] ?? ''));
+    }
+    if ($ev['tipo'] === 'pago' && $ev['_parcelamento'] !== '') {
+        try {
+            $i = $get('/installments/' . rawurlencode($ev['_parcelamento']));
+            $n = (int)($i['installmentCount'] ?? 0);
+            if ($n > 1) $ev['valor'] = round($ev['valor'] * $n, 2);   // o aviso traz o valor de UMA parcela
+        } catch (Throwable $e) { /* sem o total, fica o valor da parcela */ }
+    }
+    return $ev;
+}
+
 /** Adaptadores disponíveis. Para um gateway novo: escreva cddGatewayXxx($payload) e liste aqui, com o campo de segredo dele. */
 function cddGatewaysConhecidos(): array {
     return [
+        // Asaas: aviso autenticado por token no cabeçalho asaas-access-token (gerado pelo painel); a chave de API só consulta.
+        'asaas' => ['adaptador' => 'cddGatewayAsaas', 'auth' => 'token', 'config' => 'asaas_token', 'enriquecer' => 'cddAsaasEnriquecer'],
         // webhook novo do Eduzz (Developer Hub): assinado com HMAC no cabeçalho x-signature. É o que vale daqui para frente.
         'eduzz3' => ['adaptador' => 'cddGatewayEduzz3', 'auth' => 'hmac', 'config' => 'eduzz3_chave'],
         // webhook antigo (token no corpo). O Eduzz o desliga em 11/01/2027 e já não deixa cadastrar novos.
@@ -328,12 +447,26 @@ function cddComercialWebhook(PDO $pdo, string $gateway, array $payload, string $
     if ($segredo === '') return cddErro(503, 'gateway_nao_configurado', 'O segredo deste gateway ainda não foi cadastrado no painel.');
     if (($g['auth'] ?? 'campo') === 'hmac') {
         if (!cddAssinaturaConfere((string)($ctx['raw'] ?? ''), $segredo, (string)($ctx['assinatura'] ?? ''))) return cddErro(401, 'nao_autorizado', 'Não autorizado.');
+    } elseif ($g['auth'] === 'token') {
+        $enviado = (string)($ctx['token_gateway'] ?? '');
+        if ($enviado === '' || !hash_equals($segredo, $enviado)) return cddErro(401, 'nao_autorizado', 'Não autorizado.');
     } else {
         $enviado = (string)($payload[$g['campo_segredo']] ?? '');
         if ($enviado === '' || !hash_equals($segredo, $enviado)) return cddErro(401, 'nao_autorizado', 'Não autorizado.');
     }
     $ev = call_user_func($g['adaptador'], $payload);
     if (!$ev) return cddResp(200, ['ok' => true, 'resultado' => 'sem_evento']);
+    if (!empty($g['enriquecer'])) {
+        try { $ev = call_user_func($g['enriquecer'], $pdo, $ev); }
+        catch (Throwable $e) {
+            // sem a chave de API (ou recusada) o painel mostra o motivo; falha de rede devolve erro para o gateway tentar de novo
+            error_log('[cdd webhook ' . $gateway . '] ' . $e->getMessage());
+            $m = $e->getMessage();
+            if ($m === 'chave_api_ausente') return cddErro(503, 'chave_api_nao_configurada', 'A chave de API do gateway ainda não foi cadastrada no painel.');
+            if ($m === 'chave_api_recusada') return cddErro(503, 'chave_api_recusada', 'O gateway recusou a chave de API cadastrada.');
+            return cddErro(502, 'gateway_indisponivel', 'Não foi possível consultar o gateway agora.');
+        }
+    }
     try { [$ok, $res] = cddComercialProcessar($pdo, $ev, $base); }
     catch (Throwable $e) { error_log('[cdd webhook] ' . $e->getMessage()); return cddErro(500, 'falha_ao_processar', 'Falha ao processar o aviso.'); }   // 500 faz o Eduzz tentar de novo
     return cddResp(200, ['ok' => $ok, 'resultado' => $res]);
@@ -361,9 +494,43 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
             'vendas_30d' => (int)$qt30, 'receita_30d' => round((float)$rec30, 2), 'reembolsos_30d' => $ref30,
             'matriculas_ativas' => (int)$n("SELECT COUNT(*) FROM cdd_matricula WHERE status = 'ativa'"),
             'vencendo_7d' => $vencendo,
-            'gateways' => ['eduzz3' => ['segredo_cadastrado' => cddConfig($pdo, 'eduzz3_chave', '') !== '', 'url_aviso' => rtrim($base, '/') . '/api/api.php?a=webhook&g=eduzz3']],
+            'gateways' => [
+                'eduzz3' => ['segredo_cadastrado' => cddConfig($pdo, 'eduzz3_chave', '') !== '', 'url_aviso' => rtrim($base, '/') . '/api/api.php?a=webhook&g=eduzz3'],
+                // nunca devolve token nem chave de API, só se estão cadastrados
+                'asaas' => ['token_cadastrado' => cddConfig($pdo, 'asaas_token', '') !== '', 'apikey_cadastrada' => cddConfig($pdo, 'asaas_apikey', '') !== '',
+                            'ambiente' => cddConfig($pdo, 'asaas_ambiente', 'producao') === 'sandbox' ? 'sandbox' : 'producao', 'url_aviso' => rtrim($base, '/') . '/api/api.php?a=webhook&g=asaas'],
+            ],
             'eventos' => $eventos,
         ]);
+    }
+    if ($acao === 'a_com_asaas_token' && !$get) {
+        // O token do webhook é nosso (não é credencial do Luiz): o painel gera e mostra UMA vez para colar no Asaas. Gerar de novo troca o token.
+        $tok = bin2hex(random_bytes(24));   // 48 caracteres hexadecimais: dentro dos 32 a 255 que o Asaas exige
+        cddConfigGravar($pdo, 'asaas_token', $tok);
+        cddRegistrarEvento($pdo, null, 'gateway_segredo', 'painel');
+        return cddResp(200, ['ok' => true, 'token' => $tok]);
+    }
+    if ($acao === 'a_com_asaas_testar' && !$get) {
+        try { [$st] = cddAsaasChamar($pdo, 'GET', '/customers?limit=1'); }
+        catch (Throwable $e) {
+            $m = $e->getMessage();
+            return cddResp(200, ['ok' => false, 'motivo' => $m === 'chave_api_ausente' ? 'Cadastre a chave de API primeiro.' : 'Não consegui falar com o Asaas agora.']);
+        }
+        if ($st === 401 || $st === 403) return cddResp(200, ['ok' => false, 'motivo' => 'O Asaas recusou a chave. Confira se ela é do mesmo ambiente (produção ou testes) escolhido aqui.']);
+        return cddResp(200, ['ok' => $st >= 200 && $st < 300, 'motivo' => $st >= 200 && $st < 300 ? 'Conectado ao Asaas.' : 'O Asaas respondeu com erro ' . $st . '.']);
+    }
+    if ($acao === 'a_com_gateway' && !$get && cddStr($b['gateway'] ?? '', 20) === 'asaas') {
+        $campo = cddStr($b['campo'] ?? '', 10); $val = trim((string)($b['segredo'] ?? ''));
+        if ($campo === 'ambiente') {
+            if ($val !== 'sandbox' && $val !== 'producao') return cddErro(422, 'dados_invalidos', 'Ambiente inválido.');
+            cddConfigGravar($pdo, 'asaas_ambiente', $val);
+            return cddResp(200, ['ok' => true]);
+        }
+        if ($campo !== 'apikey') return cddErro(422, 'dados_invalidos', 'Campo inválido.');
+        if (strlen($val) < 20 || strlen($val) > 400 || preg_match('/\s/', $val)) return cddErro(422, 'segredo_invalido', 'A chave de API parece incompleta (sem espaços, ao menos 20 caracteres).');
+        cddConfigGravar($pdo, 'asaas_apikey', $val);   // nunca é devolvida pela API
+        cddRegistrarEvento($pdo, null, 'gateway_segredo', 'painel');
+        return cddResp(200, ['ok' => true]);
     }
     if ($acao === 'a_com_gateway' && !$get) {
         $gw = cddStr($b['gateway'] ?? '', 20); $gws = cddGatewaysConhecidos();
@@ -383,6 +550,11 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
         $nome = cddStr($b['nome'] ?? '', 120); $gw = cddStr($b['gateway'] ?? 'eduzz', 20); $ref = cddStr($b['ref_gateway'] ?? '', 40);
         $meses = (int)($b['meses'] ?? 1); $valor = ($b['valor'] ?? '') === '' ? null : round((float)str_replace(',', '.', (string)$b['valor']), 2);
         $link = cddUrl($b['link'] ?? ''); $ativo = !empty($b['ativo']) ? 1 : 0;
+        if ($gw === 'asaas') {
+            // o código da oferta no Asaas é o ID do link de pagamento: aceita o link inteiro (https://www.asaas.com/c/<id>) colado em qualquer dos dois campos
+            foreach ([(string)($b['ref_gateway'] ?? ''), $link] as $cand) { if (preg_match('~asaas\.com/c/([A-Za-z0-9]+)~', (string)$cand, $mm)) { $ref = $mm[1]; if ($link === '') $link = cddUrl($cand); break; } }
+            if ($ref === '' && $ativo) return cddErro(422, 'dados_invalidos', 'Cole o link de pagamento do Asaas (https://www.asaas.com/c/...) para ligar a oferta.');
+        }
         if ($nome === '' || $meses < 1 || $meses > 60) return cddErro(422, 'dados_invalidos', 'Informe o nome e uma duração de 1 a 60 meses.');
         if (!preg_match('/^[a-z0-9_]{2,20}$/', $gw)) return cddErro(422, 'dados_invalidos', 'Gateway inválido.');
         $id = (int)($b['idoferta'] ?? 0);

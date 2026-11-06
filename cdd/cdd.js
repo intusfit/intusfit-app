@@ -24,6 +24,21 @@
     return { ok: r.ok, status: r.status, data: d };
   }
 
+  /**
+   * Troca o link de compra dos botões [data-meses] pelo da oferta ligada no painel (Asaas, em produção). Sem oferta ou sem rede, fica o link que já
+   * está escrito na página. Assim trocar de gateway é cadastrar a oferta no painel, sem publicar a página de novo.
+   */
+  async function linksDeCompra(raiz) {
+    var r = await api('ofertas_publicas', { prazo: 6000 });
+    if (!r.ok || !r.data || !Array.isArray(r.data.ofertas)) return;
+    var por = {};
+    r.data.ofertas.forEach(function (o) { if (o.gateway === 'asaas' && /^https:\/\/(www\.)?asaas\.com\/c\//.test(o.link || '') && !por[o.meses]) por[o.meses] = o.link; });
+    (raiz || document).querySelectorAll('[data-meses]').forEach(function (a) {
+      var l = por[a.getAttribute('data-meses')];
+      if (l) { a.href = l; a.removeAttribute('data-eduzz'); }
+    });
+  }
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
   }
@@ -86,5 +101,5 @@
     if (document.body) ligar(); else document.addEventListener('DOMContentLoaded', ligar);
   } catch (e) {}
 
-  window.CDD = { api: api, esc: esc, ytId: ytId, ytEmbed: ytEmbed, ytThumb: ytThumb, dataBR: dataBR, copiar: copiar, guardar: guardar, token: token, tema: tema, alternarTema: alternarTema, aplicarCapas: aplicarCapas, capaLarga: capaLarga, aplicarMeta: aplicarMeta, claro: claro };
+  window.CDD = { api: api, linksDeCompra: linksDeCompra, esc: esc, ytId: ytId, ytEmbed: ytEmbed, ytThumb: ytThumb, dataBR: dataBR, copiar: copiar, guardar: guardar, token: token, tema: tema, alternarTema: alternarTema, aplicarCapas: aplicarCapas, capaLarga: capaLarga, aplicarMeta: aplicarMeta, claro: claro };
 })();

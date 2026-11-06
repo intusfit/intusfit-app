@@ -191,7 +191,7 @@ async function carregar() {
     loading = false;
     _carregando = false;
     render();
-    if (!erro) aplicarFoco();
+    if (!erro) { aplicarFoco(); _asaasCarregar(); }
     // A QUARTA rotina automatica saiu daqui em 21/08/2026: autoInativarVencidas.
     // Ela inativava sozinha, sem avisar, toda matricula com mais de 30 dias de
     // atraso — assim que a tela abria. Mudar o cadastro de um cliente e uma
@@ -416,6 +416,7 @@ function render() {
   const modoMat = VerModo.get('matriculas', 'lista');
   main.innerHTML = `
     ${faixaSobras}
+    ${_asaasBanner()}
     ${_bannerInativar()}
     ${_foco && _foco.nome ? `<div style="margin:0 0 14px;padding:10px 14px;border-radius:10px;background:rgba(127,255,0,.07);border:1px solid rgba(127,255,0,.28);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
       <span style="font-size:13px;color:var(--text);">Mostrando a matrícula de <b>${esc(_foco.nome)}</b></span>
@@ -881,6 +882,7 @@ function renderMatricula(mat, podeVerValores, isAdmin) {
     : '<span style="display:inline-block;width:14px;"></span>';
   const acoes = _bloqueado ? '' : `
     ${!_pago(m) && hasPerm('mt_editar') ? `<button class="btn btn-success btn-sm" onclick="marcarPago(${m.idmensalidade})">✓ Pago</button>` : ''}
+    ${!_pago(m) && hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="cobrarAsaas(${m.idmensalidade})" title="Gerar o link de pagamento (Pix, boleto e cartão) pelo Asaas">💳 Cobrar</button>` : ''}
     ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="renovarCiclo(${m.idmensalidade})" title="Registrar o próximo ciclo (novo pagamento desta matrícula)">↻</button>` : ''}
     ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="abrirModalEditar(${m.idmensalidade})">Editar</button>` : ''}
     ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" onclick="trancarMatricula(${m.idmensalidade})" title="${m.stmatricula === 'trancada' ? 'Reativar' : 'Trancar'}">${m.stmatricula === 'trancada' ? '▶' : '⏸'}</button>` : ''}
@@ -917,6 +919,7 @@ function renderMatricula(mat, podeVerValores, isAdmin) {
       <td>${_statusPill(c)}</td>
       <td style="text-align:right;white-space:nowrap;">
         ${!_pago(c) && hasPerm('mt_editar') ? `<button class="btn btn-success btn-sm" style="font-size:10px;padding:2px 6px;" onclick="marcarPago(${c.idmensalidade})" title="Marcar pago">✓</button>` : ''}
+        ${!_pago(c) && hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="cobrarAsaas(${c.idmensalidade})" title="Gerar o link de pagamento pelo Asaas">💳</button>` : ''}
         ${hasPerm('mt_editar') ? `<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="abrirModalEditar(${c.idmensalidade})" title="Editar">✎</button>` : ''}
         ${hasPerm('mt_excluir') ? `<button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 6px;opacity:.6;" onclick="excluirMensalidade(${c.idmensalidade})" title="Excluir ciclo">✕</button>` : ''}
       </td>
@@ -1072,6 +1075,7 @@ function marcarPago(id) {
           ${opt('pix', 'Pix')}
           ${opt('dinheiro', 'Dinheiro')}
           ${opt('cartao', 'Cartão (crédito/débito)')}
+          ${opt('boleto', 'Boleto')}
           ${opt('eduzz', 'Eduzz')}
         </select>
       </div>
@@ -1174,6 +1178,7 @@ async function confirmarPagamento(id) {
   try {
     if (juros > 0) m.vljuro = juros;
     await API.pagarMensalidade(m, data, totalReceber, calc.diferente ? { vlpagar: calc.vlpagarCiclo, vldesconto: calc.vldesconto } : null);
+    await _asaasBaixado(m.idmensalidade);   // o recebimento do Asaas (se havia) deixa de ser pendência; link aberto é cancelado
     if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); m.forma_pgto = forma; } catch (e) {} }
     let avisoResto = '';
     if (restante > 0) {
@@ -1541,6 +1546,87 @@ function _candidatosInativar() {
     !(typeof API !== 'undefined' && API.cicloJaPago && API.cicloJaPago(m, mensalidades)) &&
     m.stmatricula !== 'trancada' && m.stmatricula !== 'cancelada' && m.stmatricula !== 'inativa' &&
     (_diasAtraso(m) != null && _diasAtraso(m) > 30));
+}
+
+// ── ASAAS: cobrar pelo link e dar baixa nos pagamentos recebidos ─────────────
+// O link (Pix, boleto e cartão) é gerado em app/api/asaas.php. Quando o cliente paga, o Asaas avisa o servidor e o aviso aparece no topo desta
+// tela; a baixa continua sendo feita aqui, no formulário de sempre (a regra e o ciclo seguinte moram neste arquivo e no api.js), com um toque.
+var _asaas = { recebidas: [], estornos: [], abertas: {} };
+async function _asaasChamar(acao, corpo) {
+  const tok = localStorage.getItem('mx-token') || '';
+  try {
+    const r = await fetch('/app/api/asaas.php?action=' + acao, { method: corpo ? 'POST' : 'GET', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : undefined });
+    const j = await r.json().catch(() => ({}));
+    return Object.assign({ ok: false }, j, { _status: r.status });
+  } catch (e) { return { ok: false, erro: 'Sem conexão. Confira a internet e tente de novo.', _status: 0 }; }
+}
+async function _asaasCarregar() {
+  if (!hasPerm('mt_editar')) return;
+  const r = await _asaasChamar('pendentes');
+  if (!r.ok) return;   // sem Asaas configurado ou sem rede: a tela segue como sempre
+  const tinha = _asaas.recebidas.length + _asaas.estornos.length;
+  _asaas = { recebidas: r.recebidas || [], estornos: r.estornos || [], abertas: r.abertas || {} };
+  if (tinha || _asaas.recebidas.length || _asaas.estornos.length) render();
+}
+async function _asaasBaixado(idm) {
+  try { await _asaasChamar('baixado', { idmensalidade: Number(idm) }); } catch (e) {}
+  _asaas.recebidas = _asaas.recebidas.filter(x => Number(x.idmensalidade) !== Number(idm));
+  delete _asaas.abertas[String(idm)];
+}
+function _asaasNome(idatleta) {
+  const a = (atletas || []).find(x => Number(x.idatleta) === Number(idatleta));
+  return (a && a.nome) || ('#' + idatleta);
+}
+const _ASAAS_FORMA = { pix: 'Pix', cartao: 'cartão', boleto: 'boleto', dinheiro: 'dinheiro' };
+function _asaasBanner() {
+  if (!hasPerm('mt_editar')) return '';
+  const rec = _asaas.recebidas || [], est = _asaas.estornos || [];
+  if (!rec.length && !est.length) return '';
+  const linhas = rec.map(r => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid rgba(127,255,0,.18);">
+      <span style="font-size:12.5px;color:var(--text);"><b>${esc(_asaasNome(r.idatleta))}</b> pagou ${fmtMoeda(parseFloat(r.valor_recebido || r.valor))} por ${_ASAAS_FORMA[r.forma] || 'Pix'}${r.recebido_em ? ' em ' + fmtData(r.recebido_em) : ''}</span>
+      <button class="btn btn-success btn-sm" onclick="asaasDarBaixa(${Number(r.idmensalidade)})">Dar baixa</button></div>`).join('');
+  const avisosEst = est.map(r => `<div style="font-size:12px;color:var(--text);padding:6px 0;border-top:1px solid rgba(235,104,52,.3);">↩ Estorno ou chargeback de <b>${esc(_asaasNome(r.idatleta))}</b> (${fmtMoeda(parseFloat(r.valor_recebido || r.valor))}). Confira se a baixa dessa mensalidade continua valendo.</div>`).join('');
+  return `<div style="border:1px solid rgba(127,255,0,.4);background:rgba(127,255,0,.07);border-radius:11px;padding:12px 14px;margin-bottom:14px;">
+    <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px;">${rec.length ? `${rec.length} pagamento${rec.length > 1 ? 's' : ''} recebido${rec.length > 1 ? 's' : ''} pelo Asaas esperando baixa` : 'Estornos do Asaas'}</div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:4px;">O sistema não dá a baixa sozinho: toque em Dar baixa, confira o valor e confirme.</div>
+    ${linhas}${avisosEst}</div>`;
+}
+function asaasDarBaixa(idm) {
+  const r = (_asaas.recebidas || []).find(x => Number(x.idmensalidade) === Number(idm));
+  marcarPago(idm);
+  if (!r) return;
+  // abre o formulário de sempre já preenchido com o que o Asaas recebeu
+  const f = document.getElementById('pg-forma'), d = document.getElementById('pg-data'), v = document.getElementById('pg-valor');
+  if (f && _ASAAS_FORMA[r.forma]) { f.value = r.forma; _onFormaPgto(); }
+  if (d && r.recebido_em) d.value = String(r.recebido_em).slice(0, 10);
+  if (v && r.valor_recebido) { v.value = Number(r.valor_recebido).toFixed(2); _pgValorMudou(); }
+}
+async function cobrarAsaas(idm) {
+  const m = mensalidades.find(x => Number(x.idmensalidade) === Number(idm));
+  if (!m) return;
+  showToast('Gerando o link de pagamento…');
+  const r = await _asaasChamar('cobrar', { idmensalidade: Number(idm) });
+  if (!r.ok) return showToast(r.erro || 'Não consegui gerar o link agora.', 'error');
+  const a = (atletas || []).find(x => Number(x.idatleta) === Number(m.idatleta)) || {};
+  const primeiro = String(a.nome || '').trim().split(/\s+/)[0] || '';
+  const valor = fmtMoeda(r.valor);
+  const msg = (primeiro ? 'Oi, ' + primeiro + '! ' : 'Oi! ') + 'Segue o link para pagar ' + (m.dshistorico || 'a mensalidade') + ' (' + valor + ', vencimento ' + fmtData(r.vencimento) + '): ' + r.url + '\n\nNa própria página você escolhe Pix, boleto ou cartão.';
+  const fone = String(a.telefone || a.tel || '').replace(/\D/g, '');
+  const wa = 'https://wa.me/' + (fone ? (fone.length <= 11 ? '55' + fone : fone) : '') + '?text=' + encodeURIComponent(msg);
+  _asaas.abertas[String(idm)] = { url: r.url, valor: r.valor, vencimento: r.vencimento };
+  openModal(`
+    <div class="modal-header"><span class="modal-title">Link de pagamento</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px;"><b style="color:var(--text);">${esc(a.nome || m.nmathleta || 'Cliente')}</b> · ${valor} · vence em ${fmtData(r.vencimento)}${r.nova ? '' : ' <span style="font-size:11px;">(link que já existia)</span>'}</div>
+      <label class="label">Mensagem pronta</label>
+      <textarea id="asaas-msg" class="input" rows="5" readonly style="width:100%;resize:vertical;">${esc(msg)}</textarea>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.5;">Quando o cliente pagar, o aviso aparece no topo desta tela e você dá a baixa com um toque.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-secondary" onclick="(function(){var t=document.getElementById('asaas-msg');t.select();try{navigator.clipboard.writeText(t.value);}catch(e){document.execCommand('copy');}showToast('Mensagem copiada.');})()">Copiar</button>
+      <a class="btn btn-success" href="${esc(wa)}" target="_blank" rel="noopener">Abrir no WhatsApp</a>
+    </div>`);
 }
 
 function _bannerInativar() {

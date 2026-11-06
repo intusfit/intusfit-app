@@ -111,7 +111,7 @@
   /* ---------- vendas (ofertas, cupons, pagamentos e a ligação com o gateway) ---------- */
   function brl(n) { return 'R$ ' + (Number(n) || 0).toFixed(2).replace('.', ','); }
   var RES_TXT = { aluna_criada_email_enviado: 'aluna criada, e-mail enviado', aluna_criada_email_falhou: 'aluna criada, e-mail NÃO saiu (use o link)', liberada_email_enviado: 'liberada, e-mail enviado', liberada_email_falhou: 'liberada, e-mail NÃO saiu (use o link)',
-    renovada: 'renovada', duplicado: 'repetido (ignorado)', produto_desconhecido: 'outro produto (ignorado)', oferta_inativa: 'oferta desligada', suspensa_por_reembolso: 'reembolso, acesso suspenso', assinatura_cancelada: 'assinatura cancelada', cobranca_atrasada: 'cobrança atrasada',
+    renovada: 'renovada', duplicado: 'repetido (ignorado)', produto_desconhecido: 'outro produto ou link (ignorado)', oferta_inativa: 'oferta desligada', suspensa_por_reembolso: 'reembolso, acesso suspenso', assinatura_cancelada: 'assinatura cancelada', cobranca_atrasada: 'cobrança atrasada',
     sem_email: 'sem e-mail válido (verificar)', aluna_nao_encontrada: 'aluna não encontrada', ignorado: 'ignorado', recebido: 'recebido' };
   async function abaVendas() {
     var v = $('v'); v.innerHTML = '<div class="vazio">Carregando...</div>';
@@ -119,9 +119,20 @@
     if (!rs[0].ok) { v.innerHTML = msg(rs[0].data.mensagem); return; }
     var p = rs[0].data, ofertas = rs[1].data.ofertas || [], cupons = rs[2].data.cupons || [], pags = rs[3].data.pagamentos || [];
     function n(rot, val, emoji) { return '<div class="card"><div style="font-size:22px">' + emoji + '</div><div style="font-size:26px;font-weight:800">' + val + '</div><div class="mut">' + rot + '</div></div>'; }
-    var gw = p.gateways.eduzz3;
+    var gw = p.gateways.eduzz3, as = p.gateways.asaas;
     var h = '<div class="kpis">' + n('vendas nos últimos 30 dias', p.vendas_30d, '🛒') + n('receita nos últimos 30 dias', brl(p.receita_30d), '💰') + n('reembolsos (30 dias)', p.reembolsos_30d, '↩️') + n('matrículas ativas', p.matriculas_ativas, '✅') + n('vencem em 7 dias', p.vencendo_7d, '⏰') + '</div>';
-    h += '<div class="card" style="margin-top:12px"><h3>Ligação com o Eduzz (cadastro e liberação automáticos)</h3>' +
+    h += '<div class="card" style="margin-top:12px"><h3>Ligação com o Asaas (cadastro e liberação automáticos)</h3>' +
+      '<p class="mut">A venda acontece num <b>link de pagamento do Asaas</b> (cartão, Pix e boleto na página deles). Quando o pagamento é confirmado, a aluna é cadastrada, a matrícula é liberada e ela recebe o link para criar a senha. Reembolso suspende o acesso.</p>' +
+      '<ol class="mut" style="margin:6px 0 10px 18px;line-height:1.55"><li>No Asaas, crie um <b>link de pagamento</b> para cada plano e cadastre cada um em <b>Ofertas</b> aqui embaixo (cole o link).</li>' +
+      '<li>Cole a <b>chave de API</b> do Asaas (Integrações &gt; Chave de API) e toque em <b>Testar conexão</b>.</li>' +
+      '<li>Toque em <b>Gerar token</b>. No Asaas, em Integrações &gt; Webhooks, crie um webhook de <b>cobranças</b> com o endereço abaixo, cole esse token e marque os eventos: cobrança confirmada, recebida, vencida, estornada e chargeback solicitado (se houver, também assinatura removida).</li></ol>' +
+      '<label>Endereço para o Asaas chamar</label><div class="copiavel"><input id="as-url" readonly value="' + esc(location.origin + location.pathname.replace(/\/[^\/]*$/, '') + '/api/api.php?a=webhook&g=asaas') + '"><button class="btn" id="as-cp">Copiar</button></div>' +
+      '<div class="espaco"></div><div class="linha"><div style="flex:1"><label>Ambiente</label><select id="as-amb"><option value="producao"' + (as.ambiente === 'producao' ? ' selected' : '') + '>Produção (cobranças de verdade)</option><option value="sandbox"' + (as.ambiente === 'sandbox' ? ' selected' : '') + '>Testes (sandbox)</option></select></div></div>' +
+      '<div class="espaco"></div><label>Chave de API do Asaas ' + (as.apikey_cadastrada ? '<span class="tag ok">cadastrada</span>' : '<span class="tag erro">falta cadastrar</span>') + '</label>' +
+      '<div class="linha"><input id="as-key" type="password" autocomplete="new-password" placeholder="' + (as.apikey_cadastrada ? 'Cadastrada (cole uma nova para trocar)' : 'Cole aqui a chave') + '"><button class="btn pri" id="as-sv">Salvar</button><button class="btn" id="as-ts">Testar conexão</button></div>' +
+      '<div class="espaco"></div><label>Token do webhook ' + (as.token_cadastrado ? '<span class="tag ok">gerado</span>' : '<span class="tag erro">falta gerar</span>') + '</label>' +
+      '<div class="linha"><button class="btn" id="as-tk">' + (as.token_cadastrado ? 'Gerar um novo token' : 'Gerar token') + '</button></div><div id="as-tkbox"></div><div id="as-msg"></div></div>';
+    h += '<div class="card"><h3>Ligação com o Eduzz (sendo desativada)</h3>' +
       '<p class="mut">Quando uma venda é paga, a aluna é cadastrada, a matrícula é liberada e ela recebe o link para criar a senha. Reembolso suspende o acesso. No Eduzz, abra o <b>Developer Hub &gt; Webhooks</b> (o cadastro antigo foi desativado), crie um webhook com o endereço abaixo, marque os eventos de <b>fatura</b> (paga, reembolsada) e de <b>contrato</b> (criado, atualizado), gere uma <b>chave secreta</b> e cole a mesma chave aqui.</p>' +
       '<label>Endereço para o Eduzz chamar</label><div class="copiavel"><input id="gw-url" readonly value="' + esc(location.origin + location.pathname.replace(/\/[^\/]*$/, '') + '/api/api.php?a=webhook&g=eduzz3') + '"><button class="btn" id="gw-cp">Copiar</button></div>' +
       '<div class="espaco"></div><label>Chave secreta do webhook (Eduzz) ' + (gw.segredo_cadastrado ? '<span class="tag ok">cadastrado</span>' : '<span class="tag erro">falta cadastrar</span>') + '</label>' +
@@ -151,6 +162,20 @@
       var x = await CDD.api('a_com_gateway', { body: { gateway: 'eduzz3', segredo: $('gw-seg').value.trim() } });
       $('gw-msg').innerHTML = x.ok ? msg('Chave salva. Ela não aparece mais em nenhum lugar.', 'ok') : msg(x.data.mensagem); if (x.ok) setTimeout(abaVendas, 900);
     };
+    $('as-cp').onclick = function () { var i = $('as-url'); i.select(); try { document.execCommand('copy'); } catch (e) {} this.textContent = 'Copiado'; };
+    $('as-amb').onchange = async function () { var x = await CDD.api('a_com_gateway', { body: { gateway: 'asaas', campo: 'ambiente', segredo: this.value } }); $('as-msg').innerHTML = x.ok ? msg('Ambiente salvo. Cadastre a chave de API deste ambiente.', 'ok') : msg(x.data.mensagem); };
+    $('as-sv').onclick = async function () {
+      var x = await CDD.api('a_com_gateway', { body: { gateway: 'asaas', campo: 'apikey', segredo: $('as-key').value.trim() } });
+      $('as-msg').innerHTML = x.ok ? msg('Chave salva. Ela não aparece mais em nenhum lugar.', 'ok') : msg(x.data.mensagem); if (x.ok) setTimeout(abaVendas, 900);
+    };
+    $('as-ts').onclick = async function () { var x = await CDD.api('a_com_asaas_testar', { body: {} }); $('as-msg').innerHTML = x.ok ? msg(x.data.motivo, x.data.ok ? 'ok' : undefined) : msg(x.data.mensagem); };
+    $('as-tk').onclick = async function () {
+      if (as.token_cadastrado && !confirm('Gerar um novo token? O webhook cadastrado no Asaas deixa de funcionar até você colar o token novo lá.')) return;
+      var x = await CDD.api('a_com_asaas_token', { body: {} });
+      if (!x.ok) { $('as-msg').innerHTML = msg(x.data.mensagem); return; }
+      $('as-tkbox').innerHTML = '<p class="mut">Copie agora e cole no webhook do Asaas. Este token não aparece de novo.</p><div class="copiavel"><input id="as-tkv" readonly value="' + esc(x.data.token) + '"><button class="btn" id="as-tkc">Copiar</button></div>';
+      $('as-tkc').onclick = function () { var i = $('as-tkv'); i.select(); try { document.execCommand('copy'); } catch (e) {} this.textContent = 'Copiado'; };
+    };
     $('of-pad').onclick = async function () { var x = await CDD.api('a_com_padroes', { body: {} }); if (x.ok) abaVendas(); else alert(x.data.mensagem); };
     $('of-nova').onclick = function () { editarOferta(null); };
     $('cp-novo').onclick = function () { editarCupom(null, ofertas); };
@@ -160,11 +185,11 @@
     v.querySelectorAll('[data-cp]').forEach(function (b) { b.onclick = function () { editarCupom(cPorId[b.getAttribute('data-cp')], ofertas); }; });
   }
   function editarOferta(o) {
-    o = o || { idoferta: 0, nome: '', gateway: 'eduzz', ref_gateway: '', meses: 1, valor: '', link: '', ativo: 1 };
+    o = o || { idoferta: 0, nome: '', gateway: 'asaas', ref_gateway: '', meses: 1, valor: '', link: '', ativo: 1 };
     modal('<h3>' + (o.idoferta ? 'Editar oferta' : 'Nova oferta') + '</h3><label>Nome</label><input id="o-nome" value="' + esc(o.nome) + '">' +
-      '<div class="linha"><div style="flex:1"><label>Gateway</label><input id="o-gw" value="' + esc(o.gateway) + '"></div><div style="flex:1"><label>Código do produto no gateway</label><input id="o-ref" value="' + esc(o.ref_gateway) + '"></div></div>' +
+      '<div class="linha"><div style="flex:1"><label>Gateway</label><input id="o-gw" value="' + esc(o.gateway) + '"></div><div style="flex:1"><label>Código no gateway (no Asaas, o ID do link: pode deixar vazio e colar o link abaixo)</label><input id="o-ref" value="' + esc(o.ref_gateway) + '"></div></div>' +
       '<div class="linha"><div style="flex:1"><label>Duração do acesso (meses)</label><input id="o-me" type="number" min="1" max="60" value="' + o.meses + '"></div><div style="flex:1"><label>Valor (R$)</label><input id="o-va" value="' + (o.valor === null ? '' : o.valor) + '"></div></div>' +
-      '<label>Link de venda</label><input id="o-li" value="' + esc(o.link || '') + '"><label class="chk"><input type="checkbox" id="o-at"' + (o.ativo ? ' checked' : '') + '><span>Oferta ligada (venda paga libera a aluna)</span></label><div id="o-msg"></div>' +
+      '<label>Link de venda (no Asaas, o link de pagamento: https://www.asaas.com/c/...)</label><input id="o-li" value="' + esc(o.link || '') + '"><label class="chk"><input type="checkbox" id="o-at"' + (o.ativo ? ' checked' : '') + '><span>Oferta ligada (venda paga libera a aluna)</span></label><div id="o-msg"></div>' +
       '<div class="linha" style="margin-top:12px"><button class="btn pri" id="o-ok">Salvar</button><button class="btn" id="o-fx">Cancelar</button></div>', function (m) {
       m.querySelector('#o-fx').onclick = m.fechar;
       m.querySelector('#o-ok').onclick = async function () {
@@ -194,8 +219,8 @@
   var MODELOS = [
     ['Primeiro contato', '[CDD] Oi, {nome}! Aqui é a equipe do Código da Definição. Vi que você pediu informações sobre o programa. Posso te explicar como funciona?'],
     ['Retomada', '[CDD] Oi, {nome}! Passando para saber se ficou alguma dúvida sobre o Código da Definição. Posso te ajudar a escolher o plano?'],
-    ['Link de compra (anual)', '[CDD] {nome}, aqui está o link do plano anual: https://sun.eduzz.com/1344531 . O acesso é liberado sozinho assim que o pagamento é confirmado.'],
-    ['Link de compra (mensal)', '[CDD] {nome}, aqui está o link do plano mensal: https://sun.eduzz.com/2411829 . O acesso é liberado sozinho assim que o pagamento é confirmado.'],
+    ['Link de compra (anual)', '[CDD] {nome}, aqui está o link do plano anual: {link_anual} . O acesso é liberado sozinho assim que o pagamento é confirmado.'],
+    ['Link de compra (mensal)', '[CDD] {nome}, aqui está o link do plano mensal: {link_mensal} . O acesso é liberado sozinho assim que o pagamento é confirmado.'],
     ['Acesso não chegou', '[CDD] Oi, {nome}! Vi que o seu acesso foi liberado, mas você ainda não criou a senha. Vou te mandar um novo link por aqui. Confira também o e-mail e a caixa de spam.']
   ];
   async function abaLeads() {
@@ -226,7 +251,11 @@
 
   async function abaAtendimento() {
     var v = $('v'); v.innerHTML = '<div class="vazio">Carregando...</div>';
-    var rs = await Promise.all([CDD.api('a_leads', { q: { status: 'novo' } }), CDD.api('a_com_pendentes')]);
+    var rs = await Promise.all([CDD.api('a_leads', { q: { status: 'novo' } }), CDD.api('a_com_pendentes'), CDD.api('ofertas_publicas')]);
+    // links de compra: o da oferta ligada no Asaas (produção); sem ela, o do Eduzz que já existia
+    var LK = { 12: 'https://sun.eduzz.com/1344531', 1: 'https://sun.eduzz.com/2411829' };
+    ((rs[2].data && rs[2].data.ofertas) || []).forEach(function (o) { if (o.gateway === 'asaas' && /^https:\/\/(www\.)?asaas\.com\/c\//.test(o.link || '') && (o.meses === 12 || o.meses === 1) && !LK['a' + o.meses]) { LK['a' + o.meses] = true; LK[o.meses] = o.link; } });
+    var modelos = MODELOS.map(function (m) { return [m[0], m[1].replace('{link_anual}', LK[12]).replace('{link_mensal}', LK[1])]; });
     if (!rs[0].ok) { v.innerHTML = msg(rs[0].data.mensagem); return; }
     var fila = (rs[0].data.leads || []).slice().reverse(), pend = (rs[1].data && rs[1].data.pendentes) || [];
     var h = '<div class="card"><h3>WhatsApp de atendimento</h3><p class="mut">Número da Intus e do CDD: 55 45 99115-6006. Toda mensagem que sai das páginas e do app do CDD começa com <b>[CDD]</b> e, quando a aluna está logada, traz o nome e o e-mail dela. No WhatsApp, pesquise por [CDD] para filtrar as conversas do programa. A conversa completa e os funis automáticos ficam na central de atendimento da Intus.</p>' +
@@ -237,7 +266,7 @@
     h += '<div class="card"><h3>Alunas liberadas que ainda não criaram a senha (' + pend.length + ')</h3><p class="mut">Pagaram ou foram matriculadas, mas não abriram o link. Gere um novo link e mande pelo WhatsApp.</p>' + (pend.length ? '<div class="tbl"><table><thead><tr><th>Aluna</th><th>Acesso até</th><th></th></tr></thead><tbody>' + pend.map(function (x) {
       return '<tr><td><b>' + esc(x.nome) + '</b><div class="mut">' + esc(x.email) + '</div></td><td class="num">' + (x.expira_em ? esc(CDD.dataBR(x.expira_em)) : 'sem fim') + '</td><td><button class="btn peq" data-link="' + x.idaluna + '">Novo link</button></td></tr>';
     }).join('') + '</tbody></table></div>' : '<div class="vazio">Ninguém pendente.</div>') + '</div>';
-    h += '<div class="card"><h3>Mensagens prontas</h3><p class="mut">Troque {nome} pelo nome da pessoa. Todas começam com [CDD].</p>' + MODELOS.map(function (m, i) {
+    h += '<div class="card"><h3>Mensagens prontas</h3><p class="mut">Troque {nome} pelo nome da pessoa. Todas começam com [CDD].</p>' + modelos.map(function (m, i) {
       return '<div style="margin-top:10px"><b>' + esc(m[0]) + '</b><div class="copiavel"><input readonly value="' + esc(m[1]) + '" id="md' + i + '"><button class="btn" data-cp="' + i + '">Copiar</button></div></div>';
     }).join('') + '</div>';
     v.innerHTML = h;

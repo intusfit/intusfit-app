@@ -776,6 +776,13 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     if ($acao === 'lead' && !$get) return cddLeadReceber($pdo, $b, $ip);
     if ($acao === 'sso' && !$get) return cddSsoEntrar($pdo, cddStr($b['bilhete'] ?? '', 900), $ip);
     if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz3', 20), $b, $base, $ctx);
+    // Links de compra das ofertas ligadas, para as páginas de venda: trocar de gateway é cadastrar a oferta nova no painel, sem mexer nas páginas.
+    // Só o que já é público (duração, valor, link); nunca o código do produto no gateway.
+    if ($acao === 'ofertas_publicas' && $get) {
+        $l = $pdo->query("SELECT gateway, meses, valor, link FROM cdd_oferta WHERE ativo = 1 AND link IS NOT NULL AND link <> '' ORDER BY ordem, idoferta")->fetchAll();
+        foreach ($l as &$o) { $o['meses'] = (int)$o['meses']; $o['valor'] = $o['valor'] === null ? null : (float)$o['valor']; }
+        return cddResp(200, ['ofertas' => $l]);
+    }
 
     if ($acao === 'saude') {
         return cddResp(200, ['ok' => true, 'cadastro_aberto' => cddConfig($pdo, 'cadastro_aberto', '1') === '1',

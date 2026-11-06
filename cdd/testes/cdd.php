@@ -782,6 +782,135 @@ eq('produto que não é do CDD (outro produto da conta) é só registrado', $d['
 [$s, $d] = $reqV3($fatura3('myeduzz.invoice_chargeback', ['data' => ['id' => '5570', 'buyer' => ['email' => 'carla@exemplo.com'], 'items' => [['productId' => '2411829']]]]));
 eq('chargeback suspende o acesso como o reembolso', $d['resultado'] === 'suspensa_por_reembolso', json_encode($d));
 
+echo "\nVendas pelo Asaas (link de pagamento): cadastro e liberação automáticos\n";
+$tokAsaas = '';
+$chamadasAsaas = [];
+$GLOBALS['asaasFalha'] = '';
+$GLOBALS['cddAsaasHttpFake'] = function ($m, $url, $corpo) use (&$chamadasAsaas) {
+    $c = $m . ' ' . preg_replace('~^https://[^/]+/v3~', '', $url);
+    $chamadasAsaas[] = $c;
+    if ($GLOBALS['asaasFalha'] === 'rede') throw new RuntimeException('asaas_fora_do_ar', 502);
+    if ($GLOBALS['asaasFalha'] === 'recusa') return [401, ['errors' => [['code' => 'invalid_access_token']]]];
+    if (strpos($c, '/customers/cus_ana') !== false) return [200, ['name' => 'Ana Asaas', 'email' => 'Ana.Asaas@Exemplo.com', 'mobilePhone' => '45999991111']];
+    if (strpos($c, '/customers/cus_bia') !== false) return [200, ['name' => 'Bia Asaas', 'email' => 'bia.asaas@exemplo.com', 'phone' => '4533334444']];
+    if (strpos($c, '/customers/cus_nova') !== false) return [200, ['name' => 'Nova Asaas', 'email' => 'nova.asaas@exemplo.com']];
+    if (strpos($c, '/installments/ins_1') !== false) return [200, ['installmentCount' => 3]];
+    if (strpos($c, '/subscriptions/sub_1') !== false) return [200, ['paymentLink' => 'linkmensal123']];
+    if (strpos($c, '/customers?limit=1') !== false) return [200, ['data' => []]];
+    return [404, []];
+};
+$reqAs = function (array $corpo, ?string $tok = null, bool $semTok = false) use ($pdo, $ctx, &$tokAsaas) {
+    $c = $ctx; $c['token_gateway'] = $semTok ? '' : ($tok ?? $tokAsaas);
+    return cddTratar($pdo, 'POST', 'webhook', ['g' => 'asaas'], $corpo, '', $c);
+};
+$pagAs = function ($ev, $id, $extra = []) {
+    return ['id' => 'evt_' . mt_rand(), 'event' => $ev, 'dateCreated' => '2026-11-06 10:00:00', 'payment' => array_merge(['object' => 'payment', 'id' => $id, 'customer' => 'cus_ana',
+        'paymentLink' => 'linkanual123', 'billingType' => 'PIX', 'value' => 698.0, 'netValue' => 696.0, 'status' => 'RECEIVED', 'confirmedDate' => '2026-11-06', 'paymentDate' => '2026-11-06'], $extra)];
+};
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_1'));
+eq('sem token cadastrado o aviso é recusado (503)', $s === 503 && $d['error'] === 'gateway_nao_configurado');
+[$s, $d] = req('a_com_asaas_token', 'POST', [], [], $tAna);
+eq('aluna não gera o token (403)', $s === 403);
+[$s, $d] = req('a_com_asaas_token', 'POST', [], [], $tAdmin);
+$tokAsaas = (string)($d['token'] ?? '');
+eq('o painel gera um token de 48 caracteres (dentro dos 32 a 255 do Asaas) e o guarda', $s === 200 && strlen($tokAsaas) === 48 && cddConfig($pdo, 'asaas_token') === $tokAsaas);
+[$s, $d] = req('a_com_painel', 'GET', [], [], $tAdmin);
+eq('o painel mostra o endereço e que o token está cadastrado, mas nunca o token', $d['gateways']['asaas']['token_cadastrado'] === true && $d['gateways']['asaas']['apikey_cadastrada'] === false && strpos($d['gateways']['asaas']['url_aviso'], 'g=asaas') !== false && strpos(json_encode($d), $tokAsaas) === false);
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_1'), null, true);
+eq('sem o cabeçalho do token é recusado (401)', $s === 401);
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_1'), 'token-errado-token-errado-token-errado');
+eq('token errado é recusado (401)', $s === 401);
+[$s, $d] = req('a_com_ofertas', 'POST', [], ['nome' => 'CDD anual (Asaas)', 'gateway' => 'asaas', 'ref_gateway' => '', 'link' => 'https://www.asaas.com/c/linkanual123', 'meses' => 12, 'valor' => '698', 'ativo' => true], $tAdmin);
+eq('oferta do Asaas: o código sai do link de pagamento colado', $s === 200 && $pdo->query("SELECT ref_gateway FROM cdd_oferta WHERE idoferta = " . (int)$d['idoferta'])->fetchColumn() === 'linkanual123', json_encode($d));
+[$s, $d] = req('a_com_ofertas', 'POST', [], ['nome' => 'CDD mensal (Asaas)', 'gateway' => 'asaas', 'ref_gateway' => 'https://www.asaas.com/c/linkmensal123', 'meses' => 1, 'valor' => '119', 'ativo' => true], $tAdmin);
+eq('o link inteiro no campo do código também vira o ID', $s === 200 && $pdo->query("SELECT ref_gateway FROM cdd_oferta WHERE idoferta = " . (int)$d['idoferta'])->fetchColumn() === 'linkmensal123');
+[$s, $d] = req('a_com_ofertas', 'POST', [], ['nome' => 'Sem link', 'gateway' => 'asaas', 'ref_gateway' => '', 'meses' => 1, 'ativo' => true], $tAdmin);
+eq('oferta ligada do Asaas sem link é recusada', $s === 422);
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_1'));
+eq('com token certo mas sem chave de API: 503 e nada é criado', $s === 503 && $d['error'] === 'chave_api_nao_configurada' && (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = 'ana.asaas@exemplo.com'")->fetchColumn() === 0);
+[$s, $d] = req('a_com_gateway', 'POST', [], ['gateway' => 'asaas', 'campo' => 'apikey', 'segredo' => 'curta'], $tAdmin);
+eq('chave de API curta é recusada', $s === 422);
+$chaveApiAsaas = '$aact_hmlg_000FAKEchaveDeTeste1234567890';
+[$s, $d] = req('a_com_gateway', 'POST', [], ['gateway' => 'asaas', 'campo' => 'apikey', 'segredo' => $chaveApiAsaas], $tAdmin);
+eq('admin cadastra a chave de API', $s === 200);
+[$s, $d] = req('a_com_gateway', 'POST', [], ['gateway' => 'asaas', 'campo' => 'ambiente', 'segredo' => 'sandbox'], $tAdmin);
+eq('admin escolhe o ambiente de testes', $s === 200 && cddConfig($pdo, 'asaas_ambiente') === 'sandbox');
+[$s, $d] = req('a_com_gateway', 'POST', [], ['gateway' => 'asaas', 'campo' => 'ambiente', 'segredo' => 'qualquer'], $tAdmin);
+eq('ambiente inválido é recusado', $s === 422);
+[$s, $d] = req('a_com_painel', 'GET', [], [], $tAdmin);
+eq('o painel mostra chave cadastrada e ambiente, sem revelar a chave', $d['gateways']['asaas']['apikey_cadastrada'] === true && $d['gateways']['asaas']['ambiente'] === 'sandbox' && strpos(json_encode($d), 'FAKEchave') === false);
+$chamadasAsaas = [];
+[$s, $d] = req('a_com_asaas_testar', 'POST', [], [], $tAdmin);
+eq('"Testar conexão" fala com o ambiente de testes e confirma', $s === 200 && $d['ok'] === true && $chamadasAsaas === ['GET /customers?limit=1']);
+[$s, $d] = req('a_com_asaas_testar', 'POST', [], [], $tAna);
+eq('aluna não testa a conexão (403)', $s === 403);
+
+$qtAsaas = function ($email) use ($pdo) { return (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = '$email'")->fetchColumn(); };
+$chamadasAsaas = [];
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_x', ['paymentLink' => 'linkdaintus999', 'customer' => 'cus_zzz']));
+eq('cobrança de outro link (venda da Intus na mesma conta) só é registrada', $s === 200 && $d['resultado'] === 'produto_desconhecido');
+eq('e o cliente dessa cobrança NÃO é consultado no Asaas', $chamadasAsaas === []);
+[$s, $d] = $reqAs(['id' => 'e', 'event' => 'PAYMENT_CREATED', 'payment' => ['id' => 'pay_9', 'customer' => 'cus_ana', 'paymentLink' => 'linkanual123']]);
+eq('evento que o CDD não usa (cobrança criada) é ignorado sem registro', $s === 200 && $d['resultado'] === 'sem_evento' && $chamadasAsaas === []);
+
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_1'));
+eq('Pix pago no link anual cria a aluna e libera', $s === 200 && strpos($d['resultado'], 'aluna_criada') === 0 && $qtAsaas('ana.asaas@exemplo.com') === 1, json_encode($d));
+$ana = $pdo->query("SELECT * FROM cdd_aluna WHERE email = 'ana.asaas@exemplo.com'")->fetch();
+eq('nome vem do cadastro no Asaas, e-mail em minúsculas, sem senha', $ana && $ana['nome'] === 'Ana Asaas' && $ana['senha_hash'] === null && $ana['papel'] === 'aluna');
+$matA = $pdo->query("SELECT * FROM cdd_matricula WHERE idaluna = " . (int)$ana['idaluna'])->fetch();
+$fimAnual = cddSomarMeses(cddHoje(), 12, CDD_CARENCIA_DIAS);
+eq('matrícula anual: 12 meses mais a carência, origem asaas', $matA && $matA['expira_em'] === $fimAnual && $matA['origem'] === 'asaas' && cddMatricula($pdo, (int)$ana['idaluna'])['ativa'] === true);
+$pgA = $pdo->query("SELECT * FROM cdd_pagamento WHERE ref_externa = 'pay_1'")->fetch();
+eq('pagamento registrado: valor, Pix e data de pagamento', $pgA && (float)$pgA['valor'] === 698.0 && $pgA['forma'] === 'pix' && $pgA['gateway'] === 'asaas' && substr($pgA['pago_em'], 0, 10) === '2026-11-06');
+[$s, $d] = $reqAs($pagAs('PAYMENT_CONFIRMED', 'pay_1'));
+eq('CONFIRMED e RECEIVED da mesma cobrança liberam uma vez só (duplicado)', $d['resultado'] === 'duplicado' && (int)$pdo->query("SELECT COUNT(*) FROM cdd_pagamento WHERE ref_externa = 'pay_1'")->fetchColumn() === 1);
+
+// cartão parcelado em 3x: um aviso por parcela, o mesmo parcelamento
+$parc = function ($id) use ($pagAs) { return $pagAs('PAYMENT_CONFIRMED', $id, ['customer' => 'cus_bia', 'installment' => 'ins_1', 'billingType' => 'CREDIT_CARD', 'value' => 232.67, 'status' => 'CONFIRMED']); };
+[$s, $d] = $reqAs($parc('pay_c1'));
+eq('cartão parcelado: a primeira parcela libera', strpos($d['resultado'], 'aluna_criada') === 0 && $qtAsaas('bia.asaas@exemplo.com') === 1, json_encode($d));
+[$s, $d] = $reqAs($parc('pay_c2')); [$s2, $d2] = $reqAs($parc('pay_c3'));
+eq('as outras parcelas não renovam de novo', $d['resultado'] === 'duplicado' && $d2['resultado'] === 'duplicado');
+$bia = $pdo->query("SELECT idaluna FROM cdd_aluna WHERE email = 'bia.asaas@exemplo.com'")->fetch();
+eq('o acesso é de 12 meses (não 36)', $pdo->query("SELECT expira_em FROM cdd_matricula WHERE idaluna = " . (int)$bia['idaluna'])->fetchColumn() === $fimAnual);
+$pgB = $pdo->query("SELECT * FROM cdd_pagamento WHERE idaluna = " . (int)$bia['idaluna'])->fetchAll();
+eq('um pagamento só, com o valor total do parcelamento (3 x 232,67) e cartão', count($pgB) === 1 && (float)$pgB[0]['valor'] === 698.01 && $pgB[0]['forma'] === 'cartao' && $pgB[0]['ref_externa'] === 'iins_1', json_encode($pgB));
+
+// assinatura mensal: a cobrança só traz o ID da assinatura; o link vem da consulta à assinatura
+$pdo->prepare("UPDATE cdd_aluna SET senha_hash = ? WHERE idaluna = ?")->execute([password_hash('senhaboa123', PASSWORD_BCRYPT), (int)$ana['idaluna']]);
+$mens = function ($ev, $id, $extra = []) use ($pagAs) { return $pagAs($ev, $id, array_merge(['paymentLink' => null, 'subscription' => 'sub_1', 'billingType' => 'CREDIT_CARD', 'value' => 119.0], $extra)); };
+[$s, $d] = $reqAs($mens('PAYMENT_CONFIRMED', 'pay_s1'));
+eq('cobrança de assinatura mensal renova a aluna existente', $d['resultado'] === 'renovada', json_encode($d));
+eq('soma 1 mês ao fim que já existia', $pdo->query("SELECT expira_em FROM cdd_matricula WHERE idaluna = " . (int)$ana['idaluna'])->fetchColumn() === cddSomarMeses($fimAnual, 1, CDD_CARENCIA_DIAS));
+[$s, $d] = $reqAs($mens('PAYMENT_OVERDUE', 'pay_s2'));
+eq('mensalidade atrasada só anota; o acesso segue', $d['resultado'] === 'cobranca_atrasada' && cddMatricula($pdo, (int)$ana['idaluna'])['ativa'] === true, json_encode($d));
+[$s, $d] = $reqAs(['id' => 'e2', 'event' => 'SUBSCRIPTION_DELETED', 'subscription' => ['id' => 'sub_1', 'customer' => 'cus_ana', 'object' => 'subscription']]);
+eq('assinatura cancelada mantém o acesso até o fim do período pago', $d['resultado'] === 'assinatura_cancelada' && cddMatricula($pdo, (int)$ana['idaluna'])['ativa'] === true, json_encode($d));
+[$s, $d] = $reqAs($pagAs('PAYMENT_REFUNDED', 'pay_c2', ['customer' => 'cus_bia', 'installment' => 'ins_1', 'billingType' => 'CREDIT_CARD', 'status' => 'REFUNDED']));
+eq('reembolso de uma parcela suspende o acesso e marca o parcelamento como reembolsado', $d['resultado'] === 'suspensa_por_reembolso' && cddMatricula($pdo, (int)$bia['idaluna'])['ativa'] === false && $pdo->query("SELECT status FROM cdd_pagamento WHERE ref_externa = 'iins_1'")->fetchColumn() === 'reembolsado', json_encode($d));
+[$s, $d] = $reqAs($pagAs('PAYMENT_CHARGEBACK_REQUESTED', 'pay_s1', ['paymentLink' => null, 'subscription' => 'sub_1']));
+eq('chargeback suspende o acesso como o reembolso', $d['resultado'] === 'suspensa_por_reembolso' && cddMatricula($pdo, (int)$ana['idaluna'])['ativa'] === false, json_encode($d));
+
+// falhas do Asaas: o aviso volta com erro para o Asaas tentar de novo, e nada é criado pela metade
+$GLOBALS['asaasFalha'] = 'rede';
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_n1', ['customer' => 'cus_nova']));
+eq('Asaas fora do ar na consulta: 502 (o aviso será reenviado) e ninguém é criado', $s === 502 && $qtAsaas('nova.asaas@exemplo.com') === 0);
+$GLOBALS['asaasFalha'] = 'recusa';
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_n1', ['customer' => 'cus_nova']));
+eq('chave de API recusada: 503 com o motivo', $s === 503 && $d['error'] === 'chave_api_recusada');
+[$s, $d] = req('a_com_asaas_testar', 'POST', [], [], $tAdmin);
+eq('"Testar conexão" explica que o Asaas recusou a chave', $s === 200 && $d['ok'] === false && strpos($d['motivo'], 'recusou') !== false);
+$GLOBALS['asaasFalha'] = '';
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_n1', ['customer' => 'cus_nova']));
+eq('passada a falha, o reenvio do mesmo aviso libera normalmente', strpos($d['resultado'], 'aluna_criada') === 0 && $qtAsaas('nova.asaas@exemplo.com') === 1, json_encode($d));
+
+[$s, $d] = cddTratar($pdo, 'GET', 'ofertas_publicas', [], [], '', $ctx);
+$linksPub = $d['ofertas'] ?? [];
+$doAsaas = array_values(array_filter($linksPub, function ($o) { return $o['gateway'] === 'asaas'; }));
+eq('as páginas de venda leem os links das ofertas ligadas, sem login', $s === 200 && count($doAsaas) === 2 && $doAsaas[0]['meses'] === 12 && strpos($doAsaas[0]['link'], 'asaas.com/c/') !== false);
+eq('a lista pública não traz o código do produto no gateway', !array_key_exists('ref_gateway', $linksPub[0]) && !array_key_exists('idoferta', $linksPub[0]));
+$GLOBALS['cddAsaasHttpFake'] = null;
+
 echo "\nEntrada da equipe vinda do painel da Intus (bilhete assinado)\n";
 require_once __DIR__ . '/../../app/api/_cdd_sso.php';
 $segSso = bin2hex(random_bytes(32));
