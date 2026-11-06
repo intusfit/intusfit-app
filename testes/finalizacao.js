@@ -38,5 +38,12 @@ ver('o aviso é mostrado na tela (${avisoSemPontos})', !!mRf && mRf[0].includes(
 const freq = fs.readFileSync(path.join(dir, 'frequencia.html'), 'utf8');
 ver('Frequência separa a média de musculação da de cardio', /_sessMus = sessoesAtleta\.filter\(s => !_ehCardioS\(s\) && !s\.nao_contar\)/.test(freq) && /_sessCar = sessoesAtleta\.filter\(s => _ehCardioS\(s\) && !s\.nao_contar\)/.test(freq));
 
+// 6) Sair do treino esvazia o treino da memória (senão o pagehide regrava o rascunho e o app "retoma" um treino abandonado)
+const mDesc = app.match(/function descartarTreinoEmAndamento\(\) \{[\s\S]*?\n\}\n/);
+ver('"Sair do treino" descarta o treino da memória e o rascunho (descartarTreinoEmAndamento)', !!mDesc && /sessaoAtual = \{ idficha: null/.test(mDesc[0]) && /_treinoStartSaved = 0/.test(mDesc[0]) && /limparTreinoAtivo\(\)/.test(mDesc[0]));
+const mConf = app.match(/function confirmarDesistencia\(\) \{[\s\S]*?\n\}\n/);
+ver('confirmarDesistencia usa o descarte completo', !!mConf && mConf[0].includes('descartarTreinoEmAndamento()'));
+ver('a tela de alongamentos tem a saída "Sair deste treino"', /function renderAlongamentos\(\)[\s\S]*?Sair deste treino[\s\S]*?getElementById\('v-along'\)/.test(app));
+
 console.log('\n' + (falhas ? 'FALHOU: ' + falhas : 'Tudo certo: ' + ok + ' conferências.'));
 process.exit(falhas ? 1 : 0);
