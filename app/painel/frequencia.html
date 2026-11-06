@@ -996,16 +996,24 @@ function abrirDetalheAluno(idatleta) {
   const _bonusSem = (_musSem >= _rankReg.bonusDias) ? _rankReg.bonusPts : 0;
   const _totalSem = Math.round((_baseSem + _bonusSem) * 10) / 10;
 
+  // Médias separadas: cardio costuma durar bem menos que a musculação, e juntos o número não descrevia nenhum dos dois
+  // (o caso do Eduardo, 06/11/2026: "24 min/treino" com treinos de 44 min). "Não conta" fica de fora das duas.
+  const _ehCardioS = s => s.tipo === 'cardio' || !!s.cardio_tipo;
+  const _sessCar = sessoesAtleta.filter(s => _ehCardioS(s) && !s.nao_contar);
+  const _sessMus = sessoesAtleta.filter(s => !_ehCardioS(s) && !s.nao_contar);
+  const _mediaMin = l => l.length ? Math.round(l.reduce((a, x) => a + (x.duracao_seg || 0), 0) / l.length / 60) : '–';
+
   let html = `<div class="freq-modal-backdrop" onclick="fecharDetalhe()"></div>
     <div class="freq-modal">
       <div class="freq-modal-header">
         <h3>${esc(atleta.nome)}</h3>
         <button onclick="fecharDetalhe()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;padding:4px 8px;">×</button>
       </div>
-      <div class="freq-modal-stats">
+      <div class="freq-modal-stats" style="grid-template-columns:repeat(2,1fr);">
         <div title="Todas as sessões registradas desde o início (musculação e cardio)"><strong>${sessoesAtleta.length}</strong><br><span>Sessões no total</span></div>
         <div title="Soma da duração de todas as sessões desde o início"><strong>${Math.round(sessoesAtleta.reduce((s,x)=>s+(x.duracao_seg||0),0)/60)}</strong><br><span>Minutos no total</span></div>
-        <div title="Duração média de uma sessão: minutos no total divididos pelas sessões (musculação e cardio juntos). Não é o tempo de um treino específico."><strong>${sessoesAtleta.length > 0 ? Math.round(sessoesAtleta.reduce((s,x)=>s+(x.duracao_seg||0),0)/sessoesAtleta.length/60) : 0}</strong><br><span>Média por sessão (min)</span></div>
+        <div title="Duração média de uma sessão de musculação (soma dos minutos dividida pelas sessões). Ficam de fora as marcadas como &quot;não conta&quot; e as de cardio."><strong>${_mediaMin(_sessMus)}</strong><br><span>Média por musculação (min)</span><br><span style="text-transform:none;">em ${_sessMus.length} ${_sessMus.length === 1 ? 'sessão' : 'sessões'}</span></div>
+        <div title="Duração média de uma sessão de cardio (soma dos minutos dividida pelas sessões). Ficam de fora as marcadas como &quot;não conta&quot;."><strong>${_mediaMin(_sessCar)}</strong><br><span>Média por cardio (min)</span><br><span style="text-transform:none;">em ${_sessCar.length} ${_sessCar.length === 1 ? 'sessão' : 'sessões'}</span></div>
       </div>
       <div style="margin:0 0 12px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;">
         <div style="display:flex;align-items:center;justify-content:space-between;">

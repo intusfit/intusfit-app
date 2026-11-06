@@ -10624,12 +10624,40 @@ function renderFim(duracao, sessaoSalva) {
   const cardBorder = isLight ? '#e5e5e5' : '#1e1e1e';
   const inputBg = isLight ? '#f9f9f9' : '#0d0d0d';
 
+  // Aviso em destaque quando este treino NÃO vale pontos. Antes o aluno só descobria no Ranking, dias depois (caso do Eduardo,
+  // 06/11/2026). Dois motivos: marcado "não conta" (menos de 5 min no total) ou 3º treino de musculação do dia (vale 0).
+  // A regra vem de API.pontosSessaoRank, a mesma do Ranking; a lista é a do aparelho, que já traz esta sessão recém-salva.
+  const avisoSemPontos = (function () {
+    try {
+      if (!sessaoSalva || !sessaoSalva.divisao) return '';
+      const lista = SessoesTreino.listarDoAtleta(idAtleta);
+      const s = lista.find(function (x) { return sessaoSalva.idsessao != null && Number(x.idsessao) === Number(sessaoSalva.idsessao); }) || sessaoSalva;
+      const corAv = isLight ? '#b45309' : '#fbbf24';
+      const caixa = function (titulo, texto, botao) {
+        return '<div style="max-width:320px;width:100%;margin-bottom:10px;padding:12px 14px;border-radius:12px;text-align:left;background:rgba(245,158,11,.13);border:1px solid rgba(245,158,11,.5);">' +
+          '<div style="font-size:14px;font-weight:900;color:' + corAv + ';margin-bottom:4px;">' + titulo + '</div>' +
+          '<div style="font-size:12.5px;line-height:1.45;color:' + txtColor + ';">' + texto + '</div>' + (botao || '') + '</div>';
+      };
+      if (Number(s.nao_contar) === 1) {
+        return caixa('⏱️ Este treino não vale pontos',
+          'Ele ficou com menos de 5 minutos no total, então não entra no Ranking nem na frequência. Se você ainda não terminou, continue o treino de onde parou.',
+          '<button class="btn btn-prim" style="width:100%;margin-top:10px;min-height:38px;font-size:13px;font-weight:800;" onclick="_voltarParaContinuarTreino()">▶ Continuar o treino</button>');
+      }
+      if (!API.foraProtocolo(s) && API.ehMusculacaoRank(s) && API.pontosSessaoRank(s, lista) === 0 && API.ordemMusculacaoNoDia(s, lista) >= 3) {
+        return caixa('🏋️ Este treino não soma pontos',
+          'Em cada dia, só os dois primeiros treinos de musculação pontuam. Ele continua no seu histórico e na frequência.');
+      }
+    } catch (e) {}
+    return '';
+  })();
+
   document.getElementById('v-fim').innerHTML = `
     <div class="fim-wrap">
       <img src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus" style="height:28px;margin-bottom:8px;"/>
       <div style="font-size:40px;margin-bottom:4px;">🎉</div>
       <h2 style="font-size:22px;letter-spacing:2px;margin-bottom:4px;color:${txtColor};">TREINO FINALIZADO</h2>
       <p style="font-size:15px;font-weight:600;margin-bottom:6px;color:${subColor};">${esc(mensagem)}</p>
+      ${avisoSemPontos}
       <div style="margin-bottom:10px;">${figurinhaAleatoriaHtml(isLight, figDoDia)}</div>
 
       ${recordesFim.length ? `<div style="max-width:320px;width:100%;margin-bottom:10px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(217,119,6,.1));border:1px solid rgba(251,191,36,.4);text-align:left;">
@@ -10649,7 +10677,7 @@ function renderFim(duracao, sessaoSalva) {
           ${volSessao ? `<div><div class="fp-label">🏋️ Peso movido</div><div class="fp-value" style="font-size:18px;">${volSessao.toLocaleString('pt-BR')} <span style="font-size:11px;color:${subColor};">kg</span></div></div>` : ''}
         </div>
         ${sessaoSalva.alerta_duracao === 'longo' ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:11px;color:#f59e0b;">⚠️ Treino com duração superior a 3h, será sinalizado para revisão.</div>` : ''}
-        ${sessaoSalva.nao_contar ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:11px;color:#f59e0b;">⏱️ Este treino não será contabilizado na frequência e ranking por ter durado menos de 5 minutos.</div>` : (sessaoSalva.alerta_duracao === 'curto' ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:11px;color:#f59e0b;">⚠️ Treino com menos de 5 minutos, será sinalizado para revisão.</div>` : '')}
+        ${sessaoSalva.nao_contar ? '' : (sessaoSalva.alerta_duracao === 'curto' ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:11px;color:#f59e0b;">⚠️ Treino com menos de 5 minutos, será sinalizado para revisão.</div>` : '')}
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;max-width:320px;width:100%;">

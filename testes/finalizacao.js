@@ -6,9 +6,8 @@
 // Confere o código-fonte (não abre navegador): quebrar qualquer das travas de propósito faz o teste acusar.
 const fs = require('fs'), path = require('path');
 const dir = process.env.INTUS_DIR || path.join(__dirname, '..', 'app', 'painel');
-const base = process.env.INTUS_BASE || path.join(__dirname, '..');
 const app = fs.readFileSync(path.join(dir, 'aluno.html'), 'utf8');
-const php = fs.readFileSync(path.join(base, 'app', 'api', 'treinos.php'), 'utf8');
+const php = fs.readFileSync(path.join(dir, '..', 'api', 'treinos.php'), 'utf8');
 let falhas = 0, ok = 0;
 function ver(nome, cond) { if (cond) { ok++; console.log('  OK    ' + nome); } else { falhas++; console.log('  FALHA ' + nome); } }
 
@@ -28,6 +27,16 @@ ver('"não conta" só é gravado quando a duração TOTAL é curta', /nao_contar
 // 3) servidor: POST e PUT de musculação
 const guarda = (php.match(/if \(\$naoContar && \(int\)\(\$b\['duracao_seg'\] \?\? 0\) >= 300\) \$naoContar = 0;/g) || []).length;
 ver('o servidor ignora "não conta" em treino de 5 min ou mais (criar e atualizar)', guarda === 2);
+
+// 4) tela de fim avisa quando o treino não vale pontos (não conta, ou 3º do dia) e oferece continuar o treino
+const mRf = app.match(/function renderFim\(duracao, sessaoSalva\) \{[\s\S]*?\n\}\n/);
+ver('a tela de fim tem o aviso "não vale pontos" (nao_contar) com botão de continuar o treino', !!mRf && /Number\(s\.nao_contar\) === 1[\s\S]*?_voltarParaContinuarTreino\(\)/.test(mRf[0]));
+ver('a tela de fim avisa o 3º treino do dia pela regra central (pontosSessaoRank e ordemMusculacaoNoDia)', !!mRf && /API\.pontosSessaoRank\(s, lista\) === 0[\s\S]*?API\.ordemMusculacaoNoDia\(s, lista\) >= 3/.test(mRf[0]));
+ver('o aviso é mostrado na tela (${avisoSemPontos})', !!mRf && mRf[0].includes('${avisoSemPontos}'));
+
+// 5) Frequência: médias de musculação e de cardio separadas
+const freq = fs.readFileSync(path.join(dir, 'frequencia.html'), 'utf8');
+ver('Frequência separa a média de musculação da de cardio', /_sessMus = sessoesAtleta\.filter\(s => !_ehCardioS\(s\) && !s\.nao_contar\)/.test(freq) && /_sessCar = sessoesAtleta\.filter\(s => _ehCardioS\(s\) && !s\.nao_contar\)/.test(freq));
 
 console.log('\n' + (falhas ? 'FALHOU: ' + falhas : 'Tudo certo: ' + ok + ' conferências.'));
 process.exit(falhas ? 1 : 0);
