@@ -14,13 +14,14 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 7;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads
+const CDD_ESQUEMA = 8;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads, 8 = gestão (liberação manual de módulo, páginas de venda)
 require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
 require_once __DIR__ . '/_bemestar.php';
 require_once __DIR__ . '/_comercial.php';
 require_once __DIR__ . '/_sso.php';
 require_once __DIR__ . '/_leads.php';
+require_once __DIR__ . '/_gestao.php';
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -268,7 +269,7 @@ function cddDdl(): array {
             status VARCHAR(10) NOT NULL,
             PRIMARY KEY (idaluna, data, refeicao)
         ) $c",
-    ] + cddComercialDdl($c) + cddLeadsDdl($c);
+    ] + cddComercialDdl($c) + cddLeadsDdl($c) + cddGestaoDdl($c);
 }
 
 function cddGarantirTabelas(PDO $pdo): void {
@@ -475,11 +476,13 @@ function cddModulosParaAluna(PDO $pdo, int $idaluna, bool $incluirRascunho, ?str
         $porMod[(int)$a['idmodulo']][] = $a;
     }
     $out = [];
+    $manual = $incluirRascunho ? [] : cddLiberadosManual($pdo, $idaluna);
     foreach ($mods as $m) {
         if (!$incluirRascunho && !(int)$m['publicado']) continue;
         $lista = $porMod[(int)$m['idmodulo']] ?? [];
         if (!$lista && !$incluirRascunho) continue;
         $lib = cddModuloLiberacao($m, $inicio);
+        if (!$lib['liberado'] && !empty($manual[(int)$m['idmodulo']])) $lib = ['liberado' => true, 'libera_em' => null];   // liberado à mão pela equipe
         $m['idmodulo'] = (int)$m['idmodulo'];
         $m['liberado'] = $incluirRascunho ? true : $lib['liberado'];
         $m['libera_em'] = $lib['libera_em'];
@@ -505,6 +508,7 @@ function cddAulaCompleta(PDO $pdo, int $idaula, int $idaluna, bool $incluirRascu
     if (!$incluirRascunho && (!(int)$a['publicado'] || !(int)$a['mod_pub'])) return null;
     if (!$incluirRascunho) {
         $lib = cddModuloLiberacao($a, $inicio);
+        if (!$lib['liberado'] && !empty(cddLiberadosManual($pdo, $idaluna)[(int)$a['idmodulo']])) $lib['liberado'] = true;
         if (!$lib['liberado']) return ['_bloqueada' => true, 'libera_em' => $lib['libera_em'], 'modulo' => $a['modulo']];
     }
     unset($a['liberacao_dias'], $a['liberacao_data']);
@@ -774,6 +778,7 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
 
     /* ---- públicas ---- */
     if ($acao === 'lead' && !$get) return cddLeadReceber($pdo, $b, $ip);
+    if ($acao === 'lp_evento' && !$get) return cddLpRegistrar($pdo, $b, $ip, (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
     if ($acao === 'sso' && !$get) return cddSsoEntrar($pdo, cddStr($b['bilhete'] ?? '', 900), $ip);
     if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz3', 20), $b, $base, $ctx);
     // Links de compra das ofertas ligadas, para as páginas de venda: trocar de gateway é cadastrar a oferta nova no painel, sem mexer nas páginas.
@@ -961,6 +966,8 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
 
     $ld = cddLeadsAdmin($pdo, $metodo, $acao, $q, $b);
     if ($ld !== null) return $ld;
+    $gs = cddGestaoAdmin($pdo, $metodo, $acao, $q, $b, $ctx, $idadmin);
+    if ($gs !== null) return $gs;
     $com = cddComercialAdmin($pdo, $metodo, $acao, $q, $b, $ctx);
     if ($com !== null) return $com;
 

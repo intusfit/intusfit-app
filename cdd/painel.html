@@ -69,7 +69,7 @@
     ['pos-pascoa', 'Desafio Pós Páscoa'], ['21-dias-verao', '21 Dias para o Verão'], ['desafio-carnaval', 'Desafio de Carnaval'], ['ceia-de-natal', 'Ceia de Natal 21 dias'], ['bbb-2024', 'BBB 2024']];
 
   /* ---------- esqueleto ---------- */
-  var ABAS = [['resumo', '📊', 'Resumo'], ['alunas', '👩', 'Alunas'], ['vendas', '💰', 'Vendas'], ['leads', '🎯', 'Leads'], ['atendimento', '💬', 'Atendimento'], ['conteudo', '🎬', 'Conteúdo'], ['exercicios', '🏋️', 'Exercícios'], ['comentarios', '💬', 'Comentários'], ['anamneses', '📝', 'Anamneses'], ['conta', '⚙️', 'Ajustes']];
+  var ABAS = [['resumo', '📊', 'Resumo'], ['alunas', '👩', 'Alunas'], ['vendas', '💰', 'Vendas'], ['leads', '🎯', 'Leads'], ['lps', '🧪', 'Páginas de venda'], ['atendimento', '💬', 'Atendimento'], ['conteudo', '🎬', 'Conteúdo'], ['exercicios', '🏋️', 'Exercícios'], ['comentarios', '💬', 'Comentários'], ['anamneses', '📝', 'Anamneses'], ['conta', '⚙️', 'Ajustes']];
   function esqueleto() {
     var atual = ABAS.filter(function (x) { return x[0] === aba; })[0];
     $app.innerHTML = '<div class="pn"><aside class="pn-menu" id="menu"><div class="logo-caixa"><img class="logo-escuro" src="marca/logo-cdd-branca.png" alt="CDD"><img class="logo-claro" src="marca/logo-cdd-preta.png" alt="CDD"></div><div class="sub">Painel da equipe</div>' +
@@ -83,7 +83,7 @@
     $app.querySelectorAll('[data-tema-btn]').forEach(function (b) { b.onclick = function () { CDD.alternarTema(); }; });
     CDD.aplicarMeta();
   }
-  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, vendas: abaVendas, leads: abaLeads, atendimento: abaAtendimento, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, anamneses: abaAnamneses, conta: abaConta })[aba](); window.scrollTo(0, 0); }
+  function render() { esqueleto(); ({ resumo: abaResumo, alunas: abaAlunas, vendas: abaVendas, leads: abaLeads, lps: abaLps, atendimento: abaAtendimento, conteudo: abaConteudo, exercicios: abaExercicios, comentarios: abaComentarios, anamneses: abaAnamneses, conta: abaConta })[aba](); window.scrollTo(0, 0); }
 
   /* ---------- resumo ---------- */
   async function abaResumo() {
@@ -297,12 +297,13 @@
         var s = SIT[a.mat_situacao] || [a.mat_situacao, ''];
         h += '<tr><td><b>' + esc(a.nome) + '</b>' + (a.papel === 'admin' ? ' <span class="tag">equipe</span>' : '') + (a.status !== 'ativa' ? ' <span class="tag erro">bloqueada</span>' : '') + '<div class="mut">' + esc(a.email) + '</div></td>' +
           '<td><span class="tag ' + s[1] + '">' + s[0] + '</span></td><td class="num">' + (CDD.dataBR(a.mat_expira) || 'sem fim') + '</td><td class="num">' + (a.ultimo_acesso ? CDD.dataBR(a.ultimo_acesso) : 'nunca') + '</td>' +
-          '<td><div class="linha"><button class="btn peq" data-mat="' + a.idaluna + '">Matrícula</button><button class="btn peq" data-lk="' + a.idaluna + '">Link</button>' +
+          '<td><div class="linha"><button class="btn peq" data-mat="' + a.idaluna + '">Matrícula</button><button class="btn peq" data-lk="' + a.idaluna + '">Link</button>' + (a.papel !== 'admin' ? '<button class="btn peq" data-mo="' + a.idaluna + '">Módulos</button>' : '') +
           (a.papel !== 'admin' ? '<button class="btn peq perigo" data-bl="' + a.idaluna + '" data-st="' + (a.status === 'ativa' ? 'bloqueada' : 'ativa') + '">' + (a.status === 'ativa' ? 'Bloquear' : 'Desbloquear') + '</button>' : '') + '</div></td></tr>';
       });
       $('lista').innerHTML = h + '</tbody></table></div>';
       var porId = {}; l.forEach(function (a) { porId[a.idaluna] = a; });
       $('lista').querySelectorAll('[data-mat]').forEach(function (b) { b.onclick = function () { editarMatricula(porId[b.getAttribute('data-mat')], carregar); }; });
+      $('lista').querySelectorAll('[data-mo]').forEach(function (b) { b.onclick = function () { modalModulos(porId[b.getAttribute('data-mo')]); }; });
       $('lista').querySelectorAll('[data-lk]').forEach(function (b) { b.onclick = async function () { var x = await CDD.api('a_aluna_link', { body: { idaluna: parseInt(b.getAttribute('data-lk'), 10) } }); mostrarLink(x, porId[b.getAttribute('data-lk')].nome); }; });
       $('lista').querySelectorAll('[data-bl]').forEach(function (b) { b.onclick = async function () {
         var st = b.getAttribute('data-st');
@@ -353,6 +354,131 @@
         m.fechar(); depois();
       };
     });
+  }
+
+  /* ---------- módulos liberados à mão, por aluna ---------- */
+  async function modalModulos(a) {
+    var m = modal('<h3>Módulos: ' + esc(a.nome) + '</h3><div id="aviso"></div><div id="mm"><div class="vazio">Carregando...</div></div><div class="espaco"></div><button class="btn" id="fx">Fechar</button>', function (m) { m.querySelector('#fx').onclick = m.fechar; });
+    async function carregar() {
+      var r = await CDD.api('a_aluna_modulos', { q: { idaluna: a.idaluna } });
+      var box = m.querySelector('#mm');
+      if (!r.ok) { box.innerHTML = msg(r.data.mensagem); return; }
+      var tr = r.data.modulos.filter(function (x) { return x.trancado_pela_regra || x.liberado_manual; });
+      var h = '<p class="mut">Aqui você abre, só para esta aluna, um módulo que a regra de liberação ainda mantém trancado. A regra do módulo e as outras alunas não mudam. Para desfazer, desmarque.</p>';
+      if (!tr.length) h += '<div class="card vazio">Nenhum módulo trancado para esta aluna agora.</div>';
+      tr.forEach(function (x) {
+        h += '<label class="linha" style="padding:8px 0;justify-content:space-between;cursor:pointer;gap:10px"><span style="min-width:0"><b>' + esc(x.titulo) + '</b>' + (x.publicado ? '' : ' <span class="tag aviso">rascunho</span>') +
+          '<div class="mut">' + (x.trancado_pela_regra ? 'Trancado pela regra' + (x.libera_em ? ' até ' + esc(x.libera_em.split('-').reverse().join('/')) : '') : 'Já aberto pela regra') + '</div></span>' +
+          '<span class="linha" style="flex-wrap:nowrap;gap:6px"><input type="checkbox" data-mo="' + x.idmodulo + '"' + (x.liberado_manual ? ' checked' : '') + ' style="width:auto"> Liberado</span></label>';
+      });
+      box.innerHTML = h;
+      box.querySelectorAll('[data-mo]').forEach(function (c) {
+        c.onchange = async function () {
+          var x = await CDD.api('a_aluna_modulo', { body: { idaluna: a.idaluna, idmodulo: parseInt(c.getAttribute('data-mo'), 10), liberar: c.checked } });
+          m.querySelector('#aviso').innerHTML = x.ok ? msg(c.checked ? 'Módulo liberado para esta aluna.' : 'Liberação desfeita.', 'ok') : msg(x.data.mensagem);
+          carregar();
+        };
+      });
+    }
+    carregar();
+  }
+
+  /* ---------- páginas de venda (LPs) ---------- */
+  async function abaLps() {
+    var v = $('v'); v.innerHTML = '<div class="vazio">Carregando...</div>';
+    var dias = 30;
+    var ST = { ativa: ['Ativa', 'ok'], pausada: ['Pausada', 'aviso'], arquivada: ['Arquivada', 'erro'] };
+    function pct(x) { return x === null || x === undefined ? '-' : String(x).replace('.', ',') + '%'; }
+    function din(x) { return 'R$ ' + (x || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    async function carregar() {
+      var r = await CDD.api('a_lps', { q: { dias: dias } });
+      if (!r.ok) { v.innerHTML = msg(r.data.mensagem); return; }
+      var lps = r.data.lps.filter(function (x) { return x.status !== 'arquivada'; }), arq = r.data.lps.filter(function (x) { return x.status === 'arquivada'; });
+      var ativas = lps.filter(function (x) { return x.status === 'ativa' && x.peso > 0; });
+      var somaPeso = ativas.reduce(function (s, x) { return s + x.peso; }, 0);
+      var h = '<div class="linha" style="justify-content:space-between;margin-bottom:6px"><h2>Páginas de venda</h2><div class="linha"><select id="pd" style="width:auto"><option value="7">7 dias</option><option value="30">30 dias</option><option value="90">90 dias</option><option value="0">Tudo</option></select><button class="btn pri" id="nl">Nova LP</button></div></div>' +
+        '<p class="mut">O endereço principal do domínio mostra uma das LPs ativas, na proporção do peso (teste A/B): quem entra vê sempre a mesma por 30 dias. Cada LP também tem endereço próprio, para anúncios específicos. Visitantes contam pessoas, não recargas. Leads e vendas vêm do formulário e do cadastro da aluna.</p>';
+      if (!ativas.length) h += msg('Nenhuma LP ativa com peso. O domínio mostra a primeira não arquivada.', 'aviso');
+      lps.forEach(function (x) {
+        var e = x.estatisticas, st = ST[x.status] || ST.pausada, part = x.status === 'ativa' && x.peso > 0 && somaPeso ? Math.round(x.peso * 100 / somaPeso) : 0;
+        var max = Math.max.apply(null, e.serie.map(function (d) { return d.visitantes; }).concat([1]));
+        var spark = '<div style="display:flex;align-items:flex-end;gap:2px;height:42px" aria-label="Visitantes por dia">' + e.serie.map(function (d) { return '<i title="' + esc(d.dia.split('-').reverse().join('/')) + ': ' + d.visitantes + '" style="flex:1;min-width:2px;background:var(--accent);opacity:.8;border-radius:2px;height:' + Math.max(4, Math.round(d.visitantes * 100 / max)) + '%"></i>'; }).join('') + '</div>';
+        h += '<div class="card" data-lp="' + x.idlp + '"><div class="linha" style="justify-content:space-between;align-items:flex-start"><div style="min-width:0"><b style="font-size:17px">' + esc(x.nome) + '</b> <span class="tag ' + st[1] + '">' + st[0] + '</span>' +
+          (part ? ' <span class="tag">' + part + '% do tráfego</span>' : '') + '<div class="mut">/lp/' + esc(x.slug) + ' · modelo ' + esc(x.arquivo) + (x.campos_editados ? ' · ' + x.campos_editados + ' campo(s) editado(s)' : '') + '</div>' + (x.obs ? '<div class="mut">' + esc(x.obs) + '</div>' : '') + '</div>' +
+          '<div class="linha"><a class="btn peq" href="lp/' + esc(x.slug) + '" target="_blank" rel="noopener">Abrir</a><button class="btn peq" data-ed="' + x.idlp + '">Editar</button><button class="btn peq" data-dp="' + x.idlp + '">Duplicar</button></div></div>' +
+          '<div class="kpis" style="margin:10px 0"><div class="card"><div class="mut">Visitantes</div><b style="font-size:22px">' + e.visitantes + '</b><div class="mut">' + e.visitas + ' visitas</div></div>' +
+          '<div class="card"><div class="mut">Foram ao checkout</div><b style="font-size:22px">' + e.checkout + '</b><div class="mut">' + pct(e.taxa_checkout) + ' dos visitantes</div></div>' +
+          '<div class="card"><div class="mut">Leads</div><b style="font-size:22px">' + e.leads + '</b><div class="mut">' + pct(e.taxa_lead) + '</div></div>' +
+          '<div class="card"><div class="mut">Vendas</div><b style="font-size:22px">' + e.vendas + '</b><div class="mut">' + din(e.receita) + ' · ' + pct(e.taxa_venda) + '</div></div>' +
+          '<div class="card"><div class="mut">Leram até o fim</div><b style="font-size:22px">' + e.rolou_90 + '</b><div class="mut">' + e.video + ' viram o vídeo</div></div></div>' +
+          spark + '<div class="linha mut" style="margin-top:8px;gap:14px">' +
+          (e.cliques.length ? 'Cliques: ' + e.cliques.map(function (c) { return esc(c.alvo || '?') + ' ' + c.n + ' (' + c.pessoas + ' pessoas)'; }).join(' · ') : 'Sem cliques no período.') +
+          (e.fontes.length ? '<span>Origem: ' + e.fontes.map(function (f) { return esc(f.fonte) + ' ' + f.pessoas; }).join(' · ') + '</span>' : '') +
+          ((e.dispositivos.mobile || e.dispositivos.desktop) ? '<span>Celular ' + (e.dispositivos.mobile || 0) + ' · computador ' + (e.dispositivos.desktop || 0) + '</span>' : '') + '</div></div>';
+      });
+      if (arq.length) h += '<p class="mut">Arquivadas: ' + arq.map(function (x) { return esc(x.nome) + ' (<a href="#" data-rs="' + x.idlp + '">restaurar</a>)'; }).join(', ') + '</p>';
+      v.innerHTML = h;
+      $('pd').value = String(dias); $('pd').onchange = function () { dias = parseInt($('pd').value, 10); carregar(); };
+      $('nl').onclick = function () { formLp(null, lps, r.data.modelos); };
+      v.querySelectorAll('[data-ed]').forEach(function (b) { b.onclick = function () { formLp(lps.filter(function (x) { return x.idlp == b.getAttribute('data-ed'); })[0], lps, r.data.modelos); }; });
+      v.querySelectorAll('[data-dp]').forEach(function (b) { b.onclick = function () { var o = lps.filter(function (x) { return x.idlp == b.getAttribute('data-dp'); })[0]; formLp({ copiar_de: o.idlp, nome: o.nome + ' B', arquivo: o.arquivo, status: 'pausada', peso: 0 }, lps, r.data.modelos); }; });
+      v.querySelectorAll('[data-rs]').forEach(function (a) { a.onclick = async function (e) { e.preventDefault(); var o = arq.filter(function (x) { return x.idlp == a.getAttribute('data-rs'); })[0]; await CDD.api('a_lp_salvar', { body: { idlp: o.idlp, nome: o.nome, arquivo: o.arquivo, status: 'pausada', peso: 0, obs: o.obs } }); carregar(); }; });
+    }
+    function formLp(x, lps, modelos) {
+      var novo = !x || !x.idlp;
+      modal('<h3>' + (novo ? (x && x.copiar_de ? 'Duplicar LP' : 'Nova LP') : 'Editar LP') + '</h3><div id="aviso"></div><form id="f">' +
+        '<label for="l1">Nome (só para você)</label><input id="l1" maxlength="100" required>' +
+        (novo ? '<label for="l2">Endereço (letras, números e hífen)</label><input id="l2" maxlength="40" required placeholder="ex.: escura-b">' : '') +
+        '<label for="l3">Modelo da página</label><select id="l3">' + modelos.map(function (m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('') + '</select>' +
+        '<label for="l4">Situação</label><select id="l4"><option value="ativa">Ativa (entra no sorteio do endereço principal)</option><option value="pausada">Pausada (só pelo endereço próprio)</option><option value="arquivada">Arquivada</option></select>' +
+        '<label for="l5">Peso no sorteio (0 a 100, proporcional entre as ativas)</label><input id="l5" type="number" min="0" max="100">' +
+        '<label for="l6">Anotação</label><input id="l6" maxlength="300">' +
+        (novo ? '' : '<div class="espaco"></div><button type="button" class="btn" id="cp">Editar textos e links de compra</button>') +
+        '<div class="espaco"></div><div class="linha"><button class="btn pri" id="ok">Salvar</button><button type="button" class="btn" id="fx">Cancelar</button></div></form>', function (m) {
+        m.querySelector('#l1').value = x ? x.nome : ''; if (x && x.arquivo) m.querySelector('#l3').value = x.arquivo; m.querySelector('#l4').value = x ? x.status : 'pausada'; m.querySelector('#l5').value = x ? x.peso : 0; m.querySelector('#l6').value = (x && !x.copiar_de && x.obs) || '';
+        m.querySelector('#fx').onclick = m.fechar;
+        if (!novo) m.querySelector('#cp').onclick = function () { m.fechar(); campos(x); };
+        m.querySelector('#f').onsubmit = async function (e) {
+          e.preventDefault();
+          var b = { nome: m.querySelector('#l1').value, arquivo: m.querySelector('#l3').value, status: m.querySelector('#l4').value, peso: parseInt(m.querySelector('#l5').value, 10) || 0, obs: m.querySelector('#l6').value };
+          if (novo) { b.slug = m.querySelector('#l2').value; if (x && x.copiar_de) b.copiar_de = x.copiar_de; } else b.idlp = x.idlp;
+          var rr = await CDD.api('a_lp_salvar', { body: b });
+          if (!rr.ok) { m.querySelector('#aviso').innerHTML = msg(rr.data.mensagem); return; }
+          m.fechar(); carregar();
+        };
+      });
+    }
+    async function campos(x) {
+      var rr = await CDD.api('a_lp_campos', { q: { idlp: x.idlp } });
+      if (!rr.ok) { modal(msg(rr.data.mensagem)); return; }
+      var cs = rr.data.campos;
+      var txt = cs.filter(function (c) { return c.chave.indexOf('link.') !== 0; }), lk = cs.filter(function (c) { return c.chave.indexOf('link.') === 0; });
+      function campo(c) {
+        var padrao = c.padrao.replace(/<[^>]+>/g, function (t) { return /^<\/?(em|i|b|strong)>$/i.test(t) ? t : ''; });
+        return '<label for="c_' + esc(c.chave) + '">' + esc(c.rotulo) + (c.valor !== null ? ' <span class="tag aviso">editado</span>' : '') + '</label>' +
+          (c.chave.indexOf('link.') === 0 ? '<input id="c_' + esc(c.chave) + '" data-c="' + esc(c.chave) + '" maxlength="300" placeholder="' + esc(c.padrao) + '" value="' + esc(c.valor || '') + '">'
+            : '<textarea id="c_' + esc(c.chave) + '" data-c="' + esc(c.chave) + '" rows="' + (padrao.length > 110 ? 4 : 2) + '" maxlength="700" placeholder="' + esc(padrao) + '">' + esc(c.valor === null ? padrao : c.valor) + '</textarea>') ;
+      }
+      modal('<h3>Textos e links: ' + esc(x.nome) + '</h3><div id="aviso"></div><p class="mut">Mude só o que quiser testar. Aceita <b>&lt;em&gt;</b> para destaque. Apagar o campo de um link ou de um texto editado volta ao original do modelo.</p><form id="f"><h4>Links de compra (Eduzz ou Asaas)</h4>' + lk.map(campo).join('') + '<h4 style="margin-top:16px">Textos</h4>' + txt.map(campo).join('') +
+        '<div class="espaco"></div><div class="linha"><button class="btn pri" id="ok">Salvar</button><a class="btn" href="lp/' + esc(rr.data.slug) + '" target="_blank" rel="noopener">Ver a página</a><button type="button" class="btn" id="fx">Fechar</button></div></form>', function (m) {
+        m.querySelector('.caixa').style.maxWidth = '760px'; m.querySelector('.caixa').style.maxHeight = '88vh'; m.querySelector('.caixa').style.overflow = 'auto';
+        m.querySelector('#fx').onclick = m.fechar;
+        m.querySelector('#f').onsubmit = async function (e) {
+          e.preventDefault(); var falhas = '', n = 0;
+          for (var i = 0; i < cs.length; i++) {
+            var c = cs[i], el = m.querySelector('[data-c="' + c.chave + '"]'), val = el.value.trim();
+            var atual = c.valor === null ? (c.chave.indexOf('link.') === 0 ? '' : c.padrao.replace(/<[^>]+>/g, function (t) { return /^<\/?(em|i|b|strong)>$/i.test(t) ? t : ''; }).trim()) : c.valor;
+            if (val === atual.trim()) continue;
+            var padraoIgual = c.chave.indexOf('link.') !== 0 && val === c.padrao.replace(/<[^>]+>/g, function (t) { return /^<\/?(em|i|b|strong)>$/i.test(t) ? t : ''; }).trim();
+            var s = await CDD.api('a_lp_campo', { body: { idlp: x.idlp, chave: c.chave, valor: padraoIgual ? '' : val } });
+            if (!s.ok) falhas += c.rotulo + ': ' + s.data.mensagem + ' '; else n++;
+          }
+          m.querySelector('#aviso').innerHTML = falhas ? msg(falhas) : msg(n ? n + ' campo(s) salvo(s). A página já mostra as mudanças.' : 'Nada mudou.', 'ok');
+          if (n && !falhas) carregar();
+        };
+      });
+    }
+    carregar();
   }
 
   /* ---------- conteúdo ---------- */
