@@ -697,7 +697,9 @@ eq('gateway desconhecido (404)', $s === 404);
 [$s, $d] = req('webhook', 'POST', ['g' => 'eduzz'], $aviso('invoice_paid'));
 eq('produto sem oferta cadastrada só é registrado, sem criar aluna', $s === 200 && $d['resultado'] === 'produto_desconhecido' && $qtCamila() === 0);
 [$s, $d] = req('a_com_padroes', 'POST', [], [], $tAdmin);
-eq('ofertas e cupons padrão entram (3 ofertas, 6 cupons)', $s === 200 && $d['ofertas_novas'] === 3 && $d['cupons_novos'] === 6);
+eq('ofertas e cupons padrão entram (3 do Eduzz e 9 do Asaas desligadas; 6 cupons do Eduzz e 6 do Asaas)', $s === 200 && $d['ofertas_novas'] === 12 && $d['cupons_novos'] === 12, json_encode($d));
+eq('as ofertas do Asaas nascem desligadas (ligar antes do webhook perderia vendas) e o semestral tem valor', (int)$pdo->query("SELECT COUNT(*) FROM cdd_oferta WHERE gateway = 'asaas' AND ativo = 1")->fetchColumn() === 0 && (float)$pdo->query("SELECT valor FROM cdd_oferta WHERE gateway = 'eduzz' AND ref_gateway = '2947166'")->fetchColumn() === 447.0);
+eq('cada cupom do Asaas aponta para a sua oferta com o link já descontado', (int)$pdo->query("SELECT COUNT(*) FROM cdd_cupom c JOIN cdd_oferta o ON o.idoferta = c.idoferta WHERE c.gateway = 'asaas' AND o.gateway = 'asaas' AND o.meses = 12 AND o.nome LIKE '%cupom ' || c.codigo")->fetchColumn() === 6);
 [$s, $d] = req('a_com_padroes', 'POST', [], [], $tAdmin);
 eq('repetir os padrões não duplica nada', $d['ofertas_novas'] === 0 && $d['cupons_novos'] === 0);
 [$s, $d] = req('webhook', 'POST', ['g' => 'eduzz'], $aviso('invoice_paid', ['trans_cod' => '9002', 'product_cod' => '2947166']));
@@ -931,6 +933,32 @@ $linksPub = $d['ofertas'] ?? [];
 $doAsaas = array_values(array_filter($linksPub, function ($o) { return $o['gateway'] === 'asaas'; }));
 eq('as páginas de venda leem os links das ofertas ligadas, sem login', $s === 200 && count($doAsaas) === 2 && $doAsaas[0]['meses'] === 12 && strpos($doAsaas[0]['link'], 'asaas.com/c/') !== false);
 eq('a lista pública não traz o código do produto no gateway', !array_key_exists('ref_gateway', $linksPub[0]) && !array_key_exists('idoferta', $linksPub[0]));
+
+// cupom no Asaas: o link não tem campo de cupom, então o desconto é um link próprio; a oferta dele fica ligada ao cupom
+[$s, $d] = req('a_com_ofertas', 'POST', [], ['nome' => 'CDD anual, cupom TESTE20 (Asaas)', 'gateway' => 'asaas', 'ref_gateway' => 'https://www.asaas.com/c/linkcupom20', 'meses' => 12, 'valor' => '558.40', 'ativo' => true], $tAdmin);
+$idOfCupom = (int)($d['idoferta'] ?? 0);
+[$s, $d] = req('a_com_cupons', 'POST', [], ['codigo' => 'teste20', 'gateway' => 'asaas', 'tipo' => 'percentual', 'valor' => 20, 'idoferta' => 0], $tAdmin);
+eq('cupom do Asaas sem a oferta do link com desconto é recusado', $s === 422);
+[$s, $d] = req('a_com_cupons', 'POST', [], ['codigo' => 'teste20', 'gateway' => 'asaas', 'tipo' => 'percentual', 'valor' => 20, 'idoferta' => (int)$pdo->query("SELECT idoferta FROM cdd_oferta WHERE gateway = 'eduzz' LIMIT 1")->fetchColumn()], $tAdmin);
+eq('cupom do Asaas apontando para oferta de outro gateway é recusado', $s === 422);
+[$s, $d] = req('a_com_cupons', 'POST', [], ['codigo' => 'teste20', 'gateway' => 'asaas', 'tipo' => 'percentual', 'valor' => 20, 'idoferta' => $idOfCupom], $tAdmin);
+eq('cupom do Asaas ligado à oferta do link com desconto', $s === 200 && $idOfCupom > 0, json_encode($d));
+[$s, $d] = cddTratar($pdo, 'GET', 'ofertas_publicas', [], [], '', $ctx);
+$doAsaas2 = array_values(array_filter($d['ofertas'] ?? [], function ($o) { return $o['gateway'] === 'asaas'; }));
+eq('a lista comum não traz o link do cupom (não vira o preço do plano anual)', count($doAsaas2) === 2 && strpos(json_encode($d['ofertas']), 'linkcupom20') === false);
+eq('a lista de cupons traz código em maiúsculas, duração, valor com desconto e link', count($d['cupons'] ?? []) === 1 && $d['cupons'][0]['codigo'] === 'TESTE20' && $d['cupons'][0]['meses'] === 12 && $d['cupons'][0]['valor'] === 558.4 && strpos($d['cupons'][0]['link'], 'linkcupom20') !== false, json_encode($d['cupons'] ?? null));
+eq('a lista de cupons não revela o código do produto nem o id', !array_key_exists('ref_gateway', $d['cupons'][0]) && !array_key_exists('idoferta', $d['cupons'][0]));
+$pdo->exec("UPDATE cdd_cupom SET validade = '2020-01-01' WHERE codigo = 'TESTE20'");
+[$s, $d] = cddTratar($pdo, 'GET', 'ofertas_publicas', [], [], '', $ctx);
+eq('cupom vencido sai da lista pública', ($d['cupons'] ?? []) === []);
+$pdo->exec("UPDATE cdd_cupom SET validade = NULL, limite_uso = 1 WHERE codigo = 'TESTE20'");
+[$s, $d] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_cupom1', ['customer' => 'cus_ana', 'paymentLink' => 'linkcupom20', 'value' => 558.40, 'billingType' => 'CREDIT_CARD']));
+eq('compra pelo link do cupom é liberada como plano anual', $s === 200 && $d['resultado'] !== 'produto_desconhecido' && $d['resultado'] !== 'oferta_inativa', json_encode($d));
+$pgCp = $pdo->query("SELECT * FROM cdd_pagamento WHERE ref_externa = 'pay_cupom1'")->fetch();
+eq('o pagamento guarda o código do cupom (vem da oferta) e o valor com desconto', $pgCp && $pgCp['cupom'] === 'TESTE20' && (float)$pgCp['valor'] === 558.4, json_encode($pgCp));
+[$s, $d] = cddTratar($pdo, 'GET', 'ofertas_publicas', [], [], '', $ctx);
+eq('cupom que chegou ao limite de usos sai da lista pública', ($d['cupons'] ?? []) === []);
+
 $GLOBALS['cddAsaasHttpFake'] = null;
 
 echo "\nEntrada da equipe vinda do painel da Intus (bilhete assinado)\n";

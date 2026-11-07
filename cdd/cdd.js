@@ -28,14 +28,40 @@
    * Troca o link de compra dos botões [data-meses] pelo da oferta ligada no painel (Asaas, em produção). Sem oferta ou sem rede, fica o link que já
    * está escrito na página. Assim trocar de gateway é cadastrar a oferta no painel, sem publicar a página de novo.
    */
+  function brl(v) { return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: Math.abs(v - Math.round(v)) < 0.005 ? 0 : 2, maximumFractionDigits: 2 }); }
   async function linksDeCompra(raiz) {
     var r = await api('ofertas_publicas', { prazo: 6000 });
     if (!r.ok || !r.data || !Array.isArray(r.data.ofertas)) return;
-    var por = {};
-    r.data.ofertas.forEach(function (o) { if (o.gateway === 'asaas' && /^https:\/\/(www\.)?asaas\.com\/c\//.test(o.link || '') && !por[o.meses]) por[o.meses] = o.link; });
-    (raiz || document).querySelectorAll('[data-meses]').forEach(function (a) {
-      var l = por[a.getAttribute('data-meses')];
-      if (l) { a.href = l; a.removeAttribute('data-eduzz'); }
+    var ehLink = function (l) { return /^https:\/\/(www\.)?asaas\.com\/c\//.test(l || ''); };
+    var por = {};   // meses -> {link, valor}
+    r.data.ofertas.forEach(function (o) { if (o.gateway === 'asaas' && ehLink(o.link) && !por[o.meses]) por[o.meses] = { link: o.link, valor: o.valor }; });
+    // Cupom (?cupom=CODIGO): o Asaas não tem campo de cupom, então cada cupom é um link já com o desconto. Fica na sessão para a visitante poder navegar.
+    var cod = '';
+    try {
+      var qc = new URLSearchParams(location.search).get('cupom');
+      if (qc) sessionStorage.setItem('cdd-cupom', qc.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 40));
+      cod = sessionStorage.getItem('cdd-cupom') || '';
+    } catch (e) {}
+    var cp = null;
+    (Array.isArray(r.data.cupons) ? r.data.cupons : []).forEach(function (c) { if (!cp && cod && c.codigo === cod && ehLink(c.link)) cp = c; });
+    if (cp) por[cp.meses] = { link: cp.link, valor: cp.valor };
+    var base = raiz || document;
+    base.querySelectorAll('[data-meses]').forEach(function (a) {
+      var o = por[a.getAttribute('data-meses')];
+      if (o) { a.href = o.link; a.removeAttribute('data-eduzz'); }
+    });
+    // plano que só existe no Asaas (o semestral) nasce escondido e aparece quando a oferta é ligada
+    base.querySelectorAll('[data-so-asaas]').forEach(function (el) { if (por[el.getAttribute('data-so-asaas')]) el.hidden = false; });
+    // valor e parcelas vêm da oferta ligada (única fonte): preço, "12x sem juros" e quanto dá por mês
+    base.querySelectorAll('[data-asaas-meses]').forEach(function (el) {
+      var m = parseInt(el.getAttribute('data-asaas-meses'), 10), o = por[m];
+      if (!o || o.valor === null || !(o.valor > 0)) return;
+      var preco = el.querySelector('.preco'), nota = el.querySelector('.nota'), n = parseInt(el.getAttribute('data-asaas-parcelas') || '0', 10);
+      if (preco && preco.firstChild) preco.firstChild.nodeValue = 'R$ ' + brl(o.valor) + ' ';
+      if (nota && n > 1) nota.textContent = 'Ou em até ' + n + 'x de R$ ' + brl(Math.round(o.valor / n * 100) / 100) + ' no cartão de crédito, sem juros.';
+    });
+    base.querySelectorAll('[data-cupom-aviso]').forEach(function (el) {
+      if (cp) { el.textContent = 'Cupom ' + cp.codigo + ' aplicado no plano anual.'; el.hidden = false; } else el.hidden = true;
     });
   }
 

@@ -784,9 +784,22 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     // Links de compra das ofertas ligadas, para as páginas de venda: trocar de gateway é cadastrar a oferta nova no painel, sem mexer nas páginas.
     // Só o que já é público (duração, valor, link); nunca o código do produto no gateway.
     if ($acao === 'ofertas_publicas' && $get) {
-        $l = $pdo->query("SELECT gateway, meses, valor, link FROM cdd_oferta WHERE ativo = 1 AND link IS NOT NULL AND link <> '' ORDER BY ordem, idoferta")->fetchAll();
+        // oferta que é o destino de um cupom do Asaas (link já com o desconto) não entra na lista comum: só aparece em "cupons"
+        $l = $pdo->query("SELECT gateway, meses, valor, link FROM cdd_oferta o WHERE ativo = 1 AND link IS NOT NULL AND link <> ''
+                          AND NOT EXISTS (SELECT 1 FROM cdd_cupom c WHERE c.idoferta = o.idoferta AND c.gateway = 'asaas') ORDER BY ordem, idoferta")->fetchAll();
         foreach ($l as &$o) { $o['meses'] = (int)$o['meses']; $o['valor'] = $o['valor'] === null ? null : (float)$o['valor']; }
-        return cddResp(200, ['ofertas' => $l]);
+        unset($o);
+        // cupons do Asaas valendo hoje (ativo, dentro da validade e do limite de usos, com a oferta do desconto ligada)
+        $cp = $pdo->prepare("SELECT c.codigo, o.meses, o.valor, o.link FROM cdd_cupom c JOIN cdd_oferta o ON o.idoferta = c.idoferta
+                             WHERE c.gateway = 'asaas' AND c.ativo = 1 AND o.ativo = 1 AND o.link IS NOT NULL AND o.link <> ''
+                               AND (c.validade IS NULL OR c.validade >= ?)
+                               AND (c.limite_uso IS NULL OR (SELECT COUNT(*) FROM cdd_pagamento p WHERE p.cupom = c.codigo AND p.status = 'pago') < c.limite_uso)
+                             ORDER BY c.idcupom");
+        $cp->execute([cddHoje()]);
+        $cupons = $cp->fetchAll();
+        foreach ($cupons as &$c) { $c['codigo'] = strtoupper((string)$c['codigo']); $c['meses'] = (int)$c['meses']; $c['valor'] = $c['valor'] === null ? null : (float)$c['valor']; }
+        unset($c);
+        return cddResp(200, ['ofertas' => $l, 'cupons' => $cupons]);
     }
 
     if ($acao === 'saude') {

@@ -388,8 +388,14 @@ function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
         $pago = $ev['pago_em'] !== '' ? $ev['pago_em'] : cddAgora();
         $st = $pdo->prepare('SELECT idpagamento FROM cdd_pagamento WHERE gateway = ? AND ref_externa = ?'); $st->execute([$ev['gateway'], $ev['fatura']]);
         if ($ev['fatura'] !== '' && !$st->fetchColumn()) {
+            // Asaas não tem cupom no link: o desconto é um link próprio, ligado ao cupom pela oferta. O código sai daí, para o contador de vendas do cupom.
+            $cupomPg = (string)$ev['cupom'];
+            if ($cupomPg === '') {
+                $sc = $pdo->prepare('SELECT codigo FROM cdd_cupom WHERE gateway = ? AND idoferta = ? ORDER BY ativo DESC, idcupom LIMIT 1'); $sc->execute([$ev['gateway'], (int)$oferta['idoferta']]);
+                $cupomPg = (string)$sc->fetchColumn();
+            }
             $pdo->prepare('INSERT INTO cdd_pagamento (idaluna, idoferta, gateway, ref_externa, contrato_ref, status, valor, forma, cupom, utm, pago_em, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                ->execute([$idaluna, (int)$oferta['idoferta'], $ev['gateway'], $ev['fatura'], $ev['contrato'] ?: null, 'pago', $ev['valor'], $ev['forma'] ?: null, $ev['cupom'] ?: null, $ev['utm'] ?: null, $pago, cddAgora()]);
+                ->execute([$idaluna, (int)$oferta['idoferta'], $ev['gateway'], $ev['fatura'], $ev['contrato'] ?: null, 'pago', $ev['valor'], $ev['forma'] ?: null, $cupomPg ?: null, $ev['utm'] ?: null, $pago, cddAgora()]);
         }
         // matrícula: renova a partir do fim atual (se ainda vale) ou de hoje
         $st = $pdo->prepare('SELECT status, inicio, expira_em, origem FROM cdd_matricula WHERE idaluna = ?'); $st->execute([$idaluna]);
@@ -584,6 +590,13 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
         $lim = ($b['limite_uso'] ?? '') === '' ? null : max(1, (int)$b['limite_uso']);
         $of = (int)($b['idoferta'] ?? 0) ?: null; $ativo = array_key_exists('ativo', $b) ? (!empty($b['ativo']) ? 1 : 0) : 1;
         $obs = cddStr($b['obs'] ?? '', 200); $gw = cddStr($b['gateway'] ?? 'eduzz', 20);
+        if ($gw === 'asaas') {
+            // o link de pagamento do Asaas não tem campo de cupom: o desconto é um link próprio (com o valor já descontado), guardado numa oferta do Asaas.
+            // Neste caso "idoferta" é essa oferta com o desconto, e o link do cupom só vale com ela ligada.
+            $og = $of ? $pdo->prepare('SELECT gateway FROM cdd_oferta WHERE idoferta = ?') : null;
+            if ($og) $og->execute([$of]);
+            if (!$of || $og->fetchColumn() !== 'asaas') return cddErro(422, 'dados_invalidos', 'No Asaas, escolha a oferta do Asaas que tem o link já com este desconto.');
+        }
         $id = (int)($b['idcupom'] ?? 0);
         if ($id) $pdo->prepare('UPDATE cdd_cupom SET codigo = ?, gateway = ?, tipo = ?, valor = ?, idoferta = ?, validade = ?, limite_uso = ?, ativo = ?, obs = ? WHERE idcupom = ?')->execute([$cod, $gw, $tipo, $valor, $of, $val, $lim, $ativo, $obs ?: null, $id]);
         else { $pdo->prepare('INSERT INTO cdd_cupom (codigo, gateway, tipo, valor, idoferta, validade, limite_uso, ativo, obs, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([$cod, $gw, $tipo, $valor, $of, $val, $lim, $ativo, $obs ?: null, cddAgora()]); $id = (int)$pdo->lastInsertId(); }
@@ -598,17 +611,31 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
     }
     if ($acao === 'a_com_padroes' && !$get) {
         // Ofertas e cupons do CDD no Eduzz, lidos do painel do Eduzz em 30/10/2026. Idempotente: não repete nem altera o que já existe.
-        $of = [['Código da Definição, plano anual', '1344531', 12, 698.00, 'https://sun.eduzz.com/1344531', 1, 1],
-               ['Código da Definição, plano mensal', '2411829', 1, 119.00, 'https://sun.eduzz.com/2411829', 1, 3],
-               ['Código da Definição, plano semestral', '2947166', 6, null, 'https://sun.eduzz.com/2947166', 0, 2]];
+        // Gateway, nome, código no gateway, meses, valor, link, ligada, ordem. As do Asaas (links de pagamento criados em 07/11/2026) nascem DESLIGADAS: ligar uma oferta do
+        // Asaas troca o link das páginas de venda, e isso só pode acontecer depois que a chave de API e o webhook estiverem cadastrados (senão a venda não libera a aluna).
+        $A = 'https://www.asaas.com/c/';
+        $of = [['eduzz', 'Código da Definição, plano anual', '1344531', 12, 698.00, 'https://sun.eduzz.com/1344531', 1, 1],
+               ['eduzz', 'Código da Definição, plano mensal', '2411829', 1, 119.00, 'https://sun.eduzz.com/2411829', 1, 3],
+               ['eduzz', 'Código da Definição, plano semestral', '2947166', 6, 447.00, 'https://sun.eduzz.com/2947166', 0, 2],
+               ['asaas', 'Código da Definição, plano anual', 'r8eb58ytv6woigu2', 12, 698.00, $A . 'r8eb58ytv6woigu2', 0, 1],
+               ['asaas', 'Código da Definição, plano semestral', 'qtvk2ixljil0qqp8', 6, 447.00, $A . 'qtvk2ixljil0qqp8', 0, 2],
+               ['asaas', 'Código da Definição, plano mensal', 'gblzqkgx3ruv4mhe', 1, 119.00, $A . 'gblzqkgx3ruv4mhe', 0, 3],
+               ['asaas', 'Código da Definição, plano anual, cupom CDD20OFF', 'joy0ay7gvincodyi', 12, 558.40, $A . 'joy0ay7gvincodyi', 0, 11],
+               ['asaas', 'Código da Definição, plano anual, cupom MARLENE20', '7sj7f4xxg7y722jl', 12, 558.40, $A . '7sj7f4xxg7y722jl', 0, 12],
+               ['asaas', 'Código da Definição, plano anual, cupom CDD40OFF', 'l67yzditsvrdvj51', 12, 418.80, $A . 'l67yzditsvrdvj51', 0, 13],
+               ['asaas', 'Código da Definição, plano anual, cupom SOS', 'l9b35l4qm2wjzfrn', 12, 488.60, $A . 'l9b35l4qm2wjzfrn', 0, 14],
+               ['asaas', 'Código da Definição, plano anual, cupom CAMIDIVA', 'pttozkp4hcrl9cyx', 12, 488.60, $A . 'pttozkp4hcrl9cyx', 0, 15],
+               ['asaas', 'Código da Definição, plano anual, cupom ESPECIALCAMILA', 'zo15nqi1r8h6t5ih', 12, 318.80, $A . 'zo15nqi1r8h6t5ih', 0, 16]];
         $novas = 0;
         foreach ($of as $o) {
-            $st = $pdo->prepare('SELECT idoferta FROM cdd_oferta WHERE gateway = ? AND ref_gateway = ?'); $st->execute(['eduzz', $o[1]]);
+            $st = $pdo->prepare('SELECT idoferta FROM cdd_oferta WHERE gateway = ? AND ref_gateway = ?'); $st->execute([$o[0], $o[2]]);
             if ($st->fetchColumn()) continue;
             $pdo->prepare('INSERT INTO cdd_oferta (nome, gateway, ref_gateway, meses, valor, link, ativo, ordem, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                ->execute([$o[0], 'eduzz', $o[1], $o[2], $o[3], $o[4], $o[5], $o[6], cddAgora()]);
+                ->execute([$o[1], $o[0], $o[2], $o[3], $o[4], $o[5], $o[6], $o[7], cddAgora()]);
             $novas++;
         }
+        // o semestral do Eduzz já existia sem valor (R$ 447 foi definido em 07/11/2026); só preenche o que está vazio
+        $pdo->exec("UPDATE cdd_oferta SET valor = 447.00 WHERE gateway = 'eduzz' AND ref_gateway = '2947166' AND valor IS NULL");
         $cup = [['CDD20OFF', 'percentual', 20, '20% de desconto'], ['MARLENE20', 'percentual', 20, '20% de desconto'], ['CDD40OFF', 'percentual', 40, '40% de desconto'],
                 ['SOS', 'percentual', 30, '30% de desconto'], ['CAMIDIVA', 'percentual', 30, '30% de desconto'], ['ESPECIALCAMILA', 'valor', 379.20, 'R$ 379,20 de desconto']];
         $nc = 0;
@@ -617,6 +644,18 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
             if ($st->fetchColumn()) continue;
             $pdo->prepare('INSERT INTO cdd_cupom (codigo, gateway, tipo, valor, ativo, obs, criado_em) VALUES (?, ?, ?, ?, 1, ?, ?)')
                 ->execute([$c[0], 'eduzz', $c[1], $c[2], cddStr($c[3] . '. Conferir no Eduzz a quais produtos se aplica.', 200), cddAgora()]);
+            $nc++;
+        }
+        // Cupons no Asaas: um link por cupom, só no plano anual (o do mensal valeria em toda cobrança do mês, para sempre). O cupom aponta para a oferta que tem o link já descontado.
+        $refCupom = ['CDD20OFF' => 'joy0ay7gvincodyi', 'MARLENE20' => '7sj7f4xxg7y722jl', 'CDD40OFF' => 'l67yzditsvrdvj51', 'SOS' => 'l9b35l4qm2wjzfrn', 'CAMIDIVA' => 'pttozkp4hcrl9cyx', 'ESPECIALCAMILA' => 'zo15nqi1r8h6t5ih'];
+        foreach ($cup as $c) {
+            $so = $pdo->prepare("SELECT idoferta FROM cdd_oferta WHERE gateway = 'asaas' AND ref_gateway = ?"); $so->execute([$refCupom[$c[0]]]);
+            $idof = (int)$so->fetchColumn();
+            if (!$idof) continue;
+            $st = $pdo->prepare("SELECT idcupom FROM cdd_cupom WHERE codigo = ? AND gateway = 'asaas'"); $st->execute([$c[0]]);
+            if ($st->fetchColumn()) continue;
+            $pdo->prepare('INSERT INTO cdd_cupom (codigo, gateway, tipo, valor, idoferta, ativo, obs, criado_em) VALUES (?, ?, ?, ?, ?, 1, ?, ?)')
+                ->execute([$c[0], 'asaas', $c[1], $c[2], $idof, cddStr($c[3] . ' no plano anual. Link próprio no Asaas.', 200), cddAgora()]);
             $nc++;
         }
         return cddResp(200, ['ofertas_novas' => $novas, 'cupons_novos' => $nc]);
