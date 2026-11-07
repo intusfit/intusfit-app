@@ -3817,6 +3817,11 @@ const API = {
     'Luta':       { leve: 5.3, moderada: 7.8, intensa: 10.3 },
     'Polichinelo':{ leve: 5.0, moderada: 8.0, intensa: 10.0 },
     'Corrida estática': { leve: 5.0, moderada: 8.0, intensa: 10.0 },
+    // 07/11/2026: três opções que o app passou a mostrar no lugar de várias (Tênis e Padel pesam igual, Polichinelo e Corrida estática também).
+    // As chaves antigas continuam aqui porque sessões já gravadas e os programas guiados ainda as usam.
+    'Esportes de raquete': { leve: 5.0, moderada: 7.0, intensa: 8.5 },   // tênis, padel, beach tennis
+    'Exercício em casa':   { leve: 5.0, moderada: 8.0, intensa: 10.0 },  // polichinelo, corrida parada e afins
+    'Trilha e natureza':   { leve: 4.5, moderada: 6.0, intensa: 7.5 },   // trilha, caiaque, remo
     'Outro':      { leve: 3.0, moderada: 5.0, intensa: 7.0 },
   },
   CARDIO_PONTOS: { centro: 6, compressao: 0.5, pesoIntensidade: 0.03 },

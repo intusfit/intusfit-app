@@ -17,8 +17,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261103c"></script>
-  <script src="ajuda.js?v=20261027a" defer></script>
+  <script src="api.js?v=20261107a"></script>
+  <script src="ajuda.js?v=20261107a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -11883,6 +11883,7 @@ const CARDIO_METRICA = {
   'Natação':   { tipo:'m',  label:'Distância (m)',  ph:'ex: 1000', step:'10' },
   'Escada':    { tipo:'degraus', label:'Degraus / andares', ph:'ex: 120 degraus', step:'1' },
   'Elíptico':  { tipo:'km', label:'Distância (km)', ph:'ex: 6',   step:'0.1' },
+  'Trilha e natureza': { tipo:'km', label:'Distância (km)', ph:'ex: 6', step:'0.1' },
 };
 function cardioMetrica(tipo) { return CARDIO_METRICA[tipo] || null; }
 
@@ -11926,7 +11927,7 @@ function calcCardioPoints(tipo, rpe, minutos) {
 let _cardioRegras = {
   limiteDia: 3,
   maxMin: 240,
-  velocidades: { 'Caminhada':9, 'Corrida':24, 'Bike':50, 'Natação':7, 'Elíptico':22, 'Escada':12, 'Tênis':22, 'Futebol':26, 'Luta':16, 'Pular Corda':6, 'Outro':45 },
+  velocidades: { 'Caminhada':9, 'Corrida':24, 'Bike':50, 'Natação':7, 'Elíptico':22, 'Escada':12, 'Tênis':22, 'Futebol':26, 'Luta':16, 'Pular Corda':6, 'Trilha e natureza':15, 'Outro':45 },
 };
 (function(){
   _fetchConfigDireto('cardio_regras').then(function(c){
@@ -12015,6 +12016,7 @@ async function abrirCardio() {
   // renderizada); na ordem invertida, a primeira visita da sessão sempre
   // caía nessa rede e voltava pra home sozinha (só a segunda tentativa
   // funcionava, pois a primeira já tinha deixado a view preenchida).
+  _cardioUi.pilha = ['home'];
   renderCardio();
   trocarView('cardio');
   // Load history in background
@@ -12023,191 +12025,421 @@ async function abrirCardio() {
     const r = await fetch(API_BASE + '/treinos.php?action=cardio&atleta=' + idAtleta, {
       headers: { 'Authorization': 'Bearer ' + token }, cache: 'no-store'
     });
-    if (r.ok) { _cardioHistorico = await r.json(); renderCardio(); }
+    if (r.ok) { _cardioHistorico = await r.json(); renderCardio(); }   // formulário e confirmação não se refazem à toa (ver _cardioRenderForm)
   } catch {}
 }
 
 // Emoji de cada atividade de cardio (lista de registro manual, histórico). Programa guiado usa o emoji do próprio programa.
-const CARDIO_EMOJI_TODOS = { Caminhada: '🚶', Corrida: '🏃', Bike: '🚴', 'Natação': '🏊', Escada: '🧗', 'Pular Corda': '🪢', 'Elíptico': '🔄', 'Tênis': '🎾', Padel: '🏸', 'Dança': '💃', Futebol: '⚽', Luta: '🥊', Polichinelo: '🤸', 'Corrida estática': '🏃', Outro: '🏅' };
+// Pular corda não tem emoji (o 🪢 é um nó): ícone desenhado, que acompanha o tamanho e a cor do texto onde estiver.
+const _CARDIO_ICONE_CORDA = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-.14em;" aria-hidden="true"><ellipse cx="12" cy="12.4" rx="9" ry="10.2"/><circle cx="12" cy="6.2" r="1.9" fill="currentColor" stroke="none"/><path d="M12 8.6v6M12 10.4 4.6 12.4M12 10.4l7.4 2M12 14.6l-2.4 4.4M12 14.6l2.4 4.4"/></svg>';
+// As chaves 'Tênis', Padel, Polichinelo e 'Corrida estática' continuam aqui: histórico antigo e programas guiados ainda gravam esses nomes.
+const CARDIO_EMOJI_TODOS = { Caminhada: '🚶', Corrida: '🏃', Bike: '🚴', 'Natação': '🏊', Escada: '🧗', 'Pular Corda': _CARDIO_ICONE_CORDA, 'Elíptico': '🔄', 'Tênis': '🎾', Padel: '🏸', 'Dança': '💃', Futebol: '⚽', Luta: '🥊', Polichinelo: '🤸', 'Corrida estática': '🏃', 'Esportes de raquete': '🎾', 'Trilha e natureza': '🥾', 'Exercício em casa': '🏠', Outro: '🏅' };
 function _cardioEmoji(c) {
   try { const pr = (typeof c === 'object' && c) ? API.programaDoComentario(c) : null; if (pr) return pr.p.emoji; } catch (e) {}
   const t = (typeof c === 'object' && c) ? c.cardio_tipo : c;
   return CARDIO_EMOJI_TODOS[t] || '🏃';
 }
+// ═══════════════ MEU CARDIO: TELAS ═══════════════
+// Telas dentro de #v-cardio: 'home' (lista), 'form' (registrar manualmente), 'confirma' (conferir antes de gravar) e 'hist' (histórico).
+// Cada passo além do 'home' entra no histórico do navegador, então o voltar do celular, o "← Voltar" e o "Corrigir" andam juntos (mesmo
+// padrão da Nutrição). O que o aluno digitou fica em _cardioForm (e em _cardioRpe/_cardioFoto), não na tela: trocar de tela não perde nada.
+// Os registros do cardio ao vivo e dos programas guiados também passam por _cardioForm antes de chamar salvarCardio.
+let _cardioUi = { pilha: ['home'] };
+let _cardioForm = { tipo: '', outro: '', min: '', dist: '' };
+
+function _cdPal() {
+  const L = document.body.classList.contains('tema-claro');
+  return { L: L, card: L ? '#fff' : '#141414', borda: L ? '#e5e5e5' : '#262626', txt: L ? '#1a1a1a' : '#f0f0f0', mut: L ? '#666' : '#999', mut2: L ? '#888' : '#777',
+    fundo: L ? '#f5f5f5' : '#0f0f0f', cia: L ? '#0e7490' : '#22d3ee', ciaBg: L ? 'rgba(6,182,212,.10)' : 'rgba(6,182,212,.14)', ciaBorda: L ? '#06b6d4' : '#22d3ee',
+    campo: L ? '#fff' : '#0d0d0d', campoBorda: L ? '#cfcfcf' : '#3a3a3a', aviso: L ? '#9a3412' : '#fdba74', avisoBg: L ? '#fff7ed' : 'rgba(251,146,60,.08)', avisoBorda: L ? 'rgba(234,88,12,.3)' : 'rgba(251,146,60,.25)' };
+}
+function _cardioTelaAtual() { return _cardioUi.pilha[_cardioUi.pilha.length - 1]; }
+function _cardioCab(titulo) { return telaHeader(titulo).replace('onclick="voltarTela()"', 'onclick="cardioVoltar()"'); }
+function _cardioMinTexto(m) { m = Number(m) || 0; return m >= 60 ? Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '') : m + ' min'; }
+
+// Passos dentro do Meu Cardio. cardioVoltar() é o "← Voltar" do cabeçalho e o "Corrigir": os dois usam o histórico do navegador.
+function cardioTela(t) {
+  _cardioUi.pilha.push(t);
+  try { history.pushState({ view: 'cardio' }, '', ''); } catch (e) {}
+  window.scrollTo(0, 0);
+  renderCardio();
+}
+function cardioVoltar() {
+  if (_cardioUi.pilha.length > 1) { history.back(); return; }
+  voltarTela();
+}
+// Chamado pelo popstate central: devolve true quando tratou o voltar dentro do Meu Cardio.
+function _cardioVoltarGesto() {
+  if (_cardioUi.pilha.length <= 1) return false;
+  _cardioUi.pilha.pop();
+  window.scrollTo(0, 0);
+  renderCardio();
+  return true;
+}
+// Depois de registrar: desfaz os passos (formulário e confirmação) do histórico, para o voltar não cair numa tela já usada.
+function _cardioLimparHist() {
+  const n = _cardioUi.pilha.length - 1;
+  _cardioUi.pilha = ['home'];
+  if (n > 0) {
+    window._ignorarPop = (window._ignorarPop || 0) + 1;
+    try { history.go(-n); } catch (e) { window._ignorarPop = 0; }
+    setTimeout(function () { if (window._ignorarPop > 0) window._ignorarPop--; }, 1500);   // se o navegador não disparar o evento, não fica uma volta "engolida" para sempre
+  }
+}
+function _cardioFormLimpar() { _cardioForm = { tipo: '', outro: '', min: '', dist: '' }; _cardioRpe = 5; _cardioFoto = ''; }
+function cardioAbrirForm() { cardioTela('form'); }
+function cardioFormLimparTela() { _cardioFormLimpar(); _cardioFormAtualizar(); window.scrollTo(0, 0); }   // recomeça o formulário do zero (o que foi digitado fica guardado enquanto o aluno não registrar)
+
 function renderCardio() {
-  const isLight = document.body.classList.contains('tema-claro');
   const box = document.getElementById('v-cardio');
-  const tipos = Object.keys(CARDIO_METS);
+  if (!box) return;
+  const t = _cardioTelaAtual();
+  if (t === 'form') return _cardioRenderForm(box);
+  if (t === 'confirma') return _cardioRenderConfirma(box);
+  if (t === 'hist') return _cardioRenderHist(box);
+  return _cardioRenderHome(box);
+}
 
-  // "NOVO" banner only once
+// ── Tela inicial: lista simples, o gráfico da semana e "Por que fazer cardio" ──
+function _cardioRenderHome(box) {
+  const P = _cdPal(), isLight = P.L;
   const novoVisto = localStorage.getItem('intus-cardio-novo-visto');
-  const novoHtml = !novoVisto ? `
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;border-radius:12px;background:${isLight?'rgba(6,182,212,.12)':'rgba(6,182,212,.14)'};border:1px solid rgba(6,182,212,.3);margin-bottom:12px;font-size:12px;line-height:1.35;color:${isLight?'#444':'#ccc'};">
-      <b style="color:${isLight?'#0e7490':'#22d3ee'};flex-shrink:0;">Novo</b>
+  const novoHtml = novoVisto ? '' : `
+    <div id="cardio-novo-banner" style="display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;border-radius:12px;background:${isLight?'rgba(6,182,212,.12)':'rgba(6,182,212,.14)'};border:1px solid rgba(6,182,212,.3);margin-bottom:12px;font-size:12px;line-height:1.35;color:${isLight?'#444':'#ccc'};">
+      <b style="color:${P.cia};flex-shrink:0;">Novo</b>
       <span style="flex:1;min-width:0;">Cardio conta no ranking, até <b>${_rankReg.cardioTeto} pts</b> por sessão (musculação = ${_rankReg.musBase}).</span>
-      <button onclick="localStorage.setItem('intus-cardio-novo-visto','1');document.getElementById('cardio-novo-banner').remove();" aria-label="Fechar aviso" style="flex-shrink:0;width:26px;height:26px;border-radius:50%;border:none;background:rgba(128,128,128,.18);color:inherit;font-size:13px;cursor:pointer;">✕</button>
-    </div>` : '';
+      <button onclick="localStorage.setItem('intus-cardio-novo-visto','1');document.getElementById('cardio-novo-banner').remove();" aria-label="Fechar aviso" style="flex-shrink:0;width:30px;height:30px;border-radius:50%;border:none;background:rgba(128,128,128,.18);color:inherit;font-size:13px;cursor:pointer;">✕</button>
+    </div>`;
 
-  // Resumo da semana (domingo a sábado), pequeno: cardios que contam, minutos e pontos.
-  const _sem0 = API.nutri.addDias(dataHojeLocal(), -new Date().getDay());
-  const _hs = (_cardioHistorico || []).filter(c => String(c.dtsessao).slice(0, 10) >= _sem0 && Number(c.nao_contar) !== 1);
-  const _st = { n: _hs.length, min: Math.round(_hs.reduce((a, c) => a + (Number(c.duracao_seg) || 0), 0) / 60), pts: Math.round(_hs.reduce((a, c) => a + (pontosCardioExib(c) || 0), 0)) };
-  const _stCel = (v, r) => `<div><b style="display:block;font-size:15px;font-weight:900;line-height:1.1;">${v}</b><span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:${isLight?'#777':'#888'};">${r}</span></div>`;
-  const statsHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px 6px;margin:${novoVisto ? '26px' : '0'} 0 10px;border-radius:14px;text-align:center;background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#262626'};">${_stCel(_st.n, 'Cardios na semana')}${_stCel(_st.min, 'Minutos')}${_stCel(_st.pts, 'Pontos')}</div>`;
-  const _tile = (js, grad, em, tit, sub, largo) => `<div onclick="${js}" style="${largo ? 'grid-column:1 / -1;' : ''}background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#262626'};border-radius:16px;padding:13px;cursor:pointer;display:flex;flex-direction:column;gap:3px;min-width:0;touch-action:manipulation;">
-      <div style="width:38px;height:38px;border-radius:12px;background:${grad};display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:4px;">${em}</div>
-      <div style="font-size:14px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">${tit}</div>
-      <div style="font-size:11.5px;color:${isLight?'#666':'#999'};line-height:1.35;">${sub}</div></div>`;
-  const gridHtml = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
-    ${_tile('abrirProgramasCardio()', 'linear-gradient(135deg,#f97316,#ef4444)', '🔥', 'Programas de cardio', (typeof _prog !== 'undefined' && _prog.rodando) ? '▶ Você tem um programa em andamento. Toque para voltar.' : 'HIIT, Tabata, 12-5-30 e outros, guiados passo a passo. Dá distintivos e +1 ponto por dia', true)}
-    ${_tile("cardioHubAbrir('manual')", 'linear-gradient(135deg,#06b6d4,#0ea5e9)', '✍️', 'Registrar manualmente', 'Qualquer esporte, com a intensidade que você sentiu')}
-    ${_tile("cardioHubAbrir('hist')", 'linear-gradient(135deg,#818cf8,#6366f1)', '📋', 'Histórico de cardios', _cardioHistorico.length ? _cardioHistorico.length + (_cardioHistorico.length === 1 ? ' cardio registrado' : ' cardios registrados') : 'Confira o que você já registrou')}
-  </div>`;
+  // Semana (domingo a sábado): minutos por dia, cardios que contam e pontos.
+  const sem0 = API.nutri.addDias(dataHojeLocal(), -new Date().getDay());
+  const hs = (_cardioHistorico || []).filter(c => String(c.dtsessao).slice(0, 10) >= sem0 && Number(c.nao_contar) !== 1);
+  const porDia = [0, 0, 0, 0, 0, 0, 0];
+  hs.forEach(c => { const d = new Date(String(c.dtsessao).slice(0, 10) + 'T00:00:00').getDay(); if (d >= 0 && d <= 6) porDia[d] += Math.round((Number(c.duracao_seg) || 0) / 60); });
+  const totMin = porDia.reduce((a, b) => a + b, 0), totPts = Math.round(hs.reduce((a, c) => a + (pontosCardioExib(c) || 0), 0));
+  const hoje = new Date().getDay(), maxM = Math.max(30, Math.max.apply(null, porDia)), DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const barras = porDia.map((m, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;min-width:0;">
+      <span style="font-size:11px;font-weight:800;line-height:1;color:${m ? P.cia : 'transparent'};">${m || 0}</span>
+      <i style="display:block;width:100%;max-width:28px;height:${m ? Math.max(10, Math.round(m / maxM * 64)) : 4}px;border-radius:6px;background:${m ? 'linear-gradient(180deg,#22d3ee,#0ea5e9)' : (isLight ? '#e5e5e5' : '#2a2a2a')};"></i>
+      <span style="font-size:11px;font-weight:${i === hoje ? 900 : 600};color:${i === hoje ? P.txt : P.mut2};${i === hoje ? 'text-decoration:underline;text-underline-offset:3px;' : ''}">${DIAS[i]}</span></div>`).join('');
 
-  const tiposLista = tipos.filter(t => t !== 'Outro');
-  const tiposOptions = tiposLista.map(t => `<option value="${t}">${CARDIO_EMOJI_TODOS[t] || '🏃'}  ${_ativRotulo(t)}</option>`).join('');
+  const linha = (js, grad, ico, tit, sub, primeira) => `<button type="button" onclick="${js}" style="display:flex;align-items:center;gap:13px;width:100%;padding:13px 14px;min-height:68px;background:transparent;border:none;${primeira ? '' : 'border-top:1px solid ' + P.borda + ';'}text-align:left;cursor:pointer;font-family:inherit;color:inherit;touch-action:manipulation;">
+      <span style="width:44px;height:44px;border-radius:13px;background:${grad};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${ico}</span>
+      <span style="flex:1;min-width:0;"><b style="display:block;font-size:15.5px;font-weight:800;color:${P.txt};">${tit}</b><span style="display:block;font-size:12.5px;color:${P.mut};margin-top:2px;line-height:1.35;">${sub}</span></span>
+      <span style="font-size:24px;color:${P.mut2};flex-shrink:0;">›</span></button>`;
+  const emProg = (typeof _prog !== 'undefined' && _prog.rodando);
+  const nHist = (_cardioHistorico || []).length;
+  const itensPorque = [['💓', 'Fortalece o coração e melhora a circulação.'], ['🫁', 'Dá mais fôlego e disposição para o dia a dia.'], ['🔥', 'Aumenta o gasto de energia e ajuda a queimar gordura.'], ['⚡', 'Acelera o metabolismo.'], ['😴', 'Ajuda no sono, no humor e na saúde em geral.']];
 
   box.innerHTML = `
-    ${telaHeader('🏃 Meu Cardio')}
-    ${novoVisto ? '' : `<div id="cardio-novo-banner" style="margin-top:22px;">${novoHtml}</div>`}
-
-    ${statsHtml}
-    <div onclick="abrirCardioLive()" style="background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(6,182,212,.1));border:1.5px solid rgba(127,255,0,.35);border-radius:16px;padding:16px 18px;margin:0 0 12px;cursor:pointer;display:flex;align-items:center;gap:13px;touch-action:manipulation;">
-      <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#7FFF00,#40c000);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">📍</div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:16.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio ao vivo</div>
-        <div style="font-size:12px;color:${isLight?'#0e7490':'#67e8f9'};margin-top:2px;line-height:1.4;">Cronômetro e GPS na hora. +1 ponto por hora ao vivo na semana</div>
+    ${_cardioCab('🏃 Meu Cardio')}
+    <div style="margin-top:22px;">
+      ${novoHtml}
+      <div style="font-size:16px;font-weight:900;color:${P.txt};margin:0 2px 10px;">O que você quer fazer?</div>
+      <div style="background:${P.card};border:1px solid ${P.borda};border-radius:16px;overflow:hidden;">
+        ${linha('abrirCardioLive()', 'linear-gradient(135deg,#7FFF00,#40c000)', '📍', 'Cardio ao vivo', 'Cronômetro e GPS na hora. Dá +1 ponto por hora ao vivo na semana', true)}
+        ${linha('cardioAbrirForm()', 'linear-gradient(135deg,#06b6d4,#0ea5e9)', '✍️', 'Registrar manualmente', 'Já fez o cardio? Anote aqui, é rápido')}
+        ${linha('abrirProgramasCardio()', 'linear-gradient(135deg,#f97316,#ef4444)', '🔥', 'Programas guiados', emProg ? '▶ Você tem um programa em andamento. Toque para voltar.' : 'HIIT, Tabata, 12-5-30 e outros, passo a passo. Dão distintivos e +1 ponto por dia')}
+        ${linha("cardioTela('hist')", 'linear-gradient(135deg,#818cf8,#6366f1)', '📋', 'Histórico', nHist ? nHist + (nHist === 1 ? ' cardio registrado' : ' cardios registrados') : 'Confira o que você já registrou')}
       </div>
-      <div style="font-size:20px;color:${isLight?'#2d8a00':'#7FFF00'};">▶</div>
+
+      <div style="background:${P.card};border:1px solid ${P.borda};border-radius:16px;padding:16px;margin-top:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;">
+          <div><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:${P.mut2};">Esta semana</div>
+            <div style="font-size:34px;font-weight:900;letter-spacing:-.03em;line-height:1.1;color:${P.txt};">${totMin}<span style="font-size:15px;font-weight:700;color:${P.mut};margin-left:4px;">min</span></div></div>
+          <div style="font-size:13px;text-align:right;line-height:1.55;color:${P.mut};">${hs.length} ${hs.length === 1 ? 'cardio' : 'cardios'}<br>${totPts} ${totPts === 1 ? 'ponto' : 'pontos'}</div>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:100px;margin-top:14px;">${barras}</div>
+        <div style="font-size:11px;color:${P.mut2};margin-top:8px;text-align:center;">Minutos por dia, de domingo a sábado</div>
+      </div>
+
+      <details style="margin:14px 0 14px;border-radius:16px;background:${isLight?'#fef2f2':'rgba(239,68,68,.07)'};border:1px solid rgba(239,68,68,.3);">
+        <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:14px 16px;min-height:60px;cursor:pointer;list-style:none;">
+          <span style="width:44px;height:44px;border-radius:13px;background:linear-gradient(135deg,#f87171,#ef4444);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">❤️</span>
+          <span style="flex:1;min-width:0;"><b style="display:block;font-size:16.5px;font-weight:900;color:${P.txt};">Por que fazer cardio</b><span style="display:block;font-size:12.5px;color:${P.mut};margin-top:2px;">Toque para ler</span></span>
+          <span class="cd-chev" style="font-size:22px;color:${P.mut2};transition:transform .2s;">▾</span>
+        </summary>
+        <div style="padding:2px 16px 16px;">
+          ${itensPorque.map(it => `<div style="display:flex;align-items:flex-start;gap:12px;padding:8px 0;font-size:14.5px;line-height:1.5;color:${P.txt};"><span style="font-size:20px;line-height:1.25;flex-shrink:0;">${it[0]}</span><span>${it[1]}</span></div>`).join('')}
+          <div style="font-size:13px;line-height:1.6;color:${P.mut};margin-top:8px;padding-top:12px;border-top:1px solid ${P.borda};">Escolha uma atividade de que você goste e aumente o ritmo aos poucos. Se você tem alguma condição de saúde, converse antes com o seu médico e com o seu professor.</div>
+        </div>
+      </details>
     </div>
+    ${getFooterHtml()}`;
+}
 
-    ${gridHtml}
-    <details id="cardio-manual-details" class="cd-oculto" style="background:${isLight?'#ecfeff':'rgba(6,182,212,.08)'};border:1.5px solid ${isLight?'#67e8f9':'rgba(6,182,212,.45)'};border-radius:16px;padding:0;margin-bottom:12px;overflow:hidden;">
-      <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer;list-style:none;">
-        <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#06b6d4,#0ea5e9);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">✍️</div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:16.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Registrar manualmente</div>
-          <div style="font-size:12px;color:${isLight?'#0e7490':'#67e8f9'};margin-top:2px;line-height:1.4;">Qualquer esporte, com a intensidade que você sentiu</div>
-        </div>
-        <span class="cd-chev" style="font-size:20px;color:${isLight?'#0e7490':'#22d3ee'};transition:transform .2s;">▾</span>
-      </summary>
-      <div style="padding:0 20px 20px;">
-      <div style="font-size:16px;font-weight:900;margin-bottom:12px;">✍️ Registrar manualmente</div>
-      <div style="margin-bottom:12px;">
-        <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Atividade</label>
-        <select id="cardio-tipo" onchange="onCardioTipoChange()"
-          style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#333'};background:${isLight?'#fff':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:14px;font-family:inherit;box-sizing:border-box;">
-          <option value="" selected>Escolha a atividade</option>
-          ${tiposOptions}
-          <option value="__outro__">🏅  Outros…</option>
-        </select>
-        <input id="cardio-tipo-outro" type="text" placeholder="Digite sua atividade" oninput="atualizarPreviewCardio()" autocomplete="off"
-          style="display:none;width:100%;margin-top:8px;padding:10px 12px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#333'};background:${isLight?'#fff':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:14px;font-family:inherit;box-sizing:border-box;"/>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div>
-          <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Duração (min)</label>
-          <input id="cardio-min" type="number" min="5" max="300" placeholder="min" oninput="atualizarPreviewCardio()"
-            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#333'};background:${isLight?'#fff':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:14px;font-family:inherit;box-sizing:border-box;"/>
-        </div>
-        <div id="cardio-metrica-wrap" style="display:none;">
-          <label id="cardio-metrica-label" style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Distância</label>
-          <input id="cardio-metrica" type="text" inputmode="decimal" placeholder="" onblur="_arrumarDistancia()" oninput="atualizarPreviewCardio()"
-            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#333'};background:${isLight?'#fff':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:14px;font-family:inherit;box-sizing:border-box;"/>
-        </div>
-      </div>
-
-      <div style="margin-bottom:14px;">
-        <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Esforço percebido, como <b>você</b> sentiu</label>
-        <input type="range" id="cardio-rpe" min="1" max="10" step="1" value="5" oninput="onRpeChange()"
-          style="width:100%;height:8px;border-radius:6px;accent-color:#06b6d4;cursor:pointer;margin:2px 0 6px;"/>
-        <div style="display:flex;justify-content:space-between;font-size:9px;color:${isLight?'#999':'#666'};padding:0 1px;">
-          <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
-        </div>
-        <div id="rpe-desc" style="text-align:center;margin-top:8px;"></div>
-        <div style="font-size:10.5px;color:${isLight?'#888':'#777'};text-align:center;margin-top:6px;line-height:1.5;">
-          <b>1</b> = muito leve · <b>10</b> = esforço máximo, ao ponto de ficar <b>extremamente fadigado, quase passando mal</b>.
-        </div>
-      </div>
-
-      <div style="margin-bottom:14px;">
-        <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Comprovante (opcional)</label>
-        <input type="file" id="cardio-foto-input" accept="image/*" onchange="onCardioFoto(this)" style="display:none;"/>
-        <div id="cardio-foto-area">
-          <button type="button" onclick="document.getElementById('cardio-foto-input').click()"
-            style="width:100%;padding:11px;border-radius:10px;border:1px dashed ${isLight?'#bae6fd':'#164e63'};background:${isLight?'rgba(6,182,212,.05)':'rgba(6,182,212,.06)'};color:${isLight?'#0e7490':'#67e8f9'};font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;">📷 Anexar foto da esteira, relógio ou app</button>
-        </div>
-        <div style="font-size:10.5px;color:${isLight?'#888':'#777'};margin-top:6px;line-height:1.5;">Ajuda seu professor a conferir e mantém o ranking justo. Não é obrigatória, e você digita os dados normalmente.</div>
-      </div>
-
-      <div id="cardio-preview" style="text-align:center;padding:12px;background:${isLight?'rgba(6,182,212,.06)':'rgba(6,182,212,.08)'};border:1px solid rgba(6,182,212,.2);border-radius:10px;margin-bottom:10px;"></div>
-
-      ${(() => { const usados = _cardiosContadosHoje(); const rest = Math.max(0, _cardioRegras.limiteDia - usados); const cheio = rest === 0;
-        return `<div style="text-align:center;font-size:11.5px;color:${isLight?'#0e7490':'#67e8f9'};margin-bottom:12px;">Pontuam até <b>${_cardioRegras.limiteDia} cardios por dia</b>.</div>`; })()}
-
-      <button onclick="confirmarCardio()" class="btn btn-prim btn-full" style="background:linear-gradient(135deg,#06b6d4,#0ea5e9);border:none;">🏃 Registrar cardio</button>
-      </div>
-    </details>
-
-    <details id="cardio-historico-details" class="cd-oculto" style="background:${isLight?'#f5f3ff':'rgba(129,140,248,.08)'};border:1.5px solid ${isLight?'#c4b5fd':'rgba(129,140,248,.45)'};border-radius:16px;padding:0;margin-bottom:20px;overflow:hidden;">
-      <summary class="cd-sum" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer;list-style:none;">
-        <div style="width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#818cf8,#6366f1);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0;">📋</div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:16.5px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Histórico de cardios${_cardioHistorico.length ? ' <span style="font-size:12px;font-weight:800;color:#fff;background:#6366f1;border-radius:999px;padding:2px 9px;vertical-align:2px;">' + _cardioHistorico.length + '</span>' : ''}</div>
-          <div style="font-size:12px;color:${isLight?'#4f46e5':'#a5b4fc'};margin-top:2px;line-height:1.4;">Confira o que você já registrou</div>
-        </div>
-        <span class="cd-chev" style="font-size:20px;color:${isLight?'#4f46e5':'#a5b4fc'};transition:transform .2s;">▾</span>
-      </summary>
-      <div style="padding:0 20px 20px;">
-      <div style="font-size:16px;font-weight:900;margin-bottom:12px;">📋 Histórico de cardios</div>
-      ${_cardioHistorico.length === 0
-        ? `<div style="text-align:center;padding:24px;color:${isLight?'#777':'#555'};font-size:13px;">Nenhum cardio registrado ainda.</div>`
-        : `<div style="display:flex;flex-direction:column;gap:8px;">` +
-          _cardioHistorico.slice(0,30).map(c => {
+// ── Histórico ──
+function _cardioRenderHist(box) {
+  const P = _cdPal(), isLight = P.L;
+  const lista = _cardioHistorico || [];
+  box.innerHTML = `
+    ${_cardioCab('📋 Histórico de cardios')}
+    <div style="margin-top:22px;">
+      <button type="button" onclick="cardioVoltar();setTimeout(cardioAbrirForm,60)" class="btn btn-prim btn-full" style="background:linear-gradient(135deg,#06b6d4,#0ea5e9);border:none;margin-bottom:14px;min-height:48px;">✍️ Registrar um cardio</button>
+      ${lista.length === 0
+        ? `<div style="text-align:center;padding:30px 12px;color:${P.mut};font-size:14px;">Nenhum cardio registrado ainda.</div>`
+        : `<div style="display:flex;flex-direction:column;gap:8px;">` + lista.slice(0, 30).map(c => {
             const dt = new Date(c.dtsessao + 'T00:00:00');
-            const dtStr = dt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'});
+            const dtStr = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
             const min = Math.round(c.duracao_seg / 60);
-            return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#fff':'rgba(255,255,255,.03)'};border:1px solid ${isLight?'#e5e5e5':'#1a1a1a'};border-radius:10px;">
-              <div style="font-size:22px;">${_cardioEmoji(c)}</div>
+            return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#fff':'rgba(255,255,255,.03)'};border:1px solid ${isLight?'#e5e5e5':'#1a1a1a'};border-radius:12px;">
+              <div style="font-size:24px;color:${P.cia};">${_cardioEmoji(c)}</div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:13px;font-weight:700;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(c.cardio_tipo||'Cardio')}${c.cardio_rpe?' · esforço '+c.cardio_rpe+'/10':(c.cardio_intensidade?' · '+esc(c.cardio_intensidade):'')}${(c.tem_foto||c.cardio_foto)?` <button onclick="event.stopPropagation();verFotoCardio(${Number(c.idsessao)||0},'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Ver a foto que você anexou" style="border:none;background:transparent;padding:0 2px;font-size:13px;line-height:1;cursor:pointer;">📷</button>`:''}${Number(c.ao_vivo)===1?` <span title="Rastreado ao vivo pelo app" style="display:inline-block;white-space:nowrap;font-size:9.5px;font-weight:800;color:#0ea5e9;background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.35);border-radius:5px;padding:1px 5px;vertical-align:1px;">🔴 AO VIVO</span>`:''}</div>
-                <div style="font-size:11px;color:${isLight?'#666':'#888'};">${min} min${c.cardio_metrica?' · '+esc(c.cardio_metrica):''} · ${dtStr}</div>
+                <div style="font-size:14px;font-weight:700;color:${P.txt};">${esc(c.cardio_tipo||'Cardio')}${c.cardio_rpe?' · esforço '+c.cardio_rpe+'/10':(c.cardio_intensidade?' · '+esc(c.cardio_intensidade):'')}${(c.tem_foto||c.cardio_foto)?` <button onclick="event.stopPropagation();verFotoCardio(${Number(c.idsessao)||0},'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Ver a foto que você anexou" style="border:none;background:transparent;padding:0 2px;font-size:14px;line-height:1;cursor:pointer;">📷</button>`:''}${Number(c.ao_vivo)===1?` <span title="Rastreado ao vivo pelo app" style="display:inline-block;white-space:nowrap;font-size:9.5px;font-weight:800;color:#0ea5e9;background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.35);border-radius:5px;padding:1px 5px;vertical-align:1px;">🔴 AO VIVO</span>`:''}</div>
+                <div style="font-size:12px;color:${P.mut};">${min} min${c.cardio_metrica?' · '+esc(c.cardio_metrica):''} · ${dtStr}</div>
               </div>
               <div style="text-align:right;">
                 ${Number(c.nao_contar)===1
                   ? `<div style="font-size:10px;font-weight:700;color:${isLight?'#c2410c':'#fdba74'};line-height:1.2;">não<br>conta</div>`
-                  : `<div style="font-size:16px;font-weight:800;color:#22d3ee;">+${pontosCardioExib(c).toFixed(0)}</div><div style="font-size:9px;color:${isLight?'#999':'#555'};">pts</div>`}
+                  : `<div style="font-size:17px;font-weight:800;color:${P.cia};">+${pontosCardioExib(c).toFixed(0)}</div><div style="font-size:9px;color:${isLight?'#999':'#555'};">pts</div>`}
               </div>
-              <button onclick="excluirSessaoHistorico(${Number(c.idsessao)||0},true,'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" title="Remover cardio" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#f87171;width:28px;height:28px;border-radius:8px;font-size:13px;cursor:pointer;line-height:1;flex-shrink:0;">🗑</button>
+              <button onclick="excluirSessaoHistorico(${Number(c.idsessao)||0},true,'${esc(c.cardio_tipo||'Cardio').replace(/'/g,'')}')" aria-label="Remover cardio" title="Remover cardio" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#f87171;width:40px;height:40px;border-radius:10px;font-size:15px;cursor:pointer;line-height:1;flex-shrink:0;">🗑</button>
             </div>`;
-          }).join('') + '</div>'
-      }
+          }).join('') + '</div>'}
+    </div>
+    ${getFooterHtml()}`;
+}
+
+// ── Registrar manualmente: uma tela só, curta, com botões grandes ──
+// Opções na ordem em que aparecem. k = valor gravado; e = emoji; n = nome mostrado (padrão: o próprio k); h = exemplos.
+// "Esportes de raquete" junta tênis, padel e beach tennis (pesam igual nos pontos); "Exercício em casa" junta polichinelo, corrida parada e afins.
+const CARDIO_ATIV_LISTA = [
+  { k: 'Caminhada', e: '🚶' }, { k: 'Corrida', e: '🏃' }, { k: 'Bike', e: '🚴' },
+  { k: 'Natação', e: '🏊' }, { k: 'Dança', e: '💃', h: 'zumba, forró, ritmos' }, { k: 'Pular Corda', e: '🏃' },
+  { k: 'Elíptico', e: '🔄' }, { k: 'Escada', e: '🧗', h: 'a máquina da academia' }, { k: 'Futebol', e: '⚽' },
+  { k: 'Esportes de raquete', e: '🎾', n: 'Raquete', h: 'tênis, padel, beach tennis' }, { k: 'Luta', e: '🥊', h: 'boxe, muay thai, jiu-jítsu' }, { k: 'Trilha e natureza', e: '🥾', h: 'trilha, caiaque, remo' },
+  { k: 'Exercício em casa', e: '🏠', n: 'Em casa', h: 'polichinelo, corrida parada' }, { k: '__outro__', e: '🏅', n: 'Outra', h: 'escreva qual foi' },
+];
+const _CARDIO_ICONE_CAMERA = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.2" r="3.6"/></svg>';
+
+function _cardioTileCss(sel, P) {
+  return 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:84px;padding:8px 4px;border-radius:14px;cursor:pointer;font-family:inherit;text-align:center;touch-action:manipulation;'
+    + 'border:2px solid ' + (sel ? P.ciaBorda : P.borda) + ';background:' + (sel ? P.ciaBg : P.card) + ';color:' + (sel ? P.cia : P.txt) + ';';
+}
+function _cardioChipCss(sel, P) {
+  return 'min-height:44px;padding:0 16px;border-radius:99px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;touch-action:manipulation;'
+    + 'border:2px solid ' + (sel ? P.ciaBorda : P.borda) + ';background:' + (sel ? P.ciaBg : P.card) + ';color:' + (sel ? P.cia : P.txt) + ';';
+}
+function _cardioRpeCss(n, sel) {
+  const cor = rpeCor(n);
+  return 'height:52px;border-radius:12px;font-size:19px;font-weight:900;font-family:inherit;cursor:pointer;touch-action:manipulation;border:2px solid ' + cor + ';background:' + (sel ? cor : 'transparent') + ';color:' + (sel ? '#fff' : _corParaTexto(cor)) + ';' + (sel ? 'box-shadow:0 2px 10px -2px ' + cor + ';' : '');
+}
+function _cdStepper(idInput, fn, atributos, idUnidade, unidade, P) {
+  const bt = (sinal) => '<button type="button" onclick="' + fn + '(' + sinal + ')" aria-label="' + (sinal > 0 ? 'Aumentar' : 'Diminuir') + '" style="width:54px;height:54px;border-radius:14px;border:1.5px solid ' + P.campoBorda + ';background:' + P.card + ';color:' + P.txt + ';font-size:28px;font-weight:700;cursor:pointer;font-family:inherit;touch-action:manipulation;flex-shrink:0;line-height:1;">' + (sinal > 0 ? '+' : '−') + '</button>';
+  return '<div style="display:flex;align-items:center;gap:10px;">' + bt(-1) +
+    '<div style="flex:1;min-width:0;position:relative;"><input id="' + idInput + '" ' + atributos + ' style="width:100%;box-sizing:border-box;height:54px;border-radius:14px;border:1.5px solid ' + P.campoBorda + ';background:' + P.campo + ';color:' + P.txt + ';font-size:22px;font-weight:900;text-align:center;font-family:inherit;padding:0 46px 0 8px;"/>' +
+    '<span id="' + idUnidade + '" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:13px;font-weight:700;color:' + P.mut + ';pointer-events:none;">' + unidade + '</span></div>' + bt(1) + '</div>';
+}
+
+function _cardioRenderForm(box) {
+  const P = _cdPal();
+  // Redesenhos de fundo (histórico que chegou, por exemplo) não podem tirar o foco de quem está digitando: só refaz se o tema mudou.
+  const atual = box.querySelector('#cf-root');
+  if (atual && atual.dataset.tema === (P.L ? 'c' : 'e')) { _cardioFormAtualizar(); return; }
+  const h3 = (t, opc) => '<div style="font-size:15.5px;font-weight:900;color:' + P.txt + ';margin:0 2px 10px;">' + t + (opc ? ' <span style="font-size:12px;font-weight:700;color:' + P.mut2 + ';">(opcional)</span>' : '') + '</div>';
+  const tiles = CARDIO_ATIV_LISTA.map(a => '<button type="button" class="cf-tile" data-k="' + esc(a.k) + '" onclick="cardioEscolherAtiv(this.dataset.k)" aria-pressed="false" style="' + _cardioTileCss(false, P) + '">' +
+    '<span style="font-size:27px;line-height:1;">' + (CARDIO_EMOJI_TODOS[a.k] || a.e) + '</span>' +
+    '<b style="font-size:12.5px;font-weight:800;line-height:1.2;">' + esc(a.n || _ativRotulo(a.k)) + '</b>' +
+    (a.h ? '<span style="font-size:10px;font-weight:600;line-height:1.25;color:' + P.mut + ';">' + esc(a.h) + '</span>' : '') + '</button>').join('');
+  const chips = [15, 20, 30, 45, 60].map(m => '<button type="button" class="cf-chip" data-m="' + m + '" onclick="cardioMinSet(' + m + ')" style="' + _cardioChipCss(false, P) + '">' + m + ' min</button>').join('');
+  const rpes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => '<button type="button" class="cf-rpe" data-n="' + n + '" onclick="cardioEsforco(' + n + ')" aria-pressed="false" style="' + _cardioRpeCss(n, false) + '">' + n + '</button>').join('');
+
+  box.innerHTML = `
+    ${_cardioCab('✍️ Registrar cardio')}
+    <div id="cf-root" data-tema="${P.L ? 'c' : 'e'}" style="margin-top:20px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin:0 2px 18px;">
+        <div style="font-size:13.5px;color:${P.mut};line-height:1.5;">Anote um cardio que você já fez. Toque, digite e pronto.</div>
+        <button type="button" onclick="cardioFormLimparTela()" style="flex-shrink:0;min-height:36px;padding:0 12px;border-radius:10px;border:1.5px solid ${P.campoBorda};background:transparent;color:${P.mut};font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;">Limpar</button>
       </div>
-    </details>
-    <details style="margin:6px 0 14px;border-radius:16px;background:${isLight?'#fef2f2':'rgba(239,68,68,.07)'};border:1px solid rgba(239,68,68,.3);"><summary style="padding:13px 16px;font-size:13.5px;font-weight:900;cursor:pointer;list-style:none;color:${isLight?'#1a1a1a':'#f0f0f0'};">❤️ Por que fazer cardio</summary>
-    <div style="padding:0 16px 14px;">
-      <div style="display:none;"></div>
-      <div style="font-size:12.5px;line-height:1.6;color:${isLight?'#444':'#bbb'};">O exercício aeróbico regular fortalece o coração, melhora o condicionamento físico, aumenta o gasto de energia e a queima de gordura, acelera o metabolismo e ajuda na saúde em geral. Escolha uma atividade de que você goste e aumente o ritmo aos poucos. Se você tem alguma condição de saúde, converse antes com o seu médico e com o seu professor.</div>
-    </div></details>
 
-    ${getFooterHtml()}
-  `;
+      <section id="cf-s-ativ" style="margin-bottom:22px;border-radius:14px;transition:box-shadow .2s;">
+        ${h3('O que você fez?')}
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">${tiles}</div>
+        <input id="cf-outro" type="text" maxlength="40" placeholder="Qual atividade foi?" autocomplete="off" oninput="_cardioForm.outro=this.value;_cardioFormAtualizar()"
+          style="display:none;width:100%;box-sizing:border-box;margin-top:10px;height:50px;padding:0 14px;border-radius:12px;border:1.5px solid ${P.campoBorda};background:${P.campo};color:${P.txt};font-size:16px;font-family:inherit;"/>
+      </section>
 
-  // Init effort scale + metric field for default activity
-  onRpeChange();
-  onCardioTipoChange();
+      <section id="cf-s-min" style="margin-bottom:22px;border-radius:14px;transition:box-shadow .2s;">
+        ${h3('Quanto tempo durou?')}
+        ${_cdStepper('cf-min', 'cardioMinPasso', 'type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" placeholder="0" aria-label="Minutos" oninput="cardioMinDigitar(this)"', 'cf-min-un', 'min', P)}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px;">${chips}</div>
+        <div id="cf-min-h" style="text-align:center;font-size:13px;font-weight:700;color:${P.cia};min-height:18px;margin-top:8px;"></div>
+      </section>
+
+      <section id="cf-s-dist" style="display:none;margin-bottom:22px;border-radius:14px;transition:box-shadow .2s;">
+        <div id="cf-dist-h">${h3('Qual foi a distância?', true)}</div>
+        ${_cdStepper('cf-dist', 'cardioDistPasso', 'type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Distância" oninput="cardioDistDigitar(this)" onblur="cardioDistBlur()"', 'cf-dist-un', 'km', P)}
+      </section>
+
+      <section id="cf-s-rpe" style="margin-bottom:22px;">
+        ${h3('Como foi o esforço?')}
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">${rpes}</div>
+        <div id="cf-rpe-desc" style="text-align:center;margin-top:12px;min-height:52px;"></div>
+        <div style="font-size:12px;color:${P.mut2};text-align:center;margin-top:6px;line-height:1.5;"><b>1</b> = muito leve · <b>10</b> = esforço máximo, quase passando mal.</div>
+      </section>
+
+      <section id="cf-s-foto" style="margin-bottom:22px;">
+        ${h3('Foto do cardio', true)}
+        <input type="file" id="cf-foto-input" accept="image/*" onchange="onCardioFoto(this)" style="display:none;"/>
+        <div id="cf-foto"></div>
+        <div style="font-size:12px;color:${P.mut2};margin-top:8px;line-height:1.5;">Ajuda seu professor a conferir e mantém o ranking justo. Pode ser da esteira, do relógio ou do app.</div>
+      </section>
+      <div style="text-align:center;font-size:12.5px;color:${P.mut};line-height:1.5;margin:0 0 12px;">Você confere tudo na próxima tela. Pontuam até <b>${_cardioRegras.limiteDia} cardios por dia</b>.</div>
+    </div>
+
+    <div id="cf-barra" style="position:sticky;bottom:0;z-index:8;margin:0;padding:18px 0 calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,${P.fundo} 72%,transparent);">
+      <div id="cf-erro" role="alert" style="display:none;text-align:center;font-size:13px;font-weight:700;color:#f87171;margin-bottom:8px;"></div>
+      <button type="button" id="cf-btn" onclick="cardioRevisar()" style="width:100%;min-height:56px;border-radius:14px;border:none;font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;touch-action:manipulation;"></button>
+    </div>
+    ${getFooterHtml()}`;
+  _cardioFormAtualizar();
 }
 
-// Os cartões "Registrar manualmente" e "Histórico" abrem a seção logo abaixo (uma por vez); tocar de novo fecha.
-function cardioHubAbrir(qual) {
-  const m = document.getElementById('cardio-manual-details'), h = document.getElementById('cardio-historico-details');
-  const alvo = qual === 'manual' ? m : h, outro = qual === 'manual' ? h : m;
-  if (!alvo) return;
-  if (outro) outro.open = false;
-  alvo.open = !alvo.open;
-  if (alvo.open) setTimeout(() => { try { alvo.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 60);
+// Estado do formulário: o que falta e o texto do botão.
+function _cardioFormStatus() {
+  const f = _cardioForm, tipo = cardioTipoValor(), min = parseInt(f.min) || 0;
+  if (!f.tipo) return { ok: false, msg: 'Escolha o que você fez', sec: 'cf-s-ativ' };
+  if (f.tipo === '__outro__' && !String(f.outro || '').trim()) return { ok: false, msg: 'Escreva qual atividade foi', sec: 'cf-s-ativ' };
+  if (!min) return { ok: false, msg: 'Informe quantos minutos', sec: 'cf-s-min' };
+  if (min < 5) return { ok: false, msg: 'O mínimo é de 5 minutos', sec: 'cf-s-min' };
+  return { ok: true, msg: 'Continuar: ' + _ativRotulo(tipo) + ', ' + min + ' min' };
 }
+function _cardioFormAtualizar() {
+  const P = _cdPal(), f = _cardioForm, tipo = cardioTipoValor(), met = cardioMetrica(tipo);
+  document.querySelectorAll('#v-cardio .cf-tile').forEach(b => { const sel = b.dataset.k === f.tipo; b.setAttribute('aria-pressed', sel ? 'true' : 'false'); b.style.cssText = _cardioTileCss(sel, P); });
+  const outro = document.getElementById('cf-outro'); if (outro) { outro.style.display = f.tipo === '__outro__' ? '' : 'none'; if (document.activeElement !== outro) outro.value = f.outro || ''; }
+  const inMin = document.getElementById('cf-min'); if (inMin && document.activeElement !== inMin) inMin.value = f.min;
+  document.querySelectorAll('#v-cardio .cf-chip').forEach(b => { b.style.cssText = _cardioChipCss(String(b.dataset.m) === String(f.min), P); });
+  const hh = document.getElementById('cf-min-h'); if (hh) { const m = parseInt(f.min) || 0; hh.textContent = m >= 60 ? '= ' + _cardioMinTexto(m) : ''; }
+  const sd = document.getElementById('cf-s-dist');
+  if (sd) {
+    sd.style.display = met ? '' : 'none';
+    if (met) {
+      const un = document.getElementById('cf-dist-un'); if (un) un.textContent = met.tipo === 'km' ? 'km' : (met.tipo === 'm' ? 'm' : 'degraus');
+      const ph = document.getElementById('cf-dist-h'); if (ph) ph.firstElementChild.firstChild.textContent = (met.tipo === 'degraus' ? 'Quantos degraus?' : 'Qual foi a distância?') + ' ';
+      const inD = document.getElementById('cf-dist'); if (inD && document.activeElement !== inD) inD.value = f.dist;
+    }
+  }
+  document.querySelectorAll('#v-cardio .cf-rpe').forEach(b => { const sel = Number(b.dataset.n) === _cardioRpe; b.setAttribute('aria-pressed', sel ? 'true' : 'false'); b.style.cssText = _cardioRpeCss(Number(b.dataset.n), sel); });
+  const info = RPE_INFO[_cardioRpe] || RPE_INFO[5], cor = rpeCor(_cardioRpe), desc = document.getElementById('cf-rpe-desc');
+  if (desc) desc.innerHTML = '<div style="display:inline-flex;align-items:center;gap:8px;"><span style="width:30px;height:30px;border-radius:50%;background:' + cor + ';color:#fff;font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center;">' + _cardioRpe + '</span>' +
+    '<span style="font-size:15px;font-weight:800;color:' + _corParaTexto(cor) + ';">' + info.t + '</span></div><div style="font-size:12.5px;color:' + P.mut + ';margin-top:4px;">' + info.d + '</div>';
+  _renderCardioFotoArea();
+  const st = _cardioFormStatus(), btn = document.getElementById('cf-btn');
+  if (btn) {
+    btn.textContent = st.msg;
+    btn.style.background = st.ok ? 'linear-gradient(135deg,#06b6d4,#0ea5e9)' : (P.L ? '#e5e5e5' : '#2a2a2a');
+    btn.style.color = st.ok ? '#fff' : P.mut;
+  }
+  const er = document.getElementById('cf-erro'); if (er && st.ok) er.style.display = 'none';
+}
+function cardioEscolherAtiv(k) {
+  _cardioForm.tipo = k;
+  if (k !== '__outro__') _cardioForm.outro = '';
+  const met = cardioMetrica(cardioTipoValor());
+  const mt = met ? met.tipo : '';
+  if (_cardioForm.dmt !== mt) { _cardioForm.dist = ''; _cardioForm.dmt = mt; }   // km virar metro (ou degrau) trocaria o significado do número
+  _cardioFormAtualizar();
+  if (k === '__outro__') { const o = document.getElementById('cf-outro'); if (o) { try { o.focus(); } catch (e) {} } }
+}
+function cardioMinSet(m) { _cardioForm.min = String(m); _cardioFormAtualizar(); }
+function cardioMinPasso(d) {
+  let v = parseInt(_cardioForm.min) || 0;
+  v = d > 0 ? (v < 5 ? 30 : Math.min(300, v + 5)) : (v <= 5 ? (v ? 5 : 0) : v - 5);
+  _cardioForm.min = v ? String(v) : '';
+  _cardioFormAtualizar();
+}
+function cardioMinDigitar(inp) {
+  let t = String(inp.value).replace(/\D/g, '').slice(0, 3);
+  if (parseInt(t) > 300) t = '300';
+  if (inp.value !== t) inp.value = t;
+  _cardioForm.min = t;
+  _cardioFormAtualizar();
+}
+function cardioDistDigitar(inp) {
+  const t = String(inp.value).replace(/[^\d.,]/g, '').slice(0, 7);
+  if (inp.value !== t) inp.value = t;
+  _cardioForm.dist = t;
+}
+function cardioDistPasso(d) {
+  const met = cardioMetrica(cardioTipoValor()); if (!met) return;
+  const passo = met.tipo === 'm' ? 100 : (met.tipo === 'degraus' ? 10 : 0.5);
+  const cur = _normalizarDistancia(_cardioForm.dist, met.tipo) || 0;
+  let v = Math.round((cur + d * passo) * 100) / 100;
+  if (v <= 0) v = 0;
+  _cardioForm.dist = v ? String(v).replace('.', ',') : '';
+  _cardioFormAtualizar();
+}
+function cardioDistBlur() {   // ao sair do campo, mostra o valor já arrumado (3,000 vira 3; 3000 km vira 3 km), para o aluno conferir
+  const met = cardioMetrica(cardioTipoValor()); if (!met) return;
+  const v = _normalizarDistancia(_cardioForm.dist, met.tipo);
+  _cardioForm.dist = v ? String(v).replace('.', ',') : '';
+  _cardioFormAtualizar();
+}
+function cardioEsforco(n) { _cardioRpe = n; _cardioFormAtualizar(); }
+function _cardioFormErro(st) {
+  const er = document.getElementById('cf-erro'); if (er) { er.textContent = st.msg + '.'; er.style.display = ''; }
+  const sec = document.getElementById(st.sec);
+  if (sec) {
+    try { sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    sec.style.boxShadow = '0 0 0 3px rgba(248,113,113,.55)';
+    setTimeout(function () { sec.style.boxShadow = ''; }, 1800);
+  }
+  try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) {}
+}
+function cardioRevisar() {
+  const st = _cardioFormStatus();
+  if (!st.ok) { _cardioFormErro(st); return; }
+  cardioDistBlur();
+  cardioTela('confirma');
+}
+
+// ── Confirmação: o aluno confere e pode corrigir antes de gravar ──
+function _cardioRenderConfirma(box) {
+  const P = _cdPal(), isLight = P.L;
+  const st = _cardioFormStatus();
+  if (!st.ok) { _cardioUi.pilha[_cardioUi.pilha.length - 1] = 'form'; return renderCardio(); }   // chegou aqui sem dados: volta ao formulário
+  const atual = box.querySelector('#cc-root');
+  if (atual && atual.dataset.tema === (P.L ? 'c' : 'e')) return;
+  const tipo = cardioTipoValor(), min = parseInt(_cardioForm.min) || 0, extra = _cardioMetricaTexto();
+  const info = RPE_INFO[_cardioRpe] || RPE_INFO[5], cor = rpeCor(_cardioRpe);
+  const emoji = CARDIO_EMOJI_TODOS[tipo] || (CARDIO_ATIV_LISTA.filter(a => a.k === _cardioForm.tipo)[0] || {}).e || '🏅';
+  const excedeuLimite = _cardiosContadosHoje() >= _cardioRegras.limiteDia;
+  const plaus = _cardioPlausivel(tipo, min, _cardioMetricaRaw());
+  const avisoTexto = excedeuLimite
+    ? 'Você já registrou <b>' + _cardioRegras.limiteDia + ' cardios que contam</b> hoje. Este ficará no histórico, mas <b>não soma pontos</b> (limite diário).'
+    : (!plaus.ok ? plaus.txt + ' Ele será salvo, mas <b>não vai somar pontos</b>. Se foi engano, toque em Corrigir.' : '');
+  const dado = (ico, rot, val, primeira) => `<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;${primeira ? '' : 'border-top:1px solid ' + P.borda + ';'}">
+      <span style="font-size:22px;width:28px;text-align:center;flex-shrink:0;">${ico}</span>
+      <span style="flex:1;font-size:13px;font-weight:700;color:${P.mut};">${rot}</span>
+      <span style="font-size:15.5px;font-weight:800;color:${P.txt};text-align:right;">${val}</span></div>`;
+  box.innerHTML = `
+    ${_cardioCab('✅ Confira os dados')}
+    <div id="cc-root" data-tema="${P.L ? 'c' : 'e'}" style="margin-top:22px;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:21px;font-weight:900;color:${P.txt};">Está tudo certo?</div>
+        <div style="font-size:13.5px;color:${P.mut};margin-top:4px;line-height:1.5;">Confira antes de registrar. Se algo estiver errado, toque em <b>Corrigir</b>.</div>
+      </div>
+      <div style="background:${P.card};border:1px solid ${P.borda};border-radius:16px;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px;background:${P.ciaBg};">
+          <span style="font-size:36px;line-height:1;color:${P.cia};">${emoji}</span>
+          <span style="font-size:19px;font-weight:900;color:${P.txt};">${esc(_ativRotulo(tipo))}</span>
+        </div>
+        ${dado('⏱️', 'Tempo', min + ' min' + (min >= 60 ? '<div style="font-size:12px;font-weight:700;color:' + P.mut + ';">' + _cardioMinTexto(min) + '</div>' : ''), true)}
+        ${dado('📏', 'Distância', extra ? esc(extra) : '<span style="font-weight:600;color:' + P.mut2 + ';">não informada</span>')}
+        ${dado('💪', 'Esforço', '<span style="display:inline-flex;align-items:center;gap:7px;"><span style="width:26px;height:26px;border-radius:50%;background:' + cor + ';color:#fff;font-size:13px;font-weight:900;display:inline-flex;align-items:center;justify-content:center;">' + _cardioRpe + '</span><span style="color:' + _corParaTexto(cor) + ';">' + info.t + '</span></span>')}
+        ${dado('📷', 'Foto', _cardioFoto ? '<img src="' + _cardioFoto + '" alt="Foto anexada" style="width:52px;height:52px;object-fit:cover;border-radius:10px;display:block;margin-left:auto;"/>' : '<span style="font-weight:600;color:' + P.mut2 + ';">sem foto</span>')}
+      </div>
+      ${avisoTexto ? `<div style="font-size:13px;color:${P.aviso};background:${P.avisoBg};border:1px solid ${P.avisoBorda};border-radius:12px;padding:12px 14px;margin-top:14px;line-height:1.5;">⚠️ ${avisoTexto}</div>` : `<div style="font-size:12.5px;color:${P.mut2};text-align:center;margin-top:14px;line-height:1.5;">Responda com sinceridade: o esforço ajuda a manter o ranking justo. Seus pontos aparecem depois de registrar.</div>`}
+    </div>
+    <div style="position:sticky;bottom:0;z-index:8;margin:0;padding:18px 0 calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,${P.fundo} 72%,transparent);display:flex;flex-direction:column;gap:10px;">
+      <button type="button" onclick="cardioConfirmarRegistro()" style="width:100%;min-height:56px;border-radius:14px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;touch-action:manipulation;">✅ Está certo, registrar</button>
+      <button type="button" onclick="cardioVoltar()" style="width:100%;min-height:50px;border-radius:14px;border:1.5px solid ${P.campoBorda};background:${P.card};color:${P.txt};font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;touch-action:manipulation;">✏️ Corrigir</button>
+    </div>
+    ${getFooterHtml()}`;
+}
+function cardioConfirmarRegistro() { salvarCardio(); }
+
 let _cardioRpe = 5;
 let _cardioFoto = ''; // dataURL comprimida (opcional)
 // Cor de texto a partir de uma cor viva: no tema claro escurece para ter contraste com o fundo claro.
@@ -12218,23 +12450,6 @@ function _corParaTexto(hex) {
   const n = parseInt(m[1], 16), f = c => Math.round(c * 0.62).toString(16).padStart(2, '0');
   return '#' + f((n >> 16) & 255) + f((n >> 8) & 255) + f(n & 255);
 }
-function onRpeChange() {
-  const sl = document.getElementById('cardio-rpe');
-  _cardioRpe = sl ? parseInt(sl.value) || 5 : 5;
-  const info = RPE_INFO[_cardioRpe] || RPE_INFO[5];
-  const cor = rpeCor(_cardioRpe);
-  const desc = document.getElementById('rpe-desc');
-  if (desc) {
-    desc.innerHTML =
-      '<div style="display:inline-flex;align-items:center;gap:8px;">' +
-        '<span style="width:30px;height:30px;border-radius:50%;background:' + cor + ';color:#fff;font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center;">' + _cardioRpe + '</span>' +
-        '<span style="font-size:14px;font-weight:800;color:' + _corParaTexto(cor) + ';">' + info.t + '</span>' +
-      '</div>' +
-      '<div style="font-size:11.5px;color:' + (document.body.classList.contains('tema-claro') ? '#666' : '#999') + ';margin-top:4px;">' + info.d + '</div>';
-  }
-  atualizarPreviewCardio();
-}
-
 // Foto opcional de comprovação (comprime para não pesar no banco)
 function onCardioFoto(input) {
   const file = input.files && input.files[0];
@@ -12257,74 +12472,41 @@ function onCardioFoto(input) {
   reader.onerror = function() { toast('Falha ao ler o arquivo.'); };
   reader.readAsDataURL(file);
 }
-function removerCardioFoto() { _cardioFoto = ''; const inp = document.getElementById('cardio-foto-input'); if (inp) inp.value = ''; _renderCardioFotoArea(); }
+function removerCardioFoto() { _cardioFoto = ''; const inp = document.getElementById('cf-foto-input'); if (inp) inp.value = ''; _renderCardioFotoArea(); }
+// Foto do formulário: com ícone e do tamanho dos outros botões da tela (antes era uma linha pequena, quase escondida)
 function _renderCardioFotoArea() {
-  const area = document.getElementById('cardio-foto-area');
+  const area = document.getElementById('cf-foto');
   if (!area) return;
-  const isLight = document.body.classList.contains('tema-claro');
+  const P = _cdPal();
   if (_cardioFoto) {
     area.innerHTML =
-      '<div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid ' + (isLight?'#bae6fd':'#164e63') + ';border-radius:10px;background:' + (isLight?'#f0fbff':'#0c1a1f') + ';">' +
-        '<img src="' + _cardioFoto + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;"/>' +
-        '<span style="flex:1;font-size:12px;color:' + (isLight?'#0e7490':'#67e8f9') + ';font-weight:700;">✅ Foto anexada</span>' +
-        '<button type="button" onclick="removerCardioFoto()" style="width:32px;height:32px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.1);color:#f87171;cursor:pointer;font-size:14px;">✕</button>' +
-      '</div>';
+      '<div style="display:flex;align-items:center;gap:12px;padding:10px;border:2px solid ' + P.ciaBorda + ';border-radius:14px;background:' + P.ciaBg + ';min-height:84px;box-sizing:border-box;">' +
+        '<img src="' + _cardioFoto + '" alt="Foto anexada" style="width:62px;height:62px;object-fit:cover;border-radius:10px;flex-shrink:0;"/>' +
+        '<div style="flex:1;min-width:0;"><div style="font-size:14.5px;font-weight:800;color:' + P.cia + ';">✅ Foto anexada</div>' +
+          '<div style="display:flex;gap:8px;margin-top:8px;">' +
+            '<button type="button" onclick="document.getElementById(\'cf-foto-input\').click()" style="min-height:40px;padding:0 14px;border-radius:10px;border:1.5px solid ' + P.campoBorda + ';background:' + P.card + ';color:' + P.txt + ';font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">Trocar</button>' +
+            '<button type="button" onclick="removerCardioFoto()" style="min-height:40px;padding:0 14px;border-radius:10px;border:1.5px solid rgba(248,113,113,.45);background:rgba(248,113,113,.1);color:#f87171;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">Remover</button>' +
+          '</div></div></div>';
   } else {
     area.innerHTML =
-      '<button type="button" onclick="document.getElementById(\'cardio-foto-input\').click()" style="width:100%;padding:11px;border-radius:10px;border:1px dashed ' + (isLight?'#bae6fd':'#164e63') + ';background:' + (isLight?'rgba(6,182,212,.05)':'rgba(6,182,212,.06)') + ';color:' + (isLight?'#0e7490':'#67e8f9') + ';font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;">📷 Anexar foto da esteira, relógio ou app</button>';
+      '<button type="button" onclick="document.getElementById(\'cf-foto-input\').click()" style="display:flex;align-items:center;gap:14px;width:100%;min-height:84px;padding:10px 16px;box-sizing:border-box;border-radius:14px;border:2px dashed ' + P.ciaBorda + ';background:' + P.ciaBg + ';color:' + P.cia + ';cursor:pointer;font-family:inherit;text-align:left;touch-action:manipulation;">' +
+        '<span style="width:48px;height:48px;border-radius:50%;background:' + P.ciaBorda + ';color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + _CARDIO_ICONE_CAMERA + '</span>' +
+        '<span style="flex:1;min-width:0;"><b style="display:block;font-size:15px;font-weight:800;">Adicionar foto</b><span style="display:block;font-size:12px;font-weight:600;margin-top:2px;opacity:.85;">Tirar agora ou escolher da galeria</span></span></button>';
   }
 }
 
-// Valor efetivo da atividade: opção do select, ou o texto digitado quando "Outros"
+// Valor efetivo da atividade: a escolhida, ou o texto digitado em "Outra"
 function cardioTipoValor() {
-  const sel = document.getElementById('cardio-tipo');
-  if (!sel) return 'Caminhada';
-  if (sel.value === '__outro__') {
-    return (document.getElementById('cardio-tipo-outro')?.value || '').trim() || 'Outro';
-  }
-  return sel.value;
+  if (_cardioForm.tipo === '__outro__') return String(_cardioForm.outro || '').trim() || 'Outro';
+  return _cardioForm.tipo || '';
 }
-
-// Mostra/oculta a caixa "Outros" e o campo de métrica (distância/degraus)
-function onCardioTipoChange() {
-  const sel = document.getElementById('cardio-tipo');
-  const outroInp = document.getElementById('cardio-tipo-outro');
-  const ehOutro = sel && sel.value === '__outro__';
-  if (outroInp) {
-    outroInp.style.display = ehOutro ? '' : 'none';
-    if (ehOutro) { try { outroInp.focus(); } catch {} } else { outroInp.value = ''; }
-  }
-  const tipo = cardioTipoValor();
-  const wrap = document.getElementById('cardio-metrica-wrap');
-  const inp = document.getElementById('cardio-metrica');
-  const lbl = document.getElementById('cardio-metrica-label');
-  const met = cardioMetrica(tipo);
-  if (wrap && inp && lbl) {
-    if (met) {
-      wrap.style.display = '';
-      lbl.textContent = met.label;
-      inp.placeholder = met.ph || '';
-      inp.step = met.step || '1';
-      inp.dataset.mtipo = met.tipo;
-    } else {
-      wrap.style.display = 'none';
-      inp.value = '';
-      delete inp.dataset.mtipo;
-    }
-  }
-  atualizarPreviewCardio();
-}
-
 function _cardioMetricaTexto() {
-  const inp = document.getElementById('cardio-metrica');
-  if (!inp || inp.offsetParent === null) return '';
-  const v = _normalizarDistancia(inp.value, inp.dataset.mtipo || '');
-  if (!v || v <= 0) return '';
-  const mt = inp.dataset.mtipo;
-  if (mt === 'km') return v + ' km';
-  if (mt === 'm') return v + ' m';
-  if (mt === 'degraus') return v + ' degraus';
-  return String(v);
+  const r = _cardioMetricaRaw();
+  if (!r) return '';
+  if (r.mtipo === 'km') return r.valor + ' km';
+  if (r.mtipo === 'm') return r.valor + ' m';
+  if (r.mtipo === 'degraus') return r.valor + ' degraus';
+  return String(r.valor);
 }
 // Valor bruto da métrica (para validar ritmo/velocidade)
 // ── DISTANCIA: 3 / 3,000 / 3.000 / 3000 sao a MESMA coisa ─────────────────
@@ -12351,21 +12533,12 @@ function _normalizarDistancia(txt, mtipo) {
   return v;
 }
 
-// Ao sair do campo, mostra ao aluno o valor ja arrumado, para ele conferir.
-function _arrumarDistancia() {
-  const inp = document.getElementById('cardio-metrica');
-  if (!inp || !inp.value) return;
-  const v = _normalizarDistancia(inp.value, inp.dataset.mtipo || '');
-  if (v != null) inp.value = String(v);
-  atualizarPreviewCardio();
-}
-
 function _cardioMetricaRaw() {
-  const inp = document.getElementById('cardio-metrica');
-  if (!inp || inp.offsetParent === null) return null;
-  const v = _normalizarDistancia(inp.value, inp.dataset.mtipo || '');
+  const met = cardioMetrica(cardioTipoValor());
+  if (!met) return null;
+  const v = _normalizarDistancia(_cardioForm.dist, met.tipo);
   if (!v || v <= 0) return null;
-  return { mtipo: inp.dataset.mtipo || '', valor: v };
+  return { mtipo: met.tipo, valor: v };
 }
 // Controle de tempo e distância: duração e ritmo dentro do normal por atividade (regras configuráveis)
 function _cardioPlausivel(tipo, min, raw) {
@@ -12385,65 +12558,6 @@ function _cardioPlausivel(tipo, min, raw) {
   return { ok: true };
 }
 
-// Prévia SEM pontos — os pontos só aparecem após a confirmação (evita marcações "caçando" pontos)
-function atualizarPreviewCardio() {
-  const tipo = cardioTipoValor();
-  const min = parseInt(document.getElementById('cardio-min')?.value) || 30;
-  const prev = document.getElementById('cardio-preview');
-  if (!prev) return;
-  const isLight = document.body.classList.contains('tema-claro');
-  const info = RPE_INFO[_cardioRpe] || RPE_INFO[5];
-  const extra = _cardioMetricaTexto();
-  prev.innerHTML = `
-    <div style="font-size:12.5px;font-weight:700;color:${isLight?'#0e7490':'#67e8f9'};">${esc(tipo)} · ${min} min${extra?' · '+extra:''}</div>
-    <div style="font-size:12px;color:${isLight?'#0891b2':'#22d3ee'};margin-top:3px;">Esforço ${_cardioRpe}/10 · ${info.t}</div>
-    <div style="font-size:10.5px;color:${isLight?'#999':'#666'};margin-top:6px;">💡 Seus pontos serão somados e mostrados <b>após você confirmar</b>.</div>`;
-}
-
-function fecharConfirmCardio() {
-  const ov = document.getElementById('cardio-confirm-overlay');
-  if (ov) ov.remove();
-}
-
-// Confirmação SEM mostrar pontos (o aluno confirma o esforço; os pontos são revelados depois de salvar)
-function confirmarCardio() {
-  const selEhOutro = document.getElementById('cardio-tipo')?.value === '__outro__';
-  const textoOutro = (document.getElementById('cardio-tipo-outro')?.value || '').trim();
-  if (selEhOutro && !textoOutro) { toast('Digite o nome da atividade.'); return; }
-  const tipo = cardioTipoValor();
-  const min = parseInt(document.getElementById('cardio-min')?.value) || 0;
-  if (min < 5) { toast('Mínimo 5 minutos.'); return; }
-  const extra = _cardioMetricaTexto();
-  const info = RPE_INFO[_cardioRpe] || RPE_INFO[5];
-  const cor = rpeCor(_cardioRpe);
-  const isLight = document.body.classList.contains('tema-claro');
-  const excedeuLimite = _cardiosContadosHoje() >= _cardioRegras.limiteDia;
-  const plausConf = _cardioPlausivel(tipo, min, _cardioMetricaRaw());
-  const avisoTexto = excedeuLimite
-    ? 'Você já registrou <b>' + _cardioRegras.limiteDia + ' cardios que contam</b> hoje. Este ficará no histórico, mas <b>não soma pontos</b> (limite diário).'
-    : (!plausConf.ok ? plausConf.txt + ' Ele será salvo, mas <b>não vai somar pontos</b>.' : '');
-  fecharConfirmCardio();
-  const ov = document.createElement('div');
-  ov.id = 'cardio-confirm-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
-  ov.innerHTML = `
-    <div style="background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#333'};border-radius:16px;padding:22px;max-width:320px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);">
-      <div style="font-size:30px;margin-bottom:8px;">🏃</div>
-      <div style="font-size:15px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};margin-bottom:8px;">Confirmar registro?</div>
-      <div style="font-size:13px;color:${isLight?'#555':'#aaa'};margin-bottom:4px;">${esc(tipo)} · ${min} min${extra?' · '+extra:''}</div>
-      <div style="font-size:13px;font-weight:700;color:${cor};margin-bottom:4px;">Esforço ${_cardioRpe}/10 · ${info.t}</div>
-      ${_cardioFoto ? `<div style="font-size:11.5px;color:${isLight?'#0e7490':'#67e8f9'};margin-bottom:8px;">📷 Foto anexada</div>` : `<div style="font-size:11px;color:${isLight?'#aaa':'#666'};margin-bottom:8px;">Sem foto anexada</div>`}
-      ${avisoTexto
-        ? `<div style="font-size:11.5px;color:${isLight?'#9a3412':'#fdba74'};background:${isLight?'#fff7ed':'rgba(251,146,60,.08)'};border:1px solid ${isLight?'rgba(234,88,12,.3)':'rgba(251,146,60,.25)'};border-radius:10px;padding:10px 12px;margin-bottom:16px;line-height:1.5;">⚠️ ${avisoTexto}</div>`
-        : `<div style="font-size:11px;color:${isLight?'#888':'#777'};margin-bottom:16px;">Confirme com sinceridade, o esforço define os pontos e mantém o ranking justo.</div>`}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <button onclick="fecharConfirmCardio()" style="padding:11px;border-radius:10px;border:1px solid ${isLight?'#ddd':'#333'};background:transparent;color:${isLight?'#666':'#aaa'};font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">Voltar</button>
-        <button onclick="fecharConfirmCardio();salvarCardio();" style="padding:11px;border-radius:10px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">✅ Confirmar</button>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-}
-
 // Revela o resultado só depois de confirmar. onClose roda ao fechar (para encadear a comemoração).
 let _cardioResultOnClose = null;
 // Linha de cardio nas listas de atividade (perfil e ranking): se foi um programa, o método aparece em destaque com o tempo real.
@@ -12453,43 +12567,71 @@ function _atvCardioTxt(c, min) {
   return '🏃 ' + esc(c.comentario || ((c.cardio_tipo || 'Cardio') + ' ' + (c.cardio_intensidade || '') + ' ' + min + 'min'));
 }
 let _cardioResultShare = null;
+// Frases de parabéns da tela de cardio registrado (uma por vez, sorteada).
+const _CARDIO_PARABENS = [
+  'Cada minuto de cardio faz bem para o seu coração.',
+  'Você fez acontecer! Seu corpo agradece.',
+  'Missão cumprida! Mais um passo na sua evolução.',
+  'Excelente! A constância é o que traz resultado.',
+  'Que orgulho! Você escolheu se movimentar hoje.',
+  'Mandou bem! Cardio feito, dia ganho.',
+  'Seu coração ficou mais forte hoje. Continue assim!',
+  'Quem se cuida hoje colhe saúde amanhã. Muito bem!',
+];
+function _cardioFraseParabens() { return _CARDIO_PARABENS[Math.floor(Math.random() * _CARDIO_PARABENS.length)]; }
+// Tela cheia de "cardio registrado": parabéns, pontos e para onde ir em seguida (início, ranking, conquistas, histórico). Serve ao cardio
+// manual e ao ao vivo; os programas guiados têm a própria tela de resultado.
 function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
   _cardioResultOnClose = onClose || null;
   _cardioResultShare = extra && extra.tipo ? { tipo: extra.tipo, min: extra.min, distKm: extra.distKm || 0 } : null;
-  const avisoPend = extra && extra.pendente ? `<div style="padding:10px 12px;border-radius:10px;background:${document.body.classList.contains('tema-claro')?'#fffbeb':'rgba(251,191,36,.08)'};border:1px solid rgba(251,191,36,.35);font-size:11.5px;line-height:1.5;color:${document.body.classList.contains('tema-claro')?'#92400e':'#fcd34d'};margin-bottom:14px;">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>` : '';
-  const isLight = document.body.classList.contains('tema-claro');
+  const P = _cdPal(), isLight = P.L;
+  const avisoPend = extra && extra.pendente ? `<div style="padding:10px 12px;border-radius:10px;background:${isLight?'#fffbeb':'rgba(251,191,36,.08)'};border:1px solid rgba(251,191,36,.35);font-size:12px;line-height:1.5;color:${isLight?'#92400e':'#fcd34d'};margin-top:14px;text-align:left;">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>` : '';
+  const old = document.getElementById('cardio-result-overlay'); if (old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'cardio-result-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn .2s ease;';
-  ov.onclick = function(e){ if (e.target === ov) _fecharResultadoCardio(); };
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + P.fundo + ';overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;padding:24px 18px calc(24px + env(safe-area-inset-bottom,0px));animation:fadeIn .2s ease;';
   const msgMotivo = motivo === 'limite'
     ? '🎯 Você já atingiu o <b>limite diário de ' + _cardioRegras.limiteDia + ' cardios</b> que somam pontos. Este ficou registrado, mas <b>não soma pontos hoje</b>, para manter o ranking justo. Amanhã volta a contar! 💪'
     : motivo === 'duracao'
     ? '⏱️ A <b>duração informada é muito longa</b> (acima de ' + Math.round((_cardioRegras.maxMin||240)/60*10)/10 + 'h). O cardio ficou no histórico, mas <b>não soma pontos</b>. Se estiver certo, fale com seu professor; se foi engano, remova e registre de novo.'
     : '📏 Os valores de <b>tempo/distância parecem fora do normal</b> para esta atividade. O cardio ficou no histórico, mas <b>não soma pontos</b>. Confira os números e registre novamente se houve engano.';
-  const corpo = motivo
-    ? `<div style="font-size:40px;margin-bottom:6px;">✅</div>
-      <div style="font-size:15px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};margin-bottom:2px;">Cardio salvo no histórico</div>
-      <div style="font-size:12px;color:${isLight?'#666':'#999'};margin-bottom:14px;">${esc(tipo)} · ${min} min</div>
-      <div style="padding:12px 14px;border-radius:12px;background:${isLight?'#fff7ed':'rgba(251,146,60,.08)'};border:1px solid ${isLight?'rgba(234,88,12,.3)':'rgba(251,146,60,.25)'};font-size:12.5px;color:${isLight?'#9a3412':'#fdba74'};line-height:1.55;margin-bottom:18px;">${msgMotivo}</div>`
-    : `<div style="font-size:40px;margin-bottom:6px;">🎉</div>
-      <div style="font-size:15px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};margin-bottom:2px;">Cardio registrado!</div>
-      <div style="font-size:12px;color:${isLight?'#666':'#999'};margin-bottom:14px;">${esc(tipo)} · ${min} min</div>
-      <div style="font-size:12px;color:${isLight?'#888':'#777'};text-transform:uppercase;letter-spacing:.5px;">Pontos somados</div>
-      <div style="font-size:44px;font-weight:900;color:#06b6d4;line-height:1.1;animation:fraseEntrada .5s ease-out both;">+${pts.toFixed(1)}</div>
-      <div style="font-size:11px;color:${isLight?'#999':'#666'};margin-bottom:18px;">no ranking de cardio e geral</div>`;
-  const btnCompartilhar = _cardioResultShare
-    ? `<button onclick="_cardioResultadoCompartilhar()" style="width:100%;margin-bottom:8px;padding:12px;border-radius:12px;border:1px solid ${isLight?'#e5e5e5':'#333'};background:${isLight?'#f6f6f6':'#0d0d0d'};color:${isLight?'#1a1a1a':'#f0f0f0'};font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;">📸 Compartilhar cardio</button>`
-    : '';
+  const distTxt = extra && extra.distKm > 0 ? ' · ' + (Math.round(extra.distKm * 100) / 100) + ' km' : '';
+  const emoji = CARDIO_EMOJI_TODOS[tipo] || '🏃';
+  const bloco = motivo
+    ? `<div style="padding:12px 14px;border-radius:12px;background:${P.avisoBg};border:1px solid ${P.avisoBorda};font-size:13px;color:${P.aviso};line-height:1.55;margin-top:18px;text-align:left;">${msgMotivo}</div>`
+    : `<div style="margin-top:18px;padding:14px;border-radius:16px;background:${P.ciaBg};border:1px solid rgba(6,182,212,.3);">
+         <div style="font-size:12px;color:${P.mut};text-transform:uppercase;letter-spacing:.5px;font-weight:700;">Pontos somados</div>
+         <div style="font-size:46px;font-weight:900;color:#06b6d4;line-height:1.1;animation:fraseEntrada .5s ease-out both;">+${pts.toFixed(1)}</div>
+         <div style="font-size:11.5px;color:${P.mut2};">no ranking de cardio e geral</div></div>`;
+  const btn = (js, rot, cls, estilo) => '<button class="btn ' + cls + '" style="' + (estilo || '') + 'min-height:52px;font-size:14.5px;font-weight:800;" onclick="' + js + '">' + rot + '</button>';
   ov.innerHTML = `
-    <div style="background:${isLight?'#fff':'#141414'};border:1px solid ${isLight?'#e5e5e5':'#333'};border-radius:18px;padding:26px 22px;max-width:320px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5);">
-      ${corpo}
+    <div style="margin:auto;width:100%;max-width:400px;text-align:center;">
+      <div style="font-size:66px;line-height:1;">🎉</div>
+      <div style="font-size:28px;font-weight:900;color:${P.txt};margin-top:10px;letter-spacing:-.02em;">Parabéns!</div>
+      <div style="font-size:15.5px;color:${P.txt};margin:8px auto 0;max-width:330px;line-height:1.5;">${_cardioFraseParabens()}</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;padding:9px 16px;border-radius:99px;background:${P.card};border:1px solid ${P.borda};font-size:13.5px;font-weight:700;color:${P.txt};">
+        <span style="color:${P.cia};font-size:17px;">${emoji}</span><span>${motivo ? 'Cardio salvo' : 'Cardio registrado'}: ${esc(_ativRotulo(tipo))} · ${min} min${distTxt}</span></div>
+      ${bloco}
       ${avisoPend}
-      ${btnCompartilhar}
-      <button onclick="_fecharResultadoCardio()" style="width:100%;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,#06b6d4,#0ea5e9);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">Beleza! 💪</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:22px;">
+        ${_cardioResultShare ? btn('_cardioResultadoCompartilhar()', '📸 Compartilhar cardio', 'btn-prim', 'grid-column:1 / -1;') : ''}
+        ${btn("_cardioResultIr('home')", '🏠 Início', 'btn-sec')}
+        ${btn("_cardioResultIr('ranking')", '🏆 Ranking', 'btn-sec')}
+        ${btn("_cardioResultIr('conquistas')", '🏅 Conquistas', 'btn-sec')}
+        ${btn("_cardioResultIr('historico')", '📊 Histórico', 'btn-sec')}
+        ${btn('_fecharResultadoCardio()', '🏃 Voltar ao Meu Cardio', 'btn-sec', 'grid-column:1 / -1;')}
+      </div>
     </div>`;
   document.body.appendChild(ov);
+  try { ov.scrollTop = 0; } catch (e) {}
   try { if (navigator && navigator.vibrate) navigator.vibrate([30,50,30]); } catch(e){}
+}
+function _cardioResultIr(dest) {
+  _fecharResultadoCardio();
+  if (dest === 'home') { trocarView('home'); renderHome(); }
+  else if (dest === 'ranking') abrirRanking();
+  else if (dest === 'conquistas') abrirQuadroMedalhas();
+  else if (dest === 'historico') navegar('historico');
 }
 // Compartilhar logo depois de registrar um cardio MANUAL (antes só o cardio ao vivo e os programas tinham o botão, e quem registrava
 // à mão só conseguia postar indo ao Feed).
@@ -12513,7 +12655,7 @@ async function salvarCardio(opts) {
   if (_cardioSalvando) return;   // toque repetido durante o salvamento: ignora
   opts = opts || {};
   const tipo = cardioTipoValor();
-  const min = parseInt(document.getElementById('cardio-min')?.value) || 0;
+  const min = parseInt(_cardioForm.min) || 0;
   // Os campos comecam vazios, entao o aluno precisa preencher antes de salvar.
   // Estas duas checagens vem ANTES do "minimo 5 minutos": campo em branco nao e
   // treino curto, e dizer "minimo 5 minutos" para quem nao digitou nada confunde.
@@ -12569,11 +12711,12 @@ async function salvarCardio(opts) {
     toast(_erroPermanente(e) ? 'O servidor não aceitou o cardio agora: ' + ((e && e.message) || 'erro') + '. Ele continua guardado no aparelho.' : 'Sem conexão com o servidor: o cardio ficou guardado e será enviado sozinho.');
   }
   _cardioSalvando = false; _busyFim();
-  // Reseta a foto. renderCardio() só faz sentido se a tela de Cardio for a
+  // Reseta o formulário. renderCardio() só faz sentido se a tela de Cardio for a
   // que vai ficar visível — no fluxo silencioso (cardio ao vivo) quem decide
   // o que aparece depois é o onDone.
-  _cardioFoto = '';
-  if (!opts.silencioso) renderCardio();
+  const _fezPeloForm = !opts.silencioso;
+  _cardioFormLimpar();   // zera o que foi digitado (tipo, tempo, distância, esforço e foto) para o próximo registro
+  if (_fezPeloForm) { _cardioLimparHist(); renderCardio(); }   // volta à tela inicial do Cardio, já sem os passos do formulário no histórico
   // pts (payload) fica RAW p/ o ranking recomputar; o aluno vê o valor com fator + teto.
   const ptsExib = excedeu ? 0 : _pontosCardioPolitica(pts);
   if (opts.silencioso) {
@@ -13530,10 +13673,9 @@ async function _progConcluir(completo) {
     return;
   }
   // Reaproveita o registro de cardio de sempre (limite diário, plausibilidade e pontos continuam sendo decididos como em todo cardio).
+  _cardioUi.pilha = ['home'];
   renderCardio();
-  const selTipo = document.getElementById('cardio-tipo'); if (selTipo) selTipo.value = ativ;
-  if (typeof onCardioTipoChange === 'function') onCardioTipoChange();
-  const inpMin = document.getElementById('cardio-min'); if (inpMin) inpMin.value = min;
+  _cardioForm = { tipo: ativ, outro: '', min: String(min), dist: '' };
   _cardioRpe = p.rpe;
   salvarCardio({
     silencioso: true, comentario: 'Programa: ' + p.titulo + (p.sessoes && p.sessoes[_progSessaoGravar] ? ' · ' + p.sessoes[_progSessaoGravar].id : ''),
@@ -13554,6 +13696,7 @@ async function _progResultado(p, completo, seg, dados) {
   box.innerHTML = '<div style="text-align:center;padding:30px 10px 10px;">' +
     '<div style="font-size:64px;line-height:1;margin-bottom:8px;">' + (completo ? '🎉' : '👏') + '</div>' +
     '<h2 class="sect-title" style="margin-bottom:6px;">' + (completo ? 'Programa concluído!' : 'Cardio registrado') + '</h2>' +
+    '<div style="font-size:15px;line-height:1.5;margin:0 auto 10px;max-width:320px;">Parabéns! ' + _cardioFraseParabens() + '</div>' +
     '<div style="font-size:14px;color:#888;">' + p.emoji + ' ' + esc(p.titulo) + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + esc(p.sessoes[_prog.sessao].titulo) : '') + ' · ' + _progMin(seg) + '</div>' +
     '<div style="margin:18px auto 0;max-width:320px;padding:14px;border-radius:14px;text-align:left;font-size:13px;line-height:1.6;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1px solid rgba(127,255,0,.3);">' +
       '⏱ Pontos do tempo: <b>+' + (dados && dados.ptsExib != null ? dados.ptsExib : 0) + '</b>' + (dados && dados.motivo === 'limite' ? ' <span style="color:#888;">(o limite de cardios do dia já foi atingido)</span>' : '') + '<br>' +
@@ -14096,15 +14239,10 @@ function _cardioLiveFinalizar() {
   const pontos = _cardioLivePontos.slice();
   _cardioLivePararTudo();
   _cardioLiveLimparAtivo();
+  _cardioUi.pilha = ['home'];
   renderCardio();
   trocarView('cardio');
-  const selTipo = document.getElementById('cardio-tipo');
-  if (selTipo) selTipo.value = tipo;
-  onCardioTipoChange();
-  const inpMin = document.getElementById('cardio-min'); if (inpMin) inpMin.value = min || '';
-  const inpMet = document.getElementById('cardio-metrica'); if (inpMet && distKm > 0) inpMet.value = distKm.toFixed(2);
-  const det = document.getElementById('cardio-manual-details'); if (det) det.open = true;
-  if (typeof atualizarPreviewCardio === 'function') atualizarPreviewCardio();
+  _cardioForm = { tipo: tipo, outro: '', min: min ? String(min) : '', dist: distKm > 0 ? distKm.toFixed(2) : '' };
   _cardioRpe = 5;
   salvarCardio({
     silencioso: true,
@@ -23271,6 +23409,11 @@ window.addEventListener('popstate', function(e) {
   // treino e tocava em "Voltar e continuar" (caso do Eduardo, 06/11/2026: o treino reaberto, refinalizado em poucos minutos, não contou).
   // Com a folha do histórico aberta, voltar deve fechar a folha e parar por aí. Sem isto, a tela de trás mudava por baixo enquanto a
   // folha continuava na frente, e o aluno saía do treino sem entender como.
+  if (document.getElementById('cardio-result-overlay')) {   // tela de "cardio registrado": voltar fecha a tela e para por aí
+    _fecharResultadoCardio();
+    history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
+    return;
+  }
   if (document.getElementById('ov-hist-ex')) {
     fecharHistoricoExercicio();
     history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
@@ -23311,6 +23454,8 @@ window.addEventListener('popstate', function(e) {
   // (#feed-compose-overlay, ver _renderComposeFeed) — a trava continua
   // valendo pros 3 casos, só mudou o id que ela observa.
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
+  // Meu Cardio: formulário, confirmação e histórico são passos dentro da tela; voltar do celular anda um passo (e a tela de "cardio registrado", por cima de tudo, fecha primeiro).
+  if (window._viewAtual === 'cardio' && typeof _cardioVoltarGesto === 'function' && _cardioVoltarGesto()) return;
   // Programa de cardio (detalhe, execução ou resultado): voltar do celular leva à lista de programas, não ao registro de cardio.
   if (window._viewAtual === 'cardio-prog' && _prog.tela !== 'lista') {
     const tinha = _prog.hist > 0; if (tinha) _prog.hist--;
