@@ -10,7 +10,7 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
 function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== undefined) console.log('          ' + JSON.stringify(extra)); }
 
 const hoje = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
-const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, cardio_tipo: 'Corrida', cardio_rpe: 6, nao_contar: 0, ao_vivo: 0, comentario: 'Corrida' },
+const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, cardio_tipo: 'Corrida', cardio_rpe: 6, nao_contar: 0, ao_vivo: 0, comentario: 'Corrida · esforço 6/10 · 40min || Cansei nos últimos minutos' },
               { idsessao: 10, dtsessao: '2026-10-01', duracao_seg: 1500, pontos: 3, cardio_tipo: 'Pular Corda', cardio_rpe: 5, nao_contar: 0, ao_vivo: 0, comentario: 'Pular Corda' },
               { idsessao: 9, dtsessao: '2026-09-20', duracao_seg: 1800, pontos: 3, cardio_tipo: 'Padel', cardio_rpe: 5, nao_contar: 0, ao_vivo: 0, comentario: 'Padel' }];
 
@@ -20,10 +20,11 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 375, height: 800 }, serviceWorkers: 'block' });
   const page = await ctx.newPage(); const erros = []; page.on('pageerror', e => erros.push(String(e.message)));
-  const posts = [];
+  const posts = [], puts = [];
   await page.route(/\/app\/api\/treinos\.php\?action=cardio/, async r => {
     const req = r.request();
     if (req.method() === 'POST') { const body = JSON.parse(req.postData() || '{}'); posts.push(body); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ idsessao: 700 + posts.length, pontos: body.pontos || 0, nao_contar: body.nao_contar || 0 }) }); }
+    if (req.method() === 'PUT') { puts.push(JSON.parse(req.postData() || '{}')); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
     if (req.method() === 'GET') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(HIST) });
     return r.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
@@ -57,14 +58,21 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   t = await tela();
   eq('abre o formulário (um passo à frente na pilha)', [t.view, t.pilha], ['cardio', ['home', 'form']]);
   const tiles = await page.evaluate(() => [...document.querySelectorAll('#v-cardio .cf-tile')].map(e => e.dataset.k));
-  eq('as 14 opções, com dança, trilha, em casa e raquete', tiles, ['Caminhada', 'Corrida', 'Bike', 'Natação', 'Dança', 'Pular Corda', 'Elíptico', 'Escada', 'Futebol', 'Esportes de raquete', 'Luta', 'Trilha e natureza', 'Exercício em casa', '__outro__']);
-  eq('Tênis e Padel viraram uma opção só; Polichinelo e Corrida estática também', await page.evaluate(() => [...document.querySelectorAll('#v-cardio .cf-tile')].filter(e => /Tênis|Padel|Polichinelo|estática/i.test(e.querySelector('b').innerText)).length), 0);
+  eq('as 14 opções, com dança, trilha, em casa e raquete', tiles.slice().sort(), ['Caminhada', 'Corrida', 'Bike', 'Natação', 'Dança', 'Pular Corda', 'Elíptico', 'Escada', 'Futebol', 'Esportes com raquete', 'Luta', 'Esportes na natureza', 'Cardio em casa', '__outro__'].sort());
+  eq('7 principais em pílulas e o resto em "Todas"', await page.evaluate(() => [document.querySelectorAll('#v-cardio .cf-pil').length, document.querySelectorAll('#v-cardio .cf-gra').length, getComputedStyle(document.getElementById('cf-grade')).display]), [7, 7, 'none']);
+  eq('Tênis e Padel viraram uma opção só; Polichinelo e Corrida estática também', await page.evaluate(() => [...document.querySelectorAll('#v-cardio .cf-tile')].filter(e => /Tênis|Padel|Polichinelo|estática/i.test(e.dataset.k)).length), 0);
+  ver('Esportes com raquete, Cardio em casa e Esportes na natureza trazem os exemplos embaixo', await page.evaluate(() => ['Esportes com raquete|tênis, padel', 'Cardio em casa|polichinelo', 'Esportes na natureza|trilha'].every(x => { const [k, ex] = x.split('|'); const b = document.querySelector('.cf-tile[data-k="' + k + '"]'); return b && b.innerText.includes(k) && b.innerText.includes(ex); })));
   ver('o ícone de pular corda é desenhado (SVG), não o nó 🪢', await page.evaluate(() => { const b = document.querySelector('#v-cardio .cf-tile[data-k="Pular Corda"]'); return !!b.querySelector('svg') && !/🪢/.test(b.innerText); }));
-  ver('todos os botões de atividade têm pelo menos 44 px de altura e 100 px de largura', await page.evaluate(() => [...document.querySelectorAll('#v-cardio .cf-tile')].every(e => { const r = e.getBoundingClientRect(); return r.height >= 44 && r.width >= 100; })));
+  ver('as pílulas têm pelo menos 38 px de altura', await page.evaluate(() => [...document.querySelectorAll('#v-cardio .cf-pil')].every(e => e.getBoundingClientRect().height >= 38)));
+  await clicar('#cf-todas');
+  eq('"Todas" abre o resto em grade de 3 colunas', await page.evaluate(() => [getComputedStyle(document.getElementById('cf-grade')).display, getComputedStyle(document.getElementById('cf-grade')).gridTemplateColumns.split(' ').length, document.getElementById('cf-todas').innerText]), ['grid', 3, 'Menos ▴']);
+  await clicar('#cf-todas');
+  const tela1 = await page.evaluate(() => { const r = id => document.getElementById(id).getBoundingClientRect(); return { fimEsforco: Math.round(r('cf-rpe-desc').bottom), alturaJanela: innerHeight, topoBarra: Math.round(r('cf-barra').top) }; });
+  ver('com "Todas" fechado, atividade, duração e esforço cabem juntos na primeira tela (800 px)', tela1.fimEsforco <= tela1.alturaJanela, tela1);
   eq('nenhum elemento do formulário passa da largura da tela (375 px)', await page.evaluate(() => [...document.querySelectorAll('#cf-root *, #cf-barra, #cf-barra *')].filter(e => e.getBoundingClientRect().right > 375.5).length), 0);
 
   console.log('\n══ Tempo, distância e foto digitáveis e visíveis ══');
-  eq('sem atividade escolhida, o botão pede a atividade', await page.evaluate(() => document.getElementById('cf-btn').innerText.trim()), 'Escolha o que você fez');
+  eq('sem atividade escolhida, o botão pede a atividade', await page.evaluate(() => document.getElementById('cf-btn').innerText.trim()), 'Escolha a atividade');
   eq('a distância só aparece quando a atividade permite', await page.evaluate(() => getComputedStyle(document.getElementById('cf-s-dist')).display), 'none');
   await clicar('.cf-tile[data-k="Corrida"]');
   eq('Corrida mostra a distância em km', await page.evaluate(() => [getComputedStyle(document.getElementById('cf-s-dist')).display !== 'none', document.getElementById('cf-dist-un').innerText]), [true, 'km']);
@@ -72,8 +80,9 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('Natação mostra a distância em metros', await page.evaluate(() => document.getElementById('cf-dist-un').innerText), 'm');
   await clicar('.cf-tile[data-k="Dança"]');
   eq('Dança não pede distância', await page.evaluate(() => getComputedStyle(document.getElementById('cf-s-dist')).display), 'none');
-  await clicar('.cf-tile[data-k="Trilha e natureza"]');
-  eq('Trilha e natureza pede distância em km', await page.evaluate(() => [getComputedStyle(document.getElementById('cf-s-dist')).display !== 'none', document.getElementById('cf-dist-un').innerText]), [true, 'km']);
+  await ir("_cardioForm.todas = true; _cardioFormAtualizar()");
+  await clicar('.cf-tile[data-k="Esportes na natureza"]');
+  eq('Esportes na natureza pede distância em km', await page.evaluate(() => [getComputedStyle(document.getElementById('cf-s-dist')).display !== 'none', document.getElementById('cf-dist-un').innerText]), [true, 'km']);
   await clicar('.cf-tile[data-k="Corrida"]');
   await page.fill('#cf-min', '4'); await page.waitForTimeout(150);
   eq('4 minutos: o botão avisa do mínimo', await page.evaluate(() => document.getElementById('cf-btn').innerText.trim()), 'O mínimo é de 5 minutos');
@@ -85,29 +94,29 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('75 min mostra "= 1 h 15 min"', await page.evaluate(() => document.getElementById('cf-min-h').innerText), '= 1 h 15 min');
   await clicar('.cf-chip[data-m="30"]');
   eq('o atalho de 30 min preenche o campo', await page.evaluate(() => document.getElementById('cf-min').value), '30');
-  await page.click('#cf-s-min button[aria-label="Aumentar"]'); await page.click('#cf-s-min button[aria-label="Aumentar"]');
+  await page.click('#cf-s-min button[aria-label="Mais"]'); await page.click('#cf-s-min button[aria-label="Mais"]');
   eq('o + soma de 5 em 5', await page.evaluate(() => document.getElementById('cf-min').value), '40');
-  await page.click('#cf-s-min button[aria-label="Diminuir"]');
+  await page.click('#cf-s-min button[aria-label="Menos"]');
   eq('o − tira de 5 em 5', await page.evaluate(() => document.getElementById('cf-min').value), '35');
-  await page.fill('#cf-min', ''); await page.click('#cf-s-min button[aria-label="Aumentar"]');
+  await page.fill('#cf-min', ''); await page.click('#cf-s-min button[aria-label="Mais"]');
   eq('o + no campo vazio começa em 30', await page.evaluate(() => document.getElementById('cf-min').value), '30');
   await page.fill('#cf-dist', '5,5'); await page.waitForTimeout(100);
   eq('a distância é digitável', await page.evaluate(() => _cardioForm.dist), '5,5');
-  await page.click('#cf-s-dist button[aria-label="Aumentar"]');
-  eq('o + da distância soma 0,5 km', await page.evaluate(() => document.getElementById('cf-dist').value), '6');
   await page.fill('#cf-dist', '3,000'); await page.evaluate(() => document.getElementById('cf-dist').blur()); await page.waitForTimeout(150);
   eq('3,000 vira 3 ao sair do campo (mesma regra de sempre)', await page.evaluate(() => document.getElementById('cf-dist').value), '3');
-  const foto = await page.evaluate(() => { const b = document.querySelector('#cf-foto button'); const r = b.getBoundingClientRect(), t = document.querySelector('.cf-tile').getBoundingClientRect(); return { svg: !!b.querySelector('svg'), alt: Math.round(r.height), altTile: Math.round(t.height), larg: Math.round(r.width), texto: b.innerText.replace(/\s+/g, ' ').trim() }; });
-  ver('o botão da foto tem ícone, texto e altura de um botão grande da tela', foto.svg && foto.alt >= 70 && foto.alt >= foto.altTile - 20 && foto.larg > 250 && /Adicionar foto/.test(foto.texto), foto);
-  eq('o esforço começa em 5 (Moderado)', await page.evaluate(() => [_cardioRpe, /^5\s+Moderado/.test(document.getElementById('cf-rpe-desc').innerText.replace(/\s+/g, ' ').trim())]), [5, true]);
+  const foto = await page.evaluate(() => { const b = document.querySelector('#cf-foto button'); const r = b.getBoundingClientRect(), d = document.getElementById('cf-dist').getBoundingClientRect(); return { svg: !!b.querySelector('svg'), alt: Math.round(r.height), altCampo: Math.round(d.height), larg: Math.round(r.width), texto: b.innerText.replace(/\s+/g, ' ').trim() }; });
+  ver('o botão da foto é visível, tem ícone e texto e a mesma altura do campo de distância', foto.svg && foto.alt >= 44 && Math.abs(foto.alt - foto.altCampo) <= 2 && /Adicionar foto/.test(foto.texto), foto);
+  eq('o esforço começa em 5 (Moderado)', await page.evaluate(() => [_cardioRpe, /^5\s*·\s*Moderado/.test(document.getElementById('cf-rpe-desc').innerText.replace(/\s+/g, ' ').trim())]), [5, true]);
   await clicar('.cf-rpe[data-n="8"]');
   eq('tocar no 8 muda o esforço', await page.evaluate(() => [_cardioRpe, document.querySelector('.cf-rpe[data-n="8"]').getAttribute('aria-pressed'), document.querySelector('.cf-rpe[data-n="5"]').getAttribute('aria-pressed')]), [8, 'true', 'false']);
   eq('o botão resume o que será registrado', await page.evaluate(() => document.getElementById('cf-btn').innerText.trim()), 'Continuar: Corrida, 30 min');
 
   console.log('\n══ Voltar e corrigir (nada se perde) ══');
+  await page.fill('#cf-nota', 'Senti o joelho   um pouco || no fim');
   await clicar('#cf-btn');
   t = await tela();
   eq('"Continuar" leva à confirmação (3º passo da pilha)', [t.pilha, t.titulo.replace(/^\S+\s/, '')], [['home', 'form', 'confirma'], 'Confira os dados']);
+  ver('a confirmação mostra o comentário do aluno (sem quebra e sem o separador)', /Senti o joelho um pouco \| no fim/.test(t.txt), t.txt);
   ver('a confirmação mostra atividade, tempo, distância e esforço, sem pontos', /Corrida/.test(t.txt) && /30 min/.test(t.txt) && /3 km/.test(t.txt) && /Muito forte/.test(t.txt) && !/pontos somados/i.test(t.txt), t.txt.slice(0, 500));
   eq('há os dois botões: registrar e corrigir', await page.evaluate(() => [...document.querySelectorAll('#v-cardio button')].map(b => b.innerText.trim()).filter(x => /registrar|Corrigir/.test(x))), ['✅ Está certo, registrar', '✏️ Corrigir']);
   await clicar('#v-cardio button:has-text("Corrigir")');
@@ -142,6 +151,7 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   ver('com frase de parabéns e o resumo do que foi feito', res && /Parabéns!/.test(res.txt) && /Corrida · 35 min · 3 km/.test(res.txt), res && res.txt);
   ver('e com a pontuação somada', res && /pontos somados/i.test(res.txt) && /\+\d/.test(res.txt), res && res.txt);
   eq('opções: compartilhar, início, ranking, conquistas, histórico e voltar ao cardio', res && res.botoes, ['📸 Compartilhar cardio', '🏠 Início', '🏆 Ranking', '🏅 Conquistas', '📊 Histórico', '🏃 Voltar ao Meu Cardio']);
+  ver('o comentário vai junto, depois do texto automático', posts.length && /^Corrida · esforço 8\/10 · 35min · 3 km \|\| Senti o joelho um pouco \| no fim$/.test(posts[0].comentario), posts[0] && posts[0].comentario);
   eq('o servidor recebeu a atividade, o tempo e o esforço digitados', posts.length ? [posts[0].cardio_tipo, posts[0].duracao_seg, posts[0].cardio_rpe, posts[0].cardio_metrica] : null, ['Corrida', 2100, 8, '3 km']);
   t = await tela();
   eq('depois de registrar a pilha volta ao começo', t.pilha, ['home']);
@@ -172,14 +182,34 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   await page.fill('#cf-outro', 'Remo'); await clicar('#cf-btn');
   ver('com o nome, avança e a confirmação mostra "Remo"', await page.evaluate(() => _cardioUi.pilha.length === 3 && /Remo/.test(document.getElementById('v-cardio').innerText)));
   await clicar('#v-cardio button:has-text("Corrigir")');
-  await clicar('.cf-tile[data-k="Exercício em casa"]');
-  eq('trocar de "Outra" para "Em casa" limpa o nome digitado', await page.evaluate(() => [_cardioForm.outro, getComputedStyle(document.getElementById('cf-outro')).display, cardioTipoValor()]), ['', 'none', 'Exercício em casa']);
+  await ir("_cardioForm.todas = true; _cardioFormAtualizar()");
+  await clicar('.cf-tile[data-k="Cardio em casa"]');
+  eq('trocar de "Outra" para "Em casa" limpa o nome digitado', await page.evaluate(() => [_cardioForm.outro, getComputedStyle(document.getElementById('cf-outro')).display, cardioTipoValor()]), ['', 'none', 'Cardio em casa']);
   await clicar('#cf-btn');
-  ver('Exercício em casa vai direto para a confirmação com a distância "não informada"', await page.evaluate(() => /Exercício em casa/.test(document.getElementById('v-cardio').innerText) && /não informada/.test(document.getElementById('v-cardio').innerText)));
+  ver('Cardio em casa vai direto para a confirmação com a distância "não informada"', await page.evaluate(() => /Cardio em casa/.test(document.getElementById('v-cardio').innerText) && /não informada/.test(document.getElementById('v-cardio').innerText)));
   await ir("document.querySelector('#v-cardio button').click()");   // "← Voltar" do cabeçalho da confirmação
   eq('"← Voltar" da confirmação volta ao formulário', (await tela()).pilha, ['home', 'form']);
   await ir("_cardioForm.tipo='Corrida'; _cardioForm.min='500'; _cardioFormAtualizar(); toggleMenu()");
   await page.evaluate(() => { try { fecharMenuDireto(); } catch (e) {} });
+
+  console.log('\n══ Cardio ao vivo com as mesmas atividades do manual ══');
+  await ir('abrirCardio()'); await page.waitForTimeout(300);
+  await clicar('#v-cardio button:has-text("Cardio ao vivo")'); await page.waitForTimeout(300);
+  const chipsLive = await page.evaluate(() => [...document.querySelectorAll('#v-cardio-live .cl-tipo-chip')].map(b => b.innerText.replace(/\s+/g, ' ').trim()).slice(0, 14));
+  eq('o ao vivo oferece as mesmas 14 opções do registro manual', chipsLive.length, 14);
+  ver('com Dança, Pular Corda, Raquete, Esportes na natureza, Em casa e Outra', ['Dança', 'Pular Corda', 'Esportes com raquete', 'Esportes na natureza', 'Cardio em casa', 'Outra'].every(n => chipsLive.some(c => c.includes(n))), chipsLive);
+  ver('o ícone de pular corda também é o desenhado', await page.evaluate(() => !!document.querySelector('#v-cardio-live .cl-tipo-chip svg')));
+  await ir("_cardioLiveEscolherTipo('Natação')");
+  eq('Natação: sem GPS (herói é o tempo)', await page.evaluate(() => [_cardioLiveUsaGpsAgora(), !!document.getElementById('cl-tempo-hero')]), [false, true]);
+  await ir("_cardioLiveEscolherTipo('Esportes na natureza')");
+  eq('Esportes na natureza: com GPS e sem a opção "num aparelho"', await page.evaluate(() => [_cardioLiveUsaGpsAgora(), /Num aparelho/.test(document.getElementById('v-cardio-live').innerText)]), [true, false]);
+  await ir("_cardioLiveEscolherTipo('__outro__')");
+  ver('Outra mostra o campo para escrever o nome', await page.evaluate(() => !!document.getElementById('cl-outro')));
+  await ir('_cardioLiveIniciarRastreio()');
+  eq('sem o nome, não começa', await page.evaluate(() => [!!_cardioLiveInicioMs, _cardioLiveTipo]), [false, '__outro__']);
+  await page.fill('#cl-outro', 'Remo'); await ir('_cardioLiveIniciarRastreio()');
+  eq('com o nome, começa sem GPS e a atividade vira "Remo"', await page.evaluate(() => [!!_cardioLiveInicioMs, _cardioLiveTipo, _cardioLiveUsaGpsAgora()]), [true, 'Remo', false]);
+  await ir('_cardioLivePararTudo(); _cardioLiveLimparAtivo(); _cardioLiveInicioMs = 0; _cardioLiveTipo = "Caminhada"; _cardioLiveOutro = ""; abrirCardio()');
 
   console.log('\n══ Limpar ══');
   await ir('abrirCardio()'); await page.waitForTimeout(300); await ir('cardioAbrirForm()');
@@ -195,7 +225,8 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('o ao vivo grava atividade, tempo, distância e a marca de "ao vivo"', posts.length === antes + 1 ? [live.cardio_tipo, live.duracao_seg, live.cardio_metrica, live.ao_vivo, live.cardio_rpe] : null, ['Corrida', 1500, '3.2 km', 1, 5]);
   ver('e abre a tela de esforço do ao vivo', await page.evaluate(() => !!document.getElementById('cardio-esforco-overlay')));
   eq('o formulário fica zerado depois do ao vivo', await page.evaluate(() => [_cardioForm.tipo, _cardioForm.min, _cardioForm.dist]), ['', '', '']);
-  await ir('_confirmarEsforcoCardioLive()'); await page.waitForTimeout(700);
+  await page.fill('#cle-nota', 'Cansativo'); await ir('_confirmarEsforcoCardioLive()'); await page.waitForTimeout(700);
+  ver('o comentário do ao vivo vai no ajuste do esforço, no mesmo formato do manual', puts.length === 1 && /^Corrida · esforço 5\/10 · 25min · 3\.2 km \|\| Cansativo$/.test(puts[0].comentario), puts);
   ver('"Concluir" do ao vivo mostra a tela de parabéns com os atalhos', await page.evaluate(() => { const o = document.getElementById('cardio-result-overlay'); return !!o && /Parabéns!/.test(o.innerText) && /Ranking/.test(o.innerText) && /Início/.test(o.innerText) && /Histórico/.test(o.innerText); }));
   await ir('_fecharResultadoCardio()');
   const antes2 = posts.length;
@@ -205,6 +236,13 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('o programa grava a atividade escolhida, o tempo e o comentário "Programa: ..."', posts.length === antes2 + 1 ? [prog.cardio_tipo, prog.duracao_seg, /^Programa: /.test(prog.comentario)] : null, ['Bike', 2400, true]);
   ver('e a tela de resultado do programa tem frase de parabéns', await page.evaluate(() => /Parabéns!/.test(document.getElementById('v-cardio-prog').innerText)));
 
+  console.log('\n══ Semana abre o calendário; ícone da escada ══');
+  await ir('abrirCardio()'); await page.waitForTimeout(300);
+  await clicar('#v-cardio [aria-label="Abrir o calendário"]'); await page.waitForTimeout(300);
+  eq('tocar no gráfico da semana abre o histórico em calendário (como a "Sua semana" da tela inicial)', await page.evaluate(() => [window._viewAtual, _historicoTab]), ['historico', 'linha']);
+  await ir('abrirCardio()'); await page.waitForTimeout(300);
+  ver('a escada tem ícone de degraus, não o escalador', await page.evaluate(() => /<svg/.test(_cardioEmoji({ cardio_tipo: 'Escada' })) && !/🧗/.test(_cardioEmoji({ cardio_tipo: 'Escada' }))));
+
   console.log('\n══ Histórico ══');
   await ir('abrirCardio()'); await page.waitForTimeout(400);
   eq('abrir o Meu Cardio de novo começa na lista', (await tela()).pilha, ['home']);
@@ -212,6 +250,8 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   t = await tela();
   eq('o histórico é um passo da pilha', t.pilha, ['home', 'hist']);
   ver('lista as atividades com os ícones (corda desenhada, padel antigo com raquete)', await page.evaluate(() => { const x = document.getElementById('v-cardio'); return /Corrida/.test(x.innerText) && /Pular Corda/.test(x.innerText) && /Padel/.test(x.innerText) && !!x.querySelector('svg') && !/🪢/.test(x.innerText); }));
+  ver('o histórico mostra o comentário do aluno', await page.evaluate(() => /💬 Cansei nos últimos minutos/.test(document.getElementById('v-cardio').innerText)));
+  eq('e os outros alunos (perfil e ranking) só veem o texto automático', await page.evaluate(() => [_atvCardioTxt(_cardioHistorico[0], 40).includes('Cansei'), _atvCardioTxt(_cardioHistorico[0], 40).includes('Corrida · esforço 6/10')]), [false, true]);
   await voltarCel();
   eq('voltar do celular no histórico volta à lista', (await tela()).pilha, ['home']);
 

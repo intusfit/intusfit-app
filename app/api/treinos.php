@@ -407,7 +407,8 @@ $action = $_GET['action'] ?? '';
 function _cardioPontosBase($tipo, $rpe, $minutos) {
     $mod = ['Caminhada' => 3.5, 'Corrida' => 8.0, 'Bike' => 6.8, 'Natação' => 6.0, 'Escada' => 7.0, 'Pular Corda' => 10.0, 'Elíptico' => 6.0,
             'Tênis' => 7.0, 'Padel' => 7.0, 'Dança' => 5.5, 'Futebol' => 7.0, 'Luta' => 7.8, 'Polichinelo' => 8.0, 'Corrida estática' => 8.0,
-            'Esportes de raquete' => 7.0, 'Exercício em casa' => 8.0, 'Trilha e natureza' => 6.0, 'Outro' => 5.0];
+            'Esportes de raquete' => 7.0, 'Exercício em casa' => 8.0, 'Trilha e natureza' => 6.0,
+            'Esportes com raquete' => 7.0, 'Cardio em casa' => 8.0, 'Esportes na natureza' => 6.0, 'Outro' => 5.0];
     $tipo = (string)$tipo;
     $m = $mod[$tipo] ?? $mod['Outro'];
     $esforco = max(1, min(10, (int)$rpe ?: 5));
@@ -1060,6 +1061,8 @@ try {
                 if ($foto === false) { http_response_code(413); echo json_encode(['error' => 'imagem invalida ou grande demais (max 3 MB)']); exit; }
                 $sets .= ", cardio_foto = ?"; $vals[] = $foto;
             }
+            // Comentário do aluno (cardio ao vivo: ele só escreve depois de finalizar). Mesmo campo do POST: texto automático, " || " e a nota.
+            if (isset($b['comentario']) && trim((string)$b['comentario']) !== '') { $sets .= ", comentario = ?"; $vals[] = mb_substr(trim((string)$b['comentario']), 0, 500); }
             $vals[] = $id;
             $pdo->prepare("UPDATE intus_sessao SET $sets WHERE idsessao = ?")->execute($vals);
             echo json_encode(['ok' => true, 'pontos' => $pontos]);

@@ -3822,6 +3822,10 @@ const API = {
     'Esportes de raquete': { leve: 5.0, moderada: 7.0, intensa: 8.5 },   // tênis, padel, beach tennis
     'Exercício em casa':   { leve: 5.0, moderada: 8.0, intensa: 10.0 },  // polichinelo, corrida parada e afins
     'Trilha e natureza':   { leve: 4.5, moderada: 6.0, intensa: 7.5 },   // trilha, caiaque, remo
+    // Mesmos três com o nome que o aluno vê desde 07/11/2026 (as chaves acima ficam por causa do que já foi gravado).
+    'Esportes com raquete': { leve: 5.0, moderada: 7.0, intensa: 8.5 },
+    'Cardio em casa':       { leve: 5.0, moderada: 8.0, intensa: 10.0 },
+    'Esportes na natureza': { leve: 4.5, moderada: 6.0, intensa: 7.5 },
     'Outro':      { leve: 3.0, moderada: 5.0, intensa: 7.0 },
   },
   CARDIO_PONTOS: { centro: 6, compressao: 0.5, pesoIntensidade: 0.03 },
@@ -3921,6 +3925,10 @@ const API = {
   },
   programaDaSessao: (s) => { const r = API.programaSessaoInfo(s); return r ? r.p : null; },
   // Para exibir (histórico, ranking, painel): o programa do comentário da sessão, mesmo que não tenha sido concluído. { p, idx, titulo, concluido } ou null.
+  // Comentário que o aluno escreve ao registrar um cardio: vai no mesmo campo `comentario`, depois do texto automático, separado por " || ".
+  // Quem mostra a atividade para OUTROS alunos usa só o automático (cardioComentarioAuto); o aluno e o professor veem o comentário (cardioNota).
+  cardioComentarioAuto: (s) => { const c = String((s && s.comentario) || ''), i = c.indexOf(' || '); return i < 0 ? c : c.slice(0, i); },
+  cardioNota: (s) => { const c = String((s && s.comentario) || ''), i = c.indexOf(' || '); return i < 0 ? '' : c.slice(i + 4).trim(); },
   programaDoComentario: (s) => {
     if (!s || API.ehMusculacaoRank(s)) return null;
     const m = /^Programa: (.+?)(?: · (S\d+T\d+))?$/.exec(String(s.comentario || '').trim());

@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Frequência e Ranking — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261107a"></script>
+  <script src="api.js?v=20261107c"></script>
   <style>
     .freq-toolbar {
       display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
@@ -225,6 +225,8 @@ const _user = Sessao.atual();
 const _isAdminUser = _user && _user.admin;
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Cardio: o comentário do aluno (o texto automático da atividade já aparece nas outras colunas). Treino: o comentário de sempre.
+function _comSessao(s) { return (s.tipo === 'cardio' || s.cardio_tipo) ? API.cardioNota(s) : (s.comentario || ''); }
 
 // ═══════════════ PONTUAÇÃO DO RANKING ═══════════════
 // Esta tela tinha uma CÓPIA da fórmula do app do aluno. Duas cópias da mesma
@@ -967,7 +969,7 @@ function abrirDetalheDia(dateStr) {
         <span style="font-weight:600;font-size:13px;color:var(--text);">${esc(nome)}</span>
         <span style="font-size:11px;color:var(--text-muted);">${(s.tipo==='cardio'||s.cardio_tipo)?(API.programaDoComentario(s) ? '🔥 <b>'+esc(API.programaDoComentario(s).titulo)+'</b> · ' : '🏃 ')+esc(s.cardio_tipo||'Cardio')+(s.cardio_intensidade?' · '+esc(s.cardio_intensidade):''):(API.foraProtocolo(s)?'Fora do protocolo':'Div. '+esc(s.divisao||'?'))} • ${durMin}min${s.hora_conclusao ? ' • ' + s.hora_conclusao : ''}</span>
       </div>
-      ${s.comentario ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-style:italic;">💬 "${esc(s.comentario)}"</div>` : ''}
+      ${_comSessao(s) ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-style:italic;">💬 "${esc(_comSessao(s))}"</div>` : ''}
     </div>`;
   });
 
@@ -1054,7 +1056,7 @@ function abrirDetalheAluno(idatleta) {
         s.itens.forEach(item => { const str = (item.series||[]).filter(sr => sr.peso || sr.reps).map(sr => `${sr.peso||0}kg×${sr.reps||0}`).join(', '); if (str) html += `<div class="freq-modal-ex"><span class="freq-ex-name">${esc(item.nmexercicio||'Exercício')}</span><span class="freq-ex-series">${str}</span></div>`; });
         html += '</div>';
       }
-      if (s.comentario) html += `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-style:italic;">💬 "${esc(s.comentario)}"</div>`;
+      if (_comSessao(s)) html += `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-style:italic;">💬 "${esc(_comSessao(s))}"</div>`;
       if (Number(s.tem_foto) === 1) html += `<div style="margin-top:6px;"><button onclick="verCardioFoto(${s.idsessao})" style="background:rgba(6,182,212,.12);border:1px solid rgba(6,182,212,.4);color:#0891b2;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📷 Ver foto do aluno</button></div>`;
       html += '</div>';
     });
