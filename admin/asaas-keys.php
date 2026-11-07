@@ -22,9 +22,13 @@ header('X-Robots-Tag: noindex, nofollow');
 require_once __DIR__ . '/../app/api/_asaas.php';
 $cfgBanco = @include __DIR__ . '/../app/config/db.php';
 try {
-    if (!is_array($cfgBanco) || !isset($cfgBanco['host'])) throw new Exception('sem credenciais');
-    $pdo = new PDO("mysql:host={$cfgBanco['host']};dbname={$cfgBanco['database']};charset=utf8mb4", $cfgBanco['username'], $cfgBanco['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-} catch (Throwable $e) { http_response_code(500); exit('Falha ao conectar no banco.'); }
+    // o db.php pode devolver um array (host, database...) ou definir constantes (DB_HOST...): o mesmo que app/api/asaas.php e admin/catalogo.php aceitam
+    if (is_array($cfgBanco) && isset($cfgBanco['host'])) {
+        $pdo = new PDO("mysql:host={$cfgBanco['host']};dbname={$cfgBanco['database']};charset=utf8mb4", $cfgBanco['username'], $cfgBanco['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    } elseif (defined('DB_HOST')) {
+        $pdo = new PDO('mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4', DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    } else { throw new Exception('sem credenciais'); }
+} catch (Throwable $e) { @error_log('[asaas-keys] ' . $e->getMessage()); http_response_code(500); exit('Falha ao conectar no banco.'); }
 asaas_garantir_tabelas($pdo);
 
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
