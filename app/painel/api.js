@@ -2578,6 +2578,15 @@ const API = {
     return emOrdem.concat(orfas);
   },
 
+  // Divisões (A, B, C...) INATIVAS de uma ficha (09/11/2026): o professor libera só uma parte de um treino que já está em produção; a divisão
+  // inativa continua no editor e some para o aluno (carregarFicha, no aluno.html). Guardada junto dos nomes das divisões, na chave reservada
+  // divNomes._inativas (lista de letras), para não precisar de coluna nova no banco. `divNomes[letra]` continua sendo só o nome.
+  divisoesInativas: (ficha) => {
+    const l = ficha && ficha.divNomes && ficha.divNomes._inativas;
+    return Array.isArray(l) ? l.map(String) : [];
+  },
+  divisaoInativa: (ficha, letra) => API.divisoesInativas(ficha).indexOf(String(letra || 'A')) >= 0,
+
   // Lista TODAS as fichas (cross-aluno) - para uso em treinos.html / dashboard
   listarFichas: () => tryRemoteOrLocal(
     async () => {

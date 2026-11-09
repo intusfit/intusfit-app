@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261109a"></script>
+  <script src="api.js?v=20261109b"></script>
   <script src="ajuda.js?v=20261107a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -7245,12 +7245,15 @@ function carregarFicha() {
     && f.ativo!==0 && f.ativo!=='0' && f.ativo!==false
     && !(f.dtinicio && String(f.dtinicio).slice(0,10) > _hojeF)
     && !(f.dtfim && String(f.dtfim).slice(0,10) < _hojeF));
+  // Divisões que o professor deixou INATIVAS (API.divisaoInativa) não aparecem para o aluno em nenhuma tela: servem para liberar só parte de um treino.
+  // Ficha em que todas as divisões estão inativas some (ficha sem nenhuma divisão liberada).
   return minhas.map(f => {
-    const itens = treinos.filter(t=>Number(t.idficha)===Number(f.idficha));
+    const todos = treinos.filter(t=>Number(t.idficha)===Number(f.idficha));
+    const itens = todos.filter(t => !API.divisaoInativa(f, t.divisao || 'A'));
     const divisoes = {};
     itens.forEach(t => { const d=t.divisao||'A'; (divisoes[d]=divisoes[d]||[]).push(t); });
-    return { ...f, itens, divisoes };
-  });
+    return { ...f, itens, divisoes, _todasInativas: todos.length > 0 && itens.length === 0 };
+  }).filter(f => !f._todasInativas);
 }
 
 // ═══════════════ BLOQUEIO POR INADIMPLÊNCIA ═══════════════

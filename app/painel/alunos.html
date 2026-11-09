@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261109a"></script>
+  <script src="api.js?v=20261109b"></script>
   <script src="foto-util.js?v=20261105a"></script>
 <script src="foto-pose.js?v=20261105c"></script>
   <script src="kanban.js?v=20261023b"></script>
@@ -1274,6 +1274,18 @@ function abrirFormFotosAvaliacao(idatleta, idavaliacao) {
   drop.addEventListener('dragleave', () => { drop.style.borderColor = ''; });
   drop.addEventListener('drop', e => { e.preventDefault(); drop.style.borderColor = ''; _addFotosNovas(e.dataTransfer.files); });
 }
+// Soltar FORA da caixa tracejada (um pouco ao lado, nas miniaturas, no texto) fazia o navegador abrir a foto numa aba nova. Com o formulário
+// de fotos aberto, soltar em qualquer ponto da tela adiciona as fotos; a caixa continua tratando o que cai dentro dela.
+(function () {
+  const temArquivos = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') !== -1;
+  const aberto = () => !!document.getElementById('fa-drop');
+  window.addEventListener('dragover', e => { if (temArquivos(e) && aberto()) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  window.addEventListener('drop', e => {
+    if (!temArquivos(e) || !aberto()) return;
+    e.preventDefault();
+    if (!(e.target && e.target.closest && e.target.closest('#fa-drop'))) _addFotosNovas(e.dataTransfer.files);
+  });
+})();
 function _addFotosNovas(files) {
   Array.from(files || []).forEach(f => { if (IntusFotos.ehImagem(f)) _fotosNovas.push(f); });
   _renderPreviasFotosNovas();

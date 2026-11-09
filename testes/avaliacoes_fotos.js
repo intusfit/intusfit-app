@@ -63,6 +63,22 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   eq('com o formulário fechado a página não mexe no soltar', fora, false);
   await page.evaluate(() => abrirModalForm()); await page.waitForSelector('.foto-upload-area');
   eq('abrir o formulário de novo começa sem fotos escondidas', (await estado()).n, 0);
+  console.log('\n══ Cadastro do aluno (alunos.html): fotos de avaliação ══');
+  await page.goto('http://127.0.0.1:8135/alunos.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => typeof abrirFormFotosAvaliacao === 'function', null, { timeout: 15000 });
+  await page.evaluate(() => { const d = document.createElement('div'); d.id = 'mini-tab-content'; document.body.appendChild(d); abrirFormFotosAvaliacao(7); });
+  const soltar2 = (alvoSel, nomes) => page.evaluate(({ alvoSel, nomes, PNG }) => {
+    const dt = new DataTransfer();
+    nomes.forEach(n => { const bin = Uint8Array.from(atob(PNG), c => c.charCodeAt(0)); dt.items.add(new File([bin], n, { type: 'image/png', lastModified: 1000 })); });
+    let cancelado = false;
+    ['dragenter', 'dragover', 'drop'].forEach(t => { const ev = new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt }); document.querySelector(alvoSel).dispatchEvent(ev); if (t === 'drop') cancelado = ev.defaultPrevented; });
+    return cancelado;
+  }, { alvoSel, nomes, PNG });
+  const n2 = () => page.evaluate(() => _fotosNovas.length);
+  eq('soltar dentro da caixa adiciona as fotos', [await soltar2('#fa-drop', ['a.png', 'b.png']), await n2()], [true, 2]);
+  eq('soltar fora da caixa (na área das miniaturas) também adiciona, sem abrir aba', [await soltar2('#fa-previas', ['c.png']), await n2()], [true, 3]);
+  eq('soltar no resto da página também adiciona', [await soltar2('#fa-status', ['d.png']), await n2()], [true, 4]);
+  eq('sem erro de script no cadastro', erros, []);
   eq('sem erro de script', erros, []);
   await b.close(); srv.close();
   console.log('\n' + (ruim ? 'FALHARAM ' + ruim : 'Tudo certo') + ' (' + ok + ' ok)');

@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Treinos — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261109a"></script>
+  <script src="api.js?v=20261109b"></script>
   <script src="kanban.js?v=20261023b"></script>
   <style>
     /* COMBO (autocomplete dropdown) */
@@ -666,7 +666,7 @@ function renderLista() {
             </div>
           </div>
           <div class="badges" style="margin-top:10px;">
-            ${f.divs.map(d => { const nm = (f.divNomes && f.divNomes[d]) ? f.divNomes[d] : 'Divisão ' + d; const exsDiv = f.exs.filter(e => (e.divisao||'A') === d); const t = calcTempoEstimado(exsDiv); return `<span class="pill" style="background:rgba(127,255,0,.10);color:var(--brand);border:1px solid rgba(127,255,0,.25);padding:2px 8px;font-size:11px;font-weight:700;">${esc(nm)}${t > 0 ? ' · ' + formatTempo(t) : ''}</span>`; }).join('')}
+            ${f.divs.map(d => { const nm = (f.divNomes && f.divNomes[d]) ? f.divNomes[d] : 'Divisão ' + d; const exsDiv = f.exs.filter(e => (e.divisao||'A') === d); const t = calcTempoEstimado(exsDiv); const _ina = API.divisaoInativa(f, d); return `<span class="pill" ${_ina ? 'title="Divisão inativa: o aluno não vê"' : ''} style="background:${_ina ? 'transparent' : 'rgba(127,255,0,.10)'};color:${_ina ? 'var(--text-muted)' : 'var(--brand)'};border:1px ${_ina ? 'dashed var(--border)' : 'solid rgba(127,255,0,.25)'};padding:2px 8px;font-size:11px;font-weight:700;${_ina ? 'opacity:.75;' : ''}">${_ina ? '⏸ ' : ''}${esc(nm)}${t > 0 ? ' · ' + formatTempo(t) : ''}</span>`; }).join('')}
             <span class="pill" style="background:var(--bg3);color:var(--text-muted);padding:2px 8px;font-size:11px;">${f.exs.length} exercício${f.exs.length!==1?'s':''}</span>
             ${_profs ? `<span class="pill" style="background:rgba(250,204,21,.08);color:#facc15;border:1px solid rgba(250,204,21,.2);padding:2px 8px;font-size:11px;">👤 ${esc(_profs)}</span>` : ''}
           </div>
@@ -1223,14 +1223,19 @@ function renderEditor() {
               const count = editorState.exercicios.filter(e => (e.divisao||'A') === d && !e._placeholder).length;
               const divName = editorState.divNomes && editorState.divNomes[d] ? editorState.divNomes[d] : 'Divisão ' + d;
               const isActive = d === editorState.tabAtiva;
-              return `<button class="tab-btn${isActive?' active':''}" data-dnd="div" data-d="${d}" data-nome="${esc(divName)}" onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')">${!readOnly ? `<span class="dnd-alca tab-alca" title="Arraste para reordenar" onpointerdown="dndPtrIni(event,'div','${d}')">⠿</span> ` : ''}${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
+              const inativa = API.divisaoInativa(editorState, d);
+              return `<button class="tab-btn${isActive?' active':''}" data-dnd="div" data-d="${d}" data-nome="${esc(divName)}" onclick="trocarTab('${d}')" ondblclick="renomearDivisao('${d}')" ${inativa ? 'style="opacity:.6;" title="Divisão inativa: o aluno não vê"' : ''}>${!readOnly ? `<span class="dnd-alca tab-alca" title="Arraste para reordenar" onpointerdown="dndPtrIni(event,'div','${d}')">⠿</span> ` : ''}${inativa ? '⏸ ' : ''}${esc(divName)}${isActive ? ' <span onclick="event.stopPropagation();renomearDivisao(\''+d+'\')" style="cursor:pointer;font-size:11px;opacity:.6;" title="Renomear divisão">✏️</span>' : ''}<span class="badge">${count}</span></button>`;
             }).join('')}
           </div>
-          ${!readOnly ? `<button class="btn btn-secondary btn-sm" onclick="adicionarDivisao()">+ Divisão</button>
+          ${!readOnly ? `<button class="btn btn-secondary btn-sm" onclick="alternarDivisaoAtiva()" title="Deixa só esta divisão fora do app do aluno (ou volta a liberá-la), sem apagar nada. Útil para liberar aos poucos um treino que já está em uso.">${API.divisaoInativa(editorState, editorState.tabAtiva) ? '▶ Ativar divisão' : '⏸ Inativar divisão'}</button>
+          <button class="btn btn-secondary btn-sm" onclick="adicionarDivisao()">+ Divisão</button>
           <button class="btn btn-secondary btn-sm" onclick="duplicarDivisao()" title="Duplicar exercícios, alongamentos e observações para a próxima divisão">⧉ Duplicar</button>
           <button class="btn btn-secondary btn-sm" onclick="abrirImportarDivisao()" title="Trazer uma divisão pronta de outro treino, do mesmo aluno ou de outro">📥 Importar divisão</button>
           <button class="btn btn-secondary btn-sm" onclick="excluirDivisao()" title="Excluir somente esta divisão" style="color:var(--danger);">🗑️ Excluir divisão</button>` : ''}
         </div>
+        ${API.divisoesInativas(editorState).length ? `<div style="margin-top:10px;font-size:12px;line-height:1.5;color:${API.divisaoInativa(editorState, editorState.tabAtiva) ? '#f59e0b' : 'var(--text-muted)'};">${API.divisaoInativa(editorState, editorState.tabAtiva)
+          ? '⏸ <b>Esta divisão está inativa</b>: o aluno não a vê no app. Use "Ativar divisão" para liberar.'
+          : '⏸ Divisões inativas (' + API.divisoesInativas(editorState).filter(l => divs.indexOf(l) >= 0).join(', ') + ') não aparecem para o aluno.'}</div>` : ''}
       </div>
 
       <!-- ALONGAMENTOS -->
@@ -1708,6 +1713,25 @@ function _divReordenar(origem, dAlvo, depois) {
   editorState.divOrdem = divs;
   renderEditor();
 }
+// Ativa/inativa só a divisão da aba aberta. Fica em editorState.divNomes._inativas (salvo com a ficha, sem coluna nova). O aluno não vê a divisão inativa.
+function _divInativasSalvar(lista) {
+  if (!editorState.divNomes) editorState.divNomes = {};
+  if (lista.length) editorState.divNomes._inativas = lista; else delete editorState.divNomes._inativas;
+}
+function alternarDivisaoAtiva() {
+  const d = editorState.tabAtiva;
+  const divs = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
+  const inativas = API.divisoesInativas(editorState);
+  if (inativas.indexOf(d) >= 0) {
+    _divInativasSalvar(inativas.filter(l => l !== d));
+    showToast('Divisão ' + d + ' ativa: o aluno passa a ver depois que você salvar.');
+  } else {
+    if (divs.filter(l => l !== d && inativas.indexOf(l) < 0).length === 0) return showToast('Deixe pelo menos uma divisão ativa. Para tirar o treino inteiro do aluno, use "Inativo" na ficha.', 'error');
+    _divInativasSalvar(inativas.concat([d]));
+    showToast('Divisão ' + d + ' inativa: some do app do aluno depois que você salvar.');
+  }
+  renderEditor();
+}
 function renomearDivisao(d) {
   const atual = (editorState.divNomes && editorState.divNomes[d]) ? editorState.divNomes[d] : 'Divisão ' + d;
   const novo = prompt('Nome da divisão ' + d + ':', atual);
@@ -1723,6 +1747,7 @@ function adicionarDivisao() {
   const proxima = 'ABCDEFGH'.split('').find(l => !existentes.includes(l));
   if (!proxima) return showToast('Máximo de divisões atingido.', 'error');
   editorState.tabAtiva = proxima;
+  _divInativasSalvar(API.divisoesInativas(editorState).filter(l => l !== proxima));   // divisão nova nasce ativa
   editorState.exercicios.push({ _placeholder: true, divisao: proxima, idexercicio: 0, nmexercicio: '', qtdserie: 4, repeticoes: '10 a 12', intervalo: '01:00', tut: '3020', observacao: '' });
   renderEditor();
 }
@@ -1752,6 +1777,7 @@ function duplicarDivisao() {
   const placeholders = editorState.exercicios.filter(e => e._placeholder && e.divisao === proxima);
   placeholders.forEach(p => { const i = editorState.exercicios.indexOf(p); if (i >= 0) editorState.exercicios.splice(i, 1); });
   editorState.tabAtiva = proxima;
+  _divInativasSalvar(API.divisoesInativas(editorState).filter(l => l !== proxima));   // a cópia nasce ativa
   showToast(`Divisão ${divAtual} duplicada para ${proxima} (exercícios + alongamentos)!`);
   renderEditor();
 }
@@ -1877,6 +1903,7 @@ function excluirDivisao() {
   editorState.exercicios = editorState.exercicios.filter(e => (e.divisao || 'A') !== div);
   if (editorState.alongamentos) editorState.alongamentos = editorState.alongamentos.filter(a => (a.divisao || 'A') !== div);
   if (editorState.divNomes) delete editorState.divNomes[div];
+  _divInativasSalvar(API.divisoesInativas(editorState).filter(l => l !== div));
   if (editorState.divOrdem) editorState.divOrdem = editorState.divOrdem.filter(d2 => d2 !== div);
   const remaining = API.ordenarDivisoes(editorState.exercicios.map(e => e.divisao || 'A'), editorState);
   editorState.tabAtiva = remaining[0] || 'A';

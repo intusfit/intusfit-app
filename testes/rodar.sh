@@ -56,6 +56,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "Meu Cardio: lista, registro em uma tela, confirmação com Corrigir e tela de parabéns" node cardio_tela.js
   passo "Quadro de medalhas: apuração única (api.js) e aba Medalhas na Frequência e Ranking" node medalhas.js
   passo "Avaliações: arrastar fotos do computador para a caixa de fotos da nova avaliação" node avaliacoes_fotos.js
+  passo "Treino: divisões ativas e inativas na mesma ficha (editor do professor e app do aluno)" node divisoes_inativas.js
   passo "voltar e avançar pelo app inteiro (cabeçalho, celular, sequências)" node navegacao_geral.js
   passo "cobrança: ciclo pago na linha de cima avisa quando vence" node cobranca_paga_anterior.js
   passo "aviso de mensalidade no sino do aluno" node aviso_mensalidade_aluno.js
