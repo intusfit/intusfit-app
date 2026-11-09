@@ -1,6 +1,6 @@
 # Checklist de lançamento nas lojas — Intus Fit
 
-Atualizada em **7 de setembro de 2026**. Esta checklist não substitui a revisão das políticas vigentes no dia do envio.
+Atualizada em **22 de setembro de 2026**. Esta checklist não substitui a revisão das políticas vigentes no dia do envio.
 
 ## Bloqueios de acesso
 
@@ -14,21 +14,22 @@ Atualizada em **7 de setembro de 2026**. Esta checklist não substitui a revisã
 
 - [ ] Build de release testada em aparelho Android físico e iPhone físico.
 - [ ] Fluxo de exclusão de conta e dados confirmado dentro do app ou por URL pública, se exigido pela loja.
-- [ ] Política de privacidade publicada em URL pública e atualizada para localização, saúde, câmera/fotos, dados de treino e autenticação que forem efetivamente usados. Ponto de partida atual: `https://intusfit.com.br/app/painel/privacidade.html`.
-- [ ] Permissões pedidas no momento de uso, com explicação compreensível antes do diálogo do sistema.
+- [x] Política de privacidade publicada e verificada em URL pública: `https://intusfit.com.br/app/painel/privacidade.html`. Ela declara localização em primeiro plano, câmera/fotos, notificações, dados de treino e autenticação.
+- [ ] Permissões pedidas no momento de uso, com explicação compreensível antes do diálogo do sistema — declarações nativas existem; falta validar em aparelhos físicos.
 - [ ] Não há dados de aluno, token, chave de API, credencial ou captura de tela real em materiais de teste.
-- [ ] Caso exista login por Google, Facebook ou outro provedor no iOS, **Sign in with Apple** está disponível de forma equivalente e foi testado. O vínculo com a matrícula existente não cria conta duplicada.
-- [ ] Se houver HealthKit/Health Connect, os tipos de dados, finalidade, retenção, exclusão e compartilhamento estão declarados na política e nos formulários das lojas.
+- [x] Login por Google/Facebook está oculto enquanto as credenciais forem placeholders. Se qualquer provedor for ativado no iOS, implementar e testar **Sign in with Apple** de forma equivalente antes do envio.
+- [x] HealthKit e Health Connect não fazem parte da release atual; não declarar dados de Saúde nos formulários.
 
 ## Materiais da ficha
 
-- [ ] Nome: Intus Fit.
-- [ ] Subtítulo/descrição curta preparado dentro dos limites atuais de cada loja.
-- [ ] Descrição completa em português, sem promessas médicas ou métricas não verificadas.
-- [ ] Categoria, classificação etária e URL de suporte definidas.
-- [ ] Ícone final exportado nos tamanhos exigidos por iOS e Android, sem transparência onde a loja vedar.
+- [x] Nome: Intus Fit.
+- [x] Subtítulo/descrição curta preparado dentro dos limites atuais de cada loja em `STORE-LISTING-PT-BR.md`.
+- [x] Descrição completa em português, sem promessas médicas ou métricas não verificadas, preparada em `STORE-LISTING-PT-BR.md`.
+- [ ] Categoria e classificação etária: concluir os questionários oficiais das lojas; URL de suporte e contatos já foram definidos.
+- [x] Ícones finais exportados nos tamanhos exigidos por iOS e Android, sem alfa.
+- [x] Imagem de destaque Google Play 1024×500 preparada em `store-assets/google-play-feature-graphic-1024x500.png`.
 - [ ] Capturas de tela feitas no app real, sem dados pessoais, nos aparelhos/tamanhos exigidos.
-- [ ] E-mail de suporte e endereço de política de privacidade acessíveis publicamente.
+- [x] E-mail de suporte e endereço de política de privacidade acessíveis publicamente.
 - [ ] Conta de demonstração e instruções de revisão fornecidas apenas se a revisão exigir login; não usar conta real de aluno.
 
 ## Formulários e envio

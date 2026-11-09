@@ -3927,7 +3927,13 @@ const API = {
   // Para exibir (histórico, ranking, painel): o programa do comentário da sessão, mesmo que não tenha sido concluído. { p, idx, titulo, concluido } ou null.
   // Comentário que o aluno escreve ao registrar um cardio: vai no mesmo campo `comentario`, depois do texto automático, separado por " || ".
   // Quem mostra a atividade para OUTROS alunos usa só o automático (cardioComentarioAuto); o aluno e o professor veem o comentário (cardioNota).
-  cardioComentarioAuto: (s) => { const c = String((s && s.comentario) || ''), i = c.indexOf(' || '); return i < 0 ? c : c.slice(0, i); },
+  // O esforço do texto ("esforço 5/10") é o do salvamento silencioso do cardio ao vivo quando o aluno ajustou depois sem escrever nota (antes de 09/11/2026 o texto
+  // não era refeito); a verdade é cardio_rpe, então ele manda quando existe.
+  cardioComentarioAuto: (s) => {
+    const c = String((s && s.comentario) || ''), i = c.indexOf(' || '), a = i < 0 ? c : c.slice(0, i);
+    const rpe = s && s.cardio_rpe != null && s.cardio_rpe !== '' ? Math.round(Number(s.cardio_rpe)) : NaN;
+    return rpe >= 1 && rpe <= 10 ? a.replace(/esforço \d+\/10/, 'esforço ' + rpe + '/10') : a;
+  },
   cardioNota: (s) => { const c = String((s && s.comentario) || ''), i = c.indexOf(' || '); return i < 0 ? '' : c.slice(i + 4).trim(); },
   programaDoComentario: (s) => {
     if (!s || API.ehMusculacaoRank(s)) return null;
@@ -4166,6 +4172,65 @@ const API = {
       r.pos = pos;
     });
     return arr;
+  },
+
+  // ── QUADRO DE MEDALHAS (fonte única, 09/11/2026) ───────────────────────────────────────────────────────
+  // Antes só o app do aluno apurava; o painel (Frequência e Ranking) passou a mostrar o mesmo quadro, então a regra mora aqui.
+  // Percorre as semanas (domingo a sábado) e os meses civis JÁ ENCERRADOS desde `desde` e premia as primeiras colocações de cada um
+  // (posição densa: quem empata leva o mesmo metal). Semana em andamento e mês incompleto nunca entram.
+  // `buildRanking(listaDeSessoes)` devolve [{id, pts, ...}] ordenada por pontos (cada tela monta o seu, com nome e filtros próprios).
+  // `R` = { semana: [pontos do 1º em diante], mes: [...], desde: 'AAAA-MM-DD' }; sem ele valem as regras do ranking. `hojeRef` só para teste.
+  // Devolve { quadro (ordem olímpica), semanas, meses, por: { idatleta: { ouro, prata, bronze, top, pts, sem, mes, podios[] } } }.
+  apurarMedalhas: (sessoes, buildRanking, R, hojeRef) => {
+    const reg = API.regrasRanking();
+    R = R || {};
+    const tabSem = R.semana || reg.medalhaSemana, tabMes = R.mes || reg.medalhaMes;
+    const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(R.desde || '')) ? R.desde : (reg.medalhaDesde || '2026-08-01');
+    const INICIO = new Date(desde + 'T00:00:00');
+    const hoje = hojeRef ? new Date(hojeRef) : new Date(); hoje.setHours(0, 0, 0, 0);
+    const lista = Array.isArray(sessoes) ? sessoes : [];
+    const dtDe = (s) => API.dtRank(s);
+    const acc = {};
+    const vazio = () => ({ ouro: 0, prata: 0, bronze: 0, top: 0, pts: 0 });
+    const garante = (id) => { if (!acc[id]) acc[id] = { id: Number(id), ouro: 0, prata: 0, bronze: 0, top: 0, pts: 0, sem: vazio(), mes: vazio(), podios: [] }; return acc[id]; };
+    const premiar = (escala, rotulo, ranking) => {
+      const tab = escala === 'mes' ? tabMes : tabSem;
+      API.posicionarDenso(ranking);   // a numeração é refeita aqui: quem premia não pode depender de a lista ter vindo numerada
+      ranking.forEach((r) => {
+        const pos = Number(r.pos) || 0;
+        if (pos < 1 || pos > tab.length) return;
+        const pts = Number(tab[pos - 1]) || 0;
+        if (pts <= 0) return;
+        const a = garante(r.id), b = escala === 'mes' ? a.mes : a.sem;
+        const metal = pos === 1 ? 'ouro' : pos === 2 ? 'prata' : pos === 3 ? 'bronze' : 'top';
+        a[metal]++; b[metal]++; a.pts += pts; b.pts += pts;
+        a.podios.push({ escala: escala, rotulo: rotulo, pos: pos, pts: pts });
+      });
+    };
+    const fmtD = (d) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const domAtual = new Date(hoje); domAtual.setDate(domAtual.getDate() - domAtual.getDay());
+    const cur = new Date(domAtual); cur.setDate(cur.getDate() - 7);
+    let semanas = 0;
+    while (cur >= INICIO) {
+      const dom = new Date(cur), sab = new Date(dom); sab.setDate(dom.getDate() + 6); sab.setHours(23, 59, 59, 999);
+      const rk = buildRanking(lista.filter((s) => { const d = dtDe(s); return d >= dom && d <= sab; }));
+      if (rk.length) { premiar('semana', fmtD(dom) + '–' + fmtD(sab), rk); semanas++; }
+      cur.setDate(cur.getDate() - 7);
+    }
+    const MESN = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+    let ano = INICIO.getFullYear(), mes = INICIO.getMonth() + (INICIO.getDate() === 1 ? 0 : 1);
+    if (mes > 11) { mes = 0; ano++; }
+    const anoAtual = hoje.getFullYear(), mesAtual = hoje.getMonth();
+    let meses = 0;
+    while (ano < anoAtual || (ano === anoAtual && mes < mesAtual)) {
+      const ini = new Date(ano, mes, 1), fim = new Date(ano, mes + 1, 0); fim.setHours(23, 59, 59, 999);
+      const rk = buildRanking(lista.filter((s) => { const d = dtDe(s); return d >= ini && d <= fim; }));
+      if (rk.length) { premiar('mes', MESN[mes] + '/' + String(ano).slice(2), rk); meses++; }
+      mes++; if (mes > 11) { mes = 0; ano++; }
+    }
+    // Ordem olímpica: ouro, depois prata, bronze e, por último, pontos. Dez bronzes não valem mais que um ouro.
+    const quadro = Object.keys(acc).map((k) => acc[k]).sort((a, b) => (b.ouro - a.ouro) || (b.prata - a.prata) || (b.bronze - a.bronze) || (b.pts - a.pts));
+    return { quadro: quadro, semanas: semanas, meses: meses, por: acc };
   },
 
   // ── POST DA INTUS: TOP 5 DA SEMANA E TOP 10 DO MÊS (03/11/2026) ─────────────────────────────────────────

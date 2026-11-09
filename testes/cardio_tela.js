@@ -150,7 +150,7 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   ver('aparece a tela de cardio registrado, cobrindo tudo', res && res.cheia, res);
   ver('com frase de parabéns e o resumo do que foi feito', res && /Parabéns!/.test(res.txt) && /Corrida · 35 min · 3 km/.test(res.txt), res && res.txt);
   ver('e com a pontuação somada', res && /pontos somados/i.test(res.txt) && /\+\d/.test(res.txt), res && res.txt);
-  eq('opções: compartilhar, início, ranking, conquistas, histórico e voltar ao cardio', res && res.botoes, ['📸 Compartilhar cardio', '🏠 Início', '🏆 Ranking', '🏅 Conquistas', '📊 Histórico', '🏃 Voltar ao Meu Cardio']);
+  eq('opções: compartilhar, ranking, conquistas, histórico, voltar ao cardio e, por último, voltar à tela inicial', res && res.botoes, ['📸 Compartilhar cardio', '🏆 Ranking', '🏅 Conquistas', '📊 Histórico', '🏃 Voltar ao Meu Cardio', '🏠 Voltar à tela inicial']);
   ver('o comentário vai junto, depois do texto automático', posts.length && /^Corrida · esforço 8\/10 · 35min · 3 km \|\| Senti o joelho um pouco \| no fim$/.test(posts[0].comentario), posts[0] && posts[0].comentario);
   eq('o servidor recebeu a atividade, o tempo e o esforço digitados', posts.length ? [posts[0].cardio_tipo, posts[0].duracao_seg, posts[0].cardio_rpe, posts[0].cardio_metrica] : null, ['Corrida', 2100, 8, '3 km']);
   t = await tela();
@@ -162,7 +162,7 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('e o voltar seguinte sai do Meu Cardio (sem passar por formulário ou confirmação velhos)', await page.evaluate(() => window._viewAtual), 'home');
 
   console.log('\n══ Caminhos da tela de cardio registrado ══');
-  for (const [alvo, esperado] of [['🏠 Início', 'home'], ['🏆 Ranking', 'ranking'], ['📊 Histórico', 'historico'], ['🏃 Voltar ao Meu Cardio', 'cardio']]) {
+  for (const [alvo, esperado] of [['🏠 Voltar à tela inicial', 'home'], ['🏆 Ranking', 'ranking'], ['📊 Histórico', 'historico'], ['🏃 Voltar ao Meu Cardio', 'cardio']]) {
     await ir('abrirCardio()'); await page.waitForTimeout(300);
     await ir("_cardioForm = { tipo: 'Bike', outro: '', min: '30', dist: '' }; mostrarResultadoCardio(3.2, 'Bike', 30, null, null, { tipo: 'Bike', min: 30, distKm: 0 })");
     await page.click('#cardio-result-overlay button:has-text("' + alvo.split(' ').slice(1).join(' ') + '")'); await page.waitForTimeout(500);
@@ -227,8 +227,26 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('o formulário fica zerado depois do ao vivo', await page.evaluate(() => [_cardioForm.tipo, _cardioForm.min, _cardioForm.dist]), ['', '', '']);
   await page.fill('#cle-nota', 'Cansativo'); await ir('_confirmarEsforcoCardioLive()'); await page.waitForTimeout(700);
   ver('o comentário do ao vivo vai no ajuste do esforço, no mesmo formato do manual', puts.length === 1 && /^Corrida · esforço 5\/10 · 25min · 3\.2 km \|\| Cansativo$/.test(puts[0].comentario), puts);
-  ver('"Concluir" do ao vivo mostra a tela de parabéns com os atalhos', await page.evaluate(() => { const o = document.getElementById('cardio-result-overlay'); return !!o && /Parabéns!/.test(o.innerText) && /Ranking/.test(o.innerText) && /Início/.test(o.innerText) && /Histórico/.test(o.innerText); }));
+  ver('"Concluir" do ao vivo mostra a tela de parabéns com os atalhos', await page.evaluate(() => { const o = document.getElementById('cardio-result-overlay'); return !!o && /Parabéns!/.test(o.innerText) && /Ranking/.test(o.innerText) && /Voltar à tela inicial/.test(o.innerText) && /Histórico/.test(o.innerText); }));
   await ir('_fecharResultadoCardio()');
+  console.log('\n══ Esforço 6 no ao vivo, sem nota: o ranking tem que mostrar 6 e não 5 ══');
+  puts.length = 0;
+  await ir("_cardioLiveTipo = 'Corrida'; _cardioLiveKm = () => 3.2; _cardioLiveTempoMs = () => 25 * 60000; _cardioLiveParado = true; _cardioLiveFinalizar()");
+  await page.waitForTimeout(900);
+  await page.evaluate(() => { const r = document.getElementById('cle-rpe'); r.value = '6'; r.dispatchEvent(new Event('input')); });
+  await ir('_confirmarEsforcoCardioLive()'); await page.waitForTimeout(700);
+  eq('o ajuste grava o esforço 6 e refaz o texto automático com 6 (antes ficava "esforço 5/10")', puts.length === 1 ? [puts[0].cardio_rpe, puts[0].comentario] : puts, [6, 'Corrida · esforço 6/10 · 25min · 3.2 km']);
+  eq('registro antigo (texto com 5, esforço gravado 6) aparece com 6 para quem vê o ranking', await page.evaluate(() => API.cardioComentarioAuto({ comentario: 'Corrida · esforço 5/10 · 25min · 3.2 km', cardio_rpe: 6 })), 'Corrida · esforço 6/10 · 25min · 3.2 km');
+  eq('sem esforço gravado o texto fica como está', await page.evaluate(() => API.cardioComentarioAuto({ comentario: 'Corrida · esforço 5/10 || nota' })), 'Corrida · esforço 5/10');
+  await ir('_fecharResultadoCardio()');
+  console.log('\n══ Cardio ao vivo: o botão Começar cabe na primeira tela ══');
+  await ir("_cardioLiveInicioMs = 0; _cardioLiveTipo = 'Caminhada'; abrirCardioLive()"); await page.waitForTimeout(400);
+  for (const [w, h] of [[390, 740], [375, 667]]) {
+    await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(250);
+    eq('em ' + w + 'x' + h + ' o botão "Começar" está visível sem rolar', await page.evaluate(() => { const b = document.querySelector('#cl-barra button'); if (!b) return null; const r = b.getBoundingClientRect(); return r.bottom <= innerHeight && r.top >= 0; }), true);
+  }
+  await page.setViewportSize({ width: 375, height: 800 });
+  await ir('abrirCardio()');
   const antes2 = posts.length;
   await ir("(function () { const p = API.PROGRAMAS_CARDIO[0]; _prog.id = p.id; _prog.ativ = 'Bike'; _prog.sessao = null; _progAtivoSeg = () => 40 * 60; API.programaDuracao = () => 40 * 60; })(); _progConcluir(true)");
   await page.waitForTimeout(900);

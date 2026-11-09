@@ -10,8 +10,13 @@
 - `google-play-icon-512.png` — ícone de alta resolução da Play Store
   Console (Loja > Presença > Recursos gráficos principais), 512×512.
 
-Ainda faltam pra ficha completa (não gerados aqui, precisam de captura real
-no app funcionando):
+- `google-play-feature-graphic-1024x500.png` — imagem de destaque para a
+  Google Play, 1024×500, PNG. Composição criada a partir do logo oficial e
+  mensagem que corresponde ao produto; validar a arte no Play Console antes da
+  submissão.
+- `google-play-feature-graphic.svg` — fonte editável da imagem de destaque.
 
-- Capturas de tela nos tamanhos exigidos por iOS e Android.
-- Imagem de destaque/feature graphic do Android (1024×500).
+Ainda falta pra ficha completa (não gerar com dados fictícios ou pessoais):
+
+- Capturas de tela reais nos tamanhos exigidos por iOS e Android, feitas no app
+  instalado em aparelho físico com uma conta de demonstração.

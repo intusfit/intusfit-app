@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Frequência e Ranking — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261107c"></script>
+  <script src="api.js?v=20261109a"></script>
   <style>
     .freq-toolbar {
       display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
@@ -367,20 +367,95 @@ function render() {
         <button class="${view==='ranking'?'active':''}" onclick="view='ranking';render()">🏆 Ranking</button>
         <button class="${view==='list'?'active':''}" onclick="view='list';render()">Lista</button>
         <button class="${view==='calendar'?'active':''}" onclick="view='calendar';render()">📅 Calendário</button>
+        <button class="${view==='medalhas'?'active':''}" onclick="view='medalhas';render()">🏅 Medalhas</button>
         <button class="${view==='acessos'?'active':''}" onclick="view='acessos';render();acessosCarregar()">📡 Acessos</button>
       </div>
     </div>
 
-    ${(view === 'calendar' || view === 'acessos') ? '' : `<div class="freq-summary">
+    ${(view === 'calendar' || view === 'acessos' || view === 'medalhas') ? '' : `<div class="freq-summary">
       <div class="freq-stat"><div class="freq-stat-label">Sessões no período</div><div class="freq-stat-value green">${totalSessoes}</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Alunos ativos</div><div class="freq-stat-value">${atletasAtivos}</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Média por aluno</div><div class="freq-stat-value">${mediaPorAluno} treinos</div></div>
       <div class="freq-stat"><div class="freq-stat-label">Total carteira</div><div class="freq-stat-value">${atletasFiltrados.length}</div></div>
     </div>`}
 
-    ${view === 'ranking' ? renderRankingView(atletasFiltrados) : view === 'list' ? renderListView(atletasFiltrados, atletaMap, dias) : view === 'acessos' ? '<div id="acc-root">' + renderAcessosView() + '</div>' : renderCalendarView(sessFiltradas, atletasFiltrados)}
+    ${view === 'ranking' ? renderRankingView(atletasFiltrados) : view === 'list' ? renderListView(atletasFiltrados, atletaMap, dias) : view === 'acessos' ? '<div id="acc-root">' + renderAcessosView() + '</div>' : view === 'medalhas' ? renderMedalhasView(atletasFiltrados) : renderCalendarView(sessFiltradas, atletasFiltrados)}
     ${view === 'list' ? renderAlertaSessoes() : ''}
   `;
+}
+
+// ═══════════════ QUADRO DE MEDALHAS ═══════════════
+// O mesmo quadro do app do aluno (Ranking e Medalhas): só semanas (domingo a sábado) e meses INTEIROS já encerrados desde a data de início das medalhas
+// (Notificações > Pontuação), ouro/prata/bronze em ordem olímpica. A apuração é API.apurarMedalhas (a mesma do app); aqui só se monta a lista de cada período.
+// Não segue o filtro de período da barra: medalha é histórico. Segue a busca e o professor.
+function renderMedalhasView(atletasFiltrados) {
+  const excluidas = new Set(getExcluidas());
+  const ids = new Set(atletasFiltrados.map(a => Number(a.idatleta)));
+  const nomeDe = {};
+  atletasFiltrados.forEach(a => { nomeDe[Number(a.idatleta)] = a.nome || ('Aluno #' + a.idatleta); });
+  const base = sessoes.filter(s => !excluidas.has(Number(s.idsessao)) && !s.nao_contar && (s.duracao_seg == null || Number(s.duracao_seg) >= 300) && ids.has(Number(s.idatleta)))
+    .map(s => ({ ...s, tipo: s.tipo || (s.cardio_tipo ? 'cardio' : 'musculacao'), pontos: parseFloat(s.pontos) || 0 }));
+  const buildRanking = (lista) => {
+    const ag = _agregarPontosPorAtleta(lista);
+    return Object.values(ag).filter(a => a.total > 0).map(a => ({ id: a.id, pts: a.total })).sort((x, y) => y.pts - x.pts);
+  };
+  const ap = API.apurarMedalhas(base, buildRanking);
+  const R = API.regrasRanking();
+  const desde = String(R.medalhaDesde || '').split('-').reverse().join('/');
+  const aviso = `<div style="padding:11px 14px;margin-bottom:14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--text-muted);line-height:1.6;">
+    <b style="color:var(--text);">${ap.semanas} ${ap.semanas === 1 ? 'semana' : 'semanas'} e ${ap.meses} ${ap.meses === 1 ? 'mês' : 'meses'}</b> já encerrados desde ${desde}. Só período fechado vira medalha: a semana e o mês em andamento ainda estão em disputa.
+    Vale a regra do app (a data de início e os pontos de cada colocação ficam em Notificações &gt; Pontuação). Considera os alunos desta lista (professor: só a sua carteira); no app o quadro considera todos os participantes do ranking, então a classificação pode diferir.
+  </div>`;
+  if (!ap.quadro.length) return aviso + '<div class="freq-empty">Ainda não há medalhas: nenhuma semana ou mês encerrou com atividade desde ' + desde + '.</div>';
+
+  const metais = [
+    { g: 'linear-gradient(160deg,#fde68a,#f0a500)', c: '#8a5a00', e: '🥇' },
+    { g: 'linear-gradient(160deg,#ececec,#a8a8a8)', c: '#4b5563', e: '🥈' },
+    { g: 'linear-gradient(160deg,#e8b48a,#b06f38)', c: '#7a3f16', e: '🥉' },
+  ];
+  const alturas = [86, 68, 56];
+  const linha = (rot, b) => {
+    const p = [];
+    if (b.ouro) p.push('🥇' + b.ouro);
+    if (b.prata) p.push('🥈' + b.prata);
+    if (b.bronze) p.push('🥉' + b.bronze);
+    if (b.top) p.push('+' + b.top);
+    return p.length ? `<span style="white-space:nowrap;"><span style="opacity:.7;">${rot}</span> ${p.join(' ')}</span>` : '';
+  };
+  const podio = ap.quadro.slice(0, 3);
+  let h = aviso + '<div style="display:flex;align-items:flex-end;justify-content:center;gap:10px;margin:6px 0 18px;">';
+  [1, 0, 2].forEach(i => {
+    const a = podio[i]; if (!a) return;
+    const m = metais[i];
+    h += `<div style="flex:1;max-width:150px;text-align:center;cursor:pointer;" onclick="abrirDetalheAluno(${a.id})">
+      <div style="display:flex;justify-content:center;margin-bottom:5px;">${avatarHtml(a.id, nomeDe[a.id] || 'Aluno', 46)}</div>
+      <div style="font-size:12.5px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(String(nomeDe[a.id] || 'Aluno').split(' ')[0])}</div>
+      <div style="font-size:10px;color:var(--text-muted);line-height:1.5;">${[linha('sem', a.sem), linha('mês', a.mes)].filter(Boolean).join('<br>') || 'sem medalha'}</div>
+      <div style="height:${alturas[i]}px;margin-top:6px;border-radius:10px 10px 0 0;background:${m.g};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;">
+        <div style="font-size:18px;line-height:1;">${m.e}</div><div style="font-size:15px;font-weight:900;color:${m.c};line-height:1;">${a.pts}</div>
+        <div style="font-size:8.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:${m.c};opacity:.85;line-height:1;">pontos</div></div>
+    </div>`;
+  });
+  h += '</div>';
+  h += `<table class="freq-list-table"><thead><tr><th style="width:42px;">#</th><th>Aluno</th><th style="text-align:center;">🥇</th><th style="text-align:center;">🥈</th><th style="text-align:center;">🥉</th><th>Semana · Mês</th><th style="text-align:right;">Pontos</th></tr></thead><tbody>`;
+  ap.quadro.forEach((a, i) => {
+    h += `<tr style="cursor:pointer;" onclick="abrirDetalheAluno(${a.id})">
+      <td style="color:var(--text-muted);font-weight:700;">${i + 1}º</td>
+      <td><div style="display:flex;align-items:center;gap:8px;">${avatarHtml(a.id, nomeDe[a.id] || 'Aluno', 28)}<span class="freq-athlete-name">${esc(nomeDe[a.id] || ('Aluno #' + a.id))}</span></div></td>
+      <td style="text-align:center;font-weight:800;color:${a.ouro ? '#d19a00' : 'var(--text-muted)'};">${a.ouro}</td>
+      <td style="text-align:center;font-weight:800;color:${a.prata ? '#9ca3af' : 'var(--text-muted)'};">${a.prata}</td>
+      <td style="text-align:center;font-weight:800;color:${a.bronze ? '#b06f38' : 'var(--text-muted)'};">${a.bronze}</td>
+      <td style="font-size:11.5px;color:var(--text-muted);">${[linha('semana', a.sem), linha('mês', a.mes)].filter(Boolean).join(' &nbsp; ')}</td>
+      <td style="text-align:right;font-weight:800;color:var(--green);">${a.pts}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  const tab = (t) => t.map((p, i) => (i < 3 ? ['🥇 1º', '🥈 2º', '🥉 3º'][i] : (i + 1) + 'º') + ' · <b>' + p + '</b> pts').join(' &nbsp;|&nbsp; ');
+  h += `<div style="margin-top:16px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;font-size:11px;color:var(--text-muted);line-height:1.9;">
+    🏅 <b>Premiação da semana</b> (domingo a sábado): ${tab(R.medalhaSemana)}<br>
+    📆 <b>Premiação do mês</b> (mês inteiro): ${tab(R.medalhaMes)}<br>
+    🧮 A ordem do quadro é a olímpica: ouros primeiro, empate na prata, depois no bronze, por fim nos pontos. Quem empata em pontos no período divide a colocação e leva o mesmo metal.
+  </div>`;
+  return h;
 }
 
 // ═══════════════ ACESSOS (tempo real, picos, locais) ═══════════════

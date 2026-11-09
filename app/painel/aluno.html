@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261107c"></script>
+  <script src="api.js?v=20261109a"></script>
   <script src="ajuda.js?v=20261107a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -10654,15 +10654,18 @@ function renderFim(duracao, sessaoSalva) {
         ${sessaoSalva.nao_contar ? '' : (sessaoSalva.alerta_duracao === 'curto' ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:11px;color:#f59e0b;">⚠️ Treino com menos de 5 minutos, será sinalizado para revisão.</div>` : '')}
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;max-width:320px;width:100%;">
+      <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:8px;max-width:320px;width:100%;">
         <button class="btn btn-prim" style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="abrirCompartilharUltimoTreino()">📸 Compartilhar treino</button>
-        <button class="btn btn-sec" onclick="trocarView('home');renderHome();">🏠 Início</button>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;max-width:320px;width:100%;">
         <button class="btn btn-sec" onclick="abrirRanking()">🏆 Ranking</button>
         <button class="btn btn-sec" onclick="abrirQuadroMedalhas()">🏅 Conquistas</button>
         <button class="btn btn-sec" onclick="navegar('historico')">📊 Histórico</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:8px;max-width:320px;width:100%;">
+        <button class="btn btn-sec" onclick="trocarView('home');renderHome();">🏠 Voltar à tela inicial</button>
       </div>
 
       <div style="margin:12px auto 0;max-width:320px;text-align:left;">
@@ -12606,11 +12609,11 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
       ${avisoPend}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:22px;">
         ${_cardioResultShare ? btn('_cardioResultadoCompartilhar()', '📸 Compartilhar cardio', 'btn-prim', 'grid-column:1 / -1;') : ''}
-        ${btn("_cardioResultIr('home')", '🏠 Início', 'btn-sec')}
         ${btn("_cardioResultIr('ranking')", '🏆 Ranking', 'btn-sec')}
         ${btn("_cardioResultIr('conquistas')", '🏅 Conquistas', 'btn-sec')}
-        ${btn("_cardioResultIr('historico')", '📊 Histórico', 'btn-sec')}
+        ${btn("_cardioResultIr('historico')", '📊 Histórico', 'btn-sec', 'grid-column:1 / -1;')}
         ${btn('_fecharResultadoCardio()', '🏃 Voltar ao Meu Cardio', 'btn-sec', 'grid-column:1 / -1;')}
+        ${btn("_cardioResultIr('home')", '🏠 Voltar à tela inicial', 'btn-sec', 'grid-column:1 / -1;')}
       </div>
     </div>`;
   document.body.appendChild(ov);
@@ -13697,11 +13700,11 @@ async function _progResultado(p, completo, seg, dados) {
     '</div>' + avisoMotivo + avisoPendente +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px;">' +
       '<button class="btn btn-prim" style="grid-column:1 / -1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="_progCompartilhar()">📸 Compartilhar cardio</button>' +
-      '<button class="btn btn-sec" onclick="trocarView(\'home\');renderHome();">🏠 Início</button>' +
       '<button class="btn btn-sec" onclick="abrirRanking()">🏆 Ranking</button>' +
       '<button class="btn btn-sec" onclick="abrirQuadroMedalhas()">🏅 Conquistas</button>' +
-      '<button class="btn btn-sec" onclick="navegar(\'historico\')">📊 Histórico</button>' +
+      '<button class="btn btn-sec" style="grid-column:1 / -1;" onclick="navegar(\'historico\')">📊 Histórico</button>' +
       '<button class="btn btn-sec" style="grid-column:1 / -1;" onclick="abrirProgramasCardio()">🔥 Ver outros programas</button>' +
+      '<button class="btn btn-sec" style="grid-column:1 / -1;" onclick="trocarView(\'home\');renderHome();">🏠 Voltar à tela inicial</button>' +
     '</div></div>';
   _prog.ultimoResultado = { tipo: dados && dados.tipo, min: dados && dados.min, nomeTreino: p.emoji + ' ' + p.titulo + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + p.sessoes[_prog.sessao].titulo : '') };
   _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
@@ -14428,7 +14431,9 @@ async function _salvarEsforcoCardioLive() {
   // Comentário do aluno: mesmo formato do registro manual (texto automático, " || " e a nota). O automático é refeito com o esforço novo.
   const nota = _cardioLimparNota((document.getElementById('cle-nota') || {}).value);
   const extraAuto = (dados.distKm > 0 && cardioMetrica(dados.tipo)) ? ' · ' + (Math.round(dados.distKm * 100) / 100) + ' km' : '';
-  const comentario = nota ? (dados.tipo + ' · esforço ' + novoRpe + '/10 · ' + dados.min + 'min' + extraAuto + ' || ' + nota) : '';
+  // O texto automático leva o esforço ("esforço 6/10") e é o que o ranking mostra aos outros alunos: sempre refeito com o esforço novo, com ou sem nota
+  // (antes só era regravado quando havia nota, e o ranking continuava mostrando o 5 padrão do salvamento silencioso).
+  const comentario = dados.tipo + ' · esforço ' + novoRpe + '/10 · ' + dados.min + 'min' + extraAuto + (nota ? ' || ' + nota : '');
   let idsessao = dados.idsessao || (dados.uid && _cardioUidParaId[dados.uid]) || null;
   if (!idsessao && dados.uid) {
     const ok = _cardioFilaAtualizar(dados.uid, Object.assign({ cardio_rpe: novoRpe, cardio_intensidade: rpeIntensidade(novoRpe), pontos: dados.motivo ? 0 : calcCardioPoints(dados.tipo, novoRpe, dados.min) }, foto ? { cardio_foto: foto } : {}, comentario ? { comentario: comentario } : {}));
@@ -14436,7 +14441,7 @@ async function _salvarEsforcoCardioLive() {
     idsessao = _cardioUidParaId[dados.uid] || null;   // saiu da fila no meio: já foi enviado
   }
   if (!idsessao) return 5;
-  if (novoRpe === 5 && !foto && !comentario) return 5; // esforço já é o padrão salvo, sem foto nova nem comentário: nada a fazer
+  if (novoRpe === 5 && !foto && !nota) return 5; // esforço já é o padrão salvo, sem foto nova nem comentário: nada a fazer
   toast(foto ? 'Salvando esforço e foto...' : 'Salvando esforço...');
   const ok = await _atualizarEsforcoCardio(idsessao, novoRpe, dados.tipo, dados.min, dados.motivo, foto, comentario);
   if (ok) toast(foto ? 'Esforço e foto salvos! 💪' : 'Esforço atualizado! 💪');
@@ -14553,8 +14558,12 @@ function _renderCardioLive() {
         avisoTemp +
         // Sem mapa nem anéis antes de começar: eram um quadro vazio de ~170 px.
         // O mapa nasce quando o rastreio inicia (_iniciarMapaCardioLive).
-        heroHtml + statsHtml +
-        '<button class="cl-btn cl-btn-primario" style="width:100%;padding:18px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar' + (usaGps ? ' a rastrear' : '') + '</button>' +
+        // Os números zerados (0.00 km, 00:00) não dizem nada antes de começar e empurravam o botão para fora da tela.
+        // Ficam escondidos (os ids continuam, para o atualizador achar) e o botão fica preso no rodapé da tela.
+        '<div style="display:none;">' + heroHtml + statsHtml + '</div>' +
+      '</div>' +
+      '<div id="cl-barra" style="position:sticky;bottom:0;z-index:8;padding:12px 0 calc(10px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,' + _cdPal().fundo + ' 78%,transparent);">' +
+        '<button class="cl-btn cl-btn-primario" style="width:100%;padding:16px;font-size:15.5px;" onclick="_cardioLiveIniciarRastreio()">▶ Começar' + (usaGps ? ' a rastrear' : '') + '</button>' +
       '</div>' +
       getFooterHtml()
     : telaHeader('📍 Cardio ao vivo', 'cardio') +
@@ -18038,84 +18047,12 @@ function _medalhaDesdeLabel() {
 let _medalhasCache = null;
 
 function _apurarMedalhas(sessoes, buildRanking) {
-  const INICIO = new Date(_medalhaDesde() + 'T00:00:00');
-  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-  const acc = {};
-
-  // Semana e mês são placares separados. Somar os dois num número só apaga a
-  // diferença que mais interessa: dois ouros de semana não são a mesma coisa
-  // que um ouro de mês, que exigiu quatro semanas de constância.
-  function vazio() { return { ouro: 0, prata: 0, bronze: 0, top: 0, pts: 0 }; }
-  function garante(id) {
-    if (!acc[id]) acc[id] = {
-      id: Number(id), ouro: 0, prata: 0, bronze: 0, top: 0, pts: 0,
-      sem: vazio(), mes: vazio(), podios: [],
-    };
-    return acc[id];
-  }
-  function premiar(escala, rotulo, lista) {
-    const vagas = _medalhaVagas(escala);
-    // Usar o indice aqui dava ouro a um e prata a outro com os mesmos pontos,
-    // o contrario do que a lista mostrava na tela. Quem empata leva o mesmo
-    // metal e os mesmos pontos, e a semana pode premiar mais gente.
-    // A numeracao e refeita aqui de proposito: quem premia nao pode depender
-    // de a lista ter vindo numerada. Dois lugares no app chamam esta apuracao
-    // com listas montadas por caminhos diferentes, e a regra tem que ser a
-    // mesma nos dois. A lista ja chega ordenada por pontos.
-    posicionarDenso(lista);
-    lista.forEach((r) => {
-      const pos = Number(r.pos) || 0;
-      if (pos < 1 || pos > vagas) return;
-      const pts = _medalhaPts(escala, pos);
-      if (pts <= 0) return;
-      const a = garante(r.id);
-      const b = (escala === 'mes') ? a.mes : a.sem;
-      const metal = pos === 1 ? 'ouro' : pos === 2 ? 'prata' : pos === 3 ? 'bronze' : 'top';
-      a[metal]++; b[metal]++;
-      a.pts += pts; b.pts += pts;
-      a.podios.push({ escala, rotulo, pos, pts });
-    });
-  }
-
-  // ── Semanas encerradas (domingo a sábado) ──
-  // Só entra a semana que começou em ou depois de INICIO e que já terminou —
-  // a semana corrente segue em disputa.
-  const domAtual = new Date(hoje); domAtual.setDate(domAtual.getDate() - domAtual.getDay());
-  let cur = new Date(domAtual); cur.setDate(cur.getDate() - 7);
-  const fmtD = d => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-  let semanas = 0;
-  while (cur >= INICIO) {
-    const dom = new Date(cur);
-    const sab = new Date(dom); sab.setDate(dom.getDate() + 6); sab.setHours(23, 59, 59, 999);
-    const lista = buildRanking(sessoes.filter(s => s.dt >= dom && s.dt <= sab));
-    if (lista.length) { premiar('semana', fmtD(dom) + '–' + fmtD(sab), lista); semanas++; }
-    cur.setDate(cur.getDate() - 7);
-  }
-
-  // ── Meses encerrados ──
-  // Só mês INTEIRO dentro da vigência: um mês que começou antes da data de
-  // início entrou pela metade, e premiar meio mês seria pior que não premiar.
-  const MESN = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-  let ano = INICIO.getFullYear();
-  let mes = INICIO.getMonth() + (INICIO.getDate() === 1 ? 0 : 1);
-  if (mes > 11) { mes = 0; ano++; }
-  const anoAtual = hoje.getFullYear(), mesAtual = hoje.getMonth();
-  let meses = 0;
-  while (ano < anoAtual || (ano === anoAtual && mes < mesAtual)) {
-    const ini = new Date(ano, mes, 1);
-    const fim = new Date(ano, mes + 1, 0); fim.setHours(23, 59, 59, 999);
-    const lista = buildRanking(sessoes.filter(s => s.dt >= ini && s.dt <= fim));
-    if (lista.length) { premiar('mes', MESN[mes] + '/' + String(ano).slice(2), lista); meses++; }
-    mes++; if (mes > 11) { mes = 0; ano++; }
-  }
-
-  // Ordem olímpica: ouro primeiro; empate desempata na prata, depois no bronze,
-  // depois nos pontos. Nunca pelo total de medalhas — dez bronzes não valem
-  // mais que um ouro no critério do COI, e é esse que as pessoas conhecem.
-  const quadro = Object.keys(acc).map(k => acc[k]).sort((a, b) =>
-    (b.ouro - a.ouro) || (b.prata - a.prata) || (b.bronze - a.bronze) || (b.pts - a.pts));
-
-  _medalhasCache = { quadro, semanas, meses, por: acc };
+  // A apuração mora no api.js (API.apurarMedalhas), a mesma que o painel usa na Frequência e Ranking.
+  _medalhasCache = API.apurarMedalhas(sessoes, buildRanking, {
+    semana: _rankReg.medalhaSemana || MEDALHAS_PADRAO.semana,
+    mes: _rankReg.medalhaMes || MEDALHAS_PADRAO.mes,
+    desde: _medalhaDesde(),
+  });
   try { _notifMedalhasNovas(); } catch (e) {}
   return _medalhasCache;
 }
