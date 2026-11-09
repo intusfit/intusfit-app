@@ -1161,6 +1161,7 @@ function usarFotosNoRelatorio(idavaliacao, destino) {
 let metodoSelecionado = 'pollock7';
 
 function abrirModalForm(idavaliacao) {
+  fotosParaUpload = [];   // fotos escolhidas numa abertura anterior (cancelada) não voltam escondidas
   const av = idavaliacao ? avaliacoes.find(x => Number(x.idavaliacao) === Number(idavaliacao)) : null;
   const isEdit = !!av;
   const medidas = av?.medidas || {};
@@ -1268,7 +1269,7 @@ function abrirModalForm(idavaliacao) {
       </div>
       <div class="foto-upload-area" onclick="document.getElementById('foto-input').click();">
         <div style="font-size:28px;margin-bottom:8px;">📷</div>
-        <div style="font-size:12px;color:var(--text-muted);">Clique para selecionar fotos</div>
+        <div style="font-size:12px;color:var(--text-muted);">Clique para selecionar fotos ou arraste os arquivos para cá</div>
         <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">As fotos serão salvas no Drive do aluno</div>
       </div>
       <input type="file" id="foto-input" accept="image/*" multiple style="display:none;" onchange="previewFotos(this)"/>
@@ -1404,14 +1405,44 @@ function calcularGorduraAuto() {
 
 let fotosParaUpload = [];
 
-function previewFotos(input) {
-  const container = document.getElementById('fotos-preview');
-  fotosParaUpload = Array.from(input.files);
-  container.innerHTML = fotosParaUpload.map((f, i) => {
-    const url = URL.createObjectURL(f);
-    return `<img src="${url}" class="foto-thumb"/>`;
-  }).join('');
+// Fotos escolhidas pelo botão ou arrastadas do computador entram na mesma lista (as novas somam às que já estavam, sem repetir a mesma foto).
+function adicionarFotos(files) {
+  const novas = Array.from(files || []).filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name || ''));
+  const chave = f => [f.name, f.size, f.lastModified].join('|');
+  const ja = new Set(fotosParaUpload.map(chave));
+  novas.forEach(f => { if (!ja.has(chave(f))) { fotosParaUpload.push(f); ja.add(chave(f)); } });
+  desenharFotos();
+  return novas.length;
 }
+function removerFotoSelecionada(i) { fotosParaUpload.splice(i, 1); desenharFotos(); }
+function desenharFotos() {
+  const container = document.getElementById('fotos-preview');
+  if (!container) return;
+  container.innerHTML = fotosParaUpload.map((f, i) =>
+    `<span style="position:relative;display:inline-block;"><img src="${URL.createObjectURL(f)}" class="foto-thumb"/><button type="button" title="Tirar esta foto" onclick="removerFotoSelecionada(${i})" style="position:absolute;top:0;right:0;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.7);color:#fff;font-size:12px;line-height:1;cursor:pointer;">×</button></span>`
+  ).join('') + (fotosParaUpload.length ? `<div style="width:100%;font-size:11px;color:var(--text-muted);">${fotosParaUpload.length} foto${fotosParaUpload.length !== 1 ? 's' : ''} para salvar com a avaliação</div>` : '');
+}
+function previewFotos(input) {
+  adicionarFotos(input.files);
+  input.value = '';   // permite escolher a mesma foto de novo depois de tirá-la
+}
+// Arrastar arquivos do computador: soltar na caixa de fotos (ou em qualquer ponto do formulário aberto) adiciona as fotos. Sem isto o navegador
+// abria cada foto numa aba nova. Fora do formulário, soltar arquivo continua com o comportamento normal do navegador.
+(function () {
+  const temArquivos = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') !== -1;
+  const formAberto = () => !!document.getElementById('foto-input');
+  const area = () => document.querySelector('.foto-upload-area');
+  window.addEventListener('dragover', e => { if (!temArquivos(e) || !formAberto()) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; const a = area(); if (a) a.style.borderColor = 'var(--green)'; });
+  window.addEventListener('dragleave', e => { if (e.relatedTarget) return; const a = area(); if (a) a.style.borderColor = ''; });
+  window.addEventListener('drop', e => {
+    if (!temArquivos(e) || !formAberto()) return;
+    e.preventDefault();
+    const a = area(); if (a) a.style.borderColor = '';
+    const n = adicionarFotos(e.dataTransfer.files);
+    if (!n) showToast('Solte arquivos de imagem (JPG, PNG, WebP ou HEIC).', 'error');
+    else if (a) a.scrollIntoView({ block: 'nearest' });
+  });
+})();
 
 // Trava contra clique duplo: fotos vão pro Drive antes de gravar a avaliação
 // (uploadFotosDrive, pode demorar), e sem isso um 2º toque no "Salvar"
