@@ -1837,6 +1837,10 @@ const API = {
     if (!m) return '';
     const ini  = String(m.dtinicio || '').slice(0, 10);
     const venc = String(m.dtvencimento || '').slice(0, 10);
+    // Parcela de plano parcelado: o dia da cobranca e o dtinicio, sempre. A janela dela pode ter qualquer tamanho (data combinada,
+    // restante de parcela paga a menos), entao recuar "meses" a partir do vencimento acertava so nas janelas mensais certinhas e
+    // empurrava a cobranca de volta para uma data que o professor tinha acabado de mudar (parcela de 17/11 aparecia vencida em 05/11).
+    if (API.ehParcelada(m) && ini) return ini;
     const meses = API.mesesDoPlano(m);
     // Sem periodicidade conhecida nao da para recuar: vale o inicio, e o
     // vencimento so quando nem inicio existe (registro antigo).
@@ -2185,7 +2189,7 @@ const API = {
   // senao sobra um buraco (ou uma sobreposicao) entre as duas. So mexe quando as janelas estavam coladas.
   alinharParcelaAnterior: async (m, lista, cobAntigaISO, novaCobISO) => {
     const velha = String(cobAntigaISO || '').slice(0, 10), nova = String(novaCobISO || '').slice(0, 10);
-    if (!velha || !nova || velha === nova) return 0;
+    if (!velha || !nova || velha === nova || API.ehRestante(m)) return 0;   // o restante de uma parcela nao tem "anterior" para acertar
     const n = Number(m.parcela_num);
     const ant = API.serieParcelas(m, lista).filter(x => Number(x.parcela_num) === n - 1 && x.stmatricula !== 'cancelada' && String(x.dtvencimento || '').slice(0, 10) === velha);
     for (const x of ant) await API.editarMensalidade(x.idmensalidade, { dtvencimento: nova });

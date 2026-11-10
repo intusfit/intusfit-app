@@ -223,6 +223,23 @@ console.log('\n── Não muda o que já funcionava ──');
   eq('plano sem parcela no nome agrupa como antes', API.chaveMatricula({ idmensalidade: 1, idatleta: 7, dshistorico: 'Mensal Treino' }, null), '7|mensal treino');
 }
 
+console.log('\n── Cobrança de parcela com data combinada (caso da Ana Luisa, 10/11/2026) ──');
+{
+  const API = carregar({ hoje: '2026-11-10' });
+  const p1 = { idmensalidade: 1, idatleta: 7, tipo_plano: 'Treino', dshistorico: 'Trimestral (1/2)', dtinicio: '2026-10-05', dtvencimento: '2026-11-05', stpgto: 'S', dtpagamento: '2026-10-05', vlpagar: 700, vldesconto: 0, stmatricula: 'ativa', parcela_num: 1, parcela_total: 2 };
+  const p2 = { idmensalidade: 2, idatleta: 7, tipo_plano: 'Treino', dshistorico: 'Trimestral (2/2)', dtinicio: '2026-11-05', dtvencimento: '2027-01-05', stpgto: 'S', dtpagamento: '2026-11-02', vlpagar: 500, vldesconto: 0, stmatricula: 'ativa', parcela_num: 2, parcela_total: 2, idmatricula_origem: 1 };
+  const rest = { idmensalidade: 3, idatleta: 7, tipo_plano: 'Treino', dshistorico: 'Trimestral (2/2) · restante', dtinicio: '2026-11-17', dtvencimento: '2027-01-05', stpgto: 'N', vlpagar: 297, vldesconto: 0, stmatricula: 'ativa', parcela_num: 2, parcela_total: 2, idmatricula_origem: 1 };
+  const lista = [p1, p2, rest];
+  eq('a cobrança do restante é o dia combinado (17/11), não uma data recuada pela janela', API.dtCobranca(rest), '2026-11-17');
+  const s = API.situacaoCobranca(rest, lista);
+  eq('em 10/11 o restante de 17/11 está pendente, 7 dias antes, e NÃO vencido', [s.estado, s.dias, s.cobranca], ['pendente', -7, '2026-11-17']);
+  const tarde = carregar({ hoje: '2026-11-30' }).situacaoCobranca(rest, lista);
+  eq('em 30/11 (13 dias depois de 17/11) já é vencido, contando de 17/11', [tarde.estado, tarde.dias], ['vencida', 13]);
+  const calls = [];
+  API.editarMensalidade = async (id, corpo) => { calls.push(id); return {}; };
+  API.alinharParcelaAnterior(rest, lista, '2026-11-05', '2026-11-17').then(n => eq('mudar a data do restante não mexe no fim da parcela 1 (mesmo com a data antiga coincidindo)', [n, calls.length], [0, 0]));
+}
+
 console.log('\n── Editar o vencimento de UMA parcela ──');
 {
   const API = carregar({ hoje: '2026-10-05' });
