@@ -168,6 +168,14 @@ section{padding:96px 24px}
 .plan-prices{display:none}
 .plan-prices.active{display:block}
 .plan-btns{margin-top:0}
+.cdd-planos{background:var(--bg3);border:1px solid #1f1f1f;border-radius:20px;padding:28px 26px;margin:28px auto 0;max-width:760px}
+.cdd-planos h3{font-size:20px;font-weight:900;margin-bottom:6px;text-transform:none;font-family:'Inter',sans-serif;letter-spacing:0}
+.cdd-planos .cdd-sub{font-size:13px;color:var(--gray-m);margin-bottom:16px;line-height:1.6}
+.cdd-linha{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 0;border-top:1px solid #1c1c1c}
+.cdd-linha .cdd-per{flex:1 1 160px;font-size:14px;font-weight:700}
+.cdd-linha .cdd-per small{display:block;font-size:12px;font-weight:400;color:var(--gray-m)}
+.cdd-linha .cdd-btns{display:flex;gap:8px;flex-wrap:wrap}
+.cdd-linha .plan-btn{width:auto;padding:10px 20px;margin-top:0}
 .cta-section{text-align:center;padding:120px 24px;background:linear-gradient(180deg,var(--bg2) 0%,var(--bg) 100%)}
 .cta-section h2{font-size:clamp(38px,7vw,68px);font-weight:900;margin-bottom:14px}
 .cta-section p{font-size:17px;color:var(--gray-l);margin-bottom:36px}
@@ -397,6 +405,11 @@ foreach (array_values($proofVisiveis) as $i => $pb):
   $ltrim     = s($pl['link_trimestral'] ?? '');
   $lsem      = s($pl['link_semestral']  ?? '');
   $lanu      = s($pl['link_anual']      ?? '');
+  // Eduzz fica como opção secundária: o link principal de cada periodicidade é o do Asaas
+  $etrim     = s($pl['link_trimestral_eduzz'] ?? '');
+  $esem      = s($pl['link_semestral_eduzz']  ?? '');
+  $eanu      = s($pl['link_anual_eduzz']      ?? '');
+  $temEduzz  = ($btnTipo === 'link' || $btnTipo === 'ambos') && ($etrim !== '' || $esem !== '' || $eanu !== '');
 ?>
       <div class="plan-card<?= $featured ? ' featured' : '' ?>">
         <?php if ($pl['badge']): ?><div class="plan-badge"><?= s($pl['badge']) ?></div><?php endif; ?>
@@ -430,6 +443,13 @@ foreach (array_values($proofVisiveis) as $i => $pb):
           <a href="<?= $ltrim ?>" class="plan-btn plan-btn-link"
              data-link-trim="<?= $ltrim ?>" data-link-sem="<?= $lsem ?>" data-link-anu="<?= $lanu ?>"
              target="_blank">Assinar agora</a>
+<?php endif; ?>
+<?php if ($temEduzz): ?>
+          <a href="<?= $etrim ?>" class="plan-btn plan-btn-link-outline"
+             data-eduzz-trim="<?= $etrim ?>" data-eduzz-sem="<?= $esem ?>" data-eduzz-anu="<?= $eanu ?>"
+             <?= $etrim === '' ? 'style="display:none"' : '' ?> target="_blank" rel="noopener">Pagar pelo Eduzz</a>
+<?php endif; ?>
+<?php if ($btnTipo === 'ambos'): ?>
           <a href="https://wa.me/<?= $wa ?>?text=<?= $waMsg ?>" target="_blank" class="plan-btn plan-btn-wa">Falar no WhatsApp</a>
 <?php endif; ?>
         </div>
@@ -437,6 +457,39 @@ foreach (array_values($proofVisiveis) as $i => $pb):
 <?php endforeach; ?>
     </div>
     <p class="plans-note">Todos os planos parcelados em <strong>até 12x</strong> no cartão de crédito.</p>
+<?php
+  // Código da Definição (CDD): link do Asaas como principal e o do Eduzz como secundário, por periodicidade
+  $cdd = is_array($c['planos']['cdd'] ?? null) ? $c['planos']['cdd'] : [];
+  $cddPer = ['mensal' => 'Mensal', 'semestral' => 'Semestral', 'anual' => 'Anual'];
+  $cddUrl = function ($u) { $u = trim((string)$u); return preg_match('#^https://#i', $u) ? htmlspecialchars($u, ENT_QUOTES, 'UTF-8') : ''; };
+  $cddTem = false;
+  foreach ($cddPer as $k => $_) { if ($cddUrl($cdd[$k]['asaas'] ?? '') !== '' || $cddUrl($cdd[$k]['eduzz'] ?? '') !== '') $cddTem = true; }
+  if ($cddTem):
+?>
+    <div class="cdd-planos">
+      <h3><?= htmlspecialchars((string)($cdd['titulo'] ?? 'Código da Definição'), ENT_QUOTES, 'UTF-8') ?></h3>
+<?php if (!empty($cdd['subtitulo'])): ?>
+      <p class="cdd-sub"><?= htmlspecialchars((string)$cdd['subtitulo'], ENT_QUOTES, 'UTF-8') ?></p>
+<?php endif; ?>
+<?php foreach ($cddPer as $k => $rotulo):
+  $la = $cddUrl($cdd[$k]['asaas'] ?? ''); $le = $cddUrl($cdd[$k]['eduzz'] ?? '');
+  if ($la === '' && $le === '') continue;
+  $pr = htmlspecialchars((string)($cdd[$k]['preco'] ?? ''), ENT_QUOTES, 'UTF-8');
+?>
+      <div class="cdd-linha">
+        <div class="cdd-per"><?= $rotulo ?><?php if ($pr !== ''): ?><small><?= $pr ?></small><?php endif; ?></div>
+        <div class="cdd-btns">
+<?php if ($la !== ''): ?>
+          <a href="<?= $la ?>" class="plan-btn plan-btn-link" target="_blank" rel="noopener">Assinar agora</a>
+<?php endif; ?>
+<?php if ($le !== ''): ?>
+          <a href="<?= $le ?>" class="plan-btn plan-btn-link-outline" target="_blank" rel="noopener">Pagar pelo Eduzz</a>
+<?php endif; ?>
+        </div>
+      </div>
+<?php endforeach; ?>
+    </div>
+<?php endif; ?>
     <div class="plans-guarantee">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       <p><strong>Teste por 15 dias.</strong> <?= s($c['planos']['garantia']) ?></p>
@@ -486,8 +539,10 @@ function switchPlan(period, btn) {
     el.classList.remove('active');
     if (el.dataset.period === period) el.classList.add('active');
   });
-  document.querySelectorAll('.plan-btn[data-link-trim]').forEach(a => {
-    const map = { trimestral: a.dataset.linkTrim, semestral: a.dataset.linkSem, anual: a.dataset.linkAnu };
+  document.querySelectorAll('.plan-btn[data-link-trim], .plan-btn-link-outline[data-eduzz-trim]').forEach(a => {
+    const map = a.hasAttribute('data-eduzz-trim')
+      ? { trimestral: a.dataset.eduzzTrim, semestral: a.dataset.eduzzSem, anual: a.dataset.eduzzAnu }
+      : { trimestral: a.dataset.linkTrim, semestral: a.dataset.linkSem, anual: a.dataset.linkAnu };
     const href = map[period] || '';
     if (href) { a.href = href; a.style.display = ''; }
     else { a.style.display = 'none'; }

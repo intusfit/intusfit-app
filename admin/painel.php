@@ -22,6 +22,17 @@ $saved = isset($_GET['saved']);
 $imgList = array_filter(scandir(IMG_DIR), fn($f) => preg_match('/\.(jpg|jpeg|png|webp|gif)$/i', $f));
 sort($imgList);
 
+// Código da Definição (CDD): links de compra por periodicidade, Asaas como principal e Eduzz como secundário.
+// Enquanto o CDD não foi salvo no conteúdo, o editor mostra estes valores (só viram públicos ao clicar em Salvar).
+$cddPadrao = [
+  'titulo'    => 'Código da Definição',
+  'subtitulo' => 'Acesso liberado assim que o pagamento é confirmado.',
+  'mensal'    => ['preco' => 'R$119 por mês',  'asaas' => 'https://www.asaas.com/c/gblzqkgx3ruv4mhe', 'eduzz' => 'https://chk.eduzz.com/2411829'],
+  'semestral' => ['preco' => 'R$447 por semestre', 'asaas' => 'https://www.asaas.com/c/qtvk2ixljil0qqp8', 'eduzz' => ''],
+  'anual'     => ['preco' => 'R$698 por ano',  'asaas' => 'https://www.asaas.com/c/r8eb58ytv6woigu2', 'eduzz' => 'https://chk.eduzz.com/1344531'],
+];
+$cdd = array_replace_recursive($cddPadrao, is_array($c['planos']['cdd'] ?? null) ? $c['planos']['cdd'] : []);
+
 $blocos_ocultos = $c['blocos_ocultos'] ?? [];
 function blocoOculto($slug, $blocos) { return in_array($slug, $blocos); }
 ?><!DOCTYPE html>
@@ -383,6 +394,26 @@ a{color:inherit;text-decoration:none}
   <hr class="sep">
   <div class="tabs" id="planos-tabs"></div>
   <div id="planos-panels"></div>
+  <hr class="sep">
+  <div class="block-title" style="font-size:16px">Código da Definição (CDD)</div>
+  <div class="block-desc">Links de compra do CDD. O link do Asaas é o botão principal e o do Eduzz fica como opção secundária. O bloco só aparece no site quando há pelo menos um link preenchido; periodicidade sem link não aparece.</div>
+  <div class="field-row">
+    <div class="field"><label>Título</label>
+      <input type="text" id="cdd_titulo" value="<?= he($cdd['titulo']) ?>"></div>
+    <div class="field"><label>Texto de apoio</label>
+      <input type="text" id="cdd_subtitulo" value="<?= he($cdd['subtitulo']) ?>"></div>
+  </div>
+  <?php foreach (['mensal' => 'Mensal', 'semestral' => 'Semestral', 'anual' => 'Anual'] as $k => $rot): ?>
+  <div class="link-fields">
+    <div class="link-fields-title"><?= $rot ?></div>
+    <div class="field"><label>Preço exibido</label>
+      <input type="text" id="cdd_<?= $k ?>_preco" value="<?= he($cdd[$k]['preco']) ?>"></div>
+    <div class="field"><label>Link do Asaas (principal)</label>
+      <input type="url" id="cdd_<?= $k ?>_asaas" value="<?= he($cdd[$k]['asaas']) ?>" placeholder="https://www.asaas.com/c/..."></div>
+    <div class="field"><label>Link do Eduzz (secundário)</label>
+      <input type="url" id="cdd_<?= $k ?>_eduzz" value="<?= he($cdd[$k]['eduzz']) ?>" placeholder="https://chk.eduzz.com/..."></div>
+  </div>
+  <?php endforeach; ?>
 </div>
 
 <!-- CONTATO -->
@@ -1022,12 +1053,24 @@ function renderPlanos() {
         <input type="text" id="pl_wa_${i}" value="${esc(pl.whatsapp_msg)}"></div>
       <div class="link-fields" id="pl_linkfields_${i}" style="${showLinks?'':'display:none'}">
         <div class="link-fields-title">Links de pagamento por periodicidade</div>
-        <div class="field"><label>Link Trimestral</label>
-          <input type="url" id="pl_ltrim_${i}" value="${esc(pl.link_trimestral||'')}" placeholder="https://..."></div>
-        <div class="field"><label>Link Semestral</label>
-          <input type="url" id="pl_lsem_${i}" value="${esc(pl.link_semestral||'')}" placeholder="https://..."></div>
-        <div class="field"><label>Link Anual</label>
-          <input type="url" id="pl_lanu_${i}" value="${esc(pl.link_anual||'')}" placeholder="https://..."></div>
+        <div class="field-row">
+          <div class="field"><label>Link Trimestral (Asaas, principal)</label>
+            <input type="url" id="pl_ltrim_${i}" value="${esc(pl.link_trimestral||'')}" placeholder="https://www.asaas.com/c/..."></div>
+          <div class="field"><label>Link Trimestral (Eduzz, secundário)</label>
+            <input type="url" id="pl_ltrim_e_${i}" value="${esc(pl.link_trimestral_eduzz||'')}" placeholder="https://chk.eduzz.com/..."></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Link Semestral (Asaas, principal)</label>
+            <input type="url" id="pl_lsem_${i}" value="${esc(pl.link_semestral||'')}" placeholder="https://www.asaas.com/c/..."></div>
+          <div class="field"><label>Link Semestral (Eduzz, secundário)</label>
+            <input type="url" id="pl_lsem_e_${i}" value="${esc(pl.link_semestral_eduzz||'')}" placeholder="https://chk.eduzz.com/..."></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Link Anual (Asaas, principal)</label>
+            <input type="url" id="pl_lanu_${i}" value="${esc(pl.link_anual||'')}" placeholder="https://www.asaas.com/c/..."></div>
+          <div class="field"><label>Link Anual (Eduzz, secundário)</label>
+            <input type="url" id="pl_lanu_e_${i}" value="${esc(pl.link_anual_eduzz||'')}" placeholder="https://chk.eduzz.com/..."></div>
+        </div>
       </div>
       <div class="field"><label>Benefícios (um por linha)</label>
         <textarea id="pl_feat_${i}" style="min-height:120px">${esc((pl.features||[]).join('\n'))}</textarea></div>
@@ -1112,6 +1155,10 @@ function collectData() {
       titulo: v('planos_titulo'),
       subtitulo: v('planos_sub'),
       garantia: v('planos_garantia'),
+      cdd: ['mensal', 'semestral', 'anual'].reduce((o, k) => {
+        o[k] = { preco: v('cdd_' + k + '_preco'), asaas: v('cdd_' + k + '_asaas'), eduzz: v('cdd_' + k + '_eduzz') };
+        return o;
+      }, { titulo: v('cdd_titulo'), subtitulo: v('cdd_subtitulo') }),
       items: planosArr.map((pl, i) => ({
         nome: v('pl_nome_' + i) || pl.nome,
         destaque: pl.destaque || false,
@@ -1127,6 +1174,9 @@ function collectData() {
         link_trimestral: v('pl_ltrim_' + i),
         link_semestral: v('pl_lsem_' + i),
         link_anual: v('pl_lanu_' + i),
+        link_trimestral_eduzz: v('pl_ltrim_e_' + i),
+        link_semestral_eduzz: v('pl_lsem_e_' + i),
+        link_anual_eduzz: v('pl_lanu_e_' + i),
         features: (document.getElementById('pl_feat_' + i) ? document.getElementById('pl_feat_' + i).value : '').split('\n').map(s=>s.trim()).filter(Boolean)
       }))
     },
@@ -1478,6 +1528,16 @@ function loadContentIntoEditor(c) {
     setV('plan_subtitulo', c.planos.subtitulo);
     setV('plan_garantia', c.planos.garantia);
     if (c.planos.items) { planosArr = c.planos.items; renderPlanos(); }
+    if (c.planos.cdd) {
+      setV('cdd_titulo', c.planos.cdd.titulo);
+      setV('cdd_subtitulo', c.planos.cdd.subtitulo);
+      ['mensal', 'semestral', 'anual'].forEach(k => {
+        const x = c.planos.cdd[k] || {};
+        setV('cdd_' + k + '_preco', x.preco);
+        setV('cdd_' + k + '_asaas', x.asaas);
+        setV('cdd_' + k + '_eduzz', x.eduzz);
+      });
+    }
   }
   // Contato
   if (c.contato) {
