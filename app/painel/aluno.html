@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261110d"></script>
+  <script src="api.js?v=20261110e"></script>
   <script src="ajuda.js?v=20261107a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -10778,6 +10778,30 @@ function fecharHistoricoExercicio() {
   try { document.body.style.overflow = ''; } catch (e) {}
 }
 
+// Números de uma sessão para o painel (modelo da régua) e para os cartões: carga e repetições de cada série. Nas escalas de mês e ano o ponto é uma
+// média, então só a carga aparece. Série de técnica leva a marca de sempre e não entra na máxima (regra do IntusEvolucao.historicoExercicio).
+function _evoLeituraSessao(dados) {
+  var F = IntusEvolucao.fmt;
+  return function (i) {
+    var p = dados[i] || {}, prev = i > 0 ? dados[i - 1] : null;
+    var pil = (p.series || []).slice(0, 6).map(function (s, k) {
+      var tec = !!s.tec;
+      var nm = tec ? ((TECNICA_INFO[s.tec] && TECNICA_INFO[s.tec].nome) || 'técnica') : '';
+      return { ci: k, tec: tec, valor: F(s.peso) + ' kg', extra: ((s.reps > 0) ? '× ' + F(s.reps, 0) : '') + (tec ? ' ' + nm : '') };
+    });
+    var delta = '';
+    if (prev && p.max != null && prev.max != null) {
+      var d = p.max - prev.max;
+      delta = d === 0 ? 'mesma carga máxima da anterior' : 'carga máxima ' + (d > 0 ? '+' : '\u2212') + F(Math.abs(d)) + ' kg vs anterior';
+    }
+    var resumo = [];
+    if (p.max != null) resumo.push('máx ' + F(p.max) + ' kg');
+    if (p.media != null) resumo.push('média ' + F(p.media) + ' kg');
+    if (p.volume != null) resumo.push('volume ' + F(p.volume, 0));
+    return { titulo: p.detalhe || p.rotulo, sub: (i + 1) + 'ª de ' + dados.length + ' no período', delta: delta, resumo: resumo.join(' · '), pilulas: pil };
+  };
+}
+
 function trocarEscalaHistEx(escala) {
   _histEx.escala = escala;
   _renderHistoricoExercicio();
@@ -10868,27 +10892,24 @@ function _renderHistoricoExercicio() {
   var sufixo = _histEx.escala === 'sessao' ? 'sessão a sessão'
              : _histEx.escala === 'mes' ? 'média de cada mês' : 'média de cada ano';
 
-  var g1 = IntusEvolucao.grafico({
-    id: 'hx-series', isLight: isLight, titulo: 'Carga de cada série',
-    sub: 'kg em cada série, ' + sufixo + '. É aqui que dá para ver se a última série está acompanhando a primeira.',
-    rotulos: rotulos, detalhes: detalhes, series: seriesGraf, unidade: 'kg', altura: 210,
-  });
-
-  var g2 = IntusEvolucao.grafico({
-    id: 'hx-maxmed', isLight: isLight, titulo: 'Carga máxima × carga média',
-    sub: 'O pico sobe e a média fica parada? A carga subiu numa série só.',
-    rotulos: rotulos, detalhes: detalhes, unidade: 'kg', altura: 180,
-    series: [
-      { nome: 'Máxima', valores: dados.map(function (p) { return p.max; }) },
-      { nome: 'Média',  valores: dados.map(function (p) { return p.media; }) },
+  // Um painel só (números da sessão escolhida) e uma régua só, valendo para os três gráficos: a escolha aparece nos três ao mesmo tempo.
+  var sel = IntusEvolucao.selecionavel({
+    id: 'hx-sel', isLight: isLight, modo: 'regua', fundoRegua: fundo,
+    rotulos: rotulos, detalhes: detalhes, leitura: _evoLeituraSessao(dados),
+    graficos: [
+      { titulo: 'Carga de cada série',
+        sub: 'kg em cada série, ' + sufixo + '. É aqui que dá para ver se a última série está acompanhando a primeira.',
+        series: seriesGraf, unidade: 'kg', altura: 190 },
+      { titulo: 'Carga máxima × carga média',
+        sub: 'O pico sobe e a média fica parada? A carga subiu numa série só.',
+        series: [
+          { nome: 'Máxima', valores: dados.map(function (p) { return p.max; }) },
+          { nome: 'Média',  valores: dados.map(function (p) { return p.media; }) },
+        ], unidade: 'kg', altura: 170 },
+      { titulo: 'Volume total',
+        sub: 'Carga × repetições somando todas as séries, o trabalho total do exercício.',
+        series: [{ nome: 'Volume', valores: dados.map(function (p) { return p.volume; }) }], unidade: 'kg', casas: 0, altura: 150 },
     ],
-  });
-
-  var g3 = IntusEvolucao.grafico({
-    id: 'hx-vol', isLight: isLight, titulo: 'Volume total',
-    sub: 'Carga × repetições somando todas as séries, o trabalho total do exercício.',
-    rotulos: rotulos, detalhes: detalhes, unidade: 'kg', altura: 160, casas: 0,
-    series: [{ nome: 'Volume', valores: dados.map(function (p) { return p.volume; }) }],
   });
 
   // Lista das últimas sessões, série por série. É o "quanto eu puxei" na forma
@@ -10928,7 +10949,7 @@ function _renderHistoricoExercicio() {
   corpo.innerHTML = cab +
     '<div style="padding:0 14px;">' +
     IntusEvolucao.barraEscala(_histEx.escala, 'trocarEscalaHistEx', isLight) +
-    '<div style="display:flex;flex-direction:column;gap:12px;">' + g1 + g2 + g3 + '</div>' +
+    sel +
     '<div style="margin-top:16px;">' +
       '<div style="font-size:12px;font-weight:800;color:' + tinta + ';margin-bottom:2px;">Últimas sessões, série por série</div>' +
       ultimas +
@@ -11160,10 +11181,10 @@ function renderEvolucaoAluno(sessoes, isLight) {
         '</select>' +
       '</div>' +
       '<div style="margin-top:10px;">' + IntusEvolucao.barraEscala(_evoAl.escala, 'trocarEscalaEvoAluno', isLight) + '</div>' +
-      IntusEvolucao.grafico({
-        id: 'evo-series', isLight: isLight, titulo: 'Carga de cada série',
-        sub: 'kg em cada série, ' + sufixo + '.',
-        rotulos: rots, detalhes: dets, series: seriesGraf, unidade: 'kg', altura: 200,
+      IntusEvolucao.selecionavel({
+        id: 'evo-sel', isLight: isLight, modo: 'cartoes',
+        rotulos: rots, detalhes: dets, leitura: _evoLeituraSessao(dados),
+        graficos: [{ titulo: 'Carga de cada série', sub: 'kg em cada série, ' + sufixo + '.', series: seriesGraf, unidade: 'kg', altura: 200 }],
         vazio: 'Sem carga registrada neste exercício ainda.',
       }) +
     '</details>';

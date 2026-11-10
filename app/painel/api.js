@@ -594,6 +594,8 @@ window.IntusEvolucao = (function () {
   // Liga o toque/mouse dos gráficos que acabaram de entrar no DOM.
   function ativar(raiz) {
     var alvo = raiz || document;
+    var selecionaveis = alvo.querySelectorAll ? alvo.querySelectorAll('[data-evo-sel]') : [];
+    Array.prototype.forEach.call(selecionaveis, _ativarSel);
     var cards = alvo.querySelectorAll ? alvo.querySelectorAll('[data-evo]') : [];
     Array.prototype.forEach.call(cards, function (card) {
       var id = card.getAttribute('data-evo');
@@ -679,6 +681,347 @@ window.IntusEvolucao = (function () {
       // Abre já mostrando o fim da linha do tempo — o que interessa é o agora.
       if (rolar) { try { rolar.scrollLeft = rolar.scrollWidth; } catch (err) {} }
     });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // GRÁFICO COM SESSÃO ESCOLHIDA (régua ou cartões)
+  // ══════════════════════════════════════════════════════════════════════
+  // Substitui, nas telas do aluno, a dica que subia do dedo e sumia ao soltar. Problemas do desenho antigo: a caixa ficava embaixo do próprio
+  // dedo, desaparecia quando a tela começava a rolar e arrastar para o lado acabava escolhendo uma data sem querer.
+  // Regras novas (valem nos dois modos):
+  //   - o período inteiro cabe na largura da tela (sem rolar para o lado);
+  //   - a sessão escolhida FICA escolhida (linha, pontos maiores e etiqueta de data) até o aluno escolher outra; ao abrir, é a última;
+  //   - os números da sessão ficam fora do gráfico (painel fixo ou cartão), nunca sob o dedo;
+  //   - só um toque curto e parado no gráfico escolhe; arrastar a página não escolhe nada.
+  // modo 'regua'   : painel com os números + régua sticky embaixo (arrastar) e setas. Para o treino, com uma mão.
+  // modo 'cartoes' : um cartão por sessão, deslizando para o lado; o ponto acende no gráfico. Para ler com calma.
+  // cfg: { id, isLight, modo, rotulos[], graficos:[{titulo, sub, series:[{nome, valores}], unidade, casas, altura}],
+  //        leitura(i) -> { titulo, sub, delta, resumo, pilulas:[{ci, valor, extra, tec}] }, vazio }
+  function _cssSel() {
+    if (window._evoSelCss) return;
+    window._evoSelCss = true;
+    try {
+      var st = document.createElement('style');
+      st.setAttribute('data-intus', 'evolucao-sel');
+      st.textContent =
+        '.evs-car{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding:4px 0 8px;scrollbar-width:none;overscroll-behavior-x:contain;}' +
+        '.evs-car::-webkit-scrollbar{display:none;}' +
+        '.evs-card{flex:0 0 auto;scroll-snap-align:center;cursor:pointer;}' +
+        '.evs-trilho{touch-action:none;-webkit-user-select:none;user-select:none;}' +
+        '.evs-plot{touch-action:pan-y;-webkit-tap-highlight-color:transparent;}' +
+        '.evs-btn:focus-visible,.evs-trilho:focus-visible{outline:2px solid currentColor;outline-offset:2px;}';
+      (document.head || document.documentElement).appendChild(st);
+    } catch (e) {}
+  }
+
+  function selecionavel(cfg) {
+    _cssUmaVez(); _cssSel();
+    var isLight = !!cfg.isLight;
+    var id = cfg.id || ('evs' + (++_seq));
+    var cores = isLight ? PALETA_CLARA : PALETA_ESCURA;
+    var tinta  = isLight ? '#1a1a1a' : '#f0f0f0';
+    var tinta2 = isLight ? '#5b626b' : '#9aa0a6';
+    var grade  = isLight ? '#e8e8e8' : '#242424';
+    var fundo  = isLight ? '#ffffff' : '#111111';
+    var borda  = isLight ? '#e5e5e5' : '#1e1e1e';
+    var rotulos = cfg.rotulos || [];
+    var graficos = (cfg.graficos || []).map(function (g) {
+      return Object.assign({}, g, { series: (g.series || []).filter(function (s) {
+        return (s.valores || []).some(function (v) { return v != null && isFinite(v) && v > 0; });
+      }) });
+    }).filter(function (g) { return g.series.length; });
+
+    if (!graficos.length || rotulos.length < 1) {
+      return '<div style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:22px;text-align:center;color:' + tinta2 + ';font-size:12.5px;line-height:1.5;">' +
+        esc(cfg.vazio || 'Ainda não há registros suficientes para desenhar a evolução.') + '</div>';
+    }
+
+    _regs[id] = { sel: true, cfg: cfg, graficos: graficos, cores: cores, isLight: isLight, modo: cfg.modo === 'cartoes' ? 'cartoes' : 'regua',
+      i: rotulos.length - 1, tinta: tinta, tinta2: tinta2, grade: grade, fundo: fundo, borda: borda };
+
+    var modo = _regs[id].modo;
+    var acento = isLight ? '#3d7a00' : '#7FFF00';
+    var sobre  = isLight ? '#ffffff' : '#0d0d0d';
+    var superf = isLight ? '#f4f5f7' : '#1b1b1b';
+    _regs[id].acento = acento; _regs[id].sobre = sobre; _regs[id].superf = superf;
+
+    var btn = 'appearance:none;border:1px solid ' + borda + ';background:' + fundo + ';color:' + tinta + ';width:46px;height:46px;border-radius:12px;font-size:16px;cursor:pointer;display:grid;place-items:center;flex:0 0 46px;padding:0;font-family:inherit;';
+    var html = '<div class="evo-sel" data-evo-sel="' + id + '" style="display:flex;flex-direction:column;gap:12px;">';
+
+    if (modo === 'regua') {
+      html += '<div id="' + id + '-leit" style="background:' + superf + ';border:1px solid ' + borda + ';border-radius:12px;padding:10px 12px;"></div>';
+    }
+
+    graficos.forEach(function (g, k) {
+      var legenda = (g.series.length >= 2)
+        ? '<div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;">' + g.series.map(function (s, si) {
+            return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:' + tinta2 + ';">' +
+              '<span style="width:14px;height:3px;border-radius:2px;background:' + cores[si % cores.length] + ';display:inline-block;"></span>' + esc(s.nome) + '</span>';
+          }).join('') + '</div>'
+        : '';
+      var tabela = '<details style="margin-top:8px;"><summary style="font-size:11.5px;color:' + tinta2 + ';cursor:pointer;list-style:none;">Ver os números</summary>' +
+        '<div style="overflow-x:auto;margin-top:8px;"><table style="border-collapse:collapse;font-size:11.5px;color:' + tinta + ';min-width:100%;font-variant-numeric:tabular-nums;">' +
+        '<thead><tr><th style="text-align:left;padding:5px 10px 5px 0;font-weight:700;color:' + tinta2 + ';">Quando</th>' +
+        g.series.map(function (s) { return '<th style="text-align:right;padding:5px 10px;font-weight:700;color:' + tinta2 + ';white-space:nowrap;">' + esc(s.nome) + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + rotulos.map(function (r, i) {
+          return '<tr style="border-top:1px solid ' + grade + ';"><td style="padding:5px 10px 5px 0;white-space:nowrap;">' + esc((cfg.detalhes && cfg.detalhes[i]) || r) + '</td>' +
+            g.series.map(function (s) { var v = (s.valores || [])[i]; return '<td style="text-align:right;padding:5px 10px;">' + ((v != null && isFinite(v) && v > 0) ? fmt(v, g.casas == null ? 1 : g.casas) : '\u2014') + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody></table></div></details>';
+      html += '<div class="evo-card" style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:14px;">' +
+        (g.titulo ? '<div style="font-size:13px;font-weight:800;color:' + tinta + ';">' + esc(g.titulo) + '</div>' : '') +
+        (g.sub ? '<div style="font-size:11.5px;color:' + tinta2 + ';margin-top:2px;line-height:1.45;">' + esc(g.sub) + '</div>' : '') +
+        '<div id="' + id + '-g' + k + '" class="evs-plot" style="margin-top:10px;min-height:' + (g.altura || 180) + 'px;"></div>' +
+        legenda + tabela + '</div>';
+    });
+
+    if (modo === 'cartoes') {
+      html += '<div><div style="font-size:11.5px;color:' + tinta2 + ';margin:0 2px 2px;">Deslize os cartões para ver cada sessão. O ponto acende no gráfico.</div>' +
+        '<div id="' + id + '-car" class="evs-car" aria-label="Sessões"></div></div>';
+    } else {
+      html += '<div id="' + id + '-reg" style="position:sticky;bottom:0;z-index:3;background:' + (cfg.fundoRegua || fundo) + ';border-top:1px solid ' + borda + ';margin:0 -14px -4px;padding:10px 14px 12px;">' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<button type="button" id="' + id + '-ant" class="evs-btn" aria-label="Sessão anterior" style="' + btn + '">\u25C0</button>' +
+          '<div id="' + id + '-tri" class="evs-trilho" role="slider" tabindex="0" aria-label="Escolher sessão" aria-valuemin="1" aria-valuemax="' + rotulos.length + '" ' +
+            'style="position:relative;flex:1;height:52px;background:' + superf + ';border:1px solid ' + borda + ';border-radius:12px;cursor:ew-resize;"></div>' +
+          '<button type="button" id="' + id + '-prox" class="evs-btn" aria-label="Próxima sessão" style="' + btn + '">\u25B6</button>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:' + tinta2 + ';margin:4px 54px 0;"><span>' + esc(rotulos[0]) + '</span><span>' + esc(rotulos[rotulos.length - 1]) + '</span></div>' +
+      '</div>';
+    }
+    return html + '</div>';
+  }
+
+  // ── desenho e interação (ligados por ativar) ──────────────────────────
+  function _selX(m, i) {
+    return m.n > 1 ? m.padL + i * (m.W - m.padL - m.padR) / (m.n - 1) : m.padL + (m.W - m.padL - m.padR) / 2;
+  }
+  function _selDesenhar(id) {
+    var r = _regs[id]; if (!r) return;
+    var n = r.cfg.rotulos.length;
+    r.graficos.forEach(function (g, k) {
+      var host = document.getElementById(id + '-g' + k);
+      if (!host) return;
+      var W = host.clientWidth;
+      if (W < 120) return;   // escondido (details fechado): o ResizeObserver chama de novo quando abrir
+      var alt = g.altura || 180, padL = 38, padR = 28, padT = 12, padB = 28, plotH = alt - padT - padB;
+      var todos = [];
+      g.series.forEach(function (s) { (s.valores || []).forEach(function (v) { if (v != null && isFinite(v) && v > 0) todos.push(v); }); });
+      var vMax = Math.max.apply(null, todos), vMin = Math.min.apply(null, todos);
+      if (vMax === vMin) { vMax = vMax + Math.max(1, vMax * 0.1); vMin = Math.max(0, vMin - Math.max(1, vMin * 0.1)); }
+      var folga = (vMax - vMin) * 0.12, yMax = vMax + folga, yMin = Math.max(0, vMin - folga);
+      var m = { W: W, padL: padL, padR: padR, padT: padT, padB: padB, alt: alt, plotH: plotH, n: n, yMin: yMin, yMax: yMax };
+      m.y = function (v) { return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; };
+      host._m = m;
+      var ticks = [yMin, yMin + (yMax - yMin) / 2, yMax];
+      var casas = g.casas == null ? 1 : g.casas;
+      var svg = '<svg width="' + W + '" height="' + alt + '" style="display:block;" role="img" aria-label="' + esc(g.titulo || 'Evolução') + '">';
+      ticks.forEach(function (t) {
+        svg += '<line x1="' + padL + '" y1="' + m.y(t) + '" x2="' + (W - 4) + '" y2="' + m.y(t) + '" stroke="' + r.grade + '"/>' +
+          '<text x="' + (padL - 6) + '" y="' + (m.y(t) + 3.5) + '" text-anchor="end" font-size="9.5" fill="' + r.tinta2 + '" font-variant-numeric="tabular-nums">' + fmt(t, 0) + '</text>';
+      });
+      var vao = n > 1 ? (W - padL - padR) / (n - 1) : 60, salto = Math.max(1, Math.ceil(46 / vao));
+      r.cfg.rotulos.forEach(function (rot, i) {
+        if (i % salto === 0) svg += '<text x="' + _selX(m, i) + '" y="' + (alt - 8) + '" text-anchor="middle" font-size="9.5" fill="' + r.tinta2 + '">' + esc(rot) + '</text>';
+      });
+      g.series.forEach(function (s, si) {
+        var cor = r.cores[si % r.cores.length], seg = [], atual = [];
+        (s.valores || []).forEach(function (v, i) {
+          if (v != null && isFinite(v) && v > 0) atual.push(_selX(m, i) + ',' + m.y(v));
+          else if (atual.length) { seg.push(atual); atual = []; }
+        });
+        if (atual.length) seg.push(atual);
+        seg.forEach(function (pts) { if (pts.length > 1) svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + cor + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'; });
+        if (n <= 40) (s.valores || []).forEach(function (v, i) {
+          if (v == null || !isFinite(v) || v <= 0) return;
+          svg += '<circle cx="' + _selX(m, i) + '" cy="' + m.y(v) + '" r="' + (n > 24 ? 2.5 : 3.5) + '" fill="' + cor + '" stroke="' + r.fundo + '" stroke-width="2"/>';
+        });
+      });
+      svg += '<g id="' + id + '-s' + k + '"></g></svg>';
+      host.innerHTML = svg;
+      host.style.minHeight = '';
+    });
+    _selPintar(id);
+  }
+  // Só a camada da sessão escolhida é refeita ao arrastar a régua: barato mesmo com centenas de sessões.
+  function _selPintar(id) {
+    var r = _regs[id]; if (!r) return;
+    var i = r.i;
+    r.graficos.forEach(function (g, k) {
+      var host = document.getElementById(id + '-g' + k), gs = document.getElementById(id + '-s' + k);
+      if (!host || !host._m || !gs) return;
+      var m = host._m, cx = _selX(m, i), vao = m.n > 1 ? (m.W - m.padL - m.padR) / (m.n - 1) : 60, meia = Math.max(10, vao / 2);
+      var s = '<rect x="' + (cx - meia) + '" y="' + m.padT + '" width="' + (2 * meia) + '" height="' + m.plotH + '" rx="6" fill="' + r.acento + '" opacity=".09"/>' +
+        '<line x1="' + cx + '" y1="' + m.padT + '" x2="' + cx + '" y2="' + (m.padT + m.plotH) + '" stroke="' + r.acento + '" stroke-width="1.5"/>';
+      g.series.forEach(function (sr, si) {
+        var v = (sr.valores || [])[i];
+        if (v != null && isFinite(v) && v > 0) s += '<circle cx="' + cx + '" cy="' + m.y(v) + '" r="6" fill="' + r.cores[si % r.cores.length] + '" stroke="' + r.fundo + '" stroke-width="2.5"/>';
+      });
+      var rot = String(r.cfg.rotulos[i]), w = Math.max(44, rot.length * 6.4 + 16), px = Math.max(w / 2, Math.min(m.W - w / 2, cx));
+      s += '<rect x="' + (px - w / 2) + '" y="' + (m.alt - 25) + '" width="' + w + '" height="19" rx="9.5" fill="' + r.acento + '"/>' +
+        '<text x="' + px + '" y="' + (m.alt - 11.5) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="' + r.sobre + '">' + esc(rot) + '</text>';
+      gs.innerHTML = s;
+    });
+  }
+  function _selPilulas(r, l, cols) {
+    return '<div style="display:grid;grid-template-columns:repeat(' + (cols || 2) + ',minmax(0,1fr));gap:6px;">' + (l.pilulas || []).map(function (p) {
+      var cor = (p.ci != null) ? r.cores[p.ci % r.cores.length] : r.tinta2;
+      return '<div style="display:flex;align-items:center;gap:7px;background:' + r.fundo + ';border:1px solid ' + r.borda + ';border-radius:9px;padding:7px 9px;font-variant-numeric:tabular-nums;' + (p.tec ? 'color:' + (r.isLight ? '#8a5a00' : '#ffcf4d') + ';' : '') + '">' +
+        '<span style="width:10px;height:10px;border-radius:3px;flex:0 0 10px;background:' + cor + ';"></span>' +
+        '<div style="min-width:0;font-size:12px;white-space:nowrap;"><b style="font-size:13.5px;color:' + (p.tec ? 'inherit' : r.tinta) + ';">' + esc(p.valor) + '</b>' +
+        (p.extra ? ' <span style="color:' + r.tinta2 + ';font-size:11.5px;">' + esc(p.extra) + '</span>' : '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  function _selLeitura(id) {
+    var r = _regs[id]; if (!r) return;
+    var i = r.i, el = document.getElementById(id + '-leit');
+    if (r.modo === 'regua' && el && r.cfg.leitura) {
+      var l = r.cfg.leitura(i) || {};
+      el.innerHTML = '<div style="font-size:15px;font-weight:800;color:' + r.tinta + ';overflow-wrap:anywhere;">' + esc(l.titulo || r.cfg.rotulos[i]) + '</div>' +
+        (l.sub ? '<div style="font-size:11.5px;color:' + r.tinta2 + ';margin-top:1px;">' + esc(l.sub) + '</div>' : '') +
+        (l.delta ? '<div style="font-size:11.5px;font-weight:700;color:' + r.acento + ';margin-top:2px;">' + esc(l.delta) + '</div>' : '') +
+        '<div style="margin-top:8px;">' + _selPilulas(r, l) + '</div>' +
+        (l.resumo ? '<div style="font-size:11.5px;color:' + r.tinta2 + ';margin-top:7px;">' + esc(l.resumo) + '</div>' : '');
+    }
+    var ant = document.getElementById(id + '-ant'), prox = document.getElementById(id + '-prox'), n = r.cfg.rotulos.length;
+    if (ant) ant.disabled = (i === 0), ant.style.opacity = i === 0 ? '.35' : '1';
+    if (prox) prox.disabled = (i === n - 1), prox.style.opacity = i === n - 1 ? '.35' : '1';
+    var tri = document.getElementById(id + '-tri');
+    if (tri) {
+      var alca = tri.querySelector('[data-alca]');
+      if (alca) alca.style.left = _selPosTri(tri, r, i) + 'px';
+      tri.setAttribute('aria-valuenow', i + 1);
+    }
+    var car = document.getElementById(id + '-car');
+    if (car) Array.prototype.forEach.call(car.children, function (c, k) {
+      var on = (k === i);
+      c.style.borderColor = on ? r.acento : r.borda;
+      c.style.background = on ? (r.isLight ? 'rgba(61,122,0,.08)' : 'rgba(127,255,0,.08)') : r.superf;
+    });
+  }
+  function _selPosTri(tri, r, i) {
+    var w = tri.clientWidth, m = 22, n = r.cfg.rotulos.length;
+    return n > 1 ? m + i * (w - 2 * m) / (n - 1) : w / 2;
+  }
+  function _selTiques(id) {
+    var r = _regs[id], tri = document.getElementById(id + '-tri'); if (!r || !tri || tri.clientWidth < 60) return;
+    var n = r.cfg.rotulos.length, w = tri.clientWidth, salto = Math.max(1, Math.ceil(5 / Math.max(0.1, (w - 44) / Math.max(1, n - 1))));
+    var s = '';
+    for (var i = 0; i < n; i += salto) s += '<span style="position:absolute;bottom:10px;width:2px;height:16px;margin-left:-1px;border-radius:1px;background:' + r.borda + ';left:' + _selPosTri(tri, r, i) + 'px;"></span>';
+    s += '<span data-alca="1" style="position:absolute;top:5px;bottom:5px;width:32px;margin-left:-16px;border-radius:10px;background:' + r.acento + ';color:' + r.sobre + ';display:grid;place-items:center;font-size:11px;font-weight:800;letter-spacing:-1px;box-shadow:0 2px 8px rgba(0,0,0,.35);pointer-events:none;left:' + _selPosTri(tri, r, r.i) + 'px;">||</span>';
+    tri.innerHTML = s;
+  }
+  function _selCartoes(id) {
+    var r = _regs[id], car = document.getElementById(id + '-car'); if (!r || !car) return;
+    var wrap = car.parentNode, W = wrap.clientWidth; if (W < 120) return;
+    var cw = Math.min(270, Math.round(W * 0.78));
+    r.cw = cw;
+    var colunas = cw >= 236 ? 2 : 1;
+    if (car._cols !== colunas) { car._cols = colunas; car._feito = false; }
+    if (!car._feito) {
+      car._feito = true;
+      var n = r.cfg.rotulos.length, h = '';
+      for (var i = 0; i < n; i++) {
+        var l = (r.cfg.leitura && r.cfg.leitura(i)) || {};
+        h += '<article class="evs-card" data-i="' + i + '" style="border:1px solid ' + r.borda + ';background:' + r.superf + ';border-radius:12px;padding:10px 12px;">' +
+          '<div style="font-size:14px;font-weight:800;color:' + r.tinta + ';overflow-wrap:anywhere;">' + esc(l.titulo || r.cfg.rotulos[i]) + '</div>' +
+          (l.sub ? '<div style="font-size:11px;color:' + r.tinta2 + ';margin-top:1px;">' + esc(l.sub) + '</div>' : '') +
+          '<div style="margin-top:8px;">' + _selPilulas(r, l, colunas) + '</div>' +
+          (l.delta ? '<div style="font-size:11.5px;font-weight:700;color:' + r.acento + ';margin-top:7px;">' + esc(l.delta) + '</div>' : '') +
+          (l.resumo ? '<div style="font-size:11px;color:' + r.tinta2 + ';margin-top:5px;">' + esc(l.resumo) + '</div>' : '') +
+          '</article>';
+      }
+      car.innerHTML = h;
+    }
+    var pad = Math.max(0, (car.clientWidth - cw) / 2);
+    car.style.paddingLeft = car.style.paddingRight = pad + 'px';
+    Array.prototype.forEach.call(car.children, function (c) { c.style.width = cw + 'px'; });
+  }
+  function _selIr(id, i, de) {
+    var r = _regs[id]; if (!r) return;
+    var n = r.cfg.rotulos.length;
+    i = Math.max(0, Math.min(n - 1, i));
+    if (i === r.i && de !== 'forcar') return;
+    r.i = i;
+    _selPintar(id); _selLeitura(id);
+    var car = document.getElementById(id + '-car');
+    if (car && de !== 'carrossel' && r.cw) {
+      r.prog = true; clearTimeout(r.tProg); r.tProg = setTimeout(function () { r.prog = false; }, 600);
+      car.scrollTo ? car.scrollTo({ left: i * (r.cw + 8), behavior: 'smooth' }) : (car.scrollLeft = i * (r.cw + 8));
+    }
+  }
+
+  function _ativarSel(raiz) {
+    var id = raiz.getAttribute('data-evo-sel'), r = _regs[id];
+    if (!r || raiz._evoLigado) return;
+    raiz._evoLigado = true;
+    var n = r.cfg.rotulos.length;
+
+    function tudo() { _selDesenhar(id); _selTiques(id); _selCartoes(id); _selLeitura(id); }
+
+    // Toque curto e parado no gráfico escolhe a sessão mais próxima. Arrastar (rolar a página) nunca escolhe.
+    var ini = null;
+    raiz.addEventListener('pointerdown', function (e) {
+      var host = e.target.closest ? e.target.closest('.evs-plot') : null;
+      ini = host ? { host: host, x: e.clientX, y: e.clientY, t: Date.now() } : null;
+    });
+    raiz.addEventListener('pointerup', function (e) {
+      if (!ini) return;
+      var a = ini; ini = null;
+      if (Math.abs(e.clientX - a.x) > 8 || Math.abs(e.clientY - a.y) > 8 || Date.now() - a.t > 600) return;
+      var m = a.host._m; if (!m) return;
+      var b = a.host.getBoundingClientRect(), vao = m.n > 1 ? (m.W - m.padL - m.padR) / (m.n - 1) : 1;
+      _selIr(id, m.n > 1 ? Math.round((e.clientX - b.left - m.padL) / vao) : 0);
+    });
+    raiz.addEventListener('pointercancel', function () { ini = null; });
+
+    // régua
+    var tri = document.getElementById(id + '-tri');
+    if (tri) {
+      var arr = false;
+      var idx = function (cx) {
+        var b = tri.getBoundingClientRect(), mg = 22, f = (cx - b.left - mg) / Math.max(1, b.width - 2 * mg);
+        return Math.round(f * (n - 1));
+      };
+      tri.addEventListener('pointerdown', function (e) { arr = true; try { tri.setPointerCapture(e.pointerId); } catch (_) {} _selIr(id, idx(e.clientX)); });
+      tri.addEventListener('pointermove', function (e) { if (arr) _selIr(id, idx(e.clientX)); });
+      tri.addEventListener('pointerup', function () { arr = false; });
+      tri.addEventListener('pointercancel', function () { arr = false; });
+      tri.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft') { _selIr(id, r.i - 1); e.preventDefault(); }
+        else if (e.key === 'ArrowRight') { _selIr(id, r.i + 1); e.preventDefault(); }
+      });
+      var a1 = document.getElementById(id + '-ant'), a2 = document.getElementById(id + '-prox');
+      if (a1) a1.onclick = function () { _selIr(id, r.i - 1); };
+      if (a2) a2.onclick = function () { _selIr(id, r.i + 1); };
+    }
+
+    // cartões: deslizar escolhe a sessão do cartão central; tocar num cartão o leva ao centro
+    var car = document.getElementById(id + '-car');
+    if (car) {
+      var raf = null;
+      car.addEventListener('scroll', function () {
+        if (r.prog) { clearTimeout(r.tProg); r.tProg = setTimeout(function () { r.prog = false; }, 140); return; }
+        if (raf || !r.cw) return;
+        raf = requestAnimationFrame(function () { raf = null; _selIr(id, Math.round(car.scrollLeft / (r.cw + 8)), 'carrossel'); });
+      });
+      car.addEventListener('click', function (e) {
+        var c = e.target.closest ? e.target.closest('.evs-card') : null;
+        if (c) _selIr(id, +c.getAttribute('data-i'));
+      });
+    }
+
+    var vez = 0;
+    function reajustar() {
+      tudo();
+      if (car && r.cw) { r.prog = true; clearTimeout(r.tProg); r.tProg = setTimeout(function () { r.prog = false; }, 120); car.scrollLeft = r.i * (r.cw + 8); }
+      vez++;
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      var ro = new ResizeObserver(function () { reajustar(); });
+      ro.observe(raiz);
+      raiz._evoRO = ro;
+    } else { reajustar(); window.addEventListener('resize', reajustar); }
+    reajustar();
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -869,6 +1212,7 @@ window.IntusEvolucao = (function () {
     porDivisao: porDivisao,
     agrupar: agrupar,
     grafico: grafico,
+    selecionavel: selecionavel,
     ativar: ativar,
     barraEscala: barraEscala,
     fmt: fmt,
