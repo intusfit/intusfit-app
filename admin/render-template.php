@@ -458,12 +458,12 @@ foreach (array_values($proofVisiveis) as $i => $pb):
     </div>
     <p class="plans-note">Todos os planos parcelados em <strong>até 12x</strong> no cartão de crédito.</p>
 <?php
-  // Código da Definição (CDD): link do Asaas como principal e o do Eduzz como secundário, por periodicidade
+  // Código da Definição (CDD): só o link do Asaas, por periodicidade
   $cdd = is_array($c['planos']['cdd'] ?? null) ? $c['planos']['cdd'] : [];
   $cddPer = ['mensal' => 'Mensal', 'semestral' => 'Semestral', 'anual' => 'Anual'];
   $cddUrl = function ($u) { $u = trim((string)$u); return preg_match('#^https://#i', $u) ? htmlspecialchars($u, ENT_QUOTES, 'UTF-8') : ''; };
   $cddTem = false;
-  foreach ($cddPer as $k => $_) { if ($cddUrl($cdd[$k]['asaas'] ?? '') !== '' || $cddUrl($cdd[$k]['eduzz'] ?? '') !== '') $cddTem = true; }
+  foreach ($cddPer as $k => $_) { if ($cddUrl($cdd[$k]['asaas'] ?? '') !== '') $cddTem = true; }
   if ($cddTem):
 ?>
     <div class="cdd-planos">
@@ -472,19 +472,14 @@ foreach (array_values($proofVisiveis) as $i => $pb):
       <p class="cdd-sub"><?= htmlspecialchars((string)$cdd['subtitulo'], ENT_QUOTES, 'UTF-8') ?></p>
 <?php endif; ?>
 <?php foreach ($cddPer as $k => $rotulo):
-  $la = $cddUrl($cdd[$k]['asaas'] ?? ''); $le = $cddUrl($cdd[$k]['eduzz'] ?? '');
-  if ($la === '' && $le === '') continue;
+  $la = $cddUrl($cdd[$k]['asaas'] ?? '');
+  if ($la === '') continue;
   $pr = htmlspecialchars((string)($cdd[$k]['preco'] ?? ''), ENT_QUOTES, 'UTF-8');
 ?>
       <div class="cdd-linha">
         <div class="cdd-per"><?= $rotulo ?><?php if ($pr !== ''): ?><small><?= $pr ?></small><?php endif; ?></div>
         <div class="cdd-btns">
-<?php if ($la !== ''): ?>
           <a href="<?= $la ?>" class="plan-btn plan-btn-link" target="_blank" rel="noopener">Assinar agora</a>
-<?php endif; ?>
-<?php if ($le !== ''): ?>
-          <a href="<?= $le ?>" class="plan-btn plan-btn-link-outline" target="_blank" rel="noopener">Pagar pelo Eduzz</a>
-<?php endif; ?>
         </div>
       </div>
 <?php endforeach; ?>

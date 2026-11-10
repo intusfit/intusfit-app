@@ -22,14 +22,14 @@ $saved = isset($_GET['saved']);
 $imgList = array_filter(scandir(IMG_DIR), fn($f) => preg_match('/\.(jpg|jpeg|png|webp|gif)$/i', $f));
 sort($imgList);
 
-// Código da Definição (CDD): links de compra por periodicidade, Asaas como principal e Eduzz como secundário.
+// Código da Definição (CDD): links de compra por periodicidade, só do Asaas.
 // Enquanto o CDD não foi salvo no conteúdo, o editor mostra estes valores (só viram públicos ao clicar em Salvar).
 $cddPadrao = [
   'titulo'    => 'Código da Definição',
   'subtitulo' => 'Acesso liberado assim que o pagamento é confirmado.',
-  'mensal'    => ['preco' => 'R$119 por mês',  'asaas' => 'https://www.asaas.com/c/gblzqkgx3ruv4mhe', 'eduzz' => 'https://chk.eduzz.com/2411829'],
-  'semestral' => ['preco' => 'R$447 por semestre', 'asaas' => 'https://www.asaas.com/c/qtvk2ixljil0qqp8', 'eduzz' => ''],
-  'anual'     => ['preco' => 'R$698 por ano',  'asaas' => 'https://www.asaas.com/c/r8eb58ytv6woigu2', 'eduzz' => 'https://chk.eduzz.com/1344531'],
+  'mensal'    => ['preco' => 'R$119 por mês',  'asaas' => 'https://www.asaas.com/c/gblzqkgx3ruv4mhe'],
+  'semestral' => ['preco' => 'R$447 por semestre', 'asaas' => 'https://www.asaas.com/c/qtvk2ixljil0qqp8'],
+  'anual'     => ['preco' => 'R$698 por ano',  'asaas' => 'https://www.asaas.com/c/r8eb58ytv6woigu2'],
 ];
 $cdd = array_replace_recursive($cddPadrao, is_array($c['planos']['cdd'] ?? null) ? $c['planos']['cdd'] : []);
 
@@ -396,7 +396,7 @@ a{color:inherit;text-decoration:none}
   <div id="planos-panels"></div>
   <hr class="sep">
   <div class="block-title" style="font-size:16px">Código da Definição (CDD)</div>
-  <div class="block-desc">Links de compra do CDD. O link do Asaas é o botão principal e o do Eduzz fica como opção secundária. O bloco só aparece no site quando há pelo menos um link preenchido; periodicidade sem link não aparece.</div>
+  <div class="block-desc">Links de compra do CDD, todos do Asaas. O bloco só aparece no site quando há pelo menos um link preenchido; periodicidade sem link não aparece.</div>
   <div class="field-row">
     <div class="field"><label>Título</label>
       <input type="text" id="cdd_titulo" value="<?= he($cdd['titulo']) ?>"></div>
@@ -408,10 +408,8 @@ a{color:inherit;text-decoration:none}
     <div class="link-fields-title"><?= $rot ?></div>
     <div class="field"><label>Preço exibido</label>
       <input type="text" id="cdd_<?= $k ?>_preco" value="<?= he($cdd[$k]['preco']) ?>"></div>
-    <div class="field"><label>Link do Asaas (principal)</label>
+    <div class="field"><label>Link do Asaas</label>
       <input type="url" id="cdd_<?= $k ?>_asaas" value="<?= he($cdd[$k]['asaas']) ?>" placeholder="https://www.asaas.com/c/..."></div>
-    <div class="field"><label>Link do Eduzz (secundário)</label>
-      <input type="url" id="cdd_<?= $k ?>_eduzz" value="<?= he($cdd[$k]['eduzz']) ?>" placeholder="https://chk.eduzz.com/..."></div>
   </div>
   <?php endforeach; ?>
 </div>
@@ -601,6 +599,21 @@ let pilaresArr  = INIT.pilares.map(x => ({...x}));
 let equipeArr   = INIT.equipe.map(x => ({...x}));
 let depArr      = INIT.depoimentos.map(x => ({...x}));
 let planosArr   = INIT.planos_items.map(x => ({...x}));
+// Links do Asaas dos planos da Intus (criados em 10/11/2026), por nome do plano. Só preenchem campo vazio no editor; ficam públicos ao Salvar,
+// e só aparecem no site quando o tipo de botão do plano for Link ou WhatsApp + Link.
+const LINKS_ASAAS_PADRAO = {
+  'Treino':         { link_trimestral: 'https://www.asaas.com/c/72pt4yjyfpmyb2ar', link_semestral: 'https://www.asaas.com/c/girxl9yytjd2oirm', link_anual: 'https://www.asaas.com/c/hugv0f4pc8g0iepu' },
+  'Treino e Dieta': { link_trimestral: 'https://www.asaas.com/c/i94gg7w5wsgbwr6f', link_semestral: 'https://www.asaas.com/c/la5pjjvdbo78qj5r', link_anual: 'https://www.asaas.com/c/c9kerc7hl5qa7m7u' },
+  'Dieta':          { link_trimestral: 'https://www.asaas.com/c/kr98zxh3v4gkhtuj', link_semestral: 'https://www.asaas.com/c/ro2g9sdvfmezi7zs', link_anual: 'https://www.asaas.com/c/0niltbfrsszq017q' }
+};
+function preencherLinksAsaas(arr) {
+  arr.forEach(pl => {
+    const d = LINKS_ASAAS_PADRAO[(pl.nome || '').trim()];
+    if (d) Object.keys(d).forEach(k => { if (!pl[k]) pl[k] = d[k]; });
+  });
+  return arr;
+}
+planosArr = preencherLinksAsaas(planosArr);
 let blocosArr   = [...INIT.blocos_ocultos];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1156,7 +1169,7 @@ function collectData() {
       subtitulo: v('planos_sub'),
       garantia: v('planos_garantia'),
       cdd: ['mensal', 'semestral', 'anual'].reduce((o, k) => {
-        o[k] = { preco: v('cdd_' + k + '_preco'), asaas: v('cdd_' + k + '_asaas'), eduzz: v('cdd_' + k + '_eduzz') };
+        o[k] = { preco: v('cdd_' + k + '_preco'), asaas: v('cdd_' + k + '_asaas') };
         return o;
       }, { titulo: v('cdd_titulo'), subtitulo: v('cdd_subtitulo') }),
       items: planosArr.map((pl, i) => ({
@@ -1527,7 +1540,7 @@ function loadContentIntoEditor(c) {
     setV('plan_titulo', c.planos.titulo);
     setV('plan_subtitulo', c.planos.subtitulo);
     setV('plan_garantia', c.planos.garantia);
-    if (c.planos.items) { planosArr = c.planos.items; renderPlanos(); }
+    if (c.planos.items) { planosArr = preencherLinksAsaas(c.planos.items); renderPlanos(); }
     if (c.planos.cdd) {
       setV('cdd_titulo', c.planos.cdd.titulo);
       setV('cdd_subtitulo', c.planos.cdd.subtitulo);
@@ -1535,7 +1548,6 @@ function loadContentIntoEditor(c) {
         const x = c.planos.cdd[k] || {};
         setV('cdd_' + k + '_preco', x.preco);
         setV('cdd_' + k + '_asaas', x.asaas);
-        setV('cdd_' + k + '_eduzz', x.eduzz);
       });
     }
   }

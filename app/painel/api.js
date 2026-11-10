@@ -3609,6 +3609,94 @@ const API = {
   salvarLancamentoCaixa: (item) => apiFetch('/catalogo.php?action=caixa', { method: 'POST', body: JSON.stringify(item) }),
   excluirLancamentoCaixa: (id) => apiFetch('/catalogo.php?action=caixa&id=' + encodeURIComponent(id), { method: 'DELETE' }),
 
+  // Pagamentos da equipe (Gestão > Pagamentos): o que a Intus paga a quem atende alunos por fora da folha (ex.: R$ 80 por consultoria de treino,
+  // R$ 100 por mentoria de nutrição, mais infoprodutos e outros). Cada mês vira UMA saída no caixa (intus_caixa, sem tabela nova), com id fixo
+  // pgto-<pessoa>-<AAAA-MM>: lançar de novo o mesmo mês atualiza em vez de duplicar. A data do lançamento é a do pagamento, e o mês de referência
+  // (o que foi atendido) vai na descrição. A tela só pergunta; a conta mora aqui.
+  pagamentosEquipe: (function () {
+    var CATEGORIA = 'Pagamentos da equipe';
+    var MARCA = 'pgto-equipe';
+    var MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    function centavos(v) { var n = parseFloat(v); return isNaN(n) ? 0 : Math.round(n * 100); }
+    function reais(c) { return c / 100; }
+    function brl(c) { return 'R$ ' + (c / 100).toFixed(2).replace('.', ','); }
+    function slug(p) { return String(p || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
+    function id(pessoa, ref) { return 'pgto-' + slug(pessoa) + '-' + ref; }
+    function rotuloMes(ref) { var m = /^(\d{4})-(\d{2})$/.exec(String(ref || '')); return m ? MESES[+m[2] - 1] + '/' + m[1] : String(ref || ''); }
+    function ehPagamento(c) { return !!c && String(c.origemVenda || '') === MARCA; }
+    // o = { pessoa, ref:'AAAA-MM', mentorias:{qtd, unit}, infoprodutos, outros, data:'AAAA-MM-DD', dataEstimada, obs }
+    function montar(o) {
+      o = o || {};
+      var pessoa = String(o.pessoa || '').trim();
+      if (!pessoa || !slug(pessoa)) return { ok: false, erro: 'Informe quem recebeu.' };
+      var m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(o.ref || ''));
+      if (!m) return { ok: false, erro: 'Mês de referência inválido (use AAAA-MM).' };
+      var d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(o.data || ''));
+      if (!d || isNaN(new Date(o.data + 'T12:00:00').getTime())) return { ok: false, erro: 'Data do pagamento inválida.' };
+      var ment = o.mentorias || {};
+      var qtd = parseInt(ment.qtd, 10) || 0, unit = centavos(ment.unit);
+      if (qtd < 0 || unit < 0 || centavos(o.infoprodutos) < 0 || centavos(o.outros) < 0) return { ok: false, erro: 'Valores não podem ser negativos.' };
+      var cMent = qtd * unit, cInfo = centavos(o.infoprodutos), cOut = centavos(o.outros);
+      var total = cMent + cInfo + cOut;
+      if (total <= 0) return { ok: false, erro: 'O total do pagamento está zerado.' };
+      var partes = [];
+      if (qtd > 0) partes.push('Atendimentos: ' + qtd + ' x ' + brl(unit) + ' = ' + brl(cMent));
+      if (cInfo > 0) partes.push('Infoprodutos: ' + brl(cInfo));
+      if (cOut > 0) partes.push('Outros: ' + brl(cOut));
+      var obs = partes.join('. ') + '.';
+      if (o.dataEstimada) obs += ' Data do pagamento estimada (a planilha de origem não trazia a data certa).';
+      if (o.obs) obs += ' ' + String(o.obs).trim();
+      return { ok: true, lancamento: {
+        id: id(pessoa, o.ref), tipo: 'saida', data: o.data,
+        descricao: 'Pagamento ' + pessoa + ', ref. ' + rotuloMes(o.ref),
+        categoria: CATEGORIA, valor: reais(total), obs: obs, idusuario: null, origemVenda: MARCA, recorrenteId: null,
+      } };
+    }
+    // Do caixa inteiro, só os pagamentos da equipe, com pessoa e mês de referência lidos de volta do lançamento.
+    function listar(caixa) {
+      return (caixa || []).filter(ehPagamento).map(function (c) {
+        var mp = /^Pagamento (.+), ref\. /.exec(String(c.descricao || ''));
+        var mr = /-(\d{4}-\d{2})$/.exec(String(c.id || ''));
+        return { id: c.id, pessoa: mp ? mp[1] : '—', ref: mr ? mr[1] : String(c.data || '').slice(0, 7), data: String(c.data || '').slice(0, 10),
+          valor: parseFloat(c.valor) || 0, obs: c.obs || '' };
+      }).sort(function (a, b) { return a.ref < b.ref ? 1 : a.ref > b.ref ? -1 : a.pessoa.localeCompare(b.pessoa); });
+    }
+    // Totais por pessoa e geral, em centavos para não acumular erro de ponto flutuante.
+    function resumo(lista, de, ate) {
+      var por = {}, geral = 0;
+      (lista || []).forEach(function (p) {
+        if ((de && p.ref < de) || (ate && p.ref > ate)) return;
+        var c = centavos(p.valor);
+        var x = por[p.pessoa] || (por[p.pessoa] = { pessoa: p.pessoa, total: 0, meses: 0 });
+        x.total += c; x.meses++; geral += c;
+      });
+      return { pessoas: Object.keys(por).map(function (k) { return { pessoa: k, total: reais(por[k].total), meses: por[k].meses }; })
+        .sort(function (a, b) { return b.total - a.total; }), total: reais(geral) };
+    }
+    // Arquivo escolhido no computador: { pagamentos:[ {pessoa, ref, mentorias, infoprodutos, outros, data, dataEstimada, obs} ] }.
+    // Devolve o que dá para lançar, o que já está no caixa (mesmo id e mesmo valor) e os erros por item.
+    function preparar(arq, caixa) {
+      var itens = arq && Array.isArray(arq.pagamentos) ? arq.pagamentos : null;
+      if (!itens) return { ok: false, erro: 'Arquivo não reconhecido: faltou a lista "pagamentos".' };
+      var jaTem = {};
+      (caixa || []).forEach(function (c) { if (ehPagamento(c)) jaTem[c.id] = c; });
+      var novos = [], iguais = [], mudam = [], erros = [], vistos = {};
+      itens.forEach(function (it, i) {
+        var m = montar(it);
+        if (!m.ok) { erros.push('Item ' + (i + 1) + ': ' + m.erro); return; }
+        var l = m.lancamento;
+        if (vistos[l.id]) { erros.push('Item ' + (i + 1) + ': ' + l.descricao + ' aparece duas vezes no arquivo.'); return; }
+        vistos[l.id] = 1;
+        var ex = jaTem[l.id];
+        if (!ex) novos.push(l);
+        else if (centavos(ex.valor) === centavos(l.valor) && String(ex.data).slice(0, 10) === l.data) iguais.push(l);
+        else mudam.push(l);
+      });
+      return { ok: true, novos: novos, iguais: iguais, mudam: mudam, erros: erros };
+    }
+    return { CATEGORIA: CATEGORIA, MARCA: MARCA, id: id, rotuloMes: rotuloMes, montar: montar, ehPagamento: ehPagamento, listar: listar, resumo: resumo, preparar: preparar };
+  })(),
+
   // Planos Config (backend-synced via catalogo.php) ───────────────────
   getPlanosConfig: () => tryRemoteOrLocal(
     async () => {

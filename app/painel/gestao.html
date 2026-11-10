@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Gestão — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261110b"></script>
+  <script src="api.js?v=20261110c"></script>
 </head>
 <body>
 <script>
@@ -315,6 +315,168 @@ function grafico(dados) {
         <tbody>${tabela}</tbody></table>`)}`;
 }
 
+// ── PAGAMENTOS DA EQUIPE ────────────────────────────────────────────────────
+// O que a Intus paga a quem atende alunos (Ricardo, Rosangela...). Cada mês vira uma saída no caixa;
+// as regras (id fixo, conta, importação sem duplicar) moram em API.pagamentosEquipe.
+const PE = API.pagamentosEquipe;
+const pagamentosLista = () => PE.listar(caixaManual());
+function caixaGuardarLocal(l) { const c = caixaManual().filter(x => x.id !== l.id); c.push(l); localStorage.setItem('intus-caixa', JSON.stringify(c)); }
+function caixaTirarLocal(id) { localStorage.setItem('intus-caixa', JSON.stringify(caixaManual().filter(x => x.id !== id))); }
+
+// O Caixa mora no servidor; a Gestão lia só a cópia do aparelho (preenchida pelo Financeiro). Agora atualiza ao abrir.
+async function carregarCaixaRemoto() {
+  try {
+    const remoto = await API.listarCaixa();
+    if (!Array.isArray(remoto)) return;
+    const ids = new Set(remoto.map(c => c.id));
+    const soLocal = caixaManual().filter(c => !ids.has(c.id));
+    localStorage.setItem('intus-caixa', JSON.stringify([...remoto, ...soLocal]));
+    render();
+  } catch (e) { console.warn('[gestao] não consegui ler o caixa do servidor:', e); }
+}
+
+const rotuloPeriodoAtual = () => limitesPeriodo().rotulo;
+
+function pagamentosHtml(de, ate) {
+  const lista = pagamentosLista();
+  const rP = PE.resumo(lista.filter(p => p.data >= de && p.data <= ate));
+  const rT = PE.resumo(lista);
+  const linhas = lista.map(p => `
+    <tr>
+      <td style="white-space:nowrap;">${esc(PE.rotuloMes(p.ref))}</td>
+      <td style="font-weight:700;">${esc(p.pessoa)}</td>
+      <td style="white-space:nowrap;">${fmtDate(p.data)}</td>
+      <td style="text-align:right;font-weight:700;white-space:nowrap;">${brlV(p.valor)}</td>
+      <td style="font-size:11.5px;color:var(--text-muted);min-width:220px;">${esc(p.obs)}</td>
+      <td style="text-align:right;"><button class="btn btn-secondary btn-sm" onclick="excluirPagamento('${esc(p.id)}')" title="Excluir este lançamento do caixa">✕</button></td>
+    </tr>`).join('');
+  return `
+    <div class="card" style="margin-bottom:18px;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
+        <span class="card-title">💸 Pagamentos da equipe</span>
+        <span style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="abrirImportarPagamentos()">⬆ Importar de arquivo</button>
+          <button class="btn btn-primary btn-sm" onclick="abrirPagamento()">+ Registrar pagamento</button>
+        </span>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">Cada pagamento vira uma saída no Caixa (categoria "Pagamentos da equipe"), na data em que foi pago, e já sai do saldo de "Na conta".</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
+        ${tile('Pago no período', brlV(rP.total), 'var(--text)', esc(rotuloPeriodoAtual()))}
+        ${rT.pessoas.map(x => tile(esc(x.pessoa), brlV(x.total), 'var(--text)', x.meses + ' pagamento(s) registrados')).join('')}
+        ${tile('Total registrado', brlV(rT.total), 'var(--text)', lista.length + ' lançamento(s) no caixa')}
+      </div>
+      ${lista.length ? `
+      <div style="overflow-x:auto;margin-top:14px;">
+        <table class="data-table" style="width:100%;">
+          <thead><tr><th>Referência</th><th>Quem</th><th>Pago em</th><th style="text-align:right;">Valor</th><th>Como foi calculado</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>` : `<div style="margin-top:14px;font-size:13px;color:var(--text-muted);">Nenhum pagamento registrado ainda. Use "Registrar pagamento" ou "Importar de arquivo".</div>`}
+    </div>`;
+}
+
+// Formulário de um mês. Quem já foi lançado antes (mesmo nome e mês) é atualizado, não duplicado.
+function abrirPagamento() {
+  const hoje = hojeISO();
+  const nomes = [...new Set(pagamentosLista().map(p => p.pessoa))];
+  openModal(`
+    <div class="modal-header"><div class="modal-title">Registrar pagamento da equipe</div><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group"><label class="label">Quem recebeu</label>
+          <input id="pg-pessoa" class="input" list="pg-nomes" placeholder="Ex.: Ricardo"/><datalist id="pg-nomes">${nomes.map(n => `<option value="${esc(n)}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="label">Mês de referência</label>
+          <input id="pg-ref" class="input" type="month" value="${hoje.slice(0,7)}"/></div>
+        <div class="form-group"><label class="label">Atendimentos (quantidade)</label>
+          <input id="pg-qtd" class="input" type="number" min="0" step="1" value="0" oninput="pagamentoPrevia()"/></div>
+        <div class="form-group"><label class="label">Valor de cada atendimento (R$)</label>
+          <input id="pg-unit" class="input" type="number" min="0" step="0.01" value="0" oninput="pagamentoPrevia()"/></div>
+        <div class="form-group"><label class="label">Infoprodutos (R$)</label>
+          <input id="pg-info" class="input" type="number" min="0" step="0.01" value="0" oninput="pagamentoPrevia()"/></div>
+        <div class="form-group"><label class="label">Outros (R$)</label>
+          <input id="pg-out" class="input" type="number" min="0" step="0.01" value="0" oninput="pagamentoPrevia()"/></div>
+        <div class="form-group"><label class="label">Data do pagamento</label>
+          <input id="pg-data" class="input" type="date" value="${hoje}"/></div>
+        <div class="form-group"><label class="label">Total</label>
+          <div id="pg-total" style="font-size:20px;font-weight:900;padding-top:6px;">R$ 0,00</div></div>
+      </div>
+      <div class="form-group" style="margin-top:12px;"><label class="label">Observação (opcional)</label>
+        <input id="pg-obs" class="input" placeholder="Ex.: inclui o curso X"/></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="salvarPagamento()">Lançar no caixa</button></div>`);
+}
+function pagamentoPrevia() {
+  const v = id => parseFloat(document.getElementById(id).value) || 0;
+  const t = (parseInt(document.getElementById('pg-qtd').value, 10) || 0) * v('pg-unit') + v('pg-info') + v('pg-out');
+  document.getElementById('pg-total').textContent = brl(t);
+}
+async function salvarPagamento() {
+  const v = id => document.getElementById(id).value;
+  const m = PE.montar({ pessoa: v('pg-pessoa'), ref: v('pg-ref'), mentorias: { qtd: v('pg-qtd'), unit: v('pg-unit') },
+    infoprodutos: v('pg-info'), outros: v('pg-out'), data: v('pg-data'), obs: v('pg-obs') });
+  if (!m.ok) return showToast(m.erro, 'error');
+  const ja = pagamentosLista().find(p => p.id === m.lancamento.id);
+  if (ja && !confirm('Já existe um pagamento de ' + ja.pessoa + ' para ' + PE.rotuloMes(ja.ref) + ' (' + brl(ja.valor) + '). Atualizar com os novos valores?')) return;
+  try {
+    await API.salvarLancamentoCaixa(m.lancamento);
+    caixaGuardarLocal(m.lancamento);
+    closeModal(); render(); showToast('Pagamento lançado no caixa.');
+  } catch (e) { showToast('Não consegui gravar no caixa: ' + (e.message || e), 'error'); }
+}
+async function excluirPagamento(id) {
+  const p = pagamentosLista().find(x => x.id === id);
+  if (!p || !confirm('Excluir o pagamento de ' + p.pessoa + ' (' + PE.rotuloMes(p.ref) + ', ' + brl(p.valor) + ') do caixa? A saída deixa de existir.')) return;
+  try { await API.excluirLancamentoCaixa(id); caixaTirarLocal(id); render(); showToast('Lançamento excluído.'); }
+  catch (e) { showToast('Não consegui excluir: ' + (e.message || e), 'error'); }
+}
+
+// Importação: o arquivo é escolhido no computador (não fica em pasta do site). Mostra o resumo e só grava ao confirmar.
+let _impPag = null;
+function abrirImportarPagamentos() {
+  openModal(`
+    <div class="modal-header"><div class="modal-title">Importar pagamentos da equipe</div><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px;">Escolha o arquivo <b>.json</b> de pagamentos. Nada é gravado antes de você conferir o resumo e confirmar. Quem já está no caixa não é duplicado.</div>
+      <input type="file" id="pg-arq" accept=".json,application/json" class="input" onchange="lerArquivoPagamentos(this.files[0])"/>
+      <div id="pg-resumo" style="margin-top:14px;"></div>
+    </div>`);
+}
+function lerArquivoPagamentos(f) {
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const box = document.getElementById('pg-resumo');
+    let arq; try { arq = JSON.parse(r.result); } catch (e) { box.innerHTML = '<div style="color:#f87171;">O arquivo não é um JSON válido.</div>'; return; }
+    const prep = PE.preparar(arq, caixaManual());
+    if (!prep.ok) { box.innerHTML = '<div style="color:#f87171;">' + esc(prep.erro) + '</div>'; return; }
+    _impPag = prep;
+    const soma = a => a.reduce((s, l) => s + l.valor, 0);
+    const lin = (rot, a) => a.length ? `<tr><td>${rot}</td><td style="text-align:right;">${a.length}</td><td style="text-align:right;">${brl(soma(a))}</td></tr>` : '';
+    box.innerHTML = `
+      <table class="data-table" style="width:100%;"><thead><tr><th></th><th style="text-align:right;">Meses</th><th style="text-align:right;">Total</th></tr></thead><tbody>
+        ${lin('Novos, serão lançados', prep.novos)}${lin('Já no caixa com os mesmos valores', prep.iguais)}${lin('Já no caixa com valor ou data diferente (serão atualizados)', prep.mudam)}
+      </tbody></table>
+      ${prep.erros.length ? '<div style="margin-top:10px;font-size:12.5px;color:#f87171;line-height:1.6;">' + prep.erros.map(esc).join('<br>') + '</div>' : ''}
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" ${prep.novos.length + prep.mudam.length ? '' : 'disabled'} onclick="confirmarImportacaoPagamentos()">Lançar ${prep.novos.length + prep.mudam.length} no caixa</button>
+      </div>`;
+  };
+  r.readAsText(f, 'utf-8');
+}
+async function confirmarImportacaoPagamentos() {
+  if (!_impPag) return;
+  const lote = [..._impPag.novos, ..._impPag.mudam];
+  let feitos = 0; const falhas = [];
+  for (const l of lote) {
+    try { await API.salvarLancamentoCaixa(l); caixaGuardarLocal(l); feitos++; }
+    catch (e) { falhas.push(l.descricao); }
+  }
+  _impPag = null; closeModal(); render();
+  if (falhas.length) showToast(feitos + ' lançados. Falharam: ' + falhas.join('; '), 'error');
+  else showToast(feitos + ' pagamento(s) lançados no caixa.');
+}
+
 function setPeriodo(p) { periodo = p; render(); }
 function setCustom(qual, valor) { if (qual === 'de') customDe = valor; else customAte = valor; periodo = 'custom'; render(); }
 
@@ -405,6 +567,8 @@ function render() {
         ainda está retido — a ponte entre esta seção e o caixa lá em cima.`)}
     </div>
 
+    ${pagamentosHtml(de, ate)}
+
     <div class="card" style="margin-bottom:18px;">
       <span class="card-title">Vendas dos últimos 12 meses</span>
       <div style="font-size:12px;color:var(--text-muted);margin:4px 0 12px;">A altura da barra é o que foi vendido no mês. A divisão mostra quanto disso você já pode usar.</div>
@@ -465,6 +629,7 @@ if (!document.getElementById('hide-val-style')) {
 }
 
 render();
+carregarCaixaRemoto();
 window.addEventListener('storage', (ev) => {
   if (['intus-mensalidades','intus-caixa','intus-eduzz-liquidacao','intus-vendas-gateway'].includes(ev.key)) render();
 });
