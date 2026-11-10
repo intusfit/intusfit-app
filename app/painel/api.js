@@ -2168,6 +2168,30 @@ const API = {
     return alvos.length;
   },
 
+  // Edicao de UMA parcela (modal Editar matricula): o dia em que ela e cobrada (dtinicio) tem de ficar depois da cobranca da
+  // parcela anterior e antes do fim da propria cobertura (dtvencimento). Devolve o texto do erro, ou '' se estiver tudo certo.
+  validarCobrancaParcela: (m, lista, novaCobISO, novoFimISO) => {
+    const cob = String(novaCobISO || '').slice(0, 10), fim = String(novoFimISO || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cob)) return 'Informe a data de vencimento da parcela.';
+    if (fim && cob >= fim) return 'O vencimento da parcela tem de ser antes do fim da cobertura (' + fim.split('-').reverse().join('/') + ').';
+    const n = Number(m.parcela_num);
+    const antes = API.serieParcelas(m, lista).filter(x => Number(x.parcela_num) < n && x.stmatricula !== 'cancelada');
+    const cobAnt = antes.map(x => String(x.dtinicio || '').slice(0, 10)).filter(Boolean).sort().pop();
+    if (cobAnt && cob <= cobAnt) return 'O vencimento tem de ser depois da cobranca da parcela anterior (' + cobAnt.split('-').reverse().join('/') + ').';
+    return '';
+  },
+
+  // Depois de mudar a cobranca de uma parcela, a janela da anterior (que ia ate a cobranca antiga) passa a ir ate a nova,
+  // senao sobra um buraco (ou uma sobreposicao) entre as duas. So mexe quando as janelas estavam coladas.
+  alinharParcelaAnterior: async (m, lista, cobAntigaISO, novaCobISO) => {
+    const velha = String(cobAntigaISO || '').slice(0, 10), nova = String(novaCobISO || '').slice(0, 10);
+    if (!velha || !nova || velha === nova) return 0;
+    const n = Number(m.parcela_num);
+    const ant = API.serieParcelas(m, lista).filter(x => Number(x.parcela_num) === n - 1 && x.stmatricula !== 'cancelada' && String(x.dtvencimento || '').slice(0, 10) === velha);
+    for (const x of ant) await API.editarMensalidade(x.idmensalidade, { dtvencimento: nova });
+    return ant.length;
+  },
+
   // Contas modelo do sistema (usadas no teste gratis) nunca sao bloqueadas.
   _ehModelo: (a) => !!a && (a.email === 'modelo.masculino@intusfit.local' || a.email === 'modelo.feminino@intusfit.local'),
 

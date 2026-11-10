@@ -223,5 +223,26 @@ console.log('\n── Não muda o que já funcionava ──');
   eq('plano sem parcela no nome agrupa como antes', API.chaveMatricula({ idmensalidade: 1, idatleta: 7, dshistorico: 'Mensal Treino' }, null), '7|mensal treino');
 }
 
-console.log('\n' + ok + ' ok, ' + ruim + ' com falha');
-process.exit(ruim ? 1 : 0);
+console.log('\n── Editar o vencimento de UMA parcela ──');
+{
+  const API = carregar({ hoje: '2026-10-05' });
+  const L = linhas(API, base, [1]);
+  const chamadas = [];
+  API.editarMensalidade = async (id, corpo) => { chamadas.push([id, corpo]); return {}; };
+  const p2 = L[1];
+  eq('nova cobrança entre a anterior e o fim da parcela é aceita', API.validarCobrancaParcela(p2, L, '2026-11-10', p2.dtvencimento), '');
+  eq('cobrança antes da parcela anterior é recusada', !!API.validarCobrancaParcela(p2, L, '2026-10-01', p2.dtvencimento), true);
+  eq('cobrança depois do fim da própria parcela é recusada', !!API.validarCobrancaParcela(p2, L, '2026-12-05', p2.dtvencimento), true);
+  eq('data vazia é recusada', !!API.validarCobrancaParcela(p2, L, '', p2.dtvencimento), true);
+  eq('a 1ª parcela só precisa ficar antes do fim', API.validarCobrancaParcela(L[0], L, '2026-09-20', L[0].dtvencimento), '');
+  (async () => {
+    const n = await API.alinharParcelaAnterior(p2, L, p2.dtinicio, '2026-11-10');
+    eq('o fim da parcela anterior acompanha a nova cobrança', [n, chamadas], [1, [[100, { dtvencimento: '2026-11-10' }]]]);
+    chamadas.length = 0;
+    const L2 = L.map(x => Object.assign({}, x)); L2[0].dtvencimento = '2026-10-25';   // janela já descolada: não mexe
+    eq('janela que não estava colada fica como está', [await API.alinharParcelaAnterior(p2, L2, p2.dtinicio, '2026-11-10'), chamadas.length], [0, 0]);
+    eq('sem mudança de data não faz nada', await API.alinharParcelaAnterior(p2, L, p2.dtinicio, p2.dtinicio), 0);
+    console.log('\n' + ok + ' ok, ' + ruim + ' com falha');
+    process.exit(ruim ? 1 : 0);
+  })();
+}

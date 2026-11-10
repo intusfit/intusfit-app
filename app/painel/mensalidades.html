@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Matrículas — Intus</title>
   <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261109b"></script>
+  <script src="api.js?v=20261110a"></script>
   <script src="kanban.js?v=20261023b"></script>
   <style>
     /* ── MODAL EXTRA WIDTH ── */
@@ -2189,16 +2189,26 @@ function abrirModalMatricula(editId) {
       </div>
 
       <!-- Datas e valores -->
-      <div class="form-2col">
+      ${(() => {
+        // Parcela: o dia que aparece como vencimento na lista é o da COBRANÇA (dtinicio); a outra data é até quando a parcela cobre (na última, o fim do plano).
+        const parcEd = isEdit && _ehParc(dados);
+        const ultima = parcEd && Number(dados.parcela_num) === Number(dados.parcela_total);
+        const rotIni = parcEd ? 'Vencimento da parcela (cobrança)' : 'Data Início';
+        const rotFim = parcEd ? (ultima ? 'Fim do plano' : 'Cobertura até') : 'Data Vencimento';
+        const dicaIni = parcEd ? '<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Dia em que esta parcela é cobrada. Mudar aqui acerta também o fim da parcela anterior.</div>' : '';
+        const dicaFim = parcEd ? '<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">' + (ultima ? 'Último dia coberto pelo plano.' : 'Dia em que começa a próxima parcela.') + '</div>' : '';
+        return `<div class="form-2col">
         <div class="form-group">
-          <label class="label">Data Início</label>
+          <label class="label">${rotIni}</label>
           <input class="input" type="date" id="mat-dtinicio" onchange="matParcMudou(false, false, true)" value="${isEdit ? (dados?.dtinicio || hoje).slice(0,10) : hoje}">
+          ${dicaIni}
         </div>
         <div class="form-group">
-          <label class="label">Data Vencimento</label>
+          <label class="label">${rotFim}</label>
           <input class="input" type="date" id="mat-dtvenc" value="${isEdit ? (dados?.dtvencimento || venc30).slice(0,10) : venc30}">
+          ${dicaFim}
         </div>
-      </div>
+      </div>`; })()}
       <div class="form-2col">
         <div class="form-group">
           <label class="label">Valor (R$)</label>
@@ -2452,8 +2462,15 @@ async function salvarEdicao(id) {
   // Para editar, o backend aceita: dshistorico, dtvencimento, vlpagar, stpgto, vldesconto, vljuro
   // (+ dtpagamento/vlpagamento/dspagamento se stpgto='S')
   const anterior = mensalidades.find(m => Number(m.idmensalidade) === Number(id));
+  const cobAntiga = anterior ? String(anterior.dtinicio || '').slice(0, 10) : '';
+  const mudouCob = _ehParc(anterior) && payload.dtinicio && String(payload.dtinicio).slice(0, 10) !== cobAntiga;
+  if (mudouCob) {
+    const erro = API.validarCobrancaParcela(anterior, mensalidades, payload.dtinicio, payload.dtvencimento);
+    if (erro) return showToast(erro, 'error');
+  }
   try {
     await API.editarMensalidade(id, payload);
+    if (mudouCob) { try { await API.alinharParcelaAnterior(anterior, mensalidades, cobAntiga, payload.dtinicio); } catch (e) { showToast('Parcela salva, mas não consegui acertar o fim da anterior: ' + (e.message || e), 'error'); } }
     let proximo = null;
     let erroProximo = null;
     const virouPago = payload.stpgto === 'S' && String(anterior?.stpgto || '').toUpperCase() !== 'S';
