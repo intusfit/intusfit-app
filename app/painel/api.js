@@ -3609,6 +3609,59 @@ const API = {
   salvarLancamentoCaixa: (item) => apiFetch('/catalogo.php?action=caixa', { method: 'POST', body: JSON.stringify(item) }),
   excluirLancamentoCaixa: (id) => apiFetch('/catalogo.php?action=caixa&id=' + encodeURIComponent(id), { method: 'DELETE' }),
 
+  // Fluxo de caixa por mês (Gestão e Financeiro): entradas, saídas e resultado, com as saídas por categoria. As saídas vêm SEMPRE do que foi
+  // lançado no Caixa (intus_caixa). As entradas vêm de duas partes: o que a tela calcula das matrículas (callback `entradasExtra`, que decide o
+  // regime: Gestão usa o vendido do mês, Financeiro usa o recebido) e as entradas lançadas à mão no Caixa. Com `semSaqueGateway`, entrada do
+  // Caixa que nasceu de um saque da Eduzz (tem origemVenda) fica de fora: aquela venda já está contada no vendido do mês, e contar o saque seria
+  // contar o mesmo dinheiro duas vezes. Lançamento com data futura não entra (ainda não aconteceu).
+  fluxoCaixa: (function () {
+    var MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    var MESES_LONGOS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function centavos(v) { var n = parseFloat(v); return isNaN(n) ? 0 : Math.round(n * 100); }
+    function dia(c) { return String((c && c.data) || '').slice(0, 10); }
+    // Entradas e saídas lançadas no Caixa entre duas datas (AAAA-MM-DD, inclusive), em reais.
+    function movimento(caixa, de, ate, opc) {
+      opc = opc || {};
+      var ent = 0, sai = 0, porCat = {};
+      (caixa || []).forEach(function (c) {
+        var d = dia(c);
+        if (!d || d < de || d > ate) return;
+        var v = centavos(c.valor);
+        if (c.tipo === 'saida') {
+          sai += v;
+          var k = String(c.categoria || 'Outro');
+          porCat[k] = (porCat[k] || 0) + v;
+        } else if (!(opc.semSaqueGateway && c.origemVenda)) ent += v;
+      });
+      return { entradas: ent / 100, saidas: sai / 100,
+        categorias: Object.keys(porCat).map(function (k) { return { categoria: k, valor: porCat[k] / 100 }; }).sort(function (a, b) { return b.valor - a.valor; }) };
+    }
+    // o = { caixa, hoje:'AAAA-MM-DD', meses:12, entradasExtra:(de, ate) => reais, semSaqueGateway }
+    function serie(o) {
+      var hoje = String(o.hoje || '');
+      var ano = +hoje.slice(0, 4), mes = +hoje.slice(5, 7) - 1, n = o.meses || 12, out = [];
+      for (var i = n - 1; i >= 0; i--) {
+        var d = new Date(ano, mes - i, 1), y = d.getFullYear(), m = d.getMonth();
+        var de = y + '-' + pad(m + 1) + '-01';
+        var fim = y + '-' + pad(m + 1) + '-' + pad(new Date(y, m + 1, 0).getDate());
+        var ate = fim > hoje ? hoje : fim;
+        var mv = movimento(o.caixa, de, ate, { semSaqueGateway: o.semSaqueGateway });
+        var extra = o.entradasExtra ? (parseFloat(o.entradasExtra(de, ate)) || 0) : 0;
+        var ent = Math.round((mv.entradas + extra) * 100) / 100;
+        out.push({ ref: y + '-' + pad(m + 1), rotulo: MESES[m], mesAno: MESES_LONGOS[m] + ' de ' + y, entradas: ent, saidas: mv.saidas,
+          resultado: Math.round((ent - mv.saidas) * 100) / 100, categorias: mv.categorias });
+      }
+      return out;
+    }
+    function totais(s) {
+      var e = 0, a = 0;
+      (s || []).forEach(function (x) { e += centavos(x.entradas); a += centavos(x.saidas); });
+      return { entradas: e / 100, saidas: a / 100, resultado: (e - a) / 100 };
+    }
+    return { movimento: movimento, serie: serie, totais: totais };
+  })(),
+
   // Pagamentos da equipe (Gestão > Pagamentos): o que a Intus paga a quem atende alunos por fora da folha (ex.: R$ 80 por consultoria de treino,
   // R$ 100 por mentoria de nutrição, mais infoprodutos e outros). Cada mês vira UMA saída no caixa (intus_caixa, sem tabela nova), com id fixo
   // pgto-<pessoa>-<AAAA-MM>: lançar de novo o mesmo mês atualiza em vez de duplicar. A data do lançamento é a do pagamento, e o mês de referência

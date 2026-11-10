@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Financeiro — Intus</title>
-  <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261110c"></script>
+  <script src="_mock.js?v=20261110a"></script>
+  <script src="api.js?v=20261110d"></script>
 </head>
 <body>
 <script>
@@ -645,6 +645,15 @@ function renderResumo(box, d) {
     </div>`;
 }
 
+// Fluxo dos ultimos 12 meses do Caixa, no mesmo regime da tabela abaixo: entrada = matricula paga fora da Eduzz (pela data do pagamento) + entrada
+// lancada no Caixa (o saque da Eduzz entra aqui, pelo liquido); saida = o que esta lancado como saida. A regra mora em API.fluxoCaixa.
+function fluxoCaixa12(d) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const pagas = d.categorizadas.filter(m => m._status === 'pago' && m.dtpagamento && String(m.forma_pgto || '').toLowerCase() !== 'eduzz');
+  return API.fluxoCaixa.serie({ caixa: getCaixa(), hoje, meses: 12, semSaqueGateway: false,
+    entradasExtra: (de, ate) => pagas.filter(m => m.dtpagamento >= de && m.dtpagamento <= ate).reduce((s, m) => s + (parseFloat(m.valor) || 0), 0) });
+}
+
 function renderCaixa(box, d) {
   const hoje = new Date().toISOString().slice(0,10);
   // O caixa tambem abre no mes corrente: era ele que mostrava "saldo" somando
@@ -772,6 +781,13 @@ function renderCaixa(box, d) {
         <button class="btn btn-secondary btn-sm" onclick="abrirRecorrentes()">🔄 Recorrentes</button>
         <button class="btn btn-secondary btn-sm" onclick="gerenciarCategorias()">⚙ Categorias</button>
       </div>` : ''}
+
+      <!-- Fluxo dos últimos 12 meses -->
+      <div class="card" style="padding:16px;">
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Entradas e saídas (últimos 12 meses)</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Não muda com o período nem com o filtro de usuários acima. Passe o mouse (ou o dedo) sobre um mês para ver o resultado e as saídas por categoria.</div>
+        ${FluxoGrafico.html(fluxoCaixa12(d), { brl: brl, oculto: _hideValues })}
+      </div>
 
       <!-- Tabela -->
       <div class="card">

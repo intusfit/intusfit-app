@@ -25,7 +25,7 @@ passo "Finalizar treino: voltar com a foto aberta e o limite de 5 min sobre o to
 passo "comunidade: turmas e desafios"      node comunidade.js
 passo "corte de vídeo: pontas e trecho"    node trecho.js
 passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
-passo "plano parcelado: parcelas e cobrança" node parcelas.js; passo "pagamentos da equipe no caixa (api.js)" node pagamentos_equipe.js
+passo "plano parcelado: parcelas e cobrança" node parcelas.js; passo "pagamentos da equipe no caixa (api.js)" node pagamentos_equipe.js; passo "fluxo de caixa: entradas, saídas e resultado (api.js)" node fluxo_caixa.js
 passo "alimentos: ids, medidas caseiras e plano antigo" node alimentos.js
 passo "dashboard: dica dos graficos e curva de crescimento" node dashboard.js
 passo "fotos de avaliação: posição das 18 poses e recorte automático" node foto_pose.js

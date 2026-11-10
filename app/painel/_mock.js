@@ -1449,6 +1449,83 @@ window.Tip = (function () {
   return { attr: html => ' data-tip="' + esc(html) + '"', historico, esconder };
 })();
 
+// ── FluxoGrafico: entradas x saídas por mês, com o resultado ─────────────────────────────────────────────────────────
+// Usado pela Gestão e pelo Financeiro. Os dados vêm de API.fluxoCaixa.serie ([{rotulo, mesAno, entradas, saidas, resultado, categorias}]).
+// Uma escala só (R$): barras de entradas e de saídas lado a lado, saindo da linha do zero, e um losango no resultado do mês (entradas menos
+// saídas), que pode ficar abaixo do zero. Cores medidas no validador do dataviz contra o fundo de cada tema (verde x rosa: separação para
+// daltonismo 10,7 e visão normal 32, nos dois temas); a posição lado a lado, a legenda, a dica e a tabela são a codificação secundária.
+//   FluxoGrafico.html(dados, { brl: v => 'R$ ...', oculto: false, tiles: true, id: 'fluxo' })
+window.FluxoGrafico = (function () {
+  const COR_ENT = { escuro: '#4faa00', claro: '#3a8f00' };
+  const COR_SAI = '#d55181';
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const claro = () => document.body.classList.contains('theme-light');
+  const curto = v => { const a = Math.abs(v); const t = a >= 1000 ? (a / 1000).toFixed(1).replace('.', ',') + 'k' : String(Math.round(a)); return (v < 0 && a >= 0.5 ? '−' : '') + t; };
+  const brlPadrao = v => 'R$ ' + (Math.abs(v)).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d)(?=,))/g, '.');
+  function html(dados, o) {
+    o = o || {}; dados = dados || [];
+    const oculto = !!o.oculto;
+    const brl0 = o.brl || brlPadrao;
+    const brl = v => oculto ? 'R$ •••' : (v < 0 ? '−' : '') + brl0(Math.abs(v));
+    const cEnt = claro() ? COR_ENT.claro : COR_ENT.escuro, cSai = COR_SAI;
+    const n = dados.length;
+    if (!n) return '<div style="font-size:13px;color:var(--text-muted);">Sem movimento para mostrar.</div>';
+    const hi = Math.max(1, ...dados.map(d => Math.max(d.entradas, d.saidas)));
+    const lo = Math.min(0, ...dados.map(d => d.resultado));
+    const L = 62, R = 12, T = 14, B = 26, H = 220;
+    const larg = Math.max(340, n * 62), passo = (larg - L - R) / n, bw = Math.min(18, passo * 0.3);
+    const y = v => T + (H - T - B) * ((hi - v) / (hi - lo));
+    const y0 = y(0);
+    const tot = dados.reduce((a, d) => ({ e: a.e + d.entradas, s: a.s + d.saidas }), { e: 0, s: 0 });
+    const res = tot.e - tot.s;
+    const marcas = [hi, hi / 2, 0].concat(lo < 0 ? [lo] : []);
+    const grade = marcas.map(v => `<line x1="${L}" y1="${y(v)}" x2="${larg - R}" y2="${y(v)}" stroke="var(--border)" stroke-width="${v === 0 ? 1.5 : 1}"/>` +
+      (oculto ? '' : `<text x="${L - 8}" y="${y(v) + 3}" text-anchor="end" font-size="9.5" fill="var(--text-muted)">${curto(v)}</text>`)).join('');
+    const pontos = [];
+    const grupos = dados.map((d, i) => {
+      const cx = L + passo * i + passo / 2;
+      const xe = cx - bw - 1, xs = cx + 1;
+      const he = Math.max(0, y0 - y(d.entradas)), hs = Math.max(0, y0 - y(d.saidas));
+      const yr = y(d.resultado);
+      pontos.push(cx.toFixed(1) + ',' + yr.toFixed(1));
+      const cats = (d.categorias || []).slice(0, 4).map(c => '<div class="tip-r"><span>' + esc(c.categoria) + '</span><b>' + esc(brl(c.valor)) + '</b></div>').join('');
+      const tip = Tip.historico({ titulo: 'Resultado', rotulos: dados.map(x => x.mesAno), valores: dados.map(x => x.resultado), i: i, fmt: brl, anteriores: 3 }) +
+        '<div class="tip-h"><div class="tip-r"><span>Entradas</span><b>' + esc(brl(d.entradas)) + '</b></div><div class="tip-r"><span>Saídas</span><b>' + esc(brl(d.saidas)) + '</b></div></div>' +
+        (cats && !oculto ? '<div class="tip-n">Saídas por categoria</div><div class="tip-h" style="margin-top:2px;padding-top:2px;border-top:none;">' + cats + '</div>' : '');
+      return `<g${Tip.attr(tip)} style="cursor:default;">
+        <rect x="${cx - passo / 2}" y="${T}" width="${passo}" height="${H - T - B + 4}" fill="transparent"/>
+        ${he > 0 ? `<rect x="${xe}" y="${y(d.entradas)}" width="${bw}" height="${he}" rx="3" fill="${cEnt}"/>` : ''}
+        ${hs > 0 ? `<rect x="${xs}" y="${y(d.saidas)}" width="${bw}" height="${hs}" rx="3" fill="${cSai}"/>` : ''}
+      </g>`;
+    }).join('');
+    const marcadores = dados.map((d, i) => {
+      const cx = L + passo * i + passo / 2, cy = y(d.resultado);
+      return `<rect x="${cx - 4.5}" y="${cy - 4.5}" width="9" height="9" transform="rotate(45 ${cx} ${cy})" fill="var(--text)" stroke="var(--bg2)" stroke-width="2" pointer-events="none"/>`;
+    }).join('');
+    const rotulos = dados.map((d, i) => `<text x="${L + passo * i + passo / 2}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${esc(d.rotulo)}</text>`).join('');
+    const sw = c => `<span style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block;"></span>`;
+    const leg = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0 6px;font-size:11.5px;color:var(--text-muted);">
+      <span style="display:inline-flex;align-items:center;gap:6px;">${sw(cEnt)} Entradas</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;">${sw(cSai)} Saídas</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;background:var(--text);transform:rotate(45deg);display:inline-block;"></span> Resultado do mês (entradas menos saídas)</span></div>`;
+    const tile = (r, v, nota) => `<div style="background:var(--bg3,var(--bg2));border:1px solid var(--border);border-radius:12px;padding:10px 14px;">
+      <div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;">${r}</div>
+      <div style="font-size:19px;font-weight:900;color:var(--text);margin-top:4px;line-height:1.1;">${esc(v)}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${nota}</div></div>`;
+    const tiles = o.tiles === false ? '' : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:6px;">
+      ${tile('Entradas nos ' + n + ' meses', brl(tot.e), 'somando todos os meses do gráfico')}
+      ${tile('Saídas nos ' + n + ' meses', brl(tot.s), 'o que foi lançado como saída no Caixa')}
+      ${tile('Resultado', brl(res), res >= 0 ? 'sobrou no período' : 'faltou no período')}</div>`;
+    const linhas = dados.map(d => `<tr><td style="padding:3px 0;">${esc(d.mesAno)}</td><td style="text-align:right;">${esc(brl(d.entradas))}</td><td style="text-align:right;">${esc(brl(d.saidas))}</td><td style="text-align:right;font-weight:700;">${esc(brl(d.resultado))}</td></tr>`).join('');
+    return tiles + leg + `<div style="overflow-x:auto;">
+      <svg viewBox="0 0 ${larg} ${H}" width="100%" height="${H}" style="min-width:${larg}px;display:block;" role="img" aria-label="Entradas e saídas por mês, com o resultado de cada mês">
+        ${grade}${grupos}<polyline points="${pontos.join(' ')}" fill="none" stroke="var(--text)" stroke-opacity=".45" stroke-width="2" pointer-events="none"/>${marcadores}${rotulos}</svg></div>
+      <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text-muted);">Ver os números do gráfico em tabela</summary>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;color:var(--text-muted);"><thead><tr style="color:var(--text);"><th style="text-align:left;padding:4px 0;">Mês</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Saídas</th><th style="text-align:right;">Resultado</th></tr></thead><tbody>${linhas}</tbody></table></details>`;
+  }
+  return { html };
+})();
+
 // ── VerModo: escolha de visualização (cartões, compacto, miniaturas, lista) lembrada por tela ────────────────────────
 // Cada tela desenha o próprio conteúdo para cada modo; aqui ficam só o botão, a memória da escolha e a grade.
 //   VerModo.get('nutricao-planos', 'compacto')            -> modo atual (ou o padrão)

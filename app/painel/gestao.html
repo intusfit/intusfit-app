@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Gestão — Intus</title>
-  <script src="_mock.js?v=20261103a"></script>
-  <script src="api.js?v=20261110c"></script>
+  <script src="_mock.js?v=20261110a"></script>
+  <script src="api.js?v=20261110d"></script>
 </head>
 <body>
 <script>
@@ -217,6 +217,20 @@ function serieMensal(nMeses) {
       retido: vs.filter(v => v.estado === 'retido').reduce((s,v) => s + v.liquido, 0) });
   }
   return meses;
+}
+
+// ── FLUXO: ENTRADAS, SAIDAS E RESULTADO ─────────────────────────────────────
+// Entradas = o vendido do mes (liquido de taxa, pela data em que o aluno pagou, como no grafico de vendas) + entradas lancadas a mao no
+// Caixa que nao sejam saque da Eduzz (esse dinheiro ja esta no vendido). Saidas = o que foi lancado como saida no Caixa.
+// A regra mora em API.fluxoCaixa; aqui so se diz de onde vem o vendido.
+const vendidoLiquido = (de, ate) => vendasDoPeriodo(de, ate).reduce((s, v) => s + v.liquido, 0);
+function fluxoSerie(n) {
+  return API.fluxoCaixa.serie({ caixa: caixaManual(), hoje: hojeISO(), meses: n || 12, semSaqueGateway: true, entradasExtra: vendidoLiquido });
+}
+function fluxoDoPeriodo(de, ate) {
+  const mv = API.fluxoCaixa.movimento(caixaManual(), de, ate, { semSaqueGateway: true });
+  const ent = vendidoLiquido(de, ate) + mv.entradas;
+  return { entradas: ent, saidas: mv.saidas, resultado: ent - mv.saidas, categorias: mv.categorias };
 }
 
 // ── PECAS DE TELA ───────────────────────────────────────────────────────────
@@ -488,6 +502,8 @@ function render() {
   const dispP = vendas.filter(v => v.estado !== 'retido').reduce((s,v) => s + v.liquido, 0);
   const retP  = vendas.filter(v => v.estado === 'retido').reduce((s,v) => s + v.liquido, 0);
   const serie = serieMensal(12);
+  const fx = fluxoDoPeriodo(de, ate);
+  const fluxo = fluxoSerie(12);
   const btn = (p, txt) => `<button onclick="setPeriodo('${p}')" class="btn ${periodo === p ? 'btn-primary' : 'btn-secondary'} btn-sm">${txt}</button>`;
   const ticketMensal = (ind.mrr && ind.ativos) ? ind.mrr / ind.ativos : 0;
 
@@ -557,6 +573,10 @@ function render() {
         ${tile('Deste período, já disponível', brlV(dispP), _corDisp(), '')}
         ${tile('Deste período, ainda retido', brlV(retP), _corRet(), '')}
       </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:10px;">
+        ${tile('Saídas do período', brlV(fx.saidas), 'var(--text)', fx.categorias.length ? esc(fx.categorias.slice(0, 2).map(c => c.categoria).join(', ')) + (fx.categorias.length > 2 ? ' e mais' : '') : 'nada lançado como saída no Caixa')}
+        ${tile('Resultado do período', (fx.resultado < 0 ? '−' : '') + brlV(Math.abs(fx.resultado)), 'var(--text)', 'entradas (líquidas) menos saídas, pela data de cada lançamento')}
+      </div>
       ${explica('vendas', 'A diferença entre "vendido" e "disponível", e por que ela importa', `
         <b>Vendido</b> conta pela data em que o aluno pagou, não pela data em que o dinheiro caiu na
         conta. É o número que mede o que a operação vendeu naquele mês, e por isso é ele que serve
@@ -573,6 +593,19 @@ function render() {
       <span class="card-title">Vendas dos últimos 12 meses</span>
       <div style="font-size:12px;color:var(--text-muted);margin:4px 0 12px;">A altura da barra é o que foi vendido no mês. A divisão mostra quanto disso você já pode usar.</div>
       ${grafico(serie)}
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <span class="card-title">💸 Entradas e saídas dos últimos 12 meses</span>
+      <div style="font-size:12px;color:var(--text-muted);margin:4px 0 4px;">Cada mês tem uma barra de entradas e uma de saídas, e o losango mostra o que sobrou ou faltou. Passe o mouse (ou o dedo) sobre um mês para ver o resultado, as saídas por categoria e os meses anteriores.</div>
+      ${FluxoGrafico.html(fluxo, { brl: brl, oculto: _hide })}
+      ${explica('fluxo', 'De onde vêm as entradas e as saídas deste gráfico', `
+        <b>Entradas</b> são o vendido do mês (já sem as taxas da Eduzz, pela data em que o aluno pagou) mais as entradas que você lançou à mão no
+        Caixa. O saque da Eduzz lançado no Caixa não entra de novo, porque aquela venda já foi contada no mês em que o aluno pagou.<br><br>
+        <b>Saídas</b> são só o que está lançado como saída no Caixa, na data de cada lançamento (por exemplo, os pagamentos da equipe). Gasto que
+        não foi lançado não aparece aqui, e o resultado do mês fica maior do que a realidade.<br><br>
+        Por isso o resultado de um mês pode diferir da variação do saldo "Na conta": o vendido da Eduzz entra no mês da venda, e o dinheiro só
+        chega à conta quando é sacado.`)}
     </div>
 
     <div class="card">
