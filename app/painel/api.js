@@ -1881,6 +1881,303 @@ const API = {
     return lib <= hoje ? 'disponivel' : 'retido';
   },
 
+  // ══ GATEWAYS DE PAGAMENTO: EDUZZ E ASAAS ═══════════════════════════════════
+  // Uma venda de gateway tem o mesmo formato dos dois lados (valorBruto, dataVenda, taxaPct, taxaFixo, prazoDias, antecipado, sacado...), então o líquido, a data
+  // de liberação e o estado (retido, disponível, sacado) usam as MESMAS funções eduzz* acima. O que muda de um gateway para o outro é só de onde vêm taxa e prazo.
+  //   Eduzz: taxa de plataforma e 30 dias retido (presets em EDUZZ_PRESETS).
+  //   Asaas: taxa e prazo dependem de COMO o cliente pagou. Valores da conta da Intus, lidos em Taxas e prazos do Asaas em 10/11/2026
+  //   (preço promocional de Pix, boleto e cartão válido até 06/02/2027; depois disso a tabela cheia: Pix e boleto R$ 2,15, cartão à vista 2,99%):
+  //     Pix: R$ 1,08 por cobrança, cai na hora. Boleto: R$ 1,08, cai em 1 dia útil. Cartão de crédito à vista: 1,99% + R$ 0,49, cai em 32 dias.
+  //     Cartão em 2 a 6x: 2,49% + R$ 0,49; 7 a 12x: 2,99% + R$ 0,49; 13 a 21x: 3,29% + R$ 0,49 (todos em 32 dias). Débito: 1,89% + R$ 0,35 em 3 dias.
+  //     Antecipação do cartão: 1,25% ao mês (à vista), 1,7% ao mês (parcelado), recebendo em até 2 dias úteis.
+  // A forma de pagamento da matrícula diz qual gateway foi usado: 'eduzz', 'asaas_pix', 'asaas_boleto' ou 'asaas_cartao'.
+  ASAAS_PRESETS: {
+    pix:     { nome: 'Pix', pct: 0, fixo: 1.08, prazo: { n: 0, uteis: false } },
+    boleto:  { nome: 'Boleto', pct: 0, fixo: 1.08, prazo: { n: 1, uteis: true } },
+    cartao:  { nome: 'Cartão de crédito à vista', pct: 1.99, fixo: 0.49, prazo: { n: 32, uteis: false } },
+    cartao6: { nome: 'Cartão em 2 a 6x', pct: 2.49, fixo: 0.49, prazo: { n: 32, uteis: false } },
+    cartao12: { nome: 'Cartão em 7 a 12x', pct: 2.99, fixo: 0.49, prazo: { n: 32, uteis: false } },
+    debito:  { nome: 'Cartão de débito', pct: 1.89, fixo: 0.35, prazo: { n: 3, uteis: false } },
+    custom:  { nome: 'Personalizado', pct: 0, fixo: 0, prazo: { n: 0, uteis: false } },
+  },
+  ASAAS_ANTECIPACAO_PCT_MES: 1.25,
+  gateway: (function () {
+    function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    // Qual gateway recebeu: null quando a forma é Pix, dinheiro ou cartão "direto" (entra no Caixa na hora do pagamento).
+    function da(forma) {
+      var f = String(forma || '').toLowerCase();
+      if (f === 'eduzz') return 'eduzz';
+      if (f.indexOf('asaas_') === 0) return 'asaas';
+      return null;
+    }
+    // 'asaas_pix' -> 'pix'; 'asaas_cartao' -> 'cartao'
+    function tipoAsaas(forma) {
+      var t = String(forma || '').toLowerCase().replace(/^asaas_?/, '');
+      return API.ASAAS_PRESETS[t] ? t : 'pix';
+    }
+    function rotuloForma(forma) {
+      var f = String(forma || '').toLowerCase();
+      if (f === 'eduzz') return 'Eduzz';
+      if (da(f) === 'asaas') return 'Asaas ' + ({ pix: 'Pix', boleto: 'Boleto', cartao: 'Cartão', debito: 'Débito' }[tipoAsaas(f)] || '');
+      return { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', boleto: 'Boleto' }[f] || '';
+    }
+    // Dias corridos entre a data do pagamento e a liberação. Prazo em dias úteis pula sábado e domingo (feriado não é considerado).
+    function prazoDiasDe(preset, dataVenda) {
+      var p = typeof preset === 'string' ? API.ASAAS_PRESETS[preset] : preset;
+      if (!p) return 0;
+      var n = p.prazo.n;
+      if (!p.prazo.uteis) return n;
+      var d = new Date(String(dataVenda || '').slice(0, 10) + 'T12:00:00');
+      if (isNaN(d.getTime())) return n;
+      var dias = 0;
+      while (n > 0) { d.setDate(d.getDate() + 1); dias++; if (d.getDay() !== 0 && d.getDay() !== 6) n--; }
+      return dias;
+    }
+    // Venda de gateway que nasce de uma matrícula paga. `liq` é o ajuste guardado para ela (taxa e prazo editados, antecipação, saque).
+    function itemDeMatricula(m, liq) {
+      var g = da(m && m.forma_pgto);
+      if (!g) return null;
+      liq = liq || {};
+      var brutoRaw = (m.vlpagamento != null && m.vlpagamento !== '') ? m.vlpagamento : m.vlpagar;
+      var item = {
+        id: 'mn-' + m.idmensalidade, origem: 'matricula', gateway: g, forma: String(m.forma_pgto).toLowerCase(),
+        idmensalidade: m.idmensalidade, produto: m.dshistorico || 'Plano', comprador: m.nmathleta || '',
+        valorBruto: parseFloat(brutoRaw || 0), dataVenda: m.dtpagamento,
+        antecipado: !!liq.antecipado, dataAntecip: liq.dataAntecip || null, taxaAntecipValor: liq.taxaAntecipValor || 0,
+        sacado: !!liq.sacado, dataSaque: liq.dataSaque || null, caixaId: liq.caixaId || null, idusuario: null,
+      };
+      if (g === 'eduzz') {
+        item.presetTaxa = liq.presetTaxa || 'direta';
+        item.taxaPct = liq.taxaPct != null ? liq.taxaPct : API.EDUZZ_PRESETS.direta.pct;
+        item.taxaFixo = liq.taxaFixo != null ? liq.taxaFixo : API.EDUZZ_PRESETS.direta.fixo;
+        item.prazoDias = liq.prazoDias != null ? liq.prazoDias : API.EDUZZ_PRAZO_DIAS;
+      } else {
+        var t = tipoAsaas(m.forma_pgto), pr = API.ASAAS_PRESETS[t];
+        item.presetTaxa = liq.presetTaxa || t;
+        item.taxaPct = liq.taxaPct != null ? liq.taxaPct : pr.pct;
+        item.taxaFixo = liq.taxaFixo != null ? liq.taxaFixo : pr.fixo;
+        item.prazoDias = liq.prazoDias != null ? liq.prazoDias : prazoDiasDe(pr, m.dtpagamento);
+      }
+      return item;
+    }
+    // Custo de antecipar uma venda ainda retida. Eduzz: 2,99% + 0,10% ao dia sobre o líquido. Asaas: % ao mês proporcional aos dias que faltam.
+    function antecipacao(v, hojeIso) {
+      var ref = hojeIso || iso(new Date());
+      var lib = API._addDias(v.dataVenda, v.prazoDias != null ? v.prazoDias : API.EDUZZ_PRAZO_DIAS);
+      var dias = Math.max(0, Math.round((new Date(lib + 'T00:00:00') - new Date(ref + 'T00:00:00')) / 86400000));
+      var base = Math.max(0, parseFloat(v.valorBruto || 0) - API.eduzzTaxaPlataforma(v));
+      var taxa = (v.gateway === 'asaas')
+        ? base * (API.ASAAS_ANTECIPACAO_PCT_MES / 100) * (dias / 30)
+        : (base * 2.99 / 100) + (base * 0.10 / 100 * dias);
+      return { taxa: Math.round(taxa * 100) / 100, diasRestantes: dias, base: base };
+    }
+    // Toda venda de gateway (Eduzz e Asaas): matricula paga por gateway + venda avulsa lancada a mao, com liquido, data de liberacao e estado.
+    // ms = mensalidades, liqs = ajustes guardados por idmensalidade, avulsas = vendas lancadas a mao.
+    function vendas(ms, liqs, avulsas) {
+      liqs = liqs || {};
+      function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+      var daMatricula = (ms || []).filter(function (m) { return String(m.stpgto).toUpperCase() === 'S' && da(m.forma_pgto) && m.dtpagamento; })
+        .map(function (m) {
+          var it = itemDeMatricula(m, liqs[m.idmensalidade]);
+          return { id: it.id, quem: it.comprador || 'Cliente', produto: it.produto, bruto: it.valorBruto, data: String(it.dataVenda).slice(0, 10), gateway: it.gateway, liq: it };
+        });
+      var soltas = (avulsas || []).map(function (v) {
+        return { id: 'av-' + v.id, quem: v.comprador || '\u2014', produto: v.produto || 'Venda avulsa', bruto: num(v.valorBruto),
+          data: String(v.dataVenda || '').slice(0, 10), gateway: v.gateway || 'eduzz', liq: v };
+      });
+      return daMatricula.concat(soltas).filter(function (v) { return v.data; }).map(function (v) {
+        var cfg = { valorBruto: v.bruto, taxaPct: v.liq.taxaPct, taxaFixo: v.liq.taxaFixo, prazoDias: v.liq.prazoDias, antecipado: v.liq.antecipado,
+          dataAntecip: v.liq.dataAntecip, taxaAntecipValor: v.liq.taxaAntecipValor, sacado: v.liq.sacado, dataVenda: v.data };
+        return Object.assign({}, v, { liquido: API.eduzzLiquido(cfg), liberacao: API.eduzzLiberacao(cfg), estado: API.eduzzStatus(cfg) });
+      });
+    }
+    // O que foi VENDIDO entre duas datas (pela data em que o aluno pagou): matricula paga fora de gateway entra pelo valor pago; venda de gateway entra com o liquido
+    // (ja sem taxa) e o estado em que o dinheiro esta (retido, disponivel, sacado). E o numero base de meta e previsao, o mesmo da Gestao.
+    function vendidoDoPeriodo(ms, vendasGw, de, ate) {
+      function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+      var dentro = function (d) { return d && d >= de && d <= ate; };
+      var direto = (ms || []).filter(function (m) { return String(m.stpgto).toUpperCase() === 'S' && !da(m.forma_pgto) && dentro(String(m.dtpagamento || '').slice(0, 10)); })
+        .map(function (m) {
+          var v = num(m.vlpagamento != null && m.vlpagamento !== '' ? m.vlpagamento : m.vlpagar);
+          return { quem: m.nmathleta || 'Cliente', produto: m.dshistorico || 'Plano', bruto: v, liquido: v, estado: 'conta', data: String(m.dtpagamento).slice(0, 10) };
+        });
+      return direto.concat((vendasGw || []).filter(function (v) { return dentro(v.data); }));
+    }
+    return { da: da, tipoAsaas: tipoAsaas, rotuloForma: rotuloForma, prazoDiasDe: prazoDiasDe, itemDeMatricula: itemDeMatricula, antecipacao: antecipacao, vendas: vendas, vendidoDoPeriodo: vendidoDoPeriodo };
+  })(),
+
+  // ══ PREVISAO FINANCEIRA (tela Previsao e metas) ═══════════════════════════════
+  // Estima o que vai entrar nos proximos meses a partir do que o sistema ja sabe, e diz de onde vem cada parte:
+  //   cobrancas em aberto e parcelas a receber (probabilidade = quantas cobrancas parecidas foram pagas no passado),
+  //   renovacoes (matriculas que acabam: probabilidade = quantas das que acabaram nos ultimos 12 meses renovaram, por duracao do plano),
+  //   novas vendas (media de alunos novos por mes e ticket da primeira cobranca, ultimos 6 meses fechados).
+  // Com pouca historia (menos de MIN_AMOSTRA casos) usa um padrao conservador, escrito aqui e mostrado na tela. Tudo vale em reais cheios (bruto), com um
+  // fator opcional de liquido (tirando a taxa media dos gateways). Cenarios mexem so em renovacao, pagamento e novas vendas.
+  previsao: (function () {
+    var PADRAO = { renovacao: 0.65, pagamento: 0.9, inativa: 0.15 };
+    var MIN_AMOSTRA = 5;
+    var MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    var MESES_LONGOS = ['janeiro', 'fevereiro', 'mar\u00e7o', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+    var CENARIOS = {
+      conservador: { nome: 'Conservador', renov: -0.10, pag: -0.05, novas: 0.6 },
+      base:        { nome: 'Base', renov: 0, pag: 0, novas: 1 },
+      otimista:    { nome: 'Otimista', renov: 0.05, pag: 0.02, novas: 1.25 },
+    };
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function r2(v) { return Math.round(v * 100) / 100; }
+    function dia(m, c) { return String((m && m[c]) || '').slice(0, 10); }
+    function addDias(ymd, n) { var d = new Date(ymd + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+    function entre(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }   // dias de a ate b
+    function somaMesData(ymd, n) { var y = +ymd.slice(0, 4), m = +ymd.slice(5, 7) - 1 + n, d = +ymd.slice(8, 10), ult = new Date(y, m + 1, 0).getDate(); var x = new Date(y, m, Math.min(d, ult)); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); }
+    function somaMes(ref, n) { var d = new Date(+ref.slice(0, 4), +ref.slice(5, 7) - 1 + n, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
+    function clamp(v) { return Math.max(0, Math.min(0.98, v)); }
+    function valorCiclo(m) { var v = (parseFloat(m && m.vlpagar) || 0) - (parseFloat(m && m.vldesconto) || 0); return v > 0 ? r2(v) : 0; }
+    function naoCancelada(m) { return m.stmatricula !== 'cancelada'; }
+    function viva(m) { return m.stmatricula !== 'cancelada' && m.stmatricula !== 'trancada' && m.stmatricula !== 'encerrada'; }
+    function conta(m) { return !API.ehTestePlano(m) && valorCiclo(m) > 0; }
+    function pago(m) { return String(m.stpgto).toUpperCase() === 'S'; }
+    function ultimaParcela(m) { return !API.ehParcelada(m) || Number(m.parcela_num) >= Number(m.parcela_total); }
+    function bloco(n, sim) { return { n: n, sim: sim, taxa: n ? sim / n : 0 }; }
+
+    // Taxas medidas no passado (ultimos 12 meses).
+    function taxas(ms, hoje) {
+      ms = ms || [];
+      var ren = { geral: [0, 0], porMeses: {} };
+      ms.forEach(function (c) {
+        if (!naoCancelada(c) || !pago(c) || !conta(c) || !ultimaParcela(c)) return;
+        var fim = dia(c, 'dtvencimento'); if (!fim) return;
+        if (fim > addDias(hoje, -46) || fim < addDias(hoje, -365)) return;   // ja deu tempo de renovar, e ainda esta na janela
+        var renovou = ms.some(function (r) {
+          return r !== c && naoCancelada(r) && pago(r) && conta(r) && Number(r.idmensalidade) !== Number(c.idmensalidade) && API.mesmaMatricula(r, c, ms) &&
+            dia(r, 'dtinicio') >= addDias(fim, -5) && dia(r, 'dtinicio') <= addDias(fim, 45);
+        });
+        var k = String(API.mesesDoPlano(c) || 0);
+        ren.geral[0]++; if (renovou) ren.geral[1]++;
+        var b = ren.porMeses[k] || (ren.porMeses[k] = [0, 0]); b[0]++; if (renovou) b[1]++;
+      });
+      var porMeses = {}; Object.keys(ren.porMeses).forEach(function (k) { porMeses[k] = bloco(ren.porMeses[k][0], ren.porMeses[k][1]); });
+      var pg = [0, 0];
+      ms.forEach(function (m) {
+        if (!naoCancelada(m) || !conta(m)) return;
+        var cob = API.dtCobranca(m); if (!cob || cob > addDias(hoje, -31) || cob < addDias(hoje, -365)) return;
+        pg[0]++; if (pago(m) || API.cicloJaPago(m, ms)) pg[1]++;
+      });
+      return { renovacao: { geral: bloco(ren.geral[0], ren.geral[1]), porMeses: porMeses }, pagamento: bloco(pg[0], pg[1]) };
+    }
+
+    // Alunos que pagaram pela primeira vez, por mes, e o ticket dessa primeira cobranca. Usa os `n` meses fechados antes do atual.
+    function novos(ms, hoje, n) {
+      n = n || 6;
+      var primeiro = {};
+      (ms || []).filter(function (m) { return naoCancelada(m) && pago(m) && conta(m) && dia(m, 'dtpagamento'); })
+        .sort(function (a, b) { return dia(a, 'dtpagamento').localeCompare(dia(b, 'dtpagamento')) || Number(a.idmensalidade) - Number(b.idmensalidade); })
+        .forEach(function (m) { var k = Number(m.idatleta); if (!primeiro[k]) primeiro[k] = m; });
+      var atual = hoje.slice(0, 7), refs = [], por = {}, soma = 0, qtd = 0;
+      for (var i = n; i >= 1; i--) refs.push(somaMes(atual, -i));
+      Object.keys(primeiro).forEach(function (k) {
+        var m = primeiro[k], ref = dia(m, 'dtpagamento').slice(0, 7);
+        if (refs.indexOf(ref) < 0) return;
+        por[ref] = (por[ref] || 0) + 1; soma += parseFloat(m.vlpagamento != null && m.vlpagamento !== '' ? m.vlpagamento : m.vlpagar) || 0; qtd++;
+      });
+      return { meses: refs.map(function (r) { return { ref: r, n: por[r] || 0 }; }), media: qtd ? qtd / n : 0, ticket: qtd ? soma / qtd : 0, total: qtd };
+    }
+
+    // Quanto do vendido sobra depois da taxa dos gateways, nos ultimos 12 meses (1 = sem taxa). vendasGw = API.gateway.vendas(...).
+    function fatorLiquido(ms, vendasGw, hoje) {
+      var de = addDias(hoje, -365), bruto = 0, taxa = 0;
+      (ms || []).forEach(function (m) { if (pago(m) && dia(m, 'dtpagamento') >= de && dia(m, 'dtpagamento') <= hoje) bruto += parseFloat(m.vlpagamento != null && m.vlpagamento !== '' ? m.vlpagamento : m.vlpagar) || 0; });
+      (vendasGw || []).forEach(function (v) { if (v.data >= de && v.data <= hoje) { if (v.id.indexOf('av-') === 0) bruto += v.bruto; taxa += (v.bruto - v.liquido); } });
+      return bruto > 0 ? Math.max(0, Math.min(1, 1 - taxa / bruto)) : 1;
+    }
+
+    function probRen(t, m, cen) {
+      var b = t.renovacao.porMeses[String(API.mesesDoPlano(m) || 0)];
+      var base = (b && b.n >= MIN_AMOSTRA) ? b.taxa : (t.renovacao.geral.n >= MIN_AMOSTRA ? t.renovacao.geral.taxa : PADRAO.renovacao);
+      return clamp(base + cen.renov);
+    }
+    function probPag(t, cen) { return clamp((t.pagamento.n >= MIN_AMOSTRA ? t.pagamento.taxa : PADRAO.pagamento) + cen.pag); }
+
+    // o = { hoje, meses, taxas, novos, cenario:'base', fatorLiquido }
+    function projetar(ms, o) {
+      ms = ms || [];
+      var hoje = o.hoje, cen = CENARIOS[o.cenario] || CENARIOS.base, t = o.taxas, n = o.meses || 6, itens = [];
+      // 1) cobrancas em aberto e parcelas a receber
+      ms.forEach(function (m) {
+        if (!viva(m) || pago(m) || !conta(m) || API.cicloJaPago(m, ms)) return;
+        var st = API.situacaoCobranca(m, ms);
+        if (st.estado === 'cancelada' || st.estado === 'trancada' || st.estado === 'encerrada') return;
+        var data = st.cobranca || API.dtCobranca(m) || hoje; if (data < hoje) data = hoje;
+        var prob = st.estado === 'inativa' ? PADRAO.inativa : probPag(t, cen), v = valorCiclo(m);
+        itens.push({ tipo: API.ehParcelada(m) ? 'parcela' : 'aberto', idmensalidade: m.idmensalidade, idatleta: m.idatleta, nome: m.nmathleta || '', plano: API.descricaoBase(m),
+          data: data, valor: v, prob: prob, esperado: r2(v * prob), estado: st.estado });
+      });
+      // 2) renovacoes: o ultimo ciclo de cada matricula, quando ele esta pago (ou foi pago na linha anterior) e vai acabar
+      var cadeia = {};
+      ms.forEach(function (m) {
+        if (!viva(m) || !conta(m)) return;
+        var k = API.chaveMatricula(m, ms), a = cadeia[k];
+        if (!a || dia(m, 'dtvencimento') > dia(a, 'dtvencimento')) cadeia[k] = m;
+      });
+      Object.keys(cadeia).forEach(function (k) {
+        var L = cadeia[k];
+        if (!(pago(L) || API.cicloJaPago(L, ms)) || !ultimaParcela(L)) return;
+        var fim = dia(L, 'dtvencimento'); if (!fim) return;
+        var data = fim;
+        if (fim < hoje) { if (entre(fim, hoje) > 45) return; data = hoje; }   // acabou ha mais de 45 dias: considerado perdido
+        // Cada renovacao abre um ciclo novo do mesmo tamanho, que tambem acaba e pode renovar de novo: a chance vai se multiplicando
+        // (plano mensal renova todo mes, trimestral a cada 3 meses). Plano parcelado ou sem duracao conhecida so conta a primeira renovacao.
+        var p = probRen(t, L, cen), v = valorCiclo(L), dur = API.ehParcelada(L) ? 0 : (API.mesesDoPlano(L) || 0), surv = 1, d = data, k = 1;
+        var limite = somaMes(hoje.slice(0, 7), n - 1);
+        while (k <= 24) {
+          surv *= p;
+          itens.push({ tipo: 'renovacao', idmensalidade: L.idmensalidade, idatleta: L.idatleta, nome: L.nmathleta || '', plano: API.descricaoBase(L),
+            data: d, valor: v, prob: surv, esperado: r2(v * surv), ordem: k, estado: (k === 1 && fim < hoje) ? 'renovar' : 'paga' });
+          if (!dur) break;
+          d = somaMesData(d, dur); k++;
+          if (d.slice(0, 7) > limite) break;
+        }
+      });
+      itens.sort(function (a, b) { return a.data.localeCompare(b.data) || b.esperado - a.esperado; });
+      // 3) por mes
+      var atual = hoje.slice(0, 7), fator = o.fatorLiquido != null ? o.fatorLiquido : 1, meses = [];
+      var diasMes = new Date(+atual.slice(0, 4), +atual.slice(5, 7), 0).getDate(), restante = Math.max(0, diasMes - (+hoje.slice(8, 10)) + 1) / diasMes;
+      for (var i = 0; i < n; i++) {
+        var ref = somaMes(atual, i), m0 = +ref.slice(5, 7) - 1;
+        var parte = { renovacoes: 0, abertos: 0, parcelas: 0 };
+        itens.forEach(function (it) {
+          if (it.data.slice(0, 7) !== ref) return;
+          if (it.tipo === 'renovacao') parte.renovacoes += it.esperado; else if (it.tipo === 'parcela') parte.parcelas += it.esperado; else parte.abertos += it.esperado;
+        });
+        var nNovas = (o.novos ? o.novos.media : 0) * cen.novas * (i === 0 ? restante : 1);
+        var novas = nNovas * (o.novos ? o.novos.ticket : 0);
+        var bruto = parte.renovacoes + parte.abertos + parte.parcelas + novas;
+        meses.push({ ref: ref, rotulo: MESES[m0], mesAno: MESES_LONGOS[m0] + ' de ' + ref.slice(0, 4), renovacoes: r2(parte.renovacoes), abertos: r2(parte.abertos),
+          parcelas: r2(parte.parcelas), novas: r2(novas), nNovas: Math.round(nNovas * 10) / 10, bruto: r2(bruto), liquido: r2(bruto * fator) });
+      }
+      return { meses: meses, itens: itens, cenario: o.cenario || 'base' };
+    }
+
+    // Quantas renovacoes ou alunos novos faltam para cobrir um valor que ainda falta para a meta.
+    function faltaPara(valor, ticketRenovacao, ticketNovo) {
+      return { valor: valor, renovacoes: ticketRenovacao > 0 ? Math.ceil(valor / ticketRenovacao) : null, novos: ticketNovo > 0 ? Math.ceil(valor / ticketNovo) : null };
+    }
+
+    // Leads que viraram aluno. `pessoas` = lista de trafego.php?action=leads ({criado_em, etapa}). Quem entrou nos ultimos 14 dias ainda nao teve tempo de comprar: fica fora da taxa.
+    function conversaoLeads(pessoas, hoje) {
+      var corte = addDias(hoje, -14), por = {}, leads = 0, clientes = 0;
+      (pessoas || []).forEach(function (p) {
+        var d = String(p.criado_em || '').slice(0, 10); if (!d || d > corte) return;
+        var ref = d.slice(0, 7), b = por[ref] || (por[ref] = [0, 0]);
+        b[0]++; leads++;
+        if (p.etapa === 'cliente') { b[1]++; clientes++; }
+      });
+      return { leads: leads, clientes: clientes, taxa: leads ? clientes / leads : 0,
+        porMes: Object.keys(por).sort().map(function (r) { return { ref: r, leads: por[r][0], clientes: por[r][1], taxa: por[r][0] ? por[r][1] / por[r][0] : 0 }; }) };
+    }
+
+    return { PADRAO: PADRAO, MIN_AMOSTRA: MIN_AMOSTRA, CENARIOS: CENARIOS, taxas: taxas, novos: novos, fatorLiquido: fatorLiquido, projetar: projetar, faltaPara: faltaPara, conversaoLeads: conversaoLeads };
+  })(),
+
   // ══ A DATA EM QUE UMA COBRANCA VENCE ═══════════════════════════════════════
   // Esta funcao mora aqui, e nao em cada tela, porque a versao anterior dela
   // vivia copiada em seis lugares — painel de matriculas, tela inicial,
@@ -3952,6 +4249,13 @@ const API = {
   listarCaixa: () => apiFetch('/catalogo.php?action=caixa'),
   salvarLancamentoCaixa: (item) => apiFetch('/catalogo.php?action=caixa', { method: 'POST', body: JSON.stringify(item) }),
   excluirLancamentoCaixa: (id) => apiFetch('/catalogo.php?action=caixa&id=' + encodeURIComponent(id), { method: 'DELETE' }),
+
+  // Metas financeiras mensais (tela Previsao e metas). Ficam no servidor, so para quem ve o caixa da empresa; a copia local so serve de reserva sem rede.
+  getMetasFinanceiras: async () => {
+    try { const r = await apiFetch('/catalogo.php?action=metas_financeiras'); localStorage.setItem('intus-metas-fin', JSON.stringify(r || {})); return r || {}; }
+    catch (e) { try { return JSON.parse(localStorage.getItem('intus-metas-fin') || '{}'); } catch (e2) { return {}; } }
+  },
+  salvarMetasFinanceiras: (m) => apiFetch('/catalogo.php?action=metas_financeiras', { method: 'PUT', body: JSON.stringify(m) }),
 
   // Fluxo de caixa por mês (Gestão e Financeiro): entradas, saídas e resultado, com as saídas por categoria. As saídas vêm SEMPRE do que foi
   // lançado no Caixa (intus_caixa). As entradas vêm de duas partes: o que a tela calcula das matrículas (callback `entradasExtra`, que decide o

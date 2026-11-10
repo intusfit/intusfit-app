@@ -662,6 +662,7 @@ function renderLayout(activePage) {
     { href: 'desafios.html',     icon: ICONS.trophy,   label: 'Desafios',     show: !!user.admin },
     { href: 'financeiro.html',   icon: ICONS.money,    label: 'Financeiro',   show: !!user.admin },
     { href: 'gestao.html',       icon: ICONS.chart,    label: 'Gestão',       show: podeVerGestao() },
+    { href: 'previsao.html',     icon: ICONS.chart,    label: 'Previsão e metas', show: podeVerGestao() },
     { href: 'trafego.html',      icon: ICONS.frequency,label: 'Tráfego e Captação', show: !!user.admin },
     { href: 'captados.html',     icon: ICONS.users,    label: 'Pessoas Captadas', show: !!user.admin },
     { href: '../../atendimento/', icon: ICONS.chat, label: 'Atendimento', show: !!user.admin },
@@ -1470,7 +1471,7 @@ window.FluxoGrafico = (function () {
     const cEnt = claro() ? COR_ENT.claro : COR_ENT.escuro, cSai = COR_SAI;
     const n = dados.length;
     if (!n) return '<div style="font-size:13px;color:var(--text-muted);">Sem movimento para mostrar.</div>';
-    const hi = Math.max(1, ...dados.map(d => Math.max(d.entradas, d.saidas)));
+    const hi = Math.max(1, o.meta || 0, ...dados.map(d => Math.max(d.entradas, d.saidas)));
     const lo = Math.min(0, ...dados.map(d => d.resultado));
     const L = 62, R = 12, T = 14, B = 26, H = 220;
     const larg = Math.max(340, n * 62), passo = (larg - L - R) / n, bw = Math.min(18, passo * 0.3);
@@ -1489,25 +1490,27 @@ window.FluxoGrafico = (function () {
       const yr = y(d.resultado);
       pontos.push(cx.toFixed(1) + ',' + yr.toFixed(1));
       const cats = (d.categorias || []).slice(0, 4).map(c => '<div class="tip-r"><span>' + esc(c.categoria) + '</span><b>' + esc(brl(c.valor)) + '</b></div>').join('');
-      const tip = Tip.historico({ titulo: 'Resultado', rotulos: dados.map(x => x.mesAno), valores: dados.map(x => x.resultado), i: i, fmt: brl, anteriores: 3 }) +
+      const tip = Tip.historico({ titulo: d.previsto ? 'Resultado previsto' : 'Resultado', rotulos: dados.map(x => x.mesAno), valores: dados.map(x => x.resultado), i: i, fmt: brl, anteriores: 3 }) +
         '<div class="tip-h"><div class="tip-r"><span>Entradas</span><b>' + esc(brl(d.entradas)) + '</b></div><div class="tip-r"><span>Saídas</span><b>' + esc(brl(d.saidas)) + '</b></div></div>' +
         (cats && !oculto ? '<div class="tip-n">Saídas por categoria</div><div class="tip-h" style="margin-top:2px;padding-top:2px;border-top:none;">' + cats + '</div>' : '');
       return `<g${Tip.attr(tip)} style="cursor:default;">
         <rect x="${cx - passo / 2}" y="${T}" width="${passo}" height="${H - T - B + 4}" fill="transparent"/>
-        ${he > 0 ? `<rect x="${xe}" y="${y(d.entradas)}" width="${bw}" height="${he}" rx="3" fill="${cEnt}"/>` : ''}
-        ${hs > 0 ? `<rect x="${xs}" y="${y(d.saidas)}" width="${bw}" height="${hs}" rx="3" fill="${cSai}"/>` : ''}
+        ${he > 0 ? `<rect x="${xe}" y="${y(d.entradas)}" width="${bw}" height="${he}" rx="3" fill="${cEnt}"${d.previsto ? ` fill-opacity=".4" stroke="${cEnt}" stroke-width="1.5" stroke-dasharray="3 2"` : ''}/>` : ''}
+        ${hs > 0 ? `<rect x="${xs}" y="${y(d.saidas)}" width="${bw}" height="${hs}" rx="3" fill="${cSai}"${d.previsto ? ` fill-opacity=".4" stroke="${cSai}" stroke-width="1.5" stroke-dasharray="3 2"` : ''}/>` : ''}
       </g>`;
     }).join('');
     const marcadores = dados.map((d, i) => {
       const cx = L + passo * i + passo / 2, cy = y(d.resultado);
       return `<rect x="${cx - 4.5}" y="${cy - 4.5}" width="9" height="9" transform="rotate(45 ${cx} ${cy})" fill="var(--text)" stroke="var(--bg2)" stroke-width="2" pointer-events="none"/>`;
     }).join('');
-    const rotulos = dados.map((d, i) => `<text x="${L + passo * i + passo / 2}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${esc(d.rotulo)}</text>`).join('');
+    const rotulos = dados.map((d, i) => `<text x="${L + passo * i + passo / 2}" y="${H - 8}" text-anchor="middle" font-size="10"${d.previsto ? ' font-style="italic"' : ''} fill="var(--text-muted)">${esc(d.rotulo)}${d.previsto ? '*' : ''}</text>`).join('');
+    const linhaMeta = o.meta ? `<line x1="${L}" y1="${y(o.meta)}" x2="${larg - R}" y2="${y(o.meta)}" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="6 4" opacity=".7"/><text x="${larg - R}" y="${y(o.meta) - 4}" text-anchor="end" font-size="9.5" font-weight="700" fill="var(--text)">meta ${oculto ? '' : curto(o.meta)}</text>` : '';
     const sw = c => `<span style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block;"></span>`;
     const leg = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0 6px;font-size:11.5px;color:var(--text-muted);">
       <span style="display:inline-flex;align-items:center;gap:6px;">${sw(cEnt)} Entradas</span>
       <span style="display:inline-flex;align-items:center;gap:6px;">${sw(cSai)} Saídas</span>
-      <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;background:var(--text);transform:rotate(45deg);display:inline-block;"></span> Resultado do mês (entradas menos saídas)</span></div>`;
+      <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;background:var(--text);transform:rotate(45deg);display:inline-block;"></span> Resultado do mês (entradas menos saídas)</span>
+      ${dados.some(d => d.previsto) ? '<span>* barras claras e tracejadas são previsão</span>' : ''}${o.meta ? '<span>linha tracejada: meta de entradas</span>' : ''}</div>`;
     const tile = (r, v, nota) => `<div style="background:var(--bg3,var(--bg2));border:1px solid var(--border);border-radius:12px;padding:10px 14px;">
       <div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;">${r}</div>
       <div style="font-size:19px;font-weight:900;color:var(--text);margin-top:4px;line-height:1.1;">${esc(v)}</div>
@@ -1519,7 +1522,7 @@ window.FluxoGrafico = (function () {
     const linhas = dados.map(d => `<tr><td style="padding:3px 0;">${esc(d.mesAno)}</td><td style="text-align:right;">${esc(brl(d.entradas))}</td><td style="text-align:right;">${esc(brl(d.saidas))}</td><td style="text-align:right;font-weight:700;">${esc(brl(d.resultado))}</td></tr>`).join('');
     return tiles + leg + `<div style="overflow-x:auto;">
       <svg viewBox="0 0 ${larg} ${H}" width="100%" height="${H}" style="min-width:${larg}px;display:block;" role="img" aria-label="Entradas e saídas por mês, com o resultado de cada mês">
-        ${grade}${grupos}<polyline points="${pontos.join(' ')}" fill="none" stroke="var(--text)" stroke-opacity=".45" stroke-width="2" pointer-events="none"/>${marcadores}${rotulos}</svg></div>
+        ${grade}${linhaMeta}${grupos}<polyline points="${pontos.join(' ')}" fill="none" stroke="var(--text)" stroke-opacity=".45" stroke-width="2" pointer-events="none"/>${marcadores}${rotulos}</svg></div>
       <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text-muted);">Ver os números do gráfico em tabela</summary>
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;color:var(--text-muted);"><thead><tr style="color:var(--text);"><th style="text-align:left;padding:4px 0;">Mês</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Saídas</th><th style="text-align:right;">Resultado</th></tr></thead><tbody>${linhas}</tbody></table></details>`;
   }

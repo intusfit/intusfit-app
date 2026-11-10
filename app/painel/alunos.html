@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
-  <script src="_mock.js?v=20261110a"></script>
-  <script src="api.js?v=20261110e"></script>
+  <script src="_mock.js?v=20261110b"></script>
+  <script src="api.js?v=20261110f"></script>
   <script src="foto-util.js?v=20261105a"></script>
 <script src="foto-pose.js?v=20261105c"></script>
   <script src="kanban.js?v=20261023b"></script>
@@ -1907,6 +1907,9 @@ async function abrirNovaMatricula(idatleta) {
             <option value="dinheiro">Dinheiro</option>
             <option value="cartao">Cartão</option>
             <option value="eduzz">Eduzz</option>
+            <option value="asaas_pix">Asaas Pix</option>
+            <option value="asaas_boleto">Asaas Boleto</option>
+            <option value="asaas_cartao">Asaas Cartão</option>
           </select>
         </div>
       </div>
@@ -2063,7 +2066,7 @@ function marcarPagoMini(idmens, idatleta) {
       <div style="font-size:13px;font-weight:700;color:var(--text);">Registrar pagamento</div>
       <div style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || 'Mensalidade')} · <b style="color:var(--text);">R$ ${base}</b></div>
       <div class="form-group"><label class="label">Forma de pagamento</label>
-        <select id="pgm-forma" class="input" onchange="_pgmForma()">${op('pix','Pix')}${op('dinheiro','Dinheiro')}${op('cartao','Cartão (crédito/débito)')}${op('eduzz','Eduzz')}</select></div>
+        <select id="pgm-forma" class="input" onchange="_pgmForma()">${op('pix','Pix')}${op('dinheiro','Dinheiro')}${op('cartao','Cartão (crédito/débito)')}${op('eduzz','Eduzz')}${op('asaas_pix','Asaas Pix')}${op('asaas_boleto','Asaas Boleto')}${op('asaas_cartao','Asaas Cartão')}</select></div>
       <div id="pgm-eduzz" style="display:none;background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);">Via Eduzz: fica retido ~30 dias; entra no Caixa (líquido) no saque, em Financeiro › Eduzz.</div>
       ${venc ? `<div class="form-group"><label class="label">Multa/juros (R$) — vencida há ${atraso} dia(s)</label><input id="pgm-juros" class="input" type="number" min="0" step="0.01" value="0" oninput="_pgmJurosMudou()"/></div>` : ''}
       <div class="form-group"><label class="label">Valor recebido (R$)</label><input id="pgm-valor" class="input" type="number" min="0" step="0.01" value="${base}" oninput="_pgmValorMudou()"/>
@@ -2120,10 +2123,11 @@ function _pgmValorMudou(automatico) {
   nota.innerHTML = 'Combinado: <b>' + _pgmFmt(c.padrao) + '</b>. Você está registrando <b>' + _pgmFmt(c.total) + '</b> (' + (c.diferenca > 0 ? '+' : '−') + _pgmFmt(Math.abs(c.diferenca)) + '). O valor desta cobrança passa a ser ' + _pgmFmt(c.vlpagarCiclo) + '; o próximo ciclo continua com ' + _pgmFmt(m.vlpagar) + ', a menos que você marque a opção abaixo.';
   manter.style.display = 'block';
 }
+function _notaGateway(f) { const g = (typeof API !== 'undefined' && API.gateway) ? API.gateway.da(f) : null; if (g === 'eduzz') return 'Via <b>Eduzz</b>: o valor fica retido ~30 dias e entra no Caixa (líquido) só no saque. Acompanhe em <b>Financeiro › Recebimentos</b>.'; if (g === 'asaas') { const t = API.gateway.tipoAsaas(f), p = API.ASAAS_PRESETS[t]; return 'Via <b>' + API.gateway.rotuloForma(f) + '</b>: o Asaas cobra ' + (p.pct ? p.pct.toString().replace('.', ',') + '% + ' : '') + 'R$ ' + p.fixo.toFixed(2).replace('.', ',') + ' e libera ' + (p.prazo.n === 0 ? 'na hora' : (p.prazo.n + (p.prazo.uteis ? ' dia útil' : ' dias'))) + ' depois do pagamento. Só entra no Caixa quando virar saque, em <b>Financeiro › Recebimentos</b>.'; } return ''; }
 function _pgmForma() {
   const f = document.getElementById('pgm-forma')?.value;
   const n = document.getElementById('pgm-eduzz');
-  if (n) n.style.display = f === 'eduzz' ? 'block' : 'none';
+  if (n) { const t = _notaGateway(f); n.innerHTML = t; n.style.display = t ? 'block' : 'none'; }
   if (window._pgmRef) _pgmValorMudou(true);   // a oferta de manter o restante em aberto depende da forma (Pix ou dinheiro)
 }
 async function confirmarPagamentoMini(idmens, idatleta) {
@@ -2190,7 +2194,7 @@ function abrirEditarMatricula(idmens, idatleta) {
         <div class="form-group"><label class="label">Recorrência</label><select id="em-rec" class="input">${rop('','— Avulso (não renova) —')}${rop('mensal','Mensal')}${rop('trimestral','Trimestral')}${rop('semestral','Semestral')}${rop('anual','Anual')}</select></div>
         <div class="form-group"><label class="label">Status</label><select id="em-status" class="input"><option value="N" ${m.stpgto!=='S'?'selected':''}>Aberta</option><option value="S" ${m.stpgto==='S'?'selected':''}>Paga</option></select></div>
       </div>
-      <div class="form-group"><label class="label">Forma de pagamento</label><select id="em-forma" class="input">${fop('','—')}${fop('pix','Pix')}${fop('dinheiro','Dinheiro')}${fop('cartao','Cartão')}${fop('eduzz','Eduzz')}</select></div>
+      <div class="form-group"><label class="label">Forma de pagamento</label><select id="em-forma" class="input">${fop('','—')}${fop('pix','Pix')}${fop('dinheiro','Dinheiro')}${fop('cartao','Cartão')}${fop('eduzz','Eduzz')}${fop('asaas_pix','Asaas Pix')}${fop('asaas_boleto','Asaas Boleto')}${fop('asaas_cartao','Asaas Cartão')}</select></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button class="btn btn-secondary btn-sm" onclick="miniTab('matriculas',${idatleta})">Cancelar</button>
         <button class="btn btn-primary btn-sm" onclick="salvarEdicaoMatricula(${idmens},${idatleta})">Salvar</button>

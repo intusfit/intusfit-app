@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Financeiro — Intus</title>
-  <script src="_mock.js?v=20261110a"></script>
-  <script src="api.js?v=20261110e"></script>
+  <script src="_mock.js?v=20261110b"></script>
+  <script src="api.js?v=20261110f"></script>
 </head>
 <body>
 <script>
@@ -26,7 +26,7 @@ if (!isAdmin() && !hasPerm('fin_ver')) {
   throw new Error('sem permissao');
 }
 
-// O caixa da empresa (entradas e saídas gerais), o Eduzz e o Analytics são da OPERAÇÃO inteira: só administrador e quem tem "Ver o caixa da empresa".
+// O caixa da empresa (entradas e saídas gerais), os Recebimentos (Eduzz e Asaas) e o Analytics são da OPERAÇÃO inteira: só administrador e quem tem "Ver o caixa da empresa".
 // Professor com "Ver financeiro" enxerga só os pagamentos dos alunos em que é responsável (o servidor também aplica isso).
 const veEmpresa = isAdmin() || hasPerm('fin_empresa');
 const podeLancar = veEmpresa && (isAdmin() || hasPerm('fin_caixa'));
@@ -514,7 +514,7 @@ function render() {
         ${veEmpresa ? `<button class="fin-tab ${abaAtiva==='caixa'?'active':''}" onclick="setAba('caixa')">Caixa</button>` : ''}
         <button class="fin-tab ${abaAtiva==='historico'?'active':''}" onclick="setAba('historico')">Histórico</button>
         <button class="fin-tab ${abaAtiva==='planos'?'active':''}" onclick="setAba('planos')">Planos</button>
-        ${veEmpresa ? `<button class="fin-tab ${abaAtiva==='vendas'?'active':''}" onclick="setAba('vendas')">Eduzz</button>
+        ${veEmpresa ? `<button class="fin-tab ${abaAtiva==='vendas'?'active':''}" onclick="setAba('vendas')">Recebimentos</button>
         <button class="fin-tab ${abaAtiva==='analytics'?'active':''}" onclick="setAba('analytics')">Analytics</button>` : ''}
       </div>
 
@@ -645,11 +645,11 @@ function renderResumo(box, d) {
     </div>`;
 }
 
-// Fluxo dos ultimos 12 meses do Caixa, no mesmo regime da tabela abaixo: entrada = matricula paga fora da Eduzz (pela data do pagamento) + entrada
-// lancada no Caixa (o saque da Eduzz entra aqui, pelo liquido); saida = o que esta lancado como saida. A regra mora em API.fluxoCaixa.
+// Fluxo dos ultimos 12 meses do Caixa, no mesmo regime da tabela abaixo: entrada = matricula paga fora dos gateways (pela data do pagamento) + entrada
+// lancada no Caixa (o saque da Eduzz ou do Asaas entra aqui, pelo liquido); saida = o que esta lancado como saida. A regra mora em API.fluxoCaixa.
 function fluxoCaixa12(d) {
   const hoje = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  const pagas = d.categorizadas.filter(m => m._status === 'pago' && m.dtpagamento && String(m.forma_pgto || '').toLowerCase() !== 'eduzz');
+  const pagas = d.categorizadas.filter(m => m._status === 'pago' && m.dtpagamento && !API.gateway.da(m.forma_pgto));
   return API.fluxoCaixa.serie({ caixa: getCaixa(), hoje, meses: 12, semSaqueGateway: false,
     entradasExtra: (de, ate) => pagas.filter(m => m.dtpagamento >= de && m.dtpagamento <= ate).reduce((s, m) => s + (parseFloat(m.valor) || 0), 0) });
 }
@@ -662,10 +662,10 @@ function renderCaixa(box, d) {
   if (!caixaAte) caixaAte = hoje;
 
   // Todas as movimentações: matrículas pagas (como entradas automáticas) + caixa manual
-  // Eduzz é excluído aqui: entra no Caixa só quando o saque é feito (aba Eduzz), com valor líquido.
+  // Gateway (Eduzz e Asaas) é excluído aqui: entra no Caixa só quando o saque é feito (aba Recebimentos), com valor líquido.
   const matPagas = d.categorizadas
     .filter(m => m._status === 'pago' && m.dtpagamento && m.dtpagamento >= caixaDe && m.dtpagamento <= caixaAte
-                 && String(m.forma_pgto || '').toLowerCase() !== 'eduzz')
+                 && !API.gateway.da(m.forma_pgto))
     .map(m => ({ id: 'mat-' + m.idmensalidade, tipo: 'entrada', data: m.dtpagamento, descricao: (m.nmathleta || 'Cliente') + ' — ' + (m.dshistorico || 'Mensalidade'), categoria: 'Matrículas', valor: m.valor, auto: true }));
 
   let caixaManual = getCaixa().filter(c => c.data >= caixaDe && c.data <= caixaAte);
@@ -978,92 +978,158 @@ function renderHistorico(box, d) {
   });
 }
 
+// ── Aba Planos: comparativo com filtros, agrupamento, ordenação e três modos de visualização ──
+// Antes cada parcela "(2/6)" virava um plano diferente e não havia como filtrar. Agora o nome do plano é o da cobrança sem o "(n/N)" (API.descricaoBase),
+// dá para agrupar por plano, tipo, duração, forma de pagamento ou professor, filtrar, ordenar clicando no título da coluna e ver em tabela, cartões ou barras.
+let planosF = { busca: '', agrupar: 'plano', periodo: 'todo', status: 'todos', forma: 'todas', tipo: 'todos', ordem: 'receita', dir: 'desc', metrica: 'receita' };
+const PLANOS_AGRUPAR = { plano: 'Plano', tipo: 'Tipo de plano', duracao: 'Duração', forma: 'Forma de pagamento', professor: 'Professor' };
+const PLANOS_COLS = [
+  ['nome', 'Nome', 'left'], ['total', 'Cobranças', 'center'], ['clientes', 'Clientes', 'center'], ['pagos', 'Pagos', 'center'], ['pendentes', 'Pendentes', 'center'],
+  ['atrasados', 'Atrasados', 'center'], ['receita', 'Receita', 'right'], ['ticket', 'Ticket médio', 'right'], ['share', '% do faturamento', 'right'], ['taxaPgto', 'Taxa de pgto', 'right'],
+];
+const PLANOS_METRICAS = { receita: 'Receita', total: 'Cobranças', clientes: 'Clientes', ticket: 'Ticket médio', taxaPgto: 'Taxa de pagamento', atrasados: 'Atrasados' };
+function planosSet(campo, valor) { planosF[campo] = valor; render(); }
+function planosOrdenar(col) {
+  if (planosF.ordem === col) planosF.dir = planosF.dir === 'asc' ? 'desc' : 'asc';
+  else { planosF.ordem = col; planosF.dir = col === 'nome' ? 'asc' : 'desc'; }
+  render();
+}
+function planosLimpar() { planosF = { ...planosF, busca: '', periodo: 'todo', status: 'todos', forma: 'todas', tipo: 'todos' }; render(); }
+function planosVista(modo) { render(); }
+function planosVerCobrancas(nome) { filtroBusca = nome; setAba('historico'); }
+
+function _planoChave(m, dim) {
+  if (dim === 'tipo') return (m.tipo_plano || 'Sem tipo').toString().trim() || 'Sem tipo';
+  if (dim === 'duracao') { const n = API.mesesDoPlano ? API.mesesDoPlano(m) : 0; return n ? (n === 1 ? '1 mês' : n + ' meses') : 'Sem duração'; }
+  if (dim === 'forma') return API.gateway.rotuloForma(m.forma_pgto) || 'Não informada';
+  if (dim === 'professor') return (m.professor || 'Sem professor').toString().trim() || 'Sem professor';
+  return API.descricaoBase(m);
+}
+
 function renderPlanos(box, d) {
-  // Agrupa por plano (dshistorico) e calcula stats
-  const planoMap = {};
-  d.categorizadas.forEach(m => {
-    const nome = (m.dshistorico || 'Sem nome').trim();
-    if (!planoMap[nome]) planoMap[nome] = { nome, total: 0, pagos: 0, pendentes: 0, atrasados: 0, receita: 0, receitaPotencial: 0, clientes: new Set() };
-    const p = planoMap[nome];
-    p.total++;
-    p.receitaPotencial += m.valor;
-    if (m._status === 'pago') { p.pagos++; p.receita += m.valor; }
-    else if (m._status === 'pendente') p.pendentes++;
-    else if (m._status === 'atrasado') p.atrasados++;
-    if (m.idatleta) p.clientes.add(Number(m.idatleta));
+  const F = planosF;
+  const q = F.busca.trim().toLowerCase();
+  // 1) o que entra na conta: período, status, forma, tipo e busca (por plano ou por aluno)
+  const base = d.categorizadas.filter(m => {
+    if (F.periodo === 'topo') { const ref = m._status === 'pago' ? (m.dtpagamento || m.dtpgto || m.dtvencimento) : m.dtvencimento; if (!dentroDoPeriodo(ref)) return false; }
+    if (F.status !== 'todos' && m._status !== F.status) return false;
+    if (F.forma !== 'todas') {
+      const f = String(m.forma_pgto || '').toLowerCase();
+      if (F.forma === 'gateway' ? !API.gateway.da(f) : (F.forma === 'semforma' ? !!f : f !== F.forma)) return false;
+    }
+    if (F.tipo !== 'todos' && String(m.tipo_plano || 'Sem tipo').trim() !== F.tipo) return false;
+    if (q && !(String(m.dshistorico || '').toLowerCase().includes(q) || String(m.nmathleta || '').toLowerCase().includes(q))) return false;
+    return true;
   });
 
-  let planos = Object.values(planoMap).map(p => ({
-    ...p, clientes: p.clientes.size, taxaPgto: p.total > 0 ? ((p.pagos / p.total) * 100) : 0
-  }));
+  // 2) agrupa
+  const mapa = {};
+  base.forEach(m => {
+    const nome = _planoChave(m, F.agrupar);
+    const g = mapa[nome] || (mapa[nome] = { nome, total: 0, pagos: 0, pendentes: 0, atrasados: 0, receita: 0, potencial: 0, clientes: new Set() });
+    g.total++; g.potencial += m.valor;
+    if (m._status === 'pago') { g.pagos++; g.receita += m.valor; }
+    else if (m._status === 'pendente') g.pendentes++;
+    else if (m._status === 'atrasado') g.atrasados++;
+    if (m.idatleta) g.clientes.add(Number(m.idatleta));
+  });
+  let grupos = Object.values(mapa).map(g => ({ ...g, clientes: g.clientes.size, taxaPgto: g.total ? (g.pagos / g.total) * 100 : 0, ticket: g.pagos ? g.receita / g.pagos : 0 }));
+  const totalReceita = grupos.reduce((s, g) => s + g.receita, 0);
+  grupos = grupos.map(g => ({ ...g, share: totalReceita > 0 ? (g.receita / totalReceita) * 100 : 0 }));
+  const sinal = F.dir === 'asc' ? 1 : -1;
+  grupos.sort((a, b) => F.ordem === 'nome' ? sinal * a.nome.localeCompare(b.nome, 'pt-BR') : sinal * ((a[F.ordem] || 0) - (b[F.ordem] || 0)) || a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  const totalReceita = planos.reduce((s, p) => s + p.receita, 0);
-  planos = planos.map(p => ({ ...p, share: totalReceita > 0 ? ((p.receita / totalReceita) * 100) : 0 }));
-  planos.sort((a, b) => b.receita - a.receita);
+  const maisVendido = grupos.slice().sort((a, b) => b.total - a.total)[0];
+  const maiorReceita = grupos.slice().sort((a, b) => b.receita - a.receita)[0];
+  const totalPagos = grupos.reduce((s, g) => s + g.pagos, 0);
 
-  const topPlano = planos[0];
+  // 3) opções dos filtros (do que existe nos dados)
+  const tipos = [...new Set(d.categorizadas.map(m => String(m.tipo_plano || 'Sem tipo').trim()))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const formas = [...new Set(d.categorizadas.map(m => String(m.forma_pgto || '').toLowerCase()).filter(Boolean))];
+  const filtrosAtivos = [F.busca.trim(), F.periodo !== 'todo', F.status !== 'todos', F.forma !== 'todas', F.tipo !== 'todos'].filter(Boolean).length;
+  const vista = VerModo.get('fin-planos', 'tabela');
+  const sel = (id, valor, opcoes, fn) => `<select class="input" style="width:auto;font-size:12px;" onchange="${fn}(this.value)">${opcoes.map(o => `<option value="${esc(o[0])}" ${String(o[0]) === String(valor) ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>`;
+  const lab = t => `<label style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:3px;">${t}</label>`;
+
+  const linkNome = g => F.agrupar === 'plano' ? `<a href="#" onclick="planosVerCobrancas(${JSON.stringify(g.nome).replace(/"/g, '&quot;')});return false;" style="color:inherit;text-decoration:underline dotted;" title="Ver as cobranças deste plano">${esc(g.nome)}</a>` : esc(g.nome);
+  const maxMetrica = Math.max(...grupos.map(g => g[F.metrica] || 0), 1);
+  const valorMetrica = (g, k) => k === 'receita' || k === 'ticket' ? brlV(g[k]) : (k === 'taxaPgto' ? g[k].toFixed(0) + '%' : String(g[k]));
+
+  let corpo;
+  if (grupos.length === 0) {
+    corpo = '<div class="card"><div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">Nada encontrado com estes filtros.' + (filtrosAtivos ? ' <a href="#" onclick="planosLimpar();return false;" style="color:var(--green);">Limpar filtros</a>' : '') + '</div></div>';
+  } else if (vista === 'cartoes') {
+    corpo = '<div class="vm-grid m-cartoes">' + grupos.map(g => `
+      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;">
+        <div style="font-size:13px;font-weight:800;color:var(--text);line-height:1.3;">${linkNome(g)}</div>
+        <div style="font-size:20px;font-weight:900;color:var(--green);">${brlV(g.receita)} <span style="font-size:11px;color:var(--text-muted);font-weight:600;">${g.share.toFixed(1)}% do faturamento</span></div>
+        <div style="height:6px;background:var(--bg2);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${Math.max(g.share, 2)}%;background:rgba(127,255,0,.6);"></div></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;">
+          <span class="pill pill-green">${g.pagos} pagos</span><span class="pill pill-yellow">${g.pendentes} pend.</span><span class="pill pill-red">${g.atrasados} atras.</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);line-height:1.6;">${g.total} cobrança(s) · ${g.clientes} cliente(s)<br>Ticket médio ${brlV(g.ticket)} · pagamento ${g.taxaPgto.toFixed(0)}%</div>
+      </div>`).join('') + '</div>';
+  } else if (vista === 'barras') {
+    corpo = `<div class="card" style="padding:16px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;">Comparar por</div>
+        ${sel('metrica', F.metrica, Object.keys(PLANOS_METRICAS).map(k => [k, PLANOS_METRICAS[k]]), "planosSet.bind(null,'metrica')")}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">${grupos.slice().sort((a, b) => (b[F.metrica] || 0) - (a[F.metrica] || 0)).slice(0, 15).map(g => `
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="min-width:130px;max-width:38%;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(g.nome)}">${esc(g.nome)}</div>
+          <div style="flex:1;height:20px;background:var(--bg2);border-radius:6px;overflow:hidden;"><div style="height:100%;width:${Math.max(((g[F.metrica] || 0) / maxMetrica) * 100, 2)}%;background:linear-gradient(90deg,rgba(127,255,0,.7),rgba(127,255,0,.3));border-radius:6px;"></div></div>
+          <div style="min-width:78px;text-align:right;font-size:12px;font-weight:700;color:var(--text);">${valorMetrica(g, F.metrica)}</div>
+        </div>`).join('')}</div>
+      ${grupos.length > 15 ? '<div style="font-size:11px;color:var(--text-muted);margin-top:10px;">Mostrando os 15 primeiros. Os outros aparecem na tabela.</div>' : ''}
+    </div>`;
+  } else {
+    const seta = c => F.ordem === c ? (F.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    corpo = `<div class="card">
+      <div class="card-header"><span class="card-title">Comparativo por ${esc(PLANOS_AGRUPAR[F.agrupar].toLowerCase())}</span><span class="card-badge badge-green">${grupos.length}</span></div>
+      <div style="overflow-x:auto;"><table class="data-table"><thead><tr>${PLANOS_COLS.map(c => `<th style="text-align:${c[2]};cursor:pointer;white-space:nowrap;" onclick="planosOrdenar('${c[0]}')" title="Ordenar por esta coluna">${c[1]}${seta(c[0])}</th>`).join('')}</tr></thead><tbody>
+        ${grupos.map(g => `<tr>
+          <td class="td-name">${linkNome(g)}</td>
+          <td style="text-align:center;font-weight:700;">${g.total}</td><td style="text-align:center;">${g.clientes}</td>
+          <td style="text-align:center;"><span class="pill pill-green">${g.pagos}</span></td><td style="text-align:center;"><span class="pill pill-yellow">${g.pendentes}</span></td><td style="text-align:center;"><span class="pill pill-red">${g.atrasados}</span></td>
+          <td style="text-align:right;font-weight:700;color:var(--green);">${brlV(g.receita)}</td><td style="text-align:right;">${brlV(g.ticket)}</td>
+          <td style="text-align:right;">${g.share.toFixed(1)}%</td><td style="text-align:right;">${g.taxaPgto.toFixed(0)}%</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  }
 
   box.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:16px;">
-      <!-- Top planos resumo -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
-        ${kpiSmall('Planos distintos', planos.length)}
-        ${kpiSmall('Mais vendido', topPlano ? esc(topPlano.nome.substring(0,20)) : '—')}
-        ${kpiSmall('Maior receita', topPlano ? brlV(topPlano.receita) : '—')}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
+        ${kpiSmall(PLANOS_AGRUPAR[F.agrupar] + 's (grupos)', grupos.length)}
+        ${kpiSmall('Mais cobrado', maisVendido ? esc(maisVendido.nome.substring(0, 22)) : '—')}
+        ${kpiSmall('Maior receita', maiorReceita && maiorReceita.receita > 0 ? brlV(maiorReceita.receita) : '—')}
         ${kpiSmall('Receita total', brlV(totalReceita))}
+        ${kpiSmall('Ticket médio', totalPagos ? brlV(totalReceita / totalPagos) : '—')}
       </div>
 
-      <!-- Tabela comparativa -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Comparativo de Planos</span>
-          <span class="card-badge badge-green">${planos.length}</span>
+      <div class="card" style="padding:12px 14px;">
+        <div style="display:flex;gap:10px 12px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="flex:1;min-width:160px;max-width:240px;">${lab('Buscar')}<input class="input" placeholder="Plano ou aluno..." value="${esc(F.busca)}" oninput="planosF.busca=this.value;clearTimeout(window._pfT);window._pfT=setTimeout(render,250);" style="width:100%;"/></div>
+          <div>${lab('Agrupar por')}${sel('agrupar', F.agrupar, Object.keys(PLANOS_AGRUPAR).map(k => [k, PLANOS_AGRUPAR[k]]), "planosSet.bind(null,'agrupar')")}</div>
+          <div>${lab('Período')}${sel('periodo', F.periodo, [['todo', 'Todo o histórico'], ['topo', 'Período do topo da tela']], "planosSet.bind(null,'periodo')")}</div>
+          <div>${lab('Situação')}${sel('status', F.status, [['todos', 'Todas'], ['pago', 'Pagas'], ['pendente', 'Pendentes'], ['atrasado', 'Atrasadas']], "planosSet.bind(null,'status')")}</div>
+          <div>${lab('Forma de pagamento')}${sel('forma', F.forma, [['todas', 'Todas'], ['gateway', 'Eduzz e Asaas'], ...formas.map(f => [f, API.gateway.rotuloForma(f) || f]), ['semforma', 'Sem forma']], "planosSet.bind(null,'forma')")}</div>
+          <div>${lab('Tipo')}${sel('tipo', F.tipo, [['todos', 'Todos'], ...tipos.map(t => [t, t])], "planosSet.bind(null,'tipo')")}</div>
+          ${filtrosAtivos ? `<button class="btn btn-secondary btn-sm" onclick="planosLimpar()">Limpar filtros (${filtrosAtivos})</button>` : ''}
+          <div style="margin-left:auto;">${lab('Visualização')}${VerModo.barra('fin-planos', [['tabela', 'Tabela', '☰'], ['cartoes', 'Cartões', '▦'], ['barras', 'Barras', '▤']], 'planosVista', vista)}</div>
         </div>
-        ${planos.length === 0
-          ? '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">Nenhum plano encontrado no período.</div>'
-          : '<table class="data-table"><thead><tr>' +
-            '<th>Plano</th><th style="text-align:center;">Vendidos</th><th style="text-align:center;">Clientes</th>' +
-            '<th style="text-align:center;">Pagos</th><th style="text-align:center;">Pendentes</th><th style="text-align:center;">Atrasados</th>' +
-            '<th style="text-align:right;">Receita</th><th style="text-align:right;">% Faturamento</th><th style="text-align:right;">Taxa Pgto</th>' +
-            '</tr></thead><tbody>' +
-            planos.map(p => '<tr>' +
-              '<td class="td-name">' + esc(p.nome) + '</td>' +
-              '<td style="text-align:center;font-weight:700;">' + p.total + '</td>' +
-              '<td style="text-align:center;">' + p.clientes + '</td>' +
-              '<td style="text-align:center;"><span class="pill pill-green">' + p.pagos + '</span></td>' +
-              '<td style="text-align:center;"><span class="pill pill-yellow">' + p.pendentes + '</span></td>' +
-              '<td style="text-align:center;"><span class="pill pill-red">' + p.atrasados + '</span></td>' +
-              '<td style="text-align:right;font-weight:700;color:var(--green);">' + brlV(p.receita) + '</td>' +
-              '<td style="text-align:right;">' + p.share.toFixed(1) + '%</td>' +
-              '<td style="text-align:right;">' + p.taxaPgto.toFixed(0) + '%</td>' +
-            '</tr>').join('') +
-            '</tbody></table>'}
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">${base.length} cobrança(s) na conta. Receita é só o que foi pago.${vista === 'tabela' ? ' Clique no título de uma coluna para ordenar.' : ''}${F.agrupar === 'plano' ? ' Clique no nome do plano para ver as cobranças dele.' : ''}</div>
       </div>
 
-      <!-- Representação no faturamento (barras visuais) -->
-      ${planos.length > 0 ? `
-      <div class="card" style="padding:16px;">
-        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px;">Representação no Faturamento</div>
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          ${planos.slice(0, 10).map(p => {
-            const pct = p.share;
-            return '<div style="display:flex;align-items:center;gap:10px;">' +
-              '<div style="min-width:140px;font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(p.nome.substring(0,25)) + '</div>' +
-              '<div style="flex:1;height:20px;background:var(--bg2);border-radius:6px;overflow:hidden;">' +
-                '<div style="height:100%;width:' + Math.max(pct, 2) + '%;background:linear-gradient(90deg,rgba(127,255,0,.7),rgba(127,255,0,.3));border-radius:6px;transition:width .3s;"></div>' +
-              '</div>' +
-              '<div style="min-width:70px;text-align:right;font-size:12px;font-weight:700;color:var(--text);">' + pct.toFixed(1) + '% <span style="color:var(--text-muted);font-weight:400;">(' + brlV(p.receita) + ')</span></div>' +
-            '</div>';
-          }).join('')}
-        </div>
-      </div>` : ''}
+      ${corpo}
     </div>`;
 }
 
 // ══════════════════════════════════════════════════════════
-// MÓDULO EDUZZ — recebimentos via gateway (retenção 30 dias, taxas, antecipação)
-// Fonte principal: pagamentos de MATRÍCULAS com forma_pgto = 'eduzz'.
-// Também aceita vendas manuais avulsas (e-book, produto solto).
+// MÓDULO RECEBIMENTOS: Eduzz e Asaas (taxa, prazo de liberação, antecipação e saque)
+// Fonte principal: pagamentos de MATRÍCULAS cuja forma é um gateway: 'eduzz', 'asaas_pix', 'asaas_boleto' ou 'asaas_cartao'.
+// Também aceita vendas manuais avulsas (e-book, produto solto) de qualquer um dos dois.
+// A regra (qual gateway, taxa, prazo, liquido, antecipacao) mora em API.gateway e nas funcoes eduzz* do api.js: Gestao usa as mesmas.
 // ══════════════════════════════════════════════════════════
 const VENDAS_KEY = 'intus-vendas-gateway';    // vendas manuais (avulsas)
 const LIQ_KEY    = 'intus-eduzz-liquidacao';  // estado de liquidação por idmensalidade
@@ -1080,6 +1146,7 @@ const EDUZZ_PRESETS = {
 };
 
 let vendasFiltroStatus = 'todas'; // todas | retido | disponivel | sacado
+let vendasFiltroGateway = 'todos'; // todos | eduzz | asaas
 
 // ── Stores ──
 function getVendasManuais() { try { return JSON.parse(localStorage.getItem(VENDAS_KEY) || '[]'); } catch { return []; } }
@@ -1089,7 +1156,9 @@ function saveLiquidacoes(map) { localStorage.setItem(LIQ_KEY, JSON.stringify(map
 function _setLiq(idm, patch) { const map = getLiquidacoes(); map[idm] = { ...(map[idm] || {}), ...patch }; saveLiquidacoes(map); }
 function _mensalidadesLocal() { try { return JSON.parse(localStorage.getItem('intus-mensalidades') || '[]'); } catch { return []; } }
 function _findMensalidade(idm) { return _mensalidadesLocal().find(m => Number(m.idmensalidade) === Number(idm)); }
-function _ehPagoEduzz(m) { return m && String(m.stpgto).toUpperCase() === 'S' && String(m.forma_pgto || '').toLowerCase() === 'eduzz' && m.dtpagamento; }
+function _ehPagoGateway(m) { return !!m && String(m.stpgto).toUpperCase() === 'S' && !!m.dtpagamento && !!API.gateway.da(m.forma_pgto); }
+const _gwDe = v => v.gateway || 'eduzz';
+const _nomeGateway = g => g === 'asaas' ? 'Asaas' : 'Eduzz';
 
 // ── Datas ──
 function _hojeVendas() { return new Date().toISOString().slice(0, 10); }
@@ -1116,47 +1185,19 @@ function vendaDiasParaLiberar(v) {
   if (vendaStatus(v) !== 'retido') return null;
   return diasAte(vendaDataLiberacao(v));
 }
-function calcAntecipacao(v, dataRef) {
-  const ref = dataRef || _hojeVendas();
-  const liberacao = _addDias(v.dataVenda, v.prazoDias != null ? v.prazoDias : EDUZZ_PRAZO_DIAS);
-  const a = new Date(liberacao + 'T00:00:00');
-  const b = new Date(ref + 'T00:00:00');
-  const diasRestantes = Math.max(0, Math.round((a - b) / 86400000));
-  const base = Math.max(0, parseFloat(v.valorBruto || 0) - vendaTaxaPlataforma(v));
-  const taxa = (base * EDUZZ_ANTECIP_PCT / 100) + (base * EDUZZ_ANTECIP_DIA / 100 * diasRestantes);
-  return { taxa: Math.round(taxa * 100) / 100, diasRestantes, base };
-}
+function calcAntecipacao(v, dataRef) { return API.gateway.antecipacao(v, dataRef || _hojeVendas()); }
 
 // ── Itens unificados ──
 function _itemManual(v) {
-  return { ...v, origem: 'manual', prazoDias: v.prazoDias != null ? v.prazoDias : EDUZZ_PRAZO_DIAS };
+  return { ...v, origem: 'manual', gateway: v.gateway || 'eduzz', prazoDias: v.prazoDias != null ? v.prazoDias : EDUZZ_PRAZO_DIAS };
 }
-function _itemMatricula(m, liq) {
-  liq = liq || {};
-  const brutoRaw = (m.vlpagamento != null && m.vlpagamento !== '') ? m.vlpagamento : m.vlpagar;
-  return {
-    id: 'mn-' + m.idmensalidade,
-    origem: 'matricula',
-    idmensalidade: m.idmensalidade,
-    produto: m.dshistorico || 'Plano',
-    comprador: m.nmathleta || '',
-    valorBruto: parseFloat(brutoRaw || 0),
-    dataVenda: m.dtpagamento,
-    presetTaxa: liq.presetTaxa || 'direta',
-    taxaPct: liq.taxaPct != null ? liq.taxaPct : EDUZZ_PRESETS.direta.pct,
-    taxaFixo: liq.taxaFixo != null ? liq.taxaFixo : EDUZZ_PRESETS.direta.fixo,
-    prazoDias: liq.prazoDias != null ? liq.prazoDias : EDUZZ_PRAZO_DIAS,
-    antecipado: !!liq.antecipado, dataAntecip: liq.dataAntecip || null, taxaAntecipValor: liq.taxaAntecipValor || 0,
-    sacado: !!liq.sacado, dataSaque: liq.dataSaque || null, caixaId: liq.caixaId || null,
-    idusuario: null
-  };
-}
+function _itemMatricula(m, liq) { return API.gateway.itemDeMatricula(m, liq); }
 function _todasVendas(d) {
   const liqs = getLiquidacoes();
   const cat = (d && d.categorizadas) ? d.categorizadas : _mensalidadesLocal().map(m => ({ ...m, _status: (String(m.stpgto).toUpperCase() === 'S' ? 'pago' : 'pendente') }));
-  const eduzzMens = cat.filter(m => _ehPagoEduzz(m)).map(m => _itemMatricula(m, liqs[m.idmensalidade]));
+  const dasMatriculas = cat.filter(m => _ehPagoGateway(m)).map(m => _itemMatricula(m, liqs[m.idmensalidade]));
   const manuais = getVendasManuais().map(_itemManual);
-  return [...eduzzMens, ...manuais];
+  return [...dasMatriculas, ...manuais];
 }
 function _resolveVenda(id) {
   if (String(id).startsWith('mn-')) {
@@ -1181,18 +1222,39 @@ function _persistVenda(item) {
   }
 }
 
+function _presetsDe(gw) {
+  if (gw === 'asaas') {
+    const o = {};
+    Object.keys(API.ASAAS_PRESETS).forEach(k => { const p = API.ASAAS_PRESETS[k]; o[k] = { nome: p.nome, pct: p.pct, fixo: p.fixo }; });
+    return o;
+  }
+  return EDUZZ_PRESETS;
+}
+function _prazoPreset(gw, k, data) { return gw === 'asaas' ? API.gateway.prazoDiasDe(k, data || _hojeVendas()) : EDUZZ_PRAZO_DIAS; }
+
+function _resumoGateway(vendas) {
+  return {
+    n: vendas.length,
+    aReceber: vendas.filter(v => !v.sacado).reduce((s, v) => s + vendaLiquido(v), 0),
+    emCaixa: vendas.filter(v => v.sacado).reduce((s, v) => s + vendaLiquido(v), 0),
+    nRetido: vendas.filter(v => vendaStatus(v) === 'retido').length,
+    nDisp: vendas.filter(v => vendaStatus(v) === 'disponivel').length,
+    liberado: vendas.filter(v => vendaStatus(v) === 'disponivel').reduce((s, v) => s + vendaLiquido(v), 0),
+    retido: vendas.filter(v => vendaStatus(v) === 'retido').reduce((s, v) => s + vendaLiquido(v), 0),
+  };
+}
+
 function renderVendas(box, d) {
-  const vendas = _todasVendas(d).sort((a, b) => (b.dataVenda || '').localeCompare(a.dataVenda || ''));
+  const todas = _todasVendas(d).sort((a, b) => (b.dataVenda || '').localeCompare(a.dataVenda || ''));
+  const vendas = vendasFiltroGateway === 'todos' ? todas : todas.filter(v => _gwDe(v) === vendasFiltroGateway);
 
   const totalBruto = vendas.reduce((s, v) => s + parseFloat(v.valorBruto || 0), 0);
   const totalTaxas = vendas.reduce((s, v) => s + vendaTaxaPlataforma(v) + vendaTaxaAntecip(v), 0);
-  const aReceber   = vendas.filter(v => !v.sacado).reduce((s, v) => s + vendaLiquido(v), 0);
-  const emCaixa    = vendas.filter(v => v.sacado).reduce((s, v) => s + vendaLiquido(v), 0);
-  const nRetido    = vendas.filter(v => vendaStatus(v) === 'retido').length;
-  const nDisp      = vendas.filter(v => vendaStatus(v) === 'disponivel').length;
+  const r = _resumoGateway(vendas);
 
   let lista = vendas;
   if (vendasFiltroStatus !== 'todas') lista = lista.filter(v => vendaStatus(v) === vendasFiltroStatus);
+  const sacaveis = lista.filter(v => vendaStatus(v) === 'disponivel');
 
   const statusPill = (v) => {
     const s = vendaStatus(v);
@@ -1201,19 +1263,34 @@ function renderVendas(box, d) {
     const dias = vendaDiasParaLiberar(v);
     return `<span class="pill pill-red">Retido${dias != null ? ' · ' + dias + 'd' : ''}</span>`;
   };
+  const gwBtn = (g, rot) => `<button class="btn ${vendasFiltroGateway===g?'btn-primary':'btn-secondary'} btn-sm" onclick="vendasFiltroGateway='${g}';render();">${rot}</button>`;
+  const stBtn = (st, rot) => `<button class="btn ${vendasFiltroStatus===st?'btn-primary':'btn-secondary'} btn-sm" onclick="vendasFiltroStatus='${st}';render();">${rot}</button>`;
+  const porGateway = vendasFiltroGateway === 'todos' ? ['eduzz', 'asaas'].map(g => {
+    const x = _resumoGateway(todas.filter(v => _gwDe(v) === g));
+    return `<div class="card" style="padding:12px 14px;">
+      <div style="font-size:11px;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:.4px;">${_nomeGateway(g)}</div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.7;">
+        ${x.n} recebimento(s)<br>
+        Disponível para sacar: <b style="color:#fbbf24;">${brlV(x.liberado)}</b><br>
+        Ainda retido: <b style="color:#f87171;">${brlV(x.retido)}</b> (${x.nRetido})<br>
+        Já no Caixa: <b style="color:var(--green);">${brlV(x.emCaixa)}</b>
+      </div></div>`;
+  }).join('') : '';
 
   box.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:16px;">
 
       <div class="card" style="padding:12px 14px;border-left:3px solid var(--green);">
-        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">
-          <b style="color:var(--text);">Recebimentos Eduzz</b> — cobranças de matrícula pagas <b>via Eduzz</b> entram aqui automaticamente.
-          O saldo fica <b>retido ${EDUZZ_PRAZO_DIAS} dias</b>, depois <b>disponível</b>; a <b>antecipação</b> (${EDUZZ_ANTECIP_PCT}% + ${EDUZZ_ANTECIP_DIA}%/dia) libera antes.
-          Ao <b>sacar</b>, o líquido entra no <b>Caixa</b>. Pix/Dinheiro/Cartão entram no Caixa na hora do pagamento (sem retenção).
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">
+          <b style="color:var(--text);">Recebimentos por gateway</b>: cobranças de matrícula pagas por <b>Eduzz</b> ou <b>Asaas</b> entram aqui sozinhas, pela forma de pagamento escolhida na baixa.
+          O dinheiro só vale no Caixa quando o gateway libera de verdade e você <b>saca</b>; o líquido (já sem taxa) entra no Caixa na data do saque.<br>
+          <b>Eduzz</b>: retido <b>${EDUZZ_PRAZO_DIAS} dias</b>; antecipar custa ${EDUZZ_ANTECIP_PCT}% + ${EDUZZ_ANTECIP_DIA}% ao dia.
+          <b>Asaas</b>: <b>Pix</b> cai na hora (R$ 1,08), <b>boleto</b> em 1 dia útil (R$ 1,08), <b>cartão</b> em 32 dias (1,99% + R$ 0,49 à vista); antecipar o cartão custa ${String(API.ASAAS_ANTECIPACAO_PCT_MES).replace('.', ',')}% ao mês.
+          Pix, dinheiro e cartão na maquininha entram no Caixa no dia do pagamento.
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
         <div class="card" style="padding:14px;text-align:center;">
           <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Total Vendido</div>
           <div style="font-size:16px;font-weight:800;color:var(--text);margin-top:4px;">${brlV(totalBruto)}</div>
@@ -1224,43 +1301,47 @@ function renderVendas(box, d) {
         </div>
         <div class="card" style="padding:14px;text-align:center;">
           <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">A Receber</div>
-          <div style="font-size:16px;font-weight:800;color:#fbbf24;margin-top:4px;">${brlV(aReceber)}</div>
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${nRetido} retida(s) · ${nDisp} disp.</div>
+          <div style="font-size:16px;font-weight:800;color:#fbbf24;margin-top:4px;">${brlV(r.aReceber)}</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${r.nRetido} retida(s) · ${r.nDisp} disp.</div>
         </div>
         <div class="card" style="padding:14px;text-align:center;">
           <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;">Em Caixa (sacado)</div>
-          <div style="font-size:16px;font-weight:800;color:var(--green);margin-top:4px;">${brlV(emCaixa)}</div>
+          <div style="font-size:16px;font-weight:800;color:var(--green);margin-top:4px;">${brlV(r.emCaixa)}</div>
         </div>
       </div>
 
+      ${porGateway ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;">${porGateway}</div>` : ''}
+
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         ${podeLancar ? '<button class="btn btn-secondary btn-sm" onclick="abrirVenda()">+ Venda avulsa</button>' : ''}
-        <div style="margin-left:auto;display:flex;gap:6px;">
-          <button class="btn ${vendasFiltroStatus==='todas'?'btn-primary':'btn-secondary'} btn-sm" onclick="vendasFiltroStatus='todas';render();">Todas</button>
-          <button class="btn ${vendasFiltroStatus==='retido'?'btn-primary':'btn-secondary'} btn-sm" onclick="vendasFiltroStatus='retido';render();">Retidas</button>
-          <button class="btn ${vendasFiltroStatus==='disponivel'?'btn-primary':'btn-secondary'} btn-sm" onclick="vendasFiltroStatus='disponivel';render();">Disponíveis</button>
-          <button class="btn ${vendasFiltroStatus==='sacado'?'btn-primary':'btn-secondary'} btn-sm" onclick="vendasFiltroStatus='sacado';render();">Sacadas</button>
+        ${podeLancar && sacaveis.length ? `<button class="btn btn-primary btn-sm" onclick="sacarTodosDisponiveis()" title="Lança no Caixa o líquido de tudo o que já foi liberado nesta lista">💰 Sacar ${sacaveis.length} disponível(is) · ${brlV(sacaveis.reduce((s, v) => s + vendaLiquido(v), 0))}</button>` : ''}
+        <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+          ${gwBtn('todos', 'Todos os gateways')}${gwBtn('eduzz', 'Eduzz')}${gwBtn('asaas', 'Asaas')}
         </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${stBtn('todas', 'Todas')}${stBtn('retido', 'Retidas')}${stBtn('disponivel', 'Disponíveis')}${stBtn('sacado', 'Sacadas')}
       </div>
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Recebimentos Eduzz</span>
+          <span class="card-title">Recebimentos${vendasFiltroGateway !== 'todos' ? ' ' + _nomeGateway(vendasFiltroGateway) : ' (Eduzz e Asaas)'}</span>
           <span class="card-badge badge-green">${lista.length}</span>
         </div>
         ${lista.length === 0
           ? `<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">
-              Nenhum recebimento Eduzz${vendasFiltroStatus !== 'todas' ? ' com este filtro' : ''}.
-              <div style="margin-top:8px;font-size:12px;">Marque uma cobrança como paga <b>via Eduzz</b> na tela de Matrículas para ela aparecer aqui.</div>
+              Nenhum recebimento${vendasFiltroGateway !== 'todos' ? ' ' + _nomeGateway(vendasFiltroGateway) : ''}${vendasFiltroStatus !== 'todas' ? ' com este filtro' : ''}.
+              <div style="margin-top:8px;font-size:12px;">Dê baixa numa cobrança escolhendo a forma <b>Eduzz</b> ou <b>Asaas Pix / Boleto / Cartão</b> (tela de Matrículas) para ela aparecer aqui.</div>
             </div>`
-          : `<table class="data-table">
+          : `<div style="overflow-x:auto;"><table class="data-table">
               <thead><tr>
                 <th>Data</th>
                 <th>Plano / Cliente</th>
-                <th>Origem</th>
+                <th>Gateway</th>
                 <th style="text-align:right;">Bruto</th>
                 <th style="text-align:right;">Taxas</th>
                 <th style="text-align:right;">Líquido</th>
+                <th>Libera em</th>
                 <th>Status</th>
                 ${podeLancar ? '<th style="width:70px;"></th>' : ''}
               </tr></thead>
@@ -1268,27 +1349,29 @@ function renderVendas(box, d) {
                 ${lista.map(v => {
                   const s = vendaStatus(v);
                   const taxas = vendaTaxaPlataforma(v) + vendaTaxaAntecip(v);
+                  const gwRot = v.forma ? API.gateway.rotuloForma(v.forma) : _nomeGateway(_gwDe(v));
                   const origemLabel = v.origem === 'matricula' ? 'Matrícula' : 'Avulsa';
                   return `
                   <tr>
                     <td class="td-date">${fmtDate(v.dataVenda)}</td>
                     <td class="td-name">${esc(v.produto || '—')}${v.comprador ? `<div style="font-size:11px;color:var(--text-muted);">${esc(v.comprador)}</div>` : ''}</td>
-                    <td style="font-size:11px;color:var(--text-muted);">${origemLabel}${v.antecipado ? '<div style="font-size:10px;color:#fbbf24;">antecipada</div>' : ''}</td>
+                    <td style="font-size:11.5px;"><b>${esc(gwRot)}</b><div style="font-size:10.5px;color:var(--text-muted);">${origemLabel}${v.antecipado ? ' · <span style="color:#fbbf24;">antecipada</span>' : ''}</div></td>
                     <td style="text-align:right;font-weight:700;">${brlV(v.valorBruto)}</td>
                     <td style="text-align:right;color:#f87171;">${brlV(taxas)}</td>
                     <td style="text-align:right;font-weight:700;color:var(--green);">${brlV(vendaLiquido(v))}</td>
+                    <td class="td-date">${s === 'sacado' ? '—' : fmtDate(vendaDataLiberacao(v))}</td>
                     <td>${statusPill(v)}</td>
                     ${podeLancar ? `<td style="white-space:nowrap;">
                       ${s === 'disponivel' ? `<button class="btn btn-primary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="sacarVenda('${v.id}')" title="Sacar para o caixa">💰</button>` : ''}
                       ${s === 'retido' ? `<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="anteciparVenda('${v.id}')" title="Antecipar">⏩</button>` : ''}
                       ${s === 'sacado' ? `<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="estornarSaque('${v.id}')" title="Estornar saque">↩</button>` : ''}
-                      <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="editarVenda('${v.id}')" title="${v.origem==='matricula'?'Ajustar taxa':'Editar'}">✎</button>
+                      <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px;" onclick="editarVenda('${v.id}')" title="${v.origem==='matricula'?'Ajustar taxa e prazo':'Editar'}">✎</button>
                       ${v.origem === 'manual' ? `<button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 6px;opacity:.6;" onclick="excluirVenda('${v.id}')" title="Excluir">✕</button>` : ''}
                     </td>` : ''}
                   </tr>`;
                 }).join('')}
               </tbody>
-            </table>`}
+            </table></div>`}
       </div>
     </div>`;
 }
@@ -1298,15 +1381,18 @@ function abrirVenda(editItem) {
   const hoje = _hojeVendas();
   const isEdit = !!editItem;
   const lock = editItem?.origem === 'matricula';
-  const preset = editItem?.presetTaxa || 'direta';
+  const gw = editItem ? _gwDe(editItem) : 'eduzz';
+  const presets = _presetsDe(gw);
+  const preset = editItem?.presetTaxa && presets[editItem.presetTaxa] ? editItem.presetTaxa : Object.keys(presets)[0];
+  const gwTxt = editItem?.forma ? API.gateway.rotuloForma(editItem.forma) : _nomeGateway(gw);
 
   openModal(`
     <div class="modal-header">
-      <div class="modal-title">${lock ? 'Ajustar taxas Eduzz' : (isEdit ? 'Editar' : 'Nova') + ' venda avulsa'}</div>
+      <div class="modal-title">${lock ? 'Ajustar taxa e prazo (' + esc(gwTxt) + ')' : (isEdit ? 'Editar' : 'Nova') + ' venda avulsa'}</div>
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     <div class="modal-body">
-      ${lock ? '<div style="background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);margin-bottom:6px;">Pagamento vindo da <b>Matrícula</b>. Valor e cliente são fixos; ajuste apenas taxas/prazo.</div>' : ''}
+      ${lock ? '<div style="background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);margin-bottom:6px;">Pagamento vindo da <b>Matrícula</b>. Valor, cliente e gateway são fixos; ajuste apenas taxa e prazo (por exemplo, cartão parcelado ou taxa promocional que acabou).</div>' : ''}
       <div class="form-group">
         <label class="label">Produto / Descrição</label>
         <input id="vd-produto" class="input" value="${esc(editItem?.produto || '')}" placeholder="Ex.: Plano Anual, E-book..." ${lock?'disabled':''}/>
@@ -1322,29 +1408,36 @@ function abrirVenda(editItem) {
         </div>
         <div class="form-group">
           <label class="label">Data da venda</label>
-          <input id="vd-data" class="input" type="date" value="${editItem?.dataVenda || hoje}" oninput="atualizarPreviewVenda()" ${lock?'disabled':''}/>
+          <input id="vd-data" class="input" type="date" value="${editItem?.dataVenda || hoje}" oninput="onDataVenda()" ${lock?'disabled':''}/>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
-          <label class="label">Tipo de taxa</label>
-          <select id="vd-preset" class="input" onchange="onPresetVenda()">
-            ${Object.keys(EDUZZ_PRESETS).map(k => `<option value="${k}" ${k===preset?'selected':''}>${EDUZZ_PRESETS[k].nome}</option>`).join('')}
+          <label class="label">Gateway</label>
+          <select id="vd-gateway" class="input" onchange="onGatewayVenda()" ${lock?'disabled':''}>
+            <option value="eduzz" ${gw==='eduzz'?'selected':''}>Eduzz</option>
+            <option value="asaas" ${gw==='asaas'?'selected':''}>Asaas</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="label">Liberação (dias)</label>
-          <input id="vd-prazo" class="input" type="number" min="0" step="1" value="${editItem?.prazoDias != null ? editItem.prazoDias : EDUZZ_PRAZO_DIAS}" oninput="atualizarPreviewVenda()"/>
+          <label class="label">Tipo de taxa</label>
+          <select id="vd-preset" class="input" onchange="onPresetVenda()">
+            ${Object.keys(presets).map(k => `<option value="${k}" ${k===preset?'selected':''}>${esc(presets[k].nome)}</option>`).join('')}
+          </select>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
         <div class="form-group">
-          <label class="label">Taxa % plataforma</label>
-          <input id="vd-taxapct" class="input" type="number" min="0" step="0.01" value="${editItem?.taxaPct != null ? editItem.taxaPct : EDUZZ_PRESETS[preset].pct}" oninput="atualizarPreviewVenda()"/>
+          <label class="label">Liberação (dias)</label>
+          <input id="vd-prazo" class="input" type="number" min="0" step="1" value="${editItem?.prazoDias != null ? editItem.prazoDias : _prazoPreset(gw, preset, editItem?.dataVenda)}" oninput="atualizarPreviewVenda()"/>
+        </div>
+        <div class="form-group">
+          <label class="label">Taxa % do gateway</label>
+          <input id="vd-taxapct" class="input" type="number" min="0" step="0.01" value="${editItem?.taxaPct != null ? editItem.taxaPct : presets[preset].pct}" oninput="atualizarPreviewVenda()"/>
         </div>
         <div class="form-group">
           <label class="label">Taxa fixa (R$)</label>
-          <input id="vd-taxafixo" class="input" type="number" min="0" step="0.01" value="${editItem?.taxaFixo != null ? editItem.taxaFixo : EDUZZ_PRESETS[preset].fixo}" oninput="atualizarPreviewVenda()"/>
+          <input id="vd-taxafixo" class="input" type="number" min="0" step="0.01" value="${editItem?.taxaFixo != null ? editItem.taxaFixo : presets[preset].fixo}" oninput="atualizarPreviewVenda()"/>
         </div>
       </div>
       <div id="vd-preview" style="background:var(--bg2);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text-muted);"></div>
@@ -1360,15 +1453,28 @@ function abrirVenda(editItem) {
   atualizarPreviewVenda();
 }
 
-function onPresetVenda() {
+function _aplicarPreset() {
+  const gw = document.getElementById('vd-gateway')?.value || 'eduzz';
   const k = document.getElementById('vd-preset')?.value || 'custom';
-  const p = EDUZZ_PRESETS[k] || EDUZZ_PRESETS.custom;
-  if (k !== 'custom') {
-    const pctEl = document.getElementById('vd-taxapct');
-    const fixoEl = document.getElementById('vd-taxafixo');
-    if (pctEl) pctEl.value = p.pct;
-    if (fixoEl) fixoEl.value = p.fixo;
-  }
+  const p = _presetsDe(gw)[k];
+  if (!p || k === 'custom') return;
+  const pctEl = document.getElementById('vd-taxapct'), fixoEl = document.getElementById('vd-taxafixo'), prazoEl = document.getElementById('vd-prazo');
+  if (pctEl) pctEl.value = p.pct;
+  if (fixoEl) fixoEl.value = p.fixo;
+  if (prazoEl) prazoEl.value = _prazoPreset(gw, k, document.getElementById('vd-data')?.value);
+}
+function onGatewayVenda() {
+  const gw = document.getElementById('vd-gateway')?.value || 'eduzz';
+  const presets = _presetsDe(gw), sel = document.getElementById('vd-preset');
+  if (sel) sel.innerHTML = Object.keys(presets).map(k => `<option value="${k}">${esc(presets[k].nome)}</option>`).join('');
+  _aplicarPreset();
+  atualizarPreviewVenda();
+}
+function onPresetVenda() { _aplicarPreset(); atualizarPreviewVenda(); }
+function onDataVenda() {
+  // no Asaas o prazo do boleto conta dias úteis, então muda com a data
+  const gw = document.getElementById('vd-gateway')?.value || 'eduzz', k = document.getElementById('vd-preset')?.value;
+  if (gw === 'asaas' && k && k !== 'custom') { const el = document.getElementById('vd-prazo'); if (el) el.value = _prazoPreset(gw, k, document.getElementById('vd-data')?.value); }
   atualizarPreviewVenda();
 }
 
@@ -1383,7 +1489,7 @@ function atualizarPreviewVenda() {
   const taxa = (bruto * pct / 100) + fixo;
   const liquido = Math.max(0, bruto - taxa);
   const liberacao = _addDias(data, prazo);
-  box.innerHTML = `Taxa da plataforma: <b style="color:#f87171;">${brl(taxa)}</b> &nbsp;·&nbsp; Líquido: <b style="color:var(--green);">${brl(liquido)}</b><br>Disponível para saque em <b style="color:var(--text);">${fmtDate(liberacao)}</b> (${prazo} dias).`;
+  box.innerHTML = `Taxa do gateway: <b style="color:#f87171;">${brl(taxa)}</b> &nbsp;·&nbsp; Líquido: <b style="color:var(--green);">${brl(liquido)}</b><br>Disponível para saque em <b style="color:var(--text);">${fmtDate(liberacao)}</b> (${prazo} dia${prazo === 1 ? '' : 's'} depois da venda).`;
 }
 
 function salvarVenda() {
@@ -1392,12 +1498,13 @@ function salvarVenda() {
   const taxaPct   = parseFloat(document.getElementById('vd-taxapct')?.value || 0);
   const taxaFixo  = parseFloat(document.getElementById('vd-taxafixo')?.value || 0);
   const origem    = document.getElementById('vd-origem')?.value || 'manual';
+  const gateway   = document.getElementById('vd-gateway')?.value || 'eduzz';
 
-  // Ajuste de taxas de um recebimento de matrícula
+  // Ajuste de taxa e prazo de um recebimento de matrícula
   if (origem === 'matricula') {
     const idm = document.getElementById('vd-idmens')?.value;
     _setLiq(idm, { presetTaxa: preset, taxaPct, taxaFixo, prazoDias: prazo });
-    showToast('Taxas atualizadas!');
+    showToast('Taxa e prazo atualizados!');
     closeModal();
     render();
     return;
@@ -1419,11 +1526,11 @@ function salvarVenda() {
   let items = getVendasManuais();
   if (editId) {
     items = items.map(v => v.id === editId
-      ? { ...v, produto, comprador, valorBruto: bruto, dataVenda: data, presetTaxa: preset, prazoDias: prazo, taxaPct, taxaFixo }
+      ? { ...v, produto, comprador, valorBruto: bruto, dataVenda: data, gateway, presetTaxa: preset, prazoDias: prazo, taxaPct, taxaFixo }
       : v);
   } else {
     items.push({
-      id: 'vd-' + Date.now(), origem: 'manual',
+      id: 'vd-' + Date.now(), origem: 'manual', gateway,
       produto, comprador, valorBruto: bruto, dataVenda: data,
       presetTaxa: preset, prazoDias: prazo, taxaPct, taxaFixo,
       antecipado: false, dataAntecip: null, taxaAntecipValor: 0,
@@ -1468,7 +1575,7 @@ function sacarVenda(id) {
   if (!item) return;
   if (vendaStatus(item) === 'retido') return showToast('Ainda retido — antecipe para sacar antes.', 'error');
   if (item.sacado) return showToast('Já sacado.', 'error');
-  const liquido = vendaLiquido(item);
+  const liquido = Math.round(vendaLiquido(item) * 100) / 100;
   const hoje = _hojeVendas();
   const caixa = getCaixa();
   const caixaId = 'cx-vd-' + Date.now();
@@ -1476,8 +1583,8 @@ function sacarVenda(id) {
     id: caixaId,
     tipo: 'entrada',
     data: hoje,
-    descricao: 'Eduzz — ' + (item.produto || 'Recebimento') + (item.comprador ? ' (' + item.comprador + ')' : ''),
-    categoria: 'Vendas Eduzz',
+    descricao: (item.forma ? API.gateway.rotuloForma(item.forma) : _nomeGateway(_gwDe(item))) + ' — ' + (item.produto || 'Recebimento') + (item.comprador ? ' (' + item.comprador + ')' : ''),
+    categoria: 'Vendas ' + _nomeGateway(_gwDe(item)),
     valor: liquido,
     obs: 'Bruto ' + brl(item.valorBruto) + ' · taxas ' + brl(vendaTaxaPlataforma(item) + vendaTaxaAntecip(item)),
     idusuario: item.idusuario || null,
@@ -1489,6 +1596,31 @@ function sacarVenda(id) {
   item.caixaId = caixaId;
   _persistVenda(item);
   showToast('Saque de ' + brl(liquido) + ' lançado no Caixa!');
+  render();
+}
+
+// Saca de uma vez tudo o que já foi liberado na lista que está na tela (respeita os filtros de gateway e status).
+function sacarTodosDisponiveis() {
+  if (!podeLancar) return showToast('Sem permissão.', 'error');
+  const itens = _todasVendas(carregarDados()).filter(v => vendaStatus(v) === 'disponivel' && (vendasFiltroGateway === 'todos' || _gwDe(v) === vendasFiltroGateway));
+  if (!itens.length) return showToast('Nada disponível para sacar.', 'error');
+  const total = itens.reduce((s, v) => s + vendaLiquido(v), 0);
+  if (!confirm('Sacar ' + itens.length + ' recebimento(s) disponível(is)?\n\nO líquido de ' + brl(total) + ' entra no Caixa hoje, um lançamento por recebimento.')) return;
+  const hoje = _hojeVendas(), caixa = getCaixa();
+  itens.forEach((item, i) => {
+    const caixaId = 'cx-vd-' + Date.now() + '-' + i;
+    caixa.push({
+      id: caixaId, tipo: 'entrada', data: hoje,
+      descricao: (item.forma ? API.gateway.rotuloForma(item.forma) : _nomeGateway(_gwDe(item))) + ' — ' + (item.produto || 'Recebimento') + (item.comprador ? ' (' + item.comprador + ')' : ''),
+      categoria: 'Vendas ' + _nomeGateway(_gwDe(item)), valor: Math.round(vendaLiquido(item) * 100) / 100,
+      obs: 'Bruto ' + brl(item.valorBruto) + ' · taxas ' + brl(vendaTaxaPlataforma(item) + vendaTaxaAntecip(item)),
+      idusuario: item.idusuario || null, origemVenda: item.id
+    });
+    item.sacado = true; item.dataSaque = hoje; item.caixaId = caixaId;
+    _persistVenda(item);
+  });
+  saveCaixa(caixa);
+  showToast(itens.length + ' saque(s) lançado(s) no Caixa: ' + brl(total));
   render();
 }
 
@@ -1757,7 +1889,7 @@ function renderStatus(s, dias) {
 // ── Lançamentos manuais ──
 const CATEGORIAS_ENTRADA = [
   'Nutrição', 'Treino', 'Assinatura App', 'Personal', 'Consultoria',
-  'Venda avulsa', 'Suplementos', 'Comissão', 'Outro'
+  'Venda avulsa', 'Suplementos', 'Comissão', 'Vendas Eduzz', 'Vendas Asaas', 'Outro'
 ];
 const CATEGORIAS_SAIDA = [
   'Taxa academia', 'Aluguel', 'Imposto', 'Equipamento', 'Manutenção',

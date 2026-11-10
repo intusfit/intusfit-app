@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+  <title>Previsão e metas — Intus</title>
+  <script src="_mock.js?v=20261110b"></script>
+  <script src="api.js?v=20261110f"></script>
+</head>
+<body>
+<script>
+requireLogin();
+renderLayout('Previsão e metas');
+
+const main = document.getElementById('main-content');
+
+// Mesma regra da Gestão: o caixa e as metas da empresa inteira só aparecem para o dono ou para quem recebeu "Ver o caixa da empresa" (ser administrador não basta).
+if (!podeVerGestao()) {
+  main.innerHTML = `
+    <div class="card" style="padding:40px;text-align:center;color:var(--text-muted);">
+      <div style="font-size:40px;margin-bottom:8px;">🔒</div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px;">Acesso restrito</div>
+      <div style="font-size:13px;max-width:430px;margin:0 auto;line-height:1.6;">
+        Esta tela mostra a previsão e as metas da empresa inteira. O acesso é concedido individualmente em <b>Usuários</b>, na permissão "Ver o caixa da empresa".
+      </div>
+    </div>`;
+  throw new Error('sem permissao');
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d) { return d ? new Date(String(d).slice(0,10) + 'T00:00:00').toLocaleDateString('pt-BR') : '—'; }
+function brl(v) { return 'R$ ' + (parseFloat(v || 0)).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d)(?=,))/g, '.'); }
+function brl0(v) { return 'R$ ' + Math.round(parseFloat(v || 0)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+function pct(v, c) { return (v * 100).toFixed(c == null ? 0 : c).replace('.', ',') + '%'; }
+function num(v) { return parseFloat(v || 0) || 0; }
+function hojeISO() { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,10); }
+
+let _hide = localStorage.getItem('intus-hide-values') === '1';
+function brlV(v) { return _hide ? '<span class="valor-hidden">' + brl(v) + '</span>' : brl(v); }
+function brl0V(v) { return _hide ? '<span class="valor-hidden">' + brl0(v) + '</span>' : brl0(v); }
+function toggleHide() { _hide = !_hide; localStorage.setItem('intus-hide-values', _hide ? '1' : '0'); render(); }
+
+// ── dados ───────────────────────────────────────────────────────────────────
+const P = API.previsao;
+let D = { ms: [], caixa: [], metas: {}, leads: null, carregando: true, erros: [] };
+let cenario = 'base';
+let verTodos = false;
+const lerJSON = (k, v) => { try { return JSON.parse(localStorage.getItem(k) || v); } catch (e) { return JSON.parse(v); } };
+
+async function carregar() {
+  const erros = [];
+  let [ms, caixa, metas, leads] = await Promise.all([
+    API.listarMensalidades().catch(() => null),
+    API.listarCaixa().catch(() => null),
+    API.getMetasFinanceiras().catch(() => ({})),
+    buscarLeads().catch(() => null),
+  ]);
+  if (Array.isArray(ms)) Store.set('mensalidades', ms); else { erros.push('matrículas'); ms = lerJSON('intus-mensalidades', '[]'); }
+  if (Array.isArray(caixa)) localStorage.setItem('intus-caixa', JSON.stringify(caixa)); else { erros.push('caixa'); caixa = lerJSON('intus-caixa', '[]'); }
+  D = { ms: ms, caixa: caixa, metas: metas || {}, leads, carregando: false, erros };
+  render();
+}
+// Leads captados (Tráfego e Captação): cada pessoa tem a etapa em que está; "cliente" é quem já pagou. Últimos 6 meses.
+async function buscarLeads() {
+  const tk = localStorage.getItem('mx-token') || '';
+  const ate = hojeISO(), de = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
+  const r = await fetch(API_BASE + '/trafego.php?action=leads&de=' + de + '&ate=' + ate, { headers: { 'Authorization': 'Bearer ' + tk }, cache: 'no-store' });
+  if (!r.ok) return null;
+  const j = await r.json();
+  return Array.isArray(j.pessoas) ? j.pessoas : null;
+}
+
+function calculos() {
+  const hoje = hojeISO();
+  const liqs = lerJSON('intus-eduzz-liquidacao', '{}'), avulsas = lerJSON('intus-vendas-gateway', '[]');
+  const vendasGw = API.gateway.vendas(D.ms, liqs, avulsas);
+  const vendido = (de, ate) => API.gateway.vendidoDoPeriodo(D.ms, vendasGw, de, ate).reduce((s, v) => s + v.liquido, 0);
+  const taxas = P.taxas(D.ms, hoje), novos = P.novos(D.ms, hoje, 6), fator = P.fatorLiquido(D.ms, vendasGw, hoje);
+  // histórico do mesmo jeito da Gestão (vendido líquido + entradas lançadas que não são saque de gateway) e média de saídas dos últimos 3 meses fechados
+  const hist = API.fluxoCaixa.serie({ caixa: D.caixa, hoje, meses: 7, semSaqueGateway: true, entradasExtra: vendido });
+  const fechados = hist.slice(-4, -1);
+  const mediaSaidas = fechados.length ? fechados.reduce((s, m) => s + m.saidas, 0) / fechados.length : 0;
+  const saidasMes = num(D.metas.saidasMes) > 0 ? num(D.metas.saidasMes) : mediaSaidas;
+  const proj = P.projetar(D.ms, { hoje, meses: 6, taxas, novos, cenario, fatorLiquido: fator });
+  const proj3 = ['conservador', 'base', 'otimista'].map(c => P.projetar(D.ms, { hoje, meses: 6, taxas, novos, cenario: c, fatorLiquido: fator }));
+  const ref = hoje.slice(0, 7), de = ref + '-01';
+  const realizado = vendido(de, hoje);
+  const previstoResto = proj.meses[0] ? proj.meses[0].liquido : 0;
+  return { hoje, vendasGw, taxas, novos, fator, hist, mediaSaidas, saidasMes, proj, proj3, realizado, previstoResto, ref };
+}
+
+// ── peças ───────────────────────────────────────────────────────────────────
+function tile(rotulo, valor, nota, cor) {
+  return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:13px 15px;">
+    <div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;">${esc(rotulo)}</div>
+    <div style="font-size:21px;font-weight:900;color:${cor || 'var(--text)'};margin-top:5px;line-height:1.15;">${valor}</div>
+    ${nota ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;line-height:1.45;">${nota}</div>` : ''}</div>`;
+}
+const _abertas = new Set(lerJSON('intus-previsao-explica', '[]'));
+function toggleExplica(id) { _abertas.has(id) ? _abertas.delete(id) : _abertas.add(id); localStorage.setItem('intus-previsao-explica', JSON.stringify([..._abertas])); render(); }
+function explica(id, titulo, corpo) {
+  const aberta = _abertas.has(id);
+  return `<div style="margin-top:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+    <button onclick="toggleExplica('${id}')" style="width:100%;display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--bg3);border:none;cursor:pointer;font-family:inherit;text-align:left;">
+      <span style="font-size:13px;color:var(--text-muted);">${aberta ? '▾' : '▸'}</span><span style="font-size:12px;font-weight:700;color:var(--text-muted);">${esc(titulo)}</span></button>
+    ${aberta ? `<div style="padding:12px 14px;font-size:12.5px;line-height:1.65;color:var(--text-muted);background:var(--bg2);">${corpo}</div>` : ''}</div>`;
+}
+function amostra(b, padrao) {
+  if (b && b.n >= P.MIN_AMOSTRA) return `<span style="color:var(--text-muted);">${b.sim} de ${b.n} casos</span>`;
+  return `<span style="color:#facc15;">poucos casos (${b ? b.n : 0}): usando ${pct(padrao)} por padrão</span>`;
+}
+
+// ── metas ───────────────────────────────────────────────────────────────────
+async function salvarMetas() {
+  const v = id => document.getElementById(id).value;
+  const m = { vendidoMes: v('mt-vendido'), novosMes: v('mt-novos'), renovacaoPct: v('mt-renov'), resultadoMes: v('mt-resultado'), conversaoPct: v('mt-conv'), saidasMes: v('mt-saidas') };
+  try {
+    const r = await API.salvarMetasFinanceiras(m);
+    D.metas = (r && r.metas) || m; localStorage.setItem('intus-metas-fin', JSON.stringify(D.metas));
+    showToast('Metas salvas.'); render();
+  } catch (e) { showToast('Não consegui salvar as metas: ' + (e.message || e), 'error'); }
+}
+function setCenario(c) { cenario = c; render(); }
+function setVerTodos(v) { verTodos = v; render(); }
+
+function render() {
+  if (D.carregando) { main.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);">Calculando a previsão…</div>'; return; }
+  const C = calculos(), M = D.metas;
+  const metaVend = num(M.vendidoMes), metaNovos = num(M.novosMes), metaRen = num(M.renovacaoPct), metaRes = num(M.resultadoMes), metaConv = num(M.conversaoPct);
+  const totalMes = C.realizado + C.previstoResto;
+  const falta = metaVend > 0 ? Math.max(0, metaVend - totalMes) : 0;
+  const rt = C.taxas.renovacao, tPag = C.taxas.pagamento;
+  const rens = C.proj.itens.filter(i => i.tipo === 'renovacao');
+  const ticketRen = rens.length ? rens.reduce((s, i) => s + i.valor, 0) / rens.length : 0;
+  const faltaPara = P.faltaPara(falta, ticketRen * C.fator, C.novos.ticket * C.fator);
+  const lead = D.leads ? P.conversaoLeads(D.leads, C.hoje) : null;
+  const btn = (c, rot) => `<button onclick="setCenario('${c}')" class="btn ${cenario === c ? 'btn-primary' : 'btn-secondary'} btn-sm">${rot}</button>`;
+  const entradaMes = (m) => m.liquido;
+
+  // gráfico: 6 meses de histórico + 6 de previsão. Previsão entra com as saídas médias.
+  const dadosGraf = C.hist.map(h => ({ ...h })).concat(C.proj.meses.map((m, i) => {
+    const real = i === 0 ? C.realizado : 0;
+    const ent = (i === 0 ? real : 0) + m.liquido;
+    return { ref: m.ref, rotulo: m.rotulo, mesAno: m.mesAno, entradas: Math.round(ent * 100) / 100, saidas: Math.round(C.saidasMes * 100) / 100, resultado: Math.round((ent - C.saidasMes) * 100) / 100, categorias: [], previsto: true };
+  })).filter((d, i, a) => !(i < C.hist.length && d.ref === C.proj.meses[0].ref));   // o mês atual aparece uma vez, como previsão que já inclui o que entrou
+
+  const linhasProj = C.proj.meses.map((m, i) => {
+    const ent = (i === 0 ? C.realizado : 0) + m.liquido, sai = C.saidasMes, res = ent - sai;
+    const bate = metaVend > 0 ? ent / metaVend : null;
+    return `<tr><td style="white-space:nowrap;font-weight:700;">${esc(m.mesAno)}${i === 0 ? '<div style="font-size:10.5px;color:var(--text-muted);font-weight:400;">já entrou ' + brl0V(C.realizado) + '</div>' : ''}</td>
+      <td style="text-align:right;">${brl0V(m.renovacoes)}</td><td style="text-align:right;">${brl0V(m.abertos + m.parcelas)}</td>
+      <td style="text-align:right;">${brl0V(m.novas)}<div style="font-size:10.5px;color:var(--text-muted);">~${String(m.nNovas).replace('.', ',')} alunos</div></td>
+      <td style="text-align:right;font-weight:800;color:var(--green);">${brl0V(ent)}</td><td style="text-align:right;color:#f87171;">${brl0V(sai)}</td>
+      <td style="text-align:right;font-weight:800;color:${res < 0 ? '#f87171' : 'var(--text)'};">${res < 0 ? '−' : ''}${brl0V(Math.abs(res))}</td>
+      <td style="text-align:right;">${bate == null ? '—' : `<span class="pill ${bate >= 1 ? 'pill-green' : bate >= 0.8 ? 'pill-yellow' : 'pill-red'}">${pct(bate)}</span>`}</td></tr>`;
+  }).join('');
+
+  const rotTipo = { renovacao: 'Renovação', aberto: 'Em aberto', parcela: 'Parcela' };
+  const lim = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+  const proximos = C.proj.itens.filter(i => i.data <= lim);
+  const lista = verTodos ? proximos : proximos.slice(0, 15);
+  const somaProx = proximos.reduce((s, i) => s + i.esperado, 0), somaCheio = proximos.reduce((s, i) => s + i.valor, 0);
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
+      <div>
+        <h1 style="font-size:22px;font-weight:900;color:var(--text);margin:0;">Previsão e metas</h1>
+        <p style="font-size:13px;color:var(--text-muted);margin:4px 0 0;max-width:640px;line-height:1.55;">O que deve entrar nos próximos meses, calculado com o histórico de pagamentos, as cobranças em aberto, as renovações que estão chegando e a média de alunos novos. É estimativa: cada número mostra de onde vem.</p>
+      </div>
+      <button class="hide-values-btn ${_hide ? 'active' : ''}" onclick="toggleHide()">${_hide ? '🙈 Mostrar' : '👁️ Esconder'} valores</button>
+    </div>
+    ${D.erros.length ? `<div class="card" style="padding:10px 14px;margin-bottom:14px;border-left:3px solid #facc15;font-size:12.5px;color:var(--text-muted);">Não consegui atualizar ${D.erros.join(' e ')} agora; usei a cópia guardada neste aparelho.</div>` : ''}
+
+    <div class="card" style="margin-bottom:18px;">
+      <span class="card-title">🎯 Este mês: ${esc(new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }))}</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px;">
+        ${tile('Já entrou (líquido)', brl0V(C.realizado), 'vendido até hoje, já sem taxa dos gateways', 'var(--green)')}
+        ${tile('Ainda deve entrar', brl0V(C.previstoResto), 'cobranças em aberto, renovações e novas vendas até o fim do mês')}
+        ${tile('Previsão do mês', brl0V(totalMes), metaVend > 0 ? 'meta ' + brl0(metaVend) + ' (' + pct(totalMes / metaVend) + ')' : 'defina a meta abaixo')}
+        ${tile('Falta para a meta', metaVend > 0 ? (falta > 0 ? brl0V(falta) : 'Meta batida') : '—', falta > 0 ? 'equivale a ~' + (faltaPara.renovacoes || '?') + ' renovações ou ~' + (faltaPara.novos || '?') + ' alunos novos' : (metaVend > 0 ? 'a previsão cobre a meta do mês' : ''), falta > 0 ? '#fbbf24' : 'var(--text)')}
+      </div>
+      ${metaVend > 0 ? `<div style="margin-top:14px;"><div style="height:14px;background:var(--bg3);border-radius:8px;overflow:hidden;position:relative;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, C.realizado / metaVend * 100)}%;background:var(--green);"></div>
+        <div style="position:absolute;left:${Math.min(100, C.realizado / metaVend * 100)}%;top:0;bottom:0;width:${Math.max(0, Math.min(100 - C.realizado / metaVend * 100, C.previstoResto / metaVend * 100))}%;background:repeating-linear-gradient(45deg,rgba(127,255,0,.45),rgba(127,255,0,.45) 4px,rgba(127,255,0,.2) 4px,rgba(127,255,0,.2) 8px);"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;"><span>verde: já entrou · listrado: previsto</span><span>meta ${brl0V(metaVend)}</span></div></div>` : ''}
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <span class="card-title">📈 Os últimos meses e os próximos 6</span>
+        <span style="display:flex;gap:6px;flex-wrap:wrap;">${btn('conservador', 'Conservador')}${btn('base', 'Base')}${btn('otimista', 'Otimista')}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin:6px 0 4px;">Cenário <b style="color:var(--text);">${esc(P.CENARIOS[cenario].nome)}</b>: ${cenario === 'conservador' ? 'renovação 10 pontos abaixo da média, pagamento 5 pontos abaixo e 60% dos alunos novos de sempre.' : cenario === 'otimista' ? 'renovação 5 pontos acima, pagamento 2 pontos acima e 25% mais alunos novos.' : 'as taxas medidas no histórico, sem ajuste.'}</div>
+      ${FluxoGrafico.html(dadosGraf, { brl: brl, oculto: _hide, tiles: false, meta: metaVend > 0 ? metaVend : 0 })}
+      <div style="overflow-x:auto;margin-top:14px;"><table class="data-table" style="width:100%;">
+        <thead><tr><th>Mês</th><th style="text-align:right;">Renovações</th><th style="text-align:right;">Em aberto e parcelas</th><th style="text-align:right;">Alunos novos</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Saídas</th><th style="text-align:right;">Resultado</th><th style="text-align:right;">% da meta</th></tr></thead>
+        <tbody>${linhasProj}</tbody></table></div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.5;">Saídas: ${num(M.saidasMes) > 0 ? 'o valor que você definiu nas metas' : 'média dos 3 últimos meses fechados lançada no Caixa (' + brl0(C.mediaSaidas) + ')'}. As entradas já saem líquidas da taxa média dos gateways (${pct(1 - C.fator, 1)}).</div>
+      ${explica('como', 'Como cada número da previsão é calculado', `
+        <b>Em aberto e parcelas</b>: cada cobrança que ainda não foi paga entra na data em que vence (atrasadas entram hoje) multiplicada pela chance de ser paga, medida nas cobranças dos últimos 12 meses (hoje ${pct(tPag.taxa)}, ${tPag.n} casos${tPag.n < P.MIN_AMOSTRA ? '; poucos casos, uso ' + pct(P.PADRAO.pagamento) + ' por padrão' : ''}). Cobrança de mais de 30 dias de atraso vale só ${pct(P.PADRAO.inativa)}.<br><br>
+        <b>Renovações</b>: o último ciclo pago de cada matrícula que vai acabar entra na data do fim, pelo valor do ciclo, multiplicado pela chance de renovar daquela duração de plano, medida nos ciclos que terminaram nos últimos 12 meses. Quem acabou há mais de 45 dias sem renovar é considerado perdido.<br><br>
+        <b>Alunos novos</b>: média de alunos que pagaram pela primeira vez por mês nos últimos 6 meses fechados (${String(Math.round(C.novos.media * 10) / 10).replace('.', ',')} por mês, ticket de ${brl0(C.novos.ticket)} na primeira cobrança). No mês atual conta só a parte que falta do mês.<br><br>
+        <b>Líquido</b>: valor cheio menos a taxa média que Eduzz e Asaas cobraram nos últimos 12 meses. Previsão não conhece promoção, mudança de preço nem sazonalidade: serve para saber o ritmo, e a margem de erro é maior nos meses mais distantes.`)}
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <span class="card-title">🧾 Metas mensais</span>
+      <div style="font-size:12px;color:var(--text-muted);margin:4px 0 12px;">Valem para todos os meses. Deixe em branco o que não quiser acompanhar.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
+        <div class="form-group"><label class="label">Entradas por mês (líquido, R$)</label><input id="mt-vendido" class="input" type="number" min="0" step="100" value="${metaVend || ''}"/></div>
+        <div class="form-group"><label class="label">Alunos novos por mês</label><input id="mt-novos" class="input" type="number" min="0" step="1" value="${metaNovos || ''}"/></div>
+        <div class="form-group"><label class="label">Renovação (%)</label><input id="mt-renov" class="input" type="number" min="0" max="100" step="1" value="${metaRen || ''}"/></div>
+        <div class="form-group"><label class="label">Resultado por mês (R$)</label><input id="mt-resultado" class="input" type="number" min="0" step="100" value="${metaRes || ''}"/></div>
+        <div class="form-group"><label class="label">Conversão de leads (%)</label><input id="mt-conv" class="input" type="number" min="0" max="100" step="1" value="${metaConv || ''}"/></div>
+        <div class="form-group"><label class="label">Saídas por mês (R$, opcional)</label><input id="mt-saidas" class="input" type="number" min="0" step="100" value="${num(M.saidasMes) || ''}" placeholder="usa a média"/></div>
+      </div>
+      <div style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="salvarMetas()">Salvar metas</button></div>
+      ${(metaVend || metaNovos || metaRes) ? metasMeses(C, metaVend, metaNovos, metaRes) : ''}
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <span class="card-title">📅 O que vence nos próximos 60 dias</span>
+      <div style="font-size:12px;color:var(--text-muted);margin:4px 0 10px;">${proximos.length} cobrança(s) e renovação(ões): ${brl0V(somaCheio)} se tudo entrar, ${brl0V(somaProx)} esperado pelo histórico.</div>
+      ${proximos.length === 0 ? '<div style="font-size:13px;color:var(--text-muted);">Nada vencendo nos próximos 60 dias.</div>' : `
+      <div style="overflow-x:auto;"><table class="data-table" style="width:100%;"><thead><tr><th>Quando</th><th>Aluno</th><th>Plano</th><th>Tipo</th><th style="text-align:right;">Valor</th><th style="text-align:right;">Chance</th><th style="text-align:right;">Esperado</th></tr></thead><tbody>
+        ${lista.map(i => `<tr><td style="white-space:nowrap;">${i.data === C.hoje && i.estado !== 'pendente' && i.estado !== 'programada' ? 'agora' : fmtDate(i.data)}</td><td class="td-name">${esc(i.nome || '—')}</td><td style="font-size:12px;">${esc(i.plano)}</td>
+          <td><span class="pill ${i.tipo === 'renovacao' ? 'pill-green' : i.tipo === 'parcela' ? 'pill-yellow' : 'pill-red'}">${rotTipo[i.tipo]}</span></td>
+          <td style="text-align:right;">${brlV(i.valor)}</td><td style="text-align:right;">${pct(i.prob)}</td><td style="text-align:right;font-weight:700;">${brlV(i.esperado)}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${proximos.length > 15 ? `<div style="margin-top:10px;"><button class="btn btn-secondary btn-sm" onclick="setVerTodos(${!verTodos})">${verTodos ? 'Mostrar só os 15 primeiros' : 'Ver todos os ' + proximos.length}</button></div>` : ''}`}
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <span class="card-title">📊 A base da previsão</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px;">
+        ${tile('Renovação (geral)', rt.geral.n ? pct(rt.geral.taxa) : '—', amostra(rt.geral, P.PADRAO.renovacao) + (metaRen ? ' · meta ' + metaRen + '%' : ''), metaRen && rt.geral.n && rt.geral.taxa * 100 >= metaRen ? 'var(--green)' : 'var(--text)')}
+        ${['1', '3', '6', '12'].filter(k => rt.porMeses[k]).map(k => tile('Renovação, plano de ' + k + (k === '1' ? ' mês' : ' meses'), pct(rt.porMeses[k].taxa), amostra(rt.porMeses[k], P.PADRAO.renovacao))).join('')}
+        ${tile('Pagamento das cobranças', tPag.n ? pct(tPag.taxa) : '—', amostra(tPag, P.PADRAO.pagamento))}
+        ${tile('Alunos novos por mês', String(Math.round(C.novos.media * 10) / 10).replace('.', ','), 'média dos últimos 6 meses fechados' + (metaNovos ? ' · meta ' + metaNovos : ''), metaNovos && C.novos.media >= metaNovos ? 'var(--green)' : 'var(--text)')}
+        ${tile('Ticket do aluno novo', brl0V(C.novos.ticket), 'valor da primeira cobrança, em média')}
+        ${tile('Taxa média dos gateways', pct(1 - C.fator, 1), 'Eduzz e Asaas, últimos 12 meses')}
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-title">🧲 Conversão de leads</span>
+      ${lead === null ? '<div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Não consegui ler as pessoas captadas agora. Abra Tráfego e Captação para conferir a medição.</div>' : `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px;">
+        ${tile('Leads dos últimos 6 meses', String(lead.leads), 'pessoas captadas, sem as dos últimos 14 dias (ainda não deu tempo de comprar)')}
+        ${tile('Viraram aluno pagante', String(lead.clientes), 'etapa "Virou cliente" em Pessoas Captadas')}
+        ${tile('Conversão', lead.leads ? pct(lead.taxa, 1) : '—', metaConv ? 'meta ' + metaConv + '%' : '', metaConv && lead.leads && lead.taxa * 100 >= metaConv ? 'var(--green)' : 'var(--text)')}
+        ${tile('Leads para a meta de alunos novos', lead.taxa > 0 && metaNovos ? '~' + Math.ceil(metaNovos / lead.taxa) + ' por mês' : '—', lead.taxa > 0 && metaNovos ? 'para ' + metaNovos + ' alunos novos por mês na conversão de hoje' : 'defina a meta de alunos novos para calcular')}
+      </div>
+      ${lead.porMes.length ? `<div style="overflow-x:auto;margin-top:12px;"><table class="data-table" style="width:100%;"><thead><tr><th>Mês de entrada</th><th style="text-align:right;">Leads</th><th style="text-align:right;">Viraram aluno</th><th style="text-align:right;">Conversão</th></tr></thead><tbody>
+        ${lead.porMes.map(m => `<tr><td>${esc(m.ref.slice(5, 7) + '/' + m.ref.slice(0, 4))}</td><td style="text-align:right;">${m.leads}</td><td style="text-align:right;">${m.clientes}</td><td style="text-align:right;font-weight:700;">${pct(m.taxa, 1)}</td></tr>`).join('')}
+      </tbody></table></div>` : ''}
+      ${explica('leads', 'Como a conversão é medida', 'Cada pessoa captada (visitou o teste grátis, deixou o contato ou criou o acesso) fica numa etapa. A conversão é a parte dessas pessoas que hoje está na etapa "Virou cliente", isto é, tem matrícula paga. Quem entrou há menos de 14 dias fica de fora porque ainda pode comprar. Leads que compraram sem passar pelo teste grátis não aparecem aqui.')}`}
+    </div>`;
+}
+
+// Cada mês fechado contra a meta: entradas, alunos novos e resultado.
+function metasMeses(C, metaVend, metaNovos, metaRes) {
+  const fech = C.hist.slice(0, -1).slice(-3);
+  const novosPor = {}; C.novos.meses.forEach(m => novosPor[m.ref] = m.n);
+  const cel = (v, meta, fmt) => meta > 0 ? `<td style="text-align:right;">${fmt(v)} <span class="pill ${v >= meta ? 'pill-green' : v >= meta * 0.8 ? 'pill-yellow' : 'pill-red'}">${pct(v / meta)}</span></td>` : '<td style="text-align:right;color:var(--text-muted);">—</td>';
+  return `<div style="overflow-x:auto;margin-top:14px;"><table class="data-table" style="width:100%;"><thead><tr><th>Mês fechado</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Alunos novos</th><th style="text-align:right;">Resultado</th></tr></thead><tbody>
+    ${fech.map(m => `<tr><td>${esc(m.mesAno)}</td>${cel(m.entradas, metaVend, brl0V)}${cel(novosPor[m.ref] || 0, metaNovos, v => String(v))}${cel(m.resultado, metaRes, brl0V)}</tr>`).join('')}</tbody></table></div>`;
+}
+
+if (!document.getElementById('hide-val-style')) {
+  const _s = document.createElement('style');
+  _s.id = 'hide-val-style';
+  _s.textContent = '.hide-values-btn{background:none;border:1px solid var(--border,#333);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px;font-family:inherit;}.hide-values-btn.active{border-color:var(--green);background:rgba(127,255,0,.08);color:var(--green);}.valor-hidden{filter:blur(6px);user-select:none;pointer-events:none;}';
+  document.head.appendChild(_s);
+}
+
+render();
+carregar();
+</script>
+</body>
+</html>

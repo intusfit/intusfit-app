@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Gestão — Intus</title>
-  <script src="_mock.js?v=20261110a"></script>
-  <script src="api.js?v=20261110e"></script>
+  <script src="_mock.js?v=20261110b"></script>
+  <script src="api.js?v=20261110f"></script>
 </head>
 <body>
 <script>
@@ -79,41 +79,26 @@ const caixaManual   = () => lerJSON('intus-caixa', '[]');
 const liquidacoes   = () => lerJSON('intus-eduzz-liquidacao', '{}');
 const vendasAvulsas = () => lerJSON('intus-vendas-gateway', '[]');
 
-function ehEduzz(m) { return String(m.forma_pgto || '').toLowerCase() === 'eduzz'; }
+// Forma de gateway (Eduzz ou Asaas Pix, Boleto, Cartao): o dinheiro so vale no Caixa quando o gateway libera e voce saca.
+function ehGateway(m) { return !!API.gateway.da(m.forma_pgto); }
 function valorPago(m) { const v = (m.vlpagamento != null && m.vlpagamento !== '') ? m.vlpagamento : m.vlpagar; return num(v); }
 
-// Toda venda pelo gateway — matricula paga por Eduzz ou venda avulsa — com a
-// mesma forma, para o resto da tela nao precisar saber a origem.
-function vendasGateway() {
-  const liqs = liquidacoes();
-  const daMatricula = mensalidades()
-    .filter(m => String(m.stpgto).toUpperCase() === 'S' && ehEduzz(m) && m.dtpagamento)
-    .map(m => ({ id: 'mn-' + m.idmensalidade, quem: m.nmathleta || 'Cliente',
-      produto: m.dshistorico || 'Plano', bruto: valorPago(m),
-      data: String(m.dtpagamento).slice(0,10), liq: liqs[m.idmensalidade] || {} }));
-  const avulsas = vendasAvulsas().map(v => ({ id: 'av-' + v.id, quem: v.comprador || '—',
-    produto: v.produto || 'Venda avulsa', bruto: num(v.valorBruto),
-    data: String(v.dataVenda || '').slice(0,10), liq: v }));
-  return [...daMatricula, ...avulsas].filter(v => v.data).map(v => {
-    const cfg = { valorBruto: v.bruto, taxaPct: v.liq.taxaPct, taxaFixo: v.liq.taxaFixo,
-      prazoDias: v.liq.prazoDias, antecipado: v.liq.antecipado, dataAntecip: v.liq.dataAntecip,
-      taxaAntecipValor: v.liq.taxaAntecipValor, sacado: v.liq.sacado, dataVenda: v.data };
-    return { ...v, liquido: API.eduzzLiquido(cfg), liberacao: API.eduzzLiberacao(cfg), estado: API.eduzzStatus(cfg) };
-  });
-}
+// Toda venda pelo gateway (Eduzz ou Asaas): matricula paga por gateway ou venda avulsa, com a
+// mesma forma, para o resto da tela nao precisar saber a origem. Taxa e prazo vem de API.gateway.
+function vendasGateway() { return API.gateway.vendas(mensalidades(), liquidacoes(), vendasAvulsas()); }
 
 // ── O CAIXA DA EMPRESA ──────────────────────────────────────────────────────
 // Tres potes, que e como voce descreveu:
 //   na conta   dinheiro que ja esta com voce
-//   liberado   vendido pela Eduzz, prazo cumprido, esperando o saque
-//   retido     vendido pela Eduzz, ainda dentro do prazo
+//   liberado   vendido por gateway (Eduzz ou Asaas), prazo cumprido, esperando o saque
+//   retido     vendido por gateway, ainda dentro do prazo
 // O retido JA foi contado como venda no mes em que o aluno pagou. Quando ele
 // liberar, muda de pote aqui dentro — nao vira faturamento de novo no mes da
 // liberacao. E isso que impede o mesmo dinheiro de aparecer em dois meses.
 function caixaEmpresa() {
   const hoje = hojeISO();
   const matNaoEduzz = mensalidades()
-    .filter(m => String(m.stpgto).toUpperCase() === 'S' && !ehEduzz(m) && m.dtpagamento && String(m.dtpagamento).slice(0,10) <= hoje)
+    .filter(m => String(m.stpgto).toUpperCase() === 'S' && !ehGateway(m) && m.dtpagamento && String(m.dtpagamento).slice(0,10) <= hoje)
     .reduce((s, m) => s + valorPago(m), 0);
   const manual = caixaManual().filter(c => String(c.data || '').slice(0,10) <= hoje)
     .reduce((s, c) => s + (c.tipo === 'saida' ? -num(c.valor) : num(c.valor)), 0);
@@ -129,14 +114,7 @@ function caixaEmpresa() {
 // Conta pela data em que o ALUNO PAGOU, nao pela data em que o dinheiro ficou
 // disponivel. E este numero que serve para meta e projecao: ele mede o que a
 // operacao vendeu naquele mes, e nao o que o gateway resolveu liberar.
-function vendasDoPeriodo(de, ate) {
-  const dentro = (d) => d && d >= de && d <= ate;
-  const direto = mensalidades()
-    .filter(m => String(m.stpgto).toUpperCase() === 'S' && !ehEduzz(m) && dentro(String(m.dtpagamento || '').slice(0,10)))
-    .map(m => ({ quem: m.nmathleta || 'Cliente', produto: m.dshistorico || 'Plano',
-      bruto: valorPago(m), liquido: valorPago(m), estado: 'conta', data: String(m.dtpagamento).slice(0,10) }));
-  return [...direto, ...vendasGateway().filter(v => dentro(v.data))];
-}
+function vendasDoPeriodo(de, ate) { return API.gateway.vendidoDoPeriodo(mensalidades(), vendasGateway(), de, ate); }
 
 // ── INDICADORES ─────────────────────────────────────────────────────────────
 function indicadores(de, ate) {
@@ -221,7 +199,7 @@ function serieMensal(nMeses) {
 
 // ── FLUXO: ENTRADAS, SAIDAS E RESULTADO ─────────────────────────────────────
 // Entradas = o vendido do mes (liquido de taxa, pela data em que o aluno pagou, como no grafico de vendas) + entradas lancadas a mao no
-// Caixa que nao sejam saque da Eduzz (esse dinheiro ja esta no vendido). Saidas = o que foi lancado como saida no Caixa.
+// Caixa que nao sejam saque de gateway (esse dinheiro ja esta no vendido). Saidas = o que foi lancado como saida no Caixa.
 // A regra mora em API.fluxoCaixa; aqui so se diz de onde vem o vendido.
 const vendidoLiquido = (de, ate) => vendasDoPeriodo(de, ate).reduce((s, v) => s + v.liquido, 0);
 function fluxoSerie(n) {
@@ -531,14 +509,14 @@ function render() {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
         ${tile('Na conta', brlV(cx.conta), 'var(--green)', 'dinheiro que já está com você')}
-        ${tile('Liberado na Eduzz', brlV(cx.liberado), _corDisp(), 'prazo cumprido, dá para sacar')}
-        ${tile('Retido na Eduzz', brlV(cx.retido), _corRet(), cx.aLiberar.length + ' venda(s) esperando o prazo')}
+        ${tile('Liberado nos gateways', brlV(cx.liberado), _corDisp(), 'Eduzz e Asaas, prazo cumprido, dá para sacar')}
+        ${tile('Retido nos gateways', brlV(cx.retido), _corRet(), cx.aLiberar.length + ' venda(s) esperando o prazo')}
         ${tile('Total da empresa', brlV(cx.total), 'var(--text)', 'os três potes somados')}
       </div>
       ${explica('caixa', 'Por que o total da empresa não é o mesmo que o dinheiro disponível', `
         São três potes com o mesmo dinheiro em estágios diferentes. <b>Na conta</b> é o que já entrou.
-        <b>Liberado</b> é o que a Eduzz já soltou e está lá esperando o saque. <b>Retido</b> é o que o
-        aluno já pagou mas ainda está dentro do prazo de ${API.EDUZZ_PRAZO_DIAS} dias.<br><br>
+        <b>Liberado</b> é o que a Eduzz ou o Asaas já soltou e está lá esperando o saque. <b>Retido</b> é o que o
+        aluno já pagou mas ainda está dentro do prazo: ${API.EDUZZ_PRAZO_DIAS} dias na Eduzz; no Asaas, Pix cai na hora, boleto em 1 dia útil e cartão em 32 dias.<br><br>
         O ponto que importa: <b>o retido já foi contado como venda no mês em que o aluno pagou</b>.
         Quando ele liberar, muda de pote aqui dentro — não vira faturamento de novo no mês da
         liberação. É isso que impede o mesmo valor de aparecer em dois meses seguidos.`)}
@@ -569,7 +547,7 @@ function render() {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
         ${tile('Vendido no período', brlV(ind.bruto), 'var(--green)', 'valor cheio, é a base das metas')}
-        ${tile('Líquido esperado', brlV(ind.liquido), 'var(--text)', 'já sem as taxas da Eduzz')}
+        ${tile('Líquido esperado', brlV(ind.liquido), 'var(--text)', 'já sem as taxas dos gateways')}
         ${tile('Deste período, já disponível', brlV(dispP), _corDisp(), '')}
         ${tile('Deste período, ainda retido', brlV(retP), _corRet(), '')}
       </div>
@@ -581,7 +559,7 @@ function render() {
         <b>Vendido</b> conta pela data em que o aluno pagou, não pela data em que o dinheiro caiu na
         conta. É o número que mede o que a operação vendeu naquele mês, e por isso é ele que serve
         para meta e projeção. Se você usar o dinheiro disponível como faturamento, um mês bom de
-        vendas parece fraco só porque a Eduzz ainda não liberou.<br><br>
+        vendas parece fraco só porque a Eduzz ou o Asaas ainda não liberou.<br><br>
         <b>Líquido esperado</b> desconta a taxa da plataforma: é o que de fato vai chegar.<br><br>
         As duas últimas caixas quebram o vendido deste período entre o que já está na mão e o que
         ainda está retido — a ponte entre esta seção e o caixa lá em cima.`)}
@@ -600,11 +578,11 @@ function render() {
       <div style="font-size:12px;color:var(--text-muted);margin:4px 0 4px;">Cada mês tem uma barra de entradas e uma de saídas, e o losango mostra o que sobrou ou faltou. Passe o mouse (ou o dedo) sobre um mês para ver o resultado, as saídas por categoria e os meses anteriores.</div>
       ${FluxoGrafico.html(fluxo, { brl: brl, oculto: _hide })}
       ${explica('fluxo', 'De onde vêm as entradas e as saídas deste gráfico', `
-        <b>Entradas</b> são o vendido do mês (já sem as taxas da Eduzz, pela data em que o aluno pagou) mais as entradas que você lançou à mão no
-        Caixa. O saque da Eduzz lançado no Caixa não entra de novo, porque aquela venda já foi contada no mês em que o aluno pagou.<br><br>
+        <b>Entradas</b> são o vendido do mês (já sem as taxas da Eduzz e do Asaas, pela data em que o aluno pagou) mais as entradas que você lançou à mão no
+        Caixa. O saque da Eduzz ou do Asaas lançado no Caixa não entra de novo, porque aquela venda já foi contada no mês em que o aluno pagou.<br><br>
         <b>Saídas</b> são só o que está lançado como saída no Caixa, na data de cada lançamento (por exemplo, os pagamentos da equipe). Gasto que
         não foi lançado não aparece aqui, e o resultado do mês fica maior do que a realidade.<br><br>
-        Por isso o resultado de um mês pode diferir da variação do saldo "Na conta": o vendido da Eduzz entra no mês da venda, e o dinheiro só
+        Por isso o resultado de um mês pode diferir da variação do saldo "Na conta": o vendido por gateway entra no mês da venda, e o dinheiro só
         chega à conta quando é sacado.`)}
     </div>
 

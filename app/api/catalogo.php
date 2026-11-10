@@ -2016,6 +2016,35 @@ if ($action === 'ranking_regras') {
     }
 }
 
+// ═══════════════ METAS FINANCEIRAS (tela Previsão e metas) ═══════════════
+// Metas mensais da empresa. Só quem vê o caixa da empresa (administrador ou fin_empresa), como o próprio caixa. Guarda só números conhecidos, dentro de limites.
+if ($action === 'metas_financeiras') {
+    if ($_ehAluno) { http_response_code(403); echo json_encode(['error' => 'restrito ao professor']); exit; }
+    if (empty($_ctx['admin']) && !(function_exists('usuarioTemPermissao') && usuarioTemPermissao($pdo, (int)($_ctx['idusuario'] ?? 0), 'fin_empresa'))) {
+        http_response_code(403); echo json_encode(['error' => 'restrito ao administrador']); exit;
+    }
+    if ($method === 'GET') {
+        $st = $pdo->prepare("SELECT valor FROM intus_config WHERE chave = 'metas_financeiras'");
+        $st->execute();
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        echo ($row && $row['valor']) ? $row['valor'] : json_encode(new stdClass());
+        exit;
+    }
+    if ($method === 'PUT' || $method === 'POST') {
+        $b = jsonBody();
+        $teto = ['vendidoMes' => 10000000, 'novosMes' => 5000, 'renovacaoPct' => 100, 'resultadoMes' => 10000000, 'conversaoPct' => 100, 'saidasMes' => 10000000];
+        $out = [];
+        foreach ($teto as $k => $max) {
+            if (!isset($b[$k]) || $b[$k] === '' || !is_numeric($b[$k])) continue;
+            $out[$k] = round(max(0, min($max, (float)$b[$k])), 2);
+        }
+        $st = $pdo->prepare("REPLACE INTO intus_config (chave, valor) VALUES ('metas_financeiras', ?)");
+        $st->execute([json_encode($out ?: new stdClass())]);
+        echo json_encode(['ok' => true, 'metas' => $out ?: new stdClass()]);
+        exit;
+    }
+}
+
 // ═══════════════ CONFIG DE NOTIFICAÇÕES (Automáticas + Config) — persistência no servidor ═══════════════
 if ($action === 'notif_config') {
     if ($method === 'GET') {

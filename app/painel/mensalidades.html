@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Matrículas — Intus</title>
-  <script src="_mock.js?v=20261110a"></script>
-  <script src="api.js?v=20261110e"></script>
+  <script src="_mock.js?v=20261110b"></script>
+  <script src="api.js?v=20261110f"></script>
   <script src="kanban.js?v=20261023b"></script>
   <style>
     /* ── MODAL EXTRA WIDTH ── */
@@ -830,7 +830,7 @@ function _statusPill(m) {
 // Resumo para o cabecalho da matricula: ha sinal de baixa no ciclo errado?
 
 // ── Plano parcelado: etiqueta da parcela e acoes que valem para a serie ───────────────────────────────────────────────
-function _formaRot(f) { return { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', eduzz: 'Eduzz' }[String(f || '').toLowerCase()] || ''; }
+function _formaRot(f) { return (typeof API !== 'undefined' && API.gateway) ? API.gateway.rotuloForma(f) : ({ pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', boleto: 'Boleto', eduzz: 'Eduzz' }[String(f || '').toLowerCase()] || ''); }
 function _ehParc(m) { return typeof API !== 'undefined' && API.ehParcelada && API.ehParcelada(m); }
 function _pillParcela(m, curta) {
   if (!_ehParc(m)) return '';
@@ -1077,6 +1077,9 @@ function marcarPago(id) {
           ${opt('cartao', 'Cartão (crédito/débito)')}
           ${opt('boleto', 'Boleto')}
           ${opt('eduzz', 'Eduzz')}
+          ${opt('asaas_pix', 'Asaas Pix')}
+          ${opt('asaas_boleto', 'Asaas Boleto')}
+          ${opt('asaas_cartao', 'Asaas Cartão')}
         </select>
       </div>
       <div id="pg-eduzz-nota" style="display:none;background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);margin-bottom:12px;">
@@ -1151,10 +1154,11 @@ function _pgValorMudou(automatico) {
   manter.style.display = 'block';
 }
 
+function _notaGateway(f) { const g = (typeof API !== 'undefined' && API.gateway) ? API.gateway.da(f) : null; if (g === 'eduzz') return 'Via <b>Eduzz</b>: o valor fica retido ~30 dias e entra no Caixa (líquido) só no saque. Acompanhe em <b>Financeiro › Recebimentos</b>.'; if (g === 'asaas') { const t = API.gateway.tipoAsaas(f), p = API.ASAAS_PRESETS[t]; return 'Via <b>' + API.gateway.rotuloForma(f) + '</b>: o Asaas cobra ' + (p.pct ? p.pct.toString().replace('.', ',') + '% + ' : '') + 'R$ ' + p.fixo.toFixed(2).replace('.', ',') + ' e libera ' + (p.prazo.n === 0 ? 'na hora' : (p.prazo.n + (p.prazo.uteis ? ' dia útil' : ' dias'))) + ' depois do pagamento. Só entra no Caixa quando virar saque, em <b>Financeiro › Recebimentos</b>.'; } return ''; }
 function _onFormaPgto() {
   const f = document.getElementById('pg-forma')?.value;
   const nota = document.getElementById('pg-eduzz-nota');
-  if (nota) nota.style.display = (f === 'eduzz') ? 'block' : 'none';
+  if (nota) { const t = _notaGateway(f); nota.innerHTML = t; nota.style.display = t ? 'block' : 'none'; }
   if (window._pgId) _pgValorMudou(true);   // a oferta de manter o restante em aberto depende da forma (Pix ou dinheiro)
 }
 
@@ -1578,6 +1582,7 @@ function _asaasNome(idatleta) {
   return (a && a.nome) || ('#' + idatleta);
 }
 const _ASAAS_FORMA = { pix: 'Pix', cartao: 'cartão', boleto: 'boleto', dinheiro: 'dinheiro' };
+const _ASAAS_FORMA_BAIXA = { pix: 'asaas_pix', boleto: 'asaas_boleto', cartao: 'asaas_cartao' };   // forma da matrícula quando a baixa vem do Asaas
 function _asaasBanner() {
   if (!hasPerm('mt_editar')) return '';
   const rec = _asaas.recebidas || [], est = _asaas.estornos || [];
@@ -1597,7 +1602,7 @@ function asaasDarBaixa(idm) {
   if (!r) return;
   // abre o formulário de sempre já preenchido com o que o Asaas recebeu
   const f = document.getElementById('pg-forma'), d = document.getElementById('pg-data'), v = document.getElementById('pg-valor');
-  if (f && _ASAAS_FORMA[r.forma]) { f.value = r.forma; _onFormaPgto(); }
+  if (f && _ASAAS_FORMA[r.forma]) { f.value = _ASAAS_FORMA_BAIXA[r.forma] || r.forma; _onFormaPgto(); }
   if (d && r.recebido_em) d.value = String(r.recebido_em).slice(0, 10);
   if (v && r.valor_recebido) { v.value = Number(r.valor_recebido).toFixed(2); _pgValorMudou(); }
 }
@@ -2261,6 +2266,9 @@ function abrirModalMatricula(editId) {
             <option value="dinheiro">Dinheiro</option>
             <option value="cartao">Cartão</option>
             <option value="eduzz">Eduzz</option>
+            <option value="asaas_pix">Asaas Pix</option>
+            <option value="asaas_boleto">Asaas Boleto</option>
+            <option value="asaas_cartao">Asaas Cartão</option>
           </select>
         </div>
       </div>
@@ -2275,6 +2283,9 @@ function abrirModalMatricula(editId) {
           <option value="pix" ${dados?.forma_pgto==='pix'?'selected':''}>PIX</option>
           <option value="dinheiro" ${dados?.forma_pgto==='dinheiro'?'selected':''}>Dinheiro</option>
           <option value="eduzz" ${dados?.forma_pgto==='eduzz'?'selected':''}>Eduzz</option>
+          <option value="asaas_pix" ${dados?.forma_pgto==='asaas_pix'?'selected':''}>Asaas Pix</option>
+          <option value="asaas_boleto" ${dados?.forma_pgto==='asaas_boleto'?'selected':''}>Asaas Boleto</option>
+          <option value="asaas_cartao" ${dados?.forma_pgto==='asaas_cartao'?'selected':''}>Asaas Cartão</option>
         </select>
       </div>
       `}
