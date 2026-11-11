@@ -623,9 +623,7 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
                ['asaas', 'Código da Definição, plano anual, cupom CDD20OFF', 'joy0ay7gvincodyi', 12, 558.40, $A . 'joy0ay7gvincodyi', 0, 11],
                ['asaas', 'Código da Definição, plano anual, cupom MARLENE20', '7sj7f4xxg7y722jl', 12, 558.40, $A . '7sj7f4xxg7y722jl', 0, 12],
                ['asaas', 'Código da Definição, plano anual, cupom CDD40OFF', 'l67yzditsvrdvj51', 12, 418.80, $A . 'l67yzditsvrdvj51', 0, 13],
-               ['asaas', 'Código da Definição, plano anual, cupom SOS', 'l9b35l4qm2wjzfrn', 12, 488.60, $A . 'l9b35l4qm2wjzfrn', 0, 14],
-               ['asaas', 'Código da Definição, plano anual, cupom CAMIDIVA', 'pttozkp4hcrl9cyx', 12, 488.60, $A . 'pttozkp4hcrl9cyx', 0, 15],
-               ['asaas', 'Código da Definição, plano anual, cupom ESPECIALCAMILA', 'zo15nqi1r8h6t5ih', 12, 318.80, $A . 'zo15nqi1r8h6t5ih', 0, 16]];
+               ['asaas', 'Código da Definição, plano anual, cupom SOS', 'l9b35l4qm2wjzfrn', 12, 488.60, $A . 'l9b35l4qm2wjzfrn', 0, 14]];
         $novas = 0;
         foreach ($of as $o) {
             $st = $pdo->prepare('SELECT idoferta FROM cdd_oferta WHERE gateway = ? AND ref_gateway = ?'); $st->execute([$o[0], $o[2]]);
@@ -637,7 +635,7 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
         // o semestral do Eduzz já existia sem valor (R$ 447 foi definido em 07/11/2026); só preenche o que está vazio
         $pdo->exec("UPDATE cdd_oferta SET valor = 447.00 WHERE gateway = 'eduzz' AND ref_gateway = '2947166' AND valor IS NULL");
         $cup = [['CDD20OFF', 'percentual', 20, '20% de desconto'], ['MARLENE20', 'percentual', 20, '20% de desconto'], ['CDD40OFF', 'percentual', 40, '40% de desconto'],
-                ['SOS', 'percentual', 30, '30% de desconto'], ['CAMIDIVA', 'percentual', 30, '30% de desconto'], ['ESPECIALCAMILA', 'valor', 379.20, 'R$ 379,20 de desconto']];
+                ['SOS', 'percentual', 30, '30% de desconto']];
         $nc = 0;
         foreach ($cup as $c) {
             $st = $pdo->prepare("SELECT idcupom FROM cdd_cupom WHERE codigo = ? AND gateway = 'eduzz'"); $st->execute([$c[0]]);
@@ -647,7 +645,7 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
             $nc++;
         }
         // Cupons no Asaas: um link por cupom, só no plano anual (o do mensal valeria em toda cobrança do mês, para sempre). O cupom aponta para a oferta que tem o link já descontado.
-        $refCupom = ['CDD20OFF' => 'joy0ay7gvincodyi', 'MARLENE20' => '7sj7f4xxg7y722jl', 'CDD40OFF' => 'l67yzditsvrdvj51', 'SOS' => 'l9b35l4qm2wjzfrn', 'CAMIDIVA' => 'pttozkp4hcrl9cyx', 'ESPECIALCAMILA' => 'zo15nqi1r8h6t5ih'];
+        $refCupom = ['CDD20OFF' => 'joy0ay7gvincodyi', 'MARLENE20' => '7sj7f4xxg7y722jl', 'CDD40OFF' => 'l67yzditsvrdvj51', 'SOS' => 'l9b35l4qm2wjzfrn'];
         foreach ($cup as $c) {
             $so = $pdo->prepare("SELECT idoferta FROM cdd_oferta WHERE gateway = 'asaas' AND ref_gateway = ?"); $so->execute([$refCupom[$c[0]]]);
             $idof = (int)$so->fetchColumn();
@@ -657,6 +655,13 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
             $pdo->prepare('INSERT INTO cdd_cupom (codigo, gateway, tipo, valor, idoferta, ativo, obs, criado_em) VALUES (?, ?, ?, ?, ?, 1, ?, ?)')
                 ->execute([$c[0], 'asaas', $c[1], $c[2], $idof, cddStr($c[3] . ' no plano anual. Link próprio no Asaas.', 200), cddAgora()]);
             $nc++;
+        }
+        // Cupons cancelados pelo Luiz (11/11/2026): saem do painel junto com a oferta do link do Asaas, a menos que já exista pagamento ligado a ela (aí só ficam desligados).
+        $fora = ['CAMIDIVA', 'ESPECIALCAMILA']; $refsFora = ['pttozkp4hcrl9cyx', 'zo15nqi1r8h6t5ih'];
+        foreach ($fora as $cod) $pdo->prepare('DELETE FROM cdd_cupom WHERE codigo = ?')->execute([$cod]);
+        foreach ($refsFora as $ref) {
+            $pdo->prepare("UPDATE cdd_oferta SET ativo = 0 WHERE gateway = 'asaas' AND ref_gateway = ?")->execute([$ref]);
+            $pdo->prepare("DELETE FROM cdd_oferta WHERE gateway = 'asaas' AND ref_gateway = ? AND idoferta NOT IN (SELECT idoferta FROM cdd_pagamento WHERE idoferta IS NOT NULL) AND idoferta NOT IN (SELECT idoferta FROM cdd_cupom WHERE idoferta IS NOT NULL)")->execute([$ref]);
         }
         return cddResp(200, ['ofertas_novas' => $novas, 'cupons_novos' => $nc]);
     }

@@ -696,10 +696,18 @@ eq('segredo errado é recusado (401) e não cria ninguém', $s === 401 && $qtCam
 eq('gateway desconhecido (404)', $s === 404);
 [$s, $d] = req('webhook', 'POST', ['g' => 'eduzz'], $aviso('invoice_paid'));
 eq('produto sem oferta cadastrada só é registrado, sem criar aluna', $s === 200 && $d['resultado'] === 'produto_desconhecido' && $qtCamila() === 0);
+// linhas que o Luiz já tinha carregado antes de cancelar estes dois cupons
+$agoraP = cddAgora();
+foreach ([['pttozkp4hcrl9cyx', 'CAMIDIVA'], ['zo15nqi1r8h6t5ih', 'ESPECIALCAMILA']] as $velho) {
+    $pdo->exec("INSERT INTO cdd_oferta (nome, gateway, ref_gateway, meses, valor, link, ativo, ordem, criado_em) VALUES ('Código da Definição, plano anual, cupom {$velho[1]}', 'asaas', '{$velho[0]}', 12, 488.60, 'https://www.asaas.com/c/{$velho[0]}', 0, 15, '$agoraP')");
+    $pdo->exec("INSERT INTO cdd_cupom (codigo, gateway, tipo, valor, idoferta, ativo, criado_em) VALUES ('{$velho[1]}', 'asaas', 'percentual', 30, " . (int)$pdo->lastInsertId() . ", 1, '$agoraP')");
+    $pdo->exec("INSERT INTO cdd_cupom (codigo, gateway, tipo, valor, ativo, criado_em) VALUES ('{$velho[1]}', 'eduzz', 'percentual', 30, 1, '$agoraP')");
+}
 [$s, $d] = req('a_com_padroes', 'POST', [], [], $tAdmin);
-eq('ofertas e cupons padrão entram (3 do Eduzz e 9 do Asaas desligadas; 6 cupons do Eduzz e 6 do Asaas)', $s === 200 && $d['ofertas_novas'] === 12 && $d['cupons_novos'] === 12, json_encode($d));
+eq('ofertas e cupons padrão entram (3 do Eduzz e 7 do Asaas desligadas; 4 cupons do Eduzz e 4 do Asaas)', $s === 200 && $d['ofertas_novas'] === 10 && $d['cupons_novos'] === 8, json_encode($d));
+eq('os cupons CAMIDIVA e ESPECIALCAMILA e as ofertas deles somem (o Luiz cancelou)', (int)$pdo->query("SELECT COUNT(*) FROM cdd_cupom WHERE codigo IN ('CAMIDIVA', 'ESPECIALCAMILA')")->fetchColumn() === 0 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_oferta WHERE ref_gateway IN ('pttozkp4hcrl9cyx', 'zo15nqi1r8h6t5ih')")->fetchColumn() === 0);
 eq('as ofertas do Asaas nascem desligadas (ligar antes do webhook perderia vendas) e o semestral tem valor', (int)$pdo->query("SELECT COUNT(*) FROM cdd_oferta WHERE gateway = 'asaas' AND ativo = 1")->fetchColumn() === 0 && (float)$pdo->query("SELECT valor FROM cdd_oferta WHERE gateway = 'eduzz' AND ref_gateway = '2947166'")->fetchColumn() === 447.0);
-eq('cada cupom do Asaas aponta para a sua oferta com o link já descontado', (int)$pdo->query("SELECT COUNT(*) FROM cdd_cupom c JOIN cdd_oferta o ON o.idoferta = c.idoferta WHERE c.gateway = 'asaas' AND o.gateway = 'asaas' AND o.meses = 12 AND o.nome LIKE '%cupom ' || c.codigo")->fetchColumn() === 6);
+eq('cada cupom do Asaas aponta para a sua oferta com o link já descontado', (int)$pdo->query("SELECT COUNT(*) FROM cdd_cupom c JOIN cdd_oferta o ON o.idoferta = c.idoferta WHERE c.gateway = 'asaas' AND o.gateway = 'asaas' AND o.meses = 12 AND o.nome LIKE '%cupom ' || c.codigo")->fetchColumn() === 4);
 [$s, $d] = req('a_com_padroes', 'POST', [], [], $tAdmin);
 eq('repetir os padrões não duplica nada', $d['ofertas_novas'] === 0 && $d['cupons_novos'] === 0);
 [$s, $d] = req('webhook', 'POST', ['g' => 'eduzz'], $aviso('invoice_paid', ['trans_cod' => '9002', 'product_cod' => '2947166']));
