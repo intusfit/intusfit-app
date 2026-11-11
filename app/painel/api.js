@@ -691,7 +691,8 @@ window.IntusEvolucao = (function () {
   // Regras novas (valem nos dois modos):
   //   - o período inteiro cabe na largura da tela (sem rolar para o lado);
   //   - a sessão escolhida FICA escolhida (linha, pontos maiores e etiqueta de data) até o aluno escolher outra; ao abrir, é a última;
-  //   - os números da sessão ficam fora do gráfico (painel fixo ou cartão), nunca sob o dedo;
+  //   - os números da sessão escolhida aparecem SOBRE o gráfico, ao lado da linha escolhida (nunca sob o dedo, a escolha fica fixa), e
+  //     também no painel ou no cartão; série com `extras[i]` (ex.: "× 12") leva esse texto junto do valor;
   //   - só um toque curto e parado no gráfico escolhe; arrastar a página não escolhe nada.
   // modo 'regua'   : painel com os números + régua sticky embaixo (arrastar) e setas. Para o treino, com uma mão.
   // modo 'cartoes' : um cartão por sessão, deslizando para o lado; o ponto acende no gráfico. Para ler com calma.
@@ -708,7 +709,9 @@ window.IntusEvolucao = (function () {
         '.evs-car::-webkit-scrollbar{display:none;}' +
         '.evs-card{flex:0 0 auto;scroll-snap-align:center;cursor:pointer;}' +
         '.evs-trilho{touch-action:none;-webkit-user-select:none;user-select:none;}' +
-        '.evs-plot{touch-action:pan-y;-webkit-tap-highlight-color:transparent;}' +
+        '.evs-plot{-webkit-tap-highlight-color:transparent;}' +
+        '.evs-scroll{overflow-x:auto;overflow-y:hidden;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;scrollbar-width:none;overscroll-behavior-x:contain;}' +
+        '.evs-scroll::-webkit-scrollbar{display:none;}' +
         '.evs-btn:focus-visible,.evs-trilho:focus-visible{outline:2px solid currentColor;outline-offset:2px;}';
       (document.head || document.documentElement).appendChild(st);
     } catch (e) {}
@@ -770,7 +773,8 @@ window.IntusEvolucao = (function () {
       html += '<div class="evo-card" style="border:1px solid var(--borda-forte,' + borda + ');background:var(--card-home,' + fundo + ');box-shadow:var(--prof,none);border-radius:12px;padding:14px;">' +
         (g.titulo ? '<div style="font-size:13px;font-weight:800;color:' + tinta + ';">' + esc(g.titulo) + '</div>' : '') +
         (g.sub ? '<div style="font-size:11.5px;color:' + tinta2 + ';margin-top:2px;line-height:1.45;">' + esc(g.sub) + '</div>' : '') +
-        '<div id="' + id + '-g' + k + '" class="evs-plot" style="margin-top:10px;min-height:' + (g.altura || 180) + 'px;"></div>' +
+        '<div id="' + id + '-g' + k + '" class="evs-plot" style="position:relative;margin-top:10px;min-height:' + (g.altura || 180) + 'px;"></div>' +
+        (k === 0 ? '<div id="' + id + '-dica" style="display:none;font-size:11px;color:' + tinta2 + ';margin-top:6px;">← Deslize o gráfico para o lado para ver os registros mais antigos. Toque num ponto para ver os números dele.</div>' : '') +
         legenda + tabela + '</div>';
     });
 
@@ -795,33 +799,42 @@ window.IntusEvolucao = (function () {
   function _selX(m, i) {
     return m.n > 1 ? m.padL + i * (m.W - m.padL - m.padR) / (m.n - 1) : m.padL + (m.W - m.padL - m.padR) / 2;
   }
+  // Espaço mínimo entre duas sessões. Com mais sessões do que cabem na largura, o gráfico fica mais largo que a tela e rola para o
+  // lado (os três gráficos juntos, com o eixo de kg parado à esquerda). Com poucas sessões continua tudo cabendo, sem rolar.
+  var SEL_VAO_MIN = 46;
   function _selDesenhar(id) {
     var r = _regs[id]; if (!r) return;
-    var n = r.cfg.rotulos.length;
+    var n = r.cfg.rotulos.length, primeiro = !r.desenhado, desenhou = false;
     r.graficos.forEach(function (g, k) {
       var host = document.getElementById(id + '-g' + k);
       if (!host) return;
-      var W = host.clientWidth;
-      if (W < 120) return;   // escondido (details fechado): o ResizeObserver chama de novo quando abrir
+      var Wv = host.clientWidth;
+      if (Wv < 120) return;   // escondido (details fechado): o ResizeObserver chama de novo quando abrir
+      var velho = host.querySelector('.evs-scroll'), slAnt = velho ? velho.scrollLeft : null;
       var alt = g.altura || 180, padL = 38, padR = 28, padT = 12, padB = 28, plotH = alt - padT - padB;
+      var W = Math.max(Wv, padL + padR + (n - 1) * SEL_VAO_MIN);
       var todos = [];
       g.series.forEach(function (s) { (s.valores || []).forEach(function (v) { if (v != null && isFinite(v) && v > 0) todos.push(v); }); });
       var vMax = Math.max.apply(null, todos), vMin = Math.min.apply(null, todos);
       if (vMax === vMin) { vMax = vMax + Math.max(1, vMax * 0.1); vMin = Math.max(0, vMin - Math.max(1, vMin * 0.1)); }
       var folga = (vMax - vMin) * 0.12, yMax = vMax + folga, yMin = Math.max(0, vMin - folga);
-      var m = { W: W, padL: padL, padR: padR, padT: padT, padB: padB, alt: alt, plotH: plotH, n: n, yMin: yMin, yMax: yMax };
+      var m = { W: W, Wv: Wv, padL: padL, padR: padR, padT: padT, padB: padB, alt: alt, plotH: plotH, n: n, yMin: yMin, yMax: yMax };
       m.y = function (v) { return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; };
       host._m = m;
       var ticks = [yMin, yMin + (yMax - yMin) / 2, yMax];
       var casas = g.casas == null ? 1 : g.casas;
       var svg = '<svg width="' + W + '" height="' + alt + '" style="display:block;" role="img" aria-label="' + esc(g.titulo || 'Evolução') + '">';
+      // eixo de kg numa camada à parte e parada (sobre o gráfico que rola); as linhas de grade ficam no gráfico
+      var eixo = '<svg class="evs-eixo" width="' + padL + '" height="' + alt + '" aria-hidden="true" style="position:absolute;left:0;top:0;pointer-events:none;display:block;">' +
+        '<rect width="' + padL + '" height="' + alt + '" style="fill:var(--card-home,' + r.fundo + ')"/>';
       ticks.forEach(function (t) {
-        svg += '<line x1="' + padL + '" y1="' + m.y(t) + '" x2="' + (W - 4) + '" y2="' + m.y(t) + '" stroke="' + r.grade + '"/>' +
-          '<text x="' + (padL - 6) + '" y="' + (m.y(t) + 3.5) + '" text-anchor="end" font-size="9.5" fill="' + r.tinta2 + '" font-variant-numeric="tabular-nums">' + fmt(t, 0) + '</text>';
+        svg += '<line x1="' + padL + '" y1="' + m.y(t) + '" x2="' + (W - 4) + '" y2="' + m.y(t) + '" stroke="' + r.grade + '"/>';
+        eixo += '<text x="' + (padL - 6) + '" y="' + (m.y(t) + 3.5) + '" text-anchor="end" font-size="9.5" fill="' + r.tinta2 + '" font-variant-numeric="tabular-nums">' + fmt(t, 0) + '</text>';
       });
+      eixo += '</svg>';
       var vao = n > 1 ? (W - padL - padR) / (n - 1) : 60, salto = Math.max(1, Math.ceil(46 / vao));
       r.cfg.rotulos.forEach(function (rot, i) {
-        if (i % salto === 0) svg += '<text x="' + _selX(m, i) + '" y="' + (alt - 8) + '" text-anchor="middle" font-size="9.5" fill="' + r.tinta2 + '">' + esc(rot) + '</text>';
+        if (i % salto === 0) svg += '<text class="evs-tk" data-x="' + _selX(m, i) + '" x="' + _selX(m, i) + '" y="' + (alt - 8) + '" text-anchor="middle" font-size="9.5" fill="' + r.tinta2 + '">' + esc(rot) + '</text>';
       });
       g.series.forEach(function (s, si) {
         var cor = r.cores[si % r.cores.length], seg = [], atual = [];
@@ -831,16 +844,62 @@ window.IntusEvolucao = (function () {
         });
         if (atual.length) seg.push(atual);
         seg.forEach(function (pts) { if (pts.length > 1) svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + cor + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'; });
-        if (n <= 40) (s.valores || []).forEach(function (v, i) {
+        (s.valores || []).forEach(function (v, i) {
           if (v == null || !isFinite(v) || v <= 0) return;
-          svg += '<circle cx="' + _selX(m, i) + '" cy="' + m.y(v) + '" r="' + (n > 24 ? 2.5 : 3.5) + '" fill="' + cor + '" stroke="' + r.fundo + '" stroke-width="2"/>';
+          svg += '<circle cx="' + _selX(m, i) + '" cy="' + m.y(v) + '" r="3.5" fill="' + cor + '" stroke="' + r.fundo + '" stroke-width="2"/>';
         });
       });
       svg += '<g id="' + id + '-s' + k + '"></g></svg>';
-      host.innerHTML = svg;
+      host.innerHTML = '<div class="evs-scroll">' + svg + '</div>' + eixo;
       host.style.minHeight = '';
+      if (slAnt != null) host.firstChild.scrollLeft = slAnt;
+      desenhou = true;
     });
+    if (desenhou) {
+      r.desenhado = true;
+      var sc0 = document.querySelector('[data-evo-sel="' + id + '"] .evs-scroll'), dica = document.getElementById(id + '-dica');
+      if (dica) dica.style.display = (sc0 && sc0.scrollWidth > sc0.clientWidth + 1) ? 'block' : 'none';
+      _selCentrar(id, primeiro);   // ao abrir, a sessão escolhida (a última) fica à vista; depois, só se sair da tela
+    }
     _selPintar(id);
+  }
+  // Leva os gráficos até a sessão escolhida quando ela não está à vista (ou sempre, com forcar). Vale para os três ao mesmo tempo.
+  function _selRolar(id, v) {
+    var r = _regs[id]; if (r) r.sl = v;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-evo-sel="' + id + '"] .evs-scroll'), function (s) { if (Math.abs(s.scrollLeft - v) >= 1) s.scrollLeft = v; });
+  }
+  function _selCentrar(id, forcar) {
+    var r = _regs[id], sc = document.querySelector('[data-evo-sel="' + id + '"] .evs-scroll'); if (!r || !sc) return;
+    var m = sc.parentNode._m, folga = sc.scrollWidth - sc.clientWidth; if (!m || folga <= 1) return;
+    var x = _selX(m, r.i), W = sc.clientWidth, dx = x - sc.scrollLeft, mg = 110;
+    if (!forcar && dx >= mg && dx <= W - mg) return;
+    _selRolar(id, Math.max(0, Math.min(folga, x - W / 2)));
+  }
+  // Números sobre o gráfico: o valor de cada série na sessão escolhida, numa etiqueta ao lado da linha vertical (o dedo não está ali:
+  // a escolha fica fixa). Etiquetas muito próximas são empilhadas para nunca se sobrepor; a conexão com o ponto aparece quando a
+  // etiqueta precisou sair do nível dele. pts: [{py, ly, t, w, cor}]; devolve o SVG.
+  function _selNumeros(r, m, cx, pts) {
+    if (!pts.length) return '';
+    var H = 18, passo = H + 2, topo = m.padT + H / 2 + 1, base = m.padT + m.plotH - H / 2 - 1;
+    pts.sort(function (a, b) { return a.py - b.py; });
+    pts.forEach(function (p) { p.ly = Math.max(topo, Math.min(base, p.py)); });
+    for (var k = 1; k < pts.length; k++) if (pts[k].ly < pts[k - 1].ly + passo) pts[k].ly = pts[k - 1].ly + passo;
+    if (pts[pts.length - 1].ly > base) {
+      pts[pts.length - 1].ly = base;
+      for (var j = pts.length - 2; j >= 0; j--) if (pts[j].ly > pts[j + 1].ly - passo) pts[j].ly = pts[j + 1].ly - passo;
+    }
+    var wmax = 0; pts.forEach(function (p) { if (p.w > wmax) wmax = p.w; });
+    var sobraD = m.W - 3 - (cx + 10), sobraE = cx - 10 - 3;
+    var direita = sobraD >= wmax || (sobraE < wmax && sobraD >= sobraE);
+    var out = '';
+    pts.forEach(function (p) {
+      var x = direita ? cx + 10 : cx - 10 - p.w;
+      x = Math.max(3, Math.min(m.W - 3 - p.w, x));
+      if (Math.abs(p.ly - p.py) > 3) out += '<line x1="' + cx + '" y1="' + p.py + '" x2="' + (direita ? x : x + p.w) + '" y2="' + p.ly + '" stroke="' + p.cor + '" stroke-width="1.5" opacity=".7"/>';
+      out += '<rect class="evs-num-bg" x="' + x + '" y="' + (p.ly - H / 2) + '" width="' + p.w + '" height="' + H + '" rx="6" fill="' + r.fundo + '" fill-opacity=".95" stroke="' + p.cor + '" stroke-width="1.6"/>' +
+        '<text class="evs-num" x="' + (x + p.w / 2) + '" y="' + (p.ly + 3.8) + '" text-anchor="middle" font-size="10.5" font-weight="700" fill="' + r.tinta + '" font-variant-numeric="tabular-nums">' + esc(p.t) + '</text>';
+    });
+    return out;
   }
   // Só a camada da sessão escolhida é refeita ao arrastar a régua: barato mesmo com centenas de sessões.
   function _selPintar(id) {
@@ -852,14 +911,24 @@ window.IntusEvolucao = (function () {
       var m = host._m, cx = _selX(m, i), vao = m.n > 1 ? (m.W - m.padL - m.padR) / (m.n - 1) : 60, meia = Math.max(10, vao / 2);
       var s = '<rect x="' + (cx - meia) + '" y="' + m.padT + '" width="' + (2 * meia) + '" height="' + m.plotH + '" rx="6" fill="' + r.acento + '" opacity=".09"/>' +
         '<line x1="' + cx + '" y1="' + m.padT + '" x2="' + cx + '" y2="' + (m.padT + m.plotH) + '" stroke="' + r.acento + '" stroke-width="1.5"/>';
+      var casas = g.casas == null ? 1 : g.casas, rotPts = [];
       g.series.forEach(function (sr, si) {
-        var v = (sr.valores || [])[i];
-        if (v != null && isFinite(v) && v > 0) s += '<circle cx="' + cx + '" cy="' + m.y(v) + '" r="6" fill="' + r.cores[si % r.cores.length] + '" stroke="' + r.fundo + '" stroke-width="2.5"/>';
+        var v = (sr.valores || [])[i], cor = r.cores[si % r.cores.length];
+        if (v != null && isFinite(v) && v > 0) {
+          s += '<circle cx="' + cx + '" cy="' + m.y(v) + '" r="6" fill="' + cor + '" stroke="' + r.fundo + '" stroke-width="2.5"/>';
+          var t = fmt(v, casas) + (g.unidade ? ' ' + g.unidade : '') + ((sr.extras && sr.extras[i]) ? ' ' + sr.extras[i] : '');
+          rotPts.push({ py: m.y(v), ly: m.y(v), t: t, w: Math.max(34, t.length * 6.1 + 12), cor: cor });
+        }
       });
+      s += _selNumeros(r, m, cx, rotPts);
       var rot = String(r.cfg.rotulos[i]), w = Math.max(44, rot.length * 6.4 + 16), px = Math.max(w / 2, Math.min(m.W - w / 2, cx));
       s += '<rect x="' + (px - w / 2) + '" y="' + (m.alt - 25) + '" width="' + w + '" height="19" rx="9.5" fill="' + r.acento + '"/>' +
         '<text x="' + px + '" y="' + (m.alt - 11.5) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="' + r.sobre + '">' + esc(rot) + '</text>';
       gs.innerHTML = s;
+      // a etiqueta da data cobre os rótulos vizinhos do eixo: esses somem enquanto ela está ali
+      Array.prototype.forEach.call(host.querySelectorAll('.evs-tk'), function (tk) {
+        tk.style.visibility = Math.abs(parseFloat(tk.getAttribute('data-x')) - px) < w / 2 + 16 ? 'hidden' : 'visible';
+      });
     });
   }
   function _selPilulas(r, l, cols) {
@@ -942,6 +1011,7 @@ window.IntusEvolucao = (function () {
     i = Math.max(0, Math.min(n - 1, i));
     if (i === r.i && de !== 'forcar') return;
     r.i = i;
+    if (de !== 'toque') _selCentrar(id);   // tocar no gráfico não mexe nele: o ponto tocado já está à vista
     _selPintar(id); _selLeitura(id);
     var car = document.getElementById(id + '-car');
     if (car && de !== 'carrossel' && r.cw) {
@@ -969,10 +1039,17 @@ window.IntusEvolucao = (function () {
       var a = ini; ini = null;
       if (Math.abs(e.clientX - a.x) > 8 || Math.abs(e.clientY - a.y) > 8 || Date.now() - a.t > 600) return;
       var m = a.host._m; if (!m) return;
-      var b = a.host.getBoundingClientRect(), vao = m.n > 1 ? (m.W - m.padL - m.padR) / (m.n - 1) : 1;
-      _selIr(id, m.n > 1 ? Math.round((e.clientX - b.left - m.padL) / vao) : 0);
+      var sc = a.host.querySelector('.evs-scroll'), b = (sc || a.host).getBoundingClientRect(), vao = m.n > 1 ? (m.W - m.padL - m.padR) / (m.n - 1) : 1;
+      if (e.clientX - b.left < m.padL) return;   // em cima do eixo de kg
+      _selIr(id, m.n > 1 ? Math.round((e.clientX - b.left + (sc ? sc.scrollLeft : 0) - m.padL) / vao) : 0, 'toque');
     });
     raiz.addEventListener('pointercancel', function () { ini = null; });
+    // os três gráficos rolam juntos: o que se arrasta leva os outros
+    raiz.addEventListener('scroll', function (e) {
+      var t = e.target; if (!t || !t.classList || !t.classList.contains('evs-scroll')) return;
+      if (r.sl != null && Math.abs(t.scrollLeft - r.sl) < 1) return;
+      _selRolar(id, t.scrollLeft);
+    }, true);
 
     // régua
     var tri = document.getElementById(id + '-tri');
