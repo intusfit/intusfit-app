@@ -171,9 +171,11 @@ atd_manual_cfg_gravar($pdo, ['origem' => 'organico', 'desde' => '2026-10-01'], $
 // ── Teste A/B rodando: a pessoa recebe a variante, sempre a mesma ───────────
 $base = atd_funil_por_id($pdo, 'teste-gratis');
 $var = atd_funil_salvar($pdo, ['id' => 'variante-b', 'nome' => 'Variante B', 'status' => 'rascunho', 'mensagens' => [['id' => 't1', 'nome' => 'Boas-vindas curta', 'tipo' => 'agendada', 'dia' => 0, 'condicao' => 'todos', 'texto' => 'Oi {{1}}, seu teste já está no ar: {{2}}']]]);
-atd_teste_salvar($pdo, ['nome' => 'curta', 'gatilho' => 'teste-gratis', 'funil_a' => 'teste-gratis', 'funil_b' => 'variante-b', 'pct_b' => 100, 'status' => 'rodando']);
+// O app limita pct_b a 95 (atd_teste_salvar) e o lado vem de crc32(id do teste | telefone) % 100. Sem id fixo o id é sorteado e, em cerca de 5% das
+// rodadas, a Kika caía no lado A e este bloco falhava sem que nada tivesse quebrado. Com o id fixo o resultado é sempre o mesmo.
+atd_teste_salvar($pdo, ['id' => 'ab-curta', 'nome' => 'curta', 'gatilho' => 'teste-gratis', 'funil_a' => 'teste-gratis', 'funil_b' => 'variante-b', 'pct_b' => 95, 'status' => 'rodando']);
 $fab = atd_manual_fila($pdo, $agora);
-confere('A/B 100% B: a Kika recebe a variante', ['variante-b:t1', 'b', 'Boas-vindas curta'], [item($fab, 'Kika Social')['passo'], item($fab, 'Kika Social')['lado'], item($fab, 'Kika Social')['mensagem_nome']]);
+confere('A/B com 95% no lado B (o teto): a Kika recebe a variante', ['variante-b:t1', 'b', 'Boas-vindas curta'], [item($fab, 'Kika Social')['passo'], item($fab, 'Kika Social')['lado'], item($fab, 'Kika Social')['mensagem_nome']]);
 verdade('A/B: o texto é o da variante, com nome e link', strpos(item($fab, 'Kika Social')['texto'], 'Oi Kika, seu teste já está no ar: ' . ATD_LINK_APP) === 0);
 confere('A/B: a mesma pessoa não muda de lado entre duas consultas', item($fab, 'Kika Social')['passo'], item(atd_manual_fila($pdo, $agora), 'Kika Social')['passo']);
 confere('A/B: contato sem conta não entra no teste (tem o próprio funil)', 'chamou-whatsapp:c4', item($fab, 'Lia Contato')['passo']);

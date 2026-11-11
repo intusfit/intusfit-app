@@ -67,11 +67,24 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   await page.waitForTimeout(1500);
   const limpar = () => page.evaluate(() => { ['intus-cardio-fila-7', 'intus-sessao-fila-7', 'intus-sessao-pendente-7', 'intus-cardios-7'].forEach(k => localStorage.removeItem(k)); _cardioHistorico = []; document.getElementById('cardio-result-overlay')?.remove(); document.getElementById('busy-ov')?.remove(); });
 
+  // Registro manual pelo caminho do aluno (Meu Cardio > Registrar manualmente > atividade e minutos > Continuar > "Está certo, registrar"),
+  // o mesmo de cardio_tela.js. Devolve quando o salvamento terminou: a tela de resultado só abre depois do envio (ou da desistência).
+  const registrarManual = async (tipo, min) => {
+    await page.evaluate(() => { _cardioFormLimpar(); abrirCardio(); });
+    await page.waitForTimeout(300);
+    await page.click('#v-cardio button:has-text("Registrar manualmente")');
+    await page.click('#v-cardio .cf-tile[data-k="' + tipo + '"]');
+    await page.fill('#cf-min', String(min));
+    await page.click('#cf-btn');
+    await page.click('#v-cardio button:has-text("Está certo, registrar")');
+    const abriu = await page.waitForSelector('#cardio-result-overlay', { timeout: 20000 }).then(() => true, () => false);
+    ver('registro manual de ' + tipo + ' (' + min + ' min) chega à tela de resultado', abriu);
+  };
+
   console.log('\n══ Cardio manual sem conexão ══');
   await limpar();
-  await page.evaluate(() => { renderCardio(); trocarView('cardio'); const t = document.getElementById('cardio-tipo'); t.value = 'Corrida'; onCardioTipoChange && onCardioTipoChange(); document.getElementById('cardio-min').value = '30'; });
   S.modo = 'offline'; S.posts = [];
-  await page.evaluate(() => salvarCardio());
+  await registrarManual('Corrida', 30);
   let est = await page.evaluate(() => ({ fila: _cardioFilaLer().length, sol: document.getElementById('cardio-result-overlay')?.innerText || '', ocupado: !!document.getElementById('busy-ov') }));
   eq('sem conexão: o cardio fica guardado na fila', est.fila, 1);
   ver('tela de resultado avisa que ficou guardado', /guardado/.test(est.sol), est.sol);
@@ -97,10 +110,9 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
 
   console.log('\n══ Servidor com erro 500 e recusa 400 ══');
   await limpar();
-  await page.evaluate(() => { renderCardio(); document.getElementById('cardio-tipo').value = 'Caminhada'; onCardioTipoChange && onCardioTipoChange(); document.getElementById('cardio-min').value = '40'; });
   S.modo = '500'; S.posts = [];
-  await page.evaluate(() => salvarCardio());
-  est = await page.evaluate(() => { const f = _cardioFilaLer(); return { n: f.length, bloq: !!(f[0] && f[0].bloqueado), t: f[0] && f[0].tentativas }; });
+  await registrarManual('Caminhada', 40);
+  est =await page.evaluate(() => { const f = _cardioFilaLer(); return { n: f.length, bloq: !!(f[0] && f[0].bloqueado), t: f[0] && f[0].tentativas }; });
   eq('erro 500: continua na fila', est.n, 1);
   eq('erro 500: não é marcado como recusado (vale nova tentativa)', est.bloq, false);
   S.modo = '400'; S.posts = [];
@@ -118,9 +130,8 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
 
   console.log('\n══ Compartilhar depois do cardio manual ══');
   await limpar();
-  await page.evaluate(() => { renderCardio(); document.getElementById('cardio-tipo').value = 'Corrida'; onCardioTipoChange && onCardioTipoChange(); document.getElementById('cardio-min').value = '25'; });
   S.modo = 'ok';
-  await page.evaluate(() => salvarCardio());
+  await registrarManual('Corrida', 25);
   ver('resultado do cardio manual tem "Compartilhar cardio"', await page.evaluate(() => /Compartilhar cardio/.test(document.getElementById('cardio-result-overlay')?.innerText || '')));
   await page.evaluate(() => _cardioResultadoCompartilhar());
   await page.waitForTimeout(400);

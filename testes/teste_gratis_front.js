@@ -102,9 +102,15 @@ const PLANO = { idmensalidade: 2, idatleta: 7, dshistorico: 'Consultoria Premium
   console.log('\n══ O que continua livre no teste ══');
   await semear([TESTE]);
   S.cardios = 0;
-  await page.evaluate(() => { ['intus-cardio-fila-7', 'intus-cardios-7'].forEach(k => localStorage.removeItem(k)); renderCardio(); trocarView('cardio'); const t = document.getElementById('cardio-tipo'); t.value = 'Corrida'; onCardioTipoChange && onCardioTipoChange(); document.getElementById('cardio-min').value = '30'; });
-  await page.evaluate(() => salvarCardio());
-  await page.waitForTimeout(500);
+  // Registro manual pelo caminho do aluno (Meu Cardio > Registrar manualmente > atividade e minutos > Continuar > "Está certo, registrar").
+  await page.evaluate(() => { ['intus-cardio-fila-7', 'intus-cardios-7'].forEach(k => localStorage.removeItem(k)); _cardioFormLimpar(); abrirCardio(); });
+  await page.waitForTimeout(300);
+  await page.click('#v-cardio button:has-text("Registrar manualmente")');
+  await page.click('#v-cardio .cf-tile[data-k="Corrida"]');
+  await page.fill('#cf-min', '30');
+  await page.click('#cf-btn');
+  await page.click('#v-cardio button:has-text("Está certo, registrar")');
+  ver('o registro manual chega à tela de cardio registrado', await page.waitForSelector('#cardio-result-overlay', { timeout: 20000 }).then(() => true, () => false));
   eq('o cardio é registrado normalmente (vai ao servidor)', S.cardios, 1);
   eq('o cardio no teste não dispara o aviso de Feed', (await estado()).toast.includes('teste grátis não inclui'), false);
   eq('curtir/reagir não depende desta trava (não há chamada a _soTesteBarra em reações)', await page.evaluate(() => !/_soTesteBarra/.test(String(window.toggleReacaoPost || '') + String(window._rxReagir || ''))), true);
