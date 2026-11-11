@@ -11,15 +11,16 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
 // API de mentira com estado: duas conversas, uma esperando resposta.
 function criarApi() {
   const S = { chamadas: [], conversas: {}, proximo: 3 };
+  const cora = c => (c.cora === undefined ? null : c.cora);
   S.conversas[1] = { id: 1, nome: 'Ana Lead', telefone: '5545991110001', msgs: [{ idmensagem: 1, direcao: 'E', origem: 'lead', tipo: 'text', texto: 'Oi, como funciona o teste?', status: 'recebida', criado_em: '2026-11-11 09:00:00' }], rascunho: null, sugestao: null, resolvida: false };
-  S.conversas[2] = { id: 2, nome: 'Bia Respondida', telefone: '5545991110002', msgs: [{ idmensagem: 2, direcao: 'E', origem: 'lead', tipo: 'text', texto: 'Oi', status: 'recebida', criado_em: '2026-11-11 08:00:00' }, { idmensagem: 3, direcao: 'S', origem: 'pessoa', tipo: 'text', texto: 'Oi, Bia!', status: 'enviada', criado_em: '2026-11-11 08:05:00' }], rascunho: null, sugestao: null, resolvida: false };
+  S.conversas[2] = { cora: 'cadastro', id: 2, nome: 'Bia Respondida', telefone: '5545991110002', msgs: [{ idmensagem: 2, direcao: 'E', origem: 'lead', tipo: 'text', texto: 'Oi', status: 'recebida', criado_em: '2026-11-11 08:00:00' }, { idmensagem: 3, direcao: 'S', origem: 'pessoa', tipo: 'text', texto: 'Oi, Bia!', status: 'enviada', criado_em: '2026-11-11 08:05:00' }], rascunho: null, sugestao: null, resolvida: false };
   const espera = c => { const u = c.msgs.map(m => m.direcao).lastIndexOf('S'); return c.msgs.slice(u + 1).filter(m => m.direcao === 'E').length; };
   S.lista = () => {
-    const conversas = Object.values(S.conversas).map(c => { const u = c.msgs[c.msgs.length - 1], e = espera(c) > 0 && !c.resolvida; return { id: c.id, nome: c.nome, telefone: c.telefone, ultima_em: u.criado_em, ultima_direcao: u.direcao, trecho: u.texto, espera_voce: e, sem_resposta: espera(c), desde: u.criado_em, para_voce: e && !!c.sugestao, motivo: c.sugestao ? c.sugestao.motivo : null, tem_rascunho: !!c.rascunho, saiu: false, resolvida: c.resolvida }; });
+    const conversas = Object.values(S.conversas).map(c => { const u = c.msgs[c.msgs.length - 1], e = espera(c) > 0 && !c.resolvida; return { id: c.id, nome: c.nome, telefone: c.telefone, ultima_em: u.criado_em, ultima_direcao: u.direcao, trecho: u.texto, espera_voce: e, sem_resposta: espera(c), desde: u.criado_em, para_voce: e && !!c.sugestao, motivo: c.sugestao ? c.sugestao.motivo : null, tem_rascunho: !!c.rascunho, saiu: false, resolvida: c.resolvida, cora: cora(c) }; });
     conversas.sort((a, b) => (b.espera_voce - a.espera_voce));
     return { ok: true, conversas, aguardando: conversas.filter(x => x.espera_voce).length };
   };
-  S.conversa = id => { const c = S.conversas[id]; return { ok: true, contato: { id: c.id, nome: c.nome, telefone: c.telefone, whatsapp: c.telefone, objetivo: '', resumo: c.resumo || '', saiu: false, idatleta: null, idlead: null }, mensagens: c.msgs, rascunho: c.rascunho, sugestao: c.sugestao, resolvido_em: null, esperando_resposta: c.resolvida ? 0 : espera(c) }; };
+  S.conversa = id => { const c = S.conversas[id]; return { ok: true, contato: { id: c.id, nome: c.nome, telefone: c.telefone, whatsapp: c.telefone, objetivo: '', resumo: c.resumo || '', saiu: false, idatleta: null, idlead: null }, mensagens: c.msgs, rascunho: c.rascunho, sugestao: c.sugestao, resolvido_em: null, cora: cora(c), esperando_resposta: c.resolvida ? 0 : espera(c) }; };
   S.tratar = (action, corpo, qs) => {
     S.chamadas.push({ action, corpo });
     const agora = '2026-11-11 10:00:00';
@@ -32,6 +33,7 @@ function criarApi() {
         if (/custa|valor/i.test(t)) { c.sugestao = { acao: 'passar_para_humano', motivo: 'preco', resumo: '' }; c.rascunho = null; return { ok: true, acao: 'passar_para_humano', motivo: 'preco', regra_fixa: true, custo_usd: 0 }; }
         c.rascunho = { texto: 'Oi, Ana! O teste grátis é só de treino, por 3 dias. Qual é o seu objetivo?', original: 'Oi, Ana! O teste grátis é só de treino, por 3 dias. Qual é o seu objetivo?', avisos: [] }; c.sugestao = null; return { ok: true, acao: 'responder', motivo: '', texto: c.rascunho.texto, regra_fixa: false, custo_usd: 0.0083 }; }
       case 'inbox_enviei': { const c = S.conversas[corpo.id]; c.msgs.push({ idmensagem: S.proximo++, direcao: 'S', origem: c.rascunho && c.rascunho.original === corpo.texto ? 'robo' : 'pessoa', tipo: 'text', texto: corpo.texto, status: 'enviada', criado_em: agora }); c.rascunho = null; c.sugestao = null; return { ok: true, origem: 'x' }; }
+      case 'inbox_cora': S.conversas[corpo.id].cora = corpo.liberar ? 'manual' : null; return { ok: true };
       case 'inbox_resolver': S.conversas[corpo.id].resolvida = true; return { ok: true };
       case 'inbox_nova': { const id = S.proximo++; S.conversas[id] = { id, nome: corpo.nome || corpo.telefone, telefone: '55' + String(corpo.telefone).replace(/\D/g, ''), msgs: corpo.texto ? [{ idmensagem: S.proximo++, direcao: 'E', origem: 'lead', tipo: 'text', texto: corpo.texto, status: 'recebida', criado_em: agora }] : [{ idmensagem: S.proximo++, direcao: 'E', origem: 'lead', tipo: 'text', texto: '(sem texto)', status: 'recebida', criado_em: agora }], rascunho: null, sugestao: null, resolvida: false }; return { ok: true, id }; }
       case 'inbox_lead': { const id = S.proximo++; S.conversas[id] = { id, nome: 'Lia Contato', telefone: '5545991110012', msgs: [{ idmensagem: S.proximo++, direcao: 'S', origem: 'pessoa', tipo: 'text', texto: 'Oi, Lia!', status: 'enviada', criado_em: agora }], rascunho: null, sugestao: null, resolvida: false }; return { ok: true, id }; }
@@ -94,6 +96,18 @@ function criarApi() {
   eq('"Já enviei" manda o texto editado', env.corpo.texto, 'Oi, Ana! O teste grátis é só de treino. Qual é o seu objetivo hoje?');
   eq('a resposta entra à direita, como da equipe', (await page.$$eval('#ib-chat .bolha.nos small', e => e.map(x => x.textContent)))[0].startsWith('equipe'), true);
   eq('depois de enviar, a conversa não espera mais e o contador zera', [await page.textContent('#n-inbox'), (await page.textContent('.ib-conv .card')).includes('espera você')], ['0', false]);
+
+  console.log('\n══ Liberar a Cora por conversa e filtro ══');
+  ver('a lista mostra o selo "Cora liberada" só em quem está liberado', await page.$$eval('.ib-lista .funil-item', e => e.map(x => x.textContent.includes('Cora liberada'))).then(a => JSON.stringify(a) === JSON.stringify([false, true])));
+  eq('na conversa, o selo diz que a Cora não está liberada e o botão oferece liberar', [(await page.textContent('.ib-conv .badge:has-text("Cora")')).trim(), await page.textContent('#ib-cora')], ['Cora não liberada', 'Liberar a Cora nesta conversa']);
+  await page.click('#ib-cora'); await page.waitForFunction(() => document.querySelector('#ib-cora').textContent.startsWith('Tirar'));
+  eq('liberar chama o servidor e o botão passa a oferecer tirar', [API.chamadas.filter(c => c.action === 'inbox_cora').map(c => c.corpo.liberar), (await page.textContent('.ib-conv .badge:has-text("Cora")')).trim()], [[true], 'Cora liberada por você']);
+  await page.selectOption('#ib-filtro', 'sem_cora');
+  eq('filtro "Cora não liberada" esconde as liberadas', await page.$$eval('.ib-lista .funil-item b', e => e.length), 0);
+  await page.selectOption('#ib-filtro', 'cora');
+  eq('filtro "Cora liberada" mostra as duas agora', await page.$$eval('.ib-lista .funil-item b', e => e.map(x => x.textContent)), ['Ana Lead', 'Bia Respondida']);
+  await page.click('#ib-cora'); await page.waitForFunction(() => document.querySelector('#ib-cora').textContent.startsWith('Liberar'));
+  await page.selectOption('#ib-filtro', 'todas');
 
   console.log('\n══ É para você (regra fixa) ══');
   await page.fill('#ib-lead', 'Quanto custa a consultoria?');

@@ -154,6 +154,23 @@ eq('resposta escrita do zero (conversa para você): origem pessoa', inbox_enviei
 inbox_registrar_lead($pdo, $id, 'Ok, aguardo', $t0);
 eq('a pessoa escreve de novo: volta a esperar você', inbox_lista($pdo, $t0)['aguardando'], 1);
 
+echo "\n══ Liberar a Cora por conversa ══\n";
+$pdo = banco(); $id = nova($pdo, '45 99111-0001', 'Spam Anúncio', 'Promoção imperdível, clique no link', $t0);
+$l = inbox_lista($pdo, $t0)['conversas'][0];
+eq('número desconhecido: a Cora não está liberada', [$l['cora'], inbox_conversa($pdo, $id, $t0)['cora']], [null, null]);
+inbox_cora($pdo, $id, true, $t0);
+eq('liberar: vale como manual e aparece na lista e na conversa', [inbox_lista($pdo, $t0)['conversas'][0]['cora'], inbox_conversa($pdo, $id, $t0)['cora']], ['manual', 'manual']);
+eq('a liberação não mexe nas mensagens nem no rascunho', [count(msgs($pdo, $id)), array_key_exists('rascunho', inbox_estado($pdo, $id))], [1, false]);
+inbox_cora($pdo, $id, false, $t0);
+eq('tirar a Cora: volta a não liberada', inbox_lista($pdo, $t0)['conversas'][0]['cora'], null);
+$pdo = banco(); $id = nova($pdo, '45 99111-0002', 'Lead do site', 'Oi', $t0);
+wa_contato_atualizar($pdo, $id, ['optin_em' => '2026-11-10 09:00:00'], $t0);
+eq('quem se cadastrou pelo site e aceitou mensagens já vem liberado', inbox_lista($pdo, $t0)['conversas'][0]['cora'], 'cadastro');
+inbox_cora($pdo, $id, false, $t0);
+eq('a equipe pode tirar a Cora mesmo de quem veio liberado', inbox_lista($pdo, $t0)['conversas'][0]['cora'], null);
+erro('conversa que não existe', fn() => inbox_cora($pdo, 999, true, $t0), 'não encontrada');
+eq('o endpoint aceita a ação só por POST', preg_match("/\\\$soPost = \\[[^\\]]*'inbox_cora'/s", file_get_contents(__DIR__ . '/../app/api/atendimento.php')), 1);
+
 echo "\n══ Resolver sem responder ══\n";
 $pdo = banco(); $id = nova($pdo, '45 99111-0001', 'Ana Lead', 'Obrigada!', $t0);
 inbox_resolver($pdo, $id, em('2026-11-11 10:01:00'));

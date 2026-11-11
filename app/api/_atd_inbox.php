@@ -25,7 +25,7 @@ const INBOX_MAX_TEXTO = 3000;
 const INBOX_MAX_SUGESTOES_DIA = 200;     // trava de custo: sugestões da Cora por dia, somando todas as conversas
 const INBOX_MENSAGENS = 150;             // mensagens mostradas por conversa
 
-function inbox_chave(int $idcontato): string { return 'atd_inbox_' . $idcontato; }
+function inbox_chave(int $idcontato): string { return robo_chave_estado($idcontato); }
 function inbox_estado(PDO $pdo, int $idcontato): array {
     $e = atd_cfg_ler($pdo, inbox_chave($idcontato), []);
     return is_array($e) ? $e : [];
@@ -160,6 +160,19 @@ function inbox_enviei(PDO $pdo, int $idcontato, string $texto, ?DateTimeImmutabl
     return ['idmensagem' => $id, 'origem' => $origem];
 }
 
+/**
+ * Libera ou tira a Cora (o robô automático) desta conversa. Vale para o robô que responde sozinho quando a Meta estiver ligada, no modo
+ * "liberadas"; a sugestão manual desta caixa de entrada funciona sempre. Tirar é uma decisão explícita e vale mais que a liberação automática.
+ */
+function inbox_cora(PDO $pdo, int $idcontato, bool $liberar, ?DateTimeImmutable $agora = null): void {
+    $agora = $agora ?: wa_agora();
+    if (!wa_contato_por_id($pdo, $idcontato)) throw new InvalidArgumentException('Conversa não encontrada.');
+    $e = inbox_estado($pdo, $idcontato);
+    $e['cora_liberada'] = $liberar;
+    $e['cora_em'] = wa_fmt($agora);
+    inbox_gravar_estado($pdo, $idcontato, $e);
+}
+
 /** A conversa não precisa de resposta (agradecimento, assunto resolvido): sai de "esperando você" até a pessoa escrever de novo. */
 function inbox_resolver(PDO $pdo, int $idcontato, ?DateTimeImmutable $agora = null): void {
     $agora = $agora ?: wa_agora();
@@ -208,7 +221,7 @@ function inbox_lista(PDO $pdo, ?DateTimeImmutable $agora = null): array {
             'espera_voce' => $espera_voce, 'sem_resposta' => $n, 'desde' => $espera[$id]['desde'] ?? null,
             'para_voce' => $espera_voce && ((($e['sugestao']['acao'] ?? '') === 'passar_para_humano') || !empty($c['precisa_humano'])),
             'motivo' => $e['sugestao']['motivo'] ?? ($c['motivo_humano'] ?? null), 'tem_rascunho' => !empty($e['rascunho']['texto']),
-            'saiu' => !empty($c['saiu_em']), 'resolvida' => $resolvida,
+            'saiu' => !empty($c['saiu_em']), 'resolvida' => $resolvida, 'cora' => robo_liberacao($pdo, $c),
         ];
     }
     usort($conversas, function ($a, $b) {
@@ -232,6 +245,6 @@ function inbox_conversa(PDO $pdo, int $idcontato, ?DateTimeImmutable $agora = nu
     return ['ok' => true,
         'contato' => ['id' => (int)$c['idcontato'], 'nome' => $c['nome'] ?? '', 'telefone' => $c['telefone'], 'whatsapp' => $c['telefone'], 'idatleta' => $c['idatleta'] ? (int)$c['idatleta'] : null,
             'idlead' => $c['idlead'] ? (int)$c['idlead'] : null, 'objetivo' => $c['objetivo'] ?? '', 'resumo' => $c['resumo'] ?? '', 'saiu' => !empty($c['saiu_em'])],
-        'mensagens' => $msgs, 'rascunho' => $e['rascunho'] ?? null, 'sugestao' => $e['sugestao'] ?? null, 'resolvido_em' => $e['resolvido_em'] ?? null,
+        'cora' => robo_liberacao($pdo, $c), 'mensagens' => $msgs, 'rascunho' => $e['rascunho'] ?? null, 'sugestao' => $e['sugestao'] ?? null, 'resolvido_em' => $e['resolvido_em'] ?? null,
         'esperando_resposta' => count($pend), 'agora' => wa_fmt($agora)];
 }

@@ -17,7 +17,8 @@
  *  5. Passar para uma pessoa = mensagem fixa e curta ao lead (texto neste arquivo, não do Claude), contato marcado precisa_humano,
  *     modo 'humano' (pausa a automação) e aviso por e-mail com o resumo e as últimas mensagens.
  *
- * Travas: ajuste robo = desligado (nasce assim) | teste (só o contato de teste, origem de consentimento "teste-admin") | todos;
+ * Travas: ajuste robo = desligado (nasce assim) | teste (só o contato de teste, origem de consentimento "teste-admin") | liberadas (só as conversas
+ * liberadas, ver robo_liberacao: o que chega de anúncio e spam fica guardado e não gasta nenhum token) | todos;
  * mensagem com mais de ROBO_VELHA_MIN minutos não é respondida (sobrou de quando o robô estava desligado); limite de respostas por
  * contato e por dia; contato que saiu (SAIR), em modo humano ou já marcado precisa_humano nunca recebe resposta do robô.
  * Falha do Claude (sem saldo, chave recusada, fora do ar) nunca vira mensagem ao lead: o contato vai para uma pessoa e o aviso diz o motivo.
@@ -28,7 +29,28 @@
 require_once __DIR__ . '/_wa.php';
 require_once __DIR__ . '/_atendimento.php';
 
-const ROBO_MODOS = ['desligado', 'teste', 'todos'];
+const ROBO_MODOS = ['desligado', 'teste', 'liberadas', 'todos'];
+
+/** O robô está ligado em algum modo? (desligado é o único que nunca responde nem consulta contatos.) */
+function robo_ligado($modo): bool { return in_array((string)$modo, ['teste', 'liberadas', 'todos'], true); }
+
+/** Chave em intus_config do estado de uma conversa (rascunho, resolvida, liberação da Cora): compartilhada com a caixa de entrada. */
+function robo_chave_estado(int $idcontato): string { return 'atd_inbox_' . $idcontato; }
+
+/**
+ * Esta conversa está liberada para o robô? Devolve o motivo ou null. No modo "liberadas" o robô só responde conversa liberada; o resto
+ * (anúncio, spam, número desconhecido) é guardado e lido por uma pessoa, sem gastar token. Liberam: o contato de teste ('teste'), a decisão da
+ * equipe pelo botão da caixa de entrada ('manual', e a decisão explícita de TIRAR vale mais que as automáticas), quem se cadastrou pelo nosso
+ * site e aceitou receber mensagens ('cadastro') e quem já está ligado a um lead ou cliente ('lead').
+ */
+function robo_liberacao(PDO $pdo, array $c): ?string {
+    if (($c['optin_origem'] ?? '') === ROBO_ORIGEM_TESTE) return 'teste';
+    $e = atd_cfg_ler($pdo, robo_chave_estado((int)$c['idcontato']), []);
+    if (is_array($e) && array_key_exists('cora_liberada', $e)) return $e['cora_liberada'] ? 'manual' : null;
+    if (!empty($c['optin_em'])) return 'cadastro';
+    if (!empty($c['idlead']) || !empty($c['idatleta'])) return 'lead';
+    return null;
+}
 const ROBO_ORIGEM_TESTE = 'teste-admin';
 const ROBO_VELHA_MIN = 30;        // minutos: mensagem mais antiga que isto não é respondida
 const ROBO_HISTORICO = 24;        // mensagens anteriores enviadas ao Claude
@@ -210,10 +232,11 @@ function robo_decidir(PDO $pdo, array $contato, array $mensagens, ?callable $htt
 }
 
 /** O robô pode responder a este contato agora? Devolve [bool, motivo]. */
-function robo_pode_responder(array $c, array $aj, DateTimeImmutable $agora): array {
+function robo_pode_responder(array $c, array $aj, DateTimeImmutable $agora, ?string $liberacao = null): array {
     $modo = (string)($aj['robo'] ?? 'desligado');
-    if (!in_array($modo, ['teste', 'todos'], true)) return [false, 'robo_desligado'];
+    if (!robo_ligado($modo)) return [false, 'robo_desligado'];
     if ($modo === 'teste' && ($c['optin_origem'] ?? '') !== ROBO_ORIGEM_TESTE) return [false, 'fora_do_teste'];
+    if ($modo === 'liberadas' && $liberacao === null) return [false, 'nao_liberada'];
     // precisa_humano com motivo 'midia_recebida' é só a marca que o webhook põe ao receber foto/vídeo: o robô ainda deve avisar a equipe.
     if (!empty($c['precisa_humano']) && ($c['motivo_humano'] ?? '') !== 'midia_recebida') return [false, 'com_pessoa'];
     // saiu, modo diferente de robô e janela de 24h fechada: a mesma regra de todo envio automático
@@ -293,7 +316,7 @@ function robo_uma_rodada(PDO $pdo, array $cfg, int $idcontato, array $aj, array 
     $pend = $st->fetchAll(PDO::FETCH_ASSOC);
     if (!$pend) return ['acao' => 'nada', 'motivo' => 'sem_pendentes'];
 
-    [$pode, $motivoNao] = robo_pode_responder($c, $aj, $agora);
+    [$pode, $motivoNao] = robo_pode_responder($c, $aj, $agora, ($aj['robo'] ?? '') === 'liberadas' ? robo_liberacao($pdo, $c) : null);
     if (!$pode) return ['acao' => 'nada', 'motivo' => $motivoNao];
 
     // Mensagens velhas (ficaram de quando o robô estava desligado ou parado) são dadas como vistas e não respondidas.
@@ -374,7 +397,7 @@ function robo_gravar_tokens(PDO $pdo, int $idcontato, array $d, ?string $waId = 
 function robo_processar_contato(PDO $pdo, array $cfg, int $idcontato, array $ctx = []): array {
     $agora = $ctx['agora'] ?? wa_agora();
     $aj = wa_ajustes($pdo);
-    if (!in_array((string)($aj['robo'] ?? 'desligado'), ['teste', 'todos'], true)) return ['acao' => 'nada', 'motivo' => 'robo_desligado'];
+    if (!robo_ligado($aj['robo'] ?? 'desligado')) return ['acao' => 'nada', 'motivo' => 'robo_desligado'];
     $trava = robo_trava($idcontato);
     if ($trava === null) return ['acao' => 'nada', 'motivo' => 'ocupado'];
     $ultimo = ['acao' => 'nada', 'motivo' => 'sem_pendentes'];
@@ -404,7 +427,7 @@ function robo_contatos_pendentes(PDO $pdo, DateTimeImmutable $agora): array {
 /** Chamado pelo webhook depois de gravar as mensagens: trata todos os contatos com algo pendente. */
 function robo_processar_pendentes(PDO $pdo, array $cfg, array $ctx = []): array {
     $agora = $ctx['agora'] ?? wa_agora();
-    if (!in_array((string)(wa_ajustes($pdo)['robo'] ?? 'desligado'), ['teste', 'todos'], true)) return [];
+    if (!robo_ligado(wa_ajustes($pdo)['robo'] ?? 'desligado')) return [];
     $res = [];
     foreach (robo_contatos_pendentes($pdo, $agora) as $id) $res[$id] = robo_processar_contato($pdo, $cfg, $id, $ctx);
     return $res;

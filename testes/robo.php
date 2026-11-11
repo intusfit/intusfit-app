@@ -294,6 +294,40 @@ $r = rodar($pdo, $id, $claude, $meta, $av);
 eq('resposta que promete pessoa sem passar: a conversa passa de verdade (aviso e mensagem fixa)', [$r['acao'], $r['motivo'], $meta->pedidos[0]['text']['body'] === robo_texto_passagem('duvida'), count($av), (int)wa_contato_por_id($pdo, $id)['precisa_humano']], ['passou', 'duvida', true, 1, 1]);
 eq('o prompt manda usar passar_para_humano em vez de prometer', strpos($claude->corpos[0]['system'][0]['text'], 'ninguém é avisado') !== false, true);
 
+echo "\n══ Só conversas liberadas (anúncio e spam não gastam token) ══\n";
+eq('o modo liberadas existe', in_array('liberadas', ROBO_MODOS, true), true);
+$claude = new ClaudeFalso(r_ok('responder', 'Oi!'));
+[$pdo, $id] = cenario('liberadas', [], 'Compre seguidores agora, promoção imperdível');
+$meta = new MetaFalsa();
+$r = rodar($pdo, $id, $claude, $meta);
+eq('número desconhecido (anúncio, spam): não consulta o Claude nem responde', [$r['acao'], $r['motivo'], count($claude->corpos), count($meta->pedidos)], ['nada', 'nao_liberada', 0, 0]);
+eq('a mensagem fica guardada para uma pessoa ler', [(int)$pdo->query("SELECT COUNT(*) FROM intus_wa_mensagem WHERE direcao = 'E'")->fetchColumn(), (int)$pdo->query("SELECT COUNT(*) FROM intus_wa_mensagem WHERE direcao = 'S'")->fetchColumn()], [1, 0]);
+foreach ([['quem se cadastrou pelo site e aceitou mensagens', ['optin_em' => '2026-11-10 09:00:00', 'optin_origem' => 'landing-teste-gratis'], 'cadastro'], ['quem já é lead', ['idlead' => 7], 'lead'], ['quem já é cliente', ['idatleta' => 9], 'lead'], ['o contato de teste', ['optin_origem' => 'teste-admin'], 'teste']] as [$rot, $campos, $motivoLib]) {
+    $cl = new ClaudeFalso(r_ok('responder', 'Oi, tudo bem?'));
+    [$pdo, $id] = cenario('liberadas', $campos, 'Oi, tenho uma dúvida sobre o treino');
+    $meta = new MetaFalsa();
+    $r = rodar($pdo, $id, $cl, $meta);
+    eq("liberada automaticamente: $rot", [$r['acao'], count($meta->pedidos), robo_liberacao($pdo, wa_contato_por_id($pdo, $id))], ['respondeu', 1, $motivoLib]);
+}
+$cl = new ClaudeFalso(r_ok('responder', 'Oi, tudo bem?'));
+[$pdo, $id] = cenario('liberadas', [], 'Oi, tenho uma dúvida sobre o treino');
+atd_cfg_gravar($pdo, robo_chave_estado($id), ['cora_liberada' => true]);
+$meta = new MetaFalsa();
+$r = rodar($pdo, $id, $cl, $meta);
+eq('liberada à mão pela equipe: responde', [$r['acao'], robo_liberacao($pdo, wa_contato_por_id($pdo, $id))], ['respondeu', 'manual']);
+$cl = new ClaudeFalso(r_ok('responder', 'Oi!'));
+[$pdo, $id] = cenario('liberadas', ['optin_em' => '2026-11-10 09:00:00'], 'Oi, tenho uma dúvida sobre o treino');
+atd_cfg_gravar($pdo, robo_chave_estado($id), ['cora_liberada' => false]);
+$meta = new MetaFalsa();
+$r = rodar($pdo, $id, $cl, $meta);
+eq('tirar a Cora de uma conversa vale mais que a liberação automática', [$r['motivo'], count($cl->corpos), robo_liberacao($pdo, wa_contato_por_id($pdo, $id))], ['nao_liberada', 0, null]);
+$cl = new ClaudeFalso(r_ok('responder', 'Oi!'));
+[$pdo, $id] = cenario('todos', [], 'Oi, tenho uma dúvida sobre o treino');
+eq('modo todos continua respondendo a qualquer número', rodar($pdo, $id, $cl, new MetaFalsa())['acao'], 'respondeu');
+[$pdo, $id] = cenario('teste', ['idlead' => 7], 'Oi, tenho uma dúvida');
+eq('modo teste não é aberto por lead: só o contato de teste', rodar($pdo, $id, new ClaudeFalso(r_ok('responder', 'x')), new MetaFalsa())['motivo'], 'fora_do_teste');
+eq('robo_ligado: desligado nunca; os outros sim', [robo_ligado('desligado'), robo_ligado('teste'), robo_ligado('liberadas'), robo_ligado('todos'), robo_ligado('x')], [false, true, true, true, false]);
+
 echo "\n══ Comparar modelos (ensaio) ══\n";
 require_once __DIR__ . '/../app/api/_ensaio_modelos.php';
 eq('custo Opus 5.5 (US$ 4 entrada, 20 saída por milhão)', ensaio_custo_usd('claude-opus-5-5', 1000000, 100000), 6.0);

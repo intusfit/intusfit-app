@@ -94,7 +94,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             else $aj['modelo'] = $modelo;
         }
         $rb = (string)($_POST['aj_robo'] ?? $aj['robo']);
-        if (!in_array($rb, ROBO_MODOS, true)) $erros[] = 'Robô de conversa: escolha desligado, só teste ou todos.';
+        if (!in_array($rb, ROBO_MODOS, true)) $erros[] = 'Robô de conversa: escolha desligado, só teste, só liberadas ou todos.';
         elseif ($rb !== 'desligado' && $rb !== ($aj['robo'] ?? 'desligado') && (!(wa_segredo($pdo, 'anthropic_config')['api_key'] ?? '') || !wa_config_whatsapp($pdo))) {
             $erros[] = 'Antes de ligar o robô, salve a chave do Claude e os dados da Meta (ID do número e token de acesso).';
         } else $aj['robo'] = $rb;
@@ -319,10 +319,10 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
 <label for="aj_modelo">Modelo do Claude</label>
 <input type="text" id="aj_modelo" name="aj_modelo" value="<?= h($aj['modelo']) ?>">
 <h3>Robô de conversa</h3>
-<p>Responde sozinho ao que o lead escreve (dentro das 24 horas da Meta) e passa para uma pessoa nos casos de preço, saúde, reclamação, pedido de pessoa e foto ou vídeo. Nasce desligado. "Só teste" responde apenas ao contato de teste (Fulano Teste). "Todos" responde a qualquer lead que escrever.</p>
+<p>Responde sozinho ao que o lead escreve (dentro das 24 horas da Meta) e passa para uma pessoa nos casos de preço, saúde, reclamação, pedido de pessoa e foto ou vídeo. Nasce desligado. "Só teste" responde apenas ao contato de teste (Fulano Teste). "Só conversas liberadas" responde a quem você liberou na caixa de entrada, a quem se cadastrou pelo site e aceitou mensagens e a quem já é lead ou cliente: anúncio, spam e número desconhecido ficam guardados e não gastam nenhum token. "Todos" responde a qualquer número que escrever.</p>
 <div class="linha">
   <div><label for="aj_robo">Robô</label><select id="aj_robo" name="aj_robo" style="width:100%;box-sizing:border-box;background:#1a1a1a;color:#f0f0f0;border:1px solid #2a2a2a;border-radius:8px;padding:11px 12px;font:14px system-ui;">
-    <?php foreach (['desligado' => 'Desligado', 'teste' => 'Só o contato de teste', 'todos' => 'Todos os leads'] as $v => $rot): ?><option value="<?= h($v) ?>"<?= ($aj['robo'] ?? 'desligado') === $v ? ' selected' : '' ?>><?= h($rot) ?></option><?php endforeach; ?></select></div>
+    <?php foreach (['desligado' => 'Desligado', 'teste' => 'Só o contato de teste', 'liberadas' => 'Só conversas liberadas (recomendado)', 'todos' => 'Todos os que escreverem'] as $v => $rot): ?><option value="<?= h($v) ?>"<?= ($aj['robo'] ?? 'desligado') === $v ? ' selected' : '' ?>><?= h($rot) ?></option><?php endforeach; ?></select></div>
   <div><label for="aj_robo_max_respostas_dia">Respostas por contato ao dia</label><input type="number" id="aj_robo_max_respostas_dia" name="aj_robo_max_respostas_dia" value="<?= (int)$aj['robo_max_respostas_dia'] ?>" min="1" max="50"></div>
   <div><label for="aj_robo_max_dia_total">Respostas por dia, no total</label><input type="number" id="aj_robo_max_dia_total" name="aj_robo_max_dia_total" value="<?= (int)$aj['robo_max_dia_total'] ?>" min="1" max="2000"></div>
 </div>

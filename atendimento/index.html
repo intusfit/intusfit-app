@@ -603,7 +603,13 @@ function pintarFila(c){
 }
 
 /* ================= CAIXA DE ENTRADA (sem a Meta) ================= */
-S.inbox = { lista: null, sel: null, conv: null, nova: false, rasc: {} };   // rasc: texto digitado e ainda não enviado, por conversa (sobrevive a atualizar a tela)
+S.inbox = { lista: null, sel: null, conv: null, nova: false, rasc: {}, filtro: 'todas' };   // rasc: texto digitado e ainda não enviado, por conversa (sobrevive a atualizar a tela)
+var ROTULO_CORA = { manual: 'liberada por você', cadastro: 'liberada: cadastrou pelo site', lead: 'liberada: já é lead ou cliente', teste: 'liberada: contato de teste' };
+var FILTROS_INBOX = [['todas', 'Todas'], ['esperam', 'Esperam você'], ['cora', 'Cora liberada'], ['sem_cora', 'Cora não liberada']];
+function passaFiltro(x){
+  var f = S.inbox.filtro;
+  return f === 'esperam' ? x.espera_voce : (f === 'cora' ? !!x.cora : (f === 'sem_cora' ? !x.cora : true));
+}
 var ROTULO_MOTIVO = { pediu_pessoa: 'pediu para falar com uma pessoa', saude: 'falou de saúde, dor ou lesão', reclamacao: 'reclamação ou problema', preco: 'quer falar de valores', midia: 'mandou foto, vídeo ou áudio', duvida: 'dúvida que a Cora não soube responder', outro: 'outro motivo', copy: 'a resposta da Cora não passou na conferência de escrita', limite: 'conversa longa' };
 function badgeInbox(){ var n = $('#n-inbox'); if (n && S.inbox.lista) n.textContent = S.inbox.lista.aguardando; }
 function telaInbox(c){
@@ -631,7 +637,7 @@ function itemConversa(x){
   var cor = x.para_voce ? '<span class="badge verm">para você</span>' : (x.espera_voce ? '<span class="badge ambar">espera você</span>' : (x.saiu ? '<span class="badge">saiu</span>' : ''));
   return '<button class="funil-item" data-conv="' + x.id + '"' + (sel ? ' aria-current="true"' : '') + '><b>' + esc(x.nome) + '</b>'
     + '<span>' + (x.ultima_direcao === 'S' ? 'Você: ' : '') + esc(x.trecho) + '</span>'
-    + '<span style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">' + cor + (x.tem_rascunho ? '<span class="badge azul">rascunho da Cora</span>' : '') + '<span style="margin-left:auto">' + esc(fmtDataHora(x.ultima_em)) + '</span></span></button>';
+    + '<span style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">' + cor + (x.tem_rascunho ? '<span class="badge azul">rascunho da Cora</span>' : '') + (x.cora ? '<span class="badge verde">Cora liberada</span>' : '') + '<span style="margin-left:auto">' + esc(fmtDataHora(x.ultima_em)) + '</span></span></button>';
 }
 function bolha(m){
   var nos = m.direcao === 'S';
@@ -649,9 +655,12 @@ function pintarInbox(c){
     + '<div class="campo"><label for="ib-n-nome">Nome</label><input type="text" id="ib-n-nome" maxlength="150"></div>'
     + '<div class="campo"><label for="ib-n-txt">O que a pessoa escreveu (opcional)</label><textarea id="ib-n-txt" rows="3"></textarea></div>'
     + '<div class="linha"><button class="btn mini primario" id="ib-n-criar">Criar conversa</button><button class="btn mini" id="ib-n-cancelar">Cancelar</button></div></div>';
+  h += '<div class="campo" style="margin:12px 0 0"><label for="ib-filtro">Mostrar</label><select id="ib-filtro">' + FILTROS_INBOX.map(function(f){ return '<option value="' + f[0] + '"' + (S.inbox.filtro === f[0] ? ' selected' : '') + '>' + f[1] + '</option>'; }).join('') + '</select></div>';
   h += '<div style="margin-top:12px">';
+  var vis = d.conversas.filter(passaFiltro);
   if (!d.conversas.length) h += '<p class="dica">Nenhuma conversa ainda. Crie uma pelo botão acima, ou abra uma pessoa da Fila de hoje com o botão <b>Conversa</b>.</p>';
-  d.conversas.forEach(function(x){ h += itemConversa(x); });
+  else if (!vis.length) h += '<p class="dica">Nenhuma conversa neste filtro.</p>';
+  vis.forEach(function(x){ h += itemConversa(x); });
   h += '</div></div></div><div class="ib-conv">';
   if (!cv) h += '<div class="card"><p class="dica">Escolha uma conversa na lista.</p></div>';
   else {
@@ -660,6 +669,8 @@ function pintarInbox(c){
     h += '<div class="card"><div class="linha" style="margin-bottom:6px"><button class="btn mini ib-voltar" id="ib-voltar">&larr; Conversas</button><h2 style="font-size:18px">' + esc(ct.nome || ct.telefone) + '</h2>'
       + (pend ? '<span class="badge ambar">espera você</span>' : '') + (ct.saiu ? '<span class="badge verm">pediu para sair</span>' : '') + '<span class="espaco"></span>'
       + '<a class="btn mini" href="' + esc(linkWa(ct.whatsapp, '')) + '" target="_blank" rel="noopener noreferrer">Abrir no WhatsApp</a></div>'
+      + '<div class="linha" style="margin-top:6px"><span class="badge ' + (cv.cora ? 'verde' : '') + '">' + (cv.cora ? 'Cora ' + esc(ROTULO_CORA[cv.cora] || 'liberada') : 'Cora não liberada') + '</span>'
+      + '<button class="btn mini" id="ib-cora" title="Vale para o robô que responde sozinho, quando a Meta estiver ligada. A sugestão manual desta tela funciona sempre.">' + (cv.cora ? 'Tirar a Cora desta conversa' : 'Liberar a Cora nesta conversa') + '</button></div>'
       + '<div class="msg-meta">' + esc(ct.telefone) + (ct.objetivo ? ' · objetivo: ' + esc(ct.objetivo) : '') + (ct.idatleta ? ' · <a href="/app/painel/alunos.html?busca=' + encodeURIComponent(ct.nome || '') + '">cliente</a>' : '') + '</div>'
       + (ct.resumo ? '<div class="msg-meta" style="margin-top:4px">Resumo da Cora: ' + esc(ct.resumo) + '</div>' : '')
       + '<div class="chat" id="ib-chat" style="margin-top:12px">' + (cv.mensagens.length ? cv.mensagens.map(bolha).join('') : '<p class="dica">Ainda sem mensagens. Cole abaixo o que a pessoa escreveu.</p>') + '</div></div>';
@@ -689,6 +700,7 @@ function pintarInbox(c){
   $('#ib-nova-bt', c).addEventListener('click', function(){ S.inbox.nova = !S.inbox.nova; pintarInbox(c); });
   var rr = $('#ib-resp', c);
   if (rr) rr.addEventListener('input', function(){ var ct = S.inbox.conv.contato; S.inbox.rasc[ct.id] = rr.value; $('#ib-wa', c).setAttribute('href', linkWa(ct.whatsapp, rr.value)); });
+  c.onchange = function(ev){ if (ev.target.id === 'ib-filtro') { S.inbox.filtro = ev.target.value; pintarInbox(c); } };
   c.onclick = function(ev){
     var it = ev.target.closest('[data-conv]');
     if (it) { S.inbox.sel = parseInt(it.getAttribute('data-conv'), 10); S.inbox.nova = false; carregarConversa(c); return; }
@@ -708,6 +720,11 @@ function pintarInbox(c){
       return;
     }
     if (!id) return;
+    if (b.id === 'ib-cora') {
+      var liberar = !S.inbox.conv.cora; b.disabled = true;
+      api('inbox_cora', { id: id, liberar: liberar }).then(function(){ toast(liberar ? 'Cora liberada nesta conversa' : 'Cora fora desta conversa'); recarregarInbox(c); }).catch(function(e){ b.disabled = false; falha(e); });
+      return;
+    }
     if (b.id === 'ib-copiar') { copiar(resp, 'Resposta copiada, pronta para colar no WhatsApp'); return; }
     if (b.id === 'ib-reg' || b.id === 'ib-reg-sug') {
       var t = $('#ib-lead', c).value; if (!t.trim()) { toast('Cole o que a pessoa escreveu.'); return; }

@@ -9,7 +9,7 @@
  * GET  ?action=manual_estado               fila de hoje do atendimento manual (sem a Meta): configuração, o que enviar agora e quem aguarda resposta
  * POST ?action=manual_config | manual_acao   salvar origem e data de início; marcar enviada, pular, respondeu ou encerrar
  * GET  ?action=inbox_lista | inbox_conversa&id=N   caixa de entrada (sem a Meta): conversas, e uma conversa inteira com o rascunho da Cora
- * POST ?action=inbox_nova | inbox_lead | inbox_registrar | inbox_sugerir | inbox_enviei | inbox_resolver
+ * POST ?action=inbox_nova | inbox_lead | inbox_registrar | inbox_sugerir | inbox_enviei | inbox_resolver | inbox_cora
  *        criar conversa por telefone ou a partir de um lead da fila; colar o que a pessoa escreveu; pedir a sugestão da Cora; marcar enviada; resolver
  * GET  ?action=exportar                     pacote JSON para a automação
  * POST ?action=funil_salvar | funil_excluir | funil_restaurar | funil_duplicar
@@ -71,7 +71,7 @@ try {
     $action = (string)($_GET['action'] ?? '');
     $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $soPost = ['funil_salvar', 'funil_excluir', 'funil_restaurar', 'funil_duplicar', 'conceito_salvar', 'conceito_excluir', 'conceito_restaurar',
-               'manual_config', 'manual_acao', 'inbox_nova', 'inbox_lead', 'inbox_registrar', 'inbox_sugerir', 'inbox_enviei', 'inbox_resolver', 'ref_link', 'ref_arquivo', 'ref_atualizar', 'ref_ler', 'ref_excluir', 'teste_salvar', 'teste_excluir', 'analisar', 'gerar'];
+               'manual_config', 'manual_acao', 'inbox_nova', 'inbox_lead', 'inbox_registrar', 'inbox_sugerir', 'inbox_enviei', 'inbox_resolver', 'inbox_cora', 'ref_link', 'ref_arquivo', 'ref_atualizar', 'ref_ler', 'ref_excluir', 'teste_salvar', 'teste_excluir', 'analisar', 'gerar'];
     if (in_array($action, $soPost, true) && $metodo !== 'POST') atd_resp(405, ['ok' => false, 'erro' => 'Use POST.']);
 
     $d = $metodo === 'POST' ? atd_entrada() : [];
@@ -147,6 +147,9 @@ try {
             $r = inbox_enviei($pdo, (int)($d['id'] ?? 0), (string)($d['texto'] ?? ''));
             atd_resp(200, ['ok' => true] + $r);
         }
+        case 'inbox_cora':
+            inbox_cora($pdo, (int)($d['id'] ?? 0), !empty($d['liberar']));
+            atd_resp(200, ['ok' => true]);
         case 'inbox_resolver':
             inbox_resolver($pdo, (int)($d['id'] ?? 0));
             atd_resp(200, ['ok' => true]);

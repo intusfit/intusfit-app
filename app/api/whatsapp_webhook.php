@@ -100,7 +100,7 @@ try {
 // chamado (uma resposta leva de 5 a 30 s e a Meta reentrega o que demora): fecha a conexão e continua em segundo plano. Se a hospedagem
 // não deixar fechar antes, o resultado é o mesmo, só mais lento; a reentrega não duplica nada (wa_id único e mensagem reivindicada).
 $robo = false;
-try { $robo = in_array((string)(wa_ajustes($pdo)['robo'] ?? 'desligado'), ['teste', 'todos'], true); } catch (Throwable $e) { wa_log_erro($e); }
+try { $robo = in_array((string)(wa_ajustes($pdo)['robo'] ?? 'desligado'), ['teste', 'liberadas', 'todos'], true); } catch (Throwable $e) { wa_log_erro($e); }
 if ($robo) {
     ignore_user_abort(true);
     @set_time_limit(150);
