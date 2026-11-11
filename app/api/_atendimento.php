@@ -18,6 +18,7 @@
  */
 
 require_once __DIR__ . '/_wa.php';
+require_once __DIR__ . '/_claude_erro.php';
 require_once __DIR__ . '/_atendimento_conteudo.php';
 require_once __DIR__ . '/_provas.php';
 require_once __DIR__ . '/_trafego.php';   // só trRelatorio e trGarantirTabelas (versão já publicada)
@@ -776,6 +777,36 @@ function atd_http_claude(string $corpo, string $chave, bool $comFallback): array
     return ['status' => $st, 'json' => json_decode((string)$r, true), 'erro' => ''];
 }
 
+/**
+ * Chamada mínima com a chave e o modelo salvos (botão "Testar o Claude" de admin/whatsapp-keys.php): diz se a conta responde, o que
+ * custou e, se falhou, por quê. Não entra na contagem de pedidos do dia. Nunca devolve a chave.
+ * $http: igual ao de atd_gerar, para testes.
+ */
+function atd_testar_claude(PDO $pdo, ?callable $http = null): array {
+    $cfg = wa_segredo($pdo, 'anthropic_config');
+    $chave = is_array($cfg) ? trim((string)($cfg['api_key'] ?? '')) : '';
+    if ($chave === '') return ['ok' => false, 'erro' => 'Salve a chave do Claude antes de testar.'];
+    $modelo = wa_ajustes($pdo)['modelo'] ?? 'claude-opus-5-5';
+    $corpo = json_encode(['model' => $modelo, 'max_tokens' => 16, 'messages' => [['role' => 'user', 'content' => 'Responda só com a palavra: ok']]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    try {
+        $r = ($http ?: 'atd_http_claude')($corpo, $chave, false);
+    } catch (Throwable $e) {
+        return ['ok' => false, 'erro' => 'Falha ao falar com o Claude (' . wa_log_erro($e) . ').'];
+    }
+    $st = (int)($r['status'] ?? 0);
+    $j = $r['json'] ?? null;
+    if ($st === 200 && is_array($j)) {
+        $tin = (int)($j['usage']['input_tokens'] ?? 0); $tout = (int)($j['usage']['output_tokens'] ?? 0);
+        return ['ok' => true, 'modelo' => $modelo, 'tin' => $tin, 'tout' => $tout, 'custo_usd' => atd_custo_usd($tin, $tout)];
+    }
+    $det = is_array($j) ? (string)($j['error']['message'] ?? '') : (string)($r['erro'] ?? '');
+    $erro = atd_erro_claude_especial($st, $j, $modelo)
+        ?? ($st === 401 ? 'A chave do Claude foi recusada. Gere outra em platform.claude.com e salve de novo.'
+        : ($st === 429 ? 'Limite de uso do Claude atingido agora. Tente de novo em instantes.'
+        : 'O Claude não respondeu como esperado' . ($st ? " (HTTP $st)" : '') . '.'));
+    return ['ok' => false, 'erro' => $erro, 'status' => $st, 'detalhe' => mb_substr($det, 0, 300)];
+}
+
 function atd_uso_hoje(PDO $pdo): array {
     $u = atd_cfg_ler($pdo, 'atd_uso', []);
     $hoje = wa_agora()->format('Y-m-d');
@@ -863,9 +894,10 @@ function atd_gerar(PDO $pdo, array $p, ?callable $http = null): array {
     $j = $r['json'] ?? null;
     if ($st !== 200 || !is_array($j)) {
         $detalhe = is_array($j) ? (string)($j['error']['message'] ?? '') : (string)($r['erro'] ?? '');
-        $msg = $st === 401 ? 'A chave do Claude foi recusada. Confira em admin/whatsapp-keys.php.'
+        $msg = atd_erro_claude_especial($st, $j, $modelo)
+             ?? ($st === 401 ? 'A chave do Claude foi recusada. Confira em admin/whatsapp-keys.php.'
              : ($st === 429 ? 'Limite de uso do Claude atingido agora. Tente de novo em instantes.'
-             : 'O Claude não respondeu como esperado' . ($st ? " (HTTP $st)" : '') . ($detalhe ? ': ' . mb_substr($detalhe, 0, 160) : '.'));
+             : 'O Claude não respondeu como esperado' . ($st ? " (HTTP $st)" : '') . ($detalhe ? ': ' . mb_substr($detalhe, 0, 160) : '.')));
         return ['ok' => false, 'erro' => $msg];
     }
     if (($j['stop_reason'] ?? '') === 'refusal') return ['ok' => false, 'erro' => 'O Claude recusou este pedido. Reformule.'];

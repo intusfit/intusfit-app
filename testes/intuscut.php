@@ -111,6 +111,10 @@ $n = 0; $http400 = function ($c, $k, $fb) use (&$n) { $n++; return $fb ? ['statu
 eq('repete sem o fallback quando a API recusa', cut_ia($pdo, 'x', $http400)['ok'] && $n === 2, true);
 eq('resposta que não é JSON', cut_ia($pdo, 'x', fn() => ['status' => 200, 'json' => ['content' => [['type' => 'text', 'text' => 'oi']]]])['ok'], false);
 eq('chave recusada', cut_ia($pdo, 'x', fn() => ['status' => 401, 'json' => []])['erro'], 'A chave do Claude foi recusada.');
+// Sem saldo a API responde 400 com "credit balance is too low": o aviso diz isso (antes era só "HTTP 400") e quem paga é o Console, não a assinatura.
+$semSaldo = cut_ia($pdo, 'x', fn() => ['status' => 400, 'json' => ['error' => ['type' => 'invalid_request_error', 'message' => 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.']]]);
+eq('sem saldo na API: o aviso diz que falta saldo', !$semSaldo['ok'] && strpos($semSaldo['erro'], 'sem saldo') !== false && strpos($semSaldo['erro'], 'platform.claude.com') !== false, true);
+eq('400 qualquer continua como antes', cut_ia($pdo, 'x', fn() => ['status' => 400, 'json' => ['error' => ['message' => 'outro problema']]])['erro'], 'O Claude não respondeu como esperado (HTTP 400).');
 echo "\n══ IA com quadros do vídeo ══\n";
 $jpg = 'data:image/jpeg;base64,' . base64_encode("\xFF\xD8\xFF" . str_repeat('a', 300));
 $png = 'data:image/png;base64,' . base64_encode("\x89PNG" . str_repeat('b', 300));

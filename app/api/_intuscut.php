@@ -13,6 +13,8 @@
  * Quem usa: administrador, ou quem tem a chave cut_ver em Usuários. Aluno nunca.
  */
 
+require_once __DIR__ . '/_claude_erro.php';   // frases para saldo, permissão e modelo da API do Claude
+
 const CUT_PROJETO_MAX = 2 * 1024 * 1024;           // 2 MB de JSON por projeto
 const CUT_BIB_MAX = 600;                           // itens na biblioteca
 const CUT_VIDEO_MAX = 2 * 1024 * 1024 * 1024;      // 2 GB por vídeo (entrevista inteira em 1080p cabe)
@@ -333,7 +335,7 @@ function cut_ia(PDO $pdo, string $pedido, ?callable $http = null, $imagens = [])
     }
     $st = (int)($r['status'] ?? 0); $j = $r['json'] ?? null;
     if ($st !== 200 || !is_array($j)) {
-        return ['ok' => false, 'erro' => $st === 401 ? 'A chave do Claude foi recusada.' : ($st === 429 ? 'O Claude está com muitos pedidos agora. Tente de novo em instantes.' : 'O Claude não respondeu como esperado' . ($st ? " (HTTP $st)" : '') . '.')];
+        return ['ok' => false, 'erro' => atd_erro_claude_especial($st, $j, $modelo) ?? ($st === 401 ? 'A chave do Claude foi recusada.' : ($st === 429 ? 'O Claude está com muitos pedidos agora. Tente de novo em instantes.' : 'O Claude não respondeu como esperado' . ($st ? " (HTTP $st)" : '') . '.'))];
     }
     if (($j['stop_reason'] ?? '') === 'refusal') return ['ok' => false, 'erro' => 'O Claude recusou este pedido. Reformule as orientações.'];
     $texto = '';

@@ -367,6 +367,30 @@ foreach ([[401, 'chave do Claude foi recusada'], [429, 'Limite de uso'], [500, '
 }
 $r = atd_gerar($pdo, ['modo' => 'gerar', 'objetivo' => 'x'], fn() => ['status' => 200, 'erro' => '', 'json' => ['stop_reason' => 'refusal', 'content' => []]]);
 verdade('claude: recusa tratada', !$r['ok'] && strpos($r['erro'], 'recusou') !== false);
+// Falhas que pedem uma ação do Luiz: saldo, permissão, modelo, serviço cheio.
+$msgSaldo = 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.';
+foreach ([[400, $msgSaldo, 'sem saldo'], [403, 'forbidden', 'não deixou fazer'], [404, 'model: claude-xyz', 'não está disponível'], [529, 'Overloaded', 'sobrecarregado']] as [$cod, $det, $trecho]) {
+    $r = atd_gerar($pdo, ['modo' => 'gerar', 'objetivo' => 'x'], fn() => ['status' => $cod, 'erro' => '', 'json' => ['error' => ['message' => $det]]]);
+    verdade("claude: erro $cod ($trecho) explicado", !$r['ok'] && stripos($r['erro'], $trecho) !== false);
+}
+$r = atd_gerar($pdo, ['modo' => 'gerar', 'objetivo' => 'x'], fn() => ['status' => 400, 'erro' => '', 'json' => ['error' => ['message' => $msgSaldo]]]);
+verdade('claude: sem saldo manda ir ao Faturamento e diz que a assinatura nao paga', strpos($r['erro'], 'Faturamento') !== false && strpos($r['erro'], 'assinatura') !== false);
+// Teste da chave (botão da tela de chaves): chamada mínima, não conta no limite do dia e nunca devolve a chave.
+$antes = atd_uso_hoje($pdo)['chamadas'];
+$corposTeste = [];
+$t = atd_testar_claude($pdo, function ($corpo, $chave, $fb) use (&$corposTeste) { $corposTeste[] = [json_decode($corpo, true), $chave, $fb]; return ['status' => 200, 'erro' => '', 'json' => ['usage' => ['input_tokens' => 20, 'output_tokens' => 4], 'content' => [['type' => 'text', 'text' => 'ok']]]]; });
+verdade('teste da chave: funcionou e traz modelo, tokens e custo', $t['ok'] && $t['modelo'] === 'claude-opus-5-5' && $t['tin'] === 20 && $t['tout'] === 4 && $t['custo_usd'] > 0);
+verdade('teste da chave: chamada mínima (16 tokens, sem fallback)', $corposTeste[0][0]['max_tokens'] === 16 && $corposTeste[0][2] === false && !isset($corposTeste[0][0]['fallbacks']));
+confere('teste da chave: não entra na contagem de pedidos do dia', $antes, atd_uso_hoje($pdo)['chamadas']);
+verdade('teste da chave: a chave não volta no resultado', strpos(json_encode($t), 'sk-ant') === false);
+$t = atd_testar_claude($pdo, fn() => ['status' => 400, 'erro' => '', 'json' => ['error' => ['type' => 'invalid_request_error', 'message' => $msgSaldo]]]);
+verdade('teste da chave: sem saldo diz o motivo e mostra a resposta da Anthropic', !$t['ok'] && strpos($t['erro'], 'sem saldo') !== false && strpos($t['detalhe'], 'credit balance') !== false && $t['status'] === 400);
+$t = atd_testar_claude($pdo, fn() => ['status' => 401, 'erro' => '', 'json' => ['error' => ['message' => 'invalid x-api-key']]]);
+verdade('teste da chave: chave recusada', !$t['ok'] && strpos($t['erro'], 'recusada') !== false);
+$t = atd_testar_claude($pdo, function () { throw new RuntimeException('boom'); });
+verdade('teste da chave: exceção não derruba', !$t['ok']);
+$pdoSemChave = banco();
+verdade('teste da chave: sem chave salva explica', ($x = atd_testar_claude($pdoSemChave, fn() => []))['ok'] === false && strpos($x['erro'], 'Salve a chave') !== false);
 $r = atd_gerar($pdo, ['modo' => 'gerar', 'objetivo' => 'x'], function () { throw new RuntimeException('boom'); });
 verdade('claude: excecao nao derruba', !$r['ok']);
 $r = atd_gerar($pdo, ['modo' => 'gerar', 'objetivo' => 'x'], fn() => ['status' => 200, 'erro' => '', 'json' => ['stop_reason' => 'end_turn', 'usage' => ['input_tokens' => 10, 'output_tokens' => 5],

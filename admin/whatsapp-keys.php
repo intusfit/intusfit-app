@@ -21,6 +21,7 @@ header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex, nofollow');
 
 require_once __DIR__ . '/../app/api/_wa.php';
+require_once __DIR__ . '/../app/api/_atendimento.php';
 $pdo = wa_conectar();
 if (!$pdo) { http_response_code(500); exit('Falha ao conectar no banco.'); }
 wa_garantir_tabelas($pdo);
@@ -32,6 +33,7 @@ $csrf = $_SESSION['wa_csrf'];
 
 $avisos = [];   // [texto, erro?]
 $resultadoTeste = null;
+$resultadoClaude = null;
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     if (!hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) {
@@ -110,6 +112,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         if (!$cfg) $avisos[] = ['Antes de testar, salve o ID do número e o token de acesso.', true];
         else $resultadoTeste = wa_testar_conexao($cfg);
     }
+
+    if ($acao === 'testar_claude') $resultadoClaude = atd_testar_claude($pdo);
 }
 
 // ── Estado para exibir (nunca os valores secretos) ──
@@ -166,6 +170,14 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
     <div class="aviso">Conexão com a Meta funcionando. Nome verificado: <b><?= h($resultadoTeste['nome']) ?></b> · número: <b><?= h($resultadoTeste['numero']) ?></b> · qualidade: <b><?= h($resultadoTeste['qualidade'] ?: 'sem dado') ?></b></div>
   <?php else: ?>
     <div class="aviso erro">Não conectou: <?= h($resultadoTeste['erro']) ?></div>
+  <?php endif; ?>
+<?php endif; ?>
+
+<?php if ($resultadoClaude !== null): ?>
+  <?php if ($resultadoClaude['ok']): ?>
+    <div class="aviso">Claude respondeu: a chave e o saldo da API estão funcionando. Modelo: <b><?= h($resultadoClaude['modelo']) ?></b> · este teste usou <?= (int)$resultadoClaude['tin'] ?> + <?= (int)$resultadoClaude['tout'] ?> tokens (cerca de US$ <?= h(number_format((float)$resultadoClaude['custo_usd'], 5, ',', '')) ?>). A edição automática do Intus Cut e o laboratório de atendimento usam esta mesma chave.</div>
+  <?php else: ?>
+    <div class="aviso erro">Claude não funcionou: <?= h($resultadoClaude['erro']) ?><?php if (!empty($resultadoClaude['detalhe'])): ?><br><span style="color:#aaa">Resposta da Anthropic: <?= h($resultadoClaude['detalhe']) ?></span><?php endif; ?></div>
   <?php endif; ?>
 <?php endif; ?>
 
@@ -226,6 +238,7 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
 
 <button type="submit" name="acao" value="salvar">Salvar</button>
 <button type="submit" name="acao" value="testar" class="sec">Testar conexão com a Meta</button>
+<button type="submit" name="acao" value="testar_claude" class="sec">Testar o Claude (chave e saldo)</button>
 </form>
 </body>
 </html>
