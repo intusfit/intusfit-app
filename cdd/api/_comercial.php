@@ -576,7 +576,8 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
         $ref1 = cddStr($b['ref_gateway'] ?? '', 40);
         if ($ref1 !== '') $refs[] = $ref1;
         else foreach ($pdo->query("SELECT ref_gateway FROM cdd_oferta WHERE gateway = 'asaas' AND ativo = 1 AND ref_gateway <> ''")->fetchAll() as $o) $refs[] = (string)$o['ref_gateway'];
-        $url = rtrim((string)($ctx['base'] ?? ''), '/') . '/obrigado';
+        // O Asaas só aceita retorno no domínio cadastrado em Minha Conta (www.intusfit.com.br). O endereço abaixo, nesse domínio, redireciona para /obrigado do CDD.
+        $url = cddUrl($b['url'] ?? '') ?: 'https://intusfit.com.br/cdd/obrigado';
         $r = [];
         foreach ($refs as $ref) {
             try { [$st, $j] = cddAsaasChamar($pdo, 'PUT', '/paymentLinks/' . rawurlencode($ref), ['callback' => ['successUrl' => $url, 'autoRedirect' => true]]); }

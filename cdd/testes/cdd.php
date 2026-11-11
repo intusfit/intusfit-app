@@ -879,7 +879,7 @@ eq('"Testar conexão" fala com o ambiente de testes e confirma', $s === 200 && $
 eq('aluna não testa a conexão (403)', $s === 403);
 $chamadasAsaas = [];
 [$s, $d] = req('a_com_asaas_retorno', 'POST', [], ['ref_gateway' => 'r8eb58ytv6woigu2'], $tAdmin);
-eq('"Página de obrigado" põe o retorno no link do Asaas (PUT com successUrl e redirecionamento automático)', $s === 200 && $d['ok'] === true && substr($d['url'], -9) === '/obrigado' && $d['links'][0]['ok'] === true && $chamadasAsaas === ['PUT /paymentLinks/r8eb58ytv6woigu2'], json_encode([$d, $chamadasAsaas]));
+eq('"Página de obrigado" põe o retorno no link do Asaas (PUT com successUrl e redirecionamento automático)', $s === 200 && $d['ok'] === true && $d['url'] === 'https://intusfit.com.br/cdd/obrigado' && $d['links'][0]['ok'] === true && $chamadasAsaas === ['PUT /paymentLinks/r8eb58ytv6woigu2'], json_encode([$d, $chamadasAsaas]));
 [$s, $d] = req('a_com_asaas_retorno', 'POST', [], [], $tAna);
 eq('aluna não mexe nos links do Asaas (403)', $s === 403);
 
