@@ -52,6 +52,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "compartilhar treino/cardio: figurinha e informações movem e redimensionam (foto, câmera, vídeo), nada sai cortado" node compartilhar_pecas.js
   passo "faixa de notificação some de verdade (iPhone com ilha)" node aviso_notificacao.js
   passo "figurinha do fim do treino nunca volta ao padrão antigo" node figurinhas_aluno.js
+  passo "caixa de entrada da Central: conversa, sugestão da Cora, envio e celular" node inbox_tela.js
   passo "tela inicial: ranking e medalhas num cartão, atalhos só com título, Extras e Ver mais com + e −" node home_atalhos.js
   passo "Meu Cardio: lista, registro em uma tela, confirmação com Corrigir e tela de parabéns" node cardio_tela.js
   passo "Quadro de medalhas: apuração única (api.js) e aba Medalhas na Frequência e Ranking" node medalhas.js

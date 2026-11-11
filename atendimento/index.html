@@ -199,6 +199,15 @@ a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-u
 .lead-acoes{display:flex;flex-direction:column;gap:6px;align-items:stretch}
 .lead-acoes .btn{text-decoration:none}
 @media (max-width:640px){.lead{grid-template-columns:1fr}.lead-acoes{flex-direction:row;flex-wrap:wrap}}
+.inbox{display:grid;grid-template-columns:320px minmax(0,1fr);gap:14px;align-items:start}
+.inbox .funil-item span{display:block}
+.chat{display:flex;flex-direction:column;gap:8px;max-height:460px;overflow:auto;padding:2px}
+.bolha{max-width:86%;padding:8px 12px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
+.bolha.lead{align-self:flex-start;background:var(--card2);border:1px solid var(--borda)}
+.bolha.nos{align-self:flex-end;background:var(--accent-bg);border:1px solid var(--accent-bd)}
+.bolha small{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+.ib-voltar{display:none}
+@media (max-width:860px){.inbox{grid-template-columns:1fr}.inbox.com-sel .ib-lista{display:none}.inbox:not(.com-sel) .ib-conv{display:none}.ib-voltar{display:inline-flex}}
 .codigo{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--codigo-bg);border:1px solid var(--borda);border-radius:10px;padding:10px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
 </style>
 </head>
@@ -231,6 +240,7 @@ a.lead-nome{text-decoration:underline;text-decoration-color:var(--borda2);text-u
     <div class="abas" role="tablist" id="abas">
       <button class="aba" role="tab" data-aba="painel">Painel</button>
       <button class="aba" role="tab" data-aba="fila">Fila de hoje <span class="n" id="n-fila">0</span></button>
+      <button class="aba" role="tab" data-aba="inbox">Caixa de entrada <span class="n" id="n-inbox">0</span></button>
       <button class="aba" role="tab" data-aba="leads">Leads</button>
       <button class="aba" role="tab" data-aba="quadro">Quadro</button>
       <button class="aba" role="tab" data-aba="funis">Funis e copys</button>
@@ -332,7 +342,7 @@ function iniciar(){
   if (!getToken()) { mostrarLogin(''); return; }
   mostrarApp();
   var v = ler('atd-vars'); if (v) { try { S.vars = Object.assign(S.vars, JSON.parse(v)); } catch (e) {} }
-  api('resumo').then(function(d){ S.dados = d; if (!S.funilSel && d.funis.length) S.funilSel = d.funis[0].id; pintarAbas(); desenhar(); })
+  api('resumo').then(function(d){ S.dados = d; if (!S.funilSel && d.funis.length) S.funilSel = d.funis[0].id; pintarAbas(); desenhar(); api('inbox_lista').then(function(l){ S.inbox.lista = l; badgeInbox(); }).catch(function(){}); })
   .catch(function(e){
     if (e.status === 403) { $('#conteudo').innerHTML = '<div class="aviso erro">' + esc(e.message) + '</div>'; return; }
     if (e.message !== 'sessão') $('#conteudo').innerHTML = '<div class="aviso erro">' + esc(e.message) + '</div>';
@@ -352,6 +362,7 @@ function desenhar(){
   c.onclick = null; c.onchange = null;
   if (S.aba === 'painel') return telaPainel(c);
   if (S.aba === 'fila') return telaFila(c);
+  if (S.aba === 'inbox') return telaInbox(c);
   if (S.aba === 'leads') return telaLeads(c);
   if (S.aba === 'quadro') return telaQuadro(c);
   if (S.aba === 'funis') return telaFunis(c);
@@ -525,6 +536,7 @@ function pintarFila(c){
       + '<div class="campo" style="margin:8px 0 0"><label for="fm-' + i + '">Mensagem que vou enviar</label><select id="fm-' + i + '" data-fila-msg>' + opcoesMensagem(d.biblioteca || [], p, sel) + '</select></div>'
       + '<div class="preview" data-prev>' + esc(p.opcoes[sel]) + '</div></div>'
       + '<div class="lead-acoes"><a class="btn mini primario" data-wa href="' + esc(linkWhats(p, p.opcoes[sel])) + '" target="_blank" rel="noopener noreferrer">Abrir no WhatsApp</a>'
+      + '<button class="btn mini" data-fila="conversa">Conversa</button>'
       + '<button class="btn mini" data-fila="copiar">Copiar mensagem</button>'
       + '<button class="btn mini" data-fila="enviada">Já enviei</button>'
       + '<button class="btn mini" data-fila="pular">Pular</button>'
@@ -538,6 +550,7 @@ function pintarFila(c){
     h += '<div class="lead" data-ai="' + i + '"><div class="lead-corpo"><div class="lead-topo"><span class="lead-nome">' + esc(p.nome) + '</span> <span class="badge">' + esc(p.etapa_rotulo) + '</span></div>'
       + '<div class="msg-meta">Enviou "' + esc(p.mensagem_nome) + '" (' + esc(p.funil_nome) + ') em ' + esc(fmtDataHora(p.enviada_em)) + (p.por ? ' por ' + esc(p.por) : '') + '</div></div>'
       + '<div class="lead-acoes"><a class="btn mini" href="' + esc(linkWhats(p, '')) + '" target="_blank" rel="noopener noreferrer">Abrir conversa</a>'
+      + '<button class="btn mini" data-aguarda="conversa">Conversa</button>'
       + '<button class="btn mini primario" data-aguarda="respondeu">Respondeu</button><button class="btn mini perigo" data-aguarda="encerrar">Encerrar</button></div></div>';
   });
   h += '</div>';
@@ -569,6 +582,11 @@ function pintarFila(c){
     var acao = b.getAttribute(ehFila ? 'data-fila' : 'data-aguarda');
     if (!p) return;
     var escolhida = ehFila ? (S.filaSel[p.chave] && p.opcoes[S.filaSel[p.chave]] !== undefined ? S.filaSel[p.chave] : p.passo) : null;
+    if (acao === 'conversa') {
+      b.disabled = true;
+      api('inbox_lead', { chave: p.chave }).then(function(r){ S.inbox.sel = r.id; S.inbox.nova = false; S.aba = 'inbox'; pintarAbas(); desenhar(); window.scrollTo(0, 0); }).catch(function(e){ b.disabled = false; falha(e); });
+      return;
+    }
     if (acao === 'copiar') { copiar(p.opcoes[escolhida], 'Mensagem copiada, pronta para colar'); return; }
     if (acao === 'encerrar' && !confirm('Tirar ' + p.nome + ' da fila? Fica registrado como "sem interesse" em Pessoas Captadas e a pessoa não recebe mais mensagens daqui.')) return;
     var corpo = { chave: p.chave, telefone: p.whatsapp, acao: acao === 'pular' ? 'pular' : acao };
@@ -581,6 +599,138 @@ function pintarFila(c){
       delete S.filaSel[p.chave];
       var y = window.scrollY; telaFila(c); setTimeout(function(){ window.scrollTo(0, y); }, 400);
     }).catch(function(e){ b.disabled = false; falha(e); });
+  };
+}
+
+/* ================= CAIXA DE ENTRADA (sem a Meta) ================= */
+S.inbox = { lista: null, sel: null, conv: null, nova: false, rasc: {} };   // rasc: texto digitado e ainda não enviado, por conversa (sobrevive a atualizar a tela)
+var ROTULO_MOTIVO = { pediu_pessoa: 'pediu para falar com uma pessoa', saude: 'falou de saúde, dor ou lesão', reclamacao: 'reclamação ou problema', preco: 'quer falar de valores', midia: 'mandou foto, vídeo ou áudio', duvida: 'dúvida que a Cora não soube responder', outro: 'outro motivo', copy: 'a resposta da Cora não passou na conferência de escrita', limite: 'conversa longa' };
+function badgeInbox(){ var n = $('#n-inbox'); if (n && S.inbox.lista) n.textContent = S.inbox.lista.aguardando; }
+function telaInbox(c){
+  if (S.aba !== 'inbox') return;
+  var tok = ++S.tok;
+  c.innerHTML = '<p class="carregando">Abrindo a caixa de entrada...</p>';
+  api('inbox_lista').then(function(d){
+    if (tok !== S.tok) return;
+    S.inbox.lista = d; badgeInbox();
+    if (S.inbox.sel) { carregarConversa(c, tok); return; }
+    S.inbox.conv = null; pintarInbox(c);
+  }).catch(function(e){ falha(e); if (tok === S.tok) c.innerHTML = '<div class="aviso erro">' + esc(e.message) + '</div>'; });
+}
+function carregarConversa(c, tok){
+  api('inbox_conversa', null, '&id=' + S.inbox.sel).then(function(r){
+    if (tok !== undefined && tok !== S.tok) return;
+    S.inbox.conv = r; pintarInbox(c);
+  }).catch(function(e){ falha(e); S.inbox.sel = null; S.inbox.conv = null; pintarInbox(c); });
+}
+function recarregarInbox(c){
+  api('inbox_lista').then(function(d){ S.inbox.lista = d; badgeInbox(); if (S.inbox.sel) carregarConversa(c); else pintarInbox(c); }).catch(falha);
+}
+function itemConversa(x){
+  var sel = S.inbox.sel === x.id;
+  var cor = x.para_voce ? '<span class="badge verm">para você</span>' : (x.espera_voce ? '<span class="badge ambar">espera você</span>' : (x.saiu ? '<span class="badge">saiu</span>' : ''));
+  return '<button class="funil-item" data-conv="' + x.id + '"' + (sel ? ' aria-current="true"' : '') + '><b>' + esc(x.nome) + '</b>'
+    + '<span>' + (x.ultima_direcao === 'S' ? 'Você: ' : '') + esc(x.trecho) + '</span>'
+    + '<span style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">' + cor + (x.tem_rascunho ? '<span class="badge azul">rascunho da Cora</span>' : '') + '<span style="margin-left:auto">' + esc(fmtDataHora(x.ultima_em)) + '</span></span></button>';
+}
+function bolha(m){
+  var nos = m.direcao === 'S';
+  var quem = nos ? ({ robo: 'Cora (sugerida)', pessoa: 'equipe', sequencia: 'sequência', sistema: 'sistema' }[m.origem] || m.origem) : 'a pessoa';
+  var txt = (m.texto && String(m.texto).trim()) ? esc(m.texto) : '<i>[' + esc(m.tipo) + ']</i>';
+  return '<div class="bolha ' + (nos ? 'nos' : 'lead') + '">' + txt + '<small>' + esc(quem) + ' · ' + esc(fmtDataHora(m.criado_em)) + (m.status === 'falhou' ? ' · falhou' : '') + '</small></div>';
+}
+function linkWa(tel, texto){ return 'https://wa.me/' + tel + (texto ? '?text=' + encodeURIComponent(texto) : ''); }
+function pintarInbox(c){
+  var d = S.inbox.lista, cv = S.inbox.conv, h = '';
+  h += '<div class="inbox' + (cv ? ' com-sel' : '') + '"><div class="ib-lista"><div class="card"><div class="linha" style="margin-bottom:6px"><h2 style="font-size:18px">Caixa de entrada</h2><span class="badge verde">Manual, sem Meta</span></div>'
+    + '<p class="dica">Você conversa pelo WhatsApp da Intus como sempre. Aqui cola o que a pessoa escreveu, a Cora sugere a resposta (ou diz que é para você) e você envia pelo WhatsApp e marca <b>Já enviei</b>. Nada é enviado sozinho.</p>'
+    + '<div class="linha" style="margin-top:10px"><button class="btn mini primario" id="ib-nova-bt">+ Nova conversa</button><button class="btn mini" id="ib-atualizar">Atualizar</button><span class="espaco"></span><span class="dica">' + num(d.aguardando) + ' esperando você</span></div>';
+  if (S.inbox.nova) h += '<div class="variante" style="margin-top:10px"><div class="campo"><label for="ib-n-tel">Telefone com DDD</label><input type="text" id="ib-n-tel" inputmode="tel" placeholder="45 99999-9999"></div>'
+    + '<div class="campo"><label for="ib-n-nome">Nome</label><input type="text" id="ib-n-nome" maxlength="150"></div>'
+    + '<div class="campo"><label for="ib-n-txt">O que a pessoa escreveu (opcional)</label><textarea id="ib-n-txt" rows="3"></textarea></div>'
+    + '<div class="linha"><button class="btn mini primario" id="ib-n-criar">Criar conversa</button><button class="btn mini" id="ib-n-cancelar">Cancelar</button></div></div>';
+  h += '<div style="margin-top:12px">';
+  if (!d.conversas.length) h += '<p class="dica">Nenhuma conversa ainda. Crie uma pelo botão acima, ou abra uma pessoa da Fila de hoje com o botão <b>Conversa</b>.</p>';
+  d.conversas.forEach(function(x){ h += itemConversa(x); });
+  h += '</div></div></div><div class="ib-conv">';
+  if (!cv) h += '<div class="card"><p class="dica">Escolha uma conversa na lista.</p></div>';
+  else {
+    var ct = cv.contato, rs = cv.rascunho, sg = cv.sugestao, pend = cv.esperando_resposta;
+    var texto = S.inbox.rasc[ct.id] !== undefined ? S.inbox.rasc[ct.id] : (rs ? rs.texto : '');
+    h += '<div class="card"><div class="linha" style="margin-bottom:6px"><button class="btn mini ib-voltar" id="ib-voltar">&larr; Conversas</button><h2 style="font-size:18px">' + esc(ct.nome || ct.telefone) + '</h2>'
+      + (pend ? '<span class="badge ambar">espera você</span>' : '') + (ct.saiu ? '<span class="badge verm">pediu para sair</span>' : '') + '<span class="espaco"></span>'
+      + '<a class="btn mini" href="' + esc(linkWa(ct.whatsapp, '')) + '" target="_blank" rel="noopener noreferrer">Abrir no WhatsApp</a></div>'
+      + '<div class="msg-meta">' + esc(ct.telefone) + (ct.objetivo ? ' · objetivo: ' + esc(ct.objetivo) : '') + (ct.idatleta ? ' · <a href="/app/painel/alunos.html?busca=' + encodeURIComponent(ct.nome || '') + '">cliente</a>' : '') + '</div>'
+      + (ct.resumo ? '<div class="msg-meta" style="margin-top:4px">Resumo da Cora: ' + esc(ct.resumo) + '</div>' : '')
+      + '<div class="chat" id="ib-chat" style="margin-top:12px">' + (cv.mensagens.length ? cv.mensagens.map(bolha).join('') : '<p class="dica">Ainda sem mensagens. Cole abaixo o que a pessoa escreveu.</p>') + '</div></div>';
+    h += '<div class="card" style="margin-top:14px"><div class="secao-titulo">O que a pessoa escreveu</div>'
+      + '<div class="campo" style="margin:0"><textarea id="ib-lead" rows="3" placeholder="Cole aqui a mensagem nova da pessoa" maxlength="3000"' + (ct.saiu ? ' disabled' : '') + '></textarea></div>'
+      + '<div class="linha" style="margin-top:8px"><button class="btn primario" id="ib-reg-sug"' + (ct.saiu ? ' disabled' : '') + '>Registrar e sugerir resposta</button><button class="btn" id="ib-reg"' + (ct.saiu ? ' disabled' : '') + '>Só registrar</button></div></div>';
+    h += '<div class="card" style="margin-top:14px"><div class="secao-titulo">Sua resposta</div>';
+    if (ct.saiu) h += '<div class="aviso erro">Esta pessoa pediu para não receber mais mensagens. Nada será enviado.</div>';
+    else {
+      if (sg && sg.acao === 'passar_para_humano') h += '<div class="aviso warn" style="margin-bottom:10px"><b>Esta é para você.</b> A Cora não responderia: ' + esc(ROTULO_MOTIVO[sg.motivo] || sg.motivo) + '.' + (sg.resumo ? ' Resumo: ' + esc(sg.resumo) : '') + '</div>';
+      if (rs && rs.avisos && rs.avisos.length) h += '<div class="aviso erro" style="margin-bottom:10px">Confira antes de enviar: ' + rs.avisos.map(esc).join(' ') + '</div>';
+      if (rs && S.inbox.rasc[ct.id] === undefined) h += '<div class="msg-meta" style="margin-bottom:6px">Sugestão da Cora. Edite como quiser antes de enviar.</div>';
+      h += '<div class="campo" style="margin:0"><textarea id="ib-resp" rows="5" maxlength="3000" placeholder="' + (pend ? 'Escreva a resposta ou peça a sugestão da Cora' : 'Sem mensagem esperando resposta') + '">' + esc(texto) + '</textarea></div>'
+        + '<div class="linha" style="margin-top:8px"><a class="btn primario" id="ib-wa" href="' + esc(linkWa(ct.whatsapp, texto)) + '" target="_blank" rel="noopener noreferrer">Abrir no WhatsApp</a>'
+        + '<button class="btn" id="ib-copiar">Copiar</button><button class="btn" id="ib-enviei">Já enviei</button>'
+        + '<button class="btn" id="ib-sugerir"' + (pend ? '' : ' disabled') + '>' + (rs ? 'Sugerir de novo' : 'Sugerir com a Cora') + '</button>'
+        + '<span class="espaco"></span><button class="btn perigo" id="ib-resolver"' + (pend ? '' : ' disabled') + ' title="Tira a conversa de esperando você, sem responder">Sem resposta</button></div>'
+        + '<p class="dica" style="margin-top:8px">Cada sugestão gasta cerca de US$ 0,008 do saldo do Claude. Regras fixas (valores, saúde, reclamação, pedido de pessoa, foto e vídeo) passam para você sem gastar nada.</p>';
+    }
+    h += '</div>';
+  }
+  h += '</div></div>';
+  c.innerHTML = h;
+  var ch = $('#ib-chat', c); if (ch) ch.scrollTop = ch.scrollHeight;
+
+  $('#ib-atualizar', c).addEventListener('click', function(){ recarregarInbox(c); });
+  $('#ib-nova-bt', c).addEventListener('click', function(){ S.inbox.nova = !S.inbox.nova; pintarInbox(c); });
+  var rr = $('#ib-resp', c);
+  if (rr) rr.addEventListener('input', function(){ var ct = S.inbox.conv.contato; S.inbox.rasc[ct.id] = rr.value; $('#ib-wa', c).setAttribute('href', linkWa(ct.whatsapp, rr.value)); });
+  c.onclick = function(ev){
+    var it = ev.target.closest('[data-conv]');
+    if (it) { S.inbox.sel = parseInt(it.getAttribute('data-conv'), 10); S.inbox.nova = false; carregarConversa(c); return; }
+    var b = ev.target.closest('button'); if (!b || b.disabled) return;
+    var id = S.inbox.sel, resp = $('#ib-resp', c) ? $('#ib-resp', c).value : '';
+    function pronto(msg){ if (msg) toast(msg); delete S.inbox.rasc[id]; recarregarInbox(c); }
+    function sugerir(){
+      b.disabled = true; var o = b.textContent; b.textContent = 'A Cora está pensando...';
+      return api('inbox_sugerir', { id: id }).then(function(r){ delete S.inbox.rasc[id]; toast(r.regra_fixa ? 'É para você, sem gastar nada' : (r.acao === 'responder' ? 'Sugestão pronta (cerca de ' + usd(r.custo_usd) + ')' : 'A Cora passaria esta para você')); recarregarInbox(c); })
+        .catch(function(e){ b.disabled = false; b.textContent = o; falha(e); recarregarInbox(c); });
+    }
+    if (b.id === 'ib-voltar') { S.inbox.sel = null; S.inbox.conv = null; pintarInbox(c); return; }
+    if (b.id === 'ib-n-cancelar') { S.inbox.nova = false; pintarInbox(c); return; }
+    if (b.id === 'ib-n-criar') {
+      b.disabled = true;
+      api('inbox_nova', { telefone: $('#ib-n-tel', c).value, nome: $('#ib-n-nome', c).value, texto: $('#ib-n-txt', c).value }).then(function(r){ S.inbox.sel = r.id; S.inbox.nova = false; toast('Conversa criada'); recarregarInbox(c); }).catch(function(e){ b.disabled = false; falha(e); });
+      return;
+    }
+    if (!id) return;
+    if (b.id === 'ib-copiar') { copiar(resp, 'Resposta copiada, pronta para colar no WhatsApp'); return; }
+    if (b.id === 'ib-reg' || b.id === 'ib-reg-sug') {
+      var t = $('#ib-lead', c).value; if (!t.trim()) { toast('Cole o que a pessoa escreveu.'); return; }
+      b.disabled = true;
+      api('inbox_registrar', { id: id, texto: t }).then(function(r){
+        if (r.saiu) { toast('Ela pediu para sair: nada mais será enviado'); recarregarInbox(c); return; }
+        if (b.id === 'ib-reg') { toast('Mensagem registrada'); recarregarInbox(c); return; }
+        b.disabled = false; return sugerir();
+      }).catch(function(e){ b.disabled = false; falha(e); });
+      return;
+    }
+    if (b.id === 'ib-sugerir') { sugerir(); return; }
+    if (b.id === 'ib-enviei') {
+      if (!resp.trim()) { toast('Escreva a resposta que você enviou.'); return; }
+      b.disabled = true;
+      api('inbox_enviei', { id: id, texto: resp }).then(function(){ pronto('Marcada como enviada'); }).catch(function(e){ b.disabled = false; falha(e); });
+      return;
+    }
+    if (b.id === 'ib-resolver') {
+      b.disabled = true;
+      api('inbox_resolver', { id: id }).then(function(){ pronto('Conversa resolvida sem resposta'); }).catch(function(e){ b.disabled = false; falha(e); });
+      return;
+    }
   };
 }
 

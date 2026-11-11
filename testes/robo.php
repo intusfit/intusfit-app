@@ -284,6 +284,16 @@ $aj['robo'] = 'desligado'; wa_segredo_gravar($pdo, 'wa_ajustes', $aj);
 mais_msg($pdo, $id, 'oi de novo', $agora);
 eq('desligado: nem consulta os contatos', robo_processar_pendentes($pdo, $CFG, ['agora' => $agora, 'http_claude' => $claude, 'http_meta' => $meta]), []);
 
+echo "\n══ Resposta que promete chamar uma pessoa ══\n";
+foreach (['Vou pedir para uma pessoa da equipe confirmar com você.', 'Vou chamar a equipe para te ajudar com isso.', 'A equipe vai te responder em breve.', 'Vou avisar o professor sobre a sua dúvida.'] as $t) eq("promessa detectada: \"$t\"", robo_promete_pessoa($t), true);
+foreach (['Se quiser falar com uma pessoa da equipe, é só pedir.', 'O teste grátis é só de treino, por 3 dias.', 'Vou te explicar como funciona o treino online.', 'Os professores da Intus montam e ajustam tudo com você.'] as $t) eq("não é promessa: \"$t\"", robo_promete_pessoa($t), false);
+[$pdo, $id] = cenario('todos', [], 'O teste grátis precisa de equipamento?');
+$claude = new ClaudeFalso(r_ok('responder', 'O teste é só de treino. Sobre equipamento, vou pedir para uma pessoa da equipe confirmar com você.'));
+$meta = new MetaFalsa();
+$r = rodar($pdo, $id, $claude, $meta, $av);
+eq('resposta que promete pessoa sem passar: a conversa passa de verdade (aviso e mensagem fixa)', [$r['acao'], $r['motivo'], $meta->pedidos[0]['text']['body'] === robo_texto_passagem('duvida'), count($av), (int)wa_contato_por_id($pdo, $id)['precisa_humano']], ['passou', 'duvida', true, 1, 1]);
+eq('o prompt manda usar passar_para_humano em vez de prometer', strpos($claude->corpos[0]['system'][0]['text'], 'ninguém é avisado') !== false, true);
+
 echo "\n══ Comparar modelos (ensaio) ══\n";
 require_once __DIR__ . '/../app/api/_ensaio_modelos.php';
 eq('custo Opus 5.5 (US$ 4 entrada, 20 saída por milhão)', ensaio_custo_usd('claude-opus-5-5', 1000000, 100000), 6.0);

@@ -118,6 +118,9 @@ eq('texto que quebra a regra de escrita vem com aviso para a equipe editar', [$s
 $s = inbox_sugerir($pdo, nova($pdo, '45 99111-0003', 'Cris', 'Tem treino em casa?', $t0), new ClaudeFalso(r_ok('responder', 'Treino em casa — sem equipamento.')), $t0);
 eq('travessão do Claude é trocado por vírgula', $s['texto'], 'Treino em casa, sem equipamento.');
 
+$s = inbox_sugerir($pdo = banco(), nova($pdo, '45 99111-0004', 'Dora', 'Precisa de equipamento?', $t0), new ClaudeFalso(r_ok('responder', 'Sobre equipamento, vou pedir para uma pessoa da equipe confirmar com você.')), $t0);
+eq('rascunho que promete chamar uma pessoa vem com aviso para a equipe', [$s['ok'], count($s['avisos']), strpos($s['avisos'][0] ?? '', 'prometeu') !== false], [true, 1, true]);
+
 $semSaldo = ['status' => 400, 'erro' => '', 'json' => ['error' => ['message' => 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.']]];
 $pdo = banco(); $id = nova($pdo, '45 99111-0001', 'Ana Lead', 'Tem treino em casa?', $t0);
 $s = inbox_sugerir($pdo, $id, new ClaudeFalso($semSaldo), $t0);

@@ -66,6 +66,16 @@ function robo_motivo_obvio(string $texto): ?string {
     return null;
 }
 
+/**
+ * A resposta promete chamar, avisar ou pedir confirmação a uma pessoa da equipe? Se veio como "responder", ninguém seria avisado e a pessoa
+ * ficaria esperando. (Achado na comparação de modelos de 11/11/2026: o Sonnet respondeu "vou pedir para uma pessoa da equipe confirmar".)
+ * Conferência de texto, independente do modelo.
+ */
+function robo_promete_pessoa(string $texto): bool {
+    $t = wa_normalizar_texto($texto);
+    return (bool)preg_match('/\b(vou|vamos|irei) (pedir|chamar|avisar|passar|encaminhar|confirmar|perguntar)\b[^.?!]{0,80}\b(equipe|pessoa|professor|professora|time|responsavel)\b|\b(equipe|professor|professora) (vai|ira|entra|entrara) (te |entrar |responder|falar|confirmar|retornar)/', $t);
+}
+
 /** Remove o que a regra de escrita do Luiz proíbe e que dá para consertar sozinho (travessão). */
 function robo_limpar_texto(string $t): string {
     $t = str_replace(["\r\n", "\r"], "\n", $t);
@@ -114,7 +124,7 @@ function robo_prompt_sistema(PDO $pdo, array $c): string {
        . "- Se perguntarem, diga a verdade: você é a assistente virtual da Intus, não uma pessoa. Nunca diga que é humana.\n"
        . "- Se a pessoa pedir para parar de receber mensagens, não argumente: responda que respeita e que ela pode voltar quando quiser.\n"
        . "- Só afirme o que está nos FATOS abaixo. Se não souber, diga que vai confirmar com a equipe e passe para uma pessoa.\n\n"
-       . "QUANDO PASSAR PARA UMA PESSOA (acao = passar_para_humano): preço, valor, desconto, forma de pagamento ou parcelamento; dor, lesão, doença, remédio, suplemento ou gravidez; reclamação ou insatisfação; pedido para falar com uma pessoa; vídeo ou foto de exercício; qualquer dúvida em que você não tenha certeza do fato.\n\n";
+       . "QUANDO PASSAR PARA UMA PESSOA (acao = passar_para_humano): preço, valor, desconto, forma de pagamento ou parcelamento; dor, lesão, doença, remédio, suplemento ou gravidez; reclamação ou insatisfação; pedido para falar com uma pessoa; vídeo ou foto de exercício; qualquer dúvida em que você não tenha certeza do fato. Se você for dizer que vai confirmar algo com a equipe ou chamar uma pessoa, use acao = passar_para_humano: numa resposta normal ninguém é avisado e a pessoa ficaria esperando.\n\n";
     try {
         $ps = function_exists('provas_para_ia') ? array_values(array_filter(provas_para_ia($pdo, 12), fn($x) => !empty($x['pode_divulgar']))) : [];
         if ($ps) {
@@ -333,6 +343,7 @@ function robo_uma_rodada(PDO $pdo, array $cfg, int $idcontato, array $aj, array 
             return robo_passar_para_humano($pdo, $cfg, $c, 'copy', $d['resumo'], $ctx, $agora, 'regra: ' . $i['regra'] . ' · texto: ' . mb_substr($texto, 0, 200));
         }
     }
+    if (robo_promete_pessoa($texto)) return robo_passar_para_humano($pdo, $cfg, $c, 'duvida', $d['resumo'], $ctx, $agora, 'a Cora prometeu chamar uma pessoa: ' . mb_substr($texto, 0, 200));
     $env = wa_enviar_texto($pdo, $cfg, $c, $texto, 'robo', $ctx['http_meta'] ?? null, $agora);
     robo_gravar_tokens($pdo, $idcontato, $d, $env['wa_id'] ?? null);
     if (!$env['ok']) return robo_passar_para_humano($pdo, $cfg, $c, 'envio', $d['resumo'], $ctx, $agora, (string)($env['erro'] ?? '')) + ['erro' => $env['erro'] ?? ''];

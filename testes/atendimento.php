@@ -732,7 +732,9 @@ $lib = file_get_contents(__DIR__ . '/../app/api/_atendimento.php');
 verdade('endpoint: exige sessao e administrador', strpos($ep, "empty(\$ctx['admin'])") !== false && strpos($ep, 'is_aluno') !== false);
 verdade('endpoint: a checagem de admin vem antes de qualquer acao', strpos($ep, "empty(\$ctx['admin'])") < strpos($ep, 'switch ($action)'));
 verdade('endpoint: acoes que gravam so por POST', strpos($ep, "'funil_salvar'") !== false && strpos($ep, 'Use POST') !== false);
-verdade('endpoint: nao devolve telefone nem texto de conversa', strpos($ep, "'telefone'") === false && strpos($ep, 'intus_wa_mensagem') === false);
+// A caixa de entrada (inbox_*, desde 11/11/2026) devolve conversas, mas só para o administrador e só pela biblioteca (_atd_inbox.php): o endpoint
+// nunca consulta a tabela de mensagens, e o telefone só aparece como ENTRADA da ação inbox_nova (as demais ações não o devolvem).
+verdade('endpoint: nao consulta mensagens nem devolve telefone (so recebe na inbox_nova)', strpos($ep, 'intus_wa_mensagem') === false && substr_count($ep, "'telefone'") === 1 && strpos($ep, "inbox_contato_novo(\$pdo, (string)(\$d['telefone']") !== false);
 verdade('biblioteca: sem NOW() nem funcao so do MySQL', !preg_match('/\bNOW\(\)|ON DUPLICATE KEY|INSERT IGNORE|CURDATE\(\)/i', $lib));
 verdade('biblioteca: chave da API so sai de intus_secrets', strpos($lib, 'sk-ant') === false && strpos($lib, "wa_segredo(\$pdo, 'anthropic_config')") !== false);
 verdade('biblioteca: modelo vem dos ajustes, nao fixo no pedido', strpos($lib, "wa_ajustes(\$pdo)['modelo']") !== false);

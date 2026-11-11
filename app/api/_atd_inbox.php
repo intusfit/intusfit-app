@@ -126,6 +126,7 @@ function inbox_sugerir(PDO $pdo, int $idcontato, ?callable $http = null, ?DateTi
     $avisos = [];
     if ($d['acao'] === 'responder') {
         foreach (atd_analisar_copy($d['texto'])['itens'] as $i) { if ($i['nivel'] === 'erro' && in_array($i['regra'], ['nao_e_x_e_y', 'promessa'], true)) $avisos[] = $i['msg']; }
+        if (robo_promete_pessoa($d['texto'])) $avisos[] = 'A Cora prometeu chamar ou pedir confirmação a uma pessoa da equipe. Isso é com você: responda por conta própria ou ajuste o texto.';
     }
     $custo = ensaio_custo_usd((string)$d['modelo'], (int)$d['tin'], (int)$d['tout']);
     if ($d['resumo'] !== '') wa_contato_atualizar($pdo, $idcontato, ['resumo' => $d['resumo']], $agora);
