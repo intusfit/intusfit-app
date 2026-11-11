@@ -21,7 +21,7 @@ header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex, nofollow');
 
 require_once __DIR__ . '/../app/api/_wa.php';
-require_once __DIR__ . '/../app/api/_atendimento.php';
+require_once __DIR__ . '/../app/api/_atd_robo.php';   // carrega _wa.php e _atendimento.php
 $pdo = wa_conectar();
 if (!$pdo) { http_response_code(500); exit('Falha ao conectar no banco.'); }
 wa_garantir_tabelas($pdo);
@@ -34,6 +34,7 @@ $csrf = $_SESSION['wa_csrf'];
 $avisos = [];   // [texto, erro?]
 $resultadoTeste = null;
 $resultadoClaude = null;
+$resultadoEnsaio = null;
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     if (!hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) {
@@ -91,6 +92,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if (!preg_match('/^claude-[a-z0-9.\-]{2,60}$/', $modelo)) $erros[] = 'Modelo: precisa começar com claude-, por exemplo claude-opus-5-5.';
             else $aj['modelo'] = $modelo;
         }
+        $rb = (string)($_POST['aj_robo'] ?? $aj['robo']);
+        if (!in_array($rb, ROBO_MODOS, true)) $erros[] = 'Robô de conversa: escolha desligado, só teste ou todos.';
+        elseif ($rb !== 'desligado' && $rb !== ($aj['robo'] ?? 'desligado') && (!(wa_segredo($pdo, 'anthropic_config')['api_key'] ?? '') || !wa_config_whatsapp($pdo))) {
+            $erros[] = 'Antes de ligar o robô, salve a chave do Claude e os dados da Meta (ID do número e token de acesso).';
+        } else $aj['robo'] = $rb;
+        $mr = (int)($_POST['aj_robo_max_respostas_dia'] ?? $aj['robo_max_respostas_dia']);
+        if ($mr < 1 || $mr > 50) $erros[] = 'Respostas do robô por contato e por dia: de 1 a 50.';
+        else $aj['robo_max_respostas_dia'] = $mr;
+        $mt = (int)($_POST['aj_robo_max_dia_total'] ?? $aj['robo_max_dia_total']);
+        if ($mt < 1 || $mt > 2000) $erros[] = 'Respostas do robô por dia, no total: de 1 a 2000.';
+        else $aj['robo_max_dia_total'] = $mt;
+        $em = trim((string)($_POST['aj_robo_email'] ?? ''));
+        if ($em !== '') {
+            if (!filter_var($em, FILTER_VALIDATE_EMAIL)) $erros[] = 'E-mail do aviso do robô: endereço inválido.';
+            else $aj['robo_email'] = $em;
+        }
         $ini = (int)($_POST['aj_horario_ini'] ?? $aj['horario_ini']);
         $fim = (int)($_POST['aj_horario_fim'] ?? $aj['horario_fim']);
         if ($ini < 0 || $ini > 23 || $fim < 1 || $fim > 24 || $fim <= $ini) $erros[] = 'Horário de envio: início entre 0 e 23 e fim maior que o início, até 24.';
@@ -114,6 +131,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     }
 
     if ($acao === 'testar_claude') $resultadoClaude = atd_testar_claude($pdo);
+
+    if ($acao === 'ensaio_robo') {
+        $txt = atd_texto_limpo($_POST['ensaio_texto'] ?? '', 500);
+        if ($txt === '') $avisos[] = ['Escreva a mensagem que o lead mandaria.', true];
+        else {
+            $obvio = robo_motivo_obvio($txt);
+            if ($obvio !== null) $resultadoEnsaio = ['regra' => $obvio, 'texto' => $txt];
+            else $resultadoEnsaio = ['d' => robo_decidir($pdo, ['nome' => 'Lead de teste'], [['role' => 'user', 'content' => $txt]]), 'texto' => $txt];
+        }
+    }
 }
 
 // ── Estado para exibir (nunca os valores secretos) ──
@@ -181,6 +208,18 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
   <?php endif; ?>
 <?php endif; ?>
 
+<?php if ($resultadoEnsaio !== null): ?>
+  <?php if (isset($resultadoEnsaio['regra'])): ?>
+    <div class="aviso">Ensaio: com "<?= h($resultadoEnsaio['texto']) ?>" o robô passaria a conversa para uma pessoa por regra fixa (motivo: <b><?= h($resultadoEnsaio['regra']) ?></b>), sem chamar o Claude. Mensagem ao lead: <i><?= h(robo_texto_passagem($resultadoEnsaio['regra'], $aj['nome_atendente'] ?? 'Cora')) ?></i></div>
+  <?php elseif (!$resultadoEnsaio['d']['ok']): ?>
+    <div class="aviso erro">Ensaio: o Claude não respondeu. <?= h($resultadoEnsaio['d']['erro']) ?></div>
+  <?php else: $d = $resultadoEnsaio['d']; ?>
+    <div class="aviso">Ensaio com "<?= h($resultadoEnsaio['texto']) ?>": ação <b><?= h($d['acao']) ?></b><?= $d['acao'] === 'passar_para_humano' ? ' (motivo: ' . h($d['motivo']) . ')' : '' ?>.
+      <?php if ($d['acao'] === 'responder'): ?>Resposta: <i><?= h($d['texto']) ?></i><?php else: ?>Mensagem ao lead: <i><?= h(robo_texto_passagem($d['motivo'], $aj['nome_atendente'] ?? 'Cora')) ?></i><?php endif; ?>
+      <br><span style="color:#aaa">Resumo do robô: <?= h($d['resumo']) ?> · <?= (int)$d['tin'] ?> + <?= (int)$d['tout'] ?> tokens (cerca de US$ <?= h(number_format(atd_custo_usd((int)$d['tin'], (int)$d['tout']), 4, ',', '')) ?>). Nada foi enviado a ninguém.</span></div>
+  <?php endif; ?>
+<?php endif; ?>
+
 <form method="post" autocomplete="off">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
 
@@ -229,6 +268,21 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
 <input type="text" id="aj_nome_atendente" name="aj_nome_atendente" value="<?= h($aj['nome_atendente']) ?>" maxlength="30">
 <label for="aj_modelo">Modelo do Claude</label>
 <input type="text" id="aj_modelo" name="aj_modelo" value="<?= h($aj['modelo']) ?>">
+<h3>Robô de conversa</h3>
+<p>Responde sozinho ao que o lead escreve (dentro das 24 horas da Meta) e passa para uma pessoa nos casos de preço, saúde, reclamação, pedido de pessoa e foto ou vídeo. Nasce desligado. "Só teste" responde apenas ao contato de teste (Fulano Teste). "Todos" responde a qualquer lead que escrever.</p>
+<div class="linha">
+  <div><label for="aj_robo">Robô</label><select id="aj_robo" name="aj_robo" style="width:100%;box-sizing:border-box;background:#1a1a1a;color:#f0f0f0;border:1px solid #2a2a2a;border-radius:8px;padding:11px 12px;font:14px system-ui;">
+    <?php foreach (['desligado' => 'Desligado', 'teste' => 'Só o contato de teste', 'todos' => 'Todos os leads'] as $v => $rot): ?><option value="<?= h($v) ?>"<?= ($aj['robo'] ?? 'desligado') === $v ? ' selected' : '' ?>><?= h($rot) ?></option><?php endforeach; ?></select></div>
+  <div><label for="aj_robo_max_respostas_dia">Respostas por contato ao dia</label><input type="number" id="aj_robo_max_respostas_dia" name="aj_robo_max_respostas_dia" value="<?= (int)$aj['robo_max_respostas_dia'] ?>" min="1" max="50"></div>
+  <div><label for="aj_robo_max_dia_total">Respostas por dia, no total</label><input type="number" id="aj_robo_max_dia_total" name="aj_robo_max_dia_total" value="<?= (int)$aj['robo_max_dia_total'] ?>" min="1" max="2000"></div>
+</div>
+<label for="aj_robo_email">E-mail que recebe o aviso quando uma conversa passa para uma pessoa</label>
+<input type="text" id="aj_robo_email" name="aj_robo_email" value="<?= h($aj['robo_email']) ?>" inputmode="email">
+<label for="ensaio_texto">Ensaiar o robô (não envia nada a ninguém e gasta um pouco do saldo do Claude)</label>
+<input type="text" id="ensaio_texto" name="ensaio_texto" placeholder="Ex.: oi, como funciona o teste grátis?" maxlength="500">
+<button type="submit" name="acao" value="ensaio_robo" class="sec">Ensaiar</button>
+
+<h3>Horários e teste grátis</h3>
 <div class="linha">
   <div><label for="aj_horario_ini">Enviar a partir das (h)</label><input type="number" id="aj_horario_ini" name="aj_horario_ini" value="<?= (int)$aj['horario_ini'] ?>" min="0" max="23"></div>
   <div><label for="aj_horario_fim">Até as (h)</label><input type="number" id="aj_horario_fim" name="aj_horario_fim" value="<?= (int)$aj['horario_fim'] ?>" min="1" max="24"></div>

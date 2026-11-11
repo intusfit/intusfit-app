@@ -336,6 +336,10 @@ function wa_ajustes_padrao(): array {
         'horario_fim' => 21,
         'max_proativas_dia' => 1,
         'dias_teste' => 3,
+        'robo' => 'desligado',               // robô de conversa: desligado | teste (só o contato de teste) | todos
+        'robo_max_respostas_dia' => 15,      // respostas do robô por contato e por dia; passada a conta, passa para uma pessoa
+        'robo_max_dia_total' => 200,         // respostas do robô por dia, somando todos (trava de custo)
+        'robo_email' => 'contato@intusfit.com.br',   // quem recebe o aviso quando o robô passa uma conversa para uma pessoa
     ];
 }
 

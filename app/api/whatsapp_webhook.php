@@ -84,13 +84,44 @@ if (!is_array($payload)) {
 // Se o processamento falhar por um erro nosso, respondemos 200 mesmo assim: a Meta
 // desativa o webhook de quem falha por muito tempo, e a reentrega nao consertaria
 // um bug. O erro vai para o log do servidor com um codigo para cruzar.
+$resposta = null;
 try {
     $res = wa_processar_payload($pdo, $payload, [
         'enviar' => function (array $contato, string $texto) use ($pdo, $cfg) {
             wa_enviar_texto($pdo, $cfg, $contato, $texto, 'sistema');
         },
     ]);
-    echo json_encode(['ok' => true] + $res);
+    $resposta = json_encode(['ok' => true] + $res);
 } catch (Throwable $e) {
-    echo json_encode(['ok' => false, 'detalhe' => wa_log_erro($e)]);
+    $resposta = json_encode(['ok' => false, 'detalhe' => wa_log_erro($e)]);
 }
+
+// Robô de conversa (ver _atd_robo.php). Só entra se o ajuste "robo" não estiver desligado. A Meta recebe o 200 ANTES de o Claude ser
+// chamado (uma resposta leva de 5 a 30 s e a Meta reentrega o que demora): fecha a conexão e continua em segundo plano. Se a hospedagem
+// não deixar fechar antes, o resultado é o mesmo, só mais lento; a reentrega não duplica nada (wa_id único e mensagem reivindicada).
+$robo = false;
+try { $robo = in_array((string)(wa_ajustes($pdo)['robo'] ?? 'desligado'), ['teste', 'todos'], true); } catch (Throwable $e) { wa_log_erro($e); }
+if ($robo) {
+    ignore_user_abort(true);
+    @set_time_limit(150);
+    header('Connection: close');
+    header('Content-Length: ' . strlen((string)$resposta));
+    echo $resposta;
+    while (ob_get_level() > 0) @ob_end_flush();
+    @flush();
+    if (function_exists('fastcgi_finish_request')) @fastcgi_finish_request();
+    try {
+        require_once __DIR__ . '/_atd_robo.php';
+        robo_processar_pendentes($pdo, $cfg, [
+            'avisar' => function (string $assunto, string $texto) use ($pdo) {
+                require_once __DIR__ . '/_smtp_seguro.php';
+                $para = (string)(wa_ajustes($pdo)['robo_email'] ?? 'contato@intusfit.com.br');
+                intusEnviarEmailSimples($para, $assunto, $texto);
+            },
+        ]);
+    } catch (Throwable $e) {
+        wa_log_erro($e);
+    }
+    exit;
+}
+echo $resposta;
