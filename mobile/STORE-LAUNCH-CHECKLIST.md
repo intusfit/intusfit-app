@@ -1,6 +1,6 @@
 # Checklist de lançamento nas lojas — Intus Fit
 
-Atualizada em **22 de setembro de 2026**. Esta checklist não substitui a revisão das políticas vigentes no dia do envio.
+Atualizada em **22 de setembro de 2026**; ícones, telas de abertura e materiais gráficos revisados em **11 de novembro de 2026**. Esta checklist não substitui a revisão das políticas vigentes no dia do envio.
 
 ## Bloqueios de acesso
 
@@ -23,11 +23,11 @@ Atualizada em **22 de setembro de 2026**. Esta checklist não substitui a revis�
 ## Materiais da ficha
 
 - [x] Nome: Intus Fit.
-- [x] Subtítulo/descrição curta preparado dentro dos limites atuais de cada loja em `STORE-LISTING-PT-BR.md`.
-- [x] Descrição completa em português, sem promessas médicas ou métricas não verificadas, preparada em `STORE-LISTING-PT-BR.md`.
+- [ ] Subtítulo/descrição curta dentro dos limites atuais de cada loja. O arquivo `STORE-LISTING-PT-BR.md`, citado antes aqui, não está no repositório (não há histórico dele no Git): escrever e versionar.
+- [ ] Descrição completa em português, sem promessas médicas ou métricas não verificadas (mesmo arquivo `STORE-LISTING-PT-BR.md`, que ainda precisa existir).
 - [ ] Categoria e classificação etária: concluir os questionários oficiais das lojas; URL de suporte e contatos já foram definidos.
-- [x] Ícones finais exportados nos tamanhos exigidos por iOS e Android, sem alfa.
-- [x] Imagem de destaque Google Play 1024×500 preparada em `store-assets/google-play-feature-graphic-1024x500.png`.
+- [x] Ícones e telas de abertura da marca Intus no lugar dos desenhos de exemplo do Capacitor: iOS 1024 sem alfa, Android adaptativo (fundo, primeiro plano, monocromático) e antigo, Play 512. Gerados por `tools/marca/gerar-icones-lojas.py` e conferidos por `testes/icones_lojas.js`. **Falta ver num aparelho ou emulador** (o ambiente que os gerou não compila o app nativo).
+- [x] Imagem de destaque Google Play 1024×500 em `store-assets/google-play-feature-graphic-1024x500.png` (gerada pelo mesmo script; revisar a arte no Play Console).
 - [ ] Capturas de tela feitas no app real, sem dados pessoais, nos aparelhos/tamanhos exigidos.
 - [x] E-mail de suporte e endereço de política de privacidade acessíveis publicamente.
 - [ ] Conta de demonstração e instruções de revisão fornecidas apenas se a revisão exigir login; não usar conta real de aluno.
