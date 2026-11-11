@@ -48,7 +48,7 @@ async function cenario(b, nome, cfg) {
   console.log('\n══ Lista salva e legível ══');
   let { pg, S } = await cenario(b, 'ok', { get: { itens: lista(8) }, anterior: { itens: lista(31) }, dialogoAceita: false });
   eq('mostra as 8 figurinhas salvas', await cards(pg), 8);
-  ver('sem aviso de lista danificada', !/padrão de fábrica/.test(await texto(pg)));
+  ver('sem aviso de lista danificada', !/vazia só na tela/.test(await texto(pg)));
   ver('oferece voltar à lista anterior com a contagem', /Voltar à lista anterior \(31\)/.test(await texto(pg)));
   // apagar 5 de 8 (menos da metade) pede confirmação; recusar não grava
   for (let i = 0; i < 5; i++) await pg.evaluate(() => removeFigurinha(0));
@@ -84,19 +84,19 @@ async function cenario(b, nome, cfg) {
   console.log('\n══ Lista danificada no servidor ([] ou sem itens) ══');
   for (const corpo of ['[]', '{}', '{"ok":true}']) {
     ({ pg, S } = await cenario(b, 'dano', { get: corpo, dialogoAceita: false }));
-    ver('(' + corpo + ') avisa em vermelho que é só o padrão de fábrica', /padrão de fábrica/.test(await texto(pg)) && /Não clique em Salvar/.test(await texto(pg)));
+    ver('(' + corpo + ') avisa em vermelho que a lista vazia é só da tela (e não mostra figurinha de fábrica nenhuma)', /vazia só na tela/.test(await texto(pg)) && /Não clique em Salvar/.test(await texto(pg)) && (await cards(pg)) === 0 && !/MODO MONSTRO|ALCATEIA|GORILA/.test(await texto(pg)));
     await pg.evaluate(() => salvarFigurinhas()); await pg.waitForTimeout(300);
     eq('(' + corpo + ') salvar pergunta e, recusado, não grava', [S.dialogos.length, S.puts.length], [1, 0]);
     await pg.close();
   }
   ({ pg, S } = await cenario(b, 'dano-aceita', { get: '[]', dialogoAceita: true }));
   await pg.evaluate(() => salvarFigurinhas()); await pg.waitForTimeout(500);
-  eq('aceitando de propósito, grava as 6 e o aviso some', [S.puts.length, /padrão de fábrica/.test(await texto(pg))], [1, false]);
+  eq('aceitando de propósito, grava a lista vazia (nenhuma de fábrica) e o aviso some', [S.puts.length, S.puts[0] && S.puts[0].itens, /vazia só na tela/.test(await texto(pg))], [1, [], false]);
   await pg.close();
 
   console.log('\n══ Lista vazia salva de propósito ══');
   ({ pg, S } = await cenario(b, 'vazia', { get: { itens: [] }, dialogoAceita: true }));
-  ver('é escolha válida: mostra "Nenhuma figurinha ainda", sem aviso', /Nenhuma figurinha ainda/.test(await texto(pg)) && !/padrão de fábrica/.test(await texto(pg)));
+  ver('é escolha válida: mostra "Nenhuma figurinha ainda", sem aviso', /Nenhuma figurinha ainda/.test(await texto(pg)) && !/vazia só na tela/.test(await texto(pg)));
   await pg.close();
 
   console.log('\n══ Colar vários links de uma vez (restaurar uma lista) ══');

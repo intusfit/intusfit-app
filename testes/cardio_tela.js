@@ -146,11 +146,13 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   console.log('\n══ Registro ══');
   await clicar('#cf-btn'); await clicar('#v-cardio button:has-text("Está certo, registrar")');
   await page.waitForTimeout(800);
-  const res = await page.evaluate(() => { const o = document.getElementById('cardio-result-overlay'); return o ? { txt: o.innerText, botoes: [...o.querySelectorAll('button')].map(b => b.innerText.trim()), cheia: o.getBoundingClientRect().height >= innerHeight - 2 } : null; });
+  const res = await page.evaluate(() => { const o = document.getElementById('cardio-result-overlay'); const txt = b => b.innerText.replace(/\s+/g, ' ').trim(); return o ? { txt: o.innerText, botoes: [...o.querySelectorAll('button')].map(txt), prim: [...o.querySelectorAll('button.btn-prim')].map(txt), centros: [...o.querySelectorAll('.fim-btns')].map(g => { const r = g.getBoundingClientRect(); return Math.round((r.left + r.right) / 2); }), cheia: o.getBoundingClientRect().height >= innerHeight - 2 } : null; });
   ver('aparece a tela de cardio registrado, cobrindo tudo', res && res.cheia, res);
   ver('com frase de parabéns e o resumo do que foi feito', res && /Parabéns!/.test(res.txt) && /Corrida · 35 min · 3 km/.test(res.txt), res && res.txt);
   ver('e com a pontuação somada', res && /pontos somados/i.test(res.txt) && /\+\d/.test(res.txt), res && res.txt);
-  eq('opções: compartilhar, ranking, conquistas, histórico, voltar ao cardio e, por último, voltar à tela inicial', res && res.botoes, ['📸 Compartilhar cardio', '🏆 Ranking', '🏅 Conquistas', '📊 Histórico', '🏃 Voltar ao Meu Cardio', '🏠 Voltar à tela inicial']);
+  eq('opções: compartilhar e voltar à tela inicial no topo, depois ranking, conquistas, histórico e, por último, voltar ao cardio', res && res.botoes, ['📸 Compartilhar cardio', '🏠 Voltar à tela inicial', '🏆 Ranking', '🏅 Conquistas', '📊 Histórico', '🏃 Voltar ao Meu Cardio']);
+  eq('"Voltar à tela inicial" tem o mesmo destaque (verde) de "Compartilhar cardio"', res && res.prim, ['📸 Compartilhar cardio', '🏠 Voltar à tela inicial']);
+  ver('os três grupos de botões ficam na mesma coluna, centrada', res && res.centros.length === 3 && new Set(res.centros).size === 1, res && res.centros);
   ver('o comentário vai junto, depois do texto automático', posts.length && /^Corrida · esforço 8\/10 · 35min · 3 km \|\| Senti o joelho um pouco \| no fim$/.test(posts[0].comentario), posts[0] && posts[0].comentario);
   eq('o servidor recebeu a atividade, o tempo e o esforço digitados', posts.length ? [posts[0].cardio_tipo, posts[0].duracao_seg, posts[0].cardio_rpe, posts[0].cardio_metrica] : null, ['Corrida', 2100, 8, '3 km']);
   t = await tela();

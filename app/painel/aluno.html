@@ -811,11 +811,12 @@
     }
     .fim-wrap .fp-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
     .fim-wrap .fp-value { font-size: 28px; font-weight: 900; color: #7FFF00; }
-    /* Tudo da tela "Treino finalizado" na mesma coluna, centrada: bloco sem margem automática ficava colado à esquerda. */
-    .fim-wrap .fim-col { width: 100%; max-width: 320px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
-    .fim-wrap .fim-btns { display: grid; gap: 8px; margin-top: 8px; }
-    .fim-wrap .fim-btn { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; font-weight: 800; text-align: center; }
-    .fim-wrap .fim-btn-v { flex-direction: column; gap: 2px; padding-left: 4px; padding-right: 4px; font-size: 13px; line-height: 1.2; }
+    /* Telas de fim de treino e de resultado do cardio: tudo na mesma coluna, centrado (bloco sem margem automática ficava colado à
+       esquerda). .fim-col = bloco de 320 px; .fim-btns = grade de botões; .fim-btn = botão com conteúdo centrado; .fim-btn-v = ícone em cima, nome embaixo. */
+    .fim-col, .fim-wrap .fim-col { width: 100%; max-width: 320px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+    .fim-btns { display: grid; gap: 8px; margin-top: 8px; }
+    .fim-btn { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; font-weight: 800; text-align: center; }
+    .fim-btn-v { flex-direction: column; gap: 2px; padding-left: 4px; padding-right: 4px; font-size: 13px; line-height: 1.2; }
 
     .hist-stat {
       background: #141414; border: 1px solid #1e1e1e; border-radius: 12px;
@@ -1384,19 +1385,24 @@ try {
   const _fc = JSON.parse(localStorage.getItem('intus-fig-cfg') || 'null');
   if (_fc && Array.isArray(_fc.itens) && _fc.itens.length) _figurinhasConfig = _fc;
 } catch (e) {}
-// Só aparece se o aparelho nunca conseguiu ler a lista do servidor. Neutra de propósito:
-// as figurinhas de fábrica antigas (ex.: Alcateia do Ferro) já foram excluídas pelo Luiz.
-const _FIGURINHAS_FALLBACK = [
-  { tipo:'emoji', emoji:'💪🔥', legenda:'TREINO CONCLUÍDO', cor:'#7FFF00' },
-];
+// SÓ existe figurinha que o administrador cadastrou (aba Figurinhas do painel). Não há figurinha de fábrica: se o aparelho
+// ainda não leu a lista do servidor (nem tem cópia dela), a tela simplesmente não mostra figurinha. Já apareceram figurinhas de
+// emoji fixas no código quando a leitura falhava; o Luiz não quer nenhuma que ele não tenha adicionado.
 function _figurinhasList() {
   const arr = _figurinhasConfig && Array.isArray(_figurinhasConfig.itens) ? _figurinhasConfig.itens : null;
-  return (arr && arr.length) ? arr : _FIGURINHAS_FALLBACK;
+  return (arr && arr.length) ? arr : [];
 }
 // Assinatura estável de uma figurinha (sobrevive a reordenação/edição da lista)
 function _figSig(it) {
   if (!it) return '';
   return it.tipo === 'img' ? ('i:' + String(it.src || '').slice(0, 100)) : ('e:' + (it.emoji || '') + '|' + (it.legenda || ''));
+}
+// Figurinha guardada no aparelho (resultado do treino, "último treino" para compartilhar) só vale se ainda está na lista do
+// administrador. Uma guardada de antes (padrão de fábrica) ou já excluída no painel volta null, e quem chama sorteia outra da lista.
+function _figValida(it) {
+  if (!it) return null;
+  const sig = _figSig(it);
+  return _figurinhasList().some(function (x) { return _figSig(x) === sig; }) ? it : null;
 }
 // Sorteio inteligente: evita repetir as figurinhas mostradas recentemente (variedade garantida)
 function _figPick(list) {
@@ -1420,7 +1426,7 @@ function _figPick(list) {
 function figurinhaAleatoriaHtml(isLight, itPreescolhido) {
   const list = _figurinhasList();
   if (!list.length) return '';
-  const it = itPreescolhido || _figPick(list);
+  const it = _figValida(itPreescolhido) || _figPick(list);
   let inner;
   if (it && it.tipo === 'img' && it.src) {
     inner = '<img src="' + esc(it.src) + '" alt="figurinha" style="max-width:200px;max-height:200px;width:auto;height:auto;border-radius:16px;object-fit:contain;" onerror="this.style.display=\'none\'"/>' +
@@ -1507,7 +1513,7 @@ function abrirCompartilharTreino(info, opts) {
   // A figurinha É a do dia daquele treino (gravada em renderFim), ou a
   // sorteada na hora pro cardio. Só sorteia uma nova se for um registro
   // antigo, de antes desta trava existir.
-  _composeFig = info.fig || _figPick(_figurinhasList());
+  _composeFig = _figValida(info.fig) || _figPick(_figurinhasList());
   _composeIncluirFig = true;
   _composeIncluirRecorde = true;
   _composeInfoLayoutIdx = 0; _composeInfoReset();
@@ -4397,7 +4403,7 @@ function _composeEscolherUltimo(tipo) {
   if (!info) return;
   _composeInfo = info;
   _composeUltimoEscolha = tipo;
-  _composeFig = info.fig || _figPick(_figurinhasList());
+  _composeFig = _figValida(info.fig) || _figPick(_figurinhasList());
   _composeIncluirFig = true;
   _composeIncluirRecorde = true;
   _composeInfoLayoutIdx = 0; _composeInfoReset();
@@ -5479,7 +5485,7 @@ function _vtInfo(tipo) {
     const disp = _composeInfoDisponivel();
     const dados = tipo === 'cardio' ? disp.cardio : disp.treino;
     if (!dados) return;
-    s.info = { on: true, dados: dados, layoutIdx: 0, incluirFig: true, recorde: true, fig: dados.fig || _figPick(_figurinhasList()) };
+    s.info = { on: true, dados: dados, layoutIdx: 0, incluirFig: true, recorde: true, fig: _figValida(dados.fig) || _figPick(_figurinhasList()) };
     s.TI.x = 0; s.TI.y = 0; s.TI.s = 1; s.TF.x = 0; s.TF.y = 0; s.TF.s = 1; s.alvo = 'fig';
   }
   _vtMontarCamada(); _vtAbas();
@@ -10590,8 +10596,11 @@ function renderFim(duracao, sessaoSalva) {
   // mais tarde (pela Central, por ex.) — sem isso, cada tela sorteava a sua.
   // Com resultado já salvo pra este idsessao (ver _resultadoSalvo acima),
   // reaproveita a MESMA figurinha em vez de sortear outra.
-  const figDoDia = _resultadoSalvo ? _resultadoSalvo.fig : _figPick(_figurinhasList());
-  if (!_resultadoSalvo && sessaoSalva && sessaoSalva.idsessao) {
+  const figSalva = _resultadoSalvo ? _figValida(_resultadoSalvo.fig) : null;
+  const figDoDia = figSalva || _figPick(_figurinhasList());
+  // Resultado já salvo com figurinha que não vale mais (de fábrica ou excluída): grava a nova, mantendo a mensagem. Sem lista
+  // lida ainda (figDoDia vazio) não mexe no que estava salvo.
+  if ((!_resultadoSalvo || (!figSalva && figDoDia)) && sessaoSalva && sessaoSalva.idsessao) {
     try { localStorage.setItem(_fimResultadoKey(sessaoSalva.idsessao), JSON.stringify({ fig: figDoDia, mensagem: mensagem })); } catch (e) {}
   }
   // Ver SessoesTreino.recordesDaSessao — fonte única, reaproveitada aqui, no
@@ -12615,7 +12624,7 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
   _cardioResultOnClose = onClose || null;
   _cardioResultShare = extra && extra.tipo ? { tipo: extra.tipo, min: extra.min, distKm: extra.distKm || 0 } : null;
   const P = _cdPal(), isLight = P.L;
-  const avisoPend = extra && extra.pendente ? `<div style="padding:10px 12px;border-radius:10px;background:${isLight?'#fffbeb':'rgba(251,191,36,.08)'};border:1px solid rgba(251,191,36,.35);font-size:12px;line-height:1.5;color:${isLight?'#92400e':'#fcd34d'};margin-top:14px;text-align:left;">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>` : '';
+  const avisoPend = extra && extra.pendente ? `<div style="padding:10px 12px;border-radius:10px;background:${isLight?'#fffbeb':'rgba(251,191,36,.08)'};border:1px solid rgba(251,191,36,.35);font-size:12px;line-height:1.5;color:${isLight?'#92400e':'#fcd34d'};margin-top:14px;text-align:center;">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>` : '';
   const old = document.getElementById('cardio-result-overlay'); if (old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'cardio-result-overlay';
@@ -12628,12 +12637,13 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
   const distTxt = extra && extra.distKm > 0 ? ' · ' + (Math.round(extra.distKm * 100) / 100) + ' km' : '';
   const emoji = CARDIO_EMOJI_TODOS[tipo] || '🏃';
   const bloco = motivo
-    ? `<div style="padding:12px 14px;border-radius:12px;background:${P.avisoBg};border:1px solid ${P.avisoBorda};font-size:13px;color:${P.aviso};line-height:1.55;margin-top:18px;text-align:left;">${msgMotivo}</div>`
+    ? `<div style="padding:12px 14px;border-radius:12px;background:${P.avisoBg};border:1px solid ${P.avisoBorda};font-size:13px;color:${P.aviso};line-height:1.55;margin-top:18px;text-align:center;">${msgMotivo}</div>`
     : `<div style="margin-top:18px;padding:14px;border-radius:16px;background:${P.ciaBg};border:1px solid rgba(6,182,212,.3);">
          <div style="font-size:12px;color:${P.mut};text-transform:uppercase;letter-spacing:.5px;font-weight:700;">Pontos somados</div>
          <div style="font-size:46px;font-weight:900;color:#06b6d4;line-height:1.1;animation:fraseEntrada .5s ease-out both;">+${pts.toFixed(1)}</div>
          <div style="font-size:11.5px;color:${P.mut2};">no ranking de cardio e geral</div></div>`;
   const btn = (js, rot, cls, estilo) => '<button class="btn ' + cls + '" style="' + (estilo || '') + 'min-height:52px;font-size:14.5px;font-weight:800;" onclick="' + js + '">' + rot + '</button>';
+  const btnV = (js, ico, nome) => '<button class="btn btn-sec fim-btn fim-btn-v" style="min-height:52px;" onclick="' + js + '"><span>' + ico + '</span><span>' + nome + '</span></button>';
   ov.innerHTML = `
     <div style="margin:auto;width:100%;max-width:400px;text-align:center;">
       <div style="font-size:66px;line-height:1;">🎉</div>
@@ -12643,13 +12653,17 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
         <span style="color:${P.cia};font-size:17px;">${emoji}</span><span>${motivo ? 'Cardio salvo' : 'Cardio registrado'}: ${esc(_ativRotulo(tipo))} · ${min} min${distTxt}</span></div>
       ${bloco}
       ${avisoPend}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:22px;">
-        ${_cardioResultShare ? btn('_cardioResultadoCompartilhar()', '📸 Compartilhar cardio', 'btn-prim', 'grid-column:1 / -1;') : ''}
-        ${btn("_cardioResultIr('ranking')", '🏆 Ranking', 'btn-sec')}
-        ${btn("_cardioResultIr('conquistas')", '🏅 Conquistas', 'btn-sec')}
-        ${btn("_cardioResultIr('historico')", '📊 Histórico', 'btn-sec', 'grid-column:1 / -1;')}
-        ${btn('_fecharResultadoCardio()', '🏃 Voltar ao Meu Cardio', 'btn-sec', 'grid-column:1 / -1;')}
-        ${btn("_cardioResultIr('home')", '🏠 Voltar à tela inicial', 'btn-sec', 'grid-column:1 / -1;')}
+      <div class="fim-btns" style="grid-template-columns:1fr;margin-top:22px;">
+        ${_cardioResultShare ? btn('_cardioResultadoCompartilhar()', '📸 Compartilhar cardio', 'btn-prim fim-btn') : ''}
+        ${btn("_cardioResultIr('home')", '🏠 Voltar à tela inicial', 'btn-prim fim-btn')}
+      </div>
+      <div class="fim-btns" style="grid-template-columns:1fr 1fr 1fr;">
+        ${btnV("_cardioResultIr('ranking')", '🏆', 'Ranking')}
+        ${btnV("_cardioResultIr('conquistas')", '🏅', 'Conquistas')}
+        ${btnV("_cardioResultIr('historico')", '📊', 'Histórico')}
+      </div>
+      <div class="fim-btns" style="grid-template-columns:1fr;">
+        ${btn('_fecharResultadoCardio()', '🏃 Voltar ao Meu Cardio', 'btn-sec fim-btn')}
       </div>
     </div>`;
   document.body.appendChild(ov);
@@ -13722,25 +13736,29 @@ async function _progResultado(p, completo, seg, dados) {
   const isLight = document.body.classList.contains('tema-claro');
   const valeu = completo && !(dados && dados.motivo);
   const avisoMotivo = dados && (dados.motivo === 'duracao' || dados.motivo === 'ritmo')
-    ? '<div style="margin:12px auto 0;max-width:320px;padding:10px 12px;border-radius:12px;text-align:left;font-size:12px;line-height:1.5;background:' + (isLight ? '#fff7ed' : 'rgba(251,146,60,.08)') + ';border:1px solid rgba(251,146,60,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ O tempo ou a distância parecem fora do normal para esta atividade. O cardio ficou no histórico, mas não soma pontos. Se foi engano, remova e registre de novo.</div>' : '';
+    ? '<div style="margin:12px auto 0;max-width:320px;padding:10px 12px;border-radius:12px;text-align:center;font-size:12px;line-height:1.5;background:' + (isLight ? '#fff7ed' : 'rgba(251,146,60,.08)') + ';border:1px solid rgba(251,146,60,.3);color:' + (isLight ? '#9a3412' : '#fdba74') + ';">⚠️ O tempo ou a distância parecem fora do normal para esta atividade. O cardio ficou no histórico, mas não soma pontos. Se foi engano, remova e registre de novo.</div>' : '';
   const avisoPendente = dados && dados.pendente
-    ? '<div style="margin:12px auto 0;max-width:320px;padding:10px 12px;border-radius:12px;text-align:left;font-size:12px;line-height:1.5;background:' + (isLight ? '#fffbeb' : 'rgba(251,191,36,.08)') + ';border:1px solid rgba(251,191,36,.35);color:' + (isLight ? '#92400e' : '#fcd34d') + ';">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>' : '';
+    ? '<div style="margin:12px auto 0;max-width:320px;padding:10px 12px;border-radius:12px;text-align:center;font-size:12px;line-height:1.5;background:' + (isLight ? '#fffbeb' : 'rgba(251,191,36,.08)') + ';border:1px solid rgba(251,191,36,.35);color:' + (isLight ? '#92400e' : '#fcd34d') + ';">📡 Sem conexão agora: o cardio ficou guardado no aparelho e será enviado sozinho quando a internet voltar. Os pontos são confirmados no envio.</div>' : '';
   box.innerHTML = '<div style="text-align:center;padding:30px 10px 10px;">' +
     '<div style="font-size:64px;line-height:1;margin-bottom:8px;">' + (completo ? '🎉' : '👏') + '</div>' +
     '<h2 class="sect-title" style="margin-bottom:6px;">' + (completo ? 'Programa concluído!' : 'Cardio registrado') + '</h2>' +
     '<div style="font-size:15px;line-height:1.5;margin:0 auto 10px;max-width:320px;">Parabéns! ' + _cardioFraseParabens() + '</div>' +
     '<div style="font-size:14px;color:#888;">' + p.emoji + ' ' + esc(p.titulo) + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + esc(p.sessoes[_prog.sessao].titulo) : '') + ' · ' + _progMin(seg) + '</div>' +
-    '<div style="margin:18px auto 0;max-width:320px;padding:14px;border-radius:14px;text-align:left;font-size:13px;line-height:1.6;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1px solid rgba(127,255,0,.3);">' +
+    '<div style="margin:18px auto 0;max-width:320px;padding:14px;border-radius:14px;text-align:center;font-size:13px;line-height:1.6;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1px solid rgba(127,255,0,.3);">' +
       '⏱ Pontos do tempo: <b>+' + (dados && dados.ptsExib != null ? dados.ptsExib : 0) + '</b>' + (dados && dados.motivo === 'limite' ? ' <span style="color:#888;">(o limite de cardios do dia já foi atingido)</span>' : '') + '<br>' +
       (completo ? (valeu ? '⭐ Ponto extra do programa: <b>+1</b> (1 por dia com programa concluído)<br>🏅 Conta para os distintivos de programas' : '🏅 Programa concluído, mas este cardio não soma pontos hoje: sem ponto extra') : 'Programa não concluído: sem ponto extra nem distintivo.') +
     '</div>' + avisoMotivo + avisoPendente +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px;">' +
-      '<button class="btn btn-prim" style="grid-column:1 / -1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:800;" onclick="_progCompartilhar()">📸 Compartilhar cardio</button>' +
-      '<button class="btn btn-sec" onclick="abrirRanking()">🏆 Ranking</button>' +
-      '<button class="btn btn-sec" onclick="abrirQuadroMedalhas()">🏅 Conquistas</button>' +
-      '<button class="btn btn-sec" style="grid-column:1 / -1;" onclick="navegar(\'historico\')">📊 Histórico</button>' +
-      '<button class="btn btn-sec" style="grid-column:1 / -1;" onclick="abrirProgramasCardio()">🔥 Ver outros programas</button>' +
-      '<button class="btn btn-sec" style="grid-column:1 / -1;" onclick="trocarView(\'home\');renderHome();">🏠 Voltar à tela inicial</button>' +
+    '<div class="fim-col fim-btns" style="grid-template-columns:1fr;margin-top:20px;">' +
+      '<button class="btn btn-prim fim-btn" onclick="_progCompartilhar()">📸 Compartilhar cardio</button>' +
+      '<button class="btn btn-prim fim-btn" onclick="trocarView(\'home\');renderHome();">🏠 Voltar à tela inicial</button>' +
+    '</div>' +
+    '<div class="fim-col fim-btns" style="grid-template-columns:1fr 1fr 1fr;">' +
+      '<button class="btn btn-sec fim-btn fim-btn-v" onclick="abrirRanking()"><span>🏆</span><span>Ranking</span></button>' +
+      '<button class="btn btn-sec fim-btn fim-btn-v" onclick="abrirQuadroMedalhas()"><span>🏅</span><span>Conquistas</span></button>' +
+      '<button class="btn btn-sec fim-btn fim-btn-v" onclick="navegar(\'historico\')"><span>📊</span><span>Histórico</span></button>' +
+    '</div>' +
+    '<div class="fim-col fim-btns" style="grid-template-columns:1fr;">' +
+      '<button class="btn btn-sec fim-btn" onclick="abrirProgramasCardio()">🔥 Ver outros programas</button>' +
     '</div></div>';
   _prog.ultimoResultado = { tipo: dados && dados.tipo, min: dados && dados.min, nomeTreino: p.emoji + ' ' + p.titulo + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + p.sessoes[_prog.sessao].titulo : '') };
   _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});

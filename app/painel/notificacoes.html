@@ -742,18 +742,12 @@ async function salvarFrases() {
 
 // ══════════════ FIGURINHAS (tela de conclusão de treino) ══════════════
 // item = { tipo:'img', src:'url/dataURL', legenda:'' } | { tipo:'emoji', emoji:'💪', legenda:'MODO MONSTRO', cor:'#7FFF00' }
-const FIGURINHAS_DEFAULTS = [
-  { tipo:'emoji', emoji:'💪🔥', legenda:'MODO MONSTRO ATIVADO', cor:'#f59e0b' },
-  { tipo:'emoji', emoji:'🦍',   legenda:'VIROU GORILA HOJE',    cor:'#a3e635' },
-  { tipo:'emoji', emoji:'🐱💪', legenda:'GATO SARADO APROVA',   cor:'#22d3ee' },
-  { tipo:'emoji', emoji:'🏆',   legenda:'LENDA EM CONSTRUÇÃO',  cor:'#fbbf24' },
-  { tipo:'emoji', emoji:'🐺',   legenda:'ALCATEIA DO FERRO',    cor:'#818cf8' },
-  { tipo:'emoji', emoji:'🚀',   legenda:'FOGUETE NÃO TEM RÉ',   cor:'#f472b6' },
-];
+// Não há figurinha de fábrica: só existe o que o administrador cadastra aqui. (Já houve seis de emoji fixas no código, como
+// "Alcateia do Ferro", que reapareciam quando a leitura da lista falhava; o Luiz não quer nenhuma que ele não tenha adicionado.)
 let _figurinhasData = null;
 const FIG_MAX = 150;
 
-let _figAviso = '';        // lista salva no servidor veio num formato inesperado: o que aparece é o padrão de fábrica, não o que estava salvo
+let _figAviso = '';        // lista salva no servidor veio num formato inesperado: a tela mostra a lista vazia, não o que estava salvo
 let _figCarregadas = 0;    // quantas figurinhas vieram do servidor (para avisar antes de salvar uma lista muito menor)
 let _figAnterior = 0;      // quantas tinha a lista guardada antes da última gravação (0 = não há)
 
@@ -780,8 +774,8 @@ async function carregarFigurinhas() {
       _figurinhasData = c.itens.slice();
       _figAviso = '';
     } else {
-      _figurinhasData = FIGURINHAS_DEFAULTS.slice();
-      _figAviso = 'O servidor não devolveu uma lista de figurinhas válida. O que aparece abaixo é só o padrão de fábrica, não o que estava salvo.';
+      _figurinhasData = [];
+      _figAviso = 'O servidor não devolveu uma lista de figurinhas válida. A lista abaixo está vazia só na tela, não é o que estava salvo.';
     }
     _figCarregadas = _figAviso ? 0 : _figurinhasData.length;
     try { const a = await _figLer(true); _figAnterior = (a && Array.isArray(a.itens)) ? a.itens.length : 0; } catch (e) { _figAnterior = 0; }
@@ -966,7 +960,7 @@ async function _figUpload(input) {
 
 async function salvarFigurinhas() {
   if (!_figurinhasData) return;
-  if (_figAviso && !confirm('A lista que está na tela é o padrão de fábrica, não o que estava salva no servidor. Salvar agora troca a lista de TODOS os alunos por esta. Quer salvar mesmo assim?')) return;
+  if (_figAviso && !confirm('A lista que está na tela está vazia por falha de leitura, não é o que estava salva no servidor. Salvar agora troca a lista de TODOS os alunos por esta. Quer salvar mesmo assim?')) return;
   if (_figCarregadas >= 6 && _figurinhasData.length < _figCarregadas / 2 &&
       !confirm('Você carregou ' + _figCarregadas + ' figurinhas e está salvando ' + _figurinhasData.length + '. Quer mesmo reduzir a lista de todos os alunos?')) return;
   // Migra qualquer figurinha antiga em base64 para arquivo (deixa a config leve e confiável).
