@@ -75,7 +75,20 @@
       '<label for="se">Senha</label><input id="se" type="password" autocomplete="current-password" required>' +
       '<div class="espaco"></div><button class="btn pri grande" id="ok">Entrar</button></form>' +
       '<p class="sep">Ainda não tem conta? <a href="#/cadastro">Criar conta</a></p>' +
-      '<p class="sep mut" style="margin-bottom:8px">Esqueceu a senha? A equipe envia um novo link de acesso.</p><div class="linha" style="justify-content:center"><a class="btn peq" href="' + LINK_SENHA_ZAP + '" target="_blank" rel="noopener">💬 Pedir pelo WhatsApp</a><a class="btn peq" href="' + LINK_SENHA_EMAIL + '">✉️ Pedir por e-mail</a></div></div><p class="sep" style="margin-top:18px;font-size:11px;opacity:.45"><a href="painel" style="color:inherit;text-decoration:none" rel="nofollow">Equipe</a></p></div>';
+      '<details class="sep" id="pa" style="text-align:left"><summary style="cursor:pointer;font-weight:700;text-align:center">Primeiro acesso ou esqueci a senha</summary>' +
+      '<p class="mut" style="margin:8px 0">Digite o e-mail da sua compra e enviamos um link para você criar a senha.</p><form id="fr" novalidate><input id="er" type="email" autocomplete="email" placeholder="E-mail da compra" required><div class="espaco"></div><button class="btn grande" id="br">Receber o link por e-mail</button><div id="mr" role="status"></div></form>' +
+      '<p class="mut" style="margin:10px 0 8px;text-align:center">Prefere ajuda da equipe?</p><div class="linha" style="justify-content:center"><a class="btn peq" href="' + LINK_SENHA_ZAP + '" target="_blank" rel="noopener">💬 WhatsApp</a><a class="btn peq" href="' + LINK_SENHA_EMAIL + '">✉️ E-mail</a></div></details></div>' + 
+      '<p class="sep" style="margin-top:18px;font-size:11px;opacity:.45"><a href="painel" style="color:inherit;text-decoration:none" rel="nofollow">Equipe</a></p></div>';
+    ligarTema();
+    document.getElementById('fr').onsubmit = async function (e) {
+      e.preventDefault();
+      var mr = document.getElementById('mr'), br = document.getElementById('br'), em = document.getElementById('er').value.trim();
+      if (!em) { mr.innerHTML = msg('Digite o e-mail da sua compra.'); return; }
+      br.disabled = true;
+      var x = await CDD.api('acesso_reenviar', { body: { email: em } });
+      br.disabled = false;
+      mr.innerHTML = x.ok ? msg(x.data.mensagem, 'ok') : msg(x.data.mensagem);
+    };
     ligarTema();
     document.getElementById('f').onsubmit = async function (e) {
       e.preventDefault();

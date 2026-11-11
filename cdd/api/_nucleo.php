@@ -14,7 +14,7 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 8;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads, 8 = gestão (liberação manual de módulo, páginas de venda)
+const CDD_ESQUEMA = 9;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads, 8 = gestão (liberação manual de módulo, páginas de venda)
 require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
 require_once __DIR__ . '/_bemestar.php';
@@ -293,7 +293,7 @@ function cddGarantirTabelas(PDO $pdo): void {
         // Colunas novas de tabelas do próprio CDD (só ADD COLUMN, nunca altera nem apaga dado existente).
         foreach ([['cdd_modulo', 'liberacao_dias', 'INT NULL'], ['cdd_modulo', 'liberacao_data', 'DATE NULL'], ['cdd_modulo', 'emoji', 'VARCHAR(8) NULL'],
                   ['cdd_modulo', 'cor', 'VARCHAR(9) NULL'], ['cdd_modulo', 'capa_url', 'VARCHAR(500) NULL'], ['cdd_aluna', 'ranking_visivel', 'TINYINT NOT NULL DEFAULT 1'],
-                  ['cdd_ficha_item', 'metodo_tipo', 'VARCHAR(10) NULL']] as $c3) {
+                  ['cdd_ficha_item', 'metodo_tipo', 'VARCHAR(10) NULL'], ['cdd_aluna', 'telefone', 'VARCHAR(20) NULL']] as $c3) {
             try { $pdo->query("SELECT {$c3[1]} FROM {$c3[0]} LIMIT 1"); }
             catch (Throwable $e) { $pdo->exec("ALTER TABLE {$c3[0]} ADD COLUMN {$c3[1]} {$c3[2]}"); }
         }
@@ -889,6 +889,24 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
         return cddResp(200, ['token' => $t, 'usuario' => ['idaluna' => (int)$r['idaluna'], 'nome' => $r['nome'], 'email' => $r['email'], 'papel' => $r['papel']]]);
     }
 
+    if ($acao === 'acesso_reenviar' && !$get) {
+        // Autoatendimento do primeiro acesso e da senha esquecida: o link só vai para o e-mail da própria conta, e a resposta é sempre a mesma (não revela quem é aluna).
+        $email = cddEmail($b['email'] ?? '');
+        if ($email === '') return cddErro(422, 'email_invalido', 'Digite o e-mail que você usou na compra.');
+        $resp = ['ok' => true, 'mensagem' => 'Se este e-mail tem uma compra no Código da Definição, o link de acesso está a caminho. Confira também o spam e a aba Promoções.'];
+        if (cddBloqueado($pdo, 'reenviar', $ip, $email, 8, 3)) return cddResp(200, $resp);
+        cddRegistrarTentativa($pdo, 'ip:' . $ip, 'reenviar'); cddRegistrarTentativa($pdo, 'c:' . $email, 'reenviar');
+        $st = $pdo->prepare('SELECT idaluna, nome, senha_hash, status, papel FROM cdd_aluna WHERE email = ?'); $st->execute([$email]);
+        $al = $st->fetch();
+        if ($al && $al['status'] === 'ativa' && $al['papel'] === 'aluna' && cddMatricula($pdo, (int)$al['idaluna'])['ativa']) {
+            $lk = cddNovaAtivacao($pdo, (int)$al['idaluna'], $base);
+            [$assunto, $texto] = cddEmailAcesso((string)$al['nome'], $lk['link'], true, !empty($al['senha_hash']));
+            cddEnviarEmail($email, $assunto, $texto);
+            cddRegistrarEvento($pdo, (int)$al['idaluna'], 'link_reenviado', 'autoatendimento');
+        }
+        return cddResp(200, $resp);
+    }
+
     /* ---- exigem sessão ---- */
     $eu = cddSessao($pdo, $token);
     if (!$eu) return cddErro(401, 'sessao_invalida', 'Sua sessão expirou. Entre de novo.');
@@ -1009,7 +1027,7 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
     /* alunas e matrículas */
     if ($acao === 'a_alunas' && $get) {
         $busca = cddStr($q['busca'] ?? '', 80);
-        $sql = "SELECT a.idaluna, a.nome, a.email, a.papel, a.status, a.criado_em, a.ultimo_acesso,
+        $sql = "SELECT a.idaluna, a.nome, a.email, a.telefone, a.papel, a.status, a.criado_em, a.ultimo_acesso,
                        m.status AS mat_status, m.origem AS mat_origem, m.inicio AS mat_inicio, m.expira_em AS mat_expira
                 FROM cdd_aluna a LEFT JOIN cdd_matricula m ON m.idaluna = a.idaluna";
         $par = [];

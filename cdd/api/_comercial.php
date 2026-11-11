@@ -317,13 +317,64 @@ function cddEnviarEmail(string $para, string $assunto, string $texto): bool {
     catch (Throwable $e) { return false; }
 }
 
-function cddEmailAcesso(string $nome, string $link): array {
-    $primeiro = trim(explode(' ', trim($nome))[0] ?? '');
-    $texto = "Oi" . ($primeiro !== '' ? ", $primeiro" : '') . "! Seu acesso ao Código da Definição está liberado.\n\n"
-        . "Crie a sua senha por este link (vale por 7 dias e só pode ser usado uma vez):\n$link\n\n"
-        . "Depois é só entrar com este mesmo e-mail e a senha que você criou, em https://codigodadefinicao.com.br/app/\n\n"
-        . "Qualquer dúvida, chame a equipe no WhatsApp: https://wa.me/5545991156006\n\nUm abraço,\nEquipe Código da Definição";
-    return ['Seu acesso ao Código da Definição está liberado', $texto];
+function cddPrimeiroNome(string $nome): string { return trim(explode(' ', trim($nome))[0] ?? ''); }
+
+/**
+ * E-mail de boas-vindas com o link para criar a senha. $reenvio: pedido pela própria aluna na página de obrigado ou no login;
+ * $jaTemSenha: a conta já tinha senha (o link serve para criar uma nova).
+ */
+function cddEmailAcesso(string $nome, string $link, bool $reenvio = false, bool $jaTemSenha = false): array {
+    $primeiro = cddPrimeiroNome($nome);
+    $oi = 'Oi' . ($primeiro !== '' ? ", $primeiro" : '') . '! ';
+    if ($reenvio) {
+        $abre = $oi . ($jaTemSenha ? 'Aqui está o link para você criar uma senha nova no Código da Definição.' : 'Aqui está o seu novo link de acesso ao Código da Definição.');
+        $assunto = $jaTemSenha ? 'Link para criar uma senha nova no Código da Definição' : 'Seu novo link de acesso ao Código da Definição';
+    } else {
+        $abre = $oi . 'Bem-vinda ao Código da Definição. O seu acesso está liberado.';
+        $assunto = 'Seu acesso ao Código da Definição está liberado';
+    }
+    $texto = $abre . "\n\n"
+        . "1) Crie a sua senha (leva 1 minuto)\n"
+        . "Abra o link abaixo, escolha uma senha e você já entra no app. Ele vale por 7 dias e só pode ser usado uma vez:\n$link\n\n"
+        . "2) Coloque o app na tela inicial do celular\n"
+        . "iPhone: abra o endereço no Safari, toque em Compartilhar e depois em \"Adicionar à Tela de Início\".\n"
+        . "Android: abra no Chrome, toque nos três pontinhos e em \"Instalar app\" ou \"Adicionar à tela inicial\".\n\n"
+        . "3) Comece pelo módulo \"Comece por aqui\"\n"
+        . "Ele mostra como o programa funciona e como registrar o seu treino. Para entrar nas próximas vezes, use este mesmo e-mail e a senha que você criou em https://codigodadefinicao.com.br/app/\n\n"
+        . "Se o link expirar ou não abrir, peça outro em https://codigodadefinicao.com.br/app/obrigado (é só digitar este e-mail) ou chame a equipe no WhatsApp: https://wa.me/5545991156006\n\n"
+        . "Um abraço,\nEquipe Código da Definição";
+    return [$assunto, $texto];
+}
+
+/** Telefone do comprador em dígitos com DDI 55 (celular ou fixo BR). Vazio se não parecer um número brasileiro. */
+function cddTelefoneBR($t): string {
+    $d = preg_replace('/\D+/', '', (string)$t);
+    if ($d === '') return '';
+    if (strpos($d, '55') === 0 && (strlen($d) === 12 || strlen($d) === 13)) return $d;
+    if (strlen($d) === 10 || strlen($d) === 11) return '55' . $d;
+    return '';
+}
+
+/** Texto das boas-vindas por WhatsApp. Sem o link de senha de propósito: o link vai por e-mail e aqui a aluna tem o caminho para pedir outro. */
+function cddZapBoasVindas(string $nome, string $email): string {
+    $primeiro = cddPrimeiroNome($nome);
+    return 'Oi' . ($primeiro !== '' ? ", $primeiro" : '') . '! Aqui é a equipe do Código da Definição. O seu acesso está liberado. '
+        . "Enviamos o link para criar a sua senha para o e-mail $email (olhe também o spam). Se não achar, peça outro em https://codigodadefinicao.com.br/app/obrigado . "
+        . 'Depois de criar a senha, coloque o app na tela inicial do celular e comece pelo módulo "Comece por aqui". Qualquer dúvida, é só responder esta mensagem.';
+}
+
+/** Aviso à equipe de uma aluna nova, com o botão pronto de boas-vindas no WhatsApp (1 toque), enquanto o envio automático pela Meta não existe. */
+function cddAvisarEquipeVenda(PDO $pdo, string $nome, string $email, string $telefone, string $oferta, $valor): void {
+    $para = cddEmail(cddConfig($pdo, 'email_equipe', 'contato@codigodadefinicao.com.br'));
+    if ($para === '') return;
+    $linhas = ['Aluna nova no Código da Definição.', '', "Nome: $nome", "E-mail: $email", 'Telefone: ' . ($telefone !== '' ? '+' . $telefone : 'não veio na compra'),
+               'Plano: ' . $oferta . ($valor !== null && $valor !== '' ? ' (R$ ' . number_format((float)$valor, 2, ',', '.') . ')' : '')];
+    if ($telefone !== '') {
+        $linhas[] = ''; $linhas[] = 'Boas-vindas no WhatsApp, com a mensagem pronta (toque, confira e envie):';
+        $linhas[] = 'https://wa.me/' . $telefone . '?text=' . rawurlencode(cddZapBoasVindas($nome, $email));
+    }
+    $linhas[] = ''; $linhas[] = 'O e-mail com o link para criar a senha já foi enviado para a aluna.';
+    cddEnviarEmail($para, 'Aluna nova no CDD: ' . $nome, implode("\n", $linhas));
 }
 
 function cddSomarMeses(string $dataBase, int $meses, int $dias): string {
@@ -412,6 +463,8 @@ function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
             $pdo->prepare('INSERT INTO cdd_matricula (idaluna, status, origem, ref_externa, inicio, expira_em, obs, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
                 ->execute([$idaluna, 'ativa', $ev['gateway'], cddStr($ev['contrato'] ?: $ev['fatura'], 80), $hoje, $novoFim, cddStr('Venda: ' . $oferta['nome'], 300), cddAgora()]);
         }
+        $tel = cddTelefoneBR($ev['telefone'] ?? '');
+        if ($tel !== '') $pdo->prepare("UPDATE cdd_aluna SET telefone = ? WHERE idaluna = ? AND (telefone IS NULL OR telefone = '')")->execute([$tel, $idaluna]);
         cddRegistrarEvento($pdo, $idaluna, 'matricula_venda', $ev['gateway']);
         cddLeadGanho($pdo, $email, $idaluna);   // o lead com este e-mail vira "ganho"
         // link de acesso: só para quem ainda não tem senha
@@ -419,6 +472,7 @@ function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
             $lk = cddNovaAtivacao($pdo, $idaluna, $base);
             [$assunto, $texto] = cddEmailAcesso($aluna['nome'], $lk['link']);
             $resultado = cddEnviarEmail($email, $assunto, $texto) ? ($novo ? 'aluna_criada_email_enviado' : 'liberada_email_enviado') : ($novo ? 'aluna_criada_email_falhou' : 'liberada_email_falhou');
+            if ($novo) cddAvisarEquipeVenda($pdo, (string)$aluna['nome'], $email, $tel, (string)$oferta['nome'], $ev['valor'] ?? null);
         } else $resultado = 'renovada';
         $fecha($resultado, $idaluna);
         return [true, $resultado];
@@ -515,6 +569,22 @@ function cddComercialAdmin(PDO $pdo, string $metodo, string $acao, array $q, arr
         cddConfigGravar($pdo, 'asaas_token', $tok);
         cddRegistrarEvento($pdo, null, 'gateway_segredo', 'painel');
         return cddResp(200, ['ok' => true, 'token' => $tok]);
+    }
+    if ($acao === 'a_com_asaas_retorno' && !$get) {
+        // Página de obrigado: manda o comprador, depois de pagar, para /obrigado. Usa a chave de API guardada (nunca devolvida) e só mexe no callback do link.
+        $refs = [];
+        $ref1 = cddStr($b['ref_gateway'] ?? '', 40);
+        if ($ref1 !== '') $refs[] = $ref1;
+        else foreach ($pdo->query("SELECT ref_gateway FROM cdd_oferta WHERE gateway = 'asaas' AND ativo = 1 AND ref_gateway <> ''")->fetchAll() as $o) $refs[] = (string)$o['ref_gateway'];
+        $url = rtrim((string)($ctx['base'] ?? ''), '/') . '/obrigado';
+        $r = [];
+        foreach ($refs as $ref) {
+            try { [$st, $j] = cddAsaasChamar($pdo, 'PUT', '/paymentLinks/' . rawurlencode($ref), ['callback' => ['successUrl' => $url, 'autoRedirect' => true]]); }
+            catch (Throwable $e) { return cddResp(200, ['ok' => false, 'motivo' => $e->getMessage() === 'chave_api_ausente' ? 'Cadastre a chave de API primeiro.' : 'Não consegui falar com o Asaas agora.']); }
+            $erro = $st >= 200 && $st < 300 ? '' : cddStr((string)($j['errors'][0]['description'] ?? ('erro ' . $st)), 200);
+            $r[] = ['ref' => $ref, 'ok' => $erro === '', 'erro' => $erro];
+        }
+        return cddResp(200, ['ok' => true, 'url' => $url, 'links' => $r]);
     }
     if ($acao === 'a_com_asaas_testar' && !$get) {
         try { [$st] = cddAsaasChamar($pdo, 'GET', '/customers?limit=1'); }
