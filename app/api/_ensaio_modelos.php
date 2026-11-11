@@ -11,10 +11,9 @@
 require_once __DIR__ . '/_atd_robo.php';
 
 const ENSAIO_MODELOS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
-const ENSAIO_PRECOS = ['claude-opus-5-5' => [4.0, 20.0], 'claude-sonnet-5-5' => [2.0, 10.0], 'claude-haiku-5-5' => [0.10, 0.50]];
 
 function ensaio_custo_usd(string $modelo, int $tin, int $tout): float {
-    [$e, $s] = ENSAIO_PRECOS[$modelo] ?? ENSAIO_PRECOS['claude-opus-5-5'];
+    [$e, $s] = claude_preco_modelo($modelo);
     return round($tin / 1e6 * $e + $tout / 1e6 * $s, 5);
 }
 

@@ -797,7 +797,7 @@ function atd_testar_claude(PDO $pdo, ?callable $http = null): array {
     $j = $r['json'] ?? null;
     if ($st === 200 && is_array($j)) {
         $tin = (int)($j['usage']['input_tokens'] ?? 0); $tout = (int)($j['usage']['output_tokens'] ?? 0);
-        return ['ok' => true, 'modelo' => $modelo, 'tin' => $tin, 'tout' => $tout, 'custo_usd' => atd_custo_usd($tin, $tout)];
+        return ['ok' => true, 'modelo' => $modelo, 'tin' => $tin, 'tout' => $tout, 'custo_usd' => atd_custo_usd($tin, $tout, $modelo)];
     }
     $det = is_array($j) ? (string)($j['error']['message'] ?? '') : (string)($r['erro'] ?? '');
     $erro = atd_erro_claude_especial($st, $j, $modelo)
@@ -824,8 +824,9 @@ function atd_uso_somar(PDO $pdo, int $tin, int $tout): void {
     atd_cfg_gravar($pdo, 'atd_uso', array_slice($u, 0, 60, true));
 }
 
-function atd_custo_usd(int $tin, int $tout): float {
-    return round($tin / 1e6 * ATD_USD_ENTRADA_MTOK + $tout / 1e6 * ATD_USD_SAIDA_MTOK, 4);
+function atd_custo_usd(int $tin, int $tout, ?string $modelo = null): float {
+    [$e, $s] = $modelo === null ? [ATD_USD_ENTRADA_MTOK, ATD_USD_SAIDA_MTOK] : claude_preco_modelo($modelo);   // sem modelo: preço do Opus 5.5
+    return round($tin / 1e6 * $e + $tout / 1e6 * $s, 4);
 }
 
 /** Extrai o JSON da resposta mesmo se vier cercado de texto ou de ```. */
@@ -922,7 +923,7 @@ function atd_gerar(PDO $pdo, array $p, ?callable $http = null): array {
         'ok' => true, 'variantes' => $variantes,
         'observacoes' => $dados ? atd_texto_limpo(is_string($dados['observacoes'] ?? null) ? $dados['observacoes'] : json_encode($dados['observacoes'] ?? '', JSON_UNESCAPED_UNICODE), 3000) : '',
         'bruto' => $variantes ? '' : mb_substr($texto, 0, 4000),
-        'tokens_in' => $tin, 'tokens_out' => $tout, 'custo_usd' => atd_custo_usd($tin, $tout),
+        'tokens_in' => $tin, 'tokens_out' => $tout, 'custo_usd' => atd_custo_usd($tin, $tout, $modelo),
         'modelo' => $modelo, 'usou_pdfs' => count($docs), 'usou_refs_texto' => $refTxt !== '',
     ];
 }
@@ -1179,7 +1180,7 @@ function atd_metricas(PDO $pdo, int $dias, ?DateTimeImmutable $agora = null): ar
         'agenda' => ['status' => $agStatus, 'motivos' => $agMotivos],
         'funis' => $funisMet,
         'passos' => $porFunil,
-        'claude' => ['tokens_in' => $tin, 'tokens_out' => $tout, 'custo_usd' => atd_custo_usd($tin, $tout)],
+        'claude' => ['tokens_in' => $tin, 'tokens_out' => $tout, 'custo_usd' => atd_custo_usd($tin, $tout, wa_ajustes($pdo)['modelo'] ?? null)],
     ];
 }
 
@@ -1595,7 +1596,7 @@ function atd_prontidao(PDO $pdo): array {
         'modelo' => wa_ajustes($pdo)['modelo'],
         'atendente' => wa_ajustes($pdo)['nome_atendente'],
         'chamadas_hoje' => $uso['chamadas'], 'limite_dia' => ATD_MAX_CHAMADAS_DIA,
-        'custo_hoje_usd' => atd_custo_usd((int)$uso['tin'], (int)$uso['tout']),
+        'custo_hoje_usd' => atd_custo_usd((int)$uso['tin'], (int)$uso['tout'], wa_ajustes($pdo)['modelo'] ?? null),
         'automacao_ligada' => false,
         'automacao_nota' => 'O envio automático por funil (fila e robô de conversa) ainda não está ligado. As mensagens do teste grátis saem quando a fase da sequência for concluída.',
     ];

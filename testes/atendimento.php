@@ -408,6 +408,8 @@ confere('extrair json: texto cercado', ['a' => 1], atd_extrair_json('veja: {"a":
 confere('extrair json: invalido', null, atd_extrair_json('sem json'));
 confere('custo: 1M entrada', 4.0, atd_custo_usd(1000000, 0));
 confere('custo: 1M saida', 20.0, atd_custo_usd(0, 1000000));
+confere('custo: Sonnet 5.5 cobra metade', [2.0, 10.0], [atd_custo_usd(1000000, 0, 'claude-sonnet-5-5'), atd_custo_usd(0, 1000000, 'claude-sonnet-5-5')]);
+confere('custo: modelo desconhecido cobra como Opus', 4.0, atd_custo_usd(1000000, 0, 'claude-x'));
 
 // ── Testes A/B ──────────────────────────────────────────────────────────────
 $pdo = banco();

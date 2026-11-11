@@ -5,6 +5,15 @@
  */
 
 /**
+ * Preço por milhão de tokens, [entrada, saída], da página de preços do Console (11/11/2026). Modelo desconhecido cobra como o Opus 5.5
+ * (nunca subestima o gasto). O custo mostrado nas telas é estimativa: ignora o desconto do cache de prompt.
+ */
+function claude_preco_modelo(string $modelo): array {
+    static $p = ['claude-opus-5-5' => [4.0, 20.0], 'claude-sonnet-5-5' => [2.0, 10.0], 'claude-haiku-5-5' => [0.10, 0.50]];
+    return $p[$modelo] ?? $p['claude-opus-5-5'];
+}
+
+/**
  * Falhas da API do Claude que o Luiz precisa entender para agir: sem saldo, sem permissão, modelo indisponível, serviço cheio.
  * Devolve a frase, ou null para as demais (401, 429 e o resto seguem com a mensagem de cada tela). Sem saldo a API responde 400
  * ("credit balance is too low"), e a tela dizia só "HTTP 400".

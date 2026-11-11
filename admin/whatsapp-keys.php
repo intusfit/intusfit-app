@@ -241,7 +241,7 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
   <?php else: $d = $resultadoEnsaio['d']; ?>
     <div class="aviso">Ensaio com "<?= h($resultadoEnsaio['texto']) ?>": ação <b><?= h($d['acao']) ?></b><?= $d['acao'] === 'passar_para_humano' ? ' (motivo: ' . h($d['motivo']) . ')' : '' ?>.
       <?php if ($d['acao'] === 'responder'): ?>Resposta: <i><?= h($d['texto']) ?></i><?php else: ?>Mensagem ao lead: <i><?= h(robo_texto_passagem($d['motivo'], $aj['nome_atendente'] ?? 'Cora')) ?></i><?php endif; ?>
-      <br><span style="color:#aaa">Resumo do robô: <?= h($d['resumo']) ?> · <?= (int)$d['tin'] ?> + <?= (int)$d['tout'] ?> tokens (cerca de US$ <?= h(number_format(atd_custo_usd((int)$d['tin'], (int)$d['tout']), 4, ',', '')) ?>). Nada foi enviado a ninguém.</span></div>
+      <br><span style="color:#aaa">Resumo do robô: <?= h($d['resumo']) ?> · <?= (int)$d['tin'] ?> + <?= (int)$d['tout'] ?> tokens (cerca de US$ <?= h(number_format(atd_custo_usd((int)$d['tin'], (int)$d['tout'], (string)$d['modelo']), 4, ',', '')) ?>). Nada foi enviado a ninguém.</span></div>
   <?php endif; ?>
 <?php endif; ?>
 
