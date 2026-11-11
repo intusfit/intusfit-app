@@ -284,5 +284,28 @@ $aj['robo'] = 'desligado'; wa_segredo_gravar($pdo, 'wa_ajustes', $aj);
 mais_msg($pdo, $id, 'oi de novo', $agora);
 eq('desligado: nem consulta os contatos', robo_processar_pendentes($pdo, $CFG, ['agora' => $agora, 'http_claude' => $claude, 'http_meta' => $meta]), []);
 
+echo "\n══ Comparar modelos (ensaio) ══\n";
+require_once __DIR__ . '/../app/api/_ensaio_modelos.php';
+eq('custo Opus 5.5 (US$ 4 entrada, 20 saída por milhão)', ensaio_custo_usd('claude-opus-5-5', 1000000, 100000), 6.0);
+eq('custo Sonnet 5.5 é metade do Opus', ensaio_custo_usd('claude-sonnet-5-5', 1000000, 100000), 3.0);
+eq('custo Haiku 5.5', ensaio_custo_usd('claude-haiku-5-5', 1000000, 100000), 0.15);
+eq('modelo desconhecido cobra como Opus (não subestima)', ensaio_custo_usd('claude-x', 1000000, 0), 4.0);
+[$pdo, $id] = cenario('todos');
+$cl = new ClaudeFalso(r_ok('responder', 'Oi!'));
+$d = robo_decidir($pdo, ['nome' => 'Ana'], [['role' => 'user', 'content' => 'oi']], $cl, 'claude-sonnet-5-5');
+eq('ensaio usa o modelo pedido e informa o tempo', [$cl->corpos[0]['model'], $d['modelo'], is_int($d['ms'])], ['claude-sonnet-5-5', 'claude-sonnet-5-5', true]);
+$cl = new ClaudeFalso(r_ok('responder', 'Oi!'));
+robo_decidir($pdo, ['nome' => 'Ana'], [['role' => 'user', 'content' => 'oi']], $cl, 'nome inválido; drop');
+eq('nome de modelo inválido cai no dos ajustes', $cl->corpos[0]['model'], 'claude-opus-5-5');
+$bom = json_encode(['nome' => 'Débora volta a treinar', 'gancho' => 'Mãe de duas, treinando em casa', 'destaque' => ['em casa'],
+    'trechos' => [['fonte' => 'principal', 'ini' => 3.6, 'fim' => 9.8], ['fonte' => 'principal', 'ini' => 17.8, 'fim' => 26.5], ['fonte' => 'principal', 'ini' => 56.5, 'fim' => 63.0], ['fonte' => 'principal', 'ini' => 81.2, 'fim' => 88.6]],
+    'textos' => [['texto' => 'Treino de 20 minutos', 'ini' => 3, 'fim' => 6, 'posicao' => 'baixo']], 'explicacao' => 'História e chamada para o teste.'], JSON_UNESCAPED_UNICODE);
+$a = ensaio_cut_avaliar($bom);
+eq('edição boa passa em todas as conferências', [$a['ok'], $a['nota'] === $a['de'], $a['resumo']['segundos']], [true, true, 28.8]);
+$ruimJ = json_encode(['gancho' => 'Uma frase muito longa demais para aparecer na tela do vídeo agora', 'trechos' => [['fonte' => 'principal', 'ini' => 0, 'fim' => 4], ['fonte' => 'outro', 'ini' => 1, 'fim' => 5]], 'explicacao' => 'Monta — assim'], JSON_UNESCAPED_UNICODE);
+$a = ensaio_cut_avaliar($ruimJ);
+eq('edição ruim reprova em fonte inexistente, hesitação, duração, gancho longo e travessão', [$a['ok'], array_column(array_filter($a['itens'], fn($i) => !$i[0]), 1) !== []], [false, true]);
+eq('texto que não é JSON reprova', ensaio_cut_avaliar('desculpe, não consegui')['ok'], false);
+
 echo "\n" . ($ruim ? "$ruim FALHA(S) de " . ($ok + $ruim) . " conferencias:\n" : "OK: $ok conferencias passaram.\n");
 exit($ruim ? 1 : 0);

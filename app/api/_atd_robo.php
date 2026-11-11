@@ -151,14 +151,15 @@ function robo_chamar_claude(string $corpo, string $chave, ?callable $http): arra
 
 /**
  * Pergunta ao Claude o que fazer com a conversa. Não grava nada e nunca lança.
- * Devolve ['ok' => true, 'acao', 'motivo', 'texto', 'resumo', 'tin', 'tout', 'modelo'] ou ['ok' => false, 'erro' => frase para o Luiz].
+ * $modelo: só para ensaio (comparar modelos); sem ele vale o dos ajustes.
+ * Devolve ['ok' => true, 'acao', 'motivo', 'texto', 'resumo', 'tin', 'tout', 'modelo', 'ms'] ou ['ok' => false, 'erro' => frase para o Luiz].
  */
-function robo_decidir(PDO $pdo, array $contato, array $mensagens, ?callable $http = null): array {
+function robo_decidir(PDO $pdo, array $contato, array $mensagens, ?callable $http = null, ?string $modelo = null): array {
     $cfg = wa_segredo($pdo, 'anthropic_config');
     $chave = is_array($cfg) ? trim((string)($cfg['api_key'] ?? '')) : '';
     if ($chave === '') return ['ok' => false, 'erro' => 'A chave do Claude ainda não foi cadastrada em admin/whatsapp-keys.php.'];
     if (!$mensagens || $mensagens[count($mensagens) - 1]['role'] !== 'user') return ['ok' => false, 'erro' => 'Não há mensagem do lead para responder.'];
-    $modelo = wa_ajustes($pdo)['modelo'] ?? 'claude-opus-5-5';
+    if ($modelo === null || !preg_match('/^claude-[a-z0-9.\-]{2,60}$/', $modelo)) $modelo = wa_ajustes($pdo)['modelo'] ?? 'claude-opus-5-5';
     $corpo = json_encode([
         'model' => $modelo,
         'max_tokens' => 900,
@@ -168,11 +169,13 @@ function robo_decidir(PDO $pdo, array $contato, array $mensagens, ?callable $htt
         'fallbacks' => 'default',
         'messages' => $mensagens,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $t0 = microtime(true);
     try {
         $r = robo_chamar_claude($corpo, $chave, $http);
     } catch (Throwable $e) {
         return ['ok' => false, 'erro' => 'Falha ao falar com o Claude (' . wa_log_erro($e) . ').'];
     }
+    $ms = (int)round((microtime(true) - $t0) * 1000);
     $st = (int)($r['status'] ?? 0);
     $j = $r['json'] ?? null;
     if ($st !== 200 || !is_array($j)) {
@@ -193,7 +196,7 @@ function robo_decidir(PDO $pdo, array $contato, array $mensagens, ?callable $htt
     $motivo = (string)($d['motivo'] ?? '');
     return ['ok' => true, 'acao' => $d['acao'], 'motivo' => in_array($motivo, ROBO_MOTIVOS, true) ? $motivo : 'duvida',
         'texto' => robo_limpar_texto((string)($d['texto'] ?? '')), 'resumo' => atd_texto_limpo($d['resumo'] ?? '', 500),
-        'tin' => $tin, 'tout' => $tout, 'modelo' => $modelo];
+        'tin' => $tin, 'tout' => $tout, 'modelo' => $modelo, 'ms' => $ms];
 }
 
 /** O robô pode responder a este contato agora? Devolve [bool, motivo]. */

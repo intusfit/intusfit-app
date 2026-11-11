@@ -21,7 +21,7 @@ header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex, nofollow');
 
 require_once __DIR__ . '/../app/api/_wa.php';
-require_once __DIR__ . '/../app/api/_atd_robo.php';   // carrega _wa.php e _atendimento.php
+require_once __DIR__ . '/../app/api/_ensaio_modelos.php';   // carrega _atd_robo.php, _wa.php e _atendimento.php
 $pdo = wa_conectar();
 if (!$pdo) { http_response_code(500); exit('Falha ao conectar no banco.'); }
 wa_garantir_tabelas($pdo);
@@ -35,6 +35,7 @@ $avisos = [];   // [texto, erro?]
 $resultadoTeste = null;
 $resultadoClaude = null;
 $resultadoEnsaio = null;
+$comparacao = null;
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     if (!hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) {
@@ -132,6 +133,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
     if ($acao === 'testar_claude') $resultadoClaude = atd_testar_claude($pdo);
 
+    if ($acao === 'comparar_robo' || $acao === 'comparar_cut') {
+        @set_time_limit(240);   // cada modelo leva alguns segundos; o ensaio chama vários em sequência
+        if ($acao === 'comparar_cut') {
+            $pedido = ensaio_cut_pedido();
+            $linhas = [];
+            foreach (ENSAIO_MODELOS as $m) {
+                $r = ensaio_claude($pdo, $m, 'Você edita vídeos curtos para as redes da Intus Fit. Responda sempre só com o JSON pedido, sem texto antes ou depois.', [['role' => 'user', 'content' => $pedido]], 8000, 'medium');
+                $linhas[] = $r + ['avaliacao' => $r['ok'] ? ensaio_cut_avaliar($r['texto']) : null];
+            }
+            $comparacao = ['tipo' => 'cut', 'linhas' => $linhas];
+        } else {
+            $txt = atd_texto_limpo($_POST['ensaio_texto'] ?? '', 500);
+            $casos = $txt !== '' ? [$txt] : ensaio_robo_casos();
+            $linhas = [];
+            foreach ($casos as $caso) {
+                $obvio = robo_motivo_obvio($caso);
+                $porModelo = [];
+                if ($obvio === null) foreach (ENSAIO_MODELOS as $m) $porModelo[$m] = robo_decidir($pdo, ['nome' => 'Lead de teste'], [['role' => 'user', 'content' => $caso]], null, $m);
+                $linhas[] = ['caso' => $caso, 'regra' => $obvio, 'modelos' => $porModelo];
+            }
+            $comparacao = ['tipo' => 'robo', 'linhas' => $linhas];
+        }
+    }
+
     if ($acao === 'ensaio_robo') {
         $txt = atd_texto_limpo($_POST['ensaio_texto'] ?? '', 500);
         if ($txt === '') $avisos[] = ['Escreva a mensagem que o lead mandaria.', true];
@@ -220,6 +245,31 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
   <?php endif; ?>
 <?php endif; ?>
 
+<?php if ($comparacao !== null && $comparacao['tipo'] === 'robo'): ?>
+  <div class="caixa"><p><b>Comparação dos modelos no robô de atendimento</b> (nada foi enviado a ninguém; "por regra fixa" quer dizer que o robô nem chamaria o Claude)</p>
+  <?php $tot = array_fill_keys(ENSAIO_MODELOS, ['custo' => 0.0, 'ms' => 0, 'n' => 0]); foreach ($comparacao['linhas'] as $L): ?>
+    <p style="margin-top:12px;color:#f0f0f0"><b>Lead:</b> <?= h($L['caso']) ?></p>
+    <?php if ($L['regra'] !== null): ?><p>Por regra fixa passa para uma pessoa (<?= h($L['regra']) ?>), sem chamar o Claude.</p><?php else: foreach ($L['modelos'] as $m => $d): ?>
+      <p style="margin:6px 0 0"><b style="color:#7FFF00"><?= h($m) ?></b>
+      <?php if (!$d['ok']): ?>falhou: <?= h($d['erro']) ?><?php else: $c = ensaio_custo_usd($m, (int)$d['tin'], (int)$d['tout']); $tot[$m]['custo'] += $c; $tot[$m]['ms'] += $d['ms']; $tot[$m]['n']++; ?>
+        · <?= (int)$d['ms'] ?> ms · US$ <?= h(number_format($c, 5, ',', '')) ?> · ação <b><?= h($d['acao']) ?></b><?= $d['acao'] === 'passar_para_humano' ? ' (' . h($d['motivo']) . ')' : '' ?><br>
+        <i><?= h($d['acao'] === 'responder' ? $d['texto'] : '(passa para uma pessoa) ' . $d['resumo']) ?></i><?php endif; ?></p>
+    <?php endforeach; endif; ?>
+  <?php endforeach; ?>
+  <p style="margin-top:14px"><b>Total e tempo médio por modelo:</b>
+  <?php foreach ($tot as $m => $t): ?><br><?= h($m) ?>: US$ <?= h(number_format($t['custo'], 5, ',', '')) ?> em <?= (int)$t['n'] ?> respostas<?= $t['n'] ? ' · ' . (int)round($t['ms'] / $t['n']) . ' ms em média' : '' ?><?php endforeach; ?></p></div>
+<?php elseif ($comparacao !== null): ?>
+  <div class="caixa"><p><b>Comparação dos modelos na edição automática do Intus Cut</b> (entrevista de exemplo de 92 s, pedido de 30 a 45 s; sem imagens)</p>
+  <?php foreach ($comparacao['linhas'] as $d): ?>
+    <p style="margin-top:12px"><b style="color:#7FFF00"><?= h($d['modelo']) ?></b>
+    <?php if (!$d['ok']): ?>falhou: <?= h($d['erro']) ?><?php else: $a = $d['avaliacao']; ?>
+      · <?= (int)$d['ms'] ?> ms · <?= (int)$d['tin'] ?> + <?= (int)$d['tout'] ?> tokens · US$ <?= h(number_format((float)$d['custo_usd'], 5, ',', '')) ?> · conferências <b><?= (int)$a['nota'] ?>/<?= (int)$a['de'] ?></b><br>
+      <?php foreach ($a['itens'] as [$okI, $frase]): ?><span style="color:<?= $okI ? '#7FFF00' : '#ff6b6b' ?>"><?= $okI ? '✓' : '✗' ?> <?= h($frase) ?></span><br><?php endforeach; ?>
+      <?php if (!empty($a['resumo'])): ?><span style="color:#aaa">Gancho: <?= h($a['resumo']['gancho']) ?> · <?= (int)$a['resumo']['trechos'] ?> trechos, <?= h((string)$a['resumo']['segundos']) ?> s · <?= h($a['resumo']['explicacao']) ?></span><?php endif; ?>
+    <?php endif; ?></p>
+  <?php endforeach; ?></div>
+<?php endif; ?>
+
 <form method="post" autocomplete="off">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
 
@@ -281,6 +331,9 @@ $urlWebhook = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'intusfit.com.br') . '/app/
 <label for="ensaio_texto">Ensaiar o robô (não envia nada a ninguém e gasta um pouco do saldo do Claude)</label>
 <input type="text" id="ensaio_texto" name="ensaio_texto" placeholder="Ex.: oi, como funciona o teste grátis?" maxlength="500">
 <button type="submit" name="acao" value="ensaio_robo" class="sec">Ensaiar</button>
+<button type="submit" name="acao" value="comparar_robo" class="sec">Comparar modelos (robô)</button>
+<button type="submit" name="acao" value="comparar_cut" class="sec">Comparar modelos (edição automática)</button>
+<p>"Comparar modelos (robô)" usa a mensagem acima ou, se estiver em branco, cinco mensagens de exemplo. Cada comparação gasta alguns centavos do saldo e pode levar um minuto.</p>
 
 <h3>Horários e teste grátis</h3>
 <div class="linha">
