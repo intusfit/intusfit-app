@@ -113,11 +113,22 @@ function cddLpArquivos(): array {
 }
 
 function cddLpSementes(PDO $pdo): void {
-    $n = (int)$pdo->query('SELECT COUNT(*) FROM cdd_lp')->fetchColumn();
-    if ($n > 0) return;
     $ins = $pdo->prepare('INSERT INTO cdd_lp (slug, nome, arquivo, status, peso, obs, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    $ins->execute(['escura', 'Escura (principal)', 'lp-escura.html', 'ativa', 100, 'Landing atual da raiz do domínio.', cddAgora()]);
-    $ins->execute(['mulheres', 'Feminina rosé', 'lp-mulheres.html', 'pausada', 0, 'Versão em tons femininos, com dores e desejos do Instagram.', cddAgora()]);
+    $n = (int)$pdo->query('SELECT COUNT(*) FROM cdd_lp')->fetchColumn();
+    if ($n === 0) {
+        $ins->execute(['escura', 'Escura (principal)', 'lp-escura.html', 'ativa', 100, 'Landing atual da raiz do domínio.', cddAgora()]);
+        $ins->execute(['mulheres', 'Feminina rosé', 'lp-mulheres.html', 'pausada', 0, 'Versão em tons femininos, com dores e desejos do Instagram.', cddAgora()]);
+    }
+    // Modelos novos entram pausados (peso 0): nada muda na raiz até a equipe ativar no painel.
+    $novos = [
+        ['direta', 'Direta (curta)', 'lp-direta.html', 'Versão curta: abertura, o que está incluído, para quem é, planos e dúvidas.'],
+        ['treinador', 'Treinador (autoridade)', 'lp-treinador.html', 'Abre pelo método e pelo Luiz: quem criou, mecanismo (Molécula da Definição), método e planos.'],
+    ];
+    $tem = $pdo->prepare('SELECT COUNT(*) FROM cdd_lp WHERE slug = ?');
+    foreach ($novos as $x) {
+        $tem->execute([$x[0]]);
+        if ((int)$tem->fetchColumn() === 0) $ins->execute([$x[0], $x[1], $x[2], 'pausada', 0, $x[3], cddAgora()]);
+    }
 }
 
 /** Campos editáveis do modelo: [['chave', 'rotulo', 'padrao']]. Elementos com data-k="chave" (e data-kl="rótulo"). */

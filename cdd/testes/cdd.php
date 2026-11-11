@@ -1043,9 +1043,14 @@ $tAdm2 = $d['token'] ?? '';
 eq('aluna não vê as LPs (403)', $s === 403);
 [$s, $d] = req('a_lps', 'GET', [], [], $tAdm2);
 $slugs = array_column($d['lps'] ?? [], 'slug');
-eq('as duas LPs atuais já existem (escura ativa, mulheres pausada)', $s === 200 && $slugs === ['escura', 'mulheres'] && $d['lps'][0]['status'] === 'ativa' && $d['lps'][1]['status'] === 'pausada', json_encode($slugs));
+eq('as LPs já existem (escura ativa; mulheres, direta e treinador pausadas)', $s === 200 && $slugs === ['escura', 'mulheres', 'direta', 'treinador'] && $d['lps'][2]['status'] === 'pausada' && $d['lps'][3]['status'] === 'pausada' && $d['lps'][0]['status'] === 'ativa' && $d['lps'][1]['status'] === 'pausada', json_encode($slugs));
 eq('os modelos lp-*.html são listados', in_array('lp-escura.html', $d['modelos'] ?? [], true) && in_array('lp-mulheres.html', $d['modelos'] ?? [], true));
 $idEsc = (int)$d['lps'][0]['idlp']; $idMul = (int)$d['lps'][1]['idlp'];
+foreach ([2, 3] as $ix) {
+    $lpN = $pdo->query('SELECT * FROM cdd_lp WHERE idlp = ' . (int)$d['lps'][$ix]['idlp'])->fetch();
+    $hN = cddLpRenderizar($pdo, $lpN);
+    eq('modelo ' . $lpN['slug'] . ' renderiza com rastreio, 3 links de compra e formulário', strpos($hN, 'window.CDD_LP="' . $lpN['slug'] . '"') !== false && substr_count($hN, 'data-lk=') === 3 && strpos($hN, 'id="fl"') !== false && strpos($hN, 'id="planos"') !== false);
+}
 $lpEsc = $pdo->query("SELECT * FROM cdd_lp WHERE idlp = $idEsc")->fetch();
 eq('a raiz serve a LP ativa', cddLpEscolher($pdo, '')['slug'] === 'escura');
 req('a_lp_salvar', 'POST', [], ['idlp' => $idMul, 'nome' => 'Feminina rosé', 'arquivo' => 'lp-mulheres.html', 'status' => 'ativa', 'peso' => 50], $tAdm2);
