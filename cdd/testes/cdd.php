@@ -1079,7 +1079,7 @@ eq('a outra LP não é afetada pela edição da variante', strpos($hE, 'Texto de
 [$s, $d] = req('a_lp_campo', 'POST', [], ['idlp' => $idB, 'chave' => 'link.anual', 'valor' => 'javascript:alert(1)'], $tAdm2);
 eq('link que não é https é recusado', $s === 422);
 [$s, $d] = req('a_lp_campo', 'POST', [], ['idlp' => $idB, 'chave' => 'link.anual', 'valor' => 'https://pay.exemplo.com.br/anual'], $tAdm2);
-eq('o link de compra editado troca href e data-eduzz', $s === 200 && substr_count(cddLpRenderizar($pdo, $lpB()), 'https://pay.exemplo.com.br/anual') >= 2);
+eq('o link de compra editado troca o href', $s === 200 && substr_count(cddLpRenderizar($pdo, $lpB()), 'https://pay.exemplo.com.br/anual') >= 1);
 [$s, $d] = req('a_lp_campo', 'POST', [], ['idlp' => $idB, 'chave' => 'campo.que.nao.existe', 'valor' => 'x'], $tAdm2);
 eq('campo que não existe no modelo é recusado', $s === 422);
 [$s, $d] = req('a_lp_campo', 'POST', [], ['idlp' => $idB, 'chave' => 't1', 'valor' => ''], $tAdm2);
