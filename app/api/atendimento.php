@@ -8,6 +8,9 @@
  * GET  ?action=perfil&chave=a12|l3        perfil de atendimento de uma pessoa (etapa, temperatura, contatos, mensagens prontas)
  * GET  ?action=manual_estado               fila de hoje do atendimento manual (sem a Meta): configuração, o que enviar agora e quem aguarda resposta
  * POST ?action=manual_config | manual_acao   salvar origem e data de início; marcar enviada, pular, respondeu ou encerrar
+ * GET  ?action=inbox_lista | inbox_conversa&id=N   caixa de entrada (sem a Meta): conversas, e uma conversa inteira com o rascunho da Cora
+ * POST ?action=inbox_nova | inbox_lead | inbox_registrar | inbox_sugerir | inbox_enviei | inbox_resolver
+ *        criar conversa por telefone ou a partir de um lead da fila; colar o que a pessoa escreveu; pedir a sugestão da Cora; marcar enviada; resolver
  * GET  ?action=exportar                     pacote JSON para a automação
  * POST ?action=funil_salvar | funil_excluir | funil_restaurar | funil_duplicar
  * POST ?action=conceito_salvar | conceito_excluir | conceito_restaurar
@@ -16,7 +19,8 @@
  * POST ?action=analisar | gerar
  *
  * Toda regra mora em _atendimento.php. Aqui só autenticação, entrada e saída.
- * Conversa de lead é dado pessoal: este endpoint não devolve telefone nem texto de conversa.
+ * Conversa de lead é dado pessoal: só o administrador chega aqui. A caixa de entrada (inbox_*) devolve o texto das conversas que a equipe
+ * mesma colou ou enviou; os outros endpoints continuam sem texto de conversa.
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -28,6 +32,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { http_response_code(204);
 
 require_once __DIR__ . '/_atendimento.php';
 require_once __DIR__ . '/_atd_manual.php';
+require_once __DIR__ . '/_atd_inbox.php';
 
 if (!function_exists('bearerToken')) {
     function bearerToken() {
@@ -66,7 +71,7 @@ try {
     $action = (string)($_GET['action'] ?? '');
     $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $soPost = ['funil_salvar', 'funil_excluir', 'funil_restaurar', 'funil_duplicar', 'conceito_salvar', 'conceito_excluir', 'conceito_restaurar',
-               'manual_config', 'manual_acao', 'ref_link', 'ref_arquivo', 'ref_atualizar', 'ref_ler', 'ref_excluir', 'teste_salvar', 'teste_excluir', 'analisar', 'gerar'];
+               'manual_config', 'manual_acao', 'inbox_nova', 'inbox_lead', 'inbox_registrar', 'inbox_sugerir', 'inbox_enviei', 'inbox_resolver', 'ref_link', 'ref_arquivo', 'ref_atualizar', 'ref_ler', 'ref_excluir', 'teste_salvar', 'teste_excluir', 'analisar', 'gerar'];
     if (in_array($action, $soPost, true) && $metodo !== 'POST') atd_resp(405, ['ok' => false, 'erro' => 'Use POST.']);
 
     $d = $metodo === 'POST' ? atd_entrada() : [];
@@ -114,6 +119,38 @@ try {
             $r = atd_manual_acao($pdo, $d, (int)$ctx['idusuario'], (string)($ctx['nmusuario'] ?? ''));
             atd_resp($r['ok'] ? 200 : 422, ['ok' => $r['ok'], 'erro' => $r['erro'], 'ja' => $r['ja']]);
         }
+        case 'inbox_lista':
+            atd_resp(200, ['ok' => true] + inbox_lista($pdo));
+        case 'inbox_conversa': {
+            $r = inbox_conversa($pdo, (int)($_GET['id'] ?? 0));
+            if (!$r) atd_resp(404, ['ok' => false, 'erro' => 'Conversa não encontrada.']);
+            atd_resp(200, $r);
+        }
+        case 'inbox_nova': {
+            $c = inbox_contato_novo($pdo, (string)($d['telefone'] ?? ''), (string)($d['nome'] ?? ''));
+            if (trim((string)($d['texto'] ?? '')) !== '') inbox_registrar_lead($pdo, (int)$c['idcontato'], (string)$d['texto']);
+            atd_resp(200, ['ok' => true, 'id' => (int)$c['idcontato']]);
+        }
+        case 'inbox_lead': {
+            $c = inbox_contato_do_lead($pdo, (string)($d['chave'] ?? ''));
+            atd_resp(200, ['ok' => true, 'id' => (int)$c['idcontato']]);
+        }
+        case 'inbox_registrar': {
+            $r = inbox_registrar_lead($pdo, (int)($d['id'] ?? 0), (string)($d['texto'] ?? ''));
+            atd_resp(200, ['ok' => true] + $r);
+        }
+        case 'inbox_sugerir': {
+            $r = inbox_sugerir($pdo, (int)($d['id'] ?? 0));
+            atd_resp($r['ok'] ? 200 : 422, $r);
+        }
+        case 'inbox_enviei': {
+            $r = inbox_enviei($pdo, (int)($d['id'] ?? 0), (string)($d['texto'] ?? ''));
+            atd_resp(200, ['ok' => true] + $r);
+        }
+        case 'inbox_resolver':
+            inbox_resolver($pdo, (int)($d['id'] ?? 0));
+            atd_resp(200, ['ok' => true]);
+
         case 'exportar':
             atd_resp(200, ['ok' => true, 'pacote' => atd_exportar($pdo)]);
 
