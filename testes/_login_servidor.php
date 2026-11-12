@@ -10,7 +10,7 @@ date_default_timezone_set('UTC');
 $raiz = realpath(__DIR__ . '/..');
 $api = $raiz . '/app/api';
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-if ($uri !== '/app/api/aluno_login.php') { http_response_code(404); echo 'nao encontrado'; exit; }
+if (!in_array($uri, ['/app/api/aluno_login.php', '/app/api/auth.php'], true)) { http_response_code(404); echo 'nao encontrado'; exit; }
 
 class TesteMysqlPDO extends PDO
 {
@@ -46,4 +46,15 @@ $GLOBALS['intusTurnstileHttpFake'] = function (string $secret, string $token, st
     if ($secret === 'segredo-errado') return [200, ['success' => false, 'error-codes' => ['invalid-input-secret']]];
     return $token === 'ok-valido' ? [200, ['success' => true, 'error-codes' => []]] : [200, ['success' => false, 'error-codes' => ['invalid-input-response']]];
 };
+if ($uri === '/app/api/auth.php') {
+    // login antigo (auth.php): o db.php (fora do git) vira um getDB() de teste; o resto do arquivo é o de verdade
+    function getDB() { return $GLOBALS['TESTE_PDO']; }
+    $f2 = file_get_contents($api . '/auth.php');
+    $db = "require_once __DIR__ . '/../config/db.php';";
+    if (strpos($f2, $db) === false) { http_response_code(500); echo 'auth.php mudou: ajuste este servidor de teste'; exit; }
+    $f2 = str_replace($db, '', $f2);
+    $f2 = str_replace('__DIR__', var_export($api, true), $f2);
+    eval(preg_replace('/^<\?php/', '', $f2, 1));
+    exit;
+}
 eval($fonte);
