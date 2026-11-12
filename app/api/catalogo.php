@@ -933,10 +933,12 @@ function _donoDoAlvoPub(PDO $pdo, string $alvoTipo, int $alvoId): int {
 }
 
 function jsonBody() {
+    static $memo = null;   // o corpo é lido e decodificado uma vez só: a guarda de escopo e a rota leem o mesmo pedido
+    if ($memo !== null) return $memo;
     $raw = file_get_contents('php://input');
-    if (!$raw) return [];
+    if (!$raw) return $memo = [];
     $d = json_decode($raw, true);
-    return is_array($d) ? $d : [];
+    return $memo = (is_array($d) ? $d : []);
 }
 
 // ── Substitutos de alongamento: mesmo esquema de nomesToIds/subsToNomes de
@@ -1243,6 +1245,28 @@ if (in_array($action, $_POR_ATLETA, true) && $_ehAluno) {
     $_GET['atleta'] = $_meuId;   // o id passa a vir do token, nunca da URL
 }
 
+// ── ESCOPO POR PROFESSOR (achado S1 da revisão de 11/11/2026) ───────────────
+// Até aqui só o ALUNO era limitado ao próprio id. Professor, nutricionista e externo, com sessão válida, liam e gravavam avaliações,
+// planos alimentares, anamnese e perfil de QUALQUER aluno, e as listas sem ?atleta= devolviam a base inteira. Agora a equipe que não é
+// administradora só toca os alunos da própria carteira (professores_responsaveis, getAtletasDoUsuario: a mesma regra de atletas.php,
+// treinos.php, mensalidades.php e dashboard.php). Aluno sem responsável marcado é só do administrador.
+//  1) esta guarda: pedido que cita um aluno (atleta / idatleta / _idatleta, na URL ou no corpo) fora da carteira = 403. Vale para toda
+//     ação, exceto as poucas de INTUS_ESCOPO_ISENTAS (negar por padrão: ação nova nasce protegida);
+//  2) cada rota que devolve lista por aluno filtra pela carteira (avaliacoes, nutricao, anamneses, avisos);
+//  3) PUT/DELETE por id de registro (idavaliacao, idplano, idaviso) confere de quem é o registro.
+// Aluno não passa por aqui: tem as travas próprias logo acima.
+require_once __DIR__ . '/_escopo_atleta.php';
+if ($_tokValido && !$_ehAluno && empty($_ctx['admin']) && !in_array($action, INTUS_ESCOPO_ISENTAS, true)) {
+    $_pedidoAt = intusEscopoIdsDoPedido($_GET, jsonBody());
+    if ($_pedidoAt['ids'] || $_pedidoAt['invalido']) {
+        $_avEsc = intusEscopoAvaliar($_pedidoAt, intusEscopoCarteira($pdo, $_ctx));
+        if (!$_avEsc['ok']) {
+            @error_log('[intus] escopo: usuario ' . (int)($_ctx['idusuario'] ?? 0) . ' pediu aluno(s) ' . implode(',', $_avEsc['fora']) . ' fora da carteira (action=' . preg_replace('/[^A-Za-z0-9_]/', '', (string)$action) . ', ' . $method . ')');
+            $_negar($_avEsc['codigo'], $_avEsc['erro']);
+        }
+    }
+}
+
 
 try {
 
@@ -1341,7 +1365,10 @@ if ($action === 'avaliacoes') {
             $st = $pdo->prepare("SELECT * FROM intus_avaliacao WHERE idatleta = ? ORDER BY dtavaliacao DESC");
             $st->execute([$idatleta]);
         } else {
-            $st = $pdo->query("SELECT * FROM intus_avaliacao ORDER BY dtavaliacao DESC");
+            // Sem aluno informado: administrador vê a base; equipe só a própria carteira (filtrado no SQL, sem trazer as fotos dos outros).
+            [$_wEsc, $_pEsc] = intusEscopoWhere(intusEscopoCarteira($pdo, $_ctx));
+            $st = $pdo->prepare("SELECT * FROM intus_avaliacao" . ($_wEsc !== '' ? " WHERE $_wEsc" : "") . " ORDER BY dtavaliacao DESC");
+            $st->execute($_pEsc);
         }
         $rows = $st->fetchAll(PDO::FETCH_ASSOC);
         $out = array_map(function($r) {
@@ -1417,6 +1444,7 @@ if ($action === 'avaliacoes') {
         $b = jsonBody();
         $id = (int)($b['idavaliacao'] ?? $_GET['id'] ?? 0);
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        if (!intusEscopoDono($pdo, intusEscopoCarteira($pdo, $_ctx), 'intus_avaliacao', 'idavaliacao', $id)) $_negar(403, 'avaliacao de aluno fora da sua carteira');
         $sets = []; $vals = [];
         foreach (['idatleta','dtavaliacao','peso','altura','percgordura','observacao','metodo'] as $k) {
             if (array_key_exists($k, $b)) { $sets[] = "$k = ?"; $vals[] = $b[$k]; }
@@ -1466,6 +1494,7 @@ if ($action === 'avaliacoes') {
         $id = (int)($_GET['id'] ?? 0);
         if ($id <= 0) { $b = jsonBody(); $id = (int)($b['idavaliacao'] ?? 0); }
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        if (!intusEscopoDono($pdo, intusEscopoCarteira($pdo, $_ctx), 'intus_avaliacao', 'idavaliacao', $id)) $_negar(403, 'avaliacao de aluno fora da sua carteira');
         $pdo->prepare("DELETE FROM intus_avaliacao WHERE idavaliacao = ?")->execute([$id]);
         echo json_encode(['ok' => true]);
         exit;
@@ -1474,6 +1503,11 @@ if ($action === 'avaliacoes') {
 
 // ═══════════════ NUTRIÇÃO (Planos Nutricionais) ═══════════════
 if ($action === 'nutricao') {
+    // Plano alimentar é do profissional: o aluno só lê o próprio plano ativo. Antes POST/PUT/DELETE não tinham trava nenhuma para aluno
+    // (qualquer aluno logado criava, trocava ou apagava plano de QUALQUER aluno). O app do aluno nunca grava aqui.
+    if ($_ehAluno && $method !== 'GET') {
+        $_negar(403, 'apenas o profissional altera o plano alimentar');
+    }
     if ($method === 'GET') {
         $idatleta = (int)($_GET['atleta'] ?? 0);
         if ($idatleta > 0) {
@@ -1481,7 +1515,10 @@ if ($action === 'nutricao') {
             $st = $pdo->prepare("SELECT * FROM intus_plano_nutricional WHERE idatleta = ?" . ($_ehAluno ? " AND ativo = 1" : "") . " ORDER BY ativo DESC, dtinicio DESC");
             $st->execute([$idatleta]);
         } else {
-            $st = $pdo->query("SELECT * FROM intus_plano_nutricional ORDER BY ativo DESC, dtinicio DESC");
+            // Sem aluno informado: administrador vê a base; equipe só a própria carteira.
+            [$_wEsc, $_pEsc] = intusEscopoWhere(intusEscopoCarteira($pdo, $_ctx));
+            $st = $pdo->prepare("SELECT * FROM intus_plano_nutricional" . ($_wEsc !== '' ? " WHERE $_wEsc" : "") . " ORDER BY ativo DESC, dtinicio DESC");
+            $st->execute($_pEsc);
         }
         $rows = $st->fetchAll(PDO::FETCH_ASSOC);
         $out = array_map(function($r) {
@@ -1537,6 +1574,7 @@ if ($action === 'nutricao') {
         $b = jsonBody();
         $id = (int)($b['idplano'] ?? $_GET['id'] ?? 0);
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        if (!intusEscopoDono($pdo, intusEscopoCarteira($pdo, $_ctx), 'intus_plano_nutricional', 'idplano', $id)) $_negar(403, 'plano de aluno fora da sua carteira');
         $sets = []; $vals = [];
         foreach (['idatleta','titulo','objetivo','calorias','proteina','carboidrato','gordura','observacao','comentario_inicio','comentario_fim','ativo','dtinicio','dtfim'] as $k) {
             if (array_key_exists($k, $b)) { $sets[] = "$k = ?"; $vals[] = $b[$k]; }
@@ -1552,6 +1590,7 @@ if ($action === 'nutricao') {
         $id = (int)($_GET['id'] ?? 0);
         if ($id <= 0) { $b = jsonBody(); $id = (int)($b['idplano'] ?? 0); }
         if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        if (!intusEscopoDono($pdo, intusEscopoCarteira($pdo, $_ctx), 'intus_plano_nutricional', 'idplano', $id)) $_negar(403, 'plano de aluno fora da sua carteira');
         $pdo->prepare("DELETE FROM intus_plano_nutricional WHERE idplano = ?")->execute([$id]);
         echo json_encode(['ok' => true]);
         exit;
@@ -5215,9 +5254,12 @@ if ($action === 'avisos') {
     } catch (Throwable $e) {}
 
     if ($method === 'GET') {
-        $rows = $pdo->query("SELECT idaviso, idatleta, tipo, titulo, detalhe, lido, created_at
-                             FROM intus_avisos ORDER BY created_at DESC, idaviso DESC LIMIT 100")
-                    ->fetchAll(PDO::FETCH_ASSOC);
+        // O aviso traz o nome do aluno e o que ele preencheu: equipe só vê os da própria carteira.
+        [$_wEsc, $_pEsc] = intusEscopoWhere(intusEscopoCarteira($pdo, $_ctx));
+        $_stAv = $pdo->prepare("SELECT idaviso, idatleta, tipo, titulo, detalhe, lido, created_at
+                             FROM intus_avisos" . ($_wEsc !== '' ? " WHERE $_wEsc" : "") . " ORDER BY created_at DESC, idaviso DESC LIMIT 100");
+        $_stAv->execute($_pEsc);
+        $rows = $_stAv->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode(array_map(function ($r) {
             return [
                 'idaviso'  => (int)$r['idaviso'],
@@ -5234,11 +5276,14 @@ if ($action === 'avisos') {
     if ($method === 'POST' || $method === 'PUT') {
         $b = jsonBody();
         if (!empty($b['marcar_todos'])) {
-            $pdo->exec("UPDATE intus_avisos SET lido = 1 WHERE lido = 0");
+            // "Marcar todos" de um professor não mexe nos avisos dos alunos de outro.
+            [$_wEsc, $_pEsc] = intusEscopoWhere(intusEscopoCarteira($pdo, $_ctx));
+            $pdo->prepare("UPDATE intus_avisos SET lido = 1 WHERE lido = 0" . ($_wEsc !== '' ? " AND $_wEsc" : ""))->execute($_pEsc);
             echo json_encode(['ok' => true]); exit;
         }
         $idv = (int)($b['idaviso'] ?? 0);
         if ($idv <= 0) { http_response_code(400); echo json_encode(['error' => 'idaviso obrigatorio']); exit; }
+        if (!intusEscopoDono($pdo, intusEscopoCarteira($pdo, $_ctx), 'intus_avisos', 'idaviso', $idv)) $_negar(403, 'aviso de aluno fora da sua carteira');
         $pdo->prepare("UPDATE intus_avisos SET lido = 1 WHERE idaviso = ?")->execute([$idv]);
         echo json_encode(['ok' => true]); exit;
     }
@@ -5573,7 +5618,11 @@ if ($action === 'anamnese') {
 
 // Lista as anamneses (para o dashboard do professor detectar respostas novas)
 if ($action === 'anamneses') {
-    $rows = $pdo->query("SELECT idatleta, dados, updated_at FROM intus_anamnese ORDER BY updated_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+    // Administrador: todas. Equipe: só a carteira (antes o questionário de saúde de todos os alunos saía para qualquer professor).
+    [$_wEsc, $_pEsc] = intusEscopoWhere(intusEscopoCarteira($pdo, $_ctx));
+    $_stAn = $pdo->prepare("SELECT idatleta, dados, updated_at FROM intus_anamnese" . ($_wEsc !== '' ? " WHERE $_wEsc" : "") . " ORDER BY updated_at DESC");
+    $_stAn->execute($_pEsc);
+    $rows = $_stAn->fetchAll(PDO::FETCH_ASSOC);
     $out = array_map(function ($r) {
         $d = null; if (!empty($r['dados'])) { $tmp = json_decode($r['dados'], true); if (is_array($tmp)) $d = $tmp; }
         // Conta so respostas de verdade: ignora campos internos (_timestamp, _idatleta) e vazios.
