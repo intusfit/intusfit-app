@@ -1,22 +1,15 @@
 # Materiais de ficha da loja
 
-Ícones exportados a partir do master já usado no Xcode
-(`mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`,
-1024×1024, sem transparência).
+Gerados por `python tools/mobile/gerar-assets-nativos.py` (Pillow e numpy), a partir do símbolo e do logotipo em `app/painel/`. O mesmo script refaz os ícones e a splash dos projetos nativos. Para mudar a arte, edite o script e rode de novo: os arquivos abaixo não são editados à mão.
 
-- `app-store-icon-1024.png` — ícone para o App Store Connect (ficha do app),
-  1024×1024, PNG sem alfa. Não é o ícone do build em si (esse já está no
-  Xcode assets) — é o upload separado que a Apple pede na ficha da loja.
-- `google-play-icon-512.png` — ícone de alta resolução da Play Store
-  Console (Loja > Presença > Recursos gráficos principais), 512×512.
+| Arquivo | Tamanho | Onde vai |
+|---|---|---|
+| `app-store-icon-1024.png` | 1024×1024, RGB, sem alfa | App Store Connect (ficha do app). É o mesmo ícone do Xcode (`AppIcon-512@2x.png`); a Apple aplica a máscara arredondada |
+| `google-play-icon-512.png` | 512×512, RGB, sem alfa | Play Console > Presença na loja > Ícone do app. Borda a borda, sem cantos arredondados |
+| `google-play-feature-graphic-1024x500.png` | 1024×500, RGB, sem alfa | Play Console > Imagem de destaque |
 
-- `google-play-feature-graphic-1024x500.png` — imagem de destaque para a
-  Google Play, 1024×500, PNG. Composição criada a partir do logo oficial e
-  mensagem que corresponde ao produto; validar a arte no Play Console antes da
-  submissão.
-- `google-play-feature-graphic.svg` — fonte editável da imagem de destaque.
+Texto da ficha (nome, descrições, palavras-chave, notas de revisão, respostas de privacidade): `../STORE-LISTING-PT-BR.md`.
 
-Ainda falta pra ficha completa (não gerar com dados fictícios ou pessoais):
+Ainda falta para a ficha completa (não gerar com dados fictícios ou pessoais):
 
-- Capturas de tela reais nos tamanhos exigidos por iOS e Android, feitas no app
-  instalado em aparelho físico com uma conta de demonstração.
+- Capturas de tela reais nos tamanhos exigidos por iOS e Android, feitas no app instalado em aparelho físico com uma conta de demonstração.
