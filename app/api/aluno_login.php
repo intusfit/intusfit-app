@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardado no banco (admin/smtp-config.php)
+require_once __DIR__ . '/_cadastro_aluno.php'; // idade minima e aceite dos Termos no autocadastro
 // ── LOGIN SOCIAL (Google/Facebook) ──────────────────────────────────────────
 // Client ID do Google (NAO e segredo — e o mesmo valor que vai pro front-end
 // pra iniciar o login). Confere o "aud" do token contra este valor pra evitar
@@ -332,6 +333,14 @@ try {
             echo json_encode(['ok'=>false, 'erro'=>'nome, email e senha (>=4) obrigatorios']);
             exit;
         }
+        // Idade minima (18) e aceite dos Termos: quem decide e o servidor (a tela so avisa antes). Menor de idade so entra por um
+        // professor, com autorizacao do responsavel (painel, atletas.php), que nao passa por aqui.
+        $falhaCad = intusValidarIdadeEAceite($body);
+        if ($falhaCad !== null) {
+            http_response_code($falhaCad['http']);
+            echo json_encode(['ok'=>false, 'codigo'=>$falhaCad['codigo'], 'erro'=>$falhaCad['erro'], 'idade_minima'=>INTUS_IDADE_MINIMA]);
+            exit;
+        }
 
         // Duplicidade
         $st = $pdo->prepare("SELECT $col_id FROM `$tabela` WHERE LOWER($col_email) = ? LIMIT 1");
@@ -396,6 +405,15 @@ try {
             if (in_array('indicado_por_idatleta', $colunas)) { $cols[]='indicado_por_idatleta'; $vals[]=$indicadoPor; $phs[]='?'; }
         }
         $cols[]='dt_cadastro'; $vals[]=date('Y-m-d H:i:s'); $phs[]='?';
+        // Quando e qual versao dos Termos e da Politica de Privacidade a pessoa aceitou (prova do consentimento; colunas criadas aqui,
+        // so na tabela do aluno, e uma falha ao criar nao derruba o cadastro).
+        foreach (['termos_aceitos_em' => 'DATETIME NULL', 'termos_versao' => 'VARCHAR(20) NULL'] as $tcol => $ttipo) {
+            if (!in_array($tcol, $colunas)) {
+                try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `$tcol` $ttipo"); $colunas[] = $tcol; } catch (Throwable $e) {}
+            }
+        }
+        if (in_array('termos_aceitos_em', $colunas)) { $cols[]='termos_aceitos_em'; $vals[]=date('Y-m-d H:i:s'); $phs[]='?'; }
+        if (in_array('termos_versao', $colunas))     { $cols[]='termos_versao';     $vals[]=INTUS_TERMOS_VERSAO; $phs[]='?'; }
         // Entra no ranking desde o primeiro dia (inclusive no teste grátis): explícito, sem depender do DEFAULT da coluna.
         if (in_array('ranking_optin', $colunas)) { $cols[]='ranking_optin'; $vals[]='S'; $phs[]='?'; }
 

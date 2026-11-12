@@ -292,8 +292,9 @@
           <input class="form-input" id="nc-cpf" inputmode="numeric" placeholder="000.000.000-00"/>
         </div>
         <div class="form-group">
-          <label class="form-label">Data de nascimento</label>
-          <input class="form-input" id="nc-dtnascimento" type="date"/>
+          <label class="form-label">Data de nascimento *</label>
+          <input class="form-input" id="nc-dtnascimento" type="date" min="1900-01-01"/>
+          <div style="font-size:12px;color:#888;margin-top:6px;">O cadastro direto é para maiores de 18 anos.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Gênero</label>
@@ -413,6 +414,13 @@
             <input class="form-input" id="nc-senha-confirm" type="password" placeholder="Repita a senha"/>
             <button type="button" class="pwd-toggle" data-target="nc-senha-confirm" aria-label="Mostrar senha"></button>
           </div>
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex;align-items:flex-start;gap:10px;color:#ccc;font-size:13px;line-height:1.5;cursor:pointer;">
+            <input type="checkbox" id="nc-aceite" style="accent-color:#7FFF00;width:20px;height:20px;flex-shrink:0;margin-top:1px;"/>
+            <span>Tenho 18 anos ou mais e li e aceito os <a href="termos.html" target="_blank" rel="noopener" style="color:#7FFF00;">Termos de Uso</a> e a <a href="privacidade.html" target="_blank" rel="noopener" style="color:#7FFF00;">Política de Privacidade</a>.</span>
+          </label>
         </div>
 
         <div class="modal-actions">
@@ -857,6 +865,22 @@
     // ====== CRIAR CONTA (multi-step wizard) ======
     let ncCurrentStep = 1;
 
+    // Idade mínima do cadastro direto. O servidor confere de novo e é quem decide; aqui só avisa antes.
+    const NC_IDADE_MINIMA = 18;
+    function ncIdadeDe(dt) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dt || '');
+      if (!m) return null;
+      const a = +m[1], mes = +m[2], d = +m[3];
+      const t = new Date(a, mes - 1, d);
+      if (a < 1900 || t.getFullYear() !== a || t.getMonth() !== mes - 1 || t.getDate() !== d) return null;
+      const h = new Date();
+      if (t > h) return null;
+      let idade = h.getFullYear() - a;
+      if (h.getMonth() + 1 < mes || (h.getMonth() + 1 === mes && h.getDate() < d)) idade--;
+      return idade;
+    }
+    const NC_MSG_MENOR = 'O cadastro direto é só para maiores de 18 anos. Se você é menor de idade, peça para o seu responsável falar com a equipe da Intus pelo WhatsApp.';
+
     function ncNextStep(step) {
       // Validate before moving forward
       if (step > ncCurrentStep) {
@@ -865,6 +889,9 @@
           const email = document.getElementById('nc-email').value.trim();
           if (!nome) { alert('Informe seu nome.'); return; }
           if (!email) { alert('Informe seu e-mail.'); return; }
+          const idadeInf = ncIdadeDe(document.getElementById('nc-dtnascimento').value);
+          if (idadeInf === null) { alert('Informe a sua data de nascimento (dia, mês e ano).'); return; }
+          if (idadeInf < NC_IDADE_MINIMA) { alert(NC_MSG_MENOR); return; }
         }
         // Steps 2 and 3 are optional selections, no mandatory validation
       }
@@ -1004,8 +1031,12 @@
       // Validate
       if (!nome)  { alert('Informe seu nome.'); ncNextStep(1); return; }
       if (!email) { alert('Informe seu e-mail.'); ncNextStep(1); return; }
+      const idadeEnvio = ncIdadeDe(dtnascimento);
+      if (idadeEnvio === null) { alert('Informe a sua data de nascimento (dia, mês e ano).'); ncNextStep(1); return; }
+      if (idadeEnvio < NC_IDADE_MINIMA) { alert(NC_MSG_MENOR); ncNextStep(1); return; }
       if (!senha || senha.length < 6) { alert('A senha precisa ter ao menos 6 caracteres.'); return; }
       if (senha !== senhaConfirm) { alert('As senhas não conferem.'); return; }
+      if (!document.getElementById('nc-aceite').checked) { alert('Para criar a conta, marque que leu e aceita os Termos de Uso e a Política de Privacidade.'); return; }
 
       const btn = document.getElementById('nc-salvar');
       btn.disabled = true;
@@ -1014,6 +1045,7 @@
 
       const payload = {
         nome, email, telefone: tel, cpf, dtnascimento, genero,
+        aceite_termos: true,
         objetivos, dificuldades, plano, periodo, senha,
         professores_responsaveis: _refProfId ? [_refProfId] : [],
       };
@@ -1040,6 +1072,12 @@
         } else {
           let je = null;
           try { je = await r.json(); } catch (e) { je = null; }
+          if (je && (je.codigo === 'idade_minima' || je.codigo === 'nascimento_invalido' || je.codigo === 'aceite_necessario')) {
+            // Recusa de regra do servidor (não é falha): mostra o motivo como ele escreveu.
+            alert(je.codigo === 'idade_minima' ? NC_MSG_MENOR : (je.erro || 'Confira os dados e tente de novo.'));
+            btn.disabled = false; btn.textContent = oldTxt;
+            return;
+          }
           _erroCriar = (je && je.erro) ? je.erro : ('HTTP ' + r.status);
         }
       } catch (e) {

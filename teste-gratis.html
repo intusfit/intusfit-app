@@ -105,6 +105,10 @@ h1 em{font-style:normal;color:var(--accent)}
 .btn-voltar{background:none;border:none;color:var(--muted);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:0 0 16px;display:block}
 
 .aviso-erro{font-size:12.5px;color:#f87171;text-align:center;margin-top:10px;display:none}
+.campo .dica{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45}
+.campo.aceite label{display:flex;gap:10px;align-items:flex-start;text-transform:none;letter-spacing:0;font-size:13px;font-weight:500;color:var(--muted);line-height:1.5;cursor:pointer;margin-bottom:0}
+.campo.aceite input{width:20px;height:20px;min-width:20px;margin-top:1px;padding:0;accent-color:var(--accent)}
+.campo.aceite a{color:var(--accent);text-decoration:underline}
 .aviso-erro.on{display:block}
 
 .confirmacao{display:none;text-align:center;padding:20px 6px}
@@ -197,6 +201,11 @@ h1 em{font-style:normal;color:var(--accent)}
           </div>
         </div>
         <div class="campo">
+          <label for="lead-nasc">Data de nascimento</label>
+          <input id="lead-nasc" name="dtnascimento" type="date" autocomplete="bday" required min="1900-01-01">
+          <div class="dica">O cadastro direto é para maiores de 18 anos.</div>
+        </div>
+        <div class="campo">
           <label for="lead-objetivo">Seu objetivo</label>
           <select id="lead-objetivo" name="objetivo">
             <option value="Emagrecer">Emagrecer</option>
@@ -222,6 +231,9 @@ h1 em{font-style:normal;color:var(--accent)}
         <div class="campo hp" aria-hidden="true">
           <label for="lead-site">Não preencha este campo</label>
           <input id="lead-site" name="site" type="text" tabindex="-1" autocomplete="off">
+        </div>
+        <div class="campo aceite">
+          <label for="lead-aceite"><input id="lead-aceite" name="aceite" type="checkbox"><span>Tenho 18 anos ou mais e li e aceito os <a href="/app/painel/termos.html" target="_blank" rel="noopener">Termos de Uso</a> e a <a href="/app/painel/privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a>.</span></label>
         </div>
         <button type="submit" class="btn-enviar" id="btn-enviar">Quero meu acesso grátis 💪</button>
         <div class="aviso-erro" id="aviso-erro"></div>
@@ -330,6 +342,22 @@ function formatarTelefoneInput(el) {
 }
 formatarTelefoneInput(document.getElementById('lead-whats'));
 
+// Idade mínima do cadastro direto (o servidor confere de novo e é quem decide; aqui só avisa antes).
+const IDADE_MINIMA = 18;
+function idadeDe(dt) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dt || '');
+  if (!m) return null;
+  const a = +m[1], mes = +m[2], d = +m[3];
+  const t = new Date(a, mes - 1, d);
+  if (a < 1900 || t.getFullYear() !== a || t.getMonth() !== mes - 1 || t.getDate() !== d) return null;
+  const h = new Date();
+  if (t > h) return null;
+  let idade = h.getFullYear() - a;
+  if (h.getMonth() + 1 < mes || (h.getMonth() + 1 === mes && h.getDate() < d)) idade--;
+  return idade;
+}
+const MSG_MENOR = 'O cadastro direto é só para maiores de 18 anos. Se você é menor de idade, peça para o seu responsável falar com a equipe da Intus pelo WhatsApp.';
+
 document.getElementById('btn-continuar').addEventListener('click', function () {
   const aviso1 = document.getElementById('aviso-erro-1');
   aviso1.classList.remove('on'); aviso1.textContent = '';
@@ -340,6 +368,9 @@ document.getElementById('btn-continuar').addEventListener('click', function () {
   if (whatsappNumeros.length < 10) { aviso1.textContent = 'Digite um WhatsApp válido, com DDD.'; aviso1.classList.add('on'); return; }
   if (!email) { aviso1.textContent = 'Digite seu e-mail.'; aviso1.classList.add('on'); return; }
   if (!document.querySelector('input[name="genero"]:checked')) { aviso1.textContent = 'Escolha o seu gênero.'; aviso1.classList.add('on'); return; }
+  const idadeInformada = idadeDe(document.getElementById('lead-nasc').value);
+  if (idadeInformada === null) { aviso1.textContent = 'Informe a sua data de nascimento (dia, mês e ano).'; aviso1.classList.add('on'); return; }
+  if (idadeInformada < IDADE_MINIMA) { aviso1.textContent = MSG_MENOR; aviso1.classList.add('on'); return; }
   trk('etapa1_ok');
   document.getElementById('step-1').style.display = 'none';
   document.getElementById('step-2').style.display = 'block';
@@ -412,12 +443,18 @@ document.getElementById('form-lead').addEventListener('submit', async function (
   const senha = document.getElementById('lead-senha').value;
   const senhaConfirma = document.getElementById('lead-senha-confirma').value;
   const honeypot = document.getElementById('lead-site').value;
+  const dtnascimento = document.getElementById('lead-nasc').value;
+  const aceitou = document.getElementById('lead-aceite').checked;
 
   if (!nome) { aviso.textContent = 'Digite seu nome.'; aviso.classList.add('on'); return; }
   if (whatsappNumeros.length < 10) { aviso.textContent = 'Digite um WhatsApp válido, com DDD.'; aviso.classList.add('on'); return; }
   if (!email) { aviso.textContent = 'Digite seu e-mail.'; aviso.classList.add('on'); return; }
   if (senha.length < 6) { aviso.textContent = 'A senha precisa ter ao menos 6 caracteres.'; aviso.classList.add('on'); return; }
   if (senha !== senhaConfirma) { aviso.textContent = 'As senhas não conferem.'; aviso.classList.add('on'); return; }
+  const idadeNoEnvio = idadeDe(dtnascimento);
+  if (idadeNoEnvio === null) { aviso.textContent = 'Informe a sua data de nascimento (dia, mês e ano).'; aviso.classList.add('on'); return; }
+  if (idadeNoEnvio < IDADE_MINIMA) { aviso.textContent = MSG_MENOR; aviso.classList.add('on'); return; }
+  if (!aceitou) { aviso.textContent = 'Para criar a conta, marque que leu e aceita os Termos de Uso e a Política de Privacidade.'; aviso.classList.add('on'); return; }
 
   // Honeypot: mesmo comportamento de antes — finge sucesso, não envia nada.
   if (honeypot) {
@@ -438,6 +475,8 @@ document.getElementById('form-lead').addEventListener('submit', async function (
         nome, email, senha,
         telefone: whatsappNumeros,
         genero,
+        dtnascimento,
+        aceite_termos: true,
         objetivos: objetivo ? [objetivo] : [],
         plano: 'teste',
         origem: 'landing-teste-gratis',
@@ -454,6 +493,13 @@ document.getElementById('form-lead').addEventListener('submit', async function (
     }
 
     const res = await r.json().catch(() => ({}));
+    if (!r.ok && (res.codigo === 'idade_minima' || res.codigo === 'nascimento_invalido' || res.codigo === 'aceite_necessario')) {
+      // Recusa de regra (não é falha do servidor): mostra o motivo e NÃO guarda o contato como lead.
+      aviso.textContent = res.codigo === 'idade_minima' ? MSG_MENOR : (res.erro || 'Confira os dados e tente de novo.');
+      aviso.classList.add('on');
+      btn.disabled = false; btn.textContent = 'Quero meu acesso grátis 💪';
+      return;
+    }
     if (!r.ok || !res.ok || !res.atleta || !res.atleta.idatleta) throw new Error('falha ao criar conta');
 
     const criado = res.atleta;
