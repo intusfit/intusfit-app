@@ -82,36 +82,37 @@ elseif ($method === 'POST' && $action === 'login_atleta') {
     }
 
     $db = getDB();
+
+    // ── MESMA BRECHA DO ACHADO S2 (11/11/2026), AQUI PIOR ──────────────────
+    // O código de acesso identificava a conta, não havia limite de tentativas (só o login de professor tinha) e conta SEM senha entregava
+    // sessão só com o código e ainda DEFINIA a senha de quem mandasse uma ("primeiro acesso"): quem adivinhasse um código de 4 dígitos
+    // sequestrava a conta (o `me` devolve o e-mail da pessoa, e com ele e a senha nova entrava no login moderno).
+    // Nenhum cliente deste repositório usa esta rota. Agora: limite por IP e por código, erro único (não confirma se o código existe),
+    // senha SEMPRE exigida, e esta rota nunca grava senha nova.
+    @require_once __DIR__ . '/_rate_limit.php';
+    if (function_exists('checkRateLimit')) { checkRateLimit($db, 'auth_login_atleta', 5, 900); }
+    if (function_exists('checkRateLimitConta')) { checkRateLimitConta($db, 'auth_login_atleta_conta', $codacesso, 8, 900); }
+
     $stmt = $db->prepare("SELECT * FROM atleta WHERE codacesso = ? AND stbloqueio != 'S' LIMIT 1");
     $stmt->execute([$codacesso]);
     $atleta = $stmt->fetch();
 
-    if (!$atleta) {
-        jsonError('Código de acesso inválido ou aluno bloqueado', 401);
-    }
-
-    // Se o aluno já tem senha configurada, valida
-    if (!empty($atleta['senha'])) {
-        if (!$senha) {
-            jsonError('Senha é obrigatória', 401);
-        }
+    $valid = false;
+    if ($atleta && !empty($atleta['senha']) && $senha !== '') {
         // Mesmo defeito do login de professor — ver comentario acima.
         $_ehHashA = (strlen((string)$atleta['senha']) >= 50 && preg_match('/^\$2[aby]\$/', (string)$atleta['senha']));
         $valid = $_ehHashA
             ? password_verify($senha, $atleta['senha'])
             : hash_equals((string)$atleta['senha'], (string)$senha);
-        if (!$valid) {
-            jsonError('Senha incorreta', 401);
-        }
-        if (!$_ehHashA && hash_equals((string)$atleta['senha'], (string)$senha)) {
+        if ($valid && !$_ehHashA) {
             $hash = password_hash($senha, PASSWORD_DEFAULT);
             $db->prepare("UPDATE atleta SET senha = ? WHERE idatleta = ?")->execute([$hash, $atleta['idatleta']]);
         }
     }
-    // Se não tem senha, primeiro acesso — define a senha agora
-    elseif ($senha) {
-        $hash = password_hash($senha, PASSWORD_DEFAULT);
-        $db->prepare("UPDATE atleta SET senha = ? WHERE idatleta = ?")->execute([$hash, $atleta['idatleta']]);
+    if (!$valid) {
+        if (function_exists('recordAttempt')) recordAttempt($db, 'auth_login_atleta');
+        if (function_exists('recordAttemptConta')) recordAttemptConta($db, 'auth_login_atleta_conta', $codacesso);
+        jsonError('Credenciais inválidas', 401);
     }
 
     $token = generateToken();
@@ -124,7 +125,7 @@ elseif ($method === 'POST' && $action === 'login_atleta') {
         'tipo'     => 'atleta',
         'nome'     => $atleta['nome'],
         'idatleta' => $atleta['idatleta'],
-        'primeiro_acesso' => empty($atleta['senha']),
+        'primeiro_acesso' => false,   // a rota não define mais senha: conta sem senha não entra por aqui
         'expires_at' => $expires,
     ]);
 }
