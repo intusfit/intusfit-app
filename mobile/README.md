@@ -65,6 +65,28 @@ Para cada plugin, criar uma feature branch, instalar a dependência, registrar p
 
 Consulte [STORE-LAUNCH-CHECKLIST.md](STORE-LAUNCH-CHECKLIST.md) para a checklist de material, privacidade e submissão.
 
+## Assinatura e privacidade (12/11/2026)
+
+**Android: assinatura do AAB sem chave no repositório.** `android/app/build.gradle` monta o `signingConfig` do release só quando as quatro variáveis abaixo existem; faltando qualquer uma, o release sai **sem assinatura** (o Gradle avisa) e o debug não muda. Use **uma** das duas formas:
+
+1. Variáveis de ambiente na hora do build:
+
+```bash
+export INTUS_KEYSTORE_FILE="/caminho/fora/do/repositorio/intus-release.jks"
+export INTUS_KEYSTORE_PASSWORD="..."
+export INTUS_KEY_ALIAS="..."
+export INTUS_KEY_PASSWORD="..."
+cd mobile/android && ./gradlew bundleRelease
+```
+
+2. As mesmas quatro linhas (`NOME=valor`) em **`~/.gradle/gradle.properties`**, o arquivo da sua conta no computador. **Nunca** em `mobile/android/gradle.properties` (esse vai para o Git).
+
+O keystore fica fora do repositório (o `mobile/.gitignore` bloqueia `*.jks`, `*.keystore`, `*.p12`, `*.pem`, `*.mobileprovision` e `key.properties`). Perca a chave e a loja não aceita mais atualização: guarde cópia no cofre do Luiz. Se o Luiz optar pela assinatura do Google Play (Play App Signing), esta chave vira só a chave de envio. Quem cuida da chave é o Luiz; o Claude Code não gera nem toca nela.
+
+**Release:** `minifyEnabled false` de propósito. O app depende de reflexão do Capacitor (plugins) e da ponte `IntusNativo` em `MainActivity`; ligar o R8 exige regras em `proguard-rules.pro` e teste em aparelho físico. Android sem permissão de mídia: escolher foto ou vídeo usa o seletor do sistema. `allowBackup="false"` e regras de extração (`res/xml/data_extraction_rules.xml`, `backup_rules.xml`) mantêm o token de sessão (que fica no `localStorage`) fora do backup.
+
+**iOS:** `PrivacyInfo.xcprivacy` (pasta `ios/App/App/`, incluído no target pelo `project.pbxproj`) declara os dados coletados e nenhuma API de motivo obrigatório (conferido nos fontes do Capacitor 8.5.1, do `@capacitor/local-notifications` 8.3.1 e do Swift do app). **Ao instalar um plugin novo, repita a conferência** (UserDefaults, datas de arquivo, espaço em disco, tempo de atividade, teclados ativos) e atualize o arquivo. `Info.plist`: região `pt-BR` (os avisos do sistema saem em português), `NSMicrophoneUsageDescription` (vídeos que o aluno grava na câmera do sistema para posts e feedbacks) e `ITSAppUsesNonExemptEncryption = false` (só HTTPS). Conferência estática: `node testes/nativo_config.js`. **Nada disso foi compilado nem testado em aparelho.**
+
 ## Áudio dos programas de cardio junto com a música (16/10/2026)
 - **iOS** (`ios/App/App/AppDelegate.swift`): a sessão de áudio nasce como `.playback` com `.mixWithOthers`. Os bips e a voz dos programas tocam por cima do Spotify e ignoram o botão lateral de silêncio, e o app continua vivo com a tela bloqueada (o `Info.plist` já tem `UIBackgroundModes = audio`). **Não compilado nem testado aqui (sem Mac): conferir num iPhone de verdade com Spotify tocando, tela bloqueada e o botão de silêncio ligado.** Se o WebKit voltar a derrubar a categoria quando a página toca áudio, o sintoma é o Spotify pausar ao iniciar um programa.
 - **Android**: o app usa notificações locais agendadas para as trocas de bloco e um aviso silencioso (canal `ativo`) enquanto o treino ou programa está aberto. Cartão com botões e execução dos bips com a tela apagada exigem um serviço em primeiro plano nativo, ainda não escrito.

@@ -16,8 +16,33 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Assinatura do AAB: caminho do keystore e senhas NUNCA ficam no repositório. Vêm de variáveis de ambiente
+    // (INTUS_KEYSTORE_FILE, INTUS_KEYSTORE_PASSWORD, INTUS_KEY_ALIAS, INTUS_KEY_PASSWORD) ou de ~/.gradle/gradle.properties
+    // (mesmos nomes). Faltando qualquer uma, o release sai sem assinatura (o Gradle avisa) e o debug continua igual.
+    // Passo a passo em mobile/README.md.
+    def intusSeg = { String nome -> System.getenv(nome) ?: (project.findProperty(nome) as String) }
+    def intusKeystore = intusSeg('INTUS_KEYSTORE_FILE')
+    def intusAssina = intusKeystore && intusSeg('INTUS_KEYSTORE_PASSWORD') && intusSeg('INTUS_KEY_ALIAS') && intusSeg('INTUS_KEY_PASSWORD')
+    signingConfigs {
+        if (intusAssina) {
+            release {
+                storeFile file(intusKeystore)
+                storePassword intusSeg('INTUS_KEYSTORE_PASSWORD')
+                keyAlias intusSeg('INTUS_KEY_ALIAS')
+                keyPassword intusSeg('INTUS_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (intusAssina) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn('Intus: variaveis de assinatura ausentes, o release sai SEM assinatura (ver mobile/README.md).')
+            }
+            // Decisao consciente: R8/minify desligado. O app depende de reflexao do Capacitor (plugins e a ponte
+            // IntusNativo em MainActivity) e nao ha como validar as regras de manter sem compilar e testar em aparelho.
+            // Ligar so junto de regras em proguard-rules.pro e teste em aparelho fisico.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
