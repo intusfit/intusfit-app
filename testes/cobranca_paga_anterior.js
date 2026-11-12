@@ -73,14 +73,14 @@ const sit = (hoje, lista, i) => api(hoje).situacaoCobranca(lista[i], lista);
   MENS[3].nmathleta = MENS[3].nmathleta; // (mesmo aluno, linhas 4 e 5)
   const srv = http.createServer((req, res) => { let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html'; const f = path.join(RAIZ, p); if (!f.startsWith(RAIZ) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('n'); } res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res); });
   await new Promise(r => srv.listen(8106, '127.0.0.1', r));
-  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1400, height: 1000 } });
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1400, height: 1000 }, serviceWorkers: 'block' });   // o _mock.js registra o sw.js e chama reg.update() sem catch: uma falha de atualização vira erro de página intermitente
   const erros = []; p.on('pageerror', e => erros.push(e.message));
   await p.route(u => u.href.includes('.php'), r => { const u = r.request().url();
     if (u.includes('mensalidades.php')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MENS) });
     if (u.includes('atletas.php')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([...new Set(MENS.map(m => m.idatleta))].map(i => ({ idatleta: i, nome: MENS.find(m => m.idatleta === i).nmathleta, email: 'a' + i + '@x.com', origem: 'professor', professores_responsaveis: [1], stbloqueio: 'N' }))) });
     return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }); });
   await p.addInitScript(({ MENS, HOJE }) => { const _R = Date; window.Date = function (...a) { return a.length ? new _R(...a) : new _R(HOJE + 'T12:00:00'); }; window.Date.prototype = _R.prototype; window.Date.now = () => new _R(HOJE + 'T12:00:00').getTime(); window.Date.UTC = _R.UTC; window.Date.parse = _R.parse;
-    localStorage.setItem('mx-user', JSON.stringify({ idusuario: 1, nome: 'Luiz', admin: true, permissoes: {} })); localStorage.setItem('mx-token', 'x'.repeat(64)); localStorage.setItem('intus-mensalidades', JSON.stringify(MENS)); }, { MENS, HOJE: '2026-10-21' });
+    try { localStorage.setItem('mx-user', JSON.stringify({ idusuario: 1, nome: 'Luiz', admin: true, permissoes: {} })); localStorage.setItem('mx-token', 'x'.repeat(64)); localStorage.setItem('intus-mensalidades', JSON.stringify(MENS)); } catch (e) {} }, { MENS, HOJE: '2026-10-21' });
   await p.goto('http://127.0.0.1:8106/index.html', { waitUntil: 'networkidle' });
   await p.waitForTimeout(2500);
   const t = await p.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));

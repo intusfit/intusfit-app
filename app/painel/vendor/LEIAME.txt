@@ -1,0 +1,38 @@
+BIBLIOTECAS DE TERCEIROS HOSPEDADAS AQUI (app/painel/vendor/)
+
+Por que existem: antes o aluno.html, o login.html e o relatorios-fotos pediam estes arquivos a CDNs e ao Google Fonts a cada
+abertura. Com internet ruim a tela travava esperando um terceiro, e um script de CDN comprometido rodaria no mesmo endereço do site
+e leria o token de sessão do localStorage. Agora o código vem do próprio servidor, em versão fixa, e o aluno.html abre sem pedir nada
+a ninguém (só os mosaicos do mapa do cardio ao vivo continuam vindo do OpenStreetMap).
+
+O que tem aqui (versão, licença, origem):
+  html2canvas/   1.4.1   MIT            npm html2canvas@1.4.1  dist/html2canvas.min.js
+  leaflet/       1.9.4   BSD-2-Clause   npm leaflet@1.9.4      dist/leaflet.js, leaflet.css, images/*.png
+  jszip/         3.10.1  MIT ou GPL-3   npm jszip@3.10.1       dist/jszip.min.js
+  jspdf/         2.5.1   MIT            npm jspdf@2.5.1        dist/jspdf.umd.min.js
+  inter/         v20     SIL OFL 1.1    fonts.gstatic.com (Google Fonts), fonte variável, só latin e latin-ext
+  pdfjs/         3.11.174 Apache 2.0    (já existia; usado só pela tela de Nutrição)
+Cada pasta tem o texto da licença (LICENSE.txt, OFL.txt). Os arquivos são os ORIGINAIS dos pacotes, sem alteração (nem o
+comentário sourceMappingURL do fim foi mexido): o hash de cada um está em INTEGRIDADE.json.
+
+Quem confere:
+  - testes/terceiros.js (roda dentro de testes/rodar.sh e no CI) reprova se um arquivo daqui for alterado, se uma tela voltar a
+    carregar script de CDN sem SRI, ou se o service worker (sw.js) apontar para um arquivo que não existe.
+  - tools/vendor/conferir-origem.sh baixa os pacotes do npm de novo e compara com INTEGRIDADE.json (precisa de internet).
+
+Ainda de terceiros, de propósito (carregados só sob demanda, em telas da equipe):
+  - libheif-js 1.23.2 (foto HEIC do iPhone, jsDelivr): com SRI (atributo integrity) em app/painel/foto-util.js e relatorios-fotos.
+  - MediaPipe tasks-vision 0.10.14 e o modelo de pose (jsDelivr e storage.googleapis.com), em app/painel/foto-pose.js: SEM SRI, porque
+    é carregado por import() e pelo carregador interno do MediaPipe, que não aceitam hash. Hospedar aqui custaria uns 19 MB no
+    repositório (dois .wasm de 9 MB). Decisão do Luiz.
+  - SDKs do Google e do Facebook (login social): só são baixados quando o ID do app está configurado (hoje não está). Sem SRI,
+    porque o provedor atualiza o arquivo no mesmo endereço.
+
+COMO ATUALIZAR UMA BIBLIOTECA
+  1. npm pack <pacote>@<versão>; confira o hash com:  npm view <pacote>@<versão> dist.integrity
+  2. Copie o arquivo de dist/ para a pasta certa daqui (e a licença, se mudou).
+  3. Gere o hash do arquivo:  openssl dgst -sha384 -binary ARQUIVO | openssl base64 -A   (e ponha "sha384-" na frente)
+  4. Atualize INTEGRIDADE.json e rode  bash tools/vendor/conferir-origem.sh
+  5. Suba o ?v= nas telas que carregam o arquivo (aluno.html, relatorios-fotos/index.html, sw.js) e o CACHE_NAME do sw.js.
+  6. Se o aluno.html ou o login.html mudarem de arquivo carregado, atualize também mobile/scripts/build-web.mjs (o pacote das
+     lojas só leva as pastas html2canvas, leaflet e inter).

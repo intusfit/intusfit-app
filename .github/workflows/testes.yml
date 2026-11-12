@@ -1,0 +1,58 @@
+# Suíte de testes do Intus Fit em todo pull request.
+#
+# A `main` se publica sozinha em produção (Publicação via GIT da KingHost) e não tinha nenhuma checagem automática. Este fluxo roda
+# `bash testes/rodar.sh` (219 etapas: unidade, endpoints em PHP com SQLite e telas no Chromium) antes de qualquer merge.
+# A suíte roda SEM REDE (namespace de rede só com o loopback): a rede é usada apenas para instalar as dependências. Assim ela
+# continua funcionando offline e uma tela que voltar a depender de CDN reprova aqui, em vez de travar na mão do aluno.
+# Proteção de branch recomendada para a `main`: ver a descrição do pull request que criou este arquivo.
+name: Testes
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, sqlite3, mbstring, openssl, curl, gd
+          coverage: none
+
+      - name: Dependências dos testes (Playwright) e Chromium
+        working-directory: testes
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Suíte completa, sem rede
+        run: |
+          # Com sudo só para criar o namespace de rede; o código de saída é o da suíte.
+          set +e
+          sudo -E env "PATH=$PATH" "HOME=$HOME" python3 tools/ci/sem-rede.py bash testes/rodar.sh
+          rc=$?
+          if [ "$rc" -eq 77 ]; then
+            echo "::warning::Não consegui isolar a rede neste executor; rodando a suíte com rede."
+            bash testes/rodar.sh
+            rc=$?
+          fi
+          exit "$rc"

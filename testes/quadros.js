@@ -51,8 +51,8 @@ const BIBLIOTECA = [{ passo: 't1', funil: 'teste-gratis', funil_nome: 'Teste gr�
     if (!f.startsWith(SITE) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('nao'); }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res);
   });
-  await new Promise(r => srv.listen(8099, '127.0.0.1', r));
-  const B = 'http://127.0.0.1:8099';
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));   // porta livre: 8099 é do servidor estático do rodar.sh
+  const B = 'http://127.0.0.1:' + srv.address().port;
   const browser = await chromium.launch();
   const json = (r, o, status) => r.fulfill({ status: status || 200, contentType: 'application/json', body: JSON.stringify(o) });
 

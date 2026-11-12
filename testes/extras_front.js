@@ -52,7 +52,8 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
     if (u.includes('atletas.php')) return json([{ idatleta: 1, nome: 'Ana Souza', email: 'a@x.com', stbloqueio: 'N' }, { idatleta: 2, nome: 'Bruno Lima', email: 'b@x.com', stbloqueio: 'N' }, { idatleta: 3, nome: 'Modelo', email: 'modelo.feminino@intusfit.local' }, { idatleta: 4, nome: 'Bloqueado', email: 'c@x.com', stbloqueio: 'S' }]);
     return json([]);
   });
-  await pg.addInitScript(() => { localStorage.setItem('mx-user', JSON.stringify({ idusuario: 1, nome: 'Luiz', admin: true, permissoes: {} })); localStorage.setItem('mx-token', 'x'.repeat(64)); });
+  // O script roda em todo documento, inclusive no about:blank, onde o localStorage é negado: sem try/catch vira erro de página.
+  await pg.addInitScript(() => { try { localStorage.setItem('mx-user', JSON.stringify({ idusuario: 1, nome: 'Luiz', admin: true, permissoes: {} })); localStorage.setItem('mx-token', 'x'.repeat(64)); } catch (e) {} });
   await pg.goto('http://127.0.0.1:8109/extras.html', { waitUntil: 'networkidle' });
   await pg.waitForSelector('.ex-mod', { timeout: 5000 });
   eq('lista os módulos', await pg.locator('.ex-mod').count(), 2);
@@ -129,7 +130,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   let abertos = []; await ctx2.route('https://drive.google.com/**', r => { abertos.push(r.request().url()); r.fulfill({ status: 200, body: 'ok' }); });
   await ap.route(/\/app\/api\/extras\.php/, async (r) => { A.chamadas++; if (A.fora) return r.abort('failed'); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, categorias: A.lista }) }); });
   await ap.route(/\/app\/api\/(?!extras\.php)/, r => r.abort('failed'));
-  await ap.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); });
+  await ap.addInitScript(() => { try { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); } catch (e) {} });
   await ap.goto('http://127.0.0.1:8109/aluno.html', { waitUntil: 'domcontentloaded' });
   for (let i = 0; i < 80; i++) { if (await ap.evaluate(() => typeof _extrasCarregar === 'function' && typeof API !== 'undefined').catch(() => false)) break; await ap.waitForTimeout(250); }
   await ap.waitForTimeout(800);

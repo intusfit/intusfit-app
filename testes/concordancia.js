@@ -3,7 +3,7 @@
 // três telas e cobra que os números saiam idênticos. Se alguém voltar a
 // escrever a fórmula localmente, é aqui que estoura.
 const { chromium } = require('playwright');
-const BASE = 'http://127.0.0.1:8099/';
+const BASE = 'http://127.0.0.1:' + (process.env.INTUS_PORTA_A || 8099) + '/';
 const TELAS = [
   { arq: 'aluno.html', papel: 'aluno', marco: 'pontosSessaoRank' },
   { arq: 'frequencia.html', papel: 'admin', marco: 'pontosSessaoRank' },
@@ -27,7 +27,8 @@ const SESSOES = [
   const browser = await chromium.launch();
   const resultados = {};
   for (const t of TELAS) {
-    const page = await browser.newPage();
+    // serviceWorkers: 'block': o _mock.js registra o sw.js e, quando ele ativa, faz location.reload(): no CI isso destruía o contexto no meio do teste
+    const page = await browser.newPage({ serviceWorkers: 'block' });
     await page.addInitScript((papel) => {
       localStorage.setItem('mx-token', 'teste');
       localStorage.setItem('mx-user', JSON.stringify(papel === 'aluno'

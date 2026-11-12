@@ -15,9 +15,10 @@
   <meta property="og:url" content="https://intusfit.com.br/app/painel/login.html">
   <meta property="og:type" content="website">
   <title>Intus — Login</title>
-  <script src="_mock.js?v=20260925a"></script>
+  <script src="_mock.js?v=20261111a"></script>
+  <!-- Inter hospedada no próprio site (vendor/inter), com font-display: swap. Antes era um @import do Google Fonts. -->
+  <link rel="stylesheet" href="vendor/inter/inter.css?v=20261111a"/>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
     body {
@@ -1294,8 +1295,20 @@
       mostrarErro((res && res.erro) || 'Não foi possível entrar. Tente novamente.');
     }
 
+    // Os SDKs do Google e do Facebook só são baixados quando o ID correspondente está configurado (hoje os dois são placeholder:
+    // nada é pedido a esses domínios e a tela de login abre sem depender de terceiros). Não dá pra usar SRI neles: o provedor
+    // atualiza o arquivo no mesmo endereço, e um hash fixo quebraria o login quando isso acontecer.
+    function _carregarSdk(src, aoCarregar, id) {
+      if (id && document.getElementById(id)) return;
+      const s = document.createElement('script');
+      if (id) s.id = id;
+      s.src = src; s.async = true; s.defer = true;
+      if (aoCarregar) s.onload = aoCarregar;
+      document.head.appendChild(s);
+    }
+
     // ── Google ──
-    window.addEventListener('load', function () {
+    function _iniciarGoogle() {
       if (!_googleConfigurado || typeof google === 'undefined' || !google.accounts) return;
       try {
         google.accounts.id.initialize({ client_id: INTUS_GOOGLE_CLIENT_ID, callback: _googleCredentialResponse });
@@ -1303,7 +1316,8 @@
           theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'pill', width: 260,
         });
       } catch (e) { console.warn('[login] falha ao iniciar o Google Sign-In:', e); }
-    });
+    }
+    if (_googleConfigurado) _carregarSdk('https://accounts.google.com/gsi/client', _iniciarGoogle, 'google-gsi');
 
     async function _googleCredentialResponse(response) {
       limparErro();
@@ -1322,6 +1336,7 @@
       if (!_facebookConfigurado || typeof FB === 'undefined') return;
       FB.init({ appId: INTUS_FACEBOOK_APP_ID, cookie: false, xfbml: false, version: 'v20.0' });
     };
+    if (_facebookConfigurado) _carregarSdk('https://connect.facebook.net/pt_BR/sdk.js', null, 'facebook-jssdk');
 
     function loginComFacebook() {
       if (!_facebookConfigurado || typeof FB === 'undefined') { mostrarErro('Login com Facebook ainda não está configurado.'); return; }
@@ -1344,8 +1359,6 @@
       }, { scope: 'email' });
     }
   </script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <div id="fb-root"></div>
-  <script async defer crossorigin="anonymous" src="https://connect.facebook.net/pt_BR/sdk.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'intus-v64';
+const CACHE_NAME = 'intus-v65';
 const ASSETS = [
   'aluno.html',
   'nutricao.html',
@@ -16,6 +16,19 @@ const ASSETS = [
   'logo-icon-light.png',
   'logo-intus-dark.png',
   'logo-intus-light.png',
+  // Bibliotecas de terceiros hospedadas aqui (vendor/): o app abre e compartilha treino mesmo sem internet.
+  // Cada caminho tem de existir: um 404 aqui derruba a instalação inteira do service worker (cache.addAll).
+  'vendor/inter/inter.css?v=20261111a',
+  'vendor/inter/inter-latin.woff2',
+  'vendor/inter/inter-latin-ext.woff2',
+  'vendor/html2canvas/html2canvas.min.js?v=1.4.1',
+  'vendor/leaflet/leaflet.js?v=1.9.4',
+  'vendor/leaflet/leaflet.css?v=1.9.4',
+  'vendor/leaflet/images/layers.png',
+  'vendor/leaflet/images/layers-2x.png',
+  'vendor/leaflet/images/marker-icon.png',
+  'vendor/leaflet/images/marker-icon-2x.png',
+  'vendor/leaflet/images/marker-shadow.png',
 ];
 
 self.addEventListener('install', event => {

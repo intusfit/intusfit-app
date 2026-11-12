@@ -19,7 +19,7 @@ const MENS=[
 ];
 (async()=>{
  const b=await chromium.launch();
- const p=await b.newPage({viewport:{width:1400,height:900}});
+ const p=await b.newPage({viewport:{width:1400,height:900},serviceWorkers:'block'});   // sem service worker: o _mock.js recarrega a página quando ele ativa
  const erros=[]; p.on('pageerror',e=>erros.push(e.message));
  await p.route(u=>u.href.includes('.php'),r=>{
    const u=r.request().url();
@@ -38,7 +38,7 @@ const MENS=[
    localStorage.setItem('mx-token','x'.repeat(64));
    localStorage.setItem('intus-mensalidades',JSON.stringify(MENS));
  },{MENS,HOJE});
- await p.goto('http://127.0.0.1:8899/financeiro.html',{waitUntil:'networkidle'});
+ await p.goto('http://127.0.0.1:' + (process.env.INTUS_PORTA_B || 8899) + '/financeiro.html',{waitUntil:'networkidle'});
  await p.waitForTimeout(2200);
 
  let falhas=0;

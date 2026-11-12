@@ -3,7 +3,9 @@
 // (Brasília e fuso local), escopo por professor, IP só para o administrador e recusa de aluno.
 //   php -c <php.ini com pdo_sqlite> testes/acessos.php
 $ok = 0; $ruim = 0;
-function eq($rot, $c, $d = '') { global $ok, $ruim; if ($c) { $ok++; echo "  OK    $rot\n"; } else { $ruim++; echo "  FALHA $rot" . ($d ? "\n          $d" : '') . "\n"; } }
+// A saída do teste vai direto para o STDOUT (sem passar pela saída do PHP): quem escreve pela saída normal "envia os cabeçalhos" e, em CLI sem
+// output_buffering, http_response_code() das rotas passa a falhar e devolve false.
+function eq($rot, $c, $d = '') { global $ok, $ruim; if ($c) { $ok++; fwrite(STDOUT, "  OK    $rot\n"); } else { $ruim++; fwrite(STDOUT, "  FALHA $rot" . ($d ? "\n          $d" : '') . "\n"); } }
 
 date_default_timezone_set('America/Sao_Paulo');
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
@@ -91,5 +93,5 @@ $_SERVER['REQUEST_METHOD'] = 'GET';
 [$cod, $jr] = rota($pdo, ['admin' => true, 'idusuario' => 1], false, 'acessos', ['dias' => 7]);
 eq('a tela recebe quantos registros estão guardados', isset($jr['guardados']) && $jr['guardados'] === $depois, json_encode($jr['guardados'] ?? null));
 
-echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
+fwrite(STDOUT, "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n");
 exit($ruim ? 1 : 0);

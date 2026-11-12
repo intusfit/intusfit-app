@@ -6,6 +6,8 @@
 (function () {
   'use strict';
   var LIBHEIF_URL = 'https://cdn.jsdelivr.net/npm/libheif-js@1.23.2/libheif-wasm/libheif-bundle.js';
+  // SRI: o navegador só executa o arquivo se ele for byte a byte o do pacote libheif-js@1.23.2 (conferido em testes/terceiros.js).
+  var LIBHEIF_SRI = 'sha384-39BRDvCV5eZ5AgrY3Nr01nkQ/yIWMpfKufwt1PG2rnp3m/0IfzgyMosM0NUb7Pmf';
   var EXT_OK = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif', 'bmp'];
 
   function extensao(f) { var m = /\.([a-z0-9]+)$/i.exec((f && f.name) || ''); return m ? m[1].toLowerCase() : ''; }
@@ -21,6 +23,7 @@
       window.module = { exports: {} }; window.exports = window.module.exports;
       var s = document.createElement('script');
       s.src = LIBHEIF_URL;
+      s.integrity = LIBHEIF_SRI; s.crossOrigin = 'anonymous';
       s.onload = function () {
         var fab = window.module && window.module.exports;
         window.module = modAnt; window.exports = expAnt;

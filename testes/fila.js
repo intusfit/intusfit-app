@@ -25,7 +25,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   });
   await new Promise(r => srv.listen(8097, '127.0.0.1', r));
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });   // sem service worker: o app recarrega a página quando ele ativa
   const erros = [];
   page.on('pageerror', e => { if (!/Failed to update a ServiceWorker/i.test(String(e.message))) erros.push(String(e.message)); });
 

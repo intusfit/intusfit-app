@@ -29,6 +29,13 @@ for (const file of files) {
 // "licenciado": true (ver tools/voz/LEIAME.md); sem isso cai na voz do aparelho. Vão no binário para tocar sem internet.
 await cp(join(panelRoot, 'voz'), join(webRoot, 'voz'), { recursive: true });
 
+// Bibliotecas de terceiros que o aluno.html e o login.html carregam de vendor/ (html2canvas, Leaflet e a fonte Inter). Só estas
+// pastas entram no binário: vendor/pdfjs, jszip e jspdf são das telas de gestão e não vão para a loja. Sem elas o app nativo
+// ficaria sem fonte, sem compartilhar treino e sem mapa do cardio ao vivo.
+for (const pasta of ['html2canvas', 'leaflet', 'inter']) {
+  await cp(join(panelRoot, 'vendor', pasta), join(webRoot, 'vendor', pasta), { recursive: true });
+}
+
 // Tem de ser carregado antes do api.js em ambas as telas. A origem web continua
 // relativa; no WebView a API fica absoluta para alcançar o servidor de produção.
 const runtime = `// Gerado por mobile/scripts/build-web.mjs — não editar no diretório www.\nwindow.INTUS_NATIVE_APP = true;\nwindow.INTUS_API_BASE = 'https://intusfit.com.br/app/api';\n`;
