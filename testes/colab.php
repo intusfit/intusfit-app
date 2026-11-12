@@ -21,6 +21,7 @@ if (getenv('CASO_JSON') !== false) {
     $caso = json_decode(getenv('CASO_JSON'), true);
     $pdo = new PDO('sqlite:' . $caso['db']);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    require_once __DIR__ . '/../app/api/_moderacao.php';   // o catalogo.php carrega a biblioteca de moderação (bloqueio, filtro de termos) no topo; o teste usa a real
     foreach ([
         "CREATE TABLE IF NOT EXISTS intus_feed_post (idpost INTEGER PRIMARY KEY AUTOINCREMENT, idatleta INTEGER, imagem TEXT, legenda TEXT, destino TEXT DEFAULT 'feed', localizacao TEXT, ativo INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
         "CREATE TABLE IF NOT EXISTS intus_post_visib (idpost INTEGER PRIMARY KEY, visib TEXT)",

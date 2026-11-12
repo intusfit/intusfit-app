@@ -19,6 +19,7 @@ if (getenv('CASO_JSON') !== false) {
     $caso = json_decode(getenv('CASO_JSON'), true);
     $pdo = new PDO('sqlite:' . $caso['db']);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    require_once __DIR__ . '/../app/api/_moderacao.php';   // o catalogo.php carrega a biblioteca de moderação (bloqueio, filtro de termos) no topo; o teste usa a real
     $pdo->exec("CREATE TABLE IF NOT EXISTS intus_comentario_pub (idcomentario INTEGER PRIMARY KEY AUTOINCREMENT, alvo_tipo TEXT, alvo_id INTEGER, resposta_a INTEGER NULL, autor_tipo TEXT, autor_id INTEGER, autor_nome TEXT, texto TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
     $pdo->exec("CREATE TABLE IF NOT EXISTS intus_reacao_pub (alvo_tipo TEXT, alvo_id INTEGER)");
     $pdo->exec("CREATE TABLE IF NOT EXISTS intus_nutri_conteudo (idconteudo INTEGER PRIMARY KEY, tipo TEXT, ativo INTEGER DEFAULT 1)");

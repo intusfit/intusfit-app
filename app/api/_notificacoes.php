@@ -7,6 +7,7 @@
  * Nenhuma função daqui lança: falha de notificação nunca derruba a ação que a
  * originou.
  */
+require_once __DIR__ . '/_moderacao.php';   // bloqueio entre alunos: quem bloqueou não recebe aviso do bloqueado (ver _criarNotificacao)
 
 // ── NOTIFICAÇÕES SOCIAIS (sino) ─────────────────────────────────────────────
 // Uma linha por destinatário, com "lido" próprio. NÃO reaproveita intus_avisos:
@@ -44,6 +45,8 @@ function _notifGarantirTabela(PDO $pdo) {
 function _criarNotificacao(PDO $pdo, string $destTipo, int $destId, string $tipo, string $atorTipo, int $atorId, string $atorNome, string $alvoTipo, int $alvoId, string $texto = '', bool $dedupe = false) {
     if ($destId <= 0 || $atorId <= 0) return;
     if ($destTipo === $atorTipo && $destId === $atorId) return;
+    // Bloqueio (exigência das lojas): quem bloqueou, ou foi bloqueado por, o autor do gesto não recebe aviso dele (curtida, comentário, menção, mensagem...).
+    if ($destTipo === 'aluno' && $atorTipo === 'aluno' && function_exists('intusModBloqueadosEntre') && intusModBloqueadosEntre($pdo, $destId, $atorId)) return;
     try {
         _notifGarantirTabela($pdo);
         if ($dedupe) {

@@ -22,11 +22,13 @@ $blocoNotif = str_replace("require_once __DIR__ . '/_acesso.php';", '', $blocoNo
 // a biblioteca real de avisos (_notificacoes.php); o CREATE TABLE dela é de MySQL e a tabela é criada pelo teste
 $libNotif = preg_replace('/^<\?php/', '', str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/_notificacoes.php')));
 $libNotif = str_replace('function _notifGarantirTabela(PDO $pdo) {', 'function _notifGarantirTabela(PDO $pdo) { return;', $libNotif);
+$libNotif = str_replace('__DIR__', var_export(realpath(__DIR__ . '/../app/api'), true), $libNotif);   // o require da biblioteca de moderação, de dentro da _notificacoes.php
 
 if (getenv('CASO_JSON') !== false) {
     $caso = json_decode(getenv('CASO_JSON'), true);
     $pdo = new PDO('sqlite:' . $caso['db']);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    require_once __DIR__ . '/../app/api/_moderacao.php';   // o catalogo.php carrega a biblioteca de moderação (bloqueio, filtro de termos) no topo; o teste usa a real
     foreach ([
         "CREATE TABLE IF NOT EXISTS intus_post_intus (idpost INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT NOT NULL DEFAULT 'campanha', titulo TEXT NOT NULL DEFAULT '', texto TEXT, imagem TEXT NOT NULL DEFAULT '', botao_texto TEXT NOT NULL DEFAULT '', botao_link TEXT NOT NULL DEFAULT '', dados TEXT, fixado INTEGER NOT NULL DEFAULT 0, publicar_em TEXT NOT NULL, expira_em TEXT, ativo INTEGER NOT NULL DEFAULT 1, criado_por INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
         "CREATE TABLE IF NOT EXISTS intus_reacao_pub (idreacao INTEGER PRIMARY KEY AUTOINCREMENT, alvo_tipo TEXT, alvo_id INTEGER, autor_tipo TEXT, autor_id INTEGER, autor_nome TEXT, emoji TEXT)",
