@@ -9,7 +9,7 @@ require __DIR__ . '/../app/api/_conversao_tabelas.php';
 eq('nome de tabela comum é aceito', conversaoNomeValido('atleta') && conversaoNomeValido('intus_sessao') && conversaoNomeValido('treino_letra_config'));
 eq('nome com ponto e vírgula, espaço, crase ou aspas é recusado', !conversaoNomeValido('atleta; DROP TABLE atleta') && !conversaoNomeValido('a b') && !conversaoNomeValido('a`b') && !conversaoNomeValido("a'b") && !conversaoNomeValido(''));
 $cat = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/catalogo.php'));
-eq('a rota é só do administrador e exige backup de menos de 24 h', strpos($cat, "'seguranca_config', 'conversao_tabelas']") !== false && strpos($cat, '$horas > 24') !== false && strpos($cat, "action === 'conversao_tabelas'") !== false);
+eq('a rota é só do administrador e exige backup de menos de 24 h', preg_match("/\\\$_SO_ADMIN = \\[[^\\]]*'conversao_tabelas'/", $cat) === 1 && strpos($cat, '$horas > 24') !== false && strpos($cat, "action === 'conversao_tabelas'") !== false);
 $lib = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/_conversao_tabelas.php'));
 eq('a rotina nunca usa DROP nem DELETE nem TRUNCATE', !preg_match('/\b(DROP\s+TABLE|DELETE\s+FROM|TRUNCATE)\b/i', preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $lib)));
 

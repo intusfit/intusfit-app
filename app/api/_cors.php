@@ -6,10 +6,11 @@ require_once __DIR__ . '/_ip.php';   // intusClientIp(): IP real do visitante (c
  */
 // Origens web oficiais e WebViews do app Capacitor (iOS e Android).
 // Não usar coringa: a API recebe Bearer tokens em praticamente todas as rotas.
+// Origens de DESENVOLVIMENTO (http://localhost:3000 e :5500) saíram em 11/11/2026: produção não deve confiar em servidor local de
+// quem navega. Os testes do projeto (testes/) não passam por aqui; para experimentar a API de produção a partir de uma página local,
+// sirva a página pelo domínio oficial ou use uma cópia local deste arquivo, nunca a lista de produção.
 $_cors_allowed = [
     'https://intusfit.com.br',
-    'http://localhost:3000',
-    'http://localhost:5500',
     'http://localhost',       // Android Capacitor (configuração padrão)
     'https://localhost',      // Android Capacitor (configuração atual)
     'capacitor://localhost',  // iOS Capacitor

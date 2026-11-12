@@ -22,7 +22,7 @@ header('X-Robots-Tag: noindex, nofollow');
 require_once __DIR__ . '/../app/api/_asaas.php';
 $cfgBanco = @include __DIR__ . '/../app/config/db.php';
 try {
-    // o db.php pode devolver um array (host, database...) ou definir constantes (DB_HOST...): o mesmo que app/api/asaas.php e admin/catalogo.php aceitam
+    // o db.php pode devolver um array (host, database...) ou definir constantes (DB_HOST...): o mesmo que app/api/asaas.php e app/api/catalogo.php aceitam
     if (is_array($cfgBanco) && isset($cfgBanco['host'])) {
         $pdo = new PDO("mysql:host={$cfgBanco['host']};dbname={$cfgBanco['database']};charset=utf8mb4", $cfgBanco['username'], $cfgBanco['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     } elseif (defined('DB_HOST')) {
