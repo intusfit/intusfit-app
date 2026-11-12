@@ -813,8 +813,12 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
 // ── SHARED CSS ─────────────────────────────────────────────────────────────
 (function injectCSS() {
   const style = document.createElement('style');
+  // Inter hospedada no próprio site (vendor/inter), sem pedir nada ao Google Fonts. O endereço é calculado a partir do próprio _mock.js
+  // (e não da página), então vale em qualquer tela do painel, no app do aluno e no pacote nativo.
+  let interCss = 'vendor/inter/inter.css?v=20261111a';
+  try { if (document.currentScript && document.currentScript.src) interCss = new URL(interCss, document.currentScript.src).href; } catch (e) {}
   style.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    @import url('${interCss}');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     /* ── DARK (default) ── */
