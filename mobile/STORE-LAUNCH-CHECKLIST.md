@@ -1,6 +1,6 @@
 # Checklist de lançamento nas lojas — Intus Fit
 
-Atualizada em **22 de setembro de 2026**; ícones, telas de abertura e materiais gráficos revisados em **11 de novembro de 2026**. Esta checklist não substitui a revisão das políticas vigentes no dia do envio.
+Atualizada em **22 de setembro de 2026**; ícones, telas de abertura e materiais gráficos revisados em **11 de novembro de 2026**; configuração nativa de privacidade, backup, permissões e assinatura revisada em **12 de novembro de 2026**. Esta checklist não substitui a revisão das políticas vigentes no dia do envio.
 
 ## Bloqueios de acesso
 
@@ -8,13 +8,14 @@ Atualizada em **22 de setembro de 2026**; ícones, telas de abertura e materiais
 - [ ] G4 OS recebeu papel necessário no App Store Connect, sem compartilhar senha, chave privada ou certificado.
 - [ ] Luiz tem conta Google Play Console verificada e concedeu o papel necessário ao G4 OS.
 - [ ] Identificador `br.com.intusfit.app` confirmado ou substituído antes da primeira build assinada.
-- [ ] Chave de assinatura Android, certificados e perfis iOS foram criados e guardados fora do Git.
+- [ ] Chave de assinatura Android, certificados e perfis iOS foram criados e guardados fora do Git. O `build.gradle` já lê caminho e senhas de variáveis de ambiente ou de `~/.gradle/gradle.properties` (`INTUS_KEYSTORE_FILE`, `INTUS_KEYSTORE_PASSWORD`, `INTUS_KEY_ALIAS`, `INTUS_KEY_PASSWORD`; ver `README.md`, seção Assinatura e privacidade) e o `mobile/.gitignore` bloqueia chaves e perfis; falta o Luiz criar e guardar a chave.
 
 ## Produto e conformidade
 
 - [ ] Build de release testada em aparelho Android físico e iPhone físico.
 - [ ] Fluxo de exclusão de conta e dados confirmado dentro do app ou por URL pública, se exigido pela loja.
 - [x] Política de privacidade publicada e verificada em URL pública: `https://intusfit.com.br/app/painel/privacidade.html`. Ela declara localização em primeiro plano, câmera/fotos, notificações, dados de treino e autenticação.
+- [x] Configuração nativa de privacidade e permissões (12/11/2026, conferida por `testes/nativo_config.js`, **sem compilar**): iOS com `NSMicrophoneUsageDescription` em português (vídeos gravados na câmera do sistema para posts e feedbacks), `ITSAppUsesNonExemptEncryption = false`, região `pt-BR` e `PrivacyInfo.xcprivacy` do app (dados coletados declarados, nenhuma API de motivo obrigatório, incluído no target pelo `project.pbxproj`); Android com `allowBackup="false"`, regras de extração e backup que excluem tudo, e **sem** `READ_MEDIA_IMAGES` nem `READ_EXTERNAL_STORAGE` (o app usa o seletor do sistema).
 - [ ] Permissões pedidas no momento de uso, com explicação compreensível antes do diálogo do sistema — declarações nativas existem; falta validar em aparelhos físicos.
 - [ ] Não há dados de aluno, token, chave de API, credencial ou captura de tela real em materiais de teste.
 - [x] Login por Google/Facebook está oculto enquanto as credenciais forem placeholders. Se qualquer provedor for ativado no iOS, implementar e testar **Sign in with Apple** de forma equivalente antes do envio.
@@ -38,9 +39,9 @@ Atualizada em **22 de setembro de 2026**; ícones, telas de abertura e materiais
 
 ### App Store Connect
 
-- [ ] Preencher App Privacy com base no comportamento real da release.
+- [ ] Preencher App Privacy com base no comportamento real da release. O `PrivacyInfo.xcprivacy` do app já lista os dados coletados (nome, e-mail, telefone, localização exata e aproximada, fotos e vídeos, saúde, fitness, código de usuário, conteúdo e mensagens do aluno); o formulário no App Store Connect precisa dizer o mesmo. CPF e data de nascimento também são coletados no cadastro: o Luiz confirma a categoria no formulário.
 - [ ] Informar uso de localização e dados de Saúde, se e somente se habilitados.
-- [ ] Preencher informações de export compliance, conteúdo e classificação etária.
+- [ ] Preencher informações de export compliance, conteúdo e classificação etária. O `Info.plist` já declara `ITSAppUsesNonExemptEncryption = false` (só HTTPS); o Luiz confirma a resposta no App Store Connect.
 - [ ] Anexar build assinada pelo Xcode/Transporter e selecionar a versão correta.
 - [ ] Revisar App Review Guidelines, especialmente autenticação, privacidade, pagamentos e funcionalidades mínimas.
 
@@ -48,9 +49,20 @@ Atualizada em **22 de setembro de 2026**; ícones, telas de abertura e materiais
 
 - [ ] Criar app, package name e track de testes interno fechado.
 - [ ] Enviar AAB assinado; não publicar APK de produção.
-- [ ] Preencher Data Safety com os dados coletados/compartilhados de fato.
-- [ ] Declarar permissões sensíveis, anúncios (se houver), conteúdo e classificação etária.
+- [ ] Preencher Data Safety com os dados coletados/compartilhados de fato (usar a mesma lista do `PrivacyInfo.xcprivacy`).
+- [ ] Declarar permissões sensíveis, anúncios (se houver), conteúdo e classificação etária. Declaração de `SCHEDULE_EXACT_ALARM` (texto no `README.md`, seção Notificações locais) ainda precisa ser escrita no formulário.
 - [ ] Testar instalação e atualização via track interno antes de produção.
+
+## Decisões e pontos abertos que dependem do Luiz ou de aparelho (12/11/2026)
+
+- [ ] **iPad:** o projeto iOS tem `TARGETED_DEVICE_FAMILY = "1,2"` (iPhone e iPad) e o `Info.plist` trava o iPad em retrato com `UIRequiresFullScreen`. Decidir: publicar para iPhone e iPad (a Apple pede capturas de tela de iPad e a revisão testa no iPad) ou só iPhone (`TARGETED_DEVICE_FAMILY = 1`). Não alterado.
+- [ ] Texto de declaração de `UIBackgroundModes = audio` (voz e bips dos programas de cardio com a tela apagada) para a revisão da Apple.
+- [ ] Texto de declaração de `SCHEDULE_EXACT_ALARM` (avisos de troca de bloco na hora exata) para o Google Play.
+- [ ] Localização em segundo plano: não existe nem foi pedida; o app só lê a localização com a tela aberta (Cardio ao vivo e local de post).
+- [ ] Abrir `ios/App/App.xcodeproj` no Xcode e conferir que `PrivacyInfo.xcprivacy` aparece no target App (o arquivo foi ligado ao projeto à mão, sem Xcode) e que a região do projeto (`developmentRegion = en` no `project.pbxproj`) não gera aviso diante do `pt-BR` do `Info.plist`.
+- [ ] Gerar o AAB com as variáveis de assinatura e conferir que sai assinado; sem elas o `build.gradle` avisa e gera sem assinatura. `minifyEnabled` segue `false` de propósito.
+- [ ] Num aparelho Android: escolher foto e vídeo na galeria sem a permissão de mídia (deve abrir o seletor do sistema) e gravar um vídeo pela câmera.
+- [ ] Num iPhone: o aviso de microfone aparece em português ao gravar vídeo pelo seletor de arquivo (`accept` com vídeo), e o app abre sem erro de privacidade.
 
 ## Evidência de aprovação interna
 
