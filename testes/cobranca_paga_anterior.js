@@ -80,7 +80,7 @@ const sit = (hoje, lista, i) => api(hoje).situacaoCobranca(lista[i], lista);
     if (u.includes('atletas.php')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([...new Set(MENS.map(m => m.idatleta))].map(i => ({ idatleta: i, nome: MENS.find(m => m.idatleta === i).nmathleta, email: 'a' + i + '@x.com', origem: 'professor', professores_responsaveis: [1], stbloqueio: 'N' }))) });
     return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }); });
   await p.addInitScript(({ MENS, HOJE }) => { const _R = Date; window.Date = function (...a) { return a.length ? new _R(...a) : new _R(HOJE + 'T12:00:00'); }; window.Date.prototype = _R.prototype; window.Date.now = () => new _R(HOJE + 'T12:00:00').getTime(); window.Date.UTC = _R.UTC; window.Date.parse = _R.parse;
-    localStorage.setItem('mx-user', JSON.stringify({ idusuario: 1, nome: 'Luiz', admin: true, permissoes: {} })); localStorage.setItem('mx-token', 'x'.repeat(64)); localStorage.setItem('intus-mensalidades', JSON.stringify(MENS)); }, { MENS, HOJE: '2026-10-21' });
+    try { localStorage.setItem('mx-user', JSON.stringify({ idusuario: 1, nome: 'Luiz', admin: true, permissoes: {} })); localStorage.setItem('mx-token', 'x'.repeat(64)); localStorage.setItem('intus-mensalidades', JSON.stringify(MENS)); } catch (e) {} }, { MENS, HOJE: '2026-10-21' });
   await p.goto('http://127.0.0.1:8106/index.html', { waitUntil: 'networkidle' });
   await p.waitForTimeout(2500);
   const t = await p.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));

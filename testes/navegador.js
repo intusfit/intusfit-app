@@ -2,7 +2,8 @@
 // Sintaxe válida não prova nada: já houve caso de 46 funções apagadas com o
 // arquivo continuando "válido". Só o navegador pega isso.
 const { chromium } = require('playwright');
-const DIR = 'http://127.0.0.1:8099/';
+// Porta do servidor estático que o rodar.sh sobe (livre, escolhida na hora); 8099 só quando o teste roda solto.
+const DIR = 'http://127.0.0.1:' + (process.env.INTUS_PORTA_A || 8099) + '/';
 // A tela do aluno às vezes recarrega sozinha (service worker) no meio da leitura: o contexto some e o evaluate falha com
 // "Execution context was destroyed". Não é erro da tela, é corrida do teste: espera a página assentar e tenta de novo.
 async function avaliarComRetentativa(page, fn) {

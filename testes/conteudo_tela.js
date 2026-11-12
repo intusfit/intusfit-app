@@ -15,7 +15,7 @@ const dormir = ms => new Promise(r => setTimeout(r, ms));
 
 (async () => {
   const srv = spawn(PHP, ['-S', '127.0.0.1:' + PORTA, path.join(__dirname, '_conteudo_servidor.php')], { env: Object.assign({}, process.env, { CONT_BANCO: BANCO }), stdio: 'ignore' });
-  for (let i = 0; i < 40; i++) { try { const r = await fetch(BASE + '/conteudo/'); if (r.ok) break; } catch (e) {} await dormir(150); }
+  for (let i = 0; i < 40; i++) { try { const r = await fetch(BASE + '/conteudo/'); await r.arrayBuffer(); /* ler o corpo: resposta aberta e descartada derruba o undici do Node 22 (assert !this.paused) */ if (r.ok) break; } catch (e) {} await dormir(150); }
   const b = await chromium.launch();
   const api = (acao, corpo, token = 'teste-admin', qs = '') => fetch(BASE + '/app/api/conteudo.php?action=' + acao + qs, { method: corpo ? 'POST' : 'GET', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : undefined }).then(async r => ({ st: r.status, j: await r.json() }));
   const nova = async (ctx, token) => {

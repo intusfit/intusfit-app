@@ -11,10 +11,17 @@ cd "$INTUS_BASE"
 echo "painel: $INTUS_DIR"; echo
 
 falhas=0
+# Servidores estáticos dos testes de navegador. Sempre encerrados ao sair (fim normal, falha, Ctrl+C ou kill), para não sobrar processo vivo
+# segurando porta: no Linux, um servidor que ficou para trás em 8099 fazia o teste seguinte morrer com EADDRINUSE.
+_pids_srv=""
+_limpar () { [ -n "$_pids_srv" ] && kill $_pids_srv 2>/dev/null; _pids_srv=""; }
+trap '_limpar' EXIT
+trap '_limpar; exit 130' INT TERM
 passo () { echo "── $1"; shift; "$@" || falhas=$((falhas+1)); echo; }
 
 passo "sintaxe de todos os scripts"        node val.js
 passo "nenhuma função sumiu"               node funcoes.js
+passo "bibliotecas de terceiros: cópias locais íntegras, SRI, abertura sem rede" node terceiros.js
 passo "pontuação do ranking (unidade)"     node pontos.js; passo "pontos-base do cardio (api.js)" node cardio_pontos.js; passo "programas de cardio e treino fora do protocolo" node programas.js; passo "voz gravada dos programas: cobertura e arquivos" node voz.js
 passo "nutrição: aderência, alertas e compras" node nutri.js
 passo "receitas: ids, fotos e informação nutricional" node receitas.js
@@ -31,14 +38,21 @@ passo "dashboard: dica dos graficos e curva de crescimento" node dashboard.js
 passo "fotos de avaliação: posição das 18 poses e recorte automático" node foto_pose.js
 passo "plano em PDF: leitura do layout e casamento com a base" node pdf_plano.js
 # Endpoint em PHP de verdade (SQLite): só roda se houver php com mbstring, pdo_sqlite e sqlite3.
-if command -v php >/dev/null && php -r 'exit(extension_loaded("pdo_sqlite") && extension_loaded("mbstring") ? 0 : 1);'; then passo "conteúdo da Nutrição (PHP)" php conteudo.php; passo "leitor de cópias do banco (PHP)" php backup_restaurar.php; passo "segurança dos envios de imagem (PHP)" php seguranca.php; passo "envio do backup ao Drive em pedaços (PHP)" php backup_envio.php; passo "IP real atrás do Cloudflare (PHP)" php ip.php; passo "permissões de escrita no servidor (PHP)" php permissoes.php; passo "analytics de captação (PHP)" php trafego.php; passo "pessoas captadas e funil (PHP)" php trafego_leads.php; passo "sessão do aluno: manter conectado (PHP)" php sessao_aluno.php; passo "teste grátis: sem Feed nem comentário (PHP)" php plano_aluno.php; passo "teste grátis: cópia fiel do treino do aluno-modelo (PHP)" php teste_gratis_ficha.php; passo "laboratório do WhatsApp: envio, automação e fila (PHP)" php wa_fila.php; passo "Extras: módulos, conteúdos e quem vê (PHP)" php extras.php; passo "figurinhas: gravação validada e lista anterior guardada (PHP)" php figurinhas_servidor.php; passo "travas opcionais de segurança (PHP)" php seguranca_config.php; passo "rotinas automáticas (PHP)" php rotinas.php; passo "conversão das tabelas antigas (PHP)" php conversao_tabelas.php; passo "histórico de acessos (PHP)" php acessos.php; passo "alimentos e medidas da equipe (PHP)" php equipe.php; passo "avaliações das receitas (PHP)" php avaliacao.php; passo "mural da Nutrição (PHP)" php mural_nutri.php; passo "posts colaborativos (PHP)" php colab.php; passo "análise das fotos de avaliação (PHP)" php fotos_analise.php; passo "posts da Intus: equipe, aluno e Feed (PHP)" php post_intus.php; passo "pontos do cardio no servidor (PHP)" php cardio_pontos.php; passo "reação e comentário nos feedbacks em vídeo (PHP)" php feedback_interacao.php; passo "atendimento por WhatsApp, base (PHP)" php wa.php; passo "central de atendimento: copy, funis e testes A/B (PHP)" php atendimento.php; passo "central de atendimento: fila manual sem a Meta (PHP)" php atd_manual.php; passo "robô de conversa do WhatsApp: responde, passa para uma pessoa e trava (PHP)" php robo.php; passo "caixa de entrada da Central, sem a Meta (PHP)" php inbox.php; passo "banco de provas sociais (PHP)" php provas.php; passo "Intus Cut: acesso, projetos, biblioteca e IA (PHP)" php intuscut.php; passo "Central de conteúdo: etapas, copy, calendário, reciclagem e fila (PHP)" php conteudo_central.php; passo "cobrança pelo Asaas: link, aviso de pagamento e painel (PHP)" php asaas.php; else echo "!! php com pdo_sqlite ausente: teste do endpoint de conteúdo pulado."; echo; fi
+if command -v php >/dev/null && php -r 'exit(extension_loaded("pdo_sqlite") && extension_loaded("mbstring") ? 0 : 1);'; then passo "conteúdo da Nutrição (PHP)" php conteudo.php; passo "leitor de cópias do banco (PHP)" php backup_restaurar.php; passo "segurança dos envios de imagem (PHP)" php seguranca.php; passo "envio do backup ao Drive em pedaços (PHP)" php backup_envio.php; passo "IP real atrás do Cloudflare (PHP)" php ip.php; passo "permissões de escrita no servidor (PHP)" php permissoes.php; passo "analytics de captação (PHP)" php trafego.php; passo "pessoas captadas e funil (PHP)" php trafego_leads.php; passo "sessão do aluno: manter conectado (PHP)" php sessao_aluno.php; passo "teste grátis: sem Feed nem comentário (PHP)" php plano_aluno.php; passo "teste grátis: cópia fiel do treino do aluno-modelo (PHP)" php teste_gratis_ficha.php; passo "laboratório do WhatsApp: envio, automação e fila (PHP)" php wa_fila.php; passo "Extras: módulos, conteúdos e quem vê (PHP)" php extras.php; passo "figurinhas: gravação validada e lista anterior guardada (PHP)" php figurinhas_servidor.php; passo "travas opcionais de segurança (PHP)" php seguranca_config.php; passo "rotinas automáticas (PHP)" php rotinas.php; passo "conversão das tabelas antigas (PHP)" php conversao_tabelas.php; passo "histórico de acessos (PHP)" php acessos.php; passo "alimentos e medidas da equipe (PHP)" php equipe.php; passo "avaliações das receitas (PHP)" php avaliacao.php; passo "mural da Nutrição (PHP)" php mural_nutri.php; passo "posts colaborativos (PHP)" php colab.php; passo "análise das fotos de avaliação (PHP)" php fotos_analise.php; passo "posts da Intus: equipe, aluno e Feed (PHP)" php post_intus.php; passo "pontos do cardio no servidor (PHP)" php cardio_pontos.php; passo "reação e comentário nos feedbacks em vídeo (PHP)" php feedback_interacao.php; passo "atendimento por WhatsApp, base (PHP)" php wa.php; passo "central de atendimento: copy, funis e testes A/B (PHP)" php atendimento.php; passo "central de atendimento: fila manual sem a Meta (PHP)" php atd_manual.php; passo "robô de conversa do WhatsApp: responde, passa para uma pessoa e trava (PHP)" php robo.php; passo "caixa de entrada da Central, sem a Meta (PHP)" php inbox.php; passo "banco de provas sociais (PHP)" php provas.php; passo "Intus Cut: acesso, projetos, biblioteca e IA (PHP)" php intuscut.php; passo "Central de conteúdo: etapas, copy, calendário, reciclagem e fila (PHP)" php conteudo_central.php; passo "cobrança pelo Asaas: link, aviso de pagamento e painel (PHP)" php asaas.php; passo "CDD: acesso, conteúdo, vendas, leads e páginas de venda (PHP)" php ../cdd/testes/cdd.php; else echo "!! php com pdo_sqlite ausente: teste do endpoint de conteúdo pulado."; echo; fi
 
 # Os testes de navegador precisam de um servidor HTTP: o cache-buster "?v=" não
 # funciona em file:// e as telas nem chegam a carregar os scripts.
 if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null; then
-  ( cd "$INTUS_DIR" && python3 -m http.server 8099 >/dev/null 2>&1 & echo $! > /tmp/intus-srv.pid )
-  ( cd "$INTUS_DIR" && python3 -m http.server 8899 >/dev/null 2>&1 & echo $! > /tmp/intus-srv2.pid )
-  sleep 2
+  # Portas livres escolhidas na hora (os testes recebem por INTUS_PORTA_A e INTUS_PORTA_B); 8099 e 8899 fixas colidiam com testes que
+  # também escutam nelas.
+  _porta_livre () { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+  INTUS_PORTA_A="$(_porta_livre)"; INTUS_PORTA_B="$(_porta_livre)"; export INTUS_PORTA_A INTUS_PORTA_B
+  ( cd "$INTUS_DIR" && exec python3 -m http.server "$INTUS_PORTA_A" --bind 127.0.0.1 >/dev/null 2>&1 ) & _pids_srv="$!"
+  ( cd "$INTUS_DIR" && exec python3 -m http.server "$INTUS_PORTA_B" --bind 127.0.0.1 >/dev/null 2>&1 ) & _pids_srv="$_pids_srv $!"
+  # Espera os dois responderem (em vez de um sleep fixo).
+  for _p in "$INTUS_PORTA_A" "$INTUS_PORTA_B"; do
+    for _i in $(seq 1 100); do python3 -c "import socket,sys; socket.create_connection(('127.0.0.1', int(sys.argv[1])), 0.2).close()" "$_p" 2>/dev/null && break; sleep 0.1; done
+  done
   passo "telas de verdade no navegador"      node navegador.js
   passo "as 3 telas concordam na pontuação"  node concordancia.js
   passo "financeiro de verdade no navegador" node financeiro_tela.js
@@ -74,7 +88,7 @@ passo "Frequência: corrigir a duração de um treino (admin)" node frequencia_c
   passo "laboratório do WhatsApp: tela" node wa_teste_front.js
   passo "provas sociais: aba do Quadro de Resultados" node provas_front.js
   passo "Central de conteúdo: a tela de verdade, com o servidor PHP e o banco SQLite" node conteudo_tela.js
-  kill "$(cat /tmp/intus-srv.pid)" "$(cat /tmp/intus-srv2.pid)" 2>/dev/null
+  _limpar
 else
   echo "!! playwright ou python3 ausentes: testes de navegador pulados."
   echo "   npm install playwright  (o Chromium já vem no container)"

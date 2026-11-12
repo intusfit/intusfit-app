@@ -38,7 +38,7 @@ const MENS=[
    localStorage.setItem('mx-token','x'.repeat(64));
    localStorage.setItem('intus-mensalidades',JSON.stringify(MENS));
  },{MENS,HOJE});
- await p.goto('http://127.0.0.1:8899/financeiro.html',{waitUntil:'networkidle'});
+ await p.goto('http://127.0.0.1:' + (process.env.INTUS_PORTA_B || 8899) + '/financeiro.html',{waitUntil:'networkidle'});
  await p.waitForTimeout(2200);
 
  let falhas=0;

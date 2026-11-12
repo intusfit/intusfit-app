@@ -3,7 +3,7 @@
 // três telas e cobra que os números saiam idênticos. Se alguém voltar a
 // escrever a fórmula localmente, é aqui que estoura.
 const { chromium } = require('playwright');
-const BASE = 'http://127.0.0.1:8099/';
+const BASE = 'http://127.0.0.1:' + (process.env.INTUS_PORTA_A || 8099) + '/';
 const TELAS = [
   { arq: 'aluno.html', papel: 'aluno', marco: 'pontosSessaoRank' },
   { arq: 'frequencia.html', papel: 'admin', marco: 'pontosSessaoRank' },
