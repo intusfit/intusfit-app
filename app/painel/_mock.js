@@ -583,7 +583,7 @@ async function ntfSinoAbrir(ev) {
     const j = await r.json();
     const lista = (j && Array.isArray(j.notificacoes)) ? j.notificacoes : [];
     await _ntfSinoMensagens();
-    const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', resultado_novo: '🌟' };
+    const icones = { curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', resultado_novo: '🌟', denuncia: '🚩' };
     const temNova = lista.some(n => !n.lido);
     const itens = lista.map(n => {
       const mural = n.alvo_tipo === 'mural';
@@ -596,16 +596,17 @@ async function ntfSinoAbrir(ev) {
         curtida_chat: 'curtiu sua mensagem',
       };
       acoes.resultado_novo = 'compartilhou um resultado no Quadro';
+      acoes.denuncia = 'denunciou um conteúdo da comunidade';   // texto = "Motivo: trecho"; leva à fila em feed.html#denuncias
       if (n.alvo_tipo === 'feedback') { acoes.comentario = 'comentou no feedback em vídeo que você gravou'; acoes.resposta = acoes.comentario; }
       const nutriM = n.alvo_tipo === 'nutri_dica' || n.alvo_tipo === 'nutri_video' || n.alvo_tipo === 'nutri_receita';
       if (nutriM) { acoes.comentario = n.alvo_tipo === 'nutri_dica' ? 'escreveu no mural de dicas da Nutrição' : (n.alvo_tipo === 'nutri_receita' ? 'comentou uma receita da Nutrição' : 'escreveu no mural de um vídeo da Nutrição'); acoes.resposta = acoes.comentario; }
       const intusM = n.alvo_tipo === 'intus_post';   // comentário num post da Intus: abre a tela Feed, onde ficam os posts da Intus
       if (intusM) { acoes.comentario = 'comentou num post da Intus'; acoes.resposta = 'respondeu um comentário num post da Intus'; acoes.mencao = 'mencionou você num post da Intus'; }
-      const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || n.tipo === 'resultado_novo' || (n.tipo === 'curtida' && mural);
+      const comTrecho = n.tipo === 'comentario' || n.tipo === 'resposta' || n.tipo === 'curtida_comentario' || n.tipo === 'curtida_chat' || n.tipo === 'mencao' || n.tipo === 'resultado_novo' || n.tipo === 'denuncia' || (n.tipo === 'curtida' && mural);
       const sub = comTrecho && n.texto ? '<div class="ntfsino-sub">“' + _ntfSinoEsc(n.texto) + '”</div>' : '';
       // Resultado novo é um link: leva ao Quadro de Resultados (e marca como lido).
-      const ehResultado = n.tipo === 'resultado_novo' || nutriM || intusM;
-      return '<' + (ehResultado ? 'a href="' + (nutriM ? 'nutricao.html#mural' : (intusM ? 'feed.html' : 'resultados.html')) + '" onclick="_ntfSinoLer(' + Number(n.idnotificacao) + ')" style="text-decoration:none;color:inherit;"' : 'div') + ' class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
+      const ehResultado = n.tipo === 'resultado_novo' || nutriM || intusM || n.tipo === 'denuncia';
+      return '<' + (ehResultado ? 'a href="' + (n.tipo === 'denuncia' ? 'feed.html#denuncias' : (nutriM ? 'nutricao.html#mural' : (intusM ? 'feed.html' : 'resultados.html'))) + '" onclick="_ntfSinoLer(' + Number(n.idnotificacao) + ')" style="text-decoration:none;color:inherit;"' : 'div') + ' class="ntfsino-item' + (n.lido ? '' : ' nova') + '"><div class="ntfsino-ico">' + (icones[n.tipo] || '🔔') + '</div>' +
         '<div class="ntfsino-txt"><b>' + _ntfSinoEsc(n.ator_nome || 'Alguém') + '</b> ' + (acoes[n.tipo] || 'interagiu com você') + sub + '</div>' +
         (n.lido ? '' : '<div class="ntfsino-ponto"></div>') + '</' + (ehResultado ? 'a' : 'div') + '>';
     }).join('');

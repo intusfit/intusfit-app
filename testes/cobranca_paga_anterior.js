@@ -74,7 +74,7 @@ const sit = (hoje, lista, i) => api(hoje).situacaoCobranca(lista[i], lista);
   const srv = http.createServer((req, res) => { let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html'; const f = path.join(RAIZ, p); if (!f.startsWith(RAIZ) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('n'); } res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res); });
   await new Promise(r => srv.listen(8106, '127.0.0.1', r));
   const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1400, height: 1000 } });
-  const erros = []; p.on('pageerror', e => erros.push(e.message));
+  const erros = []; p.on('pageerror', e => { if (!/Failed to update a ServiceWorker/i.test(String(e.message))) erros.push(e.message); });   // a checagem de atualização do service worker às vezes dá 404 no servidor do teste: não é erro da tela
   await p.route(u => u.href.includes('.php'), r => { const u = r.request().url();
     if (u.includes('mensalidades.php')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MENS) });
     if (u.includes('atletas.php')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([...new Set(MENS.map(m => m.idatleta))].map(i => ({ idatleta: i, nome: MENS.find(m => m.idatleta === i).nmathleta, email: 'a' + i + '@x.com', origem: 'professor', professores_responsaveis: [1], stbloqueio: 'N' }))) });

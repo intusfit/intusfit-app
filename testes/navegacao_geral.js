@@ -17,7 +17,7 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
   page.on('pageerror', e => erros.push(String(e.message)));
   page.on('dialog', d => d.accept());   // o app pergunta "sair mesmo?" em treino/cardio em andamento
   await page.route(/\/app\/api\//, r => r.abort('failed'));
-  await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste', genero: 'F' })); localStorage.setItem('intus-termos-aceito-7', '1'); localStorage.setItem('intus-cardio-novo-visto', '1'); localStorage.setItem('intus-dica-tema-ts', String(Date.now())); });
+  await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste', genero: 'F' })); localStorage.setItem('intus-termos-aceito-7', '1'); localStorage.setItem('intus-regras-ok-7', '2026-11'); localStorage.setItem('intus-cardio-novo-visto', '1'); localStorage.setItem('intus-dica-tema-ts', String(Date.now())); });
   await page.goto('http://127.0.0.1:8114/aluno.html', { waitUntil: 'domcontentloaded' });
   for (let i = 0; i < 80; i++) { if (await page.evaluate(() => typeof renderHome === 'function' && !!document.getElementById('h-dir')).catch(() => false)) break; await page.waitForTimeout(250); }
   await page.waitForTimeout(600);

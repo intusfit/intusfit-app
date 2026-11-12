@@ -65,6 +65,7 @@ function _intusLogErro(Throwable $e): string {
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/_cors.php';
 require_once __DIR__ . '/_charset_fix.php';
+require_once __DIR__ . '/_moderacao.php';   // denúncia, bloqueio, suspensão e filtro de termos graves (exigência das lojas)
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Cache-Control');
 
@@ -1182,7 +1183,7 @@ $_PUBLICAS = [
 $_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'acessos', 'acessos_painel'];
 // So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
 // alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
-$_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config', 'conversao_tabelas'];
+$_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config', 'conversao_tabelas', 'moderacao'];
 $_ESCRITA_ADMIN = ['ranking_regras', 'cardio_regras', 'conquistas_config', 'notif_config', 'frases_config', 'figurinhas_config'];
 
 // Leitura liberada para aluno logado; escrita so professor. Catalogos e
@@ -1213,6 +1214,11 @@ if ($_tokValido && $_ehAluno && $method === 'POST' && in_array($action, ['feed_p
     && @file_exists(__DIR__ . '/_plano_aluno.php')) {
     @require_once __DIR__ . '/_plano_aluno.php';
     if (function_exists('intusExigirPlanoParaPublicar')) intusExigirPlanoParaPublicar($pdo, $_ctx);
+}
+// MODERAÇÃO (exigência das lojas, ver _moderacao.php): aluno SUSPENSO pela equipe não publica, comenta, manda mensagem nem pede amizade.
+// Treino, cardio, ranking e nutrição seguem. Reação (curtida) e apagar o que já é dele continuam livres.
+if ($_tokValido && $_ehAluno && $method === 'POST' && in_array($action, ['feed_posts', 'feed_midia', 'comentarios_pub', 'resultados', 'resultado_midia', 'dm', 'amizades', 'turmas'], true)) {
+    intusModExigirPodePublicar($pdo, $_ctx);
 }
 // PERMISSÃO DE ESCRITA da equipe no servidor (antes só o painel escondia o botão): alongamentos (al), avaliações (av), plano e conteúdo de nutrição, alimentos e medidas (nt).
 // Aluno e administrador não passam por aqui (o aluno tem as travas próprias de cada rota).
@@ -2544,7 +2550,9 @@ if ($action === 'reacoes') {
                              ORDER BY idreacao ASC");
         $st->execute(array_merge([$tipo], $ids));
         $out = [];
+        $bloqRx = ($_autorTipo === 'aluno') ? intusModIdsBloqueados($pdo, $_autorId) : [];   // bloqueio: reação de quem eu bloqueei (ou me bloqueou) não aparece
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if ($bloqRx && $r['autor_tipo'] === 'aluno' && in_array((int)$r['autor_id'], $bloqRx, true)) continue;
             $k = (string)(int)$r['alvo_id'];
             if (!isset($out[$k])) $out[$k] = [];
             $out[$k][] = [
@@ -2599,6 +2607,13 @@ if ($action === 'reacoes') {
             $pdo->prepare("DELETE FROM intus_reacao_pub WHERE idreacao = ?")->execute([$existe]);
             echo json_encode(['ok' => true, 'estado' => 'removida']);
         } else {
+            // Bloqueio: não reage ao que é de quem bloqueou (ou foi bloqueado por) quem reage. Tirar a própria reação continua livre.
+            if ($_ehAluno && in_array($tipo, ['feed_post', 'mural', 'resultado', 'feed_comentario'], true)) {
+                $donoRx = intusModDonoDoAlvo($pdo, $tipo, $alvo);
+                if ($donoRx > 0 && intusModBloqueadosEntre($pdo, $_autorId, $donoRx)) {
+                    http_response_code(403); echo json_encode(['error' => 'Não foi possível reagir aqui.', 'codigo' => 'bloqueado'], JSON_UNESCAPED_UNICODE); exit;
+                }
+            }
             $pdo->prepare("INSERT INTO intus_reacao_pub (alvo_tipo, alvo_id, autor_tipo, autor_id, autor_nome, emoji) VALUES (?,?,?,?,?,?)")
                 ->execute([$tipo, $alvo, $_autorTipo, $_autorId, $nome, $emoji]);
             // Curtida em post do Feed avisa o dono (só nesta fase: o mural tem
@@ -2661,7 +2676,9 @@ if ($action === 'comentarios_pub') {
                              ORDER BY idcomentario ASC");
         $st->execute(array_merge([$tipo], $ids));
         $out = [];
+        $bloqCom = ($_autorTipo === 'aluno') ? intusModIdsBloqueados($pdo, $_autorId) : [];   // bloqueio: comentário de quem eu bloqueei (ou me bloqueou) não aparece
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if ($bloqCom && $r['autor_tipo'] === 'aluno' && in_array((int)$r['autor_id'], $bloqCom, true)) continue;
             $k = (string)(int)$r['alvo_id'];
             if (!isset($out[$k])) $out[$k] = [];
             $out[$k][] = [
@@ -2685,6 +2702,7 @@ if ($action === 'comentarios_pub') {
         $texto = trim((string)($b['texto'] ?? ''));
         if ($tipo === '' || $alvo <= 0 || $texto === '') { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
         $texto = _mencoesLimitar($texto, 1000);
+        intusModExigirTextoLimpo($_ctx, $texto);   // moderação: barra termo grave antes de gravar
         // Mural da Nutrição (dicas e vídeos): o aluno precisa ter plano alimentar ativo para escrever; o alvo tem de existir
         // ('nutri_dica' = o mural único de dicas, id 1; 'nutri_video' = um vídeo ativo). A equipe escreve sempre.
         if ($tipo === 'nutri_dica' || $tipo === 'nutri_video' || $tipo === 'nutri_receita') {
@@ -2712,6 +2730,18 @@ if ($action === 'comentarios_pub') {
             $stChk = $pdo->prepare("SELECT 1 FROM intus_comentario_pub WHERE idcomentario = ? AND alvo_tipo = ? AND alvo_id = ?");
             $stChk->execute([$respostaA, $tipo, $alvo]);
             if (!$stChk->fetchColumn()) $respostaA = 0;
+        }
+        // Bloqueio: não comenta no que é de quem bloqueou (ou foi bloqueado por) o autor, nem responde a quem tem bloqueio com ele.
+        if ($_ehAluno) {
+            $bloqPub = intusModIdsBloqueados($pdo, $_autorId);
+            if ($bloqPub) {
+                $donoPub = _donoDoAlvoPub($pdo, $tipo, $alvo);
+                $paiPub = 0;
+                if ($respostaA > 0) { $qPai = $pdo->prepare("SELECT autor_id FROM intus_comentario_pub WHERE idcomentario = ? AND autor_tipo = 'aluno'"); $qPai->execute([$respostaA]); $paiPub = (int)$qPai->fetchColumn(); }
+                if (($donoPub > 0 && in_array($donoPub, $bloqPub, true)) || ($paiPub > 0 && in_array($paiPub, $bloqPub, true))) {
+                    http_response_code(403); echo json_encode(['error' => 'Não foi possível comentar aqui.', 'codigo' => 'bloqueado'], JSON_UNESCAPED_UNICODE); exit;
+                }
+            }
         }
         [, , $nome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
         $pdo->prepare("INSERT INTO intus_comentario_pub (alvo_tipo, alvo_id, resposta_a, autor_tipo, autor_id, autor_nome, texto) VALUES (?,?,?,?,?,?,?)")
@@ -2848,6 +2878,7 @@ if ($action === 'pessoas_mencionaveis') {
                 $stP->execute([$_pmId, $_pmId]);
                 $ocultos = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN));
             } catch (Throwable $e) {}
+            $ocultos = array_values(array_unique(array_merge($ocultos, intusModIdsBloqueados($pdo, $_pmId))));   // bloqueio: não dá para marcar quem tem bloqueio com você
         }
         $tblA = _feedDetectarTabelaAtleta($pdo);
         if ($tblA) {
@@ -2923,6 +2954,8 @@ if ($action === 'notificacoes') {
             $pdo->query("SELECT 1 FROM intus_ranking_comentario LIMIT 1");
             $filtroAlvo .= " AND (alvo_tipo <> 'mural' OR EXISTS (SELECT 1 FROM intus_ranking_comentario c WHERE c.idcomentario = intus_notificacao.alvo_id))";
         } catch (Throwable $e) {}
+        // Bloqueio: aviso de quem eu bloqueei (ou me bloqueou) não aparece nem conta no sino. Avisos do sistema e da equipe não passam por aqui.
+        if ($_nTipo === 'aluno') $filtroAlvo .= intusModFiltroAvisos($pdo, (int)$_nId);
         $st = $pdo->prepare("SELECT COUNT(*) FROM intus_notificacao WHERE destino_tipo = ? AND destino_id = ? AND lido = 0" . $filtroAlvo);
         $st->execute([$_nTipo, $_nId]);
         $naoLidas = (int)$st->fetchColumn();
@@ -3349,6 +3382,8 @@ if ($action === 'feed_posts') {
             } catch (Throwable $e) {}
         }
 
+        // Bloqueio (exigência das lojas): quem eu bloqueei e quem me bloqueou some do Feed e do perfil, como a preferência acima, só que nos dois sentidos e sem volta automática.
+        if ($_autorTipo === 'aluno') $ocultarDeles = array_values(array_unique(array_merge($ocultarDeles, intusModIdsBloqueados($pdo, $_autorId))));
         $visiveis = array_values(array_diff($optinIds, $ocultarDeles, $meOcultaram));
         $autoresOk = $visiveis;   // quem pode aparecer para mim (Feed liberado, sem bloqueio nos dois sentidos)
         // Privacidade: cada publicação tem a sua (intus_post_visib); sem ela vale o padrão do perfil do dono.
@@ -3460,6 +3495,7 @@ if ($action === 'feed_posts') {
         if (!in_array($destino, ['feed', 'perfil'], true)) $destino = 'feed';
         $localizacao = trim((string)($b['localizacao'] ?? ''));
         if (mb_strlen($localizacao) > 120) $localizacao = mb_substr($localizacao, 0, 120);
+        intusModExigirTextoLimpo($_ctx, $legenda, $localizacao);   // moderação: barra termo grave ANTES de gravar a foto
         // Carrossel: o post nasce invisível (ativo=2) e só aparece no "finalizar",
         // depois que todas as fotos extras chegaram (uma por requisição).
         $totalMidias = max(1, min(10, (int)($b['total_midias'] ?? 1)));
@@ -3708,6 +3744,7 @@ if ($action === 'amizades') {
     if ($method === 'POST') {
         $para = (int)($b['para_id'] ?? 0);
         if ($para <= 0 || $para === $_autorId) { http_response_code(400); echo json_encode(['error' => 'aluno invalido']); exit; }
+        if (intusModBloqueadosEntre($pdo, $_autorId, $para)) { http_response_code(403); echo json_encode(['error' => 'Não foi possível enviar o pedido.', 'codigo' => 'bloqueado'], JSON_UNESCAPED_UNICODE); exit; }
         // Se a outra pessoa já tinha pedido, o pedido vira amizade na hora.
         $st = $pdo->prepare("SELECT idamizade FROM intus_amizade WHERE de_id = ? AND para_id = ? AND status = 'pendente'");
         $st->execute([$para, $_autorId]);
@@ -3727,6 +3764,7 @@ if ($action === 'amizades') {
     }
     if ($method === 'PUT') {
         $de = (int)($b['de_id'] ?? 0);
+        if (!empty($b['aceitar']) && intusModBloqueadosEntre($pdo, $_autorId, $de)) { http_response_code(403); echo json_encode(['error' => 'Não foi possível aceitar.', 'codigo' => 'bloqueado'], JSON_UNESCAPED_UNICODE); exit; }
         if (!empty($b['aceitar'])) {
             $up = $pdo->prepare("UPDATE intus_amizade SET status = 'aceita', aceita_em = NOW() WHERE de_id = ? AND para_id = ? AND status = 'pendente'");
             $up->execute([$de, $_autorId]);
@@ -3814,6 +3852,8 @@ if ($action === 'dm') {
         if ($para <= 0 || $para === $_autorId) { http_response_code(400); echo json_encode(['error' => 'aluno invalido']); exit; }
         if (!in_array($para, $amigosDm, true)) { http_response_code(403); echo json_encode(['error' => 'so entre amigos']); exit; }
         if ($texto === '') { http_response_code(400); echo json_encode(['error' => 'mensagem vazia']); exit; }
+        intusModExigirTextoLimpo($_ctx, $texto);   // moderação: barra termo grave antes de gravar
+        if (intusModBloqueadosEntre($pdo, $_autorId, $para)) { http_response_code(403); echo json_encode(['error' => 'Não foi possível enviar a mensagem.', 'codigo' => 'bloqueado'], JSON_UNESCAPED_UNICODE); exit; }
         if (mb_strlen($texto) > 1000) $texto = mb_substr($texto, 0, 1000);
         // Freio contra spam: no máximo 20 mensagens por minuto.
         $st = $pdo->prepare("SELECT COUNT(*) FROM intus_dm WHERE de_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
@@ -3954,6 +3994,7 @@ if ($action === 'turmas') {
         }
         $nome = trim(mb_substr((string)($b['nome'] ?? ''), 0, 60));
         $desc = trim(mb_substr((string)($b['descricao'] ?? ''), 0, 200));
+        intusModExigirTextoLimpo($_ctx, $nome, $desc);   // moderação: nome e descrição da turma são texto de aluno
         if (mb_strlen($nome) < 2) { http_response_code(400); echo json_encode(['error' => 'nome muito curto']); exit; }
         if (count(_turmasDe($pdo, $_autorId)) >= $MAX_TURMAS) { http_response_code(409); echo json_encode(['error' => 'limite de turmas atingido']); exit; }
         try {
@@ -3973,6 +4014,7 @@ if ($action === 'turmas') {
         $st->execute([$idt]);
         $dono = (int)$st->fetchColumn();
         if (!$dono || $dono !== $_autorId) { http_response_code(403); echo json_encode(['error' => 'so o dono altera a turma']); exit; }
+        intusModExigirTextoLimpo($_ctx, (string)($b['nome'] ?? ''), (string)($b['descricao'] ?? ''));   // moderação
         if (isset($b['nome'])) {
             $nome = trim(mb_substr((string)$b['nome'], 0, 60));
             if (mb_strlen($nome) >= 2) $pdo->prepare("UPDATE intus_turma SET nome = ? WHERE idturma = ?")->execute([$nome, $idt]);
@@ -4547,6 +4589,8 @@ if ($action === 'resultados') {
         $onde = "r.ativo = 1"; $args = [];
         if ($idAt > 0) { $onde .= " AND r.idatleta = ?"; $args[] = $idAt; }
         if (in_array($tipoF, ['depoimento', 'evolucao', 'print', 'video'], true)) { $onde .= " AND r.tipo = ?"; $args[] = $tipoF; }
+        // Bloqueio: resultado de quem eu bloqueei (ou me bloqueou) não aparece.
+        if ($_autorTipo === 'aluno') { $bloqRes = intusModIdsBloqueados($pdo, $_autorId); if ($bloqRes) $onde .= " AND r.idatleta NOT IN (" . implode(',', array_map('intval', $bloqRes)) . ")"; }
         if ($antesDe > 0) { $onde .= " AND r.idresultado < ?"; $args[] = $antesDe; }
         $colunas = "r.idresultado, r.idatleta, r.tipo, r.texto, r.periodo_txt, r.autoriza_site, r.destaque_site, r.created_at, r.origem, r.autor_nome, r.link_tipo, r.link_id, r.autorizacao_obs";
         $sql = "SELECT $colunas FROM intus_resultado r WHERE %s ORDER BY r.idresultado DESC LIMIT " . ($limite + 1);
@@ -4638,6 +4682,7 @@ if ($action === 'resultados') {
         $periodo = mb_substr(trim((string)($b['periodo_txt'] ?? '')), 0, 60);
         $totalMidias = max(0, min(10, (int)($b['total_midias'] ?? 0)));
         if ($texto === '' && $totalMidias === 0) { http_response_code(400); echo json_encode(['error' => 'escreva um texto ou envie foto/video']); exit; }
+        intusModExigirTextoLimpo($_ctx, $texto, $periodo);   // moderação: barra termo grave antes de gravar
         $autorizaSite = !empty($b['autoriza_site']) ? 1 : 0;
         $ativoNovo = $totalMidias > 0 ? 2 : 1;
         try { $pdo->exec("UPDATE intus_resultado SET ativo = 0 WHERE ativo = 2 AND created_at < (NOW() - INTERVAL 1 DAY)"); } catch (Throwable $e) {}
@@ -5193,6 +5238,153 @@ if ($action === 'feed_pref') {
         echo json_encode(['ok' => true]);
         exit;
     }
+}
+
+// ═══════════════ MODERAÇÃO: bloqueio, denúncia, regras da comunidade e fila da equipe ═══════════════
+// Exigência das lojas (Apple 1.2 e conteúdo gerado por usuário do Google Play). A regra mora em _moderacao.php; aqui ficam só as portas de entrada.
+//   bloqueios          (aluno)  GET: quem eu bloqueei · POST {idalvo}: bloquear · DELETE ?idalvo=: desbloquear
+//   denuncias          (aluno)  POST {alvo_tipo, alvo_id, motivo, detalhe?, bloquear?}: denunciar. A equipe é avisada no sino e por e-mail.
+//   regras_comunidade  (aluno)  GET: se já aceitou a versão atual das regras (e a lista de motivos) · POST: aceitar
+if ($action === 'bloqueios' || $action === 'denuncias' || $action === 'regras_comunidade') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorTipo !== 'aluno' || $_autorId <= 0) { http_response_code(403); echo json_encode(['error' => 'somente aluno']); exit; }
+
+    if ($action === 'bloqueios') {
+        if ($method === 'GET') {
+            $listaBloq = intusModListaBloqueados($pdo, $_autorId);
+            echo json_encode(['bloqueados' => $listaBloq, 'ids' => array_column($listaBloq, 'id')], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        if ($method === 'POST') {
+            $b = jsonBody();
+            $alvoBloq = (int)($b['idalvo'] ?? 0);
+            if ($alvoBloq <= 0 || $alvoBloq === $_autorId) { http_response_code(400); echo json_encode(['error' => 'aluno invalido']); exit; }
+            // Só aluno existente: professor e administrador não são bloqueáveis (a consultoria é o serviço).
+            $tblBloq = _feedDetectarTabelaAtleta($pdo);
+            $achouBloq = false;
+            if ($tblBloq) { $qBloq = $pdo->prepare("SELECT 1 FROM `$tblBloq` WHERE idatleta = ?"); $qBloq->execute([$alvoBloq]); $achouBloq = (bool)$qBloq->fetchColumn(); }
+            if (!$achouBloq) { http_response_code(404); echo json_encode(['error' => 'aluno nao encontrado']); exit; }
+            $rBloq = intusModBloquear($pdo, $_autorId, $alvoBloq);
+            if (isset($rBloq['erro'])) { http_response_code(500); echo json_encode(['error' => 'nao foi possivel bloquear agora']); exit; }
+            echo json_encode(['ok' => true, 'novo' => $rBloq['novo']]);
+            exit;
+        }
+        if ($method === 'DELETE') {
+            $alvoBloq = (int)($_GET['idalvo'] ?? 0);
+            if ($alvoBloq <= 0) { http_response_code(400); echo json_encode(['error' => 'idalvo obrigatorio']); exit; }
+            intusModDesbloquear($pdo, $_autorId, $alvoBloq);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+        http_response_code(405); echo json_encode(['error' => 'metodo nao suportado']); exit;
+    }
+
+    if ($action === 'denuncias') {
+        if ($method !== 'POST') { http_response_code(405); echo json_encode(['error' => 'metodo nao suportado']); exit; }
+        $b = jsonBody();
+        $motivoDen = trim((string)($b['motivo'] ?? ''));
+        $rDen = intusModDenunciar($pdo, $_autorId, trim((string)($b['alvo_tipo'] ?? '')), (int)($b['alvo_id'] ?? 0), $motivoDen, (string)($b['detalhe'] ?? ''));
+        if (isset($rDen['erro'])) {
+            $mapaDen = ['invalido' => [400, 'denuncia invalida'], 'motivo' => [400, 'escolha um motivo'], 'proprio' => [400, 'voce nao pode denunciar o proprio conteudo'],
+                        'nao_encontrado' => [404, 'conteudo nao encontrado'], 'limite' => [429, 'muitas denuncias hoje; a equipe ja esta analisando as anteriores'],
+                        'banco' => [500, 'nao foi possivel enviar agora']];
+            $mDen = $mapaDen[$rDen['erro']] ?? [400, 'denuncia invalida'];
+            http_response_code($mDen[0]); echo json_encode(['error' => $mDen[1], 'codigo' => $rDen['erro']]); exit;
+        }
+        // Denunciar e já bloquear a pessoa (opcional, um toque só).
+        $bloqDen = false;
+        if (!empty($b['bloquear']) && $rDen['autor_tipo'] === 'aluno' && (int)$rDen['autor_id'] > 0 && (int)$rDen['autor_id'] !== $_autorId) {
+            $rBd = intusModBloquear($pdo, $_autorId, (int)$rDen['autor_id']);
+            $bloqDen = !empty($rBd['ok']);
+        }
+        // Sino dos administradores: a promessa dos Termos é responder em até 24 h, então ninguém pode descobrir a denúncia por acaso.
+        if (!$rDen['ja']) {
+            try {
+                $rotuloDen = intusModMotivos()[$motivoDen] ?? 'Denúncia';
+                foreach (_intusPostAdmins($pdo) as $idAdmDen) {
+                    _criarNotificacao($pdo, 'prof', $idAdmDen, 'denuncia', 'aluno', $_autorId, (string)$_autorNome, 'denuncia', (int)$rDen['id'], $rotuloDen . ($rDen['trecho'] !== '' ? ': ' . $rDen['trecho'] : ''), true);
+                }
+            } catch (Throwable $e) {}
+        }
+        echo json_encode(['ok' => true, 'id' => $rDen['id'], 'ja' => $rDen['ja'], 'bloqueado' => $bloqDen], JSON_UNESCAPED_UNICODE);
+        // O e-mail à equipe sai DEPOIS da resposta: o SMTP é lento e quem denunciou não precisa esperar por ele.
+        if (!$rDen['ja'] && function_exists('_catalogoSendEmail')) {
+            if (function_exists('fastcgi_finish_request')) @fastcgi_finish_request();
+            try {
+                $cfgDen = function_exists('intusSmtpConfig') ? intusSmtpConfig() : [];
+                $paraDen = (is_array($cfgDen) && !empty($cfgDen['notificar'])) ? $cfgDen['notificar'] : INTUS_MOD_CONTATO;
+                $corpoDen = "Nova denúncia na comunidade da Intus Fit.\n\n"
+                    . 'Motivo: ' . (intusModMotivos()[$motivoDen] ?? $motivoDen) . "\n"
+                    . 'Conteúdo: ' . trim((string)($b['alvo_tipo'] ?? '')) . ' #' . (int)($b['alvo_id'] ?? 0) . "\n"
+                    . ($rDen['trecho'] !== '' ? 'Trecho: ' . mb_substr($rDen['trecho'], 0, 300) . "\n" : '')
+                    . 'Denunciado por: ' . $_autorNome . "\n\n"
+                    . 'Responda em até ' . INTUS_MOD_SLA_HORAS . ' horas: ' . _appBaseUrl() . "/painel/feed.html#denuncias\n";
+                @_catalogoSendEmail($paraDen, 'Nova denúncia na comunidade Intus', $corpoDen);
+            } catch (Throwable $e) {}
+        }
+        exit;
+    }
+
+    if ($action === 'regras_comunidade') {
+        if ($method === 'GET') {
+            $aceRegras = intusModAceiteRegras($pdo, $_autorId);
+            echo json_encode(['aceito' => (bool)($aceRegras && $aceRegras['vigente']), 'versao' => INTUS_MOD_VERSAO_REGRAS, 'aceito_em' => $aceRegras['aceito_em'] ?? null,
+                              'contato' => INTUS_MOD_CONTATO, 'prazo_horas' => INTUS_MOD_SLA_HORAS, 'motivos' => intusModMotivos()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        if ($method === 'POST') {
+            if (!intusModAceitarRegras($pdo, $_autorId)) { http_response_code(500); echo json_encode(['error' => 'nao foi possivel registrar o aceite agora']); exit; }
+            echo json_encode(['ok' => true, 'versao' => INTUS_MOD_VERSAO_REGRAS]);
+            exit;
+        }
+        http_response_code(405); echo json_encode(['error' => 'metodo nao suportado']); exit;
+    }
+}
+
+// A fila da equipe. SÓ administrador (a rota está em $_SO_ADMIN; a conferência repetida aqui é de propósito).
+//   GET [?status=aberta|resolvida|todas]  a fila · GET ?suspensos=1  quem está suspenso
+//   POST {id, acoes: ['remover','advertir','suspender'], dias, nota}  decidir (lista vazia = arquivar, sem violação) · POST {reativar: idatleta}  tirar a suspensão
+if ($action === 'moderacao') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    $admMod = (int)($_ctx['idusuario'] ?? 0);
+    if ($method === 'GET') {
+        if (!empty($_GET['suspensos'])) { echo json_encode(['suspensos' => intusModSuspensoes($pdo)], JSON_UNESCAPED_UNICODE); exit; }
+        $statusMod = (string)($_GET['status'] ?? 'aberta');
+        if (!in_array($statusMod, ['aberta', 'resolvida', 'todas'], true)) $statusMod = 'aberta';
+        echo json_encode(['denuncias' => intusModListar($pdo, $statusMod, (int)($_GET['limite'] ?? 100)), 'resumo' => intusModResumo($pdo), 'motivos' => intusModMotivos()], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        if (!empty($b['reativar'])) { intusModReativar($pdo, (int)$b['reativar']); echo json_encode(['ok' => true]); exit; }
+        $rMod = intusModResolver($pdo, (int)($b['id'] ?? 0), is_array($b['acoes'] ?? null) ? $b['acoes'] : [], $admMod, (string)($b['nota'] ?? ''), (int)($b['dias'] ?? 7));
+        if (isset($rMod['erro'])) {
+            $mapaMod = ['nao_encontrada' => [404, 'denuncia nao encontrada'], 'acao' => [400, 'acao invalida'], 'dias' => [400, 'dias invalidos'],
+                        'autor_equipe' => [400, 'so da para suspender aluno'], 'banco' => [500, 'nao foi possivel concluir agora']];
+            $mM = $mapaMod[$rMod['erro']] ?? [400, 'pedido invalido'];
+            http_response_code($mM[0]); echo json_encode(['error' => $mM[1], 'codigo' => $rMod['erro']]); exit;
+        }
+        if (empty($rMod['ja'])) {
+            // Quem foi atingido e quem denunciou recebem um aviso no sino (a equipe Intus aparece como remetente, nunca o nome do administrador).
+            try {
+                $idDen = (int)($b['id'] ?? 0);
+                if ($rMod['autor_tipo'] === 'aluno' && (int)$rMod['autor_id'] > 0) {
+                    $autorMod = (int)$rMod['autor_id'];
+                    if (in_array('remover', $rMod['acoes'], true)) _criarNotificacao($pdo, 'aluno', $autorMod, 'aviso_equipe', 'sistema', 1, 'Equipe Intus', 'denuncia', $idDen, 'Um conteúdo seu foi removido por descumprir as Regras da Comunidade.');
+                    if (in_array('advertir', $rMod['acoes'], true)) _criarNotificacao($pdo, 'aluno', $autorMod, 'aviso_equipe', 'sistema', 1, 'Equipe Intus', 'denuncia', $idDen, 'Atenção: um conteúdo seu descumpriu as Regras da Comunidade. Releia as regras e evite novas ocorrências.');
+                    if (!empty($rMod['suspensao']['ok'])) _criarNotificacao($pdo, 'aluno', $autorMod, 'aviso_equipe', 'sistema', 1, 'Equipe Intus', 'denuncia', $idDen, intusModAvisoSuspensao(['ate' => $rMod['suspensao']['ate']]));
+                }
+                foreach ($rMod['denunciantes'] ?? [] as $idDenunciante) {
+                    _criarNotificacao($pdo, 'aluno', (int)$idDenunciante, 'denuncia_resolvida', 'sistema', 1, 'Equipe Intus', 'denuncia', $idDen, 'Analisamos a sua denúncia. Obrigado por ajudar a manter a comunidade segura.', true);
+                }
+            } catch (Throwable $e) {}
+        }
+        echo json_encode(['ok' => true, 'ja' => !empty($rMod['ja']), 'removido' => !empty($rMod['removido']), 'acoes' => $rMod['acoes']], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    http_response_code(405); echo json_encode(['error' => 'metodo nao suportado']); exit;
 }
 
 // ═══════════════ AVISOS PARA O PAINEL ═══════════════

@@ -55,7 +55,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
 
   await page.addInitScript(() => {
     localStorage.setItem('mx-token', 'teste');
-    localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluno Teste' }));
+    localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluno Teste' })); localStorage.setItem('intus-regras-ok-7', '2026-11');
   });
   await page.goto('http://127.0.0.1:8097/aluno.html', { waitUntil: 'domcontentloaded' });
   let pronto = false;

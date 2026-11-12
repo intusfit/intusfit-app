@@ -352,6 +352,7 @@ function treinoRowToOut($r) {
 
 require_once __DIR__ . '/_auth_context.php';
 require_once __DIR__ . '/_notificacoes.php';
+require_once __DIR__ . '/_moderacao.php';   // bloqueio, suspensão e filtro de termos graves no mural (exigência das lojas)
 $_authCtx = getAuthContext($pdo, $tok);
 // ─── SEGURANCA: token presente porem nao reconhecido ────────────────────────
 // Ate aqui bastava existir QUALQUER texto no cabecalho Authorization. Um token
@@ -1126,6 +1127,11 @@ try {
 
             // Get comments
             $comentarios = $pdo->query("SELECT * FROM intus_ranking_comentario ORDER BY dtcriacao DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
+            // Bloqueio (exigência das lojas): comentário de quem eu bloqueei (ou me bloqueou) não aparece no mural. Os pontos do ranking não mudam.
+            if (!empty($_authCtx['is_aluno'])) {
+                $bloqMural = intusModIdsBloqueados($pdo, (int)($_authCtx['idatleta'] ?? $_authCtx['idusuario'] ?? 0));
+                if ($bloqMural) $comentarios = array_values(array_filter($comentarios, function ($c) use ($bloqMural) { return !in_array((int)$c['idatleta'], $bloqMural, true); }));
+            }
 
             // Fetch avatars from intus_profile
             $avatarMap = [];
@@ -1257,8 +1263,16 @@ try {
                 $idat = (int)($b['idatleta'] ?? 0);
                 $nome = trim($b['nome'] ?? '');
                 $texto = trim($b['texto'] ?? '');
+                // O autor do comentário vem do TOKEN, nunca do corpo: antes qualquer aluno publicava no mural como outra pessoa (e uma denúncia perderia o autor de verdade).
+                if (!empty($_authCtx['is_aluno'])) {
+                    $idat = (int)($_authCtx['idatleta'] ?? $_authCtx['idusuario'] ?? 0);
+                    $nomeToken = intusModNomes($pdo, [$idat])[$idat] ?? '';
+                    if ($nomeToken !== '') $nome = $nomeToken;
+                }
                 if ($idat <= 0 || !$texto) { http_response_code(400); echo json_encode(['error' => 'dados incompletos']); exit; }
                 $texto = _mencoesLimitar($texto, 1000);
+                intusModExigirPodePublicar($pdo, $_authCtx);        // moderação: aluno suspenso não escreve no mural
+                intusModExigirTextoLimpo($_authCtx, $texto);        // moderação: barra termo grave antes de gravar
                 $st = $pdo->prepare("INSERT INTO intus_ranking_comentario (idatleta, nome_atleta, texto) VALUES (?, ?, ?)");
                 $st->execute([$idat, $nome, $texto]);
                 $novoIdMural = (int)$pdo->lastInsertId();
@@ -1271,6 +1285,7 @@ try {
                 // Admin (painel) exclui qualquer comentário; aluno exclui apenas o próprio.
                 $idc = (int)($b['idcomentario'] ?? 0);
                 $idat = (int)($b['idatleta'] ?? 0);
+                if (!empty($_authCtx['is_aluno'])) $idat = (int)($_authCtx['idatleta'] ?? $_authCtx['idusuario'] ?? 0);   // o aluno só apaga o próprio: o id vem do token
                 // ANTES: $isAdminReq = !empty($b['admin']) — o cliente se declarava admin no
     // corpo da requisicao e o servidor acreditava. Qualquer token valido apagava
     // qualquer comentario do mural. Quem diz se e admin e o token.

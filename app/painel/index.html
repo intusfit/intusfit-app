@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Início — Intus</title>
-  <script src="_mock.js?v=20261110b"></script>
+  <script src="_mock.js?v=20261112a"></script>
   <script src="api.js?v=20261110g"></script>
   <style>
     .checklist-card { padding: 16px; }
@@ -1107,6 +1107,21 @@ function render() {
         </button>
       </div>
 
+      ${admin && window._denuncias && window._denuncias.abertas > 0 ? `
+      <!-- DENÚNCIAS DA COMUNIDADE ESPERANDO RESPOSTA: o prazo prometido nos Termos é de 24 horas -->
+      <a href="feed.html#denuncias" style="text-decoration:none;display:block;">
+        <div class="card" style="padding:16px;border:1.5px solid rgba(248,113,113,.55);background:linear-gradient(135deg,rgba(248,113,113,.16),rgba(248,113,113,.04));cursor:pointer;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:28px;">🚩</span>
+            <div style="flex:1;">
+              <div style="font-size:15px;font-weight:800;color:var(--text);">${window._denuncias.abertas} ${window._denuncias.abertas > 1 ? 'denúncias da comunidade esperando resposta' : 'denúncia da comunidade esperando resposta'}${window._denuncias.atrasadas > 0 ? ' <span class="badge badge-red">' + window._denuncias.atrasadas + (window._denuncias.atrasadas > 1 ? ' atrasadas' : ' atrasada') + '</span>' : ''}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Os Termos de Uso prometem resposta em até ${window._denuncias.prazo_horas || 24} horas. A mais antiga espera há ${window._denuncias.mais_antiga_horas || 0} h. Toque para decidir.</div>
+            </div>
+            <span style="font-size:20px;color:var(--text);">›</span>
+          </div>
+        </div>
+      </a>` : ''}
+
       ${admin && (window._intusPend || []).length ? `
       <!-- RANKING DA INTUS AINDA NÃO PUBLICADO: o clique que falta fica aqui, em destaque -->
       <div class="card rk-pend">
@@ -1380,6 +1395,18 @@ async function preFetchBackend() {
       window._exclusoesConta = (dash && Array.isArray(dash.exclusoes)) ? dash.exclusoes : [];
     }
   } catch (e) { /* silencioso */ }
+  // Denúncias da comunidade esperando resposta (exigência das lojas: a equipe promete responder em até 24 h). Só o administrador vê.
+  try {
+    window._denuncias = null;
+    if (isAdmin()) {
+      const rd = await fetch(API_BASE + '/catalogo.php?action=moderacao&limite=1&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' });
+      if (rd.ok) {
+        const jd = await rd.json(), rs = (jd && jd.resumo) || null;
+        // só números entram no cartão (ele é montado como HTML): qualquer outra coisa vira 0
+        window._denuncias = rs ? { abertas: Number(rs.abertas) || 0, atrasadas: Number(rs.atrasadas) || 0, mais_antiga_horas: Number(rs.mais_antiga_horas) || 0, prazo_horas: Number(rs.prazo_horas) || 24 } : null;
+      }
+    }
+  } catch (e) { window._denuncias = null; /* sem leitura confiável, não acusa */ }
   // Ranking da Intus (Top 5 da semana / Top 10 do mês) ainda não publicado no Feed: só o administrador publica
   try {
     if (isAdmin() && typeof API !== 'undefined' && API.postsIntus) {
