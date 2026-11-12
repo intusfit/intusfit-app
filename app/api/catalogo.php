@@ -1180,9 +1180,9 @@ $_PUBLICAS = [
 
 // Rotas que so professor/admin acessa, em qualquer metodo.
 $_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'acessos', 'acessos_painel'];
-// So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
+// So ADMINISTRADOR (email_teste: qualquer professor enviava e-mail pela conta da empresa a qualquer endereco): ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
 // alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
-$_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config', 'conversao_tabelas'];
+$_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config', 'conversao_tabelas', 'email_teste'];
 $_ESCRITA_ADMIN = ['ranking_regras', 'cardio_regras', 'conquistas_config', 'notif_config', 'frases_config', 'figurinhas_config'];
 
 // Leitura liberada para aluno logado; escrita so professor. Catalogos e
@@ -2188,20 +2188,25 @@ if ($action === 'email_diag') {
     $out['tamanho_senha']   = strlen($pass);   // so o tamanho, nunca o valor
     $out['destino_notificacao'] = $cfg['notificar'] ?? 'contato@intusfit.com.br';
 
-    $ctx  = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-    $sock = @stream_socket_client("ssl://$host:465", $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $ctx);
+    // Mesma conexao do envio normal (_catalogoSendEmail): confere o certificado antes de a senha seguir (ver _smtp_seguro.php).
+    // Antes abria com verify_peer=false e mandava a senha a quem estivesse no caminho. A saudacao do servidor ja vem lida.
+    require_once __DIR__ . '/_smtp_seguro.php';
+    $sock = intusSmtpAbrir($host, $infoSmtp, 10);
     if (!$sock) {
         $out['conexao'] = 'FALHOU';
-        $out['detalhe'] = trim($errno . ' ' . $errstr);
+        $out['detalhe'] = (string)($infoSmtp['erro'] ?? '');
         $out['mail_nativo_disponivel'] = function_exists('mail');
         echo json_encode($out, JSON_UNESCAPED_UNICODE); exit;
     }
+    stream_set_timeout($sock, 10);
     $out['conexao'] = 'ok';
+    $out['porta'] = $infoSmtp['porta'];
+    $out['nome_conferido'] = $infoSmtp['nome'];
+    $out['certificado_verificado'] = !empty($infoSmtp['verificado']);   // false = caiu no modo antigo (modo estrito desligado); o motivo esta nas ultimas_falhas
     $read = function() use ($sock) { $r=''; while ($l = fgets($sock, 512)) { $r .= $l; if (strlen($l) >= 4 && $l[3] === ' ') break; } return $r; };
     $send = function($cmd) use ($sock, $read) { fwrite($sock, $cmd . "\r\n"); return $read(); };
     $cod  = function($r) { return (int)substr(trim((string)$r), 0, 3); };
 
-    $out['saudacao'] = $cod($read());
     $out['ehlo']     = $cod($send('EHLO intusfit.com.br'));
     $send('AUTH LOGIN');
     $send(base64_encode($user));
@@ -2223,19 +2228,25 @@ if ($action === 'email_diag') {
     exit;
 }
 
-// ═══════════════ ENVIO DE TESTE (so professor) ═══════════════
-// Envia UMA mensagem de teste para o endereco informado pelo professor e relata
+// ═══════════════ ENVIO DE TESTE (so administrador, com limite) ═══════════════
+// Envia UMA mensagem de teste para o endereco informado pelo administrador e relata
 // o codigo de CADA etapa do SMTP. E a unica forma de descobrir se a mensagem e
 // aceita, recusada no destinatario, ou aceita e descartada depois (spam/SPF).
 // Uso: POST /catalogo.php?action=email_teste  { "para": "voce@dominio.com" }
 if ($action === 'email_teste') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
-    if ($_ehAluno)    { http_response_code(403); echo json_encode(['error' => 'restrito ao professor']); exit; }
+    // O portao central ($_SO_ADMIN) ja barra; esta checagem repete de proposito (uma reordenacao la nao reabre a porta).
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
     $b = jsonBody();
     $para = trim((string)($b['para'] ?? ''));
     if ($para === '' || !filter_var($para, FILTER_VALIDATE_EMAIL)) {
         http_response_code(400); echo json_encode(['error' => 'informe um e-mail valido em "para"']); exit;
     }
+    // Limite de frequencia por conta: 5 testes a cada 15 minutos (so conta depois de o pedido ser valido; responde 429 ao passar).
+    require_once __DIR__ . '/_rate_limit.php';
+    $_chaveTeste = 'u' . (int)($_ctx['idusuario'] ?? 0);
+    checkRateLimitConta($pdo, 'email_teste', $_chaveTeste, 5, 900);
+    recordAttemptConta($pdo, 'email_teste', $_chaveTeste);
     $cfg = intusSmtpConfig();
     if (!is_array($cfg)) $cfg = [];
     $host = $cfg['host'] ?? 'smtp.intusfit.com.br';
@@ -2243,14 +2254,17 @@ if ($action === 'email_teste') {
     $pass = $cfg['pass'] ?? '';
     $nome = $cfg['from_name'] ?? 'Intus Fit';
 
-    $ctx  = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-    $sock = @stream_socket_client("ssl://$host:465", $errno, $errstr, 15, STREAM_CLIENT_CONNECT, $ctx);
-    if (!$sock) { echo json_encode(['etapa' => 'conexao', 'ok' => false, 'detalhe' => trim($errno.' '.$errstr)]); exit; }
+    // Conexao verificada, igual ao envio normal (antes: verify_peer=false). A saudacao do servidor ja vem lida.
+    require_once __DIR__ . '/_smtp_seguro.php';
+    $sock = intusSmtpAbrir($host, $infoSmtp, 15);
+    if (!$sock) { echo json_encode(['etapa' => 'conexao', 'ok' => false, 'detalhe' => (string)($infoSmtp['erro'] ?? '')], JSON_UNESCAPED_UNICODE); exit; }
+    stream_set_timeout($sock, 10);
     $read = function() use ($sock) { $r=''; while ($l = fgets($sock, 512)) { $r .= $l; if (strlen($l) >= 4 && $l[3] === ' ') break; } return $r; };
     $send = function($cmd) use ($sock, $read) { fwrite($sock, $cmd . "\r\n"); return $read(); };
     $cod  = function($r) { return (int)substr(trim((string)$r), 0, 3); };
     $etapas = [];
-    $etapas['saudacao'] = $cod($read());
+    $etapas['porta']    = $infoSmtp['porta'];
+    $etapas['certificado_verificado'] = !empty($infoSmtp['verificado']);
     $etapas['ehlo']     = $cod($send('EHLO intusfit.com.br'));
     $send('AUTH LOGIN'); $send(base64_encode($user));
     $etapas['entrada']  = $cod($send(base64_encode($pass)));

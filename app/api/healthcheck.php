@@ -1,10 +1,18 @@
 <?php
 /**
- * Intus Fit — Health Check Autônomo (roda via cron no servidor)
+ * Intus Fit — Health Check (SOMENTE LEITURA)
  *
- * Executa: dedup de exercícios, verifica integridade, loga resultado.
- * Endpoint: GET /api/healthcheck.php
- * Cron sugerido: 0 8 * * * (diário às 08:00)
+ * Só administrador (sessão real em intus_sessions). Conta e relata; NUNCA altera o banco:
+ *   - exercícios com nome repetido (grupos e linhas excedentes), fichas sem aluno e treinos sem ficha: só CONTADOS;
+ *   - totais de exercícios, fichas, treinos e alunos.
+ * Endpoint: GET /app/api/healthcheck.php  (Authorization: Bearer <token de administrador>)
+ *
+ * HISTÓRICO (11/11/2026): este arquivo apagava dados a cada chamada de administrador (um DELETE removia exercícios de nome
+ * repetido e outro, treinos sem ficha) e, até 20/08/2026, a de qualquer visitante, sem senha. Nome igual não prova duplicata
+ * (existem homônimos reais) e treino sem ficha pode ser sintoma de outro defeito que a limpeza escondia. Agora ele só lê.
+ * Se alguma limpeza ainda for desejada, tem de ser ação explícita no painel, com prévia do que sai e confirmação (regra do
+ * projeto: exclusão de dado só pelo painel). testes/healthcheck.php garante que nenhuma tabela muda.
+ * "actions" é o nome histórico da lista de verificações (mantido para não quebrar quem lê a resposta).
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -57,58 +65,48 @@ function _intusExigeSessao(PDO $pdo, bool $soProfessor = true, bool $soAdmin = f
     return $sess;
 }
 
-// ── ESTE ARQUIVO APAGAVA DADOS A CADA VISITA, SEM SENHA ────────────────────
-// Ele nao exigia autenticacao nenhuma e, em toda requisicao, rodava dois DELETE
-// no banco: um removendo exercicios com nome repetido e outro removendo treinos
-// sem ficha. Ou seja, qualquer pessoa que abrisse o endereco disparava uma
-// limpeza destrutiva na base de producao — e, em laco, tambem uma negacao de
-// servico, porque o self-join sem indice trava a tabela.
-// Alem disso devolvia a contagem de exercicios, fichas, treinos e atletas (o
-// tamanho real da base de clientes) e, em falha de conexao, o host e o nome do
-// banco na mensagem de erro.
+// Só administrador. (Até 20/08/2026 este arquivo não exigia autenticação nenhuma e devolvia a contagem real da base de clientes.)
 $_sessHc = _intusExigeSessao($pdo, true, true);
 
 
-$log = ['timestamp' => date('c'), 'actions' => []];
+$log = ['timestamp' => date('c'), 'modo' => 'somente_leitura', 'actions' => []];
+$problemas = false;
 
-// 1. DEDUP EXERCÍCIOS — remove duplicatas por nome (mantém o de menor ID)
+// 1. EXERCÍCIOS DUPLICADOS — só relata (nome igual sem diferença de caixa e espaços). Nada é apagado.
 try {
-    $before = (int)$pdo->query("SELECT COUNT(*) FROM intus_exercicio")->fetchColumn();
-    $pdo->exec("
-        DELETE e1 FROM intus_exercicio e1
-        INNER JOIN intus_exercicio e2
-        ON LOWER(TRIM(e1.nmexercicio)) = LOWER(TRIM(e2.nmexercicio))
-        AND e1.idexercicio > e2.idexercicio
-    ");
-    $after = (int)$pdo->query("SELECT COUNT(*) FROM intus_exercicio")->fetchColumn();
-    $removed = $before - $after;
-    $log['actions'][] = ['check' => 'dedup_exercicios', 'removed' => $removed, 'remaining' => $after];
+    $dup = $pdo->query("SELECT LOWER(TRIM(nmexercicio)) AS nm, COUNT(*) AS c FROM intus_exercicio
+                        WHERE nmexercicio IS NOT NULL AND TRIM(nmexercicio) <> ''
+                        GROUP BY LOWER(TRIM(nmexercicio)) HAVING COUNT(*) > 1 ORDER BY c DESC, nm")->fetchAll(PDO::FETCH_ASSOC);
+    $excedentes = 0;
+    foreach ($dup as $d) $excedentes += (int)$d['c'] - 1;
+    $amostra = [];
+    foreach (array_slice($dup, 0, 10) as $d) $amostra[] = ['nome' => (string)$d['nm'], 'copias' => (int)$d['c']];
+    $log['actions'][] = ['check' => 'exercicios_duplicados', 'grupos' => count($dup), 'excedentes' => $excedentes, 'amostra' => $amostra];
+    if (count($dup) > 0) $problemas = true;
 } catch (Throwable $e) {
-    $log['actions'][] = ['check' => 'dedup_exercicios', 'error' => $e->getMessage()];
+    $log['actions'][] = ['check' => 'exercicios_duplicados', 'error' => $e->getMessage()];
 }
 
-// 2. FICHAS ÓRFÃS — fichas cujo atleta não existe mais
+// 2. FICHAS ÓRFÃS — fichas cujo atleta não existe mais (só conta)
+$tblAtleta = null;
 try {
-    $tblAtleta = null;
     foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $t) {
         try { $pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $tblAtleta = $t; break; } catch (Throwable $e) {}
     }
     if ($tblAtleta) {
         $orphan = (int)$pdo->query("SELECT COUNT(*) FROM intus_ficha f LEFT JOIN `$tblAtleta` a ON f.idatleta = a.idatleta WHERE a.idatleta IS NULL")->fetchColumn();
         $log['actions'][] = ['check' => 'fichas_orfas', 'count' => $orphan];
+        if ($orphan > 0) $problemas = true;
     }
 } catch (Throwable $e) {
     $log['actions'][] = ['check' => 'fichas_orfas', 'error' => $e->getMessage()];
 }
 
-// 3. TREINOS ÓRFÃOS — treinos cujo ficha não existe
+// 3. TREINOS ÓRFÃOS — treinos cuja ficha não existe (só conta; antes o arquivo os apagava)
 try {
     $tOrphan = (int)$pdo->query("SELECT COUNT(*) FROM intus_treino t LEFT JOIN intus_ficha f ON t.idficha = f.idficha WHERE f.idficha IS NULL")->fetchColumn();
-    if ($tOrphan > 0) {
-        // Auto-limpa treinos órfãos
-        $pdo->exec("DELETE t FROM intus_treino t LEFT JOIN intus_ficha f ON t.idficha = f.idficha WHERE f.idficha IS NULL");
-    }
-    $log['actions'][] = ['check' => 'treinos_orfaos', 'removed' => $tOrphan];
+    $log['actions'][] = ['check' => 'treinos_orfaos', 'count' => $tOrphan];
+    if ($tOrphan > 0) $problemas = true;
 } catch (Throwable $e) {
     $log['actions'][] = ['check' => 'treinos_orfaos', 'error' => $e->getMessage()];
 }
@@ -125,19 +123,19 @@ try {
     }
 } catch (Throwable $e) {
     $log['totals'] = ['error' => $e->getMessage()];
+    $problemas = true;
 }
 
-// 5. LOG em arquivo (para histórico)
+foreach ($log['actions'] as $a) {
+    if (isset($a['error'])) $problemas = true;
+}
+$log['status'] = $problemas ? 'issues_found' : 'ok';
+
+// 5. LOG em arquivo (para histórico; só contagens, nada de dado de aluno)
 $logDir = __DIR__ . '/../logs';
 if (!is_dir($logDir)) @mkdir($logDir, 0755, true);
 $logFile = $logDir . '/healthcheck-' . date('Y-m') . '.log';
 $line = date('Y-m-d H:i:s') . ' | ' . json_encode($log, JSON_UNESCAPED_UNICODE) . "\n";
 @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
-
-$hasIssues = false;
-foreach ($log['actions'] as $a) {
-    if (isset($a['error'])) $hasIssues = true;
-}
-$log['status'] = $hasIssues ? 'issues_found' : 'ok';
 
 echo json_encode($log, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
