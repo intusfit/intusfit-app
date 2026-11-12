@@ -207,21 +207,22 @@
 
       <form id="form" novalidate>
         <div class="form-group">
-          <!-- type="text", nao "email": com type="email" o proprio navegador
-               recusava o codigo de acesso antes de enviar ("inclua um @"), e o
-               aluno nao conseguia sequer TENTAR entrar com o codigo, embora a
-               mensagem de erro logo abaixo prometesse que dava. -->
-          <label class="form-label">E-mail ou código de acesso</label>
-          <input class="form-input" id="email" type="text" autocomplete="username" required
-                 placeholder="seu@email.com ou INT00000" autocapitalize="none" spellcheck="false"/>
+          <!-- O código de acesso NÃO identifica mais a conta (achado S2, 11/11/2026): o primeiro campo é só o e-mail; quem só tem o código
+               digita o e-mail aqui e o código no campo da senha. type="text" continua (e-mail antigo fora do padrão não pode ser barrado aqui). -->
+          <label class="form-label">E-mail</label>
+          <input class="form-input" id="email" type="text" inputmode="email" autocomplete="username" required
+                 placeholder="seu@email.com" autocapitalize="none" spellcheck="false"/>
         </div>
         <div class="form-group">
-          <label class="form-label">Senha</label>
+          <label class="form-label" id="label-senha">Senha ou código de acesso</label>
           <div class="pwd-wrap">
             <input class="form-input" id="senha" type="password" autocomplete="current-password" required/>
             <button type="button" class="pwd-toggle" data-target="senha" aria-label="Mostrar senha"></button>
           </div>
         </div>
+
+        <!-- Verificação extra (Cloudflare Turnstile): só aparece quando o servidor pede (muitas tentativas erradas no sistema inteiro). -->
+        <div id="ts-box" style="display:none;margin:4px 0 12px;min-height:65px"></div>
 
         <div class="links-row">
           <button type="button" class="link-btn" id="btn-criar-conta">Criar conta</button>
@@ -596,6 +597,8 @@
       const hint   = document.getElementById('hint-msg');
       const toggle = document.getElementById('btn-toggle-modo');
       const criar  = document.getElementById('btn-criar-conta');
+      // o código de acesso vale no lugar da senha só para aluno
+      document.getElementById('label-senha').textContent = tipoLogin === 'professor' ? 'Senha' : 'Senha ou código de acesso';
       if (tipoLogin === 'professor') {
         document.body.classList.add('modo-professor');
         titulo.textContent = 'Acesso do Professor';
@@ -627,6 +630,40 @@
       document.getElementById('erro').style.display = 'none';
     }
 
+    // ─── Verificação extra (Cloudflare Turnstile) ─────────────────────────
+    // Só entra em cena quando o servidor responde "verificacao_necessaria" (muitas tentativas erradas no sistema inteiro). O script do
+    // Cloudflare é carregado nessa hora, nunca antes. O token vale uma vez: depois de cada tentativa o widget é refeito.
+    let _tsToken = '', _tsWidget = null, _tsKey = '';
+    function _tsCarregar() {
+      return new Promise((ok, falha) => {
+        if (window.turnstile) return ok();
+        const s = document.createElement('script');
+        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        s.async = true; s.onload = () => ok(); s.onerror = () => falha(new Error('turnstile'));
+        document.head.appendChild(s);
+      });
+    }
+    async function pedirVerificacao(siteKey, msg) {
+      const box = document.getElementById('ts-box');
+      box.style.display = 'block'; _tsToken = '';
+      mostrarErro(msg);
+      try { await _tsCarregar(); }
+      catch (e) { mostrarErro('Não foi possível carregar a verificação de segurança. Tente de novo em alguns minutos ou desative o bloqueador de anúncios.'); return; }
+      if (_tsWidget !== null && _tsKey === siteKey) { try { window.turnstile.reset(_tsWidget); } catch (e) {} return; }
+      if (_tsWidget !== null) { try { window.turnstile.remove(_tsWidget); } catch (e) {} }
+      _tsKey = siteKey;
+      _tsWidget = window.turnstile.render(box, {
+        sitekey: siteKey, theme: 'auto',
+        callback: tk => {
+          _tsToken = tk; limparErro();
+          const f = document.getElementById('form');
+          if (f.requestSubmit) f.requestSubmit(); else f.dispatchEvent(new Event('submit', { cancelable: true }));
+        },
+        'expired-callback': () => { _tsToken = ''; },
+        'error-callback': () => { mostrarErro('A verificação de segurança falhou. Tente de novo em instantes.'); },
+      });
+    }
+
     // ====== LOGIN ======
     document.getElementById('form').addEventListener('submit', async e => {
       e.preventDefault();
@@ -650,21 +687,32 @@
           // servidor" e o aluno ficava travado sem saber o motivo real.
           let logado = null;
           let _erroLogin = '';
+          let _pedido = null;   // o servidor pediu a verificação extra (Turnstile)
           try {
+            const corpo = { email, senha };
+            if (_tsToken) { corpo.turnstile_token = _tsToken; _tsToken = ''; }
             const r = await fetch(API_BASE + '/aluno_login.php', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email, senha }),
+              body: JSON.stringify(corpo),
               cache: 'no-store',
             });
             let j = null;
             try { j = await r.json(); } catch (e) { j = null; }
             if (r.ok && j && j.ok && j.atleta) {
               logado = j.atleta;
+            } else if (j && j.codigo === 'verificacao_necessaria' && j.verificacao && j.verificacao.site_key) {
+              _pedido = { chave: j.verificacao.site_key, msg: j.erro || 'Confirme que você é uma pessoa para continuar.' };
             } else if (j && j.erro) {
               _erroLogin = (String(j.erro).toLowerCase().indexOf('credenciais') === 0)
                 ? 'E-mail, senha ou código de acesso incorretos.'
                 : j.erro;
+              // quem digitou o código de acesso no primeiro campo (a tela antiga aceitava) precisa saber onde ele vai agora
+              if (String(j.erro).toLowerCase().indexOf('credenciais') === 0 && email.indexOf('@') === -1) {
+                _erroLogin = 'Digite o seu e-mail no primeiro campo. O código de acesso, se for usar, vai no campo da senha.';
+              }
+            } else if (j && j.mensagem) {
+              _erroLogin = j.mensagem;   // ex.: "Muitas tentativas. Tente novamente em 15 minutos."
             } else if (r.status >= 500) {
               _erroLogin = 'O servidor teve um problema (erro ' + r.status + '). Tente de novo em instantes.';
             } else if (!r.ok) {
@@ -677,7 +725,10 @@
           // com uma conta fantasma guardada SO naquele celular. Resultado: a mesma
           // senha funcionava num aparelho e falhava em outro, e o app mostrava
           // matricula/plano do registro local em vez do real.
+          if (!logado && _pedido) { await pedirVerificacao(_pedido.chave, _pedido.msg); return; }
           if (!logado) {
+            // o token do Turnstile vale uma vez: refaz o widget para a próxima tentativa
+            if (_tsWidget !== null) { try { window.turnstile.reset(_tsWidget); } catch (e) {} }
             mostrarErro(_erroLogin === 'rede'
               ? 'Não conseguimos falar com o servidor. Verifique sua internet e tente de novo.'
               : (_erroLogin || 'E-mail, senha ou código de acesso incorretos.'));

@@ -809,7 +809,10 @@ try {
 
     // ===== Validar login (default) =====
     require_once __DIR__ . '/_rate_limit.php';
-    checkRateLimit($pdo, 'aluno_login', 5, 900);
+    require_once __DIR__ . '/_login_protecao.php';
+    // Teto global de falhas (todas as IPs somadas): estourou, entra em "modo de verificação" por 10 min. Ver _login_protecao.php.
+    $_prot = intusLoginEstado($pdo);
+    checkRateLimit($pdo, 'aluno_login', $_prot['max_ip'], 900);
 
     $email = strtolower(trim((string)($body['email'] ?? '')));
     $senha = (string)($body['senha'] ?? '');
@@ -819,32 +822,32 @@ try {
         exit;
     }
 
-    // ── O CODIGO DE ACESSO TAMBEM IDENTIFICA A CONTA ────────────────────────
-    // A tela de entrada diz "E-mail, senha ou codigo de acesso incorretos" e o
-    // codigo era aceito como SENHA — mas a conta so era procurada por e-mail.
-    // Quem digitasse o codigo no primeiro campo, como todo mundo entende que
-    // pode, recebia "credenciais invalidas" sem ter errado nada. Agora, nao
-    // achando por e-mail, procura-se pelo codigo de acesso. A senha continua
-    // sendo exigida do mesmo jeito — isto muda como a conta e encontrada, nao o
-    // que e preciso saber para entrar.
-    // Trava por conta (e-mail ou código digitado): 8 erros em 15 minutos bloqueiam novas tentativas NESSA conta, de qualquer IP.
+    // Modo de verificação com Turnstile configurado: o token é conferido ANTES de olhar a conta (barra robô sem gastar bcrypt) e quem é pessoa
+    // passa. Token recusado conta na trava por IP, para quem envia lixo não prender processo do servidor conferindo token sem parar.
+    $_prot = intusLoginVerificar($_prot, trim((string)($body['turnstile_token'] ?? '')));
+    if ($_prot['acao'] === 'desafiar') {
+        if ($_prot['token_recusado']) recordAttempt($pdo, 'aluno_login');
+        [$_stD, $_bodyD] = intusLoginRespostaDesafio($_prot);
+        http_response_code($_stD);
+        echo json_encode($_bodyD);
+        exit;
+    }
+    if ($_prot['max_ip'] < INTUS_LOGIN_MAX_IP) checkRateLimit($pdo, 'aluno_login', $_prot['max_ip'], 900);   // Turnstile fora do ar: limite apertado
+
+    // ── O CÓDIGO DE ACESSO NÃO IDENTIFICA A CONTA (achado S2, 11/11/2026) ───
+    // Antes, não achando a conta pelo e-mail, ela era procurada pelo código de acesso digitado, e o código também valia como senha:
+    // {email:"1234", senha:"1234"} entrava sem e-mail nem senha, e os códigos antigos têm só 4 dígitos (10 mil combinações).
+    // Agora a conta SÓ é achada pelo e-mail. O código continua valendo como credencial alternativa (no lugar da senha), mas só para a conta
+    // cujo e-mail foi informado: quem sabe o código e não sabe o e-mail não entra.
+    // Trava por conta (e-mail digitado): 8 erros em 15 minutos bloqueiam novas tentativas NESSA conta, de qualquer IP (3 no modo de verificação sem Turnstile).
     $_identTrava = strtolower(trim((string)($body['email'] ?? '')));
-    checkRateLimitConta($pdo, 'aluno_login_conta', $_identTrava, 8, 900);
+    checkRateLimitConta($pdo, 'aluno_login_conta', $_identTrava, $_prot['max_conta'], 900);
     $stmt = $pdo->prepare("SELECT * FROM `$tabela` WHERE LOWER($col_email) = ? LIMIT 1");
     $stmt->execute([$email]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$row && $col_cod) {
-        $ident = trim((string)($body['email'] ?? ''));
-        if ($ident !== '') {
-            $q = $pdo->prepare("SELECT * FROM `$tabela` WHERE UPPER(`$col_cod`) = UPPER(?) LIMIT 1");
-            $q->execute([$ident]);
-            $row = $q->fetch(PDO::FETCH_ASSOC);
-        }
-    }
-
     if (!$row) {
-        recordAttempt($pdo, 'aluno_login'); recordAttemptConta($pdo, 'aluno_login_conta', $_identTrava);
+        recordAttempt($pdo, 'aluno_login'); recordAttemptConta($pdo, 'aluno_login_conta', $_identTrava); intusLoginFalhaRegistrar($pdo);
         http_response_code(401);
         echo json_encode(['ok'=>false, 'erro'=>'credenciais invalidas']);
         exit;
@@ -890,7 +893,7 @@ try {
     }
 
     if (!$valido) {
-        recordAttempt($pdo, 'aluno_login'); recordAttemptConta($pdo, 'aluno_login_conta', $_identTrava);
+        recordAttempt($pdo, 'aluno_login'); recordAttemptConta($pdo, 'aluno_login_conta', $_identTrava); intusLoginFalhaRegistrar($pdo);
         http_response_code(401);
         echo json_encode(['ok'=>false, 'erro'=>'credenciais invalidas']);
         exit;
