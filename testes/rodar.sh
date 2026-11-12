@@ -47,6 +47,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "quadro (kanban) de leads no navegador" node kanban.js
   passo "quadros de treinos, matrículas, clientes e nutrição, perfil e atendimento" node quadros.js
   passo "login do aluno e faixa de notificação" node login_aluno.js
+  passo "início do app: aceitar os Termos no meio da sessão liga ❓, 🔔 e histórico; ficha falha não zera o histórico" node termos_inicio.js
   passo "teste grátis no app: sem Feed nem comentário" node teste_gratis_front.js
   passo "publicar nunca fica travado (figurinha, logo, servidor mudo)" node publicar_travado.js
   passo "compartilhar treino/cardio: figurinha e informações movem e redimensionam (foto, câmera, vídeo), nada sai cortado" node compartilhar_pecas.js

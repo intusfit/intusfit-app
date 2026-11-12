@@ -7239,6 +7239,9 @@ async function sincronizarDoBackend() {
       _syncFichasOk = false;
       _syncErro = (e2 && e2.message) ? String(e2.message) : ((e && e.message) ? String(e.message) : 'falha na conexão');
     }
+    // O histórico de treinos não depende da ficha: se a ficha falhou (servidor lento, erro 5xx), ele ainda precisa chegar.
+    // Antes só a rota principal baixava as sessões, e o aluno ficava com o histórico vazio sem aviso.
+    try { await SessoesTreino.sincronizar(idAtleta); } catch (e4) {}
     _syncDone = true;
     try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function') renderAvaliacoesAluno(); } catch (e3) {}
   }
@@ -23700,7 +23703,7 @@ function aceitarTermos() {
   localStorage.setItem('intus-termos-aceito-' + idAtleta, Date.now().toString());
   toast('Termos aceitos!');
   trocarView('home');
-  renderHome();
+  _iniciarApp();   // continua o início do app que parou na tela de Termos: cabeçalho (❓ 🔔), sincronização, histórico e Início
 }
 
 // ═══════════════ EXCLUIR MINHA CONTA ═══════════════
@@ -24740,8 +24743,14 @@ function mostrarDicaTema() {
 }
 
 // ═══════════════ INIT ═══════════════
-(async () => {
-  if (!verificarAceiteTermo()) return;
+// O início do app mora numa função porque ele pode começar em dois momentos: ao abrir o app (termos já aceitos neste aparelho)
+// ou logo depois de "Aceitar e Continuar" na tela de Termos. Antes, quem aceitava os termos no meio da sessão (aparelho novo,
+// armazenamento limpo, outro navegador) ficava com o app meio ligado: sem o ❓ e o 🔔 do cabeçalho e sem o histórico de treinos
+// (só este início baixa as sessões), mas com a ficha (o re-sync ao voltar ao app baixa as fichas). Caso Vanessa Carissimi, 12/11/2026.
+var _appIniciando = false;
+async function _iniciarApp() {
+  if (_appIniciando) return;   // duplo toque em "Aceitar e Continuar" não roda duas vezes
+  _appIniciando = true;
   if (localStorage.getItem('intus-welcome') === '1') {
     renderWelcome();
     localStorage.removeItem('intus-welcome');
@@ -24774,6 +24783,10 @@ function mostrarDicaTema() {
     try { if (window._viewAtual === 'home' && !treinoTimer) { renderHome(); atualizarBadgeMensagens(); } } catch (e) {}
   });
   _cardioLiveRestaurarSeAtivo(); // idem pro cardio ao vivo — sobrevive a tela bloqueada/app fechado
+}
+(async () => {
+  if (!verificarAceiteTermo()) return;   // termos pendentes: aceitarTermos() continua daqui
+  await _iniciarApp();
 })();
 
 if ('serviceWorker' in navigator) {
