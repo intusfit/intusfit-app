@@ -49,6 +49,8 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "quadros de treinos, matrículas, clientes e nutrição, perfil e atendimento" node quadros.js
   passo "login do aluno e faixa de notificação" node login_aluno.js
   passo "teste grátis no app: sem Feed nem comentário" node teste_gratis_front.js
+  passo "moderação no app: denunciar, bloquear, aceite das regras e motivo da recusa" node moderacao_app.js
+  passo "moderação no painel: fila de denúncias, painel inicial e sino da equipe" node moderacao_painel.js
   passo "publicar nunca fica travado (figurinha, logo, servidor mudo)" node publicar_travado.js
   passo "compartilhar treino/cardio: figurinha e informações movem e redimensionam (foto, câmera, vídeo), nada sai cortado" node compartilhar_pecas.js
   passo "faixa de notificação some de verdade (iPhone com ilha)" node aviso_notificacao.js

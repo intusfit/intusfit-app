@@ -19,6 +19,8 @@ Atualizada em **22 de setembro de 2026**; ícones, telas de abertura e materiais
 - [ ] Não há dados de aluno, token, chave de API, credencial ou captura de tela real em materiais de teste.
 - [x] Login por Google/Facebook está oculto enquanto as credenciais forem placeholders. Se qualquer provedor for ativado no iOS, implementar e testar **Sign in with Apple** de forma equivalente antes do envio.
 - [x] HealthKit e Health Connect não fazem parte da release atual; não declarar dados de Saúde nos formulários.
+- [x] Conteúdo gerado por usuário (Apple 1.2 e Google Play): filtro de termos graves no servidor; **Denunciar** em publicação, comentário, mural, resultado, mensagem e perfil; **Bloquear** nos dois sentidos, com a lista Pessoas bloqueadas em Meu Perfil › Privacidade; Regras da Comunidade aceitas antes do primeiro post, comentário ou mensagem; Termos de Uso com tolerância zero e resposta em até 24 horas; fila de denúncias no painel (Feed › Denúncias), aviso no sino e e-mail à equipe; suspensão por aluno. Contato publicado: contato@intusfit.com.br. Detalhes e texto para as notas da revisão: `CLAUDE.md`, seção 145.
+- [ ] Antes de enviar: Luiz confirma as 4 tabelas novas (`intus_bloqueio`, `intus_denuncia`, `intus_suspensao`, `intus_aceite_regras`), roda `cd mobile && npm run sync` e gera a build nova (o app nativo só ganha a moderação assim) e testa num aparelho: denunciar, bloquear, desbloquear e aceitar as regras.
 
 ## Materiais da ficha
 

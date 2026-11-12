@@ -16,7 +16,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   const S = { posts: 0, modo: 'ok' };
   await page.route(/\/app\/api\/catalogo\.php.*action=feed_posts/, async (route) => { if (route.request().method() !== 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }); S.posts++; if (S.modo === 'mudo') return; return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"idpost":1}' }); });
   await page.route(/\/app\/api\/(?!catalogo\.php.*feed_posts)/, r => r.abort('failed'));
-  await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); });
+  await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); localStorage.setItem('intus-regras-ok-7', '2026-11'); });
   await page.goto('http://127.0.0.1:8102/aluno.html', { waitUntil: 'domcontentloaded' });
   for (let i = 0; i < 80; i++) { if (await page.evaluate(() => typeof _composeImagemFinal === 'function' && typeof html2canvas === 'function' && typeof _comPrazo === 'function').catch(() => false)) break; await page.waitForTimeout(250); }
   const preparar = () => page.evaluate(() => {

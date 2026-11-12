@@ -18,7 +18,8 @@
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261110g"></script>
-  <script src="ajuda.js?v=20261107a" defer></script>
+  <script src="ajuda.js?v=20261112a" defer></script>
+  <script src="moderacao.js?v=20261112a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -1493,7 +1494,7 @@ function abrirCompartilharUltimoTreino() {
 // escolhido depois na Central de Compartilhamento). idsessao é opcional —
 // só usado pra reabrir esta mesma tela depois sabendo qual treino é.
 function abrirCompartilharTreino(info, opts) {
-  if (!_soTesteBarra()) return;
+  if (!_podePublicar()) return;
   // Guarda o snapshot mais recente (treino OU cardio, pelo info.tipo) — é a
   // mesma leitura que abrirCompartilharUltimoTreino já usava pro treino;
   // agora o Novo post também lê daqui pra oferecer "Último treino"/"Último
@@ -3369,7 +3370,7 @@ function toggleComentariosFeed(idpost) {
 let _comentarioEnviando = {};
 async function enviarComentarioFeed(idpost) {
   if (_comentarioEnviando[idpost]) return;
-  if (!_soTesteBarra()) return;
+  if (!_podePublicar()) return;
   const input = _campoComentarioFeed(idpost);
   const texto = _mencoesCodificar('feed:' + idpost, input?.value?.trim());
   if (!texto) { toast('Escreva o comentário antes de enviar.'); return; }
@@ -3494,6 +3495,7 @@ function _comentariosHtml(idpost, isLight) {
           '<span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' +
           responder +
           excluir +
+          ((!c.meu && window.Moderacao) ? Moderacao.linkHtml('comentario', c.idcomentario, c.autor_tipo === 'aluno' ? c.autor_id : 0, c.autor_nome, corMuted) : '') +
         '</div>' +
       '</div>' +
       coracao +
@@ -3937,7 +3939,9 @@ function _abrirMenuPost(idpost, idatletaDono) {
   const nome = _feedAtletasMap[String(idatletaDono)] || 'esta pessoa';
   const opcoes = souDono
     ? [['🔒 Privacidade desta publicação', 'abrirPostPorId(' + idpost + ')'], ].concat(_ehPostTexto(_acharPost(idpost)) ? [] : [['⬇️ Baixar', 'baixarPost(' + idpost + ')']]).concat([['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']])
-    : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')']];
+    : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')'],
+       ['🚩 Denunciar esta publicação', "Moderacao.denunciar('feed_post'," + Number(idpost) + ",{autorId:" + Number(idatletaDono) + "})"],
+       ['⛔ Bloquear ' + esc(nome.split(' ')[0]), 'Moderacao.bloquear(' + Number(idatletaDono) + ')']];
   const html = opcoes.map(([rot, fn]) =>
     '<div onclick="closeModal();' + fn + '" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + rot + '</div>'
   ).join('');
@@ -4299,7 +4303,7 @@ let _composeExtras = [];
 let _composeFiltroCss = '';
 
 function abrirNovoPostFeed() {
-  if (!_soTesteBarra()) return;
+  if (!_podePublicar()) return;
   _composeOrigem = 'post';
   _composeFotoCaptura = false;
   _composeInfo = null;
@@ -7474,6 +7478,12 @@ function _soTesteBarra() {
   if (!_ehSoTeste()) return true;
   toast(_SO_TESTE_MSG, 6000);
   return false;
+}
+// Portão único de quem publica ou comenta (Feed, comentários, mural): teste grátis não publica e é preciso ter aceitado as Regras da Comunidade
+// (exigência das lojas; o módulo é o moderacao.js). true = pode seguir; false = já avisou o aluno ou abriu as regras.
+function _podePublicar() {
+  if (!_soTesteBarra()) return false;
+  return !window.Moderacao || Moderacao.regrasBarra();
 }
 
 // Corte definitivo: acima disto o acesso e bloqueado, nao so avisado.
@@ -15191,6 +15201,7 @@ async function abrirPerfilRanking(id, social, alvo) {   // alvo: elemento onde o
       '<div style="font-size:19px;font-weight:900;color:' + (isLight?'#111':'#f5f5f5') + ';margin-top:10px;" id="pk-nome">' + esc(nome) + (isMe ? ' <span style="color:' + accent + ';">(você)</span>' : '') + '</div>' +
       (localCompleto ? '<div style="font-size:13px;color:' + (isLight?'#666':'#999') + ';">📍 ' + esc(localCompleto) + '</div>' : '') +
       acaoHeader +
+      (!isMe && window.Moderacao ? Moderacao.linkPerfilHtml(Number(id), nome) : '') +
     '</div>';
   const ocultos = [];
   if (!ok('mostrar_semana')) ocultos.push('a semana');
@@ -15969,6 +15980,7 @@ function _trAbaHtml(isLight) {
   }).join('');
 }
 function abrirNovaTurma() {
+  if (window.Moderacao && !Moderacao.regrasBarra()) return;   // Regras da Comunidade aceitas antes de publicar (exigência das lojas)
   _comSheet('com-novo-turma', '👥 Criar turma',
     _comCampo('Nome da turma', '<input id="tr-nome" maxlength="60" placeholder="Ex.: Turma das 6h" style="' + _COM_INPUT + '"/>') +
     _comCampo('Descrição (opcional)', '<input id="tr-desc" maxlength="200" placeholder="Ex.: Quem treina de manhã" style="' + _COM_INPUT + '"/>') +
@@ -16314,6 +16326,7 @@ async function abrirPrivacidadePerfil() {
       tog('pk-pv-res', 'Mural de resultados', 'Seus depoimentos e resultados compartilhados.', c.mostrar_resultados) +
       tog('pk-pv-sem', 'Atividades e pontos da semana', 'O que você treinou nesta semana.', c.mostrar_semana) +
       '<div style="font-size:11.5px;color:' + mut + ';line-height:1.5;margin-top:14px;">Seu nome, sua foto de perfil e sua posição no ranking continuam aparecendo no ranking. A equipe da Intus vê tudo para poder te acompanhar.</div>' +
+      '<div onclick="Moderacao.abrirBloqueados()" role="button" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;margin-top:16px;border-top:1px solid ' + linha + ';cursor:pointer;"><span><span style="font-size:14px;font-weight:700;color:' + txt + ';">⛔ Pessoas bloqueadas</span><br><span style="font-size:12px;color:' + mut + ';line-height:1.4;">Veja e desbloqueie quem você bloqueou.</span></span><span style="font-size:18px;color:' + mut + ';">›</span></div>' +
       '<button id="pk-pv-salvar" onclick="_pkSalvarPrivacidade()" class="btn btn-prim" style="width:100%;margin-top:16px;">Salvar</button>' +
     '</div></div>';
   document.body.appendChild(ov);
@@ -16553,7 +16566,7 @@ function _pkTileTexto(p, isLight, fn) {
     '<span style="position:absolute;top:4px;right:5px;font-size:11px;">✍️</span>' + _visibSeloHtml(p) + '</div>';
 }
 function abrirPostTexto() {
-  if (!_soTesteBarra()) return;
+  if (!_podePublicar()) return;
   _txt = { fonte: '', visib: _composeVisibPadrao() || 'todos', destino: 'feed' };
   const isLight = document.body.classList.contains('tema-claro');
   const borda = isLight ? '#ddd' : '#333';
@@ -16766,6 +16779,7 @@ function _resultadoCardHtml(r, isLight) {
         '</div></div>' +
       '<span style="flex-shrink:0;font-size:10.5px;font-weight:800;padding:4px 8px;border-radius:10px;background:' + (isLight ? 'rgba(92,184,0,.12)' : 'rgba(127,255,0,.10)') + ';color:' + accent + ';">' + (_RES_TAGS[r.tipo] || '🗣️ Depoimento') + '</span>' +
       (isMe ? '<span onclick="excluirResultado(' + r.idresultado + ')" title="Excluir" style="flex-shrink:0;cursor:pointer;font-size:15px;padding:4px;">🗑️</span>' : '') +
+      ((!isMe && !daEquipe && window.Moderacao) ? Moderacao.iconeHtml('resultado', r.idresultado, idA, nome, muted) : '') +
     '</div>' +
     (midias.length ? _carrosselHtml(midias, isLight) : '') +
     _resultadoLinkHtml(r.link, isLight) +
@@ -16859,6 +16873,7 @@ var _rcAceite = false;
 var _rcSite = false;
 
 function abrirCompartilharResultado() {
+  if (window.Moderacao && !Moderacao.regrasBarra()) return;   // Regras da Comunidade aceitas antes de publicar (exigência das lojas)
   _rcTipo = 'evolucao'; _rcTexto = ''; _rcPeriodo = ''; _rcItens = []; _rcAceite = false; _rcSite = false;
   _rcRender();
 }
@@ -17601,7 +17616,7 @@ function _cqShareSheet() {
 function _cqSetVisib(v) { _cqShare.visib = v; _cqShareSheet(); }
 async function _cqPostar(destino) {
   if (_cqPublicando || !_cqShare.dataUrl) return;
-  if (!_soTesteBarra()) return;
+  if (!_podePublicar()) return;
   _cqPublicando = true;
   _busyMostrar('Publicando sua conquista...', null, '');
   try {
@@ -17937,7 +17952,7 @@ function _muralThreadHtml(idm, isLight) {
       '<div style="width:26px;height:26px;border-radius:50%;background:' + corAvBg + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:' + corMuted + ';flex-shrink:0;">' + _iniciaisNomeFeed(nome) + '</div>' +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:12px;line-height:1.4;"><b' + (c.autor_tipo === 'aluno' ? ' onclick="abrirPerfilAluno(' + Number(c.autor_id) + ')" style="cursor:pointer;color:' + cor + ';"' : ' style="color:' + cor + ';"') + '>' + esc(nome) + '</b>' + selo + ' <span style="color:' + corTexto + ';">' + _textoComMencoes(c.texto) + '</span></div>' +
-        '<div style="display:flex;gap:14px;margin-top:2px;"><span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' + responder + excluir + '</div>' +
+        '<div style="display:flex;gap:14px;margin-top:2px;"><span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' + responder + excluir + ((!c.meu && window.Moderacao) ? Moderacao.linkHtml('comentario', c.idcomentario, c.autor_tipo === 'aluno' ? c.autor_id : 0, c.autor_nome, corMuted) : '') + '</div>' +
       '</div>' + coracao +
     '</div>';
   }
@@ -17986,7 +18001,7 @@ function _renderComentarios(data, isLight) {
       html += '<div class="pf pf-bg" ' + (c.idcomentario ? 'data-mural-card="' + Number(c.idcomentario) + '" ' : '') + 'style="padding:10px 14px;background:' + bg + ';border:1px solid ' + border + ';border-radius:10px;">' +
         '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">' +
           '<span style="font-size:12px;font-weight:700;color:' + textPrim + ';">' + esc(c.nome_atleta || 'Membro') + '</span>' +
-          '<span style="display:flex;align-items:center;"><span style="font-size:10px;color:' + textMuted + ';">' + dtStr + '</span>' + delBtn + '</span>' +
+          '<span style="display:flex;align-items:center;"><span style="font-size:10px;color:' + textMuted + ';">' + dtStr + '</span>' + delBtn + ((!isMine && c.idcomentario && window.Moderacao) ? Moderacao.iconeHtml('mural', c.idcomentario, c.idatleta, c.nome_atleta, textMuted) : '') + '</span>' +
         '</div>' +
         '<div style="font-size:13px;color:' + textSec + ';line-height:1.5;">' + _textoComMencoes(c.texto) + '</div>' +
         (c.idcomentario ? _htmlReacoes(Number(c.idcomentario), isLight) : '') +
@@ -19036,7 +19051,7 @@ function _renderRankingView() {
 // Mural dos Membros: escrever é de quem tem plano de treino (matrícula) ativo; ler é aberto. O mural da Nutrição segue o plano alimentar.
 function _muralPodeEscrever() { try { return !verificarSemMatricula() && !verificarInadimplencia(); } catch (e) { return true; } }
 async function enviarComentarioRanking() {
-  if (!_soTesteBarra()) return;
+  if (!_podePublicar()) return;
   if (!_muralPodeEscrever()) { toast('Escrever no mural é para quem tem plano de treino ativo.'); return; }
   const inp = document.getElementById('ranking-comment-input');
   const texto = _mencoesCodificar('ranking', (inp?.value || '').trim());
@@ -21703,6 +21718,7 @@ function _nmHtml(tipo, id) {
           <span>${_tempoRelativoFeed(dt)}</span>
           ${tem ? `<span style="cursor:pointer;" data-tipo="${tipo}" data-id="${id}" data-idc="${c.idcomentario}" data-nome="${esc(c.autor_nome || 'Alguém')}" onclick="_nmResponder(this)">Responder</span>` : ''}
           ${c.meu ? `<span style="cursor:pointer;" data-tipo="${tipo}" data-id="${id}" data-idc="${c.idcomentario}" onclick="_nmExcluir(this)">Excluir</span>` : ''}
+          ${(!c.meu && window.Moderacao) ? Moderacao.linkHtml('comentario', c.idcomentario, c.autor_tipo === 'aluno' ? c.autor_id : 0, c.autor_nome, 'inherit') : ''}
         </div>
       </div>
       <div onclick="_cxToque(${c.idcomentario},'nm','${tipo}',${id})" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;min-width:22px;"><span style="font-size:14px;line-height:1;">${_cxIcone(curt)}</span>${curt.length ? `<span style="font-size:10px;font-weight:700;color:${eu ? C.ok : C.mut};">${curt.length}</span>` : ''}${_cxMaisHtml(c.idcomentario, 'nm', tipo, id)}</div>
@@ -21724,7 +21740,7 @@ function _nmHtml(tipo, id) {
 async function _nmEnviar(el) {
   const tipo = el.dataset.tipo, id = Number(el.dataset.id), chave = _nmChave(tipo, id);
   if (_nm.env[chave]) return;
-  if (!_soTesteBarra()) return;
+  if (!_podePublicar()) return;
   const box = document.getElementById(_nmDom(tipo, id)), ta = box && box.querySelector('textarea');
   const texto = ta ? ta.value.trim() : '';
   if (!texto) { toast('Escreva algo antes de enviar.'); return; }
@@ -23087,8 +23103,8 @@ document.addEventListener('input', (e) => {
 // Linha de notificação, usada na aba Notificações da Central. Medalha e
 // distintivo nascem no próprio app ("sistema"): a frase inteira vem em n.texto.
 function _notifLinhaHtml(n, isLight) {
-  const icones = { dm: '💬', curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', mensalidade: '💳', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯', colab_convite: '👥', colab_aceito: '👥', intus_post: '📣' };
-  const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro' || n.tipo === 'mensalidade';
+  const icones = { aviso_equipe: '🛡️', denuncia_resolvida: '✅', dm: '💬', curtida: '❤️', curtida_comentario: '❤️', curtida_chat: '❤️', comentario: '💬', resposta: '↩️', mencao: '📣', medalha: '🏅', distintivo: '🎖️', mensalidade: '💳', nutri_resposta: '🥗', amizade_pedido: '🤝', amizade_aceita: '🤝', parceria_pedido: '🏋️', parceria_aceita: '🏋️', parceiro: '🤝', turma_entrou: '👥', desafio_convite: '🎯', colab_convite: '👥', colab_aceito: '👥', intus_post: '📣' };
+  const ehSistema = n.tipo === 'medalha' || n.tipo === 'distintivo' || n.tipo === 'parceiro' || n.tipo === 'mensalidade' || n.tipo === 'aviso_equipe' || n.tipo === 'denuncia_resolvida';
   const noMural = n.alvo_tipo === 'mural';
   const acao = {
     curtida: noMural ? 'curtiu seu comentário no mural' : (n.alvo_tipo === 'resultado' ? 'curtiu seu resultado no Mural' : ((n.texto && n.texto !== '❤️') ? 'reagiu ' + n.texto + ' ao seu post' : 'curtiu seu post')),
@@ -23205,6 +23221,8 @@ function _notifAbrir(el) {
   if (tipo === 'medalha') { abrirQuadroMedalhas(); return; }
   if (tipo === 'distintivo') { navegar('perfil'); return; }
   if (tipo === 'mensalidade') { navegar('matricula'); return; }
+  if (tipo === 'aviso_equipe') { if (window.Moderacao) Moderacao.verRegras(); return; }   // o número do aviso é o da denúncia, não de um post: nunca cai no Feed
+  if (tipo === 'denuncia_resolvida') return;
   if (tipo === 'curtida_chat') { _centralTab = 'chat'; navegar('mensagens'); return; }
   if (tipo === 'dm') { _centralTab = 'chat'; _centralChatTarget = 'a:' + alvo; _chatAberta = true; navegar('mensagens'); return; }
   if (tipo === 'nutri_resposta') { navegar('nutricao'); return; }
@@ -23643,7 +23661,7 @@ function mostrarTermos(obrigatorio) {
       ${!obrigatorio ? '<button class="btn-back" onclick="trocarView(\'home\')">← Voltar</button>' : ''}
       <h2 style="font-size:18px;font-weight:900;margin:12px 0 16px;">Termos de Uso e Condições</h2>
       <div style="max-height:55vh;overflow-y:auto;padding:20px;background:${cardBg};border:1px solid ${borderC};border-radius:14px;font-size:13px;color:${txtC};line-height:1.7;">
-        <p style="margin-bottom:12px;"><b>Última atualização:</b> Maio de 2026</p>
+        <p style="margin-bottom:12px;"><b>Última atualização:</b> Novembro de 2026</p>
         <p style="font-size:11px;color:#888;margin-bottom:16px;"><b>INTUS FIT</b> · CNPJ 61.942.499/0001-40<br>Responsável técnico: Luiz Eduardo Gasparoni Nunes, CREF 25204-G/PR</p>
 
         <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">1. Aceitação dos Termos</h3>
@@ -23667,16 +23685,23 @@ function mostrarTermos(obrigatorio) {
         <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">7. Limitação de Responsabilidade</h3>
         <p>O Intus Fit e seu responsável técnico não se responsabilizam por: (a) lesões decorrentes da execução incorreta de exercícios; (b) uso do app sem orientação profissional presencial quando necessário; (c) indisponibilidade temporária da plataforma por motivos técnicos. Todo treino deve ser realizado com atenção às orientações. Em caso de dor, desconforto ou mal-estar, interrompa imediatamente e consulte um profissional de saúde.</p>
 
-        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">8. Propriedade Intelectual</h3>
+        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">8. Regras da Comunidade e Conteúdo dos Usuários</h3>
+        <p>O Intus Fit tem recursos em que os alunos publicam e conversam entre si (Feed, comentários, mural dos membros, quadro de resultados, mensagens, turmas e perfil). Você é responsável por tudo o que publica, comenta ou envia por esses recursos e concorda em não publicar, comentar nem enviar: (a) ofensa, assédio, bullying, ameaça ou discriminação de qualquer natureza; (b) nudez, conteúdo sexual ou imagem íntima; (c) violência, automutilação ou incentivo a transtorno alimentar; (d) venda, compra ou incentivo ao uso de anabolizantes, drogas ou medicamentos sem prescrição; (e) spam, golpe, propaganda não autorizada ou perfil falso; (f) texto, foto ou vídeo de outra pessoa sem a autorização dela.</p>
+        <p style="margin-top:8px;"><strong>Tolerância zero.</strong> Não toleramos conteúdo impróprio nem usuários abusivos. O conteúdo que descumprir estas regras é removido, e quem insistir pode ser suspenso de publicar, comentar e enviar mensagens, ou excluído da comunidade. A suspensão não afeta treino, cardio, ranking e nutrição.</p>
+        <p style="margin-top:8px;"><strong>Filtro e moderação.</strong> Os textos passam por um filtro automático de termos graves antes de serem publicados, e a equipe da Intus modera a comunidade.</p>
+        <p style="margin-top:8px;"><strong>Denunciar e bloquear.</strong> Em cada publicação, comentário, mensagem, resultado e perfil há a opção Denunciar, e no perfil de cada pessoa há a opção Bloquear. Quem é bloqueado deixa de ver você e de interagir com você, e você pode desbloquear quando quiser em Meu perfil › Privacidade › Pessoas bloqueadas. A denúncia é sigilosa: a pessoa denunciada não sabe quem denunciou.</p>
+        <p style="margin-top:8px;"><strong>Prazo de resposta.</strong> A equipe analisa as denúncias em até 24 horas e avisa, pelo próprio app, quando a análise termina. Se você acha que uma decisão foi injusta, escreva para contato@intusfit.com.br.</p>
+
+        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">9. Propriedade Intelectual</h3>
         <p>Todo o conteúdo, design, código-fonte, metodologias e a marca Intus Fit são protegidos por direitos autorais e propriedade intelectual. É proibida a reprodução, cópia, distribuição ou engenharia reversa sem autorização expressa por escrito.</p>
 
-        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">9. Alterações nos Termos</h3>
+        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">10. Alterações nos Termos</h3>
         <p>Estes termos podem ser atualizados a qualquer momento. Alterações significativas serão comunicadas pelo app. A continuidade do uso após notificação implica aceitação das novas condições.</p>
 
-        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">10. Foro e Legislação Aplicável</h3>
+        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">11. Foro e Legislação Aplicável</h3>
         <p>Este termo é regido pela legislação brasileira. Fica eleito o foro da comarca de Cascavel/PR para dirimir quaisquer questões relacionadas a estes Termos.</p>
 
-        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">11. Contato</h3>
+        <h3 style="font-size:14px;margin:16px 0 6px;color:${isLight?'#111':'#fff'};">12. Contato</h3>
         <p><b>INTUS FIT</b><br>Responsável: Luiz Nunes · CREF 25204-G/PR<br>E-mail: contato@intusfit.com.br<br>Suporte: contato@intusfit.com.br<br>Rua Rio de Janeiro, 3002, Centro<br>Cascavel/PR, CEP 85801-031</p>
       </div>
 
@@ -24487,7 +24512,7 @@ function _renderChatConversa(isLight, bgCard, borderC, brand, muted, txt, profs)
   if (dest.tipo === 'amigo') {
     corpo = _dm.carregando ? '<div style="text-align:center;padding:40px 0;"><div class="spinner"></div></div>'
       : (_dm.msgs.length === 0 ? vazio('Comece a conversa com ' + esc(dest.nome.split(' ')[0]) + '!')
-        : comDias(_dm.msgs.map(m => ({ q: m.quando, html: balao(m.meu, esc(m.texto), m.quando, m.meu ? '<span data-id="' + Number(m.id) + '" onclick="dmExcluir(this)" title="Excluir mensagem" style="cursor:pointer;font-size:11px;opacity:.6;float:left;margin-right:8px;">🗑️</span>' : '') }))));
+        : comDias(_dm.msgs.map(m => ({ q: m.quando, html: balao(m.meu, esc(m.texto), m.quando, m.meu ? '<span data-id="' + Number(m.id) + '" onclick="dmExcluir(this)" title="Excluir mensagem" style="cursor:pointer;font-size:11px;opacity:.6;float:left;margin-right:8px;">🗑️</span>' : ((window.Moderacao && m.id) ? Moderacao.iconeHtml('dm', m.id, dest.id, dest.nome, 'inherit', 'float:right;margin-left:8px;') : '')) }))));
   } else {
     const ms = _chatMsgsDe(dest);
     corpo = ms.length === 0 ? vazio('Mande uma mensagem para ' + (dest.tipo === 'equipe' ? 'a equipe' : esc(dest.nome.split(' ')[0])) + '.')
@@ -24508,6 +24533,7 @@ function _renderChatConversa(isLight, bgCard, borderC, brand, muted, txt, profs)
         </div>
       </div>
       ${verPerfil ? '<span style="font-size:11.5px;font-weight:700;color:' + brand + ';flex-shrink:0;">Perfil ›</span>' : ''}
+      ${(dest.tipo === 'amigo' && window.Moderacao) ? Moderacao.botaoMaisHtml(dest.id, dest.nome) : ''}
     </div>
 
     <div id="aluno-chat-body" style="max-height:calc(100vh - 270px);min-height:38vh;overflow-y:auto;padding:12px 2px;display:flex;flex-direction:column;gap:6px;">${corpo}</div>
@@ -24629,6 +24655,7 @@ async function enviarMsgAluno() {
   const inp = document.getElementById('aluno-msg-input');
   const texto = (inp?.value || '').trim();
   if (!texto) return;
+  if (window.Moderacao && _chatDestino().tipo === 'amigo' && !Moderacao.regrasBarra()) return;   // Regras da Comunidade aceitas antes de escrever a outro aluno (exigência das lojas)
   inp.value = '';
   try {
     const dest = _chatDestino();

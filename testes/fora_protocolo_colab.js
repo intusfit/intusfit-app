@@ -26,7 +26,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(corpo) });
   });
   await page.route(/\/app\/api\/(?!treinos\.php|catalogo\.php.*action=(amizades|parcerias|turmas|desafios_aluno|pessoas_mencionaveis))/, r => r.abort('failed'));
-  await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); });
+  await page.addInitScript(() => { localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' })); localStorage.setItem('intus-regras-ok-7', '2026-11'); });
   await page.goto('http://127.0.0.1:8103/aluno.html', { waitUntil: 'domcontentloaded' });
   for (let i = 0; i < 80; i++) { if (await page.evaluate(() => typeof abrirTreinoForaProtocolo === 'function' && typeof _fpColabCartao === 'function' && typeof API !== 'undefined').catch(() => false)) break; await page.waitForTimeout(250); }
   await page.waitForTimeout(1200);
