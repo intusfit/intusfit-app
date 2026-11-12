@@ -27,7 +27,8 @@ const SESSOES = [
   const browser = await chromium.launch();
   const resultados = {};
   for (const t of TELAS) {
-    const page = await browser.newPage();
+    // serviceWorkers: 'block': o _mock.js registra o sw.js e, quando ele ativa, faz location.reload(): no CI isso destruía o contexto no meio do teste
+    const page = await browser.newPage({ serviceWorkers: 'block' });
     await page.addInitScript((papel) => {
       localStorage.setItem('mx-token', 'teste');
       localStorage.setItem('mx-user', JSON.stringify(papel === 'aluno'

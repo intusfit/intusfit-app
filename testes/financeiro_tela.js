@@ -19,7 +19,7 @@ const MENS=[
 ];
 (async()=>{
  const b=await chromium.launch();
- const p=await b.newPage({viewport:{width:1400,height:900}});
+ const p=await b.newPage({viewport:{width:1400,height:900},serviceWorkers:'block'});   // sem service worker: o _mock.js recarrega a página quando ele ativa
  const erros=[]; p.on('pageerror',e=>erros.push(e.message));
  await p.route(u=>u.href.includes('.php'),r=>{
    const u=r.request().url();

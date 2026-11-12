@@ -36,7 +36,8 @@ function eq(rot, obtido, esperado) {
   ];
   for (const { arq: tela, marco, temRankReg } of TELAS) {
     console.log('\n══ ' + tela + ' ══');
-    const page = await browser.newPage();
+    // serviceWorkers: 'block': o _mock.js registra o sw.js e, quando ele ativa, faz location.reload(): no CI isso destruía o contexto no meio do teste
+    const page = await browser.newPage({ serviceWorkers: 'block' });
     // As telas chutam para o login sem sessao. Semeamos uma sessao de mentira
     // so para a pagina desenhar — o teste e sobre a pontuacao, nao sobre login.
     // O papel vem do NOME DA TELA, nunca do pathname atual: o init script roda
