@@ -4314,6 +4314,10 @@ const API = {
   salvarNutriConteudo: (obj) => apiFetch('/catalogo.php?action=nutri_conteudo', { method: obj.idconteudo ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
   excluirNutriConteudo: (id) => apiFetch('/catalogo.php?action=nutri_conteudo&id=' + id, { method: 'DELETE' }),
   importarNutriConteudo: () => apiFetch('/catalogo.php?action=nutri_conteudo', { method: 'POST', body: JSON.stringify({ subacao: 'importar' }) }),
+  // Biblioteca da equipe: grupos alimentares e refeições modelo (tabela intus_nutri_biblioteca).
+  listarNutriBiblioteca: (tipo) => apiFetch('/catalogo.php?action=nutri_biblioteca' + (tipo ? '&tipo=' + tipo : '')),
+  salvarNutriBiblioteca: (obj) => apiFetch('/catalogo.php?action=nutri_biblioteca', { method: obj.idbib ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
+  excluirNutriBiblioteca: (id) => apiFetch('/catalogo.php?action=nutri_biblioteca&id=' + id, { method: 'DELETE' }),
   // Medidas caseiras que a equipe cadastra para qualquer alimento (ex.: 1 pote = 170 g).
   listarMedidasEquipe: () => apiFetch('/catalogo.php?action=alimento_medidas'),
   salvarMedidaEquipe: (d) => apiFetch('/catalogo.php?action=alimento_medidas', { method: 'POST', body: JSON.stringify(d) }),

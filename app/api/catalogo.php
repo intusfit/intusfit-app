@@ -346,6 +346,23 @@ function ensureCatalogoTables(PDO $pdo) {
     ");
     _intusGarantirUtf8mb4($pdo, 'intus_nutri_conteudo', ['titulo', 'dados']);
 
+    // Biblioteca da nutri (12/11/2026, autorizada pelo Luiz): grupos alimentares (listas de equivalência por função) e refeições modelo,
+    // compartilhados pela equipe. Uma linha por item: tipo ('grupo' | 'refeicao') + título + dados em JSON. Tabela nova, nada existente é alterado.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_nutri_biblioteca (
+            idbib       INT AUTO_INCREMENT PRIMARY KEY,
+            tipo        VARCHAR(10)  NOT NULL,
+            titulo      VARCHAR(160) NOT NULL,
+            ativo       TINYINT(1)   NOT NULL DEFAULT 1,
+            dados       LONGTEXT     NULL,
+            idprofessor INT          NOT NULL DEFAULT 0,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_bib_tipo (tipo, ativo)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    _intusGarantirUtf8mb4($pdo, 'intus_nutri_biblioteca', ['titulo', 'dados']);
+
     // Posts colaborativos: o autor convida amigos (quem treinou junto); o convite é uma solicitação. Só depois que o convidado ACEITA o
     // post passa a aparecer como colaborativo, no perfil dele e para quem vê. Recusada fica gravada para não gerar convite repetido.
     $pdo->exec("
@@ -1179,7 +1196,7 @@ $_PUBLICAS = [
 ];
 
 // Rotas que so professor/admin acessa, em qualquer metodo.
-$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'acessos', 'acessos_painel'];
+$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'nutri_biblioteca', 'acessos', 'acessos_painel'];
 // So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
 // alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
 $_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config', 'conversao_tabelas'];
@@ -1216,10 +1233,10 @@ if ($_tokValido && $_ehAluno && $method === 'POST' && in_array($action, ['feed_p
 }
 // PERMISSÃO DE ESCRITA da equipe no servidor (antes só o painel escondia o botão): alongamentos (al), avaliações (av), plano e conteúdo de nutrição, alimentos e medidas (nt).
 // Aluno e administrador não passam por aqui (o aluno tem as travas próprias de cada rota).
-$_PERM_ESCRITA_CAT = ['alongamentos' => 'al', 'avaliacoes' => 'av', 'nutricao' => 'nt', 'nutri_conteudo' => 'nt', 'meus_alimentos' => 'nt', 'alimento_medidas' => 'nt'];
+$_PERM_ESCRITA_CAT = ['alongamentos' => 'al', 'avaliacoes' => 'av', 'nutricao' => 'nt', 'nutri_conteudo' => 'nt', 'meus_alimentos' => 'nt', 'alimento_medidas' => 'nt', 'nutri_biblioteca' => 'nt'];
 if ($_tokValido && !$_ehAluno && isset($_PERM_ESCRITA_CAT[$action])) {
-    // Apagar o próprio alimento ou medida durante a prescrição não exige "excluir plano": basta poder editar nutrição.
-    $_mEf = ($method === 'DELETE' && in_array($action, ['meus_alimentos', 'alimento_medidas'], true)) ? 'PUT' : $method;
+    // Apagar o próprio alimento, medida ou item da biblioteca durante a prescrição não exige "excluir plano": basta poder editar nutrição.
+    $_mEf = ($method === 'DELETE' && in_array($action, ['meus_alimentos', 'alimento_medidas', 'nutri_biblioteca'], true)) ? 'PUT' : $method;
     if (!intusPermissaoEscrita($pdo, $_ctx, $_PERM_ESCRITA_CAT[$action], $_mEf)) $_negar(403, 'sem permissao para esta acao (' . $_PERM_ESCRITA_CAT[$action] . ')');
 }
 
@@ -4860,6 +4877,99 @@ if ($action === 'nutri_dia') {
         $ml = max(0, min(10000, (int)($b['agua_ml'] ?? 0)));
         $pdo->prepare("INSERT INTO intus_nutri_dia (idatleta, data, agua_ml) VALUES (?,?,?) ON DUPLICATE KEY UPDATE agua_ml = VALUES(agua_ml)")->execute([$_autorId, $data, $ml]);
         echo json_encode(['ok' => true, 'agua_ml' => $ml]);
+        exit;
+    }
+}
+
+// ═══════════════ NUTRIÇÃO: biblioteca da equipe (grupos alimentares e refeições modelo) ═══════════════
+// GET (equipe): todos os itens (?tipo=grupo|refeicao filtra). POST {tipo, titulo, dados}: cria. PUT {idbib, titulo?, dados?, ativo?}: só quem criou ou o admin.
+// DELETE ?id=: só quem criou ou o admin. Plano já prescrito guarda os itens dentro dele, então apagar daqui não muda plano nenhum.
+// grupo:   dados = { funcao: CHO|PRO|LIP|VOLUME|MISTO, itens: [{ food_id, nome }] }     (até 80 alimentos)
+// refeicao: dados = { nome, horario, nota, itens_estruturados: [...] }                  (itens no mesmo formato do plano, até 40)
+if ($action === 'nutri_biblioteca') {
+    if ($_ehAluno) { $_negar(403, 'apenas a equipe'); }
+    $_bibProf = (int)($_ctx['idusuario'] ?? 0);
+    if ($_bibProf <= 0) { $_negar(401, 'sessao sem identidade'); }
+    $_bibTxt = function ($v, int $max): string { return mb_substr(trim((string)$v), 0, $max); };
+    $_bibLimpar = function (string $tipo, $d) use ($_bibTxt) {
+        $d = is_array($d) ? $d : [];
+        if ($tipo === 'grupo') {
+            $f = strtoupper($_bibTxt($d['funcao'] ?? '', 8));
+            if (!in_array($f, ['CHO', 'PRO', 'LIP', 'VOLUME', 'MISTO'], true)) $f = 'MISTO';
+            $itens = [];
+            foreach (is_array($d['itens'] ?? null) ? $d['itens'] : [] as $it) {
+                if (!is_array($it)) continue;
+                $fid = (int)($it['food_id'] ?? 0);
+                $nome = $_bibTxt($it['nome'] ?? '', 120);
+                if ($fid <= 0 || $nome === '') continue;
+                $itens[] = ['food_id' => $fid, 'nome' => $nome];
+                if (count($itens) >= 80) break;
+            }
+            return ['funcao' => $f, 'itens' => $itens];
+        }
+        // refeição modelo: o item mantém o formato do plano (sem validar campo a campo), mas só entra estrutura simples e de tamanho limitado
+        $itens = [];
+        foreach (is_array($d['itens_estruturados'] ?? null) ? $d['itens_estruturados'] : [] as $it) {
+            if (!is_array($it)) continue;
+            $itens[] = json_decode((string)json_encode($it, JSON_UNESCAPED_UNICODE), true);
+            if (count($itens) >= 40) break;
+        }
+        return ['nome' => $_bibTxt($d['nome'] ?? '', 80), 'horario' => $_bibTxt($d['horario'] ?? '', 5), 'nota' => $_bibTxt($d['nota'] ?? '', 600), 'itens_estruturados' => $itens];
+    };
+    $_bibSaida = function (array $r) use ($_bibProf) {
+        $d = json_decode((string)($r['dados'] ?? ''), true);
+        return ['idbib' => (int)$r['idbib'], 'tipo' => $r['tipo'], 'titulo' => $r['titulo'], 'ativo' => (int)$r['ativo'], 'dados' => is_array($d) ? $d : new stdClass(),
+                'idprofessor' => (int)$r['idprofessor'], 'meu' => ((int)$r['idprofessor'] === $_bibProf)];
+    };
+    if ($method === 'GET') {
+        $tp = (string)($_GET['tipo'] ?? '');
+        $rows = in_array($tp, ['grupo', 'refeicao'], true)
+            ? $pdo->prepare("SELECT idbib, tipo, titulo, ativo, dados, idprofessor FROM intus_nutri_biblioteca WHERE tipo = ? ORDER BY titulo")
+            : $pdo->prepare("SELECT idbib, tipo, titulo, ativo, dados, idprofessor FROM intus_nutri_biblioteca ORDER BY tipo, titulo");
+        in_array($tp, ['grupo', 'refeicao'], true) ? $rows->execute([$tp]) : $rows->execute();
+        echo json_encode(['itens' => array_map($_bibSaida, $rows->fetchAll(PDO::FETCH_ASSOC))], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($method === 'POST') {
+        $b = jsonBody();
+        $tipo = (string)($b['tipo'] ?? '');
+        if (!in_array($tipo, ['grupo', 'refeicao'], true)) { http_response_code(400); echo json_encode(['error' => 'tipo invalido']); exit; }
+        $titulo = $_bibTxt($b['titulo'] ?? '', 160);
+        if ($titulo === '') { http_response_code(400); echo json_encode(['error' => 'titulo obrigatorio']); exit; }
+        $dados = $_bibLimpar($tipo, $b['dados'] ?? []);
+        if ($tipo === 'grupo' && count($dados['itens']) === 0) { http_response_code(400); echo json_encode(['error' => 'o grupo precisa de pelo menos um alimento']); exit; }
+        $json = json_encode($dados, JSON_UNESCAPED_UNICODE);
+        if (strlen((string)$json) > 90000) { http_response_code(400); echo json_encode(['error' => 'item grande demais']); exit; }
+        $pdo->prepare("INSERT INTO intus_nutri_biblioteca (tipo, titulo, ativo, dados, idprofessor) VALUES (?,?,1,?,?)")->execute([$tipo, $titulo, $json, $_bibProf]);
+        echo json_encode(['ok' => true, 'idbib' => (int)$pdo->lastInsertId()]);
+        exit;
+    }
+    if ($method === 'PUT' || $method === 'DELETE') {
+        $b = $method === 'PUT' ? jsonBody() : [];
+        $id = (int)($b['idbib'] ?? $_GET['id'] ?? 0);
+        if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'id obrigatorio']); exit; }
+        $st = $pdo->prepare("SELECT tipo, idprofessor FROM intus_nutri_biblioteca WHERE idbib = ?");
+        $st->execute([$id]);
+        $lin = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$lin) { if ($method === 'DELETE') { echo json_encode(['ok' => true]); exit; } http_response_code(404); echo json_encode(['error' => 'nao encontrado']); exit; }
+        if ((int)$lin['idprofessor'] !== $_bibProf && empty($_ctx['admin'])) { $_negar(403, 'item criado por outro profissional: so ele ou o admin altera'); }
+        if ($method === 'DELETE') { $pdo->prepare("DELETE FROM intus_nutri_biblioteca WHERE idbib = ?")->execute([$id]); echo json_encode(['ok' => true]); exit; }
+        $sets = []; $vals = [];
+        if (array_key_exists('titulo', $b)) {
+            $t = $_bibTxt($b['titulo'], 160);
+            if ($t === '') { http_response_code(400); echo json_encode(['error' => 'titulo obrigatorio']); exit; }
+            $sets[] = 'titulo = ?'; $vals[] = $t;
+        }
+        if (array_key_exists('ativo', $b)) { $sets[] = 'ativo = ?'; $vals[] = empty($b['ativo']) ? 0 : 1; }
+        if (array_key_exists('dados', $b)) {
+            $dados = $_bibLimpar((string)$lin['tipo'], $b['dados']);
+            if ($lin['tipo'] === 'grupo' && count($dados['itens']) === 0) { http_response_code(400); echo json_encode(['error' => 'o grupo precisa de pelo menos um alimento']); exit; }
+            $json = json_encode($dados, JSON_UNESCAPED_UNICODE);
+            if (strlen((string)$json) > 90000) { http_response_code(400); echo json_encode(['error' => 'item grande demais']); exit; }
+            $sets[] = 'dados = ?'; $vals[] = $json;
+        }
+        if ($sets) { $vals[] = $id; $pdo->prepare("UPDATE intus_nutri_biblioteca SET " . implode(', ', $sets) . " WHERE idbib = ?")->execute($vals); }
+        echo json_encode(['ok' => true]);
         exit;
     }
 }
