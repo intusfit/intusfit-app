@@ -21,7 +21,7 @@ function _ckResp(int $codigo, array $corpo): void {
 
 require_once __DIR__ . '/_ck_intus.php';
 $acao = (string)($_GET['action'] ?? '');
-if ($acao === 'info') _ckResp(200, ['ok' => true] + ick_info());
+if ($acao === 'info') _ckResp(200, ['ok' => true] + ick_info(($_GET['teste'] ?? '') === '1'));
 
 $cfgBanco = @include __DIR__ . '/../config/db.php';
 try {

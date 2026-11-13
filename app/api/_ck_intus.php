@@ -18,6 +18,8 @@ const INTUS_CK_CATALOGO = [
     'treino-dieta' => ['nome' => 'Treino e Dieta',   'periodos' => ['tri' => [3, 1497.00], 'sem' => [6, 2597.00], 'anual' => [12, 4597.00]]],
     'dieta'        => ['nome' => 'Dieta',            'periodos' => ['tri' => [3, 997.00],  'sem' => [6, 1689.00], 'anual' => [12, 2997.00]]],
 ];
+// Produto de teste da equipe: só aparece com ?produto=teste (R$ 5 no trimestral). A matrícula que ele cria leva "Teste" no nome, então o painel a trata como teste.
+const INTUS_CK_TESTE = ['teste' => ['nome' => 'Teste interno do checkout', 'periodos' => ['tri' => [3, 5.00]]]];
 const INTUS_CK_PERIODOS = ['tri' => 'Trimestral', 'sem' => 'Semestral', 'anual' => 'Anual'];
 const INTUS_CK_RETORNO = 'https://intusfit.com.br/compra-confirmada.html';   // domínio cadastrado no Asaas
 
@@ -84,9 +86,11 @@ function ick_telefone($t): string {
 }
 
 /** Catálogo para a página: produtos, períodos, valor e parcelas. */
-function ick_info(): array {
+function ick_catalogo(bool $comTeste = false): array { return $comTeste ? INTUS_CK_CATALOGO + INTUS_CK_TESTE : INTUS_CK_CATALOGO; }
+
+function ick_info(bool $comTeste = false): array {
     $r = [];
-    foreach (INTUS_CK_CATALOGO as $slug => $p) {
+    foreach (ick_catalogo($comTeste) as $slug => $p) {
         $per = [];
         foreach ($p['periodos'] as $k => [$meses, $valor]) $per[] = ['periodo' => $k, 'nome' => INTUS_CK_PERIODOS[$k], 'meses' => $meses, 'valor' => $valor, 'parcelas_max' => $meses];
         $r[] = ['produto' => $slug, 'nome' => $p['nome'], 'periodos' => $per];
@@ -102,8 +106,9 @@ function ick_criar(PDO $pdo, array $b, string $ip): array {
     ick_garantir_tabelas($pdo);
     if (trim((string)($b['site'] ?? '')) !== '') return [200, ['ok' => true]];   // isca de robô
     $produto = (string)($b['produto'] ?? ''); $periodo = (string)($b['periodo'] ?? '');
-    if (!isset(INTUS_CK_CATALOGO[$produto]['periodos'][$periodo])) return [422, ['ok' => false, 'erro' => 'plano_invalido', 'mensagem' => 'Escolha o plano.']];
-    [$meses, $valor] = INTUS_CK_CATALOGO[$produto]['periodos'][$periodo];
+    $cat = ick_catalogo(true);
+    if (!isset($cat[$produto]['periodos'][$periodo])) return [422, ['ok' => false, 'erro' => 'plano_invalido', 'mensagem' => 'Escolha o plano.']];
+    [$meses, $valor] = $cat[$produto]['periodos'][$periodo];
     $nome = trim(preg_replace('/\s+/', ' ', strip_tags((string)($b['nome'] ?? ''))));
     $email = strtolower(trim((string)($b['email'] ?? '')));
     $tel = ick_telefone($b['telefone'] ?? '');
@@ -121,7 +126,7 @@ function ick_criar(PDO $pdo, array $b, string $ip): array {
     $pdo->prepare('INSERT INTO intus_checkout_pedido (token, produto, periodo, meses, nome, email, telefone, cpf, forma, parcelas, valor, ip, status, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         ->execute([$token, $produto, $periodo, $meses, $nome, $email, $tel, $cpf, $forma, $parc, $valor, $ip, 'criado', asaas_agora()]);
     $id = (int)$pdo->lastInsertId();
-    $desc = 'Intus Fit, Consultoria Premium, ' . INTUS_CK_CATALOGO[$produto]['nome'] . ', plano ' . strtolower(INTUS_CK_PERIODOS[$periodo]);
+    $desc = 'Intus Fit, Consultoria Premium, ' . $cat[$produto]['nome'] . ', plano ' . strtolower(INTUS_CK_PERIODOS[$periodo]);
     $chamar = function (string $m, string $c, ?array $corpo = null) use ($pdo) {
         [$st, $j] = asaas_http($pdo, $m, $c, $corpo);
         if ($st < 200 || $st >= 300) throw new RuntimeException(asaas_erro_texto($j, $st), 502);
@@ -176,7 +181,7 @@ function ick_texto_aluno(array $p): string {
 }
 
 function ick_texto_equipe(array $p, string $situacao, ?array $mat = null): string {
-    $prod = INTUS_CK_CATALOGO[$p['produto']]['nome'] ?? $p['produto'];
+    $prod = ick_catalogo(true)[$p['produto']]['nome'] ?? $p['produto'];
     $per = INTUS_CK_PERIODOS[$p['periodo']] ?? $p['periodo'];
     $wa = 'https://wa.me/' . $p['telefone'] . '?text=' . rawurlencode('Oi, ' . explode(' ', $p['nome'])[0] . '! Aqui é a equipe da Intus Fit. Recebemos o seu pagamento e já vamos liberar o seu acesso. Qualquer dúvida é só responder aqui.');
     return $situacao . "\n\nNome: {$p['nome']}\nE-mail: {$p['email']}\nWhatsApp: +{$p['telefone']}\nCPF: {$p['cpf']}\nPlano: $prod, $per\n"

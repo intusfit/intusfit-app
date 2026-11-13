@@ -16,7 +16,7 @@
  * SQL portável (SQLite nos testes, MySQL 5.6 na produção).
  */
 
-const IMA_PLANO_TIPOS = ['treino' => 'Treino', 'dieta' => 'Nutrição', 'treino-dieta' => 'Combo (Treino + Dieta)'];
+const IMA_PLANO_TIPOS = ['treino' => 'Treino', 'dieta' => 'Nutrição', 'treino-dieta' => 'Combo (Treino + Dieta)', 'teste' => 'Teste checkout'];
 const IMA_RECORRENCIA = [3 => 'trimestral', 6 => 'semestral', 12 => 'anual'];
 
 function ima_hoje(): string { return (new DateTime('now', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d'); }

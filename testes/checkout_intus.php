@@ -53,6 +53,11 @@ confere('telefone inválido: 422', 'telefone_invalido', $r['erro']);
 [$st, $r] = ick_criar($pdo, array_merge($dados, ['site' => 'spam']), '10.1.1.1');
 confere('isca de robô não cria pedido nem chama o Asaas', [0, []], [(int)$pdo->query("SELECT COUNT(*) FROM intus_checkout_pedido")->fetchColumn(), $chamadas]);
 
+confere('o produto de teste não aparece na lista pública', 3, count(ick_info()['produtos']));
+confere('com ?teste=1 aparece (R$ 5)', [4, 5.0], [count(ick_info(true)['produtos']), ick_info(true)['produtos'][3]['periodos'][0]['valor']]);
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['produto' => 'teste', 'periodo' => 'tri', 'email' => 'teste@exemplo.com']), '10.1.9.9');
+confere('o produto de teste cria cobrança de R$ 5', [200, 5.0], [$st, (float)$corpos['POST /payments']['value']]);
+$chamadas = []; $corpos = [];
 // ── Pix ──
 [$st, $r] = ick_criar($pdo, $dados, '10.1.1.2');
 $p = $pdo->query("SELECT * FROM intus_checkout_pedido ORDER BY idpedido DESC LIMIT 1")->fetch();
