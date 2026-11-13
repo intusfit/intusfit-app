@@ -544,7 +544,7 @@ let filtroPlanoAtivo = true;   // lista de Planos: Ativos (padrão) ou Inativos,
 function planoAtivo(pl) { return Number(pl && pl.ativo) === 1; }
 let loading = true;
 let dbReady = false;
-let aba = 'dashboard';     // 'dashboard' | 'planos'
+let aba = 'planos';        // Painel e planos na mesma tela. 'dashboard' é apelido de 'planos'
 let painel = null;         // resposta de nutri_painel (planos ativos, registros, água, pesos da carteira)
 let painelCarregando = false, painelErro = false;
 let buscaPainel = '', soAlerta = false;
@@ -590,13 +590,13 @@ function getAtletaDados(id) {
 }
 
 function abasHtml() {
-  return `<div class="nt-tabs"><button class="nt-tab ${aba === 'dashboard' ? 'on' : ''}" onclick="trocarAba('dashboard')">Dashboard</button><button class="nt-tab ${aba === 'planos' ? 'on' : ''}" onclick="trocarAba('planos')">Planos</button><button class="nt-tab ${aba === 'biblioteca' ? 'on' : ''}" onclick="trocarAba('biblioteca')">Biblioteca</button><button class="nt-tab ${aba === 'fotos' ? 'on' : ''}" onclick="trocarAba('fotos')">📷 Fotos das refeições${_fotosPendentesBadge()}</button><button class="nt-tab ${aba === 'conteudo' ? 'on' : ''}" onclick="trocarAba('conteudo')">Receitas e vídeos</button></div>`;
+  return `<div class="nt-tabs"><button class="nt-tab ${aba === 'planos' ? 'on' : ''}" onclick="trocarAba('planos')">Painel e planos</button><button class="nt-tab ${aba === 'biblioteca' ? 'on' : ''}" onclick="trocarAba('biblioteca')">Biblioteca</button><button class="nt-tab ${aba === 'fotos' ? 'on' : ''}" onclick="trocarAba('fotos')">📷 Fotos das refeições${_fotosPendentesBadge()}</button><button class="nt-tab ${aba === 'conteudo' ? 'on' : ''}" onclick="trocarAba('conteudo')">Receitas e vídeos</button></div>`;
 }
 function _fotosPendentesBadge() {
   const n = painel ? _fotosTodas().filter(r => !r.resposta_nutri).length : 0;
   return n ? ` <span style="background:#1d4ed8;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;">${n}</span>` : '';
 }
-function trocarAba(a) { aba = a; if (a === 'biblioteca') { AlimentosDB.load().then(() => bibCarregar()).then(() => { if (aba === 'biblioteca') render(); }); } if (a === 'dashboard' || a === 'fotos') carregarPainel(); if (a === 'conteudo' && !cont.carregado) { carregarConteudo(); return; } render(); }
+function trocarAba(a) { if (a === 'dashboard') a = 'planos'; aba = a; if (a === 'biblioteca') { AlimentosDB.load().then(() => bibCarregar()).then(() => { if (aba === 'biblioteca') render(); }); } if (a === 'planos' || a === 'fotos') carregarPainel(); if (a === 'conteudo' && !cont.carregado) { carregarConteudo(); return; } render(); }
 
 function render() {
   if (aba === 'biblioteca') { main.innerHTML = abasHtml() + bibHtml(); return; }        // não depende da lista de planos
@@ -606,7 +606,7 @@ function render() {
     main.innerHTML = `<div class="empty-state"><p>Carregando planos...</p></div>`;
     return;
   }
-  if (aba === 'dashboard') { main.innerHTML = abasHtml() + dashboardHtml(); return; }
+  if (aba === 'dashboard') aba = 'planos';
   if (aba === 'fotos') { main.innerHTML = abasHtml() + fotosHtml(); return; }
 
   let lista = [...planos].sort((a, b) => {
@@ -619,7 +619,7 @@ function render() {
   lista = lista.filter(pl => planoAtivo(pl) === filtroPlanoAtivo);
   const modoPlanos = VerModo.get('nutricao-planos', 'compacto');
 
-  main.innerHTML = abasHtml() + `
+  main.innerHTML = abasHtml() + dashboardHtml() + `
     <div class="filtros-bar">
       ${ComboBusca.html({ id: 'nt-f-aluno', opcoes: atletas.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(a => ({ v: a.idatleta, t: a.nome })), valor: filtroAtleta || '', vazio: 'Todos os alunos', placeholder: 'Buscar aluno (digite o nome)', onChange: 'filtroAtleta=Number(v)||0;render();' })}
       <button class="btn ${filtroPlanoAtivo ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="filtroPlanoAtivo=true;render();">Ativos (${nAtivos})</button>
@@ -4091,7 +4091,7 @@ async function carregarPainel() {
   painelCarregando = true;
   try { painel = await API.nutriPainel(); painelErro = false; } catch (e) { painelErro = true; }
   painelCarregando = false;
-  if (aba === 'dashboard' || aba === 'fotos') render();
+  if (aba === 'planos' || aba === 'dashboard' || aba === 'fotos') render();
 }
 
 function alunosPainel() {
@@ -4349,7 +4349,7 @@ async function responderRegistro(id) {
     const r = (painel.registros || []).find(g => Number(g.idregistro) === Number(id));
     if (r) r.resposta_nutri = texto;
     showToast(texto ? 'Resposta enviada. O aluno é avisado no app.' : 'Resposta removida.', 'success');
-    if (aba === 'fotos' || aba === 'dashboard') { const a = document.querySelector('.nt-tabs'); if (a) render(); }
+    if (aba === 'fotos' || aba === 'planos') { const a = document.querySelector('.nt-tabs'); if (a) render(); }
   } catch (e) { showToast('Não consegui enviar a resposta.', 'error'); }
 }
 async function removerFotoRegistro(id) {
@@ -4360,7 +4360,7 @@ async function removerFotoRegistro(id) {
     if (r) r.foto = null;
     const x = (painel.registros || []).find(g => Number(g.idregistro) === Number(id));
     closeModal();
-    if (aba === 'fotos' || aba === 'dashboard') render(); else if (r) abrirAluno(r.idatleta);
+    if (aba === 'fotos' || aba === 'planos') render(); else if (r) abrirAluno(r.idatleta);
     showToast('Foto removida.', 'success');
   } catch (e) { showToast('Não consegui remover a foto.', 'error'); }
 }
@@ -4368,7 +4368,7 @@ async function removerFotoRegistro(id) {
 carregar();
 carregarPainel();
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { carregar(); if (aba === 'dashboard' || aba === 'fotos') carregarPainel(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { carregar(); if (aba === 'planos' || aba === 'fotos') carregarPainel(); } });
 </script>
 </body>
 </html>
