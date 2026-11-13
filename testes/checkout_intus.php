@@ -1,0 +1,107 @@
+<?php
+/**
+ * Testes do checkout próprio da Intus (app/api/_ck_intus.php): catálogo, pedido, Pix, cartão parcelado, aviso de pagamento e o que NÃO acontece sozinho.
+ *
+ * Rodar (PHP 8.2 com mbstring, openssl, curl e pdo_sqlite):  php testes/checkout_intus.php
+ * O banco é SQLite em memória e o Asaas é simulado ($GLOBALS['asaasHttpFake']): nenhuma chamada sai daqui e nenhum e-mail é enviado.
+ */
+require_once __DIR__ . '/../app/api/_ck_intus.php';
+
+$ok = 0; $falhas = [];
+function confere(string $nome, $esperado, $obtido): void {
+    global $ok, $falhas;
+    if ($esperado === $obtido) { $ok++; return; }
+    $falhas[] = $nome . ' | esperado: ' . var_export($esperado, true) . ' | obtido: ' . var_export($obtido, true);
+}
+function banco(): PDO {
+    $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+    asaas_garantir_tabelas($pdo);
+    $pdo->exec("CREATE TABLE intus_atleta (idatleta INTEGER PRIMARY KEY, nome TEXT)");
+    $pdo->exec("CREATE TABLE intus_mensalidade (idmensalidade INTEGER PRIMARY KEY, idatleta INTEGER)");
+    return $pdo;
+}
+
+$pdo = banco();
+asaas_cfg_gravar($pdo, ['apikey' => '$aact_FAKE_chave_de_teste_1234567890', 'token' => 'tok-' . str_repeat('b', 44), 'ambiente' => 'producao']);
+$chamadas = []; $corpos = [];
+$GLOBALS['asaasHttpFake'] = function ($m, $url, $corpo) use (&$chamadas, &$corpos) {
+    $c = $m . ' ' . preg_replace('~^https://[^/]+/v3~', '', $url);
+    $chamadas[] = $c; $corpos[$c] = $corpo;
+    if ($c === 'POST /customers') return [200, ['id' => 'cus_i' . count($chamadas)]];
+    if ($c === 'POST /payments') return [200, ['id' => 'pay_i' . count($chamadas), 'invoiceUrl' => 'https://asaas.test/i/' . count($chamadas), 'installment' => isset($corpo['installmentCount']) ? 'ins_i' . count($chamadas) : null]];
+    if (strpos($c, '/pixQrCode') !== false) return [200, ['encodedImage' => 'QUJD', 'payload' => '00020126INTUSPIX', 'expirationDate' => '2026-12-31 23:59:59']];
+    return [404, ['errors' => [['description' => 'nao mockado ' . $c]]]];
+};
+$dados = ['produto' => 'treino-dieta', 'periodo' => 'anual', 'nome' => 'Carlos Pereira', 'email' => 'Carlos.P@Exemplo.com', 'telefone' => '(45) 99999-0001', 'cpf' => '529.982.247-25', 'forma' => 'pix'];
+
+// ── Catálogo ──
+$info = ick_info();
+confere('3 produtos', 3, count($info['produtos']));
+$td = array_values(array_filter($info['produtos'], function ($p) { return $p['produto'] === 'treino-dieta'; }))[0];
+confere('Treino e Dieta anual: R$ 4.597 em até 12x', [4597.0, 12], [$td['periodos'][2]['valor'], $td['periodos'][2]['parcelas_max']]);
+
+// ── Validações ──
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['produto' => 'inexistente']), '10.1.1.1');
+confere('produto que não existe: 422', 422, $st);
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['cpf' => '111.111.111-11']), '10.1.1.1');
+confere('cpf inválido: 422', 'cpf_invalido', $r['erro']);
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['nome' => 'Carlos']), '10.1.1.1');
+confere('nome sem sobrenome: 422', 'nome_invalido', $r['erro']);
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['telefone' => '123']), '10.1.1.1');
+confere('telefone inválido: 422', 'telefone_invalido', $r['erro']);
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['site' => 'spam']), '10.1.1.1');
+confere('isca de robô não cria pedido nem chama o Asaas', [0, []], [(int)$pdo->query("SELECT COUNT(*) FROM intus_checkout_pedido")->fetchColumn(), $chamadas]);
+
+// ── Pix ──
+[$st, $r] = ick_criar($pdo, $dados, '10.1.1.2');
+$p = $pdo->query("SELECT * FROM intus_checkout_pedido ORDER BY idpedido DESC LIMIT 1")->fetch();
+confere('Pix devolve o QR Code e o copia e cola', ['pix', '00020126INTUSPIX', 4597.0], [$r['forma'], $r['pix']['copia'], $r['valor']]);
+confere('pedido guarda valor do catálogo, CPF em dígitos e telefone com DDI', [4597.0, '52998224725', '5545999990001', 'carlos.p@exemplo.com'], [(float)$p['valor'], $p['cpf'], $p['telefone'], $p['email']]);
+$corpo = $corpos['POST /payments'];
+confere('cobrança Pix: valor do catálogo, referência e retorno', ['PIX', 4597.0, 'intus:ck:' . $p['idpedido']], [$corpo['billingType'], (float)$corpo['value'], $corpo['externalReference']]);
+confere('o retorno é no domínio cadastrado no Asaas', true, strpos($corpo['callback']['successUrl'], 'https://intusfit.com.br/') === 0);
+confere('o valor não vem do navegador (um valor falso é ignorado)', 4597.0, (function () use ($pdo, $dados) { ick_criar($pdo, array_merge($dados, ['valor' => 1, 'email' => 'v@exemplo.com']), '10.1.1.3'); return (float)$GLOBALS['corpos']['POST /payments']['value']; })());
+[$st, $s] = ick_status($pdo, $p['token']);
+confere('antes do pagamento: aguardando', 'aguardando', $s['status']);
+
+// ── Cartão parcelado ──
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['email' => 'c2@exemplo.com', 'forma' => 'cartao', 'parcelas' => 12, 'periodo' => 'anual']), '10.1.1.4');
+$corpo = $corpos['POST /payments'];
+confere('cartão: vai para a tela do Asaas em 12x sem juros', ['redirecionar', 'CREDIT_CARD', 12, 4597.0, false], [$r['forma'], $corpo['billingType'], $corpo['installmentCount'], (float)$corpo['totalValue'], isset($corpo['value'])]);
+$pc = $pdo->query("SELECT * FROM intus_checkout_pedido ORDER BY idpedido DESC LIMIT 1")->fetch();
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['email' => 'c3@exemplo.com', 'forma' => 'cartao', 'parcelas' => 12, 'periodo' => 'tri']), '10.1.1.5');
+confere('o máximo de parcelas segue o período (trimestral: 3)', 3, (int)$corpos['POST /payments']['installmentCount']);
+
+// ── Aviso de pagamento: marca o pedido, avisa a equipe e NÃO mexe em aluno nem matrícula ──
+$antesAt = (int)$pdo->query("SELECT COUNT(*) FROM intus_atleta")->fetchColumn(); $antesMe = (int)$pdo->query("SELECT COUNT(*) FROM intus_mensalidade")->fetchColumn();
+$aviso = function ($ev, $pay) { return ['event' => $ev, 'payment' => $pay]; };
+$tok = 'tok-' . str_repeat('b', 44);
+[$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_RECEIVED', ['id' => $p['asaas_ref'], 'externalReference' => 'intus:ck:' . $p['idpedido'], 'billingType' => 'PIX', 'value' => 4597.0]), $tok);
+confere('aviso de Pix pago marca o pedido (o e-mail não sai no teste)', 200, $st);
+confere('resultado do checkout', true, strpos($r['resultado'], 'checkout_paga') === 0);
+[$st, $s] = ick_status($pdo, $p['token']);
+confere('depois do aviso: pago', 'pago', $s['status']);
+confere('nenhum aluno nem matrícula é criado sozinho', [$antesAt, $antesMe], [(int)$pdo->query("SELECT COUNT(*) FROM intus_atleta")->fetchColumn(), (int)$pdo->query("SELECT COUNT(*) FROM intus_mensalidade")->fetchColumn()]);
+[$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_CONFIRMED', ['id' => $p['asaas_ref'], 'externalReference' => 'intus:ck:' . $p['idpedido'], 'value' => 4597.0]), $tok);
+confere('o mesmo pedido avisado de novo é "repetido"', 'repetido', $r['resultado']);
+// parcela de cartão: achada pelo parcelamento, mesmo sem a referência
+[$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_RECEIVED', ['id' => 'pay_parcela_x', 'installment' => $pc['asaas_parc'], 'billingType' => 'CREDIT_CARD', 'value' => 383.08]), $tok);
+confere('parcela do cartão é achada pelo parcelamento', true, strpos($r['resultado'], 'checkout_paga') === 0);
+$pc2 = $pdo->query("SELECT status FROM intus_checkout_pedido WHERE idpedido = " . (int)$pc['idpedido'])->fetchColumn();
+confere('pedido do cartão fica pago', 'pago', $pc2);
+[$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_REFUNDED', ['id' => $p['asaas_ref'], 'externalReference' => 'intus:ck:' . $p['idpedido']]), $tok);
+confere('estorno marca o pedido', 'checkout_estornada', $r['resultado']);
+// cobrança que não é do checkout continua no caminho de sempre
+[$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_RECEIVED', ['id' => 'pay_outra', 'externalReference' => 'outra:coisa', 'value' => 100]), $tok);
+confere('cobrança de outra origem segue ignorada', 'outra_origem', $r['resultado']);
+// falha do Asaas
+$GLOBALS['asaasHttpFake'] = function () { throw new RuntimeException('asaas_fora_do_ar', 502); };
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['email' => 'rede@exemplo.com']), '10.1.1.6');
+confere('Asaas fora do ar: 502 e pedido marcado como falhou', [502, 'falhou'], [$st, $pdo->query("SELECT status FROM intus_checkout_pedido WHERE email = 'rede@exemplo.com'")->fetchColumn()]);
+// limite por IP
+$GLOBALS['asaasHttpFake'] = function ($m, $url, $corpo) { return strpos($url, 'customers') !== false ? [200, ['id' => 'c']] : (strpos($url, 'pixQrCode') !== false ? [200, ['encodedImage' => '', 'payload' => 'x']] : [200, ['id' => 'p', 'invoiceUrl' => 'u']]); };
+for ($i = 0; $i < 12; $i++) [$st] = ick_criar($pdo, array_merge($dados, ['email' => "l$i@exemplo.com"]), '10.1.1.9');
+confere('muitos pedidos do mesmo IP: 429', 429, $st);
+
+echo $ok . " ok\n";
+if ($falhas) { echo count($falhas) . " FALHA(S):\n  " . implode("\n  ", $falhas) . "\n"; exit(1); }
