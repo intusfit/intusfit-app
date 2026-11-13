@@ -252,7 +252,9 @@
         var med = medidaDoCatalogo(c.f, a.unidade, cat);
         c.med = med;
         c.kcal100 = cat.por100(c.f).energia_kcal || 0;
-        c.dev = (kcalPdf > 0 && med && c.kcal100 > 0) ? Math.abs(c.kcal100 * (q * med.gramas) / 100 - kcalPdf) / kcalPdf : (kcalPdf > 0 ? 0.3 : 0);
+        // Com as gramas escritas no arquivo (Gaia mostra "4 Unidades (200g)") a conferência das calorias não depende da medida do catálogo.
+        var gTot = a.gramas > 0 ? a.gramas : (med ? q * med.gramas : 0);
+        c.dev = (kcalPdf > 0 && gTot > 0 && c.kcal100 > 0) ? Math.abs(c.kcal100 * gTot / 100 - kcalPdf) / kcalPdf : (kcalPdf > 0 ? 0.3 : 0);
         c.ordem = c.score - c.dev * 0.5 + (med ? 0.05 : 0);
       });
       pool.sort(function (x, y) { return y.ordem - x.ordem; });
@@ -263,7 +265,7 @@
         if (ehG) {
           if (escolhido.dev > limite) escolhido = null;
         } else if (!escolhido.med) {
-          if (!unico) escolhido = null;                              // medida caseira desconhecida e vários alimentos possíveis: não chuta
+          if (!unico && !(a.gramas > 0)) escolhido = null;           // medida caseira desconhecida e vários alimentos possíveis: não chuta (a menos que o arquivo traga as gramas)
         } else if (escolhido.dev > limite) {
           // O PDF pesa a medida diferente do catálogo (ex.: colher de sopa de azeite = 7 g, não 13 g): vale o peso que bate com as calorias dele.
           var g1 = escolhido.kcal100 > 0 ? kcalPdf / escolhido.kcal100 * 100 / q : 0;
@@ -274,6 +276,9 @@
     }
     if (escolhido) {
       var med = escolhido.med;
+      if (!med && a.gramas > 0 && q > 0 && !ehG) {                    // o arquivo traz as gramas: 1 medida = gramas / quantidade
+        med = { id: 'pers_' + slug(a.unidade), nome: maiuscula(a.unidade.toLowerCase()), gramas: r1(a.gramas / q) };
+      }
       if (!med && kcalPdf > 0 && escolhido.kcal100 > 0 && q > 0) {   // o PDF só dá a medida caseira: o peso sai das calorias dele
         med = { id: 'pers_' + slug(a.unidade), nome: maiuscula(a.unidade.toLowerCase()), gramas: r1(kcalPdf / escolhido.kcal100 * 100 / q) };
       }
@@ -341,7 +346,26 @@
     return { plano: plano, relatorio: relatorio, avisos: estr.avisos };
   }
 
-  var api = { norm: norm, tokens: tokens, lerItens: lerItens, interpretar: interpretar, dividirOU: dividirOU, montarPlano: montarPlano };
+  // Leitura feita pelo Claude (catalogo.php?action=nutri_importar_ia) -> mesma estrutura que interpretar() devolve, para montarPlano() casar com a base.
+  function deIA(p) {
+    function linha(it) {
+      var q = Number(it.quantidade) || 0;
+      var alt = (it.substitutos || []).map(function (s) {
+        return (Number(s.quantidade) > 0) ? { nome: s.nome, qtd: Number(s.quantidade), unidade: s.unidade || 'g', gramas: Number(s.gramas) || 0 } : { texto: s.nome };
+      });
+      return { principal: { nome: it.nome, qtd: q, unidade: it.unidade || (q > 0 ? 'g' : ''), gramas: Number(it.gramas) || 0 }, kcal: Number(it.kcal) || 0, alternativas: alt, original: it.nome };
+    }
+    function secao(o, nome) { return { nome: nome, itens: (o.itens || []).map(linha), nota: o.observacao || '' }; }
+    var avisos = [];
+    var refeicoes = (p.refeicoes || []).map(function (r) {
+      var ops = (r.opcoes || []).filter(function (o) { return o.itens && o.itens.length; });
+      if (!ops.length) return null;
+      return { nome: r.nome, horario: r.horario || '', principal: secao(ops[0], r.nome), subs: ops.slice(1).map(function (o, k) { return secao(o, o.nome || ('Opção ' + (k + 2))); }) };
+    }).filter(Boolean);
+    return { aluno: '', titulo: p.titulo || 'Plano Alimentar', objetivo: '', data: '', avisos: avisos, refeicoes: refeicoes };
+  }
+
+  var api = { deIA: deIA, norm: norm, tokens: tokens, lerItens: lerItens, interpretar: interpretar, dividirOU: dividirOU, montarPlano: montarPlano };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ImportarPDF = api;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

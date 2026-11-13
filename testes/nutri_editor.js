@@ -12,6 +12,16 @@ const PLANO = { idplano: 21, idatleta: 1, titulo: 'Plano Ana', ativo: 0, dtinici
   refeicoes: [{ nome: 'Café da manhã', horario: '07:30', itens: '', itens_estruturados: [], refeicoes_substitutas: [] }, { nome: 'Almoço', horario: '12:30', itens: '', itens_estruturados: [], refeicoes_substitutas: [] }] };
 const ATLETAS = [{ idatleta: 1, nome: 'Ana Souza', peso: 70, altura: 165, genero: 'F', professores_responsaveis: [1], stbloqueio: 'N' }];
 const MODELO_ITENS = [{ food_id: null, nome: 'Ovo cozido (modelo)', quantidade: 2, medida_id: 'pers_unid', medida_nome: 'Unidade', medida_g: 50, gramas: 100, por100: { energia_kcal: 155, proteina_g: 13, carboidrato_g: 1.1, lipidio_g: 11 }, nutrientes: { energia_kcal: 155, proteina_g: 13, carboidrato_g: 1.1, lipidio_g: 11 }, substitutos: [] }];
+// Dieta como aparece no print do Gaia (Café da manhã, Opção 1), já na forma em que o Claude devolve
+const GAIA_IA = { titulo: 'Cutting', refeicoes: [{ nome: 'Café da manhã', horario: '05:00', opcoes: [{ nome: '', observacao: '', itens: [
+  { nome: 'Ovo de galinha cozido', quantidade: 4, unidade: 'Unidades', gramas: 200, kcal: 310, proteina: 25, lipidio: 21, carboidrato: 2, substitutos: [] },
+  { nome: 'Tomate', quantidade: 0.5, unidade: 'A vontade', gramas: 50, kcal: 9, proteina: 1, lipidio: 0, carboidrato: 2, substitutos: [] },
+  { nome: 'Queijo muçarela', quantidade: 1, unidade: 'Fatia', gramas: 15, kcal: 38, proteina: 4, lipidio: 2, carboidrato: 0, substitutos: [] },
+  { nome: 'Doce de leite', quantidade: 1, unidade: 'Colher de sopa rasa', gramas: 25, kcal: 77, proteina: 2, lipidio: 1, carboidrato: 14, substitutos: [] },
+  { nome: 'Pão de forma', quantidade: 3, unidade: 'Fatias', gramas: 75, kcal: 183, proteina: 9, lipidio: 2, carboidrato: 33, substitutos: [{ nome: 'Tapioca', quantidade: 40, unidade: 'g', gramas: 40 }] },
+  { nome: 'Uva', quantidade: 100, unidade: 'g', gramas: 100, kcal: 57, proteina: 1, lipidio: 0, carboidrato: 14, substitutos: [] }] },
+  { nome: 'Sem preparo', observacao: '', itens: [{ nome: 'Banana prata', quantidade: 1, unidade: 'Unidade', gramas: 70, kcal: 62, proteina: 1, lipidio: 0, carboidrato: 16, substitutos: [] }] }] }] };
+const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const RECEITA = { idconteudo: 3, id: 'panqueca', titulo: 'Panqueca de banana', ativo: 1, nutricao: { kcal: 240, proteina: 14, carboidrato: 28, gordura: 7 } };
 
 (async () => {
@@ -31,6 +41,7 @@ const RECEITA = { idconteudo: 3, id: 'panqueca', titulo: 'Panqueca de banana', a
                   { idbib: 6, tipo: 'grupo', titulo: 'Carboidratos do café', ativo: 1, meu: true, dados: { funcao: 'CHO', itens: [] } }];
   await pg.route(u => u.href.includes('.php'), r => {
     const u = r.request().url(), m = r.request().method();
+    if (u.includes('action=nutri_importar_ia')) { let b = {}; try { b = JSON.parse(r.request().postData() || '{}'); } catch (e) {} posts.push({ m, u, b }); return json(r, { ok: true, plano: GAIA_IA, custo_usd: 0.041, modelo: 'claude-sonnet-5-5' }); }
     if (m !== 'GET') { let b = {}; try { b = JSON.parse(r.request().postData() || '{}'); } catch (e) {} posts.push({ m, u, b }); return json(r, { ok: true, idbib: 99, idplano: 21 }); }
     if (u.includes('action=nutri_biblioteca')) return json(r, { itens: bibItens });
     if (u.includes('action=nutri_conteudo')) return json(r, { receitas: [RECEITA], videos: [], dicas: [] });
@@ -133,6 +144,32 @@ const RECEITA = { idconteudo: 3, id: 'panqueca', titulo: 'Panqueca de banana', a
   await pg.evaluate(async () => { bibFormGrupo(0); document.getElementById('bg-titulo').value = 'Vazio'; _bibF.titulo = 'Vazio'; await bibSalvarGrupo(); });
   await pg.waitForTimeout(300);
   eq('grupo sem alimento não é enviado', posts.filter(p => /nutri_biblioteca/.test(p.u)).length, 0);
+
+  console.log('\n══ Importar a dieta do Gaia por print ══');
+  await pg.evaluate(() => { aba = 'planos'; render(); abrirImportarPlano(); });
+  await pg.waitForTimeout(300);
+  posts.length = 0;
+  await pg.setInputFiles('#imp-ia', { name: 'print-gaia.png', mimeType: 'image/png', buffer: PNG_1X1 });
+  for (let i = 0; i < 40; i++) { if (await pg.evaluate(() => !!_imp)) break; await pg.waitForTimeout(250); }
+  if (!(await pg.evaluate(() => !!_imp))) console.log('          prévia vazia: ' + (await pg.evaluate(() => document.getElementById('imp-resumo').innerText)) + ' | erros: ' + JSON.stringify(er));
+  const pedidoIA = posts.find(x => /nutri_importar_ia/.test(x.u));
+  eq('o print vai ao servidor como imagem JPEG, uma só', [pedidoIA && pedidoIA.b.arquivos.length, pedidoIA && pedidoIA.b.arquivos[0].mime, pedidoIA && pedidoIA.b.arquivos[0].dados.length > 50], [1, 'image/jpeg', true]);
+  const imp = await pg.evaluate(() => ({ refs: _imp.refeicoes.map(r => ({ nome: r.nome, horario: r.horario, subs: (r.refeicoes_substitutas || []).map(s => s.nome), itens: r.itens_estruturados.map(i => ({ nome: i.nome, food: i.food_id, kcal: Math.round(i.nutrientes.energia_kcal), g: i.gramas, q: i.quantidade, medida: i.medida_nome, subst: (i.substitutos || []).length })) })), origem: _imp.origem, resumo: document.getElementById('imp-resumo').innerText }));
+  eq('refeição com nome e horário, e a opção 2 como refeição substituta', [imp.refs[0].nome, imp.refs[0].horario, imp.refs[0].subs], ['Café da manhã', '05:00', ['Sem preparo']]);
+  eq('os 6 alimentos entraram', imp.refs[0].itens.map(i => i.q), [4, 0.5, 1, 1, 3, 100]);
+  eq('todos ligados a um alimento da base (food_id), nenhum só texto', imp.refs[0].itens.every(i => i.food), true);
+  const esperado = [310, 9, 38, 77, 183, 57];
+  ver('as calorias de cada item ficam perto das do Gaia (±25%)', imp.refs[0].itens.every((i, k) => Math.abs(i.kcal - esperado[k]) <= esperado[k] * 0.25 + 4), imp.refs[0].itens.map(i => i.nome + ' ' + i.kcal));
+  ver('o peso em gramas do Gaia é respeitado (ovo 200 g, pão 75 g)', imp.refs[0].itens[0].g === 200 && imp.refs[0].itens[4].g === 75, imp.refs[0].itens.map(i => i.g));
+  eq('o ovo é um ovo (não outro alimento parecido) e o pão de forma é pão', [/ovo/i.test(imp.refs[0].itens[0].nome), /pão/i.test(imp.refs[0].itens[4].nome)], [true, true]);
+  eq('o substituto visível (tapioca) fica no pão', imp.refs[0].itens[4].subst, 1);
+  ver('a prévia diz que foi lido pelo Claude, com o custo, e traz a conferência', /Lido pelo Claude/.test(imp.resumo) && /0,041/.test(imp.resumo) && /Conferência dos alimentos/i.test(imp.resumo), imp.resumo.slice(0, 200));
+  eq('a origem do plano registra que veio de PDF/print', imp.origem, 'Importado de PDF/print (lido pelo Claude)');
+  posts.length = 0;
+  await pg.evaluate(() => { document.getElementById('imp-atleta').value = '1'; });
+  await pg.click('#imp-ok'); await pg.waitForTimeout(800);
+  const criou = posts.find(x => /action=nutricao/.test(x.u));
+  eq('importar grava o plano para a aluna escolhida, com a refeição e a substituta', [criou && criou.m, criou && criou.b.idatleta, criou && criou.b.refeicoes.length, criou && criou.b.refeicoes[0].refeicoes_substitutas.length, criou && criou.b.refeicoes[0].itens_estruturados.length], ['POST', 1, 1, 1, 6]);
 
   console.log('\n══ Ficha do aluno com menu lateral ══');
   await pg.evaluate(() => { aba = 'dashboard'; return carregarPainel(); }); await pg.waitForTimeout(800);

@@ -1196,7 +1196,7 @@ $_PUBLICAS = [
 ];
 
 // Rotas que so professor/admin acessa, em qualquer metodo.
-$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'nutri_biblioteca', 'acessos', 'acessos_painel'];
+$_SO_PROFESSOR = ['anamneses', 'avisos', 'sessoes', 'email_diag', 'email_teste', 'alimento_medidas', 'nutri_biblioteca', 'nutri_importar_ia', 'acessos', 'acessos_painel'];
 // So ADMINISTRADOR: ver as sessoes de todo mundo e derrubar/podar sessoes (um professor podia derrubar a sessao do administrador ou de qualquer conta) e
 // alterar as regras que valem para todos os alunos (pontuacao do ranking, regras do cardio, conquistas, avisos, frases e figurinhas). Leitura segue como era.
 $_SO_ADMIN = ['sessoes', 'acessos', 'seguranca_config', 'conversao_tabelas'];
@@ -1233,7 +1233,7 @@ if ($_tokValido && $_ehAluno && $method === 'POST' && in_array($action, ['feed_p
 }
 // PERMISSÃO DE ESCRITA da equipe no servidor (antes só o painel escondia o botão): alongamentos (al), avaliações (av), plano e conteúdo de nutrição, alimentos e medidas (nt).
 // Aluno e administrador não passam por aqui (o aluno tem as travas próprias de cada rota).
-$_PERM_ESCRITA_CAT = ['alongamentos' => 'al', 'avaliacoes' => 'av', 'nutricao' => 'nt', 'nutri_conteudo' => 'nt', 'meus_alimentos' => 'nt', 'alimento_medidas' => 'nt', 'nutri_biblioteca' => 'nt'];
+$_PERM_ESCRITA_CAT = ['alongamentos' => 'al', 'avaliacoes' => 'av', 'nutricao' => 'nt', 'nutri_conteudo' => 'nt', 'meus_alimentos' => 'nt', 'alimento_medidas' => 'nt', 'nutri_biblioteca' => 'nt', 'nutri_importar_ia' => 'nt'];
 if ($_tokValido && !$_ehAluno && isset($_PERM_ESCRITA_CAT[$action])) {
     // Apagar o próprio alimento, medida ou item da biblioteca durante a prescrição não exige "excluir plano": basta poder editar nutrição.
     $_mEf = ($method === 'DELETE' && in_array($action, ['meus_alimentos', 'alimento_medidas', 'nutri_biblioteca'], true)) ? 'PUT' : $method;
@@ -4879,6 +4879,21 @@ if ($action === 'nutri_dia') {
         echo json_encode(['ok' => true, 'agua_ml' => $ml]);
         exit;
     }
+}
+
+// ═══════════════ NUTRIÇÃO: ler a dieta de um PDF ou print (Gaia ou outro sistema) com o Claude ═══════════════
+// POST {arquivos: [{mime, dados(base64)}]} (só equipe, permissão nt). Só LÊ e devolve a prescrição em JSON; o painel casa os alimentos com a base
+// e a nutri confere antes de gravar. Nada é gravado aqui. Lógica em _nutri_ia.php. Limite: 20 leituras por hora por profissional.
+if ($action === 'nutri_importar_ia') {
+    if ($_ehAluno) { $_negar(403, 'apenas a equipe'); }
+    if ($method !== 'POST') { http_response_code(405); echo json_encode(['error' => 'use POST']); exit; }
+    require_once __DIR__ . '/_nutri_ia.php';
+    if (function_exists('checkRateLimitConta')) checkRateLimitConta($pdo, 'nutri_ia', (string)(int)($_ctx['idusuario'] ?? 0), 20, 3600);
+    $b = jsonBody();
+    $r = nutri_ia_extrair($pdo, is_array($b['arquivos'] ?? null) ? $b['arquivos'] : [], $GLOBALS['__http_nutri_ia'] ?? null);
+    if (empty($r['ok'])) { http_response_code(422); echo json_encode(['error' => $r['erro'] ?? 'falha ao ler'], JSON_UNESCAPED_UNICODE); exit; }
+    echo json_encode($r, JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 // ═══════════════ NUTRIÇÃO: biblioteca da equipe (grupos alimentares e refeições modelo) ═══════════════

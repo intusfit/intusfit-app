@@ -4314,6 +4314,8 @@ const API = {
   salvarNutriConteudo: (obj) => apiFetch('/catalogo.php?action=nutri_conteudo', { method: obj.idconteudo ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
   excluirNutriConteudo: (id) => apiFetch('/catalogo.php?action=nutri_conteudo&id=' + id, { method: 'DELETE' }),
   importarNutriConteudo: () => apiFetch('/catalogo.php?action=nutri_conteudo', { method: 'POST', body: JSON.stringify({ subacao: 'importar' }) }),
+  // Ler a dieta de um PDF ou print (Gaia ou outro sistema) com o Claude. Só lê: quem casa com a base e grava é o painel de Nutrição.
+  nutriImportarIA: (arquivos) => apiFetch('/catalogo.php?action=nutri_importar_ia', { method: 'POST', body: JSON.stringify({ arquivos }) }),
   // Biblioteca da equipe: grupos alimentares e refeições modelo (tabela intus_nutri_biblioteca).
   listarNutriBiblioteca: (tipo) => apiFetch('/catalogo.php?action=nutri_biblioteca' + (tipo ? '&tipo=' + tipo : '')),
   salvarNutriBiblioteca: (obj) => apiFetch('/catalogo.php?action=nutri_biblioteca', { method: obj.idbib ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
