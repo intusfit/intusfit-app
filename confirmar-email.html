@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intus Fit · Qual e-mail manter?</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0d0d0d">
+<link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,sans-serif;background:#0d0d0d;color:#f0f0f0;line-height:1.55;padding:28px 18px 60px;-webkit-font-smoothing:antialiased}
+.cx{max-width:480px;margin:0 auto}
+.topo{text-align:center;margin-bottom:18px}.topo img{height:30px;margin:0 auto}
+h1{font-size:24px;font-weight:900;text-align:center;line-height:1.2}
+.sub{text-align:center;color:#aeaeae;margin:10px 0 20px;font-size:15px}
+.op{display:block;width:100%;text-align:left;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:14px;padding:16px;margin-top:12px;color:#f0f0f0;font:inherit;cursor:pointer}
+.op:hover{border-color:#7FFF00}.op b{display:block;font-size:16px;word-break:break-all}.op small{color:#aeaeae}
+.msg{margin-top:16px;padding:12px 14px;border-radius:12px;font-size:15px}
+.ok{background:rgba(127,255,0,.1);border:1px solid #7FFF00}.erro{background:rgba(255,107,107,.1);border:1px solid #ff6b6b;color:#ff6b6b}
+.peq{font-size:12px;color:#828282;text-align:center;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="cx">
+  <div class="topo"><img src="/app/painel/logo-intus-dark.png" alt="Intus Fit"></div>
+  <h1>Qual e-mail você quer manter na sua conta?</h1>
+  <p class="sub" id="sub">Conferindo o link...</p>
+  <div id="ops"></div>
+  <div id="m"></div>
+  <p class="peq">A sua conta e o seu plano continuam os mesmos, seja qual for a escolha. Se você não fez essa compra, não escolha nada e chame a equipe.</p>
+</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var t = (new URLSearchParams(location.search).get('t') || '').replace(/[^a-f0-9]/g, '');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  async function api(acao, corpo) {
+    try { var r = await fetch('/app/api/checkout.php?action=' + acao + '&t=' + t, { method: corpo ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : undefined, cache: 'no-store' }); var d = {}; try { d = await r.json(); } catch (e) {} return { ok: r.ok, d: d }; }
+    catch (e) { return { ok: false, d: { mensagem: 'Sem conexão. Tente de novo.' } }; }
+  }
+  api('confirmar_info').then(function (r) {
+    if (!r.ok) { $('sub').textContent = ''; $('m').innerHTML = '<div class="msg erro">' + esc(r.d.mensagem || 'Link inválido.') + '</div>'; return; }
+    $('sub').textContent = 'Já existia uma conta com o seu CPF. Escolha qual e-mail fica nela.';
+    $('ops').innerHTML = '<button class="op" data-m="atual"><b>' + esc(r.d.email_atual) + '</b><small>Manter o e-mail que já estava na conta</small></button>'
+      + '<button class="op" data-m="novo"><b>' + esc(r.d.email_novo) + '</b><small>Trocar para o e-mail que você usou na compra</small></button>';
+    document.querySelectorAll('.op').forEach(function (b) { b.onclick = async function () {
+      document.querySelectorAll('.op').forEach(function (x) { x.disabled = true; });
+      var x = await api('confirmar', { manter: b.getAttribute('data-m') });
+      if (x.ok) { $('ops').innerHTML = ''; $('m').innerHTML = '<div class="msg ok">' + esc(x.d.mensagem) + '</div>'; }
+      else { document.querySelectorAll('.op').forEach(function (y) { y.disabled = false; }); $('m').innerHTML = '<div class="msg erro">' + esc(x.d.mensagem || 'Não consegui. Tente de novo.') + '</div>'; }
+    }; });
+  });
+})();
+</script>
+</body>
+</html>

@@ -76,7 +76,11 @@ input[type=text]:focus,input[type=email]:focus,input[type=tel]:focus,select:focu
           <div><label class="l" for="email">E-mail</label><input type="email" id="email" autocomplete="email" required></div>
           <div><label class="l" for="tel">WhatsApp com DDD</label><input type="tel" id="tel" autocomplete="tel" inputmode="tel" placeholder="(00) 00000-0000" required></div>
         </div>
-        <div><label class="l" for="cpf">CPF</label><input type="text" id="cpf" inputmode="numeric" autocomplete="off" placeholder="000.000.000-00" required></div>
+        <div class="dois">
+          <div><label class="l" for="doctipo">Documento</label><select id="doctipo"><option value="cpf">CPF</option><option value="estrangeiro">Documento estrangeiro (passaporte, RNE...)</option></select></div>
+          <div><label class="l" for="cpf" id="l-doc">CPF</label><input type="text" id="cpf" inputmode="numeric" autocomplete="off" placeholder="000.000.000-00" required></div>
+        </div>
+        <p class="mut" id="dica-estr" hidden>Com documento estrangeiro o pagamento é só no cartão (o Pix exige CPF).</p>
         <div class="isca" aria-hidden="true"><label>Não preencha <input type="text" id="site" tabindex="-1" autocomplete="off"></label></div>
         <h2 style="margin-top:8px">3. Como pagar</h2>
         <div class="forma" id="forma">
@@ -146,12 +150,19 @@ input[type=text]:focus,input[type=email]:focus,input[type=tel]:focus,select:focu
     $('pagar').textContent = estado.forma === 'pix' ? 'Gerar Pix' : 'Ir para o pagamento do cartão';
   }
   document.querySelectorAll('input[name=forma]').forEach(function (i) { i.onchange = function () { estado.forma = i.value; aplicarForma(); }; });
-  $('cpf').oninput = function () { var d = this.value.replace(/\D/g, '').slice(0, 11); this.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2'); };
+  $('doctipo').onchange = function () {
+    var e = this.value === 'estrangeiro';
+    $('l-doc').textContent = e ? 'Número do documento' : 'CPF'; $('cpf').placeholder = e ? 'Número do passaporte ou RNE' : '000.000.000-00'; $('cpf').inputMode = e ? 'text' : 'numeric'; $('cpf').value = '';
+    $('dica-estr').hidden = !e; $('forma').querySelectorAll('label')[0].hidden = e;
+    if (e) { estado.forma = 'cartao'; document.querySelector('input[name=forma][value=cartao]').checked = true; }
+    aplicarForma();
+  };
+  $('cpf').oninput = function () { if ($('doctipo').value === 'estrangeiro') return; var d = this.value.replace(/\D/g, '').slice(0, 11); this.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2'); };
   $('tel').oninput = function () { var d = this.value.replace(/\D/g, '').slice(0, 11); this.value = d.length > 10 ? d.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3') : d.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3'); };
   $('fc').onsubmit = async function (e) {
     e.preventDefault();
     var av = $('aviso'); av.innerHTML = ''; var b = $('pagar'); b.disabled = true; var txt = b.textContent; b.textContent = 'Um instante...';
-    var r = await api('criar', { produto: estado.produto, periodo: estado.periodo, nome: $('nome').value, email: $('email').value, telefone: $('tel').value, cpf: $('cpf').value, forma: estado.forma, parcelas: parseInt($('parc').value || '1', 10), site: $('site').value });
+    var r = await api('criar', { produto: estado.produto, periodo: estado.periodo, nome: $('nome').value, email: $('email').value, telefone: $('tel').value, cpf: $('cpf').value, doc_tipo: $('doctipo').value, forma: estado.forma, parcelas: parseInt($('parc').value || '1', 10), site: $('site').value });
     b.disabled = false; b.textContent = txt;
     if (!r.ok) { av.innerHTML = '<div class="erro">' + esc((r.data && r.data.mensagem) || 'Não consegui continuar. Tente de novo.') + '</div>'; return; }
     if (r.data.forma === 'redirecionar') { location.href = r.data.url; return; }

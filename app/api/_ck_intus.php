@@ -64,11 +64,21 @@ function ick_ddl(string $driver): array {
         INDEX ix_ick_ip (ip, criado_em)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"];
 }
+function ick_ddl_conf(string $driver): array {
+    if ($driver === 'sqlite') return ["CREATE TABLE IF NOT EXISTS intus_email_confirmacao (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL, idatleta INTEGER NOT NULL, email_atual TEXT NOT NULL, email_novo TEXT NOT NULL,
+        idpedido INTEGER, criado_em TEXT NOT NULL, expira_em TEXT NOT NULL, usado_em TEXT, escolha TEXT)", "CREATE UNIQUE INDEX IF NOT EXISTS uk_iec_token ON intus_email_confirmacao (token_hash)"];
+    return ["CREATE TABLE IF NOT EXISTS intus_email_confirmacao (
+        id INT AUTO_INCREMENT PRIMARY KEY, token_hash CHAR(64) NOT NULL, idatleta INT NOT NULL, email_atual VARCHAR(190) NOT NULL, email_novo VARCHAR(190) NOT NULL,
+        idpedido INT NULL, criado_em DATETIME NOT NULL, expira_em DATETIME NOT NULL, usado_em DATETIME NULL, escolha VARCHAR(8) NULL, UNIQUE KEY uk_iec_token (token_hash)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"];
+}
+
 function ick_garantir_tabelas(PDO $pdo): void {
     static $feito = null;
     if ($feito === null) $feito = new WeakMap();
     if (isset($feito[$pdo])) return;
     foreach (ick_ddl((string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) as $sql) $pdo->exec($sql);
+    foreach (ick_ddl_conf((string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) as $sql) $pdo->exec($sql);
     // tabela criada antes da matrícula automática: só ADD COLUMN, nunca altera nem apaga dado
     foreach ([['idatleta', 'INT NULL'], ['matriculado_em', 'DATETIME NULL']] as [$col, $def]) {
         try { $pdo->query("SELECT $col FROM intus_checkout_pedido LIMIT 0"); }
@@ -112,12 +122,13 @@ function ick_criar(PDO $pdo, array $b, string $ip): array {
     $nome = trim(preg_replace('/\s+/', ' ', strip_tags((string)($b['nome'] ?? ''))));
     $email = strtolower(trim((string)($b['email'] ?? '')));
     $tel = ick_telefone($b['telefone'] ?? '');
-    $cpf = asaas_documento((string)($b['cpf'] ?? ''));
+    $estrangeiro = (($b['doc_tipo'] ?? '') === 'estrangeiro');
+    $cpf = $estrangeiro ? strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string)($b['cpf'] ?? ''))) : asaas_documento((string)($b['cpf'] ?? ''));
     if (mb_strlen($nome) < 5 || strpos($nome, ' ') === false) return [422, ['ok' => false, 'erro' => 'nome_invalido', 'mensagem' => 'Digite o seu nome completo.']];
     if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 190) return [422, ['ok' => false, 'erro' => 'email_invalido', 'mensagem' => 'Confira o e-mail.']];
     if ($tel === '') return [422, ['ok' => false, 'erro' => 'telefone_invalido', 'mensagem' => 'Digite o WhatsApp com DDD.']];
-    if (strlen($cpf) !== 11) return [422, ['ok' => false, 'erro' => 'cpf_invalido', 'mensagem' => 'Confira o CPF.']];
-    $forma = (($b['forma'] ?? '') === 'cartao') ? 'cartao' : 'pix';
+    if ($estrangeiro ? (strlen($cpf) < 5 || strlen($cpf) > 14) : strlen($cpf) !== 11) return [422, ['ok' => false, 'erro' => 'cpf_invalido', 'mensagem' => $estrangeiro ? 'Confira o número do documento (de 5 a 14 letras e números).' : 'Confira o CPF.']];
+    $forma = (($b['forma'] ?? '') === 'cartao' || $estrangeiro) ? 'cartao' : 'pix';   // o Pix exige CPF
     $parc = $forma === 'pix' ? 1 : max(1, min($meses, (int)($b['parcelas'] ?? 1)));
     $desde = date('Y-m-d H:i:s', time() - 900);
     $n = $pdo->prepare('SELECT COUNT(*) FROM intus_checkout_pedido WHERE ip = ? AND criado_em >= ?'); $n->execute([$ip, $desde]);
@@ -133,7 +144,9 @@ function ick_criar(PDO $pdo, array $b, string $ip): array {
         return $j;
     };
     try {
-        $cli = $chamar('POST', '/customers', ['name' => $nome, 'email' => $email, 'cpfCnpj' => $cpf, 'mobilePhone' => preg_replace('/^55/', '', $tel), 'externalReference' => 'intus:ckc:' . $id]);
+        $dadosCli = ['name' => $nome, 'email' => $email, 'mobilePhone' => preg_replace('/^55/', '', $tel), 'externalReference' => 'intus:ckc:' . $id];
+        if ($estrangeiro) $dadosCli['observations'] = 'Documento estrangeiro: ' . $cpf; else $dadosCli['cpfCnpj'] = $cpf;
+        $cli = $chamar('POST', '/customers', $dadosCli);
         $corpo = ['customer' => $cli['id'], 'billingType' => $forma === 'pix' ? 'PIX' : 'CREDIT_CARD', 'dueDate' => date('Y-m-d'), 'description' => $desc,
                   'externalReference' => 'intus:ck:' . $id, 'callback' => ['successUrl' => INTUS_CK_RETORNO, 'autoRedirect' => true]];
         if ($parc > 1) { $corpo['installmentCount'] = $parc; $corpo['totalValue'] = $valor; } else $corpo['value'] = $valor;
@@ -180,11 +193,71 @@ function ick_texto_aluno(array $p): string {
         . "Um abraço,\nEquipe Intus Fit";
 }
 
+/** m***@g***.com */
+function ick_mascarar_email(string $e): string {
+    [$u, $d] = array_pad(explode('@', $e, 2), 2, '');
+    $dom = explode('.', $d, 2);
+    return substr($u, 0, 1) . '***@' . substr($dom[0], 0, 1) . '***' . (isset($dom[1]) ? '.' . $dom[1] : '');
+}
+
+/**
+ * O documento já tinha cadastro com OUTRO e-mail: o link para escolher qual manter vai SÓ para o e-mail que já está no cadastro (quem o recebe prova que é o dono da conta);
+ * o e-mail da compra recebe um aviso sem link. Nada muda no cadastro até a escolha.
+ */
+function ick_pedir_confirmacao_email(PDO $pdo, array $p, array $c): ?string {
+    try {
+        $token = bin2hex(random_bytes(24));
+        $pdo->prepare('INSERT INTO intus_email_confirmacao (token_hash, idatleta, email_atual, email_novo, idpedido, criado_em, expira_em) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            ->execute([hash('sha256', $token), (int)$c['idatleta'], $c['email_atual'], $c['email_novo'], (int)$p['idpedido'], asaas_agora(), date('Y-m-d H:i:s', time() + 14 * 86400)]);
+        $prim = explode(' ', trim($p['nome']))[0];
+        ick_enviar_email($c['email_atual'], 'Qual e-mail manter na sua conta Intus Fit?', "Oi, $prim! Uma compra na Intus Fit foi feita com o seu CPF usando outro e-mail ({$c['email_novo']}).\n\n"
+            . "Para não criarmos duas contas, escolha qual e-mail manter (a sua conta e o seu plano continuam os mesmos):\nhttps://intusfit.com.br/confirmar-email.html?t=$token\n\n"
+            . "O link vale por 14 dias. Se não foi você, não clique: a equipe confere. Dúvidas: https://wa.me/5545991156006\n\nEquipe Intus Fit");
+        ick_enviar_email($c['email_novo'], 'Encontramos o seu cadastro na Intus Fit', "Oi, $prim! Recebemos a sua compra. Já existia um cadastro com o seu CPF, no e-mail " . ick_mascarar_email($c['email_atual']) . ", e o seu plano já está ativo nele.\n\n"
+            . "Enviamos uma mensagem para esse e-mail para você escolher qual manter. Se você não tem mais acesso a ele, chame a equipe no WhatsApp: https://wa.me/5545991156006\n\nEquipe Intus Fit");
+        return $token;
+    } catch (Throwable $e) { @error_log('[checkout intus] confirmacao: ' . $e->getMessage()); return null; }
+}
+
+function ick_conf_achar(PDO $pdo, string $token): ?array {
+    ick_garantir_tabelas($pdo);
+    $st = $pdo->prepare('SELECT * FROM intus_email_confirmacao WHERE token_hash = ?'); $st->execute([hash('sha256', $token)]);
+    $r = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$r || $r['usado_em'] || $r['expira_em'] < asaas_agora()) return null;
+    return $r;
+}
+
+function ick_conf_info(PDO $pdo, string $token): array {
+    $r = ick_conf_achar($pdo, $token);
+    if (!$r) return [404, ['ok' => false, 'erro' => 'link_invalido', 'mensagem' => 'Este link já foi usado ou expirou. Chame a equipe no WhatsApp.']];
+    return [200, ['ok' => true, 'email_atual' => $r['email_atual'], 'email_novo' => $r['email_novo']]];
+}
+
+/** $manter: 'atual' (nada muda) ou 'novo' (o cadastro passa a usar o e-mail da compra). */
+function ick_conf_escolher(PDO $pdo, string $token, string $manter): array {
+    $r = ick_conf_achar($pdo, $token);
+    if (!$r) return [404, ['ok' => false, 'erro' => 'link_invalido', 'mensagem' => 'Este link já foi usado ou expirou. Chame a equipe no WhatsApp.']];
+    if (!in_array($manter, ['atual', 'novo'], true)) return [422, ['ok' => false, 'erro' => 'escolha_invalida', 'mensagem' => 'Escolha um dos e-mails.']];
+    require_once __DIR__ . '/_matricula_auto.php';
+    if ($manter === 'novo') {
+        $tabela = ima_tabela_atleta($pdo); $cols = $tabela ? ima_colunas($pdo, $tabela) : [];
+        $cId = ima_pick($cols, ['idatleta', 'idaluno', 'id']); $cEmail = ima_pick($cols, ['email', 'dsemail', 'nmemail']);
+        if (!$tabela || !$cId || !$cEmail) return [500, ['ok' => false, 'erro' => 'falha', 'mensagem' => 'Não consegui trocar agora. Chame a equipe.']];
+        $u = $pdo->prepare("SELECT `$cId` FROM `$tabela` WHERE LOWER(`$cEmail`) = ? AND `$cId` <> ? LIMIT 1"); $u->execute([strtolower($r['email_novo']), (int)$r['idatleta']]);
+        if ($u->fetchColumn()) return [409, ['ok' => false, 'erro' => 'email_em_uso', 'mensagem' => 'Esse e-mail já está em outra conta. A equipe vai resolver: chame no WhatsApp.']];
+        $pdo->prepare("UPDATE `$tabela` SET `$cEmail` = ? WHERE `$cId` = ?")->execute([strtolower($r['email_novo']), (int)$r['idatleta']]);
+    }
+    $pdo->prepare('UPDATE intus_email_confirmacao SET usado_em = ?, escolha = ? WHERE id = ?')->execute([asaas_agora(), $manter, (int)$r['id']]);
+    $mantido = $manter === 'novo' ? $r['email_novo'] : $r['email_atual'];
+    ick_enviar_email('contato@intusfit.com.br', 'Aluno escolheu o e-mail: ' . $mantido, "O aluno (cadastro id {$r['idatleta']}) escolheu manter o e-mail $mantido" . ($manter === 'novo' ? " (antes era {$r['email_atual']}). Os dois e-mails já foram informados por ele." : '. Nada foi alterado.') . "\n");
+    return [200, ['ok' => true, 'mantido' => $mantido, 'mensagem' => 'Pronto! O e-mail da sua conta é ' . $mantido . ($manter === 'novo' ? '. No app, entre com ele (se não lembra a senha, use "Esqueci a senha").' : '. Nada mudou.')]];
+}
+
 function ick_texto_equipe(array $p, string $situacao, ?array $mat = null): string {
     $prod = ick_catalogo(true)[$p['produto']]['nome'] ?? $p['produto'];
     $per = INTUS_CK_PERIODOS[$p['periodo']] ?? $p['periodo'];
     $wa = 'https://wa.me/' . $p['telefone'] . '?text=' . rawurlencode('Oi, ' . explode(' ', $p['nome'])[0] . '! Aqui é a equipe da Intus Fit. Recebemos o seu pagamento e já vamos liberar o seu acesso. Qualquer dúvida é só responder aqui.');
-    return $situacao . "\n\nNome: {$p['nome']}\nE-mail: {$p['email']}\nWhatsApp: +{$p['telefone']}\nCPF: {$p['cpf']}\nPlano: $prod, $per\n"
+    return $situacao . "\n\nNome: {$p['nome']}\nE-mail: {$p['email']}\nWhatsApp: +{$p['telefone']}\nDocumento (CPF ou estrangeiro): {$p['cpf']}\nPlano: $prod, $per\n"
         . 'Valor: R$ ' . number_format((float)$p['valor'], 2, ',', '.') . ($p['forma'] === 'cartao' ? ' no cartão em ' . (int)$p['parcelas'] . 'x' : ' no Pix') . "\n\n"
         . ($mat && !empty($mat['ids']) ? "\nO QUE FOI GRAVADO: " . ($mat['novo_aluno'] ? 'aluno NOVO criado (a senha ele cria pelo "Esqueci a senha"; recebeu o e-mail de boas-vindas)' : 'aluno que já existia') . ', ' . count($mat['ids']) . " linha(s) em Matrículas.\n"
             . 'Abrir a matrícula no painel: https://intusfit.com.br/app/painel/mensalidades.html?m=' . $mat['ids'][0] . "\n"
@@ -220,6 +293,10 @@ function ick_webhook(PDO $pdo, string $novo, array $pay): ?string {
         $mat = ima_matricular($pdo, $p);
         if ($mat['ok']) $pdo->prepare('UPDATE intus_checkout_pedido SET idatleta = ?, matriculado_em = ? WHERE idpedido = ?')->execute([(int)$mat['idatleta'], asaas_agora(), (int)$p['idpedido']]);
         if ($mat['ok'] && $mat['novo_aluno']) ick_enviar_email($p['email'], 'Seu acesso à Intus Fit', ick_texto_aluno($p));
+        if ($mat['ok'] && !empty($mat['conflito'])) {
+            $mat['avisos'][] = 'O e-mail da compra (' . $mat['conflito']['email_novo'] . ') é diferente do que está no cadastro (' . $mat['conflito']['email_atual'] . '). Enviei ao e-mail do cadastro o pedido para o aluno escolher qual manter. Até ele responder, o aluno entra com o e-mail do cadastro.';
+            ick_pedir_confirmacao_email($pdo, $p, $mat['conflito']);
+        }
         $ok = ick_enviar_email('contato@intusfit.com.br', ($mat['ok'] ? 'REVISAR matrícula automática: ' : 'ATENÇÃO, matrícula NÃO criada: ') . $p['nome'], ick_texto_equipe($p, $mat['ok']
             ? 'COMPRA PAGA no checkout da Intus. A matrícula foi criada e liberada AUTOMATICAMENTE. Confira se está certo.'
             : 'COMPRA PAGA no checkout da Intus, mas a matrícula automática FALHOU (' . ($mat['erro'] ?? 'erro') . '). O pagamento está confirmado: faça a matrícula à mão no painel.', $mat));

@@ -71,7 +71,7 @@ confere('o valor não vem do navegador (um valor falso é ignorado)', 4597.0, (f
 confere('antes do pagamento: aguardando', 'aguardando', $s['status']);
 
 // ── Cartão parcelado ──
-[$st, $r] = ick_criar($pdo, array_merge($dados, ['email' => 'c2@exemplo.com', 'forma' => 'cartao', 'parcelas' => 12, 'periodo' => 'anual']), '10.1.1.4');
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['cpf' => '111.444.777-35', 'email' => 'c2@exemplo.com', 'forma' => 'cartao', 'parcelas' => 12, 'periodo' => 'anual']), '10.1.1.4');
 $corpo = $corpos['POST /payments'];
 confere('cartão: vai para a tela do Asaas em 12x sem juros', ['redirecionar', 'CREDIT_CARD', 12, 4597.0, false], [$r['forma'], $corpo['billingType'], $corpo['installmentCount'], (float)$corpo['totalValue'], isset($corpo['value'])]);
 $pc = $pdo->query("SELECT * FROM intus_checkout_pedido ORDER BY idpedido DESC LIMIT 1")->fetch();
@@ -108,6 +108,45 @@ confere('estorno marca o pedido', 'checkout_estornada', $r['resultado']);
 // cobrança que não é do checkout continua no caminho de sempre
 [$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_RECEIVED', ['id' => 'pay_outra', 'externalReference' => 'outra:coisa', 'value' => 100]), $tok);
 confere('cobrança de outra origem segue ignorada', 'outra_origem', $r['resultado']);
+// ── Documento estrangeiro: sem CPF no Asaas e só cartão ──
+$chamadas = []; $corpos = [];
+$GLOBALS['asaasHttpFake'] = function ($m, $url, $corpo) use (&$chamadas, &$corpos) {
+    $c = $m . ' ' . preg_replace('~^https://[^/]+/v3~', '', $url); $chamadas[] = $c; $corpos[$c] = $corpo;
+    if ($c === 'POST /customers') return [200, ['id' => 'cus_e']];
+    if ($c === 'POST /payments') return [200, ['id' => 'pay_e', 'invoiceUrl' => 'https://asaas.test/i/e']];
+    return [404, []];
+};
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['doc_tipo' => 'estrangeiro', 'cpf' => 'ab 123456', 'forma' => 'pix', 'email' => 'estr@exemplo.com', 'periodo' => 'tri', 'parcelas' => 3]), '10.1.2.2');
+$pe = $pdo->query("SELECT * FROM intus_checkout_pedido WHERE email = 'estr@exemplo.com'")->fetch();
+confere('documento estrangeiro: vai para o cartão mesmo pedindo Pix e o Asaas não recebe cpfCnpj', ['redirecionar', 'AB123456', 'cartao', false], [$r['forma'], $pe['cpf'], $pe['forma'], isset($corpos['POST /customers']['cpfCnpj'])]);
+[$st, $r] = ick_criar($pdo, array_merge($dados, ['doc_tipo' => 'estrangeiro', 'cpf' => '12', 'email' => 'e2@exemplo.com']), '10.1.2.2');
+confere('documento estrangeiro curto demais: 422', 'cpf_invalido', $r['erro']);
+
+// ── Documento já cadastrado com outro e-mail: o link vai só ao e-mail do cadastro e o aluno escolhe ──
+$pdo->exec("INSERT INTO atleta (nome, email, senha, cpf, origem) VALUES ('Marcos Antigo', 'marcos@antigo.com', 'x', '529.982.247-25', 'professor')");
+$pedC = ['idpedido' => 77, 'nome' => 'Marcos A.', 'email' => 'marcos@novo.com'];
+$idMarcos = (int)$pdo->query("SELECT idatleta FROM atleta WHERE email = 'marcos@antigo.com'")->fetchColumn();
+$tokenConf = ick_pedir_confirmacao_email($pdo, $pedC, ['idatleta' => $idMarcos, 'email_atual' => 'marcos@antigo.com', 'email_novo' => 'marcos@novo.com']);
+confere('o pedido de confirmação guarda só o hash do token', [true, 0], [strlen($tokenConf) === 48, (int)$pdo->query("SELECT COUNT(*) FROM intus_email_confirmacao WHERE token_hash = '" . $tokenConf . "'")->fetchColumn()]);
+confere('e-mail mascarado', 'm***@a***.com', ick_mascarar_email('marcos@antigo.com'));
+[$st, $r] = ick_conf_info($pdo, $tokenConf);
+confere('a página vê os dois e-mails', [200, 'marcos@antigo.com', 'marcos@novo.com'], [$st, $r['email_atual'], $r['email_novo']]);
+confere('token inválido: 404', 404, ick_conf_info($pdo, str_repeat('a', 48))[0]);
+[$st, $r] = ick_conf_escolher($pdo, $tokenConf, 'qualquer');
+confere('escolha inválida: 422 e nada muda', [422, 'marcos@antigo.com'], [$st, $pdo->query("SELECT email FROM atleta WHERE idatleta = $idMarcos")->fetchColumn()]);
+[$st, $r] = ick_conf_escolher($pdo, $tokenConf, 'novo');
+confere('escolher o e-mail novo troca o e-mail do cadastro', [200, 'marcos@novo.com'], [$st, $pdo->query("SELECT email FROM atleta WHERE idatleta = $idMarcos")->fetchColumn()]);
+confere('o link só vale uma vez', 404, ick_conf_escolher($pdo, $tokenConf, 'atual')[0]);
+$pdo->exec("INSERT INTO atleta (nome, email, senha, cpf) VALUES ('Outra', 'ocupado@exemplo.com', 'x', '')");
+$t2 = ick_pedir_confirmacao_email($pdo, $pedC, ['idatleta' => $idMarcos, 'email_atual' => 'marcos@novo.com', 'email_novo' => 'ocupado@exemplo.com']);
+[$st, $r] = ick_conf_escolher($pdo, $t2, 'novo');
+confere('e-mail que já é de outra conta: 409 e nada muda', [409, 'marcos@novo.com'], [$st, $pdo->query("SELECT email FROM atleta WHERE idatleta = $idMarcos")->fetchColumn()]);
+[$st, $r] = ick_conf_escolher($pdo, $t2, 'atual');
+confere('manter o atual não altera nada', [200, 'marcos@novo.com'], [$st, $pdo->query("SELECT email FROM atleta WHERE idatleta = $idMarcos")->fetchColumn()]);
+$t3 = ick_pedir_confirmacao_email($pdo, $pedC, ['idatleta' => 1, 'email_atual' => 'a@a.com', 'email_novo' => 'b@b.com']);
+$pdo->exec("UPDATE intus_email_confirmacao SET expira_em = '2000-01-01 00:00:00' WHERE token_hash = '" . hash('sha256', $t3) . "'");
+confere('link vencido: 404', 404, ick_conf_info($pdo, $t3)[0]);
+
 // falha do Asaas
 $GLOBALS['asaasHttpFake'] = function () { throw new RuntimeException('asaas_fora_do_ar', 502); };
 [$st, $r] = ick_criar($pdo, array_merge($dados, ['email' => 'rede@exemplo.com']), '10.1.1.6');

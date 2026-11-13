@@ -42,6 +42,14 @@ if ($acao === 'criar') {
     [$st, $corpo] = ick_criar($pdo, is_array($j) ? $j : [], $ip);
     _ckResp($st, $corpo);
 }
+if ($acao === 'confirmar_info' || $acao === 'confirmar') {
+    $tk = preg_replace('/[^a-f0-9]/', '', (string)($_GET['t'] ?? ''));
+    if ($acao === 'confirmar_info') { [$st, $corpo] = ick_conf_info($pdo, $tk); _ckResp($st, $corpo); }
+    if ($metodo !== 'POST') _ckResp(405, ['ok' => false, 'erro' => 'Use POST.']);
+    $j = json_decode((string)file_get_contents('php://input'), true);
+    [$st, $corpo] = ick_conf_escolher($pdo, $tk, (string)(is_array($j) ? ($j['manter'] ?? '') : ''));
+    _ckResp($st, $corpo);
+}
 if ($acao === 'status') {
     [$st, $corpo] = ick_status($pdo, preg_replace('/[^a-f0-9]/', '', (string)($_GET['t'] ?? '')));
     _ckResp($st, $corpo);
