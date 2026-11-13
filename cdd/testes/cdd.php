@@ -1161,6 +1161,109 @@ req('acesso_reenviar', 'POST', [], ['email' => 'camila.souza@exemplo.com'], '', 
 eq('quem não tem matrícula ativa não recebe link', $ativ($idCam) === $semMat);
 $pdo->exec("UPDATE cdd_matricula SET status = 'ativa' WHERE idaluna = $idCam");
 
+echo "\nCheckout próprio\n";
+$pdo->exec("UPDATE cdd_oferta SET ativo = 1 WHERE gateway = 'asaas' AND nome NOT LIKE '%cupom%' AND nome NOT LIKE 'TESTE%'");
+$ckChamadas = []; $ckCorpos = [];
+$GLOBALS['asaasFalha'] = '';
+$GLOBALS['cddAsaasHttpFake'] = function ($m, $url, $corpo) use (&$ckChamadas, &$ckCorpos) {
+    $c = $m . ' ' . preg_replace('~^https://[^/]+/v3~', '', $url);
+    $ckChamadas[] = $c; $ckCorpos[$c] = $corpo;
+    if ($GLOBALS['asaasFalha'] === 'rede') throw new RuntimeException('asaas_fora_do_ar', 502);
+    if ($m === 'POST' && $c === 'POST /customers') return [200, ['id' => 'cus_ck' . count($ckChamadas)]];
+    if ($m === 'POST' && $c === 'POST /payments') return [200, ['id' => 'pay_ck' . count($ckChamadas), 'invoiceUrl' => 'https://asaas.test/i/' . count($ckChamadas), 'installment' => isset($corpo['installmentCount']) ? 'ins_ck' . count($ckChamadas) : null]];
+    if ($m === 'GET' && strpos($c, '/pixQrCode') !== false) return [200, ['encodedImage' => 'QUJD', 'payload' => '00020126PIXCOPIA', 'expirationDate' => '2026-12-31 23:59:59']];
+    if ($m === 'POST' && $c === 'POST /subscriptions') return [200, ['id' => 'sub_ck1']];
+    if ($m === 'GET' && strpos($c, '/subscriptions/sub_ck1/payments') !== false) return [200, ['data' => [['id' => 'pay_sub1', 'invoiceUrl' => 'https://asaas.test/i/sub']]]];
+    return [404, ['errors' => [['description' => 'nao mockado: ' . $c]]]];
+};
+[$s, $d] = req('checkout_info', 'GET', [], [], '', '10.7.7.1');
+$slugs = array_column($d['planos'] ?? [], 'slug');
+eq('o checkout lista os planos à venda (sem cupom e sem teste)', $s === 200 && in_array('anual', $slugs, true) && in_array('mensal', $slugs, true) && !array_filter($d['planos'], function ($p) { return stripos($p['nome'], 'cupom') !== false || stripos($p['nome'], 'TESTE') === 0; }), json_encode($slugs));
+$anual = array_values(array_filter($d['planos'], function ($p) { return $p['slug'] === 'anual'; }))[0];
+$mensal = array_values(array_filter($d['planos'], function ($p) { return $p['slug'] === 'mensal'; }))[0];
+eq('sem bônus cadastrados a lista vem vazia', $d['bumps'] === []);
+[$s, $x] = req('a_checkout_bumps', 'POST', [], ['bumps' => [['id' => 'guia', 'titulo' => 'Guia de compras', 'valor' => '29,90']]], $tAna);
+eq('aluna não cadastra bônus (403)', $s === 403);
+[$s, $x] = req('a_checkout_bumps', 'POST', [], ['bumps' => [['id' => 'guia', 'titulo' => 'Guia de compras', 'descricao' => 'PDF', 'valor' => '29,90'], ['id' => 'x', 'titulo' => '', 'valor' => 5]]], $tAdmin);
+eq('bônus sem título é recusado (422)', $s === 422);
+[$s, $x] = req('a_checkout_bumps', 'POST', [], ['bumps' => [['id' => 'guia', 'titulo' => 'Guia de compras', 'descricao' => 'PDF', 'valor' => '29,90']]], $tAdmin);
+eq('admin cadastra o bônus', $s === 200 && $x['bumps'][0]['valor'] === 29.9);
+$pdo->exec("INSERT INTO cdd_cupom (codigo, gateway, tipo, valor, ativo, criado_em) VALUES ('CKTESTE', 'eduzz', 'percentual', 10, 1, '" . cddAgora() . "')");
+[$s, $d] = req('checkout_info', 'GET', ['plano' => 'anual', 'bumps' => 'guia,naoexiste', 'cupom' => 'ckteste'], [], '', '10.7.7.1');
+$esp = round($anual['valor'] - round($anual['valor'] * 0.10, 2) + 29.90, 2);
+eq('cotação: cupom de 10% no anual mais o bônus; bônus que não existe é ignorado', $d['cotacao']['total'] === $esp && count($d['cotacao']['bumps']) === 1 && $d['cotacao']['cupom'] === 'CKTESTE', json_encode($d['cotacao']));
+[$s, $d] = req('checkout_info', 'GET', ['plano' => 'mensal', 'bumps' => 'guia'], [], '', '10.7.7.1');
+eq('no mensal o bônus não entra (cobraria todo mês)', $d['cotacao']['total'] === $mensal['valor'] && $d['cotacao']['bumps'] === []);
+[$s, $d] = req('checkout_info', 'GET', ['plano' => 'mensal', 'cupom' => 'CKTESTE'], [], '', '10.7.7.1');
+eq('cupom só vale no anual', isset($d['cotacao']['erro']));
+
+$dados = ['plano' => 'anual', 'nome' => 'Maria da Silva', 'email' => 'Maria.CK@Exemplo.com', 'telefone' => '(45) 99999-1234', 'cpf' => '529.982.247-25', 'forma' => 'pix', 'bumps' => ['guia'], 'cupom' => 'CKTESTE', 'utm' => ['utm_source' => 'instagram']];
+[$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['cpf' => '111.111.111-11']), '', '10.7.7.2');
+eq('CPF inválido é recusado (422)', $s === 422 && $d['error'] === 'cpf_invalido');
+[$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['nome' => 'Maria']), '', '10.7.7.2');
+eq('nome sem sobrenome é recusado (422)', $s === 422 && $d['error'] === 'nome_invalido');
+[$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['plano' => 'nao-existe']), '', '10.7.7.2');
+eq('plano que não existe é recusado (422)', $s === 422);
+[$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['site' => 'http://spam']), '', '10.7.7.2');
+eq('a isca de robô não cria nada', $s === 200 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_pedido")->fetchColumn() === 0 && $ckChamadas === []);
+[$s, $d] = req('checkout_criar', 'POST', [], $dados, '', '10.7.7.3');
+$ped = $pdo->query("SELECT * FROM cdd_pedido ORDER BY idpedido DESC LIMIT 1")->fetch();
+eq('Pix: o QR Code e o copia e cola voltam na própria resposta', $s === 200 && $d['forma'] === 'pix' && $d['pix']['copia'] === '00020126PIXCOPIA' && $d['pix']['imagem'] === 'QUJD' && $d['valor'] === $esp, json_encode($d));
+eq('o pedido guarda a conta feita pelo servidor, o CPF só em dígitos e o telefone com DDI', $ped && (float)$ped['valor'] === $esp && $ped['cpf'] === '52998224725' && $ped['telefone'] === '5545999991234' && $ped['email'] === 'maria.ck@exemplo.com' && $ped['bumps'] === 'Guia de compras' && $ped['cupom'] === 'CKTESTE');
+$corpoPag = $ckCorpos['POST /payments'] ?? [];
+eq('a cobrança vai ao Asaas como Pix, com o valor do servidor, a referência do pedido e o retorno', ($corpoPag['billingType'] ?? '') === 'PIX' && (float)$corpoPag['value'] === $esp && $corpoPag['externalReference'] === 'cddp:' . $ped['idpedido'] && strpos($corpoPag['callback']['successUrl'], '/cdd/obrigado') !== false, json_encode($corpoPag));
+eq('o cliente é criado no Asaas com CPF e celular sem o 55', ($ckCorpos['POST /customers']['cpfCnpj'] ?? '') === '52998224725' && ($ckCorpos['POST /customers']['mobilePhone'] ?? '') === '45999991234');
+[$s, $d2] = req('checkout_status', 'GET', ['t' => $ped['token']], [], '', '10.7.7.3');
+eq('antes do pagamento o status é aguardando', $s === 200 && $d2['status'] === 'aguardando');
+[$s, $d2] = req('checkout_status', 'GET', ['t' => 'naoexiste'], [], '', '10.7.7.3');
+eq('pedido desconhecido (404)', $s === 404);
+// o aviso do Asaas traz só a cobrança e a referência: o pedido diz quem comprou e qual plano
+[$s, $d2] = $reqAs($pagAs('PAYMENT_RECEIVED', $ped['asaas_ref'], ['customer' => 'cus_qualquer', 'paymentLink' => null, 'externalReference' => 'cddp:' . $ped['idpedido'], 'value' => $esp]));
+$alCk = $pdo->query("SELECT * FROM cdd_aluna WHERE email = 'maria.ck@exemplo.com'")->fetch();
+$pgCk = $pdo->query("SELECT * FROM cdd_pagamento WHERE ref_externa = '" . $ped['asaas_ref'] . "'")->fetch();
+eq('o pagamento do checkout cria a aluna com os dados do pedido, a matrícula e o telefone', $s === 200 && $alCk && $alCk['nome'] === 'Maria da Silva' && $alCk['telefone'] === '5545999991234' && cddMatricula($pdo, (int)$alCk['idaluna'])['ativa'] === true, json_encode($d2));
+eq('o pagamento fica com o valor total e o cupom do pedido', $pgCk && (float)$pgCk['valor'] === $esp && $pgCk['cupom'] === 'CKTESTE');
+[$s, $d2] = req('checkout_status', 'GET', ['t' => $ped['token']], [], '', '10.7.7.3');
+eq('depois do aviso o pedido está pago (a página segue para a página de obrigado)', $d2['status'] === 'pago');
+eq('o checkout não chamou o Asaas para buscar o cliente do aviso (o pedido já tem os dados)', !in_array('GET /customers/cus_qualquer', $ckChamadas, true));
+
+// cartão parcelado: a cliente vai à tela do Asaas e o parcelamento vai por installmentCount e totalValue
+$ckChamadas = [];
+[$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['email' => 'joana.ck@exemplo.com', 'nome' => 'Joana Souza', 'forma' => 'cartao', 'parcelas' => 12, 'bumps' => [], 'cupom' => '']), '', '10.7.7.4');
+$pedC = $pdo->query("SELECT * FROM cdd_pedido ORDER BY idpedido DESC LIMIT 1")->fetch();
+$corpoC = $ckCorpos['POST /payments'] ?? [];
+eq('cartão: vai para a tela do Asaas (sem dado de cartão aqui) em 12x sem juros', $s === 200 && $d['forma'] === 'redirecionar' && strpos($d['url'], 'https://asaas.test/i/') === 0 && ($corpoC['billingType'] ?? '') === 'CREDIT_CARD' && (int)$corpoC['installmentCount'] === 12 && (float)$corpoC['totalValue'] === (float)$anual['valor'] && !isset($corpoC['value']), json_encode($corpoC));
+eq('o pedido guarda o parcelamento', (int)$pedC['parcelas'] === 12 && $pedC['asaas_parc'] !== null && $pedC['status'] === 'criado');
+[$s, $d2] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_parcela1', ['customer' => 'cus_x', 'paymentLink' => null, 'installment' => $pedC['asaas_parc'], 'billingType' => 'CREDIT_CARD', 'value' => round($anual['valor'] / 12, 2)]));
+$pgC = $pdo->query("SELECT * FROM cdd_pagamento WHERE ref_externa = 'i" . $pedC['asaas_parc'] . "'")->fetch();
+eq('o aviso de uma parcela é achado pelo parcelamento e registra o valor TOTAL da compra', $s === 200 && $pgC && (float)$pgC['valor'] === (float)$pedC['valor'] && $pgC['forma'] === 'cartao', json_encode($d2));
+
+// mensal: assinatura; a cliente escolhe a forma na tela do Asaas
+$ckChamadas = [];
+[$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['email' => 'lia.ck@exemplo.com', 'nome' => 'Lia Santos', 'plano' => 'mensal', 'forma' => 'cartao', 'bumps' => ['guia'], 'cupom' => '']), '', '10.7.7.5');
+$pedM = $pdo->query("SELECT * FROM cdd_pedido ORDER BY idpedido DESC LIMIT 1")->fetch();
+eq('mensal: cria a assinatura e leva à cobrança dela, sem bônus', $s === 200 && $d['url'] === 'https://asaas.test/i/sub' && in_array('POST /subscriptions', $ckChamadas, true) && (float)$ckCorpos['POST /subscriptions']['value'] === (float)$mensal['valor'] && $pedM['asaas_tipo'] === 'assinatura' && $pedM['bumps'] === null);
+[$s, $d2] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_sub_a', ['customer' => 'cus_y', 'paymentLink' => null, 'subscription' => 'sub_ck1', 'billingType' => 'PIX', 'value' => (float)$mensal['valor']]));
+eq('a cobrança da assinatura é achada pelo id da assinatura (também nas renovações)', $s === 200 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = 'lia.ck@exemplo.com'")->fetchColumn() === 1, json_encode($d2));
+
+// falha do Asaas
+$GLOBALS['asaasFalha'] = 'rede';
+[$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['email' => 'rede.ck@exemplo.com', 'nome' => 'Rede Falha', 'bumps' => [], 'cupom' => '']), '', '10.7.7.6');
+eq('Asaas fora do ar: erro claro (502) e o pedido fica marcado como falhou', $s === 502 && $d['error'] === 'checkout_indisponivel' && $pdo->query("SELECT status FROM cdd_pedido WHERE email = 'rede.ck@exemplo.com'")->fetchColumn() === 'falhou');
+$GLOBALS['asaasFalha'] = '';
+// limite por IP: 10 pedidos em 15 minutos
+for ($i = 0; $i < 12; $i++) $r = req('checkout_criar', 'POST', [], array_merge($dados, ['email' => "lim$i.ck@exemplo.com", 'nome' => 'Limite Teste', 'bumps' => [], 'cupom' => '']), '', '10.7.7.9');
+eq('muitos pedidos do mesmo IP em pouco tempo são barrados (429)', $r[0] === 429);
+// oferta de teste só por ?plano=teste
+$pdo->exec("INSERT INTO cdd_oferta (nome, gateway, ref_gateway, meses, valor, link, ativo, ordem, criado_em) VALUES ('TESTE interno CDD (R\$ 5)', 'asaas', 'testelink123', 2, 5.00, 'https://www.asaas.com/c/testelink123', 1, 0, '" . cddAgora() . "')");
+[$s, $d] = req('checkout_info', 'GET', [], [], '', '10.7.7.1');
+eq('a oferta de teste não aparece na lista do checkout', !in_array('teste', array_column($d['planos'], 'slug'), true));
+[$s, $d] = req('checkout_info', 'GET', ['plano' => 'teste'], [], '', '10.7.7.1');
+eq('com ?plano=teste a oferta de teste aparece (R$ 5)', in_array('teste', array_column($d['planos'], 'slug'), true) && $d['cotacao']['total'] === 5.0);
+[$s, $d] = req('a_checkout_pedidos', 'GET', [], [], $tAdmin);
+eq('a equipe vê os pedidos', $s === 200 && count($d['pedidos']) >= 4);
+$GLOBALS['cddAsaasHttpFake'] = null;
+
 echo "\nIsolamento da Intus\n";
 $fonte = file_get_contents(__DIR__ . '/../api/_nucleo.php') . file_get_contents(__DIR__ . '/../api/api.php');
 eq('o CDD não inclui nenhum arquivo PHP da Intus (só lê as constantes do banco)', preg_match_all('~(?:require|include)(?:_once)?\s*\(?\s*__DIR__\s*\.\s*\'([^\']+)\'~', $fonte, $mm) && count(array_filter($mm[1], function ($p) { return strpos($p, 'app/api') !== false; })) === 0);
