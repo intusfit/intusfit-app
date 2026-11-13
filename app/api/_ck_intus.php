@@ -28,7 +28,7 @@ function ick_ddl(string $driver): array {
                 idpedido INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL, produto TEXT NOT NULL, periodo TEXT NOT NULL, meses INTEGER NOT NULL,
                 nome TEXT NOT NULL, email TEXT NOT NULL, telefone TEXT, cpf TEXT, forma TEXT NOT NULL, parcelas INTEGER NOT NULL DEFAULT 1, valor REAL NOT NULL,
                 ip TEXT, asaas_customer TEXT, asaas_ref TEXT, asaas_parc TEXT, url TEXT, status TEXT NOT NULL DEFAULT 'criado',
-                criado_em TEXT NOT NULL, pago_em TEXT, avisado_em TEXT)",
+                criado_em TEXT NOT NULL, pago_em TEXT, avisado_em TEXT, idatleta INTEGER, matriculado_em TEXT)",
             "CREATE UNIQUE INDEX IF NOT EXISTS uk_ick_token ON intus_checkout_pedido (token)",
         ];
     }
@@ -54,6 +54,8 @@ function ick_ddl(string $driver): array {
         criado_em DATETIME NOT NULL,
         pago_em DATETIME NULL,
         avisado_em DATETIME NULL,
+        idatleta INT NULL,
+        matriculado_em DATETIME NULL,
         UNIQUE KEY uk_ick_token (token),
         INDEX ix_ick_ref (asaas_ref),
         INDEX ix_ick_parc (asaas_parc),
@@ -65,6 +67,11 @@ function ick_garantir_tabelas(PDO $pdo): void {
     if ($feito === null) $feito = new WeakMap();
     if (isset($feito[$pdo])) return;
     foreach (ick_ddl((string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) as $sql) $pdo->exec($sql);
+    // tabela criada antes da matrícula automática: só ADD COLUMN, nunca altera nem apaga dado
+    foreach ([['idatleta', 'INT NULL'], ['matriculado_em', 'DATETIME NULL']] as [$col, $def]) {
+        try { $pdo->query("SELECT $col FROM intus_checkout_pedido LIMIT 0"); }
+        catch (Throwable $e) { try { $pdo->exec("ALTER TABLE intus_checkout_pedido ADD COLUMN $col $def"); } catch (Throwable $e2) {} }
+    }
     $feito[$pdo] = true;
 }
 
@@ -158,13 +165,26 @@ function ick_enviar_email(string $para, string $assunto, string $texto): bool {
     catch (Throwable $e) { return false; }
 }
 
-function ick_texto_equipe(array $p, string $situacao): string {
+/** E-mail de boas-vindas ao aluno novo: como criar a senha e o que acontece em seguida. */
+function ick_texto_aluno(array $p): string {
+    $prim = explode(' ', trim($p['nome']))[0];
+    return "Oi, $prim! Bem-vindo(a) à Intus Fit. O seu plano está ativo.\n\n"
+        . "1) Crie a sua senha (1 minuto)\nAbra https://intusfit.com.br/app/painel/login.html, toque em \"Esqueci a senha\", digite este e-mail ({$p['email']}) e use o código que chegar para criar a senha.\n\n"
+        . "2) Coloque o app na tela inicial do celular\niPhone: abra o endereço no Safari, toque em Compartilhar e depois em \"Adicionar à Tela de Início\". Android: abra no Chrome, toque nos três pontinhos e em \"Instalar app\".\n\n"
+        . "3) Fale com a equipe\nOs profissionais vão chamar você no WhatsApp para montar o seu treino com as suas informações. Se preferir, chame você: https://wa.me/5545991156006\n\n"
+        . "Um abraço,\nEquipe Intus Fit";
+}
+
+function ick_texto_equipe(array $p, string $situacao, ?array $mat = null): string {
     $prod = INTUS_CK_CATALOGO[$p['produto']]['nome'] ?? $p['produto'];
     $per = INTUS_CK_PERIODOS[$p['periodo']] ?? $p['periodo'];
     $wa = 'https://wa.me/' . $p['telefone'] . '?text=' . rawurlencode('Oi, ' . explode(' ', $p['nome'])[0] . '! Aqui é a equipe da Intus Fit. Recebemos o seu pagamento e já vamos liberar o seu acesso. Qualquer dúvida é só responder aqui.');
     return $situacao . "\n\nNome: {$p['nome']}\nE-mail: {$p['email']}\nWhatsApp: +{$p['telefone']}\nCPF: {$p['cpf']}\nPlano: $prod, $per\n"
         . 'Valor: R$ ' . number_format((float)$p['valor'], 2, ',', '.') . ($p['forma'] === 'cartao' ? ' no cartão em ' . (int)$p['parcelas'] . 'x' : ' no Pix') . "\n\n"
-        . "Próximo passo: fazer a matrícula no painel (Matrículas > Nova matrícula) e dar o acesso ao aluno.\nBoas-vindas no WhatsApp com a mensagem pronta:\n$wa\n";
+        . ($mat && !empty($mat['ids']) ? "\nO QUE FOI GRAVADO: " . ($mat['novo_aluno'] ? 'aluno NOVO criado (a senha ele cria pelo "Esqueci a senha"; recebeu o e-mail de boas-vindas)' : 'aluno que já existia') . ', ' . count($mat['ids']) . " linha(s) em Matrículas.\n"
+            . 'Abrir a matrícula no painel: https://intusfit.com.br/app/painel/mensalidades.html?m=' . $mat['ids'][0] . "\n"
+            . ($mat['avisos'] ? "CONFIRA:\n- " . implode("\n- ", $mat['avisos']) . "\n" : '') : '')
+        . "\nPróximos passos: atribuir o professor, montar a primeira ficha e falar com o aluno. Boas-vindas no WhatsApp com a mensagem pronta:\n$wa\n";
 }
 
 /**
@@ -190,9 +210,17 @@ function ick_webhook(PDO $pdo, string $novo, array $pay): ?string {
     if ($novo === 'recebida') {
         if ($p['status'] === 'pago') return 'repetido';
         $pdo->prepare("UPDATE intus_checkout_pedido SET status = 'pago', pago_em = ? WHERE idpedido = ? AND status <> 'pago'")->execute([asaas_agora(), (int)$p['idpedido']]);
-        $ok = ick_enviar_email('contato@intusfit.com.br', 'Compra no checkout da Intus: ' . $p['nome'], ick_texto_equipe($p, 'COMPRA PAGA no checkout da Intus. A matrícula ainda precisa ser feita pela equipe.'));
+        // matrícula automática (liberada na hora; a equipe recebe o aviso "REVISAR" para conferir)
+        require_once __DIR__ . '/_matricula_auto.php';
+        $mat = ima_matricular($pdo, $p);
+        if ($mat['ok']) $pdo->prepare('UPDATE intus_checkout_pedido SET idatleta = ?, matriculado_em = ? WHERE idpedido = ?')->execute([(int)$mat['idatleta'], asaas_agora(), (int)$p['idpedido']]);
+        if ($mat['ok'] && $mat['novo_aluno']) ick_enviar_email($p['email'], 'Seu acesso à Intus Fit', ick_texto_aluno($p));
+        $ok = ick_enviar_email('contato@intusfit.com.br', ($mat['ok'] ? 'REVISAR matrícula automática: ' : 'ATENÇÃO, matrícula NÃO criada: ') . $p['nome'], ick_texto_equipe($p, $mat['ok']
+            ? 'COMPRA PAGA no checkout da Intus. A matrícula foi criada e liberada AUTOMATICAMENTE. Confira se está certo.'
+            : 'COMPRA PAGA no checkout da Intus, mas a matrícula automática FALHOU (' . ($mat['erro'] ?? 'erro') . '). O pagamento está confirmado: faça a matrícula à mão no painel.', $mat));
         if ($ok) $pdo->prepare('UPDATE intus_checkout_pedido SET avisado_em = ? WHERE idpedido = ?')->execute([asaas_agora(), (int)$p['idpedido']]);
-        return $ok ? 'checkout_paga_equipe_avisada' : 'checkout_paga_aviso_falhou';
+        if (!$mat['ok']) return 'checkout_paga_matricula_falhou';
+        return $ok ? 'checkout_paga_matriculada_equipe_avisada' : 'checkout_paga_matriculada_aviso_falhou';
     }
     if ($novo === 'estornada') {
         $pdo->prepare("UPDATE intus_checkout_pedido SET status = 'estornado' WHERE idpedido = ?")->execute([(int)$p['idpedido']]);

@@ -6,6 +6,7 @@
  * O banco é SQLite em memória e o Asaas é simulado ($GLOBALS['asaasHttpFake']): nenhuma chamada sai daqui e nenhum e-mail é enviado.
  */
 require_once __DIR__ . '/../app/api/_ck_intus.php';
+require_once __DIR__ . '/../app/api/_matricula_auto.php';
 
 $ok = 0; $falhas = [];
 function confere(string $nome, $esperado, $obtido): void {
@@ -16,8 +17,8 @@ function confere(string $nome, $esperado, $obtido): void {
 function banco(): PDO {
     $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
     asaas_garantir_tabelas($pdo);
-    $pdo->exec("CREATE TABLE intus_atleta (idatleta INTEGER PRIMARY KEY, nome TEXT)");
-    $pdo->exec("CREATE TABLE intus_mensalidade (idmensalidade INTEGER PRIMARY KEY, idatleta INTEGER)");
+    $pdo->exec("CREATE TABLE atleta (idatleta INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, email TEXT, senha TEXT, telefone TEXT, cpf TEXT, origem TEXT, dt_cadastro TEXT, ranking_optin TEXT, stbloqueio TEXT, codacesso TEXT)");
+    $pdo->exec("CREATE TABLE intus_mensalidade (idmensalidade INTEGER PRIMARY KEY AUTOINCREMENT, idatleta INTEGER NOT NULL, dshistorico TEXT, dtinicio TEXT, dtvencimento TEXT NOT NULL, vlpagar REAL DEFAULT 0, vldesconto REAL DEFAULT 0, vljuro REAL DEFAULT 0, stpgto TEXT DEFAULT 'N', dtpagamento TEXT, vlpagamento REAL, dspagamento TEXT, professor TEXT, tipo_plano TEXT, stmatricula TEXT DEFAULT 'ativa', idmatricula_origem INTEGER, parcela_num INTEGER, parcela_total INTEGER, forma_pgto TEXT, recorrencia TEXT)");
     return $pdo;
 }
 
@@ -73,22 +74,30 @@ $pc = $pdo->query("SELECT * FROM intus_checkout_pedido ORDER BY idpedido DESC LI
 confere('o máximo de parcelas segue o período (trimestral: 3)', 3, (int)$corpos['POST /payments']['installmentCount']);
 
 // ── Aviso de pagamento: marca o pedido, avisa a equipe e NÃO mexe em aluno nem matrícula ──
-$antesAt = (int)$pdo->query("SELECT COUNT(*) FROM intus_atleta")->fetchColumn(); $antesMe = (int)$pdo->query("SELECT COUNT(*) FROM intus_mensalidade")->fetchColumn();
 $aviso = function ($ev, $pay) { return ['event' => $ev, 'payment' => $pay]; };
 $tok = 'tok-' . str_repeat('b', 44);
 [$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_RECEIVED', ['id' => $p['asaas_ref'], 'externalReference' => 'intus:ck:' . $p['idpedido'], 'billingType' => 'PIX', 'value' => 4597.0]), $tok);
 confere('aviso de Pix pago marca o pedido (o e-mail não sai no teste)', 200, $st);
-confere('resultado do checkout', true, strpos($r['resultado'], 'checkout_paga') === 0);
+confere('resultado do checkout: matriculada', true, strpos($r['resultado'], 'checkout_paga_matriculada') === 0);
 [$st, $s] = ick_status($pdo, $p['token']);
 confere('depois do aviso: pago', 'pago', $s['status']);
-confere('nenhum aluno nem matrícula é criado sozinho', [$antesAt, $antesMe], [(int)$pdo->query("SELECT COUNT(*) FROM intus_atleta")->fetchColumn(), (int)$pdo->query("SELECT COUNT(*) FROM intus_mensalidade")->fetchColumn()]);
+$at = $pdo->query("SELECT * FROM atleta WHERE email = 'carlos.p@exemplo.com'")->fetch();
+confere('o aluno novo foi criado com os dados do pedido, origem professor e senha que ninguém conhece', [true, 'Carlos Pereira', '5545999990001', 'professor', true], [(bool)$at, $at['nome'], $at['telefone'], $at['origem'], strlen($at['senha']) > 40 && !password_verify('', $at['senha'])]);
+$ms = $pdo->query("SELECT * FROM intus_mensalidade WHERE idatleta = " . (int)$at['idatleta'] . " ORDER BY idmensalidade")->fetchAll();
+confere('Pix: um ciclo pago e o ciclo seguinte em aberto', [2, 'S', 'N', 'anual', 'anual', 4597.0, 'asaas_pix'], [count($ms), $ms[0]['stpgto'], $ms[1]['stpgto'], $ms[0]['recorrencia'], $ms[1]['recorrencia'], (float)$ms[0]['vlpagamento'], $ms[0]['forma_pgto']]);
+confere('o ciclo seguinte começa onde o pago termina e dura o mesmo período', [$ms[0]['dtvencimento'], ima_somar_meses($ms[0]['dtvencimento'], 12)], [$ms[1]['dtinicio'], $ms[1]['dtvencimento']]);
+confere('o pedido guarda o aluno e a hora da matrícula', true, (int)$pdo->query("SELECT idatleta FROM intus_checkout_pedido WHERE idpedido = " . (int)$p['idpedido'])->fetchColumn() === (int)$at['idatleta']);
 [$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_CONFIRMED', ['id' => $p['asaas_ref'], 'externalReference' => 'intus:ck:' . $p['idpedido'], 'value' => 4597.0]), $tok);
-confere('o mesmo pedido avisado de novo é "repetido"', 'repetido', $r['resultado']);
+confere('o mesmo pedido avisado de novo é "repetido" e não duplica a matrícula', [ 'repetido', 2], [$r['resultado'], (int)$pdo->query("SELECT COUNT(*) FROM intus_mensalidade WHERE idatleta = " . (int)$at['idatleta'])->fetchColumn()]);
 // parcela de cartão: achada pelo parcelamento, mesmo sem a referência
 [$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_RECEIVED', ['id' => 'pay_parcela_x', 'installment' => $pc['asaas_parc'], 'billingType' => 'CREDIT_CARD', 'value' => 383.08]), $tok);
 confere('parcela do cartão é achada pelo parcelamento', true, strpos($r['resultado'], 'checkout_paga') === 0);
 $pc2 = $pdo->query("SELECT status FROM intus_checkout_pedido WHERE idpedido = " . (int)$pc['idpedido'])->fetchColumn();
 confere('pedido do cartão fica pago', 'pago', $pc2);
+$atC = $pdo->query("SELECT idatleta FROM atleta WHERE email = 'c2@exemplo.com'")->fetchColumn();
+$msC = $pdo->query("SELECT * FROM intus_mensalidade WHERE idatleta = " . (int)$atC . " ORDER BY idmensalidade")->fetchAll();
+confere('cartão 12x: 12 parcelas, todas com baixa no dia, valor total fechando e sem ciclo novo sozinho', [12, ['S'], 4597.0, [null]], [count($msC), array_values(array_unique(array_column($msC, 'stpgto'))), round(array_sum(array_column($msC, 'vlpagamento')), 2), array_values(array_unique(array_column($msC, 'recorrencia')))]);
+confere('as parcelas levam a marca do checkout e a ligação com a primeira', [true, (int)$msC[0]['idmensalidade'], 12], [strpos($msC[3]['dspagamento'], 'Asaas checkout') === 0, (int)$msC[5]['idmatricula_origem'], (int)$msC[0]['parcela_total']]);
 [$st, $r] = asaas_webhook($pdo, $aviso('PAYMENT_REFUNDED', ['id' => $p['asaas_ref'], 'externalReference' => 'intus:ck:' . $p['idpedido']]), $tok);
 confere('estorno marca o pedido', 'checkout_estornada', $r['resultado']);
 // cobrança que não é do checkout continua no caminho de sempre

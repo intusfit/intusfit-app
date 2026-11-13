@@ -1246,6 +1246,16 @@ eq('mensal: cria a assinatura e leva à cobrança dela, sem bônus', $s === 200 
 [$s, $d2] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_sub_a', ['customer' => 'cus_y', 'paymentLink' => null, 'subscription' => 'sub_ck1', 'billingType' => 'PIX', 'value' => (float)$mensal['valor']]));
 eq('a cobrança da assinatura é achada pelo id da assinatura (também nas renovações)', $s === 200 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = 'lia.ck@exemplo.com'")->fetchColumn() === 1, json_encode($d2));
 
+$idLia = (int)$pdo->query("SELECT idaluna FROM cdd_aluna WHERE email = 'lia.ck@exemplo.com'")->fetchColumn();
+$fim1 = $pdo->query("SELECT expira_em FROM cdd_matricula WHERE idaluna = $idLia")->fetchColumn();
+[$s, $d2] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_sub_b', ['customer' => 'cus_y', 'paymentLink' => null, 'subscription' => 'sub_ck1', 'billingType' => 'PIX', 'value' => (float)$mensal['valor']]));
+$fim2 = $pdo->query("SELECT expira_em FROM cdd_matricula WHERE idaluna = $idLia")->fetchColumn();
+eq('renovação do mensal: a 2ª cobrança da assinatura prorroga a matrícula em 1 mês (mais a carência de sempre) a partir do fim atual', $s === 200 && strpos($d2['resultado'], 'renovada') === 0 || strpos($d2['resultado'], 'liberada') === 0 ? $fim2 === cddSomarMeses($fim1, 1, CDD_CARENCIA_DIAS) : false, json_encode([$d2, $fim1, $fim2]));
+eq('a renovação não cria outra aluna nem outro pagamento repetido (2 pagamentos, 1 aluna)', (int)$pdo->query("SELECT COUNT(*) FROM cdd_aluna WHERE email = 'lia.ck@exemplo.com'")->fetchColumn() === 1 && (int)$pdo->query("SELECT COUNT(*) FROM cdd_pagamento WHERE idaluna = $idLia")->fetchColumn() === 2);
+[$s, $d2] = $reqAs($pagAs('PAYMENT_RECEIVED', 'pay_sub_b', ['customer' => 'cus_y', 'paymentLink' => null, 'subscription' => 'sub_ck1', 'billingType' => 'PIX', 'value' => (float)$mensal['valor']]));
+eq('o mesmo aviso da renovação repetido é duplicado (não prorroga duas vezes)', $d2['resultado'] === 'duplicado' && $pdo->query("SELECT expira_em FROM cdd_matricula WHERE idaluna = $idLia")->fetchColumn() === $fim2);
+[$s, $d2] = $reqAs(['id' => 'evt_x', 'event' => 'SUBSCRIPTION_DELETED', 'subscription' => ['id' => 'sub_ck1', 'customer' => 'cus_y']]);
+eq('cancelar a assinatura mantém o acesso até o fim do período já pago', $d2['resultado'] === 'assinatura_cancelada' && cddMatricula($pdo, $idLia)['ativa'] === true);
 // falha do Asaas
 $GLOBALS['asaasFalha'] = 'rede';
 [$s, $d] = req('checkout_criar', 'POST', [], array_merge($dados, ['email' => 'rede.ck@exemplo.com', 'nome' => 'Rede Falha', 'bumps' => [], 'cupom' => '']), '', '10.7.7.6');
