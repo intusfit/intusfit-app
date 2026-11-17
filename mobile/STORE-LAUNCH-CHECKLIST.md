@@ -16,8 +16,8 @@ Atualizada em **11 de novembro de 2026** (revisão de marca, privacidade e pacot
 
 - [ ] Build de release testada em aparelho Android físico e iPhone físico.
 - [ ] Fluxo de exclusão de conta e dados confirmado dentro do app ou por URL pública, se exigido pela loja.
-- [x] Política de privacidade existe em `app/painel/privacidade.html` (URL: `https://intusfit.com.br/app/painel/privacidade.html`) e declara localização em primeiro plano, câmera/fotos, notificações, dados de treino e autenticação. Conteúdo conferido no repositório em 11/11/2026; **a publicação não foi reverificada** (sem acesso à URL na revisão): abrir a URL antes de enviar.
-- [ ] **Atualizar a política de privacidade** antes de enviar: ela não cita CPF, gênero, a anamnese (dados de saúde: cirurgias, doenças, medicamentos), o conteúdo da comunidade (feed, comentários, mensagens), os registros de nutrição nem os vídeos de feedback; e fala em notificações push, mas o app usa só avisos locais. Texto jurídico é decisão do Luiz.
+- [x] Política de privacidade em `app/painel/privacidade.html` (URL: `https://intusfit.com.br/app/painel/privacidade.html`), atualizada em 17/11/2026. **Só fica no ar depois do deploy (branch na `main`) e a publicação não foi reverificada**: abrir a URL antes de enviar.
+- [x] Política atualizada em 17/11/2026: agora cita CPF, gênero, anamnese e dados de saúde (sensíveis, com base no consentimento), comunidade e mensagens, nutrição, feedbacks em vídeo, operadores e transferência internacional, e fala só em avisos locais (sem push). `termos.html` alinhado. **Pendente: leitura final do Luiz ou de um advogado.**
 - [ ] Permissões pedidas no momento de uso, com explicação compreensível antes do diálogo do sistema — declarações nativas existem; falta validar em aparelhos físicos.
 - [ ] Não há dados de aluno, token, chave de API, credencial ou captura de tela real em materiais de teste.
 - [x] Login por Google/Facebook está oculto enquanto as credenciais forem placeholders, e o pacote nativo (`npm run build:web`) não carrega os SDKs do Google e do Facebook nem mostra os botões sociais. Se qualquer provedor for ativado no iOS, implementar e testar **Sign in with Apple** de forma equivalente antes do envio.
@@ -44,7 +44,7 @@ Atualizada em **11 de novembro de 2026** (revisão de marca, privacidade e pacot
 - [ ] Preencher App Privacy com base no comportamento real da release.
 - [ ] Informar uso de localização e dados de Saúde, se e somente se habilitados.
 - [ ] Preencher informações de export compliance (o `Info.plist` já traz `ITSAppUsesNonExemptEncryption = false`: o app só usa HTTPS), conteúdo e classificação etária.
-- [ ] **Decidir iPad ou só iPhone** (`TARGETED_DEVICE_FAMILY` hoje `1,2` em `project.pbxproj`). Com iPad a Apple exige capturas de iPad e revisa o layout nele. Ver pergunta no PR de 11/11/2026.
+- [x] Só iPhone na primeira versão (`TARGETED_DEVICE_FAMILY = 1` em `project.pbxproj`, decisão do Luiz em 17/11/2026): capturas apenas de iPhone. As chaves `~ipad` do `Info.plist` ficam sem efeito.
 - [ ] Revisar o botão "Conhecer outros planos" (abre o WhatsApp) frente à diretriz 3.1.1 da Apple.
 - [ ] Anexar build assinada pelo Xcode/Transporter e selecionar a versão correta.
 - [ ] Revisar App Review Guidelines, especialmente autenticação, privacidade, pagamentos e funcionalidades mínimas.

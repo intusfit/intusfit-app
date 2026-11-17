@@ -147,8 +147,8 @@ Base: o que o app coleta de fato (cadastro, `login.html`; anamnese, `aluno.html`
 
 ## Pontos de atenção antes de enviar (não decididos)
 
-1. **A política de privacidade publicada está incompleta** para essas respostas: não cita CPF, gênero, a anamnese (dados de saúde, dado sensível na LGPD), o conteúdo da comunidade (feed, comentários, mensagens), os registros de nutrição nem os vídeos de feedback. Atualizar o texto antes de enviar; a Apple compara a política com as respostas do App Privacy.
+1. **Política de privacidade atualizada em 17/11/2026** (CPF, gênero, anamnese e dados de saúde, comunidade, nutrição, feedbacks em vídeo, operadores e transferência internacional). Depende de a branch chegar à `main` para ficar no ar; abrir a URL antes de enviar. Texto jurídico: vale uma leitura do Luiz ou de um advogado.
 2. **"Conhecer outros planos" abre o WhatsApp** com os dados da matrícula (aba Matrícula do perfil). A Apple pode questionar chamadas para contratação fora do app (diretriz 3.1.1). Decidir com o Luiz se o botão fica na versão das lojas.
-3. **Notificações**: a política fala em notificações push; o app usa só avisos locais. Ajustar o texto de uma das duas pontas.
-4. **iPad**: ver a pergunta sobre `TARGETED_DEVICE_FAMILY` no PR. Se o app aceitar iPad, a Apple exige capturas de tela de iPad.
+3. **Notificações**: resolvido, a política agora diz que só há avisos locais e o sino dentro do app (sem push de servidor).
+4. **iPad**: decidido, primeira versão só iPhone (`TARGETED_DEVICE_FAMILY = 1`). Capturas só de iPhone. Para liberar iPad depois: voltar a `1,2`, testar o layout e fazer capturas de iPad.
 5. **Capturas de tela** ainda precisam ser feitas num aparelho real, com conta de demonstração e sem dado pessoal.
