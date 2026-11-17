@@ -16250,16 +16250,29 @@ function _pkTravarFundo() {
   document.body.dataset.pkOv = document.body.style.overflow || '';
   const y = window.scrollY || window.pageYOffset || 0;   // travar a rolagem zerava a posição da tela de trás (o ranking voltava ao topo ao fechar o perfil)
   document.body.dataset.pkY = String(y);
+  // Travar com overflow:hidden no html zerava a posição da página de trás e não deixava voltar (abrir o "+" das reações levava a Início ao topo).
+  // Por isso o corpo fica fixo, deslocado pela posição atual, e a posição é devolvida ao destravar. No modo de giro (o corpo é que rola) vale o jeito antigo.
+  const giro = typeof window._giroAtivo === 'function' && window._giroAtivo();
+  document.body.dataset.pkFix = giro ? '' : '1';
   document.body.style.overflow = 'hidden';
-  document.documentElement.style.overflow = 'hidden';
-  if (y) { window.scrollTo(0, y); requestAnimationFrame(function () { window.scrollTo(0, y); }); }
+  if (giro) {
+    document.documentElement.style.overflow = 'hidden';
+    if (y) { window.scrollTo(0, y); requestAnimationFrame(function () { window.scrollTo(0, y); }); }
+  } else {
+    document.body.dataset.pkEst = JSON.stringify([document.body.style.position, document.body.style.top, document.body.style.left, document.body.style.right, document.body.style.width]);
+    document.body.style.position = 'fixed'; document.body.style.top = (-y) + 'px'; document.body.style.left = '0'; document.body.style.right = '0'; document.body.style.width = '100%';
+  }
   if (_pkLockObs) return;
   _pkLockObs = new MutationObserver(function() {
     if (document.querySelector('#overlay-perfil-rk, #pk-post-ov, #pk-priv-ov, .pk-trava')) return;
     const y = Number(document.body.dataset.pkY || 0);
     document.body.style.overflow = document.body.dataset.pkOv || '';
     document.documentElement.style.overflow = '';
-    delete document.body.dataset.pkLock; delete document.body.dataset.pkOv; delete document.body.dataset.pkY;
+    if (document.body.dataset.pkFix === '1') {
+      let est = ['', '', '', '', '']; try { est = JSON.parse(document.body.dataset.pkEst || '[]'); } catch (e) {}
+      document.body.style.position = est[0] || ''; document.body.style.top = est[1] || ''; document.body.style.left = est[2] || ''; document.body.style.right = est[3] || ''; document.body.style.width = est[4] || '';
+    }
+    delete document.body.dataset.pkLock; delete document.body.dataset.pkOv; delete document.body.dataset.pkY; delete document.body.dataset.pkFix; delete document.body.dataset.pkEst;
     if (y) { window.scrollTo(0, y); requestAnimationFrame(function () { window.scrollTo(0, y); }); }
   });
   _pkLockObs.observe(document.body, { childList: true });
