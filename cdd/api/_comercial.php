@@ -237,7 +237,7 @@ function cddGatewayAsaas(array $p): ?array {
         'pago_em' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataPago) ? $dataPago . ' 00:00:00' : '',
         // o que o enriquecimento precisa para consultar o Asaas
         '_cliente' => (string)($pay['customer'] ?? ($sub['customer'] ?? '')),
-        '_assinatura' => $idSub, '_parcelamento' => $idParc,
+        '_assinatura' => $idSub, '_parcelamento' => $idParc, '_cobranca' => $idPag, '_extref' => (string)($pay['externalReference'] ?? ($sub['externalReference'] ?? '')),
     ];
 }
 
@@ -276,6 +276,17 @@ function cddAsaasEnriquecer(PDO $pdo, array $ev): array {
         $st = $pdo->prepare("SELECT idoferta FROM cdd_oferta WHERE gateway = 'asaas' AND ref_gateway = ? AND ativo = 1"); $st->execute([$ref]);
         return (bool)$st->fetchColumn();
     };
+    // Venda do checkout próprio: o pedido (cdd_pedido) já sabe o plano e quem comprou, então não precisa consultar o Asaas.
+    if ($ev['produto'] === '' && ($ped = cddCheckoutPedidoDoEvento($pdo, $ev))) {
+        $of = $pdo->prepare('SELECT ref_gateway FROM cdd_oferta WHERE idoferta = ?'); $of->execute([(int)$ped['idoferta']]);
+        $ref = (string)$of->fetchColumn();
+        if ($ref !== '') {
+            $ev['produto'] = $ref; $ev['nome'] = (string)$ped['nome']; $ev['email'] = (string)$ped['email']; $ev['telefone'] = (string)$ped['telefone'];
+            $ev['cupom'] = (string)$ped['cupom']; $ev['_pedido'] = (int)$ped['idpedido']; $ev['_bumps'] = (string)$ped['bumps']; $ev['_cliente'] = '';
+            if ($ev['tipo'] === 'pago' && (int)$ped['parcelas'] > 1 && $ev['_parcelamento'] !== '') $ev['valor'] = (float)$ped['valor'];   // o aviso traz o valor de UMA parcela
+            return $ev;
+        }
+    }
     if ($ev['produto'] === '' && !empty($ev['_assinatura'])) {
         $a = $get('/subscriptions/' . rawurlencode($ev['_assinatura']));
         $ev['produto'] = (string)($a['paymentLink'] ?? '');
@@ -364,11 +375,12 @@ function cddZapBoasVindas(string $nome, string $email): string {
 }
 
 /** Aviso à equipe de uma aluna nova, com o botão pronto de boas-vindas no WhatsApp (1 toque), enquanto o envio automático pela Meta não existe. */
-function cddAvisarEquipeVenda(PDO $pdo, string $nome, string $email, string $telefone, string $oferta, $valor): void {
+function cddAvisarEquipeVenda(PDO $pdo, string $nome, string $email, string $telefone, string $oferta, $valor, string $bumps = ''): void {
     $para = cddEmail(cddConfig($pdo, 'email_equipe', 'contato@codigodadefinicao.com.br'));
     if ($para === '') return;
     $linhas = ['Aluna nova no Código da Definição.', '', "Nome: $nome", "E-mail: $email", 'Telefone: ' . ($telefone !== '' ? '+' . $telefone : 'não veio na compra'),
                'Plano: ' . $oferta . ($valor !== null && $valor !== '' ? ' (R$ ' . number_format((float)$valor, 2, ',', '.') . ')' : '')];
+    if ($bumps !== '') { $linhas[] = ''; $linhas[] = 'BÔNUS COMPRADOS (entregar à mão): ' . $bumps; }
     if ($telefone !== '') {
         $linhas[] = ''; $linhas[] = 'Boas-vindas no WhatsApp, com a mensagem pronta (toque, confira e envie):';
         $linhas[] = 'https://wa.me/' . $telefone . '?text=' . rawurlencode(cddZapBoasVindas($nome, $email));
@@ -463,6 +475,7 @@ function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
             $pdo->prepare('INSERT INTO cdd_matricula (idaluna, status, origem, ref_externa, inicio, expira_em, obs, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
                 ->execute([$idaluna, 'ativa', $ev['gateway'], cddStr($ev['contrato'] ?: $ev['fatura'], 80), $hoje, $novoFim, cddStr('Venda: ' . $oferta['nome'], 300), cddAgora()]);
         }
+        if (!empty($ev['_pedido'])) cddCheckoutMarcarPago($pdo, (int)$ev['_pedido']);
         $tel = cddTelefoneBR($ev['telefone'] ?? '');
         if ($tel !== '') $pdo->prepare("UPDATE cdd_aluna SET telefone = ? WHERE idaluna = ? AND (telefone IS NULL OR telefone = '')")->execute([$tel, $idaluna]);
         cddRegistrarEvento($pdo, $idaluna, 'matricula_venda', $ev['gateway']);
@@ -472,7 +485,7 @@ function cddComercialProcessar(PDO $pdo, array $ev, string $base): array {
             $lk = cddNovaAtivacao($pdo, $idaluna, $base);
             [$assunto, $texto] = cddEmailAcesso($aluna['nome'], $lk['link']);
             $resultado = cddEnviarEmail($email, $assunto, $texto) ? ($novo ? 'aluna_criada_email_enviado' : 'liberada_email_enviado') : ($novo ? 'aluna_criada_email_falhou' : 'liberada_email_falhou');
-            if ($novo) cddAvisarEquipeVenda($pdo, (string)$aluna['nome'], $email, $tel, (string)$oferta['nome'], $ev['valor'] ?? null);
+            if ($novo) cddAvisarEquipeVenda($pdo, (string)$aluna['nome'], $email, $tel, (string)$oferta['nome'], $ev['valor'] ?? null, (string)($ev['_bumps'] ?? ''));
         } else $resultado = 'renovada';
         $fecha($resultado, $idaluna);
         return [true, $resultado];

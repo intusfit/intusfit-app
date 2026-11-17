@@ -2029,11 +2029,18 @@ const API = {
         item.taxaFixo = liq.taxaFixo != null ? liq.taxaFixo : API.EDUZZ_PRESETS.direta.fixo;
         item.prazoDias = liq.prazoDias != null ? liq.prazoDias : API.EDUZZ_PRAZO_DIAS;
       } else {
-        var t = tipoAsaas(m.forma_pgto), pr = API.ASAAS_PRESETS[t];
+        var t = tipoAsaas(m.forma_pgto);
+        // Cartão em parcelas: a taxa é a da faixa de parcelas (2 a 6x ou 7 a 12x) e a tarifa fixa de R$ 0,49 é uma só por venda (na 1ª parcela).
+        var nParc = Number(m.parcela_total) || 1, pNum = Number(m.parcela_num) || 1;
+        if (t === 'cartao' && nParc > 1) t = nParc <= 6 ? 'cartao6' : 'cartao12';
+        var pr = API.ASAAS_PRESETS[t];
+        // Compra do checkout próprio em cartão parcelado: o cliente pagou tudo na data da compra (a baixa é do valor total), mas o Asaas repassa uma parcela
+        // por mês. Cada parcela libera 32 dias depois da data da compra mais 30 dias por parcela anterior, para o Financeiro não mostrar mais caixa do que entrou.
+        var repasseMensal = t !== 'pix' && t !== 'boleto' && nParc > 1 && /asaas checkout/i.test(String(m.dspagamento || ''));
         item.presetTaxa = liq.presetTaxa || t;
         item.taxaPct = liq.taxaPct != null ? liq.taxaPct : pr.pct;
-        item.taxaFixo = liq.taxaFixo != null ? liq.taxaFixo : pr.fixo;
-        item.prazoDias = liq.prazoDias != null ? liq.prazoDias : prazoDiasDe(pr, m.dtpagamento);
+        item.taxaFixo = liq.taxaFixo != null ? liq.taxaFixo : (nParc > 1 && pNum > 1 ? 0 : pr.fixo);
+        item.prazoDias = liq.prazoDias != null ? liq.prazoDias : prazoDiasDe(pr, m.dtpagamento) + (repasseMensal ? 30 * (pNum - 1) : 0);
       }
       return item;
     }
@@ -4314,6 +4321,12 @@ const API = {
   salvarNutriConteudo: (obj) => apiFetch('/catalogo.php?action=nutri_conteudo', { method: obj.idconteudo ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
   excluirNutriConteudo: (id) => apiFetch('/catalogo.php?action=nutri_conteudo&id=' + id, { method: 'DELETE' }),
   importarNutriConteudo: () => apiFetch('/catalogo.php?action=nutri_conteudo', { method: 'POST', body: JSON.stringify({ subacao: 'importar' }) }),
+  // Ler a dieta de um PDF ou print (Gaia ou outro sistema) com o Claude. Só lê: quem casa com a base e grava é o painel de Nutrição.
+  nutriImportarIA: (arquivos) => apiFetch('/catalogo.php?action=nutri_importar_ia', { method: 'POST', body: JSON.stringify({ arquivos }) }),
+  // Biblioteca da equipe: grupos alimentares e refeições modelo (tabela intus_nutri_biblioteca).
+  listarNutriBiblioteca: (tipo) => apiFetch('/catalogo.php?action=nutri_biblioteca' + (tipo ? '&tipo=' + tipo : '')),
+  salvarNutriBiblioteca: (obj) => apiFetch('/catalogo.php?action=nutri_biblioteca', { method: obj.idbib ? 'PUT' : 'POST', body: JSON.stringify(obj) }),
+  excluirNutriBiblioteca: (id) => apiFetch('/catalogo.php?action=nutri_biblioteca&id=' + id, { method: 'DELETE' }),
   // Medidas caseiras que a equipe cadastra para qualquer alimento (ex.: 1 pote = 170 g).
   listarMedidasEquipe: () => apiFetch('/catalogo.php?action=alimento_medidas'),
   salvarMedidaEquipe: (d) => apiFetch('/catalogo.php?action=alimento_medidas', { method: 'POST', body: JSON.stringify(d) }),

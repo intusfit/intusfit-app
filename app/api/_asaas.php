@@ -230,6 +230,10 @@ function asaas_webhook(PDO $pdo, array $p, string $tokenRecebido): array {
     elseif ($ev === 'PAYMENT_DELETED') $novo = 'cancelada';
     if ($novo === null) return [200, ['ok' => true, 'resultado' => 'ignorado']];
 
+    // venda do checkout próprio (checkout.html): o pedido é marcado como pago e a equipe é avisada (ver _ck_intus.php)
+    require_once __DIR__ . '/_ck_intus.php';
+    $ck = ick_webhook($pdo, $novo, $pay);
+    if ($ck !== null) return [200, ['ok' => true, 'resultado' => $ck]];
     $st = $pdo->prepare('SELECT * FROM intus_asaas_cobranca WHERE asaas_payment_id = ?'); $st->execute([$idPay]);
     $c = $st->fetch(PDO::FETCH_ASSOC);
     $ref = (string)($pay['externalReference'] ?? '');

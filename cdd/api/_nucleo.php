@@ -14,7 +14,7 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 9;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads, 8 = gestão (liberação manual de módulo, páginas de venda)
+const CDD_ESQUEMA = 10;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads, 8 = gestão (liberação manual de módulo, páginas de venda)
 require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
 require_once __DIR__ . '/_bemestar.php';
@@ -22,6 +22,7 @@ require_once __DIR__ . '/_comercial.php';
 require_once __DIR__ . '/_sso.php';
 require_once __DIR__ . '/_leads.php';
 require_once __DIR__ . '/_gestao.php';
+require_once __DIR__ . '/_checkout.php';
 
 /* ───────────────────────── Banco ───────────────────────── */
 
@@ -269,7 +270,7 @@ function cddDdl(): array {
             status VARCHAR(10) NOT NULL,
             PRIMARY KEY (idaluna, data, refeicao)
         ) $c",
-    ] + cddComercialDdl($c) + cddLeadsDdl($c) + cddGestaoDdl($c);
+    ] + cddComercialDdl($c) + cddLeadsDdl($c) + cddGestaoDdl($c) + cddCheckoutDdl($c);
 }
 
 function cddGarantirTabelas(PDO $pdo): void {
@@ -779,6 +780,7 @@ function cddTratar(PDO $pdo, string $metodo, string $acao, array $q, array $b, s
     /* ---- públicas ---- */
     if ($acao === 'lead' && !$get) return cddLeadReceber($pdo, $b, $ip);
     if ($acao === 'lp_evento' && !$get) return cddLpRegistrar($pdo, $b, $ip, (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    if (strpos($acao, 'checkout_') === 0) { $ck = cddCheckoutPublico($pdo, $acao, $get, $q, $b, $ctx); if ($ck !== null) return $ck; }
     if ($acao === 'sso' && !$get) return cddSsoEntrar($pdo, cddStr($b['bilhete'] ?? '', 900), $ip);
     if ($acao === 'webhook' && !$get) return cddComercialWebhook($pdo, cddStr($q['g'] ?? 'eduzz3', 20), $b, $base, $ctx);
     // Links de compra das ofertas ligadas, para as páginas de venda: trocar de gateway é cadastrar a oferta nova no painel, sem mexer nas páginas.
@@ -997,6 +999,8 @@ function cddAdmin(PDO $pdo, string $metodo, string $acao, array $q, array $b, ar
 
     $ld = cddLeadsAdmin($pdo, $metodo, $acao, $q, $b);
     if ($ld !== null) return $ld;
+    $ck = cddCheckoutAdmin($pdo, $acao, $metodo === 'GET', $b);
+    if ($ck !== null) return $ck;
     $gs = cddGestaoAdmin($pdo, $metodo, $acao, $q, $b, $ctx, $idadmin);
     if ($gs !== null) return $gs;
     $com = cddComercialAdmin($pdo, $metodo, $acao, $q, $b, $ctx);
