@@ -4078,6 +4078,39 @@ const API = {
       if (!it || !it.medida_id || it.medida_id === 'g' || !it.medida_nome) return f + ' g';
       return f + ' ' + pluralMedida(it.medida_nome, q);
     }
+    // ── Unidade quando o alimento se lê melhor assim (ovo, fatia de pão, filé...) e ml nos líquidos (leite, suco...) ──
+    // Fonte única da forma de mostrar a quantidade (painel, impressão e app do aluno). Em gramas só fica o que não tem unidade natural.
+    // Medidas: lista [{n|nome, g|gramas, id?}] do alimento (o item guarda em it.medidas). 1 ml é tratado como 1 g (densidade ~1, como nas tabelas).
+    function _sa(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+    var RE_CONTAVEL = /^(unidade|fatia|file|bife|pote|lata|scoop|dose|sache|barra|biscoito|bolacha|torrada|dente|folha|pedaco|ovo)/;
+    var RE_LIQ = /\b(leite|suco|agua|bebida|refrigerante|cafe|cha|kefir|vitamina|caldo|azeite|oleo|vinho|cerveja|isotonico|energetico)\b/;
+    var RE_NAO_LIQ = /\b(po|condensado|doce de leite|creme de leite|queijo|requeijao|coco ralado|farinha|manteiga|sorvete|bolo|pao|biscoito|barra|whey|chocolate|achocolatado|cappuccino)\b/;
+    function ehLiquido(nome) { var n = _sa(nome); return RE_LIQ.test(n) && !RE_NAO_LIQ.test(n); }
+    function medidaContavel(medidas) {
+      var ms = (medidas || []).map(function (m) { return { n: m.n || m.nome, g: num(m.g != null ? m.g : m.gramas), id: m.id }; });
+      return ms.filter(function (m) { return m.g > 0 && m.n && RE_CONTAVEL.test(_sa(m.n)); })[0] || null;
+    }
+    // Item em gramas que se lê melhor por unidade: devolve a medida e a quantidade (múltiplo de meia unidade) ou null.
+    function preferirUnidade(it, medidas) {
+      if (!it || (it.medida_id && it.medida_id !== 'g')) return null;
+      var g = gramasItem(it); if (!(g > 0)) return null;
+      var m = medidaContavel(medidas && medidas.length ? medidas : it.medidas); if (!m) return null;
+      // Unidade muito pequena (uva 8 g, morango, castanha) fica em gramas: "12,5 uvas" não ajuda ninguém. Fatia, biscoito, scoop etc. valem sempre.
+      if (m.g < 15 && !/^(fatia|biscoito|bolacha|torrada|scoop|dose|sache|barra)/.test(_sa(m.n))) return null;
+      var r = g / m.g; if (r < 0.5 || r > 24) return null;
+      var meia = Math.round(r * 2);
+      if (Math.abs(r * 2 - meia) > 0.06) return null;
+      return { quantidade: meia / 2, medida_id: m.id || ('pers_' + _sa(m.n).replace(/ /g, '_')), medida_nome: m.n, medida_g: m.g };
+    }
+    function qtdTexto(it, medidas) {
+      if (!it) return '';
+      var g = gramasItem(it), un = ehLiquido(it.nome) ? ' ml' : ' g';
+      if (it.medida_id && it.medida_id !== 'g' && it.medida_nome) return rotuloQtd(it) + (g > 0 ? ' (' + Math.round(g) + un + ')' : '');
+      var p = preferirUnidade(it, medidas);
+      var f = function (q) { return String(Math.round(q * 100) / 100).replace('.', ','); };
+      if (p) return f(p.quantidade) + ' ' + pluralMedida(p.medida_nome, p.quantidade) + ' (' + Math.round(g) + un + ')';
+      return f(num(it.quantidade) || g) + un;
+    }
     // Quantidade de um alimento substituto que mantém iguais as kcal (ou a proteína, o carboidrato, a gordura) do original.
     // orig = nutrientes do item original; por100 = tabela de 100 g do substituto. Devolve gramas (0 se não dá para calcular).
     var _CHAVE_EQUIV = { kcal: 'energia_kcal', prot: 'proteina_g', carb: 'carboidrato_g', gord: 'lipidio_g' };
@@ -4151,7 +4184,7 @@ const API = {
     }
     return { chave: chave, refeicoes: refeicoes, somaItens: somaItens, aderencia: aderencia, consumo: consumo, proximaRefeicao: proximaRefeicao, refeicaoDaHome: refeicaoDaHome,
              sequencia: sequencia, metaAguaMl: metaAguaMl, listaCompras: listaCompras, alertas: alertas, hojeIso: hojeIso, addDias: addDias,
-             gramasItem: gramasItem, pluralMedida: pluralMedida, rotuloQtd: rotuloQtd, gramasEquivalentes: gramasEquivalentes, arredondarQtd: arredondarQtd };
+             gramasItem: gramasItem, pluralMedida: pluralMedida, rotuloQtd: rotuloQtd, ehLiquido: ehLiquido, medidaContavel: medidaContavel, preferirUnidade: preferirUnidade, qtdTexto: qtdTexto, gramasEquivalentes: gramasEquivalentes, arredondarQtd: arredondarQtd };
   })(),
   // Corte de vídeo (editor de vídeo do aluno): trecho de no mínimo 1 s e no máximo `max` s dentro de um vídeo de `dur` s.
   trecho: (function () {

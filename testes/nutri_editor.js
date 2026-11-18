@@ -171,6 +171,67 @@ const RECEITA = { idconteudo: 3, id: 'panqueca', titulo: 'Panqueca de banana', a
   const criou = posts.find(x => /action=nutricao/.test(x.u));
   eq('importar grava o plano para a aluna escolhida, com a refeição e a substituta', [criou && criou.m, criou && criou.b.idatleta, criou && criou.b.refeicoes.length, criou && criou.b.refeicoes[0].refeicoes_substitutas.length, criou && criou.b.refeicoes[0].itens_estruturados.length], ['POST', 1, 1, 1, 6]);
 
+  console.log('\n══ Unidade quando lê melhor e ml nos líquidos ══');
+  const regra = await pg.evaluate(() => {
+    const N = API.nutri, un = [{ n: 'Unidade', g: 50 }], fa = [{ n: 'Fatia', g: 25 }];
+    return {
+      ovo300: N.qtdTexto({ nome: 'Ovo de galinha cozido', quantidade: 300, medida_id: 'g', gramas: 300 }, un),
+      ovo325: N.qtdTexto({ nome: 'Ovo de galinha cozido', quantidade: 325, medida_id: 'g', gramas: 325 }, un),
+      ovo310: N.qtdTexto({ nome: 'Ovo de galinha cozido', quantidade: 310, medida_id: 'g', gramas: 310 }, un),
+      ovo1: N.qtdTexto({ nome: 'Ovo', quantidade: 50, medida_id: 'g', gramas: 50 }, un),
+      ovoUn: N.qtdTexto({ nome: 'Ovo de galinha cozido', quantidade: 6, medida_id: 'unidade', medida_nome: 'Unidade', medida_g: 50, gramas: 300 }, un),
+      pao: N.qtdTexto({ nome: 'Pão de forma', quantidade: 50, medida_id: 'g', gramas: 50 }, fa),
+      arroz: N.qtdTexto({ nome: 'Arroz cozido', quantidade: 100, medida_id: 'g', gramas: 100 }, [{ n: 'Colher de sopa', g: 25 }]),
+      leite: N.qtdTexto({ nome: 'Leite, de vaca, integral', quantidade: 200, medida_id: 'g', gramas: 200 }, []),
+      leiteCopo: N.qtdTexto({ nome: 'Leite, de vaca, integral', quantidade: 1, medida_id: 'copo', medida_nome: 'Copo americano', medida_g: 165, gramas: 165 }, []),
+      leitePo: N.qtdTexto({ nome: 'Leite, de vaca, em pó, integral', quantidade: 30, medida_id: 'g', gramas: 30 }, []),
+      doceLeite: N.qtdTexto({ nome: 'Doce de leite', quantidade: 30, medida_id: 'g', gramas: 30 }, []),
+      suco: N.qtdTexto({ nome: 'Suco de laranja', quantidade: 250, medida_id: 'g', gramas: 250 }, []),
+      cafe: [N.ehLiquido('Café, infusão 10%'), N.ehLiquido('Café, pó'), N.ehLiquido('Água de coco'), N.ehLiquido('Queijo mussarela'), N.ehLiquido('Iogurte natural'), N.ehLiquido('Creme de leite')],
+    };
+  });
+  eq('ovo em 300 g aparece por unidade, com as gramas como complemento', regra.ovo300, '6 unidades (300 g)');
+  eq('meia unidade também vale (325 g = 6,5 unidades)', regra.ovo325, '6,5 unidades (325 g)');
+  eq('peso que não fecha em meia unidade fica em gramas, sem inventar', regra.ovo310, '310 g');
+  eq('1 ovo no singular', regra.ovo1, '1 unidade (50 g)');
+  eq('ovo já prescrito por unidade continua igual', regra.ovoUn, '6 unidades (300 g)');
+  eq('pão de forma em 50 g vira 2 fatias', regra.pao, '2 fatias (50 g)');
+  eq('arroz (sem unidade natural) fica em gramas', regra.arroz, '100 g');
+  eq('leite aparece em ml', regra.leite, '200 ml');
+  eq('leite em copo mostra o volume em ml ao lado', regra.leiteCopo, '1 copo americano (165 ml)');
+  eq('leite em pó e doce de leite NÃO são líquidos (ficam em g)', [regra.leitePo, regra.doceLeite], ['30 g', '30 g']);
+  eq('suco em ml', regra.suco, '250 ml');
+  eq('o que é líquido e o que não é', regra.cafe, [true, false, true, false, false, false]);
+
+  const verPl = { idplano: 31, idatleta: 1, titulo: 'Hipertrofia', ativo: 1, dtinicio: '2026-10-20', dtfim: null, calorias: null, refeicoes: [{ nome: 'Café da manhã', horario: '05:00', itens: '', refeicoes_substitutas: [], itens_estruturados: [] }] };
+  await pg.evaluate((pl) => {
+    const it = (nome, g, kcal) => { const f = AlimentosDB.buscar(nome, 1)[0]; return { food_id: f.id, nome: f.description, quantidade: g, medida_id: 'g', medida_nome: 'gramas', medida_g: 1, gramas: g, nutrientes: { energia_kcal: kcal, proteina_g: 1, carboidrato_g: 1, lipidio_g: 1 }, substitutos: [] }; };
+    pl.refeicoes[0].itens_estruturados = [it('Ovo, de galinha, inteiro, cozido/10minutos', 300, 438), it('Pão, trigo, forma, integral', 50, 126), it('Leite, de vaca, integral', 200, 122), it('Arroz, tipo 1, cozido', 100, 128), it('Tomate, com semente, cru', 1, 0.2)];
+    document.querySelectorAll('.modal-overlay').forEach(e => e.remove()); planos.push(pl); aba = 'planos'; render(); verPlano(31);
+  }, verPl);
+  await pg.waitForTimeout(500);
+  const vp = await pg.evaluate(() => document.querySelector('.modal-overlay').innerText);
+  ver('o plano do print (ovo 300 g) agora mostra "6 unidades (300 g)"', /6 unidades \(300 g\)/.test(vp), vp.slice(0, 500));
+  ver('pão em 2 fatias, leite em ml, arroz em gramas', /2 fatias \(50 g\)/.test(vp) && /200 ml/.test(vp) && /100 g/.test(vp), vp.slice(0, 500));
+  ver('o ovo NÃO aparece mais como "300 g" sozinho', !/(^|\s)300 g(\s|$)/.test(vp.replace('6 unidades (300 g)', '')), vp.slice(0, 300));
+  await pg.evaluate(() => closeModal());
+  const lin = await pg.evaluate(() => { const p = planos.find(x => x.idplano === 31); const it = p.refeicoes[0].itens_estruturados; const f = AlimentosDB.getById(it[0].food_id); return [API.nutri.qtdTexto(it[0], it[0].medidas), API.nutri.qtdTexto({ ...it[0], medidas: [{ n: 'Unidade', g: 50 }] }, it[0].medidas)]; });
+  eq('o app do aluno usa a mesma regra com o que o item guardou (it.medidas)', lin[1], '6 unidades (300 g)');
+
+  console.log('\n══ Revisar unidades dos planos gravados ══');
+  posts.length = 0;
+  await pg.evaluate(() => { document.querySelectorAll('.modal-overlay').forEach(e => e.remove()); return revisarUnidadesPlanos(); }); await pg.waitForTimeout(600);
+  const rv = await pg.evaluate(() => document.querySelector('.modal-overlay').innerText);
+  ver('lista o ovo (300 g -> 6 unidades) e o pão (50 g -> 2 fatias), sem tocar em arroz, leite e tomate', /Ovo/.test(rv) && /6 unidades/.test(rv) && /2 fatias/.test(rv) && !/Arroz/.test(rv) && !/Leite/.test(rv) && !/Tomate/.test(rv), rv.slice(0, 600));
+  eq('só mostrar não grava nada', posts.filter(x => /action=nutricao/.test(x.u)).length, 0);
+  await pg.click('#rev-ok'); await pg.waitForTimeout(900);
+  const rp = posts.find(x => /action=nutricao/.test(x.u));
+  const itensRev = rp && rp.b.refeicoes[0].itens_estruturados;
+  eq('aplicar grava o plano com ovo em unidade, mesmo peso e mesmas calorias', [rp && rp.m, itensRev && itensRev[0].quantidade, itensRev && itensRev[0].medida_nome, itensRev && itensRev[0].gramas, itensRev && itensRev[0].nutrientes.energia_kcal], ['PUT', 6, 'Unidade', 300, 438]);
+  eq('o texto antigo do plano (itens) acompanha a mudança', rp && /Ovo.*6 Unidade/.test(rp.b.refeicoes[0].itens), true);
+  eq('leite e arroz continuam em gramas no que foi gravado (ml é só na tela)', [itensRev[2].medida_id, itensRev[3].medida_id], ['g', 'g']);
+  eq('guarda as medidas do alimento para o app do aluno conseguir mostrar a unidade', Array.isArray(itensRev[0].medidas) && itensRev[0].medidas.length > 0, true);
+
   console.log('\n══ Ficha do aluno com menu lateral ══');
   await pg.evaluate(() => { aba = 'dashboard'; return carregarPainel(); }); await pg.waitForTimeout(800);
   await pg.evaluate(() => abrirAluno(1)); await pg.waitForTimeout(300);

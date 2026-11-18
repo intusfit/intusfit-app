@@ -6,10 +6,10 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Nutrição — Intus</title>
   <script src="_mock.js?v=20261110b"></script>
-  <script src="api.js?v=20261113c"></script>
+  <script src="api.js?v=20261118a"></script>
   <script src="kanban.js?v=20261023b"></script>
   <script src="alimentos-db.js?v=20261009a"></script>
-  <script src="importar-pdf.js?v=20261113a"></script>
+  <script src="importar-pdf.js?v=20261118a"></script>
   <style>
     /* Cores dos macros e das calorias, usadas em TODA a tela. Antes o amarelo, o verde-limão e o azul claro
        sumiam no tema claro. Aqui cada tema tem o seu tom (escuros no claro, vivos no escuro), sempre com o
@@ -629,6 +629,7 @@ function render() {
       <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         ${VerModo.barra('nutricao-planos', [['cartoes', 'Cartões', '▦'], ['compacto', 'Compacto', '▤'], ['miniaturas', 'Miniaturas', '▪'], ['lista', 'Lista', '☰'], ['quadro', 'Quadro', '▥']], 'mudarModoPlanos', modoPlanos)}
         <button class="btn btn-secondary" onclick="abrirMeusAlimentos()">🍎 Alimentos da equipe</button>
+        ${hasPerm('nt_editar') ? `<button class="btn btn-secondary" onclick="revisarUnidadesPlanos()" title="Passa para unidade (ovo, fatia, filé...) o que está em gramas nos planos já gravados, sem mudar peso nem calorias">⚖ Revisar unidades</button>` : ''}
       </span>
       <button class="btn btn-secondary" onclick="abrirCalculadoraGET()">Calculadora GEB/GET</button>
     </div>
@@ -782,14 +783,14 @@ function verPlano(id) {
       if (it.substitutos && it.substitutos.length > 0) {
         substHtml = it.substitutos.map(s => {
           const sn = s.nutrientes || null;
-          const qtd = s.medida_id ? API.nutri.rotuloQtd(s) : (s.quantidade ? s.quantidade + ' ' + (s.medida || 'g') : '');
+          const qtd = s.medida_id ? API.nutri.qtdTexto(s, _medsPlano(s)) : (s.quantidade ? s.quantidade + ' ' + (s.medida || 'g') : '');
           return `<div class="view-substitutos">${esc(s.nome)}${qtd ? ' · ' + esc(qtd) : ''}${sn ? ' <span style="color:var(--mc-kcal);font-weight:800;">' + (sn.energia_kcal || 0) + ' kcal</span> · P ' + (sn.proteina_g || 0) + ' · C ' + (sn.carboidrato_g || 0) + ' · G ' + (sn.lipidio_g || 0) : ''}</div>`;
         }).join('');
       }
       return `<div class="meal-item-row">
         <span></span>
         <span class="meal-item-name">${esc(it.nome)}</span>
-        <span class="meal-item-val" style="grid-column:span 2;text-align:left;">${esc(API.nutri.rotuloQtd(it))}${it.medida_id && it.medida_id !== 'g' && it.gramas ? ' <span style="font-size:10px;">(' + it.gramas + ' g)</span>' : ''}</span>
+        <span class="meal-item-val" style="grid-column:span 2;text-align:left;">${esc(API.nutri.qtdTexto(it, _medsPlano(it)))}</span>
         <span class="meal-item-val kcal">${n.energia_kcal || 0}</span>
         <span class="meal-item-val prot">${n.proteina_g || 0}</span>
         <span class="meal-item-val carb">${n.carboidrato_g || 0}</span>
@@ -973,6 +974,7 @@ function _carregarPdfjs() {
   return _pdfjsPromessa;
 }
 const _catalogoImport = () => ({
+  preferirUnidade: it => { const r = API.nutri.preferirUnidade(it, it.medidas); if (r) { Object.assign(it, r); it.gramas = Math.round(r.quantidade * r.medida_g * 10) / 10; } },
   todos: () => AlimentosDB.todos(), medidas: f => AlimentosDB.getMedidasAlimento(f.id),
   por100: f => AlimentosDB.nutrientesPor100(f), escalar: (p, g) => AlimentosDB.escalar(p, g),
 });
@@ -1147,8 +1149,8 @@ function imprimirPlano(idplano) {
   if (!w) return showToast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'error');
   const linhasItens = (itens) => (itens || []).map(it => {
     const n = it.nutrientes || {};
-    const qtd = API.nutri.rotuloQtd(it) + (it.medida_id && it.medida_id !== 'g' && it.gramas ? ' (' + Math.round(it.gramas) + ' g)' : '');
-    const subs = (it.substitutos || []).map(sb => esc(sb.nome) + (sb.medida_id ? ' (' + esc(API.nutri.rotuloQtd(sb)) + ')' : (sb.quantidade ? ' (' + esc(String(sb.quantidade)) + ' ' + esc(sb.medida || 'g') + ')' : ''))).join(' · ');
+    const qtd = API.nutri.qtdTexto(it, _medsPlano(it));
+    const subs = (it.substitutos || []).map(sb => esc(sb.nome) + (sb.medida_id ? ' (' + esc(API.nutri.qtdTexto(sb, _medsPlano(sb))) + ')' : (sb.quantidade ? ' (' + esc(String(sb.quantidade)) + ' ' + esc(sb.medida || 'g') + ')' : ''))).join(' · ');
     return `<tr><td>${esc(it.nome)}${subs ? `<div class="sub">pode trocar por: ${subs}</div>` : ''}</td><td>${esc(qtd)}</td><td class="n">${Math.round(n.energia_kcal || 0)}</td><td class="n">${n.proteina_g || 0}</td><td class="n">${n.carboidrato_g || 0}</td><td class="n">${n.lipidio_g || 0}</td></tr>`;
   }).join('');
   const tabela = (itens, rot) => {
@@ -1659,6 +1661,18 @@ const r1 = v => Math.round((Number(v) || 0) * 10) / 10;
 let _equivModo = 'kcal';       // o que o substituto mantém igual ao original
 let _ultimoTermo = '';         // termo digitado na busca (para "cadastrar como novo"), sem passar por atributo HTML
 
+// Medidas do alimento no formato da regra de quantidade (API.nutri.qtdTexto): usa a base quando carregada, senão o que o item guardou.
+function _medsPlano(it) {
+  const f = (typeof AlimentosDB !== 'undefined' && AlimentosDB.isLoaded()) ? AlimentosDB.resolver(it) : null;
+  return f ? AlimentosDB.getMedidasAlimento(f.id).map(m => ({ n: m.nome, g: m.gramas, id: m.id })) : (it.medidas || []);
+}
+// Item em gramas que se lê melhor por unidade (ovo, fatia, filé...) passa para unidade, mantendo o mesmo peso.
+function _aplicarUnidadeSeLer(it) {
+  const r = API.nutri.preferirUnidade(it, _medsPlano(it));
+  if (!r) return false;
+  Object.assign(it, r); _recalcItem(it);
+  return true;
+}
 function _medidasDoItem(it) {
   const f = AlimentosDB.resolver(it);
   const lista = f ? AlimentosDB.getMedidasAlimento(f.id).slice() : [];
@@ -1712,6 +1726,7 @@ function _hidratarItem(it) {
     it.por100 = {};
     Object.keys(it.nutrientes).forEach(k => { it.por100[k] = Math.round((Number(it.nutrientes[k]) || 0) / it.gramas * 10000) / 100; });
   }
+  if (it.medida_id === 'g') _aplicarUnidadeSeLer(it);   // plano antigo ou importado em gramas: ovo, pão, filé... aparecem por unidade
   (it.substitutos || []).forEach(_hidratarSubst);
   it._ok = true;
   return it;
@@ -1820,7 +1835,7 @@ function _linhaItemHtml(it, refIdx, substIdx, itemIdx, comArrastar, comSubst) {
       <span class="meal-item-name" title="${esc(it.nome)}">${aviso}${esc(it.nome)}</span>
       <span><input class="meal-item-qty input" type="number" min="0" step="${emMedida ? 0.5 : 5}" value="${it.quantidade || ''}" onchange="itemQtd(${a},this.value)"/></span>
       <span><select class="meal-item-measure input" onchange="itemMedida(${a},this.value)">
-        <option value="g" ${!emMedida ? 'selected' : ''}>gramas</option>
+        <option value="g" ${!emMedida ? 'selected' : ''}>${API.nutri.ehLiquido(it.nome) ? 'ml' : 'gramas'}</option>
         ${medidas.map(m => `<option value="${esc(m.id)}" ${it.medida_id === m.id ? 'selected' : ''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
         <option value="__nova__">+ Definir outra medida...</option>
       </select></span>
@@ -2183,7 +2198,7 @@ function renderSubstPanel(refIdx, itemIdx, item) {
         <span style="flex:1;min-width:130px;font-size:13px;font-weight:600;">${esc(s.nome)}</span>
         <input class="meal-item-qty input" type="number" min="0" step="${emMedida ? 0.5 : 5}" value="${s.quantidade || ''}" onchange="substQtd(${refIdx},${itemIdx},${si},this.value)" style="width:64px;"/>
         <select class="meal-item-measure input" onchange="substMedida(${refIdx},${itemIdx},${si},this.value)" style="width:150px;">
-          <option value="g" ${!emMedida ? 'selected' : ''}>gramas</option>
+          <option value="g" ${!emMedida ? 'selected' : ''}>${API.nutri.ehLiquido(s.nome) ? 'ml' : 'gramas'}</option>
           ${medidas.map(m => `<option value="${esc(m.id)}" ${s.medida_id === m.id ? 'selected' : ''}>${esc(m.nome)} (${m.gramas}g)</option>`).join('')}
           <option value="__nova__">+ Definir outra medida...</option>
         </select>
@@ -3523,6 +3538,68 @@ async function bibSalvarGrupo() {
     await API.salvarNutriBiblioteca(_bibF.id ? { ...corpo, idbib: _bibF.id } : { ...corpo, tipo: 'grupo' });
     closeModal(); await bibCarregar(true); render(); showToast('Grupo salvo');
   } catch (e) { showToast('Erro: ' + e.message, 'error'); }
+}
+
+// ── Revisar as unidades dos planos já gravados (ovo, fatia, filé... em unidade; o peso em gramas fica como complemento) ──
+// Só altera o que estiver em gramas e fechar em meia unidade; mostra tudo antes e só grava depois do clique. Não muda peso, calorias nem macros.
+let _revUn = null;
+function _revisarItens(lista, ctx, out) {
+  (lista || []).forEach(it => {
+    if (!it || (it.medida_id && it.medida_id !== 'g') || it.manual) return;
+    const meds = _medsPlano(it);
+    const r = API.nutri.preferirUnidade(it, meds);
+    if (r) {
+      const antes = API.nutri.qtdTexto(it, []);
+      out.push({ ...ctx, nome: it.nome, antes, depois: API.nutri.pluralMedida(r.medida_nome, r.quantidade) });
+      Object.assign(it, r);
+      it.gramas = Math.round(r.quantidade * r.medida_g * 10) / 10;
+      if (!Array.isArray(it.medidas) || !it.medidas.length) it.medidas = meds.filter(m => m.g > 0).slice(0, 8).map(m => ({ n: m.n, g: m.g }));
+      out[out.length - 1].depois = API.nutri.qtdTexto(it, meds);
+    }
+    (it.substitutos || []).forEach(sb => _revisarItens([sb], ctx, out));
+  });
+}
+async function revisarUnidadesPlanos() {
+  if (!hasPerm('nt_editar')) return showToast('Sem permissão', 'error');
+  if (!AlimentosDB.isLoaded()) await AlimentosDB.load();
+  const mudancas = [], novos = {};
+  planos.forEach(pl => {
+    const refs = JSON.parse(JSON.stringify(pl.refeicoes || []));
+    const ctx = { idplano: pl.idplano, plano: pl.titulo || 'Plano', aluno: getNomeAtleta(pl.idatleta) };
+    const antes = mudancas.length;
+    refs.forEach(r => { _revisarItens(r.itens_estruturados, ctx, mudancas); (r.refeicoes_substitutas || []).forEach(sb => _revisarItens(sb.itens_estruturados, ctx, mudancas)); });
+    if (mudancas.length > antes) {
+      refs.forEach(r => { if (!(r.itens_estruturados || []).some(it => it.manual)) r.itens = (r.itens_estruturados || []).map(it => `${it.nome} — ${it.quantidade}${it.medida_id === 'g' ? 'g' : ' ' + (it.medida_nome || '')}`).join('\n'); });
+      novos[pl.idplano] = refs;
+    }
+  });
+  _revUn = { mudancas, novos };
+  const nPl = Object.keys(novos).length;
+  openModal(`<div class="modal-header"><div class="modal-title">Revisar unidades dos planos</div><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+      <p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-bottom:12px;">Alimentos que se leem melhor por unidade (ovo, fatia de pão, filé...) e estão prescritos só em gramas passam para unidade, com o peso em gramas ao lado. O peso, as calorias e os macros <b>não mudam</b>. Líquidos (leite, suco...) já aparecem em ml sem precisar gravar nada.</p>
+      ${mudancas.length ? `<div style="font-size:13px;font-weight:800;margin-bottom:8px;">${mudancas.length} item${mudancas.length > 1 ? 's' : ''} em ${nPl} plano${nPl > 1 ? 's' : ''}</div>
+        ${mudancas.slice(0, 60).map(m => `<div class="bib-lin"><div style="flex:1;min-width:0;"><b>${esc(m.nome)}</b><div class="bib-sub">${esc(m.aluno)} · ${esc(m.plano)}</div></div><div style="text-align:right;font-size:12.5px;"><span style="color:var(--text-muted);">${esc(m.antes)}</span> → <b style="color:var(--green);">${esc(m.depois)}</b></div></div>`).join('')}
+        ${mudancas.length > 60 ? `<div class="bib-sub" style="padding-top:8px;">e mais ${mudancas.length - 60} itens.</div>` : ''}`
+        : `<div class="sel-vazio">Nenhum plano precisa de ajuste: tudo o que lê melhor por unidade já está em unidade.</div>`}
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">${mudancas.length ? 'Cancelar' : 'Fechar'}</button>${mudancas.length ? `<button id="rev-ok" class="btn btn-primary" onclick="aplicarRevisaoUnidades()">Aplicar nos ${nPl} plano${nPl > 1 ? 's' : ''}</button>` : ''}</div>`);
+}
+async function aplicarRevisaoUnidades() {
+  if (!_revUn) return;
+  const btn = document.getElementById('rev-ok'); if (btn) btn.disabled = true;
+  let ok = 0, falhou = 0;
+  for (const id of Object.keys(_revUn.novos)) {
+    const pl = planos.find(x => Number(x.idplano) === Number(id)); if (!pl) continue;
+    try {
+      await API.editarPlanoNutricional(Number(id), { idatleta: pl.idatleta, titulo: pl.titulo, objetivo: pl.objetivo || '', calorias: pl.calorias ?? null, proteina: pl.proteina ?? null, carboidrato: pl.carboidrato ?? null, gordura: pl.gordura ?? null,
+        refeicoes: _revUn.novos[id], observacao: pl.observacao || '', comentario_inicio: pl.comentario_inicio || '', comentario_fim: pl.comentario_fim || '', ativo: planoAtivo(pl) ? 1 : 0, dtinicio: pl.dtinicio || null, dtfim: pl.dtfim || null });
+      ok++;
+    } catch (e) { falhou++; }
+  }
+  _revUn = null; closeModal();
+  showToast(ok + ' plano' + (ok === 1 ? '' : 's') + ' atualizado' + (ok === 1 ? '' : 's') + (falhou ? ', ' + falhou + ' com erro' : ''), falhou ? 'error' : undefined);
+  await carregar();
 }
 
 // ── MEUS ALIMENTOS ─────────────────────────────────────────────────────────

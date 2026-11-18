@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261113c"></script>
+  <script src="api.js?v=20261118a"></script>
   <script src="ajuda.js?v=20261107a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
@@ -20913,13 +20913,15 @@ function _nutriStatusInfo(st) {
 function _nutriEquiv(it) {
   const g = Number(it.gramas) || 0, ms = Array.isArray(it.medidas) ? it.medidas : [];
   if (!(g > 0) || !ms.length) return '';
-  const emG = !it.medida_id || it.medida_id === 'g';
+  const emG0 = !it.medida_id || it.medida_id === 'g';
+  const pU = emG0 ? API.nutri.preferirUnidade(it, ms) : null;   // ovo em gramas já aparece por unidade: não repete
+  const emG = emG0 && !pU, nomeMed = pU ? pU.medida_nome : it.medida_nome, un = API.nutri.ehLiquido(it.nome) ? ' ml' : ' g';
   const f = v => String(v).replace('.', ',');
   const partes = [];
-  if (!emG) partes.push(f(Math.round(g)) + ' g');
+  if (!emG) partes.push(f(Math.round(g)) + un);
   ms.forEach(m => {
     if (partes.length >= 3 || !(m.g > 0)) return;
-    if (!emG && it.medida_nome && m.n === it.medida_nome) return;
+    if (!emG && nomeMed && m.n === nomeMed) return;
     const q = g / m.g;
     if (q < 0.5 || q > 40) return;
     const r = q >= 3 ? Math.round(q * 2) / 2 : Math.round(q * 4) / 4;   // medida de cozinha: meia colher, não 6,75
@@ -20932,9 +20934,9 @@ function _nutriItemHtml(it) {
   const C = _nutriCores(); const n = it.nutrientes || {};
   // Quantidade na medida do plano ("2 unidades"), com os gramas ao lado quando há medida caseira.
   const emMedida = it.medida_id && it.medida_id !== 'g' && it.medida_nome;
-  const qtd = API.nutri.rotuloQtd(it) + (emMedida && it.gramas ? ' (' + Math.round(it.gramas) + ' g)' : '');
+  const qtd = API.nutri.qtdTexto(it, it.medidas);   // unidade quando lê melhor (ovo, fatia...), ml nos líquidos, gramas como complemento
   const subs = (it.substitutos || []).filter(s => s && s.nome);
-  const subTxt = s => esc(s.nome) + (s.medida_id ? ' (' + esc(API.nutri.rotuloQtd(s)) + ')' : (s.quantidade ? ' (' + esc(String(s.quantidade)) + ' ' + esc(s.medida || 'g') + ')' : ''));
+  const subTxt = s => esc(s.nome) + (s.medida_id ? ' (' + esc(API.nutri.qtdTexto(s, s.medidas)) + ')' : (s.quantidade ? ' (' + esc(String(s.quantidade)) + ' ' + esc(s.medida || 'g') + ')' : ''));
   return `<div class="nutri-item" style="padding:12px 13px;margin-top:9px;border-radius:13px;background:var(--sup,rgba(128,128,128,.08));border:1px solid var(--sup-bd,${C.borda});">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
       <div style="min-width:0;flex:1;">

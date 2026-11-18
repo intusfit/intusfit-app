@@ -179,7 +179,7 @@
 
   // ───────────────────────── 3. montagem do plano ─────────────────────────
   // catalogo = { todos(): alimentos[], medidas(f): [{id,nome,gramas}], por100(f): tabela de 100 g, escalar(por100, gramas) }
-  function ehGrama(u) { var n = norm(u); return n === 'grama' || n === 'gramas' || n === 'g'; }
+  function ehGrama(u) { var n = norm(u); return n === 'grama' || n === 'gramas' || n === 'g' || n === 'ml' || n === 'mililitro' || n === 'mililitros'; }   // ml entra como gramas (1 ml ~ 1 g); o painel mostra ml nos líquidos
   function slug(u) { return norm(u).replace(/ /g, '_'); }
 
   function candidatos(nome, cat, indice) {
@@ -228,6 +228,7 @@
     var ms = cat.medidas(f).filter(function (m) { return m.gramas > 0; }).slice(0, 8).map(function (m) { return { n: m.nome, g: m.gramas }; });
     if (ms.length) it.medidas = ms;
     it.substitutos = [];
+    if (it.medida_id === 'g' && cat.preferirUnidade) cat.preferirUnidade(it);   // ovo em 300 g vira 6 unidades (300 g)
     return it;
   }
   function criarItemProprio(nome, qtd, med, kcalTotal, gramas, cat) {
