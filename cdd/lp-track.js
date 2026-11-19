@@ -6,7 +6,7 @@
   var ja = {};
   function enviar(tipo, alvo, unico) {
     var k = tipo + (alvo || ''); if (unico && ja[k]) return; ja[k] = 1;
-    var corpo = JSON.stringify({ slug: slug, tipo: tipo, alvo: alvo || '', vid: vid, utm_source: u.utm_source, utm_medium: u.utm_medium, utm_campaign: u.utm_campaign, ref: document.referrer });
+    var corpo = JSON.stringify({ slug: slug, tipo: tipo, alvo: alvo || '', vid: vid, utm_source: u.utm_source, utm_medium: u.utm_medium, utm_campaign: u.utm_campaign, utm_content: u.utm_content || (window.cddAds && window.cddAds().utm_content), fbclid: u.fbclid || (window.cddAds && window.cddAds().fbclid), ref: document.referrer });
     try {
       var url = 'api/api.php?a=lp_evento';
       if (navigator.sendBeacon) { if (navigator.sendBeacon(url, new Blob([corpo], { type: 'text/plain' }))) return; }

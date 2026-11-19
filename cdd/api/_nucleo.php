@@ -14,7 +14,7 @@
 const CDD_EMAIL_INSTALADOR = 'contato@luiznunest.com.br';   // só este e-mail pode criar o primeiro administrador
 const CDD_TERMOS_VERSAO = '2026-10-rascunho';
 const CDD_INTUS_URL = 'https://intusfit.com.br';
-const CDD_ESQUEMA = 10;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads, 8 = gestão (liberação manual de módulo, páginas de venda)
+const CDD_ESQUEMA = 11;   // 1 = MVP, 2 = base de exercícios, 3 = liberação, treino, comentários e avaliações, 4 = anamnese, conquistas, capas e ranking, 5 = cardio, água e refeições, 6 = comercial (ofertas, cupons, pagamentos), 7 = leads, 8 = gestão (liberação manual de módulo, páginas de venda)
 require_once __DIR__ . '/_treino.php';
 require_once __DIR__ . '/_app.php';
 require_once __DIR__ . '/_bemestar.php';
@@ -294,7 +294,9 @@ function cddGarantirTabelas(PDO $pdo): void {
         // Colunas novas de tabelas do próprio CDD (só ADD COLUMN, nunca altera nem apaga dado existente).
         foreach ([['cdd_modulo', 'liberacao_dias', 'INT NULL'], ['cdd_modulo', 'liberacao_data', 'DATE NULL'], ['cdd_modulo', 'emoji', 'VARCHAR(8) NULL'],
                   ['cdd_modulo', 'cor', 'VARCHAR(9) NULL'], ['cdd_modulo', 'capa_url', 'VARCHAR(500) NULL'], ['cdd_aluna', 'ranking_visivel', 'TINYINT NOT NULL DEFAULT 1'],
-                  ['cdd_ficha_item', 'metodo_tipo', 'VARCHAR(10) NULL'], ['cdd_aluna', 'telefone', 'VARCHAR(20) NULL']] as $c3) {
+                  ['cdd_ficha_item', 'metodo_tipo', 'VARCHAR(10) NULL'], ['cdd_aluna', 'telefone', 'VARCHAR(20) NULL'],
+                  ['cdd_lead', 'utm_content', 'VARCHAR(120) NULL'], ['cdd_lead', 'fbclid', 'VARCHAR(255) NULL'],
+                  ['cdd_lp_evento', 'utm_content', 'VARCHAR(120) NULL'], ['cdd_lp_evento', 'fbclid', 'VARCHAR(255) NULL']] as $c3) {
             try { $pdo->query("SELECT {$c3[1]} FROM {$c3[0]} LIMIT 1"); }
             catch (Throwable $e) { $pdo->exec("ALTER TABLE {$c3[0]} ADD COLUMN {$c3[1]} {$c3[2]}"); }
         }

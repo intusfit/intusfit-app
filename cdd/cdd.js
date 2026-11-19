@@ -13,6 +13,7 @@
     if (opc.q) Object.keys(opc.q).forEach(function (k) { url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(opc.q[k]); });
     var h = { 'Content-Type': 'application/json' };
     var t = token(); if (t) h['X-CDD-Token'] = t;
+    if (acao === 'lead' && opc.body && window.cddAds) { var ad = window.cddAds(); if (ad.utm_content) opc.body.utm_content = ad.utm_content; if (ad.fbclid) opc.body.fbclid = ad.fbclid; }   // origem do anúncio junto com o lead
     var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var prazo = ctl ? setTimeout(function () { ctl.abort(); }, opc.prazo || 25000) : null;
     var r;
@@ -21,6 +22,7 @@
     } catch (e) { return { ok: false, status: 0, data: { error: 'rede', mensagem: 'Sem conexão. Verifique a internet e tente de novo.' } }; }
     finally { if (prazo) clearTimeout(prazo); }
     var d = {}; try { d = await r.json(); } catch (e) { d = { error: 'resposta', mensagem: 'Resposta inesperada do servidor.' }; }
+    if (acao === 'lead' && r.ok && window.cddPixelLead) window.cddPixelLead();   // Pixel da Meta: evento Lead só com envio bem-sucedido
     return { ok: r.ok, status: r.status, data: d };
   }
 

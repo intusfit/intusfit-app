@@ -65,6 +65,7 @@ function cddLeadReceber(PDO $pdo, array $b, string $ip): array {
     $objetivo = cddStr($b['objetivo'] ?? '', 200);
     $origem = preg_replace('/[^a-z0-9_-]/', '', strtolower(cddStr($b['origem'] ?? 'site', 40))) ?: 'site';
     $us = cddStr($b['utm_source'] ?? '', 80); $um = cddStr($b['utm_medium'] ?? '', 80); $uc = cddStr($b['utm_campaign'] ?? '', 120);
+    $ut = cddStr($b['utm_content'] ?? '', 120); $fb = cddStr($b['fbclid'] ?? '', 255);
 
     $achou = null;
     if ($email !== '') { $st = $pdo->prepare('SELECT idlead FROM cdd_lead WHERE email = ? ORDER BY idlead LIMIT 1'); $st->execute([$email]); $achou = $st->fetchColumn(); }
@@ -75,8 +76,8 @@ function cddLeadReceber(PDO $pdo, array $b, string $ip): array {
             ->execute([$nome, $email, $zap, $objetivo, $agora, $agora, (int)$achou]);
         $id = (int)$achou;
     } else {
-        $pdo->prepare('INSERT INTO cdd_lead (nome, email, whatsapp, objetivo, origem, utm_source, utm_medium, utm_campaign, status, optin_em, criado_em, atualizado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            ->execute([$nome, $email ?: null, $zap ?: null, $objetivo ?: null, $origem, $us ?: null, $um ?: null, $uc ?: null, 'novo', $agora, $agora, $agora]);
+        $pdo->prepare('INSERT INTO cdd_lead (nome, email, whatsapp, objetivo, origem, utm_source, utm_medium, utm_campaign, utm_content, fbclid, status, optin_em, criado_em, atualizado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$nome, $email ?: null, $zap ?: null, $objetivo ?: null, $origem, $us ?: null, $um ?: null, $uc ?: null, $ut ?: null, $fb ?: null, 'novo', $agora, $agora, $agora]);
         $id = (int)$pdo->lastInsertId();
     }
     cddRegistrarEvento($pdo, null, $achou ? 'lead_atualizado' : 'lead_novo', 'site');

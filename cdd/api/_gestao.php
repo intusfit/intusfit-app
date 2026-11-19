@@ -182,7 +182,7 @@ function cddLpAplicar(string $html, array $campos, string $slug): string {
             return preg_replace('/\bhref="[^"]*"/', 'href="' . $e . '"', $t);
         }, $html);
     }
-    $inj = '<script>window.CDD_LP=' . json_encode($slug) . ';</script><script src="lp-track.js?v=1" defer></script>';
+    $inj = '<script>window.CDD_LP=' . json_encode($slug) . ';</script><script src="meta-pixel.js?v=1" defer></script><script src="lp-track.js?v=2" defer></script>';
     return stripos($html, '</body>') !== false ? preg_replace('/<\/body>/i', $inj . '</body>', $html, 1) : $html . $inj;
 }
 
@@ -227,8 +227,8 @@ function cddLpRegistrar(PDO $pdo, array $b, string $ip, string $ua): array {
     if ((int)$c->fetchColumn() >= 150) return cddErro(429, 'muitos_eventos', 'Muitos eventos.');
     $host = ''; if (!empty($b['ref'])) { $h = parse_url((string)$b['ref'], PHP_URL_HOST); $host = is_string($h) ? substr($h, 0, 120) : ''; }
     $disp = preg_match('/mobile|android|iphone|ipad/i', $ua) ? 'mobile' : 'desktop';
-    $pdo->prepare('INSERT INTO cdd_lp_evento (slug, tipo, alvo, vid, utm_source, utm_medium, utm_campaign, ref, disp, iph, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        ->execute([$slug, $tipo, cddStr($b['alvo'] ?? '', 40) ?: null, $vid, cddStr($b['utm_source'] ?? '', 80) ?: null, cddStr($b['utm_medium'] ?? '', 80) ?: null, cddStr($b['utm_campaign'] ?? '', 120) ?: null, $host ?: null, $disp, $iph, cddAgora()]);
+    $pdo->prepare('INSERT INTO cdd_lp_evento (slug, tipo, alvo, vid, utm_source, utm_medium, utm_campaign, utm_content, fbclid, ref, disp, iph, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        ->execute([$slug, $tipo, cddStr($b['alvo'] ?? '', 40) ?: null, $vid, cddStr($b['utm_source'] ?? '', 80) ?: null, cddStr($b['utm_medium'] ?? '', 80) ?: null, cddStr($b['utm_campaign'] ?? '', 120) ?: null, cddStr($b['utm_content'] ?? '', 120) ?: null, cddStr($b['fbclid'] ?? '', 255) ?: null, $host ?: null, $disp, $iph, cddAgora()]);
     return cddResp(200, ['ok' => true]);
 }
 
