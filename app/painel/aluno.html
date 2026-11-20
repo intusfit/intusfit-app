@@ -16381,7 +16381,41 @@ async function abrirPerfilAluno(id) {
 // Trava a rolagem da página de trás enquanto o perfil, um post aberto ou a tela de privacidade estão na tela.
 // Sem isso, no celular o arrastar do dedo rolava a página do fundo em vez do perfil.
 var _pkLockObs = null;
+// VOLTAR DO CELULAR COM FOLHA ABERTA (20/11/2026): perfil, post aberto, privacidade, folhas de comentário e o editor de vídeo são camadas por cima da
+// tela, sem entrada no histórico: o gesto de voltar pulava a tela de trás (ia para o início) e deixava a camada aberta. Agora cada camada aberta
+// empilha UMA entrada de histórico (_pkHistSync) e o gesto de voltar fecha a camada de cima (popstate, mais abaixo). Se a camada fecha por outro
+// caminho (X, toque fora, "Fechar"), a entrada sobrando é desfeita sozinha.
+var _pkHistN = 0, _pkHistPushN = 0;
+const _PK_OV_SEL = '#overlay-perfil-rk, #pk-post-ov, #pk-priv-ov, .pk-trava';
+function _pkHistSync() {
+  try {
+    const n = Array.from(document.body.querySelectorAll(_PK_OV_SEL)).filter(function (e) { return e.parentNode === document.body; }).length;
+    while (_pkHistN < n) { history.pushState({ view: window._viewAtual || 'home', ovl: 1 }, '', ''); _pkHistN++; _pkHistPushN = (typeof _pushN === 'number') ? _pushN : 0; }
+    if (_pkHistN > n) {
+      const sobra = _pkHistN - n; _pkHistN = n;
+      // Só desfaz se nenhuma troca de tela entrou no histórico depois da camada (senão o go(-n) levaria a entrada errada).
+      if ((typeof _pushN === 'number' ? _pushN : 0) === _pkHistPushN) {
+        window._ignorarPop = (window._ignorarPop || 0) + 1;
+        try { history.go(-sobra); } catch (e) { window._ignorarPop = 0; }
+        setTimeout(function () { if (window._ignorarPop > 0) window._ignorarPop--; }, 1500);
+      }
+    }
+  } catch (e) {}
+}
+// Chamado pelo popstate: fecha a camada de cima. true = havia camada e foi fechada.
+function _pkFecharTopoPorVoltar() {
+  if (_pkHistN <= 0) return false;
+  const lista = Array.from(document.body.querySelectorAll(_PK_OV_SEL)).filter(function (e) { return e.parentNode === document.body; });
+  if (!lista.length) { _pkHistN = 0; return false; }
+  _pkHistN--;
+  const topo = lista[lista.length - 1];
+  if (topo.id === 'vt-overlay' && typeof _vtCancelar === 'function') _vtCancelar();   // o editor de vídeo precisa da limpeza própria (para o vídeo e o preparo)
+  else topo.remove();
+  setTimeout(_pkHistSync, 0);
+  return true;
+}
 function _pkTravarFundo() {
+  _pkHistSync();
   if (document.body.dataset.pkLock) return;
   document.body.dataset.pkLock = '1';
   document.body.dataset.pkOv = document.body.style.overflow || '';
@@ -16401,6 +16435,7 @@ function _pkTravarFundo() {
   }
   if (_pkLockObs) return;
   _pkLockObs = new MutationObserver(function() {
+    _pkHistSync();
     if (document.querySelector('#overlay-perfil-rk, #pk-post-ov, #pk-priv-ov, .pk-trava')) return;
     const y = Number(document.body.dataset.pkY || 0);
     document.body.style.overflow = document.body.dataset.pkOv || '';
@@ -23541,6 +23576,7 @@ trocarView = function(v) {
 };
 window.addEventListener('popstate', function(e) {
   if (window._ignorarPop > 0) { window._ignorarPop--; return; }   // voltas que o próprio app pediu para limpar o histórico
+  if (_pkFecharTopoPorVoltar()) return;   // perfil, post, privacidade, folha de comentário ou editor de vídeo aberto: voltar fecha só ele
   const _passos = Math.max(1, window._popN || 1); window._popN = 1;   // voltarTela pode desfazer vários passos de uma vez (history.go(-n))
   // Gesto de arrastar da borda (voltar do celular) dispara popstate igual um
   // toque no botão de voltar — sem esta trava, um gesto sem querer com o
