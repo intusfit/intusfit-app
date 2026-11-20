@@ -59,6 +59,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "figurinha do fim do treino nunca volta ao padrão antigo" node figurinhas_aluno.js
   passo "caixa de entrada da Central: conversa, sugestão da Cora, envio e celular" node inbox_tela.js
   passo "tela inicial: ranking e medalhas num cartão, atalhos só com título, Extras e Ver mais com + e −" node home_atalhos.js
+  passo "Feed: trocar o tema com posts chegando não mistura cores" node feed_tema.js
   passo "Meu Cardio: lista, registro em uma tela, confirmação com Corrigir e tela de parabéns" node cardio_tela.js
   passo "Quadro de medalhas: apuração única (api.js) e aba Medalhas na Frequência e Ranking" node medalhas.js
   passo "Avaliações: arrastar fotos do computador para a caixa de fotos da nova avaliação" node avaliacoes_fotos.js
