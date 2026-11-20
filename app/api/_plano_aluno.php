@@ -56,11 +56,35 @@ function intusPlanoAluno(PDO $pdo, int $idatleta, ?string $hoje = null): array
     }
 }
 
-/** Responde 403 e encerra se o aluno está só no teste. $ctx = contexto de autenticação (is_aluno, idatleta). */
+const INTUS_MSG_RESTRITO = 'Seu acesso para publicar e comentar no Feed está limitado no momento. Treinos e cardios continuam sendo registrados normalmente. Em caso de dúvida, fale com a equipe.';
+
+/** RESTRIÇÃO MANUAL (20/11/2026): a equipe pode limitar um aluno ativo (aba Cadastro, "Limitar Feed"). Ele continua treinando e pontuando, mas não publica nem comenta. */
+function intusAlunoRestritoFeed(PDO $pdo, int $idatleta): bool
+{
+    if ($idatleta <= 0) return false;
+    try {
+        foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $t) {
+            try { $pdo->query("SELECT 1 FROM `$t` LIMIT 1"); } catch (Throwable $e) { continue; }
+            $st = $pdo->prepare("SELECT feed_restrito FROM `$t` WHERE idatleta = ?");
+            $st->execute([$idatleta]);
+            return strtoupper((string)$st->fetchColumn()) === 'S';
+        }
+        return false;
+    } catch (Throwable $e) {
+        return false;   // coluna ausente ou banco fora: na dúvida não limita ninguém
+    }
+}
+
+/** Responde 403 e encerra se o aluno está só no teste ou foi limitado pela equipe. $ctx = contexto de autenticação (is_aluno, idatleta). */
 function intusExigirPlanoParaPublicar(PDO $pdo, array $ctx): void
 {
     if (empty($ctx['is_aluno'])) return;
     $id = (int)($ctx['idatleta'] ?? $ctx['idusuario'] ?? 0);
+    if (intusAlunoRestritoFeed($pdo, $id)) {
+        http_response_code(403);
+        echo json_encode(['error' => INTUS_MSG_RESTRITO, 'codigo' => 'restrito'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
     if (intusPlanoAluno($pdo, $id)['so_teste']) {
         http_response_code(403);
         echo json_encode(['error' => INTUS_MSG_SO_TESTE, 'codigo' => 'so_teste'], JSON_UNESCAPED_UNICODE);

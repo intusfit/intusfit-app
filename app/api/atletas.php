@@ -167,6 +167,9 @@ if (!$col_ranking_optin) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `r
 // desliga o outro.
 $col_feed_optin = pickCol($colunas, ['feed_optin']);
 if (!$col_feed_optin) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `feed_optin` CHAR(1) DEFAULT 'S'"); $col_feed_optin = 'feed_optin'; } catch (Throwable $e) {} }
+// Limitar o Feed de um aluno ativo (20/11/2026): 'S' = não publica nem comenta; treino e cardio seguem normais. Só a equipe altera (o aluno não tem este campo na lista branca do PUT).
+$col_feed_restrito = pickCol($colunas, ['feed_restrito']);
+if (!$col_feed_restrito) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `feed_restrito` CHAR(1) DEFAULT 'N'"); $col_feed_restrito = 'feed_restrito'; } catch (Throwable $e) {} }
 
 $col_aluno_intus = pickCol($colunas, ['aluno_intus']);
 if (!$col_aluno_intus) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `aluno_intus` CHAR(1) DEFAULT 'N'"); $col_aluno_intus = 'aluno_intus'; } catch (Throwable $e) {} }
@@ -192,7 +195,7 @@ if (!$col_indicado_por) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `in
 $col_ultimo_acesso = pickCol($colunas, ['ultimo_acesso']);
 if (!$col_ultimo_acesso) { try { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ultimo_acesso` DATETIME NULL"); $col_ultimo_acesso = 'ultimo_acesso'; } catch (Throwable $e) {} }
 
-$colmap = compact('col_id','col_nome','col_email','col_tel','col_gen','col_nasc','col_cod','col_cpf','col_block','col_obs','col_dtcad','col_profs','col_objetivos','col_dificuldades','col_notas_prof','col_ranking_optin','col_feed_optin','col_aluno_intus','col_pais','col_estado','col_cidade','col_origem','col_indicado_por','col_ultimo_acesso');
+$colmap = compact('col_id','col_nome','col_email','col_tel','col_gen','col_nasc','col_cod','col_cpf','col_block','col_obs','col_dtcad','col_profs','col_objetivos','col_dificuldades','col_notas_prof','col_ranking_optin','col_feed_optin','col_feed_restrito','col_aluno_intus','col_pais','col_estado','col_cidade','col_origem','col_indicado_por','col_ultimo_acesso');
 
 function rowToAtleta($row, $map) {
     $out = [
@@ -239,6 +242,9 @@ function rowToAtleta($row, $map) {
     }
     if ($map['col_feed_optin'] ?? null) {
         $out['feed_optin'] = ($row[$map['col_feed_optin']] ?? 'S') ?: 'S';
+    }
+    if ($map['col_feed_restrito'] ?? null) {
+        $out['feed_restrito'] = (strtoupper((string)($row[$map['col_feed_restrito']] ?? 'N')) === 'S') ? 'S' : 'N';
     }
     if ($map['col_aluno_intus'] ?? null) {
         $out['aluno_intus'] = ($row[$map['col_aluno_intus']] ?? 'N') ?: 'N';
@@ -324,6 +330,10 @@ function setFromBody(array $body, array $colmap) {
     if (array_key_exists('feed_optin', $body) && ($colmap['col_feed_optin'] ?? null)) {
         $sets[] = "`{$colmap['col_feed_optin']}` = ?";
         $vals[] = ($body['feed_optin'] === 'N') ? 'N' : 'S';
+    }
+    if (array_key_exists('feed_restrito', $body) && ($colmap['col_feed_restrito'] ?? null)) {
+        $sets[] = "`{$colmap['col_feed_restrito']}` = ?";
+        $vals[] = ($body['feed_restrito'] === 'S') ? 'S' : 'N';
     }
     if (array_key_exists('aluno_intus', $body) && ($colmap['col_aluno_intus'] ?? null)) {
         $sets[] = "`{$colmap['col_aluno_intus']}` = ?";

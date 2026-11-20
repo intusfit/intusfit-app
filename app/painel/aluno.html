@@ -7504,8 +7504,18 @@ function _ehSoTeste() {
     return teste && !plano;
   } catch (e) { return false; }
 }
-// true = pode seguir; false = avisou o aluno (teste grátis)
+// LIMITAÇÃO MANUAL (20/11/2026): a equipe pode limitar o Feed de um aluno ativo (painel, Clientes > Limitar Feed). Treino, cardio e pontos seguem normais.
+// O app lê o flag do próprio cadastro (atletas.php?id=<eu>, guardado em intus-atletas); quem barra de verdade é o servidor (_plano_aluno.php, código 'restrito').
+const _FEED_RESTRITO_MSG = 'Seu acesso para publicar e comentar no Feed está limitado no momento. Treinos e cardios continuam sendo registrados normalmente. Em caso de dúvida, fale com a equipe.';
+function _feedRestrito() {
+  try {
+    const eu = (JSON.parse(localStorage.getItem('intus-atletas') || '[]') || []).find(x => Number(x.idatleta) === Number(idAtleta));
+    return !!eu && String(eu.feed_restrito || 'N').toUpperCase() === 'S';
+  } catch (e) { return false; }
+}
+// true = pode seguir; false = avisou o aluno (teste grátis ou Feed limitado)
 function _soTesteBarra() {
+  if (_feedRestrito()) { toast(_FEED_RESTRITO_MSG, 6000); return false; }
   if (!_ehSoTeste()) return true;
   toast(_SO_TESTE_MSG, 6000);
   return false;

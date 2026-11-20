@@ -86,6 +86,23 @@ eq('a mensagem fala em plano ativo, sem travessão', strpos($r, 'plano ativo') !
 eq('aluno com plano ativo passa', rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', $comPlano)[0], 'PASSOU');
 eq('professor/admin nunca é barrado por esta regra', rodarGate('{"is_aluno":false,"idusuario":1,"admin":true}', $soTeste)[0], 'PASSOU');
 
+echo "\n══ Feed limitado pela equipe (aluno ativo) ══\n";
+$comAtleta = "\$pdo->exec(\"CREATE TABLE atleta (idatleta INT, feed_restrito CHAR(1) DEFAULT 'N')\");\n"
+    . "\$pdo->exec(\"INSERT INTO atleta VALUES (7,'S'),(8,'N'),(9,NULL)\");\n"
+    . "\$pdo->exec(\"INSERT INTO intus_mensalidade VALUES (7,'Premium','mensal','\$h','\$m','S','ativa')\");\n"
+    . "\$pdo->exec(\"INSERT INTO intus_mensalidade VALUES (8,'Premium','mensal','\$h','\$m','S','ativa')\");\n"
+    . "\$pdo->exec(\"INSERT INTO intus_mensalidade VALUES (9,'Premium','mensal','\$h','\$m','S','ativa')\");\n";
+$r = rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', $comAtleta)[0];
+eq('aluno ativo e limitado: a rota responde com o código restrito e NÃO passa', strpos($r, 'restrito') !== false && strpos($r, 'PASSOU') === false, true);
+eq('a mensagem diz que treino e cardio continuam, sem travessão', strpos($r, 'Treinos e cardios continuam') !== false && strpos($r, '—') === false && strpos($r, '–') === false, true);
+eq('aluno ativo sem limitação (N) passa', rodarGate('{"is_aluno":true,"idatleta":8,"idusuario":8}', $comAtleta)[0], 'PASSOU');
+eq('aluno com campo vazio (NULL) passa', rodarGate('{"is_aluno":true,"idatleta":9,"idusuario":9}', $comAtleta)[0], 'PASSOU');
+eq('banco sem a coluna ainda: não limita ninguém', rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', "\$pdo->exec(\"CREATE TABLE atleta (idatleta INT)\");\n\$pdo->exec(\"INSERT INTO atleta VALUES (7)\");\n")[0], 'PASSOU');
+eq('professor/admin nunca é barrado por esta regra', rodarGate('{"is_aluno":false,"idusuario":1,"admin":true}', $comAtleta)[0], 'PASSOU');
+$atl = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/atletas.php'));
+$k = strpos($atl, "\$permitidos = ['nome'");
+eq('o aluno NÃO consegue limpar a própria limitação (feed_restrito fora da lista branca do PUT)', $k !== false && strpos(substr($atl, $k, 300), 'feed_restrito') === false, true);
+
 echo "\n══ Estrutura: onde a regra está ligada ══\n";
 $cat = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/catalogo.php'));
 $tre = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/treinos.php'));

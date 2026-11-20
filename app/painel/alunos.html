@@ -698,6 +698,9 @@ async function abrirMiniFicha(id) {
           ${podeEditarCliente ? (a.stbloqueio === 'S'
             ? `<button class="btn btn-success btn-sm" onclick="toggleBloqueio(${id},'N');closeModal();">Ativar</button>`
             : `<button class="btn btn-danger btn-sm" onclick="toggleBloqueio(${id},'S');closeModal();">Bloquear</button>`) : ''}
+          ${podeEditarCliente ? (a.feed_restrito === 'S'
+            ? `<button class="btn btn-success btn-sm" onclick="toggleFeedRestrito(${id},'N');closeModal();" title="Este aluno está com o Feed limitado: não publica nem comenta. Treino e cardio seguem normais.">💬 Liberar Feed</button>`
+            : `<button class="btn btn-secondary btn-sm" onclick="toggleFeedRestrito(${id},'S');closeModal();" title="O aluno continua treinando e pontuando, mas não publica nem comenta no Feed.">🚫 Limitar Feed</button>`) : ''}
           ${podeEditarCliente ? `<button class="btn btn-secondary btn-sm" onclick="desconectarAparelhos(${id}, '${(a.nome||'').replace(/'/g, "\\'")}')" title="Encerra a sessão deste aluno em todos os aparelhos. Ele entra de novo com o código dele.">📱 Desconectar aparelhos</button>` : ''}
         </div>
         <span style="display:flex;gap:8px;">${isAdmin() ? `<a class="btn btn-secondary" href="perfil.html?id=${id}">Perfil completo</a>` : ''}<button class="btn btn-secondary" onclick="closeModal()">Fechar</button></span>
@@ -2521,6 +2524,24 @@ async function toggleBloqueio(id, novo) {
     showToast(novo === 'S' ? 'Cliente bloqueado.' : 'Cliente ativado!');
     await carregar();
   } catch(e) {
+    showToast(e.message || 'Erro', 'error');
+  }
+}
+
+// Limitar o Feed (20/11/2026): o aluno ativo segue treinando e pontuando, mas não publica nem comenta. O servidor é quem barra (_plano_aluno.php).
+async function toggleFeedRestrito(id, novo) {
+  if (!hasPerm('at_editar')) return showToast('Sem permissão.', 'error');
+  const a = atletas.find(x => Number(x.idatleta) === Number(id));
+  if (!a) return;
+  const msg = novo === 'S'
+    ? `Limitar o Feed de "${a.nome}"?\n\nEle não poderá publicar nem comentar. Treinos e cardios continuam sendo registrados normalmente.`
+    : `Liberar o Feed de "${a.nome}"?`;
+  if (!confirm(msg)) return;
+  try {
+    await API.editarAtletaVerificado(id, { feed_restrito: novo });
+    showToast(novo === 'S' ? 'Feed limitado para este aluno.' : 'Feed liberado.');
+    await carregar();
+  } catch (e) {
     showToast(e.message || 'Erro', 'error');
   }
 }
