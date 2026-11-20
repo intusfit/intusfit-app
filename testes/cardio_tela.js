@@ -106,9 +106,9 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('3,000 vira 3 ao sair do campo (mesma regra de sempre)', await page.evaluate(() => document.getElementById('cf-dist').value), '3');
   const foto = await page.evaluate(() => { const b = document.querySelector('#cf-foto button'); const r = b.getBoundingClientRect(), d = document.getElementById('cf-dist').getBoundingClientRect(); return { svg: !!b.querySelector('svg'), alt: Math.round(r.height), altCampo: Math.round(d.height), larg: Math.round(r.width), texto: b.innerText.replace(/\s+/g, ' ').trim() }; });
   ver('o botão da foto é visível, tem ícone e texto e a mesma altura do campo de distância', foto.svg && foto.alt >= 44 && Math.abs(foto.alt - foto.altCampo) <= 2 && /Adicionar foto/.test(foto.texto), foto);
-  eq('o esforço começa em 5 (Moderado)', await page.evaluate(() => [_cardioRpe, /^5\s*·\s*Moderado/.test(document.getElementById('cf-rpe-desc').innerText.replace(/\s+/g, ' ').trim())]), [5, true]);
-  await clicar('.cf-rpe[data-n="8"]');
-  eq('tocar no 8 muda o esforço', await page.evaluate(() => [_cardioRpe, document.querySelector('.cf-rpe[data-n="8"]').getAttribute('aria-pressed'), document.querySelector('.cf-rpe[data-n="5"]').getAttribute('aria-pressed')]), [8, 'true', 'false']);
+  eq('o esforço começa em 5 (Moderado)', await page.evaluate(() => [_cardioRpe, /^5\s+Moderado/.test(document.getElementById('cf-rpe-desc').innerText.replace(/\s+/g, ' ').trim())]), [5, true]);
+  await page.evaluate(() => { const r = document.getElementById('cf-rpe-sl'); r.value = '8'; r.dispatchEvent(new Event('input')); });
+  eq('arrastar a faixa para o 8 muda o esforço e a descrição', await page.evaluate(() => [_cardioRpe, document.getElementById('cf-rpe-sl').value, /^8\s+Muito forte/.test(document.getElementById('cf-rpe-desc').innerText.replace(/\s+/g, ' ').trim())]), [8, '8', true]);
   eq('o botão resume o que será registrado', await page.evaluate(() => document.getElementById('cf-btn').innerText.trim()), 'Continuar: Corrida, 30 min');
 
   console.log('\n══ Voltar e corrigir (nada se perde) ══');
@@ -150,9 +150,9 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   ver('aparece a tela de cardio registrado, cobrindo tudo', res && res.cheia, res);
   ver('com frase de parabéns e o resumo do que foi feito', res && /Parabéns!/.test(res.txt) && /Corrida · 35 min · 3 km/.test(res.txt), res && res.txt);
   ver('e com a pontuação somada', res && /pontos somados/i.test(res.txt) && /\+\d/.test(res.txt), res && res.txt);
-  eq('opções: compartilhar e voltar à tela inicial no topo, depois ranking, conquistas, histórico e, por último, voltar ao cardio', res && res.botoes, ['📸 Compartilhar cardio', '🏠 Voltar à tela inicial', '🏆 Ranking', '🏅 Conquistas', '📊 Histórico', '🏃 Voltar ao Meu Cardio']);
-  eq('"Voltar à tela inicial" tem o mesmo destaque (verde) de "Compartilhar cardio"', res && res.prim, ['📸 Compartilhar cardio', '🏠 Voltar à tela inicial']);
-  ver('os três grupos de botões ficam na mesma coluna, centrada', res && res.centros.length === 3 && new Set(res.centros).size === 1, res && res.centros);
+  eq('opções: compartilhar e voltar à tela inicial no topo, depois ranking, conquistas, histórico e, por último, voltar ao cardio', res && res.botoes, ['📸 Compartilhar cardio', '🏠 Voltar à tela inicial', '🏆 Ranking', '🏅 Conquistas', '📊 Histórico', 'Voltar ao Meu Cardio']);
+  eq('só "Compartilhar cardio" é verde cheio; "Voltar à tela inicial" é só contorno', res && res.prim, ['📸 Compartilhar cardio']);
+  ver('os dois grupos de botões ficam na mesma coluna, centrada', res && res.centros.length === 2 && new Set(res.centros).size === 1, res && res.centros);
   ver('o comentário vai junto, depois do texto automático', posts.length && /^Corrida · esforço 8\/10 · 35min · 3 km \|\| Senti o joelho um pouco \| no fim$/.test(posts[0].comentario), posts[0] && posts[0].comentario);
   eq('o servidor recebeu a atividade, o tempo e o esforço digitados', posts.length ? [posts[0].cardio_tipo, posts[0].duracao_seg, posts[0].cardio_rpe, posts[0].cardio_metrica] : null, ['Corrida', 2100, 8, '3 km']);
   t = await tela();
@@ -197,14 +197,14 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   console.log('\n══ Cardio ao vivo com as mesmas atividades do manual ══');
   await ir('abrirCardio()'); await page.waitForTimeout(300);
   await clicar('#v-cardio button:has-text("Cardio ao vivo")'); await page.waitForTimeout(300);
-  const chipsLive = await page.evaluate(() => [...document.querySelectorAll('#v-cardio-live .cl-tipo-chip')].map(b => b.innerText.replace(/\s+/g, ' ').trim()).slice(0, 14));
+  const chipsLive = await page.evaluate(() => [...document.querySelectorAll('#v-cardio-live .cf-tile')].map(b => b.innerText.replace(/\s+/g, ' ').trim()).slice(0, 14));
   eq('o ao vivo oferece as mesmas 14 opções do registro manual', chipsLive.length, 14);
   ver('com Dança, Pular Corda, Raquete, Esportes na natureza, Em casa e Outra', ['Dança', 'Pular Corda', 'Esportes com raquete', 'Esportes na natureza', 'Cardio em casa', 'Outra'].every(n => chipsLive.some(c => c.includes(n))), chipsLive);
-  ver('o ícone de pular corda também é o desenhado', await page.evaluate(() => !!document.querySelector('#v-cardio-live .cl-tipo-chip svg')));
+  ver('o ícone de pular corda também é o desenhado', await page.evaluate(() => !!document.querySelector('#v-cardio-live .cf-tile svg')));
   await ir("_cardioLiveEscolherTipo('Natação')");
   eq('Natação: sem GPS (herói é o tempo)', await page.evaluate(() => [_cardioLiveUsaGpsAgora(), !!document.getElementById('cl-tempo-hero')]), [false, true]);
   await ir("_cardioLiveEscolherTipo('Esportes na natureza')");
-  eq('Esportes na natureza: com GPS e sem a opção "num aparelho"', await page.evaluate(() => [_cardioLiveUsaGpsAgora(), /Num aparelho/.test(document.getElementById('v-cardio-live').innerText)]), [true, false]);
+  eq('Esportes na natureza: com GPS e sem a opção "num aparelho"', await page.evaluate(() => [_cardioLiveUsaGpsAgora(), /Em um aparelho/.test(document.getElementById('v-cardio-live').innerText)]), [true, false]);
   await ir("_cardioLiveEscolherTipo('__outro__')");
   ver('Outra mostra o campo para escrever o nome', await page.evaluate(() => !!document.getElementById('cl-outro')));
   await ir('_cardioLiveIniciarRastreio()');
@@ -281,6 +281,30 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   const cor = await page.evaluate(() => { const b = document.querySelector('.cf-tile'); const t = document.querySelector('#v-cardio .th-titulo'); return { fundoTile: getComputedStyle(b).backgroundColor, tituloSecao: getComputedStyle(document.querySelector('#cf-s-ativ > div')).color }; });
   ver('no tema claro os botões são claros e o título escuro', cor.fundoTile === 'rgb(255, 255, 255)' && cor.tituloSecao === 'rgb(26, 26, 26)', cor);
   await page.evaluate(() => { document.body.classList.remove('tema-claro'); });
+
+  console.log('\n══ Cardio ao vivo: navegar sem perder, seletor com rolagem, esforço em faixa, pausado ══');
+  await ir("_cardioLiveInicioMs = 0; _cardioFormLimpar(); abrirCardioLive()");
+  const selRol = await page.evaluate(() => { const e = document.querySelector('#v-cardio-live .cd-rol'); return e ? { h: e.getBoundingClientRect().height, vh: innerHeight, rola: e.scrollHeight > e.clientHeight } : null; });
+  ver('o seletor do ao vivo é uma caixa que rola, com cerca de meia tela ou menos', selRol && selRol.rola && selRol.h <= selRol.vh * 0.5, selRol);
+  await ir("_cardioLiveEscolherTipo('Corrida'); _cardioLiveIniciarRastreio()"); await page.waitForTimeout(400);
+  ver('rodando: sem selo de pausado', await page.evaluate(() => !document.querySelector('.cd-selo-pausa') && !document.querySelector('.cl-pausado')));
+  await ir('_cardioLivePausar()');
+  ver('pausado: selo PAUSADO e cartão sem a cor viva', await page.evaluate(() => !!document.querySelector('.cd-selo-pausa') && !!document.querySelector('.cl-imersivo.cl-pausado')));
+  await ir('_cardioLiveRetomar()');
+  for (const v of ["trocarView('home')", "abrirRanking()", "abrirCardio()"]) {
+    await ir(v);
+    eq('navegando para ' + v + ' o cardio continua e a pílula aparece', await page.evaluate(() => [!!_cardioLiveInicioMs, getComputedStyle(document.getElementById('cardio-live-pill')).display]), [true, 'flex']);
+  }
+  await ir('abrirCardioLive()');
+  let dialogo = false; page.once('dialog', d => { dialogo = true; d.dismiss(); });
+  await ir('history.back()'); await page.waitForTimeout(500);
+  eq('voltar do celular no ao vivo sai sem caixa do navegador, o rastreio segue e a pílula aparece', [dialogo, await page.evaluate(() => [!!_cardioLiveInicioMs, getComputedStyle(document.getElementById('cardio-live-pill')).display])], [false, [true, 'flex']]);
+  await ir("document.getElementById('cardio-live-pill').click()");
+  ver('tocar na pílula volta ao ao vivo', await page.evaluate(() => window._viewAtual === 'cardio-live'));
+  await ir("_cardioLiveTipo = 'Corrida'; _cardioLiveKm = () => 3.2; _cardioLiveTempoMs = () => 25 * 60000; _cardioLiveFinalizar()"); await page.waitForTimeout(900);
+  ver('a tela de esforço usa a faixa deslizante com escala de cores', await page.evaluate(() => { const r = document.getElementById('cle-rpe'); return !!r && r.classList.contains('cd-rpe-sl') && /linear-gradient/.test(getComputedStyle(r).backgroundImage); }));
+  await ir("_confirmarEsforcoCardioLive()"); await page.waitForTimeout(700);
+  await ir("_fecharResultadoCardio && _fecharResultadoCardio()");
 
   console.log('\n══ Erros de página ══');
   eq('nenhum erro de JavaScript durante o teste', erros, []);
