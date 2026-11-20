@@ -4058,6 +4058,7 @@ function renderFeedHomePreview() {
   const temMaisPrevio = (_feedPosts || []).length > FEED_LIMITE_AUTO_SCROLL ? true : _feedTemMais;
   const idsPrevios = previos.map(p => p.idpost).join(',');
   carregarFeedPosts(FEED_LOTE_HOME, null, null, true).then(novos => {
+    if (document.body.classList.contains('tema-claro') !== isLight) return;   // o tema mudou enquanto esperava: a Home já foi refeita com o tema novo (e busca os próprios posts)
     let posts = novos;
     const el = document.getElementById('h-feed-home');   // a tela pode ter sido refeita enquanto esperava
     if (!el) return;
@@ -4145,6 +4146,7 @@ async function renderFeedCompleto() {
   const posts = souMeuPerfil ? [] : await carregarFeedPosts(FEED_LOTE);   // em "Meu perfil" quem lista os posts é o perfil social
   await carregarReacoesFeed(posts.map(p => p.idpost));
   await carregarComentariosFeed(posts.map(p => p.idpost));
+  if (document.body.classList.contains('tema-claro') !== isLight) return renderFeedCompleto();   // o tema mudou durante a espera: desenha de novo com o tema atual
   let html = telaHeader('📣 Feed dos Alunos');
   html += _feedBuscaHtml(isLight);
   html += _feedChipsAmigosHtml(isLight);
@@ -4257,7 +4259,8 @@ async function _feedCarregarMais() {
     const idsNovos = novos.map(p => p.idpost);
     await Promise.all([carregarReacoesFeed(idsNovos), carregarComentariosFeed(idsNovos)]);
     const container = document.getElementById(ids.posts);
-    if (container) container.insertAdjacentHTML('beforeend', _feedPostsHtml(novos, isLight));
+    // O tema é lido AGORA, depois das esperas: se o aluno trocou escuro/claro enquanto o lote chegava, o lote não pode entrar com a cor antiga (cartões escuros no meio de uma lista clara).
+    if (container) container.insertAdjacentHTML('beforeend', _feedPostsHtml(novos, document.body.classList.contains('tema-claro')));
   }
   _feedCarregandoMais = false;
   _feedAtualizarPaginacao();
