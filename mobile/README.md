@@ -34,11 +34,11 @@ npm run ios      # deve ser executado num Mac com Xcode
 
 ## Recursos nativos: escopo incremental
 
-O wrapper base **não pede permissões sensíveis antecipadamente**. Isso evita solicitar localização em segundo plano, Saúde ou sensores antes de a funcionalidade e sua tela de consentimento existirem.
+O wrapper base **não pede permissões sensíveis antecipadamente**: a localização só é pedida no Cardio ao vivo, depois da tela de aviso; Saúde e sensores seguem fora.
 
 | Recurso | Quando implementar | Dependências e validações obrigatórias |
 |---|---|---|
-| GPS em segundo plano | quando o fluxo de cardio nativo estiver definido | plugin com manutenção ativa, permissões de localização em primeiro e segundo plano, indicador persistente Android, texto de uso iOS, pausa/retomada, consumo de bateria e teste com tela bloqueada |
+| GPS em segundo plano | **instalado em 20/11/2026** (ver `STORE-LAUNCH-CHECKLIST.md`, seção "Localização com a tela apagada") | plugin com manutenção ativa, permissões de localização em primeiro e segundo plano, indicador persistente Android, texto de uso iOS, pausa/retomada, consumo de bateria e teste com tela bloqueada |
 | HealthKit | quando houver casos de leitura/escrita aprovados | entitlement HealthKit, `NSHealthShareUsageDescription`/`NSHealthUpdateUsageDescription`, autorização por tipo de dado e formulário de privacidade da App Store |
 | Health Connect | quando houver escopo Android aprovado | SDK/integração compatível, declaração de permissões por tipo de dado, teste em Android compatível e formulário Data Safety do Google Play |
 | Frequência/atividade em musculação | somente com wearable ou métrica definida | não prometer medição por movimento do celular; validar fabricante, consentimento, precisão e limitações antes de integrar |

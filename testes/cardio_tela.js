@@ -307,6 +307,38 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   await ir("_confirmarEsforcoCardioLive()"); await page.waitForTimeout(700);
   await ir("_fecharResultadoCardio && _fecharResultadoCardio()");
 
+  console.log('\n══ App das lojas: GPS com a tela apagada pelo plugin nativo ══');
+  await page.evaluate(() => {
+    _cardioLivePararTudo(); _cardioLiveLimparAtivo(); _bgGeoPlugin = null;
+    window.__bg = { adds: [], removes: [], cb: null };
+    window.INTUS_NATIVE_APP = true;
+    window.Capacitor = { isNativePlatform: () => true, Plugins: {}, registerPlugin: () => ({ addWatcher: (o, cb) => { window.__bg.adds.push(o); window.__bg.cb = cb; return Promise.resolve('w' + window.__bg.adds.length); }, removeWatcher: (o) => { window.__bg.removes.push(o.id); return Promise.resolve(); } }) };
+    try { localStorage.removeItem('intus-bg-loc'); sessionStorage.removeItem('intus-bg-loc-nao'); } catch (e) {}
+    _cardioLiveTipo = 'Corrida'; _cardioLiveParado = false;
+  });
+  await ir("_cardioLiveIniciarRastreio()");
+  ver('antes da permissão aparece o aviso sobre a localização com a tela apagada', await page.evaluate(() => !!document.getElementById('cl-bg-ov') && /tela bloqueada/.test(document.getElementById('cl-bg-ov').innerText) && !_cardioLiveInicioMs));
+  await clicar('#cl-bg-sim'); await page.waitForTimeout(300);
+  const bg1 = await page.evaluate(() => ({ adds: window.__bg.adds.length, msg: !!(window.__bg.adds[0] || {}).backgroundMessage, req: (window.__bg.adds[0] || {}).requestPermissions, ok: _cardioLiveNativoOk, ini: !!_cardioLiveInicioMs }));
+  eq('ao continuar liga o plugin nativo com aviso fixo e pede a permissão', bg1, { adds: 1, msg: true, req: true, ok: true, ini: true });
+  await page.evaluate(() => { const cb = window.__bg.cb; cb({ latitude: -25.5, longitude: -54.58, accuracy: 8, time: Date.now() }); });
+  await page.evaluate(() => { _cardioLivePontos[_cardioLivePontos.length - 1].t -= 120000; window.__bg.cb({ latitude: -25.4995, longitude: -54.58, accuracy: 8, time: Date.now() }); });
+  const bg2 = await page.evaluate(() => [Math.round(_cardioLiveDistM) > 30, _cardioLiveLacunaS]);
+  eq('uma pausa longa nas leituras (tela apagada) não vira GPS cego: a distância é medida e nada é estimado', bg2, [true, 0]);
+  await ir('_cardioLivePausar()');
+  eq('pausar remove o plugin (a localização para de ser usada)', await page.evaluate(() => [window.__bg.removes.length, _cardioLiveNativoId]), [1, null]);
+  await ir('_cardioLiveRetomar()'); await page.waitForTimeout(300);
+  eq('retomar liga de novo, sem perguntar outra vez', await page.evaluate(() => [window.__bg.adds.length, !!document.getElementById('cl-bg-ov')]), [2, false]);
+  ver('com o plugin ativo a tela não pede para manter a tela aberta nem diz "em teste"', await page.evaluate(() => !/Mantenha esta tela aberta/.test(document.getElementById('v-cardio-live').innerText) && !/em teste/.test(document.getElementById('v-cardio-live').innerText) && !/BPM/.test(document.getElementById('v-cardio-live').innerText)));
+  await page.evaluate(() => { window.__bg.cb(null, { code: 'NOT_AUTHORIZED', message: 'x' }); });
+  await page.waitForTimeout(300);
+  eq('permissão negada: volta ao GPS do navegador e a estimativa continua valendo', await page.evaluate(() => [_cardioLiveNativoOk, _cardioLiveWatchId != null]), [false, true]);
+  await page.evaluate(() => { _cardioLivePararTudo(); _cardioLiveLimparAtivo(); try { localStorage.removeItem('intus-bg-loc'); } catch (e) {} sessionStorage.setItem('intus-bg-loc-nao', '1'); _cardioLiveTipo = 'Corrida'; });
+  await ir("_cardioLiveIniciarRastreio()");
+  eq('"Agora não": mede só com a tela aberta, pelo navegador, sem plugin', await page.evaluate(() => [_cardioLiveNativoOk, _cardioLiveWatchId != null, window.__bg.adds.length, !!document.getElementById('cl-bg-ov')]), [false, true, 2, false]);
+  await page.evaluate(() => { _cardioLivePararTudo(); _cardioLiveLimparAtivo(); delete window.INTUS_NATIVE_APP; delete window.Capacitor; _bgGeoPlugin = null; sessionStorage.removeItem('intus-bg-loc-nao'); });
+  await ir("renderCardio(); trocarView('cardio')");
+
   console.log('\n══ Erros de página ══');
   eq('nenhum erro de JavaScript durante o teste', erros, []);
 

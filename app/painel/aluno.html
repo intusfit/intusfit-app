@@ -13913,13 +13913,13 @@ function _cardioLiveRestaurarSeAtivo() {
   _cardioLivePausadoDesde = st.pausadoDesde || Date.now();
   _cardioLivePontos = [];
   document.getElementById('cardio-live-pill').classList.add('on');
-  if (st.rodando) { _cardioLiveIniciarRastreio(); } else { _cardioLiveRodando = false; _atualizarStatsCardioLive(); }
+  if (st.rodando) { _cardioLiveIniciarRastreio(true); } else { _cardioLiveRodando = false; _atualizarStatsCardioLive(); }
   toast('Retomamos seu cardio ao vivo de onde parou. 🏃');
 }
 // A aba as vezes fica visivel de novo com o watchPosition anterior morto sem
 // avisar (comum apos suspensao prolongada) — reconecta por garantia.
 function _cardioLiveReconectarSeNecessario() {
-  if (!_cardioLiveInicioMs || !_cardioLiveRodando || !_cardioLiveUsaGpsAgora()) return;
+  if (!_cardioLiveInicioMs || !_cardioLiveRodando || !_cardioLiveUsaGpsAgora() || _cardioLiveNativoOk) return;   // o plugin nativo não morre com a tela apagada
   if (_cardioLiveWatchId != null) { try { navigator.geolocation.clearWatch(_cardioLiveWatchId); } catch (e) {} }
   _cardioLiveWatchId = navigator.geolocation.watchPosition(_cardioLiveOnPos, function () {}, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
 }
@@ -13986,6 +13986,81 @@ function _haversineM(lat1, lon1, lat2, lon2) {
 // segundos, mesmo parado, com maximumAge de 2s).
 const CARDIO_LIVE_GAP_S = 20;
 
+// ── GPS COM A TELA APAGADA (app das lojas) ───────────────────────────────────────────────────────────────────────────────────
+// No app nativo o plugin @capacitor-community/background-geolocation mantém a localização chegando com a tela bloqueada ou o app em
+// segundo plano (Android: serviço em primeiro plano com aviso fixo; iOS: modo "location"). Nesse caso NÃO há GPS cego e a estimativa
+// de distância (seção 55 do CLAUDE.md) não se aplica. No navegador (PWA), ou se o aluno recusar ou o sistema negar a permissão,
+// vale o caminho de sempre: watchPosition e a regra temporária de estimar o trecho sem sinal.
+let _cardioLiveNativoOk = false;    // este rastreio está sendo medido pelo plugin nativo
+let _cardioLiveNativoId = null;
+let _cardioLiveGpsTk = 0;           // trava contra respostas atrasadas do plugin (pausar e retomar rápido, finalizar)
+let _bgGeoPlugin = null;
+function _cardioLivePlugin() {
+  try {
+    if (!(window.INTUS_NATIVE_APP && window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform())) return null;
+    if (!_bgGeoPlugin) _bgGeoPlugin = Capacitor.registerPlugin('BackgroundGeolocation');
+    return _bgGeoPlugin;
+  } catch (e) { return null; }
+}
+function _cardioLiveBgEstado() {   // 'ok' (aceitou), 'nao' (recusou nesta sessão) ou '' (ainda não perguntado)
+  try { return localStorage.getItem('intus-bg-loc') === 'ok' ? 'ok' : (sessionStorage.getItem('intus-bg-loc-nao') ? 'nao' : ''); } catch (e) { return ''; }
+}
+// Aviso em destaque ANTES de pedir a permissão (exigência do Google Play e da App Store: dizer o que, quando e por quê).
+function _cardioLiveBgAviso(depois) {
+  document.getElementById('cl-bg-ov')?.remove();
+  const L = document.body.classList.contains('tema-claro');
+  const ov = document.createElement('div'); ov.id = 'cl-bg-ov';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100500;display:flex;align-items:center;justify-content:center;padding:22px;';
+  ov.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="cl-bg-t" style="background:' + (L ? '#fff' : '#141414') + ';color:' + (L ? '#1a1a1a' : '#f0f0f0') + ';border-radius:18px;padding:22px;max-width:340px;width:100%;">'
+    + '<div style="font-size:30px;text-align:center;margin-bottom:6px;">📍</div>'
+    + '<div id="cl-bg-t" style="font-size:17px;font-weight:900;text-align:center;margin-bottom:10px;">Medir o cardio com a tela apagada</div>'
+    + '<div style="font-size:13.5px;line-height:1.55;color:' + (L ? '#444' : '#ccc') + ';">O Intus Fit usa a sua <b>localização precisa</b> durante o Cardio ao vivo, <b>inclusive com a tela bloqueada ou o app em segundo plano</b>, para medir distância, ritmo e trajeto. Enquanto isso, o aparelho mostra um aviso fixo.<br><br>Só usamos a localização <b>do começo ao fim do cardio</b>. Ao finalizar, pausar ou descartar, paramos. Não rastreamos você fora disso e não vendemos esses dados.<br><br>Na próxima tela o sistema pede a permissão. Para medir com a tela apagada, escolha <b>permitir sempre</b> (iPhone) ou <b>permitir</b> (Android).</div>'
+    + '<button id="cl-bg-sim" class="btn btn-prim btn-full" style="margin-top:16px;min-height:50px;justify-content:center;text-align:center;">Continuar</button>'
+    + '<button id="cl-bg-nao" class="btn btn-full" style="margin-top:8px;min-height:46px;background:transparent;border:none;color:' + (L ? '#555' : '#bbb') + ';font-weight:700;justify-content:center;text-align:center;">Agora não (medir só com a tela aberta)</button></div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#cl-bg-sim').onclick = function () { try { localStorage.setItem('intus-bg-loc', 'ok'); } catch (e) {} ov.remove(); depois(); };
+  ov.querySelector('#cl-bg-nao').onclick = function () { try { sessionStorage.setItem('intus-bg-loc-nao', '1'); } catch (e) {} ov.remove(); depois(); };
+}
+// Liga a medição. Devolve true se o plugin nativo assumiu; false para o caminho do navegador.
+function _cardioLiveGpsLigar() {
+  const plug = _cardioLivePlugin();
+  if (plug && _cardioLiveBgEstado() === 'ok') {
+    const tk = ++_cardioLiveGpsTk;
+    _cardioLiveNativoOk = true;
+    // Android 13+: o aviso fixo do serviço precisa da permissão de notificações.
+    try { const LN = _progLN(); if (LN && LN.checkPermissions) LN.checkPermissions().then(function (pm) { if (pm && pm.display !== 'granted') LN.requestPermissions(); }).catch(function () {}); } catch (e) {}
+    plug.addWatcher({
+      backgroundTitle: 'Cardio ao vivo',
+      backgroundMessage: 'O Intus Fit está medindo o seu cardio. Toque para abrir.',
+      requestPermissions: true, stale: false, distanceFilter: 0,
+    }, function (loc, err) {
+      if (tk !== _cardioLiveGpsTk) return;
+      if (err) { _cardioLiveGpsFalhou(err); return; }
+      if (loc) _cardioLiveOnPos({ coords: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy }, timestamp: loc.time });
+    }).then(function (id) {
+      if (tk !== _cardioLiveGpsTk) { try { plug.removeWatcher({ id: id }); } catch (e) {} return; }
+      _cardioLiveNativoId = id;
+    }).catch(function (e) { if (tk === _cardioLiveGpsTk) _cardioLiveGpsFalhou(e); });
+    return true;
+  }
+  return false;
+}
+// O plugin não conseguiu (permissão negada, GPS desligado...): cai no caminho do navegador, com a regra de estimativa, e avisa.
+function _cardioLiveGpsFalhou(err) {
+  const negada = err && (err.code === 'NOT_AUTHORIZED' || /permission|authori/i.test(String(err.message || '')));
+  _cardioLiveGpsDesligar();
+  _cardioLiveNativoOk = false;
+  if (_cardioLiveRodando && _cardioLiveInicioMs && navigator.geolocation) {
+    _cardioLiveWatchId = navigator.geolocation.watchPosition(_cardioLiveOnPos, function () {}, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+  }
+  toast(negada ? 'Sem permissão de localização para a tela apagada. Nos Ajustes do aparelho, permita a localização do Intus Fit. Por enquanto, mantenha a tela aberta.' : 'Não consegui usar a localização com a tela apagada. Mantenha a tela aberta.');
+}
+function _cardioLiveGpsDesligar() {
+  _cardioLiveGpsTk++;
+  if (_cardioLiveNativoId != null) { const plug = _cardioLivePlugin(); try { plug && plug.removeWatcher({ id: _cardioLiveNativoId }); } catch (e) {} _cardioLiveNativoId = null; }
+  if (_cardioLiveWatchId != null) { try { navigator.geolocation.clearWatch(_cardioLiveWatchId); } catch (e) {} _cardioLiveWatchId = null; }
+}
+
 function _cardioLiveOnPos(pos) {
   const { latitude, longitude, accuracy } = pos.coords;
   // GPS impreciso (predio, mata fechada) infla a distancia sozinho — descarta
@@ -13998,7 +14073,7 @@ function _cardioLiveOnPos(pos) {
     novo.novoTrecho = true;   // retomou depois de pausar: não soma o salto e não conta como GPS cego
   } else if (anterior) {
     const dtS = (novo.t - anterior.t) / 1000;
-    if (dtS > CARDIO_LIVE_GAP_S) {
+    if (dtS > CARDIO_LIVE_GAP_S && !_cardioLiveNativoOk) {
       // Lacuna de GPS grande: não soma a distância do "pulo" (seria uma linha
       // reta que o aluno nunca percorreu) e marca como início de um novo
       // trecho, pro mapa não ligar os dois lados com uma linha reta.
@@ -14030,7 +14105,7 @@ function _cardioLiveSegmentos() {
   return segs;
 }
 
-function _cardioLiveIniciarRastreio() {
+function _cardioLiveIniciarRastreio(semPerguntar) {
   // Mesma trava do lado do treino (ver selecionarTreino): os dois não podem
   // rodar ao mesmo tempo.
   if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um cardio.'); return; }
@@ -14040,13 +14115,18 @@ function _cardioLiveIniciarRastreio() {
     _cardioLiveTipo = nome;   // daqui em diante a atividade é o nome digitado (sem GPS)
   }
   const usaGps = _cardioLiveUsaGpsAgora();
-  if (usaGps && !navigator.geolocation) { toast('Seu navegador não tem GPS disponível.'); return; }
+  if (usaGps && !_cardioLivePlugin() && !navigator.geolocation) { toast('Seu navegador não tem GPS disponível.'); return; }
+  // App das lojas: antes da primeira permissão, o aviso em destaque sobre a localização com a tela apagada.
+  if (usaGps && !semPerguntar && _cardioLivePlugin() && !_cardioLiveBgEstado()) { _cardioLiveBgAviso(function () { _cardioLiveIniciarRastreio(); }); return; }
   if (!_cardioLiveInicioMs) _cardioLiveInicioMs = Date.now();
   _cardioLiveRodando = true;
   // Escada/Elíptico/Pular Corda são feitos parado — sem GPS pra pedir, só o
   // cronômetro. Pedir localização sem usar pra nada só assustaria o aluno
   // com uma permissão desnecessária.
-  if (usaGps) {
+  if (usaGps && _cardioLiveGpsLigar()) {
+    // medindo pelo plugin nativo
+  } else if (usaGps) {
+    _cardioLiveNativoOk = false;
     _cardioLiveWatchId = navigator.geolocation.watchPosition(
       _cardioLiveOnPos,
       function () { toast('Não consegui acessar sua localização. Verifique a permissão de GPS.'); },
@@ -14066,7 +14146,7 @@ function _cardioLivePausar() {
   _cardioLiveRodando = false;
   _cardioLiveProxPausa = true;
   _cardioLivePausadoDesde = Date.now();
-  if (_cardioLiveWatchId != null) { navigator.geolocation.clearWatch(_cardioLiveWatchId); _cardioLiveWatchId = null; }
+  _cardioLiveGpsDesligar();
   if (_cardioLiveTimerUi) { clearInterval(_cardioLiveTimerUi); _cardioLiveTimerUi = null; }
   releaseWakeLock();
   _cardioLiveSalvarAtivo();
@@ -14086,7 +14166,8 @@ function _cardioLiveRetomar() {
 // "on" na pilula, um instante depois dela ter acabado de ser removida — a
 // pilula "ressuscitava" congelada, sobrepondo o resto da tela.
 function _cardioLivePararTudo() {
-  if (_cardioLiveWatchId != null) { navigator.geolocation.clearWatch(_cardioLiveWatchId); _cardioLiveWatchId = null; }
+  _cardioLiveGpsDesligar();
+  _cardioLiveNativoOk = false;
   if (_cardioLiveTimerUi) { clearInterval(_cardioLiveTimerUi); _cardioLiveTimerUi = null; }
   releaseWakeLock();
   _cardioLiveRodando = false;
@@ -14339,7 +14420,7 @@ function _cardioLiveFinalizar() {
   // sinal é ESTIMADA pelo ritmo médio do trecho medido (ou, sem base para isso, só o tempo é registrado) e o aluno é avisado.
   // Cardio sem GPS (aparelho, escada...) não passa por aqui.
   let distDescartada = false, distEstimada = false;
-  if (CARDIO_LIVE_USA_GPS[tipo] && !_cardioLiveParado) {
+  if (CARDIO_LIVE_USA_GPS[tipo] && !_cardioLiveParado && !_cardioLiveNativoOk) {
     const ult = _cardioLivePontos[_cardioLivePontos.length - 1];
     const semSinalFinal = (ult && _cardioLiveRodando) ? Math.max(0, (Date.now() - ult.t) / 1000) : 0;
     const cego = _cardioLiveLacunaS + (semSinalFinal > CARDIO_LIVE_GAP_S ? semSinalFinal : 0);
@@ -14412,8 +14493,8 @@ function _renderTelaEsforcoCardioLive(dados) {
         <div style="flex:1;">
           <div style="font-size:14px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(dados.tipo)}</div>
           <div style="font-size:12px;color:${isLight?'#666':'#999'};">${dados.min} min${usaGps && dados.distKm>0 ? ' · ' + dados.distKm.toFixed(2) + ' km' : ''}</div>
-          ${dados.distEstimada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante parte do cardio. A distância do trecho sem sinal foi <b>estimada</b> pelo seu ritmo médio no resto do percurso. Para a distância precisa, mantenha esta tela aberta no app. Isso é temporário até a publicação oficial do app nas lojas.</div>` : ''}
-          ${dados.distDescartada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante o cardio, e o GPS não mediu o suficiente para estimar a distância. Registramos só o <b>tempo</b>. Para marcar a distância, mantenha esta tela aberta no app. Isso é temporário até a publicação oficial do app nas lojas.</div>` : ''}
+          ${dados.distEstimada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante parte do cardio. A distância do trecho sem sinal foi <b>estimada</b> pelo seu ritmo médio no resto do percurso. Para a distância precisa, mantenha esta tela aberta ou use o aplicativo do Intus Fit.</div>` : ''}
+          ${dados.distDescartada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante o cardio, e o GPS não mediu o suficiente para estimar a distância. Registramos só o <b>tempo</b>. Para marcar a distância, mantenha esta tela aberta ou use o aplicativo do Intus Fit.</div>` : ''}
         </div>
       </div>
       <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Como foi o esforço?</label>
@@ -14643,8 +14724,10 @@ function _renderCardioLive() {
   // parágrafo inteiro empurrava o botão "Começar" para fora da primeira dobra.
   const avisoTemp = usaGps
     ? '<details style="font-size:11.5px;line-height:1.5;color:#888;text-align:center;margin:0 4px 8px;">' +
-        '<summary style="cursor:pointer;list-style:none;">📌 Mantenha esta tela aberta para medir a distância. <u>Saiba mais</u></summary>' +
-        '<div style="margin-top:6px;">Por enquanto a <b>distância</b> só é medida com precisão se esta tela ficar aberta no app (não bloqueie o celular nem troque de app). Se a tela apagar, o trecho sem sinal é estimado pelo seu ritmo médio e o <b>tempo</b> é sempre registrado. Isso é temporário até a publicação oficial do app nas lojas.</div>' +
+        '<summary style="cursor:pointer;list-style:none;">' + (_cardioLivePlugin() && _cardioLiveBgEstado() !== 'nao' ? '📌 Pode bloquear a tela: a medição continua. <u>Saiba mais</u>' : '📌 Mantenha esta tela aberta para medir a distância. <u>Saiba mais</u>') + '</summary>' +
+        (_cardioLivePlugin() && _cardioLiveBgEstado() !== 'nao'
+          ? '<div style="margin-top:6px;">Com a permissão de localização, o Intus Fit continua medindo <b>distância, ritmo e trajeto</b> com a tela bloqueada ou o app em segundo plano, e mostra um aviso fixo enquanto o cardio roda. Ao finalizar, pausar ou descartar, a localização para de ser usada.</div>'
+          : '<div style="margin-top:6px;">No navegador a <b>distância</b> só é medida com precisão se esta tela ficar aberta (não bloqueie o celular nem troque de app). Se a tela apagar, o trecho sem sinal é estimado pelo seu ritmo médio e o <b>tempo</b> é sempre registrado. No aplicativo do Intus Fit a medição continua com a tela apagada.</div>') +
       '</details>'
     : '';
   // Antes de começar: cartão comum, escolher atividade. Rastreando: modo
@@ -14674,10 +14757,9 @@ function _renderCardioLive() {
         // indicação disso durante o rastreio.
         '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.65);margin-bottom:4px;">' + _clIcone(_cardioLiveTipo) + ' ' + esc(_ativRotulo(_cardioLiveTipo)) + '</div>' +
         (_cardioLiveRodando ? '' : '<div style="text-align:center;margin:-2px 0 12px;"><span class="cd-selo-pausa">⏸ PAUSADO</span></div>') +
-        (usaGps ? '<div style="font-size:11px;line-height:1.35;color:rgba(10,10,10,.72);text-align:center;margin:0 4px 8px;">Mantenha esta tela aberta: se ela apagar, a distância desse trecho será estimada pelo seu ritmo (temporário até a publicação oficial do app nas lojas).</div>' : '') +
+        ((usaGps && !_cardioLiveNativoOk) ? '<div style="font-size:11px;line-height:1.35;color:rgba(10,10,10,.72);text-align:center;margin:0 4px 8px;">Mantenha esta tela aberta: se ela apagar, a distância desse trecho será estimada pelo seu ritmo.</div>' : '') +
         (usaGps ? '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
           '<div class="cl-stat-top"><div class="n" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0' : '--\'--\'\'') + '</div><div class="l">' + (_cardioLiveTipo === 'Bike' ? 'km/h' : 'Pace') + '</div></div>' +
-          '<div class="cl-stat-top"><div class="n">--</div><div class="l">BPM</div></div>' +
           // Tempo maior e mais em destaque que os outros dois — é o número
           // que mais importa enquanto o aluno treina.
           '<div class="cl-stat-top"><div class="n" id="cl-tempo" style="font-size:32px;color:#0a0a0a;">00:00</div><div class="l">Duração</div></div>' +
@@ -14692,7 +14774,7 @@ function _renderCardioLive() {
           '<button class="cl-link-imersivo" onclick="_cardioLiveDescartar()">🗑️ Descartar</button>' +
         '</div>' +
       '</div>' +
-      '<div style="text-align:center;font-size:10.5px;color:#888;margin-top:14px;line-height:1.5;">⚠️ Função em teste, sujeita a instabilidades.</div>' +
+      (_cardioLivePlugin() ? '' : '<div style="text-align:center;font-size:11px;color:#888;margin-top:14px;line-height:1.5;">⚠️ Função em teste, sujeita a instabilidades.</div>') +
       getFooterHtml(false);
 
   // O <div id="cl-map"> acabou de nascer de novo (innerHTML inteiro trocado
