@@ -2385,4 +2385,4 @@ Decisão do Luiz: sair do Eduzz e cobrar pelo **Asaas** (taxas: Pix R$ 1,08 a R$
 - O aluno NÃO consegue mudar o próprio flag: `feed_restrito` fica fora da lista branca do PUT de aluno em `atletas.php`.
 - App (`aluno.html`): `_feedRestrito()` lê o flag do próprio cadastro (`intus-atletas`, atualizado por `_atletaPropriaCarregar` ao abrir e a cada 5 min) e `_soTesteBarra()` avisa por toast antes de abrir o compositor ou enviar comentário. Quem barra de verdade é o servidor. Vale já na web; no app das lojas só depois do próximo build.
 - Testes: `testes/plano_aluno.php` (45 conferências; quebrar a regra de propósito é acusado).
-- Fora do escopo por ora: mural de resultados, comentários em feedback em vídeo e chat não passam por esta trava.
+- Mural de resultados (`resultados` e `resultado_midia`, POST de aluno) também passa pela trava, para o teste grátis e para a limitação (21/11/2026). Fora do escopo: comentários em feedback em vídeo e chat.
