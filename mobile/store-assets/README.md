@@ -13,8 +13,7 @@
 - `google-play-feature-graphic-1024x500.png` — imagem de destaque para a
   Google Play, 1024×500, PNG. Composição criada a partir do logo oficial e
   mensagem que corresponde ao produto; validar a arte no Play Console antes da
-  submissão.
-- `google-play-feature-graphic.svg` — fonte editável da imagem de destaque.
+  submissão. Em preto, branco e cinza (sem verde na marca); foi gerada por script e não há mais arquivo-fonte editável.
 
 Ainda falta pra ficha completa (não gerar com dados fictícios ou pessoais):
 
