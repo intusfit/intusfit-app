@@ -251,6 +251,8 @@ function ensureCatalogoTables(PDO $pdo) {
     // ao comentário-pai, nunca a outra resposta), igual Instagram/feed comum.
     $cpCols = array_column($pdo->query("SHOW COLUMNS FROM intus_comentario_pub")->fetchAll(PDO::FETCH_ASSOC), 'Field');
     if (!in_array('resposta_a', $cpCols)) $pdo->exec("ALTER TABLE intus_comentario_pub ADD COLUMN resposta_a INT NULL AFTER alvo_id, ADD INDEX idx_resposta (resposta_a)");
+    // Comentário ocultado pelo administrador (fila de conteúdo sinalizado, _moderacao.php): some para todos, mas a linha fica e dá para mostrar de novo.
+    if (!in_array('oculto', $cpCols)) $pdo->exec("ALTER TABLE intus_comentario_pub ADD COLUMN oculto TINYINT(1) NOT NULL DEFAULT 0");
     // Limite de texto: legenda do post e comentário passaram de 500 para 1000
     // caracteres. Só alarga (nenhum dado muda) e só se a coluna ainda é 500.
     foreach ([['intus_feed_post', 'legenda', 'NULL'], ['intus_comentario_pub', 'texto', 'NOT NULL']] as $_alarga) {
@@ -2674,7 +2676,7 @@ if ($action === 'comentarios_pub') {
         if (count($ids) > 200) $ids = array_slice($ids, 0, 200);
         $ph = implode(',', array_fill(0, count($ids), '?'));
         $st = $pdo->prepare("SELECT idcomentario, alvo_id, resposta_a, autor_tipo, autor_id, autor_nome, texto, created_at
-                             FROM intus_comentario_pub WHERE alvo_tipo = ? AND alvo_id IN ($ph)
+                             FROM intus_comentario_pub WHERE alvo_tipo = ? AND alvo_id IN ($ph) AND oculto = 0
                              ORDER BY idcomentario ASC");
         $st->execute(array_merge([$tipo], $ids));
         $out = [];
@@ -2920,6 +2922,9 @@ if ($action === 'notificacoes') {
         if ($_nTipo !== 'aluno') {
             register_shutdown_function(function () { @include __DIR__ . '/_carona_backup.php'; @include __DIR__ . '/_carona_rotinas.php'; });
         }
+        // Varredura do controle de spam/pornografia/violência/ofensa (_moderacao.php): a cada 5 minutos, por QUALQUER sino (o app dos alunos consulta de tempos em tempos,
+        // então roda mesmo sem ninguém da equipe no painel), depois que esta resposta já saiu. Publicar e carregar o Feed nunca esperam por ela.
+        register_shutdown_function(function () { @include __DIR__ . '/_carona_moderacao.php'; });
         // Notificação de post apagado (ou de comentário do mural apagado) não
         // aparece nem conta no sino. Filtra em vez de só apagar: cobre também o
         // que já ficou órfão antes desta regra, sem mexer em nenhuma linha.
@@ -4420,6 +4425,24 @@ if (($action === 'acessos' && ($method === 'GET' || $method === 'DELETE')) || ($
 }
 
 // GET: só o nível de alerta, para o aviso no topo do painel. Usa a medida de hoje se já existir; senão mede (uma vez por dia).
+// Conteúdo sinalizado pelo controle de spam, pornografia, violência e ofensa (_moderacao.php). Só administrador.
+// GET: {pendentes, ocultos}. POST {idmod, acao}: 'manter', 'ocultar' ou 'restaurar'. Excluir usa as rotas de exclusão de sempre (comentarios_pub e feed_posts, DELETE).
+if ($action === 'moderacao') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    require_once __DIR__ . '/_moderacao.php';
+    try {
+        if ($method === 'GET') { echo json_encode(intusModListar($pdo), JSON_UNESCAPED_UNICODE); exit; }
+        if ($method === 'POST') {
+            $b = jsonBody();
+            $r = intusModDecidir($pdo, (int)($b['idmod'] ?? 0), (string)($b['acao'] ?? ''));
+            if (empty($r['ok'])) http_response_code(400);
+            echo json_encode($r, JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    } catch (Throwable $e) { http_response_code(500); echo json_encode(['error' => 'falha na moderacao', 'detalhe' => _intusLogErro($e)]); exit; }
+}
+
 if ($action === 'armazenamento_alerta' && $method === 'GET') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }

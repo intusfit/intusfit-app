@@ -38,7 +38,7 @@ if (getenv('CASO_JSON') !== false) {
         "CREATE TABLE IF NOT EXISTS intus_profile (idatleta INTEGER, avatar TEXT)",
         "CREATE TABLE IF NOT EXISTS intus_feed_pref (idatleta INTEGER, idalvo INTEGER, tipo TEXT)",
         "CREATE TABLE IF NOT EXISTS intus_amizade (de_id INTEGER, para_id INTEGER, status TEXT)",
-        "CREATE TABLE IF NOT EXISTS intus_comentario_pub (idcomentario INTEGER PRIMARY KEY AUTOINCREMENT, alvo_tipo TEXT, alvo_id INTEGER, resposta_a INTEGER NULL, autor_tipo TEXT, autor_id INTEGER, autor_nome TEXT, texto TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE TABLE IF NOT EXISTS intus_comentario_pub (idcomentario INTEGER PRIMARY KEY AUTOINCREMENT, alvo_tipo TEXT, alvo_id INTEGER, resposta_a INTEGER NULL, autor_tipo TEXT, autor_id INTEGER, autor_nome TEXT, texto TEXT, oculto INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
         "CREATE TABLE IF NOT EXISTS intus_notificacao (idnotificacao INTEGER PRIMARY KEY AUTOINCREMENT, destino_tipo TEXT, destino_id INTEGER, tipo TEXT, ator_tipo TEXT, ator_id INTEGER, ator_nome TEXT, alvo_tipo TEXT, alvo_id INTEGER, texto TEXT, lido INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
         "CREATE TABLE IF NOT EXISTS intus_resultado (idresultado INTEGER PRIMARY KEY, ativo INTEGER)",
         "CREATE TABLE IF NOT EXISTS intus_mensagem (idmensagem INTEGER PRIMARY KEY)",

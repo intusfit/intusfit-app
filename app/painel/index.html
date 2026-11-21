@@ -1145,6 +1145,8 @@ function render() {
           </a>`).join('')}
       </div>` : ''}
 
+      ${admin && ((window._modPend || []).length || (window._modOcultos || []).length) ? modCardHtml() : ''}
+
       ${lnovos.length ? `
       <!-- AVISO DE LEADS NOVOS -->
       <a href="alunos.html" style="text-decoration:none;">
@@ -1375,6 +1377,8 @@ async function preFetchBackend() {
       window._exclusoesConta = (dash && Array.isArray(dash.exclusoes)) ? dash.exclusoes : [];
     }
   } catch (e) { /* silencioso */ }
+  // Conteúdo sinalizado pelo controle de spam, pornografia, violência e ofensa (só o administrador decide)
+  await carregarModeracao();
   // Ranking da Intus (Top 5 da semana / Top 10 do mês) ainda não publicado no Feed: só o administrador publica
   try {
     if (isAdmin() && typeof API !== 'undefined' && API.postsIntus) {
@@ -1382,6 +1386,79 @@ async function preFetchBackend() {
       window._intusPend = API.postsIntus.pendentes(window._intusPendTodas, undefined, pendentesLidos());
     } else window._intusPend = [];
   } catch (e) { window._intusPend = []; /* sem lista confiável, não acusa pendência */ }
+}
+
+// ── Conteúdo sinalizado (controle de spam, pornografia, violência e ofensa; regras em app/api/_moderacao.php) ──
+// O texto continua visível para os alunos até o administrador decidir aqui: Manter (some da fila), Ocultar (some para todos, dá para mostrar de novo) ou Excluir.
+window._modPend = []; window._modOcultos = [];
+const MOD_ROT = { spam: 'Spam', pornografia: 'Pornografia', violencia: 'Violência', ofensiva: 'Ofensa' };
+const MOD_COR = { violencia: '#ef4444', pornografia: '#ef4444', ofensiva: '#f59e0b', spam: '#38bdf8' };
+async function carregarModeracao() {
+  try {
+    if (!isAdmin()) { window._modPend = []; window._modOcultos = []; return; }
+    const r = await fetch(API_BASE + '/catalogo.php?action=moderacao&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + _tk() }, cache: 'no-store' });
+    if (!r.ok) return;   // falha de rede ou servidor antigo: mantém o que já estava na tela
+    const j = await r.json();
+    window._modPend = Array.isArray(j.pendentes) ? j.pendentes : [];
+    window._modOcultos = Array.isArray(j.ocultos) ? j.ocultos : [];
+  } catch (e) { /* silencioso */ }
+}
+function _modQuando(q) { const m = String(q || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m ? m[3] + '/' + m[2] + ' ' + m[4] + ':' + m[5] : ''; }
+function modItemHtml(x, oculto) {
+  const chips = (x.categorias || []).map(c => `<span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px;color:${MOD_COR[c] || '#aaa'};background:${(MOD_COR[c] || '#aaa')}22;">${esc(MOD_ROT[c] || c)}</span>`).join(' ');
+  const btn = (acao, rot, cor) => `<button type="button" onclick="modAcao(${x.idmod}, '${acao}')" style="cursor:pointer;font-weight:700;font-size:12.5px;padding:6px 12px;border-radius:8px;border:1px solid ${cor};background:transparent;color:${cor};">${rot}</button>`;
+  return `
+    <div style="padding:12px;border-radius:10px;margin-top:8px;background:rgba(0,0,0,.18);border:1px solid rgba(248,113,113,.25);">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
+        <span><b style="color:var(--text);font-size:13.5px;">${esc(x.autor || ('Aluno #' + x.idatleta))}</b> <span style="font-size:12px;color:var(--text-muted);">· ${esc(x.onde)} · ${esc(_modQuando(x.quando))}</span></span>
+        <span style="display:flex;gap:6px;flex-wrap:wrap;">${chips}</span>
+      </div>
+      <div style="margin-top:6px;font-size:13.5px;color:var(--text);line-height:1.5;white-space:pre-wrap;word-break:break-word;">“${esc(x.texto)}”</div>
+      <div style="margin-top:4px;font-size:11.5px;color:var(--text-muted);">${esc(x.motivo)}</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        ${oculto ? btn('restaurar', 'Mostrar de novo', '#22c55e') : btn('manter', 'Manter', '#22c55e') + btn('ocultar', 'Ocultar', '#f59e0b')}
+        ${btn('excluir', 'Excluir', '#ef4444')}
+      </div>
+    </div>`;
+}
+function modCardHtml() {
+  const pend = window._modPend || [], ocu = window._modOcultos || [];
+  return `
+      <!-- CONTEÚDO SINALIZADO: spam, pornografia, violência e ofensa (o texto segue visível até você decidir) -->
+      <div class="card" id="mod-card" style="padding:16px;background:linear-gradient(135deg,rgba(248,113,113,.16),rgba(248,113,113,.04));border:1.5px solid rgba(248,113,113,.55);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:26px;">🚩</span>
+          <div style="flex:1;">
+            <div style="font-size:15px;font-weight:800;color:#f87171;">${pend.length ? pend.length + ' conteúdo' + (pend.length > 1 ? 's' : '') + ' sinalizado' + (pend.length > 1 ? 's' : '') + ' para você decidir' : 'Nenhum conteúdo aguardando decisão'}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Posts e comentários de alunos com spam, pornografia, ameaça ou ofensa. Seguem visíveis até você escolher. Gíria de academia ("treino foda", "foi de matar") não é sinalizada.</div>
+          </div>
+        </div>
+        ${pend.slice(0, 10).map(x => modItemHtml(x, false)).join('')}
+        ${pend.length > 10 ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Mais ${pend.length - 10} aguardando: resolva estes para ver os próximos.</div>` : ''}
+        ${ocu.length ? `
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--text-muted);">Ocultos por você (${ocu.length}): mostrar de novo ou excluir</summary>
+          ${ocu.map(x => modItemHtml(x, true)).join('')}
+        </details>` : ''}
+      </div>`;
+}
+async function modAcao(idmod, acao) {
+  const x = (window._modPend || []).concat(window._modOcultos || []).find(i => i.idmod === idmod);
+  if (!x) return;
+  try {
+    if (acao === 'excluir') {
+      if (!confirm(x.alvo_tipo === 'post' ? 'Excluir este post do Feed? Essa ação não pode ser desfeita.' : 'Excluir este comentário? As respostas a ele também serão excluídas. Essa ação não pode ser desfeita.')) return;
+      const url = x.alvo_tipo === 'post' ? '/catalogo.php?action=feed_posts&id=' + x.alvo_id : '/catalogo.php?action=comentarios_pub&id=' + x.alvo_id;
+      const r = await fetch(API_BASE + url, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + _tk() } });
+      if (!r.ok) throw new Error('excluir');
+    } else {
+      const r = await fetch(API_BASE + '/catalogo.php?action=moderacao', { method: 'POST', headers: { 'Authorization': 'Bearer ' + _tk(), 'Content-Type': 'application/json' }, body: JSON.stringify({ idmod: idmod, acao: acao }) });
+      if (!r.ok) throw new Error('decidir');
+    }
+  } catch (e) { if (typeof showToast === 'function') showToast('Não consegui concluir. Tente de novo.', 'error'); return; }
+  if (typeof showToast === 'function') showToast({ manter: 'Mantido. Saiu da fila.', ocultar: 'Oculto para todos os alunos.', restaurar: 'Voltou a aparecer.', excluir: 'Excluído.' }[acao] || 'Pronto.');
+  await carregarModeracao();
+  render();
 }
 
 // "Marcar como lido" do aviso de ranking pendente: guarda "tipo:início do período" neste navegador. A regra de qual período vale e de quando o
