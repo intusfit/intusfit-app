@@ -64,6 +64,7 @@ passo "Voltar do celular com o perfil aberto fecha só o perfil" node voltar_fol
 passo "Voltar e botões nas telas de treino: caixa do treino em andamento, bloqueio de outro treino ou cardio, camadas, rolagem, botões do feed" node voltar_treino.js
 passo "Cardio ao vivo em andamento: o app reaberto volta para a tela do cardio" node cardio_retomar.js
 passo "Cardio ao vivo: campo de distância na tela de esforço quando o GPS não mediu ou só estimou" node cardio_distancia.js
+passo "Telas cheias com o cabeçalho do app: resultado do cardio com menu, post aberto e compartilhar resultado com a logo" node cabecalho_telas.js
   passo "Meu Cardio: lista, registro em uma tela, confirmação com Corrigir e tela de parabéns" node cardio_tela.js
   passo "Quadro de medalhas: apuração única (api.js) e aba Medalhas na Frequência e Ranking" node medalhas.js
   passo "Avaliações: arrastar fotos do computador para a caixa de fotos da nova avaliação" node avaliacoes_fotos.js

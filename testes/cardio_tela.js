@@ -147,7 +147,7 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   console.log('\n══ Registro ══');
   await clicar('#cf-btn'); await clicar('#v-cardio button:has-text("Está certo, registrar")');
   await page.waitForTimeout(800);
-  const res = await page.evaluate(() => { const o = document.getElementById('cardio-result-overlay'); const txt = b => b.innerText.replace(/\s+/g, ' ').trim(); return o ? { txt: o.innerText, botoes: [...o.querySelectorAll('button')].map(txt), prim: [...o.querySelectorAll('button.btn-prim')].map(txt), centros: [...o.querySelectorAll('.fim-btns')].map(g => { const r = g.getBoundingClientRect(); return Math.round((r.left + r.right) / 2); }), cheia: o.getBoundingClientRect().height >= innerHeight - 2 } : null; });
+  const res = await page.evaluate(() => { const o = document.getElementById('cardio-result-overlay'); const txt = b => b.innerText.replace(/\s+/g, ' ').trim(); return o ? { txt: o.innerText, botoes: [...o.querySelectorAll('button:not(.top *)')].map(txt), prim: [...o.querySelectorAll('button.btn-prim')].map(txt), centros: [...o.querySelectorAll('.fim-btns')].map(g => { const r = g.getBoundingClientRect(); return Math.round((r.left + r.right) / 2); }), cheia: o.getBoundingClientRect().height >= innerHeight - 2 } : null; });
   ver('aparece a tela de cardio registrado, cobrindo tudo', res && res.cheia, res);
   ver('com frase de parabéns e o resumo do que foi feito', res && /Parabéns!/.test(res.txt) && /Corrida · 35 min · 3 km/.test(res.txt), res && res.txt);
   ver('e com a pontuação somada', res && /pontos somados/i.test(res.txt) && /\+\d/.test(res.txt), res && res.txt);

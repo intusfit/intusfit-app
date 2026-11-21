@@ -316,7 +316,7 @@
 
     /* ═══════════════ MENU OVERLAY ═══════════════ */
     .menu-overlay {
-      position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6);
+      position: fixed; inset: 0; z-index: 100100; background: rgba(0,0,0,.6);
       backdrop-filter: blur(4px); display: none; align-items: flex-start; justify-content: flex-end;
       overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     }
@@ -12749,6 +12749,16 @@ const _CARDIO_PARABENS = [
 function _cardioFraseParabens() { return _CARDIO_PARABENS[Math.floor(Math.random() * _CARDIO_PARABENS.length)]; }
 // Tela cheia de "cardio registrado": parabéns, pontos e para onde ir em seguida (início, ranking, conquistas, histórico). Serve ao cardio
 // manual e ao ao vivo; os programas guiados têm a própria tela de resultado.
+// Cópia do cabeçalho do app (logo, nome, ajuda, sino e menu) para telas cheias que cobrem a barra de cima (20/11/2026). Os ids saem da cópia (não podem
+// repetir) e o botão de tema também, porque a tela cheia não se redesenha sozinha com o tema (o menu tem a opção, e a tela de trás troca ao fechar).
+function _topoDoAppHtml() {
+  const t = document.querySelector('body > .top');
+  if (!t) return '';
+  const c = t.cloneNode(true);
+  c.querySelectorAll('[id]').forEach(function (e) { e.removeAttribute('id'); });
+  const tema = c.querySelector('[onclick*="toggleThemeQuick"]'); if (tema) tema.remove();
+  return c.outerHTML;
+}
 function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
   _cardioResultOnClose = onClose || null;
   _cardioResultShare = extra && extra.tipo ? { tipo: extra.tipo, min: extra.min, distKm: extra.distKm || 0 } : null;
@@ -12757,7 +12767,7 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
   const old = document.getElementById('cardio-result-overlay'); if (old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'cardio-result-overlay';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + P.fundo + ';overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;padding:24px 18px calc(24px + env(safe-area-inset-bottom,0px));animation:fadeIn .2s ease;';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + P.fundo + ';overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;animation:fadeIn .2s ease;';
   const msgMotivo = motivo === 'limite'
     ? '🎯 Você já atingiu o <b>limite diário de ' + _cardioRegras.limiteDia + ' cardios</b> que somam pontos. Este ficou registrado, mas <b>não soma pontos hoje</b>, para manter o ranking justo. Amanhã volta a contar! 💪'
     : motivo === 'duracao'
@@ -12773,7 +12783,8 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
          <div style="font-size:11.5px;color:${P.mut2};">no ranking de cardio e geral</div></div>`;
   const btn = (js, rot, cls, estilo) => '<button class="btn ' + cls + '" style="' + (estilo || '') + 'min-height:52px;font-size:14.5px;font-weight:800;" onclick="' + js + '">' + rot + '</button>';
   const btnV = (js, ico, nome) => '<button class="btn btn-sec fim-btn fim-btn-v" style="min-height:52px;" onclick="' + js + '"><span>' + ico + '</span><span>' + nome + '</span></button>';
-  ov.innerHTML = `
+  ov.innerHTML = _topoDoAppHtml() + `
+    <div style="flex:1;display:flex;padding:24px 18px calc(24px + env(safe-area-inset-bottom,0px));">
     <div style="margin:auto;width:100%;max-width:400px;text-align:center;">
       <div style="font-size:66px;line-height:1;">🎉</div>
       <div style="font-size:28px;font-weight:900;color:${P.txt};margin-top:10px;letter-spacing:-.02em;">Parabéns!</div>
@@ -12792,6 +12803,7 @@ function mostrarResultadoCardio(pts, tipo, min, motivo, onClose, extra) {
         ${btnV("_cardioResultIr('historico')", '📊', 'Histórico')}
       </div>
       <button type="button" class="fim-link" onclick="_fecharResultadoCardio()">Voltar ao Meu Cardio</button>
+    </div>
     </div>`;
   document.body.appendChild(ov);
   try { ov.scrollTop = 0; } catch (e) {}
@@ -16790,7 +16802,12 @@ async function abrirPostTela(post) {
   const ov = document.createElement('div');
   ov.id = 'pk-post-ov';
   ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;';
-  ov.innerHTML = '<div style="position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';border-bottom:1px solid ' + (isLight ? '#e5e5e5' : '#222') + ';"><button onclick="document.getElementById(\'pk-post-ov\').remove()" style="background:none;border:none;color:' + (isLight ? '#555' : '#aaa') + ';font-size:14px;font-weight:700;cursor:pointer;">← Voltar</button></div>' +
+  ov.innerHTML = '<div style="position:sticky;top:0;z-index:2;padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:' + (isLight ? '#f5f5f5' : '#0a0a0a') + ';border-bottom:1px solid ' + (isLight ? '#e5e5e5' : '#222') + ';">' +
+      '<div style="position:relative;display:flex;align-items:center;min-height:34px;max-width:460px;margin:0 auto;">' +
+        '<button class="btn-back" onclick="document.getElementById(\'pk-post-ov\').remove()" style="position:relative;z-index:1;">← Voltar</button>' +
+        '<div style="position:absolute;left:0;right:0;padding:0 82px 0 70px;text-align:center;font-size:18px;font-weight:900;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';pointer-events:none;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Publicação</div>' +
+        '<img src="' + (isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus" style="position:absolute;right:0;height:16px;"/>' +
+      '</div></div>' +
     '<div style="max-width:460px;margin:0 auto;padding:12px;min-height:calc(100% + 2px);">' + _postPrivHtml(post, isLight) + _postColabHtml(post, isLight) + _feedCardHtml(post, isLight) + '</div>';
   document.body.appendChild(ov);
   _pkTravarFundo();
@@ -17198,7 +17215,8 @@ function _rcRender() {
   ov.innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid ' + borda + ';position:sticky;top:0;background:' + bg + ';z-index:2;">' +
       '<span style="font-size:15px;font-weight:800;color:' + txt + ';">🌟 Compartilhar resultado</span>' +
-      '<button onclick="_rcFechar()" style="background:' + cardBg + ';border:1px solid ' + borda + ';border-radius:10px;width:34px;height:34px;color:' + txt + ';font-size:16px;cursor:pointer;">✕</button>' +
+      '<span style="display:flex;align-items:center;gap:12px;"><img src="' + (document.body.classList.contains('tema-claro') ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus" style="height:16px;"/>' +
+      '<button onclick="_rcFechar()" style="background:' + cardBg + ';border:1px solid ' + borda + ';border-radius:10px;width:34px;height:34px;color:' + txt + ';font-size:16px;cursor:pointer;">✕</button></span>' +
     '</div>' +
     '<div style="max-width:420px;margin:0 auto;padding:16px;">' +
       '<p style="font-size:12.5px;color:' + muted + ';line-height:1.55;margin:0 0 14px;">Seu resultado aparece no Mural de resultados para os outros alunos, e a equipe da Intus é avisada. Quem compartilha ganha o distintivo Prova de Evolução 📈</p>' +
@@ -23672,6 +23690,7 @@ function _restaurarScroll(y) {   // a tela pode ainda estar crescendo (posts che
 const originalTrocarView = trocarView;
 var _pushN = 0;   // quantas entradas de histórico as trocas de tela já criaram (o gesto de voltar usa para não duplicar)
 trocarView = function(v) {
+  try { const mo = document.getElementById('menu-overlay'); if (mo && mo.classList.contains('open') && document.getElementById('cardio-result-overlay')) _fecharResultadoCardio(); } catch (e) {}   // item do menu escolhido com a tela de resultado aberta: fecha a tela
   try { if (v !== 'mensagens' && window._viewAtual === 'mensagens') { _centralTab = 'painel'; _chatAberta = false; _centralChatTarget = 'main'; } } catch (e) {}   // a Central sempre abre no painel
   // Só empilha (pilha e histórico) quando a tela MUDA. Redesenhar a mesma tela (lista de programas, detalhe, execução...) não pode criar entradas
   // de histórico: elas ficavam sobrando e o voltar do celular girava entre as telas.
