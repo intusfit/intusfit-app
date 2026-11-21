@@ -152,6 +152,51 @@ $r = intusModVarrer($pdo);
 eq('12 de uma vez: um e-mail só, com as 10 primeiras e "mais 2 no painel"', [$r['novos'], count($emails), str_contains(end($emails)[1], 'e mais 2 no painel')], [12, 3, true]);
 @unlink($estado);
 
+echo "\n══ Denúncia de aluno (botão Denunciar do app) ══\n";
+$pdo->exec('DELETE FROM intus_moderacao'); $pdo->exec('DELETE FROM intus_comentario_pub'); $pdo->exec('DELETE FROM intus_feed_post');
+$emails = [];
+@unlink($estado); intusModVarrer($pdo);   // ponto de partida novo (a 1ª rodada só marca)
+$d1 = $com('texto normalzinho, nada de errado', null, 5, 7);          // autor 7
+$pdo->exec("INSERT INTO intus_feed_post (idatleta, legenda) VALUES (7, '')");   // post só com imagem
+$pd = (int)$pdo->lastInsertId();
+eq('motivo inventado é recusado', intusModDenunciar($pdo, 'comentario', $d1, 8, 'Bia', 'xingou minha mãe')['codigo'], 400);
+eq('conteúdo que não existe: 404', intusModDenunciar($pdo, 'comentario', 9999, 8, 'Bia', 'spam')['codigo'], 404);
+eq('não dá para denunciar o próprio comentário', intusModDenunciar($pdo, 'comentario', $d1, 7, 'Fulano', 'spam')['codigo'], 400);
+eq('nem o próprio post', intusModDenunciar($pdo, 'post', $pd, 7, 'Fulano', 'spam')['codigo'], 400);
+eq('a 1ª denúncia entra na fila, mesmo com o texto limpo para o detector', [intusModDenunciar($pdo, 'comentario', $d1, 8, 'Bia', 'ofensa')['ok'], count(intusModListar($pdo)['pendentes'])], [true, 1]);
+$l = intusModListar($pdo)['pendentes'][0];
+eq('categoria, motivo e contagem', [$l['categorias'], $l['motivo'], $l['denuncias'], $l['autor'], $l['onde']], [['denuncia'], 'Denúncia de 1 aluno: ofensa ou assédio', 1, 'Fulano de Tal', 'Comentário em post do Feed']);
+eq('a mesma pessoa denunciando de novo não conta duas vezes', [intusModDenunciar($pdo, 'comentario', $d1, 8, 'Bia', 'spam')['denuncias'], intusModListar($pdo)['pendentes'][0]['denuncias']], [1, 1]);
+intusModDenunciar($pdo, 'comentario', $d1, 9, 'Caio', 'violencia');
+$l = intusModListar($pdo)['pendentes'][0];
+eq('outra pessoa soma no MESMO item (um item só, com os dois motivos)', [count(intusModListar($pdo)['pendentes']), $l['denuncias'], $l['motivo']], [1, 2, 'Denúncia de 2 alunos: ofensa ou assédio, violência ou ameaça']);
+$r = intusModVarrer($pdo);   // 1ª rodada nesse estado: ponto de partida já existe
+eq('a varredura avisa por e-mail a denúncia, uma vez', [$r['email'], count($emails), str_contains($emails[0][0], 'Denúncia')], [true, 1, true]);
+eq('o e-mail traz o motivo e o texto denunciado', [str_contains($emails[0][1], 'Denúncia de 2 alunos'), str_contains($emails[0][1], 'texto normalzinho')], [true, true]);
+$r = intusModVarrer($pdo);
+eq('a rodada seguinte não repete o aviso', [$r['email'], count($emails)], [false, 1]);
+intusModDecidir($pdo, $l['idmod'], 'manter');
+eq('Manter tira da fila', count(intusModListar($pdo)['pendentes']), 0);
+intusModDenunciar($pdo, 'comentario', $d1, 9, 'Caio', 'spam');
+eq('quem já tinha denunciado não reabre o que você manteve', count(intusModListar($pdo)['pendentes']), 0);
+intusModDenunciar($pdo, 'comentario', $d1, 10, 'Dani', 'spam');
+$l = intusModListar($pdo)['pendentes'][0] ?? null;
+eq('uma pessoa NOVA reabre o item mantido, com 3 denúncias', [$l['denuncias'] ?? 0], [3]);
+$r = intusModVarrer($pdo);
+eq('e o aviso por e-mail sai de novo', [$r['email'], count($emails)], [true, 2]);
+eq('denúncia de post só com imagem entra com um texto explicativo', [intusModDenunciar($pdo, 'post', $pd, 8, 'Bia', 'sexual')['ok'], str_contains(intusModListar($pdo)['pendentes'][0]['texto'], 'post só com imagem'), intusModListar($pdo)['pendentes'][0]['onde']], [true, true, 'Post no Feed']);
+// conteúdo já marcado pelo detector e depois denunciado: as duas coisas aparecem num item só
+$d2 = $com('seu idiota', null, 5, 7);
+$m = intusModRegistrar($pdo, 'comentario', $d2, 7, 'Fulano de Tal', 'seu idiota', 'feed_post', 5);
+intusModDenunciar($pdo, 'comentario', $d2, 8, 'Bia', 'ofensa');
+$l = array_values(array_filter(intusModListar($pdo)['pendentes'], fn($x) => $x['idmod'] === $m))[0];
+eq('detector + denúncia no mesmo item', [$l['categorias'], $l['motivo']], [['ofensiva', 'denuncia'], 'Ofensa: ofensa dirigida | Denúncia de 1 aluno: ofensa ou assédio']);
+intusModDecidir($pdo, $m, 'ocultar');
+eq('comentário já oculto não aceita nova denúncia (404)', intusModDenunciar($pdo, 'comentario', $d2, 11, 'Edu', 'spam')['codigo'], 404);
+$pdo->exec("UPDATE intus_feed_post SET ativo = 0 WHERE idpost = $pd");
+eq('post apagado: 404', intusModDenunciar($pdo, 'post', $pd, 12, 'Fê', 'spam')['codigo'], 404);
+@unlink($estado);
+
 echo "\n══ Falhas não derrubam ══\n";
 $pdoVazio = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 eq('banco sem a tabela de comentários: a fila se cria e registra', is_int(intusModRegistrar($pdoVazio, 'post', 1, 7, 'X', 'manda nudes', 'feed_post', 1)), true);

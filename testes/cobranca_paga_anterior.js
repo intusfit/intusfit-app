@@ -73,7 +73,7 @@ const sit = (hoje, lista, i) => api(hoje).situacaoCobranca(lista[i], lista);
   MENS[3].nmathleta = MENS[3].nmathleta; // (mesmo aluno, linhas 4 e 5)
   const srv = http.createServer((req, res) => { let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html'; const f = path.join(RAIZ, p); if (!f.startsWith(RAIZ) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('n'); } res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res); });
   await new Promise(r => srv.listen(8106, '127.0.0.1', r));
-  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1400, height: 1000 } });
+  const b = await chromium.launch(); const p = await (await b.newContext({ viewport: { width: 1400, height: 1000 }, serviceWorkers: 'block' })).newPage();   // sem service worker: o erro dele e instavel e nao tem relacao com a cobranca
   const erros = []; p.on('pageerror', e => erros.push(e.message));
   await p.route(u => u.href.includes('.php'), r => { const u = r.request().url();
     if (u.includes('mensalidades.php')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MENS) });

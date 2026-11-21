@@ -14,7 +14,9 @@
  *   - violência só conta o que não tem leitura de academia: arma, facada, estupro, tortura, sequestro ("vou te esfaquear", "tiro na cara"). "Vou te matar", "te arrebento" e
  *     "merece morrer" são brincadeira normal entre aluno e personal e NÃO são sinalizadas (decisão do Luiz, 21/11/2026); a frase que fala de treino continua perdoada;
  *   - elogio em gíria ("você é louco", "é uma fera", "monstro", "doente") nunca é insulto.
- * Só texto. Foto e vídeo não são analisados (uma imagem imprópria só aparece se o texto ao lado denunciar, ou se um aluno avisar).
+ * Denúncia de aluno (exigência da Apple 1.2 e do Google para conteúdo de usuários): o botão "Denunciar" do app entra na MESMA fila (intusModDenunciar), com a categoria
+ * "denuncia", vale para foto e vídeo também, e entra no e-mail-resumo da próxima varredura. Várias pessoas denunciando o mesmo item viram um item só, com a contagem.
+ * Só texto. Foto e vídeo não são analisados pelo detector (uma imagem imprópria só aparece se o texto ao lado denunciar, ou se um aluno avisar).
  *
  * Estado: tabela intus_moderacao (status pendente, mantido, oculto, excluido). Ocultar = intus_comentario_pub.oculto = 1 ou intus_feed_post.ativo = 3
  * (ninguém vê, o dono do conteúdo também não; "Mostrar de novo" desfaz). Excluir usa as rotas de exclusão que já existem; a fila se acerta sozinha.
@@ -22,7 +24,8 @@
 
 const INTUS_MOD_VARREDURA_SEG = 300;   // a análise roda a cada 5 minutos, nunca na hora de publicar
 
-const INTUS_MOD_ROTULOS = ['spam' => 'Spam', 'pornografia' => 'Pornografia', 'violencia' => 'Violência', 'ofensiva' => 'Ofensa'];
+const INTUS_MOD_ROTULOS = ['spam' => 'Spam', 'pornografia' => 'Pornografia', 'violencia' => 'Violência', 'ofensiva' => 'Ofensa', 'denuncia' => 'Denúncia'];
+const INTUS_MOD_DENUNCIA_MOTIVOS = ['spam' => 'spam ou propaganda', 'sexual' => 'conteúdo sexual', 'violencia' => 'violência ou ameaça', 'ofensa' => 'ofensa ou assédio', 'outro' => 'outro motivo'];
 
 /** Minúsculo e sem acento. Não mexe em mais nada (URL e telefone precisam do texto como o aluno escreveu). */
 function intusModBase(string $t): string
@@ -180,10 +183,20 @@ function intusModGarantirTabela(PDO $pdo): void
         ctx_id INT NOT NULL DEFAULT 0,
         status VARCHAR(12) NOT NULL DEFAULT \'pendente\',
         email_em VARCHAR(19) NULL,
+        denunciantes VARCHAR(255) NOT NULL DEFAULT \'\',
+        denuncia_motivos VARCHAR(120) NOT NULL DEFAULT \'\',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         decidido_em VARCHAR(19) NULL' . ($sqlite ? '' : ',
         INDEX idx_status (status), INDEX idx_alvo (alvo_tipo, alvo_id)') . '
     )' . ($sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'));
+    // tabela criada antes das denúncias: acrescenta as colunas
+    try { $pdo->query('SELECT denunciantes, denuncia_motivos FROM intus_moderacao LIMIT 1'); }
+    catch (Throwable $e) {
+        try {
+            $pdo->exec("ALTER TABLE intus_moderacao ADD COLUMN denunciantes VARCHAR(255) NOT NULL DEFAULT ''");
+            $pdo->exec("ALTER TABLE intus_moderacao ADD COLUMN denuncia_motivos VARCHAR(120) NOT NULL DEFAULT ''");
+        } catch (Throwable $e2) {}
+    }
     $ok[$k] = true;
 }
 
@@ -245,14 +258,14 @@ function intusModEnviarResumo(PDO $pdo, array $ids): bool
     $assunto = count($rows) === 1
         ? 'Intus Fit: conteúdo sinalizado (' . implode(', ', $todas) . ') de ' . ($rows[0]['autor_nome'] !== '' ? $rows[0]['autor_nome'] : 'um aluno')
         : 'Intus Fit: ' . count($rows) . ' conteúdos sinalizados (' . implode(', ', $todas) . ')';
-    $corpo = (count($rows) === 1 ? "Um texto publicado por um aluno foi sinalizado pelo controle automático.\n" : count($rows) . " textos publicados por alunos foram sinalizados pelo controle automático.\n") . "\n";
+    $corpo = (count($rows) === 1 ? "Um conteúdo publicado por um aluno foi sinalizado (controle automático ou denúncia de aluno).\n" : count($rows) . " conteúdos publicados por alunos foram sinalizados (controle automático ou denúncia de aluno).\n") . "\n";
     foreach (array_slice($rows, 0, 10) as $i => $r) {
         $corpo .= ($i + 1) . ') ' . ($r['autor_nome'] !== '' ? $r['autor_nome'] : '(sem nome)') . ' · ' . intusModOnde($r) . "\n"
                . '   ' . $r['motivo'] . "\n"
                . '   "' . mb_substr(str_replace(["\r", "\n"], ' ', (string)$r['texto']), 0, 300) . "\"\n\n";
     }
     if (count($rows) > 10) $corpo .= '... e mais ' . (count($rows) - 10) . " no painel.\n\n";
-    $corpo .= "Os textos continuam visíveis para os alunos até você decidir. No Início do painel, em \"Conteúdo sinalizado\", escolha Manter, Ocultar ou Excluir:\n"
+    $corpo .= "Os conteúdos continuam visíveis para os alunos até você decidir. No Início do painel, em \"Conteúdo sinalizado\", escolha Manter, Ocultar ou Excluir:\n"
         . "https://intusfit.com.br/app/painel/index.html\n\n"
         . "Itens aguardando decisão: {$pend}.\n"
         . "Este aviso é automático. Texto de academia como \"que treino foda\" ou \"foi de matar\" não é sinalizado; se algo normal vier para cá, use Manter.";
@@ -305,6 +318,8 @@ function intusModVarrer(PDO $pdo, int $limite = 500): array
         if ($id) $novos[] = $id;
     }
     @file_put_contents($arq, json_encode(['comentario' => $ultC, 'post' => $ultP, 'em' => date('c')]), LOCK_EX);
+    // denúncias de alunos ainda sem aviso por e-mail (entram na fila na hora; o aviso sai junto com a varredura)
+    try { foreach ($pdo->query("SELECT idmod FROM intus_moderacao WHERE status = 'pendente' AND email_em IS NULL AND categorias LIKE '%denuncia%'")->fetchAll(PDO::FETCH_COLUMN) as $dm) if (!in_array((int)$dm, $novos, true)) $novos[] = (int)$dm; } catch (Throwable $x) {}
     $mail = false;
     if ($novos) { try { $mail = intusModEnviarResumo($pdo, $novos); } catch (Throwable $x) { $mail = false; } }
     return ['novos' => count($novos), 'comentarios' => $nc, 'posts' => $np, 'email' => $mail];
@@ -317,6 +332,60 @@ function intusModNomeAluno(PDO $pdo, int $id): string
         try { $q = $pdo->prepare("SELECT nome FROM `$t` WHERE idatleta = ?"); $q->execute([$id]); $n = $q->fetchColumn(); if ($n) return (string)$n; } catch (Throwable $e) {}
     }
     return '';
+}
+
+/**
+ * Denúncia feita por um aluno pelo botão "Denunciar" do app. $alvoTipo: 'post' ou 'comentario'. $motivo: uma das chaves de INTUS_MOD_DENUNCIA_MOTIVOS.
+ * Entra na fila de conteúdo sinalizado (a mesma do detector). Quem denuncia de novo o mesmo item não conta duas vezes; item que o administrador tinha
+ * mantido volta a pendente quando uma PESSOA NOVA denuncia. Não esconde nada sozinho.
+ * @return array{ok:bool,codigo:int,erro?:string,denuncias?:int}
+ */
+function intusModDenunciar(PDO $pdo, string $alvoTipo, int $alvoId, int $denId, string $denNome, string $motivo): array
+{
+    if (!isset(INTUS_MOD_DENUNCIA_MOTIVOS[$motivo])) return ['ok' => false, 'codigo' => 400, 'erro' => 'motivo inválido'];
+    if (!in_array($alvoTipo, ['post', 'comentario'], true) || $alvoId <= 0 || $denId <= 0) return ['ok' => false, 'codigo' => 400, 'erro' => 'dados incompletos'];
+    intusModGarantirTabela($pdo);
+    if ($alvoTipo === 'comentario') {
+        $q = $pdo->prepare('SELECT autor_tipo, autor_id, autor_nome, texto, alvo_tipo, alvo_id, oculto FROM intus_comentario_pub WHERE idcomentario = ?');
+        $q->execute([$alvoId]);
+        $t = $q->fetch(PDO::FETCH_ASSOC);
+        if (!$t || (int)$t['oculto'] === 1) return ['ok' => false, 'codigo' => 404, 'erro' => 'conteúdo não encontrado'];
+        if ($t['autor_tipo'] === 'aluno' && (int)$t['autor_id'] === $denId) return ['ok' => false, 'codigo' => 400, 'erro' => 'não dá para denunciar o próprio conteúdo'];
+        $dono = (int)$t['autor_id']; $nome = (string)$t['autor_nome']; $texto = (string)$t['texto']; $ctx = (string)$t['alvo_tipo']; $ctxId = (int)$t['alvo_id'];
+    } else {
+        $q = $pdo->prepare('SELECT idatleta, legenda, localizacao, ativo FROM intus_feed_post WHERE idpost = ?');
+        $q->execute([$alvoId]);
+        $t = $q->fetch(PDO::FETCH_ASSOC);
+        if (!$t || (int)$t['ativo'] !== 1) return ['ok' => false, 'codigo' => 404, 'erro' => 'conteúdo não encontrado'];
+        if ((int)$t['idatleta'] === $denId) return ['ok' => false, 'codigo' => 400, 'erro' => 'não dá para denunciar o próprio conteúdo'];
+        $dono = (int)$t['idatleta']; $nome = intusModNomeAluno($pdo, $dono); $ctx = 'feed_post'; $ctxId = $alvoId;
+        $texto = trim((string)$t['legenda'] . "\n" . (string)($t['localizacao'] ?? ''));
+        if ($texto === '') $texto = '(post só com imagem ou vídeo: abra o post no Feed para ver)';
+    }
+    $q = $pdo->prepare("SELECT * FROM intus_moderacao WHERE alvo_tipo = ? AND alvo_id = ? AND status IN ('pendente','mantido') ORDER BY idmod DESC LIMIT 1");
+    $q->execute([$alvoTipo, $alvoId]);
+    $r = $q->fetch(PDO::FETCH_ASSOC);
+    $agora = date('Y-m-d H:i:s');
+    if ($r) {
+        $lista = array_values(array_filter(explode(',', (string)$r['denunciantes'])));
+        if (in_array((string)$denId, $lista, true)) return ['ok' => true, 'codigo' => 200, 'denuncias' => count($lista)];
+        $lista[] = (string)$denId;
+        $motivos = array_values(array_unique(array_merge(array_filter(explode(',', (string)$r['denuncia_motivos'])), [$motivo])));
+        $cats = array_values(array_unique(array_merge(array_filter(explode(',', (string)$r['categorias'])), ['denuncia'])));
+    } else {
+        $lista = [(string)$denId]; $motivos = [$motivo]; $cats = ['denuncia'];
+    }
+    $base = $r ? trim((string)preg_replace('/\s*\|?\s*Denúncia.*$/u', '', (string)$r['motivo'])) : '';
+    $rot = implode(', ', array_map(fn($m) => INTUS_MOD_DENUNCIA_MOTIVOS[$m] ?? $m, $motivos));
+    $txtMotivo = ($base !== '' ? $base . ' | ' : '') . 'Denúncia de ' . count($lista) . ' aluno' . (count($lista) > 1 ? 's' : '') . ': ' . $rot;
+    if ($r) {
+        $pdo->prepare("UPDATE intus_moderacao SET categorias = ?, motivo = ?, denunciantes = ?, denuncia_motivos = ?, status = 'pendente', email_em = NULL, decidido_em = NULL WHERE idmod = ?")
+            ->execute([implode(',', $cats), mb_substr($txtMotivo, 0, 400), mb_substr(implode(',', $lista), 0, 255), mb_substr(implode(',', $motivos), 0, 120), (int)$r['idmod']]);
+    } else {
+        $pdo->prepare('INSERT INTO intus_moderacao (alvo_tipo, alvo_id, idatleta, autor_nome, categorias, motivo, trecho, texto, contexto, ctx_id, denunciantes, denuncia_motivos) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$alvoTipo, $alvoId, $dono, mb_substr($nome, 0, 200), 'denuncia', mb_substr($txtMotivo, 0, 400), '', mb_substr($texto, 0, 1000), mb_substr($ctx, 0, 20), $ctxId, (string)$denId, $motivo]);
+    }
+    return ['ok' => true, 'codigo' => 200, 'denuncias' => count($lista)];
 }
 
 /** Itens pendentes cujo conteúdo já sumiu (o aluno apagou, ou foi excluído pelo Feed) saem da fila sozinhos como "excluido". */
@@ -344,7 +413,8 @@ function intusModLinha(array $r): array
 {
     return ['idmod' => (int)$r['idmod'], 'alvo_tipo' => $r['alvo_tipo'], 'alvo_id' => (int)$r['alvo_id'], 'idatleta' => (int)$r['idatleta'], 'autor' => $r['autor_nome'],
             'categorias' => array_values(array_filter(explode(',', (string)$r['categorias']))), 'motivo' => $r['motivo'], 'trecho' => $r['trecho'], 'texto' => $r['texto'],
-            'onde' => intusModOnde($r), 'status' => $r['status'], 'quando' => $r['created_at']];
+            'onde' => intusModOnde($r), 'status' => $r['status'], 'quando' => $r['created_at'],
+            'denuncias' => count(array_filter(explode(',', (string)($r['denunciantes'] ?? ''))))];
 }
 
 /** Para o Início do painel: pendentes (mais novos primeiro) e os últimos ocultos (para "Mostrar de novo"). */

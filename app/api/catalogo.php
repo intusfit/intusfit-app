@@ -4443,6 +4443,23 @@ if ($action === 'moderacao') {
     } catch (Throwable $e) { http_response_code(500); echo json_encode(['error' => 'falha na moderacao', 'detalhe' => _intusLogErro($e)]); exit; }
 }
 
+// Denúncia de conteúdo pelo aluno (botão "Denunciar" do app; exigência da Apple 1.2 e do Google). POST {alvo_tipo: 'post'|'comentario', alvo_id, motivo}.
+// Entra na fila "Conteúdo sinalizado" do Início do painel (a mesma do detector) e no e-mail-resumo da próxima varredura. Não esconde nada sozinha.
+if ($action === 'denuncia' && $method === 'POST') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (!$_ehAluno) { http_response_code(403); echo json_encode(['error' => 'somente alunos denunciam']); exit; }
+    [$_dnTipo, $_dnId, $_dnNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_dnId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    $b = jsonBody();
+    try {
+        require_once __DIR__ . '/_moderacao.php';
+        $r = intusModDenunciar($pdo, (string)($b['alvo_tipo'] ?? ''), (int)($b['alvo_id'] ?? 0), (int)$_dnId, (string)$_dnNome, (string)($b['motivo'] ?? ''));
+    } catch (Throwable $e) { http_response_code(500); echo json_encode(['error' => 'falha ao registrar a denuncia', 'detalhe' => _intusLogErro($e)]); exit; }
+    http_response_code($r['codigo']);
+    echo json_encode(empty($r['ok']) ? ['error' => $r['erro'] ?? 'erro'] : ['ok' => true], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($action === 'armazenamento_alerta' && $method === 'GET') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }

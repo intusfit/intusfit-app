@@ -3505,6 +3505,10 @@ function _comentariosHtml(idpost, isLight) {
     const excluir = podeExcluir
       ? '<span data-id="' + c.idcomentario + '" onclick="excluirComentarioFeed(' + idpost + ',this)" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Excluir</span>'
       : '';
+    // Denunciar: qualquer comentário de OUTRO aluno (exigência da Apple 1.2 e do Google para conteúdo de usuários)
+    const denunciar = (!c.meu && c.autor_tipo === 'aluno')
+      ? '<span onclick="_denunciarAbrir(\'comentario\',' + Number(c.idcomentario) + ')" style="font-size:10.5px;color:' + corMuted + ';font-weight:700;cursor:pointer;">Denunciar</span>'
+      : '';
     const curtidas = _reacoesComentFeed[String(c.idcomentario)] || [];
     const curtiu = curtidas.some(x => x.meu);
     const coracao = '<div data-id="' + c.idcomentario + '" onclick="_cxToque(' + c.idcomentario + ',\'feed\',' + idpost + ')" title="Reagir ao comentário" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;padding:2px 2px 0 4px;min-width:22px;">' +
@@ -3525,6 +3529,7 @@ function _comentariosHtml(idpost, isLight) {
           '<span style="font-size:10.5px;color:' + corMuted + ';">' + _tempoRelativoFeed(dt) + '</span>' +
           responder +
           excluir +
+          denunciar +
         '</div>' +
       '</div>' +
       coracao +
@@ -3968,7 +3973,7 @@ function _abrirMenuPost(idpost, idatletaDono) {
   const nome = _feedAtletasMap[String(idatletaDono)] || 'esta pessoa';
   const opcoes = souDono
     ? [['🔒 Privacidade desta publicação', 'abrirPostPorId(' + idpost + ')'], ].concat(_ehPostTexto(_acharPost(idpost)) ? [] : [['⬇️ Baixar', 'baixarPost(' + idpost + ')']]).concat([['Ocultar meu post de alguém...', '_abrirOcultarDeAlguem(' + idpost + ')'], ['Excluir post', '_excluirPost(' + idpost + ')']])
-    : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')']];
+    : [['Não ver posts de ' + esc(nome.split(' ')[0]), '_naoVerPostsDe(' + idatletaDono + ')'], ['🚩 Denunciar publicação', "_denunciarAbrir('post'," + Number(idpost) + ')']];
   const html = opcoes.map(([rot, fn]) =>
     '<div onclick="closeModal();' + fn + '" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + rot + '</div>'
   ).join('');
@@ -3992,6 +3997,29 @@ function openModalGenerico(innerHtml) {
   document.body.appendChild(ov);
 }
 function closeModal() { document.getElementById('ov-menu-generico')?.remove(); }
+
+// ── Denunciar post ou comentário de outro aluno ──
+// Exigência da Apple (diretriz 1.2) e do Google para apps com conteúdo de usuários. O servidor põe a denúncia na fila "Conteúdo sinalizado" do Início do painel e avisa o
+// administrador por e-mail; não esconde nada sozinho. Só motivos de uma lista (nada de texto livre).
+const _DENUNCIA_MOTIVOS = [['spam', 'Spam ou propaganda'], ['sexual', 'Conteúdo sexual'], ['violencia', 'Violência ou ameaça'], ['ofensa', 'Ofensa ou assédio'], ['outro', 'Outro motivo']];
+function _denunciarAbrir(tipo, id) {
+  const html = '<div style="padding:0 16px 8px;font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;">Por que você está denunciando?</div>' +
+    _DENUNCIA_MOTIVOS.map(([k, rot]) =>
+      '<div data-denuncia-motivo="' + k + '" onclick="closeModal();_denunciarEnviar(\'' + tipo + '\',' + Number(id) + ',\'' + k + '\')" style="padding:13px 16px;font-size:13.5px;color:var(--texto);cursor:pointer;border-bottom:1px solid var(--borda);">' + rot + '</div>'
+    ).join('');
+  openModalGenerico(html);
+}
+async function _denunciarEnviar(tipo, id, motivo) {
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=denuncia', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || ''), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alvo_tipo: tipo, alvo_id: Number(id), motivo: motivo }),
+    });
+    if (r.status === 404) { toast('Esse conteúdo já não está mais disponível.'); return; }
+    if (!r.ok) { toast('Não consegui enviar a denúncia. Tente de novo.'); return; }
+    toast('Denúncia enviada. A equipe vai analisar. Obrigado.');
+  } catch (e) { toast('Sem conexão. Tente de novo.'); }
+}
 
 async function _naoVerPostsDe(idatletaAlvo) {
   try {
