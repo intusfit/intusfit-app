@@ -14512,6 +14512,7 @@ function _cardioLiveFinalizar() {
   // queremos depender de "ninguém mexeu ainda" pra tela de esforço mostrar
   // a rota certa.
   const pontos = _cardioLivePontos.slice();
+  const eraParado = !!_cardioLiveParado;   // "em um aparelho": a distância vem do próprio aparelho, a tela de esforço pergunta
   _cardioLivePararTudo();
   _cardioLiveLimparAtivo();
   _cardioUi.pilha = ['home'];
@@ -14522,7 +14523,7 @@ function _cardioLiveFinalizar() {
   salvarCardio({
     silencioso: true,
     aoVivo: true,
-    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos, distDescartada: distDescartada, distEstimada: distEstimada }); },
+    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos, distDescartada: distDescartada, distEstimada: distEstimada, parado: eraParado }); },
   });
 }
 
@@ -14539,6 +14540,40 @@ function _cardioTemRotaRelevante(dados) {
 let _cardioEsforcoMapa = null;
 function _cardioEsforcoFecharMapa() {
   if (_cardioEsforcoMapa) { try { _cardioEsforcoMapa.remove(); } catch (e) {} _cardioEsforcoMapa = null; }
+}
+// Distância na tela de esforço do cardio ao vivo (20/11/2026): quando o GPS não mediu (tela apagada, permissão negada, esteira ou bike ergométrica,
+// natação, elíptico) ou a distância foi só ESTIMADA, o aluno pode informar ou corrigir. Distância medida de verdade pelo GPS não é oferecida para troca.
+// Os pontos dependem do tempo, não da distância; a distância entra no texto do registro (ranking, histórico e compartilhar).
+function _cleDistInfo(dados) {
+  const met = cardioMetrica(dados.tipo);
+  if (!met || (met.tipo !== 'km' && met.tipo !== 'm')) return null;
+  if ((Number(dados.distKm) || 0) > 0 && !dados.distEstimada) return null;
+  return { met: met, km: (Number(dados.distKm) || 0) > 0 ? Number(dados.distKm) : 0 };
+}
+function _cleDistHtml(dados, isLight) {
+  const di = _cleDistInfo(dados);
+  if (!di) return '';
+  const m = di.met.tipo === 'm';
+  const val = di.km > 0 ? (m ? String(Math.round(di.km * 1000)) : di.km.toFixed(2)) : '';
+  const dica = dados.distEstimada ? 'Esse valor foi estimado. Se você sabe a distância real (relógio, aparelho), corrija aqui.'
+    : (dados.parado ? 'Informe a distância que o aparelho mostrou.' : 'Informe se souber a distância (relógio, aparelho, mapa). Os pontos não mudam.');
+  return '<label style="font-size:11px;font-weight:700;color:' + (isLight ? '#666' : '#888') + ';text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Distância (opcional)</label>' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+      '<input id="cle-dist" type="text" inputmode="decimal" autocomplete="off" placeholder="' + esc(di.met.ph) + '" value="' + val + '" style="flex:1;min-width:0;box-sizing:border-box;height:48px;padding:0 14px;border-radius:12px;border:1.5px solid ' + (isLight ? '#d4d4d4' : '#333') + ';background:' + (isLight ? '#fff' : '#0d0d0d') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';font-family:inherit;font-size:16px;"/>' +
+      '<span style="font-size:14px;font-weight:800;color:' + (isLight ? '#555' : '#aaa') + ';min-width:26px;">' + (m ? 'm' : 'km') + '</span></div>' +
+    '<div style="font-size:11.5px;line-height:1.45;color:' + (isLight ? '#888' : '#777') + ';margin-bottom:16px;">' + dica + '</div>';
+}
+// Lê e valida o campo. { ok:true, valor:null } = vazio; { ok:false, txt } = erro para mostrar (a tela não fecha).
+function _cleDistLer(dados) {
+  const inp = document.getElementById('cle-dist');
+  const txt = inp ? String(inp.value || '').trim() : '';
+  if (!txt) return { ok: true, valor: null };
+  const met = cardioMetrica(dados.tipo);
+  const v = met ? _normalizarDistancia(txt, met.tipo) : null;
+  if (!v) return { ok: false, txt: 'Distância inválida. Use só números, como 5 ou 5,5.' };
+  const pl = _cardioPlausivel(dados.tipo, dados.min, { mtipo: met.tipo, valor: v });
+  if (!pl.ok) return { ok: false, txt: pl.txt };
+  return { ok: true, valor: v, mtipo: met.tipo };
 }
 function _renderTelaEsforcoCardioLive(dados) {
   _cardioEsforcoFecharMapa();
@@ -14564,13 +14599,14 @@ function _renderTelaEsforcoCardioLive(dados) {
         <div style="flex:1;">
           <div style="font-size:14px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">${esc(dados.tipo)}</div>
           <div style="font-size:12px;color:${isLight?'#666':'#999'};">${dados.min} min${usaGps && dados.distKm>0 ? ' · ' + dados.distKm.toFixed(2) + ' km' : ''}</div>
-          ${dados.distEstimada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante parte do cardio. A distância do trecho sem sinal foi <b>estimada</b> pelo seu ritmo médio no resto do percurso. Para a distância precisa, mantenha esta tela aberta ou use o aplicativo do Intus Fit.</div>` : ''}
-          ${dados.distDescartada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante o cardio, e o GPS não mediu o suficiente para estimar a distância. Registramos só o <b>tempo</b>. Para marcar a distância, mantenha esta tela aberta ou use o aplicativo do Intus Fit.</div>` : ''}
+          ${dados.distEstimada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante parte do cardio. A distância do trecho sem sinal foi <b>estimada</b> pelo seu ritmo médio no resto do percurso. Se você sabe a distância real (relógio, aparelho), corrija no campo abaixo.</div>` : ''}
+          ${dados.distDescartada ? `<div style="font-size:11.5px;line-height:1.5;color:${isLight?'#9a3412':'#fdba74'};margin-top:8px;text-align:left;">⚠️ A tela apagou ou o app ficou em segundo plano durante o cardio, e o GPS não mediu o suficiente para estimar a distância. O <b>tempo</b> está registrado. Se você sabe a distância (relógio, aparelho), informe no campo abaixo.</div>` : ''}
         </div>
       </div>
       <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Como foi o esforço?</label>
       ${_cardioRpeSliderHtml('cle-rpe', 5, '_cardioLiveEsforcoChange()')}
       <div id="cle-rpe-desc" style="margin-bottom:16px;padding:10px 12px;border-radius:12px;background:${isLight?'#f6f6f6':'#0d0d0d'};"></div>
+      ${_cleDistHtml(dados, isLight)}
       <label style="font-size:11px;font-weight:700;color:${isLight?'#666':'#888'};text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Foto (opcional)</label>
       <input type="file" id="cle-foto-input" accept="image/*" onchange="_cardioLiveOnFoto(this)" style="display:none;"/>
       <div id="cle-foto-area" style="margin-bottom:16px;"></div>
@@ -14687,7 +14723,15 @@ async function _salvarEsforcoCardioLive() {
   if (!dados) return 5;
   // Comentário do aluno: mesmo formato do registro manual (texto automático, " || " e a nota). O automático é refeito com o esforço novo.
   const nota = _cardioLimparNota((document.getElementById('cle-nota') || {}).value);
-  const extraAuto = (dados.distKm > 0 && cardioMetrica(dados.tipo)) ? ' · ' + (Math.round(dados.distKm * 100) / 100) + ' km' : '';
+  const dl = _cleDistLer(dados);   // já validada antes de fechar a tela
+  let distMudou = false;
+  if (dl.ok && dl.valor) {
+    const km = dl.mtipo === 'm' ? dl.valor / 1000 : dl.valor;
+    distMudou = Math.abs(km - (Number(dados.distKm) || 0)) > 0.004 || !!dados.distDescartada;
+    dados.distKm = km; dados.distEstimada = false; dados.distDescartada = false;
+    dados.distTexto = dl.mtipo === 'm' ? dl.valor + ' m' : (Math.round(dl.valor * 100) / 100) + ' km';
+  }
+  const extraAuto = dados.distTexto ? ' · ' + dados.distTexto : ((dados.distKm > 0 && cardioMetrica(dados.tipo)) ? ' · ' + (Math.round(dados.distKm * 100) / 100) + ' km' : '');
   // O texto automático leva o esforço ("esforço 6/10") e é o que o ranking mostra aos outros alunos: sempre refeito com o esforço novo, com ou sem nota
   // (antes só era regravado quando havia nota, e o ranking continuava mostrando o 5 padrão do salvamento silencioso).
   const comentario = dados.tipo + ' · esforço ' + novoRpe + '/10 · ' + dados.min + 'min' + extraAuto + (nota ? ' || ' + nota : '');
@@ -14698,7 +14742,7 @@ async function _salvarEsforcoCardioLive() {
     idsessao = _cardioUidParaId[dados.uid] || null;   // saiu da fila no meio: já foi enviado
   }
   if (!idsessao) return 5;
-  if (novoRpe === 5 && !foto && !nota) return 5; // esforço já é o padrão salvo, sem foto nova nem comentário: nada a fazer
+  if (novoRpe === 5 && !foto && !nota && !distMudou) return 5; // esforço já é o padrão salvo, sem foto nova, comentário nem distância: nada a fazer
   toast(foto ? 'Salvando esforço e foto...' : 'Salvando esforço...');
   const ok = await _atualizarEsforcoCardio(idsessao, novoRpe, dados.tipo, dados.min, dados.motivo, foto, comentario);
   if (ok) toast(foto ? 'Esforço e foto salvos! 💪' : 'Esforço atualizado! 💪');
@@ -14707,6 +14751,8 @@ async function _salvarEsforcoCardioLive() {
 // Antes este botão só fechava a tela e abria o compartilhar: o esforço e a foto escolhidos aqui se perdiam (só "Concluir" gravava).
 function _compartilharCardioAoVivo() {
   const dados = window._cardioEsforcoDados;
+  const _dl = dados ? _cleDistLer(dados) : { ok: true };
+  if (!_dl.ok) { toast(_dl.txt, 5000); try { document.getElementById('cle-dist').focus(); } catch (e) {} return; }
   const gravando = _salvarEsforcoCardioLive();   // lê a tela agora e grava em segundo plano
   _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
@@ -14716,6 +14762,8 @@ function _compartilharCardioAoVivo() {
 }
 async function _confirmarEsforcoCardioLive() {
   const dados = window._cardioEsforcoDados;
+  const _dl = dados ? _cleDistLer(dados) : { ok: true };
+  if (!_dl.ok) { toast(_dl.txt, 5000); try { document.getElementById('cle-dist').focus(); } catch (e) {} return; }   // distância com erro: a tela não fecha
   const gravando = _salvarEsforcoCardioLive();   // lê a tela agora
   _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
