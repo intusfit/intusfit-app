@@ -172,6 +172,9 @@
     .pc-cp .plano-subtitle { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .pc-cp .mt-pills { margin: 0; gap: 5px; }
     .pc-cp .mt-pill { font-size: 11.5px; padding: 1px 8px; }
+    .pc-acoes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+    .pc-mini .pc-acoes { justify-content: center; }
+    .pc-acoes .btn { padding: 3px 9px; font-size: 11.5px; }
     .pc-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
     .pc-dot.on { background: var(--green); } .pc-dot.off { background: var(--text-dim); }
     /* Miniaturas */
@@ -700,6 +703,7 @@ function _planoCartaoGrande(pl) {
         ${refs.length ? `<span style="font-size:12px;color:var(--text-muted);font-weight:700;">${refs.length} refeições${nSub ? ' · ' + nSub + ' substituições' : ''}</span>` : '<span style="font-size:12px;color:var(--text-muted);">Sem refeições ainda</span>'}
       </div>
       ${refs.length ? `<div class="pc-meals">${refs.map(r => `<span class="pc-meal">${r.horario ? '<b>' + esc(r.horario) + '</b>' : ''}${esc(r.nome || '')}</span>`).join('')}</div>` : ''}
+      ${_planoAcoes(pl)}
     </div>
   `;
 }
@@ -713,6 +717,15 @@ function _totaisPlano(pl) {
   return { kcal: tem ? t.kcal : (pl.calorias || 0), prot: tem ? t.prot : (pl.proteina || 0), carb: tem ? t.carb : (pl.carboidrato || 0), gord: tem ? t.gord : (pl.gordura || 0), nRef: refs.length,
            nSub: refs.reduce((n, r) => n + (r.refeicoes_substitutas || []).length, 0) };
 }
+// Botões de ação dos cartões (Abrir, Editar, Ativar/Inativar). Editar e Ativar exigem a permissão nt_editar (administrador e nutricionistas com a permissão).
+function _planoAcoes(pl) {
+  const ativo = planoAtivo(pl), edita = hasPerm('nt_editar');
+  return `<div class="pc-acoes" onclick="event.stopPropagation()">
+    <button class="btn btn-secondary btn-sm" onclick="verPlano(${pl.idplano})">Abrir</button>
+    ${edita ? `<button class="btn btn-secondary btn-sm" onclick="abrirModalForm(${pl.idplano})">Editar</button>
+    <button class="btn ${ativo ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="alternarAtivoPlano(${pl.idplano}, event)">${ativo ? 'Inativar' : 'Ativar'}</button>` : ''}
+  </div>`;
+}
 function _planoCartaoCompacto(pl) {
   const nome = getNomeAtleta(pl.idatleta), t = _totaisPlano(pl), ativo = planoAtivo(pl);
   return `<div class="plano-card pc-cp ${ativo ? '' : 'inativo'}" onclick="verPlano(${pl.idplano})">
@@ -723,6 +736,7 @@ function _planoCartaoCompacto(pl) {
     </div>
     ${t.kcal ? `<div class="mt-pills"><span class="mt-pill kcal">${t.kcal} kcal</span><span class="mt-pill prot">P ${t.prot}</span><span class="mt-pill carb">C ${t.carb}</span><span class="mt-pill gord">G ${t.gord}</span></div>` : '<div style="font-size:12px;color:var(--text-muted);">Sem alimentos ainda</div>'}
     <div style="font-size:11.5px;color:var(--text-muted);font-weight:700;">${t.nRef} refeições${t.nSub ? ' · ' + t.nSub + ' substituições' : ''}${pl.dtinicio ? ' · desde ' + fmtDate(pl.dtinicio) : ''}</div>
+    ${_planoAcoes(pl)}
   </div>`;
 }
 function _planoCartaoMini(pl) {
@@ -732,6 +746,7 @@ function _planoCartaoMini(pl) {
     <div class="nm">${esc(nome)}</div>
     <div class="pl">${esc(pl.titulo)}</div>
     ${t.kcal ? `<div class="kc">${t.kcal}<small>kcal</small></div><div class="mm"><span class="p">P ${t.prot}</span><span class="c">C ${t.carb}</span><span class="g">G ${t.gord}</span></div>` : '<div class="pl">sem alimentos</div>'}
+    ${_planoAcoes(pl)}
   </div>`;
 }
 function _planosLista(lista) {
@@ -745,7 +760,7 @@ function _planosLista(lista) {
         <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${pl.dtinicio ? fmtDate(pl.dtinicio) : '—'}${pl.dtfim ? ' → ' + fmtDate(pl.dtfim) : ''}</td>
         <td class="num k">${t.kcal || '—'}</td><td class="num p">${t.kcal ? t.prot + ' g' : '—'}</td><td class="num c">${t.kcal ? t.carb + ' g' : '—'}</td><td class="num g">${t.kcal ? t.gord + ' g' : '—'}</td>
         <td class="num" style="color:var(--text);">${t.nRef}${t.nSub ? '<span style="color:var(--text-muted);font-weight:600;"> · ' + t.nSub + ' subst.</span>' : ''}</td>
-        <td style="text-align:right;white-space:nowrap;">${edita ? `<button class="btn btn-secondary btn-sm" onclick="alternarAtivoPlano(${pl.idplano}, event)">${ativo ? 'Inativar' : 'Ativar'}</button>` : ''}</td>
+        <td style="text-align:right;white-space:nowrap;">${edita ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();abrirModalForm(${pl.idplano})">Editar</button> <button class="btn btn-secondary btn-sm" onclick="alternarAtivoPlano(${pl.idplano}, event)">${ativo ? 'Inativar' : 'Ativar'}</button>` : ''}</td>
       </tr>`;
     }).join('') + `</tbody></table></div>`;
 }
