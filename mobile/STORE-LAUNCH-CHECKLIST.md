@@ -74,3 +74,18 @@ Plugin `@capacitor-community/background-geolocation@1.3.1` (MIT, suporta Capacit
 - App (`aluno.html`): tela de aviso antes da permissão, plugin no rastreio, sem estimativa de distância quando o plugin mede; se o aluno recusar ou o sistema negar, cai no GPS do navegador com a regra de estimativa. Teste: `testes/cardio_tela.js`.
 
 **Falta (só nas lojas e em aparelho real):** compilar (Android Studio e Xcode, num Mac), testar num Android e num iPhone de verdade com a tela bloqueada por 10 minutos (distância, aviso fixo, bateria), gravar o vídeo do formulário do Play e enviar para revisão. O resto do que depende de código está pronto.
+
+## Android: revisão de 21/11/2026
+
+Feito no repositório: assinatura de release lida de `android/keystore.properties` (fora do Git, `.gitignore` atualizado), `allowBackup="false"` (o token de login mora no WebView e não deve ir para o backup do Google), ícone, ícone de notificação e telas de abertura da marca Intus (a anterior era o X azul do Maximize), imagem de destaque e ícone de 512 sem verde.
+
+Falta, em ordem:
+1. Instalar JDK 17+ e Android Studio (neste PC não há Java nem SDK; no Mac também serve) e compilar o AAB: `npm run sync`, depois Build > Generate Signed Bundle.
+2. Criar a chave de envio (`.jks`), guardar fora do Git e fazer backup; ativar o Play App Signing.
+3. Conta Google Play Console: se for conta PESSOAL criada depois de nov/2023, a produção só libera depois de 14 dias de teste fechado com pelo menos 12 testadores. Conta de organização (com D-U-N-S) não tem essa regra.
+4. Decidir sobre `READ_MEDIA_IMAGES` e `READ_EXTERNAL_STORAGE` no manifesto: o Google restringe essas permissões (exige declaração). O seletor de foto do WebView não precisa delas; sugestão é remover e testar em aparelho.
+5. `SCHEDULE_EXACT_ALARM` (vem também do plugin de notificações locais) exige declaração no Play: justificar como timer dos programas de cardio.
+6. Página pública de exclusão de conta (o Play pede uma URL na seção Segurança dos dados, além da exclusão dentro do app).
+7. Formulários: Segurança dos dados, classificação de conteúdo, público-alvo, anúncios (não há), App access com a conta de demonstração, serviço em primeiro plano de localização com vídeo.
+8. Capturas de tela reais (mínimo 2 de celular, 1080 px ou mais) feitas com a conta de demonstração.
+9. Teste em aparelho Android real: Cardio ao vivo com a tela bloqueada por 10 min, câmera, foto, notificações, exclusão de conta.

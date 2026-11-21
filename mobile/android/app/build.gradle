@@ -1,6 +1,23 @@
 apply plugin: 'com.android.application'
 
+// Chave de envio (upload key) do Google Play. Fica FORA do Git: crie android/keystore.properties (ignorado pelo Git) com
+//   storeFile=C:/caminho/intus-upload.jks   storePassword=...   keyAlias=...   keyPassword=...
+// Sem o arquivo, o build de release sai sem assinatura (serve só para conferir a compilação, não para enviar à loja).
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore.properties')
+if (keystoreFile.exists()) { keystoreFile.withInputStream { keystoreProps.load(it) } }
+
 android {
+    signingConfigs {
+        release {
+            if (keystoreProps['storeFile']) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
     namespace = "br.com.intusfit.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
@@ -18,6 +35,7 @@ android {
     }
     buildTypes {
         release {
+            if (keystoreProps['storeFile']) { signingConfig signingConfigs.release }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
