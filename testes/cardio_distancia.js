@@ -34,7 +34,7 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
   await abrir({ tipo: 'Bike', distKm: 0, parado: true });
   eq('em um aparelho (esteira, bike ergométrica): campo com a dica do aparelho', [!!(await campo()), await page.evaluate(() => /aparelho mostrou/.test(document.getElementById('cardio-esforco-overlay').innerText))], [true, true]);
   await abrir({ tipo: 'Escada', distKm: 0 });
-  eq('escada (degraus): sem campo de distância', await campo(), null);
+  eq('escada: campo de degraus ou andares (sem km)', await page.evaluate(() => { const i = document.getElementById('cle-dist'); const u = document.getElementById('cle-dist-un'); return i && u ? { ph: i.placeholder, un: [...u.options].map(o => o.value) } : null; }), { ph: 'ex: 120', un: ['degraus', 'andares'] });
   await abrir({ tipo: 'Futebol', distKm: 0 });
   eq('atividade sem distância (futebol): sem campo', await campo(), null);
 
@@ -55,6 +55,21 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
   await page.fill('#cle-dist', '5');
   await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(900);
   eq('corrigir a estimativa grava o valor novo, não o estimado', /61min · 5 km/.test((puts[0] || {}).comentario || ''), true);
+  puts = [];
+  await abrir({ tipo: 'Escada', distKm: 0, min: 30 });
+  await page.fill('#cle-dist', '120');
+  await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(900);
+  eq('escada: degraus entram no texto do registro', /30min · 120 degraus/.test((puts[0] || {}).comentario || ''), true);
+  puts = [];
+  await abrir({ tipo: 'Escada', distKm: 0, min: 30 });
+  await page.fill('#cle-dist', '12'); await page.selectOption('#cle-dist-un', 'andares');
+  await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(900);
+  eq('escada: andares entram no texto do registro', /30min · 12 andares/.test((puts[0] || {}).comentario || ''), true);
+  puts = [];
+  await abrir({ tipo: 'Escada', distKm: 0, min: 10 });
+  await page.fill('#cle-dist', '9000');
+  await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(500);
+  eq('escada: cadência impossível não fecha a tela', [await page.evaluate(() => !!document.getElementById('cardio-esforco-overlay')), puts.length], [true, 0]);
   puts = [];
   await abrir({ tipo: 'Corrida', distKm: 0, distDescartada: true });
   await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(700);

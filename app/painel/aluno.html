@@ -13630,6 +13630,17 @@ function _progRetomar() {   // reabre o programa que ficou salvo, sempre pausado
   Object.assign(_prog, { tela: 'execucao', id: st.id, sessao: st.sessao == null ? null : st.sessao, ativ: st.ativ, i: st.i, restMs: st.restMs, ativoMs: st.ativoMs || 0, fase: st.fase === 'pronto' ? 'pronto' : 'ativo', pausado: true, rodando: true, ultTick: Date.now(), bipS: -1 });
   _progAudio(); _progClipesCarregar(); _progIniciarRelogio(); _renderProgExecucao(); trocarView('cardio-prog');
 }
+// O app reabriu (página descartada em segundo plano ou tela bloqueada) com um programa de cardio em andamento: volta para a TELA do programa,
+// pausado onde parou, como já é feito com o cardio ao vivo (21/11/2026). Só se o aluno está na Início e não há treino, cardio ao vivo ou programa já na tela.
+function _progRestaurarSeAtivo() {
+  try {
+    if (_prog.rodando || _cardioLiveInicioMs) return;
+    if ((window._viewAtual || 'home') !== 'home' || (treinoTimer && sessaoAtual.idficha)) return;
+    if (!_progPermitido() || !_progTemAtivoSalvo()) return;
+    _progRetomar();
+    toast('Retomamos seu programa de cardio de onde parou. ⏸');
+  } catch (e) {}
+}
 function _progIniciar() {   // abre a tela do programa com o tempo PARADO, esperando o play
   if (!_progPermitido()) return;
   const p = API.programaPorId(_prog.id); if (!p) return;
@@ -14558,6 +14569,7 @@ function _cardioEsforcoFecharMapa() {
 // Os pontos dependem do tempo, não da distância; a distância entra no texto do registro (ranking, histórico e compartilhar).
 function _cleDistInfo(dados) {
   const met = cardioMetrica(dados.tipo);
+  if (met && met.tipo === 'degraus') return { met: met, km: 0, degraus: true };   // escada: degraus ou andares (21/11/2026)
   if (!met || (met.tipo !== 'km' && met.tipo !== 'm')) return null;
   if ((Number(dados.distKm) || 0) > 0 && !dados.distEstimada) return null;
   return { met: met, km: (Number(dados.distKm) || 0) > 0 ? Number(dados.distKm) : 0 };
@@ -14565,6 +14577,14 @@ function _cleDistInfo(dados) {
 function _cleDistHtml(dados, isLight) {
   const di = _cleDistInfo(dados);
   if (!di) return '';
+  if (di.degraus) {
+    const sel = 'height:48px;border-radius:12px;border:1.5px solid ' + (isLight ? '#d4d4d4' : '#333') + ';background:' + (isLight ? '#fff' : '#0d0d0d') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';font-family:inherit;font-size:15px;font-weight:700;padding:0 8px;';
+    return '<label style="font-size:11px;font-weight:700;color:' + (isLight ? '#666' : '#888') + ';text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Degraus ou andares (opcional)</label>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+        '<input id="cle-dist" type="text" inputmode="numeric" autocomplete="off" placeholder="ex: 120" style="flex:1;min-width:0;box-sizing:border-box;height:48px;padding:0 14px;border-radius:12px;border:1.5px solid ' + (isLight ? '#d4d4d4' : '#333') + ';background:' + (isLight ? '#fff' : '#0d0d0d') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';font-family:inherit;font-size:16px;"/>' +
+        '<select id="cle-dist-un" style="' + sel + '"><option value="degraus">degraus</option><option value="andares">andares</option></select></div>' +
+      '<div style="font-size:11.5px;line-height:1.45;color:' + (isLight ? '#888' : '#777') + ';margin-bottom:16px;">Informe quantos degraus ou andares você subiu, se souber. Os pontos não mudam.</div>';
+  }
   const m = di.met.tipo === 'm';
   const val = di.km > 0 ? (m ? String(Math.round(di.km * 1000)) : di.km.toFixed(2)) : '';
   const dica = dados.distEstimada ? 'Esse valor foi estimado. Se você sabe a distância real (relógio, aparelho), corrija aqui.'
@@ -14581,6 +14601,15 @@ function _cleDistLer(dados) {
   const txt = inp ? String(inp.value || '').trim() : '';
   if (!txt) return { ok: true, valor: null };
   const met = cardioMetrica(dados.tipo);
+  if (met && met.tipo === 'degraus') {
+    const n = Math.round(Number(String(txt).replace(/\D/g, '')));
+    if (!(n > 0) || /[^\d\s.]/.test(txt)) return { ok: false, txt: 'Informe só números inteiros, como 120.' };
+    const un = (document.getElementById('cle-dist-un') || {}).value === 'andares' ? 'andares' : 'degraus';
+    const eq = un === 'andares' ? n * 16 : n;   // um andar tem uns 16 degraus: só para a conferência de cadência
+    const plE = _cardioPlausivel(dados.tipo, dados.min, { mtipo: 'degraus', valor: eq });
+    if (!plE.ok) return { ok: false, txt: plE.txt };
+    return { ok: true, valor: n, mtipo: 'degraus', un: un };
+  }
   const v = met ? _normalizarDistancia(txt, met.tipo) : null;
   if (!v) return { ok: false, txt: 'Distância inválida. Use só números, como 5 ou 5,5.' };
   const pl = _cardioPlausivel(dados.tipo, dados.min, { mtipo: met.tipo, valor: v });
@@ -14737,7 +14766,10 @@ async function _salvarEsforcoCardioLive() {
   const nota = _cardioLimparNota((document.getElementById('cle-nota') || {}).value);
   const dl = _cleDistLer(dados);   // já validada antes de fechar a tela
   let distMudou = false;
-  if (dl.ok && dl.valor) {
+  if (dl.ok && dl.valor && dl.mtipo === 'degraus') {
+    distMudou = true;
+    dados.distTexto = dl.valor + ' ' + (dl.valor === 1 ? (dl.un === 'andares' ? 'andar' : 'degrau') : dl.un);
+  } else if (dl.ok && dl.valor) {
     const km = dl.mtipo === 'm' ? dl.valor / 1000 : dl.valor;
     distMudou = Math.abs(km - (Number(dados.distKm) || 0)) > 0.004 || !!dados.distDescartada;
     dados.distKm = km; dados.distEstimada = false; dados.distDescartada = false;
@@ -25116,6 +25148,7 @@ async function _iniciarApp() {
     try { if (window._viewAtual === 'home' && !treinoTimer) { renderHome(); atualizarBadgeMensagens(); } } catch (e) {}
   });
   _cardioLiveRestaurarSeAtivo(); // idem pro cardio ao vivo — sobrevive a tela bloqueada/app fechado
+  _progRestaurarSeAtivo();       // e o programa de cardio em andamento volta para a tela dele
 }
 (async () => {
   if (!verificarAceiteTermo()) return;   // termos pendentes: aceitarTermos() continua daqui

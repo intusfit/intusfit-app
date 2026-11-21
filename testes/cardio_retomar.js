@@ -37,6 +37,33 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
   eq('cardio rodando: abre na tela do cardio', [e.v, e.rastreio], ['cardio-live', true]);
   eq('sem erro de script', page.erros, []);
   await ctx.close();
+  console.log('\n══ App reaberto com um programa de cardio em andamento ══');
+  const progAtivo = () => { const a = Date.now(); localStorage.setItem('intus-prog-ativo', JSON.stringify({ id: 'tabata', sessao: null, ativ: 'Corrida', i: 3, restMs: 12000, ativoMs: 90000, fase: 'ativo', salvoEm: a - 600000 })); };
+  async function abrirProg(salvoEm) {
+    const ctx2 = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    const pg = await ctx2.newPage(); pg.erros = []; pg.on('pageerror', x => pg.erros.push(String(x.message)));
+    await pg.route(/\/app\/api\//, r => r.abort('failed'));
+    await pg.addInitScript(([se]) => {
+      localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste', genero: 'F' }));
+      localStorage.setItem('intus-termos-aceito-7', '1'); localStorage.setItem('intus-cardio-novo-visto', '1'); localStorage.setItem('intus-dica-tema-ts', String(Date.now()));
+      if (se) localStorage.setItem('intus-prog-ativo', JSON.stringify({ id: 'tabata', sessao: null, ativ: 'Corrida', i: 3, restMs: 12000, ativoMs: 90000, fase: 'ativo', salvoEm: Date.now() - se }));
+    }, [salvoEm]);
+    await pg.goto('http://127.0.0.1:8161/aluno.html', { waitUntil: 'domcontentloaded' });
+    for (let i = 0; i < 80; i++) { if (await pg.evaluate(() => typeof renderHome === 'function' && !!document.getElementById('v-home') && document.getElementById('v-home').innerHTML.length > 500).catch(() => false)) break; await pg.waitForTimeout(250); }
+    await pg.waitForTimeout(1500);
+    return { pg, ctx2 };
+  }
+  const estP = pg => pg.evaluate(() => ({ v: window._viewAtual || 'home', rod: !!_prog.rodando, pausado: !!_prog.pausado, i: _prog.i }));
+  let rp = await abrirProg(600000); let ep = await estP(rp.pg);
+  eq('programa salvo: abre na tela do programa, pausado no bloco em que parou', [ep.v, ep.rod, ep.pausado, ep.i], ['cardio-prog', true, true, 3]);
+  eq('sem erro de script', rp.pg.erros, []);
+  await rp.ctx2.close();
+  rp = await abrirProg(4 * 3600 * 1000); ep = await estP(rp.pg);
+  eq('programa salvo há mais de 3 h (passou do prazo): abre na Início', [ep.v, ep.rod], ['home', false]);
+  await rp.ctx2.close();
+  rp = await abrirProg(0); ep = await estP(rp.pg);
+  eq('sem programa salvo: abre na Início', [ep.v, ep.rod], ['home', false]);
+  await rp.ctx2.close();
   console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
   await b.close(); srv.close(); process.exit(ruim ? 1 : 0);
 })();
