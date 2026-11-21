@@ -28,11 +28,14 @@ $limpos = [
 ];
 foreach ($limpos as $t) eq('limpo: ' . $t, cats($t), []);
 
-echo "\n══ Violência ══\n";
-foreach (['Vou te matar', 'vou te matar seu desgraçado', 'Vou matar todo mundo', 'te arrebento na saída', 'vou te dar um tiro', 'tiro na cara', 'Você merece morrer', 'morra!', 'quero te ver morto', 'tomara que ela morra', 'vou te esfaquear', 'Vou me matar', 'quero me suicidar'] as $t)
+echo "\n══ Violência (só o que não tem leitura de academia) ══\n";
+foreach (['Vou te esfaquear', 'vou te esfaquear seu desgraçado', 'vou estuprar ela', 'te estrangulo', 'vou te dar um tiro', 'tiro na cara', 'morre logo, desgraçado', 'quero te ver morto', 'tomara que ela morra', 'mando te matar', 'Vou me matar', 'quero me suicidar'] as $t)
     eq('violência: ' . $t, cats($t), ['violencia']);
-eq('ameaça com leet e letra repetida', cats('vou te m4tarrr'), ['violencia']);
-eq('ameaça mesmo citando a academia como lugar', cats('vou te matar na saída da academia'), ['violencia']);
+eq('ameaça com leet e letra repetida', cats('vou te esf4qu34rrr'), ['violencia']);
+eq('ameaça com arma mesmo citando a academia como lugar', cats('vou te dar um tiro na saída da academia'), ['violencia']);
+echo "\n══ Brincadeira de treino entre aluno e personal: NÃO sinaliza ══\n";
+foreach (['Vou te matar', 'vou te matar amanhã', 'Vou te matar!', 'te arrebento no treino', 'te arrebento', 'te mato de tanto treino', 'Você merece morrer, que perna!', 'merece morrer quem pula cardio', 'vou te espancar na barra', 'te quebro no leg day', 'morra de inveja', 'morra!', 'vou te encher de porrada na carga'] as $t)
+    eq('brincadeira: ' . $t, cats($t), []);
 
 echo "\n══ Pornografia ══\n";
 foreach (['manda nudes', 'xvideos tem tudo', 'tem onlyfans?', 'p0rn0 gratis', 'sexo anal', 'quero te comer', 'manda foto pelada', 'conteúdo adulto no meu perfil', 'vamos fazer putaria'] as $t)
@@ -50,9 +53,9 @@ eq('venda de pack é pornografia e venda', cats('vendo pack de fotos'), ['pornog
 eq('anabolizante só citado não é spam', cats('li que a oxandrolona prejudica o fígado'), []);
 
 echo "\n══ Mais de uma categoria, do mais grave ao menos grave ══\n";
-eq('ameaça + spam', cats('vou te matar! www.promo.com'), ['violencia', 'spam']);
+eq('ameaça + spam', cats('vou te esfaquear! www.promo.com'), ['violencia', 'spam']);
 eq('ofensa + pornografia', cats('sua puta, manda nudes'), ['pornografia', 'ofensiva']);
-$a = intusModAnalisar('Seu idiota, vou te matar');
+$a = intusModAnalisar('Seu idiota, vou te esfaquear');
 eq('trecho e motivo vêm da regra', [$a['categorias'], $a['trecho'] !== '', count($a['motivos'])], [['violencia', 'ofensiva'], true, 2]);
 eq('texto vazio', intusModAnalisar('   '), null);
 
@@ -69,8 +72,8 @@ $com = function ($texto, $resp = null, $alvo = 5, $autor = 7) use ($pdo) {
 };
 $c1 = $com('Que treino foda!');
 eq('comentário limpo não entra na fila nem gera e-mail', [intusModRegistrar($pdo, 'comentario', $c1, 7, 'Fulano de Tal', 'Que treino foda!', 'feed_post', 5), count($emails)], [null, 0]);
-$c2 = $com('Vou te matar');
-$m2 = intusModRegistrar($pdo, 'comentario', $c2, 7, 'Fulano de Tal', 'Vou te matar', 'feed_post', 5);
+$c2 = $com('Vou te esfaquear');
+$m2 = intusModRegistrar($pdo, 'comentario', $c2, 7, 'Fulano de Tal', 'Vou te esfaquear', 'feed_post', 5);
 eq('comentário ameaçador entra na fila; quem registra não manda e-mail (isso é da varredura)', [is_int($m2), count($emails)], [true, 0]);
 $l = intusModListar($pdo);
 eq('aparece como pendente, ainda sem ocultar', [count($l['pendentes']), $l['pendentes'][0]['status'], (int)$pdo->query("SELECT oculto FROM intus_comentario_pub WHERE idcomentario = $c2")->fetchColumn()], [1, 'pendente', 0]);
@@ -119,16 +122,16 @@ $estado = sys_get_temp_dir() . '/intus_mod_estado_' . getmypid() . '.json';
 $GLOBALS['INTUS_MOD_ESTADO_ARQ'] = $estado;
 $pdo->exec('DELETE FROM intus_moderacao'); $pdo->exec('DELETE FROM intus_comentario_pub'); $pdo->exec('DELETE FROM intus_feed_post');
 $emails = [];
-$com('vou te matar (antigo, de antes da varredura existir)');
+$com('vou te esfaquear (antigo, de antes da varredura existir)');
 $r = intusModVarrer($pdo);
 eq('a primeira rodada só marca o ponto de partida: não varre o histórico, não manda e-mail', [$r['inicio'] ?? false, $r['novos'], count($emails), count(intusModListar($pdo)['pendentes'])], [true, 0, 0, 0]);
 $r = intusModVarrer($pdo);
 eq('sem nada novo: nada acontece', [$r['novos'], $r['comentarios'], $r['email'], count($emails)], [0, 0, false, 0]);
-$com('Que treino foda!'); $com('Foi de matar'); $com('Vou te matar'); $com('seu idiota');
-$pdo->exec("INSERT INTO intus_comentario_pub (alvo_tipo, alvo_id, autor_tipo, autor_id, autor_nome, texto) VALUES ('feed_post', 5, 'prof', 1, 'Luiz', 'vou te matar se faltar')");   // equipe não entra
+$com('Que treino foda!'); $com('Foi de matar'); $com('Vou te esfaquear'); $com('seu idiota');
+$pdo->exec("INSERT INTO intus_comentario_pub (alvo_tipo, alvo_id, autor_tipo, autor_id, autor_nome, texto) VALUES ('feed_post', 5, 'prof', 1, 'Luiz', 'vou te esfaquear se faltar')");   // equipe não entra
 $pdo->exec("INSERT INTO intus_feed_post (idatleta, legenda, localizacao) VALUES (7, 'manda nudes', 'Academia X')");
 $pdo->exec("INSERT INTO intus_feed_post (idatleta, legenda, localizacao) VALUES (7, 'Dia de perna, foi de matar', 'Academia X')");
-$pdo->exec("INSERT INTO intus_feed_post (idatleta, legenda, ativo) VALUES (7, 'post apagado: vou te matar', 0)");
+$pdo->exec("INSERT INTO intus_feed_post (idatleta, legenda, ativo) VALUES (7, 'post apagado: vou te esfaquear', 0)");
 $r = intusModVarrer($pdo);
 eq('a rodada analisa só o que chegou: 4 comentários de aluno (o da equipe nem é lido) e 2 posts vivos', [$r['comentarios'], $r['posts']], [4, 2]);
 eq('sinaliza 2 comentários e 1 post (gíria, equipe e post apagado ficam de fora)', [$r['novos'], count(intusModListar($pdo)['pendentes'])], [3, 3]);
@@ -136,15 +139,15 @@ eq('um ÚNICO e-mail-resumo por rodada', [$r['email'], count($emails)], [true, 1
 eq('o resumo diz quem, onde, o texto, que continua visível e quantos aguardam', [str_contains($emails[0][0], '3 conteúdos sinalizados'), str_contains($emails[0][1], 'Fulano de Tal'), str_contains($emails[0][1], 'Comentário em post do Feed'), str_contains($emails[0][1], 'Post no Feed'), str_contains($emails[0][1], 'manda nudes'), str_contains($emails[0][1], 'continuam visíveis'), str_contains($emails[0][1], 'aguardando decisão: 3')], [true, true, true, true, true, true, true]);
 $r = intusModVarrer($pdo);
 eq('a rodada seguinte não repete nada (o ponto de partida avançou)', [$r['comentarios'], $r['posts'], $r['novos'], count($emails)], [0, 0, 0, 1]);
-$com('Vou te matar');
+$com('Vou te esfaquear');
 $r = intusModVarrer($pdo);
 eq('um item novo gera e-mail com assunto no singular', [$r['novos'], count($emails), str_contains($emails[1][0], 'conteúdo sinalizado (Violência) de Fulano de Tal')], [1, 2, true]);
 $GLOBALS['INTUS_MOD_EMAIL_STUB'] = function () { throw new RuntimeException('smtp caiu'); };
-$com('vou te matar de novo');
+$com('vou te esfaquear de novo');
 $r = intusModVarrer($pdo);
 eq('e-mail que falha não derruba a varredura: o item fica no painel', [$r['novos'], $r['email'], count(intusModListar($pdo)['pendentes'])], [1, false, 5]);
 $GLOBALS['INTUS_MOD_EMAIL_STUB'] = function ($a, $b) use (&$emails) { $emails[] = [$a, $b]; return true; };
-for ($i = 0; $i < 12; $i++) $com('vou te matar ' . $i);
+for ($i = 0; $i < 12; $i++) $com('vou te esfaquear ' . $i);
 $r = intusModVarrer($pdo);
 eq('12 de uma vez: um e-mail só, com as 10 primeiras e "mais 2 no painel"', [$r['novos'], count($emails), str_contains(end($emails)[1], 'e mais 2 no painel')], [12, 3, true]);
 @unlink($estado);

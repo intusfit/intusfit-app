@@ -11,7 +11,8 @@
  * "esse treino vai te matar", "puta treino", "caralho, que carga" passam. Por isso:
  *   - palavrão usado como reforço (foda, caralho, porra, puta que pariu, do caralho, de matar) não é regra por si só;
  *   - insulto só conta quando é DIRIGIDO a alguém ("você é um idiota", "seu otário", "sua vagabunda") ou é xingamento que nunca é elogio;
- *   - ameaça só conta com ALVO ("vou te matar", "te arrebento", "merece morrer"), e a frase que fala de treino (série, perna, cardio...) é perdoada;
+ *   - violência só conta o que não tem leitura de academia: arma, facada, estupro, tortura, sequestro ("vou te esfaquear", "tiro na cara"). "Vou te matar", "te arrebento" e
+ *     "merece morrer" são brincadeira normal entre aluno e personal e NÃO são sinalizadas (decisão do Luiz, 21/11/2026); a frase que fala de treino continua perdoada;
  *   - elogio em gíria ("você é louco", "é uma fera", "monstro", "doente") nunca é insulto.
  * Só texto. Foto e vídeo não são analisados (uma imagem imprópria só aparece se o texto ao lado denunciar, ou se um aluno avisar).
  *
@@ -54,13 +55,12 @@ function intusModRegras(): array
     $pessoa = '(?:voce|voces|vc|vcs|ele|ela|eles|elas|todo mundo|todos|todas|geral|alguem|essa gente)';
     return [
         // ── Violência: sempre com alvo. "Matar o treino", "matar a fome", "socar o saco" não entram.
-        ['violencia', "~\b(?:vou|vamos|vai|va|irei|iria|quero|queria|preciso|bora|ja ja)\s+(?:te|lhe)\s+(?:matar|esfaquear|espancar|estuprar|estrangular|enforcar|torturar|sequestrar|explodir)\b{$res}~u", 'ameaça', true],
-        ['violencia', "~\b(?:vou|vamos|vai|quero|queria)\s+(?:matar|esfaquear|espancar|estuprar|atirar\s+em|explodir)\s+{$pessoa}\b{$res}~u", 'ameaça', true],
-        ['violencia', "~\bte\s+(?:mato|arrebento|esfaqueio|espanco|estupro|enforco|estrangulo|torturo|sequestro|quebro|encho\s+de\s+porrada|dou\s+um\s+tiro|dou\s+uma\s+facada)\b{$res}~u", 'ameaça', true],
+        ['violencia', "~\b(?:vou|vamos|vai|va|irei|iria|quero|queria|preciso|bora|ja ja)\s+(?:te|lhe)\s+(?:esfaquear|estuprar|estrangular|enforcar|torturar|sequestrar|explodir)\b{$res}~u", 'ameaça', true],
+        ['violencia', "~\b(?:vou|vamos|vai|quero|queria)\s+(?:esfaquear|estuprar|atirar\s+em|explodir)\s+{$pessoa}\b{$res}~u", 'ameaça', true],
+        ['violencia', "~\bte\s+(?:esfaqueio|estupro|enforco|estrangulo|torturo|sequestro|dou\s+um\s+tiro|dou\s+uma\s+facada)\b{$res}~u", 'ameaça', true],
         ['violencia', "~\b(?:vou|vamos|vai)\s+te\s+(?:dar|meter|passar)\s+(?:um\s+)?(?:tiro|facada|bala|soco\s+na\s+cara)\b~u", 'ameaça', true],
         ['violencia', "~\b(?:tiro|bala)\s+na\s+(?:cara|cabeca|testa|nuca)\b~u", 'ameaça', true],
-        ['violencia', "~\bmerece(?:m)?\s+(?:morrer|apanhar|ser\s+(?:morto|morta|estuprad[ao]|espancad[ao]))\b~u", 'desejo de mal a alguém', true],
-        ['violencia', "~\b(?:morra|morram)\b{$res}|\bmorre\s+(?:logo|desgrac|vagabund|infeliz|maldit)\w*~u", 'desejo de mal a alguém', true],
+        ['violencia', "~\bmorre\s+(?:logo|desgrac|vagabund|infeliz|maldit)\w*~u", 'desejo de mal a alguém', true],
         ['violencia', "~\b(?:quero|queria|espero|tomara|desejo)\s+(?:que\s+)?(?:te\s+ver|ver\s+(?:voce|vc|ele|ela|eles|elas)|(?:voce|vc|ele|ela|eles|elas))\s+(?:morto|morta|morrer|morra|sofrer|apanhar)\b{$res}~u", 'desejo de mal a alguém', true],
         ['violencia', "~\bmando\s+(?:te\s+|lhe\s+)?(?:matar|espancar|bater)\b~u", 'ameaça', true],
         // autolesão: não é ofensa, é alguém que talvez precise de cuidado. Vale um contato humano.
