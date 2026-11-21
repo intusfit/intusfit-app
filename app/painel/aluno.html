@@ -391,7 +391,9 @@
       border-bottom: none;
     }
     /* Voltar / título / logo numa faixa baixa: sem folga sobrando em cima e embaixo (menos rolagem nas telas de ranking, medalhas, evoluções...) */
-    .tela-header-fixa .btn-back { padding: 3px 0; }
+    .tela-header-fixa .btn-back { padding: 3px 0; min-height: 0; }
+    .timer-bar .btn-back { min-height: 0; }
+    .timer-bar .btn-back::after { content: ''; position: absolute; inset: -12px -14px; }
     .tela-header-fixa > div { min-height: 30px !important; }
     body.tema-claro .tela-header-fixa { background: rgba(245,245,245,.72); }
 
@@ -433,7 +435,7 @@
     .btn-prim { background: linear-gradient(135deg, #7FFF00, #5fd000); color: #000; }
     .btn-sec { background: #1a1a1a; color: #f0f0f0; border: 1px solid #252525; }
     .btn-full { width: 100%; }
-    .btn-back { background: transparent; border: none; color: #666; font-size: 13px; font-weight: 600; padding: 8px 0; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-back { min-height: 44px; background: transparent; border: none; color: #666; font-size: 13px; font-weight: 600; padding: 8px 0; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
     .btn-back:hover { color: #fff; }
 
     .view { display: none; }
@@ -838,7 +840,7 @@
     .cl-imersivo.cl-pausado { filter: saturate(.3) brightness(.86); box-shadow: none; }
     .cd-selo-pausa { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 99px; background: #0a0a0a; color: #fff; font-size: 12px; font-weight: 900; letter-spacing: .1em; }
     /* Área de toque de 44 px sem mudar o desenho dos botões do topo. */
-    .tela-header-fixa .btn-back::after, .top .menu-btn::after, .tutorial-btn::after { content: ''; position: absolute; inset: -8px -10px; }
+    .tela-header-fixa .btn-back::after, .top .menu-btn::after, .tutorial-btn::after { content: ''; position: absolute; inset: -11px -14px; }
     .top .menu-btn { position: relative; }
 
     .hist-stat {
@@ -3586,7 +3588,7 @@ async function carregarFeedPosts(limite, idatletaFiltro, antesDe, rapido) {
     if (antesDe) url += '&antes_de=' + antesDe;
     if (_conexoesOn && _feedSoAmigos && !idatletaFiltro && _feedModo === 'feed') url += '&so_amigos=1';
     const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }, cache: 'no-store' });
-    if (!r.ok) { _feedTemMais = false; return []; }
+    if (!r.ok) { if (!antesDe) _feedTemMais = false; return []; }   // falha numa página SEGUINTE não vira "acabaram os posts": o botão Carregar mais posts continua e tenta de novo
     const j = await r.json();
     _feedAtletasMap = (j && j.atletas) || {};
     _feedAvatarsMap = (j && j.avatars) || {};
@@ -3604,7 +3606,7 @@ async function carregarFeedPosts(limite, idatletaFiltro, antesDe, rapido) {
     // antesDe = lote seguinte, acumula; sem antesDe = carga nova, substitui.
     if (!idatletaFiltro) _feedPosts = antesDe ? _feedPosts.concat(posts) : posts;
     return posts;
-  } catch (e) { console.warn('[feed] não consegui carregar:', e); _feedTemMais = false; return []; }
+  } catch (e) { console.warn('[feed] não consegui carregar:', e); if (!antesDe) _feedTemMais = false; return []; }
 }
 
 // ═══════════════ POSTS DA INTUS (oficiais, no topo do Feed) ═══════════════
@@ -4220,27 +4222,32 @@ function _feedAtualizarPaginacao() {
   }
   if (_feedPosts.length < FEED_LIMITE_AUTO_SCROLL) {
     // os posts até o limite chegam sozinhos (_feedAutoCompletar); a rolagem continua valendo como reforço
-    box.innerHTML = '';
     if (!_feedScrollHandler) {
       _feedScrollHandler = _feedChecarScrollFeed;
       window.addEventListener('scroll', _feedScrollHandler);
     }
   } else {
     if (_feedScrollHandler) { window.removeEventListener('scroll', _feedScrollHandler); _feedScrollHandler = null; }
-    box.innerHTML = '<div style="display:flex;gap:8px;margin-top:8px;">' + (naHome ? abrirFeed : '') +
-      '<button onclick="_feedCarregarMais()" style="' + estiloBtn + 'flex:1;">▾ Carregar mais posts</button>' + subir(false) + '</div>';
   }
+  // O conjunto de botões do fim do feed aparece SEMPRE que há mais posts (antes ficava escondido até 20 posts: com uma falha de rede no meio o
+  // aluno via só 3 ou 4 posts e nenhum botão para continuar, 20/11/2026).
+  box.innerHTML = '<div style="display:flex;gap:8px;margin-top:8px;">' + (naHome ? abrirFeed : '') +
+    '<button onclick="_feedCarregarMais()" style="' + estiloBtn + 'flex:1;">▾ Carregar mais posts</button>' + subir(false) + '</div>';
 }
 
 // Completa sozinho, em segundo plano, os posts até FEED_LIMITE_AUTO_SCROLL, sem esperar a pessoa rolar. Depois disso só no botão.
 let _feedAutoToken = 0;
 async function _feedAutoCompletar() {
   const token = ++_feedAutoToken;   // uma tela nova de Home/Feed interrompe a anterior
+  let falhas = 0;
   while (token === _feedAutoToken && _feedTemMais && _feedPosts.length < FEED_LIMITE_AUTO_SCROLL && document.getElementById(_feedContainerIds().posts)) {
     if (_feedCarregandoMais) { await new Promise(r => setTimeout(r, 300)); continue; }
     const antes = _feedPosts.length;
     await _feedCarregarMais();
-    if (_feedPosts.length === antes) break;
+    if (_feedPosts.length === antes) {
+      if (++falhas >= 2) break;   // um lote que não veio: tenta mais uma vez; depois fica o botão Carregar mais posts
+      await new Promise(r => setTimeout(r, 1200));
+    } else falhas = 0;
   }
 }
 
@@ -8486,13 +8493,8 @@ function _divisaoBadgeLetra(divLabel, chave) {
 
 // ═══════════════ MEUS TREINOS ═══════════════
 async function abrirMeusTreinos() {
-  // Se já tem treino em andamento, volta direto para ele
-  if (treinoTimer && sessaoAtual.idficha) {
-    startTreinoTimer(true);
-    renderMusculacao();
-    trocarView('muscu');
-    return;
-  }
+  // Treino em andamento: em vez de abrir a lista (e deixar escolher outro), cai na caixa de continuar, ir para o início ou descartar.
+  if (_treinoEmCurso()) { _treinoCaixa('lista'); return; }
 
   let fichas = carregarFicha();
   if (!fichas.length && !_syncDone) {
@@ -8892,6 +8894,84 @@ function retomarTreinoAtivo(auto) {
   return true;
 }
 
+// ═══════════════ TREINO EM ANDAMENTO: CAIXA DE CONFIRMAÇÃO E BLOQUEIO DE OUTRA ATIVIDADE (20/11/2026) ═══════════════
+// Voltar do celular (ou "Sair do treino") com a musculação rodando abre ESTA caixa, do próprio app, no lugar da caixa nativa do navegador.
+// O aluno pode: continuar o treino, ir para o início e navegar pelo app com o treino rodando (o aviso verde leva de volta), ou descartar.
+// Enquanto houver um treino em andamento, não dá para escolher outro treino nem começar cardio ao vivo ou programa de cardio.
+// "Treinos" (menu ou atalho) com um treino rodando também cai nesta caixa, em vez de abrir a lista.
+var _treinoBypassBox = false;   // o voltar que o próprio app pediu (ir para o início) não pergunta de novo
+function _nomeDoTreino(s) { return ((s && s.nomeFicha) ? s.nomeFicha + ' · ' : '') + ((s && s.divisaoLabel) || ('Divisão ' + (s && s.divisao))); }
+function _treinoEmCurso() {
+  try {
+    const s = sessaoAtual;
+    if (treinoTimer && s && s.idficha) return { idficha: s.idficha, divisao: s.divisao, nome: _nomeDoTreino(s), ini: _treinoStartSaved || s.inicio || 0 };
+    const st = carregarTreinoAtivo();
+    if (st && _temProgressoTreino(st)) return { idficha: st.sessao.idficha, divisao: st.sessao.divisao, nome: _nomeDoTreino(st.sessao), ini: st.treinoStart || st.sessao.inicio || 0 };
+  } catch (e) {}
+  return null;
+}
+function _treinoCaixa(modo, oque) {
+  document.getElementById('dlg-app-ov')?.remove();
+  const em = _treinoEmCurso();
+  const rodando = !!(treinoTimer && sessaoAtual && sessaoAtual.idficha);
+  const isLight = document.body.classList.contains('tema-claro');
+  const nome = em ? em.nome : (sessaoAtual && sessaoAtual.idficha ? _nomeDoTreino(sessaoAtual) : 'seu treino');
+  const min = em && em.ini ? Math.max(0, Math.round((Date.now() - em.ini) / 60000)) : 0;
+  let titulo = 'Treino em andamento', txt;
+  if (modo === 'sair' && !rodando) { titulo = 'Sair deste treino?'; txt = 'Você ainda não começou a musculação de <b>' + esc(nome) + '</b>.'; }
+  else if (modo === 'sair') txt = '<b>' + esc(nome) + '</b> está rodando' + (min ? ' há ' + min + ' min' : '') + '. Você pode ir para o início e navegar pelo app com o treino rodando: o aviso verde leva de volta. Só descarte se for desistir.';
+  else if (modo === 'lista') txt = '<b>' + esc(nome) + '</b> está rodando' + (min ? ' há ' + min + ' min' : '') + '. Termine ou descarte este treino antes de escolher outro.';
+  else if (modo === 'bloqueio') txt = 'Você já tem o treino <b>' + esc(nome) + '</b> em andamento. Termine ou descarte antes de escolher outro treino.';
+  else txt = 'Você tem o treino <b>' + esc(nome) + '</b> em andamento. Termine ou descarte antes de começar ' + (oque || 'um cardio') + '.';
+  const ov = document.createElement('div');
+  ov.id = 'dlg-app-ov';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100600;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px;';
+  const perigo = isLight ? '#c0392b' : '#f87171';
+  const b = 'width:100%;min-height:50px;border-radius:12px;font-size:14.5px;font-weight:800;font-family:inherit;cursor:pointer;margin-top:10px;';
+  ov.innerHTML = '<div style="background:' + (isLight ? '#fff' : '#141414') + ';border-radius:18px;padding:22px;max-width:340px;width:100%;text-align:center;color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';">' +
+    '<div style="font-size:17px;font-weight:900;margin-bottom:8px;">' + titulo + '</div>' +
+    '<div style="font-size:13px;color:' + (isLight ? '#555' : '#9aa0a6') + ';line-height:1.55;margin-bottom:6px;">' + txt + '</div>' +
+    '<button id="dlg-continuar" onclick="_treinoContinuar()" style="' + b + 'border:none;background:#7FFF00;color:#0f1a00;">' + (rodando || modo !== 'sair' ? '▶ Continuar treino' : 'Continuar') + '</button>' +
+    ((modo === 'sair' && rodando) || modo === 'lista' ? '<button id="dlg-inicio" onclick="_treinoIrAoInicio()" style="' + b + 'background:transparent;border:1.5px solid ' + (isLight ? '#5cb800' : '#7FFF00') + ';color:' + (isLight ? '#2f6b00' : '#7FFF00') + ';">Ir para o início</button>' : '') +
+    '<button id="dlg-descartar" onclick="_treinoDescartarToque(this)" style="' + b + 'background:transparent;border:1.5px solid ' + perigo + ';color:' + perigo + ';">' + (rodando || modo !== 'sair' ? 'Descartar treino' : 'Sair do treino') + '</button>' +
+  '</div>';
+  document.body.appendChild(ov);
+}
+function _treinoDescartarToque(btn) {   // duas etapas: o primeiro toque pede para tocar de novo (descartar apaga o progresso)
+  if (!btn.dataset.c && (treinoTimer || _temProgressoTreino(carregarTreinoAtivo()))) {
+    btn.dataset.c = '1'; btn.textContent = 'Toque de novo para descartar';
+    setTimeout(function () { try { if (btn.isConnected) { delete btn.dataset.c; btn.textContent = 'Descartar treino'; } } catch (e) {} }, 4000);
+    return;
+  }
+  document.getElementById('dlg-app-ov')?.remove();
+  descartarTreinoEmAndamento();
+  toast('Treino descartado.');
+  _treinoIrAoInicio();
+}
+function _treinoContinuar() {
+  document.getElementById('dlg-app-ov')?.remove();
+  if (window._viewAtual === 'muscu') return;
+  if (!(treinoTimer && sessaoAtual.idficha)) {   // o app foi reaberto: o treino só está guardado no aparelho
+    if (retomarTreinoAtivo(false)) return;
+    renderMusculacao(); trocarView('muscu'); return;
+  }
+  const st = viewStack, k = st.lastIndexOf('muscu');
+  if (k >= 0 && k < st.length - 1) { const n = st.length - 1 - k; window._popN = n; history.go(-n); return; }   // volta pela pilha, sem empilhar a musculação de novo
+  startTreinoTimer(true); renderMusculacao(); trocarView('muscu');
+}
+function _treinoIrAoInicio() {   // sai da musculação para o início: o treino continua rodando e o aviso verde leva de volta
+  document.getElementById('dlg-app-ov')?.remove();
+  const st = viewStack, k = st.lastIndexOf('home'), n = st.length - 1 - k;
+  if (k >= 0 && n > 0) { _treinoBypassBox = true; window._popN = n; history.go(-n); }
+  else { trocarView('home'); renderHome(); }
+}
+// Começar cardio ao vivo ou programa de cardio com um treino em andamento: bloqueado. true = bloqueou.
+function _bloqueioCardioPorTreino(oque) {
+  if (!_treinoEmCurso()) return false;
+  _treinoCaixa('cardio', oque);
+  return true;
+}
+
 // ═══ Banner flutuante "treino em andamento" (permite navegar pelo app sem perder o treino) ═══
 function _criarBannerTreino() {
   if (document.getElementById('treino-banner')) return;
@@ -8901,7 +8981,7 @@ function _criarBannerTreino() {
   b.innerHTML = '<span style="font-size:13px;font-weight:700;color:#7FFF00;">🏋️ Treino em andamento · <span id="treino-banner-time">00:00:00</span></span><span style="font-size:12px;font-weight:800;color:#0a0a0a;background:#7FFF00;padding:6px 12px;border-radius:8px;white-space:nowrap;">VOLTAR ▶</span>';
   b.onclick = () => {
     // Retomada pedida pelo aluno: sem as travas da retomada automática.
-    if (!retomarTreinoAtivo(false)) { renderMusculacao(); trocarView('muscu'); }
+    _treinoContinuar();
   };
   document.body.appendChild(b);
 }
@@ -9048,36 +9128,16 @@ function abrirInfoTecnica(chave) {
 }
 
 function selecionarTreino(idficha, divisao) {
-  // Treino e cardio ao vivo não podem rodar os dois ao mesmo tempo — os dois
-  // usam o mesmo wake lock e disputariam o cronômetro/tela. Finalizar ou
-  // descartar o cardio primeiro.
+  // Treino, cardio ao vivo e programa de cardio não rodam ao mesmo tempo (disputam o cronômetro, a tela e o GPS).
   if (_cardioLiveInicioMs) { toast('Finalize ou descarte o cardio ao vivo antes de começar um treino.'); return; }
-  // Escolher um treino enquanto outro já está em andamento apagava tudo sem
-  // avisar — as séries continuavam salvas (salvarTreinoAtivo), mas o
-  // cronômetro voltava a zero e o aluno só percebia depois. Selecionar a
-  // MESMA divisão só retoma; selecionar outra pede confirmação antes.
-  if (treinoTimer && sessaoAtual.idficha) {
-    if (Number(sessaoAtual.idficha) === Number(idficha) && sessaoAtual.divisao === divisao) {
-      startTreinoTimer(true);
-      renderMusculacao();
-      trocarView('muscu');
-      return;
-    }
-    if (!confirm('Você já tem o treino "' + (sessaoAtual.nomeFicha || 'Divisão ' + sessaoAtual.divisao) + '" em andamento. Trocar agora reinicia o cronômetro dele. Continuar mesmo assim?')) {
-      return;
-    }
-  } else {
-    // O app foi reaberto (o iPhone descarta a página em segundo plano): o treino em andamento só existe no aparelho
-    // (intus-treino-ativo), não na memória. Sem esta checagem, escolher o treino na lista abria uma sessão nova, zerava
-    // o relógio, apagava as séries já marcadas e sobrescrevia o que estava guardado (treino de 1h14 terminou com 0:36).
-    const salvo = carregarTreinoAtivo();
-    if (salvo && _temProgressoTreino(salvo)) {
-      if (Number(salvo.sessao.idficha) === Number(idficha) && salvo.sessao.divisao === divisao) {
-        if (retomarTreinoAtivo(false)) return;
-      } else if (!confirm('Você já tem o treino "' + (salvo.sessao.nomeFicha || 'Divisão ' + salvo.sessao.divisao) + '" em andamento. Trocar agora apaga o progresso e reinicia o cronômetro dele. Continuar mesmo assim?')) {
-        return;
-      }
-    }
+  if (_prog && _prog.rodando) { toast('Finalize o programa de cardio em andamento antes de começar um treino.'); return; }
+  // Com um treino em andamento (na memória ou guardado no aparelho), o MESMO treino só retoma e OUTRO fica bloqueado: a caixa pede para
+  // terminar ou descartar antes. Antes dava para trocar com uma confirmação nativa e o cronômetro do primeiro voltava a zero.
+  const emCurso = _treinoEmCurso();
+  if (emCurso) {
+    if (Number(emCurso.idficha) === Number(idficha) && String(emCurso.divisao) === String(divisao)) _treinoContinuar();
+    else _treinoCaixa('bloqueio');
+    return;
   }
   const fichas = carregarFicha();
   const ficha = fichas.find(f => Number(f.idficha) === Number(idficha));
@@ -9121,7 +9181,7 @@ function renderAlongamentos() {
   const catAlong = JSON.parse(localStorage.getItem('intus-alongamentos')||'[]');
   if (alongs.length === 0) { iniciarMusculacao(); return; }
 
-  let html = `<button class="btn-back" onclick="abrirMeusTreinos()">← Voltar</button>
+  let html = `<button class="btn-back" onclick="voltarTela()">← Voltar</button>
     <h2 class="sect-title">🧘 Alongamentos · ${esc(sessaoAtual.divisaoLabel || 'Divisão ' + sessaoAtual.divisao)}</h2>
     <p style="font-size:12px;color:#888;margin-bottom:14px;">Realize antes de iniciar a musculação.</p>`;
 
@@ -9151,7 +9211,7 @@ function renderAlongamentos() {
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:#25D366;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
       Precisa de ajuda? Chama a gente!
     </button>
-    <button class="btn-back" style="display:block;margin:18px auto 0;font-size:13px;opacity:.8;" onclick="confirmarDesistencia()">Sair deste treino</button>
+    <button class="btn-back" style="display:block;margin:18px auto 0;font-size:13px;opacity:.8;" onclick="confirmarDesistencia()">Sair do treino</button>
   </div>`;
 
   document.getElementById('v-along').innerHTML = html;
@@ -9174,7 +9234,7 @@ function abrirInfoAlong(idx) {
 
   document.getElementById('v-exinfo').innerHTML = `
     <div class="ex-info-page">
-      <button class="btn-back" onclick="trocarView('along')">← Voltar</button>
+      <button class="btn-back" onclick="voltarTela('along')">← Voltar</button>
       <h2 style="margin-top:12px;">🧘 ${esc(nome)}</h2>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
         <span style="font-size:11px;background:rgba(102,126,234,.12);color:#667eea;padding:3px 10px;border-radius:6px;font-weight:700;">⏱ ${esc(String(tempo))}</span>
@@ -9205,7 +9265,7 @@ function abrirInfoAlong(idx) {
         </div>` : ''}
 
       <div style="margin-top:20px;">
-        <button class="btn btn-sec btn-full" onclick="trocarView('along')">← Voltar</button>
+        <button class="btn btn-sec btn-full" onclick="voltarTela('along')">← Voltar</button>
       </div>
     </div>`;
   trocarView('exinfo');
@@ -9656,12 +9716,7 @@ function animarListaExercicios() {
 }
 
 function confirmarDesistencia() {
-  const msgs = ['Cada série conta! Tem certeza que quer parar?','Falta pouco! Continue firme 💪','Você já começou, termine o que veio fazer!','Desistir agora? Seu eu do futuro agradece se ficar!'];
-  const msg = msgs[Math.floor(Math.random() * msgs.length)];
-  if (confirm(msg + '\n\nDeseja realmente sair do treino?')) {
-    descartarTreinoEmAndamento();
-    trocarView('home'); renderHome();
-  }
+  _treinoCaixa('sair');   // caixa do próprio app: continuar, ir para o início (treino segue rodando) ou descartar
 }
 // Desistir de verdade: além de apagar o rascunho do aparelho, esvazia o treino da MEMÓRIA. Antes só o rascunho era
 // apagado, e ao sair do app (pagehide/visibilitychange) salvarTreinoAtivo gravava a sessão de novo, com as séries
@@ -9687,7 +9742,7 @@ function abrirInfoExercicio(idexercicio, nmexercicio) {
 
   document.getElementById('v-exinfo').innerHTML = `
     <div class="ex-info-page">
-      <button class="btn-back" onclick="trocarView('muscu')">← Voltar ao treino</button>
+      <button class="btn-back" onclick="voltarTela('muscu')">← Voltar</button>
       <h2 style="margin-top:12px;">📖 ${esc(cat.nmexercicio || cat.nome || 'Exercício')}</h2>
       ${grupo ? `<span style="display:inline-block;font-size:11px;background:rgba(127,255,0,.12);color:#7FFF00;padding:3px 10px;border-radius:6px;font-weight:700;margin-bottom:12px;">${esc(grupo)}</span>` : ''}
 
@@ -9772,7 +9827,7 @@ function abrirSubstitutos(exIdx) {
     if (subList.length === 0 && subsSource) {
       document.getElementById('v-exinfo').innerHTML = `
         <div class="ex-info-page">
-          <button class="btn-back" onclick="trocarView('muscu')">← Voltar ao treino</button>
+          <button class="btn-back" onclick="voltarTela('muscu')">← Voltar</button>
           <h2 style="margin-top:12px;">⇄ Substitutos para</h2>
           <p style="font-size:14px;font-weight:700;margin:8px 0 16px;">${esc(ex.nmexercicio)}</p>
           <p style="color:#fbbf24;font-size:13px;">O professor definiu substitutos, mas seu catálogo local está desatualizado. Aguarde a sincronização e tente novamente.</p>
@@ -9816,7 +9871,7 @@ function _renderSubstitutos(exIdx, ex, subList) {
   }).join('');
   document.getElementById('v-exinfo').innerHTML = `
     <div class="ex-info-page">
-      <button class="btn-back" onclick="trocarView('muscu')">← Voltar ao treino</button>
+      <button class="btn-back" onclick="voltarTela('muscu')">← Voltar</button>
       <h2 style="margin-top:12px;">⇄ Substitutos para</h2>
       <p style="font-size:14px;font-weight:700;margin:8px 0 16px;">${esc(ex.nmexercicio)}</p>
       ${html || '<p style="color:#888;">Nenhum substituto cadastrado.</p>'}
@@ -13566,7 +13621,7 @@ function _progRetomar() {   // reabre o programa que ficou salvo, sempre pausado
 function _progIniciar() {   // abre a tela do programa com o tempo PARADO, esperando o play
   if (!_progPermitido()) return;
   const p = API.programaPorId(_prog.id); if (!p) return;
-  if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um programa.'); return; }
+  if (_bloqueioCardioPorTreino('um programa de cardio')) return;
   if (_cardioLiveInicioMs) { toast('Finalize o cardio ao vivo em andamento antes de começar um programa.'); return; }
   _progAudio(); _progClipesCarregar();
   Object.assign(_prog, { tela: 'execucao', i: 0, fase: 'pronto', pausado: true, restMs: _progEt(p)[0].s * 1000, fimMs: 0, ativoMs: 0, ultTick: Date.now(), bipS: -1, rodando: true });
@@ -13942,6 +13997,7 @@ function _cardioLiveReconectarSeNecessario() {
 // com a pilula flutuante avisando onde ele está. Só "Descartar" apaga de
 // verdade os dados.
 function abrirCardioLive() {
+  if (!_cardioLiveInicioMs && _bloqueioCardioPorTreino('um cardio ao vivo')) return;   // treino em andamento: bloqueado
   // Já tem um rastreio rolando (ex.: aluno navegou pra outro lugar e voltou)?
   // Só reabre a tela — recomeçar do zero aqui apagaria a corrida em andamento.
   if (!_cardioLiveInicioMs) {
@@ -14120,7 +14176,7 @@ function _cardioLiveSegmentos() {
 function _cardioLiveIniciarRastreio(semPerguntar) {
   // Mesma trava do lado do treino (ver selecionarTreino): os dois não podem
   // rodar ao mesmo tempo.
-  if (treinoTimer && sessaoAtual.idficha) { toast('Finalize o treino em andamento antes de começar um cardio.'); return; }
+  if (!_cardioLiveInicioMs && _bloqueioCardioPorTreino('um cardio ao vivo')) return;
   if (_cardioLiveTipo === '__outro__') {
     const nome = String(_cardioLiveOutro || '').trim();
     if (!nome) { toast('Escreva qual atividade você vai fazer.'); try { document.getElementById('cl-outro').focus(); } catch (e) {} return; }
@@ -23555,13 +23611,20 @@ function _notifMedalhasNovas() {
 
 // ═══════════════ BACK GESTURE (iOS) ═══════════════
 let viewStack = ['home'];
+var _scrollPorNivel = [];   // rolagem de cada tela da pilha, para devolver ao voltar (20/11/2026)
+function _restaurarScroll(y) {   // a tela pode ainda estar crescendo (posts chegando): tenta por mais de um segundo
+  if (!y) return;
+  let t = 0;
+  const tick = function () { try { window.scrollTo(0, y); } catch (e) {} if (Math.abs((window.scrollY || 0) - y) > 4 && ++t < 12) setTimeout(tick, 120); };
+  requestAnimationFrame(tick);
+}
 const originalTrocarView = trocarView;
 var _pushN = 0;   // quantas entradas de histórico as trocas de tela já criaram (o gesto de voltar usa para não duplicar)
 trocarView = function(v) {
   try { if (v !== 'mensagens' && window._viewAtual === 'mensagens') { _centralTab = 'painel'; _chatAberta = false; _centralChatTarget = 'main'; } } catch (e) {}   // a Central sempre abre no painel
   // Só empilha (pilha e histórico) quando a tela MUDA. Redesenhar a mesma tela (lista de programas, detalhe, execução...) não pode criar entradas
   // de histórico: elas ficavam sobrando e o voltar do celular girava entre as telas.
-  if (viewStack[viewStack.length - 1] !== v) { viewStack.push(v); history.pushState({ view: v }, '', ''); _pushN++; }
+  if (viewStack[viewStack.length - 1] !== v) { try { _scrollPorNivel[viewStack.length - 1] = window.scrollY || 0; } catch (e) {} viewStack.push(v); history.pushState({ view: v }, '', ''); _pushN++; }
   else history.replaceState({ view: v }, '', '');
   originalTrocarView(v);
   try { _progPillAtualizar(); } catch (e) {}   // pílula do programa de cardio em andamento
@@ -23579,6 +23642,16 @@ trocarView = function(v) {
 window.addEventListener('popstate', function(e) {
   if (window._ignorarPop > 0) { window._ignorarPop--; return; }   // voltas que o próprio app pediu para limpar o histórico
   if (_pkFecharTopoPorVoltar()) return;   // perfil, post, privacidade, folha de comentário ou editor de vídeo aberto: voltar fecha só ele
+  const _bypassBox = _treinoBypassBox; _treinoBypassBox = false;
+  // Camadas que não têm entrada própria no histórico: voltar fecha a camada e devolve a entrada que o gesto consumiu (a tela de trás não muda).
+  const _CAMADAS_VOLTAR = ['dlg-app-ov', 'cq-overlay', 'conq-detail-overlay', 'hist-dia-overlay', 'hist-del-overlay', 'marcador-overlay'];
+  for (let ci = 0; ci < _CAMADAS_VOLTAR.length; ci++) {
+    const el = document.getElementById(_CAMADAS_VOLTAR[ci]);
+    if (!el) continue;
+    if (_CAMADAS_VOLTAR[ci] === 'cq-overlay' && typeof _fecharComemoracao === 'function') _fecharComemoracao(); else el.remove();
+    history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
+    return;
+  }
   const _passos = Math.max(1, window._popN || 1); window._popN = 1;   // voltarTela pode desfazer vários passos de uma vez (history.go(-n))
   // Gesto de arrastar da borda (voltar do celular) dispara popstate igual um
   // toque no botão de voltar — sem esta trava, um gesto sem querer com o
@@ -23586,11 +23659,10 @@ window.addEventListener('popstate', function(e) {
   // nenhum. O progresso continua salvo (salvarTreinoAtivo já rodou a cada
   // série), mas o cronômetro reinicia se o aluno voltar depois — por isso
   // avisa antes, em vez de deixar acontecer silenciosamente.
-  if (window._viewAtual === 'muscu' && treinoTimer && sessaoAtual.idficha) {
-    if (!confirm('Você tem um treino em andamento. Sair agora reinicia o cronômetro se você voltar (as séries já preenchidas continuam salvas). Sair mesmo assim?')) {
-      history.pushState({ view: 'muscu' }, '', '');
-      return;
-    }
+  if (window._viewAtual === 'muscu' && treinoTimer && sessaoAtual.idficha && !_bypassBox) {
+    history.pushState({ view: 'muscu' }, '', '');   // o voltar não sai: abre a caixa do app (continuar, ir para o início ou descartar)
+    _treinoCaixa('sair');
+    return;
   }
   // Mesma trava do treino, pro cardio: um gesto de voltar sem querer não
   // pode dar a impressão de ter cancelado o rastreio. Diferente do treino,
@@ -23671,7 +23743,7 @@ window.addEventListener('popstate', function(e) {
   try {
     const cont = document.getElementById('v-' + window._viewAtual);
     const bb = cont && cont.firstElementChild;
-    if (bb && bb.classList && bb.classList.contains('btn-back') && !/trocarView|confirmarDesistencia/.test(bb.getAttribute('onclick') || '')) {
+    if (bb && bb.classList && bb.classList.contains('btn-back') && !/trocarView|confirmarDesistencia|voltarTela/.test(bb.getAttribute('onclick') || '')) {
       const n0 = _pushN;
       bb.click();
       if (_pushN === n0) history.pushState({ view: window._viewAtual }, '', '');
@@ -23693,6 +23765,7 @@ window.addEventListener('popstate', function(e) {
     else if (prevView === 'cardio') renderCardio();
     else if (prevView === 'cardio-live') _renderCardioLive();
     else _viewRefazerSeTemaVelho(prevView);   // telas que o voltar não redesenha (ranking, feed, programas, amigos...): só refaz se o tema mudou
+    _restaurarScroll(_scrollPorNivel[viewStack.length - 1] || 0);   // volta para onde o aluno estava na tela anterior
   } else {
     history.pushState({ view: 'home' }, '', '');
   }

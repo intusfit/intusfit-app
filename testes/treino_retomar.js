@@ -74,11 +74,11 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   eq('sem erro de script', erros, []);
   await ctx.close();
 
-  console.log('\n══ Trocar por OUTRO treino com progresso guardado pede confirmação ══');
+  console.log('\n══ Trocar por OUTRO treino com progresso guardado é bloqueado (caixa do app) ══');
   ({ page, erros, ctx } = await abrir(50, 'A'));
   await page.evaluate(() => selecionarTreino(5, 'B'));
   await page.waitForTimeout(400);
-  eq('abriu a pergunta (dismiss = cancelou)', page._dialogos || 0, 1);
+  eq('escolher outro treino com progresso guardado é BLOQUEADO pela caixa do app (sem caixa nativa)', [page._dialogos || 0, await page.evaluate(() => !!document.getElementById('dlg-app-ov'))], [0, true]);
   e = await estado(page);
   eq('cancelando, o treino A guardado não foi apagado', [e.rodando, JSON.parse(await page.evaluate(() => localStorage.getItem('intus-treino-ativo'))).sessao.divisao], [false, 'A']);
   await ctx.close();
