@@ -89,3 +89,9 @@ Falta, em ordem:
 7. Formulários: Segurança dos dados, classificação de conteúdo, público-alvo, anúncios (não há), App access com a conta de demonstração, serviço em primeiro plano de localização com vídeo.
 8. Capturas de tela reais (mínimo 2 de celular, 1080 px ou mais) feitas com a conta de demonstração.
 9. Teste em aparelho Android real: Cardio ao vivo com a tela bloqueada por 10 min, câmera, foto, notificações, exclusão de conta.
+
+### Andamento em 21/11/2026 (noite)
+
+- Instalados neste PC: JDK 17 e 21 (Temurin) e Android SDK em `C:\Android\Sdk` (plataforma 36, build-tools 36). **O Capacitor 8 exige JDK 21**; o 17 pode ser desinstalado. `android/local.properties` aponta para o SDK (não vai ao Git).
+- Compilação confirmada: `gradlew bundleRelease` gera o AAB (5,8 MB, versão 1.0, código 1). Arquivo SEM assinatura em `C:\Android\intus-fit-1.0-sem-assinatura.aab`; a Play só aceita AAB assinado com a chave de envio, que só o Luiz cria.
+- Removida a permissão `READ_MEDIA_IMAGES` e criada a página pública de exclusão de conta. Respostas prontas dos formulários em `ANDROID-PLAY-RESPOSTAS.md`.
