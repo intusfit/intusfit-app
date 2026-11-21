@@ -79,6 +79,8 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   eq('Corrida mostra a distância em km', await page.evaluate(() => [getComputedStyle(document.getElementById('cf-s-dist')).display !== 'none', document.getElementById('cf-dist-un').innerText]), [true, 'km']);
   await clicar('.cf-tile[data-k="Natação"]');
   eq('Natação mostra a distância em metros', await page.evaluate(() => document.getElementById('cf-dist-un').innerText), 'm');
+  await ir("_cardioForm.todas = true; _cardioFormAtualizar()"); await clicar('.cf-tile[data-k="Pular Corda"]');
+  eq('Pular corda pede o número de saltos (21/11/2026)', await page.evaluate(() => [getComputedStyle(document.getElementById('cf-s-dist')).display !== 'none', document.getElementById('cf-dist-un').innerText]), [true, 'saltos']);
   await clicar('.cf-tile[data-k="Dança"]');
   eq('Dança não pede distância', await page.evaluate(() => getComputedStyle(document.getElementById('cf-s-dist')).display), 'none');
   await ir("_cardioForm.todas = true; _cardioFormAtualizar()");

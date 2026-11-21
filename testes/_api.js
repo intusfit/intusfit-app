@@ -5,7 +5,7 @@ const ARQ = (process.env.INTUS_DIR || '.') + '/api.js';
 // Congela "hoje" dentro do sandbox. Sem isso, um teste de cobrança que passa
 // numa terça falha na quarta, e teste que muda de resposta sozinho não vale nada.
 function _dataCongelada(iso) {
-  const fixo = new Date(iso + 'T12:00:00');
+  const fixo = new Date(iso.length > 10 ? iso : iso + 'T12:00:00');   // 'AAAA-MM-DD' (meio-dia local) ou um instante completo
   class DataFixa extends Date {
     constructor(...a) { if (a.length === 0) super(fixo.getTime()); else super(...a); }
     static now() { return fixo.getTime(); }

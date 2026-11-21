@@ -2284,6 +2284,66 @@ const API = {
   // vence UM PERIODO antes do fim da cobertura. Num ciclo bem formado isso da
   // exatamente o inicio; num esticado, da o mes que esta correndo agora.
   COBRANCA_TOLERANCIA_DIAS: 5,
+
+  // ══ DIAS ÚTEIS, "HOJE" LOCAL E VIGÊNCIA DA FICHA (21/11/2026) ═══════════════════════════════════════════════════════════════════════════
+  // Uma regra só para o painel e o app do aluno. Atraso, carência, bloqueio e validade de ficha contam a partir do PRÓXIMO DIA ÚTIL da data
+  // marcada: vencimento em sábado, domingo ou feriado nacional vale na segunda (ou no dia útil seguinte). Plano que termina na sexta não
+  // aparece vencido no sábado. Todas as datas são "AAAA-MM-DD" LOCAIS (nunca toISOString, que é UTC e vira o dia às 21h de Brasília).
+  // DIAS_UTEIS_CFG: Carnaval (segunda e terça) e Corpus Christi são ponto facultativo, não feriado nacional; ficam como feriado por padrão
+  // (como o app já fazia). Trocar para false desliga cada um sem mexer no resto.
+  DIAS_UTEIS_CFG: { carnaval: true, corpusChristi: true },
+  FICHA_GRACE_DIAS: 2,
+  hojeISO: () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); },
+  _isoSomar: (iso, n) => { const d = new Date(String(iso).slice(0, 10) + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); },
+  _isoDiff: (a, b) => Math.round((new Date(String(a).slice(0, 10) + 'T12:00:00') - new Date(String(b).slice(0, 10) + 'T12:00:00')) / 86400000),   // a - b em dias
+  _feriadosCache: {},
+  feriadosNacionais: (ano) => {
+    ano = Number(ano);
+    const cfg = API.DIAS_UTEIS_CFG || {};
+    const chave = ano + ':' + (cfg.carnaval ? 1 : 0) + (cfg.corpusChristi ? 1 : 0);
+    if (API._feriadosCache[chave]) return API._feriadosCache[chave];
+    const pd = n => String(n).padStart(2, '0');
+    const f = [ano + '-01-01', ano + '-04-21', ano + '-05-01', ano + '-09-07', ano + '-10-12', ano + '-11-02', ano + '-11-15', ano + '-12-25'];
+    if (ano >= 2024) f.push(ano + '-11-20');   // Consciência Negra: feriado nacional desde a Lei 14.759/2023
+    // Páscoa (Meeus/Jones/Butcher)
+    const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4;
+    const g0 = Math.floor((b + 8) / 25), g = Math.floor((b - g0 + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451), mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+    const pascoa = ano + '-' + pd(mes) + '-' + pd(dia);
+    f.push(API._isoSomar(pascoa, -2));                       // Sexta-feira Santa
+    if (cfg.carnaval) { f.push(API._isoSomar(pascoa, -48)); f.push(API._isoSomar(pascoa, -47)); }
+    if (cfg.corpusChristi) f.push(API._isoSomar(pascoa, 60));
+    return (API._feriadosCache[chave] = new Set(f));
+  },
+  ehDiaUtil: (iso) => {
+    const s = String(iso || '').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+    const dow = new Date(s + 'T12:00:00').getDay();
+    return dow !== 0 && dow !== 6 && !API.feriadosNacionais(Number(s.slice(0, 4))).has(s);
+  },
+  // A própria data se for dia útil; senão o primeiro dia útil depois dela.
+  proximoDiaUtil: (iso) => {
+    let s = String(iso || '').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    for (let n = 0; n < 15 && !API.ehDiaUtil(s); n++) s = API._isoSomar(s, 1);
+    return s;
+  },
+  // Dias passados desde o dia útil efetivo da data (positivo = já passou; negativo = ainda vai chegar). hojeIso opcional (testes).
+  diasDesde: (iso, hojeIso) => API._isoDiff(hojeIso || API.hojeISO(), API.proximoDiaUtil(iso)),
+  // Dias de uma COBRANÇA: antes da data, dias corridos (a antecedência da "programada" não muda); depois dela, o atraso só começa no próximo dia útil
+  // (cobrança de sábado, domingo ou feriado vale na segunda). Nunca negativo depois da data.
+  diasCobranca: (iso, hojeIso) => { const h = hojeIso || API.hojeISO(), bruto = API._isoDiff(h, iso); return bruto <= 0 ? bruto : Math.max(0, API.diasDesde(iso, h)); },
+  // Validade da ficha: o fim (dtfim) vale no próximo dia útil e há FICHA_GRACE_DIAS dias corridos de tolerância depois dele.
+  // Sem dtfim = sem prazo. { fim, efetivo, dias (neg = faltam), vencida (passou do fim efetivo), vigente (dentro da tolerância) }
+  fichaSituacao: (f, hojeIso) => {
+    const fim = f && f.dtfim ? String(f.dtfim).slice(0, 10) : '';
+    if (!fim) return { fim: '', efetivo: '', dias: null, vencida: false, vigente: true };
+    const ef = API.proximoDiaUtil(fim), dias = API._isoDiff(hojeIso || API.hojeISO(), ef);
+    return { fim: fim, efetivo: ef, dias: dias, vencida: dias > 0, vigente: dias <= API.FICHA_GRACE_DIAS };
+  },
+  fichaVigente: (f, hojeIso) => {
+    if (f && f.dtinicio && String(f.dtinicio).slice(0, 10) > (hojeIso || API.hojeISO())) return false;   // ainda não começou
+    return API.fichaSituacao(f, hojeIso).vigente;
+  },
   _RECMESES: { mensal: 1, bimestral: 2, trimestral: 3, semestral: 6, anual: 12 },
 
   // Quantos meses dura um ciclo deste plano. null = o sistema nao sabe (avulso,
@@ -2499,7 +2559,7 @@ const API = {
     if (m.stmatricula === 'trancada')  return R('trancada');
     if (m.stmatricula === 'encerrada') return R('encerrada');
 
-    const hoje = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    const hoje = API.hojeISO();
     const fim = String(m.dtvencimento || '').slice(0, 10);
 
     if (String(m.stpgto).toUpperCase() === 'S') {
@@ -2507,7 +2567,7 @@ const API = {
       // Cobertura acabada: ou ja existe o ciclo seguinte, ou falta registrar.
       const prox = API.proximaCobranca(m, lista);
       if (!prox) return R('renovada', { cobranca: fim });
-      const d = Math.round((new Date(hoje + 'T00:00:00') - new Date(prox + 'T00:00:00')) / 86400000);
+      const d = Math.max(0, API.diasDesde(prox, hoje));   // fim em sábado, domingo ou feriado: conta a partir do dia útil seguinte
       return R('renovar', { cobranca: prox, dias: d, proxima: prox });
     }
 
@@ -2527,14 +2587,14 @@ const API = {
         String(x.dtinicio || '').slice(0, 10) >= fim);
       if (fim && !sucessor && !API.ehParcelada(m)) {
         if (fim >= hoje) return R('paga_no_anterior', Object.assign(base, { proxima: fim }));
-        const d = Math.round((new Date(hoje + 'T00:00:00') - new Date(fim + 'T00:00:00')) / 86400000);
+        const d = Math.max(0, API.diasDesde(fim, hoje));
         return R('renovar', Object.assign(base, { cobranca: fim, dias: d, proxima: fim }));
       }
       return R('paga_no_anterior', base);
     }
     const cob = API.dtCobranca(m);
     if (!cob) return R('pendente');
-    const dias = Math.round((new Date(hoje + 'T00:00:00') - new Date(cob + 'T00:00:00')) / 86400000);
+    const dias = API.diasCobranca(cob, hoje);   // a cobrança que cai em fim de semana ou feriado vale no próximo dia útil
     if (dias < -API.antecedenciaDias(m)) return R('programada', { cobranca: cob, dias: dias, proxima: cob });
     if (dias > API.DIAS_PARA_INATIVO)     return R('inativa',    { cobranca: cob, dias: dias, proxima: cob });
     if (dias > API.COBRANCA_TOLERANCIA_DIAS) return R('vencida', { cobranca: cob, dias: dias, proxima: cob });
@@ -2585,8 +2645,7 @@ const API = {
   diasDeCobranca: (m, lista) => {
     const cob = API.dtCobranca(m);
     if (!cob) return null;
-    const h = new Date(); h.setHours(0, 0, 0, 0);
-    return Math.round((h - new Date(cob + 'T00:00:00')) / 86400000);
+    return API.diasCobranca(cob);
   },
 
   // Este ciclo esta em atraso de verdade? (ja passou da tolerancia e nao foi pago)
@@ -2960,7 +3019,7 @@ const API = {
   //   bloqueado = plano encerrado sem renovacao, ou bloqueio manual do professor
   // Inativo e bloqueado ficam FORA da lista de ativos e perdem acesso ao app.
   situacaoPlano: (atleta, mensalidades) => {
-    const hojeStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    const hojeStr = API.hojeISO();
     const lead = API.ehLead(atleta, mensalidades);
     const R = (estado, motivo, diasVencido) => ({
       estado: estado, ativo: estado === 'ativo', inativo: estado === 'inativo',
@@ -3015,7 +3074,8 @@ const API = {
     if (!vencs.length) return R('inativo', 'sem matricula registrada');
 
     const ultimo = vencs[vencs.length - 1];
-    const dias = Math.round((new Date(hojeStr + 'T00:00:00') - new Date(ultimo + 'T00:00:00')) / 86400000);
+    const dias = API.diasDesde(ultimo, hojeStr);
+    if (dias <= 0) return R('ativo', 'termina em fim de semana ou feriado, vale no proximo dia util', 0);
     if (dias > API.PLANO_CARENCIA_DIAS) return R('inativo', 'sem plano ativo ha ' + dias + ' dias', dias);
     // Dentro da carencia, segue aparecendo como ativo — e o aluno segue com acesso.
     return R('ativo', 'vencido ha ' + dias + ' dias', dias);
@@ -4862,7 +4922,7 @@ const API = {
   // e pelo menos 90% da duração. idx é o índice da sessão do curso (null nos programas de uma sessão só).
   programaSessaoInfo: (s) => {
     if (!s || API.ehMusculacaoRank(s)) return null;
-    const m = /^Programa: (.+?)(?: · (S\d+T\d+))?$/.exec(String(s.comentario || '').trim());
+    const m = /^Programa: (.+?)(?: · (S\d+T\d+))?(?: · \d+(?:[.,]\d+)? (?:km|m))?$/.exec(String(s.comentario || '').trim());
     if (!m) return null;
     const p = API.PROGRAMAS_CARDIO.find((x) => x.titulo === m[1]);
     if (!p) return null;
@@ -4886,7 +4946,7 @@ const API = {
   cardioNota: (s) => { const c = String((s && s.comentario) || ''), i = c.indexOf(' || '); return i < 0 ? '' : c.slice(i + 4).trim(); },
   programaDoComentario: (s) => {
     if (!s || API.ehMusculacaoRank(s)) return null;
-    const m = /^Programa: (.+?)(?: · (S\d+T\d+))?$/.exec(String(s.comentario || '').trim());
+    const m = /^Programa: (.+?)(?: · (S\d+T\d+))?(?: · \d+(?:[.,]\d+)? (?:km|m))?$/.exec(String(s.comentario || '').trim());
     if (!m) return null;
     const p = API.PROGRAMAS_CARDIO.find((x) => x.titulo === m[1]); if (!p) return null;
     let idx = null; if (Array.isArray(p.sessoes)) { idx = p.sessoes.findIndex((x) => x.id === m[2]); if (idx < 0) idx = null; }

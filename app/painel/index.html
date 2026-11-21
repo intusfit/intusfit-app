@@ -176,6 +176,8 @@ function diasAte(d){
   const a = new Date(d+'T00:00:00'); const h = new Date(); h.setHours(0,0,0,0);
   return Math.round((a - h)/86400000);
 }
+// Dias até o fim da ficha contando do PRÓXIMO DIA ÚTIL (regra única do api.js, a mesma do app do aluno).
+function diasAteFicha(d){ return d ? -API.diasDesde(d) : null; }
 function brl(v){ return 'R$ ' + (parseFloat(v||0)).toFixed(2).replace('.', ','); }
 function brlV(v) {
   const txt = brl(v);
@@ -281,7 +283,8 @@ function carregarDados() {
   const _programado = (c) => {
     if (!c || c.stpgto === 'S') return false;
     if (c.stmatricula === 'cancelada' || c.stmatricula === 'encerrada') return false;
-    const d = diasAte(_dtCobranca(c));
+    const _cob = _dtCobranca(c);
+    const d = _cob ? -API.diasCobranca(_cob) : null;   // mesma conta do api.js (a cobrança em fim de semana ou feriado vale no dia útil seguinte)
     return d !== null && d > _antecedenciaDias(c);
   };
 
@@ -345,11 +348,7 @@ function carregarDados() {
   const _fichaFlagAtiva = f => f.ativo !== false && f.ativo !== 0 && f.ativo !== '0';
   const _fimFicha = f => {
     let fim = f.dtfim;
-    if (!fim && f.dtinicio) {
-      const base = new Date(f.dtinicio + 'T00:00:00');
-      base.setDate(base.getDate() + 90);
-      fim = base.toISOString().slice(0,10);
-    }
+    if (!fim && f.dtinicio) fim = API._isoSomar(f.dtinicio, 90);
     return fim || null;
   };
   const fichasAtivas = fichas.filter(_fichaFlagAtiva);
@@ -383,7 +382,7 @@ function carregarDados() {
     if (_fichaMaisNova(f)) return;              // regra 1
     const fim = _fimFicha(f);
     if (!fim) return;
-    const d = diasAte(fim);
+    const d = diasAteFicha(fim);
     if (d === null) return;
     if (d > JANELA_VENCER) return;              // ainda longe: nao e assunto
     const item = { idficha: f.idficha, idatleta: f.idatleta, nome: atleta.nome, nmficha: f.nmficha || '', dtfim: fim, dias: Math.abs(d), _d: d };
@@ -549,13 +548,9 @@ function gerarSugestoesChecklist() {
     const atleta = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
     if (!atleta) return;
     let fim = f.dtfim;
-    if (!fim && f.dtinicio) {
-      const base = new Date(f.dtinicio + 'T00:00:00');
-      base.setDate(base.getDate() + 90);
-      fim = base.toISOString().slice(0,10);
-    }
+    if (!fim && f.dtinicio) fim = API._isoSomar(f.dtinicio, 90);
     if (!fim) return;
-    const d = diasAte(fim);
+    const d = diasAteFicha(fim);
     if (d === null || d < 0 || d > 7) return;
     const chave = 'troca:' + (f.idficha != null ? f.idficha : (f.idatleta + ':' + fim));
     chavesAtivas.add(chave);

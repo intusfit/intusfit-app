@@ -75,6 +75,35 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
   await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(700);
   eq('campo vazio: nada a gravar (esforço padrão, sem foto, sem nota), como sempre', puts.length, 0);
 
+  console.log('\n══ Pular corda: saltos ══');
+  await abrir({ tipo: 'Pular Corda', distKm: 0, min: 20 });
+  eq('pular corda: campo de saltos (sem km)', await page.evaluate(() => { const i = document.getElementById('cle-dist'); return i ? { ph: i.placeholder, tem_un: !!document.getElementById('cle-dist-un') } : null; }), { ph: 'ex: 1500', tem_un: false });
+  puts = [];
+  await page.fill('#cle-dist', '1500');
+  await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(900);
+  eq('pular corda: os saltos entram no texto do registro', /20min · 1500 saltos/.test((puts[0] || {}).comentario || ''), true);
+  puts = [];
+  await abrir({ tipo: 'Pular Corda', distKm: 0, min: 10 });
+  await page.fill('#cle-dist', '9000');
+  await page.evaluate(() => _confirmarEsforcoCardioLive()); await page.waitForTimeout(500);
+  eq('pular corda: saltos por minuto impossíveis não fecham a tela', [await page.evaluate(() => !!document.getElementById('cardio-esforco-overlay')), puts.length], [true, 0]);
+
+  console.log('\n══ Programa de cardio: distância opcional na conclusão ══');
+  puts = [];
+  await page.evaluate(() => { document.getElementById('cardio-esforco-overlay')?.remove(); _prog.sessao = null; _prog.id = 'tabata'; _progResultado(API.programaPorId('tabata'), true, 1500, { idsessao: 55, uid: 'u1', pts: 5, tipo: 'Corrida', min: 25, motivo: null }); trocarView('cardio-prog'); });
+  await page.waitForTimeout(500);
+  eq('corrida: o resultado do programa mostra o campo de distância', await page.evaluate(() => !!document.getElementById('prog-dist')), true);
+  await page.fill('#prog-dist', '80');
+  await page.evaluate(() => _progSalvarDistancia()); await page.waitForTimeout(500);
+  eq('distância impossível (80 km em 25 min): nada é gravado', puts.length, 0);
+  await page.fill('#prog-dist', '4,5');
+  await page.evaluate(() => _progSalvarDistancia()); await page.waitForTimeout(900);
+  eq('distância gravada no comentário do programa, sem mexer no esforço', [puts.length, (puts[0] || {}).comentario, (puts[0] || {}).cardio_rpe === 7 || (puts[0] || {}).cardio_rpe > 0], [1, 'Programa: Tabata · 4.5 km', true]);
+  eq('a tela confirma a distância salva', await page.evaluate(() => /Distância salva: 4\.5 km/.test(document.getElementById('prog-dist-box').innerText)), true);
+  await page.evaluate(() => { _progResultado(API.programaPorId('tabata'), true, 1500, { idsessao: 56, uid: 'u2', pts: 5, tipo: 'Escada', min: 25, motivo: null }); });
+  await page.waitForTimeout(400);
+  eq('escada (sem distância em km): o resultado do programa não mostra o campo', await page.evaluate(() => !document.getElementById('prog-dist')), true);
+
   console.log('\n══ Valores com erro não fecham a tela ══');
   puts = [];
   await abrir({ tipo: 'Caminhada', distKm: 0, min: 61 });

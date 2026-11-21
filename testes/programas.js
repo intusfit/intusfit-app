@@ -103,5 +103,16 @@ console.log('\n── Exibição do programa no histórico e no ranking ──')
   eq('curso mostra a semana e o treino', c && c.titulo === 'Do sofá aos 5 km · Semana 2 · Treino 1');
   eq('cardio comum e musculação não são programa', A.programaDoComentario(car('2026-10-13', 1, 'Corrida · 30min', 1800)) === null && A.programaDoComentario(mus('2026-10-13', 1, { comentario: 'Programa: Tabata' })) === null);
 }
+console.log('\n── Distância opcional no fim do comentário do programa (21/11/2026) ──');
+{
+  const dur = A.programaDuracao(ID('tabata'));
+  const d = A.programaDoComentario(car('2026-10-13', 1, 'Programa: Tabata · 5 km', dur));
+  eq('programa com distância em km continua sendo reconhecido', d && d.titulo === 'Tabata' && d.concluido === true);
+  eq('programa com distância ainda vale como concluído (ponto extra e distintivo)', A.programaDaSessao(car('2026-10-13', 1, 'Programa: Tabata · 5,5 km', dur)) === ID('tabata'));
+  const c = A.programaDoComentario(car('2026-10-13', 1, 'Programa: Do sofá aos 5 km · S2T1 · 3.2 km', 1900));
+  eq('curso com treino e distância: título certo', c && c.titulo === 'Do sofá aos 5 km · Semana 2 · Treino 1');
+  eq('distância em metros (natação)', A.programaDaSessao(car('2026-10-13', 1, 'Programa: Tabata · 800 m', dur)) === ID('tabata'));
+  eq('texto qualquer depois do título continua não sendo programa', A.programaDaSessao(car('2026-10-13', 1, 'Programa: Tabata · muito bom', dur)) === null);
+}
 console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
 process.exit(ruim ? 1 : 0);

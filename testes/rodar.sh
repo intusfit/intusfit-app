@@ -25,6 +25,8 @@ passo "Finalizar treino: voltar com a foto aberta e o limite de 5 min sobre o to
 passo "comunidade: turmas e desafios"      node comunidade.js
 passo "corte de vídeo: pontas e trecho"    node trecho.js
 passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
+passo "dias úteis, feriados e fuso: atraso, carência e ficha (api.js)" node dias_uteis.js
+passo "painel e app do aluno mostram a mesma situação (matrícula, atraso e ficha)" node sincronia_painel_app.js
 passo "plano parcelado: parcelas e cobrança" node parcelas.js; passo "matrícula automática do checkout: série, ciclos e Financeiro (api.js)" node matricula_auto.js; passo "pagamentos da equipe no caixa (api.js)" node pagamentos_equipe.js; passo "fluxo de caixa: entradas, saídas e resultado (api.js)" node fluxo_caixa.js; passo "gateways Eduzz e Asaas: taxa, prazo e liberação (api.js)" node gateway.js; passo "previsão financeira (api.js)" node previsao.js; passo "gráficos de evolução: sessão escolhida, régua e cartões (navegador)" node evolucao_selecao.js
 passo "alimentos: ids, medidas caseiras e plano antigo" node alimentos.js
 passo "dashboard: dica dos graficos e curva de crescimento" node dashboard.js

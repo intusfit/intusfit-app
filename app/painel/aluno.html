@@ -7308,12 +7308,10 @@ function carregarFicha() {
   const treinos = JSON.parse(localStorage.getItem('intus-treinos')||'[]');
   // Só mostra fichas ATIVAS e dentro do período (início ≤ hoje ≤ validade/reavaliar).
   // Fora das datas (ainda não começou ou já venceu) fica invisível até o professor atualizar.
-  const _d = new Date();
-  const _hojeF = _d.getFullYear() + '-' + String(_d.getMonth()+1).padStart(2,'0') + '-' + String(_d.getDate()).padStart(2,'0');
+  // Validade pela regra única do api.js (API.fichaVigente): o fim vale no próximo dia útil e há 2 dias de tolerância, igual ao painel.
   const minhas = fichas.filter(f => Number(f.idatleta)===Number(idAtleta)
     && f.ativo!==0 && f.ativo!=='0' && f.ativo!==false
-    && !(f.dtinicio && String(f.dtinicio).slice(0,10) > _hojeF)
-    && !(f.dtfim && String(f.dtfim).slice(0,10) < _hojeF));
+    && API.fichaVigente(f));
   // Divisões que o professor deixou INATIVAS (API.divisaoInativa) não aparecem para o aluno em nenhuma tela: servem para liberar só parte de um treino.
   // Ficha em que todas as divisões estão inativas some (ficha sem nenhuma divisão liberada).
   return minhas.map(f => {
@@ -7326,35 +7324,13 @@ function carregarFicha() {
 }
 
 // ═══════════════ BLOQUEIO POR INADIMPLÊNCIA ═══════════════
-function feriadosNacionais(ano) {
-  const fixos = [`${ano}-01-01`,`${ano}-04-21`,`${ano}-05-01`,`${ano}-09-07`,`${ano}-10-12`,`${ano}-11-02`,`${ano}-11-15`,`${ano}-12-25`];
-  // Páscoa (Meeus/Jones/Butcher)
-  const a=ano%19, b=Math.floor(ano/100), c=ano%100, d=Math.floor(b/4), e=b%4;
-  const f=Math.floor((b+8)/25), g=Math.floor((b-f+1)/3), h=(19*a+b-d-g+15)%30;
-  const i=Math.floor(c/4), k=c%4, l=(32+2*e+2*i-h-k)%7;
-  const m=Math.floor((a+11*h+22*l)/451), mes=Math.floor((h+l-7*m+114)/31), dia=((h+l-7*m+114)%31)+1;
-  const pascoa = new Date(ano, mes-1, dia);
-  const addDias = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); return r; };
-  const fmt = d => d.toISOString().slice(0,10);
-  fixos.push(fmt(addDias(pascoa,-47))); // Carnaval (terça)
-  fixos.push(fmt(addDias(pascoa,-48))); // Carnaval (segunda)
-  fixos.push(fmt(addDias(pascoa,-2)));  // Sexta-feira Santa
-  fixos.push(fmt(addDias(pascoa,60)));  // Corpus Christi
-  return new Set(fixos);
-}
-
+// Feriados e dias úteis moram no api.js (API.feriadosNacionais / API.proximoDiaUtil), a MESMA regra do painel (21/11/2026).
+// As funções abaixo ficam só como atalhos de quem ainda as chama.
+function feriadosNacionais(ano) { return API.feriadosNacionais(ano); }
 function proximoDiaUtil(data) {
   const d = new Date(data);
-  const feriados = feriadosNacionais(d.getFullYear());
-  while (d.getDay() === 0 || d.getDay() === 6 || feriados.has(d.toISOString().slice(0,10))) {
-    d.setDate(d.getDate() + 1);
-    if (d.getMonth() === 0 && d.getDate() === 1) {
-      // Mudou de ano, recalcular feriados
-      const novosFeriados = feriadosNacionais(d.getFullYear());
-      novosFeriados.forEach(f => feriados.add(f));
-    }
-  }
-  return d;
+  const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  return new Date(API.proximoDiaUtil(iso) + 'T00:00:00');
 }
 
 // Mensalidades "ativas" (fora trancadas/inativas/canceladas/encerradas), do ciclo mais recente ao mais antigo
@@ -7394,8 +7370,7 @@ function calcularDiasAtraso() {
     .sort()
     .pop();
   if (!ultimoFim) return 0;
-  const vencEfetivo = proximoDiaUtil(new Date(ultimoFim + 'T00:00:00'));
-  const dias = Math.floor((hoje - vencEfetivo) / 86400000);
+  const dias = API.diasDesde(ultimoFim);   // a partir do próximo dia útil do fim do plano (mesma regra do painel)
   return dias > 0 ? dias : 0;
 }
 
@@ -7409,53 +7384,26 @@ const GRACE_DIAS = (typeof API !== 'undefined' && Number(API.PLANO_CARENCIA_DIAS
 // Situação da matrícula do aluno: { vigente, carencia:{diasAtraso,restantes}|null }
 // Baseada no ciclo MAIS RECENTE. Um ciclo pago (baixa dada) ou ainda não vencido = coberto (sem aviso).
 function _matSituacao() {
-  const ativas = _mensalidadesAtivas();
-  if (!ativas.length) return { vigente: false, carencia: null };
-  const hoje = new Date(); hoje.setHours(0,0,0,0);
-  // Coberto = existe ciclo cuja cobertura ainda corre E cuja cobranca esta em dia.
-  const temFuturo = ativas.some(m => new Date(String(m.dtvencimento).slice(0,10) + 'T00:00:00') >= hoje
-                                 && !_cobrancaEmAtraso(m));
-  if (temFuturo) return { vigente: true, carencia: null };
-
-  // ── COBERTURA CORRENDO, MAS COBRANCA EM ATRASO ────────────────────────────
-  // Bug real (Luiz Nunes, 28/09): o ciclo 22/09-22/10 estava aberto e vencido
-  // no painel, mas caia no calculo abaixo, que pega o MAIOR dtvencimento — o
-  // proprio ciclo em atraso (22/10, no futuro) — e concluia "vigente". Aqui
-  // espelhamos API.situacaoPlano: a carencia conta da COBRANCA, e passou dela
-  // o acesso cai, mesmo com a cobertura ainda correndo.
-  const emAtraso = ativas.filter(m => new Date(String(m.dtvencimento).slice(0,10) + 'T00:00:00') >= hoje
-                                   && _cobrancaEmAtraso(m));
-  if (emAtraso.length && typeof API !== 'undefined' && API.diasDeCobranca) {
-    const d = Math.min.apply(null, emAtraso.map(m => API.diasDeCobranca(m, ativas)));
-    // Data da cobranca que venceu (a mais antiga em aberto): as telas dizem
-    // "cobranca venceu em X", nao "plano terminou em <fim da cobertura>".
-    const cobEm = emAtraso.map(m => _cobrancaDe(m)).filter(Boolean).sort()[0] || '';
-    if (d > GRACE_DIAS) return { vigente: false, carencia: null, cobrancaEm: cobEm };
-    return { vigente: false, carencia: { diasAtraso: d, restantes: GRACE_DIAS - d + 1 }, cobrancaEm: cobEm };
+  // A decisão é de API.situacaoPlano, a MESMA do painel (21/11/2026): o app só traduz para { vigente, carencia }. Antes havia uma cópia da regra
+  // aqui e as duas telas podiam discordar do mesmo aluno no mesmo dia.
+  let todas = [];
+  try { todas = (JSON.parse(localStorage.getItem('intus-mensalidades') || '[]') || []).filter(m => Number(m.idatleta) === Number(idAtleta)); } catch (e) {}
+  if (!todas.length) return { vigente: false, carencia: null };
+  const r = API.situacaoPlano({ idatleta: idAtleta }, todas);
+  // Data da cobrança que venceu (a mais antiga em aberto): as telas dizem "cobrança venceu em X".
+  let cobEm = '';
+  try {
+    const hoje = API.hojeISO();
+    cobEm = todas.filter(m => m.stmatricula !== 'encerrada' && m.stmatricula !== 'cancelada' && m.stmatricula !== 'trancada' && m.dtvencimento && String(m.dtvencimento).slice(0, 10) >= hoje && API.cobrancaVencida(m, todas))
+      .map(m => API.dtCobranca(m)).filter(Boolean).sort()[0] || '';
+  } catch (e) {}
+  const out = cobEm ? { cobrancaEm: cobEm } : {};
+  if (r.estado === 'ativo') {
+    const d = Number(r.diasVencido) || 0;
+    if (d > 0) return Object.assign({ vigente: false, carencia: { diasAtraso: d, restantes: GRACE_DIAS - d + 1 } }, out);
+    return Object.assign({ vigente: true, carencia: null }, out);
   }
-
-  // ── DAQUI PARA BAIXO A COBERTURA JA ACABOU ────────────────────────────────
-  // Antes, bastava o ultimo ciclo estar PAGO para o app declarar a matricula
-  // vigente — sem olhar se o periodo dele ja tinha terminado. Era isso que
-  // deixava o Luiz como "Ativa" no app: os ciclos dele estao todos pagos, mas o
-  // ultimo cobria ate 22/08 e ninguem registrou o seguinte. Um ciclo pago cujo
-  // periodo acabou nao e matricula ativa: e matricula esperando renovacao.
-  //
-  // E a data em que a proxima cobranca venceu e o VENCIMENTO do ultimo ciclo,
-  // porque e nele que o ciclo novo comeca e o novo pagamento e devido — a
-  // mesma regra que vale no painel.
-  const ultimoFim = ativas
-    .map(m => String(m.dtvencimento || '').slice(0, 10))
-    .filter(Boolean)
-    .sort()
-    .pop();
-  if (!ultimoFim) return { vigente: false, carencia: null };
-  const dias = Math.round((hoje - new Date(ultimoFim + 'T00:00:00')) / 86400000);
-  if (dias <= 0) return { vigente: true, carencia: null };
-  if (dias <= GRACE_DIAS) {
-    return { vigente: false, carencia: { diasAtraso: dias, restantes: GRACE_DIAS - dias + 1 } };
-  }
-  return { vigente: false, carencia: null };
+  return Object.assign({ vigente: false, carencia: null }, out);
 }
 function _temMatriculaAtiva() {
   const s = _matSituacao();
@@ -11998,6 +11946,7 @@ const CARDIO_METRICA = {
   'Bike':      { tipo:'km', label:'Distância (km)', ph:'ex: 20',  step:'0.1' },
   'Natação':   { tipo:'m',  label:'Distância (m)',  ph:'ex: 1000', step:'10' },
   'Escada':    { tipo:'degraus', label:'Degraus / andares', ph:'ex: 120 degraus', step:'1' },
+  'Pular Corda': { tipo:'saltos', label:'Saltos', ph:'ex: 1500', step:'10' },
   'Elíptico':  { tipo:'km', label:'Distância (km)', ph:'ex: 6',   step:'0.1' },
   'Trilha e natureza': { tipo:'km', label:'Distância (km)', ph:'ex: 6', step:'0.1' },
   'Esportes na natureza': { tipo:'km', label:'Distância (km)', ph:'ex: 6', step:'0.1' },
@@ -12483,8 +12432,8 @@ function _cardioFormAtualizar() {
     sd.style.display = met ? '' : 'none';
     if (sf) sf.style.gridColumn = met ? '' : 'span 2';
     if (met) {
-      const un = document.getElementById('cf-dist-un'); if (un) un.textContent = met.tipo === 'km' ? 'km' : (met.tipo === 'm' ? 'm' : 'degr.');
-      const ph = document.getElementById('cf-dist-h'); if (ph) ph.firstElementChild.textContent = met.tipo === 'degraus' ? 'Degraus' : 'Distância';
+      const un = document.getElementById('cf-dist-un'); if (un) un.textContent = met.tipo === 'km' ? 'km' : (met.tipo === 'm' ? 'm' : (met.tipo === 'saltos' ? 'saltos' : 'degr.'));
+      const ph = document.getElementById('cf-dist-h'); if (ph) ph.firstElementChild.textContent = met.tipo === 'degraus' ? 'Degraus' : (met.tipo === 'saltos' ? 'Saltos' : 'Distância');
       const inD = document.getElementById('cf-dist'); if (inD && document.activeElement !== inD) inD.value = f.dist;
     }
   }
@@ -12529,7 +12478,7 @@ function cardioDistDigitar(inp) {
 }
 function cardioDistPasso(d) {
   const met = cardioMetrica(cardioTipoValor()); if (!met) return;
-  const passo = met.tipo === 'm' ? 100 : (met.tipo === 'degraus' ? 10 : 0.5);
+  const passo = met.tipo === 'm' ? 100 : (met.tipo === 'degraus' ? 10 : (met.tipo === 'saltos' ? 100 : 0.5));
   const cur = _normalizarDistancia(_cardioForm.dist, met.tipo) || 0;
   let v = Math.round((cur + d * passo) * 100) / 100;
   if (v <= 0) v = 0;
@@ -12674,6 +12623,7 @@ function _cardioMetricaTexto() {
   if (r.mtipo === 'km') return r.valor + ' km';
   if (r.mtipo === 'm') return r.valor + ' m';
   if (r.mtipo === 'degraus') return r.valor + ' degraus';
+  if (r.mtipo === 'saltos') return r.valor + ' saltos';
   return String(r.valor);
 }
 // Valor bruto da métrica (para validar ritmo/velocidade)
@@ -12719,6 +12669,8 @@ function _cardioPlausivel(tipo, min, raw) {
       const vel = _cardioRegras.velocidades || {};
       const max = vel[tipo] || vel['Outro'] || 45;
       if (max > 0 && kmh > max) return { ok: false, motivo: 'ritmo', txt: 'Ritmo de ' + kmh.toFixed(1) + ' km/h é alto demais para ' + tipo + ' (máx ~' + max + ' km/h). Confira distância e tempo.' };
+    } else if (raw.mtipo === 'saltos') {
+      if ((raw.valor / min) > 260) return { ok: false, motivo: 'ritmo', txt: 'Número de saltos por minuto acima do normal. Confira os valores.' };
     } else if (raw.mtipo === 'degraus') {
       if ((raw.valor / min) > 260) return { ok: false, motivo: 'ritmo', txt: 'Cadência de degraus muito acima do normal. Confira os valores.' };
     }
@@ -13880,7 +13832,49 @@ async function _progConcluir(completo) {
     onDone: function (dados) { _progResultado(p, completoReal, seg, dados); },
   });
 }
-function _progCompartilhar() { const r = _prog.ultimoResultado || {}; abrirCompartilharCardio({ tipo: r.tipo || _prog.ativ || 'Corrida', min: r.min || 0, distKm: 0, nomeTreino: r.nomeTreino }); }
+function _progCompartilhar() { const r = _prog.ultimoResultado || {}; abrirCompartilharCardio({ tipo: r.tipo || _prog.ativ || 'Corrida', min: r.min || 0, distKm: r.distKm || 0, nomeTreino: r.nomeTreino }); }
+// Distância opcional na conclusão do programa (21/11/2026): corrida, caminhada, bike, natação e afins. O registro já foi gravado com o comentário "Programa: <título>"; aqui só
+// se acrescenta " · 5 km" no fim (API.programaDoComentario continua reconhecendo). Os pontos não mudam (dependem do tempo).
+function _progDistHtml(dados, isLight) {
+  const met = dados && cardioMetrica(dados.tipo);
+  if (!met || (met.tipo !== 'km' && met.tipo !== 'm')) return '';
+  const m = met.tipo === 'm';
+  const cor = isLight ? '#666' : '#888';
+  return '<div id="prog-dist-box" style="margin:16px auto 0;max-width:320px;text-align:left;">' +
+    '<label style="font-size:11px;font-weight:700;color:' + cor + ';text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Distância (opcional)</label>' +
+    '<div style="display:flex;align-items:center;gap:8px;">' +
+      '<input id="prog-dist" type="text" inputmode="decimal" autocomplete="off" placeholder="' + esc(met.ph) + '" style="flex:1;min-width:0;box-sizing:border-box;height:46px;padding:0 14px;border-radius:12px;border:1.5px solid ' + (isLight ? '#d4d4d4' : '#333') + ';background:' + (isLight ? '#fff' : '#0d0d0d') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';font-family:inherit;font-size:16px;"/>' +
+      '<span style="font-size:14px;font-weight:800;color:' + (isLight ? '#555' : '#aaa') + ';">' + (m ? 'm' : 'km') + '</span>' +
+      '<button type="button" class="btn btn-sec" style="min-height:46px;padding:0 14px;font-weight:800;" onclick="_progSalvarDistancia()">Salvar</button></div>' +
+    '<div id="prog-dist-msg" style="font-size:11.5px;line-height:1.45;color:' + (isLight ? '#888' : '#777') + ';margin-top:6px;">Informe se souber (relógio, aparelho, mapa). Os pontos não mudam.</div></div>';
+}
+async function _progSalvarDistancia() {
+  const r = _prog.ultimoResultado || {}; const p = r.p; if (!p) return;
+  const met = cardioMetrica(r.tipo); if (!met || (met.tipo !== 'km' && met.tipo !== 'm')) return;
+  const msg = document.getElementById('prog-dist-msg');
+  const erro = (t) => { if (msg) { msg.textContent = t; msg.style.color = '#f87171'; } toast(t, 5000); };
+  const txt = String((document.getElementById('prog-dist') || {}).value || '').trim();
+  if (!txt) { erro('Digite a distância.'); return; }
+  const v = _normalizarDistancia(txt, met.tipo);
+  if (!v) { erro('Distância inválida. Use só números, como 5 ou 5,5.'); return; }
+  const pl = _cardioPlausivel(r.tipo, r.min, { mtipo: met.tipo, valor: v });
+  if (!pl.ok) { erro(pl.txt); return; }
+  const texto = met.tipo === 'm' ? v + ' m' : (Math.round(v * 100) / 100) + ' km';
+  const comentario = 'Programa: ' + p.titulo + (p.sessoes && p.sessoes[r.sessao] ? ' · ' + p.sessoes[r.sessao].id : '') + ' · ' + texto;
+  let ok = false;
+  if (r.idsessao) {
+    try {
+      const resp = await _fetchT(API_BASE + '/treinos.php?action=cardio&id=' + r.idsessao, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, body: JSON.stringify({ cardio_rpe: p.rpe, pontos: r.motivo ? 0 : (r.pts || 0), comentario: comentario }) }, 20000);
+      ok = resp.ok;
+    } catch (e) { ok = false; }
+  } else if (r.uid) { ok = !!_cardioFilaAtualizar(r.uid, { comentario: comentario }); }   // ainda na fila deste aparelho: vai com a distância quando for enviado
+  if (!ok) { erro('Não consegui salvar a distância agora. O cardio já está registrado.'); return; }
+  r.distKm = met.tipo === 'm' ? v / 1000 : v;
+  _rankingData = null; _rkUltimaBusca = 0;
+  const box = document.getElementById('prog-dist-box');
+  if (box) box.innerHTML = '<div style="font-size:13px;font-weight:800;text-align:center;color:#7FFF00;">✓ Distância salva: ' + esc(texto) + '</div>';
+  toast('Distância salva! 📏');
+}
 async function _progResultado(p, completo, seg, dados) {
   _prog.tela = 'resultado';   // a tela de resultado não se redesenha sozinha (troca de tema)
   _rankingData = null; _rkUltimaBusca = 0;
@@ -13899,7 +13893,7 @@ async function _progResultado(p, completo, seg, dados) {
     '<div style="margin:18px auto 0;max-width:320px;padding:14px;border-radius:14px;text-align:center;font-size:13px;line-height:1.6;background:' + (isLight ? '#f4fce3' : 'rgba(127,255,0,.07)') + ';border:1px solid rgba(127,255,0,.3);">' +
       '⏱ Pontos do tempo: <b>+' + (dados && dados.ptsExib != null ? dados.ptsExib : 0) + '</b>' + (dados && dados.motivo === 'limite' ? ' <span style="color:#888;">(o limite de cardios do dia já foi atingido)</span>' : '') + '<br>' +
       (completo ? (valeu ? '⭐ Ponto extra do programa: <b>+1</b> (1 por dia com programa concluído)<br>🏅 Conta para os distintivos de programas' : '🏅 Programa concluído, mas este cardio não soma pontos hoje: sem ponto extra') : 'Programa não concluído: sem ponto extra nem distintivo.') +
-    '</div>' + avisoMotivo + avisoPendente +
+    '</div>' + avisoMotivo + avisoPendente + _progDistHtml(dados, isLight) +
     '<div class="fim-col fim-btns" style="grid-template-columns:1fr;margin-top:20px;">' +
       '<button class="btn btn-prim fim-btn" onclick="_progCompartilhar()">📸 Compartilhar cardio</button>' +
       '<button class="btn fim-btn fim-btn-ctn" onclick="trocarView(\'home\');renderHome();">🏠 Voltar à tela inicial</button>' +
@@ -13912,7 +13906,7 @@ async function _progResultado(p, completo, seg, dados) {
     '<div class="fim-col fim-btns" style="grid-template-columns:1fr;">' +
       '<button class="btn btn-sec fim-btn" onclick="abrirProgramasCardio()">🔥 Ver outros programas</button>' +
     '</div></div>';
-  _prog.ultimoResultado = { tipo: dados && dados.tipo, min: dados && dados.min, nomeTreino: p.emoji + ' ' + p.titulo + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + p.sessoes[_prog.sessao].titulo : '') };
+  _prog.ultimoResultado = { tipo: dados && dados.tipo, min: dados && dados.min, idsessao: dados && dados.idsessao, uid: dados && dados.uid, pts: dados && dados.pts, motivo: dados && dados.motivo, p: p, sessao: _prog.sessao, nomeTreino: p.emoji + ' ' + p.titulo + (p.sessoes && p.sessoes[_prog.sessao] ? ' · ' + p.sessoes[_prog.sessao].titulo : '') };
   _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
 }
 
@@ -14569,6 +14563,7 @@ function _cardioEsforcoFecharMapa() {
 // Os pontos dependem do tempo, não da distância; a distância entra no texto do registro (ranking, histórico e compartilhar).
 function _cleDistInfo(dados) {
   const met = cardioMetrica(dados.tipo);
+  if (met && met.tipo === 'saltos') return { met: met, km: 0, saltos: true };   // pular corda: número de saltos (21/11/2026)
   if (met && met.tipo === 'degraus') return { met: met, km: 0, degraus: true };   // escada: degraus ou andares (21/11/2026)
   if (!met || (met.tipo !== 'km' && met.tipo !== 'm')) return null;
   if ((Number(dados.distKm) || 0) > 0 && !dados.distEstimada) return null;
@@ -14577,6 +14572,13 @@ function _cleDistInfo(dados) {
 function _cleDistHtml(dados, isLight) {
   const di = _cleDistInfo(dados);
   if (!di) return '';
+  if (di.saltos) {
+    return '<label style="font-size:11px;font-weight:700;color:' + (isLight ? '#666' : '#888') + ';text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Saltos (opcional)</label>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+        '<input id="cle-dist" type="text" inputmode="numeric" autocomplete="off" placeholder="ex: 1500" style="flex:1;min-width:0;box-sizing:border-box;height:48px;padding:0 14px;border-radius:12px;border:1.5px solid ' + (isLight ? '#d4d4d4' : '#333') + ';background:' + (isLight ? '#fff' : '#0d0d0d') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';font-family:inherit;font-size:16px;"/>' +
+        '<span style="font-size:14px;font-weight:800;color:' + (isLight ? '#555' : '#aaa') + ';min-width:26px;">saltos</span></div>' +
+      '<div style="font-size:11.5px;line-height:1.45;color:' + (isLight ? '#888' : '#777') + ';margin-bottom:16px;">Informe quantos saltos você deu, se contou (relógio, contador da corda). Os pontos não mudam.</div>';
+  }
   if (di.degraus) {
     const sel = 'height:48px;border-radius:12px;border:1.5px solid ' + (isLight ? '#d4d4d4' : '#333') + ';background:' + (isLight ? '#fff' : '#0d0d0d') + ';color:' + (isLight ? '#1a1a1a' : '#f0f0f0') + ';font-family:inherit;font-size:15px;font-weight:700;padding:0 8px;';
     return '<label style="font-size:11px;font-weight:700;color:' + (isLight ? '#666' : '#888') + ';text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Degraus ou andares (opcional)</label>' +
@@ -14601,6 +14603,13 @@ function _cleDistLer(dados) {
   const txt = inp ? String(inp.value || '').trim() : '';
   if (!txt) return { ok: true, valor: null };
   const met = cardioMetrica(dados.tipo);
+  if (met && met.tipo === 'saltos') {
+    const ns = Math.round(Number(String(txt).replace(/\D/g, '')));
+    if (!(ns > 0) || /[^\d\s.]/.test(txt)) return { ok: false, txt: 'Informe só números inteiros, como 1500.' };
+    const plS = _cardioPlausivel(dados.tipo, dados.min, { mtipo: 'saltos', valor: ns });
+    if (!plS.ok) return { ok: false, txt: plS.txt };
+    return { ok: true, valor: ns, mtipo: 'saltos' };
+  }
   if (met && met.tipo === 'degraus') {
     const n = Math.round(Number(String(txt).replace(/\D/g, '')));
     if (!(n > 0) || /[^\d\s.]/.test(txt)) return { ok: false, txt: 'Informe só números inteiros, como 120.' };
@@ -14766,7 +14775,10 @@ async function _salvarEsforcoCardioLive() {
   const nota = _cardioLimparNota((document.getElementById('cle-nota') || {}).value);
   const dl = _cleDistLer(dados);   // já validada antes de fechar a tela
   let distMudou = false;
-  if (dl.ok && dl.valor && dl.mtipo === 'degraus') {
+  if (dl.ok && dl.valor && dl.mtipo === 'saltos') {
+    distMudou = true;
+    dados.distTexto = dl.valor + (dl.valor === 1 ? ' salto' : ' saltos');
+  } else if (dl.ok && dl.valor && dl.mtipo === 'degraus') {
     distMudou = true;
     dados.distTexto = dl.valor + ' ' + (dl.valor === 1 ? (dl.un === 'andares' ? 'andar' : 'degrau') : dl.un);
   } else if (dl.ok && dl.valor) {
@@ -24458,10 +24470,10 @@ function _centralAvisos() {
   } catch (e) {}
   try {   // treino (ficha)
     const fichas = (JSON.parse(localStorage.getItem('intus-fichas') || '[]') || []).filter(f => Number(f.idatleta) === Number(idAtleta) && f.ativo !== 0 && f.ativo !== '0' && f.ativo !== false);
-    const vigentes = fichas.filter(f => !f.dtfim || dias(f.dtfim) >= 0);
+    const vigentes = fichas.filter(f => API.fichaVigente(f));
     if (fichas.length && !vigentes.length) av.push({ icone: '🏋️', titulo: 'Seu treino venceu', sub: 'Fale com o seu professor para receber a próxima ficha.', nivel: 'alto', js: "_centralTab='chat';renderCentral()" });
     else {
-      const prox = vigentes.filter(f => f.dtfim).map(f => dias(f.dtfim)).sort((a, b) => a - b)[0];
+      const prox = vigentes.filter(f => f.dtfim).map(f => Math.max(0, -API.fichaSituacao(f).dias)).sort((a, b) => a - b)[0];   // dias até o fim efetivo (dia útil)
       if (prox != null && prox <= 7) av.push({ icone: '🏋️', titulo: prox === 0 ? 'Seu treino vence hoje' : 'Seu treino vence em ' + prox + ' dia' + (prox > 1 ? 's' : ''), sub: 'Combine a renovação da ficha com o seu professor.', nivel: 'medio', js: "_centralTab='chat';renderCentral()" });
     }
   } catch (e) {}

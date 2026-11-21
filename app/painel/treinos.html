@@ -448,13 +448,9 @@ let filtroProfs = [];
 // Após FICHA_GRACE_DIAS dias do vencimento (dtfim), a ficha conta automaticamente
 // como INATIVA: o aluno perde acesso no app e ela aparece no filtro "Inativos",
 // onde o professor responsável pode encontrá-la e atualizá-la.
-const FICHA_GRACE_DIAS = 2;
+const FICHA_GRACE_DIAS = API.FICHA_GRACE_DIAS;   // a regra de validade é do api.js (API.fichaSituacao), a mesma do app do aluno (21/11/2026)
 function fichaFlagAtiva(f) { return f.ativo !== false && f.ativo !== 0 && f.ativo !== '0'; }
-function fichaExpirada(f) {
-  if (!f.dtfim) return false;
-  const d = new Date(); d.setDate(d.getDate() - FICHA_GRACE_DIAS);
-  return String(f.dtfim).slice(0,10) < d.toISOString().slice(0,10);
-}
+function fichaExpirada(f) { return !API.fichaSituacao(f).vigente; }   // passou do fim (no próximo dia útil) e da tolerância
 function fichaAtivaEfetiva(f) { return fichaFlagAtiva(f) && !fichaExpirada(f); }
 
 function renderLista() {
@@ -494,7 +490,7 @@ function renderLista() {
   else if (ordenacaoTreino === 'exercicios') fichasComInfo.sort((a,b) => b.exs.length - a.exs.length);
 
   // ── Dashboard insights ──
-  const hoje = new Date().toISOString().slice(0,10);
+  const hoje = API.hojeISO();
   // Fichas com flag ativa (inclui vencidas ainda não atualizadas pelo professor)
   const flagAtivas = fichas.filter(fichaFlagAtiva);
   // Fichas efetivamente ativas (exclui vencidas há mais de 2 dias)
@@ -505,14 +501,14 @@ function renderLista() {
 
   // Treinos a vencer/vencidos: dtfim <= hoje +7 dias.
   // Só entra na lista se o aluno NÃO tem outro treino ativo válido (treino já atualizado sai da lista).
-  const em7dias = new Date(); em7dias.setDate(em7dias.getDate() + 7);
-  const limiteStr = em7dias.toISOString().slice(0,10);
+  const limiteStr = API._isoSomar(hoje, 7);
+  const fimEf = f => API.fichaSituacao(f).efetivo;   // o fim vale no próximo dia útil
   const temTreinoAtualizado = f => todasAtivas.some(g =>
     Number(g.idficha) !== Number(f.idficha) &&
     Number(g.idatleta) === Number(f.idatleta) &&
-    (!g.dtfim || g.dtfim > limiteStr));
+    (!g.dtfim || fimEf(g) > limiteStr));
   const aVencer = flagAtivas
-    .filter(f => f.dtfim && f.dtfim <= limiteStr)
+    .filter(f => f.dtfim && fimEf(f) <= limiteStr)
     .filter(f => !temTreinoAtualizado(f))
     .sort((a,b) => (b.dtfim||'').localeCompare(a.dtfim||'')); // vencidos há mais tempo ao FINAL da lista
 
@@ -583,7 +579,7 @@ function renderLista() {
           </div>
           ${aVencer.length === 0 ? '<p style="font-size:12px;color:var(--text-muted);">Nenhum treino perto de vencer. 👍</p>' : '<div style="'+_CAIXA+'">' + _ordenar(aVencer,'venc',f => f.dtfim||'').map(f => {
             const al = atletas.find(a => Number(a.idatleta) === Number(f.idatleta));
-            const vencido = f.dtfim < hoje;
+            const vencido = API.fichaSituacao(f).vencida;
             return `<div class="linha-link" onclick="abrirFicha(${f.idficha})" title="Abrir este treino" style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer;">
               <div style="min-width:0;">
                 <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(al?.nome || '—')}</div>
@@ -692,12 +688,12 @@ function _classificarFichasQuadro() {
   let lista = fichas.map(info);
   if (filtroProfs.length > 0) lista = lista.filter(f => { const profs = f.aluno?.professores_responsaveis || []; return filtroProfs.some(id => profs.map(Number).includes(Number(id))); });
   if (buscaTreino) { const q = buscaTreino.toLowerCase(); lista = lista.filter(f => (f.nmficha || '').toLowerCase().includes(q) || (f.aluno?.nome || '').toLowerCase().includes(q) || (f.observacao || '').toLowerCase().includes(q)); }
-  const hoje = new Date().toISOString().slice(0, 10);
-  const lim = new Date(); lim.setDate(lim.getDate() + 7); const limiteStr = lim.toISOString().slice(0, 10);
+  const hoje = API.hojeISO();
+  const limiteStr = API._isoSomar(hoje, 7);
   const todasAtivas = fichas.filter(fichaFlagAtiva).filter(f => !fichaExpirada(f));
-  const temAtualizado = f => todasAtivas.some(g => Number(g.idficha) !== Number(f.idficha) && Number(g.idatleta) === Number(f.idatleta) && (!g.dtfim || g.dtfim > limiteStr));
+  const temAtualizado = f => todasAtivas.some(g => Number(g.idficha) !== Number(f.idficha) && Number(g.idatleta) === Number(f.idatleta) && (!g.dtfim || API.fichaSituacao(g).efetivo > limiteStr));
   const col = f => {
-    if (fichaFlagAtiva(f) && f.dtfim && String(f.dtfim).slice(0, 10) <= limiteStr && !temAtualizado(f)) return String(f.dtfim).slice(0, 10) < hoje ? 'vencidas' : 'vencem';
+    if (fichaFlagAtiva(f) && f.dtfim && API.fichaSituacao(f).efetivo <= limiteStr && !temAtualizado(f)) return API.fichaSituacao(f).vencida ? 'vencidas' : 'vencem';
     return fichaAtivaEfetiva(f) ? 'andamento' : 'inativas';
   };
   const cartoes = lista.map(f => ({ ficha: f, coluna: col(f) }));
@@ -750,8 +746,8 @@ function _profsDe(f) {
 }
 function _fichaSituacao(f) {
   if (!f.dtfim) return '';
-  const hoje = new Date().toISOString().slice(0, 10), d = String(f.dtfim).slice(0, 10);
-  const dias = Math.round((new Date(d + 'T00:00:00') - new Date(hoje + 'T00:00:00')) / 86400000);
+  const d = String(f.dtfim).slice(0, 10);
+  const dias = -API.fichaSituacao(f).dias;   // a partir do próximo dia útil do fim da ficha
   if (dias < 0) return `<span class="fc-pill v" title="Venceu em ${fmtDataBR(d)}">venceu há ${-dias}d</span>`;
   if (dias <= 7) return `<span class="fc-pill a" title="Vence em ${fmtDataBR(d)}">vence em ${dias}d</span>`;
   return `<span class="fc-pill" title="Vence em ${fmtDataBR(d)}">até ${fmtDataBR(d).slice(0, 5)}</span>`;

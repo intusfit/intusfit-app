@@ -179,9 +179,8 @@ function _cadHora(a) { const m = _cadBruto(a).match(/ (\d{2}:\d{2})(?::\d{2})?$/
 function _cadFmtHora(a) { const h = _cadHora(a); return _cadFmt(a) + (h ? ' ' + h : ''); }
 // Mesma regra do app do aluno (carregarFicha): ficha ativa e dentro do período
 function temTreinoAtivo(a) {
-  const d = new Date(), hoje = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   return fichas.some(f => Number(f.idatleta) === Number(a.idatleta) && f.ativo !== 0 && f.ativo !== '0' && f.ativo !== false
-    && !(f.dtinicio && String(f.dtinicio).slice(0, 10) > hoje) && !(f.dtfim && String(f.dtfim).slice(0, 10) < hoje));
+    && API.fichaVigente(f));   // a mesma função do app do aluno (api.js): dia útil + tolerância
 }
 // Lead com conta: mostra se o treino do teste chegou
 function treinoLeadHtml(a) {
@@ -2059,8 +2058,8 @@ function marcarPagoMini(idmens, idatleta) {
   // Conta do dia da COBRANCA. Antes so aparecia depois do fim da cobertura, ou
   // seja, voce so era lembrado da multa um ciclo inteiro depois do atraso.
   const _cob = (typeof API !== 'undefined' && API.dtCobranca) ? API.dtCobranca(m) : String(m.dtvencimento||'').slice(0,10);
-  const venc = !!_cob && _cob < hoje;
-  const atraso = venc ? Math.round((new Date(hoje + 'T00:00:00') - new Date(_cob + 'T00:00:00')) / 86400000) : 0;
+  const atraso = _cob ? Math.max(0, API.diasCobranca(_cob)) : 0;   // a multa conta do próximo dia útil da cobrança (regra única do api.js)
+  const venc = atraso > 0;
   const base = (parseFloat(m.vlpagar || 0) - parseFloat(m.vldesconto || 0)).toFixed(2);
   const _fa = String(m.forma_pgto || 'pix').toLowerCase();
   const op = (v, l) => `<option value="${v}" ${_fa === v ? 'selected' : ''}>${l}</option>`;

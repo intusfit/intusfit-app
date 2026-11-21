@@ -23,7 +23,7 @@ const ok = (c, m) => { if (!c) { falhas.push(m); console.log('FALHA', m); } else
     atletas = [lead(11, 'Ana', '2026-10-20'), lead(12, 'Bia', '2026-10-28', '2026-10-28 14:35:10'), lead(13, 'Caio', '2026-10-28', '2026-10-28 09:05:00'), lead(14, 'Davi', '2026-09-01'), lead(15, 'Eva', null), lead(16, 'Fabio', '2026-10-20')];
     // treino do teste grátis: Bia tem ficha ativa no prazo, Caio tem ficha vencida, Ana tem inativa, Davi nenhuma
     const hoje = new Date(); const dia = n => { const d = new Date(hoje); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
-    fichas = [{ idficha: 1, idatleta: 12, ativo: 1, dtinicio: dia(0), dtfim: dia(3) }, { idficha: 2, idatleta: 13, ativo: 1, dtinicio: dia(-6), dtfim: dia(-2) }, { idficha: 3, idatleta: 11, ativo: 0, dtinicio: dia(0), dtfim: dia(3) }];
+    fichas = [{ idficha: 1, idatleta: 12, ativo: 1, dtinicio: dia(0), dtfim: dia(3) }, { idficha: 2, idatleta: 13, ativo: 1, dtinicio: dia(-20), dtfim: dia(-9) }, { idficha: 3, idatleta: 11, ativo: 0, dtinicio: dia(0), dtfim: dia(3) }];
     fichasOk = true;
     mensalidades = []; loading = false; erro = null; filtro = 'ativos'; ordenacao = 'alfabetica'; render();
   });
