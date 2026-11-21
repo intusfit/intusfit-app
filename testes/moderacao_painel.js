@@ -18,12 +18,18 @@ const item = (idmod, extra) => Object.assign({ idmod, alvo_tipo: 'comentario', a
   const b = await chromium.launch();
 
   async function abrir(admin) {
-    const estado = { pend: [item(1), item(2, { alvo_tipo: 'post', alvo_id: 55, categorias: ['pornografia', 'spam'], motivo: 'Pornografia: conteúdo | Spam: link', texto: 'manda nudes www.x.com', onde: 'Post no Feed', autor: 'Beltrana' })], ocultos: [], chamadas: [], moderacaoGets: 0 };
+    const estado = { pend: [item(1), item(2, { alvo_tipo: 'post', alvo_id: 55, categorias: ['pornografia', 'spam'], motivo: 'Pornografia: conteúdo | Spam: link', texto: 'manda nudes www.x.com', onde: 'Post no Feed', autor: 'Beltrana' })], ocultos: [], chamadas: [], moderacaoGets: 0, alertas: [{ idalerta: 7, provedor: 'apple', nome: 'Carlos Lima', email: 'c@gmail.com', motivos: ['nome_igual', 'email_oculto'], candidatos: [{ tipo: 'aluno', id: 2, nome: 'Carlos Lima', email: 'carlos@exemplo.com', por: 'nome' }], quando: '2026-11-21 10:00:00' }] };
     const p = await (await b.newContext({ viewport: { width: 1300, height: 1400 }, serviceWorkers: 'block' })).newPage();
     const erros = []; p.on('pageerror', e => erros.push(e.message));
     await p.route(u => u.href.includes('.php'), r => {
       const req = r.request(), u = req.url(), m = req.method();
       const json = (o, s = 200) => r.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(o) });
+      if (u.includes('action=login_alertas')) {
+        if (m === 'GET') { estado.alertasGets = (estado.alertasGets || 0) + 1; return json({ pendentes: estado.alertas }); }
+        const c = JSON.parse(req.postData() || '{}'); estado.chamadas.push(['POST login_alertas', c.idalerta]);
+        estado.alertas = estado.alertas.filter(x => x.idalerta !== c.idalerta);
+        return json({ ok: true });
+      }
       if (u.includes('action=moderacao')) {
         if (m === 'GET') { estado.moderacaoGets++; return json({ pendentes: estado.pend, ocultos: estado.ocultos }); }
         const c = JSON.parse(req.postData() || '{}'); estado.chamadas.push(['POST moderacao', c.idmod, c.acao]);
@@ -83,9 +89,19 @@ const item = (idmod, extra) => Object.assign({ idmod, alvo_tipo: 'comentario', a
   eq('depois de excluir os dois, a fila está vazia', estado.pend.length, 0);
   await p.close();
 
+  console.log('\n══ Possíveis cadastros duplicados (Apple) ══');
+  ({ p, estado, erros } = await abrir(true));
+  for (let i = 0; i < 40 && !estado.alertasGets; i++) await p.waitForTimeout(250);
+  await p.waitForTimeout(500);
+  const dt = await p.evaluate(() => (document.getElementById('dup-card') || { innerText: '' }).innerText.replace(/\s+/g, ' '));
+  eq('o administrador vê o alerta com o nome, o motivo e o aluno parecido', [/Carlos Lima/.test(dt), /E-mail oculto/.test(dt), /Nome igual/.test(dt), /Aluno #2/.test(dt)], [true, true, true, true]);
+  await p.click('#dup-card button:has-text("Marcar como resolvido")'); await p.waitForTimeout(700);
+  eq('Marcar como resolvido chama a rota e o card some', [estado.chamadas.slice(-1)[0], !!(await p.$('#dup-card'))], [['POST login_alertas', 7], false]);
+  await p.close();
+
   console.log('\n══ Quem não é administrador ══');
   ({ p, estado, erros } = await abrir(false));
-  eq('não vê o card e não consulta a rota', [!!(await p.$('#mod-card')), estado.moderacaoGets], [false, 0]);
+  eq('não vê o card e não consulta a rota', [!!(await p.$('#mod-card')), !!(await p.$('#dup-card')), estado.moderacaoGets, estado.alertasGets || 0], [false, false, 0, 0]);
   eq('sem erro de script', erros, []);
   await p.close();
 

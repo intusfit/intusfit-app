@@ -4443,6 +4443,23 @@ if ($action === 'moderacao') {
     } catch (Throwable $e) { http_response_code(500); echo json_encode(['error' => 'falha na moderacao', 'detalhe' => _intusLogErro($e)]); exit; }
 }
 
+// Alertas de possível cadastro duplicado (entrou com a Apple e pode já ter cadastro). Só o administrador. GET lista, POST {idalerta} marca como resolvido.
+if ($action === 'login_alertas') {
+    if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
+    if (empty($_ctx['admin'])) { http_response_code(403); echo json_encode(['error' => 'somente administrador']); exit; }
+    require_once __DIR__ . '/_apple_login.php';
+    try {
+        if ($method === 'GET') { echo json_encode(intusAppleAlertas($pdo), JSON_UNESCAPED_UNICODE); exit; }
+        if ($method === 'POST') {
+            $b = jsonBody();
+            $r = intusAppleResolverAlerta($pdo, (int)($b['idalerta'] ?? 0));
+            if (empty($r['ok'])) http_response_code(404);
+            echo json_encode($r, JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    } catch (Throwable $e) { http_response_code(500); echo json_encode(['error' => 'falha nos alertas', 'detalhe' => _intusLogErro($e)]); exit; }
+}
+
 // Denúncia de conteúdo pelo aluno (botão "Denunciar" do app; exigência da Apple 1.2 e do Google). POST {alvo_tipo: 'post'|'comentario', alvo_id, motivo}.
 // Entra na fila "Conteúdo sinalizado" do Início do painel (a mesma do detector) e no e-mail-resumo da próxima varredura. Não esconde nada sozinha.
 if ($action === 'denuncia' && $method === 'POST') {

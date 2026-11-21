@@ -721,6 +721,62 @@ try {
         exit;
     }
 
+    // ===== Entrar com Apple (obrigatório na App Store quando o app tem outro login social) =====
+    // O app manda o identity token; ele é verificado com as chaves públicas da Apple (_apple_login.php). Nunca nasce conta de aluno aqui:
+    // quem não casa com ninguém vira lead e, havendo risco de duplicidade, o administrador recebe alerta (e-mail + Início do painel).
+    function _appleSessao(PDO $pdo, string $tabela, array $colmap, array $row): void {
+        $atleta = rowToAtleta($row, $colmap);
+        require_once __DIR__ . '/_sessions.php';
+        $serverToken = createSession($pdo, (int)$atleta['idatleta'], 'aluno', $atleta['nome'] ?? '', false, 90);
+        if ($serverToken) $atleta['server_token'] = $serverToken;
+        try {
+            $temCol = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = " . $pdo->quote($tabela) . " AND COLUMN_NAME = 'ultimo_acesso'")->fetchColumn();
+            if (!$temCol) { $pdo->exec("ALTER TABLE `$tabela` ADD COLUMN `ultimo_acesso` DATETIME NULL"); }
+            $pdo->prepare("UPDATE `$tabela` SET ultimo_acesso = NOW() WHERE `{$colmap['col_id']}` = ?")->execute([$atleta['idatleta']]);
+        } catch (Throwable $e) { @error_log('[intus login] falha ao gravar ultimo_acesso (apple): ' . $e->getMessage()); }
+        echo json_encode(['ok' => true, 'existente' => true, 'atleta' => $atleta]);
+    }
+
+    if ($action === 'oauth_apple') {
+        require_once __DIR__ . '/_rate_limit.php';
+        checkRateLimit($pdo, 'oauth_apple', 20, 3600);
+        require_once __DIR__ . '/_apple_login.php';
+        $c = intusAppleVerificar((string)($body['identity_token'] ?? ''));
+        if (!$c) { http_response_code(401); echo json_encode(['ok' => false, 'erro' => 'token da Apple invalido ou expirado']); exit; }
+        $nome = trim(mb_substr(trim((string)($body['nome'] ?? '')), 0, 150));   // a Apple só informa o nome na 1ª vez, e quem informa é o app
+        $r = intusAppleEntrar($pdo, $tabela, $colmap, $c, $nome);
+        if ($r['status'] === 'bloqueado') { http_response_code(403); echo json_encode(['ok' => false, 'erro' => 'conta bloqueada — fale com seu professor']); exit; }
+        if ($r['status'] === 'entrou') { _appleSessao($pdo, $tabela, $colmap, $r['row']); exit; }
+        echo json_encode(['ok' => true, 'existente' => false, 'lead' => true, 'apple_pendente' => true, 'nome' => $nome]);
+        exit;
+    }
+
+    // Quem já é aluno e entrou com e-mail oculto liga a Apple à própria conta provando e-mail e senha (ou código de acesso).
+    if ($action === 'apple_vincular') {
+        require_once __DIR__ . '/_rate_limit.php';
+        checkRateLimit($pdo, 'aluno_login', 5, 900);
+        require_once __DIR__ . '/_apple_login.php';
+        $c = intusAppleVerificar((string)($body['identity_token'] ?? ''));
+        if (!$c) { http_response_code(401); echo json_encode(['ok' => false, 'erro' => 'token da Apple invalido ou expirado']); exit; }
+        $ident = trim((string)($body['email'] ?? '')); $senhaV = (string)($body['senha'] ?? '');
+        if ($ident === '' || $senhaV === '') { http_response_code(400); echo json_encode(['ok' => false, 'erro' => 'email/senha ausente']); exit; }
+        checkRateLimitConta($pdo, 'aluno_login_conta', strtolower($ident), 8, 900);
+        $st = $pdo->prepare("SELECT * FROM `$tabela` WHERE LOWER($col_email) = ? LIMIT 1");
+        $st->execute([strtolower($ident)]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row && $col_cod) { $st = $pdo->prepare("SELECT * FROM `$tabela` WHERE UPPER(`$col_cod`) = UPPER(?) LIMIT 1"); $st->execute([$ident]); $row = $st->fetch(PDO::FETCH_ASSOC); }
+        $hash = $row ? (string)($row[$col_senha] ?? '') : '';
+        $valido = false;
+        if ($row && $hash !== '') $valido = (strpos($hash, '$2') === 0 && strlen($hash) >= 50) ? password_verify($senhaV, $hash) : hash_equals($hash, $senhaV);
+        if ($row && !$valido && $col_cod && (string)($row[$col_cod] ?? '') !== '' && strcasecmp((string)$row[$col_cod], $senhaV) === 0) $valido = true;
+        if (!$valido) { recordAttempt($pdo, 'aluno_login'); recordAttemptConta($pdo, 'aluno_login_conta', strtolower($ident)); http_response_code(401); echo json_encode(['ok' => false, 'erro' => 'credenciais invalidas']); exit; }
+        clearAttempts($pdo, 'aluno_login'); clearAttemptsConta($pdo, 'aluno_login_conta', strtolower($ident));
+        if (_appleBloqueado($row, $colmap)) { http_response_code(403); echo json_encode(['ok' => false, 'erro' => 'conta bloqueada — fale com seu professor']); exit; }
+        intusAppleVincular($pdo, $c['sub'], (int)$row[$col_id], (string)$c['email']);
+        _appleSessao($pdo, $tabela, $colmap, $row);
+        exit;
+    }
+
     // ===== Excluir conta (iniciado pelo próprio aluno, dentro do app) =====
     // Não apaga os registros na hora: bloqueia o acesso IMEDIATAMENTE (o
     // requisito da Apple/Google é que a exclusão seja INICIADA no app, não

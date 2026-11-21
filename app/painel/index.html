@@ -1146,6 +1146,7 @@ function render() {
       </div>` : ''}
 
       ${admin && ((window._modPend || []).length || (window._modOcultos || []).length) ? modCardHtml() : ''}
+      ${admin && (window._dupAlertas || []).length ? dupCardHtml() : ''}
 
       ${lnovos.length ? `
       <!-- AVISO DE LEADS NOVOS -->
@@ -1379,6 +1380,7 @@ async function preFetchBackend() {
   } catch (e) { /* silencioso */ }
   // Conteúdo sinalizado pelo controle de spam, pornografia, violência e ofensa (só o administrador decide)
   await carregarModeracao();
+  await carregarDuplicados();
   // Ranking da Intus (Top 5 da semana / Top 10 do mês) ainda não publicado no Feed: só o administrador publica
   try {
     if (isAdmin() && typeof API !== 'undefined' && API.postsIntus) {
@@ -1402,6 +1404,47 @@ async function carregarModeracao() {
     window._modPend = Array.isArray(j.pendentes) ? j.pendentes : [];
     window._modOcultos = Array.isArray(j.ocultos) ? j.ocultos : [];
   } catch (e) { /* silencioso */ }
+}
+// ── Possíveis cadastros duplicados (entrou com a Apple, e-mail oculto ou nome igual ao de um cadastro existente; regras em app/api/_apple_login.php) ──
+window._dupAlertas = [];
+const DUP_MOT = { email_oculto: 'E-mail oculto pela Apple (não dá para saber se já é aluno)', nome_igual: 'Nome igual ao de um cadastro existente', email_igual: 'E-mail igual ao de um lead existente' };
+async function carregarDuplicados() {
+  try {
+    if (!isAdmin()) { window._dupAlertas = []; return; }
+    const r = await fetch(API_BASE + '/catalogo.php?action=login_alertas&_=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + _tk() }, cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    window._dupAlertas = Array.isArray(j.pendentes) ? j.pendentes : [];
+  } catch (e) { /* silencioso */ }
+}
+function dupCardHtml() {
+  const l = window._dupAlertas || [];
+  return `
+      <div class="card" id="dup-card" style="padding:16px;background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(251,191,36,.04));border:1.5px solid rgba(251,191,36,.55);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:26px;">👥</span>
+          <div style="flex:1;">
+            <div style="font-size:15px;font-weight:800;color:#fbbf24;">${l.length} possível${l.length > 1 ? 'is' : ''} cadastro${l.length > 1 ? 's' : ''} duplicado${l.length > 1 ? 's' : ''} (entrou com a Apple)</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Nenhuma conta de aluno foi criada: a pessoa ficou como lead. Se já é aluna, ela liga a Apple à conta dela com e-mail e senha e o alerta se resolve sozinho.</div>
+          </div>
+        </div>
+        ${l.map(x => `
+        <div style="padding:12px;border-radius:10px;margin-top:8px;background:rgba(0,0,0,.18);border:1px solid rgba(251,191,36,.25);">
+          <div><b style="color:var(--text);font-size:13.5px;">${esc(x.nome || '(a Apple não informou o nome)')}</b> <span style="font-size:12px;color:var(--text-muted);">· ${esc(x.email || 'sem e-mail')} · ${esc(_modQuando(x.quando))}</span></div>
+          <div style="margin-top:4px;font-size:12px;color:var(--text-muted);">${(x.motivos || []).map(m => esc(DUP_MOT[m] || m)).join(' · ')}</div>
+          ${(x.candidatos || []).map(c => `<div style="margin-top:4px;font-size:12.5px;color:var(--text);">${c.tipo === 'aluno' ? '🎓 Aluno' : '📥 Lead'} #${c.id}: ${esc(c.nome)}${c.email ? ' (' + esc(c.email) + ')' : ''}${c.tipo === 'aluno' ? ` <a href="alunos.html?busca=${encodeURIComponent(c.nome)}" style="color:var(--brand);">abrir</a>` : ''}</div>`).join('')}
+          <div style="margin-top:10px;"><button type="button" onclick="dupResolver(${x.idalerta})" style="cursor:pointer;font-weight:700;font-size:12.5px;padding:6px 12px;border-radius:8px;border:1px solid #22c55e;background:transparent;color:#22c55e;">Marcar como resolvido</button></div>
+        </div>`).join('')}
+      </div>`;
+}
+async function dupResolver(id) {
+  try {
+    const r = await fetch(API_BASE + '/catalogo.php?action=login_alertas', { method: 'POST', headers: { 'Authorization': 'Bearer ' + _tk(), 'Content-Type': 'application/json' }, body: JSON.stringify({ idalerta: id }) });
+    if (!r.ok && r.status !== 404) throw new Error('x');
+  } catch (e) { if (typeof showToast === 'function') showToast('Não consegui concluir. Tente de novo.', 'error'); return; }
+  if (typeof showToast === 'function') showToast('Alerta resolvido.');
+  await carregarDuplicados();
+  render();
 }
 function _modQuando(q) { const m = String(q || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m ? m[3] + '/' + m[2] + ' ' + m[4] + ':' + m[5] : ''; }
 function modItemHtml(x, oculto) {
