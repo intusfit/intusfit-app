@@ -77,6 +77,8 @@ const FOTO = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP/////////
   eq('enquanto grava, ela diz que está salvando', await txt('#cle-status'), 'Salvando o seu cardio...');
   console.log('\n══ Concluir com foto: parabéns na hora, foto no registro certo ══');
   await page.evaluate((f) => { _cardioFoto = f; _renderCardioLiveFotoArea(); const s = document.getElementById('cle-rpe'); s.value = 7; s.dispatchEvent(new Event('input')); }, FOTO);
+  await page.waitForTimeout(3600);   // o servidor termina de gravar DEPOIS de a foto ser anexada (não pode apagar a foto)
+  eq('a foto anexada durante a gravação continua anexada quando o servidor responde', await page.evaluate(() => !!_cardioFoto), true);
   const t2 = Date.now();
   await page.evaluate(() => { _confirmarEsforcoCardioLive(); });
   await page.waitForSelector('#cardio-result-overlay', { timeout: 1500 });

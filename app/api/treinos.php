@@ -974,7 +974,24 @@ try {
                 }
                 $dupC = $stCd->fetch(PDO::FETCH_ASSOC);
                 if ($dupC) {
-                    echo json_encode(['idsessao' => (int)$dupC['idsessao'], 'ok' => true, 'duplicata' => true, 'pontos' => (float)$dupC['pontos'],
+                    // O reenvio pode trazer o que o aluno acrescentou depois (esforço, foto, comentário), porque o cardio ao vivo grava primeiro com o
+                    // esforço padrão e o aluno ajusta em seguida; se o primeiro envio demorou, o ajuste vai junto no reenvio e NÃO pode ser descartado.
+                    $pontosDup = (float)$dupC['pontos'];
+                    try {
+                        $sets = []; $vals = [];
+                        if ($rpe !== null) {
+                            $rpeN = max(1, min(10, $rpe));
+                            $sets[] = 'cardio_rpe = ?'; $vals[] = $rpeN;
+                            if (!(int)$dupC['nao_contar'] && $duracao_seg > 0 && !empty($b['cardio_tipo'])) { $pontosDup = _cardioPontosBase($b['cardio_tipo'], $rpeN, $duracao_seg / 60); $sets[] = 'pontos = ?'; $vals[] = $pontosDup; }
+                        }
+                        if ($foto !== null) {
+                            $sf = $pdo->prepare("SELECT (cardio_foto IS NULL OR cardio_foto = '') FROM intus_sessao WHERE idsessao = ?"); $sf->execute([(int)$dupC['idsessao']]);
+                            if ((int)$sf->fetchColumn() === 1) { $sets[] = 'cardio_foto = ?'; $vals[] = $foto; }
+                        }
+                        if (isset($b['comentario']) && trim((string)$b['comentario']) !== '') { $sets[] = 'comentario = ?'; $vals[] = mb_substr(trim((string)$b['comentario']), 0, 500); }
+                        if ($sets) { $vals[] = (int)$dupC['idsessao']; $pdo->prepare('UPDATE intus_sessao SET ' . implode(', ', $sets) . ' WHERE idsessao = ?')->execute($vals); }
+                    } catch (Throwable $e) { /* o registro já existe: só não aplica o acréscimo */ }
+                    echo json_encode(['idsessao' => (int)$dupC['idsessao'], 'ok' => true, 'duplicata' => true, 'pontos' => $pontosDup,
                         'nao_contar' => (int)$dupC['nao_contar'], 'limite_dia' => $LIMITE_CARDIO_DIA]);
                     exit;
                 }
