@@ -70,6 +70,7 @@ passo "Cardio ao vivo em andamento: o app reaberto volta para a tela do cardio" 
 passo "Cardio ao vivo: campo de distância na tela de esforço quando o GPS não mediu ou só estimou" node cardio_distancia.js
 passo "Telas cheias com o cabeçalho do app: resultado do cardio com menu, post aberto e compartilhar resultado com a logo" node cabecalho_telas.js
   passo "Meu Cardio: lista, registro em uma tela, confirmação com Corrigir e tela de parabéns" node cardio_tela.js
+  passo "Cardio ao vivo: contagem, contador do ponto extra, confirmação na hora e aviso fixo uma vez só" node cardio_aovivo_fluxo.js
   passo "Quadro de medalhas: apuração única (api.js) e aba Medalhas na Frequência e Ranking" node medalhas.js
   passo "Avaliações: arrastar fotos do computador para a caixa de fotos da nova avaliação" node avaliacoes_fotos.js
   passo "Treino: divisões ativas e inativas na mesma ficha (editor do professor e app do aluno)" node divisoes_inativas.js

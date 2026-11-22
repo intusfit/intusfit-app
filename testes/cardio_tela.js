@@ -33,6 +33,7 @@ const HIST = [{ idsessao: 11, dtsessao: hoje, duracao_seg: 2400, pontos: 6, card
   await page.goto('http://127.0.0.1:8111/aluno.html', { waitUntil: 'domcontentloaded' });
   for (let i = 0; i < 80; i++) { if (await page.evaluate(() => typeof renderHome === 'function' && !!document.getElementById('h-dir')).catch(() => false)) break; await page.waitForTimeout(250); }
   await page.waitForTimeout(500);
+  await page.evaluate(() => { window.__contagemReal = _cardioLiveContagem; _cardioLiveContagem = function (cb) { cb(); }; });   // os testes de rastreio não esperam os 3 s da contagem (ela tem teste próprio no fim)
 
   const tela = () => page.evaluate(() => ({ view: window._viewAtual, pilha: _cardioUi.pilha.slice(), titulo: (document.querySelector('#v-cardio .th-titulo') || {}).innerText || '', txt: document.getElementById('v-cardio').innerText }));
   const ir = async (js) => { await page.evaluate(js); await page.waitForTimeout(250); };

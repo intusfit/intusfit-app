@@ -1103,6 +1103,13 @@
     .cl-pulse-ring:nth-child(2) { animation-delay: .8s; }
     .cl-pulse-ring:nth-child(3) { animation-delay: 1.6s; }
     @keyframes clPulseRing { 0% { width: 34px; height: 34px; opacity: .85; } 100% { width: 150px; height: 150px; opacity: 0; } }
+    .cl-emoji-vivo { display: inline-block; animation: clEmojiVivo 1.05s ease-in-out infinite; transform-origin: 50% 80%; }
+    @keyframes clEmojiVivo { 0% { transform: translateY(0) rotate(-6deg) scale(1); } 50% { transform: translateY(-4px) rotate(6deg) scale(1.12); } 100% { transform: translateY(0) rotate(-6deg) scale(1); } }
+    #cl-contagem { position: fixed; inset: 0; z-index: 100001; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(8,8,8,.92); color: #fff; }
+    #cl-contagem .cc-t { font-size: 15px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; opacity: .8; margin-bottom: 8px; }
+    #cl-contagem .cc-n { font-size: 150px; font-weight: 900; line-height: 1; animation: clContagemPop .9s ease-out both; }
+    @keyframes clContagemPop { 0% { transform: scale(.4); opacity: 0; } 25% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); opacity: .9; } }
+    @media (prefers-reduced-motion: reduce) { .cl-emoji-vivo, #cl-contagem .cc-n { animation: none; } }
     .cl-pulse-emoji { font-size: 36px; z-index: 1; animation: clPulseBob 1s ease-in-out infinite alternate; filter: drop-shadow(0 2px 4px rgba(0,0,0,.25)); }
     @keyframes clPulseBob { from { transform: translateY(0); } to { transform: translateY(-7px); } }
     @media (prefers-reduced-motion: reduce) { .cl-pulse-ring, .cl-pulse-emoji { animation: none; } }
@@ -12242,7 +12249,7 @@ function _cardioRenderHome(box) {
       ${novoHtml}
       <div style="font-size:16px;font-weight:900;color:${P.txt};margin:0 2px 10px;">O que você quer fazer?</div>
       <div style="display:flex;flex-direction:column;gap:14px;">
-        ${linha('abrirCardioLive()', 'linear-gradient(135deg,#7FFF00,#40c000)', '📍', 'Cardio ao vivo', (_cardioLiveInicioMs ? '▶ Você tem um cardio ao vivo em andamento. Toque para voltar.' : 'Cronômetro e GPS na hora. Cada hora ao vivo na semana vale +1 ponto extra'), true)}
+        ${linha('abrirCardioLive()', 'linear-gradient(135deg,#7FFF00,#40c000)', (_cardioLiveInicioMs ? '<span class="cl-emoji-vivo">' + _clIcone(_cardioLiveTipo) + '</span>' : '📍'), 'Cardio ao vivo', (_cardioLiveInicioMs ? '▶ Em andamento · <b id="cm-live-tempo">' + _fmtCronometro(_cardioLiveTempoMs()) + '</b>. Toque para voltar.<br><span id="cm-extra" style="font-size:11.5px;">' + _cardioExtraTxt() + '</span>' : 'Cronômetro e GPS na hora. Cada hora ao vivo na semana vale +1 ponto extra.<br><span id="cm-extra" style="font-size:11.5px;">' + _cardioExtraTxt() + '</span>'), true)}
         ${linha('cardioAbrirForm()', 'linear-gradient(135deg,#06b6d4,#0ea5e9)', '✍️', 'Registrar manualmente', 'Já fez o cardio? Anote aqui, é rápido')}
         ${linha('abrirProgramasCardio()', 'linear-gradient(135deg,#f97316,#ef4444)', '🔥', 'Programas guiados', emProg ? '▶ Você tem um programa em andamento. Toque para voltar.' : 'HIIT, Tabata, 12-5-30 e outros, passo a passo. Dão distintivos e +1 ponto por dia')}
         ${linha("cardioTela('hist')", 'linear-gradient(135deg,#818cf8,#6366f1)', '📋', 'Histórico', nHist ? nHist + (nHist === 1 ? ' cardio registrado' : ' cardios registrados') : 'Confira o que você já registrou')}
@@ -12871,7 +12878,7 @@ async function salvarCardio(opts) {
   // "Registros finalizados aguardando o servidor"). O servidor é a fonte da verdade sobre pontos e limite do dia.
   const item = _cardioFilaAdd(payload);
   _cardioSalvando = true;
-  _busyMostrar('Salvando o seu cardio...', null, 'Estamos calculando seus pontos. Não feche o app.');
+  if (!opts.silencioso) _busyMostrar('Salvando o seu cardio...', null, 'Estamos calculando seus pontos. Não feche o app.');   // cardio ao vivo: a tela de confirmação já está aberta, o salvamento corre por trás
   var idsessaoSalvo = null, guardado = false;
   try {
     const res = await _cardioEnviarItem(item, 2);
@@ -13499,7 +13506,12 @@ function _statusHora(ms) { const d = new Date(ms || Date.now()); return String(d
 async function statusAtivoMostrar(chave, titulo, corpo) {
   try {
     if (_statusAtivo.chave === chave) return;
+    // Mesmo aviso pedido duas vezes em seguida (início do treino chamado por dois caminhos): mostra uma vez só.
+    const _agora = Date.now();
+    if (_statusAtivo.ultimo && _statusAtivo.ultimo.chave === chave && _statusAtivo.ultimo.corpo === corpo && _agora - _statusAtivo.ultimo.em < 60000) { _statusAtivo.chave = chave; return; }
+    _statusAtivo.ultimo = { chave: chave, corpo: corpo, em: _agora };
     _statusAtivo.chave = chave;
+    try { if (_statusAtivo.cancelP) await _statusAtivo.cancelP; } catch (e) {}   // um aviso que está sendo fechado agora não pode fechar o novo
     const LN = _progLN();
     if (LN) {
       try { const perm = await LN.checkPermissions(); if (perm && perm.display !== 'granted') { const r = await LN.requestPermissions(); if (!r || r.display !== 'granted') return; } } catch (e) {}
@@ -13515,12 +13527,12 @@ async function statusAtivoMostrar(chave, titulo, corpo) {
 function _statusAtivoCancelar() {
   try {
     const LN = _progLN(); if (LN) { try { LN.cancel({ notifications: [{ id: _STATUS_ID }] }); } catch (e) {} }
-    if (navigator.serviceWorker && navigator.serviceWorker.ready) navigator.serviceWorker.ready.then(r => r.getNotifications({ tag: 'intus-ativo' }).then(l => l.forEach(n => n.close()))).catch(() => {});
+    if (navigator.serviceWorker && navigator.serviceWorker.ready) _statusAtivo.cancelP = navigator.serviceWorker.ready.then(r => r.getNotifications({ tag: 'intus-ativo' }).then(l => l.forEach(n => n.close()))).catch(() => {});
   } catch (e) {}
 }
 function statusAtivoParar(chave) {
   if (chave && _statusAtivo.chave && _statusAtivo.chave !== chave) return;   // outro aviso está valendo (programa x treino)
-  _statusAtivo.chave = '';
+  _statusAtivo.chave = ''; _statusAtivo.ultimo = null;
   _statusAtivoCancelar();
 }
 // Se o app foi fechado no meio de um treino, o aviso poderia ficar na barra para sempre: ao abrir, apaga o que não tem treino ou programa por trás.
@@ -14229,7 +14241,27 @@ function _cardioLiveSegmentos() {
   return segs;
 }
 
-function _cardioLiveIniciarRastreio(semPerguntar) {
+// Contagem regressiva (3, 2, 1, Vai) antes de o cardio ao vivo começar de verdade: o cronômetro só corre depois dela.
+function _cardioLiveContagem(depois) {
+  if (document.getElementById('cl-contagem')) return;
+  const ov = document.createElement('div');
+  ov.id = 'cl-contagem'; ov.setAttribute('role', 'status'); ov.setAttribute('aria-live', 'assertive');
+  ov.innerHTML = '<div class="cc-t">Seu cardio está começando</div><div class="cc-n" id="cc-n">3</div>';
+  document.body.appendChild(ov);
+  let n = 3;
+  const bip = function (alto) { try { if (navigator.vibrate) navigator.vibrate(alto ? 180 : 60); } catch (e) {} };
+  bip(false);
+  const t = setInterval(function () {
+    n--;
+    const el = document.getElementById('cc-n');
+    if (n > 0) { if (el) { el.textContent = String(n); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; } bip(false); return; }
+    clearInterval(t);
+    if (el) { el.textContent = 'Vai!'; el.style.fontSize = '110px'; el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; }
+    bip(true);
+    setTimeout(function () { ov.remove(); depois(); }, 650);
+  }, 1000);
+}
+function _cardioLiveIniciarRastreio(semPerguntar, contagemFeita) {
   // Mesma trava do lado do treino (ver selecionarTreino): os dois não podem
   // rodar ao mesmo tempo.
   if (!_cardioLiveInicioMs && _bloqueioCardioPorTreino('um cardio ao vivo')) return;
@@ -14242,6 +14274,7 @@ function _cardioLiveIniciarRastreio(semPerguntar) {
   if (usaGps && !_cardioLivePlugin() && !navigator.geolocation) { toast('Seu navegador não tem GPS disponível.'); return; }
   // App das lojas: antes da primeira permissão, o aviso em destaque sobre a localização com a tela apagada.
   if (usaGps && !semPerguntar && _cardioLivePlugin() && !_cardioLiveBgEstado()) { _cardioLiveBgAviso(function () { _cardioLiveIniciarRastreio(); }); return; }
+  if (!_cardioLiveInicioMs && !contagemFeita) { _cardioLiveContagem(function () { _cardioLiveIniciarRastreio(semPerguntar, true); }); return; }
   if (!_cardioLiveInicioMs) _cardioLiveInicioMs = Date.now();
   _cardioLiveRodando = true;
   // Escada/Elíptico/Pular Corda são feitos parado — sem GPS pra pedir, só o
@@ -14479,7 +14512,23 @@ function _atualizarRotaCardioLive() {
   else _desenharRotaCardioLive();
 }
 
+// Ponto extra do cardio ao vivo: 1 ponto por hora ao vivo somada na semana (domingo a sábado). A regra é de API.segAoVivoParaPontos; aqui só se calcula
+// quanto falta para a PRÓXIMA hora cheia, também para quem já tem pontos extras na semana.
+function _cardioExtraInfo() {
+  const sem0 = API.nutri.addDias(dataHojeLocal(), -new Date().getDay());
+  let seg = (_cardioHistorico || []).filter(c => String(c.dtsessao).slice(0, 10) >= sem0 && Number(c.nao_contar) !== 1 && Number(c.ao_vivo) === 1).reduce((a, c) => a + (Number(c.duracao_seg) || 0), 0);
+  if (_cardioLiveInicioMs) seg += Math.round(_cardioLiveTempoMs() / 1000);
+  const min = Math.floor(seg / 60), pts = Math.floor(seg / 3600), falta = 60 - (min % 60);
+  return { min: min, pts: pts, falta: falta };
+}
+function _cardioExtraTxt() {
+  const e = _cardioExtraInfo();
+  return '⭐ Faltam <span style="font-weight:800;">' + e.falta + ' min</span> de cardio ao vivo para o próximo ponto extra' + (e.pts > 0 ? ' (você já tem +' + e.pts + ' na semana)' : '') + '. Na semana: ' + e.min + ' min ao vivo.';
+}
 function _atualizarStatsCardioLive() {
+  const _ex = document.getElementById('cl-extra'); if (_ex) _ex.innerHTML = _cardioExtraTxt();
+  const _mt = document.getElementById('cm-live-tempo'); if (_mt) _mt.textContent = _fmtCronometro(_cardioLiveTempoMs());
+  const _me = document.getElementById('cm-extra'); if (_me) _me.innerHTML = _cardioExtraTxt();
   // Atualiza os dois lugares onde a estatística pode estar visível — a tela
   // cheia (se o aluno estiver nela) e a pilula flutuante (se ele tiver
   // navegado pra outro lugar) — sem depender de saber qual das duas é a
@@ -14573,10 +14622,21 @@ function _cardioLiveFinalizar() {
   trocarView('cardio');
   _cardioForm = { tipo: tipo, outro: '', min: min ? String(min) : '', dist: distKm > 0 ? distKm.toFixed(2) : '' };
   _cardioRpe = 5;
+  // A tela de confirmação abre NA HORA (antes só abria depois de o servidor responder, e o aluno ficava alguns segundos olhando a tela de Cardio).
+  // O salvamento corre por trás e preenche os dados quando termina; quem tocar em Concluir antes disso espera por ele (dados._salvoP).
+  let _resolverSalvo = null;
+  const _dadosTela = { tipo: tipo, min: min, distKm: distKm, pontos: pontos, distDescartada: distDescartada, distEstimada: distEstimada, parado: eraParado, salvando: true, pendente: false, motivo: null, rpe: 5 };
+  _dadosTela._salvoP = new Promise(function (res) { _resolverSalvo = res; });
+  _renderTelaEsforcoCardioLive(_dadosTela);
   salvarCardio({
     silencioso: true,
     aoVivo: true,
-    onDone: function (dados) { _renderTelaEsforcoCardioLive({ ...dados, distKm: distKm, pontos: pontos, distDescartada: distDescartada, distEstimada: distEstimada, parado: eraParado }); },
+    onDone: function (dados) {
+      Object.assign(_dadosTela, dados, { salvando: false });
+      if (_resolverSalvo) _resolverSalvo();
+      const st = document.getElementById('cle-status');
+      if (st && window._cardioEsforcoDados === _dadosTela) st.textContent = _dadosTela.pendente ? 'Guardado neste aparelho, o envio é automático quando a conexão voltar' : 'Já está salvo. Falta só confirmar o esforço';
+    },
   });
 }
 
@@ -14677,7 +14737,7 @@ function _renderTelaEsforcoCardioLive(dados) {
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-size:36px;margin-bottom:6px;">✅</div>
         <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio registrado!</div>
-        <div style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">${dados.pendente ? 'Guardado neste aparelho, o envio é automático quando a conexão voltar' : 'Já está salvo. Falta só confirmar o esforço'}</div>
+        <div id="cle-status" style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">${dados.salvando ? 'Salvando o seu cardio...' : (dados.pendente ? 'Guardado neste aparelho, o envio é automático quando a conexão voltar' : 'Já está salvo. Falta só confirmar o esforço')}</div>
       </div>
       ${temRota ? `<div id="cle-mapa" style="width:100%;height:150px;border-radius:12px;overflow:hidden;isolation:isolate;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;margin-bottom:18px;">
@@ -14827,6 +14887,7 @@ async function _salvarEsforcoCardioLive() {
   // O texto automático leva o esforço ("esforço 6/10") e é o que o ranking mostra aos outros alunos: sempre refeito com o esforço novo, com ou sem nota
   // (antes só era regravado quando havia nota, e o ranking continuava mostrando o 5 padrão do salvamento silencioso).
   const comentario = dados.tipo + ' · esforço ' + novoRpe + '/10 · ' + dados.min + 'min' + extraAuto + (nota ? ' || ' + nota : '');
+  if (dados._salvoP && !dados.idsessao && !dados.uid) await dados._salvoP;   // o cardio ainda está sendo gravado: espera, para ajustar o MESMO registro
   let idsessao = dados.idsessao || (dados.uid && _cardioUidParaId[dados.uid]) || null;
   if (!idsessao && dados.uid) {
     const ok = _cardioFilaAtualizar(dados.uid, Object.assign({ cardio_rpe: novoRpe, cardio_intensidade: rpeIntensidade(novoRpe), pontos: dados.motivo ? 0 : calcCardioPoints(dados.tipo, novoRpe, dados.min) }, foto ? { cardio_foto: foto } : {}, comentario ? { comentario: comentario } : {}));
@@ -14856,10 +14917,17 @@ async function _confirmarEsforcoCardioLive() {
   const dados = window._cardioEsforcoDados;
   const _dl = dados ? _cleDistLer(dados) : { ok: true };
   if (!_dl.ok) { toast(_dl.txt, 5000); try { document.getElementById('cle-dist').focus(); } catch (e) {} return; }   // distância com erro: a tela não fecha
+  const _slc = document.getElementById('cle-rpe');
+  const rpeEscolhido = _slc ? parseInt(_slc.value) || 5 : 5;
   const gravando = _salvarEsforcoCardioLive();   // lê a tela agora
   _cardioEsforcoFecharMapa();
   document.getElementById('cardio-esforco-overlay')?.remove();
-  const rpe = await gravando;
+  // A confirmação com os pontos aparece NA HORA, com o esforço escolhido. Gravar o esforço e a foto (que pode demorar alguns segundos) corre por trás.
+  const rpe = rpeEscolhido;
+  gravando.then(function (rpeGravado) {
+    if (rpeGravado !== rpeEscolhido) toast('Não consegui gravar o esforço escolhido agora. Ficou o padrão (5), dá para ajustar pelo histórico.', 5000);
+    try { if (window._viewAtual === 'cardio') renderCardio(); } catch (e) {}
+  }).catch(function () {});
   renderCardio();
   // Confirmação final, a mesma do cardio manual (pontos, limite do dia, aviso de valor fora do normal, compartilhar). Antes o
   // "Concluir" fechava a tela sem dizer nada e a comemoração de conquistas nunca rodava para o cardio ao vivo.
@@ -14947,6 +15015,7 @@ function _renderCardioLive() {
   box.innerHTML = !iniciado
     ? telaHeader('📍 Cardio ao vivo', 'cardio') +
       '<div class="cl-glow-bg cl-pre">' +
+        '<div id="cl-extra" style="text-align:center;font-size:12px;line-height:1.4;font-weight:700;color:#888;margin:0 6px 12px;">' + _cardioExtraTxt() + '</div>' +
         '<div style="margin-bottom:12px;">' + _cardioSeletorAtivHtml({ onclick: '_cardioLiveEscolherTipo(this.dataset.k)', sel: _cardioLiveTipo, off: iniciado, fade: document.body.classList.contains('tema-claro') ? '#fafafa' : '#0d0d0d' }) + '</div>' +
         outroHtml +
         paradoToggleHtml +
@@ -14966,7 +15035,8 @@ function _renderCardioLive() {
         // Qual atividade está rolando — antes só aparecia nas sem GPS
         // (Escada/Elíptico); corrida/caminhada/bike ficavam sem nenhuma
         // indicação disso durante o rastreio.
-        '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.65);margin-bottom:4px;">' + _clIcone(_cardioLiveTipo) + ' ' + esc(_ativRotulo(_cardioLiveTipo)) + '</div>' +
+        '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.65);margin-bottom:4px;"><span class="cl-emoji-vivo">' + _clIcone(_cardioLiveTipo) + '</span> ' + esc(_ativRotulo(_cardioLiveTipo)) + '</div>' +
+        '<div id="cl-extra" style="text-align:center;font-size:11.5px;line-height:1.4;font-weight:700;color:rgba(10,10,10,.72);margin:0 6px 8px;">' + _cardioExtraTxt() + '</div>' +
         (_cardioLiveRodando ? '' : '<div style="text-align:center;margin:-2px 0 12px;"><span class="cd-selo-pausa">⏸ PAUSADO</span></div>') +
         ((usaGps && !_cardioLiveNativoOk) ? '<div style="font-size:11px;line-height:1.35;color:rgba(10,10,10,.72);text-align:center;margin:0 4px 8px;">Mantenha esta tela aberta: se ela apagar, a distância desse trecho será estimada pelo seu ritmo.</div>' : '') +
         (usaGps ? '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
