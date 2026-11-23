@@ -8,7 +8,13 @@ require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardad
 // tipo "Web application", origem autorizada https://intusfit.com.br), este
 // placeholder faz a checagem sempre falhar — login social fecha em erro
 // controlado, nunca aberto por engano.
-define('INTUS_GOOGLE_CLIENT_ID', 'SUBSTITUA_PELO_CLIENT_ID_DO_GOOGLE');
+define('INTUS_GOOGLE_CLIENT_ID', '534896999126-t26d59th1pijaah3d8ta0qh15i4nelp7.apps.googleusercontent.com');   // cliente Web (site)
+// IDs aceitos no "aud" do token: o Web (site) e, quando o app do iPhone passar a usar o login nativo do Google, o cliente iOS
+// (Google Cloud Console > projeto intus-fit > Clientes). Acrescentar o ID do iOS aqui; sem ele o app nativo seria recusado.
+define('INTUS_GOOGLE_CLIENT_IDS', [INTUS_GOOGLE_CLIENT_ID]);
+// App ID do Facebook (NÃO é segredo). Enquanto for o placeholder, o login com Facebook fecha em erro controlado (503).
+// O servidor confere que o token foi emitido para ESTE app (senão um token do mesmo usuário em outro app serviria).
+define('INTUS_FACEBOOK_APP_ID', 'SUBSTITUA_PELO_APP_ID_DO_FACEBOOK');
 
 // ── DETALHE DE ERRO NAO VAI PARA O CLIENTE ─────────────────────────────────
 // As respostas devolviam $e->getMessage() direto. Em falha de conexao isso
@@ -679,13 +685,13 @@ try {
             echo json_encode(['ok' => false, 'erro' => 'token do Google invalido ou expirado']);
             exit;
         }
-        if (INTUS_GOOGLE_CLIENT_ID === 'SUBSTITUA_PELO_CLIENT_ID_DO_GOOGLE') {
+        if (strpos(INTUS_GOOGLE_CLIENT_ID, 'SUBSTITUA') === 0) {
             @error_log('[intus oauth] INTUS_GOOGLE_CLIENT_ID ainda nao foi configurado em aluno_login.php');
             http_response_code(503);
             echo json_encode(['ok' => false, 'erro' => 'login com Google ainda nao configurado']);
             exit;
         }
-        if (($info['aud'] ?? '') !== INTUS_GOOGLE_CLIENT_ID) {
+        if (!in_array((string)($info['aud'] ?? ''), INTUS_GOOGLE_CLIENT_IDS, true)) {
             http_response_code(401);
             echo json_encode(['ok' => false, 'erro' => 'token nao pertence a este app']);
             exit;
@@ -714,6 +720,26 @@ try {
         if (!is_array($info) || empty($info['email'])) {
             http_response_code(401);
             echo json_encode(['ok' => false, 'erro' => 'token do Facebook invalido ou sem e-mail autorizado']);
+            exit;
+        }
+
+        // De qual app é o token? /app devolve o id do app que emitiu o token (não precisa do segredo do app). Sem esta conferência,
+        // um token do mesmo usuário obtido por OUTRO app (de um terceiro) autenticaria aqui.
+        if (strpos(INTUS_FACEBOOK_APP_ID, 'SUBSTITUA') === 0) {
+            @error_log('[intus oauth] INTUS_FACEBOOK_APP_ID ainda nao foi configurado em aluno_login.php');
+            http_response_code(503);
+            echo json_encode(['ok' => false, 'erro' => 'login com Facebook ainda nao configurado']);
+            exit;
+        }
+        $appInfo = null;
+        try {
+            $ctx2 = stream_context_create(['http' => ['timeout' => 8]]);
+            $r2 = @file_get_contents('https://graph.facebook.com/app?fields=id&access_token=' . urlencode($accessToken), false, $ctx2);
+            $appInfo = $r2 ? json_decode($r2, true) : null;
+        } catch (Throwable $e) { $appInfo = null; }
+        if (!is_array($appInfo) || (string)($appInfo['id'] ?? '') !== INTUS_FACEBOOK_APP_ID) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'erro' => 'token nao pertence a este app']);
             exit;
         }
 
