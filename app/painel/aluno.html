@@ -3785,9 +3785,31 @@ function _midiasDoPost(post) {
   // Vídeo sem miniatura própria usa a capa do post: nunca fica uma tela preta carregando.
   return m.length ? m.map(x => (x.tipo === 'video' && !x.poster && post.imagem) ? Object.assign({}, x, { poster: post.imagem }) : x) : [{ tipo: 'imagem', url: post && post.imagem, poster: null }];
 }
+// App das lojas: o servidor guarda as fotos do feed como caminho RELATIVO (/app/img/feed/...). No WebView do app a página é capacitor://localhost,
+// então esse caminho apontava para dentro do aplicativo e a imagem aparecia quebrada. Aqui vira o endereço do site; na web nada muda.
+function _origemDoSite() { try { return new URL(window.INTUS_API_BASE || '').origin; } catch (e) { return 'https://intusfit.com.br'; } }
+function _urlAbs(u) {
+  u = String(u == null ? '' : u);
+  return (window.INTUS_NATIVE_APP && u.charAt(0) === '/' && u.charAt(1) !== '/') ? _origemDoSite() + u : u;
+}
+// Rede de segurança: qualquer <img> (ou capa de vídeo) do app que falhe por apontar para /app/... dentro do aplicativo é tentada uma vez no site.
+if (window.INTUS_NATIVE_APP) {
+  document.addEventListener('error', function (ev) {
+    const el = ev.target;
+    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO') || el.__tentouSite) return;
+    const bruto = el.tagName === 'VIDEO' ? el.getAttribute('poster') : el.getAttribute('src');
+    if (!bruto) return;
+    let u; try { u = new URL(bruto, location.href); } catch (e) { return; }
+    if (u.origin === _origemDoSite() || u.pathname.indexOf('/app/') !== 0) return;
+    el.__tentouSite = true;
+    const novo = _origemDoSite() + u.pathname + u.search;
+    if (el.tagName === 'VIDEO') el.setAttribute('poster', novo); else el.src = novo;
+  }, true);
+}
 function _midiaItemHtml(m) {
   if (m.tipo === 'video') {
     // O <video> não manda Authorization: a URL leva o token público do vídeo.
+    m = Object.assign({}, m, { url: _urlAbs(m.url), poster: m.poster ? _urlAbs(m.poster) : m.poster });
     const src = m.token ? API_BASE + '/midia.php?action=video&t=' + encodeURIComponent(m.token) : m.url;
     // A miniatura fica de fundo da caixa (e como poster): enquanto o vídeo carrega, ou se o
     // navegador some com o poster ao dar play, ela continua aparecendo, com um "carregando" por cima.
@@ -3797,7 +3819,7 @@ function _midiaItemHtml(m) {
       '<div class="vspin" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;pointer-events:none;"><span style="width:38px;height:38px;border-radius:50%;border:4px solid rgba(255,255,255,.35);border-top-color:#7FFF00;animation:busyGira .9s linear infinite;box-shadow:0 0 8px rgba(0,0,0,.5);"></span></div>' +
     '</div>';
   }
-  return '<img src="' + esc(m.url) + '" style="width:100%;display:block;" loading="lazy"/>';
+  return '<img src="' + esc(_urlAbs(m.url)) + '" style="width:100%;display:block;" loading="lazy"/>';
 }
 function _vSpin(v, on) {
   const sp = v.parentElement && v.parentElement.querySelector('.vspin');
