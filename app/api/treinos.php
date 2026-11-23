@@ -847,7 +847,7 @@ try {
             ]);
             $id = (int)$pdo->lastInsertId();
             if ($_ehAlunoTr) { require_once __DIR__ . '/_acesso.php'; intusRegistrarAcesso($pdo, 'aluno', (int)$idat, '', 'treino', $id); }   // horário e local do registro (só quando é o próprio aluno)
-            // Treino fora do protocolo com @menção de outro aluno ("treinei com a Isabela"): quem foi marcado recebe um aviso. O token vem do app e
+            // Treino fora do protocolo com @menção de outro aluno ("treinei com a Fulana"): quem foi marcado recebe um aviso. O token vem do app e
             // cada pessoa é conferida aqui (existe, está no Feed, sem bloqueio entre os dois); no máximo 4. Falha em avisar nunca derruba o registro.
             if ($_ehAlunoTr && strtoupper((string)$divisao) === 'FORA' && !empty($b['mencoes']) && is_string($b['mencoes'])) {
                 try {
@@ -1107,7 +1107,6 @@ try {
         // texto for corrigido a condicao para de bater e isto vira no-op.
         try {
             $pdo->exec("UPDATE intus_ranking_comentario SET texto = 'Quero ver quem vai ficar no Top 5 esse mês 🔥🔥🔥' WHERE nome_atleta = 'Luiz Nunes (aluno)' AND texto = 'Quero ver quem vai ficar no Top 5 esse mês ???'");
-            $pdo->exec("UPDATE intus_ranking_comentario SET texto = 'Treino rendeu hoje 🔥🔥🔥🔥' WHERE nome_atleta = 'Isabela Pazzinatto' AND texto = 'Treino rendeu hoje ????'");
         } catch (Throwable $e) { @error_log('[intus mural fix] ' . $e->getMessage()); }
 
         if ($method === 'GET') {

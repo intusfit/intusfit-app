@@ -223,7 +223,7 @@ console.log('\n── Não muda o que já funcionava ──');
   eq('plano sem parcela no nome agrupa como antes', API.chaveMatricula({ idmensalidade: 1, idatleta: 7, dshistorico: 'Mensal Treino' }, null), '7|mensal treino');
 }
 
-console.log('\n── Cobrança de parcela com data combinada (caso da Ana Luisa, 10/11/2026) ──');
+console.log('\n── Cobrança de parcela com data combinada (caso de uma aluna, 10/11/2026) ──');
 {
   const API = carregar({ hoje: '2026-11-10' });
   const p1 = { idmensalidade: 1, idatleta: 7, tipo_plano: 'Treino', dshistorico: 'Trimestral (1/2)', dtinicio: '2026-10-05', dtvencimento: '2026-11-05', stpgto: 'S', dtpagamento: '2026-10-05', vlpagar: 700, vldesconto: 0, stmatricula: 'ativa', parcela_num: 1, parcela_total: 2 };

@@ -21,7 +21,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   });
   await page.route(/\/app\/api\/catalogo\.php.*action=(amizades|parcerias|turmas|desafios_aluno|pessoas_mencionaveis)/, route => {
     const a = (route.request().url().match(/action=(\w+)/) || [])[1];
-    if (a === 'pessoas_mencionaveis') { S.buscas++; return route.fulfill({ status: S.listaOk ? 200 : 500, contentType: 'application/json', body: JSON.stringify({ pessoas: S.listaVazia ? [] : [{ tipo: 'aluno', id: 42, nome: 'Isabela Pazzinatto', desde: '' }] }) }); }
+    if (a === 'pessoas_mencionaveis') { S.buscas++; return route.fulfill({ status: S.listaOk ? 200 : 500, contentType: 'application/json', body: JSON.stringify({ pessoas: S.listaVazia ? [] : [{ tipo: 'aluno', id: 42, nome: 'Fulana Exemplo', desde: '' }] }) }); }
     const corpo = a === 'amizades' ? { amigos: S.amigos, recebidos: [], enviados: S.enviados, pessoas: {} } : (a === 'parcerias' ? { parceiros: [], recebidos: [], enviados: [], limite: 30, pessoas: {} } : { pessoas: {} });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(corpo) });
   });
@@ -34,7 +34,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   const preparar = async (texto, escolher) => {
     await page.evaluate(() => {
       document.getElementById('fp-sheet')?.remove(); document.getElementById('fp-ok')?.remove(); document.getElementById('feed-compose-overlay')?.remove();
-      _mencoesPessoas = [{ id: 42, nome: 'Isabela Pazzinatto', tipo: 'aluno', desde: '' }, { id: 7, nome: 'Aluna Teste', tipo: 'aluno', desde: '' }]; _mencoesPessoasTs = Date.now(); _mencoesRecalcularRepetidos();
+      _mencoesPessoas = [{ id: 42, nome: 'Fulana Exemplo', tipo: 'aluno', desde: '' }, { id: 7, nome: 'Aluna Teste', tipo: 'aluno', desde: '' }]; _mencoesPessoasTs = Date.now(); _mencoesRecalcularRepetidos();
       _conexoesOn = true; _amzDados = { amigos: [], recebidos: [], enviados: [], pessoas: {} };
       localStorage.removeItem('intus-sessoes-treino');
       _mencoesFechar(); abrirTreinoForaProtocolo();
@@ -51,8 +51,8 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   });
 
   console.log('\n══ O campo oferece os alunos ao digitar @ ══');
-  await preparar('@isa');
-  ver('aparece a lista com a Isabela', await page.evaluate(() => !!document.getElementById('mencao-dd') && /Isabela Pazzinatto/.test(document.getElementById('mencao-dd').textContent)));
+  await preparar('@ful');
+  ver('aparece a lista com a Fulana', await page.evaluate(() => !!document.getElementById('mencao-dd') && /Fulana Exemplo/.test(document.getElementById('mencao-dd').textContent)));
   // regressão real (iPhone, 20/10): a lista flutuante ficava atrás da folha / saía da tela com o teclado e não dava para tocar nela.
   // Agora ela é parte da própria folha, logo abaixo do campo.
   const vis = await page.evaluate(() => { const d = document.getElementById('mencao-dd'), r = d.getBoundingClientRect(), t = document.elementFromPoint(r.left + r.width / 2, r.top + 14), campo = document.getElementById('fp-desc').getBoundingClientRect(); return { dentro: !!t && d.contains(t), naCaixa: !!d.closest('#fp-mencao-box'), abaixoDoCampo: r.top >= campo.bottom - 1, noEcra: r.bottom <= innerHeight && r.top >= 0 }; });
@@ -63,15 +63,15 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   ver('a rolagem do teclado NÃO fecha a lista', await page.evaluate(() => !!document.getElementById('mencao-dd')));
   eq('o próprio aluno não é sugerido? (a lista do app já o exclui no servidor; aqui só confere que a escolha funciona)', await page.evaluate(() => !!_mencoesCtx), true);
   await page.evaluate(() => _mencoesEscolher(0));
-  eq('o campo fica com "@Isabela Pazzinatto "', await page.$eval('#fp-desc', e => e.value), '@Isabela Pazzinatto ');
+  eq('o campo fica com "@Fulana Exemplo "', await page.$eval('#fp-desc', e => e.value), '@Fulana Exemplo ');
   await preencher();
 
   console.log('\n══ O que vai no registro ══');
   const m = await page.evaluate(() => _fpMontar());
   ver('sem erro de validação', !m.erro, m.erro);
-  eq('o comentário leva só o nome, sem código nem @', m.sessao.comentario, 'Fora do protocolo (treino com outra pessoa): Isabela Pazzinatto');
-  eq('a marcação vai à parte, para o servidor avisar', m.sessao.mencoes, '@[Isabela Pazzinatto]{aluno:42}');
-  eq('o resumo sabe quem foi marcado', m.resumo.marcados, [{ id: 42, nome: 'Isabela Pazzinatto' }]);
+  eq('o comentário leva só o nome, sem código nem @', m.sessao.comentario, 'Fora do protocolo (treino com outra pessoa): Fulana Exemplo');
+  eq('a marcação vai à parte, para o servidor avisar', m.sessao.mencoes, '@[Fulana Exemplo]{aluno:42}');
+  eq('o resumo sabe quem foi marcado', m.resumo.marcados, [{ id: 42, nome: 'Fulana Exemplo' }]);
   eq('divisão FORA e 5 pontos continuam', m.sessao.divisao, 'FORA');
 
   console.log('\n══ Nome digitado à mão (quem não é aluno) ══');
@@ -86,23 +86,23 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
 
   console.log('\n══ Registrar e encaminhar ao post colaborativo (amigo) ══');
   S.amigos = [42]; S.posts = [];
-  await preparar('@isa', true); await preencher();
+  await preparar('@ful', true); await preencher();
   await page.evaluate(() => _fpSalvar());
   await page.waitForSelector('#fp-ok', { timeout: 5000 });
-  eq('enviou a marcação ao servidor', S.posts[0] && S.posts[0].mencoes, '@[Isabela Pazzinatto]{aluno:42}');
+  eq('enviou a marcação ao servidor', S.posts[0] && S.posts[0].mencoes, '@[Fulana Exemplo]{aluno:42}');
   await page.waitForFunction(() => /Postar em colaboração/.test((document.getElementById('fp-colab') || {}).textContent || ''), null, { timeout: 5000 });
   const cart = await page.$eval('#fp-colab', e => e.textContent);
-  ver('o cartão diz que a Isabela é amiga e oferece o post', /Isabela/.test(cart) && /amigo ✓/.test(cart) && /Postar em colaboração/.test(cart), cart);
+  ver('o cartão diz que a Fulana é amiga e oferece o post', /Fulana/.test(cart) && /amigo ✓/.test(cart) && /Postar em colaboração/.test(cart), cart);
   await page.evaluate(() => _fpPostarColab());
   await page.waitForTimeout(600);
   const c = await page.evaluate(() => ({ colab: _composeColab.slice(), compose: !!document.getElementById('feed-compose-overlay'), titulo: (document.getElementById('feed-compose-overlay') || {}).textContent || '', ok: !!document.getElementById('fp-ok') }));
-  eq('o compositor abre já com a Isabela convidada', c.colab, [42]);
-  ver('na tela de compartilhar treino, com o convite visível', c.compose && /Compartilhar treino/.test(c.titulo) && /Isabela/.test(c.titulo), c.titulo.replace(/\s+/g, ' ').slice(0, 600));
+  eq('o compositor abre já com a Fulana convidada', c.colab, [42]);
+  ver('na tela de compartilhar treino, com o convite visível', c.compose && /Compartilhar treino/.test(c.titulo) && /Fulana/.test(c.titulo), c.titulo.replace(/\s+/g, ' ').slice(0, 600));
   eq('a tela de sucesso fecha', c.ok, false);
 
   console.log('\n══ Marcada, mas ainda não é amiga ══');
   S.amigos = []; S.enviados = []; S.posts = [];
-  await preparar('@isa', true); await preencher();
+  await preparar('@ful', true); await preencher();
   await page.evaluate(() => { document.getElementById('feed-compose-overlay')?.remove(); _fpSalvar(); });
   await page.waitForSelector('#fp-ok');
   await page.waitForFunction(() => /amigos no app|Pedir amizade/.test((document.getElementById('fp-colab') || {}).textContent || ''), null, { timeout: 5000 });
@@ -125,25 +125,25 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   // lista vazia guardada de uma chamada anterior: busca de novo antes de dizer que não achou
   S.buscas = 0;
   await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = []; _mencoesPessoasTs = Date.now(); _mencoesFalhou = false; abrirTreinoForaProtocolo(); });
-  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@isa');
-  await page.waitForFunction(() => /Isabela/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
-  ver('lista vazia em cache: refaz a busca uma vez e acha a Isabela', S.buscas >= 1, S.buscas);
+  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@ful');
+  await page.waitForFunction(() => /Fulana/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
+  ver('lista vazia em cache: refaz a busca uma vez e acha a Fulana', S.buscas >= 1, S.buscas);
   S.listaOk = false;
   await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; _rankingData = { atletas: {}, sessoes: [], comentarios: [] }; _feedAtletasMap = {}; _amzDados = { amigos: [], recebidos: [], enviados: [], pessoas: {} }; abrirTreinoForaProtocolo(); });
-  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@isa');
+  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@ful');
   await page.waitForFunction(() => /Não consegui carregar a lista/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
   ver('lista de alunos que não carrega: diz que não conseguiu (e não fica mudo)', true);
 
   console.log('\n══ Lista do servidor vazia: usa os alunos que o app já conhece ══');
   S.listaVazia = true; S.listaOk = true;
-  await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; _rankingData = { atletas: { '42': 'Isabela Pazzinatto', '7': 'Aluna Teste' }, sessoes: [], comentarios: [] }; abrirTreinoForaProtocolo(); });
-  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@isa');
-  await page.waitForFunction(() => /Isabela/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
-  ver('servidor devolveu lista vazia: a Isabela vem do ranking que o app já tem', true);
+  await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); _mencoesPessoas = null; _mencoesPessoasTs = 0; _mencoesFalhou = false; _rankingData = { atletas: { '42': 'Fulana Exemplo', '7': 'Aluna Teste' }, sessoes: [], comentarios: [] }; abrirTreinoForaProtocolo(); });
+  await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@ful');
+  await page.waitForFunction(() => /Fulana/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
+  ver('servidor devolveu lista vazia: a Fulana vem do ranking que o app já tem', true);
   await page.evaluate(() => _mencoesEscolher(0));
   await page.evaluate(() => { document.getElementById('fp-dur').value = '45'; document.getElementById('fp-n-0').value = 'Supino'; document.getElementById('fp-c-0-0').value = '40'; document.getElementById('fp-r-0-0').value = '10'; });
   const mm = await page.evaluate(() => _fpMontar());
-  eq('e a marcação sai igual (id e nome)', mm.resumo && mm.resumo.marcados, [{ id: 42, nome: 'Isabela Pazzinatto' }]);
+  eq('e a marcação sai igual (id e nome)', mm.resumo && mm.resumo.marcados, [{ id: 42, nome: 'Fulana Exemplo' }]);
   await page.evaluate(() => { document.getElementById('fp-sheet')?.remove(); _mencoesFechar(); abrirTreinoForaProtocolo(); });
   await page.waitForTimeout(300); await page.focus('#fp-desc'); await page.keyboard.type('@alun');
   await page.waitForFunction(() => /Nenhum aluno/.test((document.getElementById('mencao-dd') || {}).textContent || ''), null, { timeout: 4000 });
@@ -151,7 +151,7 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   S.listaVazia = false;
 
   console.log('\n══ Aviso na lista de notificações ══');
-  const l = await page.evaluate(() => _notifLinhaHtml({ idnotificacao: 5, tipo: 'mencao', alvo_tipo: 'sessao', alvo_id: 777, ator_id: 9, ator_nome: 'Maria Souza', texto: '@Isabela Pazzinatto', quando: '2026-10-20 21:00:00', lido: 0 }, false));
+  const l = await page.evaluate(() => _notifLinhaHtml({ idnotificacao: 5, tipo: 'mencao', alvo_tipo: 'sessao', alvo_id: 777, ator_id: 9, ator_nome: 'Maria Souza', texto: '@Fulana Exemplo', quando: '2026-10-20 21:00:00', lido: 0 }, false));
   ver('diz "marcou você num treino fora do protocolo"', /Maria Souza<\/b> marcou você num treino fora do protocolo/.test(l), l.slice(0, 300));
   ver('leva o id de quem marcou (abre o perfil dela)', /data-ator="9"/.test(l));
 

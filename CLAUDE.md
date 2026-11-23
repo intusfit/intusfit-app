@@ -568,7 +568,7 @@ charset — emoji de 4 bytes virava `?` ao salvar. Criado `app/api/_charset_fix.
 só faz `ALTER TABLE ... CONVERT TO utf8mb4` quando necessário — chamado em `treinos.php`,
 `catalogo.php`, `mensagens.php` e `desafios.php`. **Ao adicionar uma tabela nova de texto livre,
 chame esse helper depois do `CREATE TABLE IF NOT EXISTS`.** Dois comentários que já tinham virado
-"???" (de Luiz Nunes e Isabela Pazzinatto) foram reparados de volta pra 🔥, por texto exato, dentro
+"???" (de Luiz Nunes e I. P.) foram reparados de volta pra 🔥, por texto exato, dentro
 do próprio bootstrap de `treinos.php?action=ranking`.
 
 **Substitutos de exercício — fonte única confirmada:** `intus_exercicio.substitutos` (catálogo,
@@ -1325,8 +1325,7 @@ antigo) e a seção 8 de `testes/nutri.js` (plural, rótulo de quantidade, equiv
 
 ## 45. Anamnese: "Respondida" só com as perguntas da anamnese (13/10/2026)
 - No app do aluno, o item "Anamnese" da tela Avaliações usava `localStorage['intus-anamnese-<id>']` não vazio como "respondida", mas essa mesma cópia também guarda as seções comportamental, nutricional e rotina
-  (`_salvarSecaoAnamnese`). Quem respondeu só as seções via "Anamnese: Respondida" sem nunca ter preenchido as 16 perguntas, e o painel (que mostra o que está no servidor) exibia só Comportamental e Nutricional (caso da Ana Luisa
-  Mansour, 13/10). Agora `_anamnesePrincipalRespondida()` exige resposta de campo simples (ignora seções e chaves `_`). O painel (`avaliacoes.html`, aba Anamnese) avisa explicitamente quando só chegaram seções:
+  (`_salvarSecaoAnamnese`). Quem respondeu só as seções via "Anamnese: Respondida" sem nunca ter preenchido as 16 perguntas, e o painel (que mostra o que está no servidor) exibia só Comportamental e Nutricional (caso da A. L. M., 13/10). Agora `_anamnesePrincipalRespondida()` exige resposta de campo simples (ignora seções e chaves `_`). O painel (`avaliacoes.html`, aba Anamnese) avisa explicitamente quando só chegaram seções:
   "A anamnese principal ainda não foi respondida".
 - Se a aluna jura que respondeu a principal, a causa possível é o defeito antigo (servidor substituindo a anamnese a cada seção, corrigido em 18/08): o app recupera sozinho a cópia local com `_somente_faltantes`.
 
@@ -1830,7 +1829,7 @@ Pedido do Luiz: começar a testar as mensagens dos funis SEM sincronizar com a M
 
 ## 96. Treino fora do protocolo: marcar outro aluno e já encaminhar ao post colaborativo (20/10/2026)
 - **Pedido do Luiz**: em "Treinei com outra pessoa" dá para mencionar outro aluno, e isso já leva ao treino em colaboração.
-- **Campo "Com quem você treinou?"** (`aluno.html`, `_fpDesenhar`): usa o mesmo mecanismo de @menção do resto do app (`data-mencoes="fp"`, lista de pessoas do Feed). Digitar `@` e escolher marca o aluno; nome digitado à mão (quem não é aluno) continua valendo como texto. `_fpMontar` grava no comentário só o nome ("Fora do protocolo (treino com outra pessoa): Isabela Pazzinatto"), SEM o código `@[Nome]{aluno:id}`, para ele não aparecer cru no histórico e no painel; a marcação vai à parte em `sessao.mencoes` (até 4 pessoas, nunca o próprio aluno). Só vale no motivo "com outra pessoa".
+- **Campo "Com quem você treinou?"** (`aluno.html`, `_fpDesenhar`): usa o mesmo mecanismo de @menção do resto do app (`data-mencoes="fp"`, lista de pessoas do Feed). Digitar `@` e escolher marca o aluno; nome digitado à mão (quem não é aluno) continua valendo como texto. `_fpMontar` grava no comentário só o nome ("Fora do protocolo (treino com outra pessoa): I. P."), SEM o código `@[Nome]{aluno:id}`, para ele não aparecer cru no histórico e no painel; a marcação vai à parte em `sessao.mencoes` (até 4 pessoas, nunca o próprio aluno). Só vale no motivo "com outra pessoa".
 - **Servidor** (`treinos.php`, POST de sessão, só aluno logado e só divisão `FORA`): `_notificarMencoes` avisa cada marcado (aviso `mencao` com `alvo_tipo = 'sessao'`: "Fulano marcou você num treino fora do protocolo"; tocar abre o perfil de quem marcou). A checagem é a de sempre das menções (pessoa existe, está no Feed e não está bloqueada entre os dois). Reenvio do mesmo treino (duplicata) não avisa de novo. Falha ao avisar nunca derruba o registro.
 - **Depois de registrar** (`_fpSucesso`, `_fpColabCartao`, `_fpPostarColab`; só com as conexões ligadas): a tela de sucesso mostra "Treinou com Fulano?". Quem já é **amigo** (servidor só aceita convite de colaboração entre amigos aceitos) entra no botão "📸 Postar em colaboração", que abre o "Compartilhar treino" com os amigos marcados já convidados (`abrirCompartilharTreino(info, { colab: [ids] })`; o convite só vira colaboração quando a pessoa aceita, regra da seção 51). Quem ainda não é amigo aparece com "Pedir amizade" e o botão do post só surge quando houver ao menos um amigo marcado. Aluno só no teste grátis continua sem postar (seção 93).
 - **Testes**: `testes/fora_protocolo_colab.js` (23, Chromium: lista de @, comentário sem código, marcação à parte, amigo x não amigo, compositor abre com o convite, aviso na lista de notificações, estrutura do servidor). `sw.js` cache `intus-v40`. O app das lojas leva `aluno.html` empacotado: vale após novo envio; o aviso ao marcado (servidor) vale na hora para quem já usa a versão nova do app.

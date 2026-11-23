@@ -241,9 +241,9 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
     const infos = {
       curto: { tipo: 'treino', min: 59, sec: 3, volume: 14280, seriesFeitas: 28, seriesTotal: 28, pctCompleto: 100, nomeAluno: 'Luiz Nunes', nomeTreino: 'Ativação Metabólica 1.2' },
       longo: { tipo: 'treino', min: 124, sec: 59, volume: 128960, seriesFeitas: 128, seriesTotal: 128, pctCompleto: 100, nomeAluno: 'Maria Fernanda Albuquerque da Silva', nomeTreino: 'Treino C Posterior de coxa e glúteo com ênfase em panturrilha e abdômen completo' },
-      cardio: { tipo: 'cardio', min: 45, sec: 0, distKm: 10.52, kcal: 612, nomeAluno: 'Ana Luisa Mansour', nomeTreino: '🏃 Corrida', mensagem: 'Cardio de hoje concluído! 🏃' },
+      cardio: { tipo: 'cardio', min: 45, sec: 0, distKm: 10.52, kcal: 612, nomeAluno: 'Beltrana Exemplo', nomeTreino: '🏃 Corrida', mensagem: 'Cardio de hoje concluído! 🏃' },
       semDist: { tipo: 'cardio', min: 30, sec: 0, distKm: 0, kcal: 250, nomeAluno: 'Ana', nomeTreino: 'Programa: HIIT 1:1', mensagem: 'x' },
-      recordes: { tipo: 'treino', min: 50, sec: 0, volume: 9000, seriesFeitas: 20, seriesTotal: 24, pctCompleto: 83, nomeAluno: 'Isabela Pazzinatto', nomeTreino: 'Treino A', recordes: [{ exercicio: 'Supino reto com barra', peso: 80, reps: 6 }, { exercicio: 'Agachamento livre', peso: 120, reps: 5 }, { exercicio: 'Remada curvada', peso: 70, reps: 8 }], mensagem: 'x' },
+      recordes: { tipo: 'treino', min: 50, sec: 0, volume: 9000, seriesFeitas: 20, seriesTotal: 24, pctCompleto: 83, nomeAluno: 'Fulana Exemplo', nomeTreino: 'Treino A', recordes: [{ exercicio: 'Supino reto com barra', peso: 80, reps: 6 }, { exercicio: 'Agachamento livre', peso: 120, reps: 5 }, { exercicio: 'Remada curvada', peso: 70, reps: 8 }], mensagem: 'x' },
     };
     const figs = [{ tipo: 'img', src: 'logo-icon-dark.png' }, { tipo: 'emoji', emoji: '💪🔥', legenda: 'MODO MONSTRO', cor: '#f59e0b' }];
     const problemas = []; let n = 0;
