@@ -144,14 +144,16 @@
     }
     .social-divider::before, .social-divider::after { content: ''; flex: 1; height: 1px; background: #2a2a2a; }
     .social-login-row { display: flex; flex-direction: column; gap: 10px; }
+    /* Mesma largura, altura (48 px) e raio do botão ENTRAR: o acesso rápido ocupa a caixa de login por inteiro, sem sobrar nem faltar. */
     .social-btn {
       display: flex; align-items: center; justify-content: center; gap: 10px;
-      padding: 12px; border-radius: 10px; border: 1px solid #2a2a2a; background: #141414;
-      color: #f0f0f0; font-size: 13.5px; font-weight: 700; cursor: pointer; font-family: inherit;
+      width: 100%; min-height: 48px; padding: 0 14px; border-radius: 11px; border: 1px solid #2a2a2a; background: #141414;
+      color: #f0f0f0; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit;
       transition: background .15s;
     }
     .social-btn:hover { background: #1c1c1c; }
-    .social-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .social-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+    #google-btn-mount { width: 100%; min-height: 48px; display: flex; justify-content: center; align-items: center; }
     body.modo-professor .social-login-row, body.modo-professor .social-divider { display: none; }
     .hint { color: #666; font-size: 11px; text-align: center; margin-top: 18px; line-height: 1.45; }
 
@@ -244,7 +246,7 @@
              um botao proprio "de mentira" disparando um clique sintetico no iframe do Google
              nao e confiavel (pop-up pode ser bloqueado por nao contar como gesto real do
              usuario). Estilizado só o quanto a API do Google permite (theme/size/shape). -->
-        <div id="google-btn-mount" style="display:flex;justify-content:center;"></div>
+        <div id="google-btn-mount"></div>
         <button type="button" class="social-btn" id="btn-facebook" onclick="loginComFacebook()">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.25h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07z"/></svg>
           Continuar com Facebook
@@ -256,11 +258,11 @@
       </p>
     </div>
 
-    <div class="acesso-prof-row">
+    <div class="acesso-prof-row" id="acesso-prof-row" style="display:none;">
       <button type="button" class="acesso-prof-link" id="btn-toggle-modo">Sou professor</button>
     </div>
 
-    <p style="margin-top:18px;text-align:center;font-size:11px;color:#555;line-height:1.5;">
+    <p id="aviso-lojas" style="margin-top:18px;text-align:center;font-size:11px;color:#555;line-height:1.5;">
       Em breve teremos app disponível nas lojas.<br>Por enquanto, acesse por este link e salve na tela inicial do celular.
     </p>
   </div>
@@ -518,7 +520,10 @@
     // e o fetch estourava. O app interpretava isso como "sem internet" e caia no modo
     // local, criando conta fantasma. Relativo, a chamada usa sempre a mesma origem da
     // pagina — com ou sem www, e em qualquer dominio futuro.
-    const API_BASE = '/app/api';
+    // No app das lojas (Capacitor), intus-native-runtime.js define INTUS_API_BASE com o endereço absoluto do servidor: um
+    // caminho relativo ali apontaria para dentro do próprio aplicativo (capacitor://localhost) e todo login falharia com
+    // "Não conseguimos falar com o servidor". Na web, segue relativo.
+    const API_BASE = window.INTUS_API_BASE || '/app/api';
 
     // Popula link do WhatsApp de suporte a partir da config
     (function() {
@@ -615,6 +620,10 @@
         toggle.textContent = 'Sou professor';
         if (criar) criar.style.display = '';
       }
+      // O botão "Sou professor" não aparece na tela de cliente: o professor entra pelo link específico (?professor=1) e,
+      // nesse modo, só ele vê o "← Voltar para acesso de cliente".
+      const linhaProf = document.getElementById('acesso-prof-row');
+      if (linhaProf) linhaProf.style.display = (tipoLogin === 'professor') ? '' : 'none';
       // limpa eventuais erros ao trocar de modo
       limparErro();
     }
@@ -623,6 +632,21 @@
       tipoLogin = (tipoLogin === 'aluno') ? 'professor' : 'aluno';
       aplicarModo();
     });
+
+    // Acesso de professor só pelo link específico: login.html?professor=1 (ou #professor). No app das lojas esse modo não existe,
+    // e o aviso "acesse por este link" também some (a pessoa já está no app).
+    (function () {
+      const naLoja = !!window.INTUS_NATIVE_APP;
+      const aviso = document.getElementById('aviso-lojas');
+      if (aviso) {
+        if (naLoja) aviso.style.display = 'none';
+        else aviso.innerHTML = 'Em breve teremos app disponível nas lojas.<br>Por enquanto, acesse por este link e salve na tela inicial do celular.';
+      }
+      if (!naLoja && (/[?&]professor(=|&|$)/.test(location.search) || location.hash === '#professor')) {
+        tipoLogin = 'professor';
+        aplicarModo();
+      }
+    })();
 
     function mostrarErro(msg) {
       const e = document.getElementById('erro');
@@ -1342,8 +1366,10 @@
       if (!_googleConfigurado || typeof google === 'undefined' || !google.accounts) return;
       try {
         google.accounts.id.initialize({ client_id: INTUS_GOOGLE_CLIENT_ID, callback: _googleCredentialResponse });
-        google.accounts.id.renderButton(document.getElementById('google-btn-mount'), {
-          theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'pill', width: 260,
+        // O Google só aceita largura em pixels (até 400): usa a da própria caixa, para ficar do tamanho dos outros botões.
+        const _mont = document.getElementById('google-btn-mount');
+        google.accounts.id.renderButton(_mont, {
+          theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'rectangular', width: Math.min(400, Math.max(200, Math.round(_mont.getBoundingClientRect().width) || 300)),
         });
       } catch (e) { console.warn('[login] falha ao iniciar o Google Sign-In:', e); }
     });
