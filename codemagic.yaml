@@ -34,7 +34,12 @@ workflows:
           xcode-project use-profiles
       - name: Gerar o .ipa
         script: |
-          xcode-project build-ipa --project "mobile/ios/App/App.xcodeproj" --scheme App
+          # Se falhar, mostra na própria página do build as linhas de erro do xcodebuild (o resumo do Codemagic não traz o motivo)
+          xcode-project build-ipa --project "mobile/ios/App/App.xcodeproj" --scheme App || {
+            echo "=== ERROS DO XCODEBUILD ==="
+            grep -h -E "error:|Provisioning profile|entitlement|No profile|requires a provisioning|Signing" /tmp/xcodebuild_logs/*.log | sort -u | head -60
+            exit 1
+          }
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
