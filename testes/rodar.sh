@@ -59,6 +59,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "vídeos do YouTube no app das lojas (player por yt.html, erro 153)" node video_app.js
   passo "linha de série: a meta de repetições não quebra no celular" node serie_linha.js
   passo "cartões flutuantes de treino e cardio em andamento ficam acima do fim da tela" node cartao_ativo.js
+  passo "trilha da jornada, experiência de treino e integrações na tela inicial" node jornada.js
   passo "início do app: aceitar os Termos no meio da sessão liga ❓, 🔔 e histórico; ficha falha não zera o histórico" node termos_inicio.js
   passo "editor do plano v2, seletor (alimento, grupo, receita, modelo), liberar plano e biblioteca da nutri" node nutri_editor.js
   passo "teste grátis no app: sem Feed nem comentário" node teste_gratis_front.js
