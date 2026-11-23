@@ -8158,12 +8158,12 @@ function _jnPassos() {
     { id: 'saude', a: 'Conectar saúde e apps', b: 'Apple Saúde, Health Connect, Strava e relógios.', ok: !!j.integracoes_visto || _saudeAtivo(), go: 'Ver integrações', f: 'abrirIntegracoes()' },
   ];
 }
-function _jornadaHtml() {
+function _jornadaHtml(tudoAberto) {   // tudoAberto: tela de boas-vindas do aluno novo (mostra o caminho inteiro, sem o botão de recolher)
   const ps = _jnPassos(); const feitos = ps.filter(p => p.ok).length;
   const atualIdx = ps.findIndex(p => !p.ok);
   setTimeout(_saudeAuto, 1500);   // com a saúde conectada, sincroniza ao abrir a tela inicial (no máximo 1 vez por hora)
   if (atualIdx < 0) return '';   // jornada completa: some da tela inicial
-  const aberta = (localStorage.getItem('intus-jornada-aberta') === '1');
+  const aberta = tudoAberto || (localStorage.getItem('intus-jornada-aberta') === '1');
   const linha = (p, i, detalhe) => '<div class="jn-it ' + (p.ok ? 'feito' : (i === atualIdx ? 'atual' : '')) + '" onclick="' + p.f + '"><div class="jn-no">' + (p.ok ? '✓' : (i + 1)) + '</div><div class="jn-tx"><div class="a">' + p.a + '</div>' + detalhe + '</div></div>';
   const proximo = ps[atualIdx];
   const detAtual = '<div class="b">' + proximo.b + '</div><span class="jn-go">' + proximo.go + '</span>';
@@ -8171,7 +8171,7 @@ function _jornadaHtml() {
   return '<div class="jn" id="jn-card"><div class="jn-cab"><div class="t">Sua jornada na Intus</div><div class="p">' + feitos + ' DE ' + ps.length + '</div></div>' +
     '<div class="jn-barra"><i style="width:' + Math.round(feitos / ps.length * 100) + '%"></i></div>' +
     '<div class="jn-lista">' + corpo + '</div>' +
-    '<button class="jn-resumo" onclick="localStorage.setItem(\'intus-jornada-aberta\',\'' + (aberta ? '0' : '1') + '\');renderHome()"><span>' + (aberta ? 'Mostrar só o próximo passo' : 'Ver todo o caminho') + '</span><span>' + (aberta ? '▲' : '▼') + '</span></button></div>';
+    (tudoAberto ? '' : '<button class="jn-resumo" onclick="localStorage.setItem(\'intus-jornada-aberta\',\'' + (aberta ? '0' : '1') + '\');renderHome()"><span>' + (aberta ? 'Mostrar só o próximo passo' : 'Ver todo o caminho') + '</span><span>' + (aberta ? '▲' : '▼') + '</span></button>') + '</div>';
 }
 let _jnSel = { nivel: '', dias: [] };
 function abrirJornadaExperiencia() {
@@ -8195,7 +8195,7 @@ async function _jnSalvarExperiencia() {
   if (!(_jnSel.nivel && _jnSel.dias.length)) return;
   const b = document.getElementById('jn-salvar'); if (b) { b.disabled = true; b.textContent = 'Salvando...'; }
   await _jnSalvar({ experiencia: _jnSel.nivel, dias: _jnSel.dias.slice() });
-  closeModal(); toast('Perfil de treino salvo.'); renderHome();
+  closeModal(); toast('Perfil de treino salvo.'); renderHome(); if (window._viewAtual === 'welcome') renderWelcome();
 }
 function abrirIntegracoes() {
   const j = _jnDados(); const interesse = j.integracoes_interesse || [];
@@ -8767,7 +8767,7 @@ function renderHome() {
 
     ${lembreteHtml}
 
-    ${_jornadaHtml()}
+    ${(setTimeout(_saudeAuto, 1500), '')}
 
     <div class="h-duo">
       <div class="h-dest h-dest-principal" onclick="abrirMeusTreinos()">
@@ -24688,6 +24688,8 @@ function renderWelcome() {
         <div style="font-size:12.5px;color:rgba(255,255,255,.72);line-height:1.5;margin-bottom:14px;">Nove mini-aulas em que você toca nos botões e vê como o treino, o ranking, o Feed e a nutrição funcionam.</div>
         <button style="padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:800;border:none;cursor:pointer;background:linear-gradient(135deg,#7FFF00,#5fd000);color:#0b1400;" onclick="window.Ajuda && Ajuda.bemVindo()">Fazer o tour</button>
       </div>
+
+      <div style="width:100%;text-align:left;">${_jornadaHtml(true)}</div>
 
       <button style="padding:14px 36px;border-radius:12px;font-size:15px;font-weight:700;border:none;cursor:pointer;background:linear-gradient(135deg,#7FFF00,#5cb800);color:#000;width:100%;" onclick="fecharWelcome()">
         Começar

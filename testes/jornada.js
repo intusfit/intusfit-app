@@ -35,6 +35,9 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
       return document.querySelectorAll('#jn-card .jn-it').length;
     });
     eq('aberto ("Ver todo o caminho") mostra os 6 passos', r2, 6);
+    // a trilha NÃO fica na tela inicial: só na tela de boas-vindas do aluno novo
+    eq('a tela inicial não tem a trilha', await page.evaluate(() => { try { renderHome(); } catch (e) {} return !document.getElementById('v-home').innerHTML.includes('jn-card'); }), true);
+    eq('a tela de boas-vindas mostra a trilha inteira, sem botão de recolher', await page.evaluate(() => { renderWelcome(); const w = document.getElementById('v-welcome'); return [w.querySelectorAll('.jn-it').length, !!w.querySelector('.jn-resumo')]; }), [6, false]);
     // experiência
     await page.evaluate(() => abrirJornadaExperiencia());
     const rotulos = await page.evaluate(() => Array.from(document.querySelectorAll('.jn-nivel .n')).map(x => x.textContent));
