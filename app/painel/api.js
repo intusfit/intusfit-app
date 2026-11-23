@@ -2641,6 +2641,19 @@ const API = {
     return dif <= 5 ? ini : esperado;
   },
 
+  // Atraso da cobranca que ESTA BAIXA vai pagar (a multa/juros da janela de pagamento). Sai de API.situacaoCobranca, a fonte unica:
+  //   renovar          conta do FIM da cobertura (a proxima cobranca), nao do inicio do ciclo. E o caso de quem paga uns dias antes do fim:
+  //                    a linha dele nasce "paga na linha anterior"; plano que acabou em 20/11 esta atrasado desde 20/11, nao desde 20/10.
+  //   paga_no_anterior ainda dentro da cobertura: sem atraso (null)
+  //   pendente/vencida/inativa/programada  o dia da cobranca do proprio ciclo
+  // Devolve dias (>0 = atrasado, 0 ou negativo = em dia) ou null quando nao ha cobranca a atrasar (paga, encerrada, cancelada, trancada).
+  diasAtrasoBaixa: (m, lista) => {
+    const s = API.situacaoCobranca(m, lista);
+    if (s.estado === 'paga_no_anterior') return null;
+    if (s.estado === 'renovar' || s.estado === 'pendente' || s.estado === 'vencida' || s.estado === 'inativa' || s.estado === 'programada') return s.dias == null ? null : s.dias;
+    return null;
+  },
+
   // Dias desde que a cobranca venceu. Negativo = ainda vai vencer.
   diasDeCobranca: (m, lista) => {
     const cob = API.dtCobranca(m);

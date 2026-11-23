@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Matrículas — Intus</title>
   <script src="_mock.js?v=20261123a"></script>
-  <script src="api.js?v=20261123a"></script>
+  <script src="api.js?v=20261123b"></script>
   <script src="kanban.js?v=20261023b"></script>
   <style>
     /* ── MODAL EXTRA WIDTH ── */
@@ -1058,7 +1058,7 @@ document.addEventListener('click', function(e) {
 function marcarPago(id) {
   const m = mensalidades.find(x => Number(x.idmensalidade) === Number(id));
   if (!m) return;
-  const _atr = _diasAtraso(m);
+  const _atr = API.diasAtrasoBaixa(m, mensalidades);   // multa conta do fim da cobertura quando a linha esta "aguardando renovacao"
   const venc = _atr != null && _atr > 0;
   const baseReceber = +((parseFloat(m.vlpagar || 0)) - (parseFloat(m.vldesconto || 0))).toFixed(2);
   const formaAtual = String(m.forma_pgto || 'pix').toLowerCase();
@@ -1271,6 +1271,9 @@ async function excluirMensalidade(id) {
 // ── Status efetivo da matrícula (Fase 1: trancada / inativa / etc.) ───────
 function _hojeStr() { return new Date().toISOString().slice(0,10); }
 function _diasAtraso(m) { // >0 = dias vencido; null se nao da para saber
+  // Linha "paga na linha anterior" e linha "aguardando renovacao" nao sao divida: sem isto o Erick (que paga uns dias antes do fim) aparecia
+  // com 34 dias de atraso, contados do INICIO do ciclo que ele ja tinha pago. O atraso de renovacao (multa) vem de API.diasAtrasoBaixa.
+  if (typeof API !== 'undefined' && API.situacaoCobranca) { const e = API.situacaoCobranca(m, mensalidades).estado; if (e === 'paga_no_anterior' || e === 'renovar') return null; }
   const cob = _dtCobranca(m);
   if (!cob) return null;
   return API.diasCobranca(cob);   // mesma conta do api.js: o atraso conta do próximo dia útil da cobrança
