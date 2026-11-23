@@ -8,8 +8,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = CAPBridgeViewController()
+        let controlador = CAPBridgeViewController()
+        window?.rootViewController = controlador
         window?.makeKeyAndVisible()
+        // Gesto de deslizar da borda da tela para voltar: o WKWebView não o liga sozinho. O app navega com history.pushState e trata o popstate,
+        // então o gesto desfaz o último passo (tela, folha) como o botão de voltar do Android.
+        DispatchQueue.main.async { controlador.webView?.allowsBackForwardNavigationGestures = true }
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }

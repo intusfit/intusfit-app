@@ -389,7 +389,7 @@
     .share-card-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; padding: 18px; text-align: center; }
 
     .timer-bar {
-      position: sticky; top: 66px; z-index: 9;
+      position: sticky; top: calc(66px + env(safe-area-inset-top, 0px)); z-index: 9;
       background: rgba(10,10,10,.96); backdrop-filter: blur(12px);
       border-bottom: 1px solid #1a1a1a;
       padding: 12px 18px; display: none; align-items: center; justify-content: center;
@@ -409,12 +409,16 @@
        some assim que a pessoa rola a tela, bem no tipo de tela que mais vira
        print (ranking, medalhas, evoluções, conquistas). */
     .tela-header-fixa {
-      position: sticky; top: 66px; z-index: 9;
+      position: sticky; top: calc(66px + env(safe-area-inset-top, 0px)); z-index: 9;
       background: rgba(15,15,15,.72); margin: -6px -16px 6px; padding: 3px 16px;
       border-bottom: none;
     }
     /* Voltar / título / logo numa faixa baixa: sem folga sobrando em cima e embaixo (menos rolagem nas telas de ranking, medalhas, evoluções...) */
     .tela-header-fixa .btn-back { padding: 3px 0; min-height: 0; }
+    /* Logo da tela inicial: as duas imagens têm margem diferente (500x137 no escuro, 500x112 no claro), então a MESMA altura fazia a clara parecer 18% maior.
+       Alturas por tema para o desenho visível ficar do mesmo tamanho (cerca de 22px de altura, meio-termo entre os dois tamanhos antigos). */
+    .logo-home { height: 28.4px; }
+    body.tema-claro .logo-home { height: 24.1px; }
     .timer-bar .btn-back { min-height: 0; }
     .timer-bar .btn-back::after { content: ''; position: absolute; inset: -12px -14px; }
     .tela-header-fixa > div { min-height: 30px !important; }
@@ -3822,14 +3826,22 @@ function _urlAbs(u) {
 if (window.INTUS_NATIVE_APP) {
   document.addEventListener('error', function (ev) {
     const el = ev.target;
-    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO') || el.__tentouSite) return;
+    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO')) return;
     const bruto = el.tagName === 'VIDEO' ? el.getAttribute('poster') : el.getAttribute('src');
-    if (!bruto) return;
+    if (!bruto || /^(data|blob):/i.test(bruto)) return;
     let u; try { u = new URL(bruto, location.href); } catch (e) { return; }
-    if (u.origin === _origemDoSite() || u.pathname.indexOf('/app/') !== 0) return;
-    el.__tentouSite = true;
-    const novo = _origemDoSite() + u.pathname + u.search;
-    if (el.tagName === 'VIDEO') el.setAttribute('poster', novo); else el.src = novo;
+    const site = _origemDoSite();
+    // 1ª falha: caminho /app/... que apontava para dentro do app (capacitor://localhost) ou para um domínio antigo (maximizeapp, www): refaz no site.
+    if (!el.__tentouSite && u.origin !== site && u.pathname.indexOf('/app/') === 0) {
+      el.__tentouSite = true;
+      const novo = site + u.pathname + u.search;
+      if (el.tagName === 'VIDEO') el.setAttribute('poster', novo); else el.src = novo;
+      return;
+    }
+    // Sem outra tentativa: no app de teste, avisa QUAL endereço falhou (para achar a causa de uma imagem quebrada).
+    if (!el.__avisou && (window.__imgAvisos = (window.__imgAvisos || 0) + 1) <= 2 && typeof toast === 'function') {
+      el.__avisou = true; toast('Imagem não carregou: ' + String(el.getAttribute('src') || el.getAttribute('poster') || '').slice(0, 110), 9000);
+    }
   }, true);
 }
 function _midiaItemHtml(m) {
@@ -6958,6 +6970,11 @@ function _ytSrc(id, auto, nocookie) {
   if (window.INTUS_NATIVE_APP) return _origemDoSite() + '/app/painel/yt.html?v=' + encodeURIComponent(id) + (auto === false ? '' : '&auto=1');
   return 'https://www.youtube' + (nocookie ? '-nocookie' : '') + '.com/embed/' + encodeURIComponent(id) + '?rel=0&playsinline=1' + (auto === false ? '' : '&autoplay=1');
 }
+// No app das lojas o player embutido do YouTube fica preto (WKWebView), então lá mostra a capa do vídeo com um play que abre o YouTube no vídeo certo.
+function _ytCartao(id) {
+  return '<a href="https://www.youtube.com/watch?v=' + encodeURIComponent(id) + '" target="_blank" rel="noopener" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#000 url(https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/hqdefault.jpg) center/cover no-repeat;text-decoration:none;">' +
+    '<span style="width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,.65);border:2px solid #fff;display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;padding-left:4px;">▶</span></a>';
+}
 function youtubeToEmbed(url, auto) {
   if (!url) return '';
   const id = _ytIdDe(url);
@@ -6972,12 +6989,15 @@ function _infoVideoHtml(url) {
   const id = _ytIdDe(u);
   const abrir = id ? 'https://www.youtube.com/watch?v=' + id : u;
   const atalho = '<a href="' + esc(abrir) + '" target="_blank" rel="noopener" style="display:block;text-align:center;margin:-6px 0 16px;font-size:12.5px;font-weight:700;color:#7FFF00;text-decoration:none;">▶ Não carregou? Abrir o vídeo' + (id ? ' no YouTube' : '') + ' ↗</a>';
-  if (id) return '<div class="info-video"><iframe src="' + youtubeToEmbed(u, false) + '" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"></iframe></div>' + atalho;
+  if (id && window.INTUS_NATIVE_APP) return '<div class="info-video" style="position:relative;">' + _ytCartao(id) + '</div>' + atalho;
+  if (id) return '<div class="info-video"><iframe src=""' + youtubeToEmbed(u, false) + '" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"></iframe></div>' + atalho;
   if (/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(u)) return '<div class="info-video"><video src="' + esc(u) + '" controls playsinline preload="metadata" style="width:100%;height:100%;"></video></div>' + atalho;
   return '<a href="' + esc(u) + '" target="_blank" rel="noopener" class="btn btn-sec btn-full" style="display:block;text-align:center;margin:12px 0 16px;text-decoration:none;">▶ Abrir vídeo de demonstração ↗</a>';
 }
 function abrirVideoModal(url) {
   const modal = document.getElementById('video-modal');
+  const _idv = _ytIdDe(url);
+  if (window.INTUS_NATIVE_APP && _idv) { window.open('https://www.youtube.com/watch?v=' + _idv, '_blank'); return; }
   document.getElementById('video-iframe').src = youtubeToEmbed(url);
   modal.classList.add('open');
 }
@@ -8052,8 +8072,7 @@ function renderHome() {
         <div style="flex:1;min-width:0;">
           <div class="ola">${user?.genero === 'F' ? 'Bem-vinda' : 'Bem-vindo'}, ${esc(user?.nome?.split(' ')[0] || 'Aluno')}! 👋</div>
         </div>
-        <img src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus Fit"
-             style="height:26px;width:auto;flex-shrink:0;align-self:flex-start;margin-top:2px;"/>
+        <img class="logo-home" src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus Fit" style="width:auto;flex-shrink:0;align-self:flex-start;margin-top:2px;"/>
       </div>
 
       <div class="h-aviso alerta">
@@ -8144,8 +8163,7 @@ function renderHome() {
         <div style="flex:1;min-width:0;">
           <div class="ola">${user?.genero === 'F' ? 'Bem-vinda' : 'Bem-vindo'}, ${esc(user?.nome?.split(' ')[0] || 'Aluno')}! 👋</div>
         </div>
-        <img src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus Fit"
-             style="height:26px;width:auto;flex-shrink:0;align-self:flex-start;margin-top:2px;"/>
+        <img class="logo-home" src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus Fit" style="width:auto;flex-shrink:0;align-self:flex-start;margin-top:2px;"/>
       </div>
 
       <div class="h-aviso">
@@ -8411,8 +8429,7 @@ function renderHome() {
         <div class="ola">${user?.genero === 'F' ? 'Bem-vinda' : 'Bem-vindo'}, ${esc(user?.nome?.split(' ')[0] || 'Aluno')}! 👋</div>
         <div class="${_fraseDoDia.cls}" style="animation:fraseEntrada .6s ease-out both;">${_fraseDoDia.txt}</div>
       </div>
-      <img src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus Fit"
-           style="height:26px;width:auto;flex-shrink:0;align-self:flex-start;margin-top:2px;"/>
+      <img class="logo-home" src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus Fit" style="width:auto;flex-shrink:0;align-self:flex-start;margin-top:2px;"/>
     </div>
 
     ${lembreteHtml}
@@ -17251,7 +17268,7 @@ function _resultadoLinkHtml(l, isLight) {
   const id = String(l.id);
   let frame = '', abrir = '', rotulo = '';
   if (l.tipo === 'youtube') {
-    frame = '<div style="position:relative;padding-top:56.25%;background:#000;"><iframe src="' + _ytSrc(id, false, true) + '" loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0;"></iframe></div>';
+    frame = window.INTUS_NATIVE_APP ? '<div style="position:relative;padding-top:56.25%;background:#000;">' + _ytCartao(id) + '</div>' : '<div style="position:relative;padding-top:56.25%;background:#000;"><iframe src="' + _ytSrc(id, false, true) + '" loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0;"></iframe></div>';
     abrir = 'https://www.youtube.com/watch?v=' + encodeURIComponent(id); rotulo = 'Abrir no YouTube';
   } else if (l.tipo === 'instagram') {
     const caminho = id.split('/').map(encodeURIComponent).join('/');
@@ -20775,7 +20792,7 @@ function abrirFormFotosPostural() {
   // Video tutorial inline (thumbnail style like exercises)
   html += '<div style="margin-bottom:16px;border-radius:12px;overflow:hidden;border:1px solid ' + borderC + ';background:#000;">' +
     '<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;">' +
-      '<iframe src="' + _ytSrc('vyatHf3U7YM', false) + '" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>' +
+      (window.INTUS_NATIVE_APP ? _ytCartao('vyatHf3U7YM') : '<iframe src="' + _ytSrc('vyatHf3U7YM', false) + '" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>') +
     '</div>' +
     '<div style="padding:10px 12px;background:' + bgCard + ';">' +
       '<div style="font-size:12px;font-weight:700;color:' + (isLight?'#111':'#f0f0f0') + ';">Video Tutorial: como tirar as fotos</div>' +

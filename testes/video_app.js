@@ -36,7 +36,7 @@ const SITE = 'https://intusfit.com.br'; const ID = 'dQw4w9WgXcQ';
   eq('modal de vídeo (com início automático)', n.modal, SITE + '/app/painel/yt.html?v=' + ID + '&auto=1');
   eq('vídeo do exercício (sem início automático)', n.info, SITE + '/app/painel/yt.html?v=' + ID);
   eq('o caminho "nocookie" também passa por yt.html', n.nocookie, SITE + '/app/painel/yt.html?v=' + ID);
-  eq('o cartão do exercício usa o player nosso e mantém o atalho "Abrir no YouTube"', [n.html.indexOf('src="' + SITE + '/app/painel/yt.html?v=' + ID + '"') >= 0, /Abrir o vídeo no YouTube/.test(n.html), n.html.indexOf('src="https://www.youtube.com/embed') < 0], [true, true, true]);
+  eq('no app o exercício mostra a capa com play que abre o YouTube (sem iframe preto) e mantém o atalho', [n.html.indexOf('<iframe') < 0 && n.html.indexOf('i.ytimg.com/vi/' + ID) >= 0, /Abrir o vídeo no YouTube/.test(n.html), n.html.indexOf('src="https://www.youtube.com/embed') < 0], [true, true, true]);
   eq('link que não é do YouTube não é mexido', n.naoYoutube, 'https://exemplo.com/video.mp4');
   eq('sem erro de JavaScript', t.erros, []); await t.ctx.close();
 
