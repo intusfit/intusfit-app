@@ -3658,8 +3658,41 @@ const API = {
     return { ok: true, total: r, diferente: true, padrao: padrao, diferenca: c2(r - padrao), vlpagarCiclo: c2(r - j), vldesconto: 0, juros: j };
   },
 
+  // ── PAGAMENTO DIVIDIDO EM VARIAS FORMAS ───────────────────────────────────
+  // Ex.: R$ 300 em dinheiro + R$ 700 no Pix, ou parte no cartao. So formas "da casa" (gateway Eduzz/Asaas nao divide). A soma das partes
+  // tem de fechar com o valor recebido. intus_mensalidade.forma_pgto guarda UMA forma (a de maior valor, empate = a primeira digitada), entao
+  // tudo que ja le essa coluna segue valendo; as partes completas ficam em m.partes (servidor: intus_mensalidade_pgto).
+  PGTO_FORMAS: [['pix', 'Pix'], ['dinheiro', 'Dinheiro'], ['cartao', 'Cartão (crédito/débito)'], ['boleto', 'Boleto']],
+  PGTO_PARTES_MAX: 8,
+  // partes = [{forma, valor}] (valor como numero ou texto "700,50"). Devolve { ok, partes, principal, soma } ou { ok:false, erro }.
+  validarPartesPagamento: (total, partes) => {
+    const c2 = (v) => Math.round((Number(v) + 1e-9) * 100) / 100;
+    const validas = API.PGTO_FORMAS.map((f) => f[0]);
+    if (!Array.isArray(partes) || !partes.length) return { ok: false, erro: 'Informe ao menos uma forma de pagamento.' };
+    if (partes.length > API.PGTO_PARTES_MAX) return { ok: false, erro: 'No máximo ' + API.PGTO_PARTES_MAX + ' formas de pagamento.' };
+    const out = []; let soma = 0;
+    for (let i = 0; i < partes.length; i++) {
+      const f = String((partes[i] && partes[i].forma) || '').toLowerCase();
+      if (validas.indexOf(f) < 0) return { ok: false, erro: 'Escolha a forma de pagamento da linha ' + (i + 1) + '.' };
+      const raw = partes[i].valor; const v = c2(Number(String(raw == null ? '' : raw).replace(',', '.')));
+      if (!isFinite(v) || v <= 0) return { ok: false, erro: 'Informe o valor da linha ' + (i + 1) + ' (' + (API.PGTO_FORMAS.filter((x) => x[0] === f)[0] || ['', f])[1] + ').' };
+      out.push({ forma: f, valor: v }); soma = c2(soma + v);
+    }
+    const t = c2(total);
+    if (Math.abs(soma - t) > 0.009) return { ok: false, erro: soma < t ? 'Faltam R$ ' + (t - soma).toFixed(2).replace('.', ',') + ' para fechar o valor recebido (R$ ' + t.toFixed(2).replace('.', ',') + ').' : 'As formas passam R$ ' + (soma - t).toFixed(2).replace('.', ',') + ' do valor recebido (R$ ' + t.toFixed(2).replace('.', ',') + ').' };
+    let princ = out[0]; out.forEach((o) => { if (o.valor > princ.valor + 0.0001) princ = o; });
+    return { ok: true, partes: out, principal: princ.forma, soma: soma };
+  },
+  // Rotulo da forma de uma mensalidade para as listas: "Dinheiro R$ 300,00 + Pix R$ 700,00" quando foi dividida; senao o nome da forma.
+  rotuloPagamento: (m) => {
+    const ps = m && Array.isArray(m.partes) ? m.partes : [];
+    if (ps.length > 1) return ps.map((p) => (API.gateway.rotuloForma(p.forma) || p.forma) + ' R$ ' + Number(p.valor).toFixed(2).replace('.', ',')).join(' + ');
+    return API.gateway.rotuloForma(m && m.forma_pgto) || '';
+  },
+
   // ajuste (opcional) = { vlpagar, vldesconto } vindo de calcularRecebimento quando o valor recebido foi outro.
-  pagarMensalidade: (m, dtpagamento, vlpagamento, ajuste) => API.editarMensalidade(m.idmensalidade, {
+  // partes (opcional) = pagamento dividido, ja validado por validarPartesPagamento (2 ou mais formas); vai na MESMA gravacao da baixa.
+  pagarMensalidade: (m, dtpagamento, vlpagamento, ajuste, partes) => API.editarMensalidade(m.idmensalidade, Object.assign({
     dshistorico:  m.dshistorico || 'Mensalidade',
     dtvencimento: m.dtvencimento,
     vlpagar:      (ajuste && ajuste.vlpagar != null) ? ajuste.vlpagar : m.vlpagar,
@@ -3669,7 +3702,7 @@ const API = {
     dtpagamento:  dtpagamento || new Date().toISOString().slice(0,10),
     vlpagamento:  (vlpagamento != null ? vlpagamento : m.vlpagar),
     dspagamento:  'Pagamento registrado',
-  }),
+  }, (Array.isArray(partes) && partes.length > 1) ? { partes: partes } : {})),
 
   excluirMensalidade: async (id) => {
     const r = await apiFetch(`/mensalidades.php?id=${id}`, { method: 'DELETE' });

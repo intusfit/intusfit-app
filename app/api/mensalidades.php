@@ -124,6 +124,10 @@ try {
     }
 } catch (Throwable $e) { /* segue mesmo se information_schema falhar */ }
 
+// ---------- Pagamento dividido em varias formas (tabela nova e aditiva; ver _pgto_partes.php) ----------
+require_once __DIR__ . '/_pgto_partes.php';
+try { _pgtoPartesTabela($pdo); } catch (Throwable $e) { /* sem a tabela a baixa de sempre continua funcionando */ }
+
 // ---------- Detect atleta table for JOINs ----------
 $atletaTable = null;
 foreach (['atleta', 'atletas', 'aluno', 'alunos'] as $t) {
@@ -333,6 +337,8 @@ if ($method === 'GET') {
         unset($row);
     }
 
+    try { _pgtoPartesAnexar($pdo, $rows); } catch (Throwable $e) { /* sem a tabela, sem partes */ }
+
     if ($id) {
         echo json_encode($rows ? $rows[0] : null);
     } else {
@@ -420,6 +426,22 @@ if ($method === 'PUT') {
     $d = jsonBody();
     $allowed = ['dshistorico','dtinicio','dtvencimento','vlpagar','vldesconto','vljuro','stpgto','dtpagamento','vlpagamento','dspagamento','professor',
         'tipo_plano','stmatricula','dt_tranca_inicio','dt_tranca_fim','dias_trancado','parcela_num','parcela_total','forma_pgto','idmatricula_origem','motivo_encerramento','recorrencia'];
+    // Pagamento dividido: 'partes' = [{forma, valor}] e a soma tem de fechar com o valor recebido. forma_pgto passa a ser a forma de maior valor.
+    // Trocar so a forma (sem mandar partes) volta a baixa para forma unica; reenviar a mesma forma nao mexe nas partes.
+    $partesAplicar = null;
+    if (array_key_exists('partes', $d)) {
+        $totalPartes = array_key_exists('vlpagamento', $d) ? $d['vlpagamento'] : ($rowBefore['vlpagamento'] ?? null);
+        $n = _pgtoPartesNormalizar($d['partes'], (is_array($d['partes']) && count($d['partes']) > 0) ? $totalPartes : null);
+        if (!$n['ok']) {
+            http_response_code(400);
+            echo json_encode(['error' => $n['erro']]);
+            exit;
+        }
+        $partesAplicar = $n['partes'];
+        if ($n['principal']) $d['forma_pgto'] = $n['principal'];
+    } elseif (array_key_exists('forma_pgto', $d) && $rowBefore && (string)$d['forma_pgto'] !== (string)($rowBefore['forma_pgto'] ?? '')) {
+        $partesAplicar = [];
+    }
     $sets = [];
     $params = [];
     foreach ($allowed as $col) {
@@ -428,19 +450,27 @@ if ($method === 'PUT') {
             $params[] = $d[$col];
         }
     }
-    if (empty($sets)) {
+    if (empty($sets) && $partesAplicar === null) {
         http_response_code(400);
         echo json_encode(['error' => 'nenhum campo para atualizar']);
         exit;
     }
     $params[] = $id;
 
-    $sql = "UPDATE intus_mensalidade SET " . implode(', ', $sets) . " WHERE idmensalidade = ?";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
+    $affected = 0;
+    if ($sets) {
+        $sql = "UPDATE intus_mensalidade SET " . implode(', ', $sets) . " WHERE idmensalidade = ?";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $affected = $stmt->rowCount();
+    }
+    $partesGravadas = true;
+    if ($partesAplicar !== null) {
+        try { _pgtoPartesGravar($pdo, $id, $partesAplicar); } catch (Throwable $e) { $partesGravadas = false; }
+    }
 
     auditLog($pdo, $tok, 'editar', 'mensalidade', $id, 'Editou mensalidade #' . $id, $rowBefore, $d);
-    echo json_encode(['ok' => true, 'affected' => $stmt->rowCount()]);
+    echo json_encode(['ok' => true, 'affected' => $affected, 'partes_gravadas' => $partesGravadas]);
     exit;
 }
 
@@ -474,6 +504,7 @@ if ($method === 'DELETE') {
     }
     $stmt = $pdo->prepare("DELETE FROM intus_mensalidade WHERE idmensalidade = ?");
     $stmt->execute([$id]);
+    try { _pgtoPartesApagar($pdo, $id); } catch (Throwable $e) {}
     auditLog($pdo, $tok, 'excluir', 'mensalidade', $id, 'Excluiu mensalidade #' . $id, $rowDel, null);
     echo json_encode(['ok' => true, 'deleted' => $stmt->rowCount()]);
     exit;

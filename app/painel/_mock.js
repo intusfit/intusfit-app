@@ -1663,6 +1663,124 @@ window.ComboBusca = (function () {
 const PARC_MESES = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
 function parcMesesDe(rec) { return PARC_MESES[String(rec || '').toLowerCase()] || 0; }
 // Valores combinados parcela a parcela, por tela (prefixo 'mat' ou 'nm'). Cada posicao e o liquido digitado da parcela i+1, ou vazio.
+// ── PAGAMENTO DIVIDIDO EM VARIAS FORMAS (componente das telas de baixa: Matriculas e ficha do aluno) ─────────────────────
+// Ex.: R$ 300 em dinheiro + R$ 700 no Pix, ou uma parte no cartao. A regra (validacao, forma principal, rotulo) mora em API.validarPartesPagamento;
+// aqui so ha tela. Uso: PgPartes.html(p, { total: 'nomeDaFuncaoQueDevolveOTotal', mudou: 'nomeDaFuncaoChamadaAoMudar', sel: 'idDoSelectDeForma' })
+// logo abaixo do seletor de forma; ao confirmar: PgPartes.ler(p) devolve null (forma unica) ou [{forma, valor}] (ja confere a soma).
+// A ultima linha se completa sozinha (total - as outras) ate a pessoa digitar nela.
+const PG_ED = {};
+function pgEstado(p) { return PG_ED[p] || (PG_ED[p] = { ativo: false, linhas: [], total: null, mudou: null, sel: null }); }
+function _pgNum(v) { const n = Number(String(v == null ? '' : v).replace(',', '.')); return isFinite(n) ? n : NaN; }
+function _pgBRL(v) { return 'R$ ' + Number(v || 0).toFixed(2).replace('.', ','); }
+function _pgTotalAtual(p) { const e = pgEstado(p); const f = e.total && window[e.total]; const t = typeof f === 'function' ? Number(f()) : 0; return isFinite(t) ? Math.round(t * 100) / 100 : 0; }
+function _pgNotificar(p) { const e = pgEstado(p); const f = e.mudou && window[e.mudou]; if (typeof f === 'function') f(); }
+function _pgAutoUltima(p) {
+  const e = pgEstado(p), n = e.linhas.length; if (n < 2) return;
+  const u = e.linhas[n - 1]; if (u.sujo) return;
+  let outras = 0; for (let i = 0; i < n - 1; i++) { const v = _pgNum(e.linhas[i].valor); if (v > 0) outras += v; }
+  const resto = Math.round((_pgTotalAtual(p) - outras) * 100) / 100;
+  u.valor = resto > 0 ? resto.toFixed(2) : '';
+}
+function _pgStatus(p) {
+  const e = pgEstado(p); if (!e.ativo) return '';
+  const t = _pgTotalAtual(p); let soma = 0; e.linhas.forEach(function (l) { const v = _pgNum(l.valor); if (v > 0) soma += v; });
+  soma = Math.round(soma * 100) / 100;
+  const dif = Math.round((t - soma) * 100) / 100;
+  if (Math.abs(dif) < 0.005 && t > 0) return '<span style="color:#34d399;">✓ ' + _pgBRL(soma) + ' de ' + _pgBRL(t) + ': fecha certinho.</span>';
+  if (dif > 0) return '<span style="color:#fbbf24;">Soma ' + _pgBRL(soma) + ' de ' + _pgBRL(t) + ': faltam ' + _pgBRL(dif) + '.</span>';
+  return '<span style="color:#f87171;">Soma ' + _pgBRL(soma) + ' de ' + _pgBRL(t) + ': passam ' + _pgBRL(-dif) + '.</span>';
+}
+function _pgLinhasHtml(p) {
+  const e = pgEstado(p), forms = (typeof API !== 'undefined' && API.PGTO_FORMAS) ? API.PGTO_FORMAS : [['pix', 'Pix'], ['dinheiro', 'Dinheiro'], ['cartao', 'Cartão (crédito/débito)'], ['boleto', 'Boleto']];
+  return e.linhas.map(function (l, i) {
+    return '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' +
+      '<select class="input" style="flex:1;min-width:0;" onchange="pgForma(\'' + p + '\',' + i + ',this.value)">' + forms.map(function (f) { return '<option value="' + f[0] + '"' + (l.forma === f[0] ? ' selected' : '') + '>' + f[1] + '</option>'; }).join('') + '</select>' +
+      '<input id="' + p + '-dv-v' + i + '" class="input" type="number" min="0" step="0.01" placeholder="0,00" value="' + String(l.valor == null ? '' : l.valor).replace(/"/g, '') + '" style="width:112px;flex:none;" oninput="pgValor(\'' + p + '\',' + i + ',this.value)"/>' +
+      (e.linhas.length > 2 ? '<button type="button" class="btn btn-secondary btn-sm" title="Tirar esta forma" onclick="pgRemover(\'' + p + '\',' + i + ')" style="flex:none;">✕</button>' : '') + '</div>';
+  }).join('');
+}
+function pgRender(p) {
+  const e = pgEstado(p), box = document.getElementById(p + '-dv-linhas'), st = document.getElementById(p + '-dv-status'), add = document.getElementById(p + '-dv-add');
+  if (box) box.innerHTML = _pgLinhasHtml(p);
+  if (st) st.innerHTML = _pgStatus(p);
+  if (add) add.style.display = e.linhas.length >= ((typeof API !== 'undefined' && API.PGTO_PARTES_MAX) || 8) ? 'none' : 'inline-block';
+}
+function _pgMostrar(p) {
+  const e = pgEstado(p), painel = document.getElementById(p + '-dv'), link = document.getElementById(p + '-dv-link'), sel = e.sel && document.getElementById(e.sel);
+  if (painel) painel.style.display = e.ativo ? 'block' : 'none';
+  if (link) link.textContent = e.ativo ? '↩ Voltar a uma forma só' : '＋ Dividir em mais de uma forma (ex.: parte em dinheiro, parte no Pix ou cartão)';
+  const g = sel && sel.closest ? sel.closest('.form-group') : null;
+  if (g) { const n = g.querySelector('label'); if (n) n.style.display = e.ativo ? 'none' : ''; sel.style.display = e.ativo ? 'none' : ''; }
+}
+function pgAlternar(p) {
+  const e = pgEstado(p); e.ativo = !e.ativo;
+  if (e.ativo) {
+    const sel = e.sel && document.getElementById(e.sel), f0 = sel && ['pix', 'dinheiro', 'cartao', 'boleto'].indexOf(sel.value) >= 0 ? sel.value : 'dinheiro';
+    e.linhas = [{ forma: f0 === 'pix' ? 'dinheiro' : f0, valor: '', sujo: false }, { forma: 'pix', valor: '', sujo: false }];
+    _pgAutoUltima(p);
+  }
+  _pgMostrar(p); pgRender(p); _pgNotificar(p);
+}
+function pgAdicionar(p) {
+  const e = pgEstado(p); if (e.linhas.length >= ((typeof API !== 'undefined' && API.PGTO_PARTES_MAX) || 8)) return;
+  const usadas = e.linhas.map(function (l) { return l.forma; }), livre = ['cartao', 'pix', 'dinheiro', 'boleto'].filter(function (f) { return usadas.indexOf(f) < 0; })[0] || 'pix';
+  // a linha nova vira a "ultima" (a que se completa sozinha); a que era a ultima passa a valer o que esta escrito nela
+  const ant = e.linhas[e.linhas.length - 1]; ant.sujo = true;
+  e.linhas.push({ forma: livre, valor: '', sujo: false }); _pgAutoUltima(p);
+  pgRender(p); _pgNotificar(p);
+}
+function pgRemover(p, i) {
+  const e = pgEstado(p); if (e.linhas.length <= 2) return;
+  e.linhas.splice(i, 1); e.linhas[e.linhas.length - 1].sujo = false; _pgAutoUltima(p);
+  pgRender(p); _pgNotificar(p);
+}
+function pgForma(p, i, v) { const e = pgEstado(p); if (e.linhas[i]) e.linhas[i].forma = v; _pgNotificar(p); }
+function pgValor(p, i, v) {
+  const e = pgEstado(p); if (!e.linhas[i]) return;
+  e.linhas[i].valor = v; e.linhas[i].sujo = true;
+  _pgAutoUltima(p);
+  const u = e.linhas.length - 1, campo = document.getElementById(p + '-dv-v' + u);
+  if (i !== u && campo && document.activeElement !== campo) campo.value = e.linhas[u].valor;   // so a ultima muda, sem tirar o foco de quem digita
+  const st = document.getElementById(p + '-dv-status'); if (st) st.innerHTML = _pgStatus(p);
+  _pgNotificar(p);
+}
+// A tela avisa que o "Valor recebido" (ou a multa) mudou: a ultima linha acompanha e a soma e conferida de novo.
+function pgTotalMudou(p) {
+  const e = pgEstado(p); if (!e.ativo) return;
+  _pgAutoUltima(p);
+  const u = e.linhas.length - 1, campo = document.getElementById(p + '-dv-v' + u); if (campo && document.activeElement !== campo) campo.value = e.linhas[u].valor;
+  const st = document.getElementById(p + '-dv-status'); if (st) st.innerHTML = _pgStatus(p);
+}
+// Forma escolhida no seletor unico: gateway (Eduzz/Asaas) nao divide, entao o convite some e a divisao desliga.
+function pgFormaUnica(p, forma) {
+  const e = pgEstado(p), wrap = document.getElementById(p + '-dv-wrap'), gate = !!(typeof API !== 'undefined' && API.gateway && API.gateway.da(forma));
+  if (gate && e.ativo) { e.ativo = false; _pgMostrar(p); }
+  if (wrap) wrap.style.display = gate ? 'none' : 'block';
+}
+// Para as regras da tela que dependem da forma (oferta de manter o restante em aberto so vale para Pix/dinheiro): 'pix' quando tudo e Pix/dinheiro.
+function pgFormaRegras(p, formaUnica) {
+  const e = pgEstado(p); if (!e.ativo) return formaUnica;
+  return e.linhas.every(function (l) { return l.forma === 'pix' || l.forma === 'dinheiro'; }) ? 'pix' : 'cartao';
+}
+// null = forma unica (a tela segue como sempre); { ok:true, partes, principal } ou { ok:false, erro } quando dividido.
+function pgLer(p) {
+  const e = pgEstado(p); if (!e.ativo) return null;
+  return API.validarPartesPagamento(_pgTotalAtual(p), e.linhas.map(function (l) { return { forma: l.forma, valor: l.valor }; }));
+}
+function pgZerar(p) { delete PG_ED[p]; }
+const PgPartes = {
+  html: function (p, o) {
+    pgZerar(p); const e = pgEstado(p); e.total = (o && o.total) || null; e.mudou = (o && o.mudou) || null; e.sel = (o && o.sel) || null;
+    return '<div id="' + p + '-dv-wrap" style="margin:-4px 0 12px;">' +
+      '<a href="#" id="' + p + '-dv-link" onclick="pgAlternar(\'' + p + '\');return false;" style="font-size:12px;color:var(--brand,#7FFF00);text-decoration:underline;">＋ Dividir em mais de uma forma (ex.: parte em dinheiro, parte no Pix ou cartão)</a>' +
+      '<div id="' + p + '-dv" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border,#2a2a2a);border-radius:10px;background:rgba(127,255,0,.04);">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;">Pagamento dividido</div>' +
+      '<div id="' + p + '-dv-linhas"></div>' +
+      '<button type="button" id="' + p + '-dv-add" class="btn btn-secondary btn-sm" onclick="pgAdicionar(\'' + p + '\')">＋ Adicionar outra forma</button>' +
+      '<div id="' + p + '-dv-status" style="margin-top:8px;font-size:12px;line-height:1.4;"></div></div></div>';
+  },
+  ler: pgLer, formaRegras: pgFormaRegras, formaUnica: pgFormaUnica, totalMudou: pgTotalMudou, ativo: function (p) { return !!pgEstado(p).ativo; }, zerar: pgZerar,
+};
 const PARC_ED = {};
 function parcEstado(p) { return PARC_ED[p] || (PARC_ED[p] = { valores: [], datas: [] }); }
 // soDatas = true: so esquece as datas combinadas (mudou a data de inicio do plano); senao zera valores e datas

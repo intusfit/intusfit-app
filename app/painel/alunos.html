@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
-  <script src="_mock.js?v=20261110b"></script>
-  <script src="api.js?v=20261120a"></script>
+  <script src="_mock.js?v=20261123a"></script>
+  <script src="api.js?v=20261123a"></script>
   <script src="foto-util.js?v=20261105a"></script>
 <script src="foto-pose.js?v=20261105c"></script>
   <script src="kanban.js?v=20261023b"></script>
@@ -937,7 +937,7 @@ function carregarMiniMatriculas(id) {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="min-width:0;">
           <div style="font-size:12px;font-weight:600;color:var(--text);">${esc(m.dshistorico || 'Mensalidade')}${(typeof API !== 'undefined' && API.ehParcelada(m)) ? ` <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(251,191,36,.14);color:#fbbf24;" title="${esc((() => { const r = API.resumoParcelas(m, mensalidades); return r ? r.pagas + ' de ' + r.total + ' parcelas pagas. Restam R$ ' + r.valorRestante.toFixed(2).replace('.', ',') : ''; })())}">${esc(API.rotuloParcela(m))}${_formaRotAl(m.forma_pgto) ? ' · ' + _formaRotAl(m.forma_pgto) : ''}</span>` : ''}${rec ? ` <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(56,189,248,.12);color:#38bdf8;">🔁 ${esc(recLabel)}</span>` : ''}${m.forma_pgto ? ` <span style="font-size:9px;color:var(--text-muted);">· ${esc(String(m.forma_pgto))}</span>` : ''}</div>
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${_dtFmt(m.dtinicio)} → ${_dtFmt(m.dtvencimento)}${m.dtpagamento ? ' · pago em ' + _dtFmt(m.dtpagamento) : ''}</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${_dtFmt(m.dtinicio)} → ${_dtFmt(m.dtvencimento)}${m.dtpagamento ? ' · pago em ' + _dtFmt(m.dtpagamento) : ''}${(m.dtpagamento && Array.isArray(m.partes) && m.partes.length > 1) ? ' · ' + esc(API.rotuloPagamento(m)) : ''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0;">
           <div style="font-size:13px;font-weight:700;color:var(--text);">R$ ${parseFloat(m.vlpagar||0).toFixed(2)}</div>
@@ -2069,6 +2069,7 @@ function marcarPagoMini(idmens, idatleta) {
       <div style="font-size:12px;color:var(--text-muted);">${esc(m.dshistorico || 'Mensalidade')} · <b style="color:var(--text);">R$ ${base}</b></div>
       <div class="form-group"><label class="label">Forma de pagamento</label>
         <select id="pgm-forma" class="input" onchange="_pgmForma()">${op('pix','Pix')}${op('dinheiro','Dinheiro')}${op('cartao','Cartão (crédito/débito)')}${op('eduzz','Eduzz')}${op('asaas_pix','Asaas Pix')}${op('asaas_boleto','Asaas Boleto')}${op('asaas_cartao','Asaas Cartão')}</select></div>
+      ${PgPartes.html('pgm', { total: '_pgmTotalRecebido', mudou: '_pgmPartesMudou', sel: 'pgm-forma' })}
       <div id="pgm-eduzz" style="display:none;background:rgba(127,255,0,.08);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-muted);">Via Eduzz: fica retido ~30 dias; entra no Caixa (líquido) no saque, em Financeiro › Eduzz.</div>
       ${venc ? `<div class="form-group"><label class="label">Multa/juros (R$) — vencida há ${atraso} dia(s)</label><input id="pgm-juros" class="input" type="number" min="0" step="0.01" value="0" oninput="_pgmJurosMudou()"/></div>` : ''}
       <div class="form-group"><label class="label">Valor recebido (R$)</label><input id="pgm-valor" class="input" type="number" min="0" step="0.01" value="${base}" oninput="_pgmValorMudou()"/>
@@ -2089,6 +2090,15 @@ function marcarPagoMini(idmens, idatleta) {
 }
 // Valor recebido: nasce com o combinado (+ multa/juros - desconto). Se o aluno pagou outro valor neste mes, digite aqui (conta em API.calcularRecebimento).
 function _pgmFmt(v) { return 'R$ ' + Number(v).toFixed(2).replace('.', ','); }
+// total que as formas divididas precisam fechar: o "Valor recebido" da baixa
+// as formas divididas mudaram: so refaz a nota e a oferta do restante (sem marcar o valor como digitado)
+function _pgmPartesMudou() { _pgmValorMudou(true); }
+function _pgmTotalRecebido() {
+  const r = window._pgmRef || {}, m = _mAtual(r.idmens, r.idatleta); if (!m) return 0;
+  const j = Math.max(0, parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0);
+  const c = API.calcularRecebimento(m, j, document.getElementById('pgm-valor')?.value);
+  return c.ok ? c.total : 0;
+}
 function _pgmJurosMudou() {
   const r = window._pgmRef || {}, m = _mAtual(r.idmens, r.idatleta), campo = document.getElementById('pgm-valor'); if (!m || !campo) return;
   if (campo.dataset.sujo !== '1') {
@@ -2104,13 +2114,14 @@ function _pgmValorMudou(automatico) {
   if (automatico !== true) campo.dataset.sujo = '1';
   const j = Math.max(0, parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0);
   const c = API.calcularRecebimento(m, j, campo.value);
+  PgPartes.totalMudou('pgm');   // pagamento dividido: a ultima linha acompanha o valor recebido
   if (restWrap) restWrap.style.display = 'none';
   if (!c.ok) { nota.style.display = 'block'; nota.style.color = '#f87171'; nota.textContent = c.erro; manter.style.display = 'none'; return; }
   nota.style.color = 'var(--text-muted)';
   if (!c.diferente) { nota.style.display = 'none'; manter.style.display = 'none'; return; }
   nota.style.display = 'block';
   // Parcela de plano parcelado paga a menos em Pix ou dinheiro: oferece manter o restante em aberto (regra em API.restanteDaBaixa)
-  const forma = document.getElementById('pgm-forma')?.value;
+  const forma = PgPartes.formaRegras('pgm', document.getElementById('pgm-forma')?.value);
   const rest = (forma === 'pix' || forma === 'dinheiro') ? API.restanteDaBaixa(m, c) : 0;
   if (rest > 0 && restWrap) {
     const marcado = !!document.getElementById('pgm-rest')?.checked;
@@ -2130,25 +2141,30 @@ function _pgmForma() {
   const f = document.getElementById('pgm-forma')?.value;
   const n = document.getElementById('pgm-eduzz');
   if (n) { const t = _notaGateway(f); n.innerHTML = t; n.style.display = t ? 'block' : 'none'; }
+  PgPartes.formaUnica('pgm', f);   // gateway (Eduzz/Asaas) nao divide
   if (window._pgmRef) _pgmValorMudou(true);   // a oferta de manter o restante em aberto depende da forma (Pix ou dinheiro)
 }
 async function confirmarPagamentoMini(idmens, idatleta) {
   const m = _mAtual(idmens, idatleta); if (!m) return;
-  const forma = document.getElementById('pgm-forma')?.value || null;
+  const dv = PgPartes.ler('pgm');   // null = forma unica; senao { ok, partes, principal } (a soma das formas tem de fechar com o valor recebido)
+  const forma = dv && dv.ok ? dv.principal : (document.getElementById('pgm-forma')?.value || null);
   const data = document.getElementById('pgm-data')?.value || new Date().toISOString().slice(0, 10);
   let juros = parseFloat(String(document.getElementById('pgm-juros')?.value || '0').replace(',', '.')) || 0;
   if (juros < 0) juros = 0;
   const calc = API.calcularRecebimento(m, juros, document.getElementById('pgm-valor')?.value);
   if (!calc.ok) { showToast(calc.erro, 'error'); return; }
+  if (dv && !dv.ok) { showToast(dv.erro, 'error'); return; }
   const total = calc.total, vlOriginal = parseFloat(m.vlpagar || 0);
   const manterValor = !!document.getElementById('pgm-manter')?.checked && calc.diferente;
   // parcela paga a menos em Pix ou dinheiro: o restante fica em aberto numa linha nova (so se a caixa estiver marcada)
-  const restante = (forma === 'pix' || forma === 'dinheiro') && document.getElementById('pgm-rest')?.checked ? API.restanteDaBaixa(m, calc) : 0;
+  const formaRegra = PgPartes.formaRegras('pgm', forma);
+  const restante = (formaRegra === 'pix' || formaRegra === 'dinheiro') && document.getElementById('pgm-rest')?.checked ? API.restanteDaBaixa(m, calc) : 0;
   const cobrancaResto = document.getElementById('pgm-rest-data')?.value || '';
   try {
     if (juros > 0) m.vljuro = juros;
-    await API.pagarMensalidade(m, data, total, calc.diferente ? { vlpagar: calc.vlpagarCiclo, vldesconto: calc.vldesconto } : null);
-    if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); } catch (e) {} }
+    await API.pagarMensalidade(m, data, total, calc.diferente ? { vlpagar: calc.vlpagarCiclo, vldesconto: calc.vldesconto } : null, dv && dv.ok ? dv.partes : null);
+    if (dv && dv.ok) { m.partes = dv.partes; }   // o servidor ja gravou as partes e a forma principal na mesma baixa
+    else if (forma) { try { await API.editarMensalidade(m.idmensalidade, { forma_pgto: forma }); } catch (e) {} }
     m.forma_pgto = forma;
     let avisoResto = '';
     if (restante > 0) {
@@ -2159,7 +2175,7 @@ async function confirmarPagamentoMini(idmens, idatleta) {
     }
     const recKnown = String(m.recorrencia || '').toLowerCase() in _RECMESES_AL;
     const nv = await _gerarRenovacaoAl(m, { perguntar: !recKnown, vlpagar: manterValor ? calc.vlpagarCiclo : vlOriginal });
-    showToast('Pagamento registrado!' + avisoResto + (calc.diferente ? ' Valor recebido: ' + _pgmFmt(calc.total) + ' (combinado ' + _pgmFmt(calc.padrao) + ').' : '') + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
+    showToast('Pagamento registrado' + (dv && dv.ok ? ' (' + API.rotuloPagamento(m) + ')' : '') + '!' + avisoResto + (calc.diferente ? ' Valor recebido: ' + _pgmFmt(calc.total) + ' (combinado ' + _pgmFmt(calc.padrao) + ').' : '') + (nv ? ' Próxima cobrança gerada.' : '') + (forma === 'eduzz' ? ' (Eduzz — ver Financeiro)' : ''));
     try { mensalidades = await API.listarMensalidades(); } catch {}
     if (API.ehParcelada(m)) {
       const r = API.resumoParcelas(mensalidades.find(x => Number(x.idmensalidade) === Number(m.idmensalidade)) || m, mensalidades);
