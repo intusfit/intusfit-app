@@ -2460,7 +2460,7 @@ Decisão do Luiz: sair do Eduzz e cobrar pelo **Asaas** (taxas: Pix R$ 1,08 a R$
 - **Achado**: o ícone do app iOS (`AppIcon-512@2x.png`) e os ícones de loja em `mobile/store-assets` são o X azul antigo do Maximize, não a marca da Intus. Decisão de novo ícone pendente (opções A a D mostradas em 21/11).
 
 ## Repositório privado e deploy (22/11/2026)
-- O repositório `intusfit/intusfit-app` estava público e foi tornado **privado** em 22/11/2026 (a senha antiga do SMTP continua no histórico do git: trocar).
+- O repositório `intusfit/intusfit-app` foi tornado privado em 22/11/2026 e a publicação da KingHost PAROU (ela puxa o repositório sem credencial). Por decisão do Luiz ele voltou a ser **público** no mesmo dia. Varredura feita: só a senha antiga do SMTP (já trocada) existiu no histórico; nenhuma chave de API ou token. **Nunca versionar segredo**: o repositório é público.
 - A Publicação via GIT da KingHost passou a depender de credencial para puxar o repositório privado. Depois de tornar privado, o site ficou sem receber pushes até a publicação ser refeita no painel da KingHost (Publicação via GIT > GitHub, branch `main`, diretório `/www/`, opção "Já clonei o repositório, apenas cadastrar webhook"; NUNCA "Clonar automaticamente": o `/www/` tem arquivos fora do git, como `app/config/db.php`).
 - Conferir que o deploy está vivo: `curl -sI https://intusfit.com.br/app/painel/login.html | grep -i last-modified` deve acompanhar o último push.
 - Link do professor: `/app/loginprof` (regra em `app/.htaccess`) abre `login.html?professor=1`. A tela de cliente não mostra mais "Sou professor".
