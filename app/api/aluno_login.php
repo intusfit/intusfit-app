@@ -11,10 +11,14 @@ require_once __DIR__ . '/_smtp_config.php';   // intusSmtpConfig(): SMTP guardad
 define('INTUS_GOOGLE_CLIENT_ID', '534896999126-t26d59th1pijaah3d8ta0qh15i4nelp7.apps.googleusercontent.com');   // cliente Web (site)
 // IDs aceitos no "aud" do token: o Web (site) e, quando o app do iPhone passar a usar o login nativo do Google, o cliente iOS
 // (Google Cloud Console > projeto intus-fit > Clientes). Acrescentar o ID do iOS aqui; sem ele o app nativo seria recusado.
-define('INTUS_GOOGLE_CLIENT_IDS', [INTUS_GOOGLE_CLIENT_ID]);
-// App ID do Facebook (NÃO é segredo). Enquanto for o placeholder, o login com Facebook fecha em erro controlado (503).
-// O servidor confere que o token foi emitido para ESTE app (senão um token do mesmo usuário em outro app serviria).
-define('INTUS_FACEBOOK_APP_ID', 'SUBSTITUA_PELO_APP_ID_DO_FACEBOOK');
+define('INTUS_GOOGLE_CLIENT_IDS', [
+    INTUS_GOOGLE_CLIENT_ID,
+    '534896999126-jmkj1iokmb9b9gk7h02bcnuvgk7mo5gt.apps.googleusercontent.com',   // cliente iOS (app das lojas)
+]);
+// App ID do Facebook (NÃO é segredo; app "Intus Fit" no Meta for Developers). Se voltar a ser um placeholder, o login com Facebook
+// fecha em erro controlado (503). O servidor confere que o token foi emitido para ESTE app (senão um token do mesmo usuário em outro
+// app serviria).
+define('INTUS_FACEBOOK_APP_ID', '1820818379134680');
 
 // ── DETALHE DE ERRO NAO VAI PARA O CLIENTE ─────────────────────────────────
 // As respostas devolviam $e->getMessage() direto. Em falha de conexao isso

@@ -1,6 +1,9 @@
 import UIKit
 import AVFoundation
 import Capacitor
+#if canImport(FBSDKCoreKit)
+import FBSDKCoreKit
+#endif
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -10,6 +13,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
         configurarAudio()
+        // Login com Facebook (plugin @capgo/capacitor-social-login): o SDK da Meta precisa ser iniciado na abertura do app.
+        // As chaves FacebookAppID e FacebookClientToken estão no Info.plist.
+        #if canImport(FBSDKCoreKit)
+        FBSDKCoreKit.ApplicationDelegate.shared.application(application, didFinishLaunchingWithOptions: launchOptions)
+        #endif
         return true
     }
 

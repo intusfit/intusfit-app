@@ -256,6 +256,11 @@
              um botao proprio "de mentira" disparando um clique sintetico no iframe do Google
              nao e confiavel (pop-up pode ser bloqueado por nao contar como gesto real do
              usuario). Estilizado só o quanto a API do Google permite (theme/size/shape). -->
+        <!-- Google no app do iPhone: o botão da web (GIS) não funciona no WebView; este chama o plugin nativo. Escondido na web. -->
+        <button type="button" class="social-btn" id="btn-google-nativo" onclick="loginComGoogleNativo()" style="display:none;">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.88-3a7.2 7.2 0 0 1-10.7-3.78H1.34v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.36 14.31a7.2 7.2 0 0 1 0-4.62v-3.1H1.34a12 12 0 0 0 0 10.82l4.02-3.1z"/><path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.8l3.43-3.43A11.9 11.9 0 0 0 12 0 12 12 0 0 0 1.34 6.59l4.02 3.1A7.2 7.2 0 0 1 12 4.75z"/></svg>
+          Continuar com o Google
+        </button>
         <div id="google-btn-mount"></div>
         <button type="button" class="social-btn" id="btn-facebook" onclick="loginComFacebook()">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.25h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07z"/></svg>
@@ -1299,12 +1304,18 @@
     // no Facebook for Developers, e so então substituir os dois valores.
     // Enquanto isso, os botoes ficam ocultos (em vez de aparecer quebrado).
     const INTUS_GOOGLE_CLIENT_ID = '534896999126-t26d59th1pijaah3d8ta0qh15i4nelp7.apps.googleusercontent.com';   // cliente Web (Google Cloud, projeto intus-fit)
-    const INTUS_FACEBOOK_APP_ID  = 'SUBSTITUA_PELO_APP_ID_DO_FACEBOOK';
+    const INTUS_GOOGLE_IOS_CLIENT_ID = '534896999126-jmkj1iokmb9b9gk7h02bcnuvgk7mo5gt.apps.googleusercontent.com';   // cliente iOS (app das lojas)
+    const INTUS_FACEBOOK_APP_ID  = '1820818379134680';                         // app "Intus Fit" no Meta for Developers (público)
+    const INTUS_FACEBOOK_CLIENT_TOKEN = 'c267b0ad5ba89bc7537245b0d2afd10b';    // token de cliente do app (vai embutido no app, não é o segredo)
     // Dentro do app das lojas (WebView em capacitor://localhost) os SDKs web do Google e do Facebook não funcionam: lá o login
-    // social vem pelo plugin nativo (e só a Apple já está pronta). Nesse caso os dois ficam desligados, e a web segue como está.
+    // social vem pelo plugin nativo (@capgo/capacitor-social-login). A web segue com os botões do próprio Google/Facebook.
     const _noApp = !!window.INTUS_NATIVE_APP;
     const _googleConfigurado = !_noApp && INTUS_GOOGLE_CLIENT_ID.indexOf('SUBSTITUA') !== 0;
-    const _facebookConfigurado = !_noApp && INTUS_FACEBOOK_APP_ID.indexOf('SUBSTITUA') !== 0;
+    // Facebook: enquanto o app da Meta não estiver publicado (modo desenvolvimento), só quem tem função no app consegue entrar. Por isso
+    // na web o botão só aparece com ?fb=1 na URL; no app (TestFlight) aparece. ANTES DE PUBLICAR NA LOJA: se o app da Meta ainda não
+    // estiver "Publicado", esconder também no app (mudar _fbLiberado para false).
+    const _fbLiberado = _noApp ? true : /[?&]fb=1(&|$)/.test(location.search);
+    const _facebookConfigurado = !_noApp && _fbLiberado && INTUS_FACEBOOK_APP_ID.indexOf('SUBSTITUA') !== 0;
 
     if (!_googleConfigurado) { const el = document.getElementById('google-btn-mount'); if (el) el.style.display = 'none'; }
     if (!_facebookConfigurado) { const el = document.getElementById('btn-facebook'); if (el) el.style.display = 'none'; }
@@ -1349,6 +1360,67 @@
         const m = String((e && (e.message || e.code)) || '');
         if (/cancel|1001/i.test(m)) return;   // a pessoa fechou a folha da Apple
         mostrarErro('Não foi possível entrar com a Apple.');
+      }
+    }
+
+    // ── Google e Facebook no app do iPhone (plugin nativo) ──
+    // O plugin devolve o ID token do Google / o token de acesso do Facebook; o servidor confere cada um direto com o Google/Meta
+    // e só aceita se for deste app (aud do Google, app id do Facebook). O e-mail que vem do aparelho nunca vale sozinho.
+    function _socialNativo() { try { return window.Capacitor && Capacitor.getPlatform && Capacitor.getPlatform() === 'ios' && Capacitor.Plugins && Capacitor.Plugins.SocialLogin; } catch (e) { return null; } }
+    let _socialIniciado = null;
+    function _socialIniciar() {
+      const p = _socialNativo();
+      if (!p) return Promise.reject(new Error('sem plugin'));
+      if (!_socialIniciado) {
+        _socialIniciado = p.initialize({
+          google: { iOSClientId: INTUS_GOOGLE_IOS_CLIENT_ID, mode: 'online' },
+          facebook: { appId: INTUS_FACEBOOK_APP_ID, clientToken: INTUS_FACEBOOK_CLIENT_TOKEN },
+        }).catch(e => { _socialIniciado = null; throw e; });
+      }
+      return _socialIniciado;
+    }
+    if (_socialNativo()) {
+      document.getElementById('btn-google-nativo').style.display = 'flex';
+      if (_fbLiberado && INTUS_FACEBOOK_APP_ID.indexOf('SUBSTITUA') !== 0) document.getElementById('btn-facebook').style.display = 'flex';
+      document.querySelectorAll('.social-divider, .social-login-row').forEach(el => el.style.display = '');
+    }
+    function _foiCancelado(e) { return /cancel|dismiss|1001|12501|-5/i.test(String((e && (e.message || e.code)) || '')); }
+    async function _enviarOauth(acao, corpo) {
+      const r = await fetch(API_BASE + '/aluno_login.php?action=' + acao, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo), cache: 'no-store',
+      });
+      const j = await r.json().catch(() => null);
+      await _processarRespostaOauth(j);
+    }
+    async function loginComGoogleNativo() {
+      limparErro();
+      try {
+        await _socialIniciar();
+        const res = await _socialNativo().login({ provider: 'google', options: { scopes: ['email', 'profile'] } });
+        const idToken = res && res.result && res.result.idToken;
+        if (!idToken) { mostrarErro('Não foi possível entrar com o Google.'); return; }
+        await _enviarOauth('oauth_google', { credential: idToken });
+      } catch (e) {
+        if (_foiCancelado(e)) return;   // a pessoa fechou a folha do Google
+        mostrarErro('Não foi possível entrar com o Google.');
+      }
+    }
+    async function loginComFacebookNativo() {
+      limparErro();
+      try {
+        await _socialIniciar();
+        const res = await _socialNativo().login({ provider: 'facebook', options: { permissions: ['email', 'public_profile'], limitedLogin: false } });
+        const r = (res && res.result) || {};
+        const token = r.accessToken && (r.accessToken.token || r.accessToken);
+        if (!token || r.isLimitedLogin) {
+          // Sem a permissão de rastreamento do iOS o Facebook devolve um login "limitado", sem token de acesso: o servidor não consegue conferir.
+          mostrarErro('Não foi possível entrar com o Facebook neste aparelho. Use o e-mail e a senha ou entre com a Apple ou o Google.');
+          return;
+        }
+        await _enviarOauth('oauth_facebook', { access_token: String(token) });
+      } catch (e) {
+        if (_foiCancelado(e)) return;   // a pessoa fechou a folha do Facebook
+        mostrarErro('Não foi possível entrar com o Facebook.');
       }
     }
 
@@ -1404,6 +1476,7 @@
     };
 
     function loginComFacebook() {
+      if (_socialNativo()) { loginComFacebookNativo(); return; }   // app do iPhone: plugin nativo
       if (!_facebookConfigurado || typeof FB === 'undefined') { mostrarErro('Login com Facebook ainda não está configurado.'); return; }
       limparErro();
       FB.login(function (response) {

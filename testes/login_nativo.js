@@ -74,6 +74,39 @@ async function tentarLogin(nativo) {
   eq('o botão "Falar com o suporte" aparece e abre o WhatsApp da Intus em outra janela', [sup.visivel, sup.texto, /^https:\/\/wa\.me\/5545991156006\?text=/.test(sup.href), sup.alvo], [true, 'Falar com o suporte', true, '_blank']);
   eq('e tem a largura da caixa de login e a altura de 48 px', [sup.w, sup.h], [true, 48]);
   await pg.screenshot({ path: process.env.INTUS_PRINT || '', fullPage: true }).catch(() => {});
+  console.log('\n══ Google e Facebook no app do iPhone (plugin nativo simulado) ══');
+  async function nativo(facebookResp) {
+    const ctx = await b2.newContext({ viewport: { width: 375, height: 800 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage(); const chamadas = [], erros = []; page.on('pageerror', e => erros.push(String(e.message)));
+    await page.route(/aluno_login\.php\?action=oauth_/, r => { chamadas.push({ url: r.request().url(), corpo: JSON.parse(r.request().postData() || '{}') }); r.fulfill({ status: 401, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"ok":false,"erro":"recusado no teste"}' }); });
+    await page.addInitScript((fb) => {
+      window.INTUS_NATIVE_APP = true; window.INTUS_API_BASE = 'https://api.exemplo.test/app/api';
+      window.__sl = { init: null, logins: [] };
+      window.Capacitor = { getPlatform: () => 'ios', Plugins: { SocialLogin: {
+        initialize: async (o) => { window.__sl.init = o; },
+        login: async (o) => { window.__sl.logins.push(o); return o.provider === 'google' ? { provider: 'google', result: { idToken: 'ID-TOKEN-GOOGLE-TESTE' } } : fb; },
+      } } };
+    }, facebookResp);
+    await page.goto(base, { waitUntil: 'domcontentloaded' }); await page.waitForSelector('#btn-google-nativo'); await page.waitForTimeout(300);
+    const vis = await page.evaluate(() => ({ google: !!document.getElementById('btn-google-nativo').offsetParent, fb: !!document.getElementById('btn-facebook').offsetParent, web: !!document.getElementById('google-btn-mount').offsetParent, larg: [document.getElementById('btn-google-nativo').getBoundingClientRect().width === document.getElementById('btn').getBoundingClientRect().width, Math.round(document.getElementById('btn-google-nativo').getBoundingClientRect().height)] }));
+    await page.click('#btn-google-nativo'); await page.waitForTimeout(500);
+    const msgG = await page.evaluate(() => document.getElementById('erro').innerText);
+    await page.click('#btn-facebook'); await page.waitForTimeout(500);
+    const msgF = await page.evaluate(() => document.getElementById('erro').innerText);
+    const sl = await page.evaluate(() => window.__sl);
+    await ctx.close(); return { vis, chamadas, sl, msgG, msgF, erros };
+  }
+  let nv = await nativo({ provider: 'facebook', result: { accessToken: { token: 'TOKEN-FB-TESTE' }, isLimitedLogin: false } });
+  eq('no app aparecem Google e Facebook nativos (e o botão da web do Google não)', [nv.vis.google, nv.vis.fb, nv.vis.web], [true, true, false]);
+  eq('o botão do Google tem a largura do ENTRAR e 48 px', nv.vis.larg, [true, 48]);
+  eq('o plugin é iniciado com o cliente iOS do Google e o app e token do Facebook', [nv.sl.init && nv.sl.init.google.iOSClientId, nv.sl.init && nv.sl.init.facebook.appId, !!(nv.sl.init && nv.sl.init.facebook.clientToken)], ['534896999126-jmkj1iokmb9b9gk7h02bcnuvgk7mo5gt.apps.googleusercontent.com', '1820818379134680', true]);
+  eq('Google pede e-mail e perfil e envia o idToken ao servidor', [nv.sl.logins[0].provider, nv.sl.logins[0].options.scopes, nv.chamadas[0] && nv.chamadas[0].url, nv.chamadas[0] && nv.chamadas[0].corpo], ['google', ['email', 'profile'], 'https://api.exemplo.test/app/api/aluno_login.php?action=oauth_google', { credential: 'ID-TOKEN-GOOGLE-TESTE' }]);
+  eq('Facebook pede e-mail e perfil, sem login limitado, e envia o token de acesso', [nv.sl.logins[1].provider, nv.sl.logins[1].options.permissions, nv.sl.logins[1].options.limitedLogin, nv.chamadas[1] && nv.chamadas[1].url, nv.chamadas[1] && nv.chamadas[1].corpo], ['facebook', ['email', 'public_profile'], false, 'https://api.exemplo.test/app/api/aluno_login.php?action=oauth_facebook', { access_token: 'TOKEN-FB-TESTE' }]);
+  eq('a recusa do servidor aparece na tela', [nv.msgG, nv.msgF], ['recusado no teste', 'recusado no teste']);
+  eq('sem erro de JavaScript', nv.erros, []);
+  nv = await nativo({ provider: 'facebook', result: { accessToken: null, idToken: 'JWT-LIMITADO', isLimitedLogin: true } });
+  eq('login limitado do Facebook (sem token de acesso) NÃO chega ao servidor e explica o que fazer', [nv.chamadas.filter(c => /facebook/.test(c.url)).length, /Facebook neste aparelho/.test(nv.msgF)], [0, true]);
+
   await b2.close(); srv.close();
 
   console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
