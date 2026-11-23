@@ -44,6 +44,14 @@ const SITE = 'https://intusfit.com.br'; const ID = 'dQw4w9WgXcQ';
   t = await abrir(false);
   const w = await t.page.evaluate((id) => ({ modal: youtubeToEmbed('https://youtu.be/' + id), nocookie: _ytSrc(id, false, true) }), ID);
   eq('web: embed direto do YouTube', [w.modal, w.nocookie], ['https://www.youtube.com/embed/' + ID + '?rel=0&playsinline=1&autoplay=1', 'https://www.youtube-nocookie.com/embed/' + ID + '?rel=0&playsinline=1']);
+  // O HTML do vídeo (exercício/alongamento) tem que gerar um iframe com o endereço certo, para vídeo comum e para Shorts, em qualquer formato de link
+  const formas = ['https://www.youtube.com/watch?v=' + ID, 'https://youtu.be/' + ID + '?si=abc', 'https://www.youtube.com/shorts/' + ID, 'https://youtube.com/shorts/' + ID + '?feature=share', 'https://m.youtube.com/watch?v=' + ID + '&t=5s', 'https://www.youtube.com/embed/' + ID];
+  const srcs = await t.page.evaluate((fs) => fs.map((u) => { const d = document.createElement('div'); d.innerHTML = _infoVideoHtml(u); const f = d.querySelector('iframe'); return f ? f.getAttribute('src') : null; }), formas);
+  eq('web: vídeo comum e Shorts, em todos os formatos de link, viram iframe com o embed certo', srcs, formas.map(() => 'https://www.youtube.com/embed/' + ID + '?rel=0&playsinline=1'));
+  await t.ctx.close();
+  t = await abrir(true);
+  const cartoes = await t.page.evaluate((fs) => fs.map((u) => { const d = document.createElement('div'); d.innerHTML = _infoVideoHtml(u); const a = d.querySelector('a[href*="watch?v="]'); return [!!d.querySelector('iframe'), a ? a.getAttribute('href') : null]; }), formas);
+  eq('app: vídeo comum e Shorts mostram a capa com play que abre o vídeo certo no YouTube (sem iframe)', cartoes, formas.map(() => [false, 'https://www.youtube.com/watch?v=' + ID]));
   await t.ctx.close();
 
   console.log('\n══ yt.html ══');
