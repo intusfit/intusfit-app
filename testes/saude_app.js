@@ -53,10 +53,17 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
         queryWorkouts: async () => ({ workouts: [
           { workoutType: 'running', duration: 35 * 60, totalDistance: 5200, totalEnergyBurned: 380, startDate: hoje(7), endDate: hoje(8), platformId: 'W1' },
           { workoutType: 'traditionalStrengthTraining', duration: 50 * 60, startDate: hoje(9), endDate: hoje(10), platformId: 'W2' },
-          { workoutType: 'walking', duration: 3 * 60, startDate: hoje(11), endDate: hoje(11), platformId: 'W3' } ] }),
+          { workoutType: 'walking', duration: 3 * 60, startDate: hoje(11), endDate: hoje(11), platformId: 'W3' },
+          { workoutType: 'running', duration: 40 * 60, startDate: hoje(12), endDate: hoje(13), platformId: 'W4', sourceId: 'br.com.intusfit.app' } ] }),
+      };
+      window.__grav = []; window.__grOk = false; window.__grDisp = true;
+      const gravador = {
+        permitido: async () => { if (!window.__grDisp) throw new Error('not implemented'); return { ok: window.__grOk }; },
+        pedirPermissao: async () => { if (!window.__grDisp) throw new Error('not implemented'); window.__grOk = true; return { ok: true }; },
+        salvar: async (o) => { if (!window.__grOk) throw new Error('sem permissão'); window.__grav.push(o); return { salvo: true }; },
       };
       window.INTUS_NATIVE_APP = true;
-      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => plat, registerPlugin: (n) => (n === 'Health' ? falso : {}), Plugins: {} };
+      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => plat, registerPlugin: (n) => (n === 'Health' ? falso : n === 'IntusTreino' ? gravador : {}), Plugins: {} };
     }, plataforma);
     await page.goto(base + '/aluno.html', { waitUntil: 'domcontentloaded' });
     for (let i = 0; i < 80; i++) { if (await page.evaluate(() => typeof _saudeConectar === 'function' && typeof renderHome === 'function' && !!document.getElementById('v-home')).catch(() => false)) break; await page.waitForTimeout(250); }
@@ -80,6 +87,8 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
     eq('só o treino de cardio com 5 min ou mais é enviado (força e 3 min ficam de fora)', (post.treinos || []).map(t => [t.ext_id, t.tipo, t.duracao_min]), [['W1', 'Corrida', 35]]);
     const txt = await page.evaluate(() => document.getElementById('jn-saude-box').textContent);
     eq('o cartão mostra os passos do dia e o treino detectado', [/8\.000/.test(txt), /Corrida · 35 min · 5,2 km/.test(txt), /Desconectar e apagar/.test(txt)], [true, true, true]);
+    eq('o treino que a própria Intus gravou no Saúde (W4) não volta como treino detectado', (srvEstado.treinos || []).some(t => t.ext_id === 'W4'), false);
+    eq('conectar pede também a permissão de gravar e liga a gravação', [await page.evaluate(() => window.__grOk), await page.evaluate(() => _saudeGravarOn())], [true, true]);
     eq('a trilha marca "Conectar saúde e apps" como feito', await page.evaluate(() => _jnPassos().find(p => p.id === 'saude').ok), true);
 
     if (process.env.SHOT && plataforma === 'ios') await page.screenshot({ path: process.env.SHOT });
@@ -102,6 +111,37 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
     await page.evaluate(() => { _cardioFormLimpar(); _cardioForm = { tipo: 'Bike', outro: '', min: '20', dist: '' }; });
     await page.evaluate(() => salvarCardio()); await page.waitForTimeout(1200);
     eq('um cardio comum depois não marca treino nenhum', srvEstado.puts.length, 1);
+
+    // Gravar os treinos da Intus no Saúde
+    await page.evaluate(() => {
+      const d = (n) => { const x = new Date(); x.setDate(x.getDate() - n); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+      const hojeD = d(0);
+      window.__fix = [
+        { idsessao: 11, dtsessao: d(1), hora_conclusao: '09:30', duracao_seg: 3000, divisao: 'A', ficha: 1 },
+        { idsessao: 12, dtsessao: d(1), hora_conclusao: '18:00', duracao_seg: 2100, tipo: 'cardio', cardio_tipo: 'Corrida', cardio_metrica: '5 km' },
+        { idsessao: 13, dtsessao: d(2), hora_conclusao: '07:00', duracao_seg: 1200, tipo: 'cardio', cardio_tipo: 'Bike', cardio_metrica: '' },
+        { idsessao: 14, dtsessao: d(1), hora_conclusao: '10:00', duracao_seg: 200, divisao: 'B' },
+        { idsessao: 15, dtsessao: hojeD, hora_conclusao: '00:01', duracao_seg: 2100, tipo: 'cardio', cardio_tipo: 'Corrida', cardio_metrica: '5 km' },
+        { idsessao: 16, dtsessao: d(1), hora_conclusao: '', duracao_seg: 3000, divisao: 'C' },
+      ];
+      SessoesTreino.listarDoAtleta = () => window.__fix;
+    });
+    const gr1 = await page.evaluate(async () => { await _saudeGravarTreinos(); return window.__grav.map(g => [g.tipo, g.distanciaM, g.titulo]); });
+    eq('grava musculação, corrida (com 5 km) e bike; não grava curto, sem hora, nem o cardio que o relógio já tem', gr1, [['musculacao', 0, 'Intus: Treino A'], ['corrida', 5000, 'Intus: Corrida'], ['bike', 0, 'Intus: Bike']]);
+    const g0 = await page.evaluate(() => window.__grav[0]);
+    eq('o treino vai com início, fim e id estável (dia|hora|duração|tipo)', [(new Date(g0.fim) - new Date(g0.inicio)) / 60000, /^\d{4}-\d{2}-\d{2}\|09:30\|3000\|musculacao$/.test(g0.id)], [50, true]);
+    const gr2 = await page.evaluate(async () => { await _saudeGravarTreinos(); return window.__grav.length; });
+    eq('rodar de novo não grava nada repetido', gr2, 3);
+    await page.evaluate(() => { window.__fix.push({ idsessao: 17, dtsessao: window.__fix[0].dtsessao, hora_conclusao: '20:00', duracao_seg: 1800, divisao: 'D' }); });
+    eq('treino novo entra sozinho', await page.evaluate(async () => { await _saudeGravarTreinos(); return window.__grav.length; }), 4);
+    await page.evaluate(() => _saudeGravarDesativar());
+    await page.evaluate(() => { window.__fix.push({ idsessao: 18, dtsessao: window.__fix[0].dtsessao, hora_conclusao: '21:00', duracao_seg: 1800, divisao: 'E' }); });
+    eq('com a gravação desligada nada mais é enviado', await page.evaluate(async () => { await _saudeGravarTreinos(); return [window.__grav.length, _saudeGravarOn()]; }), [4, false]);
+    await page.evaluate(() => { abrirIntegracoes(); }); await page.waitForTimeout(200);
+    eq('o cartão oferece ativar de novo', /Enviar meus treinos/.test(await page.evaluate(() => document.getElementById('jn-saude-box').textContent)), true);
+    await page.evaluate(() => { window.__grDisp = false; _saudeGrEstado.disp = null; });
+    eq('app sem o plugin de gravação: some a opção e nada quebra', [await page.evaluate(() => _saudeGravarDisponivel()), await page.evaluate(() => _saudeGravarHtml())], [false, '']);
+    await page.evaluate(() => { window.__grDisp = true; _saudeGrEstado.disp = null; });
 
     // Desconectar
     await page.evaluate(() => _saudeDesconectar()); await page.waitForTimeout(500);

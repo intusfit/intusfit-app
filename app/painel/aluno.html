@@ -8283,7 +8283,7 @@ async function _saudeLerAparelho(Pl, nDias) {
     const r = await Pl.queryWorkouts(Object.assign({ limit: 60 }, A));
     (r.workouts || []).forEach((w) => {
       const tipo = SAUDE_TIPOS[w.workoutType]; const min = Math.round((Number(w.duration) || 0) / 60);
-      if (!tipo || min < 5) return;
+      if (!tipo || min < 5 || w.sourceId === SAUDE_APP_ID) return;   // treino gravado pela própria Intus não volta como sugestão
       treinos.push({ ext_id: String(w.platformId || (_saudeFonte() + '|' + w.startDate)).slice(0, 80), tipo: tipo, inicio: w.startDate, duracao_min: min,
         distancia_m: w.totalDistance > 0 ? Math.round(w.totalDistance) : null, kcal: w.totalEnergyBurned > 0 ? Math.round(w.totalEnergyBurned) : null });
     });
@@ -8305,9 +8305,109 @@ async function _saudeSincronizar(forcar) {
     _saudeEstado = { ocupado: false, msg: '' };
   } catch (e) { _saudeEstado = { ocupado: false, msg: 'Não deu para sincronizar agora. Tente de novo em instantes.' }; }
   _saudeRedesenhar();
+  _saudeGravarDisponivel().then(() => _saudeGravarTreinos());
   return true;
 }
 function _saudeAuto() { try { if (_saudeAtivo()) { if (!_saudeCache.dias.length && !_saudeCache.treinos.length) _saudeCarregar(); _saudeSincronizar(false); } } catch (e) {} }
+// ── GRAVAR OS TREINOS DA INTUS NO APP SAÚDE (iOS) / HEALTH CONNECT (Android) ─────────────────────────────────────────────
+// Só escrita de treino, distância e calorias ativas (calorias não: não inventamos número). Plugin nativo próprio: mobile/plugins/intus-treino.
+// Cada treino leva um id estável (dia|hora|duração|tipo); gravar de novo o mesmo treino atualiza em vez de duplicar, em qualquer aparelho.
+const SAUDE_APP_ID = 'br.com.intusfit.app';
+const SAUDE_GRAVAR_TIPOS = {
+  'Corrida': 'corrida', 'Corrida estática': 'casa', 'Caminhada': 'caminhada', 'Bike': 'bike', 'Natação': 'natacao', 'Elíptico': 'eliptico', 'Escada': 'escada',
+  'Pular Corda': 'corda', 'Dança': 'danca', 'Luta': 'luta', 'Futebol': 'futebol', 'Tênis': 'raquete', 'Padel': 'raquete', 'Esportes de raquete': 'raquete', 'Esportes com raquete': 'raquete',
+  'Polichinelo': 'casa', 'Exercício em casa': 'casa', 'Cardio em casa': 'casa', 'Trilha e natureza': 'trilha', 'Esportes na natureza': 'trilha',
+};
+let _saudeGrPl = null, _saudeGrEstado = { disp: null, ocupado: false, msg: '' }, _saudeGrTimer = null;
+function _saudeGravarPlugin() {
+  try { if (!_saudeNativo()) return null; if (!_saudeGrPl) _saudeGrPl = Capacitor.registerPlugin('IntusTreino'); return _saudeGrPl; } catch (e) { return null; }
+}
+function _saudeGravarOn() { try { return localStorage.getItem('intus-saude-gravar-' + idAtleta) === '1'; } catch (e) { return false; } }
+function _saudeGravados() { try { return JSON.parse(localStorage.getItem('intus-saude-gravados-' + idAtleta) || '{}') || {}; } catch (e) { return {}; } }
+function _saudeGravadosSalvar(m) {
+  try {
+    const ks = Object.keys(m); if (ks.length > 400) ks.sort().slice(0, ks.length - 300).forEach((k) => { delete m[k]; });
+    localStorage.setItem('intus-saude-gravados-' + idAtleta, JSON.stringify(m));
+  } catch (e) {}
+}
+// Distância gravada só quando o aluno informou em km ou m (degraus e saltos não são distância).
+function _saudeGravarDistanciaM(txt) {
+  const m = /^\s*([0-9]+(?:[.,][0-9]+)?)\s*(km|m)\s*$/i.exec(String(txt || '')); if (!m) return null;
+  const v = parseFloat(m[1].replace(',', '.')); if (!(v > 0)) return null;
+  return Math.round(m[2].toLowerCase() === 'km' ? v * 1000 : v);
+}
+// Sessão da Intus -> treino do Saúde. Devolve null quando não dá para gravar com segurança (sem hora, curto, marcado como teste).
+function _saudeGravarMontar(s) {
+  if (!s || !s.dtsessao) return null;
+  const dia = String(s.dtsessao).slice(0, 10), hora = String(s.hora_conclusao || '').slice(0, 5);
+  const dur = Math.round(Number(s.duracao_seg) || 0);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia) || !/^\d{2}:\d{2}$/.test(hora) || dur < 300 || dur > 4 * 3600) return null;
+  const cardio = (s.tipo === 'cardio') || !!s.cardio_tipo;
+  if (!cardio && Number(s.nao_contar) === 1 && dur < 300) return null;
+  const fim = new Date(dia + 'T' + hora + ':00'); if (isNaN(fim)) return null;
+  if (fim.getTime() > Date.now() + 120000) return null;
+  const ini = new Date(fim.getTime() - dur * 1000);
+  const tipo = cardio ? (SAUDE_GRAVAR_TIPOS[s.cardio_tipo] || 'outro') : 'musculacao';
+  const titulo = cardio ? String(s.cardio_tipo || 'Cardio') : (s.divisao === 'FORA' ? 'Treino de musculação' : 'Treino ' + (s.divisao || 'de musculação'));
+  return { id: dia + '|' + hora + '|' + dur + '|' + tipo, tipo: tipo, inicio: ini.toISOString(), fim: fim.toISOString(), titulo: 'Intus: ' + titulo, distanciaM: cardio ? _saudeGravarDistanciaM(s.cardio_metrica) : null, _cardio: cardio, _min: Math.round(dur / 60), _dia: dia };
+}
+// Treino que o relógio ou outro app já gravou no Saúde (mesmo dia, duração parecida) não é gravado de novo.
+function _saudeGravarJaTem(t) {
+  return (_saudeCache.treinos || []).some((x) => _saudeDiaDe(String(x.inicio).replace(' ', 'T')) === t._dia && Math.abs(Number(x.duracao_min) - t._min) <= 5);
+}
+async function _saudeGravarDisponivel() {
+  if (_saudeGrEstado.disp !== null) return _saudeGrEstado.disp;
+  const Pl = _saudeGravarPlugin(); if (!Pl) { _saudeGrEstado.disp = false; return false; }
+  try { await Pl.permitido(); _saudeGrEstado.disp = true; } catch (e) { _saudeGrEstado.disp = false; }   // app instalado antes deste recurso não tem o plugin
+  return _saudeGrEstado.disp;
+}
+async function _saudeGravarTreinos() {
+  const Pl = _saudeGravarPlugin();
+  if (!Pl || !_saudeGravarOn() || _saudeGrEstado.ocupado) return 0;
+  _saudeGrEstado.ocupado = true;
+  let n = 0;
+  try {
+    if (!(await Pl.permitido()).ok) { _saudeGrEstado.msg = 'Sem permissão para gravar no ' + _saudeNome() + '. Ative de novo aqui ou nos ajustes do ' + (_saudeFonte() === 'apple' ? 'iPhone' : 'Health Connect') + '.'; _saudeGrEstado.ocupado = false; _saudeRedesenhar(); return 0; }
+    const feitos = _saudeGravados(); const limite = Date.now() - 30 * 86400000;
+    const lista = SessoesTreino.listarDoAtleta(idAtleta).map(_saudeGravarMontar).filter((t) => t && !feitos[t.id] && new Date(t.fim).getTime() > limite).slice(0, 40);
+    for (const t of lista) {
+      if (t._cardio && _saudeGravarJaTem(t)) { feitos[t.id] = 2; continue; }   // 2 = já existia no Saúde, não gravado
+      try {
+        await Pl.salvar({ id: t.id, tipo: t.tipo, inicio: t.inicio, fim: t.fim, titulo: t.titulo, distanciaM: t.distanciaM || 0 });
+        feitos[t.id] = 1; n++;
+      } catch (e) { _saudeGrEstado.msg = 'Não deu para gravar um treino agora. Tentaremos de novo.'; break; }
+    }
+    _saudeGravadosSalvar(feitos);
+  } catch (e) {}
+  _saudeGrEstado.ocupado = false; _saudeRedesenhar();
+  return n;
+}
+// Chamado depois de cada treino ou cardio salvo; espera um pouco para a sessão já estar na lista local.
+function _saudeGravarSoon() { try { if (!_saudeGravarOn()) return; clearTimeout(_saudeGrTimer); _saudeGrTimer = setTimeout(_saudeGravarTreinos, 4000); } catch (e) {} }
+async function _saudeGravarAtivar(silencioso) {
+  const Pl = _saudeGravarPlugin(); if (!Pl) return false;
+  try {
+    if (!(await _saudeGravarDisponivel())) { if (!silencioso) toast('Atualize o app da Intus para gravar os treinos no ' + _saudeNome() + '.'); return false; }
+    const r = await Pl.pedirPermissao();
+    if (!r || !r.ok) { _saudeGrEstado.msg = 'Sem a permissão de gravar, seus treinos não vão para o ' + _saudeNome() + '.'; _saudeRedesenhar(); return false; }
+    localStorage.setItem('intus-saude-gravar-' + idAtleta, '1'); _saudeGrEstado.msg = '';
+    _saudeRedesenhar();
+    const n = await _saudeGravarTreinos();
+    if (!silencioso) toast(n ? n + ' treino' + (n > 1 ? 's' : '') + ' enviado' + (n > 1 ? 's' : '') + ' para o ' + _saudeNome() + '.' : 'Pronto: os próximos treinos vão para o ' + _saudeNome() + '.');
+    return true;
+  } catch (e) { _saudeGrEstado.msg = 'Não foi possível pedir a permissão: ' + ((e && e.message) || 'erro'); _saudeRedesenhar(); return false; }
+}
+function _saudeGravarDesativar() {
+  try { localStorage.removeItem('intus-saude-gravar-' + idAtleta); } catch (e) {}
+  _saudeGrEstado.msg = ''; _saudeRedesenhar();
+  toast('Pronto. Os próximos treinos não vão mais para o ' + _saudeNome() + '. O que já foi gravado continua lá: para apagar, use o app ' + (_saudeFonte() === 'apple' ? 'Saúde' : 'Health Connect') + '.');
+}
+function _saudeGravarHtml() {
+  if (_saudeGrEstado.disp === false) return '';
+  const nome = _saudeNome();
+  if (_saudeGravarOn()) return '<div class="jn-sub">Treinos da Intus no ' + nome + '</div><div class="jn-trn"><div class="tx"><div class="n">Ligado</div><div class="d">Os treinos que você faz pela Intus (musculação e cardio) também aparecem no ' + nome + '.' + (_saudeGrEstado.msg ? ' ' + _saudeGrEstado.msg : '') + '</div></div><button class="jn-btn peq sec" onclick="_saudeGravarDesativar()">Desligar</button></div>';
+  return '<div class="jn-sub">Treinos da Intus no ' + nome + '</div><div class="jn-trn"><div class="tx"><div class="n">Enviar meus treinos</div><div class="d">' + (_saudeGrEstado.msg || 'Grava no ' + nome + ' os treinos que você faz pela Intus (tipo, duração e distância), junto com a sua atividade do relógio.') + '</div></div><button class="jn-btn peq" onclick="_saudeGravarAtivar()">Ativar</button></div>';
+}
 async function _saudeConectar() {
   const Pl = _saudePlugin(); if (!Pl) { toast('Disponível no app do iPhone e do Android.'); return; }
   _saudeEstado = { ocupado: true, msg: '' }; _saudeRedesenhar();
@@ -8319,13 +8419,14 @@ async function _saudeConectar() {
     _jnSalvar({ integracoes_visto: true, saude_conectada: true });
     _saudeEstado = { ocupado: false, msg: '' };
     await _saudeSincronizar(true);
+    await _saudeGravarAtivar(true);   // pede também a permissão de gravar os treinos da Intus no Saúde
   } catch (e) { _saudeEstado = { ocupado: false, msg: 'Não foi possível conectar: ' + ((e && e.message) || 'permissão negada') }; _saudeRedesenhar(); }
   try { if (window._viewAtual === 'home') renderHome(); } catch (e) {}
 }
 async function _saudeDesconectar() {
   _saudeEstado = { ocupado: true, msg: '' }; _saudeRedesenhar();
   try { await _saudeApi('DELETE'); } catch (e) { _saudeEstado = { ocupado: false, msg: 'Não deu para apagar os dados agora. Tente de novo com internet.' }; _saudeRedesenhar(); return; }
-  try { localStorage.removeItem('intus-saude-on-' + idAtleta); localStorage.removeItem('intus-saude-sync-' + idAtleta); } catch (e) {}
+  try { localStorage.removeItem('intus-saude-on-' + idAtleta); localStorage.removeItem('intus-saude-sync-' + idAtleta); localStorage.removeItem('intus-saude-gravar-' + idAtleta); } catch (e) {}
   _jnSalvar({ saude_conectada: false });
   _saudeCache = { dias: [], treinos: [] }; _saudeEstado = { ocupado: false, msg: '' };
   toast('Desconectado. Os dados de saúde foram apagados da Intus. Para retirar a permissão, use os ajustes do ' + _saudeNome() + '.');
@@ -8362,7 +8463,7 @@ function _saudeConteudoHtml() {
   const cab = '<div class="h"><div class="ic">♥</div><div class="tx"><div class="n">' + nome + '</div><div class="d">';
   if (!_saudeNativo()) return cab + 'Passos, sono, peso, frequência cardíaca de repouso e treinos do celular e do relógio. Disponível no app da Intus no iPhone e no Android.</div></div></div>';
   if (!_saudeAtivo()) {
-    return cab + 'Traz para a Intus os seus passos, sono, peso, frequência cardíaca de repouso e treinos que o relógio ou o celular já registraram. Só leitura: você escolhe o que compartilhar, nada disso pontua sozinho e dá para desconectar quando quiser.</div></div></div>' +
+    return cab + 'Traz para a Intus os seus passos, sono, peso, frequência cardíaca de repouso e treinos que o relógio ou o celular já registraram. Você escolhe o que compartilhar, nada do que vem de lá pontua sozinho e dá para desconectar quando quiser. A Intus também pode gravar no ' + _saudeNome() + ' os treinos que você faz por aqui.</div></div></div>' +
       (_saudeEstado.msg ? '<div class="av">' + _saudeEstado.msg + '</div>' : '') +
       '<button class="jn-btn" ' + (_saudeEstado.ocupado ? 'disabled' : '') + ' onclick="_saudeConectar()">' + (_saudeEstado.ocupado ? 'Conectando...' : 'Conectar o ' + _saudeNome()) + '</button>';
   }
@@ -8384,6 +8485,7 @@ function _saudeConteudoHtml() {
     }).join('');
   }
   if (_saudeEstado.msg) h += '<div class="av">' + _saudeEstado.msg + '</div>';
+  h += _saudeGravarHtml();
   h += '<div class="jn-acoes"><button class="jn-btn peq sec" ' + (_saudeEstado.ocupado ? 'disabled' : '') + ' onclick="_saudeSincronizar(true)">Sincronizar agora</button><button class="jn-btn peq sec" onclick="_saudeDesconectar()">Desconectar e apagar</button></div>';
   return h;
 }
@@ -9118,6 +9220,7 @@ async function _fpSalvar() {
     document.getElementById('fp-conf')?.remove(); document.getElementById('fp-sheet')?.remove();
     _rankingData = null; _rkUltimaBusca = 0;
     try { SessoesTreino.sincronizar(idAtleta); } catch (e) {}
+    try { _saudeGravarSoon(); } catch (e) {}
     _fpUltimo = r.resumo;
     _fpSucesso(r.resumo);
     _detectarConquistasNovas().then(function (defs) { if (defs && defs.length) mostrarComemoracaoConquistas(defs); }).catch(function () {});
@@ -10696,6 +10799,7 @@ async function _enviarSessaoComRetentativas(sessao, idContinuar, aviso, tentativ
 }
 
 function _concluirFinalizacao(sessaoSalva, p) {
+  try { _saudeGravarSoon(); } catch (e) {}
   const vivo = sessaoAtual && sessaoAtual.idficha && Number(sessaoAtual.idficha) === Number(p.ficha) && String(sessaoAtual.divisao) === String(p.divisao);
   if (p.comentario) {
     try { API.salvarComentarioBackend({ idatleta: idAtleta, idficha: p.ficha, divisao: p.divisao, dtsessao: p.dia, texto: p.comentario }); } catch {}
@@ -13308,6 +13412,7 @@ async function salvarCardio(opts) {
     const sp = window._saudeImportPend; window._saudeImportPend = null;
     if (sp && Date.now() - sp.em < 1800000 && sp.tipo === tipo && Number(sp.min) === Number(min)) _saudeMarcar(sp.id);
   } catch (e) {}
+  try { _saudeGravarSoon(); } catch (e) {}
   _cardioFormLimpar();   // zera o que foi digitado (tipo, tempo, distância, esforço e foto) para o próximo registro
   if (opts.silencioso && _fotoDaTela) _cardioFoto = _fotoDaTela;
   if (_fezPeloForm) { _cardioLimparHist(); renderCardio(); }   // volta à tela inicial do Cardio, já sem os passos do formulário no histórico
