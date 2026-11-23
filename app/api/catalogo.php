@@ -326,6 +326,41 @@ function ensureCatalogoTables(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Saúde do celular (Apple Saúde e Health Connect): resumo por dia e treinos detectados. Só o aluno lê e grava os próprios; a equipe não vê.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_saude_dia (
+            idatleta    INT NOT NULL,
+            data        DATE NOT NULL,
+            fonte       VARCHAR(16) NOT NULL,
+            passos      INT NULL,
+            distancia_m INT NULL,
+            kcal_ativas INT NULL,
+            sono_min    INT NULL,
+            fc_repouso  SMALLINT NULL,
+            peso_kg     DECIMAL(5,1) NULL,
+            updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (idatleta, data, fonte)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS intus_saude_treino (
+            idsaude     INT AUTO_INCREMENT PRIMARY KEY,
+            idatleta    INT NOT NULL,
+            ext_id      VARCHAR(80) NOT NULL,
+            fonte       VARCHAR(16) NOT NULL,
+            tipo        VARCHAR(40) NOT NULL,
+            inicio      DATETIME NOT NULL,
+            duracao_min INT NOT NULL,
+            distancia_m INT NULL,
+            kcal        INT NULL,
+            fc_media    SMALLINT NULL,
+            importado   TINYINT NOT NULL DEFAULT 0,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_ext (idatleta, ext_id),
+            INDEX idx_inicio (idatleta, inicio)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Nutrição: receitas, vídeos e dicas que a nutri publica para os alunos (área Nutrição do app). Uma linha por item:
     // tipo + slug (id público) + título/categoria/ordem/ativo/foto e o resto dos campos em JSON (dados).
     $pdo->exec("
@@ -4934,6 +4969,84 @@ if ($action === 'nutri_dia') {
         $ml = max(0, min(10000, (int)($b['agua_ml'] ?? 0)));
         $pdo->prepare("INSERT INTO intus_nutri_dia (idatleta, data, agua_ml) VALUES (?,?,?) ON DUPLICATE KEY UPDATE agua_ml = VALUES(agua_ml)")->execute([$_autorId, $data, $ml]);
         echo json_encode(['ok' => true, 'agua_ml' => $ml]);
+        exit;
+    }
+}
+
+// ═══════════════ SAÚDE DO CELULAR (Apple Saúde e Health Connect) ═══════════════
+// Só o aluno, só os próprios dados. Os valores vêm do aparelho e são limitados aqui (nada de número absurdo). NADA daqui pontua: o treino detectado só
+// vira cardio se o aluno tocar em importar, e aí ele passa pelo registro de cardio de sempre (limite diário e plausibilidade).
+// GET ?desde=AAAA-MM-DD: {dias, treinos}. POST {fonte, dias[], treinos[]}: grava (até 40 dias e 60 treinos por envio).
+// PUT {idsaude, importado}: marca o treino como importado/dispensado. DELETE: desconecta e apaga TODOS os dados de saúde do aluno.
+if ($action === 'saude') {
+    if (!$_tokValido || !$_ehAluno) { http_response_code(401); echo json_encode(['error' => 'somente aluno']); exit; }
+    [, $_autorId, ] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
+    if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    $_fontes = ['apple', 'android'];
+    $_n = function ($v, $min, $max) { if ($v === null || $v === '' || !is_numeric($v)) return null; $v = (float)$v; return ($v < $min || $v > $max) ? null : $v; };
+    $_i = function ($v) { return $v === null ? null : (int)round($v); };
+    try {
+        if ($method === 'GET') {
+            $desde = _nutriData($_GET['desde'] ?? '') ?: date('Y-m-d', strtotime('-30 days'));
+            $st = $pdo->prepare("SELECT data, fonte, passos, distancia_m, kcal_ativas, sono_min, fc_repouso, peso_kg FROM intus_saude_dia WHERE idatleta = ? AND data >= ? ORDER BY data DESC LIMIT 200");
+            $st->execute([$_autorId, $desde]);
+            $dias = $st->fetchAll(PDO::FETCH_ASSOC);
+            $st = $pdo->prepare("SELECT idsaude, ext_id, fonte, tipo, inicio, duracao_min, distancia_m, kcal, fc_media, importado FROM intus_saude_treino WHERE idatleta = ? AND inicio >= ? ORDER BY inicio DESC LIMIT 100");
+            $st->execute([$_autorId, $desde . ' 00:00:00']);
+            echo json_encode(['dias' => $dias, 'treinos' => $st->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        if ($method === 'POST') {
+            $b = jsonBody();
+            $fonte = (string)($b['fonte'] ?? '');
+            if (!in_array($fonte, $_fontes, true)) { http_response_code(400); echo json_encode(['error' => 'fonte invalida']); exit; }
+            $limite = date('Y-m-d', strtotime('-45 days'));
+            $nd = 0; $nt = 0;
+            foreach (array_slice(is_array($b['dias'] ?? null) ? $b['dias'] : [], 0, 40) as $d) {
+                if (!is_array($d)) continue;
+                $data = _nutriData($d['data'] ?? '');
+                if (!$data || $data < $limite || $data > date('Y-m-d', strtotime('+1 day'))) continue;
+                $passos = $_n($d['passos'] ?? null, 0, 100000); $dist = $_n($d['distancia_m'] ?? null, 0, 200000);
+                $kc = $_n($d['kcal_ativas'] ?? null, 0, 10000); $sono = $_n($d['sono_min'] ?? null, 0, 1200);
+                $fc = $_n($d['fc_repouso'] ?? null, 25, 220); $peso = $_n($d['peso_kg'] ?? null, 20, 400);
+                $pdo->prepare("INSERT INTO intus_saude_dia (idatleta, data, fonte, passos, distancia_m, kcal_ativas, sono_min, fc_repouso, peso_kg) VALUES (?,?,?,?,?,?,?,?,?)
+                    ON DUPLICATE KEY UPDATE passos = VALUES(passos), distancia_m = VALUES(distancia_m), kcal_ativas = VALUES(kcal_ativas), sono_min = VALUES(sono_min), fc_repouso = VALUES(fc_repouso), peso_kg = VALUES(peso_kg)")
+                    ->execute([$_autorId, $data, $fonte, $_i($passos), $_i($dist), $_i($kc), $_i($sono), $_i($fc), $peso === null ? null : round($peso, 1)]);
+                $nd++;
+            }
+            foreach (array_slice(is_array($b['treinos'] ?? null) ? $b['treinos'] : [], 0, 60) as $t) {
+                if (!is_array($t)) continue;
+                $ext = mb_substr(trim((string)($t['ext_id'] ?? '')), 0, 80);
+                $tipo = mb_substr(trim((string)($t['tipo'] ?? '')), 0, 40);
+                $ts = strtotime((string)($t['inicio'] ?? ''));
+                $dur = $_n($t['duracao_min'] ?? null, 1, 1440);
+                if ($ext === '' || $tipo === '' || !$ts || $dur === null || $ts < strtotime('-45 days') || $ts > time() + 86400) continue;
+                $dist = $_n($t['distancia_m'] ?? null, 0, 500000); $kc = $_n($t['kcal'] ?? null, 0, 20000); $fc = $_n($t['fc_media'] ?? null, 25, 220);
+                $pdo->prepare("INSERT INTO intus_saude_treino (idatleta, ext_id, fonte, tipo, inicio, duracao_min, distancia_m, kcal, fc_media) VALUES (?,?,?,?,?,?,?,?,?)
+                    ON DUPLICATE KEY UPDATE tipo = VALUES(tipo), duracao_min = VALUES(duracao_min), distancia_m = VALUES(distancia_m), kcal = VALUES(kcal), fc_media = VALUES(fc_media)")
+                    ->execute([$_autorId, $ext, $fonte, $tipo, date('Y-m-d H:i:s', $ts), $_i($dur), $_i($dist), $_i($kc), $_i($fc)]);
+                $nt++;
+            }
+            echo json_encode(['ok' => true, 'dias' => $nd, 'treinos' => $nt]);
+            exit;
+        }
+        if ($method === 'PUT') {
+            $b = jsonBody();
+            $id = (int)($b['idsaude'] ?? 0);
+            if ($id <= 0) { http_response_code(400); echo json_encode(['error' => 'idsaude obrigatorio']); exit; }
+            $pdo->prepare("UPDATE intus_saude_treino SET importado = ? WHERE idsaude = ? AND idatleta = ?")->execute([!empty($b['importado']) ? 1 : 0, $id, $_autorId]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+        if ($method === 'DELETE') {
+            $pdo->prepare("DELETE FROM intus_saude_dia WHERE idatleta = ?")->execute([$_autorId]);
+            $pdo->prepare("DELETE FROM intus_saude_treino WHERE idatleta = ?")->execute([$_autorId]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'falha na saude do celular', 'detalhe' => _intusLogErro($e)]);
         exit;
     }
 }

@@ -50,7 +50,7 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
     eq('o passo "perfil" agora está feito e o próximo é a avaliação', await page.evaluate(() => { const p = _jnPassos(); return [p[0].ok, p.findIndex(x => !x.ok)]; }), [true, 1]);
     // integrações
     await page.evaluate(() => abrirIntegracoes());
-    eq('a folha de integrações lista as 8 conexões', await page.evaluate(() => document.querySelectorAll('.jn-int').length), 8);
+    eq('a folha de integrações lista as 7 conexões em "Avisar" e o cartão real da saúde', await page.evaluate(() => [document.querySelectorAll('.jn-int').length, !!document.getElementById('jn-saude-box')]), [7, true]);
     await page.evaluate(() => _jnInteresse('strava')); await page.waitForTimeout(400);
     const d2 = await page.evaluate(() => _jnDados());
     eq('"Avisar" no Strava grava o interesse e marca o passo de integrações como visto', [d2.integracoes_interesse, d2.integracoes_visto], [['strava'], true]);

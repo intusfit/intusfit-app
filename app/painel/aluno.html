@@ -664,6 +664,25 @@
     .jn-int .d { font-size:11.5px; color:var(--muted); line-height:1.35; margin-top:1px; }
     .jn-int button { flex-shrink:0; padding:7px 12px; border-radius:99px; border:1.5px solid var(--link-ex); background:none; color:var(--link-ex); font-size:11.5px; font-weight:800; cursor:pointer; }
     .jn-int button.on { background:var(--link-ex); color:var(--card-bg); }
+    .jn-saude { margin:0 16px 12px; padding:14px; border:1.5px solid var(--link-ex); border-radius:14px; background:var(--card-bg); }
+    .jn-saude .h { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+    .jn-saude .ic { width:36px; height:36px; border-radius:10px; background:var(--marca-fraca); color:var(--link-ex); display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0; }
+    .jn-saude .tx { flex:1; min-width:0; }
+    .jn-saude .n { font-size:13.5px; font-weight:800; color:var(--texto); }
+    .jn-saude .d { font-size:11.5px; color:var(--muted); line-height:1.4; margin-top:1px; }
+    .jn-saude .av { font-size:11.5px; color:var(--texto); background:var(--marca-fraca); border-radius:10px; padding:8px 10px; margin:8px 0; line-height:1.4; }
+    .jn-mets { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-bottom:8px; }
+    .jn-mets .m { border:1px solid var(--borda); border-radius:12px; padding:10px 12px; }
+    .jn-mets .v { font-size:17px; font-weight:800; color:var(--texto); }
+    .jn-mets .r { font-size:11px; color:var(--muted); margin-top:1px; }
+    .jn-sub { font-size:11.5px; font-weight:800; color:var(--muted); letter-spacing:.04em; text-transform:uppercase; margin:10px 0 6px; }
+    .jn-trn { display:flex; align-items:center; gap:8px; padding:8px 0; border-top:1px solid var(--borda); flex-wrap:wrap; }
+    .jn-trn .tx { flex:1; min-width:140px; }
+    .jn-acoes { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .jn-btn { display:block; width:100%; padding:12px; border:0; border-radius:99px; background:var(--link-ex); color:var(--card-bg); font-size:13.5px; font-weight:800; cursor:pointer; margin-top:6px; }
+    .jn-btn.peq { display:inline-block; width:auto; padding:8px 14px; font-size:12px; margin-top:0; }
+    .jn-btn.sec { background:none; border:1.5px solid var(--link-ex); color:var(--link-ex); }
+    .jn-btn[disabled] { opacity:.45; cursor:default; }
 
     .h-hoje { background:var(--marca-fraca); border:1.5px solid var(--link-ex); border-radius:16px; padding:14px 16px; margin-bottom:10px; cursor:pointer; transition:transform .08s; }
     .h-hoje .tag { font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--link-ex); }
@@ -8136,12 +8155,13 @@ function _jnPassos() {
     { id: 'treino', a: 'Primeiro treino', b: 'Registre cargas, séries e repetições.', ok: temMus, go: 'Ver meus treinos', f: 'abrirMeusTreinos()' },
     { id: 'cardio', a: 'Primeiro cardio', b: 'Corrida, caminhada ou bike, com GPS ou manual.', ok: temCardio, go: 'Abrir o cardio', f: 'abrirCardio()' },
     { id: 'nutri', a: 'Alimentação', b: 'Plano alimentar, água do dia e receitas.', ok: (typeof _nutriTemPlano === 'function' && _nutriTemPlano()), go: 'Abrir a nutrição', f: "renderNutricaoAluno();trocarView('nutricao')" },
-    { id: 'saude', a: 'Conectar saúde e apps', b: 'Apple Saúde, Health Connect, Strava e relógios.', ok: !!j.integracoes_visto, go: 'Ver integrações', f: 'abrirIntegracoes()' },
+    { id: 'saude', a: 'Conectar saúde e apps', b: 'Apple Saúde, Health Connect, Strava e relógios.', ok: !!j.integracoes_visto || _saudeAtivo(), go: 'Ver integrações', f: 'abrirIntegracoes()' },
   ];
 }
 function _jornadaHtml() {
   const ps = _jnPassos(); const feitos = ps.filter(p => p.ok).length;
   const atualIdx = ps.findIndex(p => !p.ok);
+  setTimeout(_saudeAuto, 1500);   // com a saúde conectada, sincroniza ao abrir a tela inicial (no máximo 1 vez por hora)
   if (atualIdx < 0) return '';   // jornada completa: some da tela inicial
   const aberta = (localStorage.getItem('intus-jornada-aberta') === '1');
   const linha = (p, i, detalhe) => '<div class="jn-it ' + (p.ok ? 'feito' : (i === atualIdx ? 'atual' : '')) + '" onclick="' + p.f + '"><div class="jn-no">' + (p.ok ? '✓' : (i + 1)) + '</div><div class="jn-tx"><div class="a">' + p.a + '</div>' + detalhe + '</div></div>';
@@ -8180,14 +8200,192 @@ async function _jnSalvarExperiencia() {
 function abrirIntegracoes() {
   const j = _jnDados(); const interesse = j.integracoes_interesse || [];
   if (!j.integracoes_visto) _jnSalvar({ integracoes_visto: true }).then(() => { try { if (window._viewAtual === 'home') renderHome(); } catch (e) {} });
-  openModalGenerico('<div class="jn-folha"><h3>Integrações</h3><div class="sub">Estamos conectando a Intus à sua saúde e aos apps que você já usa. As conexões chegam em etapas: toque em <b>Avisar</b> nas que você quer e a gente libera para você primeiro.</div>' +
-    JN_INTEGRACOES.map(x => '<div class="jn-int"><div class="ic">' + x.ic + '</div><div class="tx"><div class="n">' + x.n + '</div><div class="d">' + x.d + '</div></div><button id="jn-i-' + x.id + '" class="' + (interesse.indexOf(x.id) >= 0 ? 'on' : '') + '" onclick="_jnInteresse(\'' + x.id + '\')">' + (interesse.indexOf(x.id) >= 0 ? 'Avisaremos' : 'Avisar') + '</button></div>').join('') + '</div>');
+  _saudeCarregar().then(_saudeRedesenhar); _saudeSincronizar(false);
+  openModalGenerico('<div class="jn-folha"><h3>Integrações</h3><div class="sub">Apple Saúde e Health Connect já funcionam no app. As outras conexões chegam em etapas: toque em <b>Avisar</b> nas que você quer e a gente libera para você primeiro.</div>' +
+    _saudeCartaoHtml() + JN_INTEGRACOES.filter(x => x.id !== 'saude').map(x => '<div class="jn-int"><div class="ic">' + x.ic + '</div><div class="tx"><div class="n">' + x.n + '</div><div class="d">' + x.d + '</div></div><button id="jn-i-' + x.id + '" class="' + (interesse.indexOf(x.id) >= 0 ? 'on' : '') + '" onclick="_jnInteresse(\'' + x.id + '\')">' + (interesse.indexOf(x.id) >= 0 ? 'Avisaremos' : 'Avisar') + '</button></div>').join('') + '</div>');
 }
 function _jnInteresse(id) {
   const j = _jnDados(); const lista = (j.integracoes_interesse || []).slice(); const k = lista.indexOf(id);
   if (k >= 0) lista.splice(k, 1); else lista.push(id);
   const b = document.getElementById('jn-i-' + id); if (b) { b.className = (k < 0 ? 'on' : ''); b.textContent = (k < 0 ? 'Avisaremos' : 'Avisar'); }
   _jnSalvar({ integracoes_interesse: lista, integracoes_visto: true });
+}
+// ═══════════════ SAÚDE DO CELULAR (Apple Saúde e Health Connect) ═══════════════
+// Só LEITURA, só no app das lojas (plugin @capgo/capacitor-health). O aluno escolhe o que compartilhar na tela do próprio sistema. Os números ficam no servidor
+// (intus_saude_dia e intus_saude_treino, só o aluno vê). NADA daqui pontua: um treino detectado só vira cardio quando o aluno toca em importar e confirma, e aí ele passa
+// pelo registro de cardio de sempre (limite diário, plausibilidade e pontos decididos como em todo cardio). Desconectar apaga tudo no servidor.
+const SAUDE_LER = ['steps', 'distance', 'calories', 'sleep', 'restingHeartRate', 'weight', 'workouts'];
+// Tipo de treino do aparelho -> atividade de cardio do app. Treino de força e tipos sem equivalente ficam de fora (não são cardio).
+const SAUDE_TIPOS = {
+  running: 'Corrida', runningTreadmill: 'Corrida', trackAndField: 'Corrida', walking: 'Caminhada', hiking: 'Esportes na natureza',
+  cycling: 'Bike', bikingStationary: 'Bike', handCycling: 'Bike', swimming: 'Natação', swimmingPool: 'Natação', swimmingOpenWater: 'Natação',
+  elliptical: 'Elíptico', stairClimbing: 'Escada', stairs: 'Escada', stairClimbingMachine: 'Escada', stepTraining: 'Escada', soccer: 'Futebol',
+  tennis: 'Esportes com raquete', badminton: 'Esportes com raquete', squash: 'Esportes com raquete', tableTennis: 'Esportes com raquete', racquetball: 'Esportes com raquete', pickleball: 'Esportes com raquete',
+  boxing: 'Luta', kickboxing: 'Luta', martialArts: 'Luta', wrestling: 'Luta', dance: 'Dança', cardioDance: 'Dança', socialDance: 'Dança', dancing: 'Dança',
+  jumpRope: 'Pular Corda', highIntensityIntervalTraining: 'Cardio em casa', mixedCardio: 'Cardio em casa', jumpingJack: 'Cardio em casa',
+  rowing: 'Esportes na natureza', paddling: 'Esportes na natureza', rowingMachine: 'Cardio em casa', surfing: 'Esportes na natureza', skiing: 'Esportes na natureza',
+};
+let _saudeCache = { dias: [], treinos: [] }, _saudeEstado = { ocupado: false, msg: '' }, _saudePl = null;
+function _saudeNativo() { try { return !!(window.INTUS_NATIVE_APP && window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform()); } catch (e) { return false; } }
+function _saudePlugin() {
+  try { if (!_saudeNativo()) return null; if (!_saudePl) _saudePl = Capacitor.registerPlugin('Health'); return _saudePl; } catch (e) { return null; }
+}
+function _saudeFonte() { try { return Capacitor.getPlatform() === 'ios' ? 'apple' : 'android'; } catch (e) { return 'android'; } }
+function _saudeNome() { return _saudeFonte() === 'apple' ? 'Apple Saúde' : 'Health Connect'; }
+function _saudeAtivo() { try { return localStorage.getItem('intus-saude-on-' + idAtleta) === '1'; } catch (e) { return false; } }
+function _saudeDiaLocal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function _saudeDiaDe(iso) { const d = new Date(iso); return isNaN(d) ? '' : _saudeDiaLocal(d); }
+function _saudeHM(min) { min = Math.round(Number(min) || 0); return Math.floor(min / 60) + 'h' + (min % 60 ? ' ' + String(min % 60).padStart(2, '0') + 'min' : ''); }
+async function _saudeApi(metodo, corpo, query) {
+  const token = localStorage.getItem('mx-token') || '';
+  const r = await fetch(API_BASE + '/catalogo.php?action=saude' + (query || ''), { method: metodo, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: corpo ? JSON.stringify(corpo) : undefined });
+  if (!r.ok) throw new Error('servidor ' + r.status);
+  return r.json();
+}
+async function _saudeCarregar() {
+  try { const j = await _saudeApi('GET', null, '&desde=' + _saudeDiaLocal(new Date(Date.now() - 30 * 86400000))); _saudeCache = { dias: j.dias || [], treinos: j.treinos || [] }; } catch (e) {}
+}
+// Lê o aparelho (cada tipo isolado: se um falhar, os outros seguem) e devolve { dias[], treinos[] } prontos para o servidor.
+async function _saudeLerAparelho(Pl, nDias) {
+  const ini = new Date(); ini.setHours(0, 0, 0, 0); ini.setDate(ini.getDate() - (nDias - 1));
+  const fim = new Date(Date.now() + 60000);
+  const A = { startDate: ini.toISOString(), endDate: fim.toISOString() };
+  const dias = {}; const dia = (k) => (dias[k] = dias[k] || { data: k });
+  const agregar = async (tipo, campo, agg, fator) => {
+    try {
+      const r = await Pl.queryAggregated(Object.assign({ dataType: tipo, bucket: 'day', aggregation: agg }, A));
+      (r.samples || []).forEach((s) => { const k = _saudeDiaDe(s.startDate); const v = Number(s.value); if (k && isFinite(v) && v > 0) dia(k)[campo] = Math.round(v * (fator || 1)); });
+    } catch (e) {}
+  };
+  await agregar('steps', 'passos', 'sum'); await agregar('distance', 'distancia_m', 'sum'); await agregar('calories', 'kcal_ativas', 'sum'); await agregar('restingHeartRate', 'fc_repouso', 'average');
+  // Sono: o dia é o do acordar (fim da noite). Cada app/relógio grava a sua versão da mesma noite, então vale a maior fonte, não a soma delas.
+  try {
+    const r = await Pl.readSamples(Object.assign({ dataType: 'sleep', limit: 500 }, A));
+    const porDia = {};
+    (r.samples || []).forEach((s) => {
+      const k = _saudeDiaDe(s.endDate); if (!k) return;
+      const dormindo = (st) => st === 'asleep' || st === 'rem' || st === 'deep' || st === 'light';
+      let min = 0;
+      if (s.stages && s.stages.length) s.stages.forEach((g) => { if (dormindo(g.stage)) min += Number(g.durationMinutes) || 0; });
+      else if (s.sleepState) { if (dormindo(s.sleepState)) min = (new Date(s.endDate) - new Date(s.startDate)) / 60000; }
+      else min = Number(s.value) || 0;
+      if (!(min > 0)) return;
+      const f = s.sourceName || s.sourceId || '?'; porDia[k] = porDia[k] || {}; porDia[k][f] = (porDia[k][f] || 0) + min;
+    });
+    Object.keys(porDia).forEach((k) => { const v = Math.max.apply(null, Object.values(porDia[k])); if (v > 0) dia(k).sono_min = Math.round(v); });
+  } catch (e) {}
+  try {   // peso: a medida mais recente de cada dia
+    const r = await Pl.readSamples(Object.assign({ dataType: 'weight', limit: 60 }, A));
+    (r.samples || []).slice().sort((a, b) => new Date(a.endDate) - new Date(b.endDate)).forEach((s) => { const k = _saudeDiaDe(s.endDate); const v = Number(s.value); if (k && v > 0) dia(k).peso_kg = Math.round(v * 10) / 10; });
+  } catch (e) {}
+  const treinos = [];
+  try {
+    const r = await Pl.queryWorkouts(Object.assign({ limit: 60 }, A));
+    (r.workouts || []).forEach((w) => {
+      const tipo = SAUDE_TIPOS[w.workoutType]; const min = Math.round((Number(w.duration) || 0) / 60);
+      if (!tipo || min < 5) return;
+      treinos.push({ ext_id: String(w.platformId || (_saudeFonte() + '|' + w.startDate)).slice(0, 80), tipo: tipo, inicio: w.startDate, duracao_min: min,
+        distancia_m: w.totalDistance > 0 ? Math.round(w.totalDistance) : null, kcal: w.totalEnergyBurned > 0 ? Math.round(w.totalEnergyBurned) : null });
+    });
+  } catch (e) {}
+  return { dias: Object.keys(dias).sort().map((k) => dias[k]), treinos: treinos };
+}
+async function _saudeSincronizar(forcar) {
+  const Pl = _saudePlugin();
+  if (!Pl || !_saudeAtivo() || _saudeEstado.ocupado) return false;
+  const chave = 'intus-saude-sync-' + idAtleta;
+  try { if (!forcar && Date.now() - Number(localStorage.getItem(chave) || 0) < 3600000) return false; } catch (e) {}
+  _saudeEstado = { ocupado: true, msg: '' }; _saudeRedesenhar();
+  try {
+    const primeira = !localStorage.getItem(chave);
+    const dados = await _saudeLerAparelho(Pl, primeira ? 30 : 14);
+    if (dados.dias.length || dados.treinos.length) await _saudeApi('POST', { fonte: _saudeFonte(), dias: dados.dias.slice(-40), treinos: dados.treinos });
+    localStorage.setItem(chave, String(Date.now()));
+    await _saudeCarregar();
+    _saudeEstado = { ocupado: false, msg: '' };
+  } catch (e) { _saudeEstado = { ocupado: false, msg: 'Não deu para sincronizar agora. Tente de novo em instantes.' }; }
+  _saudeRedesenhar();
+  return true;
+}
+function _saudeAuto() { try { if (_saudeAtivo()) { if (!_saudeCache.dias.length && !_saudeCache.treinos.length) _saudeCarregar(); _saudeSincronizar(false); } } catch (e) {} }
+async function _saudeConectar() {
+  const Pl = _saudePlugin(); if (!Pl) { toast('Disponível no app do iPhone e do Android.'); return; }
+  _saudeEstado = { ocupado: true, msg: '' }; _saudeRedesenhar();
+  try {
+    const av = await Pl.isAvailable();
+    if (!av || !av.available) { _saudeEstado = { ocupado: false, msg: _saudeFonte() === 'android' ? 'O Health Connect não está disponível neste aparelho. Instale ou atualize o app "Health Connect" na Play Store e tente de novo.' : 'O app Saúde não está disponível neste aparelho.' }; _saudeRedesenhar(); return; }
+    await Pl.requestAuthorization({ read: SAUDE_LER, write: [] });
+    localStorage.setItem('intus-saude-on-' + idAtleta, '1'); localStorage.removeItem('intus-saude-sync-' + idAtleta);
+    _jnSalvar({ integracoes_visto: true, saude_conectada: true });
+    _saudeEstado = { ocupado: false, msg: '' };
+    await _saudeSincronizar(true);
+  } catch (e) { _saudeEstado = { ocupado: false, msg: 'Não foi possível conectar: ' + ((e && e.message) || 'permissão negada') }; _saudeRedesenhar(); }
+  try { if (window._viewAtual === 'home') renderHome(); } catch (e) {}
+}
+async function _saudeDesconectar() {
+  _saudeEstado = { ocupado: true, msg: '' }; _saudeRedesenhar();
+  try { await _saudeApi('DELETE'); } catch (e) { _saudeEstado = { ocupado: false, msg: 'Não deu para apagar os dados agora. Tente de novo com internet.' }; _saudeRedesenhar(); return; }
+  try { localStorage.removeItem('intus-saude-on-' + idAtleta); localStorage.removeItem('intus-saude-sync-' + idAtleta); } catch (e) {}
+  _jnSalvar({ saude_conectada: false });
+  _saudeCache = { dias: [], treinos: [] }; _saudeEstado = { ocupado: false, msg: '' };
+  toast('Desconectado. Os dados de saúde foram apagados da Intus. Para retirar a permissão, use os ajustes do ' + _saudeNome() + '.');
+  _saudeRedesenhar();
+}
+// Treinos detectados de HOJE que ainda não viraram cardio (o cardio é sempre registrado no dia de hoje). "Parece já registrado": mesmo dia e duração parecida.
+function _saudeTreinosHoje() {
+  const hoje = dataHojeLocal(); let reg = [];
+  try { reg = SessoesTreino.listarDoAtleta(idAtleta).filter((x) => (x.tipo === 'cardio' || x.cardio_tipo) && String(x.dtsessao || '').slice(0, 10) === hoje); } catch (e) {}
+  return (_saudeCache.treinos || []).filter((t) => !Number(t.importado) && _saudeDiaDe(String(t.inicio).replace(' ', 'T')) === hoje).map((t) => {
+    const dup = reg.some((x) => Math.abs((Number(x.duracao_seg) || 0) / 60 - Number(t.duracao_min)) <= 5);
+    return Object.assign({}, t, { _dup: dup });
+  });
+}
+function _saudeAcha(id) { return (_saudeCache.treinos || []).find((t) => Number(t.idsaude) === Number(id)); }
+function _saudeImportar(id) {
+  const t = _saudeAcha(id); if (!t) return;
+  window._saudeImportPend = { id: Number(id), tipo: t.tipo, min: Math.max(5, Number(t.duracao_min)), em: Date.now() };
+  _cardioFormLimpar();
+  _cardioForm = { tipo: t.tipo, outro: '', min: String(window._saudeImportPend.min), dist: t.distancia_m > 0 ? (t.distancia_m / 1000).toFixed(2) : '' };
+  _cardioRpe = 5;
+  closeModal(); _cardioUi.pilha = ['home']; renderCardio(); trocarView('cardio'); cardioTela('form');
+  toast('Confira os dados, ajuste o esforço e salve.');
+}
+async function _saudeMarcar(id, valor) {
+  const t = _saudeAcha(id); if (t) t.importado = valor === false ? 0 : 1;
+  try { await _saudeApi('PUT', { idsaude: id, importado: valor === false ? 0 : 1 }); } catch (e) {}
+  _saudeRedesenhar();
+}
+function _saudeCartaoHtml() { return '<div class="jn-saude" id="jn-saude-box">' + _saudeConteudoHtml() + '</div>'; }
+function _saudeRedesenhar() { const el = document.getElementById('jn-saude-box'); if (el) el.innerHTML = _saudeConteudoHtml(); }
+function _saudeConteudoHtml() {
+  const nome = _saudeNativo() ? _saudeNome() : 'Apple Saúde e Health Connect';
+  const cab = '<div class="h"><div class="ic">♥</div><div class="tx"><div class="n">' + nome + '</div><div class="d">';
+  if (!_saudeNativo()) return cab + 'Passos, sono, peso, frequência cardíaca de repouso e treinos do celular e do relógio. Disponível no app da Intus no iPhone e no Android.</div></div></div>';
+  if (!_saudeAtivo()) {
+    return cab + 'Traz para a Intus os seus passos, sono, peso, frequência cardíaca de repouso e treinos que o relógio ou o celular já registraram. Só leitura: você escolhe o que compartilhar, nada disso pontua sozinho e dá para desconectar quando quiser.</div></div></div>' +
+      (_saudeEstado.msg ? '<div class="av">' + _saudeEstado.msg + '</div>' : '') +
+      '<button class="jn-btn" ' + (_saudeEstado.ocupado ? 'disabled' : '') + ' onclick="_saudeConectar()">' + (_saudeEstado.ocupado ? 'Conectando...' : 'Conectar o ' + _saudeNome()) + '</button>';
+  }
+  const hoje = dataHojeLocal(); const fonte = _saudeFonte();
+  const dias = (_saudeCache.dias || []).filter((d) => d.fonte === fonte);
+  const dHoje = dias.find((d) => d.data === hoje) || {};
+  const ult = (campo) => { const d = dias.slice().sort((a, b) => (a.data < b.data ? 1 : -1)).find((x) => x[campo] != null && Number(x[campo]) > 0); return d ? d[campo] : null; };
+  const sono = dHoje.sono_min || null, fc = ult('fc_repouso'), peso = ult('peso_kg');
+  const m = (v, r) => '<div class="m"><div class="v">' + v + '</div><div class="r">' + r + '</div></div>';
+  let h = cab + 'Conectado' + (_saudeEstado.ocupado ? ' · sincronizando...' : '') + '</div></div></div>' +
+    '<div class="jn-mets">' + m(dHoje.passos != null ? Number(dHoje.passos).toLocaleString('pt-BR') : '·', 'passos hoje') + m(sono ? _saudeHM(sono) : '·', 'sono da noite') + m(fc ? fc + ' bpm' : '·', 'FC de repouso') + m(peso ? String(peso).replace('.', ',') + ' kg' : '·', 'último peso') + '</div>';
+  const tr = _saudeTreinosHoje();
+  if (tr.length) {
+    h += '<div class="jn-sub">Treinos de hoje no ' + _saudeNome() + '</div>' + tr.map((t) => {
+      const info = t.tipo + ' · ' + t.duracao_min + ' min' + (t.distancia_m > 0 ? ' · ' + (t.distancia_m / 1000).toFixed(1).replace('.', ',') + ' km' : '');
+      return '<div class="jn-trn"><div class="tx"><div class="n">' + info + '</div><div class="d">' + (t._dup ? 'Parece que você já registrou este cardio na Intus.' : 'Ainda não está na Intus.') + '</div></div>' +
+        (t._dup ? '' : '<button class="jn-btn peq" onclick="_saudeImportar(' + t.idsaude + ')">Registrar</button>') +
+        '<button class="jn-btn peq sec" onclick="_saudeMarcar(' + t.idsaude + ')">Dispensar</button></div>';
+    }).join('');
+  }
+  if (_saudeEstado.msg) h += '<div class="av">' + _saudeEstado.msg + '</div>';
+  h += '<div class="jn-acoes"><button class="jn-btn peq sec" ' + (_saudeEstado.ocupado ? 'disabled' : '') + ' onclick="_saudeSincronizar(true)">Sincronizar agora</button><button class="jn-btn peq sec" onclick="_saudeDesconectar()">Desconectar e apagar</button></div>';
+  return h;
 }
 
 function renderHome() {
@@ -13106,6 +13304,10 @@ async function salvarCardio(opts) {
   // o que aparece depois é o onDone.
   const _fezPeloForm = !opts.silencioso;
   const _fotoDaTela = _cardioFoto;   // cardio ao vivo: a tela de confirmação já está aberta e o aluno pode ter anexado a foto ENQUANTO o servidor gravava
+  try {   // treino vindo da Saúde do celular: só marca como importado se o que foi salvo é o que foi sugerido (mesmo tipo e tempo, nos últimos 30 min)
+    const sp = window._saudeImportPend; window._saudeImportPend = null;
+    if (sp && Date.now() - sp.em < 1800000 && sp.tipo === tipo && Number(sp.min) === Number(min)) _saudeMarcar(sp.id);
+  } catch (e) {}
   _cardioFormLimpar();   // zera o que foi digitado (tipo, tempo, distância, esforço e foto) para o próximo registro
   if (opts.silencioso && _fotoDaTela) _cardioFoto = _fotoDaTela;
   if (_fezPeloForm) { _cardioLimparHist(); renderCardio(); }   // volta à tela inicial do Cardio, já sem os passos do formulário no histórico
