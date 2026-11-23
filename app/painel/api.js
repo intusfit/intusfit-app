@@ -1935,11 +1935,12 @@ const API = {
     const bruto = parseFloat((v && v.valorBruto) || 0);
     const pct = (v && v.taxaPct != null) ? parseFloat(v.taxaPct) : API.EDUZZ_PRESETS.direta.pct;
     const fixo = (v && v.taxaFixo != null) ? parseFloat(v.taxaFixo) : API.EDUZZ_PRESETS.direta.fixo;
-    return (bruto * pct / 100) + fixo;
+    // A plataforma cobra em centavos: a taxa de cada venda e arredondada ao centavo (sem sobra de ponto flutuante como 17.189999999999998).
+    return Math.round(((bruto * pct / 100) + fixo) * 100 + 1e-6) / 100;
   },
   eduzzTaxaAntecipacao: (v) => (v && v.antecipado) ? parseFloat(v.taxaAntecipValor || 0) : 0,
-  eduzzLiquido: (v) => Math.max(0, parseFloat((v && v.valorBruto) || 0)
-    - API.eduzzTaxaPlataforma(v) - API.eduzzTaxaAntecipacao(v)),
+  eduzzLiquido: (v) => Math.max(0, Math.round((parseFloat((v && v.valorBruto) || 0)
+    - API.eduzzTaxaPlataforma(v) - API.eduzzTaxaAntecipacao(v)) * 100 + 1e-6) / 100),
   eduzzLiberacao: (v) => {
     if (!v) return '';
     if (v.antecipado && v.dataAntecip) return String(v.dataAntecip).slice(0, 10);
@@ -2011,13 +2012,16 @@ const API = {
       return dias;
     }
     // Venda de gateway que nasce de uma matrícula paga. `liq` é o ajuste guardado para ela (taxa e prazo editados, antecipação, saque).
-    function itemDeMatricula(m, liq) {
-      var g = da(m && m.forma_pgto);
+    // `parte` (opcional) = uma parte do pagamento dividido (API.pagamentoPartes): a venda leva a forma e o VALOR daquela parte, e o ajuste guardado
+    // fica numa chave propria (idmensalidade-k). Sem `parte` e o pagamento inteiro, como sempre.
+    function itemDeMatricula(m, liq, parte) {
+      var forma = parte ? parte.forma : (m && m.forma_pgto);
+      var g = da(forma);
       if (!g) return null;
       liq = liq || {};
-      var brutoRaw = (m.vlpagamento != null && m.vlpagamento !== '') ? m.vlpagamento : m.vlpagar;
+      var brutoRaw = parte ? parte.valor : ((m.vlpagamento != null && m.vlpagamento !== '') ? m.vlpagamento : m.vlpagar);
       var item = {
-        id: 'mn-' + m.idmensalidade, origem: 'matricula', gateway: g, forma: String(m.forma_pgto).toLowerCase(),
+        id: 'mn-' + (parte ? parte.chave : m.idmensalidade), chave: parte ? parte.chave : String(m.idmensalidade), origem: 'matricula', gateway: g, forma: String(forma).toLowerCase(),
         idmensalidade: m.idmensalidade, produto: m.dshistorico || 'Plano', comprador: m.nmathleta || '',
         valorBruto: parseFloat(brutoRaw || 0), dataVenda: m.dtpagamento,
         antecipado: !!liq.antecipado, dataAntecip: liq.dataAntecip || null, taxaAntecipValor: liq.taxaAntecipValor || 0,
@@ -2029,7 +2033,7 @@ const API = {
         item.taxaFixo = liq.taxaFixo != null ? liq.taxaFixo : API.EDUZZ_PRESETS.direta.fixo;
         item.prazoDias = liq.prazoDias != null ? liq.prazoDias : API.EDUZZ_PRAZO_DIAS;
       } else {
-        var t = tipoAsaas(m.forma_pgto);
+        var t = tipoAsaas(forma);
         // Cartão em parcelas: a taxa é a da faixa de parcelas (2 a 6x ou 7 a 12x) e a tarifa fixa de R$ 0,49 é uma só por venda (na 1ª parcela).
         var nParc = Number(m.parcela_total) || 1, pNum = Number(m.parcela_num) || 1;
         if (t === 'cartao' && nParc > 1) t = nParc <= 6 ? 'cartao6' : 'cartao12';
@@ -2060,11 +2064,15 @@ const API = {
     function vendas(ms, liqs, avulsas) {
       liqs = liqs || {};
       function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
-      var daMatricula = (ms || []).filter(function (m) { return String(m.stpgto).toUpperCase() === 'S' && da(m.forma_pgto) && m.dtpagamento; })
-        .map(function (m) {
-          var it = itemDeMatricula(m, liqs[m.idmensalidade]);
-          return { id: it.id, quem: it.comprador || 'Cliente', produto: it.produto, bruto: it.valorBruto, data: String(it.dataVenda).slice(0, 10), gateway: it.gateway, liq: it };
+      // Pagamento dividido: cada parte que foi por Eduzz ou Asaas vira a sua venda (valor da parte, taxa sobre a parte); o que foi em dinheiro, Pix ou cartao
+      // da casa nao entra aqui (ver vendidoDoPeriodo e valorForaDeGateway).
+      var daMatricula = [];
+      (ms || []).filter(function (m) { return String(m.stpgto).toUpperCase() === 'S' && m.dtpagamento; }).forEach(function (m) {
+        API.pagamentoPartes(m).filter(function (pt) { return pt.gateway; }).forEach(function (pt) {
+          var it = itemDeMatricula(m, liqs[pt.chave], pt.k ? pt : null);
+          daMatricula.push({ id: it.id, quem: it.comprador || 'Cliente', produto: it.produto, bruto: it.valorBruto, data: String(it.dataVenda).slice(0, 10), gateway: it.gateway, liq: it });
         });
+      });
       var soltas = (avulsas || []).map(function (v) {
         return { id: 'av-' + v.id, quem: v.comprador || '\u2014', produto: v.produto || 'Venda avulsa', bruto: num(v.valorBruto),
           data: String(v.dataVenda || '').slice(0, 10), gateway: v.gateway || 'eduzz', liq: v };
@@ -2080,11 +2088,11 @@ const API = {
     function vendidoDoPeriodo(ms, vendasGw, de, ate) {
       function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
       var dentro = function (d) { return d && d >= de && d <= ate; };
-      var direto = (ms || []).filter(function (m) { return String(m.stpgto).toUpperCase() === 'S' && !da(m.forma_pgto) && dentro(String(m.dtpagamento || '').slice(0, 10)); })
-        .map(function (m) {
-          var v = num(m.vlpagamento != null && m.vlpagamento !== '' ? m.vlpagamento : m.vlpagar);
-          return { quem: m.nmathleta || 'Cliente', produto: m.dshistorico || 'Plano', bruto: v, liquido: v, estado: 'conta', data: String(m.dtpagamento).slice(0, 10) };
-        });
+      var direto = [];
+      (ms || []).filter(function (m) { return String(m.stpgto).toUpperCase() === 'S' && dentro(String(m.dtpagamento || '').slice(0, 10)); }).forEach(function (m) {
+        var v = API.valorForaDeGateway(m);   // pagamento dividido: so a parte em dinheiro, Pix ou cartao da casa; a parte de gateway entra pelas vendas de gateway
+        if (v > 0) direto.push({ quem: m.nmathleta || 'Cliente', produto: m.dshistorico || 'Plano', bruto: v, liquido: v, estado: 'conta', data: String(m.dtpagamento).slice(0, 10) });
+      });
       return direto.concat((vendasGw || []).filter(function (v) { return dentro(v.data); }));
     }
     return { da: da, tipoAsaas: tipoAsaas, rotuloForma: rotuloForma, prazoDiasDe: prazoDiasDe, itemDeMatricula: itemDeMatricula, antecipacao: antecipacao, vendas: vendas, vendidoDoPeriodo: vendidoDoPeriodo };
@@ -3672,11 +3680,27 @@ const API = {
   },
 
   // ── PAGAMENTO DIVIDIDO EM VARIAS FORMAS ───────────────────────────────────
-  // Ex.: R$ 300 em dinheiro + R$ 700 no Pix, ou parte no cartao. So formas "da casa" (gateway Eduzz/Asaas nao divide). A soma das partes
+  // Ex.: R$ 300 em dinheiro + R$ 700 no Pix, ou parte no cartao, ou parte pela Eduzz/Asaas (a parte de gateway vira uma venda propria, com taxa e prazo). A soma das partes
   // tem de fechar com o valor recebido. intus_mensalidade.forma_pgto guarda UMA forma (a de maior valor, empate = a primeira digitada), entao
   // tudo que ja le essa coluna segue valendo; as partes completas ficam em m.partes (servidor: intus_mensalidade_pgto).
-  PGTO_FORMAS: [['pix', 'Pix'], ['dinheiro', 'Dinheiro'], ['cartao', 'Cartão (crédito/débito)'], ['boleto', 'Boleto']],
+  PGTO_FORMAS: [['pix', 'Pix'], ['dinheiro', 'Dinheiro'], ['cartao', 'Cartão (crédito/débito)'], ['boleto', 'Boleto'], ['eduzz', 'Eduzz'], ['asaas_pix', 'Asaas Pix'], ['asaas_boleto', 'Asaas Boleto'], ['asaas_cartao', 'Asaas Cartão']],
   PGTO_PARTES_MAX: 8,
+  // Valor realmente recebido numa baixa (em reais, centavos exatos): o valor da baixa, ou o do ciclo quando nao ha.
+  valorRecebido: (m) => { const v = (m && m.vlpagamento != null && m.vlpagamento !== '') ? m.vlpagamento : (m && m.vlpagar); return Math.round((Number(v) || 0) * 100 + 1e-6) / 100; },
+  // As partes de um pagamento: [{ k, chave, forma, valor, gateway }]. Dividido = uma por parte (k = 1, 2, ...; chave 'idmensalidade-k');
+  // nao dividido = uma so com o valor inteiro (k = null; chave = idmensalidade, a mesma de sempre para o ajuste de gateway guardado).
+  // gateway = 'eduzz' | 'asaas' | null. A soma das partes e SEMPRE o valor recebido.
+  pagamentoPartes: (m) => {
+    const ps = m && Array.isArray(m.partes) && m.partes.length > 1 ? m.partes : null;
+    if (!ps) { const f = String((m && m.forma_pgto) || '').toLowerCase(); return [{ k: null, chave: String(m && m.idmensalidade), forma: f, valor: API.valorRecebido(m), gateway: API.gateway.da(f) }]; }
+    return ps.map((p, i) => { const f = String(p.forma || '').toLowerCase(); return { k: i + 1, chave: m.idmensalidade + '-' + (i + 1), forma: f, valor: Math.round((Number(p.valor) || 0) * 100 + 1e-6) / 100, gateway: API.gateway.da(f) }; });
+  },
+  // Quanto da baixa NAO foi por Eduzz/Asaas (dinheiro, Pix, cartao da casa, boleto, sem forma): e o que entra no Caixa na data do pagamento.
+  valorForaDeGateway: (m) => Math.round(API.pagamentoPartes(m).filter((pt) => !pt.gateway).reduce((s, pt) => s + pt.valor * 100, 0)) / 100,
+  // Quanto da baixa foi por Eduzz/Asaas (bruto, antes da taxa).
+  valorDeGateway: (m) => Math.round(API.pagamentoPartes(m).filter((pt) => pt.gateway).reduce((s, pt) => s + pt.valor * 100, 0)) / 100,
+  // Valor por forma: { pix: 700, dinheiro: 300 }. Mesmo valor recebido da baixa, repartido sem aproximacao.
+  valorPorForma: (m) => { const o = {}; API.pagamentoPartes(m).forEach((pt) => { const k = pt.forma || ''; o[k] = Math.round(((o[k] || 0) + pt.valor) * 100) / 100; }); return o; },
   // partes = [{forma, valor}] (valor como numero ou texto "700,50"). Devolve { ok, partes, principal, soma } ou { ok:false, erro }.
   validarPartesPagamento: (total, partes) => {
     const c2 = (v) => Math.round((Number(v) + 1e-9) * 100) / 100;
@@ -3699,7 +3723,7 @@ const API = {
   // Rotulo da forma de uma mensalidade para as listas: "Dinheiro R$ 300,00 + Pix R$ 700,00" quando foi dividida; senao o nome da forma.
   rotuloPagamento: (m) => {
     const ps = m && Array.isArray(m.partes) ? m.partes : [];
-    if (ps.length > 1) return ps.map((p) => (API.gateway.rotuloForma(p.forma) || p.forma) + ' R$ ' + Number(p.valor).toFixed(2).replace('.', ',')).join(' + ');
+    if (ps.length > 1) return ps.map((p) => (API.gateway.rotuloForma(p.forma) || p.forma) + ' R$ ' + Number(p.valor).toFixed(2).replace('.', ',')).join(' + ');   // valores exatos, centavo por centavo
     return API.gateway.rotuloForma(m && m.forma_pgto) || '';
   },
 

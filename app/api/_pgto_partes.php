@@ -4,7 +4,8 @@
 // intus_mensalidade.forma_pgto continua guardando UMA forma (a de maior valor), para tudo o que ja le essa coluna seguir funcionando.
 // Funcoes puras e SQL portavel (MySQL e SQLite dos testes). Prefixo _pgto para nao colidir com nada.
 
-function _pgtoFormasValidas() { return ['pix', 'dinheiro', 'cartao', 'boleto']; }
+// Formas da casa e de gateway (Eduzz e Asaas): a parte de gateway vira uma venda propria no Financeiro (valor da parte, taxa e prazo).
+function _pgtoFormasValidas() { return ['pix', 'dinheiro', 'cartao', 'boleto', 'eduzz', 'asaas_pix', 'asaas_boleto', 'asaas_cartao']; }
 
 // Tabela nova e aditiva: nenhum dado existente e alterado.
 function _pgtoPartesTabela(PDO $pdo) {
@@ -12,7 +13,7 @@ function _pgtoPartesTabela(PDO $pdo) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS intus_mensalidade_pgto (
         idpgto " . ($sqlite ? "INTEGER PRIMARY KEY AUTOINCREMENT" : "INT AUTO_INCREMENT PRIMARY KEY") . ",
         idmensalidade INT NOT NULL,
-        forma VARCHAR(12) NOT NULL,
+        forma VARCHAR(16) NOT NULL,
         valor DECIMAL(10,2) NOT NULL" . ($sqlite ? "" : ",
         INDEX idx_mens (idmensalidade)") . "
     )" . ($sqlite ? "" : " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4") . ";");

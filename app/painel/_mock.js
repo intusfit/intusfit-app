@@ -1686,6 +1686,12 @@ function _pgStatus(p) {
   const t = _pgTotalAtual(p); let soma = 0; e.linhas.forEach(function (l) { const v = _pgNum(l.valor); if (v > 0) soma += v; });
   soma = Math.round(soma * 100) / 100;
   const dif = Math.round((t - soma) * 100) / 100;
+  // nota de cada gateway usado nas linhas (retencao, taxa e prazo): a parte de gateway so entra no Caixa quando o gateway libera e voce saca
+  let notas = ''; const vistos = {};
+  e.linhas.forEach(function (l) { if (vistos[l.forma] || typeof window._notaGateway !== 'function') return; vistos[l.forma] = 1; const t2 = window._notaGateway(l.forma); if (t2) notas += '<div style="margin-top:6px;font-size:11px;color:var(--text-muted);background:rgba(127,255,0,.08);border-radius:8px;padding:6px 8px;">' + t2 + '</div>'; });
+  return _pgStatusLinha(dif, soma, t) + notas;
+}
+function _pgStatusLinha(dif, soma, t) {
   if (Math.abs(dif) < 0.005 && t > 0) return '<span style="color:#34d399;">✓ ' + _pgBRL(soma) + ' de ' + _pgBRL(t) + ': fecha certinho.</span>';
   if (dif > 0) return '<span style="color:#fbbf24;">Soma ' + _pgBRL(soma) + ' de ' + _pgBRL(t) + ': faltam ' + _pgBRL(dif) + '.</span>';
   return '<span style="color:#f87171;">Soma ' + _pgBRL(soma) + ' de ' + _pgBRL(t) + ': passam ' + _pgBRL(-dif) + '.</span>';
@@ -1715,7 +1721,7 @@ function _pgMostrar(p) {
 function pgAlternar(p) {
   const e = pgEstado(p); e.ativo = !e.ativo;
   if (e.ativo) {
-    const sel = e.sel && document.getElementById(e.sel), f0 = sel && ['pix', 'dinheiro', 'cartao', 'boleto'].indexOf(sel.value) >= 0 ? sel.value : 'dinheiro';
+    const sel = e.sel && document.getElementById(e.sel), f0 = sel && ((typeof API !== 'undefined' && API.PGTO_FORMAS) ? API.PGTO_FORMAS.map(function (f) { return f[0]; }) : ['pix', 'dinheiro', 'cartao', 'boleto']).indexOf(sel.value) >= 0 ? sel.value : 'dinheiro';
     e.linhas = [{ forma: f0 === 'pix' ? 'dinheiro' : f0, valor: '', sujo: false }, { forma: 'pix', valor: '', sujo: false }];
     _pgAutoUltima(p);
   }
@@ -1734,7 +1740,7 @@ function pgRemover(p, i) {
   e.linhas.splice(i, 1); e.linhas[e.linhas.length - 1].sujo = false; _pgAutoUltima(p);
   pgRender(p); _pgNotificar(p);
 }
-function pgForma(p, i, v) { const e = pgEstado(p); if (e.linhas[i]) e.linhas[i].forma = v; _pgNotificar(p); }
+function pgForma(p, i, v) { const e = pgEstado(p); if (e.linhas[i]) e.linhas[i].forma = v; const st = document.getElementById(p + '-dv-status'); if (st) st.innerHTML = _pgStatus(p); _pgNotificar(p); }
 function pgValor(p, i, v) {
   const e = pgEstado(p); if (!e.linhas[i]) return;
   e.linhas[i].valor = v; e.linhas[i].sujo = true;
@@ -1751,11 +1757,10 @@ function pgTotalMudou(p) {
   const u = e.linhas.length - 1, campo = document.getElementById(p + '-dv-v' + u); if (campo && document.activeElement !== campo) campo.value = e.linhas[u].valor;
   const st = document.getElementById(p + '-dv-status'); if (st) st.innerHTML = _pgStatus(p);
 }
-// Forma escolhida no seletor unico: gateway (Eduzz/Asaas) nao divide, entao o convite some e a divisao desliga.
+// Forma escolhida no seletor unico.
 function pgFormaUnica(p, forma) {
-  const e = pgEstado(p), wrap = document.getElementById(p + '-dv-wrap'), gate = !!(typeof API !== 'undefined' && API.gateway && API.gateway.da(forma));
-  if (gate && e.ativo) { e.ativo = false; _pgMostrar(p); }
-  if (wrap) wrap.style.display = gate ? 'none' : 'block';
+  // Eduzz e Asaas tambem podem ser PARTE de um pagamento dividido (viram uma venda propria no Financeiro), entao o convite fica sempre.
+  const wrap = document.getElementById(p + '-dv-wrap'); if (wrap) wrap.style.display = 'block';
 }
 // Para as regras da tela que dependem da forma (oferta de manter o restante em aberto so vale para Pix/dinheiro): 'pix' quando tudo e Pix/dinheiro.
 function pgFormaRegras(p, formaUnica) {

@@ -87,6 +87,7 @@ passo "Telas cheias com o cabeçalho do app: resultado do cardio com menu, post 
   passo "aviso de mensalidade no sino do aluno" node aviso_mensalidade_aluno.js
   passo "valor recebido editável na baixa e na renovação" node valor_recebido.js
   passo "baixa com pagamento dividido em várias formas" node pgto_dividido.js
+  passo "pagamento dividido: caixa, planos por forma e gateways com valor exato" node pgto_financeiro.js
   passo "atraso na janela de baixa: paga na linha anterior não conta do início do ciclo" node baixa_atraso.js
   passo "lead que ganha matrícula paga ou bonificada deixa de ser lead" node lead_cliente.js
   passo "Extras: painel e área do aluno" node extras_front.js

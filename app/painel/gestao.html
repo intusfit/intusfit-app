@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Gestão — Intus</title>
-  <script src="_mock.js?v=20261123a"></script>
-  <script src="api.js?v=20261123b"></script>
+  <script src="_mock.js?v=20261123c"></script>
+  <script src="api.js?v=20261123c"></script>
 </head>
 <body>
 <script>
@@ -97,9 +97,10 @@ function vendasGateway() { return API.gateway.vendas(mensalidades(), liquidacoes
 // liberacao. E isso que impede o mesmo dinheiro de aparecer em dois meses.
 function caixaEmpresa() {
   const hoje = hojeISO();
-  const matNaoEduzz = mensalidades()
-    .filter(m => String(m.stpgto).toUpperCase() === 'S' && !ehGateway(m) && m.dtpagamento && String(m.dtpagamento).slice(0,10) <= hoje)
-    .reduce((s, m) => s + valorPago(m), 0);
+  // Pagamento dividido: entra no caixa so a parte que NAO foi por Eduzz/Asaas (API.valorForaDeGateway), com o valor exato de cada forma.
+  const matNaoEduzz = Math.round(mensalidades()
+    .filter(m => String(m.stpgto).toUpperCase() === 'S' && m.dtpagamento && String(m.dtpagamento).slice(0,10) <= hoje)
+    .reduce((s, m) => s + API.valorForaDeGateway(m) * 100, 0)) / 100;
   const manual = caixaManual().filter(c => String(c.data || '').slice(0,10) <= hoje)
     .reduce((s, c) => s + (c.tipo === 'saida' ? -num(c.valor) : num(c.valor)), 0);
   const vendas = vendasGateway();

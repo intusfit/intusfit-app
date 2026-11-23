@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Financeiro — Intus</title>
-  <script src="_mock.js?v=20261123a"></script>
-  <script src="api.js?v=20261123b"></script>
+  <script src="_mock.js?v=20261123c"></script>
+  <script src="api.js?v=20261123c"></script>
 </head>
 <body>
 <script>
@@ -326,8 +326,9 @@ function carregarDados() {
     const _dias = (status === 'pago' || sit.estado === 'renovar')
       ? (sit.proxima ? diasAte(sit.proxima) : null)
       : (sit.dias == null ? null : -sit.dias);
+    // Linha paga: vale o que REALMENTE entrou na baixa (valor recebido, com multa/juros e a soma exata das formas de pagamento); em aberto, o valor do ciclo.
     return { ...m, _status: status, _pagoEncerrado: pagoEncerrado, _sit: sit, _dias: _dias,
-             valor: parseFloat(m.vlpagar || 0) };
+             valor: (String(m.stpgto).toUpperCase() === 'S') ? API.valorRecebido(m) : parseFloat(m.vlpagar || 0) };
   });
 
   // Filtra por período
@@ -649,9 +650,10 @@ function renderResumo(box, d) {
 // lancada no Caixa (o saque da Eduzz ou do Asaas entra aqui, pelo liquido); saida = o que esta lancado como saida. A regra mora em API.fluxoCaixa.
 function fluxoCaixa12(d) {
   const hoje = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  const pagas = d.categorizadas.filter(m => m._status === 'pago' && m.dtpagamento && !API.gateway.da(m.forma_pgto));
+  // Pagamento dividido: entra so a parte em dinheiro, Pix ou cartao da casa (API.valorForaDeGateway); a parte de Eduzz/Asaas entra pelo saque.
+  const pagas = d.categorizadas.filter(m => m._status === 'pago' && m.dtpagamento && API.valorForaDeGateway(m) > 0);
   return API.fluxoCaixa.serie({ caixa: getCaixa(), hoje, meses: 12, semSaqueGateway: false,
-    entradasExtra: (de, ate) => pagas.filter(m => m.dtpagamento >= de && m.dtpagamento <= ate).reduce((s, m) => s + (parseFloat(m.valor) || 0), 0) });
+    entradasExtra: (de, ate) => Math.round(pagas.filter(m => m.dtpagamento >= de && m.dtpagamento <= ate).reduce((s, m) => s + API.valorForaDeGateway(m) * 100, 0)) / 100 });
 }
 
 function renderCaixa(box, d) {
@@ -663,10 +665,17 @@ function renderCaixa(box, d) {
 
   // Todas as movimentações: matrículas pagas (como entradas automáticas) + caixa manual
   // Gateway (Eduzz e Asaas) é excluído aqui: entra no Caixa só quando o saque é feito (aba Recebimentos), com valor líquido.
+  // Pagamento dividido (ex.: R$ 300 em dinheiro + R$ 700 no Pix): uma entrada por forma, com o valor exato de cada uma e a forma na descrição.
+  // A parte paga por Eduzz/Asaas fica de fora e entra no saque, pelo líquido.
   const matPagas = d.categorizadas
-    .filter(m => m._status === 'pago' && m.dtpagamento && m.dtpagamento >= caixaDe && m.dtpagamento <= caixaAte
-                 && !API.gateway.da(m.forma_pgto))
-    .map(m => ({ id: 'mat-' + m.idmensalidade, tipo: 'entrada', data: m.dtpagamento, descricao: (m.nmathleta || 'Cliente') + ' — ' + (m.dshistorico || 'Mensalidade'), categoria: 'Matrículas', valor: m.valor, auto: true }));
+    .filter(m => m._status === 'pago' && m.dtpagamento && m.dtpagamento >= caixaDe && m.dtpagamento <= caixaAte)
+    .flatMap(m => {
+      const partes = API.pagamentoPartes(m).filter(pt => !pt.gateway && pt.valor > 0);
+      const dividido = Array.isArray(m.partes) && m.partes.length > 1;
+      return partes.map(pt => ({ id: 'mat-' + m.idmensalidade + (dividido ? '-' + pt.k : ''), tipo: 'entrada', data: m.dtpagamento,
+        descricao: (m.nmathleta || 'Cliente') + ' — ' + (m.dshistorico || 'Mensalidade') + (dividido ? ' (' + (API.gateway.rotuloForma(pt.forma) || pt.forma) + ')' : ''),
+        categoria: 'Matrículas', valor: pt.valor, auto: true }));
+    });
 
   let caixaManual = getCaixa().filter(c => c.data >= caixaDe && c.data <= caixaAte);
 
@@ -1006,11 +1015,23 @@ function _planoChave(m, dim) {
   return API.descricaoBase(m);
 }
 
+// Pagamento dividido em varias formas: para agrupar ou filtrar POR FORMA, a cobranca vira uma linha por forma, cada uma com o valor exato daquela forma
+// (a soma das linhas e o valor recebido). Uma cobranca dividida conta como 1 em cada forma que usou. Sem agrupar nem filtrar por forma, a cobranca segue inteira.
+function _linhasPorForma(rows) {
+  const out = [];
+  rows.forEach(m => {
+    if (m._status !== 'pago' || !Array.isArray(m.partes) || m.partes.length < 2) { out.push(m); return; }
+    const pf = API.valorPorForma(m);
+    Object.keys(pf).forEach(f => out.push({ ...m, forma_pgto: f, valor: pf[f], _formaParte: true }));
+  });
+  return out;
+}
 function renderPlanos(box, d) {
   const F = planosF;
   const q = F.busca.trim().toLowerCase();
+  const fonteLinhas = (F.agrupar === 'forma' || F.forma !== 'todas') ? _linhasPorForma(d.categorizadas) : d.categorizadas;
   // 1) o que entra na conta: período, status, forma, tipo e busca (por plano ou por aluno)
-  const base = d.categorizadas.filter(m => {
+  const base = fonteLinhas.filter(m => {
     if (F.periodo === 'topo') { const ref = m._status === 'pago' ? (m.dtpagamento || m.dtpgto || m.dtvencimento) : m.dtvencimento; if (!dentroDoPeriodo(ref)) return false; }
     if (F.status !== 'todos' && m._status !== F.status) return false;
     if (F.forma !== 'todas') {
@@ -1045,7 +1066,7 @@ function renderPlanos(box, d) {
 
   // 3) opções dos filtros (do que existe nos dados)
   const tipos = [...new Set(d.categorizadas.map(m => String(m.tipo_plano || 'Sem tipo').trim()))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  const formas = [...new Set(d.categorizadas.map(m => String(m.forma_pgto || '').toLowerCase()).filter(Boolean))];
+  const formas = [...new Set(_linhasPorForma(d.categorizadas).map(m => String(m.forma_pgto || '').toLowerCase()).filter(Boolean))];
   const filtrosAtivos = [F.busca.trim(), F.periodo !== 'todo', F.status !== 'todos', F.forma !== 'todas', F.tipo !== 'todos'].filter(Boolean).length;
   const vista = VerModo.get('fin-planos', 'tabela');
   const sel = (id, valor, opcoes, fn) => `<select class="input" style="width:auto;font-size:12px;" onchange="${fn}(this.value)">${opcoes.map(o => `<option value="${esc(o[0])}" ${String(o[0]) === String(valor) ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>`;
@@ -1156,7 +1177,7 @@ function saveLiquidacoes(map) { localStorage.setItem(LIQ_KEY, JSON.stringify(map
 function _setLiq(idm, patch) { const map = getLiquidacoes(); map[idm] = { ...(map[idm] || {}), ...patch }; saveLiquidacoes(map); }
 function _mensalidadesLocal() { try { return JSON.parse(localStorage.getItem('intus-mensalidades') || '[]'); } catch { return []; } }
 function _findMensalidade(idm) { return _mensalidadesLocal().find(m => Number(m.idmensalidade) === Number(idm)); }
-function _ehPagoGateway(m) { return !!m && String(m.stpgto).toUpperCase() === 'S' && !!m.dtpagamento && !!API.gateway.da(m.forma_pgto); }
+function _ehPagoGateway(m) { return !!m && String(m.stpgto).toUpperCase() === 'S' && !!m.dtpagamento && API.pagamentoPartes(m).some(pt => !!pt.gateway); }
 const _gwDe = v => v.gateway || 'eduzz';
 const _nomeGateway = g => g === 'asaas' ? 'Asaas' : 'Eduzz';
 
@@ -1191,27 +1212,30 @@ function calcAntecipacao(v, dataRef) { return API.gateway.antecipacao(v, dataRef
 function _itemManual(v) {
   return { ...v, origem: 'manual', gateway: v.gateway || 'eduzz', prazoDias: v.prazoDias != null ? v.prazoDias : EDUZZ_PRAZO_DIAS };
 }
-function _itemMatricula(m, liq) { return API.gateway.itemDeMatricula(m, liq); }
+function _itemMatricula(m, liq, parte) { return API.gateway.itemDeMatricula(m, liq, parte); }
 function _todasVendas(d) {
   const liqs = getLiquidacoes();
   const cat = (d && d.categorizadas) ? d.categorizadas : _mensalidadesLocal().map(m => ({ ...m, _status: (String(m.stpgto).toUpperCase() === 'S' ? 'pago' : 'pendente') }));
-  const dasMatriculas = cat.filter(m => _ehPagoGateway(m)).map(m => _itemMatricula(m, liqs[m.idmensalidade]));
+  // Pagamento dividido: cada parte paga por Eduzz/Asaas e uma venda propria (valor da parte, taxa e prazo proprios, ajuste guardado em idmensalidade-k).
+  const dasMatriculas = cat.filter(m => _ehPagoGateway(m)).flatMap(m => API.pagamentoPartes(m).filter(pt => pt.gateway).map(pt => _itemMatricula(m, liqs[pt.chave], pt.k ? pt : null)));
   const manuais = getVendasManuais().map(_itemManual);
   return [...dasMatriculas, ...manuais];
 }
 function _resolveVenda(id) {
   if (String(id).startsWith('mn-')) {
-    const idm = String(id).slice(3);
+    const chave = String(id).slice(3), idm = chave.split('-')[0], k = chave.indexOf('-') > 0 ? Number(chave.split('-')[1]) : null;
     const m = _findMensalidade(idm);
     if (!m) return null;
-    return _itemMatricula(m, getLiquidacoes()[idm]);
+    const pt = k ? API.pagamentoPartes(m).find(x => x.k === k && x.gateway) : null;
+    if (k && !pt) return null;
+    return _itemMatricula(m, getLiquidacoes()[chave], pt);
   }
   const v = getVendasManuais().find(x => x.id === id);
   return v ? _itemManual(v) : null;
 }
 function _persistVenda(item) {
   if (item.origem === 'matricula') {
-    _setLiq(item.idmensalidade, {
+    _setLiq(item.chave || item.idmensalidade, {
       presetTaxa: item.presetTaxa, taxaPct: item.taxaPct, taxaFixo: item.taxaFixo, prazoDias: item.prazoDias,
       antecipado: item.antecipado, dataAntecip: item.dataAntecip, taxaAntecipValor: item.taxaAntecipValor,
       sacado: item.sacado, dataSaque: item.dataSaque, caixaId: item.caixaId
