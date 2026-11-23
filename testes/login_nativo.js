@@ -49,19 +49,19 @@ async function tentarLogin(nativo) {
     const page = await ctx.newPage();
     if (nativo) await page.addInitScript(() => { window.INTUS_NATIVE_APP = true; window.INTUS_API_BASE = 'https://api.exemplo.test/app/api'; });
     await page.goto(url, { waitUntil: 'domcontentloaded' }); await page.waitForSelector('#email'); await page.waitForTimeout(300);
-    const r = await page.evaluate(() => ({ botaoVisivel: !!document.getElementById('btn-toggle-modo').offsetParent, modoProf: document.body.classList.contains('modo-professor'), titulo: document.getElementById('titulo-card').textContent, aviso: !!(document.getElementById('aviso-lojas') || {}).offsetParent }));
+    const r = await page.evaluate(() => ({ botaoVisivel: !!document.getElementById('btn-toggle-modo').offsetParent, modoProf: document.body.classList.contains('modo-professor'), titulo: document.getElementById('titulo-card').textContent, frase: /em breve teremos|disponível nas lojas|salve na tela inicial/i.test(document.body.innerText) }));
     await ctx.close(); return r;
   }
   let e = await estado(base, false);
   eq('tela de cliente na web: sem o botão "Sou professor" e sem modo professor', [e.botaoVisivel, e.modoProf, e.titulo], [false, false, 'Acesso do Cliente']);
-  eq('na web o aviso das lojas continua', e.aviso, true);
+  eq('a frase "em breve nas lojas" não aparece mais na web', e.frase, false);
   e = await estado(base + '?professor=1', false);
   eq('link ?professor=1 abre o acesso do professor', [e.modoProf, e.titulo], [true, 'Acesso do Professor']);
   e = await estado(base + '#professor', false);
   eq('link #professor também abre o acesso do professor', e.modoProf, true);
   e = await estado(base + '?professor=1', true);
   eq('no app das lojas o modo professor não existe nem pelo link', [e.botaoVisivel, e.modoProf], [false, false]);
-  eq('no app das lojas o aviso "acesse por este link" some', e.aviso, false);
+  eq('a frase "em breve nas lojas" não aparece no app', e.frase, false);
   console.log('\n══ Botões de acesso rápido do tamanho da caixa de login ══');
   const ctxP = await b2.newContext({ viewport: { width: 375, height: 800 }, serviceWorkers: 'block' });
   const pg = await ctxP.newPage();
@@ -70,6 +70,10 @@ async function tentarLogin(nativo) {
   const med = await pg.evaluate(() => { const r = s => { const b = document.querySelector(s).getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height) }; }; const cs = s => getComputedStyle(document.querySelector(s)).borderRadius; return { entrar: r('#btn'), apple: r('#btn-apple'), campo: r('#email'), raioEntrar: cs('#btn'), raioApple: cs('#btn-apple') }; });
   eq('o botão da Apple tem a largura do ENTRAR e do campo de e-mail', [med.apple.w === med.entrar.w, med.apple.w === med.campo.w], [true, true]);
   eq('o botão da Apple tem a altura do ENTRAR (48 px) e o mesmo raio', [med.apple.h, med.entrar.h, med.raioApple === med.raioEntrar], [48, 48, true]);
+  const sup = await pg.evaluate(() => { const a = document.getElementById('btn-suporte'); const r = a.getBoundingClientRect(); const e = document.querySelector('.login-card').getBoundingClientRect(); return { href: a.href, texto: a.innerText.trim(), visivel: !!a.offsetParent, w: Math.round(r.width) === Math.round(e.width), h: Math.round(r.height), alvo: a.target }; });
+  eq('o botão "Falar com o suporte" aparece e abre o WhatsApp da Intus em outra janela', [sup.visivel, sup.texto, /^https:\/\/wa\.me\/5545991156006\?text=/.test(sup.href), sup.alvo], [true, 'Falar com o suporte', true, '_blank']);
+  eq('e tem a largura da caixa de login e a altura de 48 px', [sup.w, sup.h], [true, 48]);
+  await pg.screenshot({ path: process.env.INTUS_PRINT || '', fullPage: true }).catch(() => {});
   await b2.close(); srv.close();
 
   console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
