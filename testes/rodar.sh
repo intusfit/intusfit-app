@@ -56,6 +56,7 @@ if command -v python3 >/dev/null && node -e "require('playwright')" 2>/dev/null;
   passo "login do aluno e faixa de notificação" node login_aluno.js
   passo "login no app das lojas, acesso do professor e botões de acesso rápido" node login_nativo.js
   passo "fotos do feed no app das lojas (caminho relativo vira o endereço do site)" node imagem_app.js
+  passo "vídeos do YouTube no app das lojas (player por yt.html, erro 153)" node video_app.js
   passo "início do app: aceitar os Termos no meio da sessão liga ❓, 🔔 e histórico; ficha falha não zera o histórico" node termos_inicio.js
   passo "editor do plano v2, seletor (alimento, grupo, receita, modelo), liberar plano e biblioteca da nutri" node nutri_editor.js
   passo "teste grátis no app: sem Feed nem comentário" node teste_gratis_front.js

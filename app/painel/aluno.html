@@ -6925,11 +6925,17 @@ function _ytIdDe(url) {
   if (m) return m[1];
   return /^[A-Za-z0-9_-]{11}$/.test(u) ? u : '';
 }
+// Endereço do player do YouTube. No app das lojas a página é capacitor://localhost e o YouTube recusa essa origem (erro 153, "erro de configuração do
+// player"): lá o vídeo passa por yt.html, que é servido de https://intusfit.com.br e embute o YouTube com uma origem válida. Na web segue direto.
+function _ytSrc(id, auto, nocookie) {
+  if (window.INTUS_NATIVE_APP) return _origemDoSite() + '/app/painel/yt.html?v=' + encodeURIComponent(id) + (auto === false ? '' : '&auto=1');
+  return 'https://www.youtube' + (nocookie ? '-nocookie' : '') + '.com/embed/' + encodeURIComponent(id) + '?rel=0&playsinline=1' + (auto === false ? '' : '&autoplay=1');
+}
 function youtubeToEmbed(url, auto) {
   if (!url) return '';
   const id = _ytIdDe(url);
   if (!id) return url;
-  return 'https://www.youtube.com/embed/' + id + '?rel=0&playsinline=1' + (auto === false ? '' : '&autoplay=1');
+  return _ytSrc(id, auto);
 }
 // Vídeo da tela de explicação do exercício/alongamento: player do YouTube quando o link é do YouTube (sem iniciar sozinho: o iPhone bloqueia e a caixa ficava preta),
 // <video> para arquivo direto e, para qualquer outro link ou se o player não abrir, o atalho "Abrir vídeo" sempre à mostra.
@@ -6939,7 +6945,7 @@ function _infoVideoHtml(url) {
   const id = _ytIdDe(u);
   const abrir = id ? 'https://www.youtube.com/watch?v=' + id : u;
   const atalho = '<a href="' + esc(abrir) + '" target="_blank" rel="noopener" style="display:block;text-align:center;margin:-6px 0 16px;font-size:12.5px;font-weight:700;color:#7FFF00;text-decoration:none;">▶ Não carregou? Abrir o vídeo' + (id ? ' no YouTube' : '') + ' ↗</a>';
-  if (id) return '<div class="info-video"><iframe src="' + youtubeToEmbed(u, false) + '" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"></iframe></div>' + atalho;
+  if (id) return '<div class="info-video"><iframe src="' + youtubeToEmbed(u, false) + '" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"></iframe></div>' + atalho;
   if (/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(u)) return '<div class="info-video"><video src="' + esc(u) + '" controls playsinline preload="metadata" style="width:100%;height:100%;"></video></div>' + atalho;
   return '<a href="' + esc(u) + '" target="_blank" rel="noopener" class="btn btn-sec btn-full" style="display:block;text-align:center;margin:12px 0 16px;text-decoration:none;">▶ Abrir vídeo de demonstração ↗</a>';
 }
@@ -17216,7 +17222,7 @@ function _resultadoLinkHtml(l, isLight) {
   const id = String(l.id);
   let frame = '', abrir = '', rotulo = '';
   if (l.tipo === 'youtube') {
-    frame = '<div style="position:relative;padding-top:56.25%;background:#000;"><iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) + '?rel=0&playsinline=1" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0;"></iframe></div>';
+    frame = '<div style="position:relative;padding-top:56.25%;background:#000;"><iframe src="' + _ytSrc(id, false, true) + '" loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:0;"></iframe></div>';
     abrir = 'https://www.youtube.com/watch?v=' + encodeURIComponent(id); rotulo = 'Abrir no YouTube';
   } else if (l.tipo === 'instagram') {
     const caminho = id.split('/').map(encodeURIComponent).join('/');
@@ -20740,7 +20746,7 @@ function abrirFormFotosPostural() {
   // Video tutorial inline (thumbnail style like exercises)
   html += '<div style="margin-bottom:16px;border-radius:12px;overflow:hidden;border:1px solid ' + borderC + ';background:#000;">' +
     '<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;">' +
-      '<iframe src="https://www.youtube.com/embed/vyatHf3U7YM" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>' +
+      '<iframe src="' + _ytSrc('vyatHf3U7YM', false) + '" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>' +
     '</div>' +
     '<div style="padding:10px 12px;background:' + bgCard + ';">' +
       '<div style="font-size:12px;font-weight:700;color:' + (isLight?'#111':'#f0f0f0') + ';">Video Tutorial: como tirar as fotos</div>' +
