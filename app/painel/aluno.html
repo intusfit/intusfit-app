@@ -1269,6 +1269,12 @@
     #cardio-live-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #f87171; animation: clPulseRec 1.4s ease-in-out infinite; }
     #cardio-live-pill span.stat { font-size: 13px; font-weight: 800; color: #f0f0f0; font-variant-numeric: tabular-nums; }
     #cardio-live-pill span.sep { color: #444; }
+    /* Identificação das pílulas (24/11/2026): um rótulo pequeno diz O QUE está em andamento; embaixo ficam os números */
+    #prog-pill, #cardio-live-pill { border-radius: 22px; padding: 8px 16px; }
+    .pl-col { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .pl-rot { font-size: 10px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100vw - 90px); }
+    .pl-lin { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    #prog-pill .pl-lin .stat, #cardio-live-pill .pl-lin .stat { overflow: hidden; text-overflow: ellipsis; }
 
     /* FOOTER */
     .app-footer {
@@ -1436,15 +1442,17 @@
      outra tela — o cronômetro e o GPS continuam rodando por trás. -->
 <div id="prog-pill" onclick="abrirProgramasCardio()" title="Voltar ao programa de cardio em andamento">
   <span class="dot"></span>
-  <span class="stat" id="pgp-nome">Programa</span>
-  <span class="sep">·</span>
-  <span class="stat" id="pgp-tempo">00:00</span>
+  <span class="pl-col">
+    <span class="pl-rot" id="pgp-rot">Programa de cardio</span>
+    <span class="pl-lin"><span class="stat" id="pgp-nome">Programa</span><span class="sep">·</span><span class="stat" id="pgp-tempo">00:00</span></span>
+  </span>
 </div>
 <div id="cardio-live-pill" onclick="abrirCardioLive()">
   <span class="dot"></span>
-  <span class="stat" id="clp-tempo">00:00</span>
-  <span class="sep" id="clp-sep">·</span>
-  <span class="stat" id="clp-dist">0.00 km</span>
+  <span class="pl-col">
+    <span class="pl-rot" id="clp-rot">Cardio ao vivo</span>
+    <span class="pl-lin"><span class="stat" id="clp-tempo">00:00</span><span class="sep" id="clp-sep">·</span><span class="stat" id="clp-dist">0.00 km</span></span>
+  </span>
 </div>
 
 <div id="tutorial-overlay">
@@ -9490,7 +9498,7 @@ function _criarBannerTreino() {
   const b = document.createElement('div');
   b.id = 'treino-banner';
   b.style.cssText = 'display:none;position:fixed;left:12px;right:12px;bottom:var(--ativo-bottom, calc(86px + env(safe-area-inset-bottom, 0px)));z-index:9000;background:linear-gradient(135deg,#1a2a0a,#0d1a05);border:1px solid #7FFF00;border-radius:14px;padding:10px 14px;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 6px 24px rgba(0,0,0,.5);cursor:pointer;';
-  b.innerHTML = '<span style="font-size:13px;font-weight:700;color:#7FFF00;">🏋️ Treino em andamento · <span id="treino-banner-time">00:00:00</span></span><span style="font-size:12px;font-weight:800;color:#0a0a0a;background:#7FFF00;padding:6px 12px;border-radius:8px;white-space:nowrap;">VOLTAR ▶</span>';
+  b.innerHTML = '<span style="display:flex;flex-direction:column;gap:1px;min-width:0;"><span style="font-size:10px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:#a3c27a;">🏋️ Treino em andamento</span><span style="display:flex;font-size:13px;font-weight:800;color:#7FFF00;white-space:nowrap;min-width:0;"><span id="treino-banner-nome" style="overflow:hidden;text-overflow:ellipsis;min-width:0;"></span><span id="treino-banner-time" style="flex-shrink:0;margin-left:6px;">00:00:00</span></span></span><span style="font-size:12px;font-weight:800;color:#0a0a0a;background:#7FFF00;padding:6px 12px;border-radius:8px;white-space:nowrap;">VOLTAR ▶</span>';
   b.onclick = () => {
     // Retomada pedida pelo aluno: sem as travas da retomada automática.
     _treinoContinuar();
@@ -9507,6 +9515,11 @@ function atualizarBannerTreino(v) {
   // séries marcadas também precisa do caminho de volta.
   const vale = ativo && (ativo.emMusculacao || _temProgressoTreino(ativo));
   b.style.display = (vale && !emTelaDeTreino) ? 'flex' : 'none';
+  // Qual treino está em andamento (ex.: "Divisão B · "), para não ficar só "Treino em andamento"
+  try {
+    const nm = document.getElementById('treino-banner-nome');
+    if (nm) { const sa = (ativo && ativo.sessao) || null; nm.textContent = (sa && (sa.divisaoLabel || sa.divisao)) ? ((sa.divisaoLabel || ('Divisão ' + sa.divisao)) + ' · ') : ''; }
+  } catch (e) {}
 }
 
 // ═══ NOTIFICAÇÕES DE INATIVIDADE (10 min sem registrar atividade durante o treino) ═══
@@ -14141,6 +14154,7 @@ function _progPillAtualizar() {
     const rest = (_prog.fase === 'ativo' && !_prog.pausado) ? Math.max(0, _prog.fimMs - Date.now()) : _prog.restMs;
     const set = (id, t) => { const x = document.getElementById(id); if (x) x.textContent = t; };
     set('pgp-nome', p.emoji + ' ' + e.n); set('pgp-tempo', _progMMSS(rest) + (_prog.pausado ? ' ⏸' : ''));
+    set('pgp-rot', '🏃 Programa de cardio · ' + p.titulo);
     const d = el.querySelector('.dot'); if (d) d.style.background = _PROG_FASE[e.f].cor;
   } catch (e) {}
 }
@@ -15215,6 +15229,7 @@ function _atualizarStatsCardioLive() {
   const pt = document.getElementById('clp-tempo'); if (pt) pt.textContent = _fmtCronometro(_cardioLiveTempoMs());
   const pd = document.getElementById('clp-dist'); if (pd) pd.textContent = usaGpsPill ? (_cardioLiveKm().toFixed(2) + ' km') : '';
   const psep = document.getElementById('clp-sep'); if (psep) psep.style.display = usaGpsPill ? '' : 'none';
+  const prot = document.getElementById('clp-rot'); if (prot) prot.textContent = '📍 Cardio ao vivo · ' + _ativRotulo(_cardioLiveTipo === '__outro__' ? 'outra atividade' : _cardioLiveTipo) + (_cardioLiveRodando ? '' : ' · pausado');
 }
 
 // Fecha o rastreio e leva os numeros pro formulario manual de sempre —
