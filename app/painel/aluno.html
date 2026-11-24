@@ -134,6 +134,9 @@
        sozinho pro esboço em SVG de sempre — ver _iniciarMapaCardioLive. -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Mapa 3D do Cardio ao vivo (MapLibre GL + OpenFreeMap, sem chave de API). Sem WebGL ou sem rede, cai no Leaflet e depois no esboço em SVG. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1173,6 +1176,14 @@
     .cl-imersivo .cl-hero { margin: 0 0 6px; }
     .cl-imersivo .cl-btn-circulo { width: clamp(58px, 9vh, 84px); height: clamp(58px, 9vh, 84px); font-size: 24px; margin: 4px auto 10px; }
     .cl-imersivo .cl-route-card { padding: 6px; margin-bottom: 0; }
+    /* Mapa 3D (MapLibre): marcador "você", botões 3D/2D e centralizar */
+    .cl-gl-eu { width: 24px; height: 24px; }
+    .cl-gl-eu i { display: block; width: 100%; height: 100%; border-radius: 50%; background: #7FFF00; border: 3.5px solid #0a0a0a; box-sizing: border-box; box-shadow: 0 0 0 0 rgba(127,255,0,.65); animation: clGlPulso 1.9s ease-out infinite; }
+    @keyframes clGlPulso { 0% { box-shadow: 0 0 0 0 rgba(127,255,0,.65); } 100% { box-shadow: 0 0 0 22px rgba(127,255,0,0); } }
+    .cl-gl-bt { position: absolute; top: 8px; right: 8px; z-index: 5; display: flex; flex-direction: column; gap: 6px; }
+    .cl-gl-bt button { width: 40px; height: 40px; border-radius: 12px; border: none; background: rgba(10,10,10,.82); color: #fff; font: 800 13px Inter, sans-serif; cursor: pointer; backdrop-filter: blur(6px); }
+    .cl-gl-bt button:active { transform: scale(.94); }
+    #cl-map .maplibregl-ctrl-attrib, #cle-mapa .maplibregl-ctrl-attrib { font-size: 10px; }
     .cl-imersivo .cl-link-imersivo { margin-top: 6px; padding: 6px; }
     .cl-hero-lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .14em; margin-top: 4px; font-weight: 700; }
     .cl-imersivo .cl-hero-lbl { color: rgba(10,10,10,.6); }
@@ -6613,10 +6624,7 @@ function trocarView(v) {
   // cronômetro, _cardioLivePontos) continua rodando igual sem o mapa
   // desenhado — só a visualização é desmontada; _iniciarMapaCardioLive()
   // recria do zero quando o aluno volta pra essa tela.
-  if (window._viewAtual === 'cardio-live' && v !== 'cardio-live' && typeof _cardioLiveMapa !== 'undefined' && _cardioLiveMapa) {
-    try { _cardioLiveMapa.remove(); } catch (e) {}
-    _cardioLiveMapa = null; _cardioLiveRotaLayer = null; _cardioLiveMarcador = null; _cardioLiveMapaFoco = false;
-  }
+  if (window._viewAtual === 'cardio-live' && v !== 'cardio-live' && typeof _cardioLiveMapaDestruir === 'function') _cardioLiveMapaDestruir();
   window._viewAtual = v;
   if (typeof atualizarBannerTreino === 'function') atualizarBannerTreino(v);
 }
@@ -14513,6 +14521,10 @@ let _cardioLiveOutro = '';   // nome digitado em "Outra", antes de começar
 let _cardioLiveParado = false;
 let _cardioLivePontos = [];      // [{lat, lng, t}]
 let _cardioLiveDistM = 0;
+let _cardioLiveUltimaPos = null;   // último GPS aceito (mesmo parado): é onde o mapa mostra "você"
+let _cardioLiveUltimoFixT = 0;     // hora do último GPS aceito, para medir lacuna de sinal sem confundir com ficar parado
+let _cardioLiveRumo = 0;           // direção do movimento em graus (suavizada), o mapa gira junto
+let _cardioLiveRej = 0;            // leituras seguidas recusadas por salto impossível
 let _cardioLiveProxPausa = false;   // true entre pausar e a 1ª posição depois de retomar: esse intervalo é pausa, não GPS cego
 let _cardioLiveLacunaS = 0;      // segundos sem posição de GPS (tela bloqueada ou app em segundo plano): a distância desse trecho não foi medida
 let _cardioLiveInicioMs = 0;
@@ -14692,7 +14704,7 @@ function _cardioLiveGpsLigar() {
     }, function (loc, err) {
       if (tk !== _cardioLiveGpsTk) return;
       if (err) { _cardioLiveGpsFalhou(err); return; }
-      if (loc) _cardioLiveOnPos({ coords: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy }, timestamp: loc.time });
+      if (loc) _cardioLiveOnPos({ coords: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy, heading: loc.bearing, speed: loc.speed }, timestamp: loc.time });
     }).then(function (id) {
       if (tk !== _cardioLiveGpsTk) { try { plug.removeWatcher({ id: id }); } catch (e) {} return; }
       _cardioLiveNativoId = id;
@@ -14717,30 +14729,71 @@ function _cardioLiveGpsDesligar() {
   if (_cardioLiveWatchId != null) { try { navigator.geolocation.clearWatch(_cardioLiveWatchId); } catch (e) {} _cardioLiveWatchId = null; }
 }
 
+// Leitura de GPS (reescrita em 24/11/2026). Três problemas da versão anterior:
+//  1) cada leitura somava a distância ao ponto anterior, então o "tremido" normal do GPS (4 a 10 m parado) inflava km e ritmo;
+//  2) um salto impossível entrava na rota e deixava o ponto errado como referência para as leituras seguintes;
+//  3) a lacuna de sinal era medida pelo ponto anterior da rota, não pela última leitura: parar 20 s no sinal fechado virava "GPS cego".
+// Agora a rota só ganha ponto quando a pessoa andou mais que o ruído da própria leitura (âncora = último ponto aceito), saltos impossíveis
+// são recusados sem virar referência, e a lacuna usa a hora da última leitura. Limite de 50 m de precisão (era 40) para o mapa não ficar vazio.
+function _suavizaRumo(prev, novo) {
+  const d = ((novo - prev + 540) % 360) - 180;
+  return (prev + d * 0.4 + 360) % 360;
+}
+function _rumoEntre(lat1, lon1, lat2, lon2) {
+  const toRad = x => x * Math.PI / 180;
+  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
 function _cardioLiveOnPos(pos) {
-  const { latitude, longitude, accuracy } = pos.coords;
-  // GPS impreciso (predio, mata fechada) infla a distancia sozinho — descarta
-  // a leitura em vez de somar um salto que o aluno nao deu de verdade.
-  if (accuracy != null && accuracy > 40) return;
-  const novo = { lat: latitude, lng: longitude, t: Date.now() };
+  const c = (pos && pos.coords) || {};
+  const latitude = c.latitude, longitude = c.longitude;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number' || !isFinite(latitude) || !isFinite(longitude)) return;
+  const acc = (c.accuracy != null && isFinite(c.accuracy)) ? Number(c.accuracy) : 20;
+  // GPS impreciso (prédio, mata fechada) infla a distância sozinho: descarta a leitura.
+  if (acc > 50) return;
+  const agora = Date.now();
+  let t = Number(pos.timestamp);
+  if (!(t > 1e12) || Math.abs(t - agora) > 120000) t = agora;   // hora do aparelho só vale se for coerente com o relógio
   const anterior = _cardioLivePontos[_cardioLivePontos.length - 1];
+  const fixAnterior = _cardioLiveUltimoFixT;
+  if (fixAnterior && t <= fixAnterior) t = fixAnterior + 1;
+  _cardioLiveUltimaPos = { lat: latitude, lng: longitude, t: t, acc: acc };
+  _cardioLiveUltimoFixT = t;
+  const novo = { lat: latitude, lng: longitude, t: t };
   const veioDePausa = _cardioLiveProxPausa; _cardioLiveProxPausa = false;
+  let aceito = true;
   if (anterior && veioDePausa) {
     novo.novoTrecho = true;   // retomou depois de pausar: não soma o salto e não conta como GPS cego
+    _cardioLiveRej = 0;
   } else if (anterior) {
-    const dtS = (novo.t - anterior.t) / 1000;
-    if (dtS > CARDIO_LIVE_GAP_S && !_cardioLiveNativoOk) {
-      // Lacuna de GPS grande: não soma a distância do "pulo" (seria uma linha
-      // reta que o aluno nunca percorreu) e marca como início de um novo
-      // trecho, pro mapa não ligar os dois lados com uma linha reta.
+    const gapS = fixAnterior ? (t - fixAnterior) / 1000 : 0;
+    if (gapS > CARDIO_LIVE_GAP_S && !_cardioLiveNativoOk) {
+      // Lacuna de sinal grande (tela travada): não soma o "pulo" (seria uma linha reta que a pessoa nunca percorreu) e abre um novo trecho.
       novo.novoTrecho = true;
-      _cardioLiveLacunaS += dtS;
+      _cardioLiveLacunaS += gapS;
+      _cardioLiveRej = 0;
     } else {
+      const dtS = (t - anterior.t) / 1000;
       const d = _haversineM(anterior.lat, anterior.lng, novo.lat, novo.lng);
-      // Acima de 10 m/s (36 km/h) sustentado e quase sempre erro de GPS, nao o aluno.
-      if (dtS > 0 && (d / dtS) < 10) _cardioLiveDistM += d;
+      const limiar = Math.max(4, Math.min(acc, 25) * 0.5);   // abaixo disso é tremido do GPS, não movimento
+      const vmax = _cardioLiveTipo === 'Bike' ? 20 : 10;     // m/s; acima disso quase sempre é erro de GPS
+      if (d < limiar) {
+        aceito = false;
+      } else if (dtS > 0 && (d / dtS) >= vmax) {
+        _cardioLiveRej++;
+        if (_cardioLiveRej >= 5) { novo.novoTrecho = true; _cardioLiveRej = 0; } else aceito = false;   // 5 seguidas: o salto era real, recomeça dali sem somar
+      } else {
+        _cardioLiveDistM += d;
+        _cardioLiveRej = 0;
+      }
+      if (aceito) {
+        const rumo = (typeof c.heading === 'number' && isFinite(c.heading) && c.heading >= 0) ? c.heading : _rumoEntre(anterior.lat, anterior.lng, novo.lat, novo.lng);
+        _cardioLiveRumo = _suavizaRumo(_cardioLiveRumo, rumo);
+      }
     }
   }
+  if (!aceito) { try { _atualizarRotaCardioLive(); } catch (e) {} return; }   // só o "você está aqui" do mapa acompanha
   _cardioLivePontos.push(novo);
   _atualizarStatsCardioLive();
   _cardioLiveSalvarAtivo();
@@ -14853,7 +14906,8 @@ function _cardioLivePararTudo() {
   // O mapa Leaflet mantém listeners próprios (resize, etc.) que sobrevivem
   // mesmo com o <div> removido da tela — sem isso, cada sessão de cardio
   // deixava uma instância órfã na memória.
-  if (_cardioLiveMapa) { try { _cardioLiveMapa.remove(); } catch (e) {} _cardioLiveMapa = null; _cardioLiveRotaLayer = null; _cardioLiveMarcador = null; }
+  _cardioLiveMapaDestruir();
+  _cardioLiveUltimaPos = null; _cardioLiveUltimoFixT = 0; _cardioLiveRumo = 0; _cardioLiveRej = 0;
 }
 
 // Confirmação própria (em vez do confirm() nativo do navegador, que quebra o
@@ -14942,6 +14996,99 @@ function _desenharRotaCardioLive() {
     '<circle cx="' + fim[0].toFixed(1) + '" cy="' + fim[1].toFixed(1) + '" r="5" fill="#7FFF00"/>';
 }
 
+// ── MAPA 3D (MapLibre GL + OpenFreeMap) ────────────────────────────────────
+// Estilo "liberty" do OpenFreeMap: gratuito, sem chave, com prédios em 3D. A câmera inclina, segue a pessoa e gira para onde ela anda.
+// Toque e arraste solta a câmera (aparece o botão ◎ para voltar a seguir); o botão 3D/2D alterna a inclinação.
+const CARDIO_GL_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+let _cardioLiveGl = null;   // { map, marker, pronto, seguindo, inclinado, focou, chave }
+function _glWebglOk() {
+  try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { return false; }
+}
+// GeoJSON da rota: um trecho por linha (sem ligar os dois lados de uma lacuna de sinal). Trecho de 1 ponto não é linha.
+function _clGlRotaGeo(pontos) {
+  const lista = pontos || _cardioLivePontos, segs = []; let atual = [];
+  lista.forEach(p => { if (p.novoTrecho && atual.length) { segs.push(atual); atual = []; } atual.push([p.lng, p.lat]); });
+  if (atual.length) segs.push(atual);
+  return { type: 'Feature', properties: {}, geometry: { type: 'MultiLineString', coordinates: segs.filter(x => x.length >= 2) } };
+}
+function _clGlCamadasRota(map, pontos) {
+  map.addSource('rota', { type: 'geojson', data: _clGlRotaGeo(pontos) });
+  map.addLayer({ id: 'rota-sombra', type: 'line', source: 'rota', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#0a0a0a', 'line-width': 11, 'line-opacity': .5, 'line-blur': 2.5 } });
+  map.addLayer({ id: 'rota-linha', type: 'line', source: 'rota', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#7FFF00', 'line-width': 5.5 } });
+}
+function _cardioLiveMapaDestruir() {
+  if (_cardioLiveGl) { try { _cardioLiveGl.map.remove(); } catch (e) {} _cardioLiveGl = null; }
+  if (_cardioLiveMapa) { try { _cardioLiveMapa.remove(); } catch (e) {} _cardioLiveMapa = null; _cardioLiveRotaLayer = null; _cardioLiveMarcador = null; _cardioLiveMapaFoco = false; }
+}
+function _cardioLiveGlIniciar(mapEl) {
+  if (typeof maplibregl === 'undefined' || !_glWebglOk()) return false;
+  try {
+    const pos = _cardioLiveUltimaPos || _cardioLivePontos[_cardioLivePontos.length - 1] || null;
+    const gl = { map: null, marker: null, pronto: false, seguindo: true, inclinado: true, focou: !!pos, chave: '', marcado: false };
+    const map = new maplibregl.Map({
+      container: mapEl, style: CARDIO_GL_STYLE, center: pos ? [pos.lng, pos.lat] : [-52, -14], zoom: pos ? 16.4 : 3,
+      pitch: 62, bearing: _cardioLiveRumo || 0, maxPitch: 78, attributionControl: false, fadeDuration: 150
+    });
+    map.addControl(new maplibregl.AttributionControl({ compact: true }));
+    gl.map = map; _cardioLiveGl = gl;
+    const svg = document.getElementById('cl-svg'); if (svg) svg.style.display = 'none';
+    mapEl.style.display = '';
+    const el = document.createElement('div'); el.className = 'cl-gl-eu'; el.innerHTML = '<i></i>';
+    gl.marker = new maplibregl.Marker({ element: el, pitchAlignment: 'map', rotationAlignment: 'map' });
+    const bt = document.createElement('div'); bt.className = 'cl-gl-bt';
+    bt.innerHTML = '<button type="button" data-a="3d" aria-label="Alternar entre mapa 3D e 2D">3D</button><button type="button" data-a="ctr" aria-label="Centralizar em você" style="display:none">◎</button>';
+    bt.addEventListener('click', function (ev) {
+      const a = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-a');
+      if (a === '3d') {
+        gl.inclinado = !gl.inclinado;
+        map.easeTo({ pitch: gl.inclinado ? 62 : 0, duration: 600 });
+        ev.target.textContent = gl.inclinado ? '3D' : '2D';
+      } else if (a === 'ctr') {
+        gl.seguindo = true; gl.chave = '';
+        bt.querySelector('[data-a=ctr]').style.display = 'none';
+        _cardioLiveGlAtualizar();
+      }
+    });
+    mapEl.appendChild(bt);
+    const soltar = function (ev) { if (ev && ev.originalEvent) { gl.seguindo = false; const b = bt.querySelector('[data-a=ctr]'); if (b) b.style.display = ''; } };
+    map.on('dragstart', soltar); map.on('zoomstart', soltar); map.on('rotatestart', soltar); map.on('pitchstart', soltar);
+    map.on('load', function () {
+      try {
+        _clGlCamadasRota(map); gl.pronto = true; gl.chave = ''; _cardioLiveGlAtualizar();
+        // A atribuição (exigida pela fonte dos dados) começa recolhida para não cobrir o mapa pequeno.
+        const at = mapEl.querySelector('.maplibregl-ctrl-attrib'); if (at) { at.classList.remove('maplibregl-compact-show'); at.removeAttribute('open'); }
+      } catch (e) { console.warn('[cardio-mapa-3d]', e); }
+    });
+    // Sem rede (ou estilo bloqueado) o mapa nunca carrega: depois de 9 s troca pelo mapa plano de sempre.
+    setTimeout(function () { if (_cardioLiveGl === gl && !gl.pronto) { console.warn('[cardio-mapa-3d] sem estilo, usando o mapa plano'); _iniciarMapaCardioLive(true); } }, 9000);
+    requestAnimationFrame(function () { try { if (_cardioLiveGl === gl) map.resize(); } catch (e) {} });
+    return true;
+  } catch (e) {
+    console.warn('[cardio-mapa-3d]', e);
+    _cardioLiveGl = null;
+    return false;
+  }
+}
+function _cardioLiveGlAtualizar() {
+  const gl = _cardioLiveGl;
+  if (!gl || !gl.pronto) return;
+  const pos = _cardioLiveUltimaPos || _cardioLivePontos[_cardioLivePontos.length - 1];
+  if (!pos) return;
+  const chave = pos.t + '|' + _cardioLivePontos.length;
+  if (chave === gl.chave) return;
+  gl.chave = chave;
+  try {
+    const fonte = gl.map.getSource('rota'); if (fonte) fonte.setData(_clGlRotaGeo());
+    gl.marker.setLngLat([pos.lng, pos.lat]);
+    if (!gl.marcado) { gl.marker.addTo(gl.map); gl.marcado = true; }
+    if (gl.seguindo) {
+      const alvo = { center: [pos.lng, pos.lat], bearing: _cardioLiveRumo || 0, duration: 900, essential: true };
+      if (!gl.focou) { alvo.zoom = 16.4; gl.focou = true; }
+      gl.map.easeTo(alvo);
+    }
+  } catch (e) { console.warn('[cardio-mapa-3d]', e); }
+}
+
 // ── MAPA REAL (Leaflet + OpenStreetMap) ────────────────────────────────────
 // _renderCardioLive() reconstrói o innerHTML inteiro a cada pausa/retomada,
 // o que destrói o <div id="cl-map"> e, com ele, qualquer mapa Leaflet
@@ -14958,10 +15105,12 @@ const CARDIO_MAPA_ZOOM = 15; // ~raio de 1km em volta do atleta
 // fora do ar, sem internet), simplesmente não faz nada — _atualizarRotaCardioLive
 // detecta a ausência de window.L e usa o esboço em SVG de sempre, que já
 // vem pronto no HTML (só escondido).
-function _iniciarMapaCardioLive() {
-  if (_cardioLiveMapa) { try { _cardioLiveMapa.remove(); } catch (e) {} _cardioLiveMapa = null; _cardioLiveRotaLayer = null; _cardioLiveMarcador = null; }
+function _iniciarMapaCardioLive(semGl) {
+  _cardioLiveMapaDestruir();
   const mapEl = document.getElementById('cl-map');
   if (!mapEl) return;
+  // Mapa 3D primeiro (MapLibre + OpenFreeMap); sem WebGL ou sem rede segue o Leaflet de sempre, e depois o esboço em SVG.
+  if (!semGl && _cardioLiveGlIniciar(mapEl)) return;
   // Sem o Leaflet (CDN fora do ar, sem internet na hora de carregar o app),
   // cai pro esboço em SVG antes mesmo de tentar — sem isso a div do mapa
   // ficava visível e vazia, e o SVG (que teria o desenho) continuava
@@ -15028,7 +15177,8 @@ function _atualizarRotaMapa() {
 // Escolhe mapa real ou o esboço em SVG, o que estiver disponível — chamada
 // a cada segundo pelo mesmo updater de sempre (_atualizarStatsCardioLive).
 function _atualizarRotaCardioLive() {
-  if (_cardioLiveMapa) _atualizarRotaMapa();
+  if (_cardioLiveGl) _cardioLiveGlAtualizar();
+  else if (_cardioLiveMapa) _atualizarRotaMapa();
   else _desenharRotaCardioLive();
 }
 
@@ -15259,7 +15409,7 @@ function _renderTelaEsforcoCardioLive(dados) {
         <div style="font-size:16px;font-weight:800;color:${isLight?'#1a1a1a':'#f0f0f0'};">Cardio registrado!</div>
         <div id="cle-status" style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">${dados.salvando ? 'Salvando o seu cardio...' : (dados.pendente ? 'Guardado neste aparelho, o envio é automático quando a conexão voltar' : 'Já está salvo. Falta só confirmar o esforço')}</div>
       </div>
-      ${temRota ? `<div id="cle-mapa" style="width:100%;height:150px;border-radius:12px;overflow:hidden;isolation:isolate;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
+      ${temRota ? `<div id="cle-mapa" style="width:100%;height:210px;border-radius:12px;overflow:hidden;isolation:isolate;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;margin-bottom:18px;">
         <div style="font-size:26px;">${emoji}</div>
         <div style="flex:1;">
@@ -15298,9 +15448,38 @@ function _renderTelaEsforcoCardioLive(dados) {
 // fixo porque aqui não sabemos o tamanho do percurso de antemão (a tela de
 // cardio ao vivo usa zoom fixo de ~1km porque ali o ponto é "onde eu tô",
 // não "o trajeto inteiro").
-function _iniciarMapaRotaFinalCardio(pontos) {
+function _iniciarMapaRotaFinalCardio(pontos, semGl) {
   _cardioEsforcoFecharMapa();
   const mapEl = document.getElementById('cle-mapa');
+  // Primeiro o mapa 3D (MapLibre); sem WebGL ou sem rede (9 s sem carregar) segue o Leaflet plano.
+  if (!semGl && mapEl && typeof maplibregl !== 'undefined' && _glWebglOk()) {
+    try {
+      const lngs = pontos.map(p => p.lng), lats = pontos.map(p => p.lat);
+      const mapa = new maplibregl.Map({
+        container: mapEl, style: CARDIO_GL_STYLE, interactive: false, attributionControl: false, fadeDuration: 150,
+        bounds: [[Math.min.apply(null, lngs), Math.min.apply(null, lats)], [Math.max.apply(null, lngs), Math.max.apply(null, lats)]],
+        fitBoundsOptions: { padding: 34, pitch: 52, maxZoom: 17.5 }, pitch: 52
+      });
+      mapa.addControl(new maplibregl.AttributionControl({ compact: true }));
+      _cardioEsforcoMapa = mapa;
+      let pronto = false;
+      mapa.on('load', function () {
+        try {
+          pronto = true;
+          _clGlCamadasRota(mapa, pontos);
+          const ini = document.createElement('div'); ini.className = 'cl-gl-eu'; ini.innerHTML = '<i style="background:#bbb;animation:none;"></i>';
+          const fim = document.createElement('div'); fim.className = 'cl-gl-eu'; fim.innerHTML = '<i style="animation:none;"></i>';
+          new maplibregl.Marker({ element: ini, pitchAlignment: 'map' }).setLngLat([pontos[0].lng, pontos[0].lat]).addTo(mapa);
+          new maplibregl.Marker({ element: fim, pitchAlignment: 'map' }).setLngLat([pontos[pontos.length - 1].lng, pontos[pontos.length - 1].lat]).addTo(mapa);
+        } catch (e) { console.warn('[cardio-esforco-mapa-3d]', e); }
+      });
+      setTimeout(function () { if (_cardioEsforcoMapa === mapa && !pronto) { _iniciarMapaRotaFinalCardio(pontos, true); } }, 9000);
+      return;
+    } catch (e) {
+      console.warn('[cardio-esforco-mapa-3d]', e);
+      _cardioEsforcoFecharMapa();
+    }
+  }
   if (!mapEl || typeof L === 'undefined') { if (mapEl) mapEl.style.display = 'none'; return; }
   try {
     const latlngs = pontos.map(p => [p.lat, p.lng]);
@@ -15503,7 +15682,7 @@ function _renderCardioLive() {
     // atrás. isolation:isolate cria um contexto de empilhamento PRÓPRIO pro
     // mapa — o 1000 do Leaflet fica preso lá dentro e nunca compete com o
     // z-index de mais nada fora dele, não importa o valor.
-    ? '<div class="cl-route-card"><div id="cl-map" style="width:100%;height:clamp(84px,17vh,170px);border-radius:14px;overflow:hidden;isolation:isolate;"></div><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:clamp(84px,14vh,130px);display:none;"></svg></div>'
+    ? '<div class="cl-route-card"><div id="cl-map" style="width:100%;height:clamp(150px,27vh,290px);border-radius:14px;overflow:hidden;isolation:isolate;position:relative;"></div><svg id="cl-svg" viewBox="0 0 280 160" style="width:100%;height:clamp(84px,14vh,130px);display:none;"></svg></div>'
     : '<div class="cl-route-card cl-pulse-wrap"><div class="cl-pulse-ring"></div><div class="cl-pulse-ring"></div><div class="cl-pulse-ring"></div><div class="cl-pulse-emoji">' + _clIcone(_cardioLiveTipo) + '</div></div>';
   // BUG real (achado testando a correção do pause): com GPS e já iniciado, a
   // linha de cima (cl-stat-top) e este bloco tinham os MESMOS ids (cl-tempo,
