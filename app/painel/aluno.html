@@ -1582,7 +1582,7 @@ function figurinhaAleatoriaHtml(isLight, itPreescolhido) {
   const it = _figValida(itPreescolhido) || _figPick(list);
   let inner;
   if (it && it.tipo === 'img' && it.src) {
-    inner = '<img src="' + esc(it.src) + '" alt="figurinha" style="max-width:200px;max-height:200px;width:auto;height:auto;border-radius:16px;object-fit:contain;" onerror="this.style.display=\'none\'"/>' +
+    inner = '<img src="' + esc(_urlAbs(it.src)) + '" alt="figurinha" style="max-width:200px;max-height:200px;width:auto;height:auto;border-radius:16px;object-fit:contain;" onerror="this.style.display=\'none\'"/>' +
       (it.legenda ? '<div style="font-size:12px;font-weight:800;color:' + (isLight?'#7c5e10':'#fcd34d') + ';margin-top:8px;">' + esc(it.legenda) + '</div>' : '');
   } else if (it) {
     const cor = it.cor || (isLight ? '#5cb800' : '#7FFF00');
@@ -1923,7 +1923,7 @@ function _shareLogoSrc(isLight) { return isLight ? 'logo-intus-light.png' : 'log
 function _shareFigSolta(fig, escala, grande) {
   if (!fig) return '';
   const sombra = 'filter:drop-shadow(0 3px 8px rgba(0,0,0,.55));';
-  if (fig.tipo === 'img' && fig.src) { const t = _sPx(grande ? 112 : 64, escala); return `<img data-ov="fig" src="${esc(fig.src)}" alt="" style="display:block;width:${t};height:${t};object-fit:contain;flex-shrink:0;${sombra}" onerror="this.style.display='none'"/>`; }
+  if (fig.tipo === 'img' && fig.src) { const t = _sPx(grande ? 112 : 64, escala); return `<img data-ov="fig" src="${esc(_urlAbs(fig.src))}" alt="" style="display:block;width:${t};height:${t};object-fit:contain;flex-shrink:0;${sombra}" onerror="this.style.display='none'"/>`; }
   return `<div data-ov="fig" style="font-size:${_sPx(grande ? 96 : 54, escala)};line-height:1;flex-shrink:0;${sombra}">${esc(fig.emoji || '💪')}</div>`;
 }
 // Coluna de partida: figurinha em cima, bloco embaixo, ancorada a SHARE_INFO_FUNDO do fundo (cresce para cima). Cada filho recebe depois o
@@ -11280,6 +11280,19 @@ function renderFim(duracao, sessaoSalva) {
     fig: figDoDia, mensagem: mensagem, recordes: recordesFim,
   };
   try { localStorage.setItem('intus-ultimo-treino-share', JSON.stringify(_shareInfo)); } catch (e) {}
+  // Lista de figurinhas ainda não lida (primeiro uso do app, rede lenta): busca agora e preenche o espaço da figurinha quando chegar, em vez de ficar sem (24/11/2026).
+  if (!_figurinhasList().length) {
+    _figurinhasCarregar(0).then(function () {
+      try {
+        const slot = document.getElementById('fim-fig');
+        if (!slot || slot.innerHTML.trim() || !_figurinhasList().length || window._viewAtual !== 'fim') return;
+        const it = _figPick(_figurinhasList());
+        slot.innerHTML = figurinhaAleatoriaHtml(isLight, it);
+        if (sessaoSalva && sessaoSalva.idsessao) localStorage.setItem(_fimResultadoKey(sessaoSalva.idsessao), JSON.stringify({ fig: it, mensagem: mensagem }));
+        localStorage.setItem('intus-ultimo-treino-share', JSON.stringify(Object.assign({}, _shareInfo, { fig: it })));
+      } catch (e) {}
+    });
+  }
 
   const txtColor = isLight ? '#1a1a1a' : '#fff';
   const subColor = isLight ? '#666' : '#aaa';
@@ -11321,7 +11334,7 @@ function renderFim(duracao, sessaoSalva) {
       <h2 style="font-size:22px;letter-spacing:2px;margin-bottom:4px;color:${txtColor};">TREINO FINALIZADO</h2>
       <p style="font-size:15px;font-weight:600;margin-bottom:6px;color:${subColor};">${esc(mensagem)}</p>
       ${avisoSemPontos}
-      <div style="margin-bottom:10px;">${figurinhaAleatoriaHtml(isLight, figDoDia)}</div>
+      <div id="fim-fig" style="margin-bottom:10px;">${figurinhaAleatoriaHtml(isLight, figDoDia)}</div>
 
       ${recordesFim.length ? `<div class="fim-col" style="margin-bottom:10px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(217,119,6,.1));border:1px solid rgba(251,191,36,.4);text-align:center;">
         <div style="font-size:14px;font-weight:900;color:${isLight?'#92400e':'#fbbf24'};margin-bottom:6px;">🏆 ${recordesFim.length > 1 ? 'Novos recordes pessoais!' : 'Novo recorde pessoal!'}</div>

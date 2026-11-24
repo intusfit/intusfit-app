@@ -24,6 +24,7 @@ passo "T.U.T da ficha: o que é isométrico e o que é formato diferente" node t
 passo "Finalizar treino: voltar com a foto aberta e o limite de 5 min sobre o total" node finalizacao.js
 passo "cardio ao vivo: leitura do GPS (tremido, salto, lacuna, bike)" node cardio_gps.js
 passo "cabeçalho das telas preso no topo em rolagem funda" node cabecalho_fixo.js
+passo "figurinha do fim do treino no app das lojas" node figurinha_app.js
 passo "comunidade: turmas e desafios"      node comunidade.js
 passo "corte de vídeo: pontas e trecho"    node trecho.js
 passo "regra de cobrança: 4 telas iguais"  node fonte_unica.js
