@@ -7051,11 +7051,45 @@ function _ytSrc(id, auto, nocookie) {
   if (window.INTUS_NATIVE_APP) return _origemDoSite() + '/app/painel/yt.html?v=' + encodeURIComponent(id) + (auto === false ? '' : '&auto=1');
   return 'https://www.youtube' + (nocookie ? '-nocookie' : '') + '.com/embed/' + encodeURIComponent(id) + '?rel=0&playsinline=1' + (auto === false ? '' : '&autoplay=1');
 }
-// No app das lojas o player embutido do YouTube fica preto (WKWebView), então lá mostra a capa do vídeo com um play que abre o YouTube no vídeo certo.
+// No app das lojas o vídeo toca DENTRO do app (24/11/2026). Antes a capa tinha um link que abria o aplicativo do YouTube e tirava a pessoa do treino.
+// Agora a capa (com o play) é só a porta de entrada: ao tocar, o player abre no mesmo quadro (yt.html, servido de https://intusfit.com.br) e já começa a tocar,
+// com o toque do aluno valendo como a permissão que o iPhone exige. Se o YouTube recusar (vídeo sem incorporação, erro de configuração), yt.html avisa e o
+// quadro mostra "Abrir no YouTube" só então.
 function _ytCartao(id) {
-  return '<a href="https://www.youtube.com/watch?v=' + encodeURIComponent(id) + '" target="_blank" rel="noopener" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#000 url(https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/hqdefault.jpg) center/cover no-repeat;text-decoration:none;">' +
-    '<span style="width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,.65);border:2px solid #fff;display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;padding-left:4px;">▶</span></a>';
+  return '<div class="yt-cartao" role="button" tabindex="0" aria-label="Tocar o vídeo" data-yt="' + encodeURIComponent(id) + '" onclick="_ytTocar(this)" style="position:absolute;inset:0;cursor:pointer;display:flex;align-items:center;justify-content:center;background:#000 url(https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/hqdefault.jpg) center/cover no-repeat;">' +
+    '<span style="width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,.65);border:2px solid #fff;display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;padding-left:4px;">▶</span></div>';
 }
+function _ytTocar(el) {
+  const id = decodeURIComponent(el.getAttribute('data-yt') || '');
+  const box = el.parentNode;
+  if (!id || !box) return;
+  el.style.display = 'none';
+  box.querySelectorAll('.yt-inline, .yt-erro').forEach(function (x) { x.remove(); });
+  const f = document.createElement('iframe');
+  f.className = 'yt-inline'; f.src = _ytSrc(id, true); f.allowFullscreen = true; f.referrerPolicy = 'strict-origin-when-cross-origin';
+  f.setAttribute('allow', 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen');
+  f.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;';
+  f.dataset.yt = encodeURIComponent(id);
+  box.appendChild(f);
+}
+// yt.html avisa quando o YouTube não toca o vídeo (mensagem só aceita do próprio site): o quadro vira um aviso com o atalho para o YouTube.
+window.addEventListener('message', function (e) {
+  try {
+    const d = e.data;
+    if (!d || typeof d !== 'object' || d.intusYt !== 'erro' || e.origin !== _origemDoSite()) return;
+    const fr = Array.prototype.slice.call(document.querySelectorAll('iframe')).find(function (x) { return x.contentWindow === e.source; });
+    if (!fr || !fr.parentNode) return;
+    const id = String(d.id || '').replace(/[^A-Za-z0-9_-]/g, '');
+    const box = fr.parentNode;
+    if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
+    box.querySelectorAll('.yt-erro').forEach(function (x) { x.remove(); });
+    const m = document.createElement('div');
+    m.className = 'yt-erro';
+    m.style.cssText = 'position:absolute;inset:0;z-index:2;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;text-align:center;font-size:13px;line-height:1.4;';
+    m.innerHTML = '<div>Este vídeo não pôde ser tocado aqui.</div>' + (id ? '<a href="https://www.youtube.com/watch?v=' + id + '" target="_blank" rel="noopener" style="color:#7FFF00;font-weight:800;text-decoration:none;">▶ Abrir no YouTube ↗</a>' : '');
+    box.appendChild(m);
+  } catch (err) {}
+});
 function youtubeToEmbed(url, auto) {
   if (!url) return '';
   const id = _ytIdDe(url);
@@ -7077,12 +7111,12 @@ function _infoVideoHtml(url) {
 }
 function abrirVideoModal(url) {
   const modal = document.getElementById('video-modal');
-  const _idv = _ytIdDe(url);
-  if (window.INTUS_NATIVE_APP && _idv) { window.open('https://www.youtube.com/watch?v=' + _idv, '_blank'); return; }
+  document.querySelectorAll('#video-modal .yt-erro').forEach(function (x) { x.remove(); });
   document.getElementById('video-iframe').src = youtubeToEmbed(url);
   modal.classList.add('open');
 }
 function fecharVideoModal() {
+  document.querySelectorAll('#video-modal .yt-erro').forEach(function (x) { x.remove(); });
   document.getElementById('video-iframe').src = '';
   document.getElementById('video-modal').classList.remove('open');
 }

@@ -6,23 +6,51 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="robots" content="noindex">
 <title>Vídeo</title>
-<style>html,body{margin:0;height:100%;background:#000}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}#p,iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+/* Capa com "Carregando" por cima do player até ele ficar pronto (o YouTube leva alguns segundos e o quadro ficava só preto) */
+#capa{position:absolute;inset:0;z-index:2;background:#000 center/cover no-repeat;display:flex;align-items:center;justify-content:center;transition:opacity .25s}
+#capa span{color:#fff;font:700 13px/1 -apple-system,system-ui,sans-serif;background:rgba(0,0,0,.6);padding:9px 14px;border-radius:999px}
+#capa.fim{opacity:0;pointer-events:none}</style>
 </head>
 <body>
+<div id="p"></div>
+<div id="capa"><span>Carregando o vídeo…</span></div>
 <script>
 // Player do YouTube para o app das lojas. Dentro do app a página é capacitor://localhost e o YouTube recusa essa origem (erro 153: "erro de
 // configuração do player"). Esta página é servida de https://intusfit.com.br: o app a coloca num <iframe> e ela embute o YouTube com uma origem
 // válida. Só aceita um id de vídeo de 11 caracteres (nada de URL livre), e só embute o YouTube.
+// Usa a API de iframe do YouTube (24/11/2026) para saber quando o vídeo NÃO toca (incorporação desativada, erro de configuração, API que não carregou):
+// nesse caso avisa o app (postMessage), que troca o quadro por "Abrir no YouTube". O app só aceita o aviso vindo do próprio site.
 (function () {
   var q = new URLSearchParams(location.search);
   var id = q.get('v') || '';
   if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return;
-  var f = document.createElement('iframe');
-  f.src = 'https://www.youtube.com/embed/' + id + '?rel=0&playsinline=1&origin=' + encodeURIComponent(location.origin) + (q.get('auto') === '1' ? '&autoplay=1' : '');
-  f.allow = 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen';
-  f.allowFullscreen = true;
-  f.referrerPolicy = 'strict-origin-when-cross-origin';
-  document.body.appendChild(f);
+  var auto = q.get('auto') === '1';
+  document.getElementById('capa').style.backgroundImage = 'url(https://i.ytimg.com/vi/' + id + '/hqdefault.jpg)';
+  function tirarCapa() { var c = document.getElementById('capa'); if (c) { c.classList.add('fim'); setTimeout(function () { c.remove(); }, 400); } }
+  var avisou = false, pronto = false;
+  function avisar(tipo, codigo) {
+    if (tipo === 'erro') { if (avisou) return; avisou = true; }
+    try { parent.postMessage({ intusYt: tipo, id: id, codigo: codigo || 0 }, '*'); } catch (e) {}
+  }
+  window.onYouTubeIframeAPIReady = function () {
+    try {
+      new YT.Player('p', {
+        videoId: id, width: '100%', height: '100%',
+        playerVars: { rel: 0, playsinline: 1, autoplay: auto ? 1 : 0, origin: location.origin },
+        events: {
+          onReady: function (e) { pronto = true; tirarCapa(); avisar('pronto'); if (auto) { try { e.target.playVideo(); } catch (x) {} } },
+          onError: function (e) { avisar('erro', e && e.data); }
+        }
+      });
+    } catch (e) { avisar('erro', -1); }
+  };
+  var sc = document.createElement('script');
+  sc.src = 'https://www.youtube.com/iframe_api';
+  sc.onerror = function () { avisar('erro', -2); };
+  document.head.appendChild(sc);
+  // API lenta ou bloqueada: depois de 12 s sem o player ficar pronto, avisa em vez de deixar o quadro preto.
+  setTimeout(function () { if (!pronto) avisar('erro', -3); }, 12000);
 })();
 </script>
 </body>
