@@ -19,7 +19,8 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
   eq('faltando: diz quanto falta', [r.ok, /Faltam R\$ 100,00/.test(r.erro)], [false, true]);
   r = API.validarPartesPagamento(1000, [{ forma: 'dinheiro', valor: 500 }, { forma: 'pix', valor: 600 }]);
   eq('passando: diz quanto passa', [r.ok, /passam R\$ 100,00/.test(r.erro)], [false, true]);
-  eq('forma de gateway não divide', API.validarPartesPagamento(1000, [{ forma: 'eduzz', valor: 500 }, { forma: 'pix', valor: 500 }]).ok, false);
+  eq('Eduzz e Asaas também podem ser parte', [API.validarPartesPagamento(1000, [{ forma: 'eduzz', valor: 300 }, { forma: 'pix', valor: 700 }]).ok, API.validarPartesPagamento(1000, [{ forma: 'asaas_cartao', valor: 250.5 }, { forma: 'dinheiro', valor: 749.5 }]).ok], [true, true]);
+  eq('forma desconhecida não vale', API.validarPartesPagamento(1000, [{ forma: 'paypal', valor: 500 }, { forma: 'pix', valor: 500 }]).ok, false);
   eq('linha sem valor é recusada', API.validarPartesPagamento(1000, [{ forma: 'dinheiro', valor: '' }, { forma: 'pix', valor: 1000 }]).ok, false);
   eq('centavos não acumulam erro (3 x 333,33 + 0,01)', API.validarPartesPagamento(1000, [{ forma: 'pix', valor: 333.33 }, { forma: 'cartao', valor: 333.33 }, { forma: 'dinheiro', valor: 333.34 }]).ok, true);
   eq('rótulo da baixa dividida', API.rotuloPagamento({ forma_pgto: 'pix', partes: [{ forma: 'dinheiro', valor: 300 }, { forma: 'pix', valor: 700 }] }), 'Dinheiro R$ 300,00 + Pix R$ 700,00');
@@ -92,9 +93,21 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
 
   await abrir();
   await page.selectOption('#pg-forma', 'eduzz');
-  eq('Eduzz (gateway) não divide: o convite some', await page.evaluate(() => document.getElementById('pg-dv-wrap').style.display), 'none');
+  eq('com Eduzz escolhida o convite para dividir continua (gateway também pode ser parte)', await page.evaluate(() => document.getElementById('pg-dv-wrap').style.display), 'block');
+
+  console.log('\n══ Eduzz e Asaas como parte ══');
+  S.put.length = 0;
+  await page.click('#pg-dv-link');
+  eq('dividindo a partir da Eduzz, a 1ª linha já vem como Eduzz e a nota da Eduzz aparece', [(await linhas())[0][0], /Eduzz/.test(await page.evaluate(() => document.getElementById('pg-dv-status').textContent))], ['eduzz', true]);
+  await page.fill('#pg-dv-v0', '300');
+  await page.selectOption('#pg-dv-linhas > div:nth-child(2) select', 'asaas_pix');
+  eq('300 pela Eduzz + 700 pelo Asaas Pix: fecha, e as notas dos dois gateways aparecem', [await linhas(), /fecha certinho/.test(await status()), /Eduzz/.test(await status()) && /Asaas/.test(await status())], [[['eduzz', '300'], ['asaas_pix', '700.00']], true, true]);
+  await page.fill('#pg-data', '2026-10-21');
+  await page.click('.modal-footer .btn-success'); await page.waitForTimeout(900);
+  eq('a baixa leva as duas partes de gateway ao servidor', (S.put[0] || {}).partes, [{ forma: 'eduzz', valor: 300 }, { forma: 'asaas_pix', valor: 700 }]);
+  await abrir();
   await page.selectOption('#pg-forma', 'pix');
-  eq('voltando a uma forma comum o convite reaparece', await page.evaluate(() => document.getElementById('pg-dv-wrap').style.display), 'block');
+  eq('voltando a uma forma comum o convite segue lá', await page.evaluate(() => document.getElementById('pg-dv-wrap').style.display), 'block');
 
   console.log('\n══ Como a baixa aparece na lista ══');
   await page.evaluate(() => closeModal && closeModal());

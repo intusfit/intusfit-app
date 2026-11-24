@@ -20,10 +20,12 @@ $n = _pgtoPartesNormalizar([['forma' => 'cartao', 'valor' => 333.33], ['forma' =
 eq('três formas com centavos fecham', [$n['ok'], $n['principal']], [true, 'dinheiro']);
 $n = _pgtoPartesNormalizar([['forma' => 'cartao', 'valor' => 500], ['forma' => 'pix', 'valor' => 500]], 1000);
 eq('empate fica com a primeira digitada', $n['principal'], 'cartao');
-foreach ([[['forma' => 'eduzz', 'valor' => 100], ['forma' => 'pix', 'valor' => 900]], [['forma' => 'pix', 'valor' => 0], ['forma' => 'dinheiro', 'valor' => 1000]], [['forma' => 'pix', 'valor' => -5], ['forma' => 'dinheiro', 'valor' => 1005]], [['forma' => 'x', 'valor' => 1000]]] as $i => $ruins) {
+foreach ([[['forma' => 'paypal', 'valor' => 100], ['forma' => 'pix', 'valor' => 900]], [['forma' => 'pix', 'valor' => 0], ['forma' => 'dinheiro', 'valor' => 1000]], [['forma' => 'pix', 'valor' => -5], ['forma' => 'dinheiro', 'valor' => 1005]], [['forma' => 'x', 'valor' => 1000]]] as $i => $ruins) {
     $n = _pgtoPartesNormalizar($ruins, 1000);
-    eq('parte inválida #' . ($i + 1) . ' (gateway, zero, negativa ou forma desconhecida) é recusada', $n['ok'], false);
+    eq('parte inválida #' . ($i + 1) . ' (forma desconhecida, zero ou negativa) é recusada', $n['ok'], false);
 }
+$n = _pgtoPartesNormalizar([['forma' => 'eduzz', 'valor' => 300], ['forma' => 'asaas_boleto', 'valor' => 200], ['forma' => 'asaas_cartao', 'valor' => 100], ['forma' => 'pix', 'valor' => 400]], 1000);
+eq('Eduzz e Asaas (Pix, boleto, cartão) entram como parte e a soma fecha', [$n['ok'], $n['principal'], count($n['partes'])], [true, 'pix', 4]);
 eq('mais de 8 formas é recusado', _pgtoPartesNormalizar(array_fill(0, 9, ['forma' => 'pix', 'valor' => 1]), 9)['ok'], false);
 eq('lista vazia é aceita (volta a forma única)', _pgtoPartesNormalizar([], 1000), ['ok' => true, 'partes' => [], 'principal' => null]);
 
