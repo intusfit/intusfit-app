@@ -23,6 +23,7 @@
   <script src="ajuda.js?v=20261107a" defer></script>
   <script src="comparativo-fotos.js?v=20261125a" defer></script>
   <script src="lembretes-nutri.js?v=20261125a" defer></script>
+  <script src="altitude-cardio.js?v=20261125a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -1712,7 +1713,9 @@ function abrirCompartilharCardio(dados) {
     nomeAluno: (typeof user !== 'undefined' && user && user.nome) ? String(user.nome).split(' ').slice(0,2).join(' ') : 'Atleta Intus',
     nomeTreino: dados.nomeTreino || ((CARDIO_LIVE_EMOJI[dados.tipo] || '🏃') + ' ' + dados.tipo),
     fig: _figPick(_figurinhasList()),
-    mensagem: 'Cardio de hoje concluído! ' + (CARDIO_LIVE_EMOJI[dados.tipo] || '🏃'),
+    mensagem: 'Cardio de hoje concluído! ' + (CARDIO_LIVE_EMOJI[dados.tipo] || '🏃') + (function () {
+      try { const rs = (window.AltitudeCardio && dados.pontos) ? AltitudeCardio.resumo(dados.pontos) : null; return (rs && rs.ganho >= 5) ? ' ⛰️ +' + rs.ganho + ' m de subida' : ''; } catch (e) { return ''; }
+    })(),
   };
   abrirCompartilharTreino(info);
 }
@@ -14870,6 +14873,13 @@ function _cardioLiveOnPos(pos) {
     }
   }
   if (!aceito) { try { _atualizarRotaCardioLive(); } catch (e) {} return; }   // só o "você está aqui" do mapa acompanha
+  // Altitude: a do GPS entra já (se vier) e é trocada pela do relevo assim que os tiles respondem (bem mais estável que o GPS na vertical).
+  try {
+    if (window.AltitudeCardio) {
+      const ag = AltitudeCardio.altGps(c); if (ag != null) { novo.alt = Math.round(ag * 10) / 10; novo.altFonte = 'gps'; }
+      AltitudeCardio.amostrar(novo, function () { try { _clElevAtualizar(); _cardioLiveSalvarAtivo(); } catch (e) {} });
+    }
+  } catch (e) {}
   _cardioLivePontos.push(novo);
   _atualizarStatsCardioLive();
   _cardioLiveSalvarAtivo();
@@ -15089,8 +15099,23 @@ function _clGlRotaGeo(pontos) {
 }
 function _clGlCamadasRota(map, pontos) {
   map.addSource('rota', { type: 'geojson', data: _clGlRotaGeo(pontos) });
-  map.addLayer({ id: 'rota-sombra', type: 'line', source: 'rota', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#0a0a0a', 'line-width': 11, 'line-opacity': .5, 'line-blur': 2.5 } });
-  map.addLayer({ id: 'rota-linha', type: 'line', source: 'rota', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#7FFF00', 'line-width': 5.5 } });
+  map.addLayer({ id: 'rota-sombra', type: 'line', source: 'rota', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#0a0a0a', 'line-width': 13, 'line-opacity': .45, 'line-blur': 3 } });
+  map.addLayer({ id: 'rota-contorno', type: 'line', source: 'rota', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 9 } });
+  map.addLayer({ id: 'rota-linha', type: 'line', source: 'rota', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2f6bff', 'line-width': 5.5 } });
+}
+// Relevo: terreno em 3D (a câmera inclinada mostra morros e vales) e sombreado das encostas. Os tiles de altitude (Terrarium, AWS Open Data, sem chave)
+// também alimentam a altitude e o ganho de elevação em altitude-cardio.js. Se o relevo não carregar, o mapa segue normal, só sem terreno.
+const CARDIO_RELEVO_TILES = 'https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png';
+const CARDIO_RELEVO_EXAGERO = 1.45;
+function _clGlRelevo(map, comTerreno) {
+  try {
+    if (!map.getSource('relevo')) map.addSource('relevo', { type: 'raster-dem', tiles: [CARDIO_RELEVO_TILES], tileSize: 256, maxzoom: 14, encoding: 'terrarium', attribution: 'Relevo: Mapzen, USGS, NASA (AWS Open Data)' });
+    const camadas = (map.getStyle() || {}).layers || [];
+    const antes = (camadas.find(l => l.type === 'line' || l.type === 'fill-extrusion' || l.type === 'symbol') || {}).id;
+    if (!map.getLayer('relevo-sombra')) map.addLayer({ id: 'relevo-sombra', type: 'hillshade', source: 'relevo',
+      paint: { 'hillshade-exaggeration': 0.6, 'hillshade-shadow-color': '#14221a', 'hillshade-highlight-color': '#ffffff', 'hillshade-accent-color': '#3a5a42' } }, antes);
+    if (comTerreno !== false) map.setTerrain({ source: 'relevo', exaggeration: CARDIO_RELEVO_EXAGERO });
+  } catch (e) { console.warn('[cardio-relevo]', e); }
 }
 function _cardioLiveMapaDestruir() {
   if (_cardioLiveGl) { try { _cardioLiveGl.map.remove(); } catch (e) {} _cardioLiveGl = null; }
@@ -15103,7 +15128,7 @@ function _cardioLiveGlIniciar(mapEl) {
     const gl = { map: null, marker: null, pronto: false, seguindo: true, inclinado: true, focou: !!pos, chave: '', marcado: false };
     const map = new maplibregl.Map({
       container: mapEl, style: CARDIO_GL_STYLE, center: pos ? [pos.lng, pos.lat] : [-52, -14], zoom: pos ? 16.4 : 3,
-      pitch: 62, bearing: _cardioLiveRumo || 0, maxPitch: 78, attributionControl: false, fadeDuration: 150
+      pitch: 62, bearing: _cardioLiveRumo || 0, maxPitch: 80, attributionControl: false, fadeDuration: 150
     });
     map.addControl(new maplibregl.AttributionControl({ compact: true }));
     gl.map = map; _cardioLiveGl = gl;
@@ -15117,6 +15142,7 @@ function _cardioLiveGlIniciar(mapEl) {
       const a = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-a');
       if (a === '3d') {
         gl.inclinado = !gl.inclinado;
+        try { map.setTerrain(gl.inclinado ? { source: 'relevo', exaggeration: CARDIO_RELEVO_EXAGERO } : null); } catch (e) {}
         map.easeTo({ pitch: gl.inclinado ? 62 : 0, duration: 600 });
         ev.target.textContent = gl.inclinado ? '3D' : '2D';
       } else if (a === 'ctr') {
@@ -15130,7 +15156,7 @@ function _cardioLiveGlIniciar(mapEl) {
     map.on('dragstart', soltar); map.on('zoomstart', soltar); map.on('rotatestart', soltar); map.on('pitchstart', soltar);
     map.on('load', function () {
       try {
-        _clGlCamadasRota(map); gl.pronto = true; gl.chave = ''; _cardioLiveGlAtualizar();
+        _clGlRelevo(map, gl.inclinado); _clGlCamadasRota(map); gl.pronto = true; gl.chave = ''; _cardioLiveGlAtualizar();
         // A atribuição (exigida pela fonte dos dados) começa recolhida para não cobrir o mapa pequeno.
         const at = mapEl.querySelector('.maplibregl-ctrl-attrib'); if (at) { at.classList.remove('maplibregl-compact-show'); at.removeAttribute('open'); }
       } catch (e) { console.warn('[cardio-mapa-3d]', e); }
@@ -15271,7 +15297,23 @@ function _cardioExtraTxt() {
   const e = _cardioExtraInfo();
   return '⭐ Faltam <span style="font-weight:800;">' + e.falta + ' min</span> de cardio ao vivo para o próximo ponto extra' + (e.pts > 0 ? ' (você já tem +' + e.pts + ' na semana)' : '') + '. Na semana: ' + e.min + ' min ao vivo.';
 }
+// Altitude e relevo da rota (altitude-cardio.js): altitude atual, ganho e descida, e o perfil de elevação. Só aparece quando há altitude.
+function _clElevHtml(pontos, escuro) {
+  const r = (window.AltitudeCardio && AltitudeCardio.resumo(pontos)) || null;
+  if (!r) return '';
+  const tx = escuro ? 'rgba(10,10,10,.85)' : 'inherit', mut = escuro ? 'rgba(10,10,10,.6)' : '#888';
+  const cel = (n, l) => '<div style="flex:1;text-align:center;"><div style="font-size:17px;font-weight:900;color:' + tx + ';">' + n + '</div><div style="font-size:10px;font-weight:700;color:' + mut + ';text-transform:uppercase;letter-spacing:.04em;">' + l + '</div></div>';
+  return '<div style="display:flex;gap:6px;margin-bottom:4px;">' + cel(r.atual + ' m', 'Altitude') + cel('▲ ' + r.ganho + ' m', 'Subida') + cel('▼ ' + r.perda + ' m', 'Descida') + '</div>' +
+    (r.perfil.length > 3 && r.max - r.min >= 3 ? '<div style="height:46px;border-radius:8px;overflow:hidden;">' + AltitudeCardio.svgPerfil(r, 280, 46, escuro ? '#0a0a0a' : '#0ea5e9', escuro ? 'rgba(10,10,10,.14)' : 'rgba(14,165,233,.18)') + '</div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:10px;color:' + mut + ';margin-top:1px;"><span>' + r.min + ' m</span><span>' + r.max + ' m</span></div>' : '');
+}
+function _clElevAtualizar() {
+  const el = document.getElementById('cl-elev'); if (!el) return;
+  const h = _clElevHtml(_cardioLivePontos, true);
+  if (el.__h !== h) { el.innerHTML = h; el.__h = h; }
+}
 function _atualizarStatsCardioLive() {
+  try { _clElevAtualizar(); } catch (e) {}
   const _ex = document.getElementById('cl-extra'); if (_ex) _ex.innerHTML = _cardioExtraTxt();
   const _mt = document.getElementById('cm-live-tempo'); if (_mt) _mt.textContent = _fmtCronometro(_cardioLiveTempoMs());
   const _me = document.getElementById('cm-extra'); if (_me) _me.innerHTML = _cardioExtraTxt();
@@ -15487,6 +15529,7 @@ function _renderTelaEsforcoCardioLive(dados) {
         <div id="cle-status" style="font-size:11.5px;color:${isLight?'#888':'#777'};margin-top:2px;">${dados.salvando ? 'Salvando o seu cardio...' : (dados.pendente ? 'Guardado neste aparelho, o envio é automático quando a conexão voltar' : 'Já está salvo. Falta só confirmar o esforço')}</div>
       </div>
       ${temRota ? `<div id="cle-mapa" style="width:100%;height:210px;border-radius:12px;overflow:hidden;isolation:isolate;margin-bottom:12px;background:${isLight?'#eee':'#0d0d0d'};"></div>` : ''}
+      ${(usaGps && dados.pontos && dados.pontos.length) ? (() => { const eh = _clElevHtml(dados.pontos, false); return eh ? `<div style="margin-bottom:12px;padding:10px 12px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;color:${isLight?'#1a1a1a':'#f0f0f0'};">${eh}</div>` : ''; })() : ''}
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isLight?'#f6f6f6':'#0d0d0d'};border-radius:12px;margin-bottom:18px;">
         <div style="font-size:26px;">${emoji}</div>
         <div style="flex:1;">
@@ -15543,7 +15586,7 @@ function _iniciarMapaRotaFinalCardio(pontos, semGl) {
       mapa.on('load', function () {
         try {
           pronto = true;
-          _clGlCamadasRota(mapa, pontos);
+          _clGlRelevo(mapa, true); _clGlCamadasRota(mapa, pontos);
           const ini = document.createElement('div'); ini.className = 'cl-gl-eu'; ini.innerHTML = '<i style="background:#bbb;animation:none;"></i>';
           const fim = document.createElement('div'); fim.className = 'cl-gl-eu'; fim.innerHTML = '<i style="animation:none;"></i>';
           new maplibregl.Marker({ element: ini, pitchAlignment: 'map' }).setLngLat([pontos[0].lng, pontos[0].lat]).addTo(mapa);
@@ -15821,7 +15864,7 @@ function _renderCardioLive() {
           // que mais importa enquanto o aluno treina.
           '<div class="cl-stat-top"><div class="n" id="cl-tempo" style="font-size:32px;color:#0a0a0a;">00:00</div><div class="l">Duração</div></div>' +
         '</div>' : '') +
-        heroHtml + rotaHtml + statsHtml +
+        heroHtml + rotaHtml + (usaGps ? '<div id="cl-elev" style="margin:8px 4px 4px;"></div>' : '') + statsHtml +
         '<button class="cl-btn-circulo" onclick="' + (_cardioLiveRodando ? '_cardioLivePausar()' : '_cardioLiveRetomar()') + '">' + (_cardioLiveRodando ? '⏸' : '▶') + '</button>' +
         '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">' +
           // Fundo do .cl-imersivo é verde sólido — um botão "primário" verde
