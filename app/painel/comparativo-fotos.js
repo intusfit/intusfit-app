@@ -3,7 +3,9 @@
  * O aluno escolhe duas fotos (das avaliações dele ou da câmera/galeria), monta a imagem e:
  *   - Linha divisória: as duas fotos na mesma moldura, com uma linha que ele arrasta;
  *   - Lado a lado: as duas fotos separadas, com datas e peso embaixo.
- * Cada foto pode ser movida e ampliada para os corpos ficarem alinhados. A imagem final (1080x1350) leva a logo da Intus.
+ * Formatos (molde): Retrato 4:5, Quadrado 1:1 e Stories 9:16.
+ * Gestos na prévia (sem escolher ferramenta): um dedo arrasta a FOTO que está sob o dedo; a pinça (dois dedos) dá zoom nela, em torno dos dedos;
+ * a linha divisória só se move quando o toque começa na bolinha dela. A imagem final (1080 de largura) leva a logo da Intus.
  * Salvar cria uma AVALIAÇÃO do aluno (método "Comparativo do aluno"): o servidor avisa os professores responsáveis no sino e
  * por e-mail (catalogo.php, avaliacoes POST). Compartilhar: Feed da Intus ou perfil (sempre com confirmação e escolha de
  * quem pode ver), WhatsApp, Instagram, copiar e baixar.
@@ -14,15 +16,22 @@
 (function () {
   'use strict';
 
-  var W0 = 1080, H0 = 1350;
-  var AX = 48, AY = 170, AW = 984, AH = 1000;     // moldura da linha divisória
-  var PH = 850, GAP = 24;                          // lado a lado: altura de cada foto e espaço entre elas
+  var W0 = 1080, H0 = 1350;                        // H0 muda com o formato escolhido
+  var AX = 48, AY = 170, AW = 984;                 // moldura: margem, topo e largura
+  var GAP = 24;                                    // lado a lado: espaço entre as fotos
+  var ZMAX = 4;                                    // zoom máximo de cada foto
+  var TOQUE_LINHA = 78;                            // distância (em px da imagem final) do centro da linha em que o toque agarra a linha
+  var FORMATOS = {
+    retrato: { h: 1350, rot: 'Retrato 4:5' },
+    quadrado: { h: 1080, rot: 'Quadrado 1:1' },
+    stories: { h: 1920, rot: 'Stories 9:16' }
+  };
   var FONTE = 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   var C = null;                                    // estado da montagem
   var _logo = null;
 
   function novo() {
-    return { a: vazio(), b: vazio(), modo: 'divisor', pos: 0.5, ferr: 'linha', mostrar: true, salvo: false, legenda: '', visib: 'todos', slotArq: 'a', opcoes: [] };
+    return { a: vazio(), b: vazio(), modo: 'divisor', fmt: 'retrato', pos: 0.5, mostrar: true, salvo: false, legenda: '', visib: 'todos', slotArq: 'a', opcoes: [] };
   }
   function vazio() { return { img: null, dt: '', peso: '', zoom: 1, ox: 0, oy: 0 }; }
   function luz() { return document.body.classList.contains('tema-claro'); }
@@ -56,16 +65,26 @@
   function fmtKg(n) { return n.toFixed(1).replace('.', ',') + ' kg'; }
   function hojeIso() { return (typeof dataHojeLocal === 'function') ? dataHojeLocal() : new Date().toISOString().slice(0, 10); }
 
-  // ═══════════════ DESENHO (mesma função para a prévia e para a imagem final) ═══════════════
+  // ═══════════════ GEOMETRIA E DESENHO (mesma função para a prévia e para a imagem final) ═══════════════
   function rr(ctx, x, y, w, h, r) {
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
-  function foto(ctx, f, x, y, w, h) {
-    var d = dim(f.img), s = Math.max(w / d.w, h / d.h) * f.zoom, dw = d.w * s, dh = d.h * s;
-    var cx = clamp(x + w / 2 + f.ox * w, x + w - dw / 2, x + dw / 2);
-    var cy = clamp(y + h / 2 + f.oy * h, y + h - dh / 2, y + dh / 2);
-    f.ox = (cx - (x + w / 2)) / w; f.oy = (cy - (y + h / 2)) / h;     // guarda já dentro do limite
+  // Quadro onde cada foto é enquadrada: a moldura inteira (linha divisória) ou o próprio painel (lado a lado).
+  function geometria() {
+    H0 = FORMATOS[C.fmt] ? FORMATOS[C.fmt].h : 1350;
+    var fb = C.mostrar ? 200 : 90, ah = H0 - AY - fb;                      // altura da moldura da linha divisória
+    if (C.modo === 'divisor') return { y: AY, h: ah, fw: AW, ah: ah, y0: AY + ah + 56, a: { x: AX, y: AY, w: AW, h: ah }, b: { x: AX, y: AY, w: AW, h: ah } };
+    var fw = (AW - GAP) / 2, alvo = Math.round(fw * (C.fmt === 'stories' ? 2 : 1.5));
+    var ph = Math.min(ah - (C.mostrar ? 110 : 0), alvo);
+    var bloco = ph + (C.mostrar ? 130 : 0), py = AY + Math.max(0, (H0 - AY - 70 - bloco) / 2);   // o conjunto fica centralizado na área livre
+    return { y: py, h: ph, fw: fw, ah: ah, y0: py + ph + 56, a: { x: AX, y: py, w: fw, h: ph }, b: { x: AX + fw + GAP, y: py, w: fw, h: ph } };
+  }
+  function foto(ctx, f, q) {
+    var d = dim(f.img), s = Math.max(q.w / d.w, q.h / d.h) * f.zoom, dw = d.w * s, dh = d.h * s;
+    var cx = clamp(q.x + q.w / 2 + f.ox * q.w, q.x + q.w - dw / 2, q.x + dw / 2);
+    var cy = clamp(q.y + q.h / 2 + f.oy * q.h, q.y + q.h - dh / 2, q.y + dh / 2);
+    f.ox = (cx - (q.x + q.w / 2)) / q.w; f.oy = (cy - (q.y + q.h / 2)) / q.h;     // guarda já dentro do limite
     ctx.drawImage(f.img, cx - dw / 2, cy - dh / 2, dw, dh);
   }
   function selo(ctx, txt, x, y, alinhaDir) {
@@ -78,14 +97,9 @@
     ctx.fillText(txt, bx + 18, y + h / 2 + 1);
     ctx.restore();
   }
-  function geometria() {
-    if (C.modo === 'divisor') return { y: AY, h: AH, fw: AW };
-    var ph = PH, py = C.mostrar ? AY : AY + (AH - PH) / 2;
-    return { y: py, h: ph, fw: (AW - GAP) / 2 };
-  }
 
   function compor(cv, k) {
-    var ctx = cv.getContext('2d');
+    var g = geometria(), ctx = cv.getContext('2d');
     cv.width = Math.round(W0 * k); cv.height = Math.round(H0 * k);
     ctx.setTransform(k, 0, 0, k, 0, 0);
     ctx.fillStyle = '#0f0f0f'; ctx.fillRect(0, 0, W0, H0);
@@ -96,17 +110,16 @@
     ctx.fillText('MINHA EVOLUÇÃO', AX + AW, 98);
     try { ctx.letterSpacing = '0px'; } catch (e) {}
 
-    var g = geometria();
-    var vazioTxt = function (x, y, w, h) {
-      ctx.fillStyle = '#1b1b1b'; ctx.fillRect(x, y, w, h);
+    var vazioTxt = function (q) {
+      ctx.fillStyle = '#1b1b1b'; ctx.fillRect(q.x, q.y, q.w, q.h);
       ctx.fillStyle = '#7a7a7a'; ctx.font = '600 30px ' + FONTE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('Escolha a foto', x + w / 2, y + h / 2);
+      ctx.fillText('Escolha a foto', q.x + q.w / 2, q.y + q.h / 2);
     };
     if (C.modo === 'divisor') {
-      var lx = AX + AW * C.pos;
+      var lx = AX + AW * C.pos, AH = g.ah;
       ctx.save(); rr(ctx, AX, AY, AW, AH, 28); ctx.clip();
-      if (C.a.img) { ctx.save(); ctx.beginPath(); ctx.rect(AX, AY, AW * C.pos, AH); ctx.clip(); foto(ctx, C.a, AX, AY, AW, AH); ctx.restore(); } else { ctx.save(); ctx.beginPath(); ctx.rect(AX, AY, AW * C.pos, AH); ctx.clip(); vazioTxt(AX, AY, AW, AH); ctx.restore(); }
-      if (C.b.img) { ctx.save(); ctx.beginPath(); ctx.rect(lx, AY, AW * (1 - C.pos), AH); ctx.clip(); foto(ctx, C.b, AX, AY, AW, AH); ctx.restore(); } else { ctx.save(); ctx.beginPath(); ctx.rect(lx, AY, AW * (1 - C.pos), AH); ctx.clip(); ctx.fillStyle = '#242424'; ctx.fillRect(AX, AY, AW, AH); ctx.restore(); }
+      ctx.save(); ctx.beginPath(); ctx.rect(AX, AY, AW * C.pos, AH); ctx.clip(); if (C.a.img) foto(ctx, C.a, g.a); else vazioTxt(g.a); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.rect(lx, AY, AW * (1 - C.pos), AH); ctx.clip(); if (C.b.img) foto(ctx, C.b, g.b); else { ctx.fillStyle = '#242424'; ctx.fillRect(AX, AY, AW, AH); } ctx.restore();
       ctx.restore();
       // linha e marcador
       ctx.fillStyle = '#ffffff'; ctx.fillRect(lx - 2.5, AY, 5, AH);
@@ -119,18 +132,19 @@
       selo(ctx, 'ANTES', AX + 22, AY + 22, false);
       selo(ctx, 'DEPOIS', AX + AW - 22, AY + 22, true);
     } else {
-      [[C.a, AX, 'ANTES'], [C.b, AX + g.fw + GAP, 'DEPOIS']].forEach(function (p) {
-        ctx.save(); rr(ctx, p[1], g.y, g.fw, g.h, 28); ctx.clip();
-        if (p[0].img) foto(ctx, p[0], p[1], g.y, g.fw, g.h); else vazioTxt(p[1], g.y, g.fw, g.h);
+      [[C.a, g.a, 'ANTES'], [C.b, g.b, 'DEPOIS']].forEach(function (p) {
+        var q = p[1];
+        ctx.save(); rr(ctx, q.x, q.y, q.w, q.h, 28); ctx.clip();
+        if (p[0].img) foto(ctx, p[0], q); else vazioTxt(q);
         ctx.restore();
-        selo(ctx, p[2], p[1] + 18, g.y + 18, false);
+        selo(ctx, p[2], q.x + 18, q.y + 18, false);
       });
     }
 
     // rodapé: datas, peso e diferença
     var pa = pesoNum(C.a.peso), pb = pesoNum(C.b.peso), ma = dtMs(C.a.dt), mb = dtMs(C.b.dt);
     if (C.mostrar) {
-      var y0 = C.modo === 'divisor' ? 1226 : g.y + g.h + 56;
+      var y0 = g.y0;
       var bloco = function (f, x, dir) {
         ctx.textAlign = dir ? 'right' : 'left'; ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = '#ffffff'; ctx.font = '800 ' + (C.modo === 'divisor' ? 36 : 40) + 'px ' + FONTE;
@@ -170,9 +184,8 @@
     var cont = $('v-avaliacoes');
     if (!cont) return;
     C = novo();
-    // logo (para a imagem) e, em paralelo, as fotos das avaliações já ficam à mão
+    // logo (para a imagem)
     if (!_logo) carregarImg('logo-intus-dark.png', false).then(function (l) { _logo = l; redesenhar(); });
-    // sugestão: foto mais antiga como Antes e a mais recente como Depois, quando houver ao menos duas
     montar();
   }
 
@@ -206,24 +219,25 @@
     return { l: l, txt: l ? '#111' : '#f0f0f0', mut: l ? '#666' : '#999', card: l ? '#fff' : '#141414', borda: l ? '#e5e5e5' : '#262626', campo: l ? '#f5f5f5' : '#0d0d0d' };
   }
 
+  // Cartão de cada foto. Tudo com min-width:0 e campos empilhados: em tela estreita o campo de data do iPhone tem largura própria e estourava o cartão.
   function slotHtml(qual, rot, s) {
     var f = C[qual];
     var miniatura = f.img
-      ? '<canvas id="cf-mini-' + qual + '" width="120" height="150" style="width:60px;height:75px;border-radius:10px;display:block;background:#000;"></canvas>'
-      : '<div style="width:60px;height:75px;border-radius:10px;border:2px dashed ' + s.borda + ';display:flex;align-items:center;justify-content:center;font-size:24px;color:' + s.mut + ';">+</div>';
-    return '<div style="background:' + s.card + ';border:1px solid ' + s.borda + ';border-radius:14px;padding:12px;">' +
-      '<div style="display:flex;gap:12px;align-items:center;">' +
+      ? '<canvas id="cf-mini-' + qual + '" width="104" height="130" style="width:52px;height:65px;border-radius:9px;display:block;background:#000;"></canvas>'
+      : '<div style="width:52px;height:65px;border-radius:9px;border:2px dashed ' + s.borda + ';display:flex;align-items:center;justify-content:center;font-size:22px;color:' + s.mut + ';">+</div>';
+    var campo = 'display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;margin-top:3px;padding:8px 8px;border-radius:9px;border:1px solid ' + s.borda + ';background:' + s.campo + ';color:' + s.txt + ';font-size:13px;font-family:inherit;';
+    var rotulo = 'display:block;min-width:0;font-size:10px;font-weight:700;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.4px;margin-top:8px;';
+    return '<div style="min-width:0;background:' + s.card + ';border:1px solid ' + s.borda + ';border-radius:14px;padding:10px;overflow:hidden;">' +
+      '<div style="display:flex;gap:9px;align-items:center;min-width:0;">' +
         '<div onclick="ComparativoFotos.escolher(\'' + qual + '\')" style="cursor:pointer;flex-shrink:0;">' + miniatura + '</div>' +
         '<div style="flex:1;min-width:0;">' +
           '<div style="font-size:12px;font-weight:800;letter-spacing:1px;color:' + s.txt + ';">' + rot + '</div>' +
-          '<button onclick="ComparativoFotos.escolher(\'' + qual + '\')" style="margin-top:6px;padding:8px 12px;border-radius:10px;border:1px solid ' + s.borda + ';background:' + s.campo + ';color:' + s.txt + ';font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;">' + (f.img ? 'Trocar foto' : 'Escolher foto') + '</button>' +
+          '<button onclick="ComparativoFotos.escolher(\'' + qual + '\')" style="margin-top:5px;padding:7px 9px;border-radius:9px;border:1px solid ' + s.borda + ';background:' + s.campo + ';color:' + s.txt + ';font-size:11.5px;font-weight:700;font-family:inherit;cursor:pointer;max-width:100%;">' + (f.img ? 'Trocar' : 'Escolher') + '</button>' +
         '</div>' +
       '</div>' +
       (f.img
-        ? '<div style="display:grid;grid-template-columns:1.2fr 1fr;gap:8px;margin-top:10px;">' +
-            '<label style="font-size:10px;font-weight:700;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.4px;">Data<input type="date" value="' + esc(f.dt) + '" max="' + hojeIso() + '" oninput="ComparativoFotos.campo(\'' + qual + '\',\'dt\',this.value)" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px 8px;border-radius:10px;border:1px solid ' + s.borda + ';background:' + s.campo + ';color:' + s.txt + ';font-size:13px;font-family:inherit;"/></label>' +
-            '<label style="font-size:10px;font-weight:700;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.4px;">Peso (kg)<input type="text" inputmode="decimal" value="' + esc(f.peso) + '" placeholder="opcional" oninput="ComparativoFotos.campo(\'' + qual + '\',\'peso\',this.value)" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px 8px;border-radius:10px;border:1px solid ' + s.borda + ';background:' + s.campo + ';color:' + s.txt + ';font-size:13px;font-family:inherit;"/></label>' +
-          '</div>'
+        ? '<label style="' + rotulo + '">Data<input type="date" value="' + esc(f.dt) + '" max="' + hojeIso() + '" oninput="ComparativoFotos.campo(\'' + qual + '\',\'dt\',this.value)" style="' + campo + '"/></label>' +
+          '<label style="' + rotulo + '">Peso (kg)<input type="text" inputmode="decimal" value="' + esc(f.peso) + '" placeholder="opcional" oninput="ComparativoFotos.campo(\'' + qual + '\',\'peso\',this.value)" style="' + campo + '"/></label>'
         : '') +
     '</div>';
   }
@@ -231,20 +245,23 @@
   function montar() {
     var cont = $('v-avaliacoes'), s = estilo();
     var seg = function (ativo, onclick, rot) {
-      return '<button onclick="' + onclick + '" style="flex:1;padding:10px 6px;border-radius:10px;border:1px solid ' + (ativo ? 'transparent' : s.borda) + ';background:' + (ativo ? (s.l ? '#111' : '#f0f0f0') : s.campo) + ';color:' + (ativo ? (s.l ? '#fff' : '#111') : s.txt) + ';font-size:12px;font-weight:800;font-family:inherit;cursor:pointer;">' + rot + '</button>';
+      return '<button onclick="' + onclick + '" style="flex:1;min-width:0;padding:10px 4px;border-radius:10px;border:1px solid ' + (ativo ? 'transparent' : s.borda) + ';background:' + (ativo ? (s.l ? '#111' : '#f0f0f0') : s.campo) + ';color:' + (ativo ? (s.l ? '#fff' : '#111') : s.txt) + ';font-size:12px;font-weight:800;font-family:inherit;cursor:pointer;">' + rot + '</button>';
     };
+    var tit = function (t, mt) { return '<div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin:' + (mt || '4px 0 6px') + ';">' + t + '</div>'; };
+    var zoomLinha = function (q, rot) { return '<label style="flex:1;min-width:0;font-size:10px;font-weight:700;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.4px;">Zoom ' + rot + '<input id="cf-zoom-' + q + '" type="range" min="100" max="' + (ZMAX * 100) + '" value="' + Math.round(C[q].zoom * 100) + '" oninput="ComparativoFotos.zoom(\'' + q + '\', this.value)" style="display:block;width:100%;margin-top:4px;accent-color:#7FFF00;"/></label>'; };
     var salvos = comparativosSalvos();
+    var h0 = FORMATOS[C.fmt].h;
     var html = '<button class="btn-back" onclick="ComparativoFotos.voltar();">← Voltar</button>' +
       '<h2 class="sect-title">Comparar fotos</h2>' +
-      '<p style="font-size:12px;color:' + s.mut + ';margin:0 0 14px;line-height:1.5;">Escolha uma foto de antes e uma de depois, ajuste até os dois corpos ficarem alinhados e salve. Seus professores recebem o aviso de uma nova avaliação.</p>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">' + slotHtml('a', 'ANTES', s) + slotHtml('b', 'DEPOIS', s) + '</div>' +
-      '<div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin:4px 0 6px;">Estilo</div>' +
-      '<div style="display:flex;gap:8px;margin-bottom:12px;">' + seg(C.modo === 'divisor', 'ComparativoFotos.modo(\'divisor\')', '↔ Linha divisória') + seg(C.modo === 'lado', 'ComparativoFotos.modo(\'lado\')', '▥ Lado a lado') + '</div>' +
-      '<div style="display:flex;justify-content:center;"><canvas id="cf-prev" style="width:100%;max-width:340px;aspect-ratio:4/5;border-radius:14px;background:#0f0f0f;box-shadow:0 8px 28px rgba(0,0,0,.3);touch-action:pan-y;user-select:none;-webkit-user-select:none;"></canvas></div>' +
-      '<div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px;">O que arrastar</div>' +
-      '<div id="cf-ferr" style="display:flex;gap:8px;"></div>' +
-      '<div id="cf-ajuda" style="font-size:12px;color:' + s.mut + ';margin:8px 0 0;line-height:1.5;"></div>' +
-      '<div id="cf-zoom-bloco" style="margin-top:10px;"><div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Zoom da foto</div><input id="cf-zoom" type="range" min="100" max="300" value="100" oninput="ComparativoFotos.zoom(this.value)" style="width:100%;accent-color:#7FFF00;"/></div>' +
+      '<p style="font-size:12px;color:' + s.mut + ';margin:0 0 12px;line-height:1.5;">Escolha uma foto de antes e uma de depois, ajuste até os dois corpos ficarem alinhados e salve. Seus professores recebem o aviso de uma nova avaliação.</p>' +
+      '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-bottom:12px;">' + slotHtml('a', 'ANTES', s) + slotHtml('b', 'DEPOIS', s) + '</div>' +
+      tit('Estilo') +
+      '<div style="display:flex;gap:8px;margin-bottom:10px;">' + seg(C.modo === 'divisor', 'ComparativoFotos.modo(\'divisor\')', '↔ Linha divisória') + seg(C.modo === 'lado', 'ComparativoFotos.modo(\'lado\')', '▥ Lado a lado') + '</div>' +
+      tit('Formato da imagem', '2px 0 6px') +
+      '<div style="display:flex;gap:8px;margin-bottom:12px;">' + Object.keys(FORMATOS).map(function (k) { return seg(C.fmt === k, 'ComparativoFotos.formato(\'' + k + '\')', FORMATOS[k].rot); }).join('') + '</div>' +
+      '<div style="display:flex;justify-content:center;"><canvas id="cf-prev" style="width:100%;max-width:' + (C.fmt === 'stories' ? 270 : 330) + 'px;aspect-ratio:1080/' + h0 + ';border-radius:14px;background:#0f0f0f;box-shadow:0 8px 28px rgba(0,0,0,.3);touch-action:none;user-select:none;-webkit-user-select:none;"></canvas></div>' +
+      '<div style="font-size:12px;color:' + s.mut + ';margin:10px 2px 0;line-height:1.55;text-align:center;">Arraste a foto para enquadrar e use a <b>pinça com dois dedos</b> para aproximar.' + (C.modo === 'divisor' ? ' Para mover a linha, arraste pela bolinha branca.' : '') + ' Para rolar a tela, toque fora da imagem.</div>' +
+      '<div style="display:flex;gap:12px;margin-top:10px;">' + zoomLinha('a', 'antes') + zoomLinha('b', 'depois') + '</div>' +
       '<label style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:13px;color:' + s.txt + ';cursor:pointer;"><input type="checkbox" ' + (C.mostrar ? 'checked' : '') + ' onchange="ComparativoFotos.mostrar(this.checked)" style="width:18px;height:18px;accent-color:#7FFF00;"/> Mostrar datas e peso na imagem</label>' +
       '<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px;">' +
         '<button id="cf-btn-salvar" class="btn btn-prim btn-full" style="padding:14px;font-size:14px;font-weight:700;" onclick="_travarEExecutar(event, ComparativoFotos.salvar)">💾 Salvar na minha avaliação</button>' +
@@ -252,8 +269,8 @@
       '</div>' +
       '<input type="file" id="cf-file" accept="image/*" style="display:none;" onchange="ComparativoFotos.arquivo(this)"/>' +
       (salvos.length
-        ? '<div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin:22px 0 8px;">Meus comparativos salvos</div>' +
-          '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' + salvos.map(function (v, i) {
+        ? tit('Meus comparativos salvos', '22px 0 8px') +
+          '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">' + salvos.map(function (v, i) {
             return '<div onclick="ComparativoFotos.abrirSalvo(' + i + ')" style="cursor:pointer;"><img src="' + esc(_urlAbs(v.url)) + '" alt="Comparativo" style="width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:10px;background:#111;display:block;"/><div style="font-size:10px;color:' + s.mut + ';text-align:center;margin-top:3px;">' + esc(dtBR(v.dt)) + '</div></div>';
           }).join('') + '</div>'
         : '') +
@@ -263,7 +280,6 @@
     C._salvos = salvos;
     ligarCanvas();
     pintarMinis();
-    atualizarFerr();
     atualizarBotoes();
     redesenhar();
   }
@@ -276,20 +292,6 @@
       ctx.drawImage(f.img, (cv.width - d.w * s) / 2, (cv.height - d.h * s) / 2, d.w * s, d.h * s);
     });
   }
-  function atualizarFerr() {
-    var box = $('cf-ferr'); if (!box) return;
-    var s = estilo();
-    var seg = function (id, rot) {
-      var ativo = C.ferr === id;
-      return '<button onclick="ComparativoFotos.ferr(\'' + id + '\')" style="flex:1;padding:10px 6px;border-radius:10px;border:1px solid ' + (ativo ? 'transparent' : s.borda) + ';background:' + (ativo ? '#7FFF00' : s.campo) + ';color:' + (ativo ? '#0f1a00' : s.txt) + ';font-size:12px;font-weight:800;font-family:inherit;cursor:pointer;">' + rot + '</button>';
-    };
-    box.innerHTML = (C.modo === 'divisor' ? seg('linha', '↔ A linha') : '') + seg('a', '✋ Foto antes') + seg('b', '✋ Foto depois');
-    var aj = $('cf-ajuda');
-    if (aj) aj.textContent = C.ferr === 'linha' ? 'Arraste na imagem para mover a linha divisória.' : 'Arraste na imagem para mover a foto. Use o zoom ou a pinça com dois dedos para aproximar.';
-    var zb = $('cf-zoom-bloco');
-    if (zb) { zb.style.display = C.ferr === 'linha' ? 'none' : 'block'; var z = $('cf-zoom'); if (z && C.ferr !== 'linha') z.value = Math.round(C[C.ferr].zoom * 100); }
-    var cv = $('cf-prev'); if (cv) cv.style.touchAction = C.ferr === 'linha' ? 'pan-y' : 'none';
-  }
   function atualizarBotoes() {
     var pronto = !!(C && C.a.img && C.b.img);
     var sv = $('cf-btn-salvar'), cp = $('cf-btn-comp');
@@ -298,42 +300,68 @@
   }
 
   // ── gestos na prévia ──
+  // Quem recebe o gesto é decidido pelo ponto tocado: a bolinha da linha (só no estilo linha divisória), senão a foto daquele lado.
+  function alvoDoToque(p, g) {
+    if (C.modo === 'divisor') {
+      var lx = AX + AW * C.pos, cy = g.y + g.ah / 2;
+      if (Math.abs(p.x - lx) <= TOQUE_LINHA && Math.abs(p.y - cy) <= TOQUE_LINHA * 1.7) return 'linha';
+      return p.x < lx ? 'a' : 'b';
+    }
+    return p.x < g.b.x - GAP / 2 ? 'a' : 'b';
+  }
+  function setZoom(q, z, ancora) {
+    var f = C[q]; if (!f.img) return;
+    var g = geometria(), fr = g[q], antes = f.zoom, novoZ = clamp(z, 1, ZMAX);
+    if (ancora && antes > 0) {            // o ponto sob os dedos fica parado enquanto a foto cresce
+      var r = novoZ / antes, cx = fr.x + fr.w / 2 + f.ox * fr.w, cy = fr.y + fr.h / 2 + f.oy * fr.h;
+      f.ox = (ancora.x - (ancora.x - cx) * r - (fr.x + fr.w / 2)) / fr.w;
+      f.oy = (ancora.y - (ancora.y - cy) * r - (fr.y + fr.h / 2)) / fr.h;
+    }
+    f.zoom = novoZ;
+    var el = $('cf-zoom-' + q); if (el) el.value = Math.round(novoZ * 100);
+  }
   function ligarCanvas() {
     var cv = $('cf-prev'); if (!cv) return;
-    var ptr = {}, ult = 0;
+    var ptr = {}, alvo = null, ult = 0;
     function base(ev) { var r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left) / r.width * W0, y: (ev.clientY - r.top) / r.height * H0 }; }
-    function n() { return Object.keys(ptr).length; }
-    function dist() { var k = Object.keys(ptr); if (k.length < 2) return 0; var a = ptr[k[0]], b = ptr[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
+    function ids() { return Object.keys(ptr); }
+    function dist() { var k = ids(); if (k.length < 2) return 0; var a = ptr[k[0]], b = ptr[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
+    function meio() { var k = ids(), a = ptr[k[0]], b = ptr[k[1]]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+    function moverLinha(p) { C.pos = clamp((p.x - AX) / AW, 0.04, 0.96); marcarAlterado(); redesenhar(); }
     cv.addEventListener('pointerdown', function (ev) {
+      ev.preventDefault();
       ptr[ev.pointerId] = base(ev);
       try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+      var g = geometria();
+      if (ids().length === 1) alvo = alvoDoToque(ptr[ev.pointerId], g);
+      else { var a = alvoDoToque(meio(), g); alvo = a === 'linha' ? (meio().x < AX + AW * C.pos ? 'a' : 'b') : a; }   // dois dedos: zoom na foto do meio dos dedos
       ult = dist();
-      if (C.ferr === 'linha' && n() === 1) { C.pos = clamp((ptr[ev.pointerId].x - AX) / AW, 0.04, 0.96); marcarAlterado(); redesenhar(); }
+      if (alvo === 'linha' && ids().length === 1) moverLinha(ptr[ev.pointerId]);
     });
     cv.addEventListener('pointermove', function (ev) {
-      if (!ptr[ev.pointerId]) return;
+      if (!ptr[ev.pointerId] || !alvo) return;
       var p = base(ev), antes = ptr[ev.pointerId];
       ptr[ev.pointerId] = p;
-      if (C.ferr === 'linha') { if (n() === 1) { C.pos = clamp((p.x - AX) / AW, 0.04, 0.96); marcarAlterado(); redesenhar(); } return; }
-      var f = C[C.ferr]; if (!f || !f.img) return;
-      var g = geometria();
-      if (n() >= 2) {
+      if (alvo === 'linha') { if (ids().length === 1) moverLinha(p); return; }
+      var f = C[alvo]; if (!f || !f.img) return;
+      var g = geometria(), fr = g[alvo];
+      if (ids().length >= 2) {
         var d = dist();
-        if (ult > 0 && d > 0) { f.zoom = clamp(f.zoom * d / ult, 1, 3); var z = $('cf-zoom'); if (z) z.value = Math.round(f.zoom * 100); }
+        if (ult > 0 && d > 0) setZoom(alvo, f.zoom * d / ult, meio());
         ult = d;
       } else {
-        f.ox += (p.x - antes.x) / g.fw; f.oy += (p.y - antes.y) / g.h;
+        f.ox += (p.x - antes.x) / fr.w; f.oy += (p.y - antes.y) / fr.h;
       }
       marcarAlterado(); redesenhar();
     });
-    function fim(ev) { delete ptr[ev.pointerId]; ult = dist(); }
+    function fim(ev) { delete ptr[ev.pointerId]; ult = dist(); if (!ids().length) alvo = null; }
     cv.addEventListener('pointerup', fim); cv.addEventListener('pointercancel', fim);
     cv.addEventListener('wheel', function (ev) {
-      if (C.ferr === 'linha') return;
-      var f = C[C.ferr]; if (!f || !f.img) return;
+      var p = base(ev), g = geometria(), a = alvoDoToque(p, g);
+      if (a === 'linha') a = p.x < AX + AW * C.pos ? 'a' : 'b';
+      if (!C[a] || !C[a].img) return;
       ev.preventDefault();
-      f.zoom = clamp(f.zoom * (ev.deltaY < 0 ? 1.06 : 0.94), 1, 3);
-      var z = $('cf-zoom'); if (z) z.value = Math.round(f.zoom * 100);
+      setZoom(a, C[a].zoom * (ev.deltaY < 0 ? 1.07 : 0.93), p);
       marcarAlterado(); redesenhar();
     }, { passive: false });
   }
@@ -342,16 +370,20 @@
   // A montagem está na tela? A sincronização do app redesenha a tela de Avaliações quando termina e não pode apagar o que a pessoa está montando.
   function ativo() { return !!(C && $('cf-prev')); }
   function voltar() { C = null; renderAvaliacoesAluno(); }
-  function ferr(id) { C.ferr = id; atualizarFerr(); }
+  function recentrar() { C.a.ox = C.a.oy = C.b.ox = C.b.oy = 0; }
   function modo(m) {
     if (C.modo === m) return;
     C.modo = m;
-    C.ferr = m === 'lado' ? 'a' : 'linha';     // cada estilo começa na ferramenta que faz sentido nele
-    C.a.ox = C.a.oy = C.b.ox = C.b.oy = 0;     // a moldura muda de proporção: volta ao centro
+    recentrar();                               // a moldura muda de proporção: volta ao centro
     C.salvo = false;
     montar();
   }
-  function zoom(v) { var f = C[C.ferr]; if (!f || !f.img) return; f.zoom = clamp(Number(v) / 100, 1, 3); marcarAlterado(); redesenhar(); }
+  function formato(f) {
+    if (!FORMATOS[f] || C.fmt === f) return;
+    C.fmt = f; recentrar(); C.salvo = false;
+    montar();
+  }
+  function zoom(q, v) { if (!C[q] || !C[q].img) return; setZoom(q, Number(v) / 100, null); marcarAlterado(); redesenhar(); }
   function campo(q, k, v) { C[q][k] = v; marcarAlterado(); redesenhar(); }
   function mostrar(v) { C.mostrar = !!v; marcarAlterado(); redesenhar(); }
 
@@ -455,7 +487,7 @@
       return '<button onclick="ComparativoFotos.setVisib(\'' + v + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;background:' + (Sh.visib === v ? '#7FFF00' : s.campo) + ';color:' + (Sh.visib === v ? '#0f1a00' : s.txt) + ';border:1px solid ' + (Sh.visib === v ? '#7FFF00' : s.borda) + ';">' + rot + '</button>';
     };
     var html =
-      '<img src="' + Sh.dataUrl + '" alt="Comparativo" style="display:block;width:58%;max-width:230px;margin:2px auto 14px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);"/>' +
+      '<img src="' + Sh.dataUrl + '" alt="Comparativo" style="display:block;width:58%;max-width:230px;max-height:42vh;object-fit:contain;margin:2px auto 14px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);"/>' +
       '<div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px;">✏️ Legenda do post</div>' +
       '<textarea id="cf-legenda" maxlength="1000" rows="3" oninput="ComparativoFotos.setLegenda(this.value)" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid ' + s.borda + ';background:' + s.campo + ';color:' + s.txt + ';font-size:14px;font-family:inherit;margin-bottom:12px;resize:vertical;">' + esc(Sh.legenda) + '</textarea>' +
       '<div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px;">🔒 Quem pode ver (Feed e perfil)</div>' +
@@ -482,7 +514,7 @@
     var s = estilo();
     var onde = destino === 'feed' ? 'no Feed da Intus' : 'no seu perfil';
     var html =
-      '<img src="' + Sh.dataUrl + '" alt="Comparativo" style="display:block;width:42%;max-width:170px;margin:2px auto 12px;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.35);"/>' +
+      '<img src="' + Sh.dataUrl + '" alt="Comparativo" style="display:block;width:42%;max-width:170px;max-height:34vh;object-fit:contain;margin:2px auto 12px;border-radius:12px;box-shadow:0 6px 22px rgba(0,0,0,.35);"/>' +
       '<div style="font-size:15px;font-weight:800;color:' + s.txt + ';text-align:center;margin-bottom:8px;">Publicar ' + onde + '?</div>' +
       '<div style="font-size:13px;color:' + s.mut + ';line-height:1.55;text-align:center;margin-bottom:6px;">Esta imagem tem fotos do seu corpo. Quem poderá ver: <b style="color:' + s.txt + ';">' + QUEM[Sh.visib] + '</b>.</div>' +
       (Sh.visib === 'todos' ? '<div style="font-size:12px;color:' + s.mut + ';text-align:center;margin-bottom:6px;">Se preferir mais privacidade, volte e escolha Amigos ou Só eu.</div>' : '') +
@@ -536,8 +568,8 @@
 
   window.ComparativoFotos = {
     abrir: abrir, ativo: ativo, voltar: voltar, escolher: escolher, novaFoto: novaFoto, arquivo: arquivo, daAvaliacao: daAvaliacao, campo: campo, mostrar: mostrar,
-    modo: modo, ferr: ferr, zoom: zoom, salvar: salvar, compartilhar: compartilhar, abrirSalvo: abrirSalvo, setVisib: setVisib,
+    modo: modo, formato: formato, zoom: zoom, salvar: salvar, compartilhar: compartilhar, abrirSalvo: abrirSalvo, setVisib: setVisib,
     setLegenda: setLegenda, confirmar: confirmar, publicar: publicar, externo: externo,
-    _teste: { compor: compor, novo: function () { C = novo(); return C; }, estado: function () { return C; }, setLogo: function (l) { _logo = l; } }
+    _teste: { compor: compor, novo: function () { C = novo(); return C; }, estado: function () { return C; }, setLogo: function (l) { _logo = l; }, geometria: function () { return geometria(); } }
   };
 })();

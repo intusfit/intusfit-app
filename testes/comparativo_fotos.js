@@ -75,18 +75,75 @@ const T = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charse
   eq('lado a lado: entre as fotos fica o fundo escuro (sem linha branca)', meio, [15, 15, 15]);
   await page.evaluate(() => { ComparativoFotos._teste.estado().modo = 'divisor'; });
 
+  console.log('\n══ Layout dos quadros de cima ══');
+  eq('nada passa da largura da tela (os quadros das fotos cabem lado a lado)', await page.evaluate(() => { const L = innerWidth; const fora = Array.from(document.querySelectorAll('#v-avaliacoes *')).filter(e => e.getBoundingClientRect().right > L + 0.5 && getComputedStyle(e).position !== 'fixed' && e.offsetParent !== null).length; return [fora, document.documentElement.scrollWidth <= L + 1]; }), [0, true]);
+  eq('os dois cartões têm a mesma largura e a data e o peso ficam empilhados', await page.evaluate(() => { const campos = Array.from(document.querySelectorAll('#v-avaliacoes input[type=date], #v-avaliacoes input[type=text]')); const larg = campos.map(i => Math.round(i.getBoundingClientRect().width)); return [campos.length, larg[0] === larg[2] && larg[1] === larg[3], larg[0] === larg[1]]; }), [4, true, true]);
+
   console.log('\n══ Gestos na prévia ══');
   await page.evaluate(() => ComparativoFotos.modo('lado')); await page.evaluate(() => ComparativoFotos.modo('divisor'));
-  const box = await page.evaluate(() => { const r = document.getElementById('cf-prev').getBoundingClientRect(); return { x: r.left, y: r.top + scrollY, w: r.width, h: r.height }; });
   await page.evaluate(() => window.scrollTo(0, document.getElementById('cf-prev').getBoundingClientRect().top + scrollY - 20));
-  const topo = await page.evaluate(() => document.getElementById('cf-prev').getBoundingClientRect().top);
-  await page.mouse.move(box.x + box.w * 0.5, topo + box.h * 0.5); await page.mouse.down(); await page.mouse.move(box.x + box.w * 0.3, topo + box.h * 0.5, { steps: 5 }); await page.mouse.up();
-  const pos = await page.evaluate(() => ComparativoFotos._teste.estado().pos);
-  
-  eq('arrastar na prévia move a linha divisória', pos > 0.25 && pos < 0.4, true);
-  await page.evaluate(() => ComparativoFotos.ferr('b')); await page.evaluate(() => ComparativoFotos.zoom(200));
-  const zoomB = await page.evaluate(() => ComparativoFotos._teste.estado().b.zoom);
-  eq('o zoom vale só para a foto selecionada', [zoomB, await page.evaluate(() => ComparativoFotos._teste.estado().a.zoom)], [2, 1]);
+  const box = await page.evaluate(() => { const r = document.getElementById('cf-prev').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  const lerEst = () => page.evaluate(() => { const e = ComparativoFotos._teste.estado(); return { pos: e.pos, a: { z: e.a.zoom, ox: e.a.ox, oy: e.a.oy }, b: { z: e.b.zoom, ox: e.b.ox, oy: e.b.oy } }; });
+  const arrastar = async (x0, y0, x1, y1) => { await page.mouse.move(box.x + box.w * x0, box.y + box.h * y0); await page.mouse.down(); await page.mouse.move(box.x + box.w * x1, box.y + box.h * y1, { steps: 6 }); await page.mouse.up(); };
+  let e0 = await lerEst();
+  await arrastar(0.5, 0.5, 0.3, 0.5);
+  eq('arrastar pela bolinha da linha move a linha divisória', (await lerEst()).pos > 0.25 && (await lerEst()).pos < 0.4, true);
+  await page.evaluate(() => { ComparativoFotos._teste.estado().pos = 0.5; });
+  e0 = await lerEst();
+  await arrastar(0.2, 0.3, 0.2, 0.5);
+  let e1 = await lerEst();
+  eq('arrastar em cima da foto (longe da linha) enquadra a foto daquele lado e não mexe na linha', [e1.pos === e0.pos, e1.a.oy !== e0.a.oy, e1.b.oy === e0.b.oy], [true, true, true]);
+  await page.evaluate(() => { ComparativoFotos._teste.estado().pos = 0.5; });
+  e0 = await lerEst();
+  await arrastar(0.8, 0.3, 0.8, 0.5);
+  e1 = await lerEst();
+  eq('do lado direito, quem se mexe é a foto de depois', [e1.pos === e0.pos, e1.b.oy !== e0.b.oy, e1.a.oy === e0.a.oy], [true, true, true]);
+  // pinça com dois dedos (eventos de ponteiro simulados) sobre a foto de depois
+  const pinca = (cx, fx0, fx1) => page.evaluate(([cx, fx0, fx1]) => {
+    const cv = document.getElementById('cf-prev'), r = cv.getBoundingClientRect(), y = r.top + r.height * 0.4;
+    const ev = (t, id, x) => cv.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: r.left + r.width * x, clientY: y, bubbles: true, cancelable: true, pointerType: 'touch' }));
+    ev('pointerdown', 1, cx - fx0); ev('pointerdown', 2, cx + fx0);
+    for (let i = 1; i <= 6; i++) { const f = fx0 + (fx1 - fx0) * i / 6; ev('pointermove', 1, cx - f); ev('pointermove', 2, cx + f); }
+    ev('pointerup', 1, cx - fx1); ev('pointerup', 2, cx + fx1);
+  }, [cx, fx0, fx1]);
+  e0 = await lerEst();
+  await pinca(0.75, 0.05, 0.14);
+  e1 = await lerEst();
+  eq('a pinça com dois dedos sobre a foto de depois dá zoom nela, e só nela', [e1.b.z > 1.5, e1.a.z === e0.a.z, e1.pos === e0.pos], [true, true, true]);
+  e0 = await lerEst();
+  await pinca(0.75, 0.14, 0.05);
+  eq('afastar e juntar os dedos aproxima e afasta (volta perto de 1)', (await lerEst()).b.z < e0.b.z, true);
+  await page.evaluate(() => ComparativoFotos.zoom('b', 200));
+  eq('o controle de zoom vale só para a foto indicada', [(await lerEst()).b.z, (await lerEst()).a.z <= 1.0001], [2, true]);
+  await page.evaluate(() => { const e = ComparativoFotos._teste.estado(); e.a.zoom = 1; e.b.zoom = 1; e.a.oy = e.b.oy = 0; });
+  eq('no lado a lado cada painel recebe o próprio gesto', await page.evaluate(async () => {
+    ComparativoFotos.modo('lado');
+    const cv = document.getElementById('cf-prev'), r = cv.getBoundingClientRect();
+    const mover = (x0, x1, y0, y1) => { const ev = (t, x, y) => cv.dispatchEvent(new PointerEvent(t, { pointerId: 5, clientX: r.left + r.width * x, clientY: r.top + r.height * y, bubbles: true, cancelable: true })); ev('pointerdown', x0, y0); ev('pointermove', x1, y1); ev('pointerup', x1, y1); };
+    const e = ComparativoFotos._teste.estado();
+    e.a.zoom = 2; e.b.zoom = 2;
+    mover(0.25, 0.25, 0.4, 0.55);
+    const apos1 = [e.a.oy !== 0, e.b.oy === 0];
+    mover(0.75, 0.75, 0.4, 0.55);
+    return [apos1, e.b.oy !== 0];
+  }), [[true, true], true]);
+  await page.evaluate(() => ComparativoFotos.modo('divisor'));
+
+  console.log('\n══ Formato (molde) ══');
+  const tam = (f) => page.evaluate((f) => { ComparativoFotos.formato(f); const cv = document.createElement('canvas'); ComparativoFotos._teste.compor(cv, 1); const pv = document.getElementById('cf-prev'); const r = pv.getBoundingClientRect(); return { w: cv.width, h: cv.height, razao: Math.round(r.height / r.width * 1000) / 1000, g: ComparativoFotos._teste.geometria().ah }; }, f);
+  let t1 = await tam('quadrado');
+  eq('quadrado: imagem 1080x1080 e prévia quadrada', [t1.w, t1.h, t1.razao], [1080, 1080, 1]);
+  t1 = await tam('stories');
+  eq('stories: imagem 1080x1920 e prévia 9:16', [t1.w, t1.h, t1.razao], [1080, 1920, 1.778]);
+  t1 = await tam('retrato');
+  eq('retrato: volta a 1080x1350', [t1.w, t1.h, t1.razao], [1080, 1350, 1.25]);
+  const pixF = (f, modo) => page.evaluate(([f, modo]) => { ComparativoFotos.formato(f); ComparativoFotos._teste.estado().modo = modo; const cv = document.createElement('canvas'); ComparativoFotos._teste.compor(cv, 1); const g = ComparativoFotos._teste.geometria(); const x = cv.getContext('2d'); const p = (px, py) => Array.from(x.getImageData(Math.round(px), Math.round(py), 1, 1).data).slice(0, 3); return { esq: p(g.a.x + g.a.w * 0.5, g.a.y + g.a.h * 0.5), dir: p(g.b.x + g.b.w * 0.5, g.b.y + g.b.h * 0.5), dentro: g.a.y + g.a.h < cv.height - 60 && g.b.y > 100 }; }, [f, modo]);
+  let pf = await pixF('stories', 'lado');
+  eq('stories lado a lado: cada foto no seu painel e tudo dentro da imagem', [pf.esq, pf.dir, pf.dentro], [[192, 57, 43], [41, 128, 185], true]);
+  pf = await pixF('quadrado', 'lado');
+  eq('quadrado lado a lado: cada foto no seu painel e tudo dentro da imagem', [pf.esq, pf.dir, pf.dentro], [[192, 57, 43], [41, 128, 185], true]);
+  await page.evaluate(() => { ComparativoFotos.formato('retrato'); ComparativoFotos.modo('divisor'); });
+  eq('as fotos escolhidas continuam ao trocar de formato', await page.evaluate(() => { const e = ComparativoFotos._teste.estado(); return [!!e.a.img, !!e.b.img]; }), [true, true]);
 
   console.log('\n══ Salvar como avaliação ══');
   await page.evaluate(() => ComparativoFotos.salvar());
