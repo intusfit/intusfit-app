@@ -24,6 +24,7 @@
   <script src="comparativo-fotos.js?v=20261125a" defer></script>
   <script src="lembretes-nutri.js?v=20261125a" defer></script>
   <script src="altitude-cardio.js?v=20261125a" defer></script>
+  <script src="permissoes-app.js?v=20261125a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -1379,6 +1380,7 @@
     </div>
     <div class="menu-item" onclick="toggleThemeMenu()"><span class="mi-icon" id="menu-theme-icon">🌙</span> <span id="menu-theme-label">Modo Escuro</span></div>
     <div class="menu-item" onclick="abrirTutorial();fecharMenuDireto()"><span class="mi-icon">❓</span> Ajuda</div>
+    <div class="menu-item" onclick="PermissoesApp.abrir();fecharMenuDireto()"><span class="mi-icon">🔐</span> Permissões do app</div>
     <div class="menu-item" onclick="abrirSuporte()"><span class="mi-icon">💬</span> Falar com Suporte</div>
     <div class="menu-item danger" onclick="sair()"><span class="mi-icon">🚪</span> Sair</div>
   </div>
@@ -12956,9 +12958,10 @@ function _cardioSeletorAtivHtml(o) {
   const grade = a => '<button type="button" class="cf-tile cf-gra" data-k="' + esc(a.k) + '" onclick="' + o.onclick + '" aria-pressed="' + (a.k === sel) + '"' + dis + ' style="' + _cardioTileCss(a.k === sel, P) + (off ? 'opacity:.5;' : '') + '"><span style="font-size:26px;line-height:1;flex-shrink:0;">' + (CARDIO_EMOJI_TODOS[a.k] || a.e) + '</span><span style="display:grid;gap:2px;min-width:0;"><span style="font-size:13px;font-weight:800;line-height:1.2;">' + esc(a.n || _ativRotulo(a.k)) + '</span>' + (a.h ? '<span style="font-size:11.5px;font-weight:600;line-height:1.25;color:' + (a.k === sel ? 'inherit' : P.mut) + ';">' + esc(a.h) + '</span>' : '') + '</span></button>';
   [40, 350].forEach(function (ms) { setTimeout(function () { document.querySelectorAll('.cd-rol').forEach(_cardioRolDica); }, ms); });
   return '<div class="cd-rol-wrap"><div class="cd-rol" onscroll="_cardioRolDica(this)">'
-    + '<div style="display:flex;flex-wrap:wrap;gap:8px;">' + principais.map(pilula).join('') + '</div>'
-    + _cdRot('Mais atividades', P, '14px 2px 7px')
-    + '<div id="cf-grade" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">' + resto.map(grade).join('') + '</div></div>'
+    // "Mais atividades" fica na mesma linha da pílula "Outra" (economiza uma linha na vertical); se não couber, quebra sozinho.
+    + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">' + principais.map(pilula).join('')
+    + '<span style="font-size:10.5px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:' + P.mut2 + ';padding:0 2px;white-space:nowrap;">Mais atividades ↓</span></div>'
+    + '<div id="cf-grade" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;">' + resto.map(grade).join('') + '</div></div>'
     + '<div class="cd-rol-dica" style="background:linear-gradient(to top,' + (o.fade || P.fundo) + ' 55%,transparent);color:' + P.mut + ';">▾ role para ver mais</div></div>';
 }
 function _cardioRolDica(el) {
@@ -15107,6 +15110,9 @@ function _clGlCamadasRota(map, pontos) {
 // também alimentam a altitude e o ganho de elevação em altitude-cardio.js. Se o relevo não carregar, o mapa segue normal, só sem terreno.
 const CARDIO_RELEVO_TILES = 'https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png';
 const CARDIO_RELEVO_EXAGERO = 1.45;
+// 25/11/2026: o TERRENO em 3D (setTerrain) fica desligado por padrão. Junto com os prédios em 3D ele fazia o mapa piscar e carregar mal no celular.
+// O relevo aparece pelo sombreado das encostas; a altitude e a subida continuam vindo dos mesmos dados (altitude-cardio.js).
+const CARDIO_RELEVO_TERRENO_3D = false;
 function _clGlRelevo(map, comTerreno) {
   try {
     if (!map.getSource('relevo')) map.addSource('relevo', { type: 'raster-dem', tiles: [CARDIO_RELEVO_TILES], tileSize: 256, maxzoom: 14, encoding: 'terrarium', attribution: 'Relevo: Mapzen, USGS, NASA (AWS Open Data)' });
@@ -15114,7 +15120,7 @@ function _clGlRelevo(map, comTerreno) {
     const antes = (camadas.find(l => l.type === 'line' || l.type === 'fill-extrusion' || l.type === 'symbol') || {}).id;
     if (!map.getLayer('relevo-sombra')) map.addLayer({ id: 'relevo-sombra', type: 'hillshade', source: 'relevo',
       paint: { 'hillshade-exaggeration': 0.6, 'hillshade-shadow-color': '#14221a', 'hillshade-highlight-color': '#ffffff', 'hillshade-accent-color': '#3a5a42' } }, antes);
-    if (comTerreno !== false) map.setTerrain({ source: 'relevo', exaggeration: CARDIO_RELEVO_EXAGERO });
+    if (CARDIO_RELEVO_TERRENO_3D && comTerreno !== false) map.setTerrain({ source: 'relevo', exaggeration: CARDIO_RELEVO_EXAGERO });
   } catch (e) { console.warn('[cardio-relevo]', e); }
 }
 function _cardioLiveMapaDestruir() {
@@ -15142,7 +15148,6 @@ function _cardioLiveGlIniciar(mapEl) {
       const a = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-a');
       if (a === '3d') {
         gl.inclinado = !gl.inclinado;
-        try { map.setTerrain(gl.inclinado ? { source: 'relevo', exaggeration: CARDIO_RELEVO_EXAGERO } : null); } catch (e) {}
         map.easeTo({ pitch: gl.inclinado ? 62 : 0, duration: 600 });
         ev.target.textContent = gl.inclinado ? '3D' : '2D';
       } else if (a === 'ctr') {
@@ -15184,9 +15189,15 @@ function _cardioLiveGlAtualizar() {
     gl.marker.setLngLat([pos.lng, pos.lat]);
     if (!gl.marcado) { gl.marker.addTo(gl.map); gl.marcado = true; }
     if (gl.seguindo) {
-      const alvo = { center: [pos.lng, pos.lat], bearing: _cardioLiveRumo || 0, duration: 900, essential: true };
-      if (!gl.focou) { alvo.zoom = 16.4; gl.focou = true; }
-      gl.map.easeTo(alvo);
+      const rumo = _cardioLiveRumo || 0, ant = gl.ultCam;
+      const dRumo = ant ? Math.abs(((rumo - ant.rumo + 540) % 360) - 180) : 999;
+      const mexeu = !ant || _haversineM(ant.lat, ant.lng, pos.lat, pos.lng) >= 2 || dRumo >= 8;     // parado ou tremido do GPS não mexe a câmera
+      if (mexeu && !gl.map.isEasing()) {
+        const alvo = { center: [pos.lng, pos.lat], bearing: rumo, duration: 1000, easing: function (t) { return t; }, essential: true };
+        if (!gl.focou) { alvo.zoom = 16.4; gl.focou = true; }
+        gl.ultCam = { lat: pos.lat, lng: pos.lng, rumo: rumo };
+        gl.map.easeTo(alvo);
+      }
     }
   } catch (e) { console.warn('[cardio-mapa-3d]', e); }
 }
@@ -15314,6 +15325,7 @@ function _clElevAtualizar() {
 }
 function _atualizarStatsCardioLive() {
   try { _clElevAtualizar(); } catch (e) {}
+  try { if (_cardioLiveNativoOk) { const av = document.getElementById('cl-aviso-tela'); if (av) av.remove(); } } catch (e) {}   // com o plugin nativo medindo, não precisa pedir para manter a tela aberta
   const _ex = document.getElementById('cl-extra'); if (_ex) _ex.innerHTML = _cardioExtraTxt();
   const _mt = document.getElementById('cm-live-tempo'); if (_mt) _mt.textContent = _fmtCronometro(_cardioLiveTempoMs());
   const _me = document.getElementById('cm-extra'); if (_me) _me.innerHTML = _cardioExtraTxt();
@@ -15857,7 +15869,7 @@ function _renderCardioLive() {
         '<div style="text-align:center;font-size:13px;font-weight:800;color:rgba(10,10,10,.65);margin-bottom:4px;"><span class="cl-emoji-vivo">' + _clIcone(_cardioLiveTipo) + '</span> ' + esc(_ativRotulo(_cardioLiveTipo)) + '</div>' +
         '<div id="cl-extra" style="text-align:center;font-size:11.5px;line-height:1.4;font-weight:700;color:rgba(10,10,10,.72);margin:0 6px 8px;">' + _cardioExtraTxt() + '</div>' +
         (_cardioLiveRodando ? '' : '<div style="text-align:center;margin:-2px 0 12px;"><span class="cd-selo-pausa">⏸ PAUSADO</span></div>') +
-        ((usaGps && !_cardioLiveNativoOk) ? '<div style="font-size:11px;line-height:1.35;color:rgba(10,10,10,.72);text-align:center;margin:0 4px 8px;">Mantenha esta tela aberta: se ela apagar, a distância desse trecho será estimada pelo seu ritmo.</div>' : '') +
+        ((usaGps && !_cardioLiveNativoOk) ? '<div id="cl-aviso-tela" style="font-size:11px;line-height:1.35;color:rgba(10,10,10,.72);text-align:center;margin:0 4px 8px;">Mantenha esta tela aberta: se ela apagar, a distância desse trecho será estimada pelo seu ritmo.</div>' : '') +
         (usaGps ? '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
           '<div class="cl-stat-top"><div class="n" id="cl-ritmo">' + (_cardioLiveTipo === 'Bike' ? '0.0' : '--\'--\'\'') + '</div><div class="l">' + (_cardioLiveTipo === 'Bike' ? 'km/h' : 'Pace') + '</div></div>' +
           // Tempo maior e mais em destaque que os outros dois — é o número
