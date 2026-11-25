@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Clientes — Intus</title>
-  <script src="_mock.js?v=20261123c"></script>
+  <script src="_mock.js?v=20261125a"></script>
   <script src="api.js?v=20261123c"></script>
   <script src="foto-util.js?v=20261105a"></script>
 <script src="foto-pose.js?v=20261125a"></script>
@@ -1044,9 +1044,12 @@ async function carregarMiniAvaliacoes(id) {
 const _avFalhou = {};         // idatleta -> chaves que o detector não conseguiu analisar nesta sessão
 const _chaveFoto = f => IntusPose.chaveDaFoto(_fotoSrc(f));
 
+// Comparativo que o aluno monta no app (imagem pronta, duas fotos numa só): não é foto de pose, fica fora da identificação de posições.
+const _ehComparativoAluno = av => /comparativo/i.test(String((av && av.metodo) || ''));
+
 function _fotosSemAnalise(id) {
   const out = [];
-  (_avFotos[id] || []).forEach(av => (av.fotos || []).forEach(f => {
+  (_avFotos[id] || []).filter(av => !_ehComparativoAluno(av)).forEach(av => (av.fotos || []).forEach(f => {
     const k = _chaveFoto(f), a = (_avPose[id] || {})[k];
     const falhou = _avFalhou[id] && _avFalhou[id].has(k);
     if (falhou) return;
@@ -1062,7 +1065,7 @@ function _fotosSemAnalise(id) {
 const _poseEf = {};
 function _calcularPoseEfetiva(id) {
   const base = _avPose[id] || {}, ef = {}, porDia = {};
-  (_avFotos[id] || []).forEach(av => {
+  (_avFotos[id] || []).filter(av => !_ehComparativoAluno(av)).forEach(av => {
     const dia = String(av.dtavaliacao || '').slice(0, 10) || ('sem-' + av.idavaliacao);
     (porDia[dia] = porDia[dia] || []).push(...(av.fotos || []).map(_chaveFoto));
   });

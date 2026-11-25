@@ -1,4 +1,4 @@
-const CACHE_NAME = 'intus-v80';
+const CACHE_NAME = 'intus-v81';
 const ASSETS = [
   'aluno.html',
   'nutricao.html',
@@ -10,6 +10,7 @@ const ASSETS = [
   '_mock.js',
   'alimentos-db.js',
   'ajuda.js',
+  'comparativo-fotos.js',
   'favicon.ico',
   'favicon-192.png',
   'logo-icon-dark.png',

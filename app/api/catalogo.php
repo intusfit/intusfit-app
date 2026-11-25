@@ -1084,6 +1084,25 @@ function _persistirFotos($fotos) {
     return $out;
 }
 
+// Aviso no sino dos professores responsáveis (e do administrador) de que o aluno registrou uma avaliação com fotos.
+function _avaliacaoAvisarProfs(PDO $pdo, int $idatleta, int $idavaliacao, string $metodo, int $qtdFotos): void {
+    try {
+        $nome = 'Aluno #' . $idatleta;
+        foreach (['atleta', 'atletas'] as $t) {
+            try {
+                $st = $pdo->prepare("SELECT nome FROM `$t` WHERE idatleta = ? LIMIT 1");
+                $st->execute([$idatleta]);
+                $r = $st->fetch(PDO::FETCH_ASSOC);
+                if ($r && !empty($r['nome'])) { $nome = $r['nome']; break; }
+            } catch (Throwable $e) {}
+        }
+        $trecho = stripos($metodo, 'comparativo') !== false ? 'Comparativo de fotos' : ($qtdFotos . ($qtdFotos === 1 ? ' foto' : ' fotos') . ' na avaliação');
+        foreach (_resultadoDestinatariosProf($pdo, $idatleta) as $idprof) {
+            _criarNotificacao($pdo, 'prof', $idprof, 'avaliacao_nova', 'aluno', $idatleta, $nome, 'avaliacao', $idavaliacao, $trecho);
+        }
+    } catch (Throwable $e) {}
+}
+
 function _notificarFotosAvaliacao(PDO $pdo, int $idatleta, int $qtdFotos, string $data) {
     try {
         $nome = 'Atleta #' . $idatleta;
@@ -1458,6 +1477,10 @@ if ($action === 'avaliacoes') {
         $silencioso = !$_ehAluno && !empty($b['silencioso']);
         if ($fotos && !$silencioso) {
             _notificarFotosAvaliacao($pdo, $idatleta, count($fotosArr), $b['dtavaliacao'] ?? date('Y-m-d'));
+        }
+        // Avaliação que o aluno registra com fotos (inclui o comparativo que ele monta no app): aparece no sino dos professores responsáveis.
+        if ($_ehAluno && $fotos) {
+            _avaliacaoAvisarProfs($pdo, $idatleta, $newId, (string)($b['metodo'] ?? ''), count($fotosArr));
         }
 
         // 'fotos' devolve como ficaram guardadas (o painel sobe em lotes e precisa da lista pra mandar o lote seguinte).

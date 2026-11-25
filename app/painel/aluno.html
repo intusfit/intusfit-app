@@ -20,6 +20,7 @@
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261123c"></script>
   <script src="ajuda.js?v=20261107a" defer></script>
+  <script src="comparativo-fotos.js?v=20261125a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -7498,7 +7499,7 @@ async function sincronizarDoBackend() {
     _syncDone = true;
     _syncFichasOk = true;            // a lista de fichas veio MESMO do servidor
     _syncErro = null;
-    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function') renderAvaliacoesAluno(); } catch (e) {}
+    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function' && !(window.ComparativoFotos && ComparativoFotos.ativo())) renderAvaliacoesAluno(); } catch (e) {}
   } catch (e) {
     // Plano B. Se ele tambem falhar, _syncFichasOk continua false — e a tela de
     // treinos NAO pode dizer "seu professor ainda esta preparando seu treino".
@@ -7517,7 +7518,7 @@ async function sincronizarDoBackend() {
     // Antes só a rota principal baixava as sessões, e o aluno ficava com o histórico vazio sem aviso.
     try { await SessoesTreino.sincronizar(idAtleta); } catch (e4) {}
     _syncDone = true;
-    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function') renderAvaliacoesAluno(); } catch (e3) {}
+    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function' && !(window.ComparativoFotos && ComparativoFotos.ativo())) renderAvaliacoesAluno(); } catch (e3) {}
   }
 }
 
@@ -20727,6 +20728,7 @@ async function renderAvaliacoesAluno() {
   if (planoAtivo || !_syncDone) {
     html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">' +
       '<button class="btn btn-prim btn-full" style="padding:14px;font-size:14px;font-weight:700;" onclick="abrirNovaAvaliacao()">+ Nova Avaliação</button>' +
+      '<button class="btn btn-sec btn-full" style="padding:13px;font-size:13px;font-weight:700;" onclick="abrirComparativoFotos()">📸 Comparar minhas fotos (antes e depois)</button>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
         '<button class="btn btn-sec btn-full" style="padding:12px;font-size:12px;" onclick="abrirVerAvaliacoes()">Ver Avaliações</button>' +
         '<button class="btn btn-sec btn-full" style="padding:12px;font-size:12px;" onclick="abrirComparativos()">Ver Comparativos</button>' +
@@ -21014,6 +21016,11 @@ function abrirVerAvaliacoes() {
 }
 
 // ═══════════════ COMPARATIVOS ═══════════════
+// Comparativo de fotos (antes e depois) montado pelo aluno: comparativo-fotos.js. Se o módulo não carregou, avisa em vez de falhar calado.
+function abrirComparativoFotos() {
+  if (window.ComparativoFotos && ComparativoFotos.abrir) ComparativoFotos.abrir();
+  else toast('O comparativo de fotos não carregou. Feche e abra o app de novo.');
+}
 function abrirComparativos() {
   var container = document.getElementById('v-avaliacoes');
   var isLight = document.body.classList.contains('tema-claro');
