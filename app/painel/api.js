@@ -5039,6 +5039,19 @@ const API = {
     return { programas: guiados, programasTipos: Object.keys(tipos).length, cursoCompleto: cursoCompleto };
   },
 
+  // ── DOBRAS CUTÂNEAS: ORDEM DO PROTOCOLO TRADICIONAL (Jackson & Pollock) ─────────
+  // Peitoral, axilar média, tricipital, subescapular, abdominal, suprailíaca e coxa. As dobras ficam gravadas num objeto sem ordem (a ordem em que o
+  // formulário as mandou) e apareciam na tela nessa ordem, que parecia sorteada e mudava de uma avaliação para outra. Toda tela que lista dobras
+  // (formulário, histórico, comparativos, painel do professor) passa por aqui.
+  DOBRAS_ORDEM: ['dc_peitoral', 'dc_axilar', 'dc_tricipital', 'dc_subescapular', 'dc_abdominal', 'dc_suprailiaca', 'dc_coxa'],
+  DOBRAS_ROTULO: { dc_peitoral: 'Peitoral', dc_axilar: 'Axilar média', dc_tricipital: 'Tricipital', dc_subescapular: 'Subescapular', dc_abdominal: 'Abdominal', dc_suprailiaca: 'Suprailíaca', dc_coxa: 'Coxa' },
+  ordemDobra: (k) => { const i = API.DOBRAS_ORDEM.indexOf(k); return i < 0 ? 99 : i; },
+  // Aceita uma lista de chaves ('dc_coxa') ou de pares [chave, valor] e devolve na ordem tradicional (chave desconhecida vai para o fim).
+  ordenarDobras: (lista) => (lista || []).slice().sort((a, b) => {
+    const ka = Array.isArray(a) ? a[0] : a, kb = Array.isArray(b) ? b[0] : b;
+    return (API.ordemDobra(ka) - API.ordemDobra(kb)) || String(ka).localeCompare(String(kb));
+  }),
+
   // ── TREINO FORA DO PROTOCOLO ─────────────────────────────────────────
   // Treino que o aluno marca à mão (fez com outra pessoa ou trocou os exercícios da ficha): sessão de musculação com divisao 'F'.
   // Vale PONTOS_FORA_PROTOCOLO (fixo, não entra na ordem do dia: não faz o treino da ficha virar "o segundo") e conta como dia de treino.

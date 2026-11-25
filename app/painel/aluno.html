@@ -19,9 +19,10 @@
   <title>Meu Treino | Intus</title>
   <script src="recarregar-midia.js?v=20261125a"></script>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261123c"></script>
+  <script src="api.js?v=20261126a"></script>
   <script src="ajuda.js?v=20261107a" defer></script>
-  <script src="comparativo-fotos.js?v=20261125a" defer></script>
+  <script src="comparativo-fotos.js?v=20261126a" defer></script>
+  <script src="comparativo-avaliacoes.js?v=20261126a" defer></script>
   <script src="lembretes-nutri.js?v=20261125a" defer></script>
   <script src="altitude-cardio.js?v=20261125a" defer></script>
   <script src="permissoes-app.js?v=20261125a" defer></script>
@@ -1299,6 +1300,8 @@
 
     @media (max-width: 480px) {
       .wrap { padding: 8px 12px calc(60px + env(safe-area-inset-bottom, 0px)); }
+      /* o cabeçalho das telas sangra até a borda: a margem negativa tem de acompanhar o padding do .wrap (antes ficava em -16px e a página ganhava 4px de rolagem para o lado) */
+      .tela-header-fixa { margin: -6px -12px 6px; padding: 3px 12px; }
       .serie-row { grid-template-columns: 54px 1fr 1fr 44px; gap: 6px; padding: 8px; }
       .serie-row input { padding: 9px 5px; font-size: 15px; }
       .serie-row .check-btn { width: 44px; height: 44px; font-size: 17px; }
@@ -2891,14 +2894,15 @@ function trocarConta() {
 // e nao tinha como conferir de onde ele saiu, nem acompanhar dobra por dobra
 // entre uma avaliacao e outra. Agora elas aparecem, com o somatorio.
 var DOBRAS_LBL = {
-  dc_subescapular: 'Subescapular', dc_tricipital: 'Tricipital', dc_peitoral: 'Peitoral',
-  dc_axilar: 'Axilar média', dc_suprailiaca: 'Suprailíaca', dc_abdominal: 'Abdominal', dc_coxa: 'Coxa',
+  dc_peitoral: 'Peitoral', dc_axilar: 'Axilar média', dc_tricipital: 'Tricipital', dc_subescapular: 'Subescapular',
+  dc_abdominal: 'Abdominal', dc_suprailiaca: 'Suprailíaca', dc_coxa: 'Coxa',
 };
 function _dobrasDe(med) {
   if (!med || typeof med !== 'object') return [];
-  return Object.entries(med).filter(function (e) {
+  // Na ordem do protocolo tradicional (API.DOBRAS_ORDEM), não na ordem em que o objeto foi gravado.
+  return API.ordenarDobras(Object.entries(med).filter(function (e) {
     return String(e[0]).indexOf('dc_') === 0 && e[1] != null && e[1] !== '' && !isNaN(parseFloat(e[1]));
-  });
+  }));
 }
 function _somaDobras(med) {
   return _dobrasDe(med).reduce(function (t, e) { return t + parseFloat(e[1]); }, 0);
@@ -7514,7 +7518,7 @@ async function sincronizarDoBackend() {
     _syncDone = true;
     _syncFichasOk = true;            // a lista de fichas veio MESMO do servidor
     _syncErro = null;
-    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function' && !(window.ComparativoFotos && ComparativoFotos.ativo())) renderAvaliacoesAluno(); } catch (e) {}
+    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function' && _avaliacoesNaLista()) renderAvaliacoesAluno(); } catch (e) {}
   } catch (e) {
     // Plano B. Se ele tambem falhar, _syncFichasOk continua false — e a tela de
     // treinos NAO pode dizer "seu professor ainda esta preparando seu treino".
@@ -7533,7 +7537,7 @@ async function sincronizarDoBackend() {
     // Antes só a rota principal baixava as sessões, e o aluno ficava com o histórico vazio sem aviso.
     try { await SessoesTreino.sincronizar(idAtleta); } catch (e4) {}
     _syncDone = true;
-    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function' && !(window.ComparativoFotos && ComparativoFotos.ativo())) renderAvaliacoesAluno(); } catch (e3) {}
+    try { if (window._viewAtual === 'avaliacoes' && typeof renderAvaliacoesAluno === 'function' && _avaliacoesNaLista()) renderAvaliacoesAluno(); } catch (e3) {}
   }
 }
 
@@ -15964,12 +15968,14 @@ async function sincronizarRankingHome(forcar) {
 }
 
 // Cabeçalho de tela: botão Voltar à esquerda + título centralizado na mesma linha
-function telaHeader(titulo, backView) {
+// 3º parâmetro (voltarJs): cabeçalho de um PASSO dentro da tela (formulário, histórico, comparativos...). O Voltar faz o que o passo pede (normalmente
+// redesenhar a lista) e o gesto de voltar do celular usa esse mesmo botão (marca data-sub, que o popstate procura). Sem ele, é o cabeçalho da tela.
+function telaHeader(titulo, backView, voltarJs) {
   const isLight = document.body.classList.contains('tema-claro');
   const bv = backView || 'home';
-  return '<div class="tela-header-fixa">' +
+  return '<div class="tela-header-fixa"' + (voltarJs ? ' data-sub="1"' : '') + '>' +
     '<div style="position:relative;display:flex;align-items:center;min-height:34px;">' +
-      '<button class="btn-back" onclick="' + (backView ? 'voltarTela(\'' + bv + '\')' : 'voltarTela()') + '" style="position:relative;z-index:1;">← Voltar</button>' +
+      '<button class="btn-back" onclick="' + (voltarJs ? voltarJs : (backView ? 'voltarTela(\'' + bv + '\')' : 'voltarTela()')) + '" style="position:relative;z-index:1;">← Voltar</button>' +
       '<div class="th-titulo" style="position:absolute;left:0;right:0;padding:0 82px 0 60px;text-align:center;font-size:clamp(13px,4.7vw,18px);font-weight:900;color:' + (isLight?'#1a1a1a':'#f0f0f0') + ';pointer-events:none;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (titulo || '') + '</div>' +
       '<img src="' + (isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png') + '" alt="Intus" style="position:absolute;right:0;height:16px;opacity:1;"/>' +
     '</div>' +
@@ -20773,6 +20779,13 @@ async function renderMatricula() {
 
 // ═══════════════ AVALIAÇÕES DO ALUNO ═══════════════
 let _avaliacoesCache = [];
+// Só a LISTA principal de Avaliações pode ser redesenhada por baixo dos panos (quando a sincronização termina). Formulário em preenchimento, histórico,
+// comparativos, a montagem de fotos e o vídeo de feedback começam com o botão Voltar; a lista começa com o cabeçalho da tela (telaHeader). Antes a
+// sincronização refazia a tela inteira por cima de qualquer um deles: o aluno perdia o que tinha digitado e era jogado de volta para a lista.
+function _avaliacoesNaLista() {
+  const c = document.getElementById('v-avaliacoes'), p = c && c.firstElementChild;
+  return !!(p && p.classList && p.classList.contains('tela-header-fixa') && !(p.dataset && p.dataset.sub));
+}
 async function renderAvaliacoesAluno() {
   _fbLiberarVideo();
   const container = document.getElementById('v-avaliacoes');
@@ -20805,15 +20818,57 @@ async function renderAvaliacoesAluno() {
       '<p style="font-size:12px;color:' + (isLight?'#78716c':'#aaa') + ';margin-top:6px;">A <b>anamnese e os formulários continuam liberados</b> abaixo. As <b>avaliações físicas</b> ficam disponíveis com o plano ativo.</p>' +
     '</div>';
   }
+  var txt = isLight ? '#111' : '#f0f0f0', mut = isLight ? '#666' : '#9a9a9a';
+  var fmtN = function(v, d) { d = d || 1; return v != null ? Number(v).toFixed(d).replace('.',',') : '\u2014'; };
+  var rotulo = function(t) { return '<div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">' + t + '</div>'; };
+  var comNumeros = avaliacoes.filter(function(a) { return a && !/comparativo/i.test(String(a.metodo || '')) && (a.peso != null || a.percgordura != null); });
+
+  // Ações: a principal em destaque e as três áreas de acompanhamento lado a lado (histórico, comparativos e fotos)
   if (planoAtivo || !_syncDone) {
-    html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">' +
-      '<button class="btn btn-prim btn-full" style="padding:14px;font-size:14px;font-weight:700;" onclick="abrirNovaAvaliacao()">+ Nova Avaliação</button>' +
-      '<button class="btn btn-sec btn-full" style="padding:13px;font-size:13px;font-weight:700;" onclick="abrirComparativoFotos()">📸 Comparar minhas fotos (antes e depois)</button>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
-        '<button class="btn btn-sec btn-full" style="padding:12px;font-size:12px;" onclick="abrirVerAvaliacoes()">Ver Avaliações</button>' +
-        '<button class="btn btn-sec btn-full" style="padding:12px;font-size:12px;" onclick="abrirComparativos()">Ver Comparativos</button>' +
-      '</div>' +
-    '</div>';
+    var tile = function(ic, t, sub, fn) {
+      return '<button onclick="' + fn + '" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0;padding:13px 6px 11px;border-radius:14px;background:' + bgCard + ';border:1px solid ' + borderC + ';cursor:pointer;font-family:inherit;color:' + txt + ';text-align:center;">' +
+        '<span style="font-size:23px;line-height:1.1;">' + ic + '</span>' +
+        '<span style="font-size:12.5px;font-weight:800;">' + t + '</span>' +
+        '<span style="font-size:10.5px;color:' + mut + ';line-height:1.25;">' + sub + '</span></button>';
+    };
+    html += '<button class="btn btn-prim btn-full" style="padding:15px;font-size:15px;font-weight:800;margin-bottom:10px;" onclick="abrirNovaAvaliacao()">+ Nova avaliação</button>' +
+      '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:20px;">' +
+        tile('📋', 'Histórico', avaliacoes.length === 1 ? '1 registro' : avaliacoes.length + ' registros', 'abrirVerAvaliacoes()') +
+        tile('📊', 'Comparativos', 'evolução no tempo', 'abrirComparativos()') +
+        tile('📸', 'Fotos', 'antes e depois', 'abrirComparativoFotos()') +
+      '</div>';
+  }
+
+  // Última avaliação, com o que mudou desde a anterior (queda de gordura e alta de massa magra em verde; peso sem juízo de valor)
+  if (avaliacoes.length > 0) {
+    var ultima = avaliacoes[0];
+    var anterior = comNumeros.filter(function(a) { return a !== ultima && String(a.dtavaliacao || '') <= String(ultima.dtavaliacao || ''); })[0];
+    var magra = function(a) { return a && a.peso && a.percgordura != null ? a.peso * (1 - a.percgordura / 100) : null; };
+    var verde = isLight ? '#15803d' : '#4ade80', verm = isLight ? '#b91c1c' : '#f87171', azul = isLight ? '#1d4ed8' : '#60a5fa';
+    var variacao = function(atual, ant, melhor) {
+      if (atual == null || ant == null) return '<div style="height:14px;"></div>';
+      var d = atual - ant; if (Math.abs(d) < 0.05) return '<div style="font-size:10.5px;font-weight:700;color:' + mut + ';">igual</div>';
+      var cor = !melhor ? azul : ((melhor === 'menos' ? d < 0 : d > 0) ? verde : verm);
+      return '<div style="font-size:10.5px;font-weight:800;color:' + cor + ';">' + (d > 0 ? '▲ ' : '▼ ') + Math.abs(d).toFixed(1).replace('.', ',') + '</div>';
+    };
+    var celula = function(valor, un, rot, cor, delta) {
+      return '<div style="text-align:center;min-width:0;"><div style="font-size:19px;font-weight:900;color:' + cor + ';line-height:1.15;">' + valor + '<span style="font-size:11px;font-weight:700;">' + un + '</span></div>' +
+        '<div style="font-size:10px;color:' + mut + ';margin:1px 0 2px;">' + rot + '</div>' + delta + '</div>';
+    };
+    html += rotulo('Última avaliação') +
+      '<div style="background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:14px;padding:14px;margin-bottom:20px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">' +
+          '<span style="font-size:13px;font-weight:800;color:' + txt + ';">' + (ultima.dtavaliacao ? new Date(ultima.dtavaliacao+'T00:00:00').toLocaleDateString('pt-BR') : '\u2014') + '</span>' +
+          (ultima.metodo ? '<span style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(127,255,0,.12);color:' + (isLight ? '#3f7d00' : '#7FFF00') + ';font-weight:700;text-align:right;">' + esc(ultima.metodo) + '</span>' : '') +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;">' +
+          celula(fmtN(ultima.peso), ' kg', 'Peso', isLight ? '#3f7d00' : '#7FFF00', variacao(ultima.peso, anterior && anterior.peso, null)) +
+          celula(ultima.percgordura != null ? fmtN(ultima.percgordura) : '\u2014', ultima.percgordura != null ? '%' : '', 'Gordura', isLight ? '#a16207' : '#facc15', variacao(ultima.percgordura, anterior && anterior.percgordura, 'menos')) +
+          celula(magra(ultima) != null ? fmtN(magra(ultima)) : '\u2014', magra(ultima) != null ? ' kg' : '', 'M. magra', azul, variacao(magra(ultima), magra(anterior), 'mais')) +
+        '</div>' +
+        (anterior ? '<div style="font-size:10.5px;color:' + mut + ';margin-top:8px;">Variação desde ' + new Date(anterior.dtavaliacao+'T00:00:00').toLocaleDateString('pt-BR') + '</div>' : '') +
+        (comNumeros.length >= 2 && (planoAtivo || !_syncDone) ? '<div onclick="abrirComparativos()" style="margin-top:10px;padding-top:10px;border-top:1px solid ' + borderC + ';font-size:12.5px;font-weight:800;color:' + (isLight ? '#3f7d00' : '#7FFF00') + ';cursor:pointer;">Ver a evolução completa ›</div>' : '') +
+      '</div>';
   }
 
   // Feedbacks em vídeo do professor (preenchido por carregarFeedbacksAluno depois)
@@ -20835,35 +20890,17 @@ async function renderAvaliacoesAluno() {
       { label: 'Nutricional', sub: nutricionalRespondida ? 'Respondida' : 'Hábitos alimentares', fn: 'abrirFormNutricional', done: !!nutricionalRespondida },
       { label: 'Fotos e Postural', sub: 'Protocolo INTUS', fn: 'abrirFormFotosPostural', done: false },
     ];
-    html += '<div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Formulários</div>';
+    html += rotulo('Formulários');
     html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">';
     formItems.forEach(function(item) {
       html += '<div onclick="' + item.fn + '()" style="display:flex;align-items:center;gap:10px;background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:10px;padding:12px 14px;cursor:pointer;' + (item.done ? 'border-left:3px solid #7FFF00;' : '') + '">' +
         '<div style="width:8px;height:8px;border-radius:50%;background:' + (item.done ? '#7FFF00' : '#555') + ';flex-shrink:0;"></div>' +
-        '<div style="flex:1;"><div style="font-size:13px;font-weight:600;color:' + (isLight?'#111':'#f0f0f0') + ';">' + item.label + '</div>' +
+        '<div style="flex:1;"><div style="font-size:13px;font-weight:600;color:' + txt + ';">' + item.label + '</div>' +
         '<div style="font-size:10px;color:' + (isLight?'#888':'#666') + ';margin-top:1px;">' + item.sub + '</div></div>' +
         (item.done ? '<span style="font-size:11px;color:#7FFF00;font-weight:700;">&#10003;</span>' : '<span style="font-size:14px;color:#555;">&#8250;</span>') +
       '</div>';
     });
     html += '</div>';
-  }
-
-  // Resumo rápido se tem avaliações
-  if (avaliacoes.length > 0) {
-    var ultima = avaliacoes[0];
-    var fmtN = function(v, d) { d = d || 1; return v != null ? Number(v).toFixed(d).replace('.',',') : '\u2014'; };
-    html += '<div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Última Avaliação</div>';
-    html += '<div style="background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:12px;padding:14px;margin-bottom:16px;">' +
-      '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
-        '<span style="font-size:12px;font-weight:600;color:var(--texto,#fff);">' + (ultima.dtavaliacao ? new Date(ultima.dtavaliacao+'T00:00:00').toLocaleDateString('pt-BR') : '\u2014') + '</span>' +
-        (ultima.metodo ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(127,255,0,.1);color:#7FFF00;font-weight:600;">' + esc(ultima.metodo) + '</span>' : '') +
-      '</div>' +
-      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">' +
-        '<div style="text-align:center;"><div style="font-size:16px;font-weight:800;color:#7FFF00;">' + fmtN(ultima.peso) + '</div><div style="font-size:9px;color:#888;">Peso kg</div></div>' +
-        '<div style="text-align:center;"><div style="font-size:16px;font-weight:800;color:#facc15;">' + (ultima.percgordura != null ? fmtN(ultima.percgordura) + '%' : '\u2014') + '</div><div style="font-size:9px;color:#888;">Gordura</div></div>' +
-        '<div style="text-align:center;"><div style="font-size:16px;font-weight:800;color:#60a5fa;">' + (ultima.peso && ultima.percgordura != null ? fmtN(ultima.peso*(1-ultima.percgordura/100)) : '\u2014') + '</div><div style="font-size:9px;color:#888;">M.Magra kg</div></div>' +
-      '</div>' +
-    '</div>';
   }
 
   html += getFooterHtml();
@@ -20973,7 +21010,7 @@ function abrirFeedbackVideo(i) {
   const isLight = document.body.classList.contains('tema-claro');
   const token = _fbTokenDe(f);
   const meta = [f.professor_nome ? 'Feedback de ' + f.professor_nome : '', _fbDataBr(f.criado_em), _fbDuracao(f.duracao_seg)].filter(Boolean).map(esc).join(' · ');
-  container.innerHTML = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
+  container.innerHTML = telaHeader('🎬 Feedback em vídeo', null, 'renderAvaliacoesAluno();') +
     '<h2 class="sect-title" style="overflow-wrap:anywhere;">' + esc(f.titulo) + '</h2>' +
     '<p style="font-size:11.5px;color:#888;margin-bottom:12px;">' + meta + '</p>' +
     '<p id="fb-status" style="font-size:13px;color:#7FFF00;margin-bottom:10px;" hidden></p>' +
@@ -21019,18 +21056,19 @@ function abrirNovaAvaliacao() {
   var borderC = isLight ? '#e5e5e5' : '#1e1e1e';
 
   var opcoes = [
-    { label: 'Composição Corporal', sub: 'Peso, gordura, massa magra (vários métodos)', fn: 'abrirFormAutoAvaliacao' },
-    { label: 'Circunferências', sub: 'Medidas corporais em cm', fn: 'abrirFormCircunferencias' },
+    { ic: '⚖️', label: 'Composição corporal', sub: 'Peso, % de gordura e massa magra. Dá para informar direto, por bioimpedância ou por dobras cutâneas (3 ou 7 dobras).', fn: 'abrirFormAutoAvaliacao' },
+    { ic: '📏', label: 'Circunferências', sub: 'Medidas do corpo com fita métrica, em centímetros.', fn: 'abrirFormCircunferencias' },
+    { ic: '📸', label: 'Fotos e postural', sub: 'As 18 posições do protocolo Intus, para o professor analisar a sua postura.', fn: 'abrirFormFotosPostural' },
   ];
 
-  var html = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
-    '<h2 class="sect-title">Nova Avaliação</h2>' +
+  var html = telaHeader('Nova Avaliação', null, 'renderAvaliacoesAluno();') +
     '<p style="font-size:12px;color:#888;margin-bottom:16px;">Selecione o tipo de avaliação que deseja registrar.</p>';
   opcoes.forEach(function(op) {
-    html += '<div onclick="' + op.fn + '()" style="display:flex;align-items:center;gap:12px;background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:10px;padding:14px;cursor:pointer;margin-bottom:8px;">' +
-      '<div style="flex:1;"><div style="font-size:13px;font-weight:700;color:' + (isLight?'#111':'#f0f0f0') + ';">' + op.label + '</div>' +
-      '<div style="font-size:11px;color:#888;margin-top:2px;">' + op.sub + '</div></div>' +
-      '<span style="font-size:18px;color:#555;">&#8250;</span>' +
+    html += '<div onclick="' + op.fn + '()" style="display:flex;align-items:center;gap:13px;background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:14px;padding:14px;cursor:pointer;margin-bottom:10px;">' +
+      '<div style="width:44px;height:44px;border-radius:12px;background:' + (isLight ? '#f0f0f0' : '#1f1f1f') + ';display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">' + op.ic + '</div>' +
+      '<div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:800;color:' + (isLight?'#111':'#f0f0f0') + ';">' + op.label + '</div>' +
+      '<div style="font-size:11.5px;color:#888;margin-top:3px;line-height:1.45;">' + op.sub + '</div></div>' +
+      '<span style="font-size:20px;color:#555;flex-shrink:0;">&#8250;</span>' +
     '</div>';
   });
   html += getFooterHtml();
@@ -21045,8 +21083,7 @@ function abrirVerAvaliacoes() {
   var borderC = isLight ? '#e5e5e5' : '#1e1e1e';
   var avaliacoes = _avaliacoesCache;
 
-  var html = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
-    '<h2 class="sect-title">Histórico de Avaliações</h2>';
+  var html = telaHeader('Histórico de Avaliações', null, 'renderAvaliacoesAluno();');
 
   if (avaliacoes.length === 0) {
     html += '<div style="text-align:center;padding:40px 20px;"><p style="font-size:14px;color:var(--muted);">Nenhuma avaliação registrada.</p></div>';
@@ -21055,15 +21092,25 @@ function abrirVerAvaliacoes() {
       var dt = av.dtavaliacao ? new Date(av.dtavaliacao+'T00:00:00').toLocaleDateString('pt-BR') : '\u2014';
       var fN = function(v,d) { d=d||1; return v != null ? Number(v).toFixed(d).replace('.',',') : '\u2014'; };
       var massaMagra = (av.peso && av.percgordura != null) ? av.peso*(1-av.percgordura/100) : null;
-      html += '<div style="background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:10px;padding:14px;margin-bottom:8px;">' +
+      // O que mudou desde a avaliação anterior (a lista é da mais nova para a mais antiga): queda de gordura e alta de massa magra em verde
+      var antAv = avaliacoes.slice(idx + 1).filter(function(a) { return a.peso != null || a.percgordura != null; })[0];
+      var massaAnt = antAv && antAv.peso && antAv.percgordura != null ? antAv.peso*(1-antAv.percgordura/100) : null;
+      var dlt = function(a, b, melhor) {
+        if (a == null || b == null) return '';
+        var d = a - b; if (Math.abs(d) < 0.05) return '';
+        var bom = !melhor ? null : ((melhor === 'menos' ? d < 0 : d > 0));
+        var cor = bom === null ? (isLight ? '#1d4ed8' : '#60a5fa') : (bom ? (isLight ? '#15803d' : '#4ade80') : (isLight ? '#b91c1c' : '#f87171'));
+        return '<div style="font-size:10px;font-weight:800;color:' + cor + ';">' + (d > 0 ? '▲ ' : '▼ ') + Math.abs(d).toFixed(1).replace('.', ',') + '</div>';
+      };
+      html += '<div style="background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:14px;padding:14px;margin-bottom:10px;">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
           '<span style="font-size:13px;font-weight:700;color:var(--texto,#fff);">' + dt + '</span>' +
-          (av.metodo ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(127,255,0,.1);color:#7FFF00;font-weight:600;">' + esc(av.metodo) + '</span>' : '') +
+          (av.metodo ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(127,255,0,.12);color:' + (isLight?'#3f7d00':'#7FFF00') + ';font-weight:700;">' + esc(av.metodo) + '</span>' : '') +
         '</div>' +
         '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px;">' +
-          '<div style="text-align:center;"><div style="font-size:14px;font-weight:700;color:#7FFF00;">' + fN(av.peso) + '</div><div style="font-size:9px;color:#888;">Peso</div></div>' +
-          '<div style="text-align:center;"><div style="font-size:14px;font-weight:700;color:#facc15;">' + (av.percgordura != null ? fN(av.percgordura)+'%' : '\u2014') + '</div><div style="font-size:9px;color:#888;">Gordura</div></div>' +
-          '<div style="text-align:center;"><div style="font-size:14px;font-weight:700;color:#60a5fa;">' + (massaMagra != null ? fN(massaMagra) : '\u2014') + '</div><div style="font-size:9px;color:#888;">M.Magra</div></div>' +
+          '<div style="text-align:center;"><div style="font-size:14px;font-weight:700;color:' + (isLight?'#3f7d00':'#7FFF00') + ';">' + fN(av.peso) + '</div><div style="font-size:9px;color:#888;">Peso kg</div>' + dlt(av.peso, antAv && antAv.peso, null) + '</div>' +
+          '<div style="text-align:center;"><div style="font-size:14px;font-weight:700;color:' + (isLight?'#a16207':'#facc15') + ';">' + (av.percgordura != null ? fN(av.percgordura)+'%' : '\u2014') + '</div><div style="font-size:9px;color:#888;">Gordura</div>' + dlt(av.percgordura, antAv && antAv.percgordura, 'menos') + '</div>' +
+          '<div style="text-align:center;"><div style="font-size:14px;font-weight:700;color:' + (isLight?'#1d4ed8':'#60a5fa') + ';">' + (massaMagra != null ? fN(massaMagra) : '\u2014') + '</div><div style="font-size:9px;color:#888;">M.Magra kg</div>' + dlt(massaMagra, massaAnt, 'mais') + '</div>' +
         '</div>';
       if (av.medidas && typeof av.medidas === 'object') {
         var LABELS = { torax:'Tórax', cintura:'Cintura', quadril:'Quadril', braco_d:'Braço D', braco_e:'Braço E', coxa_d:'Coxa D', coxa_e:'Coxa E', panturrilha_d:'Pant D', panturrilha_e:'Pant E', pescoco:'Pescoço', ombro:'Ombro', abdomen:'Abdômen' };
@@ -21101,145 +21148,10 @@ function abrirComparativoFotos() {
   if (window.ComparativoFotos && ComparativoFotos.abrir) ComparativoFotos.abrir();
   else toast('O comparativo de fotos não carregou. Feche e abra o app de novo.');
 }
+// Comparativo de avaliações (2 ou mais, com gráfico, tabela e fotos): comparativo-avaliacoes.js. Se o módulo não carregou, avisa em vez de falhar calado.
 function abrirComparativos() {
-  var container = document.getElementById('v-avaliacoes');
-  var isLight = document.body.classList.contains('tema-claro');
-  var bgCard = isLight ? '#fff' : '#141414';
-  var borderC = isLight ? '#e5e5e5' : '#1e1e1e';
-  var avaliacoes = _avaliacoesCache;
-
-  var html = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
-    '<h2 class="sect-title">Comparativos</h2>' +
-    '<p style="font-size:12px;color:#888;margin-bottom:16px;">Selecione 2 avaliações para comparar dados e medidas.</p>';
-
-  if (avaliacoes.length < 2) {
-    html += '<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;">É necessário pelo menos 2 avaliações para comparar.</div>';
-  } else {
-    html += '<div id="comp-list" style="margin-bottom:12px;">';
-    avaliacoes.forEach(function(av, idx) {
-      var dt = av.dtavaliacao ? new Date(av.dtavaliacao+'T00:00:00').toLocaleDateString('pt-BR') : '\u2014';
-      var fN = function(v,d) { d=d||1; return v != null ? Number(v).toFixed(d).replace('.',',') : '\u2014'; };
-      html += '<label style="display:flex;align-items:center;gap:10px;background:' + bgCard + ';border:1px solid ' + borderC + ';border-radius:10px;padding:12px 14px;margin-bottom:6px;cursor:pointer;">' +
-        '<input type="checkbox" class="comp-check" data-idx="' + idx + '" onchange="verificarComparacao()" style="width:18px;height:18px;accent-color:#7FFF00;"/>' +
-        '<div style="flex:1;">' +
-          '<div style="font-size:13px;font-weight:600;color:var(--texto,#fff);">' + dt + (av.metodo ? ' · ' + esc(av.metodo) : '') + '</div>' +
-          '<div style="font-size:11px;color:#888;">Peso: ' + fN(av.peso) + ' kg' + (av.percgordura != null ? ' · Gord: '+fN(av.percgordura)+'%' : '') + '</div>' +
-        '</div>' +
-      '</label>';
-    });
-    html += '</div>';
-    html += '<button id="btn-comparar" class="btn btn-prim btn-full" style="padding:12px;font-size:13px;opacity:.4;pointer-events:none;" onclick="executarComparacao()">Comparar Selecionados</button>';
-    html += '<div id="comp-resultado" style="margin-top:16px;"></div>';
-  }
-  html += getFooterHtml();
-  container.innerHTML = html;
-}
-
-function verificarComparacao() {
-  var checks = document.querySelectorAll('.comp-check:checked');
-  var btn = document.getElementById('btn-comparar');
-  if (checks.length === 2) {
-    btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
-  } else {
-    btn.style.opacity = '.4'; btn.style.pointerEvents = 'none';
-  }
-  if (checks.length > 2) {
-    checks[0].checked = false;
-    verificarComparacao();
-  }
-}
-
-function executarComparacao() {
-  var checks = document.querySelectorAll('.comp-check:checked');
-  if (checks.length !== 2) return;
-  var idx1 = parseInt(checks[0].dataset.idx);
-  var idx2 = parseInt(checks[1].dataset.idx);
-  var av1 = _avaliacoesCache[idx1];
-  var av2 = _avaliacoesCache[idx2];
-  var isLight = document.body.classList.contains('tema-claro');
-  var bgCard = isLight ? '#f5f5f5' : '#0d0d0d';
-
-  var dt1 = av1.dtavaliacao ? new Date(av1.dtavaliacao+'T00:00:00').toLocaleDateString('pt-BR') : '\u2014';
-  var dt2 = av2.dtavaliacao ? new Date(av2.dtavaliacao+'T00:00:00').toLocaleDateString('pt-BR') : '\u2014';
-  var fN = function(v,d) { d=d||1; return v != null ? Number(v).toFixed(d).replace('.',',') : '\u2014'; };
-
-  function delta(a, b) {
-    if (a == null || b == null) return '';
-    var diff = a - b;
-    var color = diff > 0 ? '#7FFF00' : diff < 0 ? '#f87171' : '#888';
-    return ' <span style="font-size:10px;color:' + color + ';">(' + (diff > 0 ? '+' : '') + diff.toFixed(1) + ')</span>';
-  }
-
-  var campos = [
-    { label: 'Peso (kg)', v1: av1.peso, v2: av2.peso },
-    { label: '% Gordura', v1: av1.percgordura, v2: av2.percgordura },
-    { label: 'M. Magra (kg)', v1: av1.peso && av1.percgordura != null ? av1.peso*(1-av1.percgordura/100) : null, v2: av2.peso && av2.percgordura != null ? av2.peso*(1-av2.percgordura/100) : null },
-    { label: 'M. Gorda (kg)', v1: av1.peso && av1.percgordura != null ? av1.peso*(av1.percgordura/100) : null, v2: av2.peso && av2.percgordura != null ? av2.peso*(av2.percgordura/100) : null },
-  ];
-
-  var r = '<div style="font-size:12px;font-weight:700;color:var(--texto,#fff);margin-bottom:10px;">Comparação: ' + dt1 + ' vs ' + dt2 + '</div>';
-  r += '<div style="background:' + bgCard + ';border-radius:10px;padding:12px;margin-bottom:10px;">';
-  r += '<table style="width:100%;font-size:11px;color:var(--texto,#fff);border-collapse:collapse;">';
-  r += '<tr style="border-bottom:1px solid ' + (isLight?'#e0e0e0':'#222') + ';"><th style="text-align:left;padding:4px 0;color:#888;">Medida</th><th style="text-align:center;padding:4px;">' + dt1 + '</th><th style="text-align:center;padding:4px;">' + dt2 + '</th><th style="text-align:center;padding:4px;">Dif</th></tr>';
-  campos.forEach(function(c) {
-    if (c.v1 == null && c.v2 == null) return;
-    var diff = (c.v1 != null && c.v2 != null) ? (c.v1 - c.v2) : null;
-    var diffStr = diff != null ? ((diff > 0 ? '+' : '') + diff.toFixed(1)) : '\u2014';
-    var diffColor = diff != null ? (diff > 0 ? '#7FFF00' : diff < 0 ? '#f87171' : '#888') : '#888';
-    r += '<tr style="border-bottom:1px solid ' + (isLight?'#eee':'#1a1a1a') + ';"><td style="padding:5px 0;">' + c.label + '</td><td style="text-align:center;padding:5px;">' + fN(c.v1) + '</td><td style="text-align:center;padding:5px;">' + fN(c.v2) + '</td><td style="text-align:center;padding:5px;color:' + diffColor + ';font-weight:700;">' + diffStr + '</td></tr>';
-  });
-  r += '</table></div>';
-
-  // Comparar medidas
-  if ((av1.medidas && typeof av1.medidas === 'object') || (av2.medidas && typeof av2.medidas === 'object')) {
-    var m1 = av1.medidas || {};
-    var m2 = av2.medidas || {};
-    var LABELS = { torax:'Tórax', cintura:'Cintura', quadril:'Quadril', braco_d:'Braço D', braco_e:'Braço E', coxa_d:'Coxa D', coxa_e:'Coxa E', panturrilha_d:'Pant D', panturrilha_e:'Pant E', pescoco:'Pescoço', ombro:'Ombro', abdomen:'Abdômen' };
-    var allKeys = Object.keys(Object.assign({}, m1, m2)).filter(function(k) { return !k.startsWith('dc_'); });
-    if (allKeys.length > 0) {
-      r += '<div style="font-size:11px;font-weight:700;color:#888;margin-bottom:6px;">Circunferências (cm)</div>';
-      r += '<div style="background:' + bgCard + ';border-radius:10px;padding:12px;">';
-      r += '<table style="width:100%;font-size:11px;color:var(--texto,#fff);border-collapse:collapse;">';
-      r += '<tr style="border-bottom:1px solid ' + (isLight?'#e0e0e0':'#222') + ';"><th style="text-align:left;padding:4px 0;color:#888;">Local</th><th style="text-align:center;padding:4px;">' + dt1 + '</th><th style="text-align:center;padding:4px;">' + dt2 + '</th><th style="text-align:center;padding:4px;">Dif</th></tr>';
-      allKeys.forEach(function(k) {
-        var v1 = m1[k] != null ? parseFloat(m1[k]) : null;
-        var v2 = m2[k] != null ? parseFloat(m2[k]) : null;
-        if (v1 == null && v2 == null) return;
-        var diff = (v1 != null && v2 != null) ? (v1 - v2) : null;
-        var diffStr = diff != null ? ((diff > 0 ? '+' : '') + diff.toFixed(1)) : '\u2014';
-        var diffColor = diff != null ? (Math.abs(diff) < 0.1 ? '#888' : '#60a5fa') : '#888';
-        r += '<tr style="border-bottom:1px solid ' + (isLight?'#eee':'#1a1a1a') + ';"><td style="padding:4px 0;">' + (LABELS[k]||k) + '</td><td style="text-align:center;padding:4px;">' + (v1 != null ? v1.toFixed(1) : '\u2014') + '</td><td style="text-align:center;padding:4px;">' + (v2 != null ? v2.toFixed(1) : '\u2014') + '</td><td style="text-align:center;padding:4px;color:' + diffColor + ';font-weight:700;">' + diffStr + '</td></tr>';
-      });
-      r += '</table></div>';
-    }
-
-    // Mesma tabela, agora para as dobras — que antes ficavam de fora da
-    // comparacao, apesar de serem a medida que mais muda entre avaliacoes.
-    var keysD = Object.keys(Object.assign({}, m1, m2)).filter(function(k) { return k.indexOf('dc_') === 0; });
-    if (keysD.length > 0) {
-      r += '<div style="font-size:11px;font-weight:700;color:#888;margin:14px 0 6px;">Dobras cutâneas (mm)</div>';
-      r += '<div style="background:' + bgCard + ';border-radius:10px;padding:12px;">';
-      r += '<table style="width:100%;font-size:11px;color:var(--texto,#fff);border-collapse:collapse;">';
-      r += '<tr style="border-bottom:1px solid ' + (isLight?'#e0e0e0':'#222') + ';"><th style="text-align:left;padding:4px 0;color:#888;">Dobra</th><th style="text-align:center;padding:4px;">' + dt1 + '</th><th style="text-align:center;padding:4px;">' + dt2 + '</th><th style="text-align:center;padding:4px;">Dif</th></tr>';
-      keysD.forEach(function(k) {
-        var v1 = m1[k] != null && m1[k] !== '' ? parseFloat(m1[k]) : null;
-        var v2 = m2[k] != null && m2[k] !== '' ? parseFloat(m2[k]) : null;
-        if (v1 == null && v2 == null) return;
-        var diff = (v1 != null && v2 != null) ? (v1 - v2) : null;
-        var diffStr = diff != null ? ((diff > 0 ? '+' : '') + diff.toFixed(1)) : '\u2014';
-        var diffColor = diff != null ? (Math.abs(diff) < 0.1 ? '#888' : (diff < 0 ? '#4ade80' : '#f87171')) : '#888';
-        r += '<tr style="border-bottom:1px solid ' + (isLight?'#eee':'#1a1a1a') + ';"><td style="padding:4px 0;">' + (DOBRAS_LBL[k]||k.replace('dc_','')) + '</td><td style="text-align:center;padding:4px;">' + (v1 != null ? v1.toFixed(1) : '\u2014') + '</td><td style="text-align:center;padding:4px;">' + (v2 != null ? v2.toFixed(1) : '\u2014') + '</td><td style="text-align:center;padding:4px;color:' + diffColor + ';font-weight:700;">' + diffStr + '</td></tr>';
-      });
-      var s1 = _somaDobras(m1), s2 = _somaDobras(m2);
-      if (s1 > 0 || s2 > 0) {
-        var ds = (s1 > 0 && s2 > 0) ? (s1 - s2) : null;
-        r += '<tr><td style="padding:6px 0;font-weight:700;">Soma</td><td style="text-align:center;padding:6px;font-weight:700;">' + (s1>0?s1.toFixed(1):'\u2014') + '</td><td style="text-align:center;padding:6px;font-weight:700;">' + (s2>0?s2.toFixed(1):'\u2014') + '</td><td style="text-align:center;padding:6px;font-weight:700;color:' + (ds != null ? (ds < 0 ? '#4ade80' : '#f87171') : '#888') + ';">' + (ds != null ? ((ds>0?'+':'')+ds.toFixed(1)) : '\u2014') + '</td></tr>';
-      }
-      r += '</table></div>';
-    }
-  }
-
-  document.getElementById('comp-resultado').innerHTML = r;
+  if (window.ComparativoAvaliacoes && ComparativoAvaliacoes.abrir) ComparativoAvaliacoes.abrir();
+  else toast('O comparativo não carregou. Feche e abra o app de novo.');
 }
 
 // ═══════════════ ANAMNESE ═══════════════
@@ -21280,8 +21192,9 @@ function abrirAnamnese() {
     '</div>';
   });
 
-  container.innerHTML = '<button class="btn-back" onclick="sairDaAnamnese()">← Voltar</button>' +
-    '<h2 style="font-size:18px;font-weight:800;color:' + (isLight?'#111':'#fff') + ';margin:16px 0 8px;">Anamnese</h2>' +
+  // O Voltar usa voltarTela(): a Anamnese é uma tela própria na pilha, e sair dela tem de DESEMPILHAR (antes empilhava Avaliações de novo e o
+  // Voltar de Avaliações reabria a Anamnese, sem nunca chegar na tela inicial). A pergunta de "respostas não enviadas" fica em _anamneseVoltarGesto.
+  container.innerHTML = telaHeader('Anamnese', null, 'voltarTela()') +
     faixaIdentidade(isLight) +
     faixaRascunho(isLight) +
     '<p style="font-size:13px;color:' + (isLight?'#666':'#999') + ';margin-bottom:20px;line-height:1.5;">Preencha com o máximo de detalhes para que seu professor conheça você melhor. Respostas descritivas ajudam muito na prescrição.</p>' +
@@ -21308,6 +21221,7 @@ function _ligarRascunhoAoDigitar() {
   var aviso = document.getElementById('anamnese-auto');
 
   function gravar() {
+    if (!form.isConnected) return;   // a tela já foi trocada: este formulário não existe mais (cada abertura cria o seu e os ouvintes do documento ficavam)
     var d = {};
     var algum = false;
     form.querySelectorAll('[data-field]').forEach(function (f) {
@@ -21362,8 +21276,7 @@ async function salvarAnamnese() {
     window._anamneseSujo = false;
     try { localStorage.removeItem('intus-anamnese-rascunho-' + idAtleta); } catch (e) {}
     toast('Anamnese enviada ao seu professor ✔');
-    trocarView('avaliacoes');
-    renderAvaliacoesAluno();
+    voltarTela();   // desempilha a Anamnese (volta para Avaliações, de onde veio); trocarView('avaliacoes') empilhava uma segunda cópia
   } catch (e) {
     alert('Não conseguimos enviar suas respostas agora.\n\nElas ficaram guardadas neste aparelho. Confira sua internet e toque em Salvar de novo, nada do que você escreveu foi perdido.');
   }
@@ -21371,13 +21284,15 @@ async function salvarAnamnese() {
 
 // Sair da anamnese com respostas nao enviadas: avisa, mas nunca prende o aluno
 // na tela. O rascunho ja esta guardado; a faixa no topo traz tudo de volta.
-function sairDaAnamnese() {
-  if (window._anamneseSujo) {
-    if (!confirm('Você tem respostas que ainda não foram enviadas ao seu professor.\n\n' +
-                 'Elas ficam guardadas neste aparelho e aparecem aqui quando você voltar.\n\nSair mesmo assim?')) return;
-  }
-  trocarView('avaliacoes');
-  renderAvaliacoesAluno();
+function sairDaAnamnese() { voltarTela(); }
+// O gesto de voltar do celular (e o botão Voltar, que passa pelo mesmo caminho) chega aqui antes de sair da Anamnese. Com respostas não enviadas
+// pergunta; se a pessoa decide ficar, devolve a entrada de histórico que o gesto consumiu. Devolve true quando a saída foi barrada.
+function _anamneseVoltarGesto() {
+  if (!window._anamneseSujo) return false;
+  if (confirm('Você tem respostas que ainda não foram enviadas ao seu professor.\n\n' +
+              'Elas ficam guardadas neste aparelho e aparecem aqui quando você voltar.\n\nSair mesmo assim?')) { window._anamneseSujo = false; return false; }
+  history.pushState({ view: 'anamnese' }, '', '');
+  return true;
 }
 
 // ═══════════════ COMPORTAMENTAL ═══════════════
@@ -21413,8 +21328,7 @@ function abrirComportamental() {
     '</div>';
   });
 
-  container.innerHTML = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
-    '<h2 style="font-size:18px;font-weight:800;color:' + (isLight?'#111':'#fff') + ';margin:16px 0 8px;">Avaliação Comportamental</h2>' +
+  container.innerHTML = telaHeader('Avaliação Comportamental', null, 'renderAvaliacoesAluno();') +
     faixaIdentidade(isLight) +
     '<p style="font-size:13px;color:' + (isLight?'#666':'#999') + ';margin-bottom:20px;line-height:1.5;">Suas respostas detalhadas e honestas ajudam a monitorar e adequar o acompanhamento de forma completa.</p>' +
     '<div id="comportamental-form">' + formHtml + '</div>' +
@@ -21471,8 +21385,7 @@ function abrirFormRotina() {
     }
   });
 
-  container.innerHTML = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
-    '<h2 style="font-size:18px;font-weight:800;color:' + (isLight?'#111':'#fff') + ';margin:16px 0 8px;">Rotina</h2>' +
+  container.innerHTML = telaHeader('Rotina', null, 'renderAvaliacoesAluno();') +
     '<p style="font-size:13px;color:' + (isLight?'#666':'#999') + ';margin-bottom:20px;line-height:1.5;">Sobre seus hábitos diários e disponibilidade para treinar.</p>' +
     '<div id="rotina-form">' + rotinaItems + '</div>' +
     '<div style="margin-top:24px;margin-bottom:40px;">' +
@@ -21511,8 +21424,7 @@ function abrirFormCircunferencias() {
   ];
 
   container.innerHTML = `
-    <button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>
-    <h2 class="sect-title">📏 Circunferências</h2>
+    ${telaHeader('📏 Circunferências', null, 'abrirNovaAvaliacao();')}
     <p style="font-size:12px;color:#888;margin-bottom:6px;">Use fita métrica. Meça relaxado, sem comprimir a pele.</p>
     <p style="font-size:11px;color:#666;margin-bottom:16px;">Preencha apenas as que conseguir medir.</p>
     <div style="margin-bottom:12px;">
@@ -21560,8 +21472,7 @@ function abrirFormFotosPostural() {
   var borderC = isLight ? '#e5e5e5' : '#1e1e1e';
   var cellBg = isLight ? '#f5f5f5' : '#0d0d0d';
 
-  var html = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
-    '<h2 class="sect-title">Fotos e Avaliação Postural</h2>' +
+  var html = telaHeader('Fotos e Avaliação Postural', null, 'renderAvaliacoesAluno();') +
     '<p style="font-size:12px;color:#888;margin-bottom:16px;">Protocolo INTUS · 18 posições para análise postural completa.</p>';
 
   // Video tutorial inline (thumbnail style like exercises)
@@ -21740,8 +21651,7 @@ function abrirFormNutricional() {
     }
   });
 
-  container.innerHTML = '<button class="btn-back" onclick="renderAvaliacoesAluno();">← Voltar</button>' +
-    '<h2 style="font-size:18px;font-weight:800;color:' + (isLight?'#111':'#fff') + ';margin:16px 0 8px;">Avaliação Nutricional</h2>' +
+  container.innerHTML = telaHeader('Avaliação Nutricional', null, 'renderAvaliacoesAluno();') +
     faixaIdentidade(isLight) +
     '<p style="font-size:13px;color:' + (isLight?'#666':'#999') + ';margin-bottom:20px;line-height:1.5;">Sobre seus hábitos alimentares. Ajuda o nutricionista a prescrever com mais precisão.</p>' +
     '<div id="nutri-form">' + formItems + '</div>' +
@@ -21772,8 +21682,7 @@ function abrirFormAutoAvaliacao() {
   var lblColor = isLight ? '#555' : '#aaa';
   var hoje = new Date().toISOString().slice(0,10);
 
-  var html = '<button class="btn-back" onclick="abrirNovaAvaliacao()">← Voltar</button>' +
-    '<h2 class="sect-title">Composição Corporal</h2>' +
+  var html = telaHeader('Composição Corporal', null, 'abrirNovaAvaliacao()') +
     '<p style="font-size:12px;color:#888;margin-bottom:16px;">Selecione o método utilizado para calcular o percentual de gordura.</p>' +
     '<div id="autoav-form">' +
       '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:12px;padding:16px;margin-bottom:14px;">' +
@@ -21788,8 +21697,8 @@ function abrirFormAutoAvaliacao() {
           '<div><label style="font-size:11px;font-weight:600;color:' + lblColor + ';display:block;margin-bottom:4px;">Altura (m)</label>' +
           '<input type="number" step="0.01" id="av-altura" placeholder="1.75" style="width:100%;padding:10px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:8px;color:' + txtColor + ';font-size:13px;"/></div>' +
           '<div><label style="font-size:11px;font-weight:600;color:' + lblColor + ';display:block;margin-bottom:4px;">Sexo</label>' +
-          '<select id="av-sexo" style="width:100%;padding:10px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:8px;color:' + txtColor + ';font-size:13px;">' +
-            '<option value="M">Masculino</option><option value="F">Feminino</option>' +
+          '<select id="av-sexo" onchange="atualizarLabelsDobras3()" style="width:100%;padding:10px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:8px;color:' + txtColor + ';font-size:13px;">' +
+            '<option value="M"' + (_sexoDoAluno() === 'F' ? '' : ' selected') + '>Masculino</option><option value="F"' + (_sexoDoAluno() === 'F' ? ' selected' : '') + '>Feminino</option>' +
           '</select></div>' +
         '</div>' +
         '<div style="margin-top:10px;"><label style="font-size:11px;font-weight:600;color:' + lblColor + ';display:block;margin-bottom:4px;">Idade</label>' +
@@ -21830,6 +21739,12 @@ function abrirFormAutoAvaliacao() {
   mudarMetodoComposicao();
 }
 
+// Sexo cadastrado do aluno (M ou F), para já vir marcado no formulário de composição: os protocolos de dobras mudam com ele.
+function _sexoDoAluno() {
+  var g = '';
+  try { g = String((user && user.genero) || (getAtletaCompleto() || {}).genero || (getAtletaCompleto() || {}).sexo || '').trim().toUpperCase().charAt(0); } catch (e) {}
+  return g === 'F' ? 'F' : 'M';
+}
 function mudarMetodoComposicao() {
   var metodo = document.getElementById('av-metodo').value;
   var isLight = document.body.classList.contains('tema-claro');
@@ -21870,7 +21785,7 @@ function mudarMetodoComposicao() {
         '<div><label style="font-size:10px;color:' + lblColor + ';display:block;margin-bottom:3px;">Tríceps</label><input type="number" step="0.1" id="av-d7-triceps" placeholder="mm" style="width:100%;padding:8px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:6px;color:' + txtColor + ';font-size:12px;"/></div>' +
         '<div><label style="font-size:10px;color:' + lblColor + ';display:block;margin-bottom:3px;">Subescapular</label><input type="number" step="0.1" id="av-d7-subescapular" placeholder="mm" style="width:100%;padding:8px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:6px;color:' + txtColor + ';font-size:12px;"/></div>' +
         '<div><label style="font-size:10px;color:' + lblColor + ';display:block;margin-bottom:3px;">Abdominal</label><input type="number" step="0.1" id="av-d7-abdominal" placeholder="mm" style="width:100%;padding:8px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:6px;color:' + txtColor + ';font-size:12px;"/></div>' +
-        '<div><label style="font-size:10px;color:' + lblColor + ';display:block;margin-bottom:3px;">Supra-ilíaca</label><input type="number" step="0.1" id="av-d7-suprailiaca" placeholder="mm" style="width:100%;padding:8px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:6px;color:' + txtColor + ';font-size:12px;"/></div>' +
+        '<div><label style="font-size:10px;color:' + lblColor + ';display:block;margin-bottom:3px;">Suprailíaca</label><input type="number" step="0.1" id="av-d7-suprailiaca" placeholder="mm" style="width:100%;padding:8px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:6px;color:' + txtColor + ';font-size:12px;"/></div>' +
         '<div><label style="font-size:10px;color:' + lblColor + ';display:block;margin-bottom:3px;">Coxa</label><input type="number" step="0.1" id="av-d7-coxa" placeholder="mm" style="width:100%;padding:8px;background:' + inputBg + ';border:1px solid ' + border + ';border-radius:6px;color:' + txtColor + ';font-size:12px;"/></div>' +
       '</div>' +
       '<button class="btn btn-sec" style="margin-top:10px;padding:8px 12px;font-size:11px;" onclick="calcularDobras7()">Calcular % Gordura</button>';
@@ -21893,8 +21808,8 @@ function atualizarLabelsDobras3() {
     info.textContent = '(Masculino: Peitoral, Abdominal, Coxa)';
     if (l1) l1.textContent = 'Peitoral'; if (l2) l2.textContent = 'Abdominal'; if (l3) l3.textContent = 'Coxa';
   } else {
-    info.textContent = '(Feminino: Tríceps, Supra-ilíaca, Coxa)';
-    if (l1) l1.textContent = 'Tríceps'; if (l2) l2.textContent = 'Supra-ilíaca'; if (l3) l3.textContent = 'Coxa';
+    info.textContent = '(Feminino: Tríceps, Suprailíaca, Coxa)';
+    if (l1) l1.textContent = 'Tríceps'; if (l2) l2.textContent = 'Suprailíaca'; if (l3) l3.textContent = 'Coxa';
   }
 }
 
@@ -21984,8 +21899,11 @@ async function salvarAutoAvaliacao() {
     if (el && el.value !== '') medidas[chave] = parseFloat(el.value);
   }
   if (metodoSel === 'dobras3') {
-    adicionarMedida('av-dc1', 'dc_peitoral');
-    adicionarMedida('av-dc2', 'dc_abdominal');
+    // Os três campos mudam com o sexo (ver atualizarLabelsDobras3): homem = peitoral, abdominal, coxa; mulher = tríceps, suprailíaca, coxa.
+    // Antes as duas primeiras eram sempre gravadas como peitoral e abdominal: a mulher que media tríceps e suprailíaca via "peitoral" e "abdominal" no histórico.
+    var sx = document.getElementById('av-sexo') ? document.getElementById('av-sexo').value : 'M';
+    adicionarMedida('av-dc1', sx === 'F' ? 'dc_tricipital' : 'dc_peitoral');
+    adicionarMedida('av-dc2', sx === 'F' ? 'dc_suprailiaca' : 'dc_abdominal');
     adicionarMedida('av-dc3', 'dc_coxa');
   } else if (metodoSel === 'dobras7') {
     adicionarMedida('av-d7-peitoral', 'dc_peitoral');
@@ -24716,11 +24634,13 @@ window.addEventListener('popstate', function(e) {
   if (_pkFecharTopoPorVoltar()) return;   // perfil, post, privacidade, folha de comentário ou editor de vídeo aberto: voltar fecha só ele
   const _bypassBox = _treinoBypassBox; _treinoBypassBox = false;
   // Camadas que não têm entrada própria no histórico: voltar fecha a camada e devolve a entrada que o gesto consumiu (a tela de trás não muda).
-  const _CAMADAS_VOLTAR = ['dlg-app-ov', 'cq-overlay', 'conq-detail-overlay', 'hist-dia-overlay', 'hist-del-overlay', 'marcador-overlay'];
+  const _CAMADAS_VOLTAR = ['dlg-app-ov', 'cq-overlay', 'conq-detail-overlay', 'hist-dia-overlay', 'hist-del-overlay', 'marcador-overlay', 'res-compose-overlay'];
   for (let ci = 0; ci < _CAMADAS_VOLTAR.length; ci++) {
     const el = document.getElementById(_CAMADAS_VOLTAR[ci]);
     if (!el) continue;
-    if (_CAMADAS_VOLTAR[ci] === 'cq-overlay' && typeof _fecharComemoracao === 'function') _fecharComemoracao(); else el.remove();
+    if (_CAMADAS_VOLTAR[ci] === 'cq-overlay' && typeof _fecharComemoracao === 'function') _fecharComemoracao();
+    else if (_CAMADAS_VOLTAR[ci] === 'res-compose-overlay' && typeof _rcFechar === 'function') _rcFechar();   // "Compartilhar resultado": voltar fecha a folha e esvazia as mídias; a tela de trás não muda
+    else el.remove();
     history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', '');
     return;
   }
@@ -24795,6 +24715,8 @@ window.addEventListener('popstate', function(e) {
   // (#feed-compose-overlay, ver _renderComposeFeed) — a trava continua
   // valendo pros 3 casos, só mudou o id que ela observa.
   if (window._viewAtual === 'nutricao' && typeof _nutriVoltarGesto === 'function' && _nutriVoltarGesto()) return;
+  // Anamnese com respostas ainda não enviadas: pergunta antes de sair (a saída em si é a volta normal da pilha).
+  if (window._viewAtual === 'anamnese' && typeof _anamneseVoltarGesto === 'function' && _anamneseVoltarGesto()) return;
   // Meu Cardio: formulário, confirmação e histórico são passos dentro da tela; voltar do celular anda um passo (e a tela de "cardio registrado", por cima de tudo, fecha primeiro).
   if (window._viewAtual === 'cardio' && typeof _cardioVoltarGesto === 'function' && _cardioVoltarGesto()) return;
   // Programa de cardio (detalhe, execução ou resultado): voltar do celular leva à lista de programas, não ao registro de cardio.
@@ -24814,8 +24736,10 @@ window.addEventListener('popstate', function(e) {
   // próprio botão "← Voltar". Voltar do celular deve usar esse botão (volta para a lista), não pular da tela inteira para o início.
   try {
     const cont = document.getElementById('v-' + window._viewAtual);
-    const bb = cont && cont.firstElementChild;
-    if (bb && bb.classList && bb.classList.contains('btn-back') && !/trocarView|confirmarDesistencia|voltarTela/.test(bb.getAttribute('onclick') || '')) {
+    const fe = cont && cont.firstElementChild;
+    // o botão Voltar pode ser o primeiro elemento da tela ou estar dentro do cabeçalho de um passo (telaHeader com voltarJs, marcado com data-sub)
+    const bb = fe && fe.classList && (fe.classList.contains('btn-back') ? fe : (fe.dataset && fe.dataset.sub ? fe.querySelector('.btn-back') : null));
+    if (bb && !/trocarView|confirmarDesistencia|voltarTela/.test(bb.getAttribute('onclick') || '')) {
       const n0 = _pushN;
       bb.click();
       if (_pushN === n0) history.pushState({ view: window._viewAtual }, '', '');

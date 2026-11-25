@@ -44,7 +44,7 @@ const T = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charse
     ComparativoFotos.abrir();
   }, imgs);
   await page.waitForTimeout(300);
-  eq('a tela abre com os dois quadros vazios e os botões de salvar e compartilhar travados', await page.evaluate(() => ({ titulo: !!document.querySelector('#v-avaliacoes .sect-title'), salvar: document.getElementById('cf-btn-salvar').style.pointerEvents, comp: document.getElementById('cf-btn-comp').style.pointerEvents })), { titulo: true, salvar: 'none', comp: 'none' });
+  eq('a tela abre com os dois quadros vazios e os botões de salvar e compartilhar travados', await page.evaluate(() => ({ titulo: !!document.querySelector('#v-avaliacoes .th-titulo'), salvar: document.getElementById('cf-btn-salvar').style.pointerEvents, comp: document.getElementById('cf-btn-comp').style.pointerEvents })), { titulo: true, salvar: 'none', comp: 'none' });
   await page.evaluate(() => ComparativoFotos.escolher('a'));
   const opcoes = await page.evaluate(() => document.querySelectorAll('#cf-pick img').length);
   eq('a lista de fotos traz só as das avaliações (o comparativo já salvo fica de fora)', opcoes, 2);

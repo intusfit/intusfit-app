@@ -31,6 +31,9 @@ passo "preparar o app: permissoes de uma vez" node permissoes_app.js
 passo "evolucao: media de duracao por musculacao e cardio" node evolucao_medias.js
 passo "lembretes de refeicoes e agua" node lembretes_nutri.js
 passo "comparativo de fotos do aluno (linha divisoria, lado a lado, salvar e publicar com confirmacao)" node comparativo_fotos.js
+passo "comparativo de avaliacoes (2 ou mais), Quadro de Resultados e voltar" node comparativo_avaliacoes.js
+passo "fluxo de Avaliacoes: abrir, nova, comparativos, formularios, ir e voltar (botao e gesto)" node fluxo_avaliacoes.js
+passo "dobras cutaneas na ordem tradicional (aluno e painel)" node dobras_ordem.js
 command -v php >/dev/null 2>&1 && passo "links assinados das fotos de avaliacao" php foto_link.php
 passo "comunidade: turmas e desafios"      node comunidade.js
 passo "corte de vídeo: pontas e trecho"    node trecho.js

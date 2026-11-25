@@ -6,7 +6,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon"/>
   <title>Avaliações — Intus</title>
   <script src="_mock.js?v=20261125a"></script>
-  <script src="api.js?v=20261123c"></script>
+  <script src="api.js?v=20261126a"></script>
   <style>
     .modal-box.wide { max-width: 680px; }
     .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -844,14 +844,14 @@ const MEDIDAS_LABELS = {
 // avaliacoes, que e onde a mudanca aparece antes de mexer no percentual.
 function dobrasDe(med) {
   if (!med || typeof med !== 'object') return [];
-  return Object.entries(med).filter(([k, v]) => String(k).startsWith('dc_') && v != null && v !== '' && !isNaN(parseFloat(v)));
+  // Na ordem do protocolo tradicional (API.DOBRAS_ORDEM): peitoral, axilar média, tricipital, subescapular, abdominal, suprailíaca e coxa.
+  return API.ordenarDobras(Object.entries(med).filter(([k, v]) => String(k).startsWith('dc_') && v != null && v !== '' && !isNaN(parseFloat(v))));
 }
 function somaDobras(med) { return dobrasDe(med).reduce((t, [, v]) => t + parseFloat(v), 0); }
 
 const DOBRAS_LABELS = {
-  dc_subescapular: 'Subescapular', dc_tricipital: 'Tricipital',
-  dc_peitoral: 'Peitoral', dc_axilar: 'Axilar Média',
-  dc_suprailiaca: 'Suprailíaca', dc_abdominal: 'Abdominal', dc_coxa: 'Coxa',
+  dc_peitoral: 'Peitoral', dc_axilar: 'Axilar Média', dc_tricipital: 'Tricipital', dc_subescapular: 'Subescapular',
+  dc_abdominal: 'Abdominal', dc_suprailiaca: 'Suprailíaca', dc_coxa: 'Coxa',
 };
 
 function marcarVisto() {
@@ -1024,7 +1024,7 @@ function verAvaliacao(id) {
   let medidasHtml = '';
   if (av.medidas && typeof av.medidas === 'object') {
     const periEntries = Object.entries(av.medidas).filter(([k, v]) => v != null && v !== '' && !k.startsWith('dc_'));
-    const dobrasEntries = Object.entries(av.medidas).filter(([k, v]) => v != null && v !== '' && k.startsWith('dc_'));
+    const dobrasEntries = API.ordenarDobras(Object.entries(av.medidas).filter(([k, v]) => v != null && v !== '' && k.startsWith('dc_')));
 
     if (periEntries.length > 0) {
       medidasHtml += `
@@ -1341,15 +1341,16 @@ function renderDobrasFields(metodo, medidas) {
     </div>`;
   }
 
-  const all7 = ['dc_subescapular','dc_tricipital','dc_peitoral','dc_axilar','dc_suprailiaca','dc_abdominal','dc_coxa'];
-  let fields = all7;
-  let info = 'Pollock 7 dobras: Subescapular, Tricipital, Peitoral, Axilar Média, Suprailíaca, Abdominal, Coxa';
+  // Sempre na ordem tradicional do protocolo (API.DOBRAS_ORDEM): peitoral, axilar média, tricipital, subescapular, abdominal, suprailíaca, coxa.
+  // Os campos de 3 e 5 dobras são a união do que cada sexo usa, nessa mesma ordem.
+  let fields = API.DOBRAS_ORDEM.slice();
+  let info = 'Pollock 7 dobras: Peitoral, Axilar média, Tricipital, Subescapular, Abdominal, Suprailíaca, Coxa';
 
   if (metodo === 'pollock5') {
-    fields = ['dc_tricipital','dc_peitoral','dc_abdominal','dc_suprailiaca','dc_subescapular','dc_coxa'];
-    info = 'Pollock 5 dobras (Homem: Peitoral, Abdominal, Coxa, Tricipital, Suprailíaca / Mulher: Tricipital, Suprailíaca, Coxa, Abdominal, Subescapular)';
+    fields = API.ordenarDobras(['dc_tricipital','dc_peitoral','dc_abdominal','dc_suprailiaca','dc_subescapular','dc_coxa']);
+    info = 'Pollock 5 dobras (Homem: Peitoral, Tricipital, Abdominal, Suprailíaca, Coxa / Mulher: Tricipital, Subescapular, Abdominal, Suprailíaca, Coxa)';
   } else if (metodo === 'pollock3') {
-    fields = ['dc_peitoral','dc_abdominal','dc_coxa','dc_tricipital','dc_suprailiaca'];
+    fields = API.ordenarDobras(['dc_peitoral','dc_abdominal','dc_coxa','dc_tricipital','dc_suprailiaca']);
     info = 'Pollock 3 dobras (Homem: Peitoral, Abdominal, Coxa / Mulher: Tricipital, Suprailíaca, Coxa)';
   }
 
@@ -1388,7 +1389,7 @@ function calcularGorduraAuto() {
   const idade = getIdadeAtleta(idatleta);
 
   const dobras = {};
-  ['dc_subescapular','dc_tricipital','dc_peitoral','dc_axilar','dc_suprailiaca','dc_abdominal','dc_coxa'].forEach(k => {
+  API.DOBRAS_ORDEM.forEach(k => {
     const el = document.getElementById('med-' + k);
     if (el && el.value) dobras[k.replace('dc_','')] = parseFloat(el.value);
   });
@@ -1476,7 +1477,7 @@ async function _salvarAvaliacaoInterno(idavaliacao) {
   const observacao = document.getElementById('av-obs')?.value || '';
 
   const medidaKeys = ['torax','ombro','pescoco','cintura','abdomen','quadril','braco_d','braco_e','coxa_d','coxa_e','panturrilha_d','panturrilha_e'];
-  const dobrasKeys = ['dc_subescapular','dc_tricipital','dc_peitoral','dc_axilar','dc_suprailiaca','dc_abdominal','dc_coxa'];
+  const dobrasKeys = API.DOBRAS_ORDEM;
   const medidas = {};
   let hasMedidas = false;
   medidaKeys.forEach(k => {

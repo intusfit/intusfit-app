@@ -10,7 +10,7 @@
  * por e-mail (catalogo.php, avaliacoes POST). Compartilhar: Feed da Intus ou perfil (sempre com confirmação e escolha de
  * quem pode ver), WhatsApp, Instagram, copiar e baixar.
  *
- * Depende de funções do aluno.html: toast, esc, API, idAtleta, _urlAbs, _comSheet, _busyMostrar/_busyFim, _travarEExecutar,
+ * Depende de funções do aluno.html: toast, esc, API, idAtleta, _urlAbs, _comSheet, _busyMostrar/_busyFim, _travarEExecutar, _rcRender (Quadro de Resultados),
  * _dataUrlParaBlob, _blobParaPng, _shareMostrarParaSalvar, _shareSocialBtn, _shareActionBtn, _shareIconSvg(Solido), _soTesteBarra.
  */
 (function () {
@@ -251,8 +251,7 @@
     var zoomLinha = function (q, rot) { return '<label style="flex:1;min-width:0;font-size:10px;font-weight:700;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.4px;">Zoom ' + rot + '<input id="cf-zoom-' + q + '" type="range" min="100" max="' + (ZMAX * 100) + '" value="' + Math.round(C[q].zoom * 100) + '" oninput="ComparativoFotos.zoom(\'' + q + '\', this.value)" style="display:block;width:100%;margin-top:4px;accent-color:#7FFF00;"/></label>'; };
     var salvos = comparativosSalvos();
     var h0 = FORMATOS[C.fmt].h;
-    var html = '<button class="btn-back" onclick="ComparativoFotos.voltar();">← Voltar</button>' +
-      '<h2 class="sect-title">Comparar fotos</h2>' +
+    var html = telaHeader('📸 Comparar fotos', null, 'ComparativoFotos.voltar();') +
       '<p style="font-size:12px;color:' + s.mut + ';margin:0 0 12px;line-height:1.5;">Escolha uma foto de antes e uma de depois, ajuste até os dois corpos ficarem alinhados e salve. Seus professores recebem o aviso de uma nova avaliação.</p>' +
       '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-bottom:12px;">' + slotHtml('a', 'ANTES', s) + slotHtml('b', 'DEPOIS', s) + '</div>' +
       tit('Estilo') +
@@ -477,7 +476,7 @@
       if (!im) { toast('Não consegui abrir agora. Tente de novo.'); return; }
       var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
       cv.getContext('2d').drawImage(im, 0, 0);
-      Sh = { dataUrl: cv.toDataURL('image/jpeg', 0.92), legenda: 'Minha evolução com a Intus 💪' + (v.dt ? ' ' + dtBR(v.dt) + '.' : ''), visib: 'todos', publicando: false };
+      Sh = { dataUrl: cv.toDataURL('image/jpeg', 0.92), legenda: 'Minha evolução com a Intus 💪' + (v.dt ? ' ' + dtBR(v.dt) + '.' : ''), visib: 'todos', publicando: false, salvo: true };
       folha();
     });
   }
@@ -494,6 +493,8 @@
       '<div style="display:flex;gap:8px;margin-bottom:12px;">' + chip('todos', '🌎 Todos') + chip('amigos', '👥 Amigos') + chip('eu', '🙋 Só eu') + '</div>' +
       '<button onclick="ComparativoFotos.confirmar(\'feed\')" style="width:100%;padding:13px;border-radius:12px;border:none;background:#7FFF00;color:#0f1a00;font-size:14px;font-weight:800;font-family:inherit;cursor:pointer;">🌎 Publicar no Feed da Intus</button>' +
       '<button onclick="ComparativoFotos.confirmar(\'perfil\')" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px solid ' + s.borda + ';background:' + s.card + ';color:' + s.txt + ';font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;">🙋 Publicar só no meu perfil</button>' +
+      '<button onclick="ComparativoFotos.paraQuadro()" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px solid ' + s.borda + ';background:' + s.card + ';color:' + s.txt + ';font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;">🌟 Compartilhar no Quadro de Resultados</button>' +
+      '<div style="font-size:11px;color:' + s.mut + ';line-height:1.5;margin-top:6px;">O Quadro de Resultados é a vitrine de evoluções do app: aparece para os outros alunos, a equipe é avisada e você ganha o distintivo Prova de Evolução. Você revisa o texto e autoriza antes de publicar.</div>' +
       '<div style="font-size:11px;font-weight:800;color:' + s.mut + ';text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px;">Compartilhar fora do app</div>' +
       '<div style="display:flex;justify-content:space-around;">' +
         _shareSocialBtn(_shareIconSvgSolido('whatsapp', 24), 'WhatsApp', 'ComparativoFotos.externo(\'whatsapp\')', '#25D366', '#fff', s.txt) +
@@ -542,6 +543,29 @@
       toast('Não consegui publicar. Tente de novo.');
     } finally { Sh.publicando = false; }
   }
+  // Quadro de Resultados: abre a mesma folha de "Compartilhar resultado" do Mural, já com a imagem do comparativo, o texto e o período preenchidos.
+  // A autorização (obrigatória) e a escolha de autorizar também o uso no site ficam lá, como em qualquer resultado.
+  function periodoTxt() {
+    if (!C || Sh.salvo) return '';     // comparativo já salvo: as datas de agora na tela não são as dele
+    var a = dtMs(C.a.dt), b = dtMs(C.b.dt);
+    if (a == null || b == null || b <= a) return '';
+    var dias = Math.round((b - a) / 86400000);
+    if (dias < 45) return dias + (dias === 1 ? ' dia' : ' dias');
+    var meses = Math.round(dias / 30.44);
+    if (meses < 24) return meses + (meses === 1 ? ' mês' : ' meses');
+    var anos = Math.floor(meses / 12), r = meses - anos * 12;
+    return anos + (anos === 1 ? ' ano' : ' anos') + (r ? ' e ' + r + (r === 1 ? ' mês' : ' meses') : '');
+  }
+  function paraQuadro() {
+    if (!Sh.dataUrl) return;
+    if (typeof _rcRender !== 'function') { toast('O Quadro de Resultados não carregou. Feche e abra o app de novo.'); return; }
+    if (typeof _soTesteBarra === 'function' && !_soTesteBarra()) return;
+    var t = $('cf-legenda'); if (t) Sh.legenda = t.value;
+    _rcTipo = 'evolucao'; _rcTexto = String(Sh.legenda || '').trim().slice(0, 1000); _rcPeriodo = periodoTxt(); _rcAceite = false; _rcSite = false;
+    _rcItens = [{ tipo: 'imagem', src: Sh.dataUrl }];
+    ['cf-confirma', 'cf-share'].forEach(function (id) { var e = $(id); if (e) e.remove(); });
+    _rcRender();
+  }
   async function externo(tipo) {
     try {
       var blob = await _dataUrlParaBlob(Sh.dataUrl);
@@ -569,7 +593,7 @@
   window.ComparativoFotos = {
     abrir: abrir, ativo: ativo, voltar: voltar, escolher: escolher, novaFoto: novaFoto, arquivo: arquivo, daAvaliacao: daAvaliacao, campo: campo, mostrar: mostrar,
     modo: modo, formato: formato, zoom: zoom, salvar: salvar, compartilhar: compartilhar, abrirSalvo: abrirSalvo, setVisib: setVisib,
-    setLegenda: setLegenda, confirmar: confirmar, publicar: publicar, externo: externo,
+    setLegenda: setLegenda, confirmar: confirmar, publicar: publicar, externo: externo, paraQuadro: paraQuadro,
     _teste: { compor: compor, novo: function () { C = novo(); return C; }, estado: function () { return C; }, setLogo: function (l) { _logo = l; }, geometria: function () { return geometria(); } }
   };
 })();

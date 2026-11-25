@@ -62,7 +62,7 @@ $ses = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/_sessi
 eq('retomar só aceita sessão de aluno e apaga o cookie quando não vale', strpos($php, "action === 'retomar'") !== false && strpos($php, "'aluno'") !== false && strpos($php, 'intusLimparCookieRetomar();') !== false, true);
 eq('retomar respeita conta bloqueada', strpos(substr($php, strpos($php, "action === 'retomar'"), 2200), "'conta bloqueada'") !== false, true);
 eq('esquecer apaga a sessão do cabeçalho e a do cookie', strpos($php, "action === 'esquecer'") !== false && substr_count(substr($php, strpos($php, "action === 'esquecer'"), 900), 'revokeSession(') === 2, true);
-eq('os dois logins de aluno pedem 90 dias', substr_count($php, "'aluno', \$atleta['nome'] ?? '', false, 90)"), 2);
+eq('os três logins de aluno (senha, social e Apple) pedem 90 dias', substr_count($php, "'aluno', \$atleta['nome'] ?? '', false, 90)"), 3);
 eq('o cookie só é emitido para aluno', strpos($ses, "if (\$type === 'aluno') intusEmitirCookieRetomar(\$token);") !== false, true);
 
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
