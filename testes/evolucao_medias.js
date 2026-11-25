@@ -27,9 +27,9 @@ const T = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charse
     const so = vazio.querySelector('#evo-media-car');
     return { mus: t('evo-media-mus'), car: t('evo-media-car'), semCardio: so && so.textContent.replace(/\s+/g, ' ').trim() };
   });
-  eq('musculação: média de 3 sessões (60, 65 e 66 min), sem a sessão marcada como "não conta"', /^64 MÉDIA POR MUSCULAÇÃO \(MIN\) em 3 sessões$/i.test(r.mus), true);
-  eq('cardio: média de 2 sessões (30 e 20 min)', /^25 MÉDIA POR CARDIO \(MIN\) em 2 sessões$/i.test(r.car), true);
-  eq('sem cardio registrado: mostra "–" e "em 0 sessões"', /^– MÉDIA POR CARDIO \(MIN\) em 0 sessões$/i.test(r.semCardio), true);
+  eq('musculação: média de 3 sessões (60, 65 e 66 min), sem a sessão marcada como "não conta"', /^64\s*MÉDIA POR MUSCULAÇÃO \(MIN\)\s*em 3 sessões$/i.test(r.mus), true);
+  eq('cardio: média de 2 sessões (30 e 20 min)', /^25\s*MÉDIA POR CARDIO \(MIN\)\s*em 2 sessões$/i.test(r.car), true);
+  eq('sem cardio registrado: mostra "–" e "em 0 sessões"', /^–\s*MÉDIA POR CARDIO \(MIN\)\s*em 0 sessões$/i.test(r.semCardio), true);
   eq('sem erro de JavaScript', erros, []);
   console.log('\n' + (ruim ? ruim + ' FALHA(S), ' : '') + ok + ' ok');
   await b.close(); srv.close(); process.exit(ruim ? 1 : 0);
