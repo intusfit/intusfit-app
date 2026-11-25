@@ -345,9 +345,18 @@ function gdriveFotoSegredo() {
     } catch (Throwable $e) { return null; }
 }
 
-function gdriveFotoAssinar($fileId) {
+// Assinatura com validade: o link da foto expira (FOTO_LINK_VALIDADE_S) e a assinatura cobre tipo, arquivo e prazo,
+// então não dá para estender o prazo nem trocar o arquivo. Tipos: 'd' = Drive, 'a' = arquivo local da avaliação.
+const FOTO_LINK_VALIDADE_S = 86400;
+function fotoLinkAssinar($tipo, $chave, $exp) {
     $s = gdriveFotoSegredo();
-    return $s ? substr(hash_hmac('sha256', (string)$fileId, $s), 0, 32) : null;
+    return $s ? substr(hash_hmac('sha256', $tipo . '|' . $chave . '|' . (int)$exp, $s), 0, 32) : null;
+}
+function fotoLinkConfere($tipo, $chave, $exp, $sig) {
+    $exp = (int)$exp;
+    if ($exp < time() || $exp > time() + FOTO_LINK_VALIDADE_S + 3600) return false;
+    $esperada = fotoLinkAssinar($tipo, $chave, $exp);
+    return $esperada && hash_equals($esperada, (string)$sig);
 }
 
 // Id do arquivo no Drive a partir do que o banco guarda ("drive:ID" ou o webViewLink).
@@ -363,10 +372,40 @@ function gdriveIdDeLink($valor) {
 function gdriveFotoUrl($valor) {
     $id = gdriveIdDeLink($valor);
     if (!$id) return null;
-    $sig = gdriveFotoAssinar($id);
+    $exp = time() + FOTO_LINK_VALIDADE_S;
+    $sig = fotoLinkAssinar('d', $id, $exp);
     if (!$sig) return null;
     $dir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/app/api/catalogo.php'), '/');
-    return $dir . '/foto_drive.php?f=' . $id . '&s=' . $sig;
+    return $dir . '/foto_drive.php?f=' . $id . '&e=' . $exp . '&s=' . $sig;
+}
+
+// Foto de avaliação guardada como arquivo em app/img/avaliacoes (a pasta responde 403 direto; só sai por foto_av.php).
+// $valor é o que o banco guarda: o endereço completo ou relativo terminando em /img/avaliacoes/av_xxx.ext.
+function avFotoUrl($valor) {
+    if (!preg_match('#/img/avaliacoes/(av_[A-Za-z0-9_]+\.(?:jpg|png|gif|webp))$#', (string)$valor, $m)) return null;
+    $exp = time() + FOTO_LINK_VALIDADE_S;
+    $sig = fotoLinkAssinar('a', $m[1], $exp);
+    if (!$sig) return null;
+    $dir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/app/api/catalogo.php'), '/');
+    return $dir . '/foto_av.php?f=' . $m[1] . '&e=' . $exp . '&s=' . $sig;
+}
+
+// Caminho de volta: o link assinado que o cliente reenviar ao salvar volta a ser o endereço guardado (nunca guardar link com prazo).
+function avIdDeLinkAssinado($valor) {
+    if (preg_match('#foto_av\.php\?(?:[^\#]*&)?f=(av_[A-Za-z0-9_]+\.(?:jpg|png|gif|webp))#', (string)$valor, $m)) return $m[1];
+    return null;
+}
+
+// Troca, numa lista de fotos de avaliação, cada foto por um link que o navegador consegue abrir (Drive ou arquivo local).
+function fotosParaCliente($fotos) {
+    if (!is_array($fotos)) return $fotos;
+    return array_map(function ($f) {
+        $v = is_string($f) ? $f : (is_array($f) && isset($f['url']) ? (string)$f['url'] : '');
+        if ($v === '') return $f;
+        $u = gdriveFotoUrl($v);
+        if ($u === null) $u = avFotoUrl($v);
+        return $u !== null ? $u : $f;
+    }, $fotos);
 }
 
 // Faz o caminho de volta: se o cliente reenviar o link assinado ao salvar, o banco

@@ -1063,7 +1063,10 @@ function _persistirFotos($fotos) {
         if (!preg_match('#^data:image/(png|jpe?g|gif|webp);base64,(.+)$#is', $f, $m)) {
             // Link assinado de foto do Drive devolvido pelo GET: volta pro formato guardado.
             $idDrive = function_exists('gdriveIdDeLinkAssinado') ? gdriveIdDeLinkAssinado($f) : null;
-            $out[] = $idDrive ? ('drive:' . $idDrive) : $f; // já é URL/arquivo — mantém
+            if ($idDrive) { $out[] = 'drive:' . $idDrive; continue; }
+            // Link assinado de foto local (foto_av.php): volta ao endereço guardado, nunca guarda link com prazo.
+            $idAv = function_exists('avIdDeLinkAssinado') ? avIdDeLinkAssinado($f) : null;
+            $out[] = $idAv ? ($base . '/img/avaliacoes/' . $idAv) : $f; // já é URL/arquivo — mantém
             continue;
         }
         if (!is_dir($dir) || !is_writable($dir)) { $out[] = $f; continue; } // não perde
@@ -1403,14 +1406,8 @@ if ($action === 'avaliacoes') {
             if (!empty($r['medidas'])) { $tmp = json_decode($r['medidas'], true); if (is_array($tmp)) $medidas = $tmp; }
             $fotos = null;
             if (!empty($r['fotos'])) { $tmp = json_decode($r['fotos'], true); if (is_array($tmp)) $fotos = $tmp; }
-            // Foto que está só no Drive (enviada pelo painel) vira link que o navegador consegue abrir.
-            if (is_array($fotos) && function_exists('gdriveFotoUrl')) {
-                $fotos = array_map(function ($f) {
-                    $v = is_string($f) ? $f : (is_array($f) && isset($f['url']) ? (string)$f['url'] : '');
-                    $u = $v !== '' ? gdriveFotoUrl($v) : null;
-                    return $u !== null ? $u : $f;
-                }, $fotos);
-            }
+            // Foto do Drive ou arquivo local vira link assinado e com prazo (a pasta de fotos não abre direto).
+            if (is_array($fotos) && function_exists('fotosParaCliente')) $fotos = fotosParaCliente($fotos);
             return [
                 'idavaliacao' => (int)$r['idavaliacao'],
                 'idatleta'    => (int)$r['idatleta'],
@@ -1464,7 +1461,7 @@ if ($action === 'avaliacoes') {
         }
 
         // 'fotos' devolve como ficaram guardadas (o painel sobe em lotes e precisa da lista pra mandar o lote seguinte).
-        echo json_encode(['ok' => true, 'idavaliacao' => $newId, 'fotos' => $fotosArr]);
+        echo json_encode(['ok' => true, 'idavaliacao' => $newId, 'fotos' => function_exists('fotosParaCliente') ? fotosParaCliente($fotosArr) : $fotosArr]);
         exit;
     }
     if ($method === 'PUT') {
@@ -1513,7 +1510,7 @@ if ($action === 'avaliacoes') {
             }
         }
 
-        echo json_encode(['ok' => true, 'fotos' => $fotosArr]);
+        echo json_encode(['ok' => true, 'fotos' => (is_array($fotosArr) && function_exists('fotosParaCliente')) ? fotosParaCliente($fotosArr) : $fotosArr]);
         exit;
     }
     if ($method === 'DELETE') {

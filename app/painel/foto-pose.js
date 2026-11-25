@@ -60,6 +60,9 @@
     url = String(url || '');
     var m = /\/img\/avaliacoes\/([A-Za-z0-9_.-]+?)(?:[?#].*)?$/.exec(url);
     if (m) return 'a:' + m[1];
+    // Foto local entregue por foto_av.php (a pasta de fotos não abre direto desde 25/11/2026): mesma chave do arquivo.
+    m = /foto_av\.php\?(?:[^#]*&)?f=(av_[A-Za-z0-9_]+\.(?:jpg|png|gif|webp))/.exec(url);
+    if (m) return 'a:' + m[1];
     m = /foto_drive\.php\?[^#]*\bf=([A-Za-z0-9_-]{10,})/.exec(url);
     if (m) return 'd:' + m[1];
     m = /^drive:([A-Za-z0-9_-]{10,})$/.exec(url);

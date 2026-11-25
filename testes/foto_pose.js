@@ -118,6 +118,7 @@ t('lista vazia', P.melhorDaPose([]) === null);
 
 // 5. Chave da foto
 t('chave de arquivo local', P.chaveDaFoto('/app/img/avaliacoes/av_1787157741_de68c4189ad6.jpg') === 'a:av_1787157741_de68c4189ad6.jpg');
+t('chave de arquivo local entregue por foto_av.php (link assinado com prazo)', P.chaveDaFoto('/app/api/foto_av.php?f=av_1787157741_de68c4189ad6.jpg&e=1788000000&s=0123456789abcdef0123456789abcdef') === 'a:av_1787157741_de68c4189ad6.jpg');
 t('chave de arquivo local com endereço completo e parâmetro', P.chaveDaFoto('https://intusfit.com.br/app/img/avaliacoes/av_1_ab.jpg?v=3') === 'a:av_1_ab.jpg');
 t('chave de foto do Drive (link assinado)', P.chaveDaFoto('/app/api/foto_drive.php?f=1AbCdEfGhIjKlMn&t=xx&e=1') === 'd:1AbCdEfGhIjKlMn');
 t('chave de drive:ID', P.chaveDaFoto('drive:1AbCdEfGhIjKlMn') === 'd:1AbCdEfGhIjKlMn');

@@ -6,7 +6,7 @@
  *
  * Sem login de propósito: quem usa é um <img src> e o "importar pro Relatório de
  * Fotos", que não mandam Bearer. A proteção é a assinatura (HMAC com um segredo que
- * só o servidor tem, ver gdriveFotoAssinar em _gdrive.php) — o link só nasce quando
+ * só o servidor tem, ver fotoLinkAssinar em _gdrive.php) — o link só nasce quando
  * catalogo.php lista as avaliações pra quem tem sessão. Ver o motivo todo em
  * _gdrive.php.
  */
@@ -23,9 +23,10 @@ function _fotoDriveFalha($codigo, $msg) {
 
 $id = (string)($_GET['f'] ?? '');
 $sig = (string)($_GET['s'] ?? '');
-if (!preg_match('/^[A-Za-z0-9_-]{10,}$/', $id) || !preg_match('/^[0-9a-f]{32}$/', $sig)) _fotoDriveFalha(404, 'nao encontrado');
-$esperada = gdriveFotoAssinar($id);
-if (!$esperada || !hash_equals($esperada, $sig)) _fotoDriveFalha(404, 'nao encontrado');
+$exp = (string)($_GET['e'] ?? '');
+if (!preg_match('/^[A-Za-z0-9_-]{10,}$/', $id) || !preg_match('/^[0-9a-f]{32}$/', $sig) || !preg_match('/^\d{9,11}$/', $exp)) _fotoDriveFalha(404, 'nao encontrado');
+// Link com validade (24 h): a assinatura cobre o arquivo e o prazo. Link antigo, sem prazo, deixou de valer.
+if (!fotoLinkConfere('d', $id, $exp, $sig)) _fotoDriveFalha(404, 'nao encontrado');
 
 try {
     $corpo = gdriveBaixarArquivo($id);
