@@ -27,6 +27,7 @@ passo "cabeçalho das telas preso no topo em rolagem funda" node cabecalho_fixo.
 passo "figurinha do fim do treino no app das lojas" node figurinha_app.js
 passo "foto e video que falham: toque para recarregar" node recarregar_midia.js
 passo "altitude e relevo do cardio" node altitude_cardio.js
+passo "biblioteca de alimentos e dieta visual" node alimentos_visual.js
 passo "lembretes de refeicoes e agua" node lembretes_nutri.js
 passo "comparativo de fotos do aluno (linha divisoria, lado a lado, salvar e publicar com confirmacao)" node comparativo_fotos.js
 command -v php >/dev/null 2>&1 && passo "links assinados das fotos de avaliacao" php foto_link.php

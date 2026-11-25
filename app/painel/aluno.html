@@ -24,6 +24,7 @@
   <script src="comparativo-fotos.js?v=20261125a" defer></script>
   <script src="lembretes-nutri.js?v=20261125a" defer></script>
   <script src="altitude-cardio.js?v=20261125a" defer></script>
+  <script src="alimentos-visual.js?v=20261125a" defer></script>
   <script>
   // App sempre em retrato. Única exceção: vídeo em tela cheia, que pode girar para horizontal se o aluno quiser.
   // 1) Travar a orientação: no app nativo (manifesto e ponte IntusNativo) e, no navegador, screen.orientation.lock.
@@ -22271,6 +22272,8 @@ function _nutriSeletorHtml() {
 }
 
 // A. Linha do dia
+// Liga ou desliga as imagens dos alimentos dentro das refeições (biblioteca de alimentos, alimentos-visual.js). Só muda o visual: o cardápio é o mesmo.
+function nutriImagens() { if (!window.AlimentoVisual) return; AlimentoVisual.definir(!AlimentoVisual.ligado()); _nutriRender(); }
 function _nutriHojeHtml() {
   const N = API.nutri, C = _nutriCores(), plano = _nutri.plano, hoje = N.hojeIso(), dia = _nutriDiaIso();
   const refs = N.refeicoes(plano), regs = _nutriRegsDoDia(dia);
@@ -22293,7 +22296,7 @@ function _nutriHojeHtml() {
       const foto = x && x.foto ? `<div style="position:relative;display:inline-block;margin-top:8px;"><img src="${esc(x.foto)}" style="height:70px;border-radius:8px;display:block;" alt=""/><span onclick="nutriFotoRemover(${i})" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#222;color:#fff;border:1.5px solid #fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>` : '';
       const resp = x && x.resposta_nutri ? `<div style="margin-top:8px;padding:10px 12px;border-left:3px solid ${C.ok};background:var(--sup,rgba(128,128,128,.08));border-radius:0 10px 10px 0;font-size:13.5px;line-height:1.5;"><b>Sua nutri respondeu:</b> ${esc(x.resposta_nutri)}</div>` : '';
       detalhe = `<div style="padding:2px 14px 16px;" onclick="event.stopPropagation()">
-        ${abas}${itens.length ? itens.map(_nutriItemHtml).join('') : `<p style="font-size:13.5px;color:${C.mut};">Nenhum alimento nesta opção.</p>`}
+        ${abas}${window.AlimentoVisual ? AlimentoVisual.faixaHtml(itens) : ''}${itens.length ? itens.map(_nutriItemHtml).join('') : `<p style="font-size:13.5px;color:${C.mut};">Nenhum alimento nesta opção.</p>`}
         ${notaOp ? `<div style="margin-top:8px;padding:10px 12px;border-left:3px solid ${C.ok};background:var(--sup,rgba(128,128,128,.08));border-radius:0 10px 10px 0;font-size:13.5px;line-height:1.5;white-space:pre-wrap;">${esc(notaOp)}</div>` : ''}
         <div style="display:flex;gap:8px;margin-top:14px;">${botoes}</div>
         <textarea placeholder="Observação (opcional): o que mudou, como se sentiu..." maxlength="300" onchange="nutriObs(${i},this.value)" style="width:100%;margin-top:8px;min-height:58px;padding:11px 13px;border-radius:12px;border:1px solid ${C.borda};background:transparent;color:inherit;font-size:14px;font-family:inherit;resize:vertical;">${esc((_nutri.obs[r.chave] != null ? _nutri.obs[r.chave] : (x && x.obs)) || '')}</textarea>
@@ -22308,7 +22311,9 @@ function _nutriHojeHtml() {
         <span style="color:${C.mut};font-size:16px;">${aberta ? '▲' : '▼'}</span>
       </div>${detalhe}</div>`;
   }).join('');
-  return `<div style="display:flex;gap:6px;margin-bottom:8px;">${tgl('hoje', 'Hoje')}${tgl('ontem', 'Ontem')}</div>${linhas || `<p style="font-size:12px;color:${C.mut};">Nenhuma refeição cadastrada ainda.</p>`}`;
+  const imgOn = !window.AlimentoVisual || AlimentoVisual.ligado();
+  const chipImg = window.AlimentoVisual ? `<button onclick="nutriImagens()" aria-pressed="${imgOn}" style="margin-left:auto;padding:5px 13px;border-radius:99px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;border:1px solid ${imgOn ? C.ok : C.borda};background:transparent;color:${imgOn ? C.ok : C.mut};">🖼 Imagens ${imgOn ? 'ligadas' : 'desligadas'}</button>` : '';
+  return `<div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">${tgl('hoje', 'Hoje')}${tgl('ontem', 'Ontem')}${chipImg}</div>${linhas || `<p style="font-size:12px;color:${C.mut};">Nenhuma refeição cadastrada ainda.</p>`}`;
 }
 
 // B. Prato e macros
