@@ -25,6 +25,7 @@ passo "Finalizar treino: voltar com a foto aberta e o limite de 5 min sobre o to
 passo "cardio ao vivo: leitura do GPS (tremido, salto, lacuna, bike)" node cardio_gps.js
 passo "cabeçalho das telas preso no topo em rolagem funda" node cabecalho_fixo.js
 passo "figurinha do fim do treino no app das lojas" node figurinha_app.js
+passo "foto e video que falham: toque para recarregar" node recarregar_midia.js
 passo "lembretes de refeicoes e agua" node lembretes_nutri.js
 passo "comparativo de fotos do aluno (linha divisoria, lado a lado, salvar e publicar com confirmacao)" node comparativo_fotos.js
 command -v php >/dev/null 2>&1 && passo "links assinados das fotos de avaliacao" php foto_link.php

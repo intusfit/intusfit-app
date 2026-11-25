@@ -17,6 +17,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
+  <script src="recarregar-midia.js?v=20261125a"></script>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261123c"></script>
   <script src="ajuda.js?v=20261107a" defer></script>
@@ -7074,6 +7075,14 @@ function _ytTocar(el) {
   f.dataset.yt = encodeURIComponent(id);
   box.appendChild(f);
 }
+// "Tentar de novo" no quadro de erro do vídeo: refaz o player (conexão ruim também derruba o vídeo). Troca o endereço para não pegar o erro guardado.
+function _ytRecarregar(btn) {
+  const box = btn && btn.closest('.yt-erro'); if (!box || !box.parentNode) return;
+  const wrap = box.parentNode, f = wrap.querySelector('iframe'); box.remove();
+  if (!f) return;
+  const u = f.getAttribute('src') || '';
+  f.setAttribute('src', u.replace(/([?&])_r=\d+&?/, '$1').replace(/[?&]$/, '') + (u.indexOf('?') >= 0 ? '&' : '?') + '_r=' + Date.now());
+}
 // yt.html avisa quando o YouTube não toca o vídeo (mensagem só aceita do próprio site): o quadro vira um aviso com o atalho para o YouTube.
 window.addEventListener('message', function (e) {
   try {
@@ -7088,7 +7097,7 @@ window.addEventListener('message', function (e) {
     const m = document.createElement('div');
     m.className = 'yt-erro';
     m.style.cssText = 'position:absolute;inset:0;z-index:2;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;text-align:center;font-size:13px;line-height:1.4;';
-    m.innerHTML = '<div>Este vídeo não pôde ser tocado aqui.</div>' + (id ? '<a href="https://www.youtube.com/watch?v=' + id + '" target="_blank" rel="noopener" style="color:#7FFF00;font-weight:800;text-decoration:none;">▶ Abrir no YouTube ↗</a>' : '');
+    m.innerHTML = '<div>Este vídeo não pôde ser tocado aqui.</div><button type="button" onclick="_ytRecarregar(this)" style="padding:9px 16px;border-radius:999px;border:1px solid #666;background:rgba(255,255,255,.1);color:#fff;font:700 13px inherit;cursor:pointer;">↻ Tentar de novo</button>' + (id ? '<a href="https://www.youtube.com/watch?v=' + id + '" target="_blank" rel="noopener" style="color:#7FFF00;font-weight:800;text-decoration:none;">▶ Abrir no YouTube ↗</a>' : '');
     box.appendChild(m);
   } catch (err) {}
 });
