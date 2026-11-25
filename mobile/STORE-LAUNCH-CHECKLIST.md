@@ -2,6 +2,22 @@
 
 Atualizada em **22 de setembro de 2026**. Esta checklist não substitui a revisão das políticas vigentes no dia do envio.
 
+## Estado em 25/11/2026 (leia primeiro)
+
+As respostas prontas, atualizadas para a release de hoje, estão em `LOJAS-RESPOSTAS-25-11-2026.md` (ficha, notas do revisor, privacidade da Apple, segurança dos dados do Google, declaração do Health Connect, riscos de revisão). Onde este checklist disser que Saúde e Health Connect não fazem parte da release, vale o documento novo: fazem.
+
+**Feito (25/11/2026):**
+- Política de privacidade atualizada (prestadores de serviço, nutrição, comunidade, mapas, comparativo de fotos).
+- App Store Connect: nome, subtítulo, categoria (Saúde e fitness), classificação etária (13+ no mundo, 16 no Brasil), URL da política, tipos de dados da Privacidade do app (11 tipos, vinculados ao usuário, sem rastreamento), texto promocional, descrição, palavras-chave, URLs, copyright, contato e notas do revisor, compilação 27 anexada à versão 1.0. O app agora é só iPhone (`TARGETED_DEVICE_FAMILY = 1`).
+- Play Console: categoria (Saúde e fitness), contato (e-mail e site), nome e descrições da ficha salvos como rascunho. Já estavam feitos: política, login, anúncios, classificação, público, segurança dos dados, Saúde e status do comerciante.
+- Capturas de tela de rascunho geradas pelo app real com dados de demonstração (`tools/gerar-capturas-lojas.js`, arquivos em `mobile/store-assets/capturas-ios` e `capturas-android`, fora do Git).
+- Builds de hoje: iOS compilação 27 (Codemagic #22) e Android `.aab` (Codemagic #6, versionCode 29926324).
+
+**Falta, só com o Luiz (contas, aceites, aparelhos):**
+- App Store Connect: confirmar a publicação das respostas de privacidade (declaração legal), direitos de conteúdo, conta de demonstração nos campos de login, enviar as capturas, "Adicionar para revisão".
+- Play Console: enviar ícone, gráfico de destaque e capturas, enviar o `.aab`, criar o teste fechado com pelo menos 12 testadores por 14 dias (conta pessoal nova), depois pedir a produção.
+- Testar num iPhone e num Android de verdade (cardio com a tela bloqueada, lembretes, Saúde, câmera).
+
 ## Bloqueios de acesso
 
 - [ ] Luiz aceitou os termos e mantém o papel de titular da conta Apple Developer Program.
