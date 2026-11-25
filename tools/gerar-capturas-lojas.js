@@ -7,6 +7,8 @@ const RAIZ = path.resolve(__dirname, '../app/painel');
 const SAIDA = path.resolve(__dirname, '../mobile/store-assets');
 const T = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json', '.jpg': 'image/jpeg' };
 const DISPOSITIVOS = [
+  { pasta: 'capturas-ios-6.3pol', w: 402, h: 874, dpr: 3 },   // 1206x2622 (iPhone com Dynamic Island, tela média)
+  { pasta: 'capturas-ios-6.9pol', w: 440, h: 956, dpr: 3 },   // 1320x2868 (iPhone 6,9")
   { pasta: 'capturas-ios', w: 430, h: 932, dpr: 3 },       // 1290x2796 (iPhone 6,7")
   { pasta: 'capturas-android', w: 360, h: 640, dpr: 3 },   // 1080x1920
 ];
