@@ -306,7 +306,9 @@ foreach (array_values($proofVisiveis) as $i => $pb):
   if (!empty($m['oculto'])) continue; ?>
       <div class="team-card">
         <div class="team-photo">
-          <img src="<?= $imgBase ?><?= s($m['img']) ?>" alt="<?= s($m['nome']) ?>">
+<?php /* A foto antiga do Luiz (prof-luiz.jpg) está achatada; a corrigida vai pelo Git, em /fotos-site/. Uma foto nova enviada pelo admin continua valendo. */
+  $fotoMembro = basename($m['img']) === 'prof-luiz.jpg' ? '/fotos-site/luiz-nunes-equipe.jpg' : $imgBase . $m['img']; ?>
+          <img src="<?= s($fotoMembro) ?>" alt="<?= s($m['nome']) ?>">
         </div>
         <div class="team-body">
           <div class="team-name"><?= s($m['nome']) ?></div>
@@ -487,7 +489,8 @@ foreach (array_values($proofVisiveis) as $i => $pb):
 <?php endif; ?>
     <div class="plans-guarantee">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      <p><strong>Teste por 15 dias.</strong> <?= s($c['planos']['garantia']) ?></p>
+<?php /* Texto da garantia fixo de propósito: é condição de venda e aponta para os termos (aprovado em 26/11/2026). */ ?>
+      <p><strong>Garantia de 15 dias.</strong> Se o acompanhamento não for como você espera, devolvemos 100% do valor. O prazo conta sempre a partir da data da compra. <a href="app/painel/termos.html#garantia" style="color:inherit;text-decoration:underline">Ver condições</a></p>
     </div>
   </div>
 </section>
