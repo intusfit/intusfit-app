@@ -44,7 +44,7 @@ function eq(rot, obtido, esperado) { const a = JSON.stringify(obtido), b = JSON.
     if (v === 'home') { eq(nome + ': abriu outra tela', v, '(outra)'); continue; }
     const k = await voltarCab(); const v1 = await view();
     const filhaDoCardio = v === 'cardio-prog' || v === 'cardio-live';   // abertas pelo Meu Cardio: o "← Voltar" delas leva para lá
-    eq(nome + ' [' + v + ']: "← Voltar" do cabeçalho' + (k ? '' : ' (sem botão visível)') + ' leva ' + (filhaDoCardio ? 'ao Meu Cardio' : 'ao início'), k ? v1 : 'home', filhaDoCardio ? 'cardio' : 'home');
+    eq(nome + ' [' + v + ']: "← Voltar" do cabeçalho' + (k ? '' : ' (sem botão visível)') + ' leva ao início', k ? v1 : 'home', 'home');   // 27/11: aberta direto da Início, o Voltar acompanha o voltar do celular (antes empilhava o Meu Cardio e girava em laço)
     await casa(); await ir(js);
     await page.goBack(); await page.waitForTimeout(450);
     eq(nome + ': voltar do celular leva ao início', await view(), 'home');

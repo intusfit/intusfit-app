@@ -411,8 +411,10 @@
     .timer-bar.visible { display: flex; }
     .timer-bar .timer-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
     .timer-bar .total-time { color: #fff; font-size: 36px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
-    .timer-bar .rest-wrap { margin-top: 4px; display: none; align-items: center; gap: 8px; }
-    .timer-bar .rest-wrap.visible { display: flex; }
+    /* A linha do descanso ocupa o lugar o tempo todo (só aparece ou some): se ela entrasse e saísse do fluxo, a barra crescia ~27px a cada série
+       marcada e o conteúdo inteiro descia junto, com a tela "correndo" enquanto o aluno preenchia a carga. */
+    .timer-bar .rest-wrap { margin-top: 4px; display: flex; visibility: hidden; align-items: center; gap: 8px; }
+    .timer-bar .rest-wrap.visible { visibility: visible; }
     .timer-bar .rest-label { color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
     .timer-bar .rest-time { color: #ff9500; font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; }
 
@@ -7152,8 +7154,12 @@ function showCountdown() {
     overlay.classList.add('open');
     const steps = ['3', '2', '1', '🔥'];
     let idx = 0;
+    // Voltar (botão ou gesto do celular) durante a contagem cancela: o treino não começa e a tela de baixo não muda.
+    let cancelado = false;
+    window._cdCancelar = function () { cancelado = true; window._cdCancelar = null; overlay.classList.remove('open'); resolve(false); };
     function nextStep() {
-      if (idx >= steps.length) { overlay.classList.remove('open'); resolve(); return; }
+      if (cancelado) return;
+      if (idx >= steps.length) { overlay.classList.remove('open'); window._cdCancelar = null; resolve(true); return; }
       numEl.textContent = steps[idx];
       numEl.style.animation = 'none'; numEl.offsetHeight;
       numEl.style.animation = 'cdPulse .4s ease';
@@ -9873,7 +9879,7 @@ async function iniciarMusculacao() {
   // O aluno voltou à tela de alongamentos (gesto de voltar) com o treino rodando e tocou em "Iniciar Musculação" de novo:
   // só volta à musculação. Refazer a contagem e o relógio zerava o tempo, com as séries já marcadas.
   if (_treinoEmAndamentoDaSessao()) { renderMusculacao(); trocarView('muscu'); return; }
-  await showCountdown();
+  if (!(await showCountdown())) return;   // cancelada pelo voltar
   startTreinoTimer();
   renderMusculacao();
   trocarView('muscu');
@@ -15988,8 +15994,9 @@ function voltarTela(fallback) {
     let n = 1;
     if (fallback && st[st.length - 2] !== fallback) {   // a tela pedida está mais atrás na pilha: desfaz os passos até ela, sem empilhar de novo
       const k = st.lastIndexOf(fallback, st.length - 2);
-      if (k < 0) { trocarView(fallback); if (fallback === 'home' && typeof renderHome === 'function') renderHome(); return; }
-      n = st.length - 1 - k;
+      // A tela pedida não está na pilha (ex.: Programas de cardio aberto direto da Home, com "← Voltar" apontando para o Meu Cardio): empilhá-la
+      // por cima corrompia a pilha e o voltar do celular girava em laço entre as duas telas. Vale o passo normal: volta para a tela de onde veio.
+      if (k >= 0) n = st.length - 1 - k;
     }
     window._popN = n; history.go(-n); return;
   }
@@ -24634,7 +24641,8 @@ window.addEventListener('popstate', function(e) {
   if (_pkFecharTopoPorVoltar()) return;   // perfil, post, privacidade, folha de comentário ou editor de vídeo aberto: voltar fecha só ele
   const _bypassBox = _treinoBypassBox; _treinoBypassBox = false;
   // Camadas que não têm entrada própria no histórico: voltar fecha a camada e devolve a entrada que o gesto consumiu (a tela de trás não muda).
-  const _CAMADAS_VOLTAR = ['dlg-app-ov', 'cq-overlay', 'conq-detail-overlay', 'hist-dia-overlay', 'hist-del-overlay', 'marcador-overlay', 'res-compose-overlay'];
+  if (typeof window._cdCancelar === 'function') { window._cdCancelar(); history.pushState({ view: viewStack[viewStack.length - 1] || 'home' }, '', ''); return; }   // contagem 3-2-1 do treino
+  const _CAMADAS_VOLTAR = ['dlg-app-ov', 'cq-overlay', 'conq-detail-overlay', 'hist-dia-overlay', 'hist-del-overlay', 'marcador-overlay', 'res-compose-overlay', 'prog-fim-ov', 'prog-pular-ov'];
   for (let ci = 0; ci < _CAMADAS_VOLTAR.length; ci++) {
     const el = document.getElementById(_CAMADAS_VOLTAR[ci]);
     if (!el) continue;

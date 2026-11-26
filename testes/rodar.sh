@@ -96,6 +96,8 @@ passo "Telas cheias com o cabeçalho do app: resultado do cardio com menu, post 
   passo "Treino: divisões ativas e inativas na mesma ficha (editor do professor e app do aluno)" node divisoes_inativas.js
   passo "Matrículas: vencimento de uma parcela (rótulos, validação e parcela anterior acompanha)" node parcela_vencimento.js
   passo "voltar e avançar pelo app inteiro (cabeçalho, celular, sequências)" node navegacao_geral.js
+  passo "voltar: destino fora da pilha, contagem do treino, barra do cronômetro e janela do programa" node voltar_correcoes_27_11.js
+  passo "explorador de navegação: toca em tudo e volta por botão e por gesto (amostra)" env MAX=6 WALKS=25 SEED=3 node navegacao_profunda.js
   passo "cobrança: ciclo pago na linha de cima avisa quando vence" node cobranca_paga_anterior.js
   passo "aviso de mensalidade no sino do aluno" node aviso_mensalidade_aluno.js
   passo "valor recebido editável na baixa e na renovação" node valor_recebido.js
