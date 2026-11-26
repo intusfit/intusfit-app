@@ -154,7 +154,7 @@ function intusAcessoRota(PDO $pdo, array $ctx, bool $ehAluno, string $action, ?s
         if ($fusoEf !== 'America/Sao_Paulo') { if (!isset($fusos[$fusoEf])) $fusos[$fusoEf] = ['fuso' => $fusoEf, 'n' => 0, 'alunos' => []]; $fusos[$fusoEf]['n']++; $fusos[$fusoEf]['alunos'][$aid] = true; }
         if (count($recentes) < 60) {
             $recentes[] = ['id' => (int)$r['idacesso'], 'user_id' => $aid, 'tipo' => 'aluno', 'nome' => (string)$r['user_nome'], 'evento' => $r['evento'], 'quando_utc' => $r['criado_em'],
-                           'local' => $loc, 'fuso_local' => ($fusoEf !== 'America/Sao_Paulo' ? $fusoEf : ''), 'hora_local' => $horaTxt,
+                           'local' => $loc, 'fuso_local' => ($fusoEf !== 'America/Sao_Paulo' ? $fusoEf : ''), 'hora_local' => ($fusoEf !== 'America/Sao_Paulo' ? $horaTxt : ''),
                            'ip' => $admin ? (string)$r['ip'] : null];
         }
     }

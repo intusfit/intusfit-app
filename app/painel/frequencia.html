@@ -202,7 +202,51 @@
       .freq-list-table th, .freq-list-table td { padding: 8px 8px; }
       .ranking-bar-wrap { display: none; }
     }
-  </style>
+      /* ── Acessos ── */
+    .acc-grade { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+    .acc-painel { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+    .acc-grade + .acc-painel, .acc-painel + .acc-painel { margin-top: 14px; }
+    .acc-grade .acc-painel { margin-top: 0; display: flex; flex-direction: column; }
+    .acc-titulo { font-size: 14px; font-weight: 700; color: var(--text); }
+    .acc-sub { font-size: 12px; color: var(--text-muted); margin: 2px 0 10px; line-height: 1.5; }
+    .acc-barras { display: flex; align-items: stretch; gap: 3px; flex: 1; min-height: 170px; border-bottom: 1px solid var(--border); }
+    .acc-col { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; justify-content: flex-end; padding-top: 18px; }
+    .acc-col > b { position: absolute; top: 0; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--text); }
+    .acc-pilha { display: flex; flex-direction: column; border-radius: 3px 3px 0 0; overflow: hidden; opacity: .75; }
+    .acc-col.pico .acc-pilha, .acc-col:hover .acc-pilha { opacity: 1; }
+    .acc-eixo { display: flex; gap: 3px; padding-top: 4px; font-size: 10px; color: var(--text-muted); }
+    .acc-eixo div { flex: 1; min-width: 0; text-align: center; white-space: nowrap; }
+    .acc-legenda { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-muted); margin-top: 8px; }
+    .acc-legenda i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+    .acc-dias { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; flex: 1; }
+    .acc-dia { display: grid; grid-template-columns: 34px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+    .acc-dia b { text-align: right; color: var(--text); }
+    .acc-dia.pico span { color: var(--text); font-weight: 700; }
+    .acc-trilho { height: 12px; background: var(--bg3); border-radius: 6px; overflow: hidden; }
+    .acc-trilho > div { height: 100%; background: var(--green); border-radius: 6px; }
+    .acc-dia:not(.pico) .acc-trilho > div { opacity: .55; }
+    .acc-vivo { max-height: 520px; overflow-y: auto; margin: 0 -16px -14px; border-top: 1px solid var(--border); }
+    .acc-linha { display: grid; grid-template-columns: 22px minmax(0, 1.4fr) 90px 150px minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 12px; padding: 9px 16px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text-muted); }
+    .acc-linha:last-child { border-bottom: 0; }
+    .acc-nome, .acc-local, .acc-ip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .acc-nome, .acc-ev, .acc-quando b { color: var(--text); }
+    .acc-quando small { display: block; color: #d97706; font-size: 11px; }
+    .acc-ip { font-size: 11px; text-align: right; opacity: .7; }
+    .acc-locais { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 28px; margin-top: 10px; }
+    .acc-loc { display: grid; grid-template-columns: minmax(0, 200px) 1fr 110px; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-muted); }
+    .acc-loc-nome { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .acc-loc-n { text-align: right; white-space: nowrap; }
+    .acc-loc-n b { color: var(--text); }
+    @media (max-width: 1300px) { .acc-locais { grid-template-columns: 1fr; } }
+    @media (max-width: 1000px) { .acc-grade { grid-template-columns: 1fr; } }
+    @media (max-width: 700px) {
+      .acc-barras, .acc-eixo { gap: 1px; }
+      .acc-linha { grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 10px; }
+      .acc-ev { text-align: right; } .acc-quando, .acc-local { grid-column: 2 / 4; } .acc-ip { display: none; }
+      .acc-loc { grid-template-columns: minmax(0, 1fr) 100px; row-gap: 4px; }
+      .acc-loc .acc-trilho { grid-column: 1 / 3; grid-row: 2; height: 8px; }
+    }
+</style>
 </head>
 <body>
 <script>
@@ -476,7 +520,13 @@ async function acessosCarregar(silencioso) {
   _accPintar();
   _accTimer = setInterval(() => { if (view === 'acessos' && !document.hidden) acessosCarregar(true); else if (view !== 'acessos') clearInterval(_accTimer); }, 15000);
 }
-function _accPintar() { const el = document.getElementById('acc-root'); if (el) el.innerHTML = renderAcessosView(); }
+function _accPintar() {
+  const el = document.getElementById('acc-root'); if (!el) return;
+  const antes = document.getElementById('acc-vivo'), rolagem = antes ? antes.scrollTop : 0;   // a atualização de 15 s não pode jogar a lista de volta para o topo
+  el.innerHTML = renderAcessosView();
+  const depois = document.getElementById('acc-vivo'); if (depois && rolagem) depois.scrollTop = rolagem;
+}
+function _accCidadeFuso(tz) { return String(tz || '').split('/').pop().replace(/_/g, ' '); }
 
 function _accFmtHora(utc, tz) {
   const d = new Date(String(utc).replace(' ', 'T') + 'Z');
@@ -511,35 +561,46 @@ function renderAcessosView() {
   const max = Math.max(1, ...tot);
   let pico = 0; tot.forEach((n, i) => { if (n > tot[pico]) pico = i; });
   const top3 = tot.map((n, i) => [n, i]).sort((x, y) => y[0] - x[0]).slice(0, 3).filter(x => x[0] > 0).map(x => x[1] + 'h');
-  h += '<div style="margin:18px 0 6px;font-size:14px;font-weight:700;color:var(--text);">Horários de pico <span style="font-weight:400;font-size:12px;color:var(--text-muted);">(' + (_accHora === 'local' ? 'horário do aparelho de cada aluno' : 'horário de Brasília') + ')</span></div>' +
-    '<div style="font-size:12.5px;color:var(--text);margin-bottom:8px;">Mais movimento às <b>' + top3.join(', ') + '</b> · pico: <b>' + pico + 'h às ' + ((pico + 1) % 24) + 'h</b> com ' + tot[pico] + ' registros</div>' +
-    '<div style="display:flex;align-items:flex-end;gap:3px;height:130px;padding:6px 4px 0;border-bottom:1px solid var(--border);">' +
+  const painel = (titulo, sub, corpo) => '<section class="acc-painel"><div class="acc-titulo">' + titulo + '</div>' + (sub ? '<div class="acc-sub">' + sub + '</div>' : '') + corpo + '</section>';
+  const leg = (e, rot) => '<span><i style="background:' + _ACC_COR[e] + ';"></i> ' + rot + '</span>';
+  const graf = '<div class="acc-barras">' +
     tot.map((n, i) => {
-      const alt = Math.round(120 * n / max);
-      const seg = ['cardio', 'treino', 'abertura'].map(e => { const v = (base[e] || [])[i] || 0; return v ? '<div style="height:' + Math.max(2, Math.round(alt * v / Math.max(1, n))) + 'px;background:' + _ACC_COR[e] + ';opacity:' + (i === pico ? 1 : .8) + ';"></div>' : ''; }).join('');
-      return '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;" title="' + i + 'h: ' + n + ' registros (' + ((base.abertura || [])[i] || 0) + ' acessos, ' + ((base.treino || [])[i] || 0) + ' treinos, ' + ((base.cardio || [])[i] || 0) + ' cardios)">' + seg + '</div>';
+      const alt = Math.round(100 * n / max);
+      const seg = ['cardio', 'treino', 'abertura'].map(e => { const v = (base[e] || [])[i] || 0; return v ? '<div style="flex:' + v + ' 0 0;min-height:2px;background:' + _ACC_COR[e] + ';"></div>' : ''; }).join('');
+      return '<div class="acc-col' + (i === pico ? ' pico' : '') + '" title="' + i + 'h: ' + n + ' registros (' + ((base.abertura || [])[i] || 0) + ' acessos, ' + ((base.treino || [])[i] || 0) + ' treinos, ' + ((base.cardio || [])[i] || 0) + ' cardios)">' +
+        (i === pico && n ? '<b>' + n + '</b>' : '') + '<div class="acc-pilha" style="height:' + alt + '%;">' + seg + '</div></div>';
     }).join('') + '</div>' +
-    '<div style="display:flex;gap:3px;padding:3px 4px;font-size:9.5px;color:var(--text-muted);">' + tot.map((n, i) => '<div style="flex:1;text-align:center;">' + (i % 3 === 0 ? i : '') + '</div>').join('') + '</div>' +
-    '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-muted);margin-top:4px;"><span><i style="display:inline-block;width:9px;height:9px;background:' + _ACC_COR.abertura + ';border-radius:2px;"></i> acessos</span><span><i style="display:inline-block;width:9px;height:9px;background:' + _ACC_COR.treino + ';border-radius:2px;"></i> treinos</span><span><i style="display:inline-block;width:9px;height:9px;background:' + _ACC_COR.cardio + ';border-radius:2px;"></i> cardios</span></div>';
+    '<div class="acc-eixo">' + tot.map((n, i) => '<div>' + (i % 3 === 0 ? i + 'h' : '') + '</div>').join('') + '</div>' +
+    '<div class="acc-legenda">' + leg('abertura', 'acessos') + leg('treino', 'treinos') + leg('cardio', 'cardios') + '</div>';
 
-  // Dia da semana
+  // Dia da semana: uma linha por dia, para o número ficar ao lado da barra
   const sem = a.dia_semana || [], smax = Math.max(1, ...sem), nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-  h += '<div style="margin:22px 0 8px;font-size:14px;font-weight:700;color:var(--text);">Dia da semana mais movimentado</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">' +
-    sem.map((n, i) => '<div style="text-align:center;"><div style="height:70px;display:flex;align-items:flex-end;justify-content:center;"><div style="width:70%;height:' + bar(n, smax) + '%;background:var(--green);border-radius:4px 4px 0 0;opacity:' + (n === smax ? 1 : .55) + ';" title="' + nomes[i] + ': ' + n + '"></div></div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">' + nomes[i] + '</div><div style="font-size:12px;color:var(--text);font-weight:600;">' + n + '</div></div>').join('') + '</div>';
+  const dias = '<div class="acc-dias">' + sem.map((n, i) => '<div class="acc-dia' + (n === smax ? ' pico' : '') + '"><span>' + nomes[i] + '</span><div class="acc-trilho"><div style="width:' + bar(n, smax) + '%;"></div></div><b>' + n + '</b></div>').join('') + '</div>';
 
-  // Locais e fusos
-  const loc = a.locais || [], lmax = Math.max(1, ...loc.map(x => x.n));
-  h += '<div style="margin:22px 0 8px;font-size:14px;font-weight:700;color:var(--text);">Locais com mais acessos</div>';
-  if (!a.cloudflare && loc.length <= 1 && (loc[0] || {}).local === 'Sem localização') h += '<div style="font-size:12px;color:var(--text-muted);">A localização (cidade e país) aparece quando o site estiver atrás do Cloudflare. Por enquanto os acessos não trazem o local.</div>';
-  else h += loc.map(x => '<div style="display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12.5px;"><div style="width:170px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(x.local) + '">' + esc(x.local) + '</div><div style="flex:1;background:var(--bg3);border-radius:6px;height:14px;"><div style="width:' + bar(x.n, lmax) + '%;height:100%;background:#38bdf8;border-radius:6px;"></div></div><div style="width:92px;text-align:right;color:var(--text-muted);">' + x.n + ' (' + x.alunos + ' aluno' + (x.alunos === 1 ? '' : 's') + ')</div></div>').join('');
-  if ((a.fusos || []).length) h += '<div style="margin-top:12px;font-size:12.5px;color:var(--text);"><b>Alunos em outro fuso horário:</b> ' + a.fusos.map(f => esc(f.fuso) + ' (' + f.alunos + ' aluno' + (f.alunos === 1 ? '' : 's') + ', ' + f.n + ' registros)').join(' · ') + '. Troque "Horários em" para ver o pico no horário deles.</div>';
+  h += '<div class="acc-grade">' +
+    painel('Horários de pico', (_accHora === 'local' ? 'Horário do aparelho de cada aluno' : 'Horário de Brasília') + (top3.length ? ' · mais movimento às <b>' + top3.join(', ') + '</b>' : ''), graf) +
+    painel('Dia da semana', 'Registros em cada dia', dias) + '</div>';
 
-  // Ao vivo
-  h += '<div style="margin:22px 0 8px;font-size:14px;font-weight:700;color:var(--text);">Ao vivo: últimos registros</div><div style="max-height:420px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;">' +
+  // Ao vivo, em colunas alinhadas
+  const vivo = '<div class="acc-vivo" id="acc-vivo">' +
     (a.recentes || []).map(x => {
       const e = _ACC_EV[x.evento] || ['•', x.evento];
-      return '<div style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;"><span style="width:20px;text-align:center;">' + e[0] + '</span><b style="color:var(--text);min-width:130px;">' + esc(x.nome) + '</b><span style="color:var(--text);">' + e[1] + '</span><span style="color:var(--text-muted);">' + _accFmtHora(x.quando_utc) + ' (Brasília)' + (x.hora_local ? ' · <span style="color:#f59e0b;">' + x.hora_local + ' no fuso dele (' + esc(x.fuso_local) + ')</span>' : '') + ' · ' + _accHa(x.quando_utc, a.agora_utc) + '</span>' + (x.local ? '<span style="color:var(--text-muted);">📍 ' + esc(x.local) + '</span>' : '') + (x.ip ? '<span style="color:var(--text-muted);font-size:11px;">' + esc(x.ip) + '</span>' : '') + '</div>';
+      const hbr = _accFmtHora(x.quando_utc);
+      // A hora local só interessa quando o fuso do aluno marca outra hora que a de Brasília.
+      const outro = x.fuso_local && x.hora_local && x.hora_local !== hbr;
+      return '<div class="acc-linha"><span class="acc-ico">' + e[0] + '</span><b class="acc-nome">' + esc(x.nome) + '</b><span class="acc-ev">' + e[1] + '</span>' +
+        '<span class="acc-quando"><b>' + hbr + '</b> · ' + _accHa(x.quando_utc, a.agora_utc) + (outro ? '<small>' + esc(x.hora_local) + ' em ' + esc(_accCidadeFuso(x.fuso_local)) + '</small>' : '') + '</span>' +
+        '<span class="acc-local">' + (x.local ? '📍 ' + esc(x.local) : '') + '</span><span class="acc-ip" title="' + esc(x.ip || '') + '">' + esc(x.ip || '') + '</span></div>';
     }).join('') + '</div>';
+  h += painel('Ao vivo: últimos registros', 'Horários de Brasília', vivo);
+
+  // Locais e fusos, no fim da tela
+  const loc = a.locais || [], lmax = Math.max(1, ...loc.map(x => x.n));
+  let locais;
+  if (!a.cloudflare && loc.length <= 1 && (loc[0] || {}).local === 'Sem localização') locais = '<div class="acc-sub">A localização (cidade e país) aparece quando o site estiver atrás do Cloudflare. Por enquanto os acessos não trazem o local.</div>';
+  else locais = '<div class="acc-locais">' + loc.map(x => '<div class="acc-loc"><span class="acc-loc-nome" title="' + esc(x.local) + '">' + esc(x.local) + '</span><div class="acc-trilho"><div style="width:' + bar(x.n, lmax) + '%;background:' + _ACC_COR.abertura + ';"></div></div><span class="acc-loc-n"><b>' + x.n + '</b> · ' + x.alunos + ' aluno' + (x.alunos === 1 ? '' : 's') + '</span></div>').join('') + '</div>';
+  if ((a.fusos || []).length) locais += '<div class="acc-sub" style="margin:12px 0 0;"><b>Alunos em outro fuso:</b> ' + a.fusos.map(f => esc(_accCidadeFuso(f.fuso)) + ' (' + f.alunos + ' aluno' + (f.alunos === 1 ? '' : 's') + ', ' + f.n + ' registro' + (f.n === 1 ? '' : 's') + ')').join(' · ') + '. Troque "Horários em" para ver o pico no horário deles.</div>';
+  h += painel('Locais com mais acessos', '', locais);
   return h;
 }
 
