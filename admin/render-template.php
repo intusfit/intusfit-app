@@ -307,7 +307,7 @@ foreach (array_values($proofVisiveis) as $i => $pb):
       <div class="team-card">
         <div class="team-photo">
 <?php /* A foto antiga do Luiz (prof-luiz.jpg) está achatada; a corrigida vai pelo Git, em /fotos-site/. Uma foto nova enviada pelo admin continua valendo. */
-  $fotoMembro = basename($m['img']) === 'prof-luiz.jpg' ? '/fotos-site/luiz-nunes-equipe.jpg' : $imgBase . $m['img']; ?>
+  $fotoMembro = basename($m['img']) === 'prof-luiz.jpg' ? '/fotos-site/luiz-nunes-equipe.jpg?v=2' : $imgBase . $m['img']; ?>
           <img src="<?= s($fotoMembro) ?>" alt="<?= s($m['nome']) ?>">
         </div>
         <div class="team-body">
