@@ -6,6 +6,12 @@
  */
 const BLACK_ARQ = __DIR__ . '/black.json';
 const BLACK_ANTERIOR = __DIR__ . '/black.anterior.json';
+const BLACK_PAINEL_SEG = 7200;   // quanto vale a entrada vinda do painel (app/api/black_sso.php)
+
+/** Entrada vinda do painel. Libera SÓ o editor da /black e o envio de fotos dele, nunca o resto do /admin (que exige 'auth'). */
+function blackPeloPainel(array $s, int $agora): bool {
+    return !empty($s['black_ate']) && $agora < (int)$s['black_ate'];
+}
 
 /** Descarta tudo o que não estiver no formato esperado. Devolve só chaves conhecidas. */
 function blackLimpar($c): array {

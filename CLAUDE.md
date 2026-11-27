@@ -2553,3 +2553,9 @@ Web no ar; **ainda sem build novo** (o Luiz pediu para só atualizar a web). Tud
 - **Editor** `admin/black.php` (login do admin; menu do painel > Pagina Black Friday): previa de celular (390 px) e computador (1280 px). Guarda SO o que mudou em `admin/black.json` (fora do git; copia anterior em `black.anterior.json`), servido por `black/config.php`; limpeza em `admin/_black_cfg.php`.
 - **Atencao**: o que foi editado no painel vence o que esta no HTML. Precos nao sao editaveis (cada link do Asaas cobra valor fixo). Mudar o prazo nao muda os textos com "30/11" nem o encerramento dos links no Asaas.
 - **Links Black no Asaas** (26/11/2026): 9 links "Black Friday Intus, <plano>, plano <periodo>" (ids 5015778 e 5015780 a 5015787), cartao ate 12x, encerram em 30/11. Venda por eles NAO cria matricula sozinha.
+
+### Entrada no editor pelo login do painel (27/11/2026, pedido do Luiz)
+- Menu do painel **Página Black Friday** (só usuário 1) -> `app/painel/black.html` -> `app/api/black_sso.php` -> `admin/black.php`, sem a senha do `/admin`.
+- A ponte exige sessão válida da equipe com `user_id = 1` e grava só `$_SESSION['black_ate']` (2 h). **Nunca marcar `auth` ali**: essa entrada abre apenas o editor,
+  `upload.php` e `imglist.php`; chaves e o resto do `/admin` seguem com o login próprio. `admin/black.php` sem acesso manda para `black.html`.
+- `_mock.js?v=20261127a` nas telas do painel (o app do aluno não mudou).

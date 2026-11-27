@@ -674,6 +674,8 @@ function renderLayout(activePage) {
     { href: INTUS_CUT_URL,       icon: ICONS.video,    label: 'Intus Cut',    show: hasPerm('cut_ver') },
     { href: '../../conteudo/',   icon: ICONS.camera,   label: 'Conteúdo',     show: hasPerm('cut_ver') },
     { href: 'cdd.html',          icon: ICONS.crown,    label: 'CDD',          show: hasPerm('cdd_ver') },
+    // Só a conta principal: o servidor confere de novo (app/api/black_sso.php).
+    { href: 'black.html',        icon: ICONS.crown,    label: 'Página Black Friday', show: Number(user.idusuario) === 1 },
     { href: 'usuarios.html',     icon: ICONS.shield,   label: 'Usuários',     show: !!user.admin },
     { href: 'notificacoes.html', icon: ICONS.bell,     label: 'Notificações', show: !!user.admin },
     { href: 'configuracoes.html',icon: ICONS.gear,     label: 'Configurações',show: !!user.admin },

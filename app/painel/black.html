@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Página Black Friday · Intus</title>
+<style>
+  body{font-family:Inter,system-ui,sans-serif;background:#0f0f0f;color:#f0f0f0;display:grid;place-items:center;min-height:100vh;margin:0;padding:20px;text-align:center}
+  .c{max-width:420px}
+  h1{font-size:20px;margin:0 0 8px}
+  p{color:#aaa;font-size:14px;line-height:1.5;margin:10px 0}
+  a{color:#ffc53d}
+</style>
+</head>
+<body>
+<div class="c">
+  <h1 id="t">Abrindo o editor...</h1>
+  <p id="m">Você entra com o seu login do painel.</p>
+  <p><a href="index.html">Voltar ao painel</a> · <a href="login.html">Entrar no painel</a></p>
+</div>
+<script>
+(async function () {
+  var t = document.getElementById('t'), m = document.getElementById('m'), tok = '', antes = 0;
+  function parar(titulo, texto) { t.textContent = titulo; m.textContent = texto; }
+  try { tok = localStorage.getItem('mx-token') || ''; antes = Number(sessionStorage.getItem('black-aberto')) || 0; } catch (e) {}
+  if (!tok) return parar('Entre no painel', 'Faça o login no painel da Intus e clique em Página Black Friday no menu.');
+  // se o editor devolveu para cá logo depois de abrir, não fica indo e voltando
+  if (Date.now() - antes < 8000) {
+    try { sessionStorage.removeItem('black-aberto'); } catch (e) {}
+    return parar('O editor não reconheceu o acesso', 'Confira se o navegador aceita cookies de intusfit.com.br e abra de novo pelo menu.');
+  }
+  try {
+    var r = await fetch('/app/api/black_sso.php', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tok } });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.ok && j.ok) {
+      try { sessionStorage.setItem('black-aberto', String(Date.now())); } catch (e) {}
+      location.replace(j.url); return;
+    }
+    if (r.status === 401) return parar('Sua sessão no painel terminou', 'Entre de novo no painel e clique em Página Black Friday no menu.');
+    parar(r.status === 403 ? 'Sem acesso ao editor' : 'Não consegui abrir o editor', j.erro || 'Tente de novo em instantes.');
+  } catch (e) { parar('Sem conexão', 'Confira a internet e tente de novo.'); }
+})();
+</script>
+</body>
+</html>

@@ -1,10 +1,11 @@
 <?php
 require_once 'config.php';
+require_once __DIR__ . '/_black_cfg.php';
 session_name(SESSION_KEY);
 session_start();
 header('Content-Type: application/json');
 
-if (empty($_SESSION['auth'])) { echo json_encode(['ok'=>false,'error'=>'Não autorizado']); exit; }
+if (empty($_SESSION['auth']) && !blackPeloPainel($_SESSION, time())) { echo json_encode(['ok'=>false,'error'=>'Não autorizado']); exit; }
 
 $allowed = ['image/jpeg','image/jpg','image/png','image/webp','image/gif'];
 $maxSize = 8 * 1024 * 1024; // 8MB

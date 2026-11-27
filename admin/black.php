@@ -5,9 +5,10 @@ require_once __DIR__ . '/_black_cfg.php';
 session_name(SESSION_KEY);
 session_start();
 
-if (empty($_SESSION['auth']) || (time() - $_SESSION['login_time']) > SESSION_TIMEOUT) {
-    if (isset($_GET['acao'])) { http_response_code(401); header('Content-Type: application/json'); echo json_encode(['ok' => false, 'error' => 'Sua sessão terminou. Entre de novo no painel em outra aba e clique em salvar outra vez.']); exit; }
-    header('Location: index.php'); exit;
+$_doAdmin = !empty($_SESSION['auth']) && (time() - (int)($_SESSION['login_time'] ?? 0)) <= SESSION_TIMEOUT;
+if (!$_doAdmin && !blackPeloPainel($_SESSION, time())) {
+    if (isset($_GET['acao'])) { http_response_code(401); header('Content-Type: application/json'); echo json_encode(['ok' => false, 'error' => 'Sua sessão terminou. Em outra aba, abra o editor de novo pelo menu do painel e depois clique em salvar aqui.']); exit; }
+    header('Location: /app/painel/black.html'); exit;
 }
 if (empty($_SESSION['black_token'])) $_SESSION['black_token'] = bin2hex(random_bytes(24));
 
@@ -98,7 +99,7 @@ label.c>*{color:var(--txt);font-size:14px;font-weight:400}
 </head>
 <body>
 <div class="barra">
-  <a href="painel.php">← Painel</a>
+  <a href="<?= $_doAdmin ? 'painel.php' : '/app/painel/index.html' ?>">← Painel</a>
   <h1>Página Black Friday</h1>
   <div class="grupo-btn" role="group" aria-label="Tamanho da prévia">
     <button type="button" id="v-celular" aria-pressed="true">📱 Celular</button>
