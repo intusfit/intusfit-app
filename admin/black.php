@@ -217,7 +217,7 @@ label.c>*{color:var(--txt);font-size:14px;font-weight:400}
     ['Azul', { principal: '#4cc9ff' }],
     ['Fundo claro', { botao: '#2f6b00', graca: '#2f6b00', zap: '#2f6b00', principal: '#8a5a00', bg: '#ffffff', card: '#f3f3f1', borda: '#d6d6d2', txt: '#111111', sobre: '#ffffff' }]
   ];
-  var SECOES = [['relogio', 'Cronômetro'], ['como', 'Como funciona'], ['garantia', 'Garantia'], ['banda', 'Faixa “2026 de graça” do meio'], ['recebe', 'O que você recebe'], ['equipe', 'Quem vai te acompanhar'], ['resultados', 'Antes e depois'], ['duvidas', 'Dúvidas'], ['contato', 'Chamada final do WhatsApp'], ['slogan', 'Slogan']];
+  var SECOES = [['relogio', 'Cronômetro'], ['como', 'Como funciona'], ['garantia', 'Garantia'], ['banda', 'Faixa “2026 de graça” do meio'], ['recebe', 'O que você recebe'], ['equipe', 'Quem vai te acompanhar'], ['depoimentos', 'Depoimentos e prints'], ['resultados', 'Antes e depois'], ['duvidas', 'Dúvidas'], ['contato', 'Chamada final do WhatsApp'], ['slogan', 'Slogan']];
   var abertos = { Cores: true };
 
   function bloco(titulo, filhos) {

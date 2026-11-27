@@ -53,7 +53,7 @@ function blackLimpar($c): array {
         }
     }
     if (isset($c['ocultos']) && is_array($c['ocultos'])) {
-        $r['ocultos'] = array_values(array_intersect(['relogio', 'como', 'garantia', 'banda', 'recebe', 'equipe', 'resultados', 'duvidas', 'contato', 'slogan'], $c['ocultos']));
+        $r['ocultos'] = array_values(array_intersect(['relogio', 'como', 'garantia', 'banda', 'recebe', 'equipe', 'depoimentos', 'resultados', 'duvidas', 'contato', 'slogan'], $c['ocultos']));
         if (!$r['ocultos']) unset($r['ocultos']);
     }
     return $r;
