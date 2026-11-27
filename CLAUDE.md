@@ -2572,3 +2572,8 @@ Web no ar; **ainda sem build novo** (o Luiz pediu para só atualizar a web). Tud
 - A ponte exige sessão válida da equipe com `user_id = 1` e grava só `$_SESSION['black_ate']` (2 h). **Nunca marcar `auth` ali**: essa entrada abre apenas o editor,
   `upload.php` e `imglist.php`; chaves e o resto do `/admin` seguem com o login próprio. `admin/black.php` sem acesso manda para `black.html`.
 - `_mock.js?v=20261127a` nas telas do painel (o app do aluno não mudou).
+
+### Página /black: segunda versão (27/11/2026)
+- Cores separadas: `principal` (amarelo), `botao`, `graca` e `zap` (verde). A antiga chave `ouro` deixou de existir, por isso o verde salvo antes é ignorado.
+- Faixa "2026 de graça" (`banda`) e galeria `resultados` (`black/resultados/ad-01..24`, `palco-01..06`, copiadas de `img/`, trocáveis no editor) com chamadas
+  `.so-aberta`, que somem depois do prazo. `black/.htaccess` manda `no-cache` na página.
