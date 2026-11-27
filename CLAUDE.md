@@ -2554,6 +2554,19 @@ Web no ar; **ainda sem build novo** (o Luiz pediu para só atualizar a web). Tud
 - **Atencao**: o que foi editado no painel vence o que esta no HTML. Precos nao sao editaveis (cada link do Asaas cobra valor fixo). Mudar o prazo nao muda os textos com "30/11" nem o encerramento dos links no Asaas.
 - **Links Black no Asaas** (26/11/2026): 9 links "Black Friday Intus, <plano>, plano <periodo>" (ids 5015778 e 5015780 a 5015787), cartao ate 12x, encerram em 30/11. Venda por eles NAO cria matricula sozinha.
 
+## 27/11/2026: foto do próprio aluno e puxar para atualizar
+
+- **Causa da foto sumida (teste 31, iPhone):** o topo e o Perfil liam só `localStorage['intus-profile-<id>']`, e nada chamava a leitura no servidor
+  (`API.getProfile` não tinha quem chamasse). Instalação nova = sem foto. Agora `_meuPerfilSincronizar()` busca ao abrir e no puxar para atualizar.
+  Foto com `_avatarPendingSync` (ou existente só no aparelho) é reenviada; a marca só sai com `ok` do servidor (`_meuAvatarEnviar`). Não use
+  `API.saveProfile` para a foto: sem rede ele "dá certo" só no aparelho.
+- **Puxar para atualizar** (`aluno.html`, bloco "PUXAR PARA ATUALIZAR"): telas em `PUXAR_TELAS` (início, feed, ranking e medalhas, Central,
+  Comunidade). Não age com menu, janela por cima, rolagem interna, conversa aberta ou tela girada. `overscroll-behavior-y: contain` desliga o
+  recarregamento do navegador. Tela nova que precise do gesto: entrar na lista e no `_atualizarTudo`. `sincronizarDoBackend(true)` refaz a sincronia.
+- No app instalado, as duas coisas só chegam com novo build. Teste: `testes/puxar_e_foto.js` (gestos de toque reais via CDP).
+- **Nutrição com plano ativo:** o cartão grande `#nutri-cardapio` (`_nutriCardapioHtml`, topo da tela, acima da água) leva ao cardápio; os atalhos viram 3 em linha. Sem plano a tela segue como antes.
+- **Notificações no iPhone:** `createChannel` responde "não implementado" no iOS (canal só existe no Android). Toda criação de canal fica em `try` próprio (nos lembretes, `criarCanal`); sem isso o aviso de teste falhava no iPhone. Em campos `input type=time` lado a lado, usar `appearance:none` e `min-width:0` (o campo nativo do iOS estourava a tela).
+
 ### Entrada no editor pelo login do painel (27/11/2026, pedido do Luiz)
 - Menu do painel **Página Black Friday** (só usuário 1) -> `app/painel/black.html` -> `app/api/black_sso.php` -> `admin/black.php`, sem a senha do `/admin`.
 - A ponte exige sessão válida da equipe com `user_id = 1` e grava só `$_SESSION['black_ate']` (2 h). **Nunca marcar `auth` ali**: essa entrada abre apenas o editor,

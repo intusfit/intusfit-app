@@ -75,6 +75,12 @@
     } catch (e) { return false; }
   }
 
+  // Canal de notificação só existe no Android: no iPhone o plugin responde "não implementado" e isso não pode impedir o agendamento
+  // (era o que fazia o aviso de teste falhar no iPhone, 27/11/2026). Todo canal passa por aqui.
+  async function criarCanal(ln) {
+    try { if (ln.createChannel) await ln.createChannel({ id: 'nutricao', name: 'Refeições e água', description: 'Lembretes das refeições do plano alimentar e de beber água', importance: 4, visibility: 1, vibration: true }); } catch (e) {}
+  }
+
   // Agenda (ou cancela) conforme as preferências e o plano. Devolve { ok, motivo, total }.
   async function agendar(plano) {
     var ln = LN(); if (!ln) return { ok: false, motivo: 'web' };
@@ -83,7 +89,7 @@
     if (!cfg.ativo) return { ok: true, total: 0 };
     if (!plano) return { ok: true, total: 0, motivo: 'sem-plano' };
     if (!(await permissao(ln))) return { ok: false, motivo: 'permissao' };
-    try { if (ln.createChannel) await ln.createChannel({ id: 'nutricao', name: 'Refeições e água', description: 'Lembretes das refeições do plano alimentar e de beber água', importance: 4, visibility: 1, vibration: true }); } catch (e) {}
+    await criarCanal(ln);
     var peso = 0; try { peso = _nutriUltimoPeso(); } catch (e) {}
     var meta = 0; try { meta = API.nutri.metaAguaMl(peso); } catch (e) {}
     var lista = montarLista(plano, cfg, meta);
@@ -105,7 +111,7 @@
     var ln = LN(); if (!ln) { toast('O teste funciona no app da Intus no celular.'); return; }
     if (!(await permissao(ln))) { toast('Permita as notificações do Intus Fit nos ajustes do celular.'); return; }
     try {
-      if (ln.createChannel) await ln.createChannel({ id: 'nutricao', name: 'Refeições e água', description: 'Lembretes das refeições do plano alimentar e de beber água', importance: 4, visibility: 1, vibration: true });
+      await criarCanal(ln);
       await ln.schedule({ notifications: [{ id: ID_TESTE, channelId: 'nutricao', title: '💧 Lembrete de teste', body: 'Assim chegam os avisos das suas refeições e da água.', extra: { tipo: 'nutri-agua' }, schedule: { at: new Date(Date.now() + 5000), allowWhileIdle: true } }] });
       toast('Pronto! O aviso de teste chega em 5 segundos. Pode sair do app para ver.');
     } catch (e) { toast('Não consegui agendar o teste.'); }
@@ -168,9 +174,9 @@
       if (c.refeicoes) html += '<div style="display:flex;gap:8px;margin:0 0 6px;">' + chip(c.antes === 0, 'LembretesNutri.antes(0)', 'Na hora') + chip(c.antes === 10, 'LembretesNutri.antes(10)', '10 min antes') + chip(c.antes === 30, 'LembretesNutri.antes(30)', '30 min antes') + '</div>';
       html += '<div style="border-top:1px solid ' + C.borda + ';margin-top:6px;"></div>' + linhaSw(c.agua, 'LembretesNutri.alternar(\'agua\')', '💧 Água', 'Avisos para beber água ao longo do dia.');
       if (c.agua) {
-        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
-          '<label style="font-size:10px;font-weight:700;color:' + C.mut + ';text-transform:uppercase;">Começa às<input type="time" value="' + esc(c.aguaIni) + '" onchange="LembretesNutri.horario(\'aguaIni\', this.value)" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px;border-radius:10px;border:1px solid ' + C.borda + ';background:' + campo + ';color:' + txt + ';font-size:14px;font-family:inherit;"/></label>' +
-          '<label style="font-size:10px;font-weight:700;color:' + C.mut + ';text-transform:uppercase;">Termina às<input type="time" value="' + esc(c.aguaFim) + '" onchange="LembretesNutri.horario(\'aguaFim\', this.value)" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px;border-radius:10px;border:1px solid ' + C.borda + ';background:' + campo + ';color:' + txt + ';font-size:14px;font-family:inherit;"/></label></div>' +
+        html += '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:8px;">' +
+          '<label style="display:block;min-width:0;font-size:10px;font-weight:700;color:' + C.mut + ';text-transform:uppercase;">Começa às<input type="time" value="' + esc(c.aguaIni) + '" onchange="LembretesNutri.horario(\'aguaIni\', this.value)" style="display:block;width:100%;min-width:0;max-width:100%;height:42px;box-sizing:border-box;margin-top:4px;padding:0 6px;-webkit-appearance:none;appearance:none;text-align:center;line-height:40px;border-radius:10px;border:1px solid ' + C.borda + ';background:' + campo + ';color:' + txt + ';font-size:14px;font-family:inherit;"/></label>' +
+          '<label style="display:block;min-width:0;font-size:10px;font-weight:700;color:' + C.mut + ';text-transform:uppercase;">Termina às<input type="time" value="' + esc(c.aguaFim) + '" onchange="LembretesNutri.horario(\'aguaFim\', this.value)" style="display:block;width:100%;min-width:0;max-width:100%;height:42px;box-sizing:border-box;margin-top:4px;padding:0 6px;-webkit-appearance:none;appearance:none;text-align:center;line-height:40px;border-radius:10px;border:1px solid ' + C.borda + ';background:' + campo + ';color:' + txt + ';font-size:14px;font-family:inherit;"/></label></div>' +
           '<div style="display:flex;gap:8px;margin-bottom:6px;">' + chip(c.aguaInt === 60, 'LembretesNutri.intervalo(60)', 'A cada 1 h') + chip(c.aguaInt === 90, 'LembretesNutri.intervalo(90)', '1h30') + chip(c.aguaInt === 120, 'LembretesNutri.intervalo(120)', '2 h') + chip(c.aguaInt === 180, 'LembretesNutri.intervalo(180)', '3 h') + '</div>';
       }
       var lista = montarLista(plano, c, 0);

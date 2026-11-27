@@ -72,7 +72,7 @@
   <script src="ajuda.js?v=20261107a" defer></script>
   <script src="comparativo-fotos.js?v=20261126a" defer></script>
   <script src="comparativo-avaliacoes.js?v=20261126a" defer></script>
-  <script src="lembretes-nutri.js?v=20261125a" defer></script>
+  <script src="lembretes-nutri.js?v=20261127a" defer></script>
   <script src="altitude-cardio.js?v=20261125a" defer></script>
   <script src="permissoes-app.js?v=20261125a" defer></script>
   <script>
@@ -277,6 +277,18 @@
       padding-bottom: env(safe-area-inset-bottom);
       transition: background .3s, color .3s;
     }
+
+    /* Puxar para atualizar. O overscroll-behavior desliga o "puxar para recarregar" do próprio navegador, que recarregava a página inteira. */
+    html, body { overscroll-behavior-y: contain; }
+    #puxar-bola { position: fixed; left: 50%; top: 0; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 90; opacity: 0;
+      pointer-events: none; transform: translate(-50%, 0); background: #232323; border: 1px solid #3a3a3a; color: #aaa; font-size: 21px; font-weight: 800; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+    #puxar-bola span { display: block; line-height: 1; }
+    #puxar-bola.solta { transition: transform .22s ease, opacity .22s ease; }
+    #puxar-bola.pronto, #puxar-bola.girando { color: #7FFF00; border-color: #7FFF00; }
+    #puxar-bola.girando span { animation: puxarGira .8s linear infinite; }
+    @keyframes puxarGira { to { transform: rotate(360deg); } }
+    body.tema-claro #puxar-bola { background: #fff; border-color: #d5d5d5; color: #666; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+    body.tema-claro #puxar-bola.pronto, body.tema-claro #puxar-bola.girando { color: #2d8a00; border-color: #2d8a00; }
 
     /* ═══════════════ LIGHT THEME ═══════════════ */
     body.tema-claro { background: #f5f5f5; color: #1a1a1a; min-height: 100vh; min-height: 100dvh; }
@@ -7049,17 +7061,50 @@ function updateHeaderAvatar() {
 initTheme();
 updateHeaderAvatar();
 
-// Sync avatar to server if it was saved locally but not yet sent
-(function syncPendingAvatar() {
-  const profileKey = 'intus-profile-' + idAtleta;
-  const profile = JSON.parse(localStorage.getItem(profileKey) || '{}');
-  if (profile._avatarPendingSync && profile.avatar) {
-    API.saveProfile(idAtleta, { avatar: profile.avatar }).then(() => {
-      delete profile._avatarPendingSync;
-      localStorage.setItem(profileKey, JSON.stringify(profile));
-    }).catch(() => {});
-  }
-})();
+// ── A MINHA FOTO ───────────────────────────────────────────────────────────
+// A foto do topo e do Perfil sai da cópia no aparelho. Essa cópia só existia no aparelho que enviou a foto: numa instalação nova (ou noutro
+// celular) o topo ficava sem foto, embora o Feed a mostrasse. Agora o app busca a foto no servidor ao abrir e no "puxar para atualizar".
+function _meuPerfilLer() {
+  try { return JSON.parse(localStorage.getItem('intus-profile-' + idAtleta) || '{}') || {}; } catch (e) { return {}; }
+}
+function _meuPerfilGravar(p) {
+  try { localStorage.setItem('intus-profile-' + idAtleta, JSON.stringify(p)); } catch (e) {}
+}
+// Só tira a marca de "falta enviar" quando o servidor confirma (antes, sem internet, a marca saía e a foto nunca chegava ao servidor).
+async function _meuAvatarEnviar(avatar) {
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=profile&atleta=' + Number(idAtleta), { method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, body: JSON.stringify({ idatleta: idAtleta, avatar: avatar }) }, 20000);
+    const j = r.ok ? await r.json() : null;
+    if (!j || !j.ok) return false;
+    const p = _meuPerfilLer();
+    if (p.avatar === avatar) { delete p._avatarPendingSync; _meuPerfilGravar(p); }
+    return true;
+  } catch (e) { return false; }
+}
+async function _meuPerfilSincronizar() {
+  if (window.__VER_PERFIL || !idAtleta) return;
+  try {
+    const r = await _fetchT(API_BASE + '/catalogo.php?action=profile&atleta=' + Number(idAtleta) + '&_=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('mx-token') || '') }, cache: 'no-store' }, 15000);
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j || typeof j !== 'object' || !('avatar' in j)) return;
+    const p = _meuPerfilLer();   // lido depois da resposta: uma troca de foto feita durante a espera não se perde
+    if (p.avatar && (p._avatarPendingSync || !j.avatar)) { await _meuAvatarEnviar(p.avatar); return; }   // foto que ainda não chegou ao servidor
+    if (!j.avatar || p.avatar === j.avatar) return;
+    p.avatar = j.avatar;
+    _meuPerfilGravar(p);
+    updateHeaderAvatar();
+    const caixa = document.querySelector('#v-perfil .profile-avatar');   // troca só a foto: o que a pessoa estiver digitando no Perfil continua lá
+    if (caixa) {
+      let img = caixa.querySelector('img');
+      if (!img) { const ic = caixa.querySelector('span'); if (ic) ic.remove(); img = document.createElement('img'); img.alt = 'avatar'; caixa.insertBefore(img, caixa.firstChild); }
+      img.src = j.avatar;
+    }
+  } catch (e) {}
+}
+setTimeout(_meuPerfilSincronizar, 400);
 
 // ═══════════════ ZOOM ═══════════════
 // ═══════════════ ZOOM ═══════════════
@@ -7518,8 +7563,8 @@ let _syncDone = false;
 var _syncFichasOk = false;
 var _syncErro = null;
 
-async function sincronizarDoBackend() {
-  if (_syncDone) return;
+async function sincronizarDoBackend(forcar) {
+  if (_syncDone && !forcar) return;
   const token = localStorage.getItem('mx-token') || '';
   const hdrs = { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' };
   const get = (rota) => _fetchT(API_BASE + rota, { headers: hdrs, cache: 'no-store' }, 15000);
@@ -22803,15 +22848,40 @@ function _nutriSugestoes() {
   return { rot: rot, itens: rot2.slice(0, 8) };
 }
 
+// Com plano alimentar ativo, o cardápio é o assunto principal da Nutrição: cartão grande no topo, com a refeição da vez e um botão largo.
+function _nutriCardapioHtml(plano) {
+  const N = API.nutri, C = _nutriCores(), regs = _nutriRegsDoDia(N.hojeIso()), refs = N.refeicoes(plano), prox = N.proximaRefeicao(plano, regs);
+  const feitas = refs.filter(r => regs.some(g => g.refeicao === r.chave)).length;
+  let meio = '';
+  if (prox) {
+    const agora = new Date(), hhmm = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+    const passou = prox.horario && String(prox.horario).slice(0, 5) < hhmm;
+    const nomes = (prox.itens_estruturados || []).map(it => it && it.nome).filter(Boolean);
+    meio = `<div style="background:${C.card};border:1px solid ${C.borda};border-radius:12px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-size:10.5px;font-weight:800;color:${C.mut};text-transform:uppercase;letter-spacing:.05em;">${passou ? 'Falta registrar' : 'Próxima refeição'}</div>
+      <div style="font-size:15px;font-weight:900;margin-top:3px;">${esc(((prox.horario || '') + ' ' + (prox.nome || '')).trim())}</div>
+      ${nomes.length ? `<div style="font-size:12px;color:${C.mut};line-height:1.45;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(nomes.slice(0, 3).join(' · '))}${nomes.length > 3 ? ' e mais ' + (nomes.length - 3) : ''}</div>` : ''}
+    </div>`;
+  } else if (refs.length) {
+    meio = `<div style="font-size:13px;font-weight:700;margin-bottom:12px;">✅ Todas as refeições de hoje estão registradas.</div>`;
+  }
+  return `<div id="nutri-cardapio" role="button" onclick="nutriTela('plano')" style="background:var(--marca-fraca,rgba(127,255,0,.08));border:2px solid ${C.ok};border-radius:18px;padding:15px 14px 14px;margin-bottom:14px;cursor:pointer;box-shadow:0 6px 18px rgba(92,184,0,.18);">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:12px;">
+      <div style="font-size:36px;line-height:1;">🍽️</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:18px;font-weight:900;line-height:1.2;">Meu plano alimentar</div>
+        <div style="font-size:12px;color:${C.mut};margin-top:2px;">${refs.length ? feitas + ' de ' + refs.length + ' refeições registradas hoje' : 'Plano alimentar ativo'}</div>
+      </div>
+    </div>
+    ${refs.length ? `<div style="height:7px;border-radius:99px;background:${C.borda};overflow:hidden;margin-bottom:12px;"><div style="height:100%;width:${Math.round(feitas / refs.length * 100)}%;background:${C.ok};"></div></div>` : ''}
+    ${meio}
+    <button type="button" class="btn btn-prim btn-full" style="font-size:15.5px;font-weight:900;padding:14px;">📋 Ver meu cardápio</button>
+  </div>`;
+}
+
 function _nutriHomeHtml() {
   const N = API.nutri, C = _nutriCores(), plano = _nutri.plano, hoje = N.hojeIso();
   const nRec = _nutriCont.receitas.length, nVid = _nutriCont.videos.length, nDic = _nutriCont.dicas.length;
-  let planoSub = 'Sem plano alimentar ativo';
-  if (plano) {
-    const regs = _nutriRegsDoDia(hoje), refs = N.refeicoes(plano), prox = N.proximaRefeicao(plano, regs);
-    const feitas = refs.filter(r => regs.some(g => g.refeicao === r.chave)).length;
-    planoSub = refs.length ? feitas + ' de ' + refs.length + ' refeições hoje' + (prox ? ' · próxima ' + esc((prox.horario || '') + ' ' + prox.nome).trim() : '') : 'Plano alimentar ativo';
-  }
   const tile = (js, ic, tit, sub, destaque) => `<div onclick="${js}" style="background:${destaque ? 'var(--marca-fraca,rgba(127,255,0,.08))' : C.card};border:1px solid ${destaque ? C.ok : C.borda};border-radius:14px;padding:13px 12px;cursor:pointer;display:flex;flex-direction:column;gap:4px;min-height:84px;">
     <div style="font-size:24px;line-height:1;">${ic}</div><div style="font-size:13.5px;font-weight:900;margin-top:2px;">${tit}</div><div style="font-size:11px;color:${C.mut};line-height:1.3;">${sub}</div></div>`;
   const sug = _nutriSugestoes();
@@ -22822,11 +22892,12 @@ function _nutriHomeHtml() {
       <button class="btn btn-prim btn-full" onclick="abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')">💬 Falar sobre meu plano alimentar</button></div>` : '';
   return `<div style="padding:16px 0;">
     ${telaHeader('🥗 Nutrição')}
+    ${plano ? _nutriCardapioHtml(plano) : ''}
     ${_nutriAguaCardHtml()}
     ${_nutriRefToggleHtml()}
     ${window.LembretesNutri ? LembretesNutri.cartao() : ''}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-      ${plano ? tile("nutriTela('plano')", '🍽️', 'Meu plano alimentar', esc(planoSub), true) : tile("abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')", '🍽️', 'Meu plano alimentar', 'Sem plano alimentar ativo. Toque para falar com a equipe.', false)}
+    <div style="display:grid;grid-template-columns:${plano ? 'repeat(3,minmax(0,1fr))' : '1fr 1fr'};gap:10px;margin-bottom:14px;">
+      ${plano ? '' : tile("abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')", '🍽️', 'Meu plano alimentar', 'Sem plano alimentar ativo. Toque para falar com a equipe.', false)}
       ${tile("nutriTela('receitas')", '👩‍🍳', 'Receitas', nRec ? (_nutriTemPlano() ? nRec + ' receitas práticas' : '1 por categoria liberada hoje · ' + nRec + ' no total') : 'Em breve', false)}
       ${tile("nutriTela('videos')", '▶️', 'Vídeos', nVid ? (_nutriTemPlano() ? nVid + (nVid === 1 ? ' vídeo' : ' vídeos') : '1 vídeo liberado por dia') : 'Em breve', false)}
       ${tile("nutriTela('dicas')", '💡', 'Dicas', nDic ? (_nutriTemPlano() ? nDic + ' orientações' : '1 dica liberada por dia') : 'Em breve', false)}
@@ -23688,13 +23759,8 @@ function confirmarCrop() {
     updateHeaderAvatar();
     renderPerfil();
     fecharCrop();
-    API.saveProfile(idAtleta, { avatar: dataUrl }).then(() => {
-      const p2 = JSON.parse(localStorage.getItem(profileKey) || '{}');
-      delete p2._avatarPendingSync;
-      localStorage.setItem(profileKey, JSON.stringify(p2));
-      toast('Foto atualizada! 📷');
-    }).catch(() => {
-      toast('Foto salva no dispositivo. Sincronize quando tiver conexão.');
+    _meuAvatarEnviar(dataUrl).then(ok => {
+      toast(ok ? 'Foto atualizada! 📷' : 'Foto salva no aparelho. Ela será enviada quando a conexão voltar.');
     });
   };
   img.src = imgSrc;
@@ -26152,6 +26218,115 @@ if ('serviceWorker' in navigator) {
     reg.update();
   }).catch(() => {});
 }
+
+// ═══════════════ PUXAR PARA ATUALIZAR ═══════════════
+// Arrastar para baixo, com a tela no topo, busca de novo no servidor: feed, ranking e medalhas, mensagens, notificações, treinos e a sua foto.
+const PUXAR_TELAS = ['home', 'feed', 'ranking', 'mensagens', 'amigos'];
+const PUXAR_MINIMO = 70;   // quanto o círculo precisa descer (o dedo anda o dobro)
+let _puxarRodando = false;
+
+// A parte que é igual em todas as telas. Cada busca falha sozinha: sem rede, o que já estava na tela continua lá.
+async function _atualizarDados(view) {
+  const fichasOk = _syncFichasOk, erro = _syncErro;
+  const buscas = [
+    _meuPerfilSincronizar(),
+    _notifBuscarContagem(),
+    sincronizarDoBackend(true).then(function () { if (fichasOk && !_syncFichasOk) { _syncFichasOk = fichasOk; _syncErro = erro; } }),   // uma atualização que falha não desfaz o que já tinha chegado
+  ];
+  if (view !== 'mensagens') buscas.push(API.listarMensagens(idAtleta).then(function () { atualizarBadgeMensagens(); _notifPintarBadge(_notifSrvAtual); }));
+  if (view !== 'ranking') buscas.push(sincronizarRankingHome(true));   // a tela do Ranking busca o próprio ao se redesenhar
+  await Promise.all(buscas.map(function (p) { return Promise.resolve(p).catch(function () {}); }));
+}
+
+async function _atualizarTudo() {
+  const view = window._viewAtual || 'home';
+  const espera = new Promise(function (ok) { setTimeout(ok, 15000); });   // servidor lento não deixa o círculo girando para sempre; o resto chega depois
+  await Promise.race([_atualizarDados(view).catch(function () {}), espera]);
+  if ((window._viewAtual || 'home') !== view) return;   // a pessoa já foi para outra tela
+  try {
+    if (view === 'home') {
+      _feedAutoToken++;
+      _feedModo = 'home';
+      await Promise.race([carregarFeedPosts(FEED_LOTE_HOME, null, null, true), new Promise(function (ok) { setTimeout(ok, 10000); })]);
+      if (window._viewAtual === 'home' || !window._viewAtual) renderHome();
+    } else if (view === 'feed') await renderFeedCompleto();
+    else if (view === 'ranking') await renderRanking();
+    else if (view === 'mensagens') await renderMensagensAluno();
+    else if (view === 'amigos') await renderAmigos();
+  } catch (e) { console.warn('[atualizar]', e); }
+}
+
+(function _puxarIniciar() {
+  if (window.__VER_PERFIL) return;
+  let x0 = 0, y0 = 0, puxando = false, dist = 0;
+  const bola = document.createElement('div');
+  bola.id = 'puxar-bola';
+  bola.setAttribute('role', 'status');
+  bola.setAttribute('aria-label', 'Atualizar');
+  bola.innerHTML = '<span>↻</span>';
+  document.body.appendChild(bola);
+
+  function pintar(d, girando) {
+    const topo = document.querySelector('.top');
+    const base = topo ? Math.max(0, topo.getBoundingClientRect().bottom) : 0;
+    bola.style.top = (base - 44) + 'px';
+    bola.style.transform = 'translate(-50%,' + d + 'px)';
+    bola.style.opacity = d > 8 ? '1' : '0';
+    bola.classList.toggle('pronto', d >= PUXAR_MINIMO);
+    bola.classList.toggle('girando', !!girando);
+    bola.firstChild.style.transform = girando ? '' : 'rotate(' + Math.round(d * 4) + 'deg)';
+  }
+  function recolher() { bola.classList.add('solta'); pintar(0, false); }
+
+  // Só vale no corpo da tela (ou na barra do topo): janelas, menu e folhas por cima ficam de fora, assim como listas com rolagem própria.
+  function podePuxar(alvo) {
+    if (_puxarRodando || !alvo || !alvo.closest) return false;
+    if (PUXAR_TELAS.indexOf(window._viewAtual || 'home') < 0) return false;
+    if ((window._giroAtivo && window._giroAtivo()) || document.body.classList.contains('menu-travado')) return false;
+    if ((window._viewAtual === 'mensagens') && _centralTab === 'chat' && _chatAberta) return false;
+    if ((window.scrollY || document.documentElement.scrollTop || 0) > 0) return false;
+    const vazio = alvo === document.body || alvo === document.documentElement || alvo.classList.contains('wrap');   // área em branco abaixo de uma tela com pouco conteúdo
+    if (!(vazio || alvo.closest('.view.ativo, .top')) || alvo.closest('input, textarea, select')) return false;
+    for (let el = alvo; el && el !== document.body; el = el.parentElement) { if (el.scrollTop > 0) return false; }
+    return true;
+  }
+
+  function mover(e) {
+    if (e.touches.length !== 1) return soltar(true);
+    const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+    if (!puxando) {
+      if (dy <= 0 || Math.abs(dx) > dy) { if (Math.abs(dx) > 8 || dy < -8) soltar(true); return; }   // subindo ou arrastando para o lado: não é conosco
+      if (e.cancelable) e.preventDefault();   // desde o começo, senão o iPhone assume o gesto para o elástico dele
+      if (dy < 10) return;
+      puxando = true; bola.classList.remove('solta');
+    } else if (e.cancelable) e.preventDefault();
+    dist = Math.max(0, Math.min(110, (dy - 10) * 0.5));
+    pintar(dist, false);
+  }
+
+  async function soltar(cancelado) {
+    document.removeEventListener('touchmove', mover);
+    document.removeEventListener('touchend', fim);
+    document.removeEventListener('touchcancel', cancelar);
+    const vale = puxando && cancelado !== true && dist >= PUXAR_MINIMO;
+    puxando = false;
+    if (!vale) { dist = 0; recolher(); return; }
+    _puxarRodando = true;
+    bola.classList.add('solta'); pintar(PUXAR_MINIMO, true);
+    try { await _atualizarTudo(); }
+    finally { _puxarRodando = false; dist = 0; recolher(); }
+  }
+  function fim() { soltar(false); }
+  function cancelar() { soltar(true); }
+
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1 || !podePuxar(e.target)) return;
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; puxando = false; dist = 0;
+    document.addEventListener('touchmove', mover, { passive: false });   // só existe enquanto o gesto pode valer: a rolagem comum fica livre
+    document.addEventListener('touchend', fim);
+    document.addEventListener('touchcancel', cancelar);
+  }, { passive: true });
+})();
 
 // Re-sync exercícios/fichas/mensalidades ao voltar ao app (garante atualizações do admin)
 document.addEventListener('visibilitychange', async () => {

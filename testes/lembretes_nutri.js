@@ -97,6 +97,9 @@ const T = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charse
   await page.evaluate(() => LembretesNutri.alternar('ativo'));
   await page.waitForTimeout(400);
   eq('ao ligar, a folha mostra os horários que serão avisados e o botão de teste', await page.evaluate(() => { const t = document.getElementById('lnb-sheet').textContent; return [/Refeições: 07:20/.test(t), /Água: 08:00/.test(t), /aviso de teste/.test(t)]; }), [true, true, true]);
+  // iPhone: o plugin responde "não implementado" ao criar canal (canal só existe no Android). O teste e os lembretes têm de funcionar assim mesmo.
+  await page.evaluate(() => { Capacitor.Plugins.LocalNotifications.createChannel = () => Promise.reject(Object.assign(new Error('Not implemented on iOS.'), { code: 'UNIMPLEMENTED' })); });
+  eq('no iPhone (sem canal de notificação) o teste também agenda', await page.evaluate(async () => { window.__ln.agendados = []; await LembretesNutri.testar(); return window.__ln.agendados.map(n => n.id); }), [92990]);
   eq('o teste agenda um aviso para daqui a 5 segundos', await page.evaluate(async () => { window.__ln.agendados = []; await LembretesNutri.testar(); const t = window.__ln.agendados[0]; return t ? [t.id, t.schedule.at instanceof Date || typeof t.schedule.at === 'object'] : null; }), [92990, true]);
   for (let i = 0; i < 40; i++) { if (await page.evaluate(() => !!window.__ln.ouvintes.localNotificationActionPerformed)) break; await page.waitForTimeout(250); }
   eq('tocar no aviso abre a Nutrição', await page.evaluate(() => { let aberto = null; window.navegar = (d) => { aberto = d; }; window.__ln.ouvintes.localNotificationActionPerformed({ notification: { extra: { tipo: 'nutri-agua' } } }); return aberto; }), 'nutricao');
