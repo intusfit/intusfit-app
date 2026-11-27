@@ -68,7 +68,8 @@
   </script>
   <script src="recarregar-midia.js?v=20261125a"></script>
   <script src="_mock.js?v=20260925a"></script>
-  <script src="api.js?v=20261126a"></script>
+  <script src="api.js?v=20261127b"></script>
+<script>if (API.semVenda()) document.documentElement.classList.add('sem-venda');</script>
   <script src="ajuda.js?v=20261107a" defer></script>
   <script src="comparativo-fotos.js?v=20261126a" defer></script>
   <script src="comparativo-avaliacoes.js?v=20261126a" defer></script>
@@ -280,6 +281,7 @@
 
     /* Puxar para atualizar. O overscroll-behavior desliga o "puxar para recarregar" do próprio navegador, que recarregava a página inteira. */
     html, body { overscroll-behavior-y: contain; }
+  html.sem-venda .so-web { display: none !important; }
     #puxar-bola { position: fixed; left: 50%; top: 0; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 90; opacity: 0;
       pointer-events: none; transform: translate(-50%, 0); background: #232323; border: 1px solid #3a3a3a; color: #aaa; font-size: 21px; font-weight: 800; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
     #puxar-bola span { display: block; line-height: 1; }
@@ -1435,7 +1437,7 @@
     <div class="menu-item" onclick="navegar('mensagens');fecharMenuDireto()"><span class="mi-icon">💬</span> Central <span id="menu-msg-badge" style="display:none;background:#f87171;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;margin-left:6px;font-weight:700;"></span></div>
     <div class="menu-item" onclick="navegar('perfil');fecharMenuDireto()"><span class="mi-icon">👤</span> Meu Perfil & Conquistas</div>
     <div class="menu-item" onclick="navegar('quemsomos');fecharMenuDireto()"><span class="mi-icon">🤝</span> Quem Somos</div>
-    <div class="menu-item" onclick="abrirIndicarAmigo();fecharMenuDireto()"><span class="mi-icon">🎁</span> Indique um amigo</div>
+    <div class="menu-item so-web" onclick="abrirIndicarAmigo();fecharMenuDireto()"><span class="mi-icon">🎁</span> Indique um amigo</div>
     <div class="menu-item" style="cursor:default;gap:10px;">
       <span class="mi-icon">🔍</span>
       <span style="flex:1;">Zoom</span>
@@ -4112,6 +4114,7 @@ function _feedCardHtml(post, isLight) {
 // normal em vez de ficar fixo no topo pra sempre. 3 variações (A/B/C),
 // alternadas por FEED_EXPLICATIVO_INTERVALO em _renderFeedCompleto.
 function _feedCardExplicativo(variante, isLight) {
+  if (variante === 'H' && API.semVenda()) variante = 'G';
   const accent = isLight ? '#5cb800' : '#7FFF00';
   const bg = isLight ? '#fff' : '#161616';
   const border = isLight ? '#e5e5e5' : '#2a2a2a';
@@ -6602,6 +6605,7 @@ function _compartilharIndicacaoWhatsApp() {
 // Abre o card num modal — usado pelo ícone do menu lateral, que não tem uma
 // tela própria de "indicar amigo" pra navegar até.
 function abrirIndicarAmigo() {
+  if (API.semVenda()) return;
   const isLight = document.body.classList.contains('tema-claro');
   openModalGenerico('<div style="padding:6px 20px 4px;">' + _indicarAmigoHtml(isLight, false) + '</div>');
 }
@@ -6610,6 +6614,7 @@ function abrirIndicarAmigo() {
 // (_rankingData.indicacoes[idAtleta]), opcional — quando não vier, o card
 // funciona igual, só sem a linha "você já indicou N".
 function _indicarAmigoHtml(isLight, isCompacto) {
+  if (API.semVenda()) return '';
   const bg = 'var(--card-home)';
   const borda = 'var(--borda-forte)';
   const txt = isLight ? '#1a1a1a' : '#f0f0f0';
@@ -6809,16 +6814,17 @@ function abrirWhatsAppIntus(assunto) {
 }
 
 function navegar(dest) {
+  if (dest === 'matricula' && API.semVenda()) dest = 'perfil';
   const bloqueado = verificarInadimplencia();
   const semMatricula = verificarSemMatricula();
 
   if (bloqueado && dest !== 'home' && dest !== 'matricula') {
-    toast('Acesso bloqueado, regularize seu pagamento');
+    toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Acesso bloqueado, regularize seu pagamento');
     trocarView('home'); renderHome();
     return;
   }
   if (semMatricula && dest !== 'home' && dest !== 'perfil' && dest !== 'avaliacoes' && dest !== 'anamnese' && dest !== 'matricula' && dest !== 'mensagens' && dest !== 'desafios' && dest !== 'quemsomos' && dest !== 'feed' && dest !== 'resultados') {
-    toast('Ative sua matrícula para acessar este recurso');
+    toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Ative sua matrícula para acessar este recurso');
     trocarView('home'); renderHome();
     return;
   }
@@ -6845,8 +6851,8 @@ function navegar(dest) {
 // selecionarTreino, que ja e o mesmo caminho usado por "Meus Treinos": assim a
 // tela inicial nao inventa um segundo jeito de iniciar treino.
 function comecarTreinoDeHoje(idficha, divisao) {
-  if (verificarInadimplencia()) { toast('Acesso bloqueado, regularize seu pagamento'); return; }
-  if (verificarSemMatricula())  { toast('Ative sua matrícula para acessar seus treinos'); return; }
+  if (verificarInadimplencia()) { toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Acesso bloqueado, regularize seu pagamento'); return; }
+  if (verificarSemMatricula())  { toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Ative sua matrícula para acessar seus treinos'); return; }
   // Treino ja em andamento: volta para ele em vez de comecar outro por cima.
   if (treinoTimer && sessaoAtual.idficha) { abrirMeusTreinos(); return; }
   selecionarTreino(idficha, divisao);
@@ -7769,6 +7775,7 @@ function _temMatriculaAtiva() {
 // da Home e da Central, que só aparecem se o aluno abrir essas telas e nunca deixavam um aviso no sino. Um aviso por fim de cobertura e por fase
 // (o servidor recusa repetido: tipo + chave), e só depois de o servidor confirmar as matrículas. O teste grátis tem o próprio aviso e não entra aqui.
 function _mensalidadeNotificar() {
+  if (API.semVenda()) return;
   try {
     if (!_syncDone || !_matSyncOk || !idAtleta) return;
     const ativas = _mensalidadesAtivas();
@@ -7829,7 +7836,7 @@ function _feedRestrito() {
 function _soTesteBarra() {
   if (_feedRestrito()) { toast(_FEED_RESTRITO_MSG, 6000); return false; }
   if (!_ehSoTeste()) return true;
-  toast(_SO_TESTE_MSG, 6000);
+  toast(API.semVenda() ? 'Publicar no Feed e comentar não estão disponíveis nesta conta.' : _SO_TESTE_MSG, 6000);
   return false;
 }
 
@@ -8665,6 +8672,29 @@ function _saudeConteudoHtml() {
   return h;
 }
 
+function _renderHomeSemAcessoLoja(isLight) {
+  const at = (js, cor, ic, tit) => '<div class="h-at" onclick="' + js + '"><div class="ic" style="background:linear-gradient(135deg,' + cor + ');">' + ic + '</div><div class="tt">' + tit + '</div></div>';
+  document.getElementById('v-home').innerHTML = `
+    <div class="h-frase">
+      <div class="barra"></div>
+      <div style="flex:1;min-width:0;"><div class="ola">${user?.genero === 'F' ? 'Bem-vinda' : 'Bem-vindo'}, ${esc(user?.nome?.split(' ')[0] || 'Aluno')}! 👋</div></div>
+      <img class="logo-home" src="${isLight ? 'logo-intus-light.png' : 'logo-intus-dark.png'}" alt="Intus Fit" style="width:auto;flex-shrink:0;align-self:flex-start;margin-top:2px;"/>
+    </div>
+    <div class="h-aviso">
+      <div class="ic">📋</div>
+      <div class="tt">Treinos indisponíveis nesta conta</div>
+      <div class="tx">Os treinos aparecem aqui quando o seu profissional libera o acesso.</div>
+      <div class="ps">Você continua podendo preencher suas avaliações e atualizar seus dados.</div>
+      <button class="h-zap" onclick="abrirWhatsAppIntus('Preciso de ajuda com o meu acesso no app.')">💬 Falar com o suporte</button>
+    </div>
+    <div class="h-atalhos" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+      ${at("renderAvaliacoesAluno();trocarView('avaliacoes');", '#1f4a4a,#3fb0a0', '📋', 'Avaliações')}
+      ${at('abrirPerfilDados()', '#3a3a3a,#8a8a8a', '👤', 'Meus Dados')}
+    </div>
+    ${getFooterHtml()}
+  `;
+}
+
 function renderHome() {
   document.getElementById('nome-top').textContent = user?.nome || 'Aluno';
   const fichas = carregarFicha();
@@ -8672,6 +8702,9 @@ function renderHome() {
   const diasAtraso = verificarInadimplencia();
 
   const profNome = getProfResponsavelNome();
+
+  // App das lojas (sem venda): conta sem acesso vê só o aviso neutro, o suporte e o que continua liberado.
+  if (API.semVenda() && (diasAtraso || verificarSemMatricula())) { _renderHomeSemAcessoLoja(isLight); return; }
 
   if (diasAtraso) {
     const _zapMsg = ('Minha mensalidade está com ' + diasAtraso + ' dia' +
@@ -8831,7 +8864,7 @@ function renderHome() {
   }
 
   const _carencia = _matSituacao().carencia;
-  const lembreteHtml = _carencia ? `
+  const lembreteHtml = (_carencia && !API.semVenda()) ? `
     <div style="background:${isLight ? '#fffbeb' : '#1a1708'};border:1px solid ${isLight ? '#fbbf24' : '#92700c'};border-radius:10px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px;">
       <span style="font-size:20px;flex-shrink:0;">💬</span>
       <div style="font-size:13px;color:${isLight ? '#92400e' : '#fcd34d'};line-height:1.5;">
@@ -13793,8 +13826,8 @@ function _progProximaSessao(p) { if (!p.sessoes) return null; const f = _progFei
 function _progMin(seg) { const m = Math.floor(seg / 60), s = seg % 60; return m === 0 ? s + ' s' : (s ? m + ' min ' + s + ' s' : m + ' min'); }
 function _progMMSS(ms) { const t = Math.max(0, Math.ceil(ms / 1000)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); }
 function _progPermitido() {
-  if (verificarInadimplencia()) { toast('Acesso bloqueado, regularize seu pagamento'); return false; }
-  if (verificarSemMatricula()) { toast('Os programas de cardio são para quem tem plano ativo. Ative sua matrícula para usar.'); return false; }
+  if (verificarInadimplencia()) { toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Acesso bloqueado, regularize seu pagamento'); return false; }
+  if (verificarSemMatricula()) { toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Os programas de cardio são para quem tem plano ativo. Ative sua matrícula para usar.'); return false; }
   return true;
 }
 function abrirProgramasCardio() {
@@ -19409,7 +19442,7 @@ function _renderComentarios(data, isLight) {
   const inputBorder = isLight ? '#ddd' : '#333';
   let html = '<div style="margin-top:8px;">' +
     '<h2 class="sect-title" style="margin-bottom:12px;">💬 Mural dos Membros</h2>' +
-    (_muralPodeEscrever() ? '' : '<div onclick="abrirWhatsAppIntus(\'Quero ativar a minha matrícula\')" style="margin-bottom:16px;padding:11px 13px;border-radius:10px;border:1px dashed ' + inputBorder + ';font-size:12.5px;color:' + textSec + ';cursor:pointer;line-height:1.45;">🔒 Escrever no mural é para quem tem plano de treino ativo. Você pode ler tudo. <b>Ativar matrícula ›</b></div>') +
+    ((_muralPodeEscrever() || API.semVenda()) ? '' : '<div onclick="abrirWhatsAppIntus(\'Quero ativar a minha matrícula\')" style="margin-bottom:16px;padding:11px 13px;border-radius:10px;border:1px dashed ' + inputBorder + ';font-size:12.5px;color:' + textSec + ';cursor:pointer;line-height:1.45;">🔒 Escrever no mural é para quem tem plano de treino ativo. Você pode ler tudo. <b>Ativar matrícula ›</b></div>') +
     '<div style="display:' + (_muralPodeEscrever() ? 'flex' : 'none') + ';gap:8px;margin-bottom:16px;">' +
       '<input id="ranking-comment-input" data-mencoes="ranking" data-limite="1000" type="text" placeholder="Deixe uma mensagem para a galera..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + textPrim + ';font-size:13px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioRanking();"/>' +
       '<button class="btn btn-prim" style="padding:10px 16px;font-size:13px;" onclick="enviarComentarioRanking()">Enviar</button>' +
@@ -20756,17 +20789,23 @@ function renderGraficoEvolucao(sessoes, isLight) {
 // ═══════════════ MINHA MATRÍCULA ═══════════════
 // Botão "Conhecer outros planos": abre o WhatsApp da Intus com uma mensagem que já identifica o aluno e o plano atual.
 function _conhecerOutrosPlanos() {
+  if (API.semVenda()) return;
   let plano = '';
   try { const m = (_mensalidadesAtivas() || [])[0]; plano = String((m && m.dshistorico) || window._matriculaPlanoAtual || ''); } catch (e) {}
   const nomeCompleto = (user && user.nome) ? String(user.nome).trim() : '';
   abrirWhatsAppIntus('Sou aluno(a) da Intus Fit' + (nomeCompleto ? ' (' + nomeCompleto + ', matrícula nº ' + idAtleta + ')' : ' (matrícula nº ' + idAtleta + ')') + (plano ? ' e meu plano atual é ' + plano : '') + '. Quero conhecer os outros planos da Intus.');
 }
 function _matriculaBotaoPlanosHtml() {
+  if (API.semVenda()) return '';
   return '<button class="btn btn-sec btn-full" style="margin-top:14px;padding:14px;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;" onclick="_conhecerOutrosPlanos()">💬 Conhecer outros planos</button>' +
     '<div style="font-size:11.5px;color:var(--muted,#888);text-align:center;margin-top:6px;line-height:1.5;">Abre o WhatsApp da Intus Fit, já com a sua identificação.</div>';
 }
 async function renderMatricula() {
   const container = document.getElementById('v-matricula');
+  if (API.semVenda()) {   // app das lojas: sem tela de plano, valores ou renovação
+    container.innerHTML = telaHeader('👤 Minha conta') + '<p style="text-align:center;padding:30px 16px;font-size:13px;color:var(--muted,#888);">Para dúvidas sobre a sua conta, fale com o suporte pelo menu.</p>';
+    return;
+  }
   container.innerHTML = `${telaHeader('💳 Minha Matrícula')}
     <div style="text-align:center;padding:24px;color:var(--muted);">Carregando...</div>`;
 
@@ -20938,7 +20977,7 @@ async function renderAvaliacoesAluno() {
   var html = telaHeader('📋 Minhas Avaliações');
 
   // Só declara "inativo" DEPOIS do sync do servidor terminar (evita falso bloqueio durante o carregamento).
-  if (_syncDone && _matSyncOk && !planoAtivo) {
+  if (_syncDone && _matSyncOk && !planoAtivo && !API.semVenda()) {
     html += '<div style="text-align:center;padding:20px 16px;background:' + (isLight?'#fef3c7':'#1c1008') + ';border:1.5px solid #f59e0b;border-radius:12px;margin-bottom:16px;">' +
       '<div style="font-size:24px;margin-bottom:6px;">&#128274;</div>' +
       '<div style="font-size:14px;font-weight:700;color:' + (isLight?'#b45309':'#f59e0b') + ';">Plano inativo</div>' +
@@ -22568,13 +22607,13 @@ function _nutriAvaliacaoHtml(r) {
   const estrelas = [1, 2, 3, 4, 5].map(n => `<button onclick="nutriNota('${esc(r.id)}',${n})" aria-label="${n} estrela${n > 1 ? 's' : ''}" style="border:none;background:transparent;padding:2px 3px;font-size:30px;line-height:1;cursor:pointer;color:${(m.nota || 0) >= n ? '#fbbf24' : 'rgba(128,128,128,.45)'};">★</button>`).join('');
   const quem = nomes.length ? 'Quem fez: ' + nomes.slice(0, 3).map(x => esc(x.nome.split(' ')[0])).join(', ') + (st.fizeram > Math.min(nomes.length, 3) ? ' e mais ' + (st.fizeram - Math.min(nomes.length, 3)) : '') : '';
   return `<div style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:13px 14px;margin-bottom:12px;">
-    <div style="display:flex;gap:8px;">${btn(tem && m.fav, '⭐ Favoritada', '☆ Favoritar', "nutriFav('" + esc(r.id) + "')")}${btn(tem && m.fez, '✅ Eu fiz', '🍳 Eu fiz esta receita', "nutriFiz('" + esc(r.id) + "')")}</div>
+    <div style="display:${(!tem && API.semVenda()) ? 'none' : 'flex'};gap:8px;">${btn(tem && m.fav, '⭐ Favoritada', '☆ Favoritar', "nutriFav('" + esc(r.id) + "')")}${btn(tem && m.fez, '✅ Eu fiz', '🍳 Eu fiz esta receita', "nutriFiz('" + esc(r.id) + "')")}</div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;">
       <div style="font-size:12px;font-weight:800;color:${C.mut};">${tem ? (m.nota ? 'Sua nota' : 'Avalie esta receita') : 'Avaliações dos alunos'}</div>
       <div style="${tem ? '' : 'opacity:.55;pointer-events:none;'}display:flex;">${tem ? estrelas : [1, 2, 3, 4, 5].map(n => `<span style="font-size:24px;color:${(st.media || 0) >= n - 0.25 ? '#fbbf24' : 'rgba(128,128,128,.45)'};">★</span>`).join('')}</div>
     </div>
     <div style="font-size:12px;color:${C.mut};margin-top:6px;line-height:1.5;">${_nutriStatsTxt(r) || 'Seja a primeira pessoa a avaliar.'}${quem ? '<br>' + quem : ''}</div>
-    ${tem ? '' : `<div onclick="nutriConvitePlano('Avaliar e marcar que fez')" style="margin-top:8px;font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">🔒 Favoritar, avaliar e marcar "eu fiz" é do plano alimentar ›</div>`}
+    ${(tem || API.semVenda()) ? '' : `<div onclick="nutriConvitePlano('Avaliar e marcar que fez')" style="margin-top:8px;font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">🔒 Favoritar, avaliar e marcar "eu fiz" é do plano alimentar ›</div>`}
   </div>`;
 }
 
@@ -22660,13 +22699,14 @@ function _nutriChip(ativo, js, rot) {
   return `<button onclick="${js}" style="flex-shrink:0;padding:7px 13px;border-radius:99px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;border:1px solid ${ativo ? C.ok : C.borda};background:${ativo ? 'var(--marca-fraca,rgba(127,255,0,.12))' : 'transparent'};color:${ativo ? C.ok : C.mut};">${rot}</button>`;
 }
 function _nutriMini(r, largura) {
+  if (API.semVenda() && !_nutriReceitaLiberada(r)) return '';   // app das lojas: só aparece o que a conta abre
   const C = _nutriCores();
   const foto = _nutriFotoUrl(r.foto);
   return `<div onclick="nutriTela('receita','${esc(r.id)}')" style="${largura ? 'width:' + largura + 'px;flex-shrink:0;' : ''}background:${C.card};border:1px solid ${C.borda};border-radius:14px;overflow:hidden;cursor:pointer;">
     <div style="position:relative;aspect-ratio:4/3;background:linear-gradient(135deg,rgba(127,255,0,.14),rgba(128,128,128,.14));">
       ${foto ? `<img src="${esc(foto)}" loading="lazy" alt="" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;display:block;"/>` : ''}
       ${_nutriTemPlano() && _nutriReceitaLiberada(r) ? `<span onclick="event.stopPropagation();nutriFav('${esc(r.id)}')" aria-label="Favoritar" style="position:absolute;top:6px;right:6px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font-size:17px;color:${_nutriEhFav(r.id) ? '#fbbf24' : '#fff'};">${_nutriEhFav(r.id) ? '★' : '☆'}</span>` : ''}
-      ${!_nutriReceitaLiberada(r) ? '<span style="position:absolute;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;font-size:26px;">🔒</span>' : (!_nutriTemPlano() ? '<span style="position:absolute;top:6px;left:6px;background:var(--link-ex,#7FFF00);color:#0f1a00;font-size:10px;font-weight:900;padding:2px 7px;border-radius:99px;">🎁 grátis hoje</span>' : '')}
+      ${!_nutriReceitaLiberada(r) ? '<span style="position:absolute;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;font-size:26px;">🔒</span>' : ((!_nutriTemPlano() && !API.semVenda()) ? '<span style="position:absolute;top:6px;left:6px;background:var(--link-ex,#7FFF00);color:#0f1a00;font-size:10px;font-weight:900;padding:2px 7px;border-radius:99px;">🎁 grátis hoje</span>' : '')}
     </div>
     <div style="padding:9px 10px 11px;">
       <div style="font-size:12.5px;font-weight:800;line-height:1.25;min-height:31px;">${esc(r.titulo)}</div>
@@ -22780,7 +22820,7 @@ function _nutriAguaHistHtml() {
       <div style="width:84px;text-align:right;font-size:12.5px;font-weight:800;${d.ml ? '' : 'color:' + C.mut + ';font-weight:600;'}">${d.ml ? litros(d.ml) + ' L' + (ok ? ' ✓' : '') : 'sem registro'}</div>
     </div>`;
   }).join('');
-  const chips = [7, 30, 90].map(n => _nutriChip(per === n, 'nutriAguaPer(' + n + ')', n + ' dias' + (n > 7 && !temPlano ? ' 🔒' : ''))).join('');
+  const chips = (API.semVenda() && !temPlano ? [7] : [7, 30, 90]).map(n => _nutriChip(per === n, 'nutriAguaPer(' + n + ')', n + ' dias' + (n > 7 && !temPlano ? ' 🔒' : ''))).join('');
   return `<div style="padding:16px 0;">
     ${_nutriHeaderSub('💧 Histórico de água')}
     <div style="display:flex;gap:6px;margin-bottom:12px;">${chips}</div>
@@ -22825,6 +22865,7 @@ function _nutriVideoLiberado(v) { return !!v && (_nutriTemPlano() || (_nutriVide
 function _nutriDicaDoDia() { const l = _nutriCont.dicas; return l.length ? l[_nutriDiaN() % l.length] : null; }
 function _nutriDicaLiberada(d) { const x = _nutriDicaDoDia(); return !!d && (_nutriTemPlano() || (x && x.id === d.id)); }
 function nutriConvitePlano(que) {
+  if (API.semVenda()) { toast('Este conteúdo não está disponível nesta conta.'); return; }
   const C = _nutriCores();
   const html = '<div style="text-align:center;padding:4px 4px 10px;"><div style="font-size:42px;margin-bottom:6px;">🔒</div>' +
     '<div style="font-size:15px;font-weight:900;margin-bottom:6px;">' + esc(que || 'Conteúdo do plano alimentar') + '</div>' +
@@ -22833,6 +22874,7 @@ function nutriConvitePlano(que) {
   _comSheet('np-convite', '🥗 Plano alimentar', html, 100010);
 }
 function _nutriCadeadoFaixa(txt) {
+  if (API.semVenda()) return '';
   const C = _nutriCores();
   return `<div onclick="nutriConvitePlano()" style="display:flex;align-items:center;gap:10px;background:${C.card};border:1px dashed ${C.borda};border-radius:12px;padding:11px 13px;margin:10px 0;cursor:pointer;"><span style="font-size:20px;">🔒</span><span style="flex:1;font-size:12.5px;line-height:1.4;color:${C.mut};">${txt}</span><span style="font-size:12px;font-weight:800;color:${C.ok};white-space:nowrap;">Liberar ›</span></div>`;
 }
@@ -22886,7 +22928,7 @@ function _nutriHomeHtml() {
     <div style="font-size:24px;line-height:1;">${ic}</div><div style="font-size:13.5px;font-weight:900;margin-top:2px;">${tit}</div><div style="font-size:11px;color:${C.mut};line-height:1.3;">${sub}</div></div>`;
   const sug = _nutriSugestoes();
   const dica = _nutriDicaDoDia();
-  const semPlano = !plano ? `<div style="background:${C.card};border:1px dashed ${C.borda};border-radius:14px;padding:13px 14px;margin-bottom:12px;">
+  const semPlano = (!plano && !API.semVenda()) ? `<div style="background:${C.card};border:1px dashed ${C.borda};border-radius:14px;padding:13px 14px;margin-bottom:12px;">
       <div style="font-size:13px;font-weight:800;margin-bottom:3px;">Quer um plano alimentar personalizado?</div>
       <div style="font-size:12px;color:${C.mut};line-height:1.45;margin-bottom:10px;">Com o plano alimentar você tem suas metas de calorias e macros, cada refeição com horário e quantidade, registro do que comeu e lista de compras. Sem plano, você tem a água do dia, 1 receita por categoria, 1 vídeo e 1 dica liberados por dia.</div>
       <button class="btn btn-prim btn-full" onclick="abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')">💬 Falar sobre meu plano alimentar</button></div>` : '';
@@ -22897,10 +22939,10 @@ function _nutriHomeHtml() {
     ${_nutriRefToggleHtml()}
     ${window.LembretesNutri ? LembretesNutri.cartao() : ''}
     <div style="display:grid;grid-template-columns:${plano ? 'repeat(3,minmax(0,1fr))' : '1fr 1fr'};gap:10px;margin-bottom:14px;">
-      ${plano ? '' : tile("abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')", '🍽️', 'Meu plano alimentar', 'Sem plano alimentar ativo. Toque para falar com a equipe.', false)}
-      ${tile("nutriTela('receitas')", '👩‍🍳', 'Receitas', nRec ? (_nutriTemPlano() ? nRec + ' receitas práticas' : '1 por categoria liberada hoje · ' + nRec + ' no total') : 'Em breve', false)}
-      ${tile("nutriTela('videos')", '▶️', 'Vídeos', nVid ? (_nutriTemPlano() ? nVid + (nVid === 1 ? ' vídeo' : ' vídeos') : '1 vídeo liberado por dia') : 'Em breve', false)}
-      ${tile("nutriTela('dicas')", '💡', 'Dicas', nDic ? (_nutriTemPlano() ? nDic + ' orientações' : '1 dica liberada por dia') : 'Em breve', false)}
+      ${(plano || API.semVenda()) ? '' : tile("abrirWhatsAppIntus('Quero saber sobre o meu plano alimentar')", '🍽️', 'Meu plano alimentar', 'Sem plano alimentar ativo. Toque para falar com a equipe.', false)}
+      ${tile("nutriTela('receitas')", '👩‍🍳', 'Receitas', nRec ? (API.semVenda() && !_nutriTemPlano() ? 'Receitas práticas' : _nutriTemPlano() ? nRec + ' receitas práticas' : '1 por categoria liberada hoje · ' + nRec + ' no total') : 'Em breve', false)}
+      ${tile("nutriTela('videos')", '▶️', 'Vídeos', nVid ? (API.semVenda() && !_nutriTemPlano() ? 'Vídeos de apoio' : _nutriTemPlano() ? nVid + (nVid === 1 ? ' vídeo' : ' vídeos') : '1 vídeo liberado por dia') : 'Em breve', false)}
+      ${tile("nutriTela('dicas')", '💡', 'Dicas', nDic ? (API.semVenda() && !_nutriTemPlano() ? 'Dicas da equipe' : _nutriTemPlano() ? nDic + ' orientações' : '1 dica liberada por dia') : 'Em breve', false)}
     </div>
     ${semPlano}
     ${sug.itens.length ? `<div style="display:flex;align-items:baseline;justify-content:space-between;margin:2px 2px 8px;"><div style="font-size:14px;font-weight:900;">${sug.rot}</div><div onclick="nutriTela('receitas')" style="font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">Ver todas</div></div>
@@ -22946,7 +22988,7 @@ function _nutriRecFiltradas() {
   });
 }
 function _nutriGradeHtml() {
-  const C = _nutriCores(), lista = _nutriRecFiltradas();
+  const C = _nutriCores(), lista = _nutriRecFiltradas().filter(r => !API.semVenda() || _nutriReceitaLiberada(r));
   if (!lista.length) return `<div style="text-align:center;padding:36px 16px;color:${C.mut};font-size:13px;">${_nutri.cat === 'favoritas' ? 'Você ainda não favoritou nenhuma receita. Toque na ☆ do cartão, ou em “Favoritar” dentro da receita.' : 'Nenhuma receita encontrada para essa busca.'}</div>`;
   return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${lista.map(r => _nutriMini(r)).join('')}</div>`;
 }
@@ -22997,6 +23039,7 @@ function _nutriReceitaHtml() {
   const cat = _nutriCont.categorias.find(c => c.id === r.cat);
   const foto = _nutriFotoUrl(r.foto), marc = _nutri.marcados[r.id] || {};
   const chip = (ic, t) => `<span style="display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border-radius:99px;background:var(--sup,rgba(128,128,128,.1));font-size:12px;font-weight:700;">${ic} ${esc(t)}</span>`;
+  if (API.semVenda() && !_nutriReceitaLiberada(r)) return `<div style="padding:16px 0;">${_nutriHeaderSub('👩‍🍳 Receita')}<p style="color:${C.mut};font-size:13px;text-align:center;padding:30px 0;">Esta receita não está disponível nesta conta.</p></div>${getFooterHtml()}`;
   if (!_nutriReceitaLiberada(r)) {
     return `<div style="padding:16px 0;">
       ${_nutriHeaderSub('👩‍🍳 Receita')}
@@ -23104,7 +23147,7 @@ function _nmHtml(tipo, id) {
     ? `${resp ? `<div style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;font-size:11px;color:${C.mut};">Respondendo a <b style="color:inherit;">${esc(resp.nome)}</b><span data-tipo="${tipo}" data-id="${id}" onclick="_nmCancelar(this)" style="cursor:pointer;font-weight:800;padding:2px 5px;">✕</span></div>` : ''}
        <div style="display:flex;gap:6px;margin-top:8px;"><textarea maxlength="1000" rows="2" placeholder="${resp ? 'Escreva sua resposta...' : (tipo === 'nutri_receita' ? 'Escreva um comentário sobre a receita...' : 'Escreva uma dica ou dúvida...')}" style="flex:1;padding:9px 11px;border-radius:12px;border:1px solid ${C.borda};background:${C.card};color:inherit;font-size:13px;font-family:inherit;resize:none;"></textarea>
        <button data-tipo="${tipo}" data-id="${id}" onclick="_nmEnviar(this)" style="padding:0 14px;border-radius:12px;border:none;background:${C.ok};color:#0f1a00;font-size:12.5px;font-weight:900;cursor:pointer;">Enviar</button></div>`
-    : `<div onclick="nutriConvitePlano('Escrever no mural')" style="margin-top:8px;font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">🔒 Escrever e responder no mural é do plano alimentar ›</div>`;
+    : API.semVenda() ? '' : `<div onclick="nutriConvitePlano('Escrever no mural')" style="margin-top:8px;font-size:12px;font-weight:800;color:${C.ok};cursor:pointer;">🔒 Escrever e responder no mural é do plano alimentar ›</div>`;
   return `<div id="${_nmDom(tipo, id)}" style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:13px 14px;margin-top:14px;">
     <div style="font-size:14px;font-weight:900;">💬 ${rotulo}${lista.length ? ' <span style="font-size:11px;font-weight:700;color:' + C.mut + ';">(' + lista.length + ')</span>' : ''}</div>
     <div style="font-size:12px;color:${C.mut};line-height:1.45;margin:3px 0 4px;">${convite}</div>
@@ -23190,7 +23233,7 @@ function nutriVideoAbrir(id) {
   if (_nutriYtId(v.url)) abrirVideoModal(v.url); else window.open(v.url, '_blank');
 }
 function _nutriVideosHtml() {
-  const C = _nutriCores(), lista = _nutriCont.videos;
+  const C = _nutriCores(), lista = _nutriCont.videos.filter(v => !API.semVenda() || _nutriVideoLiberado(v));
   const card = v => {
     const yt = _nutriYtId(v.url), capa = v.capa ? _nutriFotoUrl(v.capa) : (yt ? 'https://img.youtube.com/vi/' + yt + '/hqdefault.jpg' : '');
     const lib = _nutriVideoLiberado(v);
@@ -23198,7 +23241,7 @@ function _nutriVideosHtml() {
       <div style="position:relative;aspect-ratio:16/9;background:linear-gradient(135deg,rgba(127,255,0,.16),rgba(128,128,128,.16));">
         ${capa ? `<img src="${esc(capa)}" loading="lazy" alt="" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;display:block;"/>` : ''}
         <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;${lib ? '' : 'background:rgba(0,0,0,.45);'}"><span style="width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:${lib ? 22 : 24}px;display:flex;align-items:center;justify-content:center;${lib ? 'padding-left:4px;' : ''}">${lib ? '▶' : '🔒'}</span></span>
-        ${lib && !_nutriTemPlano() ? '<span style="position:absolute;left:8px;top:8px;background:var(--link-ex,#7FFF00);color:#0f1a00;font-size:10px;font-weight:900;padding:2px 7px;border-radius:99px;">🎁 grátis hoje</span>' : ''}
+        ${lib && !_nutriTemPlano() && !API.semVenda() ? '<span style="position:absolute;left:8px;top:8px;background:var(--link-ex,#7FFF00);color:#0f1a00;font-size:10px;font-weight:900;padding:2px 7px;border-radius:99px;">🎁 grátis hoje</span>' : ''}
         ${v.duracao ? `<span style="position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.7);color:#fff;font-size:11px;font-weight:800;padding:2px 7px;border-radius:6px;">${esc(v.duracao)}</span>` : ''}
       </div>
       <div style="padding:11px 13px 13px;"><div style="font-size:14px;font-weight:900;line-height:1.3;">${esc(v.titulo)}</div>${v.descricao ? `<div style="font-size:12px;color:${C.mut};margin-top:4px;line-height:1.45;">${esc(v.descricao)}</div>` : ''}</div></div>`;
@@ -23216,9 +23259,9 @@ function _nutriDicasHtml() {
   return `<div style="padding:16px 0;">
     ${_nutriHeaderSub('💡 Dicas')}
     ${_nutriTemPlano() || !_nutriCont.dicas.length ? '' : _nutriCadeadoFaixa('Você tem <b>1 dica liberada por dia</b>. As demais são do plano alimentar.')}
-    ${_nutriCont.dicas.map(d => { const lib = _nutriDicaLiberada(d); return `<div ${lib ? '' : 'onclick="nutriConvitePlano(\'Dica do plano alimentar\')"'} style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:12px;${lib ? '' : 'cursor:pointer;'}">
+    ${_nutriCont.dicas.filter(d => !API.semVenda() || _nutriDicaLiberada(d)).map(d => { const lib = _nutriDicaLiberada(d); return `<div ${lib ? '' : 'onclick="nutriConvitePlano(\'Dica do plano alimentar\')"'} style="background:${C.card};border:1px solid ${C.borda};border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:12px;${lib ? '' : 'cursor:pointer;'}">
       <div style="flex-shrink:0;width:42px;height:42px;border-radius:12px;background:var(--marca-fraca,rgba(127,255,0,.12));font-size:22px;display:flex;align-items:center;justify-content:center;">${lib ? esc(d.icone || '💡') : '🔒'}</div>
-      <div><div style="font-size:14px;font-weight:900;margin-bottom:3px;">${esc(d.titulo)}${lib && !_nutriTemPlano() ? ' <span style="font-size:10px;background:var(--link-ex,#7FFF00);color:#0f1a00;padding:2px 7px;border-radius:99px;vertical-align:middle;">🎁 grátis hoje</span>' : ''}</div>${lib ? `<div style="font-size:12.5px;color:${C.mut};line-height:1.55;">${esc(d.texto)}</div>` : `<div style="font-size:12px;color:${C.mut};">Dica do plano alimentar</div>`}</div></div>`; }).join('') || `<p style="text-align:center;color:${C.mut};font-size:13px;padding:30px 0;">Em breve.</p>`}
+      <div><div style="font-size:14px;font-weight:900;margin-bottom:3px;">${esc(d.titulo)}${lib && !_nutriTemPlano() && !API.semVenda() ? ' <span style="font-size:10px;background:var(--link-ex,#7FFF00);color:#0f1a00;padding:2px 7px;border-radius:99px;vertical-align:middle;">🎁 grátis hoje</span>' : ''}</div>${lib ? `<div style="font-size:12.5px;color:${C.mut};line-height:1.55;">${esc(d.texto)}</div>` : `<div style="font-size:12px;color:${C.mut};">Dica do plano alimentar</div>`}</div></div>`; }).join('') || `<p style="text-align:center;color:${C.mut};font-size:13px;padding:30px 0;">Em breve.</p>`}
     <div id="${_nmDom('nutri_dica', 1)}"></div>
   </div>${getFooterHtml()}`;
 }
@@ -23303,7 +23346,7 @@ function renderPerfil() {
       ${tabBtn('posts','📸','Posts')}
       ${tabBtn('resultados','🌟','Mural')}
       ${tabBtn('dados','📋','Dados')}
-      ${tabBtn('matricula','💳','Matrícula')}
+      ${API.semVenda() ? '' : tabBtn('matricula','💳','Matrícula')}
     </div>
 
     <!-- ABA POSTS (feed dos alunos, estilo Strava) -->
@@ -23385,7 +23428,7 @@ function renderPerfil() {
     </div>
 
     <!-- ABA MATRÍCULA -->
-    <div id="pf-aba-matricula" style="display:none;">
+    ${API.semVenda() ? '' : `<div id="pf-aba-matricula" style="display:none;">
       <div class="pf" style="padding:18px;border-radius:16px;background:${statusBg};border:1px solid ${statusCor}44;">
         <div style="font-size:11px;font-weight:800;color:${isLight?'#888':'#888'};text-transform:uppercase;letter-spacing:.5px;">Situação da matrícula</div>
         <div style="font-size:22px;font-weight:900;color:${statusCor};margin-top:4px;">${statusTxt}</div>
@@ -23401,7 +23444,7 @@ function renderPerfil() {
       </div>
       ${_matriculaBotaoPlanosHtml()}
       <p style="font-size:11px;color:${isLight?'#888':'#777'};text-align:center;margin-top:12px;line-height:1.5;">Veja planos, histórico de pagamentos e detalhes na tela da matrícula.</p>
-    </div>
+    </div>`}
 
     <!-- Fora dos 4 divs de aba, de propósito: essa seção final fica visível
          no fim de QUALQUER aba (Conquistas, Posts, Dados ou Matrícula), já
@@ -24546,7 +24589,7 @@ async function abrirNotificacoes() {
         '<div style="width:34px;height:34px;border-radius:50%;background:var(--borda);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">✉️</div>' +
         '<div style="flex:1;font-size:13px;color:var(--texto);"><b>' + msgs + (msgs > 1 ? ' mensagens novas' : ' mensagem nova') + '</b> na Central</div></div>';
     }
-    html += lista.map(n => _notifLinhaHtml(n, isLight)).join('');
+    html += API.semVendaNotificacoes(lista).map(n => _notifLinhaHtml(n, isLight)).join('');
     if (!html) html = '<div style="padding:26px 10px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5;">Nada por aqui ainda. Curtidas, comentários, medalhas e distintivos aparecem neste lugar.</div>';
     if (box()) box().innerHTML = html;
     const marcar = document.getElementById('notif-m-marcar');
@@ -25233,6 +25276,7 @@ async function renderDesafiosAluno() {
   let abertos = [];
   try { abertos = await API.desafiosAbertos(idAtleta); } catch { abertos = []; }
   if (!Array.isArray(abertos)) abertos = [];
+  if (API.semVenda()) abertos = abertos.filter(d => !Number(d.pago));
 
   if (_desafioAberto) {
     await renderDesafioDetalheAluno(_desafioAberto);
@@ -25275,7 +25319,7 @@ async function renderDesafiosAluno() {
             ['🎉','Vencedor anunciado quando o desafio fecha'],
           ].map(([ic,txt]) => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;font-size:12.5px;"><span>${ic}</span><span>${txt}</span></div>`).join('')}
         </div>
-        <button class="btn btn-prim btn-full" onclick="abrirWhatsAppIntus('Quero saber sobre os desafios')">💬 Falar sobre os desafios</button>
+        <button class="btn btn-prim btn-full so-web" onclick="abrirWhatsAppIntus('Quero saber sobre os desafios')">💬 Falar sobre os desafios</button>
         ${getFooterHtml()}
       </div>
     `;
@@ -25466,7 +25510,7 @@ async function renderMensagensAluno() {
   await _chatCarregarReacoes(_centralMsgs.map(m => m.idmensagem));
   try {
     const rn = await fetch(API_BASE + '/catalogo.php?action=notificacoes&_=' + Date.now(), { headers: _notifHeaders(), cache: 'no-store' });
-    if (rn.ok) { const jn = await rn.json(); _centralNotifSrv = (jn && Array.isArray(jn.notificacoes)) ? jn.notificacoes : []; _notifPintarBadge(jn && jn.nao_lidas); }
+    if (rn.ok) { const jn = await rn.json(); _centralNotifSrv = API.semVendaNotificacoes((jn && Array.isArray(jn.notificacoes)) ? jn.notificacoes : []); _notifPintarBadge(jn && jn.nao_lidas); }
   } catch (e) {}
   await _centralCarregarExtras();   // feedbacks em vídeo e avaliações, para o painel
   await _atletaPropriaCarregar();   // professores responsáveis (escolha de com quem falar)
@@ -25493,10 +25537,10 @@ function _centralAvisos() {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
   const dias = (iso) => Math.round((new Date(String(iso).slice(0, 10) + 'T00:00:00') - hoje) / 86400000);
   try {   // mensalidade
-    const sit = _matSituacao();
+    const sit = API.semVenda() ? null : _matSituacao();
     if (sit && sit.carencia) av.push({ icone: '💳', titulo: 'Mensalidade vencida há ' + sit.carencia.diasAtraso + ' dia' + (sit.carencia.diasAtraso > 1 ? 's' : ''), sub: 'Regularize em até ' + sit.carencia.restantes + ' dia' + (sit.carencia.restantes > 1 ? 's' : '') + ' para não perder o acesso.', nivel: 'alto', js: "navegar('matricula')" });
     else if (sit && sit.vigente === false) av.push({ icone: '💳', titulo: 'Plano sem cobertura ativa', sub: 'Veja a sua matrícula e fale com a equipe para renovar.', nivel: 'alto', js: "navegar('matricula')" });
-    else {
+    else if (!API.semVenda()) {
       const prox = (_mensalidadesAtivas() || []).map(m => dias(m.dtvencimento)).filter(d => d >= 0).sort((a, b) => a - b)[0];
       if (prox != null && prox <= 7) av.push({ icone: '💳', titulo: prox === 0 ? 'Seu plano vence hoje' : 'Seu plano vence em ' + prox + ' dia' + (prox > 1 ? 's' : ''), sub: 'Combine a renovação com a equipe para não ficar sem acesso.', nivel: 'medio', js: "navegar('matricula')" });
     }
@@ -25507,7 +25551,7 @@ function _centralAvisos() {
     if (fichas.length && !vigentes.length) av.push({ icone: '🏋️', titulo: 'Seu treino venceu', sub: 'Fale com o seu professor para receber a próxima ficha.', nivel: 'alto', js: "_centralTab='chat';renderCentral()" });
     else {
       const prox = vigentes.filter(f => f.dtfim).map(f => Math.max(0, -API.fichaSituacao(f).dias)).sort((a, b) => a - b)[0];   // dias até o fim efetivo (dia útil)
-      if (prox != null && prox <= 7) av.push({ icone: '🏋️', titulo: prox === 0 ? 'Seu treino vence hoje' : 'Seu treino vence em ' + prox + ' dia' + (prox > 1 ? 's' : ''), sub: 'Combine a renovação da ficha com o seu professor.', nivel: 'medio', js: "_centralTab='chat';renderCentral()" });
+      if (prox != null && prox <= 7) av.push({ icone: '🏋️', titulo: prox === 0 ? 'Seu treino vence hoje' : 'Seu treino vence em ' + prox + ' dia' + (prox > 1 ? 's' : ''), sub: 'Combine o próximo treino com o seu professor.', nivel: 'medio', js: "_centralTab='chat';renderCentral()" });
     }
   } catch (e) {}
   try {   // avaliação

@@ -1979,6 +1979,13 @@ const API = {
     custom:  { nome: 'Personalizado', pct: 0, fixo: 0, prazo: { n: 0, uteis: false } },
   },
   ASAAS_ANTECIPACAO_PCT_MES: 1.25,
+  // ══ APP DAS LOJAS SEM VENDA (27/11/2026) ══════════════════════════════════
+  // A Apple recusou a versão 1.0 pela regra 3.1.1. No app instalado não aparece preço, plano, matrícula, cobrança, teste grátis, indicação com prêmio
+  // nem convite para contratar ou renovar. O WhatsApp fica só como suporte. A web continua como sempre. Nenhuma tela decide isso sozinha: pergunte aqui.
+  semVenda: function () { return typeof window !== 'undefined' && !!window.INTUS_NATIVE_APP; },
+  semVendaNotificacoes: function (lista) {
+    return API.semVenda() ? (lista || []).filter(function (n) { return !n || n.tipo !== 'mensalidade'; }) : (lista || []);
+  },
   gateway: (function () {
     function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     // Qual gateway recebeu: null quando a forma é Pix, dinheiro ou cartão "direto" (entra no Caixa na hora do pagamento).

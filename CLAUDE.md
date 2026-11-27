@@ -2577,3 +2577,10 @@ Web no ar; **ainda sem build novo** (o Luiz pediu para só atualizar a web). Tud
 - Cores separadas: `principal` (amarelo), `botao`, `graca` e `zap` (verde). A antiga chave `ouro` deixou de existir, por isso o verde salvo antes é ignorado.
 - Faixa "2026 de graça" (`banda`) e galeria `resultados` (`black/resultados/ad-01..24`, `palco-01..06`, copiadas de `img/`, trocáveis no editor) com chamadas
   `.so-aberta`, que somem depois do prazo. `black/.htaccess` manda `no-cache` na página.
+
+## 27/11/2026: app das lojas sem venda (recusa da Apple, regra 3.1.1)
+
+- A Apple recusou a 1.0 (30): o app dava acesso a conteúdo pago fora dele sem oferecer a compra por ela. Decisão do Luiz: reenviar **sem venda no app**; se recusar de novo, implementar a compra pela Apple (aí sim pensar em link externo e em "Presenteie um amigo com 3 dias", que precisa ser teste registrado na compra da Apple).
+- **Regra única: `API.semVenda()`** (ligada por `window.INTUS_NATIVE_APP`, vale para iPhone e Android). No app não aparece preço, plano, matrícula, cobrança, teste grátis, indicação com prêmio, desafio pago, cadeado de conteúdo nem convite para contratar ou renovar; o WhatsApp é só suporte; o cadastro pula a etapa de planos (conta nasce `sem_plano`). A web continua igual.
+- **Texto novo no app do aluno que fale de plano, pagamento ou conteúdo travado precisa consultar `API.semVenda()`.** `testes/sem_venda.js` varre as telas como app das lojas e reprova se aparecer.
+- Elemento que existe só na web: classe `so-web`. O login usa `window.INTUS_NATIVE_APP` direto (não carrega o `api.js`).
