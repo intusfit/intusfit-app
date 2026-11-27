@@ -30,7 +30,7 @@ function blackLimpar($c): array {
         // Só imagem do próprio site (começa com uma barra só), sem aspas, espaços ou "..".
         if ($chave($k) && is_string($v) && preg_match('#^/(?!/)[A-Za-z0-9_\-./?=]{1,200}$#', $v) && strpos($v, '..') === false) $r['imagens'][$k] = $v;
     }
-    foreach (['ouro', 'verde', 'bg', 'card', 'borda', 'txt', 'sobre'] as $k) {
+    foreach (['principal', 'botao', 'graca', 'zap', 'bg', 'card', 'borda', 'txt', 'sobre'] as $k) {
         $v = $c['cores'][$k] ?? null;
         if (is_string($v) && preg_match('/^#[0-9a-fA-F]{6}$/', $v)) $r['cores'][$k] = strtolower($v);
     }
@@ -53,7 +53,7 @@ function blackLimpar($c): array {
         }
     }
     if (isset($c['ocultos']) && is_array($c['ocultos'])) {
-        $r['ocultos'] = array_values(array_intersect(['relogio', 'como', 'garantia', 'recebe', 'equipe', 'duvidas', 'contato', 'slogan'], $c['ocultos']));
+        $r['ocultos'] = array_values(array_intersect(['relogio', 'como', 'garantia', 'banda', 'recebe', 'equipe', 'resultados', 'duvidas', 'contato', 'slogan'], $c['ocultos']));
         if (!$r['ocultos']) unset($r['ocultos']);
     }
     return $r;

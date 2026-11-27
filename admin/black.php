@@ -208,15 +208,16 @@ label.c>*{color:var(--txt);font-size:14px;font-weight:400}
   $('situacao').onchange = enviarPrevia;
 
   /* ── painel ── */
-  var CORES = [['ouro', 'Cor principal (botões e destaques)'], ['sobre', 'Texto sobre a cor principal'], ['verde', 'Segunda cor'], ['bg', 'Fundo da página'], ['card', 'Fundo dos cartões'], ['borda', 'Linhas e bordas'], ['txt', 'Texto']];
+  var CORES = [['principal', 'Cor da página (títulos, selos e destaques)'], ['botao', 'Cor dos botões'], ['graca', 'Cor do “de graça”'], ['zap', 'Cor do WhatsApp e do Pix'], ['sobre', 'Texto dentro das cores'], ['bg', 'Fundo da página'], ['card', 'Fundo dos cartões'], ['borda', 'Linhas e bordas'], ['txt', 'Texto']];
   var PRONTAS = [
-    ['Amarelo', {}],
-    ['Verde Intus', { ouro: '#c1ff72', verde: '#ffc53d' }],
-    ['Laranja', { ouro: '#ff8a3d', verde: '#ffc53d' }],
-    ['Azul', { ouro: '#4cc9ff', verde: '#c1ff72' }],
-    ['Fundo claro', { ouro: '#ffc53d', verde: '#2f6b00', bg: '#ffffff', card: '#f3f3f1', borda: '#d6d6d2', txt: '#111111', sobre: '#000000' }]
+    ['Amarelo e verde', {}],
+    ['Tudo amarelo', { botao: '#ffc53d', graca: '#ffc53d', zap: '#ffc53d' }],
+    ['Tudo verde', { principal: '#c1ff72' }],
+    ['Laranja', { principal: '#ff8a3d' }],
+    ['Azul', { principal: '#4cc9ff' }],
+    ['Fundo claro', { botao: '#2f6b00', graca: '#2f6b00', zap: '#2f6b00', principal: '#8a5a00', bg: '#ffffff', card: '#f3f3f1', borda: '#d6d6d2', txt: '#111111', sobre: '#ffffff' }]
   ];
-  var SECOES = [['relogio', 'Cronômetro'], ['como', 'Como funciona'], ['garantia', 'Garantia'], ['recebe', 'O que você recebe'], ['equipe', 'Quem vai te acompanhar'], ['duvidas', 'Dúvidas'], ['contato', 'Chamada final do WhatsApp'], ['slogan', 'Slogan']];
+  var SECOES = [['relogio', 'Cronômetro'], ['como', 'Como funciona'], ['garantia', 'Garantia'], ['banda', 'Faixa “2026 de graça” do meio'], ['recebe', 'O que você recebe'], ['equipe', 'Quem vai te acompanhar'], ['resultados', 'Antes e depois'], ['duvidas', 'Dúvidas'], ['contato', 'Chamada final do WhatsApp'], ['slogan', 'Slogan']];
   var abertos = { Cores: true };
 
   function bloco(titulo, filhos) {
@@ -238,7 +239,7 @@ label.c>*{color:var(--txt);font-size:14px;font-weight:400}
   function contraste(a, b) { var x = luz(a), y = luz(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
   function conferirContraste() {
     var alvo = $('contraste'); if (!alvo) return;
-    var pares = [['txt', 'bg', 'Texto sobre o fundo'], ['txt', 'card', 'Texto sobre os cartões'], ['sobre', 'ouro', 'Texto dos botões'], ['ouro', 'bg', 'Cor principal sobre o fundo'], ['ouro', 'card', 'Cor principal sobre os cartões'], ['verde', 'bg', 'Segunda cor sobre o fundo'], ['verde', 'card', 'Segunda cor sobre os cartões']];
+    var pares = [['txt', 'bg', 'Texto sobre o fundo'], ['txt', 'card', 'Texto sobre os cartões'], ['sobre', 'botao', 'Texto dos botões'], ['sobre', 'zap', 'Texto do botão do WhatsApp'], ['sobre', 'principal', 'Texto dos selos'], ['principal', 'bg', 'Cor da página sobre o fundo'], ['principal', 'card', 'Cor da página sobre os cartões'], ['graca', 'bg', '“De graça” sobre o fundo'], ['graca', 'card', '“De graça” sobre os cartões'], ['zap', 'bg', 'Link do Pix sobre o fundo'], ['zap', 'card', 'Link do Pix sobre os cartões']];
     var ruins = pares.filter(function (p) { return contraste(ed.cores[p[0]], ed.cores[p[1]]) < 4.5; }).map(function (p) { return p[2]; });
     alvo.hidden = !ruins.length;
     alvo.textContent = ruins.length ? 'Pode ficar difícil de ler: ' + ruins.join('; ') + '.' : '';
@@ -250,7 +251,7 @@ label.c>*{color:var(--txt);font-size:14px;font-weight:400}
 
     var prontas = novo('div', { cls: 'prontas' }, PRONTAS.map(function (p) {
       var c = Object.assign({}, padrao.cores, p[1]);
-      var bola = novo('i'); bola.style.background = 'linear-gradient(90deg,' + c.ouro + ' 50%,' + c.bg + ' 50%)';
+      var bola = novo('i'); bola.style.background = 'linear-gradient(90deg,' + c.principal + ' 50%,' + c.bg + ' 50%)';
       return novo('button', { type: 'button', cls: 'b', onclick: function () { ed.cores = c; montarPainel(); mudou(); } }, [bola, novo('span', { txt: p[0] })]);
     }));
     var cores = CORES.map(function (par) {
