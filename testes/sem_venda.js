@@ -24,7 +24,7 @@ const CENARIOS = {
   await new Promise(r => srv.listen(0, '127.0.0.1', r)); const base = 'http://127.0.0.1:' + srv.address().port;
   const b = await chromium.launch();
 
-  async function abrir(arquivo, nativo, lista, logado) {
+  async function abrir(arquivo, nativo, lista, logado, plataforma) {
     const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
     await ctx.route(/\/app\/api\/|intusfit\.com\.br/, route => {
       const u = new URL(route.request().url()), acao = u.searchParams.get('action') || '', arq = u.pathname.split('/').pop();
@@ -38,15 +38,16 @@ const CENARIOS = {
       return j({ error: 'fora do teste' }, 503);
     });
     const page = await ctx.newPage(); const erros = []; page.on('pageerror', e => erros.push(e.message));
-    await page.addInitScript(([nativo, logado, lista]) => {
+    await page.addInitScript(([nativo, logado, lista, plataforma]) => {
       if (nativo) window.INTUS_NATIVE_APP = true;
+      if (plataforma) window.Capacitor = { getPlatform: () => plataforma, isNativePlatform: () => false, Plugins: {} };
       localStorage.setItem('intus-theme', 'claro');
       if (!logado) { localStorage.setItem('intus-intro-vista', '1'); return; }
       localStorage.setItem('mx-token', 't'); localStorage.setItem('mx-user', JSON.stringify({ tipo: 'aluno', idatleta: 7, nome: 'Aluna Teste' }));
       localStorage.setItem('intus-termos-aceito-7', '1'); localStorage.setItem('intus-perm-preparo-7', '1'); localStorage.setItem('intus-cardio-novo-visto', '1');
       localStorage.setItem('intus-dica-tema-ts', String(Date.now())); localStorage.setItem('intus-ajuda-v2', '{"visto":1}');
       localStorage.setItem('intus-mensalidades', JSON.stringify(lista));
-    }, [nativo, logado !== false, lista || []]);
+    }, [nativo, logado !== false, lista || [], plataforma || '']);
     await page.goto(base + '/' + arquivo, { waitUntil: 'domcontentloaded' }); await page.waitForTimeout(2500);
     return { ctx, page, erros };
   }
@@ -119,6 +120,29 @@ const CENARIOS = {
   await t.page.evaluate(() => { trocarView('home'); renderHome(); });
   eq('o aviso é neutro e o WhatsApp é de suporte', await t.page.evaluate(() => { let url = ''; window.open = u => { url = decodeURIComponent(u); }; document.querySelector('#v-home .h-zap').click(); return [document.querySelector('#v-home .h-aviso .tt').textContent, /Preciso de ajuda com o meu acesso no app/.test(url), /pagar|renov|regulariz|plano|matr/i.test(url)]; }), ['Treinos indisponíveis nesta conta', true, false]);
   await t.ctx.close();
+
+  console.log('\n══ Android: aviso do site, só em texto ══');
+  const FRASE = 'Os planos são contratados no nosso site, intusfit.com.br.';
+  for (const [nome, lista] of Object.entries(CENARIOS)) {
+    t = await abrir('aluno.html', true, lista, true, 'android');
+    const fora = (await varrer(t.page)).filter(l => !l.endsWith(FRASE));
+    eq('Android, ' + nome + ': fora a frase aprovada, nada de venda', fora, []);
+    eq('Android, ' + nome + ': sem erro de JavaScript', t.erros, []);
+    await t.ctx.close();
+  }
+  for (const [plat, quer] of [['android', 1], ['ios', 0]]) {
+    t = await abrir('aluno.html', true, CENARIOS['cobrança vencida há 60 dias'], true, plat);
+    await varrer(t.page);
+    const r = await t.page.evaluate(async (frase) => {
+      trocarView('home'); renderHome(); const home = document.getElementById('v-home');
+      const naHome = home.innerText.split(frase).length - 1;
+      const clicavel = Array.from(home.querySelectorAll('.h-site')).some(e => e.closest('a,button,[onclick]') || e.querySelector('a,button,[onclick]'));
+      await renderMatricula(); const conta = document.getElementById('v-matricula').textContent.split(frase).length - 1;
+      return [naHome, conta, clicavel];
+    }, FRASE);
+    eq(plat + ': frase no aviso do início e em Minha conta, sem link', r, [quer, quer, false]);
+    await t.ctx.close();
+  }
 
   console.log('\n══ Cadastro ══');
   for (const nativo of [true, false]) {

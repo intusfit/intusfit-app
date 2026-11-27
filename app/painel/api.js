@@ -1983,6 +1983,11 @@ const API = {
   // A Apple recusou a versão 1.0 pela regra 3.1.1. No app instalado não aparece preço, plano, matrícula, cobrança, teste grátis, indicação com prêmio
   // nem convite para contratar ou renovar. O WhatsApp fica só como suporte. A web continua como sempre. Nenhuma tela decide isso sozinha: pergunte aqui.
   semVenda: function () { return typeof window !== 'undefined' && !!window.INTUS_NATIVE_APP; },
+  // Só no Android: o Google permite dizer em texto onde se contrata, sem link e sem botão (app que não vende por dentro). No iPhone a Apple não permite.
+  avisoSiteAndroid: function () {
+    var c = typeof window !== 'undefined' && window.Capacitor;
+    return API.semVenda() && c && c.getPlatform && c.getPlatform() === 'android' ? 'Os planos são contratados no nosso site, intusfit.com.br.' : '';
+  },
   semVendaNotificacoes: function (lista) {
     return API.semVenda() ? (lista || []).filter(function (n) { return !n || n.tipo !== 'mensalidade'; }) : (lista || []);
   },
