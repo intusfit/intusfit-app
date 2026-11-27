@@ -1147,6 +1147,7 @@ function abrirDetalheAluno(idatleta) {
         <h3>${esc(atleta.nome)}</h3>
         <button onclick="fecharDetalhe()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;padding:4px 8px;">×</button>
       </div>
+      <button class="btn btn-secondary btn-ver-perfil" onclick="verPerfilNoApp(${Number(idatleta)})" style="width:100%;justify-content:center;margin:0 0 12px;">👤 Ver perfil no app (fotos, conquistas, como os colegas veem)</button>
       <div class="freq-modal-stats" style="grid-template-columns:repeat(2,1fr);">
         <div title="Todas as sessões registradas desde o início (musculação e cardio)"><strong>${sessoesAtleta.length}</strong><br><span>Sessões no total</span></div>
         <div title="Soma da duração de todas as sessões desde o início"><strong>${Math.round(sessoesAtleta.reduce((s,x)=>s+(x.duracao_seg||0),0)/60)}</strong><br><span>Minutos no total</span></div>
@@ -1203,6 +1204,21 @@ function abrirDetalheAluno(idatleta) {
   container.innerHTML = html;
   container.style.display = 'block';
 }
+
+// O perfil é a própria tela do app (aluno.html em modo somente leitura), numa moldura de celular. Assim nunca fica diferente do que o aluno vê.
+function verPerfilNoApp(idatleta) {
+  fecharPerfilNoApp();
+  const claro = document.body.classList.contains('theme-light');
+  const ov = document.createElement('div');
+  ov.id = 'perfil-app-modal';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.75);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px;';
+  ov.onclick = function (e) { if (e.target === ov) fecharPerfilNoApp(); };
+  ov.innerHTML = '<button class="btn btn-secondary" onclick="fecharPerfilNoApp()">× Fechar perfil</button>' +
+    '<iframe title="Perfil do aluno no app" src="aluno.html?verperfil=' + Number(idatleta) + '&tema=' + (claro ? 'claro' : 'escuro') + '" style="width:min(400px,100%);height:min(840px,calc(100vh - 80px));border:6px solid #000;border-radius:28px;background:' + (claro ? '#fff' : '#141414') + ';box-shadow:0 20px 60px rgba(0,0,0,.5);"></iframe>';
+  document.body.appendChild(ov);
+}
+function fecharPerfilNoApp() { document.getElementById('perfil-app-modal')?.remove(); }
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fecharPerfilNoApp(); });
 
 function fecharDetalhe() { const c = document.getElementById('freq-detail-modal'); if (c) c.style.display = 'none'; }
 

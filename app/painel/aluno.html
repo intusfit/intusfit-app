@@ -17,6 +17,55 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Meu Treino | Intus</title>
+  <script>
+  /* ═══ "VER PERFIL NO APP" (equipe, somente leitura) ═══
+     O painel abre aluno.html?verperfil=ID numa moldura de celular para a equipe ver o perfil como um colega vê. Painel e app dividem o mesmo
+     endereço, então antes de qualquer outro script: o armazenamento vira uma cópia em memória (nada do app encosta no login nem nos dados do painel),
+     todo envio é recusado e, na API, só passam as leituras que o perfil usa. Precisa ser o PRIMEIRO script da página. Só vale para quem entrou como equipe. */
+  (function () {
+    var m = /[?&]verperfil=(\d+)(?:&|$)/.exec(location.search); if (!m) return;
+    var token = null, u = null;
+    try { token = window.localStorage.getItem('mx-token'); u = JSON.parse(window.localStorage.getItem('mx-user') || 'null'); } catch (e) {}
+    if (!token || !u || u.tipo === 'aluno') return;
+    function memoria(ini) {
+      var d = Object.assign({}, ini);
+      return { getItem: function (k) { return Object.prototype.hasOwnProperty.call(d, k) ? d[k] : null; }, setItem: function (k, v) { d[k] = String(v); }, removeItem: function (k) { delete d[k]; },
+        clear: function () { d = {}; }, key: function (i) { return Object.keys(d)[i] || null; }, get length() { return Object.keys(d).length; } };
+    }
+    var claro = /[?&]tema=claro/.test(location.search);
+    var local = memoria({ 'mx-token': token, 'mx-user': JSON.stringify({ tipo: 'aluno', idatleta: -1, nome: 'Visualização' }), 'intus-theme': claro ? 'claro' : 'escuro',
+      'intus-termos-aceito--1': '1', 'intus-cardio-novo-visto': '1', 'intus-dica-tema-ts': String(Date.now()), 'intus-perm-preparo--1': '1', 'intus-ajuda-v2': '{"visto":1}' });
+    var sessao = memoria({});
+    try {
+      Object.defineProperty(window, 'localStorage', { configurable: true, get: function () { return local; } });
+      Object.defineProperty(window, 'sessionStorage', { configurable: true, get: function () { return sessao; } });
+    } catch (e) {}
+    if (window.localStorage !== local) { window.stop(); document.documentElement.textContent = 'Este navegador não permite abrir a visualização do perfil.'; throw new Error('verperfil: sem isolamento'); }
+    window.__VER_PERFIL = Number(m[1]);
+    try { if (navigator.serviceWorker) { navigator.serviceWorker.register = function () { return new Promise(function () {}); }; } } catch (e) {}
+    try { navigator.sendBeacon = function () { return false; }; } catch (e) {}
+    var abrirXhr = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (metodo, url) {
+      if (String(metodo).toUpperCase() !== 'GET' || /\/api\//.test(new URL(url, location.href).pathname)) throw new Error('somente visualização');
+      return abrirXhr.apply(this, arguments);
+    };
+    var LEITURAS = ['perfil_config', 'feed_posts', 'resultados', 'conquistas_config', 'config', 'comentarios_pub', 'reacoes', 'figurinhas_config'];
+    var COMO_COLEGA = ['perfil_config', 'feed_posts', 'resultados'];
+    var buscar = window.fetch.bind(window);
+    var recusa = function (st) { return Promise.resolve(new Response('{"error":"somente visualização"}', { status: st, headers: { 'Content-Type': 'application/json' } })); };
+    window.fetch = function (entrada, op) {
+      var metodo = String((op && op.method) || (entrada && entrada.method) || 'GET').toUpperCase();
+      if (metodo !== 'GET' && metodo !== 'HEAD') return recusa(403);
+      var url = new URL((entrada && entrada.url) || entrada, location.href);
+      if (!/\/api\//.test(url.pathname)) return buscar(entrada, op);
+      var arq = url.pathname.split('/').pop(), acao = url.searchParams.get('action') || '';
+      var pode = arq === 'midia.php' || (arq === 'treinos.php' && (acao === 'ranking' || (acao === 'cardio' && url.searchParams.has('foto')))) || (arq === 'catalogo.php' && LEITURAS.indexOf(acao) >= 0);
+      if (!pode) return recusa(503);   // o resto do app se comporta como sem internet: nada é baixado nem bloqueado
+      if (arq === 'catalogo.php' && COMO_COLEGA.indexOf(acao) >= 0) url.searchParams.set('como', 'colega');
+      return buscar(url.href, op);
+    };
+  })();
+  </script>
   <script src="recarregar-midia.js?v=20261125a"></script>
   <script src="_mock.js?v=20260925a"></script>
   <script src="api.js?v=20261126a"></script>
@@ -17496,6 +17545,29 @@ async function dsCancelar(id) {
 var _pkPosts = [];
 function _pkParticipa(id) { return !!(((_rankingData || {}).atletas || {})[String(id)]); }
 
+// "Ver perfil no app" (equipe): a mesma tela de perfil que um colega abre, desenhada por cima do app, sem passar pelo resto dele.
+async function _verPerfilAbrir(id) {
+  const claro = document.body.classList.contains('tema-claro');
+  const raiz = document.createElement('div');
+  raiz.id = 'vp-raiz';
+  raiz.style.cssText = 'position:fixed;inset:0;z-index:99990;overflow-y:auto;overscroll-behavior:contain;background:' + (claro ? '#fff' : '#141414') + ';color:' + (claro ? '#1a1a1a' : '#f0f0f0') + ';';
+  raiz.innerHTML = '<div style="position:sticky;top:0;z-index:3;padding:8px 14px;font-size:11.5px;line-height:1.4;text-align:center;background:' + (claro ? '#fff7e0' : '#2a2208') + ';color:' + (claro ? '#7a5b00' : '#ffd666') + ';">👁️ Somente visualização: o que um colega que não é amigo vê.</div>' +
+    '<div id="vp-corpo" style="max-width:460px;margin:0 auto;padding:20px 20px 32px;"><div style="text-align:center;padding:40px 0;font-size:13px;opacity:.7;">Abrindo o perfil...</div></div>';
+  document.body.appendChild(raiz);
+  const corpo = document.getElementById('vp-corpo');
+  try {
+    await Promise.all([_ensureRankingData(), _ensureConquistasConfig()]);
+    if (_rankingData && _rankingData._falhou) throw new Error('ranking');
+    await abrirPerfilRanking(id, true, corpo);
+  } catch (e) {
+    corpo.innerHTML = '<div style="text-align:center;padding:40px 0;font-size:13px;">Não consegui abrir este perfil agora. Feche e tente de novo.</div>';
+  }
+}
+if (window.__VER_PERFIL) {
+  if (document.readyState === 'complete') _verPerfilAbrir(window.__VER_PERFIL);
+  else window.addEventListener('load', function () { _verPerfilAbrir(window.__VER_PERFIL); });
+}
+
 async function abrirPerfilAluno(id) {
   id = Number(id);
   if (!id) return;
@@ -17595,6 +17667,7 @@ async function _pkConfig(id) {
   } catch (e) {
     cfg = id === Number(idAtleta) ? { meu: true, conexoes: false } : { erro: true, ver_fotos: false, mostrar_conquistas: false, mostrar_resultados: false, mostrar_semana: false, conexoes: false };
   }
+  if (window.__VER_PERFIL) cfg.conexoes = false;   // visualização da equipe: sem botões de amizade e parceria
   if (!cfg.erro) _pkCfgCache[id] = { t: Date.now(), cfg: cfg };
   return cfg;
 }

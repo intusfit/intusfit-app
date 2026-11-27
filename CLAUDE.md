@@ -2541,3 +2541,8 @@ Web no ar; **ainda sem build novo** (o Luiz pediu para só atualizar a web). Tud
 - `prog-fim-ov` e `prog-pular-ov` entraram em `_CAMADAS_VOLTAR` (voltar do celular fecha a janela).
 - **Limite conhecido**: sem o plugin `@capacitor/app` a página não intercepta o botão físico do Android no primeiro nível: com uma folha aberta na Início (ex.: Novo post) o botão sai do app em vez de fechar a folha. No iPhone isso não existe. Exige build novo para tratar.
 - Tudo isto é web; **o app das lojas só recebe no próximo build** (os builds 31 iOS e Android #8 não têm as correções de 26 e 27/11).
+
+
+## 26/11/2026 (tarde): ver perfil no app, Acessos reorganizado
+- **Ver perfil no app** (Frequência e Ranking > detalhe do aluno): moldura de celular com `aluno.html?verperfil=ID`. É a própria tela do app (não criar segunda versão no painel). O guarda é o PRIMEIRO script do `aluno.html`: armazenamento vira cópia em memória (painel e app dividem a origem), todo envio é recusado e só passam as leituras listadas em `LEITURAS`. Tela de perfil que passar a ler outra rota precisa entrar nessa lista. `como=colega` (`catalogo.php`: feed_posts, perfil_config, resultados) faz a equipe ver como aluno sem amizade; só restringe. Testes: `testes/ver_perfil.js`, `testes/colab.php`.
+- **Acessos** (`frequencia.html`): picos e dia da semana lado a lado, ao vivo em colunas, locais no fim. A hora local do aluno só aparece quando o fuso dele marca outra hora.

@@ -3386,6 +3386,8 @@ if ($action === 'feed_posts') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
     if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    // "Ver perfil no app" (painel): a equipe pede para ver como um aluno que não é amigo de ninguém. Só restringe o que é devolvido.
+    if ($method === 'GET' && $_autorTipo === 'prof' && ($_GET['como'] ?? '') === 'colega') { $_autorTipo = 'aluno'; $_autorId = 0; }
 
     if ($method === 'GET') {
         // Posts da Intus: só no Feed geral, primeira página (o filtro "Amigos", o perfil de alguém e um post avulso não trazem).
@@ -3711,6 +3713,8 @@ if ($action === 'perfil_config') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
     if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    // "Ver perfil no app" (painel): a equipe pede para ver como um aluno que não é amigo de ninguém. Só restringe o que é devolvido.
+    if ($method === 'GET' && $_autorTipo === 'prof' && ($_GET['como'] ?? '') === 'colega') { $_autorTipo = 'aluno'; $_autorId = 0; }
 
     if ($method === 'GET') {
         $alvo = (int)($_GET['idatleta'] ?? 0);
@@ -4661,6 +4665,8 @@ if ($action === 'resultados') {
     if (!$_tokValido) { http_response_code(401); echo json_encode(['error' => 'token ausente ou invalido']); exit; }
     [$_autorTipo, $_autorId, $_autorNome] = _resolverAutorPub($pdo, $_ctx, $_ehAluno);
     if ($_autorId <= 0) { http_response_code(401); echo json_encode(['error' => 'sem identidade no token']); exit; }
+    // "Ver perfil no app" (painel): a equipe pede para ver como um aluno que não é amigo de ninguém. Só restringe o que é devolvido.
+    if ($method === 'GET' && $_autorTipo === 'prof' && ($_GET['como'] ?? '') === 'colega') { $_autorTipo = 'aluno'; $_autorId = 0; }
 
     if ($method === 'GET') {
         $limite = min(50, max(1, (int)($_GET['limite'] ?? 20)));

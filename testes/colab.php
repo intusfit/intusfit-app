@@ -44,8 +44,10 @@ if (getenv('CASO_JSON') !== false) {
     $_ehAluno = true;
     $_ctx = ['idatleta' => $caso['eu']];
     $GLOBALS['__corpo'] = $caso['corpo'] ?? [];
+    $GLOBALS['__prof'] = !empty($caso['prof']);
+    if ($GLOBALS['__prof']) $_ehAluno = false;
     function jsonBody() { return $GLOBALS['__corpo']; }
-    function _resolverAutorPub($pdo, $_ctx, $_ehAluno) { $n = $pdo->query("SELECT nome FROM atleta WHERE idatleta = " . (int)$_ctx['idatleta'])->fetchColumn(); return ['aluno', (int)$_ctx['idatleta'], (string)$n]; }
+    function _resolverAutorPub($pdo, $_ctx, $_ehAluno) { if (!empty($GLOBALS['__prof'])) return ['prof', 900, 'Equipe']; $n = $pdo->query("SELECT nome FROM atleta WHERE idatleta = " . (int)$_ctx['idatleta'])->fetchColumn(); return ['aluno', (int)$_ctx['idatleta'], (string)$n]; }
     function _feedDetectarTabelaAtleta($pdo) { return 'atleta'; }
     function _midiasDosPosts($pdo, $t, $ids) { return []; }
     function _mencoesLimitar($t, $n) { return mb_substr($t, 0, $n); }
@@ -149,6 +151,14 @@ eq('sem so_texto a imagem continua obrigatória', rodar(['action' => 'feed_posts
 $lt = array_values(array_filter(feed(4)['posts'] ?? [], fn($x) => $x['idpost'] == $pt))[0] ?? [];
 eq('o post aparece no Feed com a marcação intacta', $lt['legenda'] ?? null, "[serif]\n# Título\nTexto com **negrito**");
 eq('sem imagem e sem mídias (o app mostra só o texto)', [trim((string)($lt['imagem'] ?? 'x')), $lt['midias'] ?? 'x'], ['', []]);
+
+echo "\n── Ver perfil no app (painel): a equipe vendo como um colega ──\n";
+$pr = publicar(1, ['legenda' => 'reservado aos amigos', 'visib' => 'amigos'])['idpost'] ?? 0;
+$pp = new PDO('sqlite:' . $tmp); $pp->exec("INSERT OR REPLACE INTO intus_post_visib VALUES ($pr, 'amigos')");
+$equipe = fn($get) => ids(rodar(['action' => 'feed_posts', 'metodo' => 'GET', 'eu' => 1, 'prof' => true, 'get' => $get]));
+eq('a equipe, sem pedir nada, enxerga tudo', in_array($pr, $equipe(['idatleta' => 1]), true), true);
+eq('pedindo como colega, o post só para amigos não vem', in_array($pr, $equipe(['idatleta' => 1, 'como' => 'colega']), true), false);
+eq('e os públicos continuam vindo', count($equipe(['idatleta' => 1, 'como' => 'colega'])) > 0, true);
 
 @unlink($tmp);
 echo "\n" . ($ruim ? $ruim . ' FALHA(S), ' : '') . $ok . " ok\n";
