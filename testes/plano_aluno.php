@@ -24,7 +24,7 @@ echo "\n══ Libera com outro plano ativo ══\n";
 eq('plano pago em dia junto do teste: libera', $so([$teste(), $pago()]), false);
 eq('plano pago ainda dentro da carência de 5 dias: libera', $so([$teste(), $pago('2026-10-16')]), false);
 eq('plano pago vencido há 6 dias (fora da carência): volta a bloquear', $so([$teste(), $pago('2026-10-14')]), true);
-eq('plano NÃO pago não libera', $so([$teste(), $pago('2026-11-20', 'N')]), true);
+eq('plano NÃO pago há mais de uma semana não libera', $so([$teste(), ['dtinicio' => '2026-10-01'] + $pago('2026-11-20', 'N')]), true);
 eq('plano cancelado não libera', $so([$teste(), $pago('2026-11-20', 'S', 'cancelada')]), true);
 eq('plano encerrado não libera', $so([$teste(), $pago('2026-11-20', 'S', 'encerrada')]), true);
 eq('plano trancado não libera', $so([$teste(), $pago('2026-11-20', 'S', 'trancada')]), true);
@@ -40,6 +40,16 @@ eq('teste cancelado: não bloqueia', $so([['dshistorico' => 'Teste Grátis', 'dt
 eq('só plano pago, sem teste: não bloqueia', $so([$pago()]), false);
 eq('matrícula sem vencimento é ignorada', $so([['dshistorico' => 'Teste Grátis', 'dtinicio' => '2026-10-19', 'dtvencimento' => '', 'stpgto' => 'S']]), false);
 eq('o nome decide: matrícula com a palavra "teste" no histórico conta como teste mesmo se estiver paga', $so([['dshistorico' => 'Contrato de teste de força', 'dtinicio' => '2026-10-01', 'dtvencimento' => '2026-11-01', 'stpgto' => 'S']]), true);
+
+echo "\n══ Em dia e ainda sem baixa ══\n";
+$at = fn(array $l) => intusPlanoAlunoDeLinhas($l, $hoje)['plano_ativo'];
+$aberto = fn($ini, $venc = '2026-11-20', $extra = []) => ['dshistorico' => 'Premium', 'tipo_plano' => 'mensal', 'dtinicio' => $ini, 'dtvencimento' => $venc, 'stpgto' => 'N', 'stmatricula' => 'ativa'] + $extra;
+eq('ciclo começou hoje e aguarda a baixa: ativo', $at([$aberto('2026-10-20')]), true);
+eq('ciclo começou há 7 dias sem baixa (tolerância e fim de semana): ativo', $at([$aberto('2026-10-13')]), true);
+eq('ciclo começou há 8 dias sem baixa: não é ativo', $at([$aberto('2026-10-12')]), false);
+eq('parcela que ainda não começou não segura quem deve a anterior', $at([$aberto('2026-10-01'), $aberto('2026-11-01', '2026-12-01')]), false);
+eq('valor zero sem baixa (bonificado) é ativo', $at([$aberto('2026-09-01', '2026-11-20', ['vlpagar' => 0])]), true);
+eq('valor com desconto total é ativo', $at([$aberto('2026-09-01', '2026-11-20', ['vlpagar' => 100, 'vldesconto' => 100])]), true);
 
 echo "\n══ Com banco (SQLite) ══\n";
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
@@ -85,6 +95,12 @@ eq('aluno só no teste: a rota responde com o código so_teste e NÃO passa', st
 eq('a mensagem fala em plano ativo, sem travessão', strpos($r, 'plano ativo') !== false && strpos($r, '—') === false && strpos($r, '–') === false, true);
 eq('aluno com plano ativo passa', rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', $comPlano)[0], 'PASSOU');
 eq('professor/admin nunca é barrado por esta regra', rodarGate('{"is_aluno":false,"idusuario":1,"admin":true}', $soTeste)[0], 'PASSOU');
+$r = rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', '')[0];
+eq('conta grátis (sem matrícula) não publica nem comenta: código sem_plano', strpos($r, 'sem_plano') !== false && strpos($r, 'PASSOU') === false, true);
+$vencido = "\$pdo->exec(\"INSERT INTO intus_mensalidade VALUES (7,'Premium','mensal','2020-01-01','2020-02-01','S','ativa')\");\n";
+eq('plano vencido há muito tempo também é barrado', strpos(rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', $vencido)[0], 'sem_plano') !== false, true);
+eq('a mensagem para a conta grátis é neutra (vale no app das lojas)', stripos(INTUS_MSG_SEM_PLANO, 'plano') === false, true);
+eq('sem conseguir consultar as matrículas, ninguém é barrado', rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', "\$pdo->exec('DROP TABLE intus_mensalidade');\n")[0], 'PASSOU');
 
 echo "\n══ Feed limitado pela equipe (aluno ativo) ══\n";
 $comAtleta = "\$pdo->exec(\"CREATE TABLE atleta (idatleta INT, feed_restrito CHAR(1) DEFAULT 'N')\");\n"
@@ -97,7 +113,7 @@ eq('aluno ativo e limitado: a rota responde com o código restrito e NÃO passa'
 eq('a mensagem diz que treino e cardio continuam, sem travessão', strpos($r, 'Treinos e cardios continuam') !== false && strpos($r, '—') === false && strpos($r, '–') === false, true);
 eq('aluno ativo sem limitação (N) passa', rodarGate('{"is_aluno":true,"idatleta":8,"idusuario":8}', $comAtleta)[0], 'PASSOU');
 eq('aluno com campo vazio (NULL) passa', rodarGate('{"is_aluno":true,"idatleta":9,"idusuario":9}', $comAtleta)[0], 'PASSOU');
-eq('banco sem a coluna ainda: não limita ninguém', rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', "\$pdo->exec(\"CREATE TABLE atleta (idatleta INT)\");\n\$pdo->exec(\"INSERT INTO atleta VALUES (7)\");\n")[0], 'PASSOU');
+eq('banco sem a coluna ainda: não limita ninguém', rodarGate('{"is_aluno":true,"idatleta":7,"idusuario":7}', "\$pdo->exec(\"CREATE TABLE atleta (idatleta INT)\");\n\$pdo->exec(\"INSERT INTO atleta VALUES (7)\");\n\$pdo->exec(\"INSERT INTO intus_mensalidade VALUES (7,'Premium','mensal','\$h','\$m','S','ativa')\");\n")[0], 'PASSOU');
 eq('professor/admin nunca é barrado por esta regra', rodarGate('{"is_aluno":false,"idusuario":1,"admin":true}', $comAtleta)[0], 'PASSOU');
 $atl = str_replace("\r\n", "\n", file_get_contents(__DIR__ . '/../app/api/atletas.php'));
 $k = strpos($atl, "\$permitidos = ['nome'");

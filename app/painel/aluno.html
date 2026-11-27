@@ -6813,17 +6813,20 @@ function abrirWhatsAppIntus(assunto) {
   window.open('https://wa.me/' + num.replace(/\D/g, '') + '?text=' + encodeURIComponent(texto), '_blank');
 }
 
+// CONTA GRÁTIS (27/11/2026): sem plano ativo, vencida ou bloqueada, o aluno continua com a parte grátis (cardio e ranking, Nutrição geral, Extras,
+// Feed e Mural só para ler, avaliações, perfil e suporte). Treino prescrito, histórico de treinos e Comunidade são de quem tem plano.
+const _TELAS_SEM_PLANO = ['home', 'perfil', 'avaliacoes', 'anamnese', 'matricula', 'mensagens', 'desafios', 'quemsomos', 'feed', 'resultados', 'nutricao', 'extras', 'ranking'];
 function navegar(dest) {
   if (dest === 'matricula' && API.semVenda()) dest = 'perfil';
   const bloqueado = verificarInadimplencia();
   const semMatricula = verificarSemMatricula();
 
-  if (bloqueado && dest !== 'home' && dest !== 'matricula') {
+  if (bloqueado && _TELAS_SEM_PLANO.indexOf(dest) < 0) {
     toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Acesso bloqueado, regularize seu pagamento');
     trocarView('home'); renderHome();
     return;
   }
-  if (semMatricula && dest !== 'home' && dest !== 'perfil' && dest !== 'avaliacoes' && dest !== 'anamnese' && dest !== 'matricula' && dest !== 'mensagens' && dest !== 'desafios' && dest !== 'quemsomos' && dest !== 'feed' && dest !== 'resultados') {
+  if (semMatricula && _TELAS_SEM_PLANO.indexOf(dest) < 0) {
     toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Ative sua matrícula para acessar este recurso');
     trocarView('home'); renderHome();
     return;
@@ -7832,11 +7835,22 @@ function _feedRestrito() {
     return !!eu && String(eu.feed_restrito || 'N').toUpperCase() === 'S';
   } catch (e) { return false; }
 }
-// true = pode seguir; false = avisou o aluno (teste grátis ou Feed limitado)
+// PUBLICAR E COMENTAR É DE QUEM TEM PLANO ATIVO (27/11/2026). Teste grátis não conta; cortesia conta. "Ativo" é a mesma conta do painel
+// (API.situacaoPlano, com a tolerância de 5 dias), feita sem as matrículas de teste. Quem barra de verdade é o servidor (_plano_aluno.php).
+const _SEM_PLANO_MSG = 'Publicar no Feed e comentar é para quem tem plano ativo. Cardio, ranking e pontos continuam liberados.';
+function _semPlanoSocial() {
+  try {
+    if (!_syncDone || !_matSyncOk) return false;   // sem confirmação do servidor, não bloqueia
+    const pagas = (JSON.parse(localStorage.getItem('intus-mensalidades') || '[]') || []).filter(m => Number(m.idatleta) === Number(idAtleta) &&
+      m.stmatricula !== 'inativa' && !/\bteste\b|gr[aá]tis|trial|degusta|experimental/i.test(String(m.tipo_plano || '') + ' ' + String(m.dshistorico || '')));
+    return !pagas.length || !API.situacaoPlano({ idatleta: idAtleta }, pagas).ativo;
+  } catch (e) { return false; }
+}
+// true = pode seguir; false = avisou o aluno (sem plano ativo, teste grátis ou Feed limitado)
 function _soTesteBarra() {
   if (_feedRestrito()) { toast(_FEED_RESTRITO_MSG, 6000); return false; }
-  if (!_ehSoTeste()) return true;
-  toast(API.semVenda() ? 'Publicar no Feed e comentar não estão disponíveis nesta conta.' : _SO_TESTE_MSG, 6000);
+  if (!_semPlanoSocial()) return true;
+  toast(API.semVenda() ? 'Publicar no Feed e comentar não estão disponíveis nesta conta.' : (_ehSoTeste() ? _SO_TESTE_MSG : _SEM_PLANO_MSG), 6000);
   return false;
 }
 
@@ -8672,8 +8686,23 @@ function _saudeConteudoHtml() {
   return h;
 }
 
-function _renderHomeSemAcessoLoja(isLight) {
+// Atalhos da parte grátis, iguais nas telas iniciais de quem não tem plano ativo. No app das lojas não há o atalho da Matrícula.
+function _atalhosContaLivre() {
   const at = (js, cor, ic, tit) => '<div class="h-at" onclick="' + js + '"><div class="ic" style="background:linear-gradient(135deg,' + cor + ');">' + ic + '</div><div class="tt">' + tit + '</div></div>';
+  if (idAtleta) setTimeout(() => { _extrasCarregar(); }, 0);
+  return '<div class="h-atalhos h-livres" style="grid-template-columns:repeat(4,minmax(0,1fr));">' +
+    at('abrirCardio()', '#7a2e00,#fb7a3c', '🏃', 'Cardio') +
+    at('abrirRanking()', '#6a4a00,#fbbf24', '🥇', 'Ranking') +
+    at("navegar('nutricao')", '#1f5c00,#5fbf3f', '🥗', 'Nutrição') +
+    at("navegar('extras')", '#4a2a6a,#a78bfa', '🎁', 'Extras') +
+    at("navegar('feed')", '#1f2a5a,#667eea', '📣', 'Feed') +
+    at("renderAvaliacoesAluno();trocarView('avaliacoes');", '#1f4a4a,#3fb0a0', '📋', 'Avaliações') +
+    at('abrirPerfilDados()', '#3a3a3a,#8a8a8a', '👤', 'Meus Dados') +
+    (API.semVenda() ? '' : at("renderMatricula();trocarView('matricula');", '#7a4a00,#f59e0b', '💳', 'Matrícula')) +
+    '</div>';
+}
+
+function _renderHomeSemAcessoLoja(isLight) {
   document.getElementById('v-home').innerHTML = `
     <div class="h-frase">
       <div class="barra"></div>
@@ -8684,14 +8713,11 @@ function _renderHomeSemAcessoLoja(isLight) {
       <div class="ic">📋</div>
       <div class="tt">Treinos indisponíveis nesta conta</div>
       <div class="tx">Os treinos aparecem aqui quando o seu profissional libera o acesso.</div>
-      <div class="ps">Você continua podendo preencher suas avaliações e atualizar seus dados.</div>
+      <div class="ps">Cardio, ranking, nutrição, Extras e suas avaliações continuam disponíveis.</div>
       ${API.avisoSiteAndroid() ? '<div class="ps h-site">' + API.avisoSiteAndroid() + '</div>' : ''}
       <button class="h-zap" onclick="abrirWhatsAppIntus('Preciso de ajuda com o meu acesso no app.')">💬 Falar com o suporte</button>
     </div>
-    <div class="h-atalhos" style="grid-template-columns:repeat(2,minmax(0,1fr));">
-      ${at("renderAvaliacoesAluno();trocarView('avaliacoes');", '#1f4a4a,#3fb0a0', '📋', 'Avaliações')}
-      ${at('abrirPerfilDados()', '#3a3a3a,#8a8a8a', '👤', 'Meus Dados')}
-    </div>
+    ${_atalhosContaLivre()}
     ${getFooterHtml()}
   `;
 }
@@ -8750,20 +8776,7 @@ function renderHome() {
         </div>
       </div>
 
-      <div class="h-atalhos" style="grid-template-columns:repeat(3,minmax(0,1fr));">
-        <div class="h-at" onclick="renderAvaliacoesAluno();trocarView('avaliacoes');">
-          <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
-          <div class="tt">Avaliações</div>
-        </div>
-        <div class="h-at" onclick="renderMatricula();trocarView('matricula');">
-          <div class="ic" style="background:linear-gradient(135deg,#7a4a00,#f59e0b);">💳</div>
-          <div class="tt">Matrícula</div>
-        </div>
-        <div class="h-at" onclick="abrirPerfilDados()">
-          <div class="ic" style="background:linear-gradient(135deg,#3a3a3a,#8a8a8a);">👤</div>
-          <div class="tt">Meus Dados</div>
-        </div>
-      </div>
+      ${_atalhosContaLivre()}
 
       ${getFooterHtml()}
     `;
@@ -8820,7 +8833,7 @@ function renderHome() {
             ? `Seu plano cobriu até <b>${_fimBr}</b>. Para voltar a treinar, fale com ${profNome ? '<b>' + esc(profNome) + '</b>' : 'seu professor responsável'} e renove sua matrícula.`
             : `Para acessar seus treinos, fale com ${profNome ? '<b>' + esc(profNome) + '</b>' : 'seu professor responsável'} para ativar seu plano.`}
         </div>
-        <div class="ps">Enquanto isso, você continua podendo preencher suas avaliações e atualizar seus dados.</div>
+        <div class="ps">Enquanto isso, cardio, ranking, nutrição, Extras e suas avaliações continuam disponíveis.</div>
         <button class="h-zap" onclick="abrirWhatsAppIntus('${_zapMsg}')">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.64-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.61-.92-2.2-.24-.58-.48-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.47s1.06 2.86 1.21 3.06c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.72 2-1.41.25-.69.25-1.28.17-1.41-.07-.13-.27-.2-.57-.35z"/><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.46 1.32 4.96L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2zm0 18.02h-.01c-1.52 0-3.02-.41-4.32-1.18l-.31-.18-3.21.84.86-3.13-.2-.32a8.22 8.22 0 0 1-1.26-4.39c0-4.54 3.7-8.23 8.24-8.23 2.2 0 4.27.86 5.83 2.41a8.19 8.19 0 0 1 2.41 5.83c0 4.54-3.7 8.35-8.23 8.35z"/></svg>
           Falar com a Intus no WhatsApp
@@ -8844,20 +8857,7 @@ function renderHome() {
         </div>
       </div>
 
-      <div class="h-atalhos" style="grid-template-columns:repeat(3,minmax(0,1fr));">
-        <div class="h-at" onclick="renderAvaliacoesAluno();trocarView('avaliacoes');">
-          <div class="ic" style="background:linear-gradient(135deg,#1f4a4a,#3fb0a0);">📋</div>
-          <div class="tt">Avaliações</div>
-        </div>
-        <div class="h-at" onclick="renderMatricula();trocarView('matricula');">
-          <div class="ic" style="background:linear-gradient(135deg,#7a4a00,#f59e0b);">💳</div>
-          <div class="tt">Matrícula</div>
-        </div>
-        <div class="h-at" onclick="abrirPerfilDados()">
-          <div class="ic" style="background:linear-gradient(135deg,#3a3a3a,#8a8a8a);">👤</div>
-          <div class="tt">Meus Dados</div>
-        </div>
-      </div>
+      ${_atalhosContaLivre()}
 
       ${getFooterHtml()}
     `;
@@ -13826,11 +13826,8 @@ function _progSessaoTit(p) { return (p && p.sessoes && _prog.sessao != null && p
 function _progProximaSessao(p) { if (!p.sessoes) return null; const f = _progFeitos(p); for (let i = 0; i < p.sessoes.length; i++) if (!f[i]) return i; return p.sessoes.length - 1; }
 function _progMin(seg) { const m = Math.floor(seg / 60), s = seg % 60; return m === 0 ? s + ' s' : (s ? m + ' min ' + s + ' s' : m + ' min'); }
 function _progMMSS(ms) { const t = Math.max(0, Math.ceil(ms / 1000)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); }
-function _progPermitido() {
-  if (verificarInadimplencia()) { toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Acesso bloqueado, regularize seu pagamento'); return false; }
-  if (verificarSemMatricula()) { toast(API.semVenda() ? 'Este recurso não está disponível nesta conta.' : 'Os programas de cardio são para quem tem plano ativo. Ative sua matrícula para usar.'); return false; }
-  return true;
-}
+// Programas de cardio liberados para todos, inclusive conta sem plano ativo (decisão do Luiz, 27/11/2026). Valem pontos como qualquer cardio.
+function _progPermitido() { return true; }
 function abrirProgramasCardio() {
   if (!_progPermitido()) return;
   _progLimparHist();
@@ -19324,7 +19321,7 @@ function muralResponder(idm, el) {
 function muralCancelar(idm) { delete _muralRespondendoA[idm]; _muralAtualizar(idm); }
 
 async function muralEnviar(idm) {
-  if (!_muralPodeEscrever()) { toast('Escrever no mural é para quem tem plano de treino ativo.'); return; }
+  if (!_muralPodeEscrever()) { _soTesteBarra(); return; }
   if (_muralEnviando[idm]) return;
   const input = document.querySelector('[data-mural-card="' + idm + '"] [data-mural-input]');
   const texto = _mencoesCodificar('mural:' + idm, input?.value?.trim());
@@ -19443,7 +19440,7 @@ function _renderComentarios(data, isLight) {
   const inputBorder = isLight ? '#ddd' : '#333';
   let html = '<div style="margin-top:8px;">' +
     '<h2 class="sect-title" style="margin-bottom:12px;">💬 Mural dos Membros</h2>' +
-    ((_muralPodeEscrever() || API.semVenda()) ? '' : '<div onclick="abrirWhatsAppIntus(\'Quero ativar a minha matrícula\')" style="margin-bottom:16px;padding:11px 13px;border-radius:10px;border:1px dashed ' + inputBorder + ';font-size:12.5px;color:' + textSec + ';cursor:pointer;line-height:1.45;">🔒 Escrever no mural é para quem tem plano de treino ativo. Você pode ler tudo. <b>Ativar matrícula ›</b></div>') +
+    ((_muralPodeEscrever() || API.semVenda()) ? '' : '<div onclick="abrirWhatsAppIntus(\'Quero ativar a minha matrícula\')" style="margin-bottom:16px;padding:11px 13px;border-radius:10px;border:1px dashed ' + inputBorder + ';font-size:12.5px;color:' + textSec + ';cursor:pointer;line-height:1.45;">🔒 Escrever no mural é para quem tem plano ativo. Você pode ler tudo. <b>Ativar matrícula ›</b></div>') +
     '<div style="display:' + (_muralPodeEscrever() ? 'flex' : 'none') + ';gap:8px;margin-bottom:16px;">' +
       '<input id="ranking-comment-input" data-mencoes="ranking" data-limite="1000" type="text" placeholder="Deixe uma mensagem para a galera..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + textPrim + ';font-size:13px;font-family:inherit;" onkeydown="if(event.key===\'Enter\')enviarComentarioRanking();"/>' +
       '<button class="btn btn-prim" style="padding:10px 16px;font-size:13px;" onclick="enviarComentarioRanking()">Enviar</button>' +
@@ -20512,10 +20509,10 @@ function _renderRankingView() {
 }
 
 // Mural dos Membros: escrever é de quem tem plano de treino (matrícula) ativo; ler é aberto. O mural da Nutrição segue o plano alimentar.
-function _muralPodeEscrever() { try { return !verificarSemMatricula() && !verificarInadimplencia(); } catch (e) { return true; } }
+function _muralPodeEscrever() { return !_semPlanoSocial(); }
 async function enviarComentarioRanking() {
   if (!_soTesteBarra()) return;
-  if (!_muralPodeEscrever()) { toast('Escrever no mural é para quem tem plano de treino ativo.'); return; }
+  if (!_muralPodeEscrever()) { _soTesteBarra(); return; }
   const inp = document.getElementById('ranking-comment-input');
   const texto = _mencoesCodificar('ranking', (inp?.value || '').trim());
   if (!texto) return toast('Digite uma mensagem.');
@@ -22781,7 +22778,7 @@ async function _nutriAguaHistCarregar() {
   if (_nutri.tela === 'agua') _nutriRender();
 }
 function nutriAguaPer(n) {
-  if (n > 7 && !_nutriTemPlano()) { nutriConvitePlano('Histórico completo de água'); return; }
+  if (n > 30 && !_nutriTemPlano()) { nutriConvitePlano('Histórico completo de água'); return; }
   _nutri.aguaPer = n; _nutriRender();
 }
 function _nutriAguaDiasHist(n) {
@@ -22796,7 +22793,7 @@ function _nutriAguaDiasHist(n) {
   return out;   // do mais recente para o mais antigo
 }
 function _nutriAguaHistHtml() {
-  const N = API.nutri, C = _nutriCores(), temPlano = _nutriTemPlano(), per = temPlano ? (_nutri.aguaPer || 30) : 7, meta = N.metaAguaMl(_nutriUltimoPeso());
+  const N = API.nutri, C = _nutriCores(), temPlano = _nutriTemPlano(), per = temPlano ? (_nutri.aguaPer || 30) : Math.min(_nutri.aguaPer || 30, 30), meta = N.metaAguaMl(_nutriUltimoPeso());
   const dias = _nutriAguaDiasHist(per);
   const AZ = document.body.classList.contains('tema-claro') ? '#0369a1' : '#38bdf8';
   const litros = v => (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
@@ -22822,7 +22819,7 @@ function _nutriAguaHistHtml() {
       <div style="width:84px;text-align:right;font-size:12.5px;font-weight:800;${d.ml ? '' : 'color:' + C.mut + ';font-weight:600;'}">${d.ml ? litros(d.ml) + ' L' + (ok ? ' ✓' : '') : 'sem registro'}</div>
     </div>`;
   }).join('');
-  const chips = (API.semVenda() && !temPlano ? [7] : [7, 30, 90]).map(n => _nutriChip(per === n, 'nutriAguaPer(' + n + ')', n + ' dias' + (n > 7 && !temPlano ? ' 🔒' : ''))).join('');
+  const chips = (API.semVenda() && !temPlano ? [7, 30] : [7, 30, 90]).map(n => _nutriChip(per === n, 'nutriAguaPer(' + n + ')', n + ' dias' + (n > 30 && !temPlano ? ' 🔒' : ''))).join('');
   return `<div style="padding:16px 0;">
     ${_nutriHeaderSub('💧 Histórico de água')}
     <div style="display:flex;gap:6px;margin-bottom:12px;">${chips}</div>
@@ -22838,7 +22835,7 @@ function _nutriAguaHistHtml() {
       <div style="display:flex;justify-content:space-between;font-size:10px;color:${C.mut};margin-top:5px;"><span>${fmt(dias[dias.length - 1].data).split(', ')[1]}</span><span>meta ${litros(meta)} L (linha tracejada)</span><span>hoje</span></div>
     </div>
     <div style="background:${C.card};border:1px solid ${C.borda};border-radius:16px;padding:6px 14px 8px;">${linhas}</div>
-    ${temPlano ? '' : _nutriCadeadoFaixa('No acesso geral você vê os <b>últimos 7 dias</b>. O histórico de 30 e 90 dias é do plano alimentar.')}
+    ${temPlano ? '' : _nutriCadeadoFaixa('No acesso geral você vê os <b>últimos 30 dias</b>. O histórico de 90 dias é do plano alimentar.')}
     <div style="font-size:10.5px;color:${C.mut};text-align:center;margin-top:12px;line-height:1.5;">A meta usa o seu último peso (${_nutriUltimoPeso() ? String(_nutriUltimoPeso()).replace('.', ',') + ' kg' : 'padrão de 2,5 L'}). Para corrigir um dia, só hoje e ontem podem ser alterados.</div>
   </div>${getFooterHtml()}`;
 }

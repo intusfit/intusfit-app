@@ -9,11 +9,13 @@
  * "Teste Grátis (N dias)"). "Cortesia" NÃO é teste: é plano dado de presente a gente de verdade e libera tudo.
  * Plano ativo = matrícula que não é de teste, não cancelada, encerrada, trancada nem inativa, paga, e cuja cobertura (dtvencimento) ainda vale,
  * com a mesma carência de 5 dias do resto do sistema.
- * Só se bloqueia quando há um teste VIGENTE e nenhum plano ativo: conta sem matrícula alguma ou com teste vencido continua como antes
- * (o app já trava essas contas por outro caminho).
+ * CONTA GRÁTIS (27/11/2026): publicar e comentar exige plano ativo. Conta sem matrícula, vencida ou só com teste é barrada. Também conta como
+ * ativo o ciclo já iniciado há poucos dias e ainda sem baixa, e o de valor zero. Se não der para consultar o banco, ninguém é barrado.
  */
 
 const INTUS_PLANO_CARENCIA_DIAS = 5;
+const INTUS_COBRANCA_FOLGA_DIAS = 7;   // matrícula iniciada e ainda sem baixa: tolerância de 5 dias mais fim de semana, como o app
+const INTUS_MSG_SEM_PLANO = 'Publicar no Feed e comentar não estão disponíveis nesta conta. Cardio, ranking e pontos continuam liberados.';
 const INTUS_MSG_SO_TESTE = 'O teste grátis não inclui publicar no Feed nem comentar. Isso libera assim que você tiver um plano ativo.';
 
 function intusMatriculaEhTeste(array $m): bool
@@ -36,6 +38,11 @@ function intusPlanoAlunoDeLinhas(array $linhas, string $hoje): array
             if ($venc >= $hoje && ($ini === '' || $ini <= $hoje)) $teste = true;
         } elseif (strtoupper((string)($m['stpgto'] ?? '')) === 'S' && $venc >= $limite) {
             $plano = true;
+        } elseif ($venc >= $hoje) {
+            $ini = substr((string)($m['dtinicio'] ?? ''), 0, 10);
+            $zero = isset($m['vlpagar']) && (float)$m['vlpagar'] - (float)($m['vldesconto'] ?? 0) <= 0;
+            $recente = $ini !== '' && $ini <= $hoje && $ini >= date('Y-m-d', strtotime($hoje . ' -' . INTUS_COBRANCA_FOLGA_DIAS . ' days'));
+            if ($recente || $zero) $plano = true;
         }
     }
     return ['teste_ativo' => $teste, 'plano_ativo' => $plano, 'so_teste' => $teste && !$plano];
@@ -75,7 +82,7 @@ function intusAlunoRestritoFeed(PDO $pdo, int $idatleta): bool
     }
 }
 
-/** Responde 403 e encerra se o aluno está só no teste ou foi limitado pela equipe. $ctx = contexto de autenticação (is_aluno, idatleta). */
+/** Responde 403 e encerra se o aluno não tem plano ativo ou foi limitado pela equipe. $ctx = contexto de autenticação (is_aluno, idatleta). */
 function intusExigirPlanoParaPublicar(PDO $pdo, array $ctx): void
 {
     if (empty($ctx['is_aluno'])) return;
@@ -85,9 +92,18 @@ function intusExigirPlanoParaPublicar(PDO $pdo, array $ctx): void
         echo json_encode(['error' => INTUS_MSG_RESTRITO, 'codigo' => 'restrito'], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    if (intusPlanoAluno($pdo, $id)['so_teste']) {
+    if ($id <= 0) return;
+    try {
+        $st = $pdo->prepare('SELECT * FROM intus_mensalidade WHERE idatleta = ?');
+        $st->execute([$id]);
+        $linhas = $st->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return;   // não deu para consultar: não barra ninguém
+    }
+    $p = intusPlanoAlunoDeLinhas($linhas, date('Y-m-d'));
+    if (!$p['plano_ativo']) {
         http_response_code(403);
-        echo json_encode(['error' => INTUS_MSG_SO_TESTE, 'codigo' => 'so_teste'], JSON_UNESCAPED_UNICODE);
+        echo json_encode($p['so_teste'] ? ['error' => INTUS_MSG_SO_TESTE, 'codigo' => 'so_teste'] : ['error' => INTUS_MSG_SEM_PLANO, 'codigo' => 'sem_plano'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 }

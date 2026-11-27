@@ -1283,7 +1283,7 @@ if (in_array($action, $_ESCRITA_ADMIN, true) && $method !== 'GET' && empty($_ctx
 if (in_array($action, $_LEITURA_ALUNO, true) && $method !== 'GET' && $_ehAluno) {
     $_negar(403, 'apenas o professor pode alterar');
 }
-// TESTE GRÁTIS NÃO PUBLICA NEM COMENTA: post no Feed (e a mídia dele) e comentário público só com outro plano ativo.
+// SEM PLANO ATIVO NÃO PUBLICA NEM COMENTA (inclui teste grátis): post no Feed (e a mídia dele) e comentário público só com plano ativo.
 // Treino, cardio, ranking e pontos continuam liberados. Regra em _plano_aluno.php. PUT e DELETE (editar ou apagar o que já existe) seguem livres.
 if ($_tokValido && $_ehAluno && $method === 'POST' && in_array($action, ['feed_posts', 'feed_midia', 'comentarios_pub', 'resultados', 'resultado_midia'], true)
     && @file_exists(__DIR__ . '/_plano_aluno.php')) {

@@ -125,7 +125,7 @@ const PLANO = { idmensalidade: 2, idatleta: 7, dshistorico: 'Consultoria Premium
   await semear([TESTE, { ...PLANO, dshistorico: 'Cortesia Premium 30 dias', tipo_plano: null }]);
   eq('cortesia de verdade libera', (await estado()).so, false);
   await semear([TESTE, { ...PLANO, stpgto: 'N' }]);
-  eq('plano ainda não pago não libera', (await estado()).so, true);
+  eq('plano ainda não pago não tira a marca de só teste', (await estado()).so, true);
   await semear([TESTE, { ...PLANO, stmatricula: 'cancelada' }]);
   eq('plano cancelado não libera', (await estado()).so, true);
   await semear([TESTE, { ...PLANO, dtvencimento: dia(-9) }]);

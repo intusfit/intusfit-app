@@ -121,6 +121,46 @@ const CENARIOS = {
   eq('o aviso é neutro e o WhatsApp é de suporte', await t.page.evaluate(() => { let url = ''; window.open = u => { url = decodeURIComponent(u); }; document.querySelector('#v-home .h-zap').click(); return [document.querySelector('#v-home .h-aviso .tt').textContent, /Preciso de ajuda com o meu acesso no app/.test(url), /pagar|renov|regulariz|plano|matr/i.test(url)]; }), ['Treinos indisponíveis nesta conta', true, false]);
   await t.ctx.close();
 
+  console.log('\n══ Conta grátis: o que abre e o que continua fechado ══');
+  const GRATIS = { 'sem matrícula': [], 'vencida há 60 dias': CENARIOS['cobrança vencida há 60 dias'], 'só teste grátis vencido': [Object.assign(mens(dia(-23), dia(-20), true), { dshistorico: 'Teste Grátis (3 dias)' })] };
+  for (const nativo of [true, false]) {
+    for (const [nome, lista] of Object.entries(GRATIS)) {
+      const rot = (nativo ? 'app' : 'web') + ', ' + nome;
+      t = await abrir('aluno.html', nativo, lista);
+      const r = await t.page.evaluate(async () => {
+        const espera = ms => new Promise(r => setTimeout(r, ms));
+        document.querySelectorAll('body > div').forEach(d => { const s = getComputedStyle(d); if (s.position === 'fixed' && !['puxar-bola', 'menu-overlay', 'toast'].includes(d.id) && s.display !== 'none' && d.offsetHeight > 300) d.remove(); });
+        _syncDone = true; _matSyncOk = true;
+        const ir = async f => { trocarView('home'); renderHome(); await espera(100); try { await f(); } catch (e) { return 'erro ' + e.message; } await espera(400); return window._viewAtual; };
+        const abre = [];
+        for (const d of ['nutricao', 'extras', 'ranking', 'feed']) abre.push(await ir(() => navegar(d)));
+        abre.push(await ir(() => abrirCardio())); abre.push(await ir(() => abrirProgramasCardio()));
+        const fecha = [];
+        for (const d of ['treinos-menu', 'historico', 'amigos']) fecha.push(await ir(() => navegar(d)));
+        trocarView('home'); renderHome(); await espera(300);
+        const atalhos = Array.from(document.querySelectorAll('#v-home .h-livres .tt')).map(e => e.textContent);
+        const publica = _soTesteBarra(), mural = _muralPodeEscrever(), aviso = document.getElementById('toast').textContent;
+        renderNutricaoAluno(); trocarView('nutricao'); await espera(900); nutriTela('agua'); await espera(500);
+        const chips = (document.getElementById('v-nutricao').innerText.match(/\d+ dias( 🔒)?/g) || []).slice(0, nativo_n());
+        function nativo_n() { return API.semVenda() ? 2 : 3; }
+        nutriAguaPer(30); await espera(200); const p30 = /\/30/.test(document.getElementById('v-nutricao').innerText);
+        nutriAguaPer(90); await espera(200); const p90 = /\/90/.test(document.getElementById('v-nutricao').innerText);
+        return { abre, fecha, atalhos, publica, mural, aviso, chips, p30, p90 };
+      });
+      eq(rot + ': abrem Nutrição, Extras, ranking, Feed, cardio e programas', r.abre, ['nutricao', 'extras', 'ranking', 'feed', 'cardio', 'cardio-prog']);
+      eq(rot + ': treinos, histórico e Comunidade continuam fechados', r.fecha, ['home', 'home', 'home']);
+      eq(rot + ': atalhos na tela inicial', r.atalhos, ['Cardio', 'Ranking', 'Nutrição', 'Extras', 'Feed', 'Avaliações', 'Meus Dados'].concat(nativo ? [] : ['Matrícula']));
+      eq(rot + ': não publica, não comenta nem escreve no mural', [r.publica, r.mural], [false, false]);
+      if (nativo) eq(rot + ': o aviso do bloqueio é neutro', PROIBIDO.test(r.aviso) || /\bplano/i.test(r.aviso), false);
+      eq(rot + ': água com 7 e 30 dias; 90 fica de fora', [r.chips, r.p30, r.p90], [nativo ? ['7 dias', '30 dias'] : ['7 dias', '30 dias', '90 dias 🔒'], true, false]);
+      eq(rot + ': sem erro de JavaScript', t.erros, []);
+      await t.ctx.close();
+    }
+  }
+  t = await abrir('aluno.html', true, CENARIOS['em dia, sem plano alimentar']);
+  eq('quem está em dia publica e comenta', await t.page.evaluate(() => { _syncDone = true; _matSyncOk = true; return [_soTesteBarra(), _muralPodeEscrever()]; }), [true, true]);
+  await t.ctx.close();
+
   console.log('\n══ Android: aviso do site, só em texto ══');
   const FRASE = 'Os planos são contratados no nosso site, intusfit.com.br.';
   for (const [nome, lista] of Object.entries(CENARIOS)) {
