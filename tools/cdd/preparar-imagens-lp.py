@@ -28,5 +28,5 @@ for n, fonte in enumerate(['img_0975', 'img_0978', 'img_0979', 'img_0981', 'img_
     salvar(Image.open(os.path.join(RAIZ, 'img', fonte + '.png')), f'resultado-{n}', 720, 80)
 
 # Luiz
-salvar(Image.open(os.path.join(RAIZ, 'img', 'prof-luiz.jpg')), 'luiz', 900, 82)
+salvar(Image.open(os.path.join(RAIZ, 'fotos-site', 'luiz-nunes-equipe.jpg')), 'luiz', 900, 82)  # a img/prof-luiz.jpg esta achatada
 salvar(Image.open(os.path.join(RAIZ, 'img', 'luiz.jpg')), 'luiz-2', 900, 82)
