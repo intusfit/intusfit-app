@@ -2546,3 +2546,10 @@ Web no ar; **ainda sem build novo** (o Luiz pediu para só atualizar a web). Tud
 ## 26/11/2026 (tarde): ver perfil no app, Acessos reorganizado
 - **Ver perfil no app** (Frequência e Ranking > detalhe do aluno): moldura de celular com `aluno.html?verperfil=ID`. É a própria tela do app (não criar segunda versão no painel). O guarda é o PRIMEIRO script do `aluno.html`: armazenamento vira cópia em memória (painel e app dividem a origem), todo envio é recusado e só passam as leituras listadas em `LEITURAS`. Tela de perfil que passar a ler outra rota precisa entrar nessa lista. `como=colega` (`catalogo.php`: feed_posts, perfil_config, resultados) faz a equipe ver como aluno sem amizade; só restringe. Testes: `testes/ver_perfil.js`, `testes/colab.php`.
 - **Acessos** (`frequencia.html`): picos e dia da semana lado a lado, ao vivo em colunas, locais no fim. A hora local do aluno só aparece quando o fuso dele marca outra hora.
+
+
+## Pagina /black e editor (26/11/2026)
+- **/black/** (`black/index.html`): pagina da Black Friday. Textos editaveis por `data-k`, listas por `data-lista`, fotos por `data-img`, secoes por `data-sec`; cores, prazo, WhatsApp, destaque e links no objeto `BASE` do script. `trafego.js` e carregado por script (nao conta na previa do editor).
+- **Editor** `admin/black.php` (login do admin; menu do painel > Pagina Black Friday): previa de celular (390 px) e computador (1280 px). Guarda SO o que mudou em `admin/black.json` (fora do git; copia anterior em `black.anterior.json`), servido por `black/config.php`; limpeza em `admin/_black_cfg.php`.
+- **Atencao**: o que foi editado no painel vence o que esta no HTML. Precos nao sao editaveis (cada link do Asaas cobra valor fixo). Mudar o prazo nao muda os textos com "30/11" nem o encerramento dos links no Asaas.
+- **Links Black no Asaas** (26/11/2026): 9 links "Black Friday Intus, <plano>, plano <periodo>" (ids 5015778 e 5015780 a 5015787), cartao ate 12x, encerram em 30/11. Venda por eles NAO cria matricula sozinha.
