@@ -14150,7 +14150,10 @@ function _progSinal(e, fim) {
     else { _progBip(720, 240); if (navigator.vibrate) navigator.vibrate(180); }
     _progFlash(fim ? '#22c55e' : _PROG_FASE[e.f].cor, fim ? 'CONCLUÍDO!' : e.n);
     _progFalar(fim ? 'Programa concluído! Parabéns, você mandou muito bem!' : _progFraseBloco(e), fim ? 'fim' : e.f);
-    _progNotificar(fim ? 'Programa concluído!' : e.n.toUpperCase(), fim ? 'Parabéns! Abra o app para ver o resumo.' : _progMin(e.s) + ' neste bloco');
+    const pAv = API.programaPorId(_prog.id);
+    const aviso = fim ? { titulo: 'Programa concluído!', corpo: 'Parabéns! Abra o app para ver o resumo.' } : (pAv ? _progAvisoDoBloco(_progEt(pAv), _prog.i) : null);
+    if (aviso) _progNotificar(aviso.titulo, aviso.corpo);
+    _progLimparEntregues(fim ? 91999 : 91000 + _prog.i);   // na barra do celular fica só o aviso do momento
     _progMediaAtualizar();
   } catch (err) {}
 }
@@ -14208,7 +14211,7 @@ function _progSegundoPlanoLigar() {
 }
 function _progSegundoPlanoDesligar() {
   _progAudioParar(); _progAudioSessao('auto'); statusAtivoParar('prog');
-  _progCancelarNativo();
+  _progCancelarNativo(); _progLimparEntregues(91999);
   try { document.getElementById('prog-pill')?.classList.remove('on'); } catch (e) {}
 }
 // ── MÚSICA EM PARALELO E PRESENÇA NO TOPO DO CELULAR ──────────────────────────────────────────────────────────
@@ -14349,6 +14352,35 @@ function _progNotificar(titulo, corpo) {
 }
 // App das lojas: agenda no sistema o aviso de cada troca de bloco (funciona com a tela apagada e o app em segundo plano).
 function _progLN() { try { return (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.LocalNotifications) || null; } catch (e) { return null; } }
+// Quais trocas viram aviso no celular (28/11/2026: um Tabata gerava um aviso a cada 10 ou 20 s). Blocos de 1 minuto ou mais avisam um a um.
+// Blocos mais curtos em sequência viram UM aviso, no começo da série; dentro dela quem avisa são os bips, a voz e a vibração. Devolve null quando não há aviso.
+const _PROG_AVISO_MIN_SEG = 60;
+function _progAvisoDoBloco(et, j) {
+  const e = et[j]; if (!e) return null;
+  const um = { titulo: e.n.toUpperCase(), corpo: _progMin(e.s) + ' neste bloco' };
+  if (e.s >= _PROG_AVISO_MIN_SEG) return um;
+  const parte = x => (x.f === 'aq' || x.f === 'calma') ? x.f : 'meio';
+  const mesma = k => !!et[k] && et[k].s < _PROG_AVISO_MIN_SEG && parte(et[k]) === parte(e);
+  if (mesma(j - 1)) return null;   // meio da série: já foi avisada no começo
+  let fimSerie = j; while (mesma(fimSerie + 1)) fimSerie++;
+  if (fimSerie === j) return um;
+  const serie = et.slice(j, fimSerie + 1), total = serie.reduce((t, x) => t + x.s, 0);
+  const titulo = parte(e) === 'aq' ? 'AQUECIMENTO' : (parte(e) === 'calma' ? 'VOLTA À CALMA' : 'COMEÇAM OS TIROS');
+  const a = serie[0], b = serie[1], alterna = parte(e) === 'meio' && serie.every((x, k) => x.n === (k % 2 ? b : a).n && x.s === (k % 2 ? b : a).s);
+  const corpo = alterna ? Math.ceil(serie.length / 2) + 'x ' + a.n + ' ' + _progMin(a.s) + ' e ' + b.n + ' ' + _progMin(b.s) : serie.length + ' movimentos curtos, ' + _progMin(total) + ' no total';
+  return { titulo: titulo, corpo: corpo };
+}
+// Tira da barra do celular os avisos de blocos que já passaram (ids 91000 em diante; o de "concluído", 91999, só sai quando o app volta para a tela).
+async function _progLimparEntregues(ateId) {
+  const LN = _progLN(); if (!LN || !LN.getDeliveredNotifications || !LN.removeDeliveredNotifications) return;
+  try {
+    const r = await LN.getDeliveredNotifications();
+    const velhos = ((r && r.notifications) || []).filter(n => Number(n.id) >= 91000 && Number(n.id) < ateId);
+    if (velhos.length) await LN.removeDeliveredNotifications({ notifications: velhos });
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', function () { if (!document.hidden) _progLimparEntregues(92000); });
+setTimeout(function () { _progLimparEntregues(92000); }, 3500);   // app reaberto: o que sobrou do último programa sai da barra
 function _progCancelarNativo() {
   const LN = _progLN(); if (!LN || !_prog.idsNativos || !_prog.idsNativos.length) return;
   try { LN.cancel({ notifications: _prog.idsNativos.map(id => ({ id: id })) }); } catch (e) {}
@@ -14374,7 +14406,11 @@ async function _progAgendarNativo() {
       }
     } catch (e) {}
     let t = Math.max(0, _prog.fimMs - Date.now()); const itens = []; const ids = [];
-    for (let j = _prog.i + 1; j < et.length; j++) { const id = 91000 + j; ids.push(id); itens.push({ id: id, channelId: 'programa', title: et[j].n.toUpperCase(), body: _progMin(et[j].s) + ' · ' + p.titulo, schedule: { at: new Date(Date.now() + t), allowWhileIdle: true } }); t += et[j].s * 1000; }
+    for (let j = _prog.i + 1; j < et.length; j++) {
+      const av = _progAvisoDoBloco(et, j);
+      if (av) { const id = 91000 + j; ids.push(id); itens.push({ id: id, channelId: 'programa', title: av.titulo, body: av.corpo + ' · ' + p.titulo, threadIdentifier: 'intus-programa', group: 'intus-programa', schedule: { at: new Date(Date.now() + t), allowWhileIdle: true } }); }
+      t += et[j].s * 1000;
+    }
     ids.push(91999); itens.push({ id: 91999, channelId: 'programa', title: 'Programa concluído!', body: p.titulo + ': ótimo trabalho!', schedule: { at: new Date(Date.now() + t), allowWhileIdle: true } });
     _prog.idsNativos = ids;
     await LN.schedule({ notifications: itens.slice(0, 60) });
