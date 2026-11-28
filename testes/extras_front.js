@@ -96,6 +96,25 @@ function ver(rot, cond, extra) { eq(rot, !!cond, true); if (!cond && extra !== u
   eq('abre os conteúdos do módulo', await pg.locator('.ex-item').count(), 2);
   if (process.env.FOTO) await pg.screenshot({ path: process.env.FOTO + '-painel.png' });
   ver('mostra "sem link" no conteúdo sem link e a regra própria do outro', await pg.evaluate(() => /sem link/.test(document.body.innerText) && /Alunos de nutrição ou combo/.test(document.body.innerText)));
+  // quem vê, direto na lista
+  const linha = id => pg.locator('.ex-item[data-item="' + id + '"]');
+  eq('cada aula mostra a escolha de quem vê, com a regra atual', await pg.$$eval('.ex-quem-sel', e => e.map(x => x.value)), ['herdar', 'nutricao']);
+  eq('marca quais estão na conta grátis (a que segue o módulo "todos")', [await linha('i1').locator('.ex-gratis').count(), await linha('i2').locator('.ex-gratis').count()], [1, 0]);
+  await linha('i1').locator('.ex-quem-sel').selectOption('ativos'); await pg.waitForTimeout(400);
+  eq('tirar a aula da conta grátis salva na hora só a regra dela', [S.chamadas.at(-1).acao, S.chamadas.at(-1).d.item.id, S.chamadas.at(-1).d.item.visibilidade, S.chamadas.at(-1).d.item.titulo, S.chamadas.at(-1).d.item.url, S.chamadas.at(-1).d.item.publicado], ['item_salvar', 'i1', { modo: 'ativos', ids: [] }, 'Live 1', 'https://youtu.be/abc', true]);
+  eq('e a etiqueta e a contagem do módulo acompanham', [await linha('i1').locator('.ex-gratis').count(), await pg.locator('.ex-mod[data-mod="lives"] .ex-livres').textContent()], [0, '0 na conta grátis']);
+  await linha('i1').locator('.ex-quem-sel').selectOption('todos'); await pg.waitForTimeout(400);
+  eq('dá para liberar de novo depois', [S.chamadas.at(-1).d.item.visibilidade, await linha('i1').locator('.ex-gratis').count()], [{ modo: 'todos', ids: [] }, 1]);
+  await linha('i1').locator('.ex-quem-sel').selectOption('herdar'); await pg.waitForTimeout(400);
+  eq('"Igual ao módulo" na lista volta a herdar', S.chamadas.at(-1).d.item.visibilidade, null);
+  await linha('i2').locator('.ex-quem-sel').selectOption('todos'); await pg.waitForTimeout(400);
+  eq('rascunho liberado para todos continua rascunho e fora da conta grátis', [S.chamadas.at(-1).d.item.publicado, await linha('i2').locator('.ex-gratis').count()], [false, 0]);
+  await linha('i2').locator('.ex-quem-sel').selectOption('nutricao'); await pg.waitForTimeout(400);
+  const antes = S.chamadas.length;
+  await linha('i1').locator('.ex-quem-sel').selectOption('selecionados'); await pg.waitForSelector('#ei-lista label');
+  eq('"Alunos escolhidos" abre a edição para marcar os alunos, sem salvar nada antes', [await pg.$eval('#ei-modo', e => e.value), S.chamadas.length], ['selecionados', antes]);
+  await pg.evaluate(() => closeModal());
+  if (process.env.FOTO) await pg.screenshot({ path: process.env.FOTO + '-painel-quemve.png' });
   await pg.locator('.ex-item').nth(0).locator('button', { hasText: '▼' }).click(); await pg.waitForTimeout(300);
   eq('descer um conteúdo manda a ordem do módulo', S.chamadas.at(-1), { acao: 'reordenar', d: { tipo: 'item', categoria: 'lives', ids: ['i2', 'i1'] } });
   await pg.locator('button', { hasText: '+ Novo conteúdo' }).click(); await pg.waitForSelector('#ei-titulo');

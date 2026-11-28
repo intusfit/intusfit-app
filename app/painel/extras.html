@@ -43,6 +43,9 @@
     .ex-pick { border:1px solid var(--border); border-radius:10px; padding:8px; margin-top:8px; background:var(--bg); }
     .ex-pick-lista { max-height:210px; overflow:auto; margin-top:6px; }
     .ex-pick-lista label { display:flex; align-items:center; gap:8px; padding:5px 4px; font-size:13px; cursor:pointer; color:var(--text); }
+    .ex-quem { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted); font-weight:700; }
+    .ex-quem select { padding:6px 8px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:inherit; font-size:12.5px; max-width:275px; }
+    @media (max-width:640px) { .ex-quem { width:100%; } .ex-quem select { flex:1; max-width:none; } }
     @media (max-width:640px) { .ex-linha2 { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -94,6 +97,9 @@ function visRotulo(v, herda) {
   return base + (n != null ? ' (≈ ' + n + ')' : '');
 }
 
+// Aparece na conta grátis quando o módulo e o conteúdo estão publicados e a regra em vigor (a do conteúdo, ou a do módulo) é "todos".
+function naContaGratis(m, it) { const v = it.visibilidade || m.visibilidade; return !!(m.publicado && it.publicado && v && v.modo === 'todos'); }
+
 function desenhar() {
   const mods = dados.categorias;
   let h = '<div class="ex-topo"><div><h1>🎁 Extras</h1><div class="ex-sub">Aulas gravadas, lives, treinos para fazer em casa e outros bônus que aparecem no app do aluno, no modelo do CDD: módulos com conteúdos dentro. Você decide quem vê cada um, a ordem e o que está publicado.</div></div>' +
@@ -110,7 +116,7 @@ function modHtml(m, i, total) {
   return '<div class="ex-mod" data-mod="' + esc(m.id) + '"><div class="ex-mod-cab">' +
     '<div class="ex-capa" style="' + capa + '">' + (m.capa ? '' : esc(m.emoji || '🎁')) + '</div>' +
     '<div class="ex-tit"><b>' + esc(m.titulo) + '</b><span>' + itens.length + ' conteúdo' + (itens.length === 1 ? '' : 's') + ' (' + pub + ' publicado' + (pub === 1 ? '' : 's') + ')</span>' +
-      '<div class="ex-chips"><span class="ex-chip ' + (m.publicado ? 'on' : 'rasc') + '">' + (m.publicado ? 'Publicado' : 'Rascunho: o aluno não vê') + '</span><span class="ex-chip vis">' + esc(visRotulo(m.visibilidade)) + '</span></div></div>' +
+      '<div class="ex-chips"><span class="ex-chip ' + (m.publicado ? 'on' : 'rasc') + '">' + (m.publicado ? 'Publicado' : 'Rascunho: o aluno não vê') + '</span><span class="ex-chip vis">' + esc(visRotulo(m.visibilidade)) + '</span><span class="ex-chip ex-livres">' + itens.filter(x => naContaGratis(m, x)).length + ' na conta grátis</span></div></div>' +
     '<div class="ex-acoes"><button class="ex-btn mini" title="Subir" ' + (i === 0 ? 'disabled' : '') + ' onclick="mover(\'categoria\',\'\',' + i + ',-1)">▲</button>' +
     '<button class="ex-btn mini" title="Descer" ' + (i === total - 1 ? 'disabled' : '') + ' onclick="mover(\'categoria\',\'\',' + i + ',1)">▼</button>' +
     '<button class="ex-btn" onclick="alternar(\'' + esc(m.id) + '\')">Conteúdos ' + (aberto ? '▴' : '▾') + '</button>' +
@@ -124,12 +130,38 @@ function itemHtml(m, it, k, n) {
   const quando = it.tipo === 'live' && it.data ? ' · ' + esc(it.data.slice(8, 10) + '/' + it.data.slice(5, 7) + ' ' + it.data.slice(11, 16)) : '';
   return '<div class="ex-item" data-item="' + esc(it.id) + '">' + (it.capa ? '<img src="' + esc(it.capa) + '" alt="" loading="lazy" style="width:64px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;flex-shrink:0;" onerror="this.style.display=\'none\'"/>' : '<div class="ex-ico">' + t[0] + '</div>') +
     '<div class="ex-tit"><b style="font-size:13.5px;">' + esc(it.titulo) + '</b><span>' + esc(t[1]) + (it.duracao ? ' · ' + esc(it.duracao) : '') + quando + (it.url ? '' : ' · <span style="color:#f59e0b;font-weight:800;">sem link</span>') + '</span>' +
-      '<div class="ex-chips"><span class="ex-chip ' + (it.publicado ? 'on' : 'rasc') + '">' + (it.publicado ? 'Publicado' : 'Rascunho') + '</span>' + (it.visibilidade ? '<span class="ex-chip vis">' + esc(visRotulo(it.visibilidade, true)) + '</span>' : '') + '</div></div>' +
+      '<div class="ex-chips"><span class="ex-chip ' + (it.publicado ? 'on' : 'rasc') + '">' + (it.publicado ? 'Publicado' : 'Rascunho') + '</span>' + (naContaGratis(m, it) ? '<span class="ex-chip on ex-gratis">Na conta grátis</span>' : '') + '</div></div>' +
+    quemVeHtml(m, it) +
     '<div class="ex-acoes"><button class="ex-btn mini" ' + (k === 0 ? 'disabled' : '') + ' onclick="mover(\'item\',\'' + esc(m.id) + '\',' + k + ',-1)">▲</button>' +
     '<button class="ex-btn mini" ' + (k === n - 1 ? 'disabled' : '') + ' onclick="mover(\'item\',\'' + esc(m.id) + '\',' + k + ',1)">▼</button>' +
     '<button class="ex-btn" onclick="editarItem(\'' + esc(m.id) + '\',\'' + esc(it.id) + '\')">Editar</button>' +
     '<button class="ex-btn perigo" onclick="excluirItem(\'' + esc(m.id) + '\',\'' + esc(it.id) + '\')">Excluir</button></div></div>';
 }
+// Escolha de quem vê, direto na lista: salva na hora e pode ser mudada quando quiser.
+function quemVeHtml(m, it) {
+  const atual = it.visibilidade ? it.visibilidade.modo : 'herdar';
+  const op = (v, r) => '<option value="' + v + '"' + (atual === v ? ' selected' : '') + '>' + esc(r) + '</option>';
+  const doModulo = m.visibilidade ? (MODOS[m.visibilidade.modo] || m.visibilidade.modo) : MODOS.ativos;
+  return '<label class="ex-quem">Quem vê <select class="ex-quem-sel" aria-label="Quem vê: ' + esc(it.titulo) + '" onchange="definirQuemVe(\'' + esc(m.id) + '\',\'' + esc(it.id) + '\',this.value)">' +
+    op('herdar', 'Igual ao módulo (' + doModulo + ')') + Object.keys(MODOS).map(k => op(k, k === 'selecionados' && atual === k ? MODOS[k] + ' (' + (it.visibilidade.ids || []).length + ')' : MODOS[k])).join('') + '</select></label>';
+}
+let filaQuemVe = Promise.resolve();
+function definirQuemVe(catId, id, modo) {
+  const cat = dados.categorias.find(c => c.id === catId), it = cat && (cat.itens || []).find(x => x.id === id); if (!it) return;
+  if (modo === 'selecionados') {   // precisa escolher os alunos: abre a edição já nessa opção
+    editarItem(catId, id);
+    document.getElementById('ei-modo').value = 'selecionados'; mostrarSeletor('ei'); desenhar(); return;
+  }
+  it.visibilidade = modo === 'herdar' ? null : { modo: modo, ids: [] };
+  desenhar();
+  const item = Object.assign({}, it);
+  // um salvamento por vez: o servidor grava o catálogo inteiro, e dois juntos poderiam apagar um ao outro
+  filaQuemVe = filaQuemVe.then(async () => {
+    try { await chamar('item_salvar', { categoria: catId, item: item }); showToast('Salvo: ' + item.titulo); }
+    catch (e) { showToast('Não consegui salvar: ' + e.message, 'error'); await carregar(); }
+  });
+}
+
 function alternar(id) { abertos[id] = !abertos[id]; desenhar(); }
 async function importarCdd() {
   if (!confirm('Importar do CDD os módulos Cintura de Atleta, Treinos em casa, Assista antes de treinar e Lives e aulas exclusivas?\n\nSó entra o que ainda não está aqui: módulo que já tem conteúdo não é alterado.')) return;
