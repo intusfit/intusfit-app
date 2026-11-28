@@ -15,7 +15,7 @@ function _intusExtImagem(string $bin): string {
     if (defined('IMAGETYPE_WEBP')) $map[IMAGETYPE_WEBP] = 'webp';
     $ext = $map[$i[2] ?? 0] ?? '';
     // Terceira trava: antivírus (ClamAV se existir) e código escondido dentro da imagem. Ver _antivirus.php.
-    if ($ext !== '' && function_exists('intusAntivirus') && intusAntivirus($bin) !== '') return '';
+    if ($ext !== '' && function_exists('intusAntivirus') && ($motivo = intusAntivirus($bin)) !== '') { @error_log('[intus] imagem recusada: ' . $motivo); return ''; }
     return $ext;
 }
 

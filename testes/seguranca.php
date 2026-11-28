@@ -25,5 +25,19 @@ eq('PNG com o arquivo de teste de antivírus (EICAR) é recusado', _intusExtImag
 eq('intusAntivirus: imagem limpa passa', intusAntivirus($png) === '');
 eq('intusAntivirus: motivo em português quando recusa', strpos(intusAntivirus($png . '<?php x ?>'), 'código escondido') !== false);
 eq('vazio é recusado', _intusExtImagem('') === '');
+
+echo "\n── Foto legítima não pode ser recusada por acaso ──\n";
+foreach (['<?=', '<%=', '<%@'] as $m) {
+    eq("marca $m solta no meio dos bytes de uma foto passa", !intusCodigoEscondido("\xFF\xD8\x8a\x01" . $m . "\x9c\x00\xe3ab\xf1\x10") && !intusCodigoEscondido("\x00" . $m . "Kd3\x80\x91zz\x02"));
+}
+mt_srand(2711); $falsas = 0;
+for ($n = 0; $n < 120; $n++) {   // 120 "fotos" de 256 KB com bytes aleatórios (repetível pela semente)
+    $b = ''; for ($k = 0; $k < 65536; $k++) $b .= pack('N', (mt_rand(0, 0xFFFF) << 16) | mt_rand(0, 0xFFFF));
+    if (intusCodigoEscondido($b)) $falsas++;
+}
+eq('nenhuma de 120 fotos simuladas é recusada', $falsas === 0, "$falsas recusadas");
+foreach (['<?=`$_GET[0]`?>', '<?=`id`?>', '<?= system($_GET["c"]);', '<?=`id`;?>', '<%= Request("c") %>', '<%@ Page Language="C#" %>', '<%=x%>', '<?PHP eval($x);', '<SCRIPT src=x>', "#!/bin/sh\nrm x"] as $p) {
+    eq('código escondido continua recusado: ' . trim(strtok($p, "\n")), intusCodigoEscondido("\xFF\xD8\x8a\x01" . $p) && intusCodigoEscondido("\xFF\xD8" . $p . "\xFF\xD9"));
+}
 echo "\n" . ($ruim ? "$ruim FALHA(S)" : "$ok ok") . "\n";
 exit($ruim ? 1 : 0);

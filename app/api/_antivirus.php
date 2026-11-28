@@ -33,13 +33,23 @@ function _avClamd(string $bin): ?string
     return null;   // nenhum ClamAV acessível
 }
 
+/**
+ * Código escondido no arquivo. As marcas curtas (<?=, <%=, <%@) têm só 3 caracteres e aparecem POR ACASO no miolo comprimido de uma foto:
+ * até 27/11/2026 isso recusava foto legítima (medido: 3,5% das de 200 KB, 18% das de 900 KB). Por isso elas só contam quando vêm seguidas de
+ * texto legível, como um código de verdade: 10 ou mais caracteres, ou um trecho curto fechado (?> ou %>) ou no fim do arquivo.
+ */
+function intusCodigoEscondido(string $bin): bool
+{
+    if (preg_match('/<\?php|<script[\s>]|#!\/(?:usr\/)?bin\/(?:ba)?sh/i', $bin)) return true;
+    return preg_match('/<(?:\?=|%[=@])(?:[\t\r\n\x20-\x7e]{10}|[\t\r\n\x20-\x7e]{1,9}?[?%]>|[\t\r\n\x20-\x7e]{2,9}\z)/', $bin) === 1;
+}
+
 function intusAntivirus(string $bin): string
 {
     $av = _avClamd($bin);
     if ($av !== null && $av !== '') return $av;
     if (strpos($bin, 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE') !== false) return 'arquivo de teste de antivírus (EICAR)';
-    // Código escondido: só aceito em arquivo que não é programa. Os marcadores abaixo não aparecem em foto.
-    if (preg_match('/<\?php|<\?=|<script[\s>]|<%@|<%=|#!\/(?:usr\/)?bin\/(?:ba)?sh/i', $bin)) return 'o arquivo contém código escondido (script ou programa)';
+    if (intusCodigoEscondido($bin)) return 'o arquivo contém código escondido (script ou programa)';
     return '';
 }
 
